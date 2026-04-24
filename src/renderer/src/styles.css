@@ -22,3 +22,111 @@ body {
   width: 100%;
   height: 100%;
 }
+
+.assistant-overlay {
+  position: absolute;
+  right: 24px;
+  bottom: 24px;
+  z-index: 20;
+}
+
+.seal-button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  border: none;
+  border-radius: 999px;
+  background: radial-gradient(circle at 35% 35%, #743720, #3a1b12 72%);
+  color: #f3dfbc;
+  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.28);
+  cursor: pointer;
+}
+
+.seal-button__hint {
+  position: absolute;
+  right: 90px;
+  bottom: 18px;
+  display: none;
+  white-space: nowrap;
+  padding: 8px 12px;
+  border: 1px solid rgba(113, 81, 48, 0.24);
+  background: #fbf4e7;
+  color: #6a4a2b;
+}
+
+.seal-button:hover .seal-button__hint {
+  display: block;
+}
+
+.seal-button__face {
+  font-size: 28px;
+}
+
+.memorial-panel {
+  width: min(980px, calc(100vw - 72px));
+}
+
+.memorial-panel__paper {
+  border: 1px solid rgba(113, 81, 48, 0.3);
+  background: linear-gradient(180deg, #f4ead4 0%, #ece0c7 100%);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.34);
+  padding: 28px;
+}
+
+.memorial-panel__header,
+.memorial-panel__body {
+  display: grid;
+  gap: 16px;
+}
+
+.memorial-panel__header {
+  grid-template-columns: 110px 1fr 220px;
+  align-items: center;
+  color: #714f30;
+}
+
+.memorial-panel__header h2 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: 4px;
+}
+
+.memorial-panel__body {
+  margin-top: 20px;
+  grid-template-columns: 180px 1fr 220px 96px;
+}
+
+.memorial-panel__copy,
+.memorial-panel__meta,
+.memorial-panel__verdict {
+  color: #4b3321;
+  line-height: 2;
+}
+
+.memorial-panel__copy p,
+.memorial-panel__meta p,
+.memorial-panel__verdict p {
+  margin: 0 0 12px;
+}
+
+.memorial-panel__actions {
+  display: grid;
+  gap: 12px;
+}
+
+.memorial-panel__actions button,
+.memorial-panel__close {
+  border: 1px solid rgba(113, 81, 48, 0.32);
+  background: #fbf4e8;
+  color: #6d4c2d;
+  font: inherit;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.memorial-panel__close {
+  margin-top: 18px;
+}

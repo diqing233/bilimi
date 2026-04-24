@@ -5,3 +5,10 @@ export type BrowserSurfaceModel = {
   partition: string
   allowpopups: 'true'
 }
+
+export type RecommendationKind = 'funny' | 'knowledge' | 'story' | 'suspicious'
+
+export type RecommendationLabel = {
+  badge: '可赏' | '可阅' | '请陛下过目' | '慎入'
+  summary: string
+}
