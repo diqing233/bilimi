@@ -1,265 +1,265 @@
-# Bilimi Design Spec
+# Bilimi 设计规格说明
 
-- Date: 2026-04-25
-- Status: Approved design draft for planning
-- Product: Bilimi
-- Theme: "宫廷奏折风" B 站桌面小助手
+- 日期：2026-04-25
+- 状态：用于开发规划的已确认设计稿
+- 产品名：Bilimi
+- 主题："宫廷奏折风" B 站桌面小助手
 
-## 1. Product Summary
+## 1. 产品概述
 
-Bilimi is a Windows desktop Bilibili helper that presents browsing and lightweight interaction as "批阅奏折".
+Bilimi 是一个运行在 Windows 桌面上的 Bilibili 小助手，把浏览与轻交互包装成“批阅奏折”的体验。
 
-The product body is an Electron desktop app with a web frontend UI and a local automation module. The app embeds a controlled Bilibili browsing experience, preserves the user's login locally, and overlays a playful court-memorial assistant on top of the browsing flow.
+产品本体采用 `Electron 桌面应用 + Web 前端界面 + 本地自动化模块` 的组合。应用内嵌一个受控的 Bilibili 浏览环境，用户的登录状态保存在本地，并在浏览流程上叠加一个古风、轻戏谑的“奏折式助手”。
 
-The assistant persona is `司礼监掌印官`. The tone is archaic, readable, lightly teasing, and consistently in-character. The experience should feel like reviewing memorials at a desk rather than using a generic floating utility.
+助手人格设定为 `司礼监掌印官`。整体语气要古风、易懂、略带戏谑，而且前后一致。用户感受到的应该是“在案头批阅奏折”，而不是一个普通的悬浮工具。
 
-## 2. Goals
+## 2. 第一阶段目标
 
-Phase 1 goals:
+第一阶段目标如下：
 
-1. Let the user browse Bilibili inside a controlled desktop app experience.
-2. Provide a floating assistant that can expand from a small seal into a memorial-style review panel.
-3. Support the four core actions `赏 / 赐 / 表 / 阅`.
-4. Use a dedicated Bilimi favorites folder so the user's existing favorites structure is not disturbed.
-5. Add lightweight recommendation annotations so the assistant can suggest "可赏 / 可阅 / 慎入 / 请陛下过目" and gradually reflect user preference.
-6. Keep the visual and copy style strongly "奏折风", but still readable for everyday use.
+1. 让用户在受控的桌面应用环境里浏览 Bilibili。
+2. 提供一个可从小印玺展开成“案头奏折”的悬浮助手。
+3. 支持四个核心动作：`赏 / 赐 / 表 / 阅`。
+4. 使用 Bilimi 专用收藏夹，不打扰用户已有的收藏结构。
+5. 加入轻量的推荐判断标签，让助手能提示 `可赏 / 可阅 / 慎入 / 请陛下过目`，并逐步体现用户偏好。
+6. 保持视觉和文案强烈的“奏折风”，同时保证日常使用时仍然清晰可读。
 
-Success criteria for Phase 1:
+第一阶段成功标准：
 
-1. A user can log in once and later reopen the app without re-authenticating every session.
-2. A user can open Bilibili, browse videos, and invoke assistant actions from the overlay.
-3. `赏` and `赐` work against the real Bilibili UI or authenticated web flow.
-4. The app creates or reuses a Bilimi-only favorites folder.
-5. Recommendation labels appear both on recommendation cards and in the expanded assistant panel summary.
+1. 用户手动登录一次后，后续重新打开应用时不必每次重新登录。
+2. 用户可以打开 Bilibili、浏览视频，并通过助手浮层触发动作。
+3. `赏` 与 `赐` 可以对真实 Bilibili 页面或其认证后的网页流程生效。
+4. 应用可以创建或复用一个 Bilimi 专用收藏夹。
+5. 推荐标签既会出现在推荐卡片上，也会出现在展开后的奏折面板摘要中。
 
-## 3. Phase 1 Non-Goals
+## 3. 第一阶段明确不做的内容
 
-The following are explicitly out of scope for the first implementation cycle:
+第一轮实现明确不包含以下内容：
 
-1. Weekly and monthly report generation (`邸报`, `账本`, watch-history reports).
-2. Auto-clicking "not interested", "block", or similar negative actions on behalf of the user.
-3. A pure website version as the shipped product body.
-4. Full autonomous browsing without the user present.
-5. Reliance on undocumented app-specific private APIs as the primary implementation strategy.
+1. 周报、月报、邸报、账本等观看报告功能。
+2. 代替用户自动点击“不感兴趣”“屏蔽”等负反馈动作。
+3. 以纯网站作为正式产品本体。
+4. 在用户不在场时的全自动浏览或全自动批量操作。
+5. 以未公开、不可控的私有接口作为主要实现策略。
 
-## 4. Core User Experience
+## 4. 核心用户体验
 
-## 4.1 Primary flow
+## 4.1 主流程
 
-1. The user opens Bilimi.
-2. If not authenticated, the user logs in manually inside the embedded Bilibili browser.
-3. The app preserves that authenticated browser session locally.
-4. While browsing, the user sees a small folded-state seal entry anchored at the bottom-right of the app view.
-5. Hovering over the seal shows a short in-character prompt such as `是否开折批阅`.
-6. Clicking the seal expands the assistant into an `案头奏折` review panel.
-7. The expanded panel shows the current recommendation or current video as a memorial entry, with context, summary, and action sign-strips.
-8. The user chooses `赏 / 赐 / 表 / 阅`.
-9. The assistant performs the action through the embedded browser session and reflects the result in Bilimi tone.
+1. 用户打开 Bilimi。
+2. 若当前未登录，用户在应用内嵌的 Bilibili 页面中手动登录。
+3. 应用在本地保留该认证会话。
+4. 用户浏览视频时，右下角会看到一个收起状态的小印玺入口。
+5. 鼠标悬停在印玺上方时，出现一句角色内提示，如 `是否开折批阅`。
+6. 点击印玺后，助手展开成一张 `案头奏折` 面板。
+7. 展开面板将当前推荐项或当前视频呈现为一条奏折条目，包含摘要、批语与动作签条。
+8. 用户选择 `赏 / 赐 / 表 / 阅`。
+9. 助手在同一认证浏览环境里执行动作，并用 Bilimi 的语气反馈结果。
 
-## 4.2 Assistant states
+## 4.2 助手状态
 
-### Folded state
+### 收起状态
 
-- Visual form: a small seal /印玺, not a generic circular FAB
-- Position: bottom-right corner of the embedded browsing experience
-- Behavior: idle, hover prompt, click to expand
+- 视觉形态：一个小印玺，而不是普通圆形悬浮按钮
+- 位置：内嵌浏览区域右下角
+- 行为：待机、悬停提示、点击展开
 
-### Hover prompt
+### 悬停提示
 
-- Short, readable, in-character copy
-- Example tone: `掌印官请旨：是否开折批阅？`
-- Must feel like a polite prompt, not a tooltip from a normal productivity app
+- 文案应短、清晰、在角色内
+- 示例语气：`掌印官请旨：是否开折批阅？`
+- 体验上应像有礼的请示，而不是普通软件的 tooltip
 
-### Expanded state
+### 展开状态
 
-- Form: a desk memorial sheet laid horizontally on a wooden desk
-- Behavior: expands from the folded seal
-- Function: presents current item summary, recommendation note, and action sign-strips
+- 视觉形态：一张横铺在木案上的奏折
+- 行为：由收起印玺展开而来
+- 功能：展示当前条目摘要、推荐判断、朱批与动作签条
 
-## 4.3 Action behavior
+## 4.3 四个动作的定义
 
-| Action | User-facing meaning | Product behavior |
+| 动作 | 面向用户的含义 | 产品行为 |
 | --- | --- | --- |
-| `赏` | 轻赏此条 | Perform `点赞 + 加入 Bilimi 专用收藏夹` |
-| `赐` | 厚赐此条 | Perform `点赞 + 投币 + 收藏`; before coin action ask user to choose `1 coin / 2 coins / cancel` |
-| `表` | 拟奏评论 | Generate 3 memorial-style candidate comments and let the user choose one to post |
-| `阅` | 皇帝已阅 | No platform action; dismiss or mark reviewed only |
+| `赏` | 轻赏此条 | 执行 `点赞 + 加入 Bilimi 专用收藏夹` |
+| `赐` | 厚赐此条 | 执行 `点赞 + 投币 + 收藏`；投币前必须让用户选择 `1 币 / 2 币 / 取消` |
+| `表` | 拟奏评论 | 生成 3 条奏折腔候选评论，让用户选一条发送 |
+| `阅` | 皇帝已阅 | 不对平台做实际变更，只做“已阅”处理或关闭本次批阅 |
 
-Rules:
+动作规则：
 
-1. `赐` must not silently decide 1 coin vs 2 coins.
-2. `表` must not auto-post without explicit user selection.
-3. `阅` must remain a no-op in terms of platform mutation.
-4. `赏` and `赐` should reuse the same dedicated Bilimi favorites folder.
+1. `赐` 不能自动替用户决定投 1 币还是 2 币。
+2. `表` 不能在用户未明确选择时自动发送评论。
+3. `阅` 在平台层面必须是无副作用操作。
+4. `赏` 与 `赐` 都应复用同一个 Bilimi 专用收藏夹。
 
-## 4.4 Recommendation annotation behavior
+## 4.4 推荐标注与偏好处理
 
-Phase 1 recommendation intelligence is lightweight and assistive, not fully automatic.
+第一阶段的推荐智能定位为“轻量辅助”，不是全自动决策。
 
-The assistant should:
+助手应做到：
 
-1. Add small sign-strip judgments to visible recommendation cards.
-2. Repeat those judgments inside the expanded memorial panel summary.
-3. Slightly vary recommendation copy by content type.
+1. 在推荐卡片上叠加小签条式判断。
+2. 在展开后的奏折面板摘要里重复这些判断。
+3. 根据视频类型，对推荐语做轻微变化。
 
-Example content-tone mapping:
+推荐语按内容类型变化的参考方向：
 
-1. Funny / light content: `解闷`, `失仪而不鄙`, `可赏`
-2. Knowledge content: `增广见闻`, `可列案头`, `可阅`
-3. Plot / story content: `请陛下亲览`, `不敢泄机`
-4. Suspicious ad-like content: `市气过浓`, `商贩夹带`, `慎入`
+1. 搞笑 / 轻松内容：`解闷`、`失仪而不鄙`、`可赏`
+2. 知识内容：`增广见闻`、`可列案头`、`可阅`
+3. 剧情 / 故事内容：`请陛下亲览`、`不敢泄机`
+4. 疑似广告或带货内容：`市气过浓`、`商贩夹带`、`慎入`
 
-Phase 1 preference handling:
+第一阶段的偏好处理方式：
 
-1. Track lightweight local preferences from user actions and repeated patterns.
-2. Use those signals to adjust recommendation copy and suggestion ranking.
-3. Do not auto-hide, auto-dislike, or auto-block content in Phase 1.
+1. 根据用户动作和重复偏好，在本地记录轻量偏好信号。
+2. 使用这些信号调整推荐语和建议优先级。
+3. 第一阶段不自动隐藏、不自动点踩、不自动拉黑内容。
 
-## 5. Visual and Tone System
+## 5. 视觉与语气系统
 
-## 5.1 Visual direction
+## 5.1 视觉方向
 
-The visual reference is `horizontal memorial on a wooden desk`, not a poster and not a normal app card.
+视觉基调必须是“横向案头奏折”，而不是海报，也不是普通 App 卡片。
 
-Required visual traits:
+必须具备的视觉特征：
 
-1. Warm wood desktop surface
-2. Pale xuan-paper / parchment body
-3. Red seals and red marginal annotations
-4. Hanging sign-strips for actions
-5. Quiet desk still-life composition
-6. No skewed or intentionally crooked frames
-7. More document-like than promotional
+1. 温暖的木案桌面
+2. 浅色宣纸 / 绢纸 / 旧纸质感的主体
+3. 朱印、朱批、红色边注
+4. 用于动作的垂挂签条
+5. 有“案头静物”感的构图
+6. 不使用歪斜、扭曲、刻意倾倒的框体
+7. 更像文书对象，而不是宣传物料
 
-## 5.2 Expanded panel composition
+## 5.2 展开面板构成
 
-The approved expanded composition is:
+当前已确认的展开状态构成如下：
 
-1. Left side: metadata slips (`题名`, category, duration, lightweight notes)
-2. Middle: main memorial text area
-3. Main text direction: horizontal body copy for readability in the approved direction
-4. Right side: red `朱批` area and vertically styled action sign-strips
-5. Bottom area: dedicated Bilimi favorites stamp / archive indication
+1. 左侧：条目小签区，包含 `题名`、分类、时长、简短备注等
+2. 中部：奏折正文区
+3. 正文方向：采用横排正文，以符合已经确认的阅读方向
+4. 右侧：红色 `朱批` 区与纵向动作签条
+5. 底部：Bilimi 专用收藏归档印记或归档提示
 
-## 5.3 Tone rules
+## 5.3 文案与角色语气
 
-The persona voice must stay consistent with `司礼监掌印官`.
+角色文案必须稳定维持 `司礼监掌印官` 的口吻。
 
-Tone requirements:
+语气要求：
 
-1. Archaic but understandable
-2. Respectful, playful, slightly theatrical
-3. Never meme-spam or become pure parody
-4. Use short ceremonial phrases where helpful
+1. 古风，但必须让用户一眼看懂
+2. 恭敬、轻趣、略带仪式感
+3. 不能过度玩梗，不能沦为纯搞笑皮肤
+4. 可适当使用短句式礼制口吻
 
-Preferred style examples:
+偏好的文案风格示例：
 
 1. `臣谨以此物 进呈陛下`
 2. `臣特备薄礼 恭呈御览`
 3. `此物臣不敢私用，特 敬献皇上`
 
-## 6. Technical Architecture
+## 6. 技术架构
 
-## 6.1 High-level architecture
+## 6.1 总体架构
 
-Bilimi Phase 1 uses three major parts:
+Bilimi 第一阶段由三大部分组成：
 
-1. Electron shell
-2. React renderer UI
-3. Local automation layer
+1. Electron 外壳
+2. React 渲染层界面
+3. 本地自动化层
 
-Responsibilities:
+职责划分如下：
 
-### Electron shell
+### Electron 外壳
 
-1. App lifecycle
-2. Browser window creation
-3. Persistent authenticated session storage
-4. Secure IPC boundaries
-5. Native window behavior and optional always-on-top capabilities if needed later
+1. 管理应用生命周期
+2. 创建与管理窗口
+3. 持久化已认证的浏览会话
+4. 建立安全的 IPC 边界
+5. 管理原生窗口行为，以及后续可能需要的置顶能力
 
-### React renderer UI
+### React 渲染层
 
-1. Assistant overlay UI
-2. Folded seal state
-3. Expanded memorial state
-4. Copy rendering and action prompts
-5. Local user feedback controls
+1. 助手悬浮界面
+2. 收起状态的小印玺
+3. 展开状态的案头奏折
+4. 文案、提示、动作交互呈现
+5. 用户的局部反馈与轻量设置
 
-### Local automation layer
+### 本地自动化层
 
-1. Read current page context from the embedded browser
-2. Locate actionable UI targets
-3. Trigger browser actions for like, favorite, coin, and comment
-4. Fall back safely when a control cannot be confidently identified
+1. 读取当前页面上下文
+2. 定位可执行的页面目标
+3. 触发点赞、收藏、投币、评论等动作
+4. 当目标不够明确时进行安全回退
 
-## 6.2 Embedded browser strategy
+## 6.2 内嵌浏览策略
 
-Phase 1 browsing happens inside the Electron app, not in the system browser.
+第一阶段的 Bilibili 浏览发生在 Electron 应用内部，而不是系统默认浏览器中。
 
-Rules:
+规则如下：
 
-1. The user logs in manually inside the embedded browser once.
-2. Bilimi stores the resulting browser session locally via Electron session persistence.
-3. The app does not ask the user for Bilibili credentials directly.
-4. The assistant acts within the same authenticated web context the user is already using.
+1. 用户只需在内嵌浏览环境中手动登录一次。
+2. Bilimi 通过 Electron 的会话持久化能力在本地保存登录状态。
+3. 应用不直接向用户索要 Bilibili 账号密码。
+4. 助手始终在用户当前正在使用的认证网页上下文中工作。
 
-## 6.3 Automation strategy
+## 6.3 自动化策略
 
-The automation priority order is:
+自动化的优先级顺序如下：
 
-1. Browser DOM / text / stable structure detection inside the embedded experience
-2. Controlled event triggering against the embedded web page
-3. Visual recognition plus simulated input only where DOM-level control is insufficient or unstable
+1. 优先使用内嵌网页中的 DOM、文本和稳定结构信息
+2. 在网页上下文中进行受控的事件触发
+3. 只有在 DOM 层无法稳定覆盖时，才退回到视觉识别 + 模拟操作
 
-This means Phase 1 is not a pure computer-vision bot. It is a hybrid local assistant that prefers embedded-browser awareness and uses visual fallback where necessary.
+这意味着第一阶段不是“纯视觉点击机器人”，而是一个以嵌入式网页控制为主、视觉算法为辅的本地桌面助手。
 
-Safety rules:
+安全规则：
 
-1. Never perform blind clicks when the target cannot be identified confidently.
-2. If a target is ambiguous, surface a retry or manual-takeover prompt.
-3. Keep mutation actions user-initiated.
+1. 当目标无法被足够明确识别时，不能盲点。
+2. 若目标存在歧义，应给用户一个重试或手动接管的机会。
+3. 所有会修改平台状态的动作都必须由用户主动触发。
 
-## 6.4 Local data storage
+## 6.4 本地数据存储
 
-Phase 1 keeps data local to the device.
+第一阶段所有数据默认保存在本地设备。
 
-Local storage includes:
+本地存储内容包括：
 
-1. Assistant preferences and lightweight taste signals
-2. Bilimi favorites folder metadata
-3. Overlay state preferences
-4. Cached generated comment candidates if needed for immediate reuse
+1. 助手偏好与轻量口味信号
+2. Bilimi 专用收藏夹相关元数据
+3. 助手浮层的状态偏好
+4. 候选评论缓存（若即时复用需要）
 
-Phase 1 does not store the user's raw credentials.
+第一阶段不保存用户的原始账号密码。
 
-## 7. Bilibili Integration Boundaries
+## 7. Bilibili 集成边界
 
-Bilimi should prefer the same authenticated web flows the user already has inside the embedded browser.
+Bilimi 第一阶段应优先复用用户在内嵌浏览环境中已有的认证网页流程。
 
-Integration needs in Phase 1:
+第一阶段需要覆盖的集成能力：
 
-1. Like state detection and mutation
-2. Favorite state detection and mutation
-3. Creation or reuse of a dedicated Bilimi favorites folder
-4. Coin action prompting and submission
-5. Comment submission after explicit user choice
+1. 点赞状态识别与操作
+2. 收藏状态识别与操作
+3. 创建或复用 Bilimi 专用收藏夹
+4. 投币前的选择提示与投币提交
+5. 用户选定评论后的评论提交
 
-Important boundary:
+关键边界：
 
-1. Do not disturb the user's existing favorites organization.
-2. Create a Bilimi-only folder on first use if it does not exist.
-3. If folder creation fails, prompt the user and do not silently use another folder.
+1. 不能打扰用户已有收藏结构。
+2. 第一次使用时若不存在 Bilimi 专用收藏夹，应创建它。
+3. 若创建失败，不能悄悄改用别的收藏夹，必须提示用户。
 
-Recommended folder naming:
+建议使用的稳定收藏夹名称：
 
 - `Bilimi 内库`
 
-The UI can describe it more poetically, but the actual folder identity should stay stable.
+界面文案可以更古风，但真正落到 Bilibili 收藏夹上的标识名应稳定一致。
 
-## 8. Component Breakdown
+## 8. 模块拆分
 
-The implementation should be structured around clear units:
+实现阶段应围绕清晰边界拆成以下模块：
 
 1. `Session Manager`
 2. `Embedded Browser Host`
@@ -269,103 +269,103 @@ The implementation should be structured around clear units:
 6. `Comment Composer`
 7. `Local Preference Store`
 
-Responsibilities:
+模块职责如下：
 
 ### Session Manager
 
-- Owns persisted browser session and auth checks
+- 管理会话持久化与认证状态检查
 
 ### Embedded Browser Host
 
-- Hosts the Bilibili browsing surface and exposes safe inspection hooks
+- 承载 Bilibili 浏览界面，并暴露安全的页面探测能力
 
 ### Assistant Overlay
 
-- Owns folded seal, hover bubble, expanded memorial, and status feedback
+- 管理收起印玺、悬停气泡、展开奏折与动作反馈
 
 ### Recommendation Annotator
 
-- Maps page content and local preference signals to lightweight labels and summary copy
+- 将页面内容与本地偏好映射成轻量判断标签与摘要文案
 
 ### Action Executor
 
-- Performs `赏 / 赐 / 阅` and folder management
+- 执行 `赏 / 赐 / 阅`，并处理收藏夹归档逻辑
 
 ### Comment Composer
 
-- Produces 3 candidate memorial-style comments based on current context
+- 根据当前上下文生成 3 条奏折腔候选评论
 
 ### Local Preference Store
 
-- Stores local assistant memory that affects annotations and copy choices
+- 存储会影响推荐语与轻量推荐判断的本地偏好
 
-## 9. Error Handling and Recovery
+## 9. 错误处理与恢复策略
 
-The assistant should fail gracefully and stay in-character without hiding the failure.
+助手在失败时应保持可理解、可恢复，而且尽量留在角色语气中，不要掩盖失败。
 
-Required behaviors:
+必须具备的处理行为：
 
-1. If login expires, prompt the user to re-enter Bilibili inside the embedded browser.
-2. If an action target cannot be found, show a retry/manual prompt instead of guessing.
-3. If favorite-folder creation fails, stop before touching another folder.
-4. If coin flow changes unexpectedly, ask the user to confirm before retrying.
-5. If comment submission fails, keep the 3 drafted comments visible so the user can retry.
+1. 若登录失效，应提示用户在内嵌浏览环境中重新登录。
+2. 若动作目标无法定位，应显示“重试 / 手动接管”之类提示，而不是盲猜。
+3. 若专用收藏夹创建失败，应停止后续收藏动作，不可改用其他收藏夹。
+4. 若投币流程发生变化，应在重试前再次向用户确认。
+5. 若评论发送失败，应保留 3 条候选评论，方便用户再次尝试。
 
-Error tone guidance:
+错误文案要求：
 
-1. Use respectful, readable copy
-2. Avoid technical panic language in the main UI
-3. Keep detailed logs in development mode for debugging
+1. 主界面文案应保持有礼、易懂
+2. 不在用户面前抛出技术恐慌式提示
+3. 在开发模式中保留足够详细的日志，方便排查
 
-## 10. Testing Strategy
+## 10. 测试策略
 
-Phase 1 requires testing at three levels:
+第一阶段测试分为三层：
 
-### Unit tests
+### 单元测试
 
-1. Recommendation label mapping
-2. Comment candidate generation rules
-3. Action-to-platform behavior mapping
-4. Preference-store updates
+1. 推荐标签映射逻辑
+2. 候选评论生成规则
+3. 动作到平台行为的映射
+4. 偏好存储更新逻辑
 
-### Integration tests
+### 集成测试
 
-1. Folded seal to expanded memorial transition
-2. IPC boundaries between Electron and renderer
-3. Session persistence behavior
-4. Action executor against mocked page structures
+1. 从收起印玺到展开奏折的交互过渡
+2. Electron 与渲染层之间的 IPC 边界
+3. 会话持久化行为
+4. 基于模拟页面结构的动作执行逻辑
 
-### Manual validation
+### 人工验证
 
-1. Windows smoke test with a real Bilibili login
-2. Favorites-folder creation and reuse test
-3. `赏 / 赐 / 表 / 阅` behavior verification
-4. Recommendation annotation sanity check on a live recommendation feed
+1. 在 Windows 环境中完成真实 Bilibili 登录冒烟测试
+2. 专用收藏夹创建与复用测试
+3. `赏 / 赐 / 表 / 阅` 的真实交互验证
+4. 推荐流中的轻量标签判断是否合理
 
-CI should not depend on live Bilibili behavior. Live-site verification remains a manual acceptance step.
+CI 不应依赖真实 Bilibili 页面行为。真实站点验证应作为人工验收的一部分。
 
-## 11. Deferred Phase 2 Direction
+## 11. 延后到第二阶段的方向
 
-The next major phase after Phase 1 is the `邸报 / 账本` reporting layer.
+第一阶段之后的下一大块功能是 `邸报 / 账本` 报告层。
 
-Target direction for that later phase:
+该阶段的目标方向如下：
 
-1. Use watch-history time and entry count as the main source
-2. Prompt once per week whether to `抄录账本`
-3. Present weekly/monthly output in `邸报条列体 / 仪式感` style
+1. 以观看历史的时长与条目数作为主数据源
+2. 每周询问一次是否要 `抄录账本`
+3. 以 `邸报条列体 / 仪式感` 风格呈现每周或每月结果
 
-This direction is intentionally deferred and should not expand the Phase 1 implementation plan.
+这部分明确延后，不应在第一阶段开发计划中膨胀进来。
 
-## 12. Scope Lock for Planning
+## 12. 用于规划的范围锁定
 
-The implementation plan written after this spec should cover only:
+下一步要写的开发计划只应覆盖以下内容：
 
-1. Electron shell setup
-2. Embedded browsing experience
-3. Folded and expanded assistant UI
-4. Recommendation annotations
+1. Electron 外壳初始化
+2. 内嵌浏览体验
+3. 收起与展开两种助手界面
+4. 推荐标注能力
 5. `赏 / 赐 / 表 / 阅`
-6. Bilimi dedicated favorites folder handling
-7. Local session and lightweight preference persistence
+6. Bilimi 专用收藏夹处理
+7. 本地会话和轻量偏好持久化
 
-Anything outside that list is out of scope unless a later spec revision explicitly adds it.
+凡是不在这份列表里的内容，都视为当前实现范围之外，除非后续规格文档明确补充。
