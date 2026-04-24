@@ -1,0 +1,24 @@
+html,
+body,
+#root {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  overflow: hidden;
+  background: #1f140f;
+  font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
+}
+
+.app-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.browser-surface {
+  width: 100%;
+  height: 100%;
+}
