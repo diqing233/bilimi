@@ -1,5 +1,33 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'node:path'
+import {
+  getDesktopStore,
+  loadAssistantPreferences,
+  saveAssistantPreferences,
+  type AssistantPreferences
+} from './store'
+
+function openUrlInRendererTab(win: BrowserWindow, url: string) {
+  if (!url || win.isDestroyed()) {
+    return
+  }
+
+  win.webContents.send('browser:open-in-tab', url)
+}
+
+function routeWindowOpenToRendererTab(win: BrowserWindow, url: string) {
+  openUrlInRendererTab(win, url)
+
+  return { action: 'deny' as const }
+}
+
+function installWindowOpenRouting(win: BrowserWindow) {
+  win.webContents.setWindowOpenHandler(({ url }) => routeWindowOpenToRendererTab(win, url))
+
+  win.webContents.on('did-attach-webview', (_event, webContents) => {
+    webContents.setWindowOpenHandler(({ url }) => routeWindowOpenToRendererTab(win, url))
+  })
+}
 
 function createMainWindow() {
   const win = new BrowserWindow({
@@ -16,6 +44,8 @@ function createMainWindow() {
     }
   })
 
+  installWindowOpenRouting(win)
+
   if (process.env.ELECTRON_RENDERER_URL) {
     void win.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
@@ -23,7 +53,17 @@ function createMainWindow() {
   }
 }
 
-app.whenReady().then(createMainWindow)
+function registerAssistantPreferenceHandlers() {
+  ipcMain.handle('assistant:load-preferences', () => loadAssistantPreferences())
+  ipcMain.handle('assistant:save-preferences', (_event, preferences: AssistantPreferences) =>
+    saveAssistantPreferences(getDesktopStore(), preferences)
+  )
+}
+
+app.whenReady().then(() => {
+  registerAssistantPreferenceHandlers()
+  createMainWindow()
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

@@ -16,6 +16,44 @@ body {
   position: relative;
   width: 100%;
   height: 100%;
+  display: grid;
+  grid-template-rows: 42px 1fr;
+}
+
+.browser-tabs {
+  display: flex;
+  gap: 6px;
+  align-items: end;
+  overflow-x: auto;
+  padding: 6px 12px 0;
+  border-bottom: 1px solid rgba(94, 58, 36, 0.18);
+  background: #f7f0e4;
+}
+
+.browser-tabs__tab {
+  min-width: 96px;
+  max-width: 240px;
+  height: 34px;
+  border: 1px solid rgba(113, 81, 48, 0.2);
+  border-bottom: none;
+  background: #e9dfcf;
+  color: #6d4c2d;
+  font: 14px "Noto Serif SC", "Songti SC", "SimSun", serif;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.browser-tabs__tab[aria-selected="true"] {
+  background: #fbf4e8;
+  color: #4b3321;
+}
+
+.browser-stack {
+  position: relative;
+  min-height: 0;
 }
 
 .browser-surface {
@@ -23,11 +61,19 @@ body {
   height: 100%;
 }
 
+.browser-surface--hidden {
+  display: none;
+}
+
 .assistant-overlay {
   position: absolute;
   right: 24px;
   bottom: 24px;
   z-index: 20;
+  display: grid;
+  justify-items: end;
+  gap: 16px;
+  max-width: calc(100vw - 48px);
 }
 
 .seal-button {
@@ -65,7 +111,8 @@ body {
 }
 
 .memorial-panel {
-  width: min(980px, calc(100vw - 72px));
+  width: min(980px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
 }
 
 .memorial-panel__paper {
@@ -73,6 +120,8 @@ body {
   background: linear-gradient(180deg, #f4ead4 0%, #ece0c7 100%);
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.34);
   padding: 28px;
+  max-height: calc(100vh - 48px);
+  overflow: auto;
 }
 
 .memorial-panel__header,
@@ -82,7 +131,7 @@ body {
 }
 
 .memorial-panel__header {
-  grid-template-columns: 110px 1fr 220px;
+  grid-template-columns: minmax(90px, 110px) minmax(180px, 1fr) minmax(160px, 220px);
   align-items: center;
   color: #714f30;
 }
@@ -91,12 +140,11 @@ body {
   margin: 0;
   font-size: 28px;
   font-weight: 500;
-  letter-spacing: 4px;
 }
 
 .memorial-panel__body {
   margin-top: 20px;
-  grid-template-columns: 180px 1fr 220px 96px;
+  grid-template-columns: minmax(140px, 180px) minmax(240px, 1fr) minmax(160px, 220px) minmax(76px, 96px);
 }
 
 .memorial-panel__copy,
@@ -127,6 +175,105 @@ body {
   cursor: pointer;
 }
 
+.memorial-panel__actions button:disabled {
+  opacity: 0.56;
+  cursor: wait;
+}
+
+.memorial-panel__feedback {
+  margin-top: 18px;
+  border: 1px solid rgba(113, 81, 48, 0.24);
+  background: rgba(251, 244, 232, 0.72);
+  color: #52351d;
+  padding: 12px 14px;
+  line-height: 1.6;
+}
+
+.memorial-panel__feedback--success {
+  border-color: rgba(58, 112, 68, 0.36);
+}
+
+.memorial-panel__feedback--error {
+  border-color: rgba(151, 57, 45, 0.42);
+  color: #743225;
+}
+
+.memorial-panel__feedback p {
+  margin: 0;
+}
+
+.memorial-panel__feedback small {
+  display: block;
+  margin-top: 4px;
+}
+
 .memorial-panel__close {
   margin-top: 18px;
+}
+
+.assistant-dialog {
+  width: min(420px, calc(100vw - 48px));
+  border: 1px solid rgba(113, 81, 48, 0.28);
+  background: linear-gradient(180deg, rgba(249, 241, 223, 0.98), rgba(238, 226, 200, 0.98));
+  box-shadow: 0 18px 32px rgba(0, 0, 0, 0.28);
+  padding: 16px;
+  color: #5b3d23;
+  display: grid;
+  gap: 10px;
+}
+
+.assistant-dialog p {
+  margin: 0 0 4px;
+  line-height: 1.8;
+}
+
+.assistant-dialog button {
+  border: 1px solid rgba(113, 81, 48, 0.32);
+  background: #fbf4e8;
+  color: #6d4c2d;
+  font: inherit;
+  text-align: left;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+@media (max-width: 900px) {
+  .assistant-overlay {
+    right: 12px;
+    bottom: 12px;
+    max-width: calc(100vw - 24px);
+  }
+
+  .memorial-panel {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+  }
+
+  .memorial-panel__paper {
+    padding: 18px;
+    max-height: calc(100vh - 24px);
+  }
+
+  .memorial-panel__header,
+  .memorial-panel__body {
+    grid-template-columns: 1fr;
+  }
+
+  .memorial-panel__header h2 {
+    font-size: 24px;
+  }
+
+  .memorial-panel__copy,
+  .memorial-panel__meta,
+  .memorial-panel__verdict {
+    line-height: 1.75;
+  }
+
+  .memorial-panel__actions {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .assistant-dialog {
+    width: calc(100vw - 24px);
+  }
 }

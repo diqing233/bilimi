@@ -1,8 +1,15 @@
-import type { AssistantAction, RecommendationKind } from '@shared/types'
+import type { AssistantAction, AssistantPreferences, RecommendationKind } from '@shared/types'
 
 export type AssistantState = {
   lastAction: AssistantAction | null
   preferenceCounts: Record<RecommendationKind, number>
+}
+
+const EMPTY_PREFERENCE_COUNTS: Record<RecommendationKind, number> = {
+  funny: 0,
+  knowledge: 0,
+  story: 0,
+  suspicious: 0
 }
 
 export type AssistantStateEvent = {
@@ -14,11 +21,32 @@ export type AssistantStateEvent = {
 export function createInitialAssistantState(): AssistantState {
   return {
     lastAction: null,
+    preferenceCounts: { ...EMPTY_PREFERENCE_COUNTS }
+  }
+}
+
+export function createInitialAssistantPreferences(
+  persisted?: Partial<AssistantPreferences>
+): AssistantPreferences {
+  return {
+    favoritesFolderName: persisted?.favoritesFolderName ?? 'Bilimi 内库',
     preferenceCounts: {
-      funny: 0,
-      knowledge: 0,
-      story: 0,
-      suspicious: 0
+      ...EMPTY_PREFERENCE_COUNTS,
+      ...persisted?.preferenceCounts
+    }
+  }
+}
+
+export function recordAssistantPreferenceFeedback(
+  preferences: AssistantPreferences,
+  kind: RecommendationKind,
+  _action: AssistantAction
+): AssistantPreferences {
+  return {
+    ...preferences,
+    preferenceCounts: {
+      ...preferences.preferenceCounts,
+      [kind]: preferences.preferenceCounts[kind] + 1
     }
   }
 }

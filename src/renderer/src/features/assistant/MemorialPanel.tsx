@@ -3,11 +3,27 @@ import type { AssistantAction, RecommendationLabel } from '@shared/types'
 type MemorialPanelProps = {
   recommendation: RecommendationLabel
   commentDrafts: string[]
-  onAction: (action: AssistantAction) => Promise<unknown>
+  onAction: (action: AssistantAction) => void
   onClose: () => void
+  runningAction?: AssistantAction | null
+  feedback?: {
+    tone: 'progress' | 'success' | 'error'
+    message: string
+    steps: string[]
+    missingTargets: string[]
+  } | null
 }
 
-export function MemorialPanel({ recommendation, onAction, onClose }: MemorialPanelProps) {
+export function MemorialPanel({
+  recommendation,
+  commentDrafts,
+  onAction,
+  onClose,
+  runningAction = null,
+  feedback = null
+}: MemorialPanelProps) {
+  const feedbackRole = feedback?.tone === 'error' ? 'alert' : 'status'
+
   return (
     <section className="memorial-panel" aria-label="案头奏折">
       <div className="memorial-panel__paper">
@@ -25,6 +41,7 @@ export function MemorialPanel({ recommendation, onAction, onClose }: MemorialPan
           <div className="memorial-panel__copy">
             <p>{recommendation.summary}</p>
             <p>臣谨以此条进呈陛下，若准其留档，臣便代行轻赏。</p>
+            <p>若欲代拟奏表，臣已备下 {commentDrafts.length} 条奏折腔批语，静候钦点。</p>
           </div>
           <aside className="memorial-panel__verdict">
             <h3>朱批</h3>
@@ -32,12 +49,33 @@ export function MemorialPanel({ recommendation, onAction, onClose }: MemorialPan
           </aside>
           <div className="memorial-panel__actions">
             {(['赏', '赐', '表', '阅'] as const).map((action) => (
-              <button key={action} type="button" onClick={() => void onAction(action)}>
+              <button
+                key={action}
+                type="button"
+                disabled={runningAction !== null}
+                aria-busy={runningAction === action}
+                onClick={() => void onAction(action)}
+              >
                 {action}
               </button>
             ))}
           </div>
         </div>
+        {feedback ? (
+          <div
+            className={`memorial-panel__feedback memorial-panel__feedback--${feedback.tone}`}
+            role={feedbackRole}
+            aria-live="polite"
+          >
+            <p>{feedback.message}</p>
+            {feedback.steps.length > 0 ? (
+              <small>已行：{feedback.steps.join('、')}</small>
+            ) : null}
+            {feedback.missingTargets.length > 0 ? (
+              <small>未得：{feedback.missingTargets.join('、')}</small>
+            ) : null}
+          </div>
+        ) : null}
         <button className="memorial-panel__close" type="button" onClick={onClose}>
           合折
         </button>
