@@ -1,19 +1,19 @@
-export function buildOpenVideoLinksInAppScript(): string {
+export function buildOpenLinksInAppScript(): string {
   return `
     (() => {
       const openSignalPrefix = '__BILIMI_OPEN_IN_TAB__:';
 
-      if (window.__bilimiOpenVideoLinksInstalled) {
+      if (window.__bilimiOpenLinksInstalled) {
         return true;
       }
 
-      window.__bilimiOpenVideoLinksInstalled = true;
+      window.__bilimiOpenLinksInstalled = true;
 
-      const isBilibiliVideoUrl = (url) => {
-        return /(^|\\.)bilibili\\.com$/.test(url.hostname) && /^\\/video\\//.test(url.pathname);
+      const isBilibiliNavigableUrl = (url) => {
+        return /(^|\\.)bilibili\\.com$/.test(url.hostname) && url.protocol === 'https:';
       };
 
-      const resolveVideoUrl = (target) => {
+      const resolveNavigableUrl = (target) => {
         const anchor = target?.closest?.('a[href]');
 
         if (!anchor) {
@@ -23,7 +23,7 @@ export function buildOpenVideoLinksInAppScript(): string {
         try {
           const url = new URL(anchor.getAttribute('href') || anchor.href, window.location.href);
 
-          return isBilibiliVideoUrl(url) ? url.href : null;
+          return isBilibiliNavigableUrl(url) ? url.href : null;
         } catch {
           return null;
         }
@@ -54,7 +54,7 @@ export function buildOpenVideoLinksInAppScript(): string {
             return;
           }
 
-          const url = resolveVideoUrl(event.target);
+          const url = resolveNavigableUrl(event.target);
 
           if (!url) {
             return;
@@ -71,3 +71,5 @@ export function buildOpenVideoLinksInAppScript(): string {
     })();
   `;
 }
+
+export const buildOpenVideoLinksInAppScript = buildOpenLinksInAppScript

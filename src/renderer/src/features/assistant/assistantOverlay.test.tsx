@@ -13,6 +13,7 @@ describe('AssistantOverlay', () => {
 
     expect(screen.getByText('御前待阅折')).toBeInTheDocument()
     expect(screen.getByText('赏')).toBeInTheDocument()
+    expect(screen.getByText('藏')).toBeInTheDocument()
     expect(screen.getByText('赐')).toBeInTheDocument()
     expect(screen.getByText('表')).toBeInTheDocument()
     expect(screen.getByText('阅')).toBeInTheDocument()
@@ -81,6 +82,87 @@ describe('AssistantOverlay', () => {
     })
 
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('轻赏已入内库。'))
+  })
+
+  it('lets the user confirm create-and-favorite without triggering a like action', async () => {
+    const runScript = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['favorite:open', 'favorite:create-defaults', 'favorite:folder', 'favorite'],
+      missingTargets: [],
+      message: '已创建并收藏。'
+    })
+    const onRecordFeedback = vi.fn()
+
+    render(
+      <AssistantOverlay
+        runScript={runScript}
+        favoritesFolderName="Bilimi 内库"
+        onRecordFeedback={onRecordFeedback}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    fireEvent.click(screen.getByRole('button', { name: '藏' }))
+
+    await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
+    expect(runScript.mock.calls[0][0]).toContain('"action":"藏"')
+    expect(runScript.mock.calls[0][0]).not.toContain('"action":"赏"')
+    expect(onRecordFeedback).toHaveBeenCalledWith('funny', '藏')
+  })
+
+  it('classifies the current video content before choosing a Bilimi favorite folder', async () => {
+    const runScript = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['favorite:open', 'favorite:folder', 'favorite'],
+      missingTargets: [],
+      message: '已按内容归入内库。'
+    })
+    const onRecordFeedback = vi.fn()
+
+    render(
+      <AssistantOverlay
+        runScript={runScript}
+        favoritesFolderName="Bilimi 内库"
+        onRecordFeedback={onRecordFeedback}
+        videoContentContext={{
+          title: '三分钟讲清机器学习科普教程',
+          pageText: '从原理到入门路线，适合学习收藏。'
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    fireEvent.click(screen.getByRole('button', { name: '藏' }))
+
+    await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
+    expect(runScript.mock.calls[0][0]).toContain('"recommendationKind":"knowledge"')
+    expect(onRecordFeedback).toHaveBeenCalledWith('knowledge', '藏')
+  })
+
+  it('minimizes the panel while page automation is running', async () => {
+    const runScript = vi.fn(
+      () =>
+        new Promise<{
+          ok: boolean
+          steps: string[]
+          missingTargets: string[]
+          message: string
+        }>(() => {})
+    )
+
+    render(
+      <AssistantOverlay
+        runScript={runScript}
+        favoritesFolderName="Bilimi 内库"
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    fireEvent.click(screen.getByRole('button', { name: '赏' }))
+
+    expect(screen.queryByLabelText('案头奏折')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '展开助手状态' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('正在代批')
   })
 
   it('keeps the panel open and explains missing targets when an action cannot finish', async () => {

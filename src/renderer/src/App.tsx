@@ -2,7 +2,12 @@ import { BILIBILI_HOME_URL } from '@shared/constants'
 import type { AssistantAutomationResult, AssistantPreferences, BrowserTabModel } from '@shared/types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AssistantOverlay } from './features/assistant/AssistantOverlay'
+import { runVisualFavoriteFallback } from './features/actions/visualFavoriteFallback'
 import { BiliWebview } from './features/browser/BiliWebview'
+import {
+  buildVideoContentContextScript,
+  type VideoContentContext
+} from './features/recommendation/videoClassifier'
 import { createInitialAssistantPreferences } from './features/state/assistantState'
 
 const HOME_TAB_ID = 'home'
@@ -39,6 +44,10 @@ export default function App() {
     createInitialAssistantPreferences()
   )
   const activeWebview = useMemo(() => webviews[activeTabId] ?? null, [activeTabId, webviews])
+  const activeTab = useMemo(
+    () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0],
+    [activeTabId, tabs]
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -103,6 +112,41 @@ export default function App() {
     })
   }, [])
 
+  const closeInternalTab = useCallback(
+    (tabIdToClose: string) => {
+      if (tabIdToClose === HOME_TAB_ID) {
+        return
+      }
+
+      delete webviewRefs.current[tabIdToClose]
+
+      setWebviews((currentWebviews) => {
+        const { [tabIdToClose]: _closedWebview, ...remainingWebviews } = currentWebviews
+
+        return remainingWebviews
+      })
+
+      setTabs((currentTabs) => {
+        const tabIndex = currentTabs.findIndex((tab) => tab.id === tabIdToClose)
+
+        if (tabIndex === -1) {
+          return currentTabs
+        }
+
+        const nextTabs = currentTabs.filter((tab) => tab.id !== tabIdToClose)
+
+        if (activeTabId === tabIdToClose) {
+          const fallbackTab = currentTabs[tabIndex - 1] ?? nextTabs[0]
+
+          setActiveTabId(fallbackTab?.id ?? HOME_TAB_ID)
+        }
+
+        return nextTabs
+      })
+    },
+    [activeTabId]
+  )
+
   useEffect(() => {
     return window.bilimiDesktop?.onOpenInTab?.(openInternalTab)
   }, [openInternalTab])
@@ -134,11 +178,33 @@ export default function App() {
     )
   }, [])
 
-  async function runScript(script: string): Promise<AssistantAutomationResult> {
-    const currentActiveWebview =
+  function getCurrentActiveWebview() {
+    return (
       activeWebview ??
       webviewRefs.current[activeTabId] ??
       (document.querySelector('webview[data-active="true"]') as Electron.WebviewTag | null)
+    )
+  }
+
+  async function readVideoContentContext(): Promise<VideoContentContext> {
+    const currentActiveWebview = getCurrentActiveWebview()
+
+    if (!currentActiveWebview?.executeJavaScript) {
+      return { title: activeTab?.title }
+    }
+
+    try {
+      return (await currentActiveWebview.executeJavaScript(
+        buildVideoContentContextScript(),
+        true
+      )) as VideoContentContext
+    } catch {
+      return { title: activeTab?.title }
+    }
+  }
+
+  async function runScript(script: string): Promise<AssistantAutomationResult> {
+    const currentActiveWebview = getCurrentActiveWebview()
 
     if (!currentActiveWebview?.executeJavaScript) {
       return {
@@ -152,20 +218,53 @@ export default function App() {
     return currentActiveWebview.executeJavaScript(script) as Promise<AssistantAutomationResult>
   }
 
+  async function runVisualFallback(
+    context: Parameters<typeof runVisualFavoriteFallback>[1]
+  ): Promise<AssistantAutomationResult> {
+    const currentActiveWebview = getCurrentActiveWebview()
+
+    if (!currentActiveWebview) {
+      return {
+        ok: false,
+        steps: [],
+        missingTargets: ['webview'],
+        message: '浏览框台尚未备妥。'
+      }
+    }
+
+    return runVisualFavoriteFallback(currentActiveWebview, context)
+  }
+
   return (
     <div className="app-shell">
       <div className="browser-tabs" role="tablist" aria-label="网页标签">
         {tabs.map((tab) => (
-          <button
+          <div
             key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={tab.id === activeTabId}
-            className="browser-tabs__tab"
-            onClick={() => setActiveTabId(tab.id)}
+            className="browser-tabs__item"
+            data-selected={tab.id === activeTabId ? 'true' : 'false'}
           >
-            {tab.title}
-          </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab.id === activeTabId}
+              className="browser-tabs__tab"
+              onClick={() => setActiveTabId(tab.id)}
+            >
+              {tab.title}
+            </button>
+            {tab.id !== HOME_TAB_ID ? (
+              <button
+                type="button"
+                className="browser-tabs__close"
+                aria-label={`关闭 ${tab.title}`}
+                title={`关闭 ${tab.title}`}
+                onClick={() => closeInternalTab(tab.id)}
+              >
+                ×
+              </button>
+            ) : null}
+          </div>
         ))}
       </div>
       <div className="browser-stack">
@@ -184,8 +283,11 @@ export default function App() {
       </div>
       <AssistantOverlay
         favoritesFolderName={preferences.favoritesFolderName}
+        readVideoContentContext={readVideoContentContext}
+        runVisualFallback={runVisualFallback}
         runScript={runScript}
         storedPreferences={preferences}
+        videoTitle={activeTab?.title}
       />
     </div>
   )

@@ -2,7 +2,7 @@ import type { AssistantAction } from '@shared/types'
 
 type RecommendationKind = 'funny' | 'knowledge' | 'story' | 'suspicious'
 
-const BILIMI_FAVORITE_FOLDERS: Record<RecommendationKind, string> = {
+export const BILIMI_FAVORITE_FOLDERS: Record<RecommendationKind, string> = {
   funny: 'Bilimi｜解闷小品',
   knowledge: 'Bilimi｜见闻增广',
   story: 'Bilimi｜剧情留档',
@@ -79,6 +79,10 @@ export function buildAutomationScript(
         const matcher = textMatchers(candidates);
         const nodes = Array.from(document.querySelectorAll(selectors));
         return nodes.find((node) => {
+          if (isLikelyHidden(node)) {
+            return false;
+          }
+
           const text = [
             node.getAttribute?.('aria-label'),
             node.getAttribute?.('class'),
@@ -90,6 +94,15 @@ export function buildAutomationScript(
           ].filter(Boolean).join(' ');
           return matcher(text);
         });
+      };
+
+      const isVisibleCandidate = (node) => {
+        if (!node || isLikelyHidden(node)) {
+          return false;
+        }
+
+        const rect = node.getBoundingClientRect?.();
+        return !rect || rect.width > 0 || rect.height > 0 || Boolean(normalize(nodeSearchText(node)));
       };
 
       const bySelector = (selectors) => {
@@ -149,10 +162,17 @@ export function buildAutomationScript(
         byText('button,[role="button"],.comment-submit,.submit', ['发布', '发送', '提交']);
 
       const queryFavoriteFolder = () =>
-        byText('button,[role="button"],label,.fav-item,.favorite-item,.group-item', [payload.favoritesFolderName]);
+        byText(
+          'button,[role="button"],label,.fav-item,.favorite-item,.group-item,.fav-video-list-item,.fav-list-item,.favorite-list-item,.folder-item,[class*="fav"][class*="item"],[class*="favorite"][class*="item"],[class*="folder"][class*="item"]',
+          [payload.favoritesFolderName]
+        );
 
       const favoriteFolderNodes = () =>
-        Array.from(document.querySelectorAll('button,[role="button"],label,.fav-item,.favorite-item,.group-item'));
+        Array.from(
+          document.querySelectorAll(
+            'button,[role="button"],label,.fav-item,.favorite-item,.group-item,.fav-video-list-item,.fav-list-item,.favorite-list-item,.folder-item,[class*="fav"][class*="item"],[class*="favorite"][class*="item"],[class*="folder"][class*="item"]'
+          )
+        );
 
       const nodeSearchText = (node) =>
         [
@@ -160,6 +180,16 @@ export function buildAutomationScript(
           node.getAttribute?.('title'),
           node.getAttribute?.('class'),
           node.textContent
+        ].filter(Boolean).join(' ');
+
+      const nodeOwnSearchText = (node) =>
+        [
+          node.getAttribute?.('aria-label'),
+          node.getAttribute?.('title'),
+          node.getAttribute?.('class'),
+          ...Array.from(node.childNodes || [])
+            .filter((child) => child.nodeType === Node.TEXT_NODE)
+            .map((child) => child.textContent)
         ].filter(Boolean).join(' ');
 
       const targetFavoriteFolderName = () =>
@@ -188,11 +218,128 @@ export function buildAutomationScript(
       const queryAnyBilimiFavoriteFolder = () =>
         favoriteFolderNodes().find((node) => normalize(nodeSearchText(node)).includes(normalize('Bilimi')));
 
-      const queryCreateFavoriteButton = () =>
-        byText(
-          'button,[role="button"],.fav-create,.favorite-create,.create,.new-folder,[class*="create"],[class*="Create"]',
-          ['新建收藏夹', '新建', '创建', 'create']
+      const queryCreateFavoriteButton = () => {
+        const nodes = Array.from(
+          document.querySelectorAll(
+            'button,[role="button"],.fav-create,.favorite-create,.fav-add-folder,.fav-create-folder,.create,.new-folder,.add-folder,div[role="button"],span[role="button"],[class*="fav-add"],[class*="favorite-create"],[class*="create-folder"],[class*="add-folder"],[class*="new-folder"],div,span,li'
+          )
         );
+
+        const matchesCreateEntry = (text) => {
+          const normalizedText = normalize(text).toLowerCase();
+
+          if (normalizedText.includes('confirm') || normalizedText.includes('submit') || normalize(text).includes(normalize('确定')) || normalize(text).includes(normalize('确认'))) {
+            return false;
+          }
+
+          return (
+            normalize(text).includes(normalize('新建收藏夹')) ||
+            normalize(text).includes(normalize('创建收藏夹')) ||
+            normalize(text).includes(normalize('+新建收藏夹')) ||
+            normalizedText.includes('newfolder') ||
+            normalizedText.includes('addfolder') ||
+            normalizedText.includes('createfolder') ||
+            normalizedText.includes('favadd') ||
+            normalizedText.includes('favoritecreate')
+          );
+        };
+
+        const scoredMatches = nodes
+          .map((node) => {
+            if (!isVisibleCandidate(node)) {
+              return null;
+            }
+
+            const ownText = nodeOwnSearchText(node);
+            const fullText = nodeSearchText(node);
+            const ownMatch = matchesCreateEntry(ownText);
+            const fullMatch = matchesCreateEntry(fullText);
+
+            if (!ownMatch && !fullMatch) {
+              return null;
+            }
+
+            const hasMatchingChild = Array.from(node.children || []).some((child) =>
+              matchesCreateEntry(nodeSearchText(child))
+            );
+
+            if (!ownMatch && hasMatchingChild) {
+              return null;
+            }
+
+            const clickable = node.matches?.('button,[role="button"],[tabindex],a') || node.onclick;
+            const score = (ownMatch ? 100 : 0) + (clickable ? 20 : 0) - normalize(fullText).length / 100;
+            return { node, score };
+          })
+          .filter(Boolean)
+          .sort((left, right) => right.score - left.score);
+
+        return scoredMatches[0]?.node || null;
+      };
+
+      const scrollFavoriteDialogToBottom = () => {
+        const modalCandidates = Array.from(
+          document.querySelectorAll(
+            '.bili-dialog-bomb,.fav-dialog,.favorite-dialog,[role="dialog"],[class*="dialog"],[class*="modal"]'
+          )
+        );
+        const favoriteModal = modalCandidates.find((node) =>
+          normalize(nodeSearchText(node)).includes(normalize('添加到收藏夹')) ||
+          normalize(nodeSearchText(node)).includes(normalize('收藏夹')) ||
+          normalize(nodeSearchText(node)).includes(normalize('新建收藏夹'))
+        );
+        const searchRoot = favoriteModal || document.body;
+        const preferredContainers = Array.from(
+          searchRoot.querySelectorAll?.(
+            '.fav-list,.favorite-list,.fav-container,.favorite-container,[class*="fav"][class*="list"],[class*="favorite"][class*="list"]'
+          ) || []
+        );
+        const scrollableContainers = Array.from(searchRoot.querySelectorAll?.('*') || []).filter((node) => {
+          if (!('scrollTop' in node)) {
+            return false;
+          }
+
+          return (node.scrollHeight || 0) > (node.clientHeight || 0);
+        });
+        const containers = [...new Set([...preferredContainers, ...scrollableContainers, searchRoot])];
+
+        containers.forEach((container) => {
+          if (!('scrollTop' in container)) {
+            return;
+          }
+
+          const scrollDistance = Math.max(container.scrollHeight || 0, container.clientHeight || 0);
+          container.scrollTop = scrollDistance;
+          container.dispatchEvent(new Event('scroll', { bubbles: true }));
+          container.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: scrollDistance || 800 }));
+        });
+      };
+
+      const queryCreateFavoriteButtonAfterScroll = () => {
+        const createButton = queryCreateFavoriteButton();
+
+        if (createButton) {
+          return createButton;
+        }
+
+        scrollFavoriteDialogToBottom();
+        return queryCreateFavoriteButton();
+      };
+
+      const waitForCreateFavoriteButton = async () => {
+        for (let index = 0; index < 12; index += 1) {
+          const createButton = queryCreateFavoriteButtonAfterScroll();
+
+          if (createButton) {
+            return createButton;
+          }
+
+          await wait(120);
+        }
+
+        missingTargets.push('favorite-create-button');
+        return null;
+      };
 
       const queryFavoriteNameField = () =>
         document.querySelector('.fav-name-input,.favorite-name-input,.folder-name-input,[class*="name-input"],[class*="NameInput"]') ||
@@ -203,17 +350,24 @@ export function buildAutomationScript(
         document.querySelector('[contenteditable="true"]');
 
       const queryCreateFavoriteConfirm = () =>
-        byText('.fav-create-confirm,.create-confirm,[class*="create-confirm"]', ['新建', '创建', '确定', '确认']) ||
+        byText('.fav-create-confirm,.create-confirm,.create-submit,[class*="create-confirm"],[class*="create-submit"]', ['新建', '创建', '确定', '确认']) ||
         byText('[class*="confirm"],[class*="submit"]', ['创建', '确定', '确认']);
 
       const createFavoriteFolder = async (folderName) => {
-        const createButton = await waitForElement(queryCreateFavoriteButton, 'favorite-create-button', 5);
+        const createButton = await waitForCreateFavoriteButton();
         if (!createButton) {
           return false;
         }
 
-        click(createButton, 'favorite:create-open');
-        const nameField = await waitForElement(queryFavoriteNameField, 'favorite-name-field', 5);
+        let nameField = queryFavoriteNameField();
+
+        if (!nameField) {
+          click(closestClickable(createButton), 'favorite:create-open');
+          nameField = await waitForElement(queryFavoriteNameField, 'favorite-name-field', 10);
+        } else {
+          steps.push('favorite:create-open');
+        }
+
         if (!typeText(nameField, folderName)) {
           return false;
         }
@@ -232,7 +386,7 @@ export function buildAutomationScript(
 
         const bilimiFolder = queryAnyBilimiFavoriteFolder();
         const legacyFolder = queryFavoriteFolder();
-        const canCreateFolder = Boolean(queryCreateFavoriteButton());
+        const canCreateFolder = Boolean(queryCreateFavoriteButtonAfterScroll());
 
         if (!canCreateFolder) {
           return await waitForElement(
@@ -291,13 +445,26 @@ export function buildAutomationScript(
         return true;
       };
 
-      if (payload.action === '赏' || payload.action === '赐') {
-        click(await waitForElement(queryLikeButton, 'like'), 'like');
+      const favoriteCurrentVideo = async () => {
         const favoriteOpened = click(await waitForElement(queryFavoriteButton, 'favorite'), 'favorite:open');
         if (favoriteOpened) {
-          click(await ensureFavoriteFolder(), 'favorite:folder');
+          const selectedFolder = await ensureFavoriteFolder();
+          if (!selectedFolder) {
+            return;
+          }
+
+          click(selectedFolder, 'favorite:folder');
           click(await waitForElement(queryFavoriteConfirm, 'favorite-confirm'), 'favorite');
         }
+      };
+
+      if (payload.action === '赏' || payload.action === '赐') {
+        click(await waitForElement(queryLikeButton, 'like'), 'like');
+        await favoriteCurrentVideo();
+      }
+
+      if (payload.action === '藏') {
+        await favoriteCurrentVideo();
       }
 
       if (payload.action === '赐') {

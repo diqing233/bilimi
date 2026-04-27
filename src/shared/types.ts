@@ -1,4 +1,4 @@
-export type AssistantAction = '赏' | '赐' | '表' | '阅'
+export type AssistantAction = '赏' | '藏' | '赐' | '表' | '阅'
 
 export type BrowserSurfaceModel = {
   src: string
@@ -30,3 +30,13 @@ export type AssistantAutomationResult = {
   missingTargets: string[]
   message: string
 }
+
+export type VisualAutomationContext = {
+  favoriteFolders: Record<RecommendationKind, string>
+  favoritesFolderName: string
+  recommendationKind: RecommendationKind
+}
+
+export type VisualAutomationFallback = (
+  context: VisualAutomationContext
+) => Promise<AssistantAutomationResult>

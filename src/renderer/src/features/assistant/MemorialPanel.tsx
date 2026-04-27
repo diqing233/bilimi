@@ -3,6 +3,8 @@ import type { AssistantAction, RecommendationLabel } from '@shared/types'
 type MemorialPanelProps = {
   recommendation: RecommendationLabel
   commentDrafts: string[]
+  videoCategory?: string
+  videoTitle: string
   onAction: (action: AssistantAction) => void
   onClose: () => void
   runningAction?: AssistantAction | null
@@ -17,6 +19,8 @@ type MemorialPanelProps = {
 export function MemorialPanel({
   recommendation,
   commentDrafts,
+  videoCategory = '解闷小品',
+  videoTitle,
   onAction,
   onClose,
   runningAction = null,
@@ -34,8 +38,8 @@ export function MemorialPanel({
         </div>
         <div className="memorial-panel__body">
           <aside className="memorial-panel__meta">
-            <p>题名：早八生存实录</p>
-            <p>类目：解闷小品</p>
+            <p title={videoTitle}>{videoTitle}</p>
+            <p>{videoCategory}</p>
             <p>签语：{recommendation.badge}</p>
           </aside>
           <div className="memorial-panel__copy">
@@ -48,7 +52,7 @@ export function MemorialPanel({
             <p>此物可先过目，不必骤然重赐。</p>
           </aside>
           <div className="memorial-panel__actions">
-            {(['赏', '赐', '表', '阅'] as const).map((action) => (
+            {(['赏', '藏', '赐', '表', '阅'] as const).map((action) => (
               <button
                 key={action}
                 type="button"

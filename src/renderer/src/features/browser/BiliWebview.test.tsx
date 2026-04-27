@@ -46,4 +46,18 @@ describe('BiliWebview', () => {
 
     expect(onOpenInTab).toHaveBeenCalledWith('https://www.bilibili.com/video/BV1title')
   })
+
+  it('does not drive the webview src from later location updates', () => {
+    const { rerender } = render(
+      <BiliWebview active tabId="home" url="https://www.bilibili.com/video/BV1initial" />
+    )
+
+    const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+
+    expect(webview).toHaveAttribute('src', 'https://www.bilibili.com/video/BV1initial')
+
+    rerender(<BiliWebview active tabId="home" url="https://www.bilibili.com/video/BV1navigated" />)
+
+    expect(webview).toHaveAttribute('src', 'https://www.bilibili.com/video/BV1initial')
+  })
 })

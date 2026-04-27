@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { createBrowserSurfaceModel } from './browserSurfaceModel'
-import { buildOpenVideoLinksInAppScript } from './linkCaptureScript'
+import { buildOpenLinksInAppScript } from './linkCaptureScript'
 
 const OPEN_IN_TAB_TITLE_PREFIX = '__BILIMI_OPEN_IN_TAB__:'
 
@@ -53,7 +53,8 @@ export function BiliWebview({
   onTitleChange
 }: BiliWebviewProps) {
   const ref = useRef<Electron.WebviewTag | null>(null)
-  const model = useMemo(() => createBrowserSurfaceModel(url), [url])
+  const initialUrl = useRef(url)
+  const model = useMemo(() => createBrowserSurfaceModel(initialUrl.current), [])
 
   useEffect(() => {
     const webview = ref.current
@@ -69,7 +70,7 @@ export function BiliWebview({
         return
       }
 
-      void webview.executeJavaScript(buildOpenVideoLinksInAppScript(), true).catch(() => undefined)
+      void webview.executeJavaScript(buildOpenLinksInAppScript(), true).catch(() => undefined)
     }
 
     const handleNewWindow = (event: Event) => {
