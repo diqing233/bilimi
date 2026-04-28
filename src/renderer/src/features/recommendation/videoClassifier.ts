@@ -87,6 +87,10 @@ export function classifyVideoContent(
     }))
     .filter((entry) => entry.matches.length > 0)
     .sort((left, right) => {
+      if (left.ledger.isDefault !== right.ledger.isDefault) {
+        return left.ledger.isDefault ? 1 : -1
+      }
+
       if (right.matches.length !== left.matches.length) {
         return right.matches.length - left.matches.length
       }

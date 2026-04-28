@@ -43,6 +43,12 @@ describe('classifyVideoContent', () => {
       matchedKeywords: ['摄影', '镜头'],
       reviewRequired: false
     })
+    expect(classifyVideoContent({ title: '摄影 软件教程 工具 数码' }, ledgers)).toMatchObject({
+      ledgerId: 'custom-photo',
+      displayName: 'Bilimi·光影留真',
+      matchedKeywords: ['摄影'],
+      reviewRequired: false
+    })
   })
 
   it('skips disabled ledgers and falls back to inbox when no category is clear', () => {
