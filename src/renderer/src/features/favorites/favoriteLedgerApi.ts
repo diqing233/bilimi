@@ -124,12 +124,14 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
         steps.push('api:ledger:create:' + ledger.id);
       }
 
+      const missingTargets = nextLedgers.filter((ledger) => ledger.enabled && !ledger.bilibiliFolderId).map((ledger) => ledger.id);
+
       return {
-        ok: true,
+        ok: missingTargets.length === 0,
         ledgers: nextLedgers,
         steps,
-        missingTargets: nextLedgers.filter((ledger) => ledger.enabled && !ledger.bilibiliFolderId).map((ledger) => ledger.id),
-        message: '册目已备齐。'
+        missingTargets,
+        message: missingTargets.length === 0 ? '册目已备齐。' : '尚有册目未能备齐。'
       };
     })();
   `
@@ -142,53 +144,63 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
     (async () => {
       const payload = ${payload};
       ${sharedScriptHelpers()}
-      const { csrf } = readCredentials();
-      if (!csrf) {
-        return { ok: false, steps: [], missingTargets: [], message: '未能读取登录凭据，无法归册。' };
-      }
-
       const steps = [];
       const missingTargets = [];
-      const executableItems = payload.items.filter((item) => {
-        if (item.selected === false || item.alreadyInTarget === true) {
-          return false;
-        }
-        if (!item.targetFolderId) {
-          missingTargets.push(item.targetLedgerId);
-          return false;
-        }
-        return true;
-      });
 
-      for (const item of executableItems) {
-        const body = new URLSearchParams();
-        body.set('add_media_ids', String(item.targetFolderId));
-        body.set('csrf', csrf);
-        body.set('del_media_ids', '');
-        body.set('rid', String(item.aid));
-        body.set('type', '2');
-        body.set('platform', 'web');
-        body.set('from_spmid', '');
-        body.set('spmid', '333.788.0.0');
-        body.set('statistics', JSON.stringify({ appId: 100, platform: 5 }));
-        const response = await fetch('https://api.bilibili.com/x/v3/fav/resource/deal', {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'content-type': 'application/x-www-form-urlencoded;charset=UTF-8'
-          },
-          body
+      try {
+        const { csrf } = readCredentials();
+        if (!csrf) {
+          return { ok: false, steps, missingTargets, message: '未能读取登录凭据，无法归册。' };
+        }
+
+        const executableItems = payload.items.filter((item) => {
+          if (item.selected === false || item.alreadyInTarget === true) {
+            return false;
+          }
+          if (!item.targetFolderId) {
+            missingTargets.push(item.targetLedgerId);
+            return false;
+          }
+          return true;
         });
-        await ensureApiOk(response);
-        steps.push('api:ledger:append:' + item.aid);
-      }
 
-      return {
-        ok: missingTargets.length === 0,
-        steps,
-        missingTargets,
-        message: missingTargets.length === 0 ? '旧藏已归册。' : '部分条目缺少目标册目。'
-      };
+        for (const item of executableItems) {
+          const body = new URLSearchParams();
+          body.set('add_media_ids', String(item.targetFolderId));
+          body.set('csrf', csrf);
+          body.set('del_media_ids', '');
+          body.set('rid', String(item.aid));
+          body.set('type', '2');
+          body.set('platform', 'web');
+          body.set('from_spmid', '');
+          body.set('spmid', '333.788.0.0');
+          body.set('statistics', JSON.stringify({ appId: 100, platform: 5 }));
+          const response = await fetch('https://api.bilibili.com/x/v3/fav/resource/deal', {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'content-type': 'application/x-www-form-urlencoded;charset=UTF-8'
+            },
+            body
+          });
+          await ensureApiOk(response);
+          steps.push('api:ledger:append:' + item.aid);
+        }
+
+        return {
+          ok: missingTargets.length === 0,
+          steps,
+          missingTargets,
+          message: missingTargets.length === 0 ? '旧藏已归册。' : '部分条目缺少目标册目。'
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          steps,
+          missingTargets: missingTargets.length > 0 ? missingTargets : ['favorite-ledger-api'],
+          message: '旧藏归册未能完成：' + (error instanceof Error ? error.message : String(error || '未知错误'))
+        };
+      }
     })();
   `
 }
