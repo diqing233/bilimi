@@ -10,6 +10,13 @@ export type VideoContentContext = {
 
 const RISK_KEYWORDS = ['带货', '广告', '软广', '恰饭', '推广', '避雷', '割韭菜', '骗局', '夸大', '引流', '标题党']
 
+const DEFAULT_LEDGER_KEYWORD_SUPPLEMENTS: Record<string, string[]> = {
+  humor: ['鬼畜'],
+  play: ['运动', '技巧'],
+  life: ['探店', 'vlog'],
+  craft: ['软件', '软件教程']
+}
+
 function normalize(value = '') {
   return value.toLocaleLowerCase().replace(/\s+/g, '')
 }
@@ -24,6 +31,10 @@ function buildSearchText(context: VideoContentContext) {
 
 function matchedKeywords(text: string, keywords: string[]) {
   return keywords.filter((keyword) => text.includes(normalize(keyword)))
+}
+
+function ledgerKeywords(ledger: FavoriteLedger) {
+  return [...ledger.keywords, ...(DEFAULT_LEDGER_KEYWORD_SUPPLEMENTS[ledger.id] ?? [])]
 }
 
 function inboxLedger(ledgers: FavoriteLedger[]) {
@@ -72,7 +83,7 @@ export function classifyVideoContent(
     .filter((ledger) => ledger.id !== 'inbox')
     .map((ledger) => ({
       ledger,
-      matches: matchedKeywords(text, ledger.keywords)
+      matches: matchedKeywords(text, ledgerKeywords(ledger))
     }))
     .filter((entry) => entry.matches.length > 0)
     .sort((left, right) => {

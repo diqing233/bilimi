@@ -15,6 +15,15 @@ describe('classifyVideoContent', () => {
     expect(classifyVideoContent({ title: '现场翻唱舞台演奏' }, ledgers).ledgerId).toBe('music')
   })
 
+  it('classifies pure required topic signals missing from default ledger keywords', () => {
+    const ledgers = createDefaultFavoriteLedgers()
+
+    expect(classifyVideoContent({ title: '鬼畜合集' }, ledgers).ledgerId).toBe('humor')
+    expect(classifyVideoContent({ title: '运动技巧' }, ledgers).ledgerId).toBe('play')
+    expect(classifyVideoContent({ title: '探店 Vlog' }, ledgers).ledgerId).toBe('life')
+    expect(classifyVideoContent({ title: '软件教程' }, ledgers).ledgerId).toBe('craft')
+  })
+
   it('prioritizes enabled custom ledgers over default ledgers', () => {
     const ledgers = [
       ...createDefaultFavoriteLedgers(),
