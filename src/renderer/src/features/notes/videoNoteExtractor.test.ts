@@ -40,7 +40,7 @@ describe('videoNoteExtractor', () => {
         tags: ['知识', '教程', '知识'],
         bvid: 'BV1note',
         url: 'https://www.bilibili.com/video/BV1note',
-        transcript: [{ start: 1, end: 3, text: '字幕内容' }]
+        transcript: [{ start: 1, end: 3, text: ' 字幕内容 ' }]
       })
     ).toEqual({
       source: {
@@ -53,6 +53,27 @@ describe('videoNoteExtractor', () => {
       },
       transcript: [{ start: 1, end: 3, text: '字幕内容' }],
       transcriptSource: 'auto'
+    })
+  })
+
+  it('uses manual transcript source when extracted transcript only contains blank text', () => {
+    expect(
+      normalizeExtractedVideoNoteResult({
+        title: '空白字幕视频',
+        url: 'https://www.bilibili.com/video/BV1blank',
+        transcript: [{ start: 1, end: 3, text: '   ' }]
+      })
+    ).toEqual({
+      source: {
+        title: '空白字幕视频',
+        author: '',
+        description: '',
+        tags: [],
+        bvid: '',
+        url: 'https://www.bilibili.com/video/BV1blank'
+      },
+      transcript: [],
+      transcriptSource: 'manual'
     })
   })
 })

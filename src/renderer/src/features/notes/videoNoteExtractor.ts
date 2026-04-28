@@ -45,6 +45,12 @@ export function normalizeExtractedVideoNoteResult(
 ): VideoNoteExtractionResult {
   const url = cleanText(raw.url) || 'about:blank'
   const title = cleanText(raw.title).replace(BILIBILI_TITLE_SUFFIX, '') || url
+  const transcript = (raw.transcript ?? [])
+    .map((segment) => ({
+      ...segment,
+      text: cleanText(segment.text)
+    }))
+    .filter((segment) => segment.text.length > 0)
 
   return {
     source: {
@@ -55,8 +61,8 @@ export function normalizeExtractedVideoNoteResult(
       bvid: cleanText(raw.bvid),
       url
     },
-    transcript: (raw.transcript ?? []).filter((segment) => cleanText(segment.text).length > 0),
-    transcriptSource: (raw.transcript ?? []).length > 0 ? 'auto' : 'manual'
+    transcript,
+    transcriptSource: transcript.length > 0 ? 'auto' : 'manual'
   }
 }
 
