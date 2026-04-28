@@ -3,6 +3,7 @@ import type {
   AssistantAutomationResult,
   AssistantPreferences,
   BrowserTabModel,
+  FavoriteLedgerStatus,
   VideoNote,
   VideoNoteExtractionResult
 } from '@shared/types'
@@ -19,6 +20,12 @@ import {
   buildVideoNoteExtractionScript,
   normalizeExtractedVideoNoteResult
 } from './features/notes/videoNoteExtractor'
+import {
+  buildEnsureFavoriteLedgersScript,
+  buildExecuteFavoriteLedgerPlanScript,
+  buildFavoriteLedgerStatusScript
+} from './features/favorites/favoriteLedgerApi'
+import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from './features/favorites/favoriteLedgerPreview'
 
 const HOME_TAB_ID = 'home'
 
@@ -249,6 +256,53 @@ export default function App() {
     return currentActiveWebview.executeJavaScript(script) as Promise<AssistantAutomationResult>
   }
 
+  async function readFavoriteLedgerStatus(): Promise<FavoriteLedgerStatus> {
+    const status = await runScript(
+      buildFavoriteLedgerStatusScript(preferences.favoriteLedgers)
+    ) as unknown as Partial<FavoriteLedgerStatus> & AssistantAutomationResult
+
+    if (Array.isArray(status.ledgers) && Array.isArray(status.missingLedgerIds)) {
+      return status as FavoriteLedgerStatus
+    }
+
+    return {
+      ok: false,
+      ledgers: preferences.favoriteLedgers,
+      missingLedgerIds: [],
+      message: status.message
+    }
+  }
+
+  async function ensureFavoriteLedgers(): Promise<AssistantAutomationResult> {
+    const result = await runScript(
+      buildEnsureFavoriteLedgersScript(preferences.favoriteLedgers)
+    ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
+
+    if (Array.isArray(result.ledgers)) {
+      setPreferences((currentPreferences) =>
+        createInitialAssistantPreferences({
+          ...currentPreferences,
+          favoriteLedgers: result.ledgers ?? currentPreferences.favoriteLedgers
+        })
+      )
+    }
+
+    return result
+  }
+
+  async function scanOldFavorites(): Promise<FavoriteLedgerPreview> {
+    return {
+      items: [],
+      skippedSourceFolderTitles: []
+    }
+  }
+
+  async function executeOldFavoritePlan(
+    items: FavoriteLedgerPreviewItem[]
+  ): Promise<AssistantAutomationResult> {
+    return runScript(buildExecuteFavoriteLedgerPlanScript(items))
+  }
+
   async function runVisualFallback(
     context: Parameters<typeof runVisualFavoriteFallback>[1]
   ): Promise<AssistantAutomationResult> {
@@ -322,6 +376,10 @@ export default function App() {
         readVideoNoteSource={readVideoNoteSource}
         runVisualFallback={runVisualFallback}
         runScript={runScript}
+        readFavoriteLedgerStatus={readFavoriteLedgerStatus}
+        ensureFavoriteLedgers={ensureFavoriteLedgers}
+        scanOldFavorites={scanOldFavorites}
+        executeOldFavoritePlan={executeOldFavoritePlan}
         saveVideoNote={saveVideoNote}
         storedPreferences={preferences}
         videoTitle={activeTab?.title}

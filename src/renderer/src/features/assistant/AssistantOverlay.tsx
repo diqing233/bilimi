@@ -2,6 +2,7 @@ import type {
   AssistantAction,
   AssistantAutomationResult,
   AssistantPreferences,
+  FavoriteLedgerStatus,
   RecommendationKind,
   VideoNote,
   VideoNoteExtractionResult,
@@ -51,6 +52,8 @@ type AssistantOverlayProps = {
     message: string
   }>
   ensureFavoriteLedgers?: () => Promise<AssistantAutomationResult>
+  favoriteLedgerStatus?: FavoriteLedgerStatus
+  readFavoriteLedgerStatus?: () => Promise<FavoriteLedgerStatus>
   scanOldFavorites?: () => Promise<FavoriteLedgerPreview>
   executeOldFavoritePlan?: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
   onRecordFeedback?: (kind: RecommendationKind, action: AssistantAction) => void
@@ -85,6 +88,8 @@ export function AssistantOverlay({
   runVisualFallback,
   runScript = async () => DEFAULT_RUN_RESULT,
   ensureFavoriteLedgers = async () => DEFAULT_RUN_RESULT,
+  favoriteLedgerStatus,
+  readFavoriteLedgerStatus,
   scanOldFavorites = async () => ({ items: [], skippedSourceFolderTitles: [] }),
   executeOldFavoritePlan = async () => DEFAULT_RUN_RESULT,
   onRecordFeedback,
@@ -95,6 +100,10 @@ export function AssistantOverlay({
   const [coinPromptOpen, setCoinPromptOpen] = useState(false)
   const [commentChooserOpen, setCommentChooserOpen] = useState(false)
   const [ledgerPanelOpen, setLedgerPanelOpen] = useState(false)
+  const [ledgerStatus, setLedgerStatus] = useState<FavoriteLedgerStatus | null>(
+    favoriteLedgerStatus ?? null
+  )
+  const [ledgerStatusChecked, setLedgerStatusChecked] = useState(false)
   const [panelMinimized, setPanelMinimized] = useState(false)
   const [runningAction, setRunningAction] = useState<AssistantAction | null>(null)
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null)
@@ -128,6 +137,53 @@ export function AssistantOverlay({
       setPreferences(createInitialAssistantPreferences(storedPreferences))
     }
   }, [storedPreferences])
+
+  useEffect(() => {
+    if (favoriteLedgerStatus) {
+      setLedgerStatus(favoriteLedgerStatus)
+      setLedgerStatusChecked(true)
+    }
+  }, [favoriteLedgerStatus])
+
+  useEffect(() => {
+    if (!open || ledgerStatusChecked || !readFavoriteLedgerStatus) {
+      return
+    }
+
+    let cancelled = false
+
+    async function checkFavoriteLedgerStatus() {
+      try {
+        const status = await readFavoriteLedgerStatus?.()
+
+        if (!status || cancelled) {
+          return
+        }
+
+        setLedgerStatus(status)
+        setLedgerStatusChecked(true)
+
+        if (status.ledgers.length > 0) {
+          setPreferences((currentPreferences) =>
+            createInitialAssistantPreferences({
+              ...currentPreferences,
+              favoriteLedgers: status.ledgers
+            })
+          )
+        }
+      } catch {
+        if (!cancelled) {
+          setLedgerStatusChecked(true)
+        }
+      }
+    }
+
+    void checkFavoriteLedgerStatus()
+
+    return () => {
+      cancelled = true
+    }
+  }, [ledgerStatusChecked, open, readFavoriteLedgerStatus])
 
   useEffect(() => {
     setLatestVideoContentContext(videoContentContext)
@@ -173,6 +229,17 @@ export function AssistantOverlay({
       const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
       setPreferences(createInitialAssistantPreferences(saved))
     }
+  }
+
+  function dismissLedgerPrompt(openLedgerPanel: boolean) {
+    if (openLedgerPanel) {
+      setLedgerPanelOpen(true)
+    }
+
+    void persistPreferences({
+      ...preferences,
+      ledgerPromptDismissed: true
+    })
   }
 
   async function generateVideoNote(manualTranscript?: string) {
@@ -328,10 +395,23 @@ export function AssistantOverlay({
               onOpenLedgerPanel={() => setLedgerPanelOpen(true)}
             />
           )}
+          {ledgerStatus && ledgerStatus.missingLedgerIds.length > 0 && !preferences.ledgerPromptDismissed ? (
+            <div className="favorite-ledger-prompt" role="status">
+              <p>Bilimi 专用册目尚未备齐，可请掌库先行备册。</p>
+              <div className="favorite-ledger-prompt__actions">
+                <button type="button" onClick={() => dismissLedgerPrompt(true)}>
+                  请掌库
+                </button>
+                <button type="button" onClick={() => dismissLedgerPrompt(false)}>
+                  稍后
+                </button>
+              </div>
+            </div>
+          ) : null}
           {ledgerPanelOpen ? (
             <FavoriteLedgerPanel
               ledgers={preferences.favoriteLedgers}
-              missingLedgerIds={[]}
+              missingLedgerIds={ledgerStatus?.missingLedgerIds ?? []}
               onClose={() => setLedgerPanelOpen(false)}
               onEnsureLedgers={ensureFavoriteLedgers}
               onSaveLedgers={(favoriteLedgers) => {

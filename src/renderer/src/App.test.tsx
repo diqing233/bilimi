@@ -1,6 +1,23 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import { describe, expect, it, vi } from 'vitest'
 import App from './App'
+
+const LEDGER_STATUS_SCRIPT_MARKER = '/x/v3/fav/folder/created/list-all'
+const VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER = 'pageText: readText'
+
+function isLedgerStatusScript(script: string) {
+  return script.includes(LEDGER_STATUS_SCRIPT_MARKER) && script.includes('missingLedgerIds')
+}
+
+function emptyLedgerStatus() {
+  return {
+    ok: true,
+    ledgers: createDefaultFavoriteLedgers(),
+    missingLedgerIds: [],
+    message: '册目查验已毕。'
+  }
+}
 
 describe('App integration', () => {
   it('opens the memorial panel and shows the recommendation summary', () => {
@@ -60,19 +77,25 @@ describe('App integration', () => {
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string) => Promise<unknown>
     }
-    const executeJavaScript = vi.fn().mockResolvedValue({
-      ok: true,
-      steps: ['like', 'favorite'],
-      missingTargets: [],
-      message: '轻赏已入内库。'
-    })
+    const executeJavaScript = vi.fn(async (script: string) =>
+      isLedgerStatusScript(script)
+        ? emptyLedgerStatus()
+        : {
+            ok: true,
+            steps: ['like', 'favorite'],
+            missingTargets: [],
+            message: '轻赏已入内库。'
+          }
+    )
 
     Object.assign(webview, { executeJavaScript })
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
     fireEvent.click(screen.getByRole('button', { name: '赏' }))
 
-    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledOnce())
+    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('"action":"赏"')
+    ))
     await waitFor(() => expect(savePreferences).toHaveBeenCalled())
 
     expect(loadPreferences).toHaveBeenCalled()
@@ -97,33 +120,69 @@ describe('App integration', () => {
     )
   })
 
+  it('checks ledger status through the active webview and opens 掌库 setup', async () => {
+    render(<App />)
+
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      ledgers: [],
+      missingLedgerIds: ['knowledge'],
+      message: '册目缺失。'
+    })
+
+    Object.assign(webview, { executeJavaScript })
+
+    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+
+    expect(await screen.findByText('Bilimi 专用册目尚未备齐，可请掌库先行备册。')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '请掌库' }))
+
+    expect(screen.getByRole('dialog', { name: '掌库' })).toBeInTheDocument()
+    expect(executeJavaScript.mock.calls[0][0]).toContain('/x/v3/fav/folder/created/list-all')
+  })
+
   it('classifies active webview content before running favorite automation', async () => {
     render(<App />)
 
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string) => Promise<unknown>
     }
-    const executeJavaScript = vi
-      .fn()
-      .mockResolvedValueOnce({
-        title: '三分钟讲清机器学习科普教程',
-        pageText: '从原理到入门路线，适合学习收藏。'
-      })
-      .mockResolvedValueOnce({
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (isLedgerStatusScript(script)) {
+        return emptyLedgerStatus()
+      }
+
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          title: '三分钟讲清机器学习科普教程',
+          pageText: '从原理到入门路线，适合学习收藏。'
+        }
+      }
+
+      return {
         ok: true,
         steps: ['favorite:open', 'favorite:folder', 'favorite'],
         missingTargets: [],
         message: '已按内容归入内库。'
-      })
+      }
+    })
 
     Object.assign(webview, { executeJavaScript })
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
     fireEvent.click(screen.getByRole('button', { name: '藏' }))
 
-    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledTimes(2))
-    expect(executeJavaScript.mock.calls[0][0]).toContain('readMeta')
-    expect(executeJavaScript.mock.calls[1][0]).toContain('"targetLedgerId":"knowledge"')
+    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('"targetLedgerId":"knowledge"')
+    ))
+    expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER),
+      true
+    )
   })
 
   it('opens webview popup URLs as internal browser tabs', async () => {
@@ -241,18 +300,24 @@ describe('App integration', () => {
       expect(activeWebview).not.toBeNull()
     })
 
-    const activeExecuteJavaScript = vi.fn().mockResolvedValue({
-      ok: true,
-      steps: ['active'],
-      missingTargets: [],
-      message: 'active'
-    })
+    const activeExecuteJavaScript = vi.fn(async (script: string) =>
+      isLedgerStatusScript(script)
+        ? emptyLedgerStatus()
+        : {
+            ok: true,
+            steps: ['active'],
+            missingTargets: [],
+            message: 'active'
+          }
+    )
     Object.assign(activeWebview!, { executeJavaScript: activeExecuteJavaScript })
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
     fireEvent.click(screen.getByRole('button', { name: '赏' }))
 
-    await waitFor(() => expect(activeExecuteJavaScript).toHaveBeenCalledOnce())
+    await waitFor(() => expect(activeExecuteJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('"action":"赏"')
+    ))
     expect(homeExecuteJavaScript).not.toHaveBeenCalled()
   })
 
@@ -264,31 +329,56 @@ describe('App integration', () => {
       executeJavaScript?: (script: string) => Promise<unknown>
       sendInputEvent?: (event: unknown) => void
     }
-    const executeJavaScript = vi
-      .fn()
-      .mockResolvedValueOnce({
-        title: '爆笑整活合集',
-        tags: ['搞笑']
-      })
-      .mockResolvedValueOnce({
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (isLedgerStatusScript(script)) {
+        return emptyLedgerStatus()
+      }
+
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          title: '爆笑整活合集',
+          tags: ['搞笑']
+        }
+      }
+
+      if (script.includes('/x/v3/fav/resource/deal')) {
+        return {
+          ok: false,
+          steps: ['api:favorite:list'],
+          missingTargets: ['favorite-api'],
+          message: 'B 站收藏接口未能完成。'
+        }
+      }
+
+      if (script.includes('visualTextBoxes')) {
+        return {
+          boxes: [
+            { text: '新建收藏夹', x: 120, y: 360, width: 120, height: 32 },
+            { text: '收藏夹名称', x: 180, y: 420, width: 180, height: 36 },
+            { text: '创建', x: 300, y: 470, width: 80, height: 32 }
+          ]
+        }
+      }
+
+      if (script.includes('__bilimiFavoriteFocusPoint')) {
+        return true
+      }
+
+      if (script.includes('modalClassName')) {
+        return {
+          containers: [],
+          modalClassName: 'fav-dialog',
+          moved: false
+        }
+      }
+
+      return {
         ok: false,
         steps: ['like', 'favorite:open'],
         missingTargets: ['favorite-create-button'],
         message: '尚有 favorite-create-button 未能寻见。'
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        steps: ['api:favorite:list'],
-        missingTargets: ['favorite-api'],
-        message: 'B 站收藏接口未能完成。'
-      })
-      .mockResolvedValue({
-        boxes: [
-          { text: '新建收藏夹', x: 120, y: 360, width: 120, height: 32 },
-          { text: '收藏夹名称', x: 180, y: 420, width: 180, height: 36 },
-          { text: '创建', x: 300, y: 470, width: 80, height: 32 }
-        ]
-      })
+      }
+    })
     const sendInputEvent = vi.fn()
 
     Object.assign(webview, {
@@ -402,4 +492,5 @@ describe('App integration', () => {
 
     await waitFor(() => expect(saveVideoNote).toHaveBeenCalledWith(expect.objectContaining({ id: 'bvid:BV1note' })))
   })
+
 })

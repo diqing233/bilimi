@@ -475,6 +475,23 @@ body {
   flex-wrap: wrap;
 }
 
+.favorite-ledger-prompt {
+  width: min(236px, calc(100vw - 16px));
+  border: 1px solid rgba(113, 81, 48, 0.28);
+  background: rgba(251, 244, 232, 0.96);
+  color: #4b3321;
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.24);
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.favorite-ledger-prompt__actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
 .assistant-dialog {
   width: min(420px, calc(100vw - 48px));
   border: 1px solid rgba(113, 81, 48, 0.28);

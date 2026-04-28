@@ -271,4 +271,23 @@ describe('AssistantOverlay', () => {
 
     expect(screen.getByRole('dialog', { name: '掌库' })).toBeInTheDocument()
   })
+
+  it('prompts first-time users to ask 掌库 when enabled ledgers are missing', async () => {
+    const readFavoriteLedgerStatus = vi.fn().mockResolvedValue({
+      ok: true,
+      ledgers: [],
+      missingLedgerIds: ['knowledge'],
+      message: '册目缺失。'
+    })
+
+    render(<AssistantOverlay readFavoriteLedgerStatus={readFavoriteLedgerStatus} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+
+    expect(await screen.findByText('Bilimi 专用册目尚未备齐，可请掌库先行备册。')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '请掌库' }))
+
+    expect(screen.getByRole('dialog', { name: '掌库' })).toBeInTheDocument()
+  })
 })
