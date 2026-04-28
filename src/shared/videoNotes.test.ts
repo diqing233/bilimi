@@ -4,7 +4,7 @@ import type { VideoNote } from './types'
 
 function createNote(overrides: Partial<VideoNote> = {}): VideoNote {
   return {
-    id: createVideoNoteId({ bvid: 'BV1note', url: 'https://www.bilibili.com/video/BV1note', title: '本地札记' }),
+    id: createVideoNoteId({ bvid: 'BV1note', url: 'https://www.bilibili.com/video/BV1note' }),
     source: {
       title: '本地札记',
       bvid: 'BV1note',
@@ -29,8 +29,8 @@ function createNote(overrides: Partial<VideoNote> = {}): VideoNote {
 
 describe('video note helpers', () => {
   it('creates a stable id from bvid before falling back to url', () => {
-    expect(createVideoNoteId({ bvid: 'BV1abc', url: 'https://example.test/a', title: 'A' })).toBe('bvid:BV1abc')
-    expect(createVideoNoteId({ url: 'https://www.bilibili.com/video/BV1url?p=2', title: 'A', tags: [] })).toBe(
+    expect(createVideoNoteId({ bvid: 'BV1abc', url: 'https://example.test/a' })).toBe('bvid:BV1abc')
+    expect(createVideoNoteId({ url: 'https://www.bilibili.com/video/BV1url?p=2' })).toBe(
       'url:https://www.bilibili.com/video/BV1url?p=2'
     )
   })
