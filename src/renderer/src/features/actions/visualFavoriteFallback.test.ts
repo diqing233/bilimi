@@ -450,4 +450,20 @@ describe('runVisualFavoriteFallback', () => {
     expect(result.missingTargets).toEqual(['visual-favorite-panel'])
     expect(sentEvents.some((event) => event.keyCode === 'PageDown')).toBe(false)
   })
+
+  it('does not create the legacy Bilimi folder when the target ledger is missing', async () => {
+    const { sentEvents, webview } = createWebview([
+      [{ text: '鏀惰棌', x: 10, y: 20, width: 80, height: 32 }]
+    ])
+
+    const result = await runVisualFavoriteFallback(webview, {
+      favoriteFolders: {},
+      favoritesFolderName: 'Bilimi Legacy Vault',
+      targetLedgerId: 'missing-ledger'
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.missingTargets).toContain('target-ledger')
+    expect(sentEvents).toHaveLength(0)
+  })
 })

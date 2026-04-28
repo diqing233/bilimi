@@ -261,6 +261,49 @@ describe('buildAutomationScript', () => {
     expect(result.missingTargets).toContain('favorites-folder')
   })
 
+  it('does not fall back to the legacy Bilimi folder when the target ledger is missing', async () => {
+    document.body.innerHTML = `
+      <button class="video-fav">favorite</button>
+    `
+    let selectedFolder = ''
+    let confirmClicked = false
+
+    document.querySelector('.video-fav')?.addEventListener('click', () => {
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        `
+          <div class="fav-dialog">
+            <button class="fav-item">Bilimi Legacy Vault</button>
+            <button class="fav-submit">瀹屾垚</button>
+          </div>
+        `
+      )
+
+      document.querySelector('.fav-item')?.addEventListener('click', (event) => {
+        selectedFolder = (event.currentTarget as HTMLElement).textContent ?? ''
+      })
+      document.querySelector('.fav-submit')?.addEventListener('click', () => {
+        confirmClicked = true
+      })
+    })
+
+    const result = await window.eval(
+      buildAutomationScript(
+        '\u85cf',
+        'Bilimi Legacy Vault',
+        undefined,
+        undefined,
+        favoriteLedgers,
+        'missing-ledger'
+      )
+    )
+
+    expect(result.ok).toBe(false)
+    expect(selectedFolder).toBe('')
+    expect(confirmClicked).toBe(false)
+    expect(result.missingTargets).toContain('target-ledger')
+  })
+
   it('reuses an existing matching Bilimi favorite folder before creating anything new', async () => {
     document.body.innerHTML = `
       <button aria-label="点赞">点赞</button>

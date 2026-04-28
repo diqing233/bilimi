@@ -567,7 +567,16 @@ export async function runVisualFavoriteFallback(
   }
 
   const steps: string[] = []
-  const targetFolder = context.favoriteFolders[context.targetLedgerId] || context.favoritesFolderName
+  const targetFolder = context.favoriteFolders[context.targetLedgerId]
+
+  if (!targetFolder) {
+    return {
+      ok: false,
+      steps,
+      missingTargets: ['target-ledger'],
+      message: '未找到目标 Bilimi 收藏册目，已停止屏幕兜底。'
+    }
+  }
 
   const panelOpened = await openFavoritePanel(webview, steps)
   if (!panelOpened) {

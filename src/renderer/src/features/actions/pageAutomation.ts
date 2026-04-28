@@ -187,7 +187,7 @@ export function buildAutomationScript(
       const targetLedger = () =>
         payload.favoriteLedgers.find((ledger) => ledger.id === payload.targetLedgerId);
 
-      const targetFavoriteFolderName = () => targetLedger()?.displayName || payload.favoritesFolderName;
+      const targetFavoriteFolderName = () => targetLedger()?.displayName || '';
 
       const matchingFavoriteKeywords = () => {
         const targetName = targetFavoriteFolderName();
@@ -434,6 +434,11 @@ export function buildAutomationScript(
       };
 
       const favoriteCurrentVideo = async () => {
+        if (!targetLedger()) {
+          missingTargets.push('target-ledger');
+          return;
+        }
+
         const favoriteOpened = click(await waitForElement(queryFavoriteButton, 'favorite'), 'favorite:open');
         if (favoriteOpened) {
           const selectedFolder = await ensureFavoriteFolder();
