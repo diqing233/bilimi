@@ -1,21 +1,49 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_ASSISTANT_PREFERENCES,
+  loadVideoNotes,
   loadAssistantPreferences,
+  saveVideoNote,
   saveAssistantPreferences,
-  type AssistantPreferences,
+  type DesktopStoreState,
   type AssistantStoreLike
 } from './store'
+import type { VideoNote } from '../../src/shared/types'
+
+function createStoreNote(id = 'bvid:BV1store'): VideoNote {
+  return {
+    id,
+    source: {
+      title: '札记',
+      bvid: id.replace('bvid:', ''),
+      url: 'https://www.bilibili.com/video/BV1store',
+      tags: []
+    },
+    transcriptSource: 'auto',
+    transcript: [],
+    chapters: [],
+    overview: {
+      shortSummary: ['摘要'],
+      keywords: [],
+      timeline: [],
+      highlights: []
+    },
+    userMemo: '',
+    createdAt: '2026-04-28T00:00:00.000Z',
+    updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+}
 
 function createFakeStore(
-  initial: Partial<AssistantPreferences> = {}
-): AssistantStoreLike & { snapshot: AssistantPreferences } {
-  const snapshot: AssistantPreferences = {
+  initial: Partial<DesktopStoreState> = {}
+): AssistantStoreLike & { snapshot: DesktopStoreState } {
+  const snapshot: DesktopStoreState = {
     favoritesFolderName: initial.favoritesFolderName ?? DEFAULT_ASSISTANT_PREFERENCES.favoritesFolderName,
     favoriteLedgers: initial.favoriteLedgers ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteLedgers,
     ledgerPromptDismissed:
       initial.ledgerPromptDismissed ?? DEFAULT_ASSISTANT_PREFERENCES.ledgerPromptDismissed,
-    preferenceCounts: initial.preferenceCounts ?? { ...DEFAULT_ASSISTANT_PREFERENCES.preferenceCounts }
+    preferenceCounts: initial.preferenceCounts ?? { ...DEFAULT_ASSISTANT_PREFERENCES.preferenceCounts },
+    videoNotes: initial.videoNotes ?? []
   }
 
   return {
@@ -96,6 +124,34 @@ describe('assistant preference store helpers', () => {
         suspicious: 1
       }
     })
-    expect(store.snapshot).toEqual(saved)
+    expect(store.snapshot).toMatchObject(saved)
+    expect(store.snapshot.videoNotes).toEqual([])
+  })
+})
+
+describe('video note store helpers', () => {
+  it('loads an empty video note list by default', () => {
+    const store = createFakeStore()
+
+    expect(loadVideoNotes(store)).toEqual([])
+  })
+
+  it('saves and updates video notes by stable id', () => {
+    const store = createFakeStore()
+    const first = createStoreNote()
+    const second = {
+      ...first,
+      userMemo: '更新备注',
+      createdAt: '2026-04-29T00:00:00.000Z',
+      updatedAt: '2026-04-29T00:00:00.000Z'
+    }
+
+    expect(saveVideoNote(store, first)).toEqual([first])
+    expect(saveVideoNote(store, second)).toEqual([
+      {
+        ...second,
+        createdAt: first.createdAt
+      }
+    ])
   })
 })

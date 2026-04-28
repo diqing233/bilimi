@@ -3,9 +3,12 @@ import { join } from 'node:path'
 import {
   getDesktopStore,
   loadAssistantPreferences,
+  loadVideoNotes,
   saveAssistantPreferences,
+  saveVideoNote,
   type AssistantPreferences
 } from './store'
+import type { VideoNote } from '../../src/shared/types'
 
 function openUrlInRendererTab(win: BrowserWindow, url: string) {
   if (!url || win.isDestroyed()) {
@@ -57,6 +60,10 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle('assistant:load-preferences', () => loadAssistantPreferences())
   ipcMain.handle('assistant:save-preferences', (_event, preferences: AssistantPreferences) =>
     saveAssistantPreferences(getDesktopStore(), preferences)
+  )
+  ipcMain.handle('video-notes:load', () => loadVideoNotes(getDesktopStore()))
+  ipcMain.handle('video-notes:save', (_event, note: VideoNote) =>
+    saveVideoNote(getDesktopStore(), note)
   )
 }
 

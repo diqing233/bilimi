@@ -1,6 +1,7 @@
 import Store from 'electron-store'
 import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '../../src/shared/favoriteLedgers'
-import type { FavoriteLedger } from '../../src/shared/types'
+import { upsertVideoNote } from '../../src/shared/videoNotes'
+import type { FavoriteLedger, VideoNote } from '../../src/shared/types'
 
 export type AssistantPreferences = {
   favoritesFolderName: string
@@ -9,9 +10,13 @@ export type AssistantPreferences = {
   preferenceCounts: Record<string, number>
 }
 
+export type DesktopStoreState = AssistantPreferences & {
+  videoNotes: VideoNote[]
+}
+
 export type AssistantStoreLike = {
-  get<Key extends keyof AssistantPreferences>(key: Key): AssistantPreferences[Key]
-  set<Key extends keyof AssistantPreferences>(key: Key, value: AssistantPreferences[Key]): void
+  get<Key extends keyof DesktopStoreState>(key: Key): DesktopStoreState[Key]
+  set<Key extends keyof DesktopStoreState>(key: Key, value: DesktopStoreState[Key]): void
 }
 
 export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
@@ -21,12 +26,17 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   preferenceCounts: {}
 }
 
-let desktopStore: Store<AssistantPreferences> | undefined
+export const DEFAULT_DESKTOP_STORE_STATE: DesktopStoreState = {
+  ...DEFAULT_ASSISTANT_PREFERENCES,
+  videoNotes: []
+}
 
-export function getDesktopStore(): Store<AssistantPreferences> {
+let desktopStore: Store<DesktopStoreState> | undefined
+
+export function getDesktopStore(): Store<DesktopStoreState> {
   if (!desktopStore) {
-    desktopStore = new Store<AssistantPreferences>({
-      defaults: DEFAULT_ASSISTANT_PREFERENCES
+    desktopStore = new Store<DesktopStoreState>({
+      defaults: DEFAULT_DESKTOP_STORE_STATE
     })
   }
 
@@ -54,4 +64,19 @@ export function saveAssistantPreferences(
   store.set('preferenceCounts', preferences.preferenceCounts ?? {})
 
   return loadAssistantPreferences(store)
+}
+
+export function loadVideoNotes(store: AssistantStoreLike = getDesktopStore()): VideoNote[] {
+  return store.get('videoNotes') ?? []
+}
+
+export function saveVideoNote(
+  store: AssistantStoreLike = getDesktopStore(),
+  note: VideoNote
+): VideoNote[] {
+  const notes = upsertVideoNote(loadVideoNotes(store), note)
+
+  store.set('videoNotes', notes)
+
+  return notes
 }
