@@ -101,6 +101,14 @@ export function normalizeFavoriteLedgers(ledgers: FavoriteLedger[]): FavoriteLed
   return normalized
 }
 
+export function favoriteLedgersById(ledgers: FavoriteLedger[]): Record<string, FavoriteLedger> {
+  return Object.fromEntries(ledgers.map((ledger) => [ledger.id, ledger]))
+}
+
+export function favoriteLedgerNamesById(ledgers: FavoriteLedger[]): Record<string, string> {
+  return Object.fromEntries(ledgers.map((ledger) => [ledger.id, ledger.displayName]))
+}
+
 export function isBilimiManagedLedgerName(name: string): boolean {
   return name.startsWith(BILIMI_LEDGER_PREFIX)
 }

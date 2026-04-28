@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   BILIMI_LEDGER_PREFIX,
   createDefaultFavoriteLedgers,
+  favoriteLedgerNamesById,
+  favoriteLedgersById,
   isBilimiManagedLedgerName,
   normalizeFavoriteLedgers,
   suggestFavoriteLedgerNames
@@ -75,5 +77,35 @@ describe('favorite ledger model', () => {
       'Bilimi·机杼成文',
       'Bilimi·格物编修'
     ])
+  })
+
+  it('indexes ledgers and ledger display names by id', () => {
+    const ledgers = [
+      {
+        id: 'knowledge',
+        displayName: 'Bilimi·见闻增广',
+        keywords: ['知识'],
+        enabled: true,
+        priority: 10,
+        isDefault: true
+      },
+      {
+        id: 'custom-photo',
+        displayName: 'Bilimi·光影留真',
+        keywords: ['摄影'],
+        enabled: false,
+        priority: 20,
+        isDefault: false
+      }
+    ]
+
+    expect(favoriteLedgersById(ledgers)).toEqual({
+      knowledge: ledgers[0],
+      'custom-photo': ledgers[1]
+    })
+    expect(favoriteLedgerNamesById(ledgers)).toEqual({
+      knowledge: 'Bilimi·见闻增广',
+      'custom-photo': 'Bilimi·光影留真'
+    })
   })
 })
