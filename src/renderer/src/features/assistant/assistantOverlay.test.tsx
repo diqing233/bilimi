@@ -262,4 +262,13 @@ describe('AssistantOverlay', () => {
     expect(runScript.mock.calls[0][0]).toContain(draft)
     expect(onRecordFeedback).toHaveBeenCalledWith('inbox', '表')
   })
+
+  it('opens ledger panel from the memorial panel', () => {
+    render(<AssistantOverlay />)
+
+    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    fireEvent.click(screen.getByRole('button', { name: '掌库' }))
+
+    expect(screen.getByRole('dialog', { name: '掌库' })).toBeInTheDocument()
+  })
 })

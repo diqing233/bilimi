@@ -11,6 +11,7 @@ type MemorialPanelProps = {
   onClose: () => void
   onGenerateVideoNote: (manualTranscript?: string) => Promise<VideoNote | null>
   onSaveVideoNote: (note: VideoNote) => Promise<void>
+  onOpenLedgerPanel?: () => void
   videoNote: VideoNote | null
   videoNoteLoading: boolean
   runningAction?: AssistantAction | null
@@ -31,6 +32,7 @@ export function MemorialPanel({
   onClose,
   onGenerateVideoNote,
   onSaveVideoNote,
+  onOpenLedgerPanel,
   videoNote,
   videoNoteLoading,
   runningAction = null,
@@ -93,6 +95,9 @@ export function MemorialPanel({
                   {action}
                 </button>
               ))}
+              <button type="button" disabled={runningAction !== null} onClick={onOpenLedgerPanel}>
+                掌库
+              </button>
             </div>
           </div>
         ) : (

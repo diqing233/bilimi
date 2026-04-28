@@ -1,5 +1,6 @@
 import type {
   AssistantAction,
+  AssistantAutomationResult,
   AssistantPreferences,
   RecommendationKind,
   VideoNote,
@@ -16,6 +17,7 @@ import {
 } from '../state/assistantState'
 import { CoinPrompt } from './CoinPrompt'
 import { CommentChooser } from './CommentChooser'
+import { FavoriteLedgerPanel } from './FavoriteLedgerPanel'
 import { MemorialPanel } from './MemorialPanel'
 import { SealButton } from './SealButton'
 import { BILIMI_LEDGER_PREFIX } from '@shared/favoriteLedgers'
@@ -23,6 +25,7 @@ import { classifyVideoContent, type VideoContentContext } from '../recommendatio
 import { normalizeExtractedVideoNoteResult } from '../notes/videoNoteExtractor'
 import { createLocalVideoNoteDraft } from '../notes/videoNoteSummarizer'
 import { parseManualTranscript } from '../notes/transcriptNormalizer'
+import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
 
 const CURRENT_TITLE = '早八生存实录'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
@@ -47,6 +50,9 @@ type AssistantOverlayProps = {
     missingTargets: string[]
     message: string
   }>
+  ensureFavoriteLedgers?: () => Promise<AssistantAutomationResult>
+  scanOldFavorites?: () => Promise<FavoriteLedgerPreview>
+  executeOldFavoritePlan?: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
   onRecordFeedback?: (kind: RecommendationKind, action: AssistantAction) => void
   saveVideoNote?: (note: VideoNote) => Promise<void>
   storedPreferences?: AssistantPreferences
@@ -78,6 +84,9 @@ export function AssistantOverlay({
   videoTitle = CURRENT_TITLE,
   runVisualFallback,
   runScript = async () => DEFAULT_RUN_RESULT,
+  ensureFavoriteLedgers = async () => DEFAULT_RUN_RESULT,
+  scanOldFavorites = async () => ({ items: [], skippedSourceFolderTitles: [] }),
+  executeOldFavoritePlan = async () => DEFAULT_RUN_RESULT,
   onRecordFeedback,
   saveVideoNote,
   storedPreferences
@@ -85,6 +94,7 @@ export function AssistantOverlay({
   const [open, setOpen] = useState(false)
   const [coinPromptOpen, setCoinPromptOpen] = useState(false)
   const [commentChooserOpen, setCommentChooserOpen] = useState(false)
+  const [ledgerPanelOpen, setLedgerPanelOpen] = useState(false)
   const [panelMinimized, setPanelMinimized] = useState(false)
   const [runningAction, setRunningAction] = useState<AssistantAction | null>(null)
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null)
@@ -149,6 +159,15 @@ export function AssistantOverlay({
     )
     setPreferences(nextPreferences)
     onRecordFeedback?.(kind, action)
+
+    if (window.bilimiDesktop?.savePreferences) {
+      const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
+      setPreferences(createInitialAssistantPreferences(saved))
+    }
+  }
+
+  async function persistPreferences(nextPreferences: AssistantPreferences) {
+    setPreferences(nextPreferences)
 
     if (window.bilimiDesktop?.savePreferences) {
       const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
@@ -306,8 +325,25 @@ export function AssistantOverlay({
               videoNoteLoading={videoNoteLoading}
               runningAction={runningAction}
               feedback={feedback}
+              onOpenLedgerPanel={() => setLedgerPanelOpen(true)}
             />
           )}
+          {ledgerPanelOpen ? (
+            <FavoriteLedgerPanel
+              ledgers={preferences.favoriteLedgers}
+              missingLedgerIds={[]}
+              onClose={() => setLedgerPanelOpen(false)}
+              onEnsureLedgers={ensureFavoriteLedgers}
+              onSaveLedgers={(favoriteLedgers) => {
+                void persistPreferences({
+                  ...preferences,
+                  favoriteLedgers
+                })
+              }}
+              onScanOldFavorites={scanOldFavorites}
+              onExecuteOldFavoritePlan={executeOldFavoritePlan}
+            />
+          ) : null}
           {coinPromptOpen ? (
             <CoinPrompt
               onChoose={(coinCount) => {
