@@ -50,7 +50,7 @@ export type FavoriteLedgerStatus = {
 }
 
 export type RecommendationLabel = {
-  badge: '可赏' | '可阅' | '请陛下过目' | '可藏' | '待分拣'
+  badge: '可赏' | '可阅' | '请陛下过目' | '慎入' | '可藏' | '待分拣'
   summary: string
 }
 
