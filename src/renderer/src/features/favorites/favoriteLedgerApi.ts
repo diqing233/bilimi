@@ -137,6 +137,121 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
   `
 }
 
+export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
+  const payload = scriptPayload({ ledgers })
+
+  return `
+    (async () => {
+      const payload = ${payload};
+      ${sharedScriptHelpers()}
+      const steps = [];
+
+      try {
+        const { mid } = readCredentials();
+        if (!mid) {
+          return {
+            ok: false,
+            sourceFolders: [],
+            targetMembership: {},
+            steps,
+            missingTargets: ['favorite-api-user'],
+            message: 'favorite user is unavailable'
+          };
+        }
+
+        const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
+        const listJson = await ensureApiOk(listResponse);
+        const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
+        const targetFolderIds = new Set(
+          payload.ledgers
+            .map((ledger) => ledger.bilibiliFolderId)
+            .filter(Boolean)
+            .map(String)
+        );
+        const sourceFolders = [];
+        const targetMembership = {};
+        steps.push('api:favorite:list');
+
+        const buildResourceUrl = (folderId, page) => {
+          const url = new URL('https://api.bilibili.com/x/v3/fav/resource/list');
+          url.searchParams.set('media_id', String(folderId));
+          url.searchParams.set('pn', String(page));
+          url.searchParams.set('ps', '20');
+          url.searchParams.set('type', '0');
+          url.searchParams.set('order', 'mtime');
+          url.searchParams.set('platform', 'web');
+          return url.toString();
+        };
+        const readFolderVideos = async (folderId) => {
+          const videos = [];
+          let page = 1;
+
+          while (true) {
+            const response = await fetch(buildResourceUrl(folderId, page), {
+              credentials: 'include'
+            });
+            const json = await ensureApiOk(response);
+            const medias = Array.isArray(json.data?.medias) ? json.data.medias : [];
+            videos.push(...medias.map((media) => ({
+              aid: Number(media?.id ?? media?.aid),
+              title: String(media?.title ?? ''),
+              description: String(media?.intro ?? '')
+            })).filter((video) => Number.isFinite(video.aid) && video.aid > 0));
+
+            if (!json.data?.has_more || medias.length === 0) {
+              break;
+            }
+
+            page += 1;
+          }
+
+          return videos;
+        };
+
+        for (const folder of folders) {
+          const folderId = findFolderId(folder);
+          if (!folderId) {
+            continue;
+          }
+
+          const folderIdString = String(folderId);
+          const videos = await readFolderVideos(folderIdString);
+
+          if (targetFolderIds.has(folderIdString)) {
+            targetMembership[folderIdString] = videos.map((video) => video.aid);
+            steps.push('api:favorite:scan-target:' + folderIdString);
+          } else {
+            sourceFolders.push({
+              id: folderIdString,
+              title: String(folder?.title ?? ''),
+              videos
+            });
+            steps.push('api:favorite:scan-source:' + folderIdString);
+          }
+        }
+
+        return {
+          ok: true,
+          sourceFolders,
+          targetMembership,
+          steps,
+          missingTargets: [],
+          message: 'old favorites scanned'
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          sourceFolders: [],
+          targetMembership: {},
+          steps,
+          missingTargets: ['favorite-ledger-api'],
+          message: 'old favorite scan failed: ' + (error instanceof Error ? error.message : String(error || 'unknown error'))
+        };
+      }
+    })();
+  `
+}
+
 export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPreviewItem[]): string {
   const payload = scriptPayload({ items })
 

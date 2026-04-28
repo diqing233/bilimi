@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   buildEnsureFavoriteLedgersScript,
   buildExecuteFavoriteLedgerPlanScript,
-  buildFavoriteLedgerStatusScript
+  buildFavoriteLedgerStatusScript,
+  buildScanOldFavoritesScript
 } from './favoriteLedgerApi'
 
 function installCookies() {
@@ -188,5 +189,98 @@ describe('favorite ledger API scripts', () => {
       missingTargets: ['favorite-ledger-api'],
       message: expect.stringContaining('账号未登录')
     })
+  })
+
+  it('scans old favorites without moving items from their source folders', async () => {
+    installCookies()
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 2).map((ledger, index) => ({
+      ...ledger,
+      bilibiliFolderId: String(9001 + index)
+    }))
+    const requests: string[] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        requests.push(url)
+
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({
+            code: 0,
+            data: {
+              list: [
+                { id: 101, title: 'Default Favorites' },
+                { id: 9001, title: ledgers[0].displayName }
+              ]
+            }
+          })
+        }
+
+        if (url.includes('media_id=101') && url.includes('pn=1')) {
+          return Response.json({
+            code: 0,
+            data: {
+              medias: [
+                { id: 123, title: 'Machine learning tutorial', intro: 'A practical lesson' }
+              ],
+              has_more: true
+            }
+          })
+        }
+
+        if (url.includes('media_id=101') && url.includes('pn=2')) {
+          return Response.json({
+            code: 0,
+            data: {
+              medias: [
+                { id: 124, title: 'Comedy sketch', intro: 'Funny moment' }
+              ],
+              has_more: false
+            }
+          })
+        }
+
+        if (url.includes('media_id=9001')) {
+          return Response.json({
+            code: 0,
+            data: {
+              medias: [{ id: 123, title: 'Machine learning tutorial', intro: '' }],
+              has_more: false
+            }
+          })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+
+    expect(result.ok).toBe(true)
+    expect(result.sourceFolders).toEqual([
+      {
+        id: '101',
+        title: 'Default Favorites',
+        videos: [
+          {
+            aid: 123,
+            title: 'Machine learning tutorial',
+            description: 'A practical lesson'
+          },
+          {
+            aid: 124,
+            title: 'Comedy sketch',
+            description: 'Funny moment'
+          }
+        ]
+      }
+    ])
+    expect(result.targetMembership).toEqual({ '9001': [123] })
+    expect(result.steps).toEqual([
+      'api:favorite:list',
+      'api:favorite:scan-source:101',
+      'api:favorite:scan-target:9001'
+    ])
+    expect(requests.some((url) => url.includes('/x/v3/fav/resource/deal'))).toBe(false)
   })
 })

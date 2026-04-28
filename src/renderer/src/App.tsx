@@ -23,9 +23,15 @@ import {
 import {
   buildEnsureFavoriteLedgersScript,
   buildExecuteFavoriteLedgerPlanScript,
-  buildFavoriteLedgerStatusScript
+  buildFavoriteLedgerStatusScript,
+  buildScanOldFavoritesScript
 } from './features/favorites/favoriteLedgerApi'
-import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from './features/favorites/favoriteLedgerPreview'
+import {
+  createFavoriteLedgerPreview,
+  type FavoriteLedgerPreview,
+  type FavoriteLedgerPreviewItem,
+  type FavoriteSourceFolder
+} from './features/favorites/favoriteLedgerPreview'
 
 const HOME_TAB_ID = 'home'
 
@@ -262,6 +268,13 @@ export default function App() {
     ) as unknown as Partial<FavoriteLedgerStatus> & AssistantAutomationResult
 
     if (Array.isArray(status.ledgers) && Array.isArray(status.missingLedgerIds)) {
+      setPreferences((currentPreferences) =>
+        createInitialAssistantPreferences({
+          ...currentPreferences,
+          favoriteLedgers: status.ledgers ?? currentPreferences.favoriteLedgers
+        })
+      )
+
       return status as FavoriteLedgerStatus
     }
 
@@ -291,10 +304,25 @@ export default function App() {
   }
 
   async function scanOldFavorites(): Promise<FavoriteLedgerPreview> {
-    return {
-      items: [],
-      skippedSourceFolderTitles: []
+    const scanResult = await runScript(
+      buildScanOldFavoritesScript(preferences.favoriteLedgers)
+    ) as AssistantAutomationResult & {
+      sourceFolders?: FavoriteSourceFolder[]
+      targetMembership?: Record<string, number[]>
     }
+
+    if (!scanResult.ok || !Array.isArray(scanResult.sourceFolders) || !scanResult.targetMembership) {
+      return {
+        items: [],
+        skippedSourceFolderTitles: []
+      }
+    }
+
+    return createFavoriteLedgerPreview({
+      ledgers: preferences.favoriteLedgers,
+      sourceFolders: scanResult.sourceFolders,
+      targetMembership: scanResult.targetMembership
+    })
   }
 
   async function executeOldFavoritePlan(

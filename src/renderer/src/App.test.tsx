@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import App from './App'
 
 const LEDGER_STATUS_SCRIPT_MARKER = '/x/v3/fav/folder/created/list-all'
+const OLD_FAVORITE_SCAN_SCRIPT_MARKER = '/x/v3/fav/resource/list'
 const VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER = 'pageText: readText'
 
 function isLedgerStatusScript(script: string) {
@@ -14,6 +15,18 @@ function emptyLedgerStatus() {
   return {
     ok: true,
     ledgers: createDefaultFavoriteLedgers(),
+    missingLedgerIds: [],
+    message: '册目查验已毕。'
+  }
+}
+
+function ledgerStatusWithFolderIds() {
+  return {
+    ok: true,
+    ledgers: createDefaultFavoriteLedgers().map((ledger, index) => ({
+      ...ledger,
+      bilibiliFolderId: String(9001 + index)
+    })),
     missingLedgerIds: [],
     message: '册目查验已毕。'
   }
@@ -143,6 +156,55 @@ describe('App integration', () => {
 
     expect(screen.getByRole('dialog', { name: '掌库' })).toBeInTheDocument()
     expect(executeJavaScript.mock.calls[0][0]).toContain('/x/v3/fav/folder/created/list-all')
+  })
+
+  it('scans old favorites through the active webview before showing ledger preview', async () => {
+    render(<App />)
+
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (isLedgerStatusScript(script)) {
+        return ledgerStatusWithFolderIds()
+      }
+
+      if (script.includes(OLD_FAVORITE_SCAN_SCRIPT_MARKER)) {
+        return {
+          ok: true,
+          sourceFolders: [
+            {
+              id: '101',
+              title: '默认收藏夹',
+              videos: [
+                {
+                  aid: 123,
+                  title: '机器学习入门教程',
+                  description: '适合学习收藏的科普教程'
+                }
+              ]
+            }
+          ],
+          targetMembership: {},
+          steps: ['api:favorite:list', 'api:favorite:scan-source:101'],
+          missingTargets: [],
+          message: 'old favorites scanned'
+        }
+      }
+
+      throw new Error(`Unexpected script: ${script}`)
+    })
+
+    Object.assign(webview, { executeJavaScript })
+
+    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    fireEvent.click(screen.getByRole('button', { name: '掌库' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+
+    expect(await screen.findByText('机器学习入门教程')).toBeInTheDocument()
+    expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('/x/v3/fav/resource/list')
+    )
   })
 
   it('classifies active webview content before running favorite automation', async () => {
