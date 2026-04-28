@@ -77,3 +77,57 @@ export type VisualAutomationContext = {
 export type VisualAutomationFallback = (
   context: VisualAutomationContext
 ) => Promise<AssistantAutomationResult>
+
+export type VideoNoteSourceMetadata = {
+  title: string
+  author?: string
+  description?: string
+  tags: string[]
+  bvid?: string
+  url: string
+}
+
+export type TranscriptSegment = {
+  start: number | null
+  end: number | null
+  text: string
+}
+
+export type TranscriptChapter = {
+  start: number | null
+  title: string
+  summary: string
+  segmentIndexes: number[]
+}
+
+export type VideoNoteTimelineItem = {
+  start: number | null
+  title: string
+  detail: string
+}
+
+export type VideoNoteOverview = {
+  shortSummary: string[]
+  keywords: string[]
+  timeline: VideoNoteTimelineItem[]
+  highlights: VideoNoteTimelineItem[]
+}
+
+export type VideoNote = {
+  id: string
+  source: VideoNoteSourceMetadata
+  transcriptSource: 'auto' | 'manual'
+  transcript: TranscriptSegment[]
+  chapters: TranscriptChapter[]
+  overview: VideoNoteOverview
+  userMemo: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type VideoNoteExtractionResult = {
+  source: VideoNoteSourceMetadata
+  transcript: TranscriptSegment[]
+  transcriptSource: 'auto' | 'manual'
+  error?: string
+}
