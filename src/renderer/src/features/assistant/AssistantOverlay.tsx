@@ -169,7 +169,8 @@ export function AssistantOverlay({
         runVisualFallback,
         coinCount: options?.coinCount,
         commentDraft: options?.commentDraft,
-        recommendationKind: actionRecommendationKind
+        favoriteLedgers: preferences.favoriteLedgers,
+        targetLedgerId: actionRecommendationKind
       })
 
       if (result.ok && action !== '阅') {

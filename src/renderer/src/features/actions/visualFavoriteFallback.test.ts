@@ -67,7 +67,7 @@ function createWebviewWithPostCreateScroll() {
     { text: '确定', x: 250, y: 620, width: 120, height: 40 }
   ]
   const afterPostCreateScroll = [
-    { text: 'Bilimi｜解闷小品', x: 120, y: 470, width: 180, height: 32 },
+    { text: 'Bilimi·茶余解颐', x: 120, y: 470, width: 180, height: 32 },
     { text: '确定', x: 250, y: 620, width: 120, height: 40 }
   ]
 
@@ -264,13 +264,12 @@ function createWebviewWithOffscreenCreateEntry() {
 
 const context = {
   favoriteFolders: {
-    funny: 'Bilimi｜解闷小品',
-    knowledge: 'Bilimi｜见闻增广',
-    story: 'Bilimi｜剧情留档',
-    suspicious: 'Bilimi｜谨慎观察'
+    humor: 'Bilimi·茶余解颐',
+    knowledge: 'Bilimi·见闻增广',
+    story: 'Bilimi·影剧情长'
   },
   favoritesFolderName: 'Bilimi 内库',
-  recommendationKind: 'funny' as const
+  targetLedgerId: 'humor'
 }
 
 describe('runVisualFavoriteFallback', () => {
@@ -286,7 +285,7 @@ describe('runVisualFavoriteFallback', () => {
       [{ text: '收藏夹名称', x: 120, y: 260, width: 180, height: 36 }],
       [{ text: '创建', x: 240, y: 340, width: 80, height: 32 }],
       [
-        { text: 'Bilimi｜解闷小品', x: 120, y: 470, width: 180, height: 32 },
+        { text: 'Bilimi·茶余解颐', x: 120, y: 470, width: 180, height: 32 },
         { text: '确定', x: 250, y: 620, width: 120, height: 40 }
       ]
     ])
@@ -324,11 +323,11 @@ describe('runVisualFavoriteFallback', () => {
       [{ text: '收藏夹名称', x: 120, y: 260, width: 180, height: 36 }],
       [{ text: '创建', x: 240, y: 340, width: 80, height: 32 }],
       [
-        { text: 'Bilimi｜解闷小品', x: 120, y: 470, width: 180, height: 32 },
+        { text: 'Bilimi·茶余解颐', x: 120, y: 470, width: 180, height: 32 },
         { text: '确定', x: 250, y: 620, width: 120, height: 40 }
       ],
       [
-        { text: 'Bilimi｜解闷小品', x: 120, y: 470, width: 180, height: 32 },
+        { text: 'Bilimi·茶余解颐', x: 120, y: 470, width: 180, height: 32 },
         { text: '确定', x: 250, y: 620, width: 120, height: 40 }
       ]
     ])
@@ -398,7 +397,7 @@ describe('runVisualFavoriteFallback', () => {
     expect(result.steps).toEqual(
       expect.arrayContaining([
         'visual:favorite:create-open',
-        'visual:favorite:create-name:Bilimi｜解闷小品',
+        'visual:favorite:create-name:Bilimi·茶余解颐',
         'visual:favorite:create',
         'visual:favorite:confirm'
       ])

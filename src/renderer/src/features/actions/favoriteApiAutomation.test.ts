@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import { buildFavoriteApiFallbackScript } from './favoriteApiAutomation'
 
 function installBilibiliPageState() {
@@ -16,6 +17,8 @@ function installBilibiliPageState() {
 }
 
 describe('buildFavoriteApiFallbackScript', () => {
+  const favoriteLedgers = createDefaultFavoriteLedgers()
+
   it('creates the missing Bilimi category folder and favorites the current video through Bilibili APIs', async () => {
     installBilibiliPageState()
 
@@ -45,7 +48,7 @@ describe('buildFavoriteApiFallbackScript', () => {
           code: 0,
           data: {
             id: 91000001,
-            title: 'Bilimi｜见闻增广'
+            title: 'Bilimi·见闻增广'
           },
           message: 'OK'
         })
@@ -60,7 +63,7 @@ describe('buildFavoriteApiFallbackScript', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const result = await window.eval(
-      buildFavoriteApiFallbackScript('Bilimi 内库', 'knowledge')
+      buildFavoriteApiFallbackScript(favoriteLedgers, 'knowledge')
     )
 
     expect(result.ok).toBe(true)
@@ -70,7 +73,7 @@ describe('buildFavoriteApiFallbackScript', () => {
       'api:favorite:add'
     ])
     expect(requests[0].url).toContain('rid=2')
-    expect(requests[1].body).toContain('title=Bilimi%EF%BD%9C%E8%A7%81%E9%97%BB%E5%A2%9E%E5%B9%BF')
+    expect(requests[1].body).toContain('title=Bilimi%C2%B7%E8%A7%81%E9%97%BB%E5%A2%9E%E5%B9%BF')
     expect(requests[2].body).toContain('rid=2')
     expect(requests[2].body).toContain('add_media_ids=91000001')
     expect(requests[2].body).toContain('csrf=csrf-token')
@@ -94,7 +97,7 @@ describe('buildFavoriteApiFallbackScript', () => {
             code: 0,
             data: {
               list: [
-                { id: 91000001, title: 'Bilimi｜解闷小品' },
+                { id: 91000001, title: 'Bilimi·茶余解颐' },
                 { id: 88459354, title: '默认收藏夹' }
               ]
             },
@@ -110,7 +113,7 @@ describe('buildFavoriteApiFallbackScript', () => {
       })
     )
 
-    const result = await window.eval(buildFavoriteApiFallbackScript('Bilimi 内库', 'funny'))
+    const result = await window.eval(buildFavoriteApiFallbackScript(favoriteLedgers, 'humor'))
 
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(['api:favorite:list', 'api:favorite:add'])

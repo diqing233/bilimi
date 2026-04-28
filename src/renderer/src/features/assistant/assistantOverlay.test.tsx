@@ -135,7 +135,8 @@ describe('AssistantOverlay', () => {
     fireEvent.click(screen.getByRole('button', { name: '藏' }))
 
     await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
-    expect(runScript.mock.calls[0][0]).toContain('"recommendationKind":"knowledge"')
+    expect(runScript.mock.calls[0][0]).toContain('"targetLedgerId":"knowledge"')
+    expect(runScript.mock.calls[0][0]).toContain('"favoriteLedgers"')
     expect(onRecordFeedback).toHaveBeenCalledWith('knowledge', '藏')
   })
 
@@ -178,7 +179,7 @@ describe('AssistantOverlay', () => {
     fireEvent.click(screen.getByRole('button', { name: '藏' }))
 
     await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
-    expect(runScript.mock.calls[0][0]).toContain('"recommendationKind":"watch-later"')
+    expect(runScript.mock.calls[0][0]).toContain('"targetLedgerId":"watch-later"')
     expect(runScript.mock.calls[0][0]).not.toContain('"ledgerId"')
     expect(onRecordFeedback).toHaveBeenCalledWith('watch-later', '藏')
   })

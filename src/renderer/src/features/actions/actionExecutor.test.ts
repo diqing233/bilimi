@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
+import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import { executeAssistantAction } from './actionExecutor'
 
 describe('executeAssistantAction', () => {
+  const favoriteLedgers = createDefaultFavoriteLedgers()
+
   it('runs favorite-only automation for 藏', async () => {
     const runScript = vi.fn().mockResolvedValue({
       ok: true,
@@ -13,7 +16,9 @@ describe('executeAssistantAction', () => {
     const result = await executeAssistantAction({
       action: '藏',
       runScript,
-      favoritesFolderName: 'Bilimi 内库'
+      favoritesFolderName: 'Bilimi 内库',
+      favoriteLedgers,
+      targetLedgerId: 'humor'
     })
 
     expect(runScript).toHaveBeenCalledOnce()
@@ -28,7 +33,9 @@ describe('executeAssistantAction', () => {
     const result = await executeAssistantAction({
       action: '赏',
       runScript,
-      favoritesFolderName: 'Bilimi 内库'
+      favoritesFolderName: 'Bilimi 内库',
+      favoriteLedgers,
+      targetLedgerId: 'humor'
     })
 
     expect(runScript).toHaveBeenCalledOnce()
@@ -55,14 +62,15 @@ describe('executeAssistantAction', () => {
       runScript,
       runVisualFallback,
       favoritesFolderName: 'Bilimi 内库',
-      recommendationKind: 'funny'
+      favoriteLedgers,
+      targetLedgerId: 'humor'
     })
 
     expect(runVisualFallback).toHaveBeenCalledWith({
       favoritesFolderName: 'Bilimi 内库',
-      recommendationKind: 'funny',
+      targetLedgerId: 'humor',
       favoriteFolders: expect.objectContaining({
-        funny: 'Bilimi｜解闷小品'
+        humor: 'Bilimi·茶余解颐'
       })
     })
     expect(result.ok).toBe(true)
@@ -93,12 +101,13 @@ describe('executeAssistantAction', () => {
       runScript,
       runVisualFallback,
       favoritesFolderName: 'Bilimi 内库',
-      recommendationKind: 'knowledge'
+      favoriteLedgers,
+      targetLedgerId: 'knowledge'
     })
 
     expect(runScript).toHaveBeenCalledTimes(2)
     expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
-    expect(runScript.mock.calls[1][0]).toContain('Bilimi｜见闻增广')
+    expect(runScript.mock.calls[1][0]).toContain('Bilimi·见闻增广')
     expect(runVisualFallback).not.toHaveBeenCalled()
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
@@ -128,7 +137,8 @@ describe('executeAssistantAction', () => {
         runScript,
         runVisualFallback,
         favoritesFolderName: 'Bilimi 内库',
-        recommendationKind: 'story'
+        favoriteLedgers,
+        targetLedgerId: 'story'
       })
 
       await vi.advanceTimersByTimeAsync(15_001)

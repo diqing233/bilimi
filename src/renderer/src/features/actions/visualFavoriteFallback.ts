@@ -1,6 +1,5 @@
 import type {
   AssistantAutomationResult,
-  RecommendationKind,
   VisualAutomationContext
 } from '@shared/types'
 
@@ -15,7 +14,6 @@ type TextBox = {
 
 type VisualWebview = Electron.WebviewTag & {
   capturePage?: () => Promise<{ toDataURL?: () => string }>
-  sendInputEvent?: (event: Record<string, unknown>) => void
 }
 
 const OCR_SCRIPT = `
@@ -338,28 +336,40 @@ function centerOf(box: TextBox) {
 
 function clickAt(webview: VisualWebview, box: TextBox) {
   const point = centerOf(box)
-  webview.sendInputEvent?.({ type: 'mouseMove', x: point.x, y: point.y })
-  webview.sendInputEvent?.({ button: 'left', clickCount: 1, type: 'mouseDown', x: point.x, y: point.y })
-  webview.sendInputEvent?.({ button: 'left', clickCount: 1, type: 'mouseUp', x: point.x, y: point.y })
+  const sendInputEvent = webview.sendInputEvent as unknown as
+    | ((event: Record<string, unknown>) => void)
+    | undefined
+  sendInputEvent?.({ type: 'mouseMove', x: point.x, y: point.y })
+  sendInputEvent?.({ button: 'left', clickCount: 1, type: 'mouseDown', x: point.x, y: point.y })
+  sendInputEvent?.({ button: 'left', clickCount: 1, type: 'mouseUp', x: point.x, y: point.y })
 }
 
 function doubleClickAt(webview: VisualWebview, box: TextBox) {
   const point = centerOf(box)
-  webview.sendInputEvent?.({ type: 'mouseMove', x: point.x, y: point.y })
-  webview.sendInputEvent?.({ button: 'left', clickCount: 1, type: 'mouseDown', x: point.x, y: point.y })
-  webview.sendInputEvent?.({ button: 'left', clickCount: 1, type: 'mouseUp', x: point.x, y: point.y })
-  webview.sendInputEvent?.({ button: 'left', clickCount: 2, type: 'mouseDown', x: point.x, y: point.y })
-  webview.sendInputEvent?.({ button: 'left', clickCount: 2, type: 'mouseUp', x: point.x, y: point.y })
+  const sendInputEvent = webview.sendInputEvent as unknown as
+    | ((event: Record<string, unknown>) => void)
+    | undefined
+  sendInputEvent?.({ type: 'mouseMove', x: point.x, y: point.y })
+  sendInputEvent?.({ button: 'left', clickCount: 1, type: 'mouseDown', x: point.x, y: point.y })
+  sendInputEvent?.({ button: 'left', clickCount: 1, type: 'mouseUp', x: point.x, y: point.y })
+  sendInputEvent?.({ button: 'left', clickCount: 2, type: 'mouseDown', x: point.x, y: point.y })
+  sendInputEvent?.({ button: 'left', clickCount: 2, type: 'mouseUp', x: point.x, y: point.y })
 }
 
 function pressKey(webview: VisualWebview, keyCode: string) {
-  webview.sendInputEvent?.({ keyCode, type: 'keyDown' })
-  webview.sendInputEvent?.({ keyCode, type: 'keyUp' })
+  const sendInputEvent = webview.sendInputEvent as unknown as
+    | ((event: Record<string, unknown>) => void)
+    | undefined
+  sendInputEvent?.({ keyCode, type: 'keyDown' })
+  sendInputEvent?.({ keyCode, type: 'keyUp' })
 }
 
 function typeText(webview: VisualWebview, value: string) {
+  const sendInputEvent = webview.sendInputEvent as unknown as
+    | ((event: Record<string, unknown>) => void)
+    | undefined
   for (const char of value) {
-    webview.sendInputEvent?.({ keyCode: char, type: 'char' })
+    sendInputEvent?.({ keyCode: char, type: 'char' })
   }
 }
 
@@ -557,8 +567,7 @@ export async function runVisualFavoriteFallback(
   }
 
   const steps: string[] = []
-  const targetFolder =
-    context.favoriteFolders[context.recommendationKind as RecommendationKind] || context.favoritesFolderName
+  const targetFolder = context.favoriteFolders[context.targetLedgerId] || context.favoritesFolderName
 
   const panelOpened = await openFavoritePanel(webview, steps)
   if (!panelOpened) {

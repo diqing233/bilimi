@@ -1,28 +1,20 @@
-import type { AssistantAction } from '@shared/types'
-
-type RecommendationKind = 'funny' | 'knowledge' | 'story' | 'suspicious'
-
-export const BILIMI_FAVORITE_FOLDERS: Record<RecommendationKind, string> = {
-  funny: 'Bilimi｜解闷小品',
-  knowledge: 'Bilimi｜见闻增广',
-  story: 'Bilimi｜剧情留档',
-  suspicious: 'Bilimi｜谨慎观察'
-}
+import type { AssistantAction, FavoriteLedger } from '@shared/types'
 
 export function buildAutomationScript(
   action: AssistantAction,
   favoritesFolderName: string,
   coinCount?: 1 | 2,
   commentDraft?: string,
-  recommendationKind: RecommendationKind = 'funny'
+  favoriteLedgers: FavoriteLedger[] = [],
+  targetLedgerId = ''
 ): string {
   const payload = JSON.stringify({
     action,
     favoritesFolderName,
     coinCount,
     commentDraft,
-    recommendationKind,
-    favoriteFolders: BILIMI_FAVORITE_FOLDERS
+    favoriteLedgers,
+    targetLedgerId
   })
 
   return `
@@ -192,19 +184,14 @@ export function buildAutomationScript(
             .map((child) => child.textContent)
         ].filter(Boolean).join(' ');
 
-      const targetFavoriteFolderName = () =>
-        payload.favoriteFolders[payload.recommendationKind] || payload.favoritesFolderName;
+      const targetLedger = () =>
+        payload.favoriteLedgers.find((ledger) => ledger.id === payload.targetLedgerId);
+
+      const targetFavoriteFolderName = () => targetLedger()?.displayName || payload.favoritesFolderName;
 
       const matchingFavoriteKeywords = () => {
         const targetName = targetFavoriteFolderName();
-        const keywordMap = {
-          funny: ['解闷', '小品', '搞笑', '快乐', 'funny'],
-          knowledge: ['见闻', '知识', '科普', '学习', 'knowledge'],
-          story: ['剧情', '故事', '留档', 'story'],
-          suspicious: ['谨慎', '观察', '避雷', '慎入', 'suspicious']
-        };
-
-        return [targetName, ...(keywordMap[payload.recommendationKind] || [])];
+        return [targetName, ...(targetLedger()?.keywords || []), payload.targetLedgerId].filter(Boolean);
       };
 
       const queryMatchingFavoriteFolder = () => {
@@ -397,8 +384,9 @@ export function buildAutomationScript(
 
         if (!bilimiFolder) {
           let createdAll = true;
-          for (const folderName of Object.values(payload.favoriteFolders)) {
-            createdAll = (await createFavoriteFolder(folderName)) && createdAll;
+          const enabledLedgers = payload.favoriteLedgers.filter((ledger) => ledger.enabled);
+          for (const ledger of enabledLedgers) {
+            createdAll = (await createFavoriteFolder(ledger.displayName)) && createdAll;
           }
 
           if (createdAll) {

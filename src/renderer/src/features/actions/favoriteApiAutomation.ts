@@ -1,14 +1,12 @@
-import type { RecommendationKind } from '@shared/types'
-import { BILIMI_FAVORITE_FOLDERS } from './pageAutomation'
+import type { FavoriteLedger } from '@shared/types'
 
 export function buildFavoriteApiFallbackScript(
-  favoritesFolderName: string,
-  recommendationKind: RecommendationKind = 'funny'
+  favoriteLedgers: FavoriteLedger[],
+  targetLedgerId: string
 ): string {
   const payload = JSON.stringify({
-    favoriteFolders: BILIMI_FAVORITE_FOLDERS,
-    favoritesFolderName,
-    recommendationKind
+    favoriteLedgers,
+    targetLedgerId
   })
 
   return `
@@ -98,8 +96,14 @@ export function buildFavoriteApiFallbackScript(
           return fail('favorite-api-aid', '未能读取当前视频 aid，无法调用收藏接口。');
         }
 
-        const targetFolderName =
-          payload.favoriteFolders[payload.recommendationKind] || payload.favoritesFolderName;
+        const targetLedger = payload.favoriteLedgers.find(
+          (ledger) => ledger.id === payload.targetLedgerId
+        );
+        const targetFolderName = targetLedger?.displayName;
+
+        if (!targetFolderName) {
+          return fail('favorite-api-target-ledger', '未找到目标 Bilimi 收藏账本，无法调用收藏接口。');
+        }
         const listUrl = new URL('https://api.bilibili.com/x/v3/fav/folder/created/list-all');
         listUrl.searchParams.set('up_mid', String(mid));
         listUrl.searchParams.set('type', '2');

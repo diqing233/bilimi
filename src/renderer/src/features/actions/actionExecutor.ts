@@ -1,11 +1,12 @@
 import type {
   AssistantAction,
   AssistantAutomationResult,
-  RecommendationKind,
+  FavoriteLedger,
   VisualAutomationFallback
 } from '@shared/types'
+import { favoriteLedgerNamesById } from '@shared/favoriteLedgers'
 import { buildFavoriteApiFallbackScript } from './favoriteApiAutomation'
-import { buildAutomationScript, BILIMI_FAVORITE_FOLDERS } from './pageAutomation'
+import { buildAutomationScript } from './pageAutomation'
 
 type ExecuteAssistantActionArgs = {
   action: AssistantAction
@@ -14,7 +15,8 @@ type ExecuteAssistantActionArgs = {
   runVisualFallback?: VisualAutomationFallback
   coinCount?: 1 | 2
   commentDraft?: string
-  recommendationKind?: RecommendationKind
+  favoriteLedgers: FavoriteLedger[]
+  targetLedgerId: string
 }
 
 const DOM_SCRIPT_TIMEOUT_MS = 15_000
@@ -66,10 +68,7 @@ async function runFavoriteApiFallback(
   args: ExecuteAssistantActionArgs,
   domResult: AssistantAutomationResult
 ): Promise<AssistantAutomationResult> {
-  const script = buildFavoriteApiFallbackScript(
-    args.favoritesFolderName,
-    args.recommendationKind ?? 'funny'
-  )
+  const script = buildFavoriteApiFallbackScript(args.favoriteLedgers, args.targetLedgerId)
   const apiResult = await runScriptWithTimeout(args.runScript, script)
   const unresolvedNonFavoriteTargets = nonFavoriteMissingTargets(domResult)
   const missingTargets = apiResult.ok
@@ -106,7 +105,8 @@ export async function executeAssistantAction(args: ExecuteAssistantActionArgs) {
     args.favoritesFolderName,
     args.coinCount,
     args.commentDraft,
-    args.recommendationKind
+    args.favoriteLedgers,
+    args.targetLedgerId
   )
   const domResult = await runScriptWithTimeout(args.runScript, script)
 
@@ -121,9 +121,9 @@ export async function executeAssistantAction(args: ExecuteAssistantActionArgs) {
   }
 
   const visualResult = await args.runVisualFallback({
-    favoriteFolders: BILIMI_FAVORITE_FOLDERS,
+    favoriteFolders: favoriteLedgerNamesById(args.favoriteLedgers),
     favoritesFolderName: args.favoritesFolderName,
-    recommendationKind: args.recommendationKind ?? 'funny'
+    targetLedgerId: args.targetLedgerId
   })
 
   return {
