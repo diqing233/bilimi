@@ -40,7 +40,7 @@ describe('videoNoteExtractor', () => {
         tags: ['知识', '教程', '知识'],
         bvid: 'BV1note',
         url: 'https://www.bilibili.com/video/BV1note',
-        transcript: [{ start: 1, end: 3, text: ' 字幕内容 ' }]
+        transcript: [{ start: 1, end: 3, text: ' 字幕内容 ', index: 7 }]
       })
     ).toEqual({
       source: {

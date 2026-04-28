@@ -47,7 +47,8 @@ export function normalizeExtractedVideoNoteResult(
   const title = cleanText(raw.title).replace(BILIBILI_TITLE_SUFFIX, '') || url
   const transcript = (raw.transcript ?? [])
     .map((segment) => ({
-      ...segment,
+      start: segment.start,
+      end: segment.end,
       text: cleanText(segment.text)
     }))
     .filter((segment) => segment.text.length > 0)
