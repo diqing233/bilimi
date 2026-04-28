@@ -16,12 +16,14 @@ import { CoinPrompt } from './CoinPrompt'
 import { CommentChooser } from './CommentChooser'
 import { MemorialPanel } from './MemorialPanel'
 import { SealButton } from './SealButton'
+import { BILIMI_LEDGER_PREFIX } from '@shared/favoriteLedgers'
 import { classifyVideoContent, type VideoContentContext } from '../recommendation/videoClassifier'
 
 const CURRENT_TITLE = '早八生存实录'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
 const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
   funny: '解闷小品',
+  humor: '解闷小品',
   knowledge: '见闻增广',
   story: '剧情留档',
   suspicious: '谨慎观察'
@@ -57,6 +59,10 @@ type ActionFeedback = {
   missingTargets: string[]
 }
 
+function stripBilimiPrefix(displayName: string) {
+  return displayName.replace(BILIMI_LEDGER_PREFIX, '').trim()
+}
+
 export function AssistantOverlay({
   favoritesFolderName,
   readVideoContentContext,
@@ -83,15 +89,18 @@ export function AssistantOverlay({
     () => latestVideoContentContext ?? videoContentContext ?? { title: resolvedVideoTitle },
     [latestVideoContentContext, resolvedVideoTitle, videoContentContext]
   )
-  const currentKind = useMemo(
-    () => classifyVideoContent(resolvedVideoContentContext),
-    [resolvedVideoContentContext]
+  const currentClassification = useMemo(
+    () => classifyVideoContent(resolvedVideoContentContext, preferences.favoriteLedgers),
+    [preferences.favoriteLedgers, resolvedVideoContentContext]
   )
+  const currentKind = currentClassification.ledgerId
   const recommendation = useMemo(() => describeRecommendation(currentKind), [currentKind])
   const commentDrafts = useMemo(
     () => composeMemorialComments(currentKind, resolvedVideoTitle),
     [currentKind, resolvedVideoTitle]
   )
+  const videoCategory =
+    VIDEO_CATEGORY_LABELS[currentKind] || stripBilimiPrefix(currentClassification.displayName) || currentKind
 
   useEffect(() => {
     if (storedPreferences) {
@@ -109,7 +118,7 @@ export function AssistantOverlay({
 
       if (nextContext) {
         setLatestVideoContentContext(nextContext)
-        return classifyVideoContent(nextContext)
+        return classifyVideoContent(nextContext, preferences.favoriteLedgers).ledgerId
       }
     } catch {
       return currentKind
@@ -229,7 +238,7 @@ export function AssistantOverlay({
             <MemorialPanel
               recommendation={recommendation}
               commentDrafts={commentDrafts}
-              videoCategory={VIDEO_CATEGORY_LABELS[currentKind]}
+              videoCategory={videoCategory}
               videoTitle={resolvedVideoTitle}
               onAction={handleAction}
               onClose={() => {

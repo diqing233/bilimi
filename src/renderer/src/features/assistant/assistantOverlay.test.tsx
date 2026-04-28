@@ -45,7 +45,7 @@ describe('AssistantOverlay', () => {
 
     await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
     expect(runScript.mock.calls[0][0]).toContain('"coinCount":2')
-    expect(onRecordFeedback).toHaveBeenCalledWith('funny', '赐')
+    expect(onRecordFeedback).toHaveBeenCalledWith('inbox', '赐')
   })
 
   it('shows progress and result feedback after an action runs', async () => {
@@ -107,7 +107,7 @@ describe('AssistantOverlay', () => {
     await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
     expect(runScript.mock.calls[0][0]).toContain('"action":"藏"')
     expect(runScript.mock.calls[0][0]).not.toContain('"action":"赏"')
-    expect(onRecordFeedback).toHaveBeenCalledWith('funny', '藏')
+    expect(onRecordFeedback).toHaveBeenCalledWith('inbox', '藏')
   })
 
   it('classifies the current video content before choosing a Bilimi favorite folder', async () => {
@@ -137,6 +137,50 @@ describe('AssistantOverlay', () => {
     await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
     expect(runScript.mock.calls[0][0]).toContain('"recommendationKind":"knowledge"')
     expect(onRecordFeedback).toHaveBeenCalledWith('knowledge', '藏')
+  })
+
+  it('passes a classified custom ledger id to automation and feedback', async () => {
+    const runScript = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['favorite:open', 'favorite:folder', 'favorite'],
+      missingTargets: [],
+      message: '已按内容归入内库。'
+    })
+    const onRecordFeedback = vi.fn()
+
+    render(
+      <AssistantOverlay
+        runScript={runScript}
+        favoritesFolderName="Bilimi 内库"
+        onRecordFeedback={onRecordFeedback}
+        storedPreferences={{
+          favoritesFolderName: 'Bilimi 内库',
+          ledgerPromptDismissed: false,
+          preferenceCounts: {},
+          favoriteLedgers: [
+            {
+              id: 'watch-later',
+              displayName: 'Bilimi·暂存待阅',
+              keywords: ['稍后'],
+              enabled: true,
+              priority: 1,
+              isDefault: false
+            }
+          ]
+        }}
+        videoContentContext={{
+          title: '稍后仔细看的视频'
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    fireEvent.click(screen.getByRole('button', { name: '藏' }))
+
+    await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
+    expect(runScript.mock.calls[0][0]).toContain('"recommendationKind":"watch-later"')
+    expect(runScript.mock.calls[0][0]).not.toContain('"ledgerId"')
+    expect(onRecordFeedback).toHaveBeenCalledWith('watch-later', '藏')
   })
 
   it('minimizes the panel while page automation is running', async () => {
@@ -207,7 +251,7 @@ describe('AssistantOverlay', () => {
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
     fireEvent.click(screen.getByRole('button', { name: '表' }))
 
-    const draft = '臣不敢独享《早八生存实录》这点笑意，特备薄礼，恭呈御览。'
+    const draft = '《早八生存实录》铺陈渐稳，臣不敢泄机，谨请陛下亲览。'
 
     expect(screen.getByText('臣已拟好三条，请陛下择其一。')).toBeInTheDocument()
 
@@ -215,6 +259,6 @@ describe('AssistantOverlay', () => {
 
     await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
     expect(runScript.mock.calls[0][0]).toContain(draft)
-    expect(onRecordFeedback).toHaveBeenCalledWith('funny', '表')
+    expect(onRecordFeedback).toHaveBeenCalledWith('inbox', '表')
   })
 })
