@@ -8,7 +8,7 @@ import type {
   VideoNoteExtractionResult,
   VisualAutomationFallback
 } from '@shared/types'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { executeAssistantAction } from '../actions/actionExecutor'
 import { composeMemorialComments } from '../comments/commentComposer'
 import { describeRecommendation } from '../recommendation/recommendationRules'
@@ -30,6 +30,14 @@ import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favori
 
 const CURRENT_TITLE = '早八生存实录'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
+const DEFAULT_OVERLAY_POSITION = { left: 24, top: 54 }
+const DRAG_THRESHOLD_PX = 6
+const OVERLAY_SAFE_GAP = 12
+const COLLAPSED_SEAL_SIZE = { width: 44, height: 44 }
+const MEMORIAL_PANEL_SIZE = { width: 236, height: 212 }
+const ASSISTANT_DIALOG_SIZE = { width: 420, height: 220 }
+const FAVORITE_LEDGER_PANEL_SIZE = { width: 520, height: 520 }
+const DRAG_CLICK_SUPPRESSION_MS = 120
 const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
   funny: '解闷小品',
   humor: '解闷小品',
@@ -75,8 +83,45 @@ type ActionFeedback = {
   missingTargets: string[]
 }
 
+type OverlayPosition = {
+  left: number
+  top: number
+}
+
+type DragState = {
+  pointerId: number
+  startClientX: number
+  startClientY: number
+  startLeft: number
+  startTop: number
+  moved: boolean
+}
+
 function stripBilimiPrefix(displayName: string) {
   return displayName.replace(BILIMI_LEDGER_PREFIX, '').trim()
+}
+
+function clampOverlayPositionForSize(
+  position: OverlayPosition,
+  size: { width: number; height: number }
+): OverlayPosition {
+  if (typeof window === 'undefined') {
+    return position
+  }
+
+  const width = Math.min(size.width, Math.max(0, window.innerWidth - OVERLAY_SAFE_GAP * 2))
+  const height = Math.min(size.height, Math.max(0, window.innerHeight - OVERLAY_SAFE_GAP * 2))
+  const maxLeft = Math.max(OVERLAY_SAFE_GAP, window.innerWidth - OVERLAY_SAFE_GAP - width)
+  const maxTop = Math.max(OVERLAY_SAFE_GAP, window.innerHeight - OVERLAY_SAFE_GAP - height)
+
+  return {
+    left: Math.min(Math.max(OVERLAY_SAFE_GAP, position.left), maxLeft),
+    top: Math.min(Math.max(OVERLAY_SAFE_GAP, position.top), maxTop)
+  }
+}
+
+function clampOverlayPosition(position: OverlayPosition): OverlayPosition {
+  return clampOverlayPositionForSize(position, COLLAPSED_SEAL_SIZE)
 }
 
 export function AssistantOverlay({
@@ -97,6 +142,11 @@ export function AssistantOverlay({
   storedPreferences
 }: AssistantOverlayProps) {
   const [open, setOpen] = useState(false)
+  const [overlayPosition, setOverlayPosition] = useState<OverlayPosition>(DEFAULT_OVERLAY_POSITION)
+  const [dragState, setDragState] = useState<DragState | null>(null)
+  const dragStateRef = useRef<DragState | null>(null)
+  const suppressSealClickRef = useRef(false)
+  const suppressSealClickTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null)
   const [coinPromptOpen, setCoinPromptOpen] = useState(false)
   const [commentChooserOpen, setCommentChooserOpen] = useState(false)
   const [ledgerPanelOpen, setLedgerPanelOpen] = useState(false)
@@ -131,6 +181,75 @@ export function AssistantOverlay({
   )
   const videoCategory =
     VIDEO_CATEGORY_LABELS[currentKind] || stripBilimiPrefix(currentClassification.displayName) || currentKind
+  const expandedOverlaySize = ledgerPanelOpen
+    ? FAVORITE_LEDGER_PANEL_SIZE
+    : coinPromptOpen || commentChooserOpen
+      ? ASSISTANT_DIALOG_SIZE
+      : MEMORIAL_PANEL_SIZE
+  const visibleOverlayPosition =
+    open && !panelMinimized
+      ? clampOverlayPositionForSize(overlayPosition, expandedOverlaySize)
+      : overlayPosition
+
+  function moveSealTo(clientX: number, clientY: number, pointerId: number) {
+    const currentDragState = dragStateRef.current
+
+    if (!currentDragState || currentDragState.pointerId !== pointerId) {
+      return
+    }
+
+    const deltaX = clientX - currentDragState.startClientX
+    const deltaY = clientY - currentDragState.startClientY
+    const moved = currentDragState.moved || Math.hypot(deltaX, deltaY) >= DRAG_THRESHOLD_PX
+    const nextDragState = { ...currentDragState, moved }
+
+    setOverlayPosition(
+      clampOverlayPosition({
+        left: currentDragState.startLeft + deltaX,
+        top: currentDragState.startTop + deltaY
+      })
+    )
+    dragStateRef.current = nextDragState
+    setDragState(nextDragState)
+  }
+
+  function startSealDrag(pointerId: number, clientX: number, clientY: number) {
+    const nextDragState = {
+      pointerId,
+      startClientX: clientX,
+      startClientY: clientY,
+      startLeft: overlayPosition.left,
+      startTop: overlayPosition.top,
+      moved: false
+    }
+
+    dragStateRef.current = nextDragState
+    setDragState(nextDragState)
+  }
+
+  function finishSealDrag(pointerId: number) {
+    const currentDragState = dragStateRef.current
+
+    if (!currentDragState || currentDragState.pointerId !== pointerId) {
+      return
+    }
+
+    if (currentDragState.moved) {
+      suppressSealClickRef.current = true
+
+      if (suppressSealClickTimerRef.current) {
+        window.clearTimeout(suppressSealClickTimerRef.current)
+      }
+
+      suppressSealClickTimerRef.current = window.setTimeout(() => {
+        suppressSealClickRef.current = false
+        suppressSealClickTimerRef.current = null
+      }, DRAG_CLICK_SUPPRESSION_MS)
+    }
+
+    dragStateRef.current = null
+    setDragState(null)
+  }
 
   useEffect(() => {
     if (storedPreferences) {
@@ -188,6 +307,37 @@ export function AssistantOverlay({
   useEffect(() => {
     setLatestVideoContentContext(videoContentContext)
   }, [videoContentContext])
+
+  useEffect(() => {
+    return () => {
+      if (suppressSealClickTimerRef.current) {
+        window.clearTimeout(suppressSealClickTimerRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!dragState) {
+      return
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      moveSealTo(event.clientX, event.clientY, event.pointerId)
+    }
+    const handlePointerUp = (event: PointerEvent) => {
+      finishSealDrag(event.pointerId)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    window.addEventListener('pointercancel', handlePointerUp)
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+      window.removeEventListener('pointercancel', handlePointerUp)
+    }
+  }, [dragState])
 
   async function readRecommendationKindFromPage() {
     try {
@@ -247,16 +397,17 @@ export function AssistantOverlay({
 
     try {
       const hasManualTranscript = Boolean(manualTranscript?.trim())
+      const manualSegments = hasManualTranscript ? parseManualTranscript(manualTranscript ?? '') : []
       const extraction = hasManualTranscript
-        ? {
-            source: {
-              title: resolvedVideoTitle,
-              tags: [],
-              url: ''
-            },
-            transcript: parseManualTranscript(manualTranscript ?? ''),
-            transcriptSource: 'manual' as const
-          }
+        ? await readVideoNoteSource?.() ?? {
+          source: {
+            title: resolvedVideoTitle,
+            tags: [],
+            url: resolvedVideoTitle
+          },
+          transcript: [],
+          transcriptSource: 'manual' as const
+        }
         : await readVideoNoteSource?.()
 
       if (!extraction) {
@@ -270,7 +421,7 @@ export function AssistantOverlay({
       const note = createLocalVideoNoteDraft({
         now: new Date().toISOString(),
         source: safeExtraction.source,
-        transcript: hasManualTranscript ? parseManualTranscript(manualTranscript ?? '') : safeExtraction.transcript,
+        transcript: hasManualTranscript ? manualSegments : safeExtraction.transcript,
         transcriptSource: hasManualTranscript ? 'manual' : safeExtraction.transcriptSource
       })
 
@@ -360,8 +511,55 @@ export function AssistantOverlay({
     void runAction(action)
   }
 
+  function handleSealPointerDown(event: React.PointerEvent<HTMLButtonElement>) {
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    startSealDrag(event.pointerId, event.clientX, event.clientY)
+  }
+
+  function handleSealPointerMove(event: React.PointerEvent<HTMLButtonElement>) {
+    moveSealTo(event.clientX, event.clientY, event.pointerId)
+  }
+
+  function handleSealPointerUp(event: React.PointerEvent<HTMLButtonElement>) {
+    event.currentTarget.releasePointerCapture?.(event.pointerId)
+    finishSealDrag(event.pointerId)
+  }
+
+  function handleSealMouseDown(event: React.MouseEvent<HTMLButtonElement>) {
+    startSealDrag(1, event.clientX, event.clientY)
+  }
+
+  function handleSealMouseMove(event: React.MouseEvent<HTMLButtonElement>) {
+    moveSealTo(event.clientX, event.clientY, 1)
+  }
+
+  function handleSealMouseUp() {
+    finishSealDrag(1)
+  }
+
+  function openFromSeal() {
+    if (suppressSealClickRef.current) {
+      suppressSealClickRef.current = false
+
+      if (suppressSealClickTimerRef.current) {
+        window.clearTimeout(suppressSealClickTimerRef.current)
+        suppressSealClickTimerRef.current = null
+      }
+
+      return
+    }
+
+    setOpen(true)
+  }
+
   return (
-    <div className={`assistant-overlay${panelMinimized ? ' assistant-overlay--minimized' : ''}`}>
+    <div
+      className={`assistant-overlay${panelMinimized ? ' assistant-overlay--minimized' : ''}${dragState?.moved ? ' assistant-overlay--dragging' : ''}`}
+      style={{
+        left: `${visibleOverlayPosition.left}px`,
+        top: `${visibleOverlayPosition.top}px`
+      }}
+    >
       {open ? (
         <>
           {panelMinimized && feedback ? (
@@ -445,7 +643,15 @@ export function AssistantOverlay({
           ) : null}
         </>
       ) : (
-        <SealButton onOpen={() => setOpen(true)} />
+        <SealButton
+          onOpen={openFromSeal}
+          onMouseDown={handleSealMouseDown}
+          onMouseMove={handleSealMouseMove}
+          onMouseUp={handleSealMouseUp}
+          onPointerDown={handleSealPointerDown}
+          onPointerMove={handleSealPointerMove}
+          onPointerUp={handleSealPointerUp}
+        />
       )}
     </div>
   )

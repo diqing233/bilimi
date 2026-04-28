@@ -95,13 +95,11 @@ body {
 
 .assistant-overlay {
   position: absolute;
-  top: 54px;
-  right: 8px;
   z-index: 20;
   display: grid;
-  justify-items: end;
+  justify-items: start;
   gap: 8px;
-  max-width: 166px;
+  max-width: min(520px, calc(100vw - 24px));
   pointer-events: none;
 }
 
@@ -111,6 +109,10 @@ body {
 
 .assistant-overlay--minimized {
   max-width: 160px;
+}
+
+.assistant-overlay--dragging {
+  user-select: none;
 }
 
 .assistant-status-pill {
@@ -150,12 +152,17 @@ body {
   background: radial-gradient(circle at 35% 35%, #743720, #3a1b12 72%);
   color: #f3dfbc;
   box-shadow: 0 16px 28px rgba(0, 0, 0, 0.28);
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
+}
+
+.assistant-overlay--dragging .seal-button {
+  cursor: grabbing;
 }
 
 .seal-button__hint {
   position: absolute;
-  right: 52px;
+  left: 52px;
   bottom: 4px;
   display: none;
   white-space: nowrap;
@@ -520,9 +527,7 @@ body {
 
 @media (max-width: 900px) {
   .assistant-overlay {
-    top: 50px;
-    right: 6px;
-    max-width: 166px;
+    max-width: calc(100vw - 12px);
   }
 
   .memorial-panel {

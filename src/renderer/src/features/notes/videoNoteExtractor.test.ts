@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildVideoNoteExtractionScript,
   normalizeExtractedVideoNoteResult,
@@ -6,6 +6,10 @@ import {
 } from './videoNoteExtractor'
 
 describe('videoNoteExtractor', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('builds a read-only script for current video metadata and subtitle discovery', () => {
     const script = buildVideoNoteExtractionScript()
 
@@ -28,6 +32,40 @@ describe('videoNoteExtractor', () => {
     ).toEqual([
       { start: 0.5, end: 2.25, text: '开场白' },
       { start: 3, end: 4.5, text: '核心观点' }
+    ])
+  })
+
+  it('fetches subtitle candidate JSON before falling back to visible subtitle DOM', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        body: [
+          { from: 0, to: 3, content: '完整字幕第一句' },
+          { from: 3, to: 7, content: '完整字幕第二句' }
+        ]
+      })
+    })
+    vi.stubGlobal('fetch', fetch)
+    Object.defineProperty(window, '__INITIAL_STATE__', {
+      configurable: true,
+      value: {
+        videoData: {
+          title: '完整字幕视频',
+          bvid: 'BV1full',
+          subtitle: {
+            list: [{ subtitle_url: 'https://subtitle.test/BV1full.json' }]
+          }
+        }
+      }
+    })
+    document.body.innerHTML = '<span class="bpx-player-subtitle-panel-text">当前可见字幕</span>'
+
+    const result = await window.eval(buildVideoNoteExtractionScript())
+
+    expect(fetch).toHaveBeenCalledWith('https://subtitle.test/BV1full.json', expect.objectContaining({ credentials: 'include' }))
+    expect(result.transcript).toEqual([
+      { start: 0, end: 3, text: '完整字幕第一句' },
+      { start: 3, end: 7, text: '完整字幕第二句' }
     ])
   })
 

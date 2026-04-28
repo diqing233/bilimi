@@ -3,6 +3,108 @@ import { describe, expect, it, vi } from 'vitest'
 import { AssistantOverlay } from './AssistantOverlay'
 
 describe('AssistantOverlay', () => {
+  it('starts the folded seal inside the left safe area instead of hugging the right edge', () => {
+    render(<AssistantOverlay />)
+
+    const overlay = screen.getByRole('button', { name: '开折批阅' }).closest('.assistant-overlay')
+
+    expect(overlay).toHaveStyle({ left: '24px', top: '54px' })
+    expect((overlay as HTMLElement).style.right).toBe('')
+  })
+
+  it('drags the folded seal to a new position without opening the panel', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 800 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 600 })
+
+    render(<AssistantOverlay />)
+
+    const seal = screen.getByRole('button', { name: '开折批阅' })
+    const overlay = seal.closest('.assistant-overlay')
+
+    fireEvent.mouseDown(seal, { clientX: 50, clientY: 70 })
+    fireEvent.mouseMove(seal, { clientX: 240, clientY: 220 })
+    fireEvent.mouseUp(seal, { clientX: 240, clientY: 220 })
+    fireEvent.click(seal)
+
+    expect(overlay).toHaveStyle({ left: '214px', top: '204px' })
+    expect(screen.queryByText('御前待阅折')).not.toBeInTheDocument()
+  })
+
+  it('opens on a deliberate click after the drag-release suppression window expires', async () => {
+    vi.useFakeTimers()
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 800 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 600 })
+
+    try {
+      render(<AssistantOverlay />)
+
+      const seal = screen.getByRole('button', { name: '开折批阅' })
+
+      fireEvent.mouseDown(seal, { clientX: 50, clientY: 70 })
+      fireEvent.mouseMove(seal, { clientX: 240, clientY: 220 })
+      fireEvent.mouseUp(seal, { clientX: 240, clientY: 220 })
+
+      await vi.runOnlyPendingTimersAsync()
+      fireEvent.click(seal)
+
+      expect(screen.getByText('御前待阅折')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the open panel inside the viewport after the seal is dragged near the right edge', async () => {
+    vi.useFakeTimers()
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 320 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 280 })
+
+    try {
+      render(<AssistantOverlay />)
+
+      const seal = screen.getByRole('button', { name: '开折批阅' })
+      const overlay = seal.closest('.assistant-overlay')
+
+      fireEvent.mouseDown(seal, { clientX: 50, clientY: 70 })
+      fireEvent.mouseMove(seal, { clientX: 300, clientY: 220 })
+      fireEvent.mouseUp(seal, { clientX: 300, clientY: 220 })
+
+      await vi.runOnlyPendingTimersAsync()
+      fireEvent.click(seal)
+
+      expect(screen.getByText('御前待阅折')).toBeInTheDocument()
+      expect(overlay).toHaveStyle({ left: '72px', top: '56px' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('restores the dragged seal position after closing a clamped open panel', async () => {
+    vi.useFakeTimers()
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 320 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 280 })
+
+    try {
+      render(<AssistantOverlay />)
+
+      const seal = screen.getByRole('button', { name: '开折批阅' })
+      const overlay = seal.closest('.assistant-overlay')
+
+      fireEvent.mouseDown(seal, { clientX: 50, clientY: 70 })
+      fireEvent.mouseMove(seal, { clientX: 300, clientY: 220 })
+      fireEvent.mouseUp(seal, { clientX: 300, clientY: 220 })
+
+      expect(overlay).toHaveStyle({ left: '264px', top: '204px' })
+
+      await vi.runOnlyPendingTimersAsync()
+      fireEvent.click(seal)
+      fireEvent.click(screen.getByRole('button', { name: '合折' }))
+
+      expect(overlay).toHaveStyle({ left: '264px', top: '204px' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('opens the memorial panel from the folded seal', () => {
     render(<AssistantOverlay />)
 

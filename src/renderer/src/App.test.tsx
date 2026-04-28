@@ -555,4 +555,50 @@ describe('App integration', () => {
     await waitFor(() => expect(saveVideoNote).toHaveBeenCalledWith(expect.objectContaining({ id: 'bvid:BV1note' })))
   })
 
+  it('uses current video metadata when saving a note from pasted transcript', async () => {
+    const saveVideoNote = vi.fn().mockResolvedValue([])
+
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        version: '0.1.0',
+        loadPreferences: vi.fn(),
+        savePreferences: vi.fn(),
+        saveVideoNote
+      }
+    })
+
+    render(<App />)
+
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn().mockResolvedValue({
+        title: '手动文稿视频',
+        bvid: 'BV1manual',
+        url: 'https://www.bilibili.com/video/BV1manual',
+        tags: [],
+        transcript: []
+      })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    fireEvent.click(screen.getByRole('tab', { name: '札记' }))
+    fireEvent.change(screen.getByLabelText('粘贴文稿'), {
+      target: { value: '手动整理的完整文稿。' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '整理粘贴文稿' }))
+    fireEvent.click(await screen.findByRole('tab', { name: '归档' }))
+    fireEvent.click(await screen.findByRole('button', { name: '保存札记' }))
+
+    await waitFor(() =>
+      expect(saveVideoNote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'bvid:BV1manual',
+          transcriptSource: 'manual'
+        })
+      )
+    )
+  })
 })

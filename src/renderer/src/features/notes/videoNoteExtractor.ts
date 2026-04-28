@@ -69,8 +69,47 @@ export function normalizeExtractedVideoNoteResult(
 
 export function buildVideoNoteExtractionScript(): string {
   return `
-    (() => {
+    (async () => {
       const clean = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+      const normalizeSubtitleBody = (payload) => Array.from(payload?.body || [])
+        .map((item) => ({
+          start: typeof item.from === 'number' ? item.from : null,
+          end: typeof item.to === 'number' ? item.to : null,
+          text: clean(item.content)
+        }))
+        .filter((item) => item.text);
+      const subtitleUrlFrom = (candidate) =>
+        clean(candidate?.subtitle_url || candidate?.url || candidate?.ai_subtitle_url || candidate?.lan_doc || '');
+      const absoluteSubtitleUrl = (value) => {
+        if (!value) {
+          return '';
+        }
+
+        try {
+          return new URL(value, location.href).href;
+        } catch {
+          return value.startsWith('//') ? location.protocol + value : value;
+        }
+      };
+      const fetchSubtitle = async (candidate) => {
+        const subtitleUrl = absoluteSubtitleUrl(subtitleUrlFrom(candidate));
+
+        if (!subtitleUrl) {
+          return [];
+        }
+
+        try {
+          const response = await fetch(subtitleUrl, { credentials: 'include' });
+
+          if (!response.ok) {
+            return [];
+          }
+
+          return normalizeSubtitleBody(await response.json());
+        } catch {
+          return [];
+        }
+      };
       const readMeta = (name) =>
         document.querySelector('meta[name="' + name + '"],meta[property="' + name + '"]')?.getAttribute('content') || '';
       const textFrom = (selectors) =>
@@ -91,6 +130,15 @@ export function buildVideoNoteExtractionScript(): string {
       const transcript = Array.from(document.querySelectorAll('.bpx-player-subtitle-panel-text,.subtitle-item,[class*="subtitle"]'))
         .map((node, index) => ({ start: null, end: null, text: clean(node.textContent), index }))
         .filter((item) => item.text);
+      let fetchedTranscript = [];
+
+      for (const candidate of subtitleCandidates) {
+        fetchedTranscript = await fetchSubtitle(candidate);
+
+        if (fetchedTranscript.length > 0) {
+          break;
+        }
+      }
 
       return {
         title: clean(document.querySelector('h1')?.textContent || videoData.title || document.title),
@@ -100,7 +148,7 @@ export function buildVideoNoteExtractionScript(): string {
         bvid: clean(videoData.bvid || location.pathname.match(/BV[0-9A-Za-z]+/)?.[0] || ''),
         url: location.href,
         subtitleCandidates,
-        transcript
+        transcript: fetchedTranscript.length > 0 ? fetchedTranscript : transcript
       };
     })();
   `
