@@ -12,16 +12,53 @@ export type BrowserTabModel = {
   url: string
 }
 
-export type RecommendationKind = 'funny' | 'knowledge' | 'story' | 'suspicious'
+export type DefaultFavoriteLedgerId =
+  | 'knowledge'
+  | 'humor'
+  | 'story'
+  | 'play'
+  | 'life'
+  | 'craft'
+  | 'music'
+  | 'inbox'
+
+export type FavoriteLedgerId = string
+export type RecommendationKind = FavoriteLedgerId
+
+export type FavoriteLedger = {
+  id: FavoriteLedgerId
+  displayName: string
+  keywords: string[]
+  enabled: boolean
+  priority: number
+  bilibiliFolderId?: string
+  isDefault: boolean
+}
+
+export type FavoriteLedgerClassification = {
+  ledgerId: FavoriteLedgerId
+  displayName: string
+  matchedKeywords: string[]
+  reviewRequired: boolean
+}
+
+export type FavoriteLedgerStatus = {
+  ok: boolean
+  ledgers: FavoriteLedger[]
+  missingLedgerIds: FavoriteLedgerId[]
+  message: string
+}
 
 export type RecommendationLabel = {
-  badge: '可赏' | '可阅' | '请陛下过目' | '慎入'
+  badge: '可赏' | '可阅' | '请陛下过目' | '可藏' | '待分拣'
   summary: string
 }
 
 export type AssistantPreferences = {
   favoritesFolderName: string
-  preferenceCounts: Record<RecommendationKind, number>
+  favoriteLedgers: FavoriteLedger[]
+  ledgerPromptDismissed: boolean
+  preferenceCounts: Record<string, number>
 }
 
 export type AssistantAutomationResult = {
@@ -32,9 +69,9 @@ export type AssistantAutomationResult = {
 }
 
 export type VisualAutomationContext = {
-  favoriteFolders: Record<RecommendationKind, string>
+  favoriteFolders: Record<string, string>
   favoritesFolderName: string
-  recommendationKind: RecommendationKind
+  targetLedgerId: FavoriteLedgerId
 }
 
 export type VisualAutomationFallback = (
