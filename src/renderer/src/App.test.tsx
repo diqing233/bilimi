@@ -123,7 +123,7 @@ describe('App integration', () => {
 
     await waitFor(() => expect(executeJavaScript).toHaveBeenCalledTimes(2))
     expect(executeJavaScript.mock.calls[0][0]).toContain('readMeta')
-    expect(executeJavaScript.mock.calls[1][0]).toContain('"recommendationKind":"knowledge"')
+    expect(executeJavaScript.mock.calls[1][0]).toContain('"targetLedgerId":"knowledge"')
   })
 
   it('opens webview popup URLs as internal browser tabs', async () => {
@@ -336,5 +336,70 @@ describe('App integration', () => {
       'src',
       'https://www.bilibili.com'
     )
+  })
+
+  it('extracts the active video page and renders local video notes', async () => {
+    render(<App />)
+
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn().mockResolvedValue({
+      title: '机器学习入门教程 - 哔哩哔哩',
+      author: 'UP 主',
+      description: '从模型、训练、数据讲清楚机器学习',
+      tags: ['教程', '机器学习'],
+      bvid: 'BV1note',
+      url: 'https://www.bilibili.com/video/BV1note',
+      transcript: [
+        { start: 0, end: 8, text: '机器学习需要数据和模型。' },
+        { start: 10, end: 18, text: '训练过程会不断调整参数。' }
+      ]
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    fireEvent.click(screen.getByRole('tab', { name: '札记' }))
+    fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
+
+    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('subtitle'), true))
+    await waitFor(() => expect(screen.getAllByText('机器学习需要数据和模型。').length).toBeGreaterThan(0))
+  })
+
+  it('saves a generated video note through the desktop API', async () => {
+    const saveVideoNote = vi.fn().mockResolvedValue([])
+
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        version: '0.1.0',
+        loadPreferences: vi.fn(),
+        savePreferences: vi.fn(),
+        saveVideoNote
+      }
+    })
+
+    render(<App />)
+
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn().mockResolvedValue({
+        title: '机器学习入门教程',
+        bvid: 'BV1note',
+        url: 'https://www.bilibili.com/video/BV1note',
+        tags: [],
+        transcript: [{ start: 0, end: 8, text: '机器学习需要数据和模型。' }]
+      })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    fireEvent.click(screen.getByRole('tab', { name: '札记' }))
+    fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
+    fireEvent.click(await screen.findByRole('tab', { name: '归档' }))
+    fireEvent.click(await screen.findByRole('button', { name: '保存札记' }))
+
+    await waitFor(() => expect(saveVideoNote).toHaveBeenCalledWith(expect.objectContaining({ id: 'bvid:BV1note' })))
   })
 })

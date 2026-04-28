@@ -1,5 +1,11 @@
 import { BILIBILI_HOME_URL } from '@shared/constants'
-import type { AssistantAutomationResult, AssistantPreferences, BrowserTabModel } from '@shared/types'
+import type {
+  AssistantAutomationResult,
+  AssistantPreferences,
+  BrowserTabModel,
+  VideoNote,
+  VideoNoteExtractionResult
+} from '@shared/types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AssistantOverlay } from './features/assistant/AssistantOverlay'
 import { runVisualFavoriteFallback } from './features/actions/visualFavoriteFallback'
@@ -9,6 +15,10 @@ import {
   type VideoContentContext
 } from './features/recommendation/videoClassifier'
 import { createInitialAssistantPreferences } from './features/state/assistantState'
+import {
+  buildVideoNoteExtractionScript,
+  normalizeExtractedVideoNoteResult
+} from './features/notes/videoNoteExtractor'
 
 const HOME_TAB_ID = 'home'
 
@@ -203,6 +213,27 @@ export default function App() {
     }
   }
 
+  async function readVideoNoteSource(): Promise<VideoNoteExtractionResult | null> {
+    const currentActiveWebview = getCurrentActiveWebview()
+
+    if (!currentActiveWebview?.executeJavaScript) {
+      return null
+    }
+
+    try {
+      const raw = await currentActiveWebview.executeJavaScript(
+        buildVideoNoteExtractionScript(),
+        true
+      )
+
+      return normalizeExtractedVideoNoteResult(
+        raw as Parameters<typeof normalizeExtractedVideoNoteResult>[0]
+      )
+    } catch {
+      return null
+    }
+  }
+
   async function runScript(script: string): Promise<AssistantAutomationResult> {
     const currentActiveWebview = getCurrentActiveWebview()
 
@@ -233,6 +264,10 @@ export default function App() {
     }
 
     return runVisualFavoriteFallback(currentActiveWebview, context)
+  }
+
+  async function saveVideoNote(note: VideoNote): Promise<void> {
+    await window.bilimiDesktop?.saveVideoNote?.(note)
   }
 
   return (
@@ -284,8 +319,10 @@ export default function App() {
       <AssistantOverlay
         favoritesFolderName={preferences.favoritesFolderName}
         readVideoContentContext={readVideoContentContext}
+        readVideoNoteSource={readVideoNoteSource}
         runVisualFallback={runVisualFallback}
         runScript={runScript}
+        saveVideoNote={saveVideoNote}
         storedPreferences={preferences}
         videoTitle={activeTab?.title}
       />

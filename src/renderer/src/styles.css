@@ -218,6 +218,14 @@ body {
   gap: 8px;
 }
 
+.memorial-panel__tabs,
+.video-notes [role="tablist"] {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
 .memorial-panel__meta,
 .memorial-panel__verdict {
   display: grid;
@@ -256,7 +264,10 @@ body {
 }
 
 .memorial-panel__actions button,
-.memorial-panel__close {
+.memorial-panel__close,
+.memorial-panel__tabs button,
+.video-notes button,
+.video-notes [role="tab"] {
   border: 1px solid rgba(113, 81, 48, 0.32);
   background: #fbf4e8;
   color: #6d4c2d;
@@ -265,9 +276,75 @@ body {
   cursor: pointer;
 }
 
-.memorial-panel__actions button:disabled {
+.memorial-panel__tabs button,
+.video-notes button,
+.video-notes [role="tab"] {
+  font-size: 12px;
+  padding: 4px 7px;
+}
+
+.memorial-panel__tabs button[aria-selected="true"],
+.video-notes [role="tab"][aria-selected="true"] {
+  background: #743720;
+  color: #f7ead4;
+}
+
+.memorial-panel__actions button:disabled,
+.video-notes button:disabled {
   opacity: 0.56;
   cursor: wait;
+}
+
+.video-notes {
+  color: #4b3321;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.video-notes textarea {
+  min-height: 72px;
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  border: 1px solid rgba(113, 81, 48, 0.28);
+  background: #fff9ed;
+  color: #3d2819;
+  font: 12px "Noto Serif SC", "Songti SC", "SimSun", serif;
+}
+
+.video-notes p,
+.video-notes ol,
+.video-notes dl {
+  margin: 0;
+}
+
+.video-notes ol {
+  padding-left: 18px;
+}
+
+.video-notes li {
+  margin-bottom: 6px;
+}
+
+.video-notes time {
+  display: inline-block;
+  min-width: 42px;
+  margin-right: 4px;
+  color: #7a5735;
+  font-variant-numeric: tabular-nums;
+}
+
+.video-notes dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 6px;
+}
+
+.video-notes dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .memorial-panel__feedback {

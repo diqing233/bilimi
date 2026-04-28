@@ -2,6 +2,8 @@ import type {
   AssistantAction,
   AssistantPreferences,
   RecommendationKind,
+  VideoNote,
+  VideoNoteExtractionResult,
   VisualAutomationFallback
 } from '@shared/types'
 import { useEffect, useMemo, useState } from 'react'
@@ -18,6 +20,9 @@ import { MemorialPanel } from './MemorialPanel'
 import { SealButton } from './SealButton'
 import { BILIMI_LEDGER_PREFIX } from '@shared/favoriteLedgers'
 import { classifyVideoContent, type VideoContentContext } from '../recommendation/videoClassifier'
+import { normalizeExtractedVideoNoteResult } from '../notes/videoNoteExtractor'
+import { createLocalVideoNoteDraft } from '../notes/videoNoteSummarizer'
+import { parseManualTranscript } from '../notes/transcriptNormalizer'
 
 const CURRENT_TITLE = '早八生存实录'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
@@ -32,6 +37,7 @@ const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
 type AssistantOverlayProps = {
   favoritesFolderName?: string
   readVideoContentContext?: () => Promise<VideoContentContext | null | undefined>
+  readVideoNoteSource?: () => Promise<VideoNoteExtractionResult | null>
   videoContentContext?: VideoContentContext
   videoTitle?: string
   runVisualFallback?: VisualAutomationFallback
@@ -42,6 +48,7 @@ type AssistantOverlayProps = {
     message: string
   }>
   onRecordFeedback?: (kind: RecommendationKind, action: AssistantAction) => void
+  saveVideoNote?: (note: VideoNote) => Promise<void>
   storedPreferences?: AssistantPreferences
 }
 
@@ -66,11 +73,13 @@ function stripBilimiPrefix(displayName: string) {
 export function AssistantOverlay({
   favoritesFolderName,
   readVideoContentContext,
+  readVideoNoteSource,
   videoContentContext,
   videoTitle = CURRENT_TITLE,
   runVisualFallback,
   runScript = async () => DEFAULT_RUN_RESULT,
   onRecordFeedback,
+  saveVideoNote,
   storedPreferences
 }: AssistantOverlayProps) {
   const [open, setOpen] = useState(false)
@@ -82,6 +91,8 @@ export function AssistantOverlay({
   const [latestVideoContentContext, setLatestVideoContentContext] = useState<
     VideoContentContext | undefined
   >(videoContentContext)
+  const [videoNote, setVideoNote] = useState<VideoNote | null>(null)
+  const [videoNoteLoading, setVideoNoteLoading] = useState(false)
   const [preferences, setPreferences] = useState(() => createInitialAssistantPreferences(storedPreferences))
   const resolvedFavoritesFolderName = favoritesFolderName ?? preferences.favoritesFolderName
   const resolvedVideoTitle = videoTitle.replace(BILIBILI_TITLE_SUFFIX, '').trim() || CURRENT_TITLE
@@ -143,6 +154,49 @@ export function AssistantOverlay({
       const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
       setPreferences(createInitialAssistantPreferences(saved))
     }
+  }
+
+  async function generateVideoNote(manualTranscript?: string) {
+    setVideoNoteLoading(true)
+
+    try {
+      const hasManualTranscript = Boolean(manualTranscript?.trim())
+      const extraction = hasManualTranscript
+        ? {
+            source: {
+              title: resolvedVideoTitle,
+              tags: [],
+              url: ''
+            },
+            transcript: parseManualTranscript(manualTranscript ?? ''),
+            transcriptSource: 'manual' as const
+          }
+        : await readVideoNoteSource?.()
+
+      if (!extraction) {
+        return null
+      }
+
+      const safeExtraction = normalizeExtractedVideoNoteResult({
+        ...extraction.source,
+        transcript: extraction.transcript
+      })
+      const note = createLocalVideoNoteDraft({
+        now: new Date().toISOString(),
+        source: safeExtraction.source,
+        transcript: hasManualTranscript ? parseManualTranscript(manualTranscript ?? '') : safeExtraction.transcript,
+        transcriptSource: hasManualTranscript ? 'manual' : safeExtraction.transcriptSource
+      })
+
+      setVideoNote(note)
+      return note
+    } finally {
+      setVideoNoteLoading(false)
+    }
+  }
+
+  async function persistVideoNote(note: VideoNote) {
+    await saveVideoNote?.(note)
   }
 
   async function runAction(action: AssistantAction, options?: { coinCount?: 1 | 2; commentDraft?: string }) {
@@ -246,6 +300,10 @@ export function AssistantOverlay({
                 setPanelMinimized(false)
                 setOpen(false)
               }}
+              onGenerateVideoNote={generateVideoNote}
+              onSaveVideoNote={persistVideoNote}
+              videoNote={videoNote}
+              videoNoteLoading={videoNoteLoading}
               runningAction={runningAction}
               feedback={feedback}
             />

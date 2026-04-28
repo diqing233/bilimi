@@ -54,7 +54,7 @@ export function VideoNotesPanel({
 
   if (!note) {
     return (
-      <section aria-label="视频札记">
+      <section className="video-notes" aria-label="视频札记">
         <button type="button" disabled={isLoading} onClick={() => void handleGenerate(undefined)}>
           {isLoading ? '整理中...' : '整理札记'}
         </button>
@@ -80,7 +80,7 @@ export function VideoNotesPanel({
   }
 
   return (
-    <section aria-label="视频札记">
+    <section className="video-notes" aria-label="视频札记">
       <div role="tablist" aria-label="札记页签">
         {tabs.map((tab) => (
           <button
