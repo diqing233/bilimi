@@ -1,13 +1,10 @@
-type BilimiDesktopPreferences = {
-  favoritesFolderName: string
-  preferenceCounts: Record<'funny' | 'knowledge' | 'story' | 'suspicious', number>
-}
+import type { AssistantPreferences } from '@shared/types'
 
 type BilimiDesktopApi = {
   version: string
-  loadPreferences: () => Promise<BilimiDesktopPreferences>
+  loadPreferences: () => Promise<AssistantPreferences>
   onOpenInTab?: (callback: (url: string) => void) => () => void
-  savePreferences: (preferences: BilimiDesktopPreferences) => Promise<BilimiDesktopPreferences>
+  savePreferences: (preferences: AssistantPreferences) => Promise<AssistantPreferences>
 }
 
 declare global {

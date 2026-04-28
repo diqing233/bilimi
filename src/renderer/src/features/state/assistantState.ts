@@ -1,3 +1,4 @@
+import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '@shared/favoriteLedgers'
 import type { AssistantAction, AssistantPreferences, RecommendationKind } from '@shared/types'
 
 export type AssistantState = {
@@ -5,11 +6,10 @@ export type AssistantState = {
   preferenceCounts: Record<RecommendationKind, number>
 }
 
-const EMPTY_PREFERENCE_COUNTS: Record<RecommendationKind, number> = {
-  funny: 0,
-  knowledge: 0,
-  story: 0,
-  suspicious: 0
+function createEmptyPreferenceCounts(): Record<RecommendationKind, number> {
+  return Object.fromEntries(
+    createDefaultFavoriteLedgers().map((ledger) => [ledger.id, 0])
+  ) as Record<RecommendationKind, number>
 }
 
 export type AssistantStateEvent = {
@@ -21,7 +21,7 @@ export type AssistantStateEvent = {
 export function createInitialAssistantState(): AssistantState {
   return {
     lastAction: null,
-    preferenceCounts: { ...EMPTY_PREFERENCE_COUNTS }
+    preferenceCounts: createEmptyPreferenceCounts()
   }
 }
 
@@ -30,8 +30,10 @@ export function createInitialAssistantPreferences(
 ): AssistantPreferences {
   return {
     favoritesFolderName: persisted?.favoritesFolderName ?? 'Bilimi 内库',
+    favoriteLedgers: normalizeFavoriteLedgers(persisted?.favoriteLedgers ?? createDefaultFavoriteLedgers()),
+    ledgerPromptDismissed: Boolean(persisted?.ledgerPromptDismissed),
     preferenceCounts: {
-      ...EMPTY_PREFERENCE_COUNTS,
+      ...createEmptyPreferenceCounts(),
       ...persisted?.preferenceCounts
     }
   }
@@ -46,7 +48,7 @@ export function recordAssistantPreferenceFeedback(
     ...preferences,
     preferenceCounts: {
       ...preferences.preferenceCounts,
-      [kind]: preferences.preferenceCounts[kind] + 1
+      [kind]: (preferences.preferenceCounts[kind] ?? 0) + 1
     }
   }
 }
@@ -60,7 +62,7 @@ export function reduceAssistantState(
       lastAction: event.action,
       preferenceCounts: {
         ...state.preferenceCounts,
-        [event.kind]: state.preferenceCounts[event.kind] + 1
+        [event.kind]: (state.preferenceCounts[event.kind] ?? 0) + 1
       }
     }
   }

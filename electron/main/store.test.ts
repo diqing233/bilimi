@@ -12,6 +12,9 @@ function createFakeStore(
 ): AssistantStoreLike & { snapshot: AssistantPreferences } {
   const snapshot: AssistantPreferences = {
     favoritesFolderName: initial.favoritesFolderName ?? DEFAULT_ASSISTANT_PREFERENCES.favoritesFolderName,
+    favoriteLedgers: initial.favoriteLedgers ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteLedgers,
+    ledgerPromptDismissed:
+      initial.ledgerPromptDismissed ?? DEFAULT_ASSISTANT_PREFERENCES.ledgerPromptDismissed,
     preferenceCounts: initial.preferenceCounts ?? { ...DEFAULT_ASSISTANT_PREFERENCES.preferenceCounts }
   }
 
@@ -36,12 +39,39 @@ describe('assistant preference store helpers', () => {
       }
     })
 
-    expect(loadAssistantPreferences(store)).toEqual({
+    expect(loadAssistantPreferences(store)).toMatchObject({
       favoritesFolderName: 'Bilimi Favorites',
+      ledgerPromptDismissed: false,
       preferenceCounts: {
         funny: 2,
         knowledge: 1
       }
+    })
+  })
+
+  it('loads favorite ledgers and first-open prompt state with preferences', () => {
+    const store = createFakeStore({
+      favoriteLedgers: [
+        {
+          id: 'custom-photo',
+          displayName: 'Bilimi·光影留真',
+          keywords: ['摄影'],
+          enabled: true,
+          priority: 50,
+          isDefault: false
+        }
+      ],
+      ledgerPromptDismissed: true
+    })
+
+    expect(loadAssistantPreferences(store)).toMatchObject({
+      ledgerPromptDismissed: true,
+      favoriteLedgers: expect.arrayContaining([
+        expect.objectContaining({
+          id: 'custom-photo',
+          displayName: 'Bilimi·光影留真'
+        })
+      ])
     })
   })
 
@@ -50,14 +80,17 @@ describe('assistant preference store helpers', () => {
 
     const saved = saveAssistantPreferences(store, {
       favoritesFolderName: 'Archive',
+      favoriteLedgers: DEFAULT_ASSISTANT_PREFERENCES.favoriteLedgers,
+      ledgerPromptDismissed: false,
       preferenceCounts: {
         story: 4,
         suspicious: 1
       }
     })
 
-    expect(saved).toEqual({
+    expect(saved).toMatchObject({
       favoritesFolderName: 'Archive',
+      ledgerPromptDismissed: false,
       preferenceCounts: {
         story: 4,
         suspicious: 1

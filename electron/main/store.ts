@@ -1,7 +1,11 @@
 import Store from 'electron-store'
+import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '../../src/shared/favoriteLedgers'
+import type { FavoriteLedger } from '../../src/shared/types'
 
 export type AssistantPreferences = {
   favoritesFolderName: string
+  favoriteLedgers: FavoriteLedger[]
+  ledgerPromptDismissed: boolean
   preferenceCounts: Record<string, number>
 }
 
@@ -12,6 +16,8 @@ export type AssistantStoreLike = {
 
 export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   favoritesFolderName: 'Bilimi 内库',
+  favoriteLedgers: createDefaultFavoriteLedgers(),
+  ledgerPromptDismissed: false,
   preferenceCounts: {}
 }
 
@@ -32,7 +38,9 @@ export function loadAssistantPreferences(
 ): AssistantPreferences {
   return {
     favoritesFolderName: store.get('favoritesFolderName'),
-    preferenceCounts: store.get('preferenceCounts')
+    favoriteLedgers: normalizeFavoriteLedgers(store.get('favoriteLedgers')),
+    ledgerPromptDismissed: Boolean(store.get('ledgerPromptDismissed')),
+    preferenceCounts: store.get('preferenceCounts') ?? {}
   }
 }
 
@@ -41,7 +49,9 @@ export function saveAssistantPreferences(
   preferences: AssistantPreferences = DEFAULT_ASSISTANT_PREFERENCES
 ): AssistantPreferences {
   store.set('favoritesFolderName', preferences.favoritesFolderName)
-  store.set('preferenceCounts', preferences.preferenceCounts)
+  store.set('favoriteLedgers', normalizeFavoriteLedgers(preferences.favoriteLedgers))
+  store.set('ledgerPromptDismissed', Boolean(preferences.ledgerPromptDismissed))
+  store.set('preferenceCounts', preferences.preferenceCounts ?? {})
 
   return loadAssistantPreferences(store)
 }
