@@ -9,7 +9,7 @@ describe('App integration', () => {
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
 
     expect(screen.getByText('御前待阅折')).toBeInTheDocument()
-    expect(screen.getByText(/此物颇能解闷/)).toBeInTheDocument()
+    expect(screen.getByText(/此条暂存待阅/)).toBeInTheDocument()
   })
 
   it('keeps compact video title, category, and assistant evaluation in the panel', () => {
@@ -30,8 +30,8 @@ describe('App integration', () => {
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
 
     expect(screen.getByText('真实视频标题')).toBeInTheDocument()
-    expect(screen.getByText('解闷小品')).toBeInTheDocument()
-    expect(screen.getByText(/此物颇能解闷/)).toBeInTheDocument()
+    expect(screen.getByText('暂存待阅')).toBeInTheDocument()
+    expect(screen.getByText(/此条暂存待阅/)).toBeInTheDocument()
   })
 
   it('runs assistant actions through the webview bridge and saves updated preferences', async () => {
@@ -76,15 +76,25 @@ describe('App integration', () => {
     await waitFor(() => expect(savePreferences).toHaveBeenCalled())
 
     expect(loadPreferences).toHaveBeenCalled()
-    expect(savePreferences).toHaveBeenCalledWith({
-      favoritesFolderName: 'Bilimi 内库',
-      preferenceCounts: {
-        funny: 2,
-        knowledge: 0,
-        story: 0,
-        suspicious: 0
-      }
-    })
+    expect(savePreferences).toHaveBeenCalledWith(
+      expect.objectContaining({
+        favoritesFolderName: 'Bilimi 内库',
+        favoriteLedgers: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'inbox',
+            displayName: 'Bilimi·暂存待阅'
+          })
+        ]),
+        ledgerPromptDismissed: false,
+        preferenceCounts: expect.objectContaining({
+          funny: 1,
+          inbox: 1,
+          knowledge: 0,
+          story: 0,
+          suspicious: 0
+        })
+      })
+    )
   })
 
   it('classifies active webview content before running favorite automation', async () => {
