@@ -1,44 +1,61 @@
+import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import { describe, expect, it } from 'vitest'
 import { classifyVideoContent } from './videoClassifier'
 
 describe('classifyVideoContent', () => {
-  it('classifies knowledge videos from title and page copy', () => {
-    expect(
-      classifyVideoContent({
-        title: '三分钟讲清机器学习科普教程',
-        pageText: '从原理到入门路线，适合学习收藏。'
-      })
-    ).toBe('knowledge')
+  it('classifies common Bilibili topics into the default ledger ids', () => {
+    const ledgers = createDefaultFavoriteLedgers()
+
+    expect(classifyVideoContent({ title: '三分钟讲清机器学习科普教程' }, ledgers).ledgerId).toBe('knowledge')
+    expect(classifyVideoContent({ title: '爆笑整活鬼畜合集' }, ledgers).ledgerId).toBe('humor')
+    expect(classifyVideoContent({ title: '第十二集剧情反转名场面' }, ledgers).ledgerId).toBe('story')
+    expect(classifyVideoContent({ title: '电竞赛事操作技巧复盘' }, ledgers).ledgerId).toBe('play')
+    expect(classifyVideoContent({ title: '周末探店美食 Vlog' }, ledgers).ledgerId).toBe('life')
+    expect(classifyVideoContent({ title: '效率软件与数码工具测评' }, ledgers).ledgerId).toBe('craft')
+    expect(classifyVideoContent({ title: '现场翻唱舞台演奏' }, ledgers).ledgerId).toBe('music')
   })
 
-  it('classifies story videos from episode and plot signals', () => {
-    expect(
-      classifyVideoContent({
-        title: '第十二集剧情反转名场面',
-        description: '主线伏笔终于回收，结局高能。'
-      })
-    ).toBe('story')
+  it('prioritizes enabled custom ledgers over default ledgers', () => {
+    const ledgers = [
+      ...createDefaultFavoriteLedgers(),
+      {
+        id: 'custom-photo',
+        displayName: 'Bilimi·光影留真',
+        keywords: ['摄影', '镜头'],
+        enabled: true,
+        priority: -10,
+        isDefault: false
+      }
+    ]
+
+    expect(classifyVideoContent({ title: '摄影镜头构图教程' }, ledgers)).toMatchObject({
+      ledgerId: 'custom-photo',
+      displayName: 'Bilimi·光影留真',
+      matchedKeywords: ['摄影', '镜头'],
+      reviewRequired: false
+    })
   })
 
-  it('classifies funny videos from comedy signals', () => {
-    expect(
-      classifyVideoContent({
-        title: '爆笑整活合集',
-        tags: ['搞笑', '鬼畜']
-      })
-    ).toBe('funny')
+  it('skips disabled ledgers and falls back to inbox when no category is clear', () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'craft' ? { ...ledger, enabled: false } : ledger
+    )
+
+    expect(classifyVideoContent({ title: '效率软件工具' }, ledgers).ledgerId).toBe('inbox')
+    expect(classifyVideoContent({ title: '今天随便看看' }, ledgers).ledgerId).toBe('inbox')
   })
 
-  it('prioritizes suspicious videos when ad or avoid-list signals appear', () => {
-    expect(
-      classifyVideoContent({
-        title: '带货广告避雷测评',
-        description: '这期疑似软广，评论区提醒谨慎。'
-      })
-    ).toBe('suspicious')
-  })
+  it('marks risk signals for review while using inbox as the destination', () => {
+    const result = classifyVideoContent(
+      { title: '带货软广避雷测评', pageText: '标题党和夸大宣传较多' },
+      createDefaultFavoriteLedgers()
+    )
 
-  it('defaults to funny when no stable category signal is found', () => {
-    expect(classifyVideoContent({ title: '今天也来看看这个视频' })).toBe('funny')
+    expect(result).toMatchObject({
+      ledgerId: 'inbox',
+      displayName: 'Bilimi·暂存待阅',
+      reviewRequired: true
+    })
+    expect(result.matchedKeywords).toEqual(expect.arrayContaining(['带货', '软广', '避雷']))
   })
 })

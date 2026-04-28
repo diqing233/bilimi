@@ -2,17 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { describeRecommendation } from './recommendationRules'
 
 describe('describeRecommendation', () => {
-  it('marks funny content as 可赏', () => {
-    expect(describeRecommendation('funny')).toEqual({
-      badge: '可赏',
-      summary: '此物颇能解闷，失仪而不鄙。'
+  it('describes default and custom favorite ledgers', () => {
+    expect(describeRecommendation('knowledge')).toEqual({
+      badge: '可阅',
+      summary: '此条可增广见闻，宜列案头。'
     })
-  })
-
-  it('marks suspicious content as 慎入', () => {
-    expect(describeRecommendation('suspicious')).toEqual({
-      badge: '慎入',
-      summary: '此条市气过浓，疑有商贩夹带。'
+    expect(describeRecommendation('inbox')).toEqual({
+      badge: '待分拣',
+      summary: '此条暂存待阅，容后再归册。'
+    })
+    expect(describeRecommendation('custom-photo')).toEqual({
+      badge: '可藏',
+      summary: '此条合入自定册目，可请掌库留档。'
     })
   })
 })

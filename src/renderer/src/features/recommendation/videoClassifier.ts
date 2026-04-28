@@ -1,4 +1,5 @@
-import type { RecommendationKind } from '@shared/types'
+import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
+import type { FavoriteLedger, FavoriteLedgerClassification } from '@shared/types'
 
 export type VideoContentContext = {
   title?: string
@@ -7,57 +8,7 @@ export type VideoContentContext = {
   tags?: string[]
 }
 
-const KEYWORDS: Record<RecommendationKind, string[]> = {
-  funny: ['搞笑', '爆笑', '整活', '鬼畜', '解压', '笑死', '快乐', '沙雕', '小品', '吐槽', '名梗'],
-  knowledge: [
-    '科普',
-    '教程',
-    '讲清',
-    '原理',
-    '学习',
-    '入门',
-    '知识',
-    '解析',
-    '解读',
-    '历史',
-    '课程',
-    '干货',
-    '纪录片',
-    '方法'
-  ],
-  story: [
-    '剧情',
-    '剧集',
-    '反转',
-    '结局',
-    '主线',
-    '伏笔',
-    '番剧',
-    '电影',
-    '影视',
-    '小说',
-    '名场面',
-    '剪辑',
-    '第'
-  ],
-  suspicious: [
-    '带货',
-    '广告',
-    '软广',
-    '恰饭',
-    '推广',
-    '避雷',
-    '谨慎',
-    '割韭菜',
-    '骗局',
-    '夸大',
-    '引流',
-    '直播间'
-  ]
-}
-
-const FALLBACK_KIND: RecommendationKind = 'funny'
-const TIE_BREAK_ORDER: RecommendationKind[] = ['suspicious', 'knowledge', 'story', 'funny']
+const RISK_KEYWORDS = ['带货', '广告', '软广', '恰饭', '推广', '避雷', '割韭菜', '骗局', '夸大', '引流', '标题党']
 
 function normalize(value = '') {
   return value.toLocaleLowerCase().replace(/\s+/g, '')
@@ -71,38 +22,84 @@ function buildSearchText(context: VideoContentContext) {
   )
 }
 
-function scoreKind(text: string, kind: RecommendationKind) {
-  return KEYWORDS[kind].reduce((score, keyword) => {
-    return text.includes(normalize(keyword)) ? score + 1 : score
-  }, 0)
+function matchedKeywords(text: string, keywords: string[]) {
+  return keywords.filter((keyword) => text.includes(normalize(keyword)))
 }
 
-export function classifyVideoContent(context: VideoContentContext): RecommendationKind {
+function inboxLedger(ledgers: FavoriteLedger[]) {
+  return (
+    ledgers.find((ledger) => ledger.id === 'inbox') ??
+    createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'inbox')!
+  )
+}
+
+export function classifyVideoContent(
+  context: VideoContentContext,
+  ledgers: FavoriteLedger[] = createDefaultFavoriteLedgers()
+): FavoriteLedgerClassification {
   const text = buildSearchText(context)
+  const enabledLedgers = ledgers
+    .filter((ledger) => ledger.enabled)
+    .sort((left, right) => {
+      if (left.isDefault !== right.isDefault) {
+        return left.isDefault ? 1 : -1
+      }
+
+      return left.priority - right.priority
+    })
+  const inbox = inboxLedger(ledgers)
+  const riskMatches = matchedKeywords(text, RISK_KEYWORDS)
 
   if (!text) {
-    return FALLBACK_KIND
-  }
-
-  const scores = TIE_BREAK_ORDER.map((kind) => ({
-    kind,
-    score: scoreKind(text, kind)
-  }))
-
-  const suspicious = scores.find((entry) => entry.kind === 'suspicious')
-  if (suspicious && suspicious.score > 0) {
-    return 'suspicious'
-  }
-
-  const best = scores.sort((left, right) => {
-    if (right.score !== left.score) {
-      return right.score - left.score
+    return {
+      ledgerId: inbox.id,
+      displayName: inbox.displayName,
+      matchedKeywords: [],
+      reviewRequired: false
     }
+  }
 
-    return TIE_BREAK_ORDER.indexOf(left.kind) - TIE_BREAK_ORDER.indexOf(right.kind)
-  })[0]
+  if (riskMatches.length > 0) {
+    return {
+      ledgerId: inbox.id,
+      displayName: inbox.displayName,
+      matchedKeywords: riskMatches,
+      reviewRequired: true
+    }
+  }
 
-  return best && best.score > 0 ? best.kind : FALLBACK_KIND
+  const scored = enabledLedgers
+    .filter((ledger) => ledger.id !== 'inbox')
+    .map((ledger) => ({
+      ledger,
+      matches: matchedKeywords(text, ledger.keywords)
+    }))
+    .filter((entry) => entry.matches.length > 0)
+    .sort((left, right) => {
+      if (right.matches.length !== left.matches.length) {
+        return right.matches.length - left.matches.length
+      }
+
+      return left.ledger.priority - right.ledger.priority
+    })
+
+  const best = scored[0]
+
+  if (!best) {
+    return {
+      ledgerId: inbox.id,
+      displayName: inbox.displayName,
+      matchedKeywords: [],
+      reviewRequired: false
+    }
+  }
+
+  return {
+    ledgerId: best.ledger.id,
+    displayName: best.ledger.displayName,
+    matchedKeywords: best.matches,
+    reviewRequired: false
+  }
 }
 
 export function buildVideoContentContextScript(): string {
