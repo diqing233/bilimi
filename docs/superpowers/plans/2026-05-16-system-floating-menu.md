@@ -525,6 +525,7 @@ export function FloatingMenuApp() {
             key={item.action}
             type="button"
             role="menuitem"
+            aria-label={item.label}
             className="floating-menu__action"
             disabled={runningAction !== null}
             onClick={() => void runAction(item.action)}
