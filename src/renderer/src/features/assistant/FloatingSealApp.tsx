@@ -14,11 +14,11 @@ export function FloatingSealApp() {
   const [pressed, setPressed] = useState(false)
   const [opening, setOpening] = useState(false)
 
-  function openAssistant() {
+  function toggleMenu() {
     setOpening(true)
-    const openRequest = window.bilimiDesktop?.openAssistant?.()
+    const toggleRequest = window.bilimiDesktop?.toggleFloatingMenu?.()
 
-    void Promise.resolve(openRequest).finally(() => {
+    void Promise.resolve(toggleRequest).finally(() => {
       window.setTimeout(() => setOpening(false), 160)
     })
   }
@@ -93,7 +93,7 @@ export function FloatingSealApp() {
             return
           }
 
-          openAssistant()
+          toggleMenu()
         }}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture?.(event.pointerId)
