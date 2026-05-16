@@ -48,8 +48,13 @@ const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
 
 type AssistantOverlayProps = {
   favoritesFolderName?: string
+  openSignal?: number
+  openPosition?: OverlayPosition
   readVideoContentContext?: () => Promise<VideoContentContext | null | undefined>
   readVideoNoteSource?: () => Promise<VideoNoteExtractionResult | null>
+  runActionSignal?: number
+  runRequestedAction?: AssistantAction
+  showSeal?: boolean
   videoContentContext?: VideoContentContext
   videoTitle?: string
   runVisualFallback?: VisualAutomationFallback
@@ -126,8 +131,13 @@ function clampOverlayPosition(position: OverlayPosition): OverlayPosition {
 
 export function AssistantOverlay({
   favoritesFolderName,
+  openSignal = 0,
+  openPosition,
   readVideoContentContext,
   readVideoNoteSource,
+  runActionSignal = 0,
+  runRequestedAction,
+  showSeal = true,
   videoContentContext,
   videoTitle = CURRENT_TITLE,
   runVisualFallback,
@@ -157,6 +167,7 @@ export function AssistantOverlay({
   const [panelMinimized, setPanelMinimized] = useState(false)
   const [runningAction, setRunningAction] = useState<AssistantAction | null>(null)
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null)
+  const [pageClickOnly, setPageClickOnly] = useState(true)
   const [latestVideoContentContext, setLatestVideoContentContext] = useState<
     VideoContentContext | undefined
   >(videoContentContext)
@@ -190,6 +201,7 @@ export function AssistantOverlay({
     open && !panelMinimized
       ? clampOverlayPositionForSize(overlayPosition, expandedOverlaySize)
       : overlayPosition
+  const actionsLocked = runningAction !== null || coinPromptOpen || commentChooserOpen || ledgerPanelOpen
 
   function moveSealTo(clientX: number, clientY: number, pointerId: number) {
     const currentDragState = dragStateRef.current
@@ -256,6 +268,16 @@ export function AssistantOverlay({
       setPreferences(createInitialAssistantPreferences(storedPreferences))
     }
   }, [storedPreferences])
+
+  useEffect(() => {
+    if (openSignal > 0) {
+      if (openPosition) {
+        setOverlayPosition(clampOverlayPositionForSize(openPosition, expandedOverlaySize))
+      }
+      setPanelMinimized(false)
+      setOpen(true)
+    }
+  }, [expandedOverlaySize, openPosition, openSignal])
 
   useEffect(() => {
     if (favoriteLedgerStatus) {
@@ -437,6 +459,10 @@ export function AssistantOverlay({
   }
 
   async function runAction(action: AssistantAction, options?: { coinCount?: 1 | 2; commentDraft?: string }) {
+    if (runningAction) {
+      return
+    }
+
     if (action !== '阅') {
       setPanelMinimized(true)
     }
@@ -458,6 +484,7 @@ export function AssistantOverlay({
         favoritesFolderName: resolvedFavoritesFolderName,
         runScript,
         runVisualFallback,
+        favoriteApiFallbackEnabled: !pageClickOnly,
         coinCount: options?.coinCount,
         commentDraft: options?.commentDraft,
         favoriteLedgers: preferences.favoriteLedgers,
@@ -492,7 +519,7 @@ export function AssistantOverlay({
   }
 
   function handleAction(action: AssistantAction) {
-    if (runningAction) {
+    if (actionsLocked) {
       return
     }
 
@@ -510,6 +537,16 @@ export function AssistantOverlay({
 
     void runAction(action)
   }
+
+  useEffect(() => {
+    if (runActionSignal <= 0 || !runRequestedAction) {
+      return
+    }
+
+    setOpen(true)
+    setPanelMinimized(false)
+    handleAction(runRequestedAction)
+  }, [runActionSignal, runRequestedAction])
 
   function handleSealPointerDown(event: React.PointerEvent<HTMLButtonElement>) {
     event.currentTarget.setPointerCapture?.(event.pointerId)
@@ -552,6 +589,10 @@ export function AssistantOverlay({
     setOpen(true)
   }
 
+  if (!open && !showSeal) {
+    return null
+  }
+
   return (
     <div
       className={`assistant-overlay${panelMinimized ? ' assistant-overlay--minimized' : ''}${dragState?.moved ? ' assistant-overlay--dragging' : ''}`}
@@ -586,9 +627,12 @@ export function AssistantOverlay({
               }}
               onGenerateVideoNote={generateVideoNote}
               onSaveVideoNote={persistVideoNote}
+              pageClickOnly={pageClickOnly}
+              onPageClickOnlyChange={setPageClickOnly}
               videoNote={videoNote}
               videoNoteLoading={videoNoteLoading}
               runningAction={runningAction}
+              actionsLocked={actionsLocked}
               feedback={feedback}
               onOpenLedgerPanel={() => setLedgerPanelOpen(true)}
             />
@@ -642,7 +686,7 @@ export function AssistantOverlay({
             />
           ) : null}
         </>
-      ) : (
+      ) : showSeal ? (
         <SealButton
           onOpen={openFromSeal}
           onMouseDown={handleSealMouseDown}
@@ -652,7 +696,7 @@ export function AssistantOverlay({
           onPointerMove={handleSealPointerMove}
           onPointerUp={handleSealPointerUp}
         />
-      )}
+      ) : null}
     </div>
   )
 }

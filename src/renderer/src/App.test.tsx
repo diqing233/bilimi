@@ -1,11 +1,19 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
+import type { AssistantPreferences } from '@shared/types'
 import { describe, expect, it, vi } from 'vitest'
 import App from './App'
 
 const LEDGER_STATUS_SCRIPT_MARKER = '/x/v3/fav/folder/created/list-all'
 const OLD_FAVORITE_SCAN_SCRIPT_MARKER = '/x/v3/fav/resource/list'
 const VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER = 'pageText: readText'
+
+type TestAssistantOpenPayload = {
+  position?: {
+    left: number
+    top: number
+  }
+}
 
 function isLedgerStatusScript(script: string) {
   return script.includes(LEDGER_STATUS_SCRIPT_MARKER) && script.includes('missingLedgerIds')
@@ -32,20 +40,76 @@ function ledgerStatusWithFolderIds() {
   }
 }
 
-describe('App integration', () => {
-  it('opens the memorial panel and shows the recommendation summary', () => {
-    render(<App />)
+function renderAppWithFloatingSealBridge(apiOverrides: Partial<Window['bilimiDesktop']> = {}) {
+  let openAssistantCallback: ((payload?: TestAssistantOpenPayload) => void) | undefined
+  const onOpenAssistant = vi.fn((callback: (payload?: TestAssistantOpenPayload) => void) => {
+    openAssistantCallback = callback
+    return vi.fn()
+  })
+  const desktopApi = {
+    version: '0.1.0',
+    loadPreferences: vi.fn(),
+    savePreferences: vi.fn(async (preferences: AssistantPreferences) => preferences),
+    ...apiOverrides,
+    onOpenAssistant
+  }
 
-    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
-
-    expect(screen.getByText('御前待阅折')).toBeInTheDocument()
-    expect(screen.getByText(/此条暂存待阅/)).toBeInTheDocument()
+  Object.defineProperty(window, 'bilimiDesktop', {
+    configurable: true,
+    value: desktopApi
   })
 
-  it('keeps compact video title, category, and assistant evaluation in the panel', () => {
+  const renderResult = render(<App />)
+
+  return {
+    ...renderResult,
+    desktopApi,
+    openAssistantFromFloatingSeal: (payload?: TestAssistantOpenPayload) => {
+      act(() => {
+        openAssistantCallback?.(payload)
+      })
+    }
+  }
+}
+
+describe('App integration', () => {
+  it('does not render the embedded seal in the main renderer window', () => {
     render(<App />)
 
-    const webview = document.getElementById('bilimi-webview') as HTMLElement
+    expect(document.querySelector('.seal-button')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '开折批阅' })).not.toBeInTheDocument()
+  })
+
+  it('opens the memorial panel and shows the recommendation summary', async () => {
+    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
+
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) =>
+      isLedgerStatusScript(script) ? emptyLedgerStatus() : null
+    )
+    Object.assign(webview, { executeJavaScript })
+
+    openAssistantFromFloatingSeal()
+
+    expect(await screen.findByText('御前待阅折')).toBeInTheDocument()
+    expect(screen.getByText(/此条暂存待阅/)).toBeInTheDocument()
+    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining(LEDGER_STATUS_SCRIPT_MARKER)
+    ))
+  })
+
+  it('keeps compact video title, category, and assistant evaluation in the panel', async () => {
+    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
+
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) =>
+      isLedgerStatusScript(script) ? emptyLedgerStatus() : null
+    )
+    Object.assign(webview, { executeJavaScript })
 
     act(() => {
       webview.dispatchEvent(
@@ -57,11 +121,14 @@ describe('App integration', () => {
       )
     })
 
-    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    openAssistantFromFloatingSeal()
 
-    expect(screen.getByText('真实视频标题')).toBeInTheDocument()
+    expect(await screen.findByText('真实视频标题')).toBeInTheDocument()
     expect(screen.getByText('暂存待阅')).toBeInTheDocument()
     expect(screen.getByText(/此条暂存待阅/)).toBeInTheDocument()
+    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining(LEDGER_STATUS_SCRIPT_MARKER)
+    ))
   })
 
   it('runs assistant actions through the webview bridge and saves updated preferences', async () => {
@@ -76,16 +143,10 @@ describe('App integration', () => {
     })
     const savePreferences = vi.fn().mockImplementation(async (preferences) => preferences)
 
-    Object.defineProperty(window, 'bilimiDesktop', {
-      configurable: true,
-      value: {
-        version: '0.1.0',
-        loadPreferences,
-        savePreferences
-      }
+    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge({
+      loadPreferences,
+      savePreferences
     })
-
-    render(<App />)
 
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string) => Promise<unknown>
@@ -103,7 +164,7 @@ describe('App integration', () => {
 
     Object.assign(webview, { executeJavaScript })
 
-    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    openAssistantFromFloatingSeal()
     fireEvent.click(screen.getByRole('button', { name: '赏' }))
 
     await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(
@@ -134,7 +195,7 @@ describe('App integration', () => {
   })
 
   it('checks ledger status through the active webview and opens 掌库 setup', async () => {
-    render(<App />)
+    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
 
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string) => Promise<unknown>
@@ -148,18 +209,18 @@ describe('App integration', () => {
 
     Object.assign(webview, { executeJavaScript })
 
-    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    openAssistantFromFloatingSeal()
 
     expect(await screen.findByText('Bilimi 专用册目尚未备齐，可请掌库先行备册。')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '请掌库' }))
 
-    expect(screen.getByRole('dialog', { name: '掌库' })).toBeInTheDocument()
+    expect(await screen.findByRole('dialog', { name: '掌库' })).toBeInTheDocument()
     expect(executeJavaScript.mock.calls[0][0]).toContain('/x/v3/fav/folder/created/list-all')
   })
 
   it('scans old favorites through the active webview before showing ledger preview', async () => {
-    render(<App />)
+    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
 
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string) => Promise<unknown>
@@ -197,7 +258,7 @@ describe('App integration', () => {
 
     Object.assign(webview, { executeJavaScript })
 
-    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    openAssistantFromFloatingSeal()
     fireEvent.click(screen.getByRole('button', { name: '掌库' }))
     fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
 
@@ -208,7 +269,7 @@ describe('App integration', () => {
   })
 
   it('classifies active webview content before running favorite automation', async () => {
-    render(<App />)
+    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
 
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string) => Promise<unknown>
@@ -235,7 +296,7 @@ describe('App integration', () => {
 
     Object.assign(webview, { executeJavaScript })
 
-    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    openAssistantFromFloatingSeal()
     fireEvent.click(screen.getByRole('button', { name: '藏' }))
 
     await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(
@@ -268,7 +329,7 @@ describe('App integration', () => {
       'src',
       'https://www.bilibili.com/video/BV1demo'
     )
-    expect(screen.getByRole('button', { name: '开折批阅' })).toBeInTheDocument()
+    expect(document.querySelector('.seal-button')).not.toBeInTheDocument()
   })
 
   it('opens main-process window-open URLs as internal browser tabs', async () => {
@@ -300,6 +361,46 @@ describe('App integration', () => {
     )
   })
 
+  it('opens the assistant panel when the desktop floating seal requests it', async () => {
+    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
+
+    expect(screen.queryByText('御前待阅折')).not.toBeInTheDocument()
+    expect(document.querySelector('.seal-button')).not.toBeInTheDocument()
+
+    openAssistantFromFloatingSeal()
+
+    expect(await screen.findByText('御前待阅折')).toBeInTheDocument()
+  })
+
+  it('places the assistant panel at the floating seal requested position', async () => {
+    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
+
+    openAssistantFromFloatingSeal({ position: { left: 96, top: 220 } })
+
+    expect(await screen.findByText('御前待阅折')).toBeInTheDocument()
+    expect(document.querySelector('.assistant-overlay')).toHaveStyle({
+      left: '96px',
+      top: '220px'
+    })
+  })
+
+  it('hides the embedded seal when the desktop floating seal bridge is available', () => {
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        version: '0.1.0',
+        moveFloatingSealBy: vi.fn(),
+        onOpenAssistant: vi.fn(() => vi.fn()),
+        openAssistant: vi.fn()
+      }
+    })
+
+    render(<App />)
+
+    expect(document.querySelector('.seal-button')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '开折批阅' })).not.toBeInTheDocument()
+  })
+
   it('opens injected video click signals as internal browser tabs', async () => {
     render(<App />)
 
@@ -322,11 +423,11 @@ describe('App integration', () => {
       'src',
       'https://www.bilibili.com/video/BV1signal'
     )
-    expect(document.querySelector('.seal-button')).toBeInTheDocument()
+    expect(document.querySelector('.seal-button')).not.toBeInTheDocument()
   })
 
   it('runs assistant actions against the active internal tab', async () => {
-    render(<App />)
+    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
 
     const homeWebview = document.getElementById('bilimi-webview') as HTMLElement
     const homeExecuteJavaScript = vi.fn().mockResolvedValue({
@@ -374,7 +475,7 @@ describe('App integration', () => {
     )
     Object.assign(activeWebview!, { executeJavaScript: activeExecuteJavaScript })
 
-    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    openAssistantFromFloatingSeal()
     fireEvent.click(screen.getByRole('button', { name: '赏' }))
 
     await waitFor(() => expect(activeExecuteJavaScript).toHaveBeenCalledWith(
@@ -383,8 +484,50 @@ describe('App integration', () => {
     expect(homeExecuteJavaScript).not.toHaveBeenCalled()
   })
 
-  it('uses visual keyboard and mouse fallback when favorite creation is not found by DOM automation', async () => {
+  it('runs a system floating menu action against the active internal tab', async () => {
+    let runActionCallback: ((payload: { action: '藏' }) => void) | undefined
+
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        version: '0.1.0',
+        loadPreferences: vi.fn(),
+        savePreferences: vi.fn(async (preferences: AssistantPreferences) => preferences),
+        onRunAssistantAction: vi.fn((callback: (payload: { action: '藏' }) => void) => {
+          runActionCallback = callback
+          return vi.fn()
+        })
+      }
+    })
+
     render(<App />)
+
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) =>
+      isLedgerStatusScript(script)
+        ? emptyLedgerStatus()
+        : {
+            ok: true,
+            steps: ['favorite'],
+            missingTargets: [],
+            message: 'system menu action'
+          }
+    )
+    Object.assign(webview, { executeJavaScript })
+
+    act(() => {
+      runActionCallback?.({ action: '藏' })
+    })
+
+    await waitFor(() =>
+      expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('"action":"藏"'))
+    )
+  })
+
+  it('uses visual keyboard and mouse fallback when favorite creation is not found by DOM automation', async () => {
+    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
 
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       capturePage?: () => Promise<{ toDataURL: () => string }>
@@ -449,7 +592,7 @@ describe('App integration', () => {
       sendInputEvent
     })
 
-    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    openAssistantFromFloatingSeal()
     fireEvent.click(screen.getByRole('button', { name: '赏' }))
 
     await waitFor(() =>
@@ -491,7 +634,7 @@ describe('App integration', () => {
   })
 
   it('extracts the active video page and renders local video notes', async () => {
-    render(<App />)
+    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
 
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
@@ -510,7 +653,7 @@ describe('App integration', () => {
     })
     Object.assign(webview, { executeJavaScript })
 
-    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    openAssistantFromFloatingSeal()
     fireEvent.click(screen.getByRole('tab', { name: '札记' }))
     fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
 
@@ -521,17 +664,9 @@ describe('App integration', () => {
   it('saves a generated video note through the desktop API', async () => {
     const saveVideoNote = vi.fn().mockResolvedValue([])
 
-    Object.defineProperty(window, 'bilimiDesktop', {
-      configurable: true,
-      value: {
-        version: '0.1.0',
-        loadPreferences: vi.fn(),
-        savePreferences: vi.fn(),
-        saveVideoNote
-      }
+    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge({
+      saveVideoNote
     })
-
-    render(<App />)
 
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
@@ -546,7 +681,7 @@ describe('App integration', () => {
       })
     })
 
-    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    openAssistantFromFloatingSeal()
     fireEvent.click(screen.getByRole('tab', { name: '札记' }))
     fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
     fireEvent.click(await screen.findByRole('tab', { name: '归档' }))
@@ -558,17 +693,9 @@ describe('App integration', () => {
   it('uses current video metadata when saving a note from pasted transcript', async () => {
     const saveVideoNote = vi.fn().mockResolvedValue([])
 
-    Object.defineProperty(window, 'bilimiDesktop', {
-      configurable: true,
-      value: {
-        version: '0.1.0',
-        loadPreferences: vi.fn(),
-        savePreferences: vi.fn(),
-        saveVideoNote
-      }
+    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge({
+      saveVideoNote
     })
-
-    render(<App />)
 
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
@@ -583,7 +710,7 @@ describe('App integration', () => {
       })
     })
 
-    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    openAssistantFromFloatingSeal()
     fireEvent.click(screen.getByRole('tab', { name: '札记' }))
     fireEvent.change(screen.getByLabelText('粘贴文稿'), {
       target: { value: '手动整理的完整文稿。' }

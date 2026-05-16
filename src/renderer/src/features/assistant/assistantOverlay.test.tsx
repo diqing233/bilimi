@@ -121,6 +121,27 @@ describe('AssistantOverlay', () => {
     expect(screen.getByText('阅')).toBeInTheDocument()
   })
 
+  it('runs an externally requested assistant action through the existing action path', async () => {
+    const runScript = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['favorite'],
+      missingTargets: [],
+      message: '此折已阅。'
+    })
+
+    const { rerender } = render(
+      <AssistantOverlay runActionSignal={0} runRequestedAction={undefined} runScript={runScript} />
+    )
+
+    rerender(
+      <AssistantOverlay runActionSignal={1} runRequestedAction="藏" runScript={runScript} />
+    )
+
+    await waitFor(() =>
+      expect(runScript).toHaveBeenCalledWith(expect.stringContaining('"action":"藏"'))
+    )
+  })
+
   it('asks for coin count before executing 赐', async () => {
     const runScript = vi.fn().mockResolvedValue({
       ok: true,
@@ -332,6 +353,100 @@ describe('AssistantOverlay', () => {
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('尚有 favorite 未能寻见。'))
     expect(screen.getByText('御前待阅折')).toBeInTheDocument()
+  })
+
+  it('defaults to page-click-only fallback and shows the automation log', async () => {
+    const runScript = vi.fn().mockResolvedValue({
+      ok: false,
+      steps: ['favorite:open'],
+      missingTargets: ['favorite-create-button'],
+      message: '尚有 favorite-create-button 未能寻见。'
+    })
+    const runVisualFallback = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['visual:favorite:create'],
+      missingTargets: [],
+      message: '已用页面点击兜底。'
+    })
+
+    render(
+      <AssistantOverlay
+        runScript={runScript}
+        runVisualFallback={runVisualFallback}
+        favoritesFolderName="Bilimi 内库"
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+
+    expect(screen.getByRole('switch', { name: '仅页面点击' })).toBeChecked()
+
+    fireEvent.click(screen.getByRole('button', { name: '藏' }))
+
+    await waitFor(() => expect(runVisualFallback).toHaveBeenCalledOnce())
+    expect(runScript).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: '展开助手状态' }))
+    expect(screen.getByText('执行日志')).toBeInTheDocument()
+    expect(screen.getByText('api:favorite:disabled')).toBeInTheDocument()
+    expect(screen.getByText('visual:favorite:create')).toBeInTheDocument()
+  })
+
+  it('keeps action buttons locked before a coin action is submitted', () => {
+    render(<AssistantOverlay favoritesFolderName="Bilimi 内库" />)
+
+    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    fireEvent.click(screen.getByRole('button', { name: '赐' }))
+
+    expect(screen.getByRole('button', { name: '赏' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '藏' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '赐' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '表' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '阅' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '掌库' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '赐一枚' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '赐两枚' })).toBeEnabled()
+  })
+
+  it('keeps action buttons locked before a comment draft is submitted', () => {
+    render(<AssistantOverlay favoritesFolderName="Bilimi 内库" />)
+
+    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    fireEvent.click(screen.getByRole('button', { name: '表' }))
+
+    expect(screen.getByRole('button', { name: '赏' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '藏' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '赐' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '表' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '阅' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '掌库' })).toBeDisabled()
+    expect(screen.getAllByRole('button').some((button) => button.textContent?.includes('亲览'))).toBe(true)
+  })
+
+  it('prevents duplicate coin choice submissions', async () => {
+    const runScript = vi.fn(
+      () =>
+        new Promise<{
+          ok: boolean
+          steps: string[]
+          missingTargets: string[]
+          message: string
+        }>(() => {})
+    )
+
+    render(
+      <AssistantOverlay
+        runScript={runScript}
+        favoritesFolderName="Bilimi 内库"
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    fireEvent.click(screen.getByRole('button', { name: '赐' }))
+    const twoCoinButton = screen.getByRole('button', { name: '赐两枚' })
+    fireEvent.click(twoCoinButton)
+    fireEvent.click(twoCoinButton)
+
+    await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
   })
 
   it('asks the user to choose one memorial-style comment before 表 sends', async () => {

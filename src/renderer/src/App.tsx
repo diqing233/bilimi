@@ -1,5 +1,6 @@
 import { BILIBILI_HOME_URL } from '@shared/constants'
 import type {
+  AssistantAction,
   AssistantAutomationResult,
   AssistantPreferences,
   BrowserTabModel,
@@ -66,12 +67,17 @@ export default function App() {
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences()
   )
+  const [assistantOpenSignal, setAssistantOpenSignal] = useState(0)
+  const [assistantOpenPosition, setAssistantOpenPosition] = useState<
+    { left: number; top: number } | undefined
+  >(undefined)
+  const [assistantRunActionSignal, setAssistantRunActionSignal] = useState(0)
+  const [assistantRequestedAction, setAssistantRequestedAction] = useState<AssistantAction | undefined>()
   const activeWebview = useMemo(() => webviews[activeTabId] ?? null, [activeTabId, webviews])
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0],
     [activeTabId, tabs]
   )
-
   useEffect(() => {
     let cancelled = false
 
@@ -173,6 +179,20 @@ export default function App() {
   useEffect(() => {
     return window.bilimiDesktop?.onOpenInTab?.(openInternalTab)
   }, [openInternalTab])
+
+  useEffect(() => {
+    return window.bilimiDesktop?.onOpenAssistant?.((payload) => {
+      setAssistantOpenPosition(payload?.position)
+      setAssistantOpenSignal((current) => current + 1)
+    })
+  }, [])
+
+  useEffect(() => {
+    return window.bilimiDesktop?.onRunAssistantAction?.((payload) => {
+      setAssistantRequestedAction(payload.action)
+      setAssistantRunActionSignal((current) => current + 1)
+    })
+  }, [])
 
   const updateTabUrl = useCallback((tabId: string, url: string) => {
     setTabs((currentTabs) =>
@@ -400,6 +420,10 @@ export default function App() {
       </div>
       <AssistantOverlay
         favoritesFolderName={preferences.favoritesFolderName}
+        openSignal={assistantOpenSignal}
+        openPosition={assistantOpenPosition}
+        runActionSignal={assistantRunActionSignal}
+        runRequestedAction={assistantRequestedAction}
         readVideoContentContext={readVideoContentContext}
         readVideoNoteSource={readVideoNoteSource}
         runVisualFallback={runVisualFallback}
@@ -409,6 +433,7 @@ export default function App() {
         scanOldFavorites={scanOldFavorites}
         executeOldFavoritePlan={executeOldFavoritePlan}
         saveVideoNote={saveVideoNote}
+        showSeal={false}
         storedPreferences={preferences}
         videoTitle={activeTab?.title}
       />
