@@ -29,6 +29,7 @@ describe('videoNoteSummarizer', () => {
       expect.objectContaining({ start: 85 })
     ])
     expect(note.transcript).toHaveLength(3)
+    expect(note.annotations).toEqual([])
   })
 
   it('creates an empty-note explanation when no transcript exists', () => {

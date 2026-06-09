@@ -10,17 +10,29 @@ export function createVideoNoteId(source: Pick<VideoNoteSourceMetadata, 'bvid' |
   return `url:${source.url.trim()}`
 }
 
+export function normalizeVideoNote(note: VideoNote): VideoNote {
+  return {
+    ...note,
+    annotations: Array.isArray(note.annotations) ? note.annotations : []
+  }
+}
+
+export function normalizeVideoNotes(notes: VideoNote[]): VideoNote[] {
+  return notes.map(normalizeVideoNote)
+}
+
 export function upsertVideoNote(notes: VideoNote[], nextNote: VideoNote): VideoNote[] {
-  const existingNote = notes.find((note) => note.id === nextNote.id)
+  const normalizedNextNote = normalizeVideoNote(nextNote)
+  const existingNote = notes.find((note) => note.id === normalizedNextNote.id)
 
   if (!existingNote) {
-    return [...notes, nextNote]
+    return [...normalizeVideoNotes(notes), normalizedNextNote]
   }
 
-  return notes.map((note) =>
-    note.id === nextNote.id
+  return normalizeVideoNotes(notes).map((note) =>
+    note.id === normalizedNextNote.id
       ? {
-          ...nextNote,
+          ...normalizedNextNote,
           createdAt: note.createdAt
         }
       : note

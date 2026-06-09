@@ -113,6 +113,15 @@ export type VideoNoteOverview = {
   highlights: VideoNoteTimelineItem[]
 }
 
+export type VideoNoteAnnotation = {
+  id: string
+  start: number | null
+  title: string
+  body: string
+  createdAt: string
+  updatedAt: string
+}
+
 export type VideoNote = {
   id: string
   source: VideoNoteSourceMetadata
@@ -120,6 +129,7 @@ export type VideoNote = {
   transcript: TranscriptSegment[]
   chapters: TranscriptChapter[]
   overview: VideoNoteOverview
+  annotations: VideoNoteAnnotation[]
   userMemo: string
   createdAt: string
   updatedAt: string

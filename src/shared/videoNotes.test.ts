@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { createVideoNoteId, upsertVideoNote } from './videoNotes'
-import type { VideoNote } from './types'
+import { createVideoNoteId, normalizeVideoNote, upsertVideoNote } from './videoNotes'
+import type { VideoNote, VideoNoteAnnotation } from './types'
+
+const sampleAnnotation: VideoNoteAnnotation = {
+  id: 'annotation-1',
+  start: 75,
+  title: '数据质量',
+  body: '这一段解释了训练数据为什么重要。',
+  createdAt: '2026-06-09T00:00:00.000Z',
+  updatedAt: '2026-06-09T00:00:00.000Z'
+}
 
 function createNote(overrides: Partial<VideoNote> = {}): VideoNote {
   return {
@@ -20,6 +29,7 @@ function createNote(overrides: Partial<VideoNote> = {}): VideoNote {
       timeline: [],
       highlights: []
     },
+    annotations: [],
     userMemo: '',
     createdAt: '2026-04-28T00:00:00.000Z',
     updatedAt: '2026-04-28T00:00:00.000Z',
@@ -41,6 +51,35 @@ describe('video note helpers', () => {
       transcript: [{ start: 10, end: 14, text: '更新后的文稿' }],
       createdAt: '2026-04-29T00:00:00.000Z',
       updatedAt: '2026-04-29T00:00:00.000Z'
+    })
+
+    expect(upsertVideoNote([existing], updated)).toEqual([
+      {
+        ...updated,
+        createdAt: existing.createdAt
+      }
+    ])
+  })
+
+  it('normalizes legacy notes with an empty annotations list', () => {
+    const legacyNote = createNote()
+    delete (legacyNote as Partial<VideoNote>).annotations
+
+    expect(normalizeVideoNote(legacyNote as VideoNote).annotations).toEqual([])
+  })
+
+  it('keeps annotations when updating an existing note', () => {
+    const existing = createNote({ annotations: [sampleAnnotation] })
+    const updated = createNote({
+      id: existing.id,
+      annotations: [
+        {
+          ...sampleAnnotation,
+          id: 'annotation-2',
+          title: '模型上限'
+        }
+      ],
+      updatedAt: '2026-06-09T01:00:00.000Z'
     })
 
     expect(upsertVideoNote([existing], updated)).toEqual([

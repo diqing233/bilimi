@@ -120,6 +120,7 @@ export function createLocalVideoNoteDraft(input: CreateLocalVideoNoteDraftInput)
     transcript,
     chapters,
     overview,
+    annotations: [],
     userMemo: input.userMemo ?? '',
     createdAt: input.now,
     updatedAt: input.now
