@@ -38,6 +38,8 @@ function transcriptItems(items: TranscriptSegment[]): string {
 
 export function createVideoNoteMarkdown(note: VideoNote): string {
   const annotations = note.annotations ?? []
+  const author = note.source.author?.trim() || '未署名'
+  const bvid = note.source.bvid?.trim() || '未识别'
   const annotationText =
     annotations.length > 0
       ? annotations
@@ -52,8 +54,8 @@ export function createVideoNoteMarkdown(note: VideoNote): string {
   return [
     `# ${note.source.title}`,
     '',
-    `- UP：${note.source.author ?? '未署名'}`,
-    `- BV：${note.source.bvid ?? '未识别'}`,
+    `- UP：${author}`,
+    `- BV：${bvid}`,
     `- 链接：${note.source.url}`,
     `- 整理时间：${note.updatedAt}`,
     '',

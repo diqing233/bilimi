@@ -45,10 +45,15 @@ describe('createVideoNoteMarkdown', () => {
     expect(markdown).toContain('# 机器学习入门')
     expect(markdown).toContain('- UP：李老师')
     expect(markdown).toContain('- BV：BV1note')
+    expect(markdown).toContain('- 链接：https://www.bilibili.com/video/BV1note')
+    expect(markdown).toContain('- 整理时间：2026-06-09T01:00:00.000Z')
     expect(markdown).toContain('## 速览')
     expect(markdown).toContain('- 三分钟讲清机器学习的基本思路。')
+    expect(markdown).toContain('关键词：机器学习、训练数据')
     expect(markdown).toContain('## 时间线')
     expect(markdown).toContain('- [01:15] 数据：说明数据质量的重要性。')
+    expect(markdown).toContain('## 高光')
+    expect(markdown).toContain('- [01:15] 核心提示：训练数据决定模型上限。')
     expect(markdown).toContain('## 批注')
     expect(markdown).toContain('- [01:15] **这里要复看**：数据质量这一点可以写进报告。')
     expect(markdown).toContain('## 文稿')
@@ -69,5 +74,39 @@ describe('createVideoNoteMarkdown', () => {
     expect(markdown).toContain('- BV：未识别')
     expect(markdown).toContain('暂无批注。')
     expect(markdown).toContain('暂无备注。')
+  })
+
+  it('falls back for blank source metadata and formats null timestamps', () => {
+    const markdown = createVideoNoteMarkdown({
+      ...note,
+      source: {
+        title: '空时间视频',
+        author: '   ',
+        tags: [],
+        bvid: '',
+        url: 'https://example.test/null-time'
+      },
+      transcript: [{ start: null, end: null, text: '这一段没有时间。' }],
+      overview: {
+        ...note.overview,
+        timeline: [{ start: null, title: '空时间', detail: '没有时间。' }],
+        highlights: [{ start: null, title: '空高光', detail: '仍然可读。' }]
+      },
+      annotations: [
+        {
+          ...note.annotations[0],
+          start: null,
+          title: '空时间批注',
+          body: '也要显示占位。'
+        }
+      ]
+    })
+
+    expect(markdown).toContain('- UP：未署名')
+    expect(markdown).toContain('- BV：未识别')
+    expect(markdown).toContain('- [--:--] 空时间：没有时间。')
+    expect(markdown).toContain('- [--:--] 空高光：仍然可读。')
+    expect(markdown).toContain('- [--:--] **空时间批注**：也要显示占位。')
+    expect(markdown).toContain('- [--:--] 这一段没有时间。')
   })
 })
