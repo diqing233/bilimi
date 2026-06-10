@@ -30,6 +30,47 @@ describe('collectNoteSources and scoreNoteSourceBundle', () => {
     })
   })
 
+  it('does not score a tiny transcript as sufficient', () => {
+    const bundle = collectNoteSources({
+      title: 'Tiny source',
+      transcriptText: '片段',
+      url: 'https://www.bilibili.com/video/BV1sparse'
+    })
+
+    expect(scoreNoteSourceBundle(bundle)).toEqual({
+      quality: 'insufficient',
+      reason: 'metadata_only'
+    })
+  })
+
+  it('does not score a tiny structured document as sufficient', () => {
+    const bundle = collectNoteSources({
+      title: 'Tiny source',
+      structuredDocumentText: '完整文档',
+      url: 'https://www.bilibili.com/video/BV1sparse'
+    })
+
+    expect(scoreNoteSourceBundle(bundle)).toEqual({
+      quality: 'insufficient',
+      reason: 'metadata_only'
+    })
+  })
+
+  it('does not score a tiny manual supplement as sufficient', () => {
+    const bundle = collectNoteSources(
+      {
+        title: 'Tiny source',
+        url: 'https://www.bilibili.com/video/BV1db'
+      },
+      '太短'
+    )
+
+    expect(scoreNoteSourceBundle(bundle)).toEqual({
+      quality: 'insufficient',
+      reason: 'metadata_only'
+    })
+  })
+
   it('scores a short description as partial', () => {
     const bundle = collectNoteSources({
       title: '阅读习惯',

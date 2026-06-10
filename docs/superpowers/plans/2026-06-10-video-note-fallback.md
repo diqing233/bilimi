@@ -1127,7 +1127,7 @@ Expected:
 
 ```text
 Test Files  4 passed
-Tests       17 passed
+Tests       21 passed
 ```
 
 - [ ] **Step 2: Run TypeScript type checking**

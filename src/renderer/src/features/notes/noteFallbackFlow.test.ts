@@ -44,6 +44,25 @@ describe('runNoteFallbackFlow', () => {
     expect(first.prompt.acceptedMaterials).not.toBe(second.prompt.acceptedMaterials)
   })
 
+  it('asks for manual supplement when the only transcript text is tiny', () => {
+    const result = runNoteFallbackFlow({
+      pageContext: {
+        title: 'Tiny source',
+        transcriptText: '片段',
+        url: 'https://www.bilibili.com/video/BV1sparse'
+      }
+    })
+
+    expect(result.mode).toBe('needs_manual_input')
+    if (result.mode !== 'needs_manual_input') {
+      throw new Error('Expected manual input prompt')
+    }
+    expect(result.assessment).toEqual({
+      quality: 'insufficient',
+      reason: 'metadata_only'
+    })
+  })
+
   it('summarizes directly when automatic page material is sufficient', () => {
     const result = runNoteFallbackFlow({
       pageContext: {

@@ -1,8 +1,13 @@
 import type { NoteSourceBundle, SourceQualityAssessment } from './noteTypes'
 
 const RICH_DESCRIPTION_MIN_LENGTH = 80
+const PRIMARY_TEXT_MIN_LENGTH = 20
 
 const PRIMARY_TEXT_TYPES = new Set(['structuredDocument', 'transcript', 'manualSupplement'])
+
+function getNonWhitespaceLength(text: string): number {
+  return text.replace(/\s/g, '').length
+}
 
 export function scoreNoteSourceBundle(bundle: NoteSourceBundle): SourceQualityAssessment {
   if (bundle.items.length === 0) {
@@ -10,7 +15,7 @@ export function scoreNoteSourceBundle(bundle: NoteSourceBundle): SourceQualityAs
   }
 
   const hasPrimaryText = bundle.items.some(
-    (item) => PRIMARY_TEXT_TYPES.has(item.type) && item.text.trim().length > 0
+    (item) => PRIMARY_TEXT_TYPES.has(item.type) && getNonWhitespaceLength(item.text) >= PRIMARY_TEXT_MIN_LENGTH
   )
 
   if (hasPrimaryText) {
