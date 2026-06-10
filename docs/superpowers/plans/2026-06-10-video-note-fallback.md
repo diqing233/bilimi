@@ -868,6 +868,9 @@ describe('runNoteFallbackFlow', () => {
     })
 
     expect(result.mode).toBe('needs_manual_input')
+    if (result.mode !== 'needs_manual_input') {
+      throw new Error('Expected manual input prompt')
+    }
     expect(result.prompt).toEqual({
       title: '未识得视频文档',
       message: '现有材料不足成札。若赐下字幕、文稿或观后零札，便可再拟一版。',
@@ -885,8 +888,11 @@ describe('runNoteFallbackFlow', () => {
     })
 
     expect(result.mode).toBe('summary_ready')
-    expect(result.summary?.sourceNotice).toBe('据页面材料拟札')
-    expect(result.summary?.keyPoints).toHaveLength(3)
+    if (result.mode !== 'summary_ready') {
+      throw new Error('Expected summary result')
+    }
+    expect(result.summary.sourceNotice).toBe('据页面材料拟札')
+    expect(result.summary.keyPoints).toHaveLength(3)
   })
 
   it('uses manual supplement after automatic material is insufficient', () => {
@@ -899,8 +905,11 @@ describe('runNoteFallbackFlow', () => {
     })
 
     expect(result.mode).toBe('summary_ready')
-    expect(result.summary?.sourceNotice).toBe('据补充材料拟札')
-    expect(result.summary?.oneSentence).toContain('B+ 树索引')
+    if (result.mode !== 'summary_ready') {
+      throw new Error('Expected summary result')
+    }
+    expect(result.summary.sourceNotice).toBe('据补充材料拟札')
+    expect(result.summary.oneSentence).toContain('B+ 树索引')
   })
 
   it('creates a limited summary from short descriptions without a structured document', () => {
@@ -914,7 +923,10 @@ describe('runNoteFallbackFlow', () => {
     expect(result.detection.status).toBe('not_found')
     expect(result.assessment.quality).toBe('partial')
     expect(result.mode).toBe('summary_ready')
-    expect(result.summary?.status).toBe('limited')
+    if (result.mode !== 'summary_ready') {
+      throw new Error('Expected summary result')
+    }
+    expect(result.summary.status).toBe('limited')
   })
 
   it('keeps low-confidence detection in the fallback path', () => {
@@ -929,7 +941,10 @@ describe('runNoteFallbackFlow', () => {
     expect(result.detection.status).toBe('low_confidence')
     expect(result.assessment.quality).toBe('sufficient')
     expect(result.mode).toBe('summary_ready')
-    expect(result.summary?.sourceNotice).toBe('据页面材料拟札')
+    if (result.mode !== 'summary_ready') {
+      throw new Error('Expected summary result')
+    }
+    expect(result.summary.sourceNotice).toBe('据页面材料拟札')
   })
 })
 ```
