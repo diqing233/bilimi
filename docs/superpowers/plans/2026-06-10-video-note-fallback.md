@@ -878,6 +878,29 @@ describe('runNoteFallbackFlow', () => {
     })
   })
 
+  it('returns fresh manual prompt objects for repeated sparse-material calls', () => {
+    const first = runNoteFallbackFlow({
+      pageContext: {
+        title: '今日随看',
+        url: 'https://www.bilibili.com/video/BV1sparse'
+      }
+    })
+    const second = runNoteFallbackFlow({
+      pageContext: {
+        title: '今日随看',
+        url: 'https://www.bilibili.com/video/BV1sparse'
+      }
+    })
+
+    expect(first.mode).toBe('needs_manual_input')
+    expect(second.mode).toBe('needs_manual_input')
+    if (first.mode !== 'needs_manual_input' || second.mode !== 'needs_manual_input') {
+      throw new Error('Expected manual input prompts')
+    }
+    expect(first.prompt).not.toBe(second.prompt)
+    expect(first.prompt.acceptedMaterials).not.toBe(second.prompt.acceptedMaterials)
+  })
+
   it('summarizes directly when automatic page material is sufficient', () => {
     const result = runNoteFallbackFlow({
       pageContext: {
@@ -970,9 +993,9 @@ Append to `src/renderer/src/features/notes/noteTypes.ts`:
 
 ```ts
 export type ManualSourcePromptModel = {
-  title: '未识得视频文档'
-  message: '现有材料不足成札。若赐下字幕、文稿或观后零札，便可再拟一版。'
-  acceptedMaterials: ['字幕或 AI 字幕', '视频文稿或简介', '观后零札']
+  readonly title: '未识得视频文档'
+  readonly message: '现有材料不足成札。若赐下字幕、文稿或观后零札，便可再拟一版。'
+  readonly acceptedMaterials: readonly ['字幕或 AI 字幕', '视频文稿或简介', '观后零札']
 }
 
 export type NoteFallbackFlowInput = {
@@ -1012,10 +1035,12 @@ import { createNoteSummary } from './noteSummarizer'
 import { scoreNoteSourceBundle } from './sourceQualityScorer'
 import { detectVideoDocument } from './videoDocumentDetector'
 
-const MANUAL_SOURCE_PROMPT: ManualSourcePromptModel = {
-  title: '未识得视频文档',
-  message: '现有材料不足成札。若赐下字幕、文稿或观后零札，便可再拟一版。',
-  acceptedMaterials: ['字幕或 AI 字幕', '视频文稿或简介', '观后零札']
+function createManualSourcePrompt(): ManualSourcePromptModel {
+  return {
+    title: '未识得视频文档',
+    message: '现有材料不足成札。若赐下字幕、文稿或观后零札，便可再拟一版。',
+    acceptedMaterials: ['字幕或 AI 字幕', '视频文稿或简介', '观后零札']
+  }
 }
 
 export function runNoteFallbackFlow(input: NoteFallbackFlowInput): NoteFallbackFlowResult {
@@ -1029,7 +1054,7 @@ export function runNoteFallbackFlow(input: NoteFallbackFlowInput): NoteFallbackF
       detection,
       sourceBundle,
       assessment,
-      prompt: MANUAL_SOURCE_PROMPT
+      prompt: createManualSourcePrompt()
     }
   }
 
@@ -1102,7 +1127,7 @@ Expected:
 
 ```text
 Test Files  4 passed
-Tests       15 passed
+Tests       17 passed
 ```
 
 - [ ] **Step 2: Run TypeScript type checking**
