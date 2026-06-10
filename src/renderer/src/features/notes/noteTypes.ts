@@ -84,9 +84,9 @@ export type NoteSummary = {
 }
 
 export type ManualSourcePromptModel = {
-  title: '未识得视频文档'
-  message: '现有材料不足成札。若赐下字幕、文稿或观后零札，便可再拟一版。'
-  acceptedMaterials: ['字幕或 AI 字幕', '视频文稿或简介', '观后零札']
+  readonly title: '未识得视频文档'
+  readonly message: '现有材料不足成札。若赐下字幕、文稿或观后零札，便可再拟一版。'
+  readonly acceptedMaterials: readonly ['字幕或 AI 字幕', '视频文稿或简介', '观后零札']
 }
 
 export type NoteFallbackFlowInput = {

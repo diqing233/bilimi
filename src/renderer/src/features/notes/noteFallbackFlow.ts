@@ -8,10 +8,12 @@ import { createNoteSummary } from './noteSummarizer'
 import { scoreNoteSourceBundle } from './sourceQualityScorer'
 import { detectVideoDocument } from './videoDocumentDetector'
 
-const MANUAL_SOURCE_PROMPT: ManualSourcePromptModel = {
-  title: '未识得视频文档',
-  message: '现有材料不足成札。若赐下字幕、文稿或观后零札，便可再拟一版。',
-  acceptedMaterials: ['字幕或 AI 字幕', '视频文稿或简介', '观后零札']
+function createManualSourcePrompt(): ManualSourcePromptModel {
+  return {
+    title: '未识得视频文档',
+    message: '现有材料不足成札。若赐下字幕、文稿或观后零札，便可再拟一版。',
+    acceptedMaterials: ['字幕或 AI 字幕', '视频文稿或简介', '观后零札']
+  }
 }
 
 export function runNoteFallbackFlow(input: NoteFallbackFlowInput): NoteFallbackFlowResult {
@@ -25,7 +27,7 @@ export function runNoteFallbackFlow(input: NoteFallbackFlowInput): NoteFallbackF
       detection,
       sourceBundle,
       assessment,
-      prompt: MANUAL_SOURCE_PROMPT
+      prompt: createManualSourcePrompt()
     }
   }
 

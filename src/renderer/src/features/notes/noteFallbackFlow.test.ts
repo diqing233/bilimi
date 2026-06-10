@@ -21,6 +21,29 @@ describe('runNoteFallbackFlow', () => {
     })
   })
 
+  it('returns fresh manual prompt objects for repeated sparse-material calls', () => {
+    const first = runNoteFallbackFlow({
+      pageContext: {
+        title: '今日随看',
+        url: 'https://www.bilibili.com/video/BV1sparse'
+      }
+    })
+    const second = runNoteFallbackFlow({
+      pageContext: {
+        title: '今日随看',
+        url: 'https://www.bilibili.com/video/BV1sparse'
+      }
+    })
+
+    expect(first.mode).toBe('needs_manual_input')
+    expect(second.mode).toBe('needs_manual_input')
+    if (first.mode !== 'needs_manual_input' || second.mode !== 'needs_manual_input') {
+      throw new Error('Expected manual input prompts')
+    }
+    expect(first.prompt).not.toBe(second.prompt)
+    expect(first.prompt.acceptedMaterials).not.toBe(second.prompt.acceptedMaterials)
+  })
+
   it('summarizes directly when automatic page material is sufficient', () => {
     const result = runNoteFallbackFlow({
       pageContext: {
