@@ -82,3 +82,30 @@ export type NoteSummary = {
   tags: string[]
   sourceNotice: '据视频文档拟札' | '据页面材料拟札' | '据补充材料拟札' | '材料有限，待补后再拟'
 }
+
+export type ManualSourcePromptModel = {
+  title: '未识得视频文档'
+  message: '现有材料不足成札。若赐下字幕、文稿或观后零札，便可再拟一版。'
+  acceptedMaterials: ['字幕或 AI 字幕', '视频文稿或简介', '观后零札']
+}
+
+export type NoteFallbackFlowInput = {
+  pageContext: NotePageContext
+  manualSupplement?: string
+}
+
+export type NoteFallbackFlowResult =
+  | {
+      mode: 'summary_ready'
+      detection: VideoDocumentDetectionResult
+      sourceBundle: NoteSourceBundle
+      assessment: SourceQualityAssessment
+      summary: NoteSummary
+    }
+  | {
+      mode: 'needs_manual_input'
+      detection: VideoDocumentDetectionResult
+      sourceBundle: NoteSourceBundle
+      assessment: SourceQualityAssessment
+      prompt: ManualSourcePromptModel
+    }
