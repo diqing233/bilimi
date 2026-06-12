@@ -1,19 +1,16 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import type { AssistantPreferences } from '@shared/types'
 import { describe, expect, it, vi } from 'vitest'
 import App from './App'
+import type {
+  AssistantRuntimeRequest,
+  AssistantRuntimeResponsePayload
+} from './features/assistant/assistantRuntimeTypes'
 
 const LEDGER_STATUS_SCRIPT_MARKER = '/x/v3/fav/folder/created/list-all'
 const OLD_FAVORITE_SCAN_SCRIPT_MARKER = '/x/v3/fav/resource/list'
 const VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER = 'pageText: readText'
-
-type TestAssistantOpenPayload = {
-  position?: {
-    left: number
-    top: number
-  }
-}
 
 function isLedgerStatusScript(script: string) {
   return script.includes(LEDGER_STATUS_SCRIPT_MARKER) && script.includes('missingLedgerIds')
@@ -28,30 +25,23 @@ function emptyLedgerStatus() {
   }
 }
 
-function ledgerStatusWithFolderIds() {
-  return {
-    ok: true,
-    ledgers: createDefaultFavoriteLedgers().map((ledger, index) => ({
-      ...ledger,
-      bilibiliFolderId: String(9001 + index)
-    })),
-    missingLedgerIds: [],
-    message: '册目查验已毕。'
-  }
-}
-
-function renderAppWithFloatingSealBridge(apiOverrides: Partial<Window['bilimiDesktop']> = {}) {
-  let openAssistantCallback: ((payload?: TestAssistantOpenPayload) => void) | undefined
-  const onOpenAssistant = vi.fn((callback: (payload?: TestAssistantOpenPayload) => void) => {
-    openAssistantCallback = callback
-    return vi.fn()
-  })
+function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop']> = {}) {
+  let runtimeHandler:
+    | ((request: AssistantRuntimeRequest) => Promise<AssistantRuntimeResponsePayload>)
+    | undefined
+  const registerAssistantRuntime = vi.fn(
+    (handler: (request: AssistantRuntimeRequest) => Promise<AssistantRuntimeResponsePayload>) => {
+      runtimeHandler = handler
+      return vi.fn()
+    }
+  )
   const desktopApi = {
     version: '0.1.0',
     loadPreferences: vi.fn(),
+    notifyAssistantSnapshotChanged: vi.fn(),
     savePreferences: vi.fn(async (preferences: AssistantPreferences) => preferences),
-    ...apiOverrides,
-    onOpenAssistant
+    registerAssistantRuntime,
+    ...apiOverrides
   }
 
   Object.defineProperty(window, 'bilimiDesktop', {
@@ -64,172 +54,314 @@ function renderAppWithFloatingSealBridge(apiOverrides: Partial<Window['bilimiDes
   return {
     ...renderResult,
     desktopApi,
-    openAssistantFromFloatingSeal: (payload?: TestAssistantOpenPayload) => {
-      act(() => {
-        openAssistantCallback?.(payload)
+    requestRuntime: async (request: AssistantRuntimeRequest) => {
+      if (!runtimeHandler) {
+        throw new Error('Assistant runtime was not registered.')
+      }
+
+      let response: AssistantRuntimeResponsePayload | undefined
+
+      await act(async () => {
+        response = await runtimeHandler?.(request)
       })
+
+      return response
     }
   }
 }
 
-describe('App integration', () => {
-  it('does not render the embedded seal in the main renderer window', () => {
-    render(<App />)
+describe('App runtime integration', () => {
+  it('renders only the browser shell in the main renderer window', () => {
+    renderAppWithRuntimeBridge()
 
     expect(document.querySelector('.seal-button')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '开折批阅' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('案头奏折')).not.toBeInTheDocument()
+    expect(window.bilimiDesktop.registerAssistantRuntime).toHaveBeenCalled()
   })
 
-  it('opens the memorial panel and shows the recommendation summary', async () => {
-    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
+  it('shows the browser operation bar even when there is only one tab', () => {
+    renderAppWithRuntimeBridge()
 
-    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
-      executeJavaScript?: (script: string) => Promise<unknown>
-    }
-    const executeJavaScript = vi.fn(async (script: string) =>
-      isLedgerStatusScript(script) ? emptyLedgerStatus() : null
-    )
-    Object.assign(webview, { executeJavaScript })
-
-    openAssistantFromFloatingSeal()
-
-    expect(await screen.findByText('御前待阅折')).toBeInTheDocument()
-    expect(screen.getByText(/此条暂存待阅/)).toBeInTheDocument()
-    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(
-      expect.stringContaining(LEDGER_STATUS_SCRIPT_MARKER)
-    ))
+    expect(screen.getByRole('tablist', { name: '网页标签' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '首页' })).toHaveAttribute('aria-selected', 'true')
+    expect(document.querySelector('.app-shell')).toHaveAttribute('data-tabs-visible', 'true')
   })
 
-  it('keeps compact video title, category, and assistant evaluation in the panel', async () => {
-    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
-
+  it('returns a floating assistant snapshot from the active webview', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
-      executeJavaScript?: (script: string) => Promise<unknown>
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
-    const executeJavaScript = vi.fn(async (script: string) =>
-      isLedgerStatusScript(script) ? emptyLedgerStatus() : null
-    )
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (isLedgerStatusScript(script)) {
+        return emptyLedgerStatus()
+      }
+
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          title: '三分钟讲清机器学习科普教程',
+          pageText: '从原理到入门路线，适合学习收藏。'
+        }
+      }
+
+      return null
+    })
     Object.assign(webview, { executeJavaScript })
+
+    const snapshot = await requestRuntime({ id: 'snapshot-1', type: 'snapshot' })
+
+    expect(snapshot).toEqual(
+      expect.objectContaining({
+        videoTitle: '三分钟讲清机器学习科普教程',
+        videoContentContext: expect.objectContaining({
+          title: '三分钟讲清机器学习科普教程'
+        }),
+        favoriteLedgerStatus: expect.objectContaining({
+          ok: true,
+          missingLedgerIds: []
+        })
+      })
+    )
+    expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER),
+      true
+    )
+  })
+
+  it('reads the current video time through the assistant runtime', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn().mockResolvedValueOnce(42.5)
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(
+      requestRuntime({
+        id: 'time-1',
+        type: 'get-current-video-time'
+      } as AssistantRuntimeRequest)
+    ).resolves.toBe(42.5)
+    expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('currentTime'), true)
+  })
+
+  it('seeks the current video through the assistant runtime', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn().mockResolvedValueOnce(true)
+    Object.assign(webview, { executeJavaScript })
+
+    await expect(
+      requestRuntime({
+        id: 'seek-1',
+        type: 'seek-video-time',
+        seconds: 88
+      } as AssistantRuntimeRequest)
+    ).resolves.toBe(true)
+    expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('currentTime = 88'),
+      true
+    )
+  })
+
+  it('runs floating assistant actions through the active webview and saves preferences', async () => {
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      savePreferences
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          title: '三分钟讲清机器学习科普教程',
+          pageText: '从原理到入门路线，适合学习收藏。'
+        }
+      }
+
+      if (script.includes('/x/v3/fav/resource/deal')) {
+        return {
+          ok: true,
+          steps: ['api:favorite:list', 'api:favorite:add'],
+          missingTargets: [],
+          message: '已用 B 站接口归入 Bilimi 收藏夹。'
+        }
+      }
+
+      return {
+        ok: true,
+        steps: ['favorite:open', 'favorite:folder', 'favorite'],
+        missingTargets: [],
+        message: '已按内容归入内库。'
+      }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    const result = await requestRuntime({
+      id: 'run-1',
+      type: 'run-action',
+      action: '藏',
+      options: { pageClickOnly: true }
+    })
+
+    expect(result).toEqual(expect.objectContaining({ ok: true }))
+    expect(result).toEqual(
+      expect.objectContaining({
+        steps: expect.arrayContaining(['favorite', 'api:favorite:add'])
+      })
+    )
+    await waitFor(() =>
+      expect(executeJavaScript).toHaveBeenCalledWith(
+        expect.stringContaining('"targetLedgerId":"knowledge"')
+      )
+    )
+    expect(
+      executeJavaScript.mock.calls.some(([script]) =>
+        script.includes('/x/v3/fav/resource/deal') && script.includes('Bilimi·见闻增广')
+      )
+    ).toBe(true)
+    expect(savePreferences).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preferenceCounts: expect.objectContaining({
+          knowledge: 1
+        })
+      })
+    )
+  })
+
+  it('confirms 赐 favorites through the API even when the floating runtime requests page clicks only', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          title: '三分钟讲清机器学习科普教程',
+          pageText: '从原理到入门路线，适合学习收藏。'
+        }
+      }
+
+      if (script.includes('/x/v3/fav/resource/deal')) {
+        return {
+          ok: true,
+          steps: ['api:favorite:list', 'api:favorite:add'],
+          missingTargets: [],
+          message: '已用 B 站接口归入 Bilimi 收藏夹。'
+        }
+      }
+
+      return {
+        ok: true,
+        steps: ['like', 'favorite:open', 'favorite:folder', 'favorite', 'coin:open', 'coin:2', 'coin:confirm'],
+        missingTargets: [],
+        message: '厚赐已成。'
+      }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    const result = await requestRuntime({
+      id: 'run-gift',
+      type: 'run-action',
+      action: '赐',
+      options: { pageClickOnly: true, coinCount: 2 }
+    })
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        steps: expect.arrayContaining(['coin:confirm', 'api:favorite:add'])
+      })
+    )
+    expect(executeJavaScript.mock.calls.some(([script]) => script.includes('"coinCount":2'))).toBe(true)
+    expect(
+      executeJavaScript.mock.calls.some(([script]) =>
+        script.includes('/x/v3/fav/resource/deal') && script.includes('Bilimi·见闻增广')
+      )
+    ).toBe(true)
+  })
+
+  it('generates and saves notes for the floating assistant runtime', async () => {
+    const saveVideoNote = vi.fn().mockResolvedValue([])
+    const { requestRuntime } = renderAppWithRuntimeBridge({ saveVideoNote })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn().mockResolvedValue({
+        title: '机器学习入门教程',
+        bvid: 'BV1note',
+        url: 'https://www.bilibili.com/video/BV1note',
+        tags: ['教程'],
+        transcript: [{ start: 0, end: 8, text: '机器学习需要数据和模型。' }]
+      })
+    })
+
+    const note = await requestRuntime({ id: 'note-1', type: 'generate-video-note' })
+
+    expect(note).toEqual(expect.objectContaining({ id: 'bvid:BV1note' }))
+
+    await requestRuntime({
+      id: 'save-note-1',
+      type: 'save-video-note',
+      note: note as Awaited<ReturnType<typeof requestRuntime>> & never
+    })
+
+    expect(saveVideoNote).toHaveBeenCalledWith(expect.objectContaining({ id: 'bvid:BV1note' }))
+  })
+
+  it('opens webview popup URLs as internal browser tabs', async () => {
+    renderAppWithRuntimeBridge()
+
+    const homeWebview = document.getElementById('bilimi-webview') as HTMLElement
 
     act(() => {
-      webview.dispatchEvent(
-        new CustomEvent('page-title-updated', {
+      homeWebview.dispatchEvent(
+        new CustomEvent('new-window', {
           detail: {
-            title: '真实视频标题 - 哔哩哔哩'
+            url: 'https://www.bilibili.com/video/BV1demo'
           }
         })
       )
     })
 
-    openAssistantFromFloatingSeal()
-
-    expect(await screen.findByText('真实视频标题')).toBeInTheDocument()
-    expect(screen.getByText('暂存待阅')).toBeInTheDocument()
-    expect(screen.getByText(/此条暂存待阅/)).toBeInTheDocument()
-    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(
-      expect.stringContaining(LEDGER_STATUS_SCRIPT_MARKER)
-    ))
+    expect(await screen.findByRole('tablist')).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: /BV1demo/ })).toHaveAttribute('aria-selected', 'true')
+    expect(document.querySelectorAll('webview')).toHaveLength(2)
+    expect(document.querySelector('webview[data-active="true"]')).toHaveAttribute(
+      'src',
+      'https://www.bilibili.com/video/BV1demo'
+    )
   })
 
-  it('runs assistant actions through the webview bridge and saves updated preferences', async () => {
-    const loadPreferences = vi.fn().mockResolvedValue({
-      favoritesFolderName: 'Bilimi 内库',
-      preferenceCounts: {
-        funny: 1,
-        knowledge: 0,
-        story: 0,
-        suspicious: 0
-      }
-    })
-    const savePreferences = vi.fn().mockImplementation(async (preferences) => preferences)
+  it('notifies the floating assistant when the active webview navigates to another video', async () => {
+    const { desktopApi } = renderAppWithRuntimeBridge()
 
-    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge({
-      loadPreferences,
-      savePreferences
-    })
+    const homeWebview = document.getElementById('bilimi-webview') as HTMLElement
 
-    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
-      executeJavaScript?: (script: string) => Promise<unknown>
-    }
-    const executeJavaScript = vi.fn(async (script: string) =>
-      isLedgerStatusScript(script)
-        ? emptyLedgerStatus()
-        : {
-            ok: true,
-            steps: ['like', 'favorite'],
-            missingTargets: [],
-            message: '轻赏已入内库。'
+    act(() => {
+      homeWebview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1fresh'
           }
-    )
-
-    Object.assign(webview, { executeJavaScript })
-
-    openAssistantFromFloatingSeal()
-    fireEvent.click(screen.getByRole('button', { name: '赏' }))
-
-    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(
-      expect.stringContaining('"action":"赏"')
-    ))
-    await waitFor(() => expect(savePreferences).toHaveBeenCalled())
-
-    expect(loadPreferences).toHaveBeenCalled()
-    expect(savePreferences).toHaveBeenCalledWith(
-      expect.objectContaining({
-        favoritesFolderName: 'Bilimi 内库',
-        favoriteLedgers: expect.arrayContaining([
-          expect.objectContaining({
-            id: 'inbox',
-            displayName: 'Bilimi·暂存待阅'
-          })
-        ]),
-        ledgerPromptDismissed: false,
-        preferenceCounts: expect.objectContaining({
-          funny: 1,
-          inbox: 1,
-          knowledge: 0,
-          story: 0,
-          suspicious: 0
         })
-      })
-    )
-  })
-
-  it('checks ledger status through the active webview and opens 掌库 setup', async () => {
-    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
-
-    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
-      executeJavaScript?: (script: string) => Promise<unknown>
-    }
-    const executeJavaScript = vi.fn().mockResolvedValueOnce({
-      ok: true,
-      ledgers: [],
-      missingLedgerIds: ['knowledge'],
-      message: '册目缺失。'
+      )
     })
 
-    Object.assign(webview, { executeJavaScript })
-
-    openAssistantFromFloatingSeal()
-
-    expect(await screen.findByText('Bilimi 专用册目尚未备齐，可请掌库先行备册。')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: '请掌库' }))
-
-    expect(await screen.findByRole('dialog', { name: '掌库' })).toBeInTheDocument()
-    expect(executeJavaScript.mock.calls[0][0]).toContain('/x/v3/fav/folder/created/list-all')
+    await waitFor(() => expect(desktopApi.notifyAssistantSnapshotChanged).toHaveBeenCalled())
   })
 
-  it('scans old favorites through the active webview before showing ledger preview', async () => {
-    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
-
+  it('scans old favorites through the runtime bridge', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string) => Promise<unknown>
     }
     const executeJavaScript = vi.fn(async (script: string) => {
-      if (isLedgerStatusScript(script)) {
-        return ledgerStatusWithFolderIds()
-      }
-
       if (script.includes(OLD_FAVORITE_SCAN_SCRIPT_MARKER)) {
         return {
           ok: true,
@@ -247,485 +379,29 @@ describe('App integration', () => {
             }
           ],
           targetMembership: {},
-          steps: ['api:favorite:list', 'api:favorite:scan-source:101'],
+          steps: ['api:favorite:list'],
           missingTargets: [],
           message: 'old favorites scanned'
         }
       }
 
-      throw new Error(`Unexpected script: ${script}`)
-    })
-
-    Object.assign(webview, { executeJavaScript })
-
-    openAssistantFromFloatingSeal()
-    fireEvent.click(screen.getByRole('button', { name: '掌库' }))
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
-
-    expect(await screen.findByText('机器学习入门教程')).toBeInTheDocument()
-    expect(executeJavaScript).toHaveBeenCalledWith(
-      expect.stringContaining('/x/v3/fav/resource/list')
-    )
-  })
-
-  it('classifies active webview content before running favorite automation', async () => {
-    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
-
-    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
-      executeJavaScript?: (script: string) => Promise<unknown>
-    }
-    const executeJavaScript = vi.fn(async (script: string) => {
-      if (isLedgerStatusScript(script)) {
-        return emptyLedgerStatus()
-      }
-
-      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
-        return {
-          title: '三分钟讲清机器学习科普教程',
-          pageText: '从原理到入门路线，适合学习收藏。'
-        }
-      }
-
-      return {
-        ok: true,
-        steps: ['favorite:open', 'favorite:folder', 'favorite'],
-        missingTargets: [],
-        message: '已按内容归入内库。'
-      }
-    })
-
-    Object.assign(webview, { executeJavaScript })
-
-    openAssistantFromFloatingSeal()
-    fireEvent.click(screen.getByRole('button', { name: '藏' }))
-
-    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(
-      expect.stringContaining('"targetLedgerId":"knowledge"')
-    ))
-    expect(executeJavaScript).toHaveBeenCalledWith(
-      expect.stringContaining(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER),
-      true
-    )
-  })
-
-  it('opens webview popup URLs as internal browser tabs', async () => {
-    render(<App />)
-
-    const homeWebview = document.getElementById('bilimi-webview') as HTMLElement
-
-    act(() => {
-      homeWebview.dispatchEvent(
-        new CustomEvent('new-window', {
-          detail: {
-            url: 'https://www.bilibili.com/video/BV1demo'
-          }
-        })
-      )
-    })
-
-    expect(await screen.findByRole('tab', { name: /BV1demo/ })).toHaveAttribute('aria-selected', 'true')
-    expect(document.querySelectorAll('webview')).toHaveLength(2)
-    expect(document.querySelector('webview[data-active="true"]')).toHaveAttribute(
-      'src',
-      'https://www.bilibili.com/video/BV1demo'
-    )
-    expect(document.querySelector('.seal-button')).not.toBeInTheDocument()
-  })
-
-  it('opens main-process window-open URLs as internal browser tabs', async () => {
-    let openInTabCallback: ((url: string) => void) | undefined
-
-    Object.defineProperty(window, 'bilimiDesktop', {
-      configurable: true,
-      value: {
-        version: '0.1.0',
-        loadPreferences: vi.fn(),
-        savePreferences: vi.fn(),
-        onOpenInTab: vi.fn((callback: (url: string) => void) => {
-          openInTabCallback = callback
-          return vi.fn()
-        })
-      }
-    })
-
-    render(<App />)
-
-    act(() => {
-      openInTabCallback?.('https://www.bilibili.com/video/BV1ipc')
-    })
-
-    expect(await screen.findByRole('tab', { name: /BV1ipc/ })).toHaveAttribute('aria-selected', 'true')
-    expect(document.querySelector('webview[data-active="true"]')).toHaveAttribute(
-      'src',
-      'https://www.bilibili.com/video/BV1ipc'
-    )
-  })
-
-  it('opens the assistant panel when the desktop floating seal requests it', async () => {
-    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
-
-    expect(screen.queryByText('御前待阅折')).not.toBeInTheDocument()
-    expect(document.querySelector('.seal-button')).not.toBeInTheDocument()
-
-    openAssistantFromFloatingSeal()
-
-    expect(await screen.findByText('御前待阅折')).toBeInTheDocument()
-  })
-
-  it('places the assistant panel at the floating seal requested position', async () => {
-    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
-
-    openAssistantFromFloatingSeal({ position: { left: 96, top: 220 } })
-
-    expect(await screen.findByText('御前待阅折')).toBeInTheDocument()
-    expect(document.querySelector('.assistant-overlay')).toHaveStyle({
-      left: '96px',
-      top: '220px'
-    })
-  })
-
-  it('hides the embedded seal when the desktop floating seal bridge is available', () => {
-    Object.defineProperty(window, 'bilimiDesktop', {
-      configurable: true,
-      value: {
-        version: '0.1.0',
-        moveFloatingSealBy: vi.fn(),
-        onOpenAssistant: vi.fn(() => vi.fn()),
-        openAssistant: vi.fn()
-      }
-    })
-
-    render(<App />)
-
-    expect(document.querySelector('.seal-button')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '开折批阅' })).not.toBeInTheDocument()
-  })
-
-  it('opens injected video click signals as internal browser tabs', async () => {
-    render(<App />)
-
-    const homeWebview = document.getElementById('bilimi-webview') as HTMLElement
-
-    act(() => {
-      homeWebview.dispatchEvent(
-        new CustomEvent('page-title-updated', {
-          detail: {
-            title: `__BILIMI_OPEN_IN_TAB__:${encodeURIComponent(
-              'https://www.bilibili.com/video/BV1signal'
-            )}`
-          }
-        })
-      )
-    })
-
-    expect(await screen.findByRole('tab', { name: /BV1signal/ })).toHaveAttribute('aria-selected', 'true')
-    expect(document.querySelector('webview[data-active="true"]')).toHaveAttribute(
-      'src',
-      'https://www.bilibili.com/video/BV1signal'
-    )
-    expect(document.querySelector('.seal-button')).not.toBeInTheDocument()
-  })
-
-  it('runs assistant actions against the active internal tab', async () => {
-    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
-
-    const homeWebview = document.getElementById('bilimi-webview') as HTMLElement
-    const homeExecuteJavaScript = vi.fn().mockResolvedValue({
-      ok: true,
-      steps: ['home'],
-      missingTargets: [],
-      message: 'home'
-    })
-    Object.assign(homeWebview, { executeJavaScript: homeExecuteJavaScript })
-
-    act(() => {
-      homeWebview.dispatchEvent(
-        new CustomEvent('new-window', {
-          detail: {
-            url: 'https://www.bilibili.com/video/BV1active'
-          }
-        })
-      )
-    })
-
-    await screen.findByRole('tab', { name: /BV1active/ })
-
-    let activeWebview: (HTMLElement & {
-      executeJavaScript?: (script: string) => Promise<unknown>
-    }) | null = null
-
-    await waitFor(() => {
-      activeWebview = document.querySelector(
-        'webview[data-active="true"][src="https://www.bilibili.com/video/BV1active"]'
-      ) as HTMLElement & {
-        executeJavaScript?: (script: string) => Promise<unknown>
-      }
-      expect(activeWebview).not.toBeNull()
-    })
-
-    const activeExecuteJavaScript = vi.fn(async (script: string) =>
-      isLedgerStatusScript(script)
-        ? emptyLedgerStatus()
-        : {
-            ok: true,
-            steps: ['active'],
-            missingTargets: [],
-            message: 'active'
-          }
-    )
-    Object.assign(activeWebview!, { executeJavaScript: activeExecuteJavaScript })
-
-    openAssistantFromFloatingSeal()
-    fireEvent.click(screen.getByRole('button', { name: '赏' }))
-
-    await waitFor(() => expect(activeExecuteJavaScript).toHaveBeenCalledWith(
-      expect.stringContaining('"action":"赏"')
-    ))
-    expect(homeExecuteJavaScript).not.toHaveBeenCalled()
-  })
-
-  it('runs a system floating menu action against the active internal tab', async () => {
-    let runActionCallback: ((payload: { action: '藏' }) => void) | undefined
-
-    Object.defineProperty(window, 'bilimiDesktop', {
-      configurable: true,
-      value: {
-        version: '0.1.0',
-        loadPreferences: vi.fn(),
-        savePreferences: vi.fn(async (preferences: AssistantPreferences) => preferences),
-        onRunAssistantAction: vi.fn((callback: (payload: { action: '藏' }) => void) => {
-          runActionCallback = callback
-          return vi.fn()
-        })
-      }
-    })
-
-    render(<App />)
-
-    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
-      executeJavaScript?: (script: string) => Promise<unknown>
-    }
-    const executeJavaScript = vi.fn(async (script: string) =>
-      isLedgerStatusScript(script)
-        ? emptyLedgerStatus()
-        : {
-            ok: true,
-            steps: ['favorite'],
-            missingTargets: [],
-            message: 'system menu action'
-          }
-    )
-    Object.assign(webview, { executeJavaScript })
-
-    act(() => {
-      runActionCallback?.({ action: '藏' })
-    })
-
-    await waitFor(() =>
-      expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('"action":"藏"'))
-    )
-  })
-
-  it('uses visual keyboard and mouse fallback when favorite creation is not found by DOM automation', async () => {
-    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
-
-    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
-      capturePage?: () => Promise<{ toDataURL: () => string }>
-      executeJavaScript?: (script: string) => Promise<unknown>
-      sendInputEvent?: (event: unknown) => void
-    }
-    const executeJavaScript = vi.fn(async (script: string) => {
-      if (isLedgerStatusScript(script)) {
-        return emptyLedgerStatus()
-      }
-
-      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
-        return {
-          title: '爆笑整活合集',
-          tags: ['搞笑']
-        }
-      }
-
-      if (script.includes('/x/v3/fav/resource/deal')) {
-        return {
-          ok: false,
-          steps: ['api:favorite:list'],
-          missingTargets: ['favorite-api'],
-          message: 'B 站收藏接口未能完成。'
-        }
-      }
-
-      if (script.includes('visualTextBoxes')) {
-        return {
-          boxes: [
-            { text: '新建收藏夹', x: 120, y: 360, width: 120, height: 32 },
-            { text: '收藏夹名称', x: 180, y: 420, width: 180, height: 36 },
-            { text: '创建', x: 300, y: 470, width: 80, height: 32 }
-          ]
-        }
-      }
-
-      if (script.includes('__bilimiFavoriteFocusPoint')) {
-        return true
-      }
-
-      if (script.includes('modalClassName')) {
-        return {
-          containers: [],
-          modalClassName: 'fav-dialog',
-          moved: false
-        }
-      }
-
-      return {
-        ok: false,
-        steps: ['like', 'favorite:open'],
-        missingTargets: ['favorite-create-button'],
-        message: '尚有 favorite-create-button 未能寻见。'
-      }
-    })
-    const sendInputEvent = vi.fn()
-
-    Object.assign(webview, {
-      capturePage: vi.fn().mockResolvedValue({ toDataURL: () => 'data:image/png;base64,screen' }),
-      executeJavaScript,
-      sendInputEvent
-    })
-
-    openAssistantFromFloatingSeal()
-    fireEvent.click(screen.getByRole('button', { name: '赏' }))
-
-    await waitFor(() =>
-      expect(sendInputEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'char', keyCode: 'B' }))
-    )
-
-    expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('visualTextBoxes'), true)
-    expect(sendInputEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'mouseDown' }))
-    expect(sendInputEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'char', keyCode: 'B' }))
-  })
-
-  it('closes an internal browser tab and returns to the home tab', async () => {
-    render(<App />)
-
-    const homeWebview = document.getElementById('bilimi-webview') as HTMLElement
-
-    act(() => {
-      homeWebview.dispatchEvent(
-        new CustomEvent('new-window', {
-          detail: {
-            url: 'https://www.bilibili.com/video/BV1close'
-          }
-        })
-      )
-    })
-
-    const internalTab = await screen.findByRole('tab', { name: /BV1close/ })
-
-    expect(internalTab).toHaveAttribute('aria-selected', 'true')
-
-    fireEvent.click(screen.getByRole('button', { name: /关闭 BV1close/ }))
-
-    expect(screen.queryByRole('tab', { name: /BV1close/ })).not.toBeInTheDocument()
-    expect(document.querySelectorAll('webview')).toHaveLength(1)
-    expect(document.querySelector('webview[data-active="true"]')).toHaveAttribute(
-      'src',
-      'https://www.bilibili.com'
-    )
-  })
-
-  it('extracts the active video page and renders local video notes', async () => {
-    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge()
-
-    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
-      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
-    }
-    const executeJavaScript = vi.fn().mockResolvedValue({
-      title: '机器学习入门教程 - 哔哩哔哩',
-      author: 'UP 主',
-      description: '从模型、训练、数据讲清楚机器学习',
-      tags: ['教程', '机器学习'],
-      bvid: 'BV1note',
-      url: 'https://www.bilibili.com/video/BV1note',
-      transcript: [
-        { start: 0, end: 8, text: '机器学习需要数据和模型。' },
-        { start: 10, end: 18, text: '训练过程会不断调整参数。' }
-      ]
+      return emptyLedgerStatus()
     })
     Object.assign(webview, { executeJavaScript })
 
-    openAssistantFromFloatingSeal()
-    fireEvent.click(screen.getByRole('tab', { name: '札记' }))
-    fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
+    const preview = await requestRuntime({ id: 'scan-1', type: 'scan-old-favorites' })
 
-    await waitFor(() => expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('subtitle'), true))
-    await waitFor(() => expect(screen.getAllByText('机器学习需要数据和模型。').length).toBeGreaterThan(0))
-  })
-
-  it('saves a generated video note through the desktop API', async () => {
-    const saveVideoNote = vi.fn().mockResolvedValue([])
-
-    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge({
-      saveVideoNote
-    })
-
-    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
-      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
-    }
-    Object.assign(webview, {
-      executeJavaScript: vi.fn().mockResolvedValue({
-        title: '机器学习入门教程',
-        bvid: 'BV1note',
-        url: 'https://www.bilibili.com/video/BV1note',
-        tags: [],
-        transcript: [{ start: 0, end: 8, text: '机器学习需要数据和模型。' }]
+    expect(preview).toEqual(
+      expect.objectContaining({
+        items: [
+          expect.objectContaining({
+            title: '机器学习入门教程'
+          })
+        ]
       })
-    })
-
-    openAssistantFromFloatingSeal()
-    fireEvent.click(screen.getByRole('tab', { name: '札记' }))
-    fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
-    fireEvent.click(await screen.findByRole('tab', { name: '归档' }))
-    fireEvent.click(await screen.findByRole('button', { name: '保存札记' }))
-
-    await waitFor(() => expect(saveVideoNote).toHaveBeenCalledWith(expect.objectContaining({ id: 'bvid:BV1note' })))
-  })
-
-  it('uses current video metadata when saving a note from pasted transcript', async () => {
-    const saveVideoNote = vi.fn().mockResolvedValue([])
-
-    const { openAssistantFromFloatingSeal } = renderAppWithFloatingSealBridge({
-      saveVideoNote
-    })
-
-    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
-      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
-    }
-    Object.assign(webview, {
-      executeJavaScript: vi.fn().mockResolvedValue({
-        title: '手动文稿视频',
-        bvid: 'BV1manual',
-        url: 'https://www.bilibili.com/video/BV1manual',
-        tags: [],
-        transcript: []
-      })
-    })
-
-    openAssistantFromFloatingSeal()
-    fireEvent.click(screen.getByRole('tab', { name: '札记' }))
-    fireEvent.change(screen.getByLabelText('粘贴文稿'), {
-      target: { value: '手动整理的完整文稿。' }
-    })
-    fireEvent.click(screen.getByRole('button', { name: '整理粘贴文稿' }))
-    fireEvent.click(await screen.findByRole('tab', { name: '归档' }))
-    fireEvent.click(await screen.findByRole('button', { name: '保存札记' }))
-
-    await waitFor(() =>
-      expect(saveVideoNote).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'bvid:BV1manual',
-          transcriptSource: 'manual'
-        })
-      )
+    )
+    expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining(OLD_FAVORITE_SCAN_SCRIPT_MARKER)
     )
   })
 })

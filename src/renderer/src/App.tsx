@@ -9,11 +9,12 @@ import type {
   VideoNoteExtractionResult
 } from '@shared/types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AssistantOverlay } from './features/assistant/AssistantOverlay'
 import { runVisualFavoriteFallback } from './features/actions/visualFavoriteFallback'
+import { executeAssistantAction } from './features/actions/actionExecutor'
 import { BiliWebview } from './features/browser/BiliWebview'
 import {
   buildVideoContentContextScript,
+  classifyVideoContent,
   type VideoContentContext
 } from './features/recommendation/videoClassifier'
 import { createInitialAssistantPreferences } from './features/state/assistantState'
@@ -21,6 +22,10 @@ import {
   buildVideoNoteExtractionScript,
   normalizeExtractedVideoNoteResult
 } from './features/notes/videoNoteExtractor'
+import {
+  buildReadCurrentVideoTimeScript,
+  buildSeekVideoTimeScript
+} from './features/notes/videoNoteTimeAutomation'
 import {
   buildEnsureFavoriteLedgersScript,
   buildExecuteFavoriteLedgerPlanScript,
@@ -33,6 +38,13 @@ import {
   type FavoriteLedgerPreviewItem,
   type FavoriteSourceFolder
 } from './features/favorites/favoriteLedgerPreview'
+import { createLocalVideoNoteDraft } from './features/notes/videoNoteSummarizer'
+import { parseManualTranscript } from './features/notes/transcriptNormalizer'
+import { recordAssistantPreferenceFeedback } from './features/state/assistantState'
+import type {
+  AssistantRuntimeRequest,
+  AssistantSnapshot
+} from './features/assistant/assistantRuntimeTypes'
 
 const HOME_TAB_ID = 'home'
 
@@ -64,15 +76,10 @@ export default function App() {
   const [activeTabId, setActiveTabId] = useState(HOME_TAB_ID)
   const [webviews, setWebviews] = useState<Record<string, Electron.WebviewTag>>({})
   const webviewRefs = useRef<Record<string, Electron.WebviewTag>>({})
+  const activeTabChangeMounted = useRef(false)
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences()
   )
-  const [assistantOpenSignal, setAssistantOpenSignal] = useState(0)
-  const [assistantOpenPosition, setAssistantOpenPosition] = useState<
-    { left: number; top: number } | undefined
-  >(undefined)
-  const [assistantRunActionSignal, setAssistantRunActionSignal] = useState(0)
-  const [assistantRequestedAction, setAssistantRequestedAction] = useState<AssistantAction | undefined>()
   const activeWebview = useMemo(() => webviews[activeTabId] ?? null, [activeTabId, webviews])
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0],
@@ -88,7 +95,7 @@ export default function App() {
 
       const next = await window.bilimiDesktop.loadPreferences()
 
-      if (!cancelled) {
+      if (!cancelled && next) {
         setPreferences(createInitialAssistantPreferences(next))
       }
     }
@@ -98,6 +105,10 @@ export default function App() {
     return () => {
       cancelled = true
     }
+  }, [])
+
+  const notifyAssistantSnapshotChanged = useCallback(() => {
+    window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
   }, [])
 
   const handleWebviewReady = useCallback((tabId: string, webview: Electron.WebviewTag) => {
@@ -181,45 +192,54 @@ export default function App() {
   }, [openInternalTab])
 
   useEffect(() => {
-    return window.bilimiDesktop?.onOpenAssistant?.((payload) => {
-      setAssistantOpenPosition(payload?.position)
-      setAssistantOpenSignal((current) => current + 1)
-    })
-  }, [])
+    if (!activeTabChangeMounted.current) {
+      activeTabChangeMounted.current = true
+      return
+    }
 
-  useEffect(() => {
-    return window.bilimiDesktop?.onRunAssistantAction?.((payload) => {
-      setAssistantRequestedAction(payload.action)
-      setAssistantRunActionSignal((current) => current + 1)
-    })
-  }, [])
+    notifyAssistantSnapshotChanged()
+  }, [activeTabId, notifyAssistantSnapshotChanged])
 
-  const updateTabUrl = useCallback((tabId: string, url: string) => {
-    setTabs((currentTabs) =>
-      currentTabs.map((tab) =>
-        tab.id === tabId
-          ? {
-              ...tab,
-              title: tab.title === '首页' || tab.title === createTabTitle(tab.url) ? createTabTitle(url) : tab.title,
-              url
-            }
-          : tab
+  const updateTabUrl = useCallback(
+    (tabId: string, url: string) => {
+      setTabs((currentTabs) =>
+        currentTabs.map((tab) =>
+          tab.id === tabId
+            ? {
+                ...tab,
+                title: tab.title === '首页' || tab.title === createTabTitle(tab.url) ? createTabTitle(url) : tab.title,
+                url
+              }
+            : tab
+        )
       )
-    )
-  }, [])
 
-  const updateTabTitle = useCallback((tabId: string, title: string) => {
-    setTabs((currentTabs) =>
-      currentTabs.map((tab) =>
-        tab.id === tabId
-          ? {
-              ...tab,
-              title
-            }
-          : tab
+      if (tabId === activeTabId) {
+        notifyAssistantSnapshotChanged()
+      }
+    },
+    [activeTabId, notifyAssistantSnapshotChanged]
+  )
+
+  const updateTabTitle = useCallback(
+    (tabId: string, title: string) => {
+      setTabs((currentTabs) =>
+        currentTabs.map((tab) =>
+          tab.id === tabId
+            ? {
+                ...tab,
+                title
+              }
+            : tab
+        )
       )
-    )
-  }, [])
+
+      if (tabId === activeTabId) {
+        notifyAssistantSnapshotChanged()
+      }
+    },
+    [activeTabId, notifyAssistantSnapshotChanged]
+  )
 
   function getCurrentActiveWebview() {
     return (
@@ -265,6 +285,32 @@ export default function App() {
     } catch {
       return null
     }
+  }
+
+  async function readCurrentVideoTime(): Promise<number> {
+    const currentActiveWebview = getCurrentActiveWebview()
+
+    if (!currentActiveWebview?.executeJavaScript) {
+      throw new Error('浏览框尚未备妥，无法读取时间点。')
+    }
+
+    return currentActiveWebview.executeJavaScript(
+      buildReadCurrentVideoTimeScript(),
+      true
+    ) as Promise<number>
+  }
+
+  async function seekVideoTime(seconds: number): Promise<boolean> {
+    const currentActiveWebview = getCurrentActiveWebview()
+
+    if (!currentActiveWebview?.executeJavaScript) {
+      throw new Error('浏览框尚未备妥，无法跳转时间点。')
+    }
+
+    return currentActiveWebview.executeJavaScript(
+      buildSeekVideoTimeScript(seconds),
+      true
+    ) as Promise<boolean>
   }
 
   async function runScript(script: string): Promise<AssistantAutomationResult> {
@@ -372,8 +418,130 @@ export default function App() {
     await window.bilimiDesktop?.saveVideoNote?.(note)
   }
 
+  async function createAssistantSnapshot(): Promise<AssistantSnapshot> {
+    const [videoContentContext, favoriteLedgerStatus] = await Promise.all([
+      readVideoContentContext(),
+      readFavoriteLedgerStatus().catch(() => null)
+    ])
+
+    return {
+      preferences,
+      favoriteLedgerStatus,
+      videoContentContext,
+      videoTitle: videoContentContext.title ?? activeTab?.title ?? '早八生存实录'
+    }
+  }
+
+  async function runAssistantRuntimeAction(
+    action: AssistantAction,
+    options?: {
+      coinCount?: 1 | 2
+      commentDraft?: string
+      pageClickOnly?: boolean
+    }
+  ): Promise<AssistantAutomationResult> {
+    const videoContentContext = await readVideoContentContext()
+    const targetLedgerId = classifyVideoContent(
+      videoContentContext,
+      preferences.favoriteLedgers
+    ).ledgerId
+    const result = await executeAssistantAction({
+      action,
+      favoritesFolderName: preferences.favoritesFolderName,
+      runScript,
+      runVisualFallback,
+      favoriteApiFallbackEnabled: options?.pageClickOnly !== true,
+      coinCount: options?.coinCount,
+      commentDraft: options?.commentDraft,
+      favoriteLedgers: preferences.favoriteLedgers,
+      targetLedgerId
+    })
+
+    if (result.ok && action !== '阅') {
+      const nextPreferences = recordAssistantPreferenceFeedback(preferences, targetLedgerId, action)
+      setPreferences(nextPreferences)
+      if (window.bilimiDesktop?.savePreferences) {
+        const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
+        setPreferences(createInitialAssistantPreferences(saved))
+      }
+    }
+
+    return result
+  }
+
+  async function generateRuntimeVideoNote(manualTranscript?: string): Promise<VideoNote | null> {
+    const hasManualTranscript = Boolean(manualTranscript?.trim())
+    const extraction = await readVideoNoteSource()
+
+    if (!extraction && !hasManualTranscript) {
+      return null
+    }
+
+    const transcript = hasManualTranscript
+      ? parseManualTranscript(manualTranscript ?? '')
+      : extraction?.transcript ?? []
+    const source = extraction?.source ?? {
+      title: activeTab?.title ?? '早八生存实录',
+      tags: [],
+      url: activeTab?.url ?? 'about:blank'
+    }
+
+    return createLocalVideoNoteDraft({
+      now: new Date().toISOString(),
+      source,
+      transcript,
+      transcriptSource: hasManualTranscript ? 'manual' : extraction?.transcriptSource ?? 'manual'
+    })
+  }
+
+  useEffect(() => {
+    if (!window.bilimiDesktop?.registerAssistantRuntime) {
+      return
+    }
+
+    return window.bilimiDesktop.registerAssistantRuntime(async (request: AssistantRuntimeRequest) => {
+      switch (request.type) {
+        case 'snapshot':
+          return createAssistantSnapshot()
+        case 'run-action':
+          return runAssistantRuntimeAction(request.action, request.options)
+        case 'generate-video-note':
+          return generateRuntimeVideoNote(request.manualTranscript)
+        case 'save-video-note':
+          await saveVideoNote(request.note)
+          return request.note
+        case 'get-current-video-time':
+          return readCurrentVideoTime()
+        case 'seek-video-time':
+          return seekVideoTime(request.seconds)
+        case 'ensure-ledgers':
+          return ensureFavoriteLedgers()
+        case 'scan-old-favorites':
+          return scanOldFavorites()
+        case 'execute-old-favorite-plan':
+          return executeOldFavoritePlan(request.items)
+        default:
+          throw new Error('Unknown assistant runtime request.')
+      }
+    })
+  }, [
+    activeTab?.title,
+    activeTab?.url,
+    executeOldFavoritePlan,
+    generateRuntimeVideoNote,
+    preferences,
+    readFavoriteLedgerStatus,
+    readCurrentVideoTime,
+    readVideoContentContext,
+    readVideoNoteSource,
+    runAssistantRuntimeAction,
+    saveVideoNote,
+    scanOldFavorites,
+    seekVideoTime
+  ])
+
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-tabs-visible="true">
       <div className="browser-tabs" role="tablist" aria-label="网页标签">
         {tabs.map((tab) => (
           <div
@@ -418,25 +586,6 @@ export default function App() {
           />
         ))}
       </div>
-      <AssistantOverlay
-        favoritesFolderName={preferences.favoritesFolderName}
-        openSignal={assistantOpenSignal}
-        openPosition={assistantOpenPosition}
-        runActionSignal={assistantRunActionSignal}
-        runRequestedAction={assistantRequestedAction}
-        readVideoContentContext={readVideoContentContext}
-        readVideoNoteSource={readVideoNoteSource}
-        runVisualFallback={runVisualFallback}
-        runScript={runScript}
-        readFavoriteLedgerStatus={readFavoriteLedgerStatus}
-        ensureFavoriteLedgers={ensureFavoriteLedgers}
-        scanOldFavorites={scanOldFavorites}
-        executeOldFavoritePlan={executeOldFavoritePlan}
-        saveVideoNote={saveVideoNote}
-        showSeal={false}
-        storedPreferences={preferences}
-        videoTitle={activeTab?.title}
-      />
     </div>
   )
 }

@@ -1,9 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { AssistantPreferences } from '../main/store'
 import type { AssistantAction, VideoNote } from '../../src/shared/types'
+import type {
+  AssistantRuntimeRequest,
+  AssistantRuntimeResponsePayload,
+  FloatingAssistantActionOptions
+} from '../../src/renderer/src/features/assistant/assistantRuntimeTypes'
+import type { FavoriteLedgerPreviewItem } from '../../src/renderer/src/features/favorites/favoriteLedgerPreview'
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
   version: '0.1.0',
+  closeFloatingAssistant: () => ipcRenderer.send('floating-assistant:close'),
   closeFloatingMenu: () => ipcRenderer.send('floating-menu:close'),
   loadPreferences: () => ipcRenderer.invoke('assistant:load-preferences') as Promise<AssistantPreferences>,
   loadVideoNotes: () => ipcRenderer.invoke('video-notes:load') as Promise<VideoNote[]>,
@@ -12,6 +19,16 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('floating-seal:move-by', deltaX, deltaY) as Promise<void>,
   moveFloatingSealTo: (screenX: number, screenY: number) =>
     ipcRenderer.send('floating-seal:move-to', screenX, screenY),
+  notifyAssistantSnapshotChanged: () => ipcRenderer.send('floating-assistant:snapshot-changed'),
+  onAssistantSnapshotChanged: (callback: () => void) => {
+    const listener = () => callback()
+
+    ipcRenderer.on('floating-assistant:snapshot-changed', listener)
+
+    return () => {
+      ipcRenderer.removeListener('floating-assistant:snapshot-changed', listener)
+    }
+  },
   openAssistant: () => ipcRenderer.invoke('assistant:open-from-floating-seal') as Promise<void>,
   onOpenAssistant: (callback: (payload?: { position?: { left: number; top: number } }) => void) => {
     const listener = (
@@ -46,13 +63,57 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
       ipcRenderer.removeListener('assistant:run-action', listener)
     }
   },
-  runFloatingMenuAction: (action: AssistantAction) =>
-    ipcRenderer.invoke('floating-menu:run-action', action) as Promise<void>,
+  registerAssistantRuntime: (
+    handler: (request: AssistantRuntimeRequest) => Promise<AssistantRuntimeResponsePayload>
+  ) => {
+    const listener = async (
+      _event: Electron.IpcRendererEvent,
+      request: AssistantRuntimeRequest
+    ) => {
+      try {
+        const payload = await handler(request)
+        ipcRenderer.send('assistant-runtime:response', {
+          id: request.id,
+          ok: true,
+          payload
+        })
+      } catch (error) {
+        ipcRenderer.send('assistant-runtime:response', {
+          id: request.id,
+          ok: false,
+          error: error instanceof Error ? error.message : 'Assistant runtime failed.'
+        })
+      }
+    }
+
+    ipcRenderer.on('assistant-runtime:request', listener)
+
+    return () => {
+      ipcRenderer.removeListener('assistant-runtime:request', listener)
+    }
+  },
+  requestAssistantSnapshot: () =>
+    ipcRenderer.invoke('floating-assistant:snapshot'),
+  getCurrentVideoTime: () =>
+    ipcRenderer.invoke('floating-assistant:get-current-video-time') as Promise<number>,
+  seekVideoTime: (seconds: number) =>
+    ipcRenderer.invoke('floating-assistant:seek-video-time', seconds) as Promise<boolean>,
+  runAssistantAction: (action: AssistantAction, options?: FloatingAssistantActionOptions) =>
+    ipcRenderer.invoke('floating-assistant:run-action', action, options),
+  runFloatingMenuAction: (action: AssistantAction, options?: FloatingAssistantActionOptions) =>
+    ipcRenderer.invoke('floating-menu:run-action', action, options) as Promise<void>,
+  generateVideoNote: (manualTranscript?: string) =>
+    ipcRenderer.invoke('floating-assistant:generate-video-note', manualTranscript),
+  ensureFavoriteLedgers: () => ipcRenderer.invoke('floating-assistant:ensure-ledgers'),
+  scanOldFavorites: () => ipcRenderer.invoke('floating-assistant:scan-old-favorites'),
+  executeOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) =>
+    ipcRenderer.invoke('floating-assistant:execute-old-favorite-plan', items),
   savePreferences: (preferences: AssistantPreferences) =>
     ipcRenderer.invoke('assistant:save-preferences', preferences) as Promise<AssistantPreferences>,
   saveVideoNote: (note: VideoNote) =>
     ipcRenderer.invoke('video-notes:save', note) as Promise<VideoNote[]>,
   startFloatingSealDrag: (screenX: number, screenY: number) =>
     ipcRenderer.send('floating-seal:start-drag', screenX, screenY),
+  toggleFloatingAssistant: () => ipcRenderer.invoke('floating-assistant:toggle') as Promise<void>,
   toggleFloatingMenu: () => ipcRenderer.invoke('floating-menu:toggle') as Promise<void>
 })
