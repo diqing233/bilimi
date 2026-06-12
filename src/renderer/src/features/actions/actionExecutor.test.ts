@@ -6,41 +6,72 @@ describe('executeAssistantAction', () => {
   const favoriteLedgers = createDefaultFavoriteLedgers()
 
   it('runs favorite-only automation for 藏', async () => {
-    const runScript = vi.fn().mockResolvedValue({
-      ok: true,
-      steps: ['favorite:open', 'favorite:folder', 'favorite'],
-      missingTargets: [],
-      message: '收藏已入库。'
-    })
+    const runScript = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['favorite:open', 'favorite:folder', 'favorite'],
+        missingTargets: [],
+        message: '收藏已入库。'
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['api:favorite:list', 'api:favorite:add'],
+        missingTargets: [],
+        message: '已用 B 站接口归入 Bilimi 收藏夹。'
+      })
 
     const result = await executeAssistantAction({
       action: '藏',
       runScript,
       favoritesFolderName: 'Bilimi 内库',
       favoriteLedgers,
-      targetLedgerId: 'humor'
+      targetLedgerId: 'humor',
+      favoriteApiFallbackEnabled: false
     })
 
-    expect(runScript).toHaveBeenCalledOnce()
+    expect(runScript).toHaveBeenCalledTimes(2)
     expect(runScript.mock.calls[0][0]).toContain('"action":"藏"')
+    expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
+    expect(runScript.mock.calls[1][0]).toContain('Bilimi·茶余解颐')
     expect(result.ok).toBe(true)
-    expect(result.steps).toEqual(['favorite:open', 'favorite:folder', 'favorite'])
+    expect(result.steps).toEqual(
+      expect.arrayContaining(['favorite:open', 'favorite', 'api:favorite:list', 'api:favorite:add'])
+    )
   })
 
   it('runs 点赞 + 收藏 for 赏', async () => {
-    const runScript = vi.fn().mockResolvedValue({ ok: true, steps: ['like', 'favorite'] })
+    const runScript = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['like', 'favorite'],
+        missingTargets: [],
+        message: '轻赏已入库。'
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['api:favorite:list', 'api:favorite:add'],
+        missingTargets: [],
+        message: '已用 B 站接口归入 Bilimi 收藏夹。'
+      })
 
     const result = await executeAssistantAction({
       action: '赏',
       runScript,
       favoritesFolderName: 'Bilimi 内库',
       favoriteLedgers,
-      targetLedgerId: 'humor'
+      targetLedgerId: 'humor',
+      favoriteApiFallbackEnabled: false
     })
 
-    expect(runScript).toHaveBeenCalledOnce()
+    expect(runScript).toHaveBeenCalledTimes(2)
+    expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
+    expect(runScript.mock.calls[1][0]).toContain('Bilimi·茶余解颐')
     expect(result.ok).toBe(true)
-    expect(result.steps).toEqual(['like', 'favorite'])
+    expect(result.steps).toEqual(
+      expect.arrayContaining(['like', 'favorite', 'api:favorite:list', 'api:favorite:add'])
+    )
   })
 
   it('falls back to visual favorite automation when DOM creation cannot find targets', async () => {
@@ -112,6 +143,123 @@ describe('executeAssistantAction', () => {
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
       expect.arrayContaining(['favorite:open', 'api:favorite:create-folder', 'api:favorite:add'])
+    )
+  })
+
+  it('uses the Bilibili API fallback for 赐 when the page reports an already-collected video', async () => {
+    const runScript = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        steps: ['like', 'favorite:already-collected', 'coin:open', 'coin:2', 'coin:confirm'],
+        missingTargets: ['favorite-api-required'],
+        message: '当前视频已收藏，需用接口确认 Bilimi 分组。'
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['api:favorite:list', 'api:favorite:add'],
+        missingTargets: [],
+        message: '已用 B 站接口归入 Bilimi 收藏夹。'
+      })
+    const runVisualFallback = vi.fn()
+
+    const result = await executeAssistantAction({
+      action: '赐',
+      runScript,
+      runVisualFallback,
+      favoritesFolderName: 'Bilimi 内库',
+      favoriteLedgers,
+      targetLedgerId: 'humor',
+      coinCount: 2
+    })
+
+    expect(runScript).toHaveBeenCalledTimes(2)
+    expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
+    expect(runScript.mock.calls[1][0]).toContain('Bilimi·茶余解颐')
+    expect(runVisualFallback).not.toHaveBeenCalled()
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(
+      expect.arrayContaining([
+        'favorite:already-collected',
+        'coin:confirm',
+        'api:favorite:list',
+        'api:favorite:add'
+      ])
+    )
+  })
+
+  it('confirms the target Bilimi folder through the API after a successful 赐 DOM flow', async () => {
+    const runScript = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['like', 'favorite:open', 'favorite:folder', 'favorite', 'coin:open', 'coin:2', 'coin:confirm'],
+        missingTargets: [],
+        message: '厚赐已成。'
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['api:favorite:list', 'api:favorite:add'],
+        missingTargets: [],
+        message: '已用 B 站接口归入 Bilimi 收藏夹。'
+      })
+    const runVisualFallback = vi.fn()
+
+    const result = await executeAssistantAction({
+      action: '赐',
+      runScript,
+      runVisualFallback,
+      favoritesFolderName: 'Bilimi 内库',
+      favoriteLedgers,
+      targetLedgerId: 'humor',
+      coinCount: 2,
+      favoriteApiFallbackEnabled: false
+    })
+
+    expect(runScript).toHaveBeenCalledTimes(2)
+    expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
+    expect(runScript.mock.calls[1][0]).toContain('Bilimi·茶余解颐')
+    expect(runVisualFallback).not.toHaveBeenCalled()
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(
+      expect.arrayContaining(['favorite', 'coin:confirm', 'api:favorite:list', 'api:favorite:add'])
+    )
+  })
+
+  it('uses the Bilibili API fallback for 藏 even when page-click-only disabled API fallback', async () => {
+    const runScript = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        steps: ['favorite:open'],
+        missingTargets: ['favorite-create-button'],
+        message: '尚有 favorite-create-button 未能寻见。'
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['api:favorite:list', 'api:favorite:add'],
+        missingTargets: [],
+        message: '已用 B 站接口归入 Bilimi 收藏夹。'
+      })
+    const runVisualFallback = vi.fn()
+
+    const result = await executeAssistantAction({
+      action: '藏',
+      runScript,
+      runVisualFallback,
+      favoritesFolderName: 'Bilimi 内库',
+      favoriteLedgers,
+      targetLedgerId: 'knowledge',
+      favoriteApiFallbackEnabled: false
+    })
+
+    expect(runScript).toHaveBeenCalledTimes(2)
+    expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
+    expect(runScript.mock.calls[1][0]).toContain('Bilimi·见闻增广')
+    expect(runVisualFallback).not.toHaveBeenCalled()
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(
+      expect.arrayContaining(['favorite:open', 'api:favorite:list', 'api:favorite:add'])
     )
   })
 

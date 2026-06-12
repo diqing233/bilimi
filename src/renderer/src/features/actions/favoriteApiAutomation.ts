@@ -32,6 +32,77 @@ export function buildFavoriteApiFallbackScript(
         };
       };
 
+      const queryFavoriteToolbarButton = () => {
+        const selectors = [
+          '.video-toolbar-left .video-fav',
+          '.video-toolbar-left-item.video-fav',
+          '.video-toolbar-left-item[class*="fav"]',
+          '.toolbar-left-item[class*="fav"]',
+          '.toolbar-right [class*="fav"]',
+          '.video-fav',
+          '[class*="video-fav"]',
+          'button[aria-label*="收藏"]',
+          '[role="button"][aria-label*="收藏"]',
+          'button[title*="收藏"]',
+          '[role="button"][title*="收藏"]'
+        ].join(',');
+
+        const nodes = Array.from(document.querySelectorAll(selectors));
+        return nodes.find((node) => {
+          const style = window.getComputedStyle?.(node);
+          if (style?.display === 'none' || style?.visibility === 'hidden') {
+            return false;
+          }
+
+          const text = [
+            node.getAttribute?.('aria-label'),
+            node.getAttribute?.('title'),
+            node.getAttribute?.('class'),
+            node.textContent
+          ].filter(Boolean).join(' ');
+          return /收藏|favorite|fav|collect/i.test(text);
+        }) || null;
+      };
+
+      const syncToolbarFavoriteState = () => {
+        const favoriteButton = queryFavoriteToolbarButton();
+
+        if (!favoriteButton) {
+          return false;
+        }
+
+        const activeColor = '#00aeec';
+        const activeClassNames = ['active', 'on', 'selected', 'is-active', 'is-fav', 'favorited', 'collected'];
+        const styledNodes = [
+          favoriteButton,
+          ...Array.from(favoriteButton.querySelectorAll?.('svg,path,use,i,span') || [])
+        ];
+
+        activeClassNames.forEach((className) => favoriteButton.classList?.add(className));
+        favoriteButton.setAttribute?.('aria-label', '已收藏');
+        favoriteButton.setAttribute?.('title', '已收藏');
+        favoriteButton.setAttribute?.('aria-pressed', 'true');
+        favoriteButton.setAttribute?.('data-active', 'true');
+        favoriteButton.setAttribute?.('data-favorite', 'true');
+
+        styledNodes.forEach((node) => {
+          node.style?.setProperty('color', activeColor, 'important');
+          node.style?.setProperty('fill', activeColor, 'important');
+
+          if (node.tagName?.toLowerCase() === 'path') {
+            node.style?.setProperty('stroke', activeColor, 'important');
+          }
+        });
+
+        favoriteButton.dispatchEvent?.(
+          new CustomEvent('bilimi:favorite-synced', {
+            bubbles: true,
+            detail: { source: 'favorite-api' }
+          })
+        );
+        return true;
+      };
+
       const requestJson = async (url, options = {}) => {
         const response = await fetch(url, {
           credentials: 'include',
@@ -161,6 +232,10 @@ export function buildFavoriteApiFallbackScript(
           body: dealBody
         });
         steps.push('api:favorite:add');
+
+        if (syncToolbarFavoriteState()) {
+          steps.push('api:favorite:sync-toolbar');
+        }
 
         return {
           ok: true,

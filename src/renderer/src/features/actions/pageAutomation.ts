@@ -150,6 +150,68 @@ export function buildAutomationScript(
           ['投币', 'coin']
         );
 
+      const coinDialogSelectors = [
+        '.coin-dialog',
+        '.coin-panel',
+        '.coin-modal',
+        '.coin-box',
+        '.coin-popup',
+        '.bili-dialog-bomb',
+        '[role="dialog"]',
+        '[class*="coin"][class*="dialog"]',
+        '[class*="coin"][class*="panel"]',
+        '[class*="coin"][class*="modal"]',
+        '[class*="coin"][class*="box"]',
+        '[class*="coin"][class*="popup"]',
+        '[class*="Coin"][class*="Dialog"]',
+        '[class*="Coin"][class*="Panel"]',
+        '[class*="Coin"][class*="Modal"]'
+      ].join(',');
+
+      const queryCoinDialog = () => {
+        const candidates = Array.from(document.querySelectorAll(coinDialogSelectors))
+          .filter((node) => isVisibleCandidate(node));
+        const coinMatcher = textMatchers(['投币', '硬币', 'coin']);
+        return candidates.find((node) => coinMatcher(nodeSearchText(node))) || null;
+      };
+
+      const byTextWithin = (root, selectors, candidates) => {
+        if (!root) {
+          return null;
+        }
+
+        const matcher = textMatchers(candidates);
+        const nodes = Array.from(root.querySelectorAll?.(selectors) || []);
+        return nodes.find((node) => {
+          if (isLikelyHidden(node)) {
+            return false;
+          }
+
+          return matcher(nodeSearchText(node));
+        });
+      };
+
+      const queryCoinOption = (coinDialog, desiredCoinCount) =>
+        byTextWithin(
+          coinDialog,
+          'button,[role="button"],label,.coin-item,.coin-option,.mc-box,.coin-box,[class*="coin"][class*="item"],[class*="coin"][class*="option"],[class*="coin"][class*="box"],[class*="mc-box"]',
+          [
+            '投' + desiredCoinCount + '币',
+            '投 ' + desiredCoinCount + ' 币',
+            desiredCoinCount + '硬币',
+            desiredCoinCount + ' 硬币',
+            desiredCoinCount + '币',
+            desiredCoinCount + ' 币'
+          ]
+        );
+
+      const queryCoinConfirm = (coinDialog) =>
+        byTextWithin(
+          coinDialog,
+          'button,[role="button"],.coin-submit,.submit,.bi-btn,.bili-btn,[class*="coin"][class*="submit"],[class*="confirm"],[class*="submit"],[class*="btn"],[class*="Btn"]',
+          ['确定', '确认', '投币']
+        );
+
       const querySubmitButton = () =>
         byText('button,[role="button"],.comment-submit,.submit', ['发布', '发送', '提交']);
 
@@ -173,6 +235,81 @@ export function buildAutomationScript(
           node.getAttribute?.('class'),
           node.textContent
         ].filter(Boolean).join(' ');
+
+      const isFavoriteAlreadyActive = (node) => {
+        if (!node) {
+          return false;
+        }
+
+        const searchText = normalize(nodeSearchText(node)).toLowerCase();
+        const classTokens = String(node.getAttribute?.('class') || '')
+          .split(/\\s+/)
+          .map((className) => className.toLowerCase())
+          .filter(Boolean);
+        const activeClassTokens = [
+          'active',
+          'on',
+          'selected',
+          'is-active',
+          'is-selected',
+          'is-fav',
+          'is-favorite',
+          'favorited',
+          'collected'
+        ];
+        const stateAttributes = [
+          node.getAttribute?.('aria-pressed'),
+          node.getAttribute?.('aria-checked'),
+          node.getAttribute?.('data-selected'),
+          node.getAttribute?.('data-active'),
+          node.getAttribute?.('data-fav'),
+          node.getAttribute?.('data-favorite')
+        ].filter(Boolean).map((value) => String(value).toLowerCase());
+
+        return (
+          normalize(searchText).includes(normalize('已收藏')) ||
+          normalize(searchText).includes(normalize('取消收藏')) ||
+          activeClassTokens.some((className) => classTokens.includes(className)) ||
+          stateAttributes.some((value) => value === 'true' || value === '1')
+        );
+      };
+
+      const isLikeAlreadyActive = (node) => {
+        if (!node) {
+          return false;
+        }
+
+        const searchText = normalize(nodeSearchText(node)).toLowerCase();
+        const classTokens = String(node.getAttribute?.('class') || '')
+          .split(/\\s+/)
+          .map((className) => className.toLowerCase())
+          .filter(Boolean);
+        const activeClassTokens = [
+          'active',
+          'on',
+          'selected',
+          'is-active',
+          'is-selected',
+          'liked',
+          'is-like',
+          'is-liked'
+        ];
+        const stateAttributes = [
+          node.getAttribute?.('aria-pressed'),
+          node.getAttribute?.('aria-checked'),
+          node.getAttribute?.('data-selected'),
+          node.getAttribute?.('data-active'),
+          node.getAttribute?.('data-like'),
+          node.getAttribute?.('data-liked')
+        ].filter(Boolean).map((value) => String(value).toLowerCase());
+
+        return (
+          normalize(searchText).includes(normalize('已点赞')) ||
+          normalize(searchText).includes(normalize('取消点赞')) ||
+          activeClassTokens.some((className) => classTokens.includes(className)) ||
+          stateAttributes.some((value) => value === 'true' || value === '1')
+        );
+      };
 
       const nodeOwnSearchText = (node) =>
         [
@@ -439,7 +576,14 @@ export function buildAutomationScript(
           return;
         }
 
-        const favoriteOpened = click(await waitForElement(queryFavoriteButton, 'favorite'), 'favorite:open');
+        const favoriteButton = await waitForElement(queryFavoriteButton, 'favorite');
+        if (isFavoriteAlreadyActive(favoriteButton)) {
+          steps.push('favorite:already-collected');
+          missingTargets.push('favorite-api-required');
+          return;
+        }
+
+        const favoriteOpened = click(favoriteButton, 'favorite:open');
         if (favoriteOpened) {
           const selectedFolder = await ensureFavoriteFolder();
           if (!selectedFolder) {
@@ -451,8 +595,20 @@ export function buildAutomationScript(
         }
       };
 
-      if (payload.action === '赏' || payload.action === '赐') {
-        click(await waitForElement(queryLikeButton, 'like'), 'like');
+      const likeRequired = payload.action === '赏' || payload.action === '赐';
+      let likeCompleted = true;
+
+      if (likeRequired) {
+        const likeButton = await waitForElement(queryLikeButton, 'like');
+
+        if (isLikeAlreadyActive(likeButton)) {
+          steps.push('like:already-liked');
+        } else {
+          likeCompleted = click(likeButton, 'like');
+        }
+      }
+
+      if (likeRequired && likeCompleted) {
         await favoriteCurrentVideo();
       }
 
@@ -460,21 +616,19 @@ export function buildAutomationScript(
         await favoriteCurrentVideo();
       }
 
-      if (payload.action === '赐') {
+      if (payload.action === '赐' && likeCompleted) {
         const coinOpened = click(await waitForElement(queryCoinButton, 'coin'), 'coin:open');
         if (coinOpened) {
           const desiredCoinCount = String(payload.coinCount ?? 1);
+          const coinDialog = await waitForElement(queryCoinDialog, 'coin-dialog');
           const coinChoice = await waitForElement(
-            () => byText(
-              'button,[role="button"],label,.coin-item,.coin-option',
-              [desiredCoinCount, '投' + desiredCoinCount + '币', ' ' + desiredCoinCount + ' ']
-            ),
+            () => queryCoinOption(coinDialog, desiredCoinCount),
             'coin-option'
           );
           click(coinChoice, 'coin:' + desiredCoinCount);
           click(
             await waitForElement(
-              () => byText('button,[role="button"],.coin-submit,.submit', ['确定', '确认', '投币']),
+              () => queryCoinConfirm(coinDialog),
               'coin-confirm'
             ),
             'coin:confirm'

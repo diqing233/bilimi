@@ -122,4 +122,45 @@ describe('buildFavoriteApiFallbackScript', () => {
     )
     expect(requests[1].body).toContain('add_media_ids=91000001')
   })
+
+  it('marks the Bilibili toolbar favorite button active after API favorite succeeds', async () => {
+    installBilibiliPageState()
+    document.body.innerHTML = `
+      <button class="video-fav" aria-label="收藏" title="收藏">
+        <svg><path></path></svg>
+        <span>1.5万</span>
+      </button>
+    `
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({
+            code: 0,
+            data: {
+              list: [{ id: 91000001, title: 'Bilimi·茶余解颐' }]
+            },
+            message: 'OK'
+          })
+        }
+
+        if (url.includes('/x/v3/fav/resource/deal')) {
+          return Response.json({ code: 0, data: {}, message: 'OK' })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(buildFavoriteApiFallbackScript(favoriteLedgers, 'humor'))
+    const favoriteButton = document.querySelector('.video-fav') as HTMLElement
+    const favoriteIcon = favoriteButton.querySelector('svg') as SVGElement
+
+    expect(result.steps).toEqual(['api:favorite:list', 'api:favorite:add', 'api:favorite:sync-toolbar'])
+    expect(favoriteButton).toHaveClass('active')
+    expect(favoriteButton).toHaveAttribute('aria-label', '已收藏')
+    expect(favoriteButton).toHaveAttribute('aria-pressed', 'true')
+    expect(favoriteIcon.style.color).toBe('rgb(0, 174, 236)')
+  })
 })

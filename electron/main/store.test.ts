@@ -137,6 +137,21 @@ describe('video note store helpers', () => {
     expect(loadVideoNotes(store)).toEqual([])
   })
 
+  it('loads legacy video notes with an empty annotations list', () => {
+    const legacyNote = { ...createStoreNote() }
+    delete (legacyNote as Partial<VideoNote>).annotations
+    const store = createFakeStore({
+      videoNotes: [legacyNote as VideoNote]
+    })
+
+    expect(loadVideoNotes(store)).toEqual([
+      {
+        ...legacyNote,
+        annotations: []
+      }
+    ])
+  })
+
   it('saves and updates video notes by stable id', () => {
     const store = createFakeStore()
     const first = createStoreNote()

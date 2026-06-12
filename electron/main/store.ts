@@ -1,6 +1,6 @@
 import Store from 'electron-store'
 import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '../../src/shared/favoriteLedgers'
-import { upsertVideoNote } from '../../src/shared/videoNotes'
+import { normalizeVideoNotes, upsertVideoNote } from '../../src/shared/videoNotes'
 import type { FavoriteLedger, VideoNote } from '../../src/shared/types'
 
 export type AssistantPreferences = {
@@ -67,7 +67,7 @@ export function saveAssistantPreferences(
 }
 
 export function loadVideoNotes(store: AssistantStoreLike = getDesktopStore()): VideoNote[] {
-  return store.get('videoNotes') ?? []
+  return normalizeVideoNotes(store.get('videoNotes') ?? [])
 }
 
 export function saveVideoNote(

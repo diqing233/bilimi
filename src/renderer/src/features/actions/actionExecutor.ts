@@ -13,6 +13,7 @@ type ExecuteAssistantActionArgs = {
   favoritesFolderName: string
   runScript: (script: string) => Promise<AssistantAutomationResult>
   runVisualFallback?: VisualAutomationFallback
+  favoriteApiFallbackEnabled?: boolean
   coinCount?: 1 | 2
   commentDraft?: string
   favoriteLedgers: FavoriteLedger[]
@@ -21,12 +22,20 @@ type ExecuteAssistantActionArgs = {
 
 const DOM_SCRIPT_TIMEOUT_MS = 15_000
 
-function shouldUseVisualFallback(result: AssistantAutomationResult, action: AssistantAction): boolean {
-  if (result.ok || (action !== '赏' && action !== '赐' && action !== '藏')) {
+function usesFavorite(action: AssistantAction): boolean {
+  return action === '赏' || action === '赐' || action === '藏'
+}
+
+function shouldUseFavoriteApi(result: AssistantAutomationResult, action: AssistantAction): boolean {
+  if (!usesFavorite(action)) {
     return false
   }
 
-  return result.missingTargets.some((target) => target.includes('favorite'))
+  if (result.ok) {
+    return true
+  }
+
+  return (result.missingTargets ?? []).some((target) => target.includes('favorite'))
 }
 
 function favoriteMissingTargets(result: AssistantAutomationResult) {
@@ -95,6 +104,17 @@ async function runFavoriteApiFallback(
   }
 }
 
+function skipFavoriteApiFallback(
+  domResult: AssistantAutomationResult
+): AssistantAutomationResult {
+  return {
+    ok: false,
+    steps: [...domResult.steps, 'api:favorite:disabled'],
+    missingTargets: domResult.missingTargets,
+    message: domResult.message
+  }
+}
+
 export async function executeAssistantAction(args: ExecuteAssistantActionArgs) {
   if (args.action === '阅') {
     return { ok: true, steps: [], missingTargets: [], message: '此折已阅。' }
@@ -110,13 +130,22 @@ export async function executeAssistantAction(args: ExecuteAssistantActionArgs) {
   )
   const domResult = await runScriptWithTimeout(args.runScript, script)
 
-  if (!shouldUseVisualFallback(domResult, args.action)) {
+  if (!shouldUseFavoriteApi(domResult, args.action)) {
     return domResult
   }
 
-  const apiResult = await runFavoriteApiFallback(args, domResult)
+  const mustConfirmFavoriteFolder = usesFavorite(args.action)
+  const apiResult =
+    args.favoriteApiFallbackEnabled === false && !mustConfirmFavoriteFolder
+      ? skipFavoriteApiFallback(domResult)
+      : await runFavoriteApiFallback(args, domResult)
 
-  if (apiResult.ok || !args.runVisualFallback || favoriteMissingTargets(apiResult).length === 0) {
+  if (
+    apiResult.ok ||
+    domResult.ok ||
+    !args.runVisualFallback ||
+    favoriteMissingTargets(apiResult).length === 0
+  ) {
     return apiResult
   }
 

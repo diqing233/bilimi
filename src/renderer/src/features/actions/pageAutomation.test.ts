@@ -79,6 +79,209 @@ describe('buildAutomationScript', () => {
     expect(result.missingTargets).toEqual([])
   })
 
+  it('likes, favorites, and submits the selected coin count for 赐', async () => {
+    document.body.innerHTML = `
+      <button aria-label="点赞">点赞</button>
+      <button aria-label="收藏">收藏</button>
+      <button aria-label="投币">投币</button>
+      <button>Bilimi·茶余解颐</button>
+      <button>完成</button>
+    `
+    let twoCoinSelected = false
+    let coinConfirmed = false
+
+    document.querySelector('[aria-label="投币"]')?.addEventListener('click', () => {
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        `
+          <div class="coin-dialog">
+            <button class="coin-option">投 1 币</button>
+            <button class="coin-option">投 2 币</button>
+            <button class="coin-submit">确定</button>
+          </div>
+        `
+      )
+
+      const options = Array.from(document.querySelectorAll('.coin-option'))
+      options[1]?.addEventListener('click', () => {
+        twoCoinSelected = true
+      })
+      document.querySelector('.coin-submit')?.addEventListener('click', () => {
+        coinConfirmed = true
+      })
+    })
+
+    const result = await window.eval(
+      buildAutomationScript('赐', 'Bilimi 内库', 2, undefined, favoriteLedgers, 'humor')
+    )
+
+    expect(result.ok).toBe(true)
+    expect(twoCoinSelected).toBe(true)
+    expect(coinConfirmed).toBe(true)
+    expect(result.steps).toEqual(
+      expect.arrayContaining(['like', 'favorite:open', 'favorite:folder', 'favorite', 'coin:open', 'coin:2', 'coin:confirm'])
+    )
+    expect(result.missingTargets).toEqual([])
+  })
+
+  it('selects and confirms the bilibili coin dialog when controls are not buttons', async () => {
+    document.body.innerHTML = `
+      <button aria-label="点赞">点赞</button>
+      <button aria-label="收藏">收藏</button>
+      <button aria-label="投币">投币</button>
+      <button>Bilimi·茶余解颐</button>
+      <button>完成</button>
+    `
+    let twoCoinSelected = false
+    let coinConfirmed = false
+
+    document.querySelector('[aria-label="投币"]')?.addEventListener('click', () => {
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        `
+          <div class="bili-dialog-bomb">
+            <div class="title">给UP主投上 <span>2</span> 枚硬币</div>
+            <div class="coin-selector">
+              <div class="mc-box">
+                <span class="coin-title">1硬币</span>
+              </div>
+              <div class="mc-box active">
+                <span class="coin-title">2硬币</span>
+              </div>
+            </div>
+            <div class="bi-btn">确定</div>
+          </div>
+        `
+      )
+
+      const options = Array.from(document.querySelectorAll('.mc-box'))
+      options[1]?.addEventListener('click', () => {
+        twoCoinSelected = true
+      })
+      document.querySelector('.bi-btn')?.addEventListener('click', () => {
+        coinConfirmed = true
+      })
+    })
+
+    const result = await window.eval(
+      buildAutomationScript('赐', 'Bilimi 内库', 2, undefined, favoriteLedgers, 'humor')
+    )
+
+    expect(result.ok).toBe(true)
+    expect(twoCoinSelected).toBe(true)
+    expect(coinConfirmed).toBe(true)
+    expect(result.steps).toEqual(
+      expect.arrayContaining(['coin:open', 'coin:2', 'coin:confirm'])
+    )
+    expect(result.missingTargets).toEqual([])
+  })
+
+  it('does not click an already-active favorite button during 赐 and still completes coin selection', async () => {
+    document.body.innerHTML = `
+      <button aria-label="点赞">点赞</button>
+      <button class="video-fav active" aria-label="已收藏">已收藏</button>
+      <button aria-label="投币">投币</button>
+    `
+    let favoriteCancelled = false
+    let coinConfirmed = false
+
+    document.querySelector('.video-fav')?.addEventListener('click', () => {
+      favoriteCancelled = true
+    })
+    document.querySelector('[aria-label="投币"]')?.addEventListener('click', () => {
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        `
+          <div class="coin-dialog">
+            <button class="coin-option">投 2 币</button>
+            <button class="coin-submit">确定</button>
+          </div>
+        `
+      )
+
+      document.querySelector('.coin-submit')?.addEventListener('click', () => {
+        coinConfirmed = true
+      })
+    })
+
+    const result = await window.eval(
+      buildAutomationScript('赐', 'Bilimi 内库', 2, undefined, favoriteLedgers, 'humor')
+    )
+
+    expect(favoriteCancelled).toBe(false)
+    expect(coinConfirmed).toBe(true)
+    expect(result.ok).toBe(false)
+    expect(result.steps).toEqual(
+      expect.arrayContaining(['like', 'favorite:already-collected', 'coin:open', 'coin:2', 'coin:confirm'])
+    )
+    expect(result.missingTargets).toEqual(['favorite-api-required'])
+  })
+
+  it('does not click an already-active like button during 赐 and still continues the action', async () => {
+    document.body.innerHTML = `
+      <button class="video-like active" aria-label="已点赞">已点赞</button>
+      <button aria-label="收藏">收藏</button>
+      <button>Bilimi·茶余解颐</button>
+      <button>完成</button>
+      <button aria-label="投币">投币</button>
+    `
+    let likeCancelled = false
+    let coinConfirmed = false
+
+    document.querySelector('.video-like')?.addEventListener('click', () => {
+      likeCancelled = true
+    })
+    document.querySelector('[aria-label="投币"]')?.addEventListener('click', () => {
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        `
+          <div class="coin-dialog">
+            <button class="coin-option">投 2 币</button>
+            <button class="coin-submit">确定</button>
+          </div>
+        `
+      )
+
+      document.querySelector('.coin-submit')?.addEventListener('click', () => {
+        coinConfirmed = true
+      })
+    })
+
+    const result = await window.eval(
+      buildAutomationScript('赐', 'Bilimi 内库', 2, undefined, favoriteLedgers, 'humor')
+    )
+
+    expect(likeCancelled).toBe(false)
+    expect(coinConfirmed).toBe(true)
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(
+      expect.arrayContaining(['like:already-liked', 'favorite:open', 'favorite:folder', 'favorite', 'coin:open', 'coin:2', 'coin:confirm'])
+    )
+    expect(result.missingTargets).toEqual([])
+  })
+
+  it('stops 赏 before opening favorites when no like target is found', async () => {
+    document.body.innerHTML = `
+      <button class="nav-favorite">收藏</button>
+    `
+    let favoriteClicked = false
+
+    document.querySelector('.nav-favorite')?.addEventListener('click', () => {
+      favoriteClicked = true
+      document.body.insertAdjacentHTML('beforeend', '<div class="bili-dialog-bomb">收藏弹层</div>')
+    })
+
+    const result = await window.eval(
+      buildAutomationScript('赏', 'Bilimi 内库', undefined, undefined, favoriteLedgers, 'humor')
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.missingTargets).toContain('like')
+    expect(result.steps).not.toContain('favorite:open')
+    expect(favoriteClicked).toBe(false)
+    expect(document.querySelector('.bili-dialog-bomb')).not.toBeInTheDocument()
+  })
+
   it('finds icon-only bilibili toolbar actions when they sit next to each other', async () => {
     document.body.innerHTML = `
       <div class="video-toolbar-left">
