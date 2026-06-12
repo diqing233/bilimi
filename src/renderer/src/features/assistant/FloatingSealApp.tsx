@@ -14,9 +14,11 @@ export function FloatingSealApp() {
   const [pressed, setPressed] = useState(false)
   const [opening, setOpening] = useState(false)
 
-  function toggleMenu() {
+  function toggleAssistant() {
     setOpening(true)
-    const toggleRequest = window.bilimiDesktop?.toggleFloatingMenu?.()
+    const toggleAssistantBridge =
+      window.bilimiDesktop?.toggleFloatingAssistant ?? window.bilimiDesktop?.toggleFloatingMenu
+    const toggleRequest = toggleAssistantBridge?.()
 
     void Promise.resolve(toggleRequest).finally(() => {
       window.setTimeout(() => setOpening(false), 160)
@@ -52,7 +54,6 @@ export function FloatingSealApp() {
 
     if (moved) {
       setPressed(false)
-      window.bilimiDesktop?.moveFloatingSealTo?.(screenX, screenY)
     }
   }
 
@@ -82,6 +83,7 @@ export function FloatingSealApp() {
         className="floating-seal-button"
         type="button"
         aria-label="打开 Bilimi 助手"
+        title="打开 Bilimi 助手"
         data-opening={opening ? 'true' : 'false'}
         data-pressed={pressed ? 'true' : 'false'}
         onClick={(event) => {
@@ -93,7 +95,7 @@ export function FloatingSealApp() {
             return
           }
 
-          toggleMenu()
+          toggleAssistant()
         }}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture?.(event.pointerId)

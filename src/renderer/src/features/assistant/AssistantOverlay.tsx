@@ -52,6 +52,8 @@ type AssistantOverlayProps = {
   openPosition?: OverlayPosition
   readVideoContentContext?: () => Promise<VideoContentContext | null | undefined>
   readVideoNoteSource?: () => Promise<VideoNoteExtractionResult | null>
+  readCurrentVideoTime?: () => Promise<number>
+  seekVideoTime?: (seconds: number) => Promise<boolean>
   runActionSignal?: number
   runRequestedAction?: AssistantAction
   showSeal?: boolean
@@ -135,6 +137,8 @@ export function AssistantOverlay({
   openPosition,
   readVideoContentContext,
   readVideoNoteSource,
+  readCurrentVideoTime,
+  seekVideoTime,
   runActionSignal = 0,
   runRequestedAction,
   showSeal = true,
@@ -627,6 +631,9 @@ export function AssistantOverlay({
               }}
               onGenerateVideoNote={generateVideoNote}
               onSaveVideoNote={persistVideoNote}
+              onChangeVideoNote={setVideoNote}
+              onGetCurrentVideoTime={readCurrentVideoTime}
+              onSeekVideoTime={seekVideoTime}
               pageClickOnly={pageClickOnly}
               onPageClickOnlyChange={setPageClickOnly}
               videoNote={videoNote}

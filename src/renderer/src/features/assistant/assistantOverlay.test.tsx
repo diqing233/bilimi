@@ -1,6 +1,22 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+﻿import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { AssistantOverlay } from './AssistantOverlay'
+
+const ACTION_BUTTON_NAMES = {
+  赏: /赏.*轻赏此条/,
+  藏: /藏.*归入内库/,
+  赐: /赐.*投币厚赏/,
+  表: /表.*拟奏短评/,
+  阅: /阅.*本条已阅/
+} as const
+
+function getActionButton(action: keyof typeof ACTION_BUTTON_NAMES) {
+  return screen.getByRole('button', { name: ACTION_BUTTON_NAMES[action] })
+}
+
+function getLedgerButton() {
+  return screen.getByRole('button', { name: /打开掌库/ })
+}
 
 describe('AssistantOverlay', () => {
   it('starts the folded seal inside the left safe area instead of hugging the right edge', () => {
@@ -114,11 +130,11 @@ describe('AssistantOverlay', () => {
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
 
     expect(screen.getByText('御前待阅折')).toBeInTheDocument()
-    expect(screen.getByText('赏')).toBeInTheDocument()
-    expect(screen.getByText('藏')).toBeInTheDocument()
-    expect(screen.getByText('赐')).toBeInTheDocument()
-    expect(screen.getByText('表')).toBeInTheDocument()
-    expect(screen.getByText('阅')).toBeInTheDocument()
+    expect(getActionButton('赏')).toBeInTheDocument()
+    expect(getActionButton('藏')).toBeInTheDocument()
+    expect(getActionButton('赐')).toBeInTheDocument()
+    expect(getActionButton('表')).toBeInTheDocument()
+    expect(getActionButton('阅')).toBeInTheDocument()
   })
 
   it('runs an externally requested assistant action through the existing action path', async () => {
@@ -160,7 +176,7 @@ describe('AssistantOverlay', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
-    fireEvent.click(screen.getByRole('button', { name: '赐' }))
+    fireEvent.click(getActionButton('赐'))
 
     expect(screen.getByText('陛下意欲赐几枚铜钱？')).toBeInTheDocument()
 
@@ -178,12 +194,19 @@ describe('AssistantOverlay', () => {
       missingTargets: string[]
       message: string
     }) => void
-    const runScript = vi.fn().mockImplementation(
-      () =>
+    const runScript = vi
+      .fn()
+      .mockImplementationOnce(() =>
         new Promise((resolve) => {
           resolveRunScript = resolve
         })
-    )
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['api:favorite:list', 'api:favorite:add'],
+        missingTargets: [],
+        message: '已用 B 站接口归入 Bilimi 收藏夹。'
+      })
 
     render(
       <AssistantOverlay
@@ -193,7 +216,7 @@ describe('AssistantOverlay', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
-    fireEvent.click(screen.getByRole('button', { name: '赏' }))
+    fireEvent.click(getActionButton('赏'))
 
     expect(screen.getByRole('status')).toHaveTextContent('正在代批')
 
@@ -204,7 +227,7 @@ describe('AssistantOverlay', () => {
       message: '轻赏已入内库。'
     })
 
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('轻赏已入内库。'))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('已用 B 站接口归入 Bilimi 收藏夹。'))
   })
 
   it('lets the user confirm create-and-favorite without triggering a like action', async () => {
@@ -225,7 +248,7 @@ describe('AssistantOverlay', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
-    fireEvent.click(screen.getByRole('button', { name: '藏' }))
+    fireEvent.click(getActionButton('藏'))
 
     await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
     expect(runScript.mock.calls[0][0]).toContain('"action":"藏"')
@@ -255,7 +278,7 @@ describe('AssistantOverlay', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
-    fireEvent.click(screen.getByRole('button', { name: '藏' }))
+    fireEvent.click(getActionButton('藏'))
 
     await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
     expect(runScript.mock.calls[0][0]).toContain('"targetLedgerId":"knowledge"')
@@ -299,7 +322,7 @@ describe('AssistantOverlay', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
-    fireEvent.click(screen.getByRole('button', { name: '藏' }))
+    fireEvent.click(getActionButton('藏'))
 
     await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
     expect(runScript.mock.calls[0][0]).toContain('"targetLedgerId":"watch-later"')
@@ -326,7 +349,7 @@ describe('AssistantOverlay', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
-    fireEvent.click(screen.getByRole('button', { name: '赏' }))
+    fireEvent.click(getActionButton('赏'))
 
     expect(screen.queryByLabelText('案头奏折')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '展开助手状态' })).toBeInTheDocument()
@@ -349,19 +372,27 @@ describe('AssistantOverlay', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
-    fireEvent.click(screen.getByRole('button', { name: '赏' }))
+    fireEvent.click(getActionButton('赏'))
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('尚有 favorite 未能寻见。'))
     expect(screen.getByText('御前待阅折')).toBeInTheDocument()
   })
 
   it('defaults to page-click-only fallback and shows the automation log', async () => {
-    const runScript = vi.fn().mockResolvedValue({
-      ok: false,
-      steps: ['favorite:open'],
-      missingTargets: ['favorite-create-button'],
-      message: '尚有 favorite-create-button 未能寻见。'
-    })
+    const runScript = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        steps: ['favorite:open'],
+        missingTargets: ['favorite-create-button'],
+        message: '尚有 favorite-create-button 未能寻见。'
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        steps: ['api:favorite:list'],
+        missingTargets: ['favorite-api'],
+        message: 'B 站收藏接口未能完成。'
+      })
     const runVisualFallback = vi.fn().mockResolvedValue({
       ok: true,
       steps: ['visual:favorite:create'],
@@ -381,13 +412,13 @@ describe('AssistantOverlay', () => {
 
     expect(screen.getByRole('switch', { name: '仅页面点击' })).toBeChecked()
 
-    fireEvent.click(screen.getByRole('button', { name: '藏' }))
+    fireEvent.click(getActionButton('藏'))
 
     await waitFor(() => expect(runVisualFallback).toHaveBeenCalledOnce())
-    expect(runScript).toHaveBeenCalledOnce()
+    expect(runScript).toHaveBeenCalledTimes(2)
     fireEvent.click(screen.getByRole('button', { name: '展开助手状态' }))
     expect(screen.getByText('执行日志')).toBeInTheDocument()
-    expect(screen.getByText('api:favorite:disabled')).toBeInTheDocument()
+    expect(screen.getByText('api:favorite:list')).toBeInTheDocument()
     expect(screen.getByText('visual:favorite:create')).toBeInTheDocument()
   })
 
@@ -395,14 +426,14 @@ describe('AssistantOverlay', () => {
     render(<AssistantOverlay favoritesFolderName="Bilimi 内库" />)
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
-    fireEvent.click(screen.getByRole('button', { name: '赐' }))
+    fireEvent.click(getActionButton('赐'))
 
-    expect(screen.getByRole('button', { name: '赏' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '藏' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '赐' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '表' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '阅' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '掌库' })).toBeDisabled()
+    expect(getActionButton('赏')).toBeDisabled()
+    expect(getActionButton('藏')).toBeDisabled()
+    expect(getActionButton('赐')).toBeDisabled()
+    expect(getActionButton('表')).toBeDisabled()
+    expect(getActionButton('阅')).toBeDisabled()
+    expect(getLedgerButton()).toBeDisabled()
     expect(screen.getByRole('button', { name: '赐一枚' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '赐两枚' })).toBeEnabled()
   })
@@ -411,14 +442,14 @@ describe('AssistantOverlay', () => {
     render(<AssistantOverlay favoritesFolderName="Bilimi 内库" />)
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
-    fireEvent.click(screen.getByRole('button', { name: '表' }))
+    fireEvent.click(getActionButton('表'))
 
-    expect(screen.getByRole('button', { name: '赏' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '藏' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '赐' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '表' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '阅' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '掌库' })).toBeDisabled()
+    expect(getActionButton('赏')).toBeDisabled()
+    expect(getActionButton('藏')).toBeDisabled()
+    expect(getActionButton('赐')).toBeDisabled()
+    expect(getActionButton('表')).toBeDisabled()
+    expect(getActionButton('阅')).toBeDisabled()
+    expect(getLedgerButton()).toBeDisabled()
     expect(screen.getAllByRole('button').some((button) => button.textContent?.includes('亲览'))).toBe(true)
   })
 
@@ -441,7 +472,7 @@ describe('AssistantOverlay', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
-    fireEvent.click(screen.getByRole('button', { name: '赐' }))
+    fireEvent.click(getActionButton('赐'))
     const twoCoinButton = screen.getByRole('button', { name: '赐两枚' })
     fireEvent.click(twoCoinButton)
     fireEvent.click(twoCoinButton)
@@ -467,7 +498,7 @@ describe('AssistantOverlay', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
-    fireEvent.click(screen.getByRole('button', { name: '表' }))
+    fireEvent.click(getActionButton('表'))
 
     const draft = '《早八生存实录》铺陈渐稳，臣不敢泄机，谨请陛下亲览。'
 
@@ -484,7 +515,7 @@ describe('AssistantOverlay', () => {
     render(<AssistantOverlay />)
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
-    fireEvent.click(screen.getByRole('button', { name: '掌库' }))
+    fireEvent.click(getLedgerButton())
 
     expect(screen.getByRole('dialog', { name: '掌库' })).toBeInTheDocument()
   })
@@ -508,3 +539,4 @@ describe('AssistantOverlay', () => {
     expect(screen.getByRole('dialog', { name: '掌库' })).toBeInTheDocument()
   })
 })
+

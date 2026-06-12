@@ -23,7 +23,28 @@ function withoutPointerEvent(runTest: () => void) {
 }
 
 describe('FloatingSealApp', () => {
-  it('asks the desktop shell to toggle the system menu when clicked', () => {
+  it('asks the desktop shell to toggle the full assistant when clicked', () => {
+    const toggleFloatingAssistant = vi.fn()
+    const toggleFloatingMenu = vi.fn()
+
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        version: '0.1.0',
+        toggleFloatingAssistant,
+        toggleFloatingMenu
+      }
+    })
+
+    render(<FloatingSealApp />)
+
+    fireEvent.click(screen.getByRole('button', { name: '打开 Bilimi 助手' }))
+
+    expect(toggleFloatingAssistant).toHaveBeenCalledOnce()
+    expect(toggleFloatingMenu).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the system menu bridge when the assistant bridge is unavailable', () => {
     const toggleFloatingMenu = vi.fn()
 
     Object.defineProperty(window, 'bilimiDesktop', {
@@ -46,7 +67,7 @@ describe('FloatingSealApp', () => {
       const finishFloatingSealDrag = vi.fn()
       const moveFloatingSealTo = vi.fn()
       const startFloatingSealDrag = vi.fn()
-      const toggleFloatingMenu = vi.fn()
+      const toggleFloatingAssistant = vi.fn()
 
       Object.defineProperty(window, 'bilimiDesktop', {
         configurable: true,
@@ -55,7 +76,7 @@ describe('FloatingSealApp', () => {
           finishFloatingSealDrag,
           moveFloatingSealTo,
           startFloatingSealDrag,
-          toggleFloatingMenu
+          toggleFloatingAssistant
         }
       })
 
@@ -68,9 +89,9 @@ describe('FloatingSealApp', () => {
       fireEvent.click(seal)
 
       expect(startFloatingSealDrag).toHaveBeenCalledWith(140, 240)
-      expect(moveFloatingSealTo).toHaveBeenCalledWith(180, 270)
+      expect(moveFloatingSealTo).not.toHaveBeenCalled()
       expect(finishFloatingSealDrag).toHaveBeenCalledOnce()
-      expect(toggleFloatingMenu).not.toHaveBeenCalled()
+      expect(toggleFloatingAssistant).not.toHaveBeenCalled()
     })
   })
 
@@ -79,7 +100,7 @@ describe('FloatingSealApp', () => {
       const finishFloatingSealDrag = vi.fn()
       const moveFloatingSealTo = vi.fn()
       const startFloatingSealDrag = vi.fn()
-      const toggleFloatingMenu = vi.fn()
+      const toggleFloatingAssistant = vi.fn()
 
       Object.defineProperty(window, 'bilimiDesktop', {
         configurable: true,
@@ -88,7 +109,7 @@ describe('FloatingSealApp', () => {
           finishFloatingSealDrag,
           moveFloatingSealTo,
           startFloatingSealDrag,
-          toggleFloatingMenu
+          toggleFloatingAssistant
         }
       })
 
@@ -102,9 +123,9 @@ describe('FloatingSealApp', () => {
       fireEvent.click(seal)
 
       expect(startFloatingSealDrag).toHaveBeenCalledWith(140, 240)
-      expect(moveFloatingSealTo).toHaveBeenCalledWith(180, 270)
+      expect(moveFloatingSealTo).not.toHaveBeenCalled()
       expect(finishFloatingSealDrag).toHaveBeenCalledOnce()
-      expect(toggleFloatingMenu).not.toHaveBeenCalled()
+      expect(toggleFloatingAssistant).not.toHaveBeenCalled()
     })
   })
 
@@ -112,7 +133,7 @@ describe('FloatingSealApp', () => {
     const finishFloatingSealDrag = vi.fn()
     const moveFloatingSealTo = vi.fn()
     const startFloatingSealDrag = vi.fn()
-    const toggleFloatingMenu = vi.fn()
+    const toggleFloatingAssistant = vi.fn()
 
     Object.defineProperty(window, 'bilimiDesktop', {
       configurable: true,
@@ -121,7 +142,7 @@ describe('FloatingSealApp', () => {
         finishFloatingSealDrag,
         moveFloatingSealTo,
         startFloatingSealDrag,
-        toggleFloatingMenu
+        toggleFloatingAssistant
       }
     })
 
@@ -135,19 +156,19 @@ describe('FloatingSealApp', () => {
     fireEvent.click(seal)
 
     expect(startFloatingSealDrag).toHaveBeenCalledWith(140, 240)
-    expect(moveFloatingSealTo).toHaveBeenCalledWith(180, 270)
+    expect(moveFloatingSealTo).not.toHaveBeenCalled()
     expect(finishFloatingSealDrag).toHaveBeenCalledOnce()
-    expect(toggleFloatingMenu).not.toHaveBeenCalled()
+    expect(toggleFloatingAssistant).not.toHaveBeenCalled()
   })
 
   it('marks the seal as pressed only during a click gesture', () => {
-    const toggleFloatingMenu = vi.fn()
+    const toggleFloatingAssistant = vi.fn()
 
     Object.defineProperty(window, 'bilimiDesktop', {
       configurable: true,
       value: {
         version: '0.1.0',
-        toggleFloatingMenu
+        toggleFloatingAssistant
       }
     })
 
@@ -163,6 +184,7 @@ describe('FloatingSealApp', () => {
     fireEvent.click(seal)
 
     expect(seal).toHaveAttribute('data-pressed', 'false')
-    expect(toggleFloatingMenu).toHaveBeenCalledOnce()
+    expect(toggleFloatingAssistant).toHaveBeenCalledOnce()
   })
 })
+
