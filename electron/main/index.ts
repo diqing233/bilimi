@@ -8,31 +8,50 @@ import {
   saveVideoNote,
   type AssistantPreferences
 } from './store'
-import { sendAssistantActionWhenReady } from './assistantActionSignal'
-import { sendAssistantOpenWhenReady } from './assistantOpenSignal'
-import { keepMainWindowTitle } from './windowTitleGuard'
+import { requestAssistantRuntimeWhenReady } from './assistantRuntimeSignal'
+import { sendAssistantSnapshotChangedWhenReady } from './assistantSnapshotSignal'
 import { FloatingMenuController } from './floatingMenuController'
+import { toggleFloatingAssistantFromSeal, toggleFloatingMenuFromSeal } from './floatingMenuToggleFlow'
+import { FloatingSealDragController } from './floatingSealDragController'
+import { createMainWindowOptions } from './mainWindowOptions'
+import { createFloatingSealWindowOptions } from './floatingSealWindowOptions'
 import {
-  createAssistantPanelPosition,
+  configureFloatingMenuWindow,
+  createFloatingMenuWindowOptions
+} from './floatingMenuWindowOptions'
+import { keepMainWindowTitle } from './windowTitleGuard'
+import {
+  createFloatingAssistantBounds,
+  createFloatingHostBounds,
   createFloatingMenuBounds,
-  createFloatingSealDragPosition
+  createFloatingSealDragPosition,
+  createFloatingVisualBounds
 } from './floatingSealGeometry'
 import { createPreloadScriptPath } from './preloadPath'
-import type { AssistantAction, VideoNote } from '../../src/shared/types'
+import type {
+  AssistantAction,
+  AssistantAutomationResult,
+  VideoNote
+} from '../../src/shared/types'
+import type {
+  AssistantRuntimeRequest,
+  AssistantSnapshot,
+  FloatingAssistantActionOptions
+} from '../../src/renderer/src/features/assistant/assistantRuntimeTypes'
+import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../../src/renderer/src/features/favorites/favoriteLedgerPreview'
 
-const FLOATING_SEAL_SIZE = 92
+const FLOATING_SEAL_VISUAL_SIZE = 92
+const FLOATING_SEAL_SHADOW_PADDING = 28
 const FLOATING_SEAL_MARGIN = 24
-const ASSISTANT_PANEL_SIZE = { width: 236, height: 212 }
 const FLOATING_SEAL_QUERY = { window: 'floating-seal' }
-const FLOATING_MENU_SIZE = { width: 156, height: 214 }
+const FLOATING_MENU_VISUAL_SIZE = { width: 184, height: 248 }
+const FLOATING_MENU_SHADOW_PADDING = 28
 const FLOATING_MENU_QUERY = { window: 'floating-menu' }
+const FLOATING_ASSISTANT_SIZE = { width: 460, height: 680 }
+const FLOATING_ASSISTANT_QUERY = { window: 'floating-assistant' }
 
 let mainWindow: BrowserWindow | null = null
 let floatingSealWindow: BrowserWindow | null = null
-let floatingSealDragSession: {
-  startBounds: Electron.Rectangle
-  startCursor: { x: number; y: number }
-} | null = null
 
 function openUrlInRendererTab(win: BrowserWindow, url: string) {
   if (!url || win.isDestroyed()) {
@@ -78,45 +97,57 @@ function loadRendererWindow(win: BrowserWindow, query: Record<string, string> = 
 
 function getFloatingSealBounds() {
   const { workArea } = screen.getPrimaryDisplay()
-
-  return {
-    width: FLOATING_SEAL_SIZE,
-    height: FLOATING_SEAL_SIZE,
-    x: workArea.x + workArea.width - FLOATING_SEAL_SIZE - FLOATING_SEAL_MARGIN,
+  const visualBounds = {
+    width: FLOATING_SEAL_VISUAL_SIZE,
+    height: FLOATING_SEAL_VISUAL_SIZE,
+    x: workArea.x + workArea.width - FLOATING_SEAL_VISUAL_SIZE - FLOATING_SEAL_MARGIN,
     y: workArea.y + Math.round(workArea.height * 0.62)
   }
+
+  return createFloatingHostBounds({
+    visualBounds,
+    padding: FLOATING_SEAL_SHADOW_PADDING
+  })
 }
 
 function getFloatingMenuBounds() {
-  const sealBounds = floatingSealWindow?.getBounds() ?? getFloatingSealBounds()
-  const display = screen.getDisplayMatching(sealBounds)
+  const sealHostBounds = floatingSealWindow?.getBounds() ?? getFloatingSealBounds()
+  const display = screen.getDisplayMatching(sealHostBounds)
+  const sealVisualBounds = createFloatingVisualBounds({
+    hostBounds: sealHostBounds,
+    padding: FLOATING_SEAL_SHADOW_PADDING
+  })
+  const visualBounds = createFloatingMenuBounds({
+    sealBounds: sealVisualBounds,
+    menuSize: FLOATING_MENU_VISUAL_SIZE,
+    workArea: display.workArea
+  })
 
-  return createFloatingMenuBounds({
-    sealBounds,
-    menuSize: FLOATING_MENU_SIZE,
+  return createFloatingHostBounds({
+    visualBounds,
+    padding: FLOATING_MENU_SHADOW_PADDING
+  })
+}
+
+function getFloatingAssistantBounds() {
+  const sealHostBounds = floatingSealWindow?.getBounds() ?? getFloatingSealBounds()
+  const display = screen.getDisplayMatching(sealHostBounds)
+  const sealVisualBounds = createFloatingVisualBounds({
+    hostBounds: sealHostBounds,
+    padding: FLOATING_SEAL_SHADOW_PADDING
+  })
+
+  return createFloatingAssistantBounds({
+    sealBounds: sealVisualBounds,
+    workspaceSize: FLOATING_ASSISTANT_SIZE,
     workArea: display.workArea
   })
 }
 
 function createFloatingSealWindow() {
-  const seal = new BrowserWindow({
-    ...getFloatingSealBounds(),
-    frame: false,
-    transparent: true,
-    resizable: false,
-    movable: true,
-    minimizable: false,
-    maximizable: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    backgroundColor: '#00000000',
-    hasShadow: false,
-    webPreferences: {
-      preload: createPreloadScriptPath(__dirname),
-      contextIsolation: true,
-      sandbox: false
-    }
-  })
+  const seal = new BrowserWindow(
+    createFloatingSealWindowOptions(getFloatingSealBounds(), createPreloadScriptPath(__dirname))
+  )
 
   seal.setAlwaysOnTop(true, 'floating')
   seal.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
@@ -132,30 +163,14 @@ function createFloatingSealWindow() {
 }
 
 function createFloatingMenuWindow() {
-  const menu = new BrowserWindow({
-    ...getFloatingMenuBounds(),
-    frame: false,
-    transparent: true,
-    resizable: false,
-    movable: false,
-    minimizable: false,
-    maximizable: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    backgroundColor: '#00000000',
-    hasShadow: false,
-    webPreferences: {
-      preload: createPreloadScriptPath(__dirname),
-      contextIsolation: true,
-      sandbox: false
-    }
-  })
+  const menu = new BrowserWindow(
+    createFloatingMenuWindowOptions({
+      bounds: getFloatingMenuBounds(),
+      preload: createPreloadScriptPath(__dirname)
+    })
+  )
 
-  menu.setAlwaysOnTop(true, 'floating')
-  menu.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  menu.removeMenu()
-  menu.on('blur', () => floatingMenuController.close())
-  menu.on('closed', () => {
+  configureFloatingMenuWindow(menu, () => {
     floatingMenuController.clearIfCurrent(menu)
   })
 
@@ -166,12 +181,89 @@ function createFloatingMenuWindow() {
 
 const floatingMenuController = new FloatingMenuController(createFloatingMenuWindow)
 
+function createFloatingAssistantWindow() {
+  const assistant = new BrowserWindow({
+    ...getFloatingAssistantBounds(),
+    title: '',
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    backgroundColor: '#00000000',
+    hasShadow: true,
+    webPreferences: {
+      preload: createPreloadScriptPath(__dirname),
+      contextIsolation: true,
+      sandbox: false
+    }
+  })
+
+  assistant.setAlwaysOnTop(true, 'floating')
+  assistant.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  assistant.removeMenu()
+  assistant.on('closed', () => {
+    floatingAssistantController.clearIfCurrent(assistant)
+  })
+
+  loadRendererWindow(assistant, FLOATING_ASSISTANT_QUERY)
+
+  return assistant
+}
+
+const floatingAssistantController = new FloatingMenuController(createFloatingAssistantWindow)
+
+const floatingSealDragController = new FloatingSealDragController({
+  getCursorPoint: () => screen.getCursorScreenPoint(),
+  getSealBounds: () => floatingSealWindow?.getBounds() ?? getFloatingSealBounds(),
+  moveSealTo: (position) => {
+    if (!floatingSealWindow || floatingSealWindow.isDestroyed()) {
+      return
+    }
+
+    floatingSealWindow.setPosition(position.x, position.y)
+  }
+})
+
 function closeFloatingMenuWindow() {
   floatingMenuController.close()
 }
 
 function toggleFloatingMenuWindow() {
-  floatingMenuController.toggle()
+  mainWindow = toggleFloatingMenuFromSeal({
+    createMainWindow,
+    mainWindow,
+    toggleFloatingMenu: () => {
+      floatingMenuController.toggle()
+    }
+  })
+}
+
+function closeFloatingAssistantWindow() {
+  floatingAssistantController.close()
+}
+
+function notifyFloatingAssistantSnapshotChanged() {
+  const assistant = floatingAssistantController.getWindow()
+
+  if (!assistant || assistant.isDestroyed()) {
+    return
+  }
+
+  sendAssistantSnapshotChangedWhenReady(assistant)
+}
+
+function toggleFloatingAssistantWindow() {
+  mainWindow = toggleFloatingAssistantFromSeal({
+    createMainWindow,
+    mainWindow,
+    toggleFloatingAssistant: () => {
+      floatingAssistantController.toggle()
+    }
+  })
 }
 
 function moveFloatingSealBy(deltaX: number, deltaY: number) {
@@ -190,19 +282,18 @@ function startFloatingSealDrag(screenX: number, screenY: number) {
   }
 
   closeFloatingMenuWindow()
-  floatingSealDragSession = {
-    startBounds: floatingSealWindow.getBounds(),
-    startCursor: { x: screenX, y: screenY }
-  }
+  closeFloatingAssistantWindow()
+  floatingSealDragController.start({ x: screenX, y: screenY })
 }
 
 function moveFloatingSealTo(screenX: number, screenY: number) {
-  if (!floatingSealWindow || floatingSealWindow.isDestroyed() || !floatingSealDragSession) {
+  if (!floatingSealWindow || floatingSealWindow.isDestroyed()) {
     return
   }
 
   const position = createFloatingSealDragPosition({
-    ...floatingSealDragSession,
+    startBounds: floatingSealWindow.getBounds(),
+    startCursor: screen.getCursorScreenPoint(),
     currentCursor: { x: screenX, y: screenY }
   })
 
@@ -210,73 +301,37 @@ function moveFloatingSealTo(screenX: number, screenY: number) {
 }
 
 function finishFloatingSealDrag() {
-  floatingSealDragSession = null
+  floatingSealDragController.finish()
 }
 
-function getAssistantOpenPosition() {
-  if (!mainWindow || mainWindow.isDestroyed() || !floatingSealWindow || floatingSealWindow.isDestroyed()) {
-    return undefined
-  }
+let assistantRuntimeRequestIndex = 0
 
-  return createAssistantPanelPosition({
-    mainBounds: mainWindow.getBounds(),
-    sealBounds: floatingSealWindow.getBounds(),
-    panelSize: ASSISTANT_PANEL_SIZE
-  })
+function createAssistantRuntimeRequestId() {
+  assistantRuntimeRequestIndex += 1
+  return `assistant-runtime-${Date.now()}-${assistantRuntimeRequestIndex}`
 }
 
-function openAssistantFromFloatingSeal() {
+function ensureMainWindowForAssistantRuntime() {
   if (!mainWindow || mainWindow.isDestroyed()) {
     mainWindow = createMainWindow()
   }
 
-  if (mainWindow.isMinimized()) {
-    mainWindow.restore()
-  }
-
-  if (!mainWindow.isVisible()) {
-    mainWindow.show()
-  }
-
-  mainWindow.focus()
-  sendAssistantOpenWhenReady(mainWindow, {
-    position: getAssistantOpenPosition()
-  })
+  return mainWindow
 }
 
-function runAssistantActionFromFloatingMenu(action: AssistantAction) {
-  closeFloatingMenuWindow()
-
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    mainWindow = createMainWindow()
-  }
-
-  if (mainWindow.isMinimized()) {
-    mainWindow.restore()
-  }
-
-  if (!mainWindow.isVisible()) {
-    mainWindow.show()
-  }
-
-  mainWindow.focus()
-  sendAssistantActionWhenReady(mainWindow, { action })
+function requestMainAssistantRuntime<TPayload>(
+  request: Omit<AssistantRuntimeRequest, 'id'>
+): Promise<TPayload> {
+  return requestAssistantRuntimeWhenReady<TPayload>({
+    createRequestId: createAssistantRuntimeRequestId,
+    request,
+    responseBus: ipcMain,
+    target: ensureMainWindowForAssistantRuntime()
+  })
 }
 
 function createMainWindow() {
-  const win = new BrowserWindow({
-    width: 1440,
-    height: 960,
-    minWidth: 1280,
-    minHeight: 820,
-    backgroundColor: '#1f140f',
-    webPreferences: {
-      preload: createPreloadScriptPath(__dirname),
-      webviewTag: true,
-      contextIsolation: true,
-      sandbox: false
-    }
-  })
+  const win = new BrowserWindow(createMainWindowOptions(createPreloadScriptPath(__dirname)))
 
   mainWindow = win
   keepMainWindowTitle(win)
@@ -301,15 +356,71 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle('video-notes:save', (_event, note: VideoNote) =>
     saveVideoNote(getDesktopStore(), note)
   )
-  ipcMain.handle('assistant:open-from-floating-seal', () => openAssistantFromFloatingSeal())
+  ipcMain.handle('assistant:open-from-floating-seal', () => {
+    toggleFloatingAssistantWindow()
+  })
   ipcMain.handle('floating-menu:toggle', () => {
     toggleFloatingMenuWindow()
   })
-  ipcMain.handle('floating-menu:run-action', (_event, action: AssistantAction) => {
-    runAssistantActionFromFloatingMenu(action)
+  ipcMain.handle(
+    'floating-menu:run-action',
+    (_event, action: AssistantAction, options?: FloatingAssistantActionOptions) => {
+    return requestMainAssistantRuntime<AssistantAutomationResult>({
+      type: 'run-action',
+      action,
+      options
+    })
   })
   ipcMain.on('floating-menu:close', () => {
     closeFloatingMenuWindow()
+    closeFloatingAssistantWindow()
+  })
+  ipcMain.handle('floating-assistant:toggle', () => {
+    toggleFloatingAssistantWindow()
+  })
+  ipcMain.handle('floating-assistant:snapshot', () =>
+    requestMainAssistantRuntime<AssistantSnapshot>({ type: 'snapshot' })
+  )
+  ipcMain.handle('floating-assistant:get-current-video-time', () =>
+    requestMainAssistantRuntime<number>({ type: 'get-current-video-time' })
+  )
+  ipcMain.handle('floating-assistant:seek-video-time', (_event, seconds: number) =>
+    requestMainAssistantRuntime<boolean>({ type: 'seek-video-time', seconds })
+  )
+  ipcMain.handle(
+    'floating-assistant:run-action',
+    (_event, action: AssistantAction, options?: FloatingAssistantActionOptions) =>
+      requestMainAssistantRuntime<AssistantAutomationResult>({
+        type: 'run-action',
+        action,
+        options
+      })
+  )
+  ipcMain.handle('floating-assistant:generate-video-note', (_event, manualTranscript?: string) =>
+    requestMainAssistantRuntime<VideoNote | null>({
+      type: 'generate-video-note',
+      manualTranscript
+    })
+  )
+  ipcMain.handle('floating-assistant:ensure-ledgers', () =>
+    requestMainAssistantRuntime<AssistantAutomationResult>({ type: 'ensure-ledgers' })
+  )
+  ipcMain.handle('floating-assistant:scan-old-favorites', () =>
+    requestMainAssistantRuntime<FavoriteLedgerPreview>({ type: 'scan-old-favorites' })
+  )
+  ipcMain.handle(
+    'floating-assistant:execute-old-favorite-plan',
+    (_event, items: FavoriteLedgerPreviewItem[]) =>
+      requestMainAssistantRuntime<AssistantAutomationResult>({
+        type: 'execute-old-favorite-plan',
+        items
+      })
+  )
+  ipcMain.on('floating-assistant:close', () => {
+    closeFloatingAssistantWindow()
+  })
+  ipcMain.on('floating-assistant:snapshot-changed', () => {
+    notifyFloatingAssistantSnapshotChanged()
   })
   ipcMain.on('floating-seal:finish-drag', () => {
     finishFloatingSealDrag()
