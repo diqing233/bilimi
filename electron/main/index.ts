@@ -10,6 +10,7 @@ import {
 } from './store'
 import { sendAssistantActionWhenReady } from './assistantActionSignal'
 import { sendAssistantOpenWhenReady } from './assistantOpenSignal'
+import { keepMainWindowTitle } from './windowTitleGuard'
 import { FloatingMenuController } from './floatingMenuController'
 import {
   createAssistantPanelPosition,
@@ -278,6 +279,7 @@ function createMainWindow() {
   })
 
   mainWindow = win
+  keepMainWindowTitle(win)
   installWindowOpenRouting(win)
   win.on('closed', () => {
     if (mainWindow === win) {

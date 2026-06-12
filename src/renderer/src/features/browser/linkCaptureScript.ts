@@ -13,9 +13,7 @@ export function buildOpenLinksInAppScript(): string {
         return /(^|\\.)bilibili\\.com$/.test(url.hostname) && url.protocol === 'https:';
       };
 
-      const resolveNavigableUrl = (target) => {
-        const anchor = target?.closest?.('a[href]');
-
+      const readUrlFromAnchor = (anchor) => {
         if (!anchor) {
           return null;
         }
@@ -27,6 +25,48 @@ export function buildOpenLinksInAppScript(): string {
         } catch {
           return null;
         }
+      };
+
+      const resolveCardUrl = (target) => {
+        const card = target?.closest?.(
+          '[data-bvid], [data-aid], [data-url], [data-target-url], .bili-video-card, .video-card, .feed-card, .recommend-card, .card-box'
+        );
+
+        if (!card) {
+          return null;
+        }
+
+        const dataUrl = card.dataset?.url || card.dataset?.targetUrl;
+
+        if (dataUrl) {
+          try {
+            const url = new URL(dataUrl, window.location.href);
+
+            if (isBilibiliNavigableUrl(url)) {
+              return url.href;
+            }
+          } catch {
+            // Fall through to anchors inside the card.
+          }
+        }
+
+        const bvid = card.dataset?.bvid;
+
+        if (bvid) {
+          return 'https://www.bilibili.com/video/' + encodeURIComponent(bvid);
+        }
+
+        const videoAnchor = card.querySelector?.(
+          'a[href*="/video/"], a[href*="//www.bilibili.com/video/"], a[href*="//bilibili.com/video/"]'
+        );
+
+        return readUrlFromAnchor(videoAnchor);
+      };
+
+      const resolveNavigableUrl = (target) => {
+        const anchor = target?.closest?.('a[href]');
+
+        return readUrlFromAnchor(anchor) || resolveCardUrl(target);
       };
 
       const requestOpenInTab = (url) => {
