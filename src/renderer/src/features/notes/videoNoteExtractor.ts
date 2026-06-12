@@ -127,9 +127,6 @@ export function buildVideoNoteExtractionScript(): string {
         ...(initialState.subtitle?.list || []),
         ...(window.__playinfo__?.subtitle?.subtitles || [])
       ];
-      const transcript = Array.from(document.querySelectorAll('.bpx-player-subtitle-panel-text,.subtitle-item,[class*="subtitle"]'))
-        .map((node, index) => ({ start: null, end: null, text: clean(node.textContent), index }))
-        .filter((item) => item.text);
       let fetchedTranscript = [];
 
       for (const candidate of subtitleCandidates) {
@@ -148,7 +145,7 @@ export function buildVideoNoteExtractionScript(): string {
         bvid: clean(videoData.bvid || location.pathname.match(/BV[0-9A-Za-z]+/)?.[0] || ''),
         url: location.href,
         subtitleCandidates,
-        transcript: fetchedTranscript.length > 0 ? fetchedTranscript : transcript
+        transcript: fetchedTranscript
       };
     })();
   `

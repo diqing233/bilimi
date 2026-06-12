@@ -1,4 +1,5 @@
 import type { VideoNote, VideoNoteTimelineItem, TranscriptSegment } from '@shared/types'
+import { sortVideoNoteAnnotations } from './videoNoteAnnotations'
 
 function formatTimestamp(seconds: number | null): string {
   if (seconds === null) {
@@ -37,7 +38,7 @@ function transcriptItems(items: TranscriptSegment[]): string {
 }
 
 export function createVideoNoteMarkdown(note: VideoNote): string {
-  const annotations = note.annotations ?? []
+  const annotations = sortVideoNoteAnnotations(note.annotations ?? [])
   const author = note.source.author?.trim() || '未署名'
   const bvid = note.source.bvid?.trim() || '未识别'
   const annotationText =

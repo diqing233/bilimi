@@ -35,7 +35,7 @@ describe('videoNoteExtractor', () => {
     ])
   })
 
-  it('fetches subtitle candidate JSON before falling back to visible subtitle DOM', async () => {
+  it('fetches subtitle candidate JSON instead of using page subtitle DOM', async () => {
     const fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -67,6 +67,31 @@ describe('videoNoteExtractor', () => {
       { start: 0, end: 3, text: '完整字幕第一句' },
       { start: 3, end: 7, text: '完整字幕第二句' }
     ])
+  })
+
+  it('does not use subtitle settings DOM as transcript when no subtitle JSON is available', async () => {
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    Object.defineProperty(window, '__INITIAL_STATE__', {
+      configurable: true,
+      value: {
+        videoData: {
+          title: 'Subtitle settings video',
+          bvid: 'BVsettings'
+        }
+      }
+    })
+    document.body.innerHTML = `
+      <div class="bpx-player-subtitle-setting">
+        Subtitle Off Login can enjoy original translation feedback Add subtitles Off
+      </div>
+      <button class="subtitle-language-item">English</button>
+    `
+
+    const result = await window.eval(buildVideoNoteExtractionScript())
+
+    expect(fetch).not.toHaveBeenCalled()
+    expect(result.transcript).toEqual([])
   })
 
   it('normalizes raw page extraction into a safe result shape', () => {

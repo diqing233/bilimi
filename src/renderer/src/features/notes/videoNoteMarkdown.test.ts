@@ -109,4 +109,33 @@ describe('createVideoNoteMarkdown', () => {
     expect(markdown).toContain('- [--:--] **空时间批注**：也要显示占位。')
     expect(markdown).toContain('- [--:--] 这一段没有时间。')
   })
+
+  it('exports annotations sorted by timestamp with untimed notes last', () => {
+    const markdown = createVideoNoteMarkdown({
+      ...note,
+      annotations: [
+        {
+          ...note.annotations[0],
+          id: 'untimed',
+          start: null,
+          title: '无时间'
+        },
+        {
+          ...note.annotations[0],
+          id: 'late',
+          start: 120,
+          title: '后段'
+        },
+        {
+          ...note.annotations[0],
+          id: 'early',
+          start: 5,
+          title: '前段'
+        }
+      ]
+    })
+
+    expect(markdown.indexOf('**前段**')).toBeLessThan(markdown.indexOf('**后段**'))
+    expect(markdown.indexOf('**后段**')).toBeLessThan(markdown.indexOf('**无时间**'))
+  })
 })
