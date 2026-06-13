@@ -11,9 +11,8 @@
     "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
-      "@notes/*": ["src/renderer/src/features/notes/*"],
-      "@shared/*": ["src/shared/*"]
+      "@notes/*": ["src/renderer/src/features/notes/*"]
     }
   },
-  "include": ["electron", "src", "vitest.config.ts", "electron.vite.config.ts"]
+  "include": ["src", "vitest.config.ts"]
 }

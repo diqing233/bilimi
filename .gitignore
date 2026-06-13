@@ -19,6 +19,5 @@ node_modules/
 # Build output
 dist/
 build/
-out/
 .worktrees/
 .superpowers/
