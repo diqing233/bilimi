@@ -14,6 +14,7 @@ import { FloatingMenuController } from './floatingMenuController'
 import { toggleFloatingAssistantFromSeal, toggleFloatingMenuFromSeal } from './floatingMenuToggleFlow'
 import { FloatingSealDragController } from './floatingSealDragController'
 import { createMainWindowOptions } from './mainWindowOptions'
+import { restoreMainWindowFromPet } from './mainWindowRestore'
 import { createFloatingSealWindowOptions } from './floatingSealWindowOptions'
 import {
   configureFloatingMenuWindow,
@@ -38,6 +39,7 @@ import type {
   AssistantSnapshot,
   FloatingAssistantActionOptions
 } from '../../src/renderer/src/features/assistant/assistantRuntimeTypes'
+import type { AssistantPetState } from '../../src/renderer/src/features/assistant/petState'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../../src/renderer/src/features/favorites/favoriteLedgerPreview'
 
 const FLOATING_SEAL_VISUAL_SIZE = 92
@@ -52,6 +54,7 @@ const FLOATING_ASSISTANT_QUERY = { window: 'floating-assistant' }
 
 let mainWindow: BrowserWindow | null = null
 let floatingSealWindow: BrowserWindow | null = null
+let assistantPetState: AssistantPetState = 'idle'
 
 function openUrlInRendererTab(win: BrowserWindow, url: string) {
   if (!url || win.isDestroyed()) {
@@ -157,9 +160,23 @@ function createFloatingSealWindow() {
   })
 
   loadRendererWindow(seal, FLOATING_SEAL_QUERY)
+  seal.webContents.once('did-finish-load', sendAssistantPetState)
   floatingSealWindow = seal
 
   return seal
+}
+
+function sendAssistantPetState() {
+  if (!floatingSealWindow || floatingSealWindow.isDestroyed()) {
+    return
+  }
+
+  floatingSealWindow.webContents.send('assistant-pet:state-changed', assistantPetState)
+}
+
+function setAssistantPetState(state: AssistantPetState) {
+  assistantPetState = state
+  sendAssistantPetState()
 }
 
 function createFloatingMenuWindow() {
@@ -304,6 +321,13 @@ function finishFloatingSealDrag() {
   floatingSealDragController.finish()
 }
 
+function restoreMainWindowForPet() {
+  mainWindow = restoreMainWindowFromPet({
+    createMainWindow,
+    mainWindow
+  })
+}
+
 let assistantRuntimeRequestIndex = 0
 
 function createAssistantRuntimeRequestId() {
@@ -356,6 +380,12 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle('video-notes:save', (_event, note: VideoNote) =>
     saveVideoNote(getDesktopStore(), note)
   )
+  ipcMain.handle('assistant-pet:restore-main-window', () => {
+    restoreMainWindowForPet()
+  })
+  ipcMain.on('assistant-pet:set-state', (_event, state: AssistantPetState) => {
+    setAssistantPetState(state)
+  })
   ipcMain.handle('assistant:open-from-floating-seal', () => {
     toggleFloatingAssistantWindow()
   })

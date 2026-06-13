@@ -6,6 +6,7 @@ import type {
   AssistantRuntimeResponsePayload,
   FloatingAssistantActionOptions
 } from '../../src/renderer/src/features/assistant/assistantRuntimeTypes'
+import type { AssistantPetState } from '../../src/renderer/src/features/assistant/petState'
 import type { FavoriteLedgerPreviewItem } from '../../src/renderer/src/features/favorites/favoriteLedgerPreview'
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
@@ -20,6 +21,15 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   moveFloatingSealTo: (screenX: number, screenY: number) =>
     ipcRenderer.send('floating-seal:move-to', screenX, screenY),
   notifyAssistantSnapshotChanged: () => ipcRenderer.send('floating-assistant:snapshot-changed'),
+  onAssistantPetStateChanged: (callback: (state: AssistantPetState) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: AssistantPetState) => callback(state)
+
+    ipcRenderer.on('assistant-pet:state-changed', listener)
+
+    return () => {
+      ipcRenderer.removeListener('assistant-pet:state-changed', listener)
+    }
+  },
   onAssistantSnapshotChanged: (callback: () => void) => {
     const listener = () => callback()
 
@@ -94,6 +104,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   },
   requestAssistantSnapshot: () =>
     ipcRenderer.invoke('floating-assistant:snapshot'),
+  restoreMainWindowFromPet: () =>
+    ipcRenderer.invoke('assistant-pet:restore-main-window') as Promise<void>,
   getCurrentVideoTime: () =>
     ipcRenderer.invoke('floating-assistant:get-current-video-time') as Promise<number>,
   seekVideoTime: (seconds: number) =>
@@ -112,6 +124,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('assistant:save-preferences', preferences) as Promise<AssistantPreferences>,
   saveVideoNote: (note: VideoNote) =>
     ipcRenderer.invoke('video-notes:save', note) as Promise<VideoNote[]>,
+  setAssistantPetState: (state: AssistantPetState) =>
+    ipcRenderer.send('assistant-pet:set-state', state),
   startFloatingSealDrag: (screenX: number, screenY: number) =>
     ipcRenderer.send('floating-seal:start-drag', screenX, screenY),
   toggleFloatingAssistant: () => ipcRenderer.invoke('floating-assistant:toggle') as Promise<void>,

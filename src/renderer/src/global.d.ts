@@ -11,6 +11,7 @@ import type {
   AssistantSnapshot,
   FloatingAssistantActionOptions
 } from './features/assistant/assistantRuntimeTypes'
+import type { AssistantPetState } from './features/assistant/petState'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from './features/favorites/favoriteLedgerPreview'
 
 type BilimiDesktopApi = {
@@ -27,6 +28,7 @@ type BilimiDesktopApi = {
   moveFloatingSealBy?: (deltaX: number, deltaY: number) => Promise<void>
   moveFloatingSealTo?: (screenX: number, screenY: number) => void
   notifyAssistantSnapshotChanged?: () => void
+  onAssistantPetStateChanged?: (callback: (state: AssistantPetState) => void) => () => void
   onAssistantSnapshotChanged?: (callback: () => void) => () => void
   openAssistant?: () => Promise<void>
   onOpenAssistant?: (callback: (payload?: AssistantOpenPayload) => void) => () => void
@@ -35,6 +37,7 @@ type BilimiDesktopApi = {
   registerAssistantRuntime?: (
     handler: (request: AssistantRuntimeRequest) => Promise<AssistantRuntimeResponsePayload>
   ) => () => void
+  restoreMainWindowFromPet?: () => Promise<void>
   requestAssistantSnapshot?: () => Promise<AssistantSnapshot>
   runAssistantAction?: (
     action: AssistantAction,
@@ -48,6 +51,7 @@ type BilimiDesktopApi = {
   savePreferences: (preferences: AssistantPreferences) => Promise<AssistantPreferences>
   saveVideoNote?: (note: VideoNote) => Promise<VideoNote[]>
   seekVideoTime?: (seconds: number) => Promise<boolean>
+  setAssistantPetState?: (state: AssistantPetState) => void
   startFloatingSealDrag?: (screenX: number, screenY: number) => void
   toggleFloatingAssistant?: () => Promise<void>
   toggleFloatingMenu?: () => Promise<void>
