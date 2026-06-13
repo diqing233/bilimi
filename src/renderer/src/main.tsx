@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import { FloatingAssistantApp } from './features/assistant/FloatingAssistantApp'
 import { FloatingMenuApp } from './features/assistant/FloatingMenuApp'
-import { FloatingSealApp } from './features/assistant/FloatingSealApp'
+import { PalaceMaidPetApp } from './features/assistant/PalaceMaidPetApp'
 import { markFloatingWindowDocument } from './features/assistant/floatingWindowDocument'
 import './styles.css'
 
@@ -21,7 +21,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     ) : isFloatingMenuWindow ? (
       <FloatingMenuApp />
     ) : isFloatingSealWindow ? (
-      <FloatingSealApp />
+      <PalaceMaidPetApp />
     ) : (
       <App />
     )}
