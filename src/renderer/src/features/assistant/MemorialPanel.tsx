@@ -31,6 +31,7 @@ type MemorialPanelProps = {
   } | null
   initialTab?: MemorialPanelTab
   showTabs?: boolean
+  closeLabel?: string
 }
 
 const ACTIONS: Array<{
@@ -66,7 +67,8 @@ export function MemorialPanel({
   actionsLocked = runningAction !== null,
   feedback = null,
   initialTab = 'review',
-  showTabs = true
+  showTabs = true,
+  closeLabel = '合折'
 }: MemorialPanelProps) {
   const feedbackRole = feedback?.tone === 'error' ? 'alert' : 'status'
   const [activePanelTab, setActivePanelTab] = useState<MemorialPanelTab>(initialTab)
@@ -190,7 +192,7 @@ export function MemorialPanel({
           </div>
         ) : null}
         <button className="memorial-panel__close" type="button" onClick={onClose}>
-          合折
+          {closeLabel}
         </button>
       </div>
     </section>

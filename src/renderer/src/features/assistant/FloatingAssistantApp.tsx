@@ -31,6 +31,15 @@ const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
   suspicious: '谨慎观察'
 }
 
+type AssistantWorkspaceTab = 'review' | 'notes' | 'ledger'
+
+type FloatingAssistantAppProps = {
+  mode?: 'floating' | 'sidebar'
+  activeTab?: AssistantWorkspaceTab
+  onActiveTabChange?: (tab: AssistantWorkspaceTab) => void
+  onRequestCollapse?: () => void
+}
+
 type ActionFeedback = {
   tone: 'progress' | 'success' | 'error'
   message: string
@@ -66,13 +75,19 @@ function createDefaultResult(message: string): AssistantAutomationResult {
   }
 }
 
-export function FloatingAssistantApp() {
+export function FloatingAssistantApp({
+  mode = 'floating',
+  activeTab: controlledActiveTab,
+  onActiveTabChange,
+  onRequestCollapse
+}: FloatingAssistantAppProps = {}) {
   const [snapshot, setSnapshot] = useState<AssistantSnapshot | null>(null)
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences()
   )
   const [favoriteLedgerStatus, setFavoriteLedgerStatus] = useState<FavoriteLedgerStatus | null>(null)
-  const [activeTab, setActiveTab] = useState<'review' | 'notes' | 'ledger'>('review')
+  const [uncontrolledActiveTab, setUncontrolledActiveTab] =
+    useState<AssistantWorkspaceTab>('review')
   const [coinPromptOpen, setCoinPromptOpen] = useState(false)
   const [commentChooserOpen, setCommentChooserOpen] = useState(false)
   const [runningAction, setRunningAction] = useState<AssistantAction | null>(null)
@@ -81,6 +96,16 @@ export function FloatingAssistantApp() {
   const [videoNote, setVideoNote] = useState<VideoNote | null>(null)
   const [videoNoteLoading, setVideoNoteLoading] = useState(false)
   const mounted = useRef(false)
+  const activeTab = controlledActiveTab ?? uncontrolledActiveTab
+  const isSidebarMode = mode === 'sidebar'
+
+  function setActiveTab(tab: AssistantWorkspaceTab) {
+    if (controlledActiveTab === undefined) {
+      setUncontrolledActiveTab(tab)
+    }
+
+    onActiveTabChange?.(tab)
+  }
 
   const loadSnapshot = useCallback(async ({ resetVideoNote = false } = {}) => {
     try {
@@ -288,12 +313,16 @@ export function FloatingAssistantApp() {
   }
 
   function closeAssistant() {
+    if (isSidebarMode) {
+      onRequestCollapse?.()
+      return
+    }
+
     window.bilimiDesktop?.closeFloatingAssistant?.()
   }
 
-  return (
-    <main className="floating-assistant-shell" aria-label="Bilimi 悬浮助手">
-      <section className="floating-assistant-workspace">
+  const workspace = (
+    <section className={isSidebarMode ? 'assistant-sidebar-workspace' : 'floating-assistant-workspace'}>
         <div className="floating-assistant-tabs" role="tablist" aria-label="助手功能">
           <button
             type="button"
@@ -309,7 +338,7 @@ export function FloatingAssistantApp() {
             aria-selected={activeTab === 'notes'}
             onClick={() => setActiveTab('notes')}
           >
-            札记
+            {isSidebarMode ? '礼记' : '札记'}
           </button>
           <button
             type="button"
@@ -344,6 +373,7 @@ export function FloatingAssistantApp() {
             videoTitle={resolvedVideoTitle}
             onAction={handleAction}
             onClose={closeAssistant}
+            closeLabel={isSidebarMode ? '收起侧栏' : '合折'}
             onGenerateVideoNote={generateVideoNote}
             onSaveVideoNote={saveVideoNote}
             onChangeVideoNote={setVideoNote}
@@ -382,7 +412,20 @@ export function FloatingAssistantApp() {
             onCancel={() => setCommentChooserOpen(false)}
           />
         ) : null}
-      </section>
+    </section>
+  )
+
+  if (isSidebarMode) {
+    return (
+      <div className="assistant-sidebar-embed" aria-label="Bilimi 应用侧栏">
+        {workspace}
+      </div>
+    )
+  }
+
+  return (
+    <main className="floating-assistant-shell" aria-label="Bilimi 悬浮助手">
+      {workspace}
     </main>
   )
 }

@@ -321,4 +321,21 @@ describe('FloatingAssistantApp', () => {
 
     expect(closeFloatingAssistant).toHaveBeenCalledOnce()
   })
+
+  it('renders as an embedded sidebar workspace and collapses instead of closing a floating window', async () => {
+    const closeFloatingAssistant = vi.fn()
+    const onRequestCollapse = vi.fn()
+    installDesktopApi({ closeFloatingAssistant })
+
+    render(<FloatingAssistantApp mode="sidebar" onRequestCollapse={onRequestCollapse} />)
+
+    expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '礼记' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '掌库' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '收起侧栏' }))
+
+    expect(onRequestCollapse).toHaveBeenCalledOnce()
+    expect(closeFloatingAssistant).not.toHaveBeenCalled()
+  })
 })
