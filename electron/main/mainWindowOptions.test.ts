@@ -12,7 +12,7 @@ describe('createMainWindowOptions', () => {
       minHeight: 820,
       backgroundColor: '#1f140f',
       title: 'Bilimi',
-      show: false,
+      show: true,
       frame: true,
       skipTaskbar: false
     })

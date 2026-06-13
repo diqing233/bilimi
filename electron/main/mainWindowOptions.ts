@@ -7,7 +7,7 @@ export function createMainWindowOptions(preload: string): Electron.BrowserWindow
     minWidth: 1280,
     minHeight: 820,
     title: APP_TITLE,
-    show: false,
+    show: true,
     frame: true,
     skipTaskbar: false,
     backgroundColor: '#1f140f',
