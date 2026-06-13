@@ -338,4 +338,21 @@ describe('FloatingAssistantApp', () => {
     expect(onRequestCollapse).toHaveBeenCalledOnce()
     expect(closeFloatingAssistant).not.toHaveBeenCalled()
   })
+
+  it('reports working and hint pet states around successful sidebar actions', async () => {
+    const setAssistantPetState = vi.fn()
+    const runAssistantAction = vi.fn().mockResolvedValue(createResult('动作已完成。'))
+    installDesktopApi({
+      runAssistantAction,
+      setAssistantPetState
+    })
+
+    render(<FloatingAssistantApp mode="sidebar" />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /藏.*归入内库/ }))
+
+    await waitFor(() => expect(runAssistantAction).toHaveBeenCalled())
+    expect(setAssistantPetState).toHaveBeenNthCalledWith(1, 'working')
+    expect(setAssistantPetState).toHaveBeenLastCalledWith('hint')
+  })
 })

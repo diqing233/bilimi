@@ -193,6 +193,7 @@ export function FloatingAssistantApp({
     }
 
     setRunningAction(action)
+    window.bilimiDesktop?.setAssistantPetState?.('working')
     setFeedback({
       tone: 'progress',
       message: action === '阅' ? '正在登记已阅。' : '正在代批，请稍候。',
@@ -217,6 +218,7 @@ export function FloatingAssistantApp({
         steps: result.steps,
         missingTargets: result.missingTargets
       })
+      window.bilimiDesktop?.setAssistantPetState?.(result.ok ? 'hint' : 'error')
     } catch (error) {
       setFeedback({
         tone: 'error',
@@ -224,6 +226,7 @@ export function FloatingAssistantApp({
         steps: [],
         missingTargets: []
       })
+      window.bilimiDesktop?.setAssistantPetState?.('error')
     } finally {
       setRunningAction(null)
     }
