@@ -32,6 +32,8 @@ describe('PalaceMaidPetApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '打开 Bilimi' }))
 
     expect(api.restoreMainWindowFromPet).toHaveBeenCalledOnce()
+    expect(window.bilimiDesktop.toggleFloatingAssistant).toBeUndefined()
+    expect(window.bilimiDesktop.toggleFloatingMenu).toBeUndefined()
   })
 
   it('renders pet state changes from the desktop shell', () => {

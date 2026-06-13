@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { toggleFloatingAssistantFromSeal, toggleFloatingMenuFromSeal } from './floatingMenuToggleFlow'
+import { restoreMainWindowFromPet } from './mainWindowRestore'
 
 function createWindowState({
   destroyed = false,
@@ -97,5 +98,26 @@ describe('toggleFloatingAssistantFromSeal', () => {
     expect(existingWindow.show).toHaveBeenCalledOnce()
     expect(existingWindow.focus).toHaveBeenCalledOnce()
     expect(toggleFloatingAssistant).toHaveBeenCalledOnce()
+  })
+})
+
+describe('pet restore flow', () => {
+  it('focuses the main window without toggling a floating panel', () => {
+    const existingWindow = createWindowState({ minimized: true, visible: false })
+    const createMainWindow = vi.fn()
+    const toggleFloatingAssistant = vi.fn()
+    const toggleFloatingMenu = vi.fn()
+
+    const nextWindow = restoreMainWindowFromPet({
+      createMainWindow,
+      mainWindow: existingWindow
+    })
+
+    expect(nextWindow).toBe(existingWindow)
+    expect(existingWindow.restore).toHaveBeenCalledOnce()
+    expect(existingWindow.show).toHaveBeenCalledOnce()
+    expect(existingWindow.focus).toHaveBeenCalledOnce()
+    expect(toggleFloatingAssistant).not.toHaveBeenCalled()
+    expect(toggleFloatingMenu).not.toHaveBeenCalled()
   })
 })

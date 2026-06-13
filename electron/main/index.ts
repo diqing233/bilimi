@@ -11,7 +11,6 @@ import {
 import { requestAssistantRuntimeWhenReady } from './assistantRuntimeSignal'
 import { sendAssistantSnapshotChangedWhenReady } from './assistantSnapshotSignal'
 import { FloatingMenuController } from './floatingMenuController'
-import { toggleFloatingAssistantFromSeal, toggleFloatingMenuFromSeal } from './floatingMenuToggleFlow'
 import { FloatingSealDragController } from './floatingSealDragController'
 import { createMainWindowOptions } from './mainWindowOptions'
 import { restoreMainWindowFromPet } from './mainWindowRestore'
@@ -249,16 +248,6 @@ function closeFloatingMenuWindow() {
   floatingMenuController.close()
 }
 
-function toggleFloatingMenuWindow() {
-  mainWindow = toggleFloatingMenuFromSeal({
-    createMainWindow,
-    mainWindow,
-    toggleFloatingMenu: () => {
-      floatingMenuController.toggle()
-    }
-  })
-}
-
 function closeFloatingAssistantWindow() {
   floatingAssistantController.close()
 }
@@ -271,16 +260,6 @@ function notifyFloatingAssistantSnapshotChanged() {
   }
 
   sendAssistantSnapshotChangedWhenReady(assistant)
-}
-
-function toggleFloatingAssistantWindow() {
-  mainWindow = toggleFloatingAssistantFromSeal({
-    createMainWindow,
-    mainWindow,
-    toggleFloatingAssistant: () => {
-      floatingAssistantController.toggle()
-    }
-  })
 }
 
 function moveFloatingSealBy(deltaX: number, deltaY: number) {
@@ -387,10 +366,10 @@ function registerAssistantPreferenceHandlers() {
     setAssistantPetState(state)
   })
   ipcMain.handle('assistant:open-from-floating-seal', () => {
-    toggleFloatingAssistantWindow()
+    restoreMainWindowForPet()
   })
   ipcMain.handle('floating-menu:toggle', () => {
-    toggleFloatingMenuWindow()
+    restoreMainWindowForPet()
   })
   ipcMain.handle(
     'floating-menu:run-action',
@@ -406,7 +385,7 @@ function registerAssistantPreferenceHandlers() {
     closeFloatingAssistantWindow()
   })
   ipcMain.handle('floating-assistant:toggle', () => {
-    toggleFloatingAssistantWindow()
+    restoreMainWindowForPet()
   })
   ipcMain.handle('floating-assistant:snapshot', () =>
     requestMainAssistantRuntime<AssistantSnapshot>({ type: 'snapshot' })
