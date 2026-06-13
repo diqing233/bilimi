@@ -71,21 +71,24 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
 }
 
 describe('App runtime integration', () => {
-  it('renders only the browser shell in the main renderer window', () => {
+  it('renders the browser shell with the in-window assistant sidebar', async () => {
     renderAppWithRuntimeBridge()
 
     expect(document.querySelector('.seal-button')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '开折批阅' })).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('案头奏折')).not.toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '礼记' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '掌库' })).toBeInTheDocument()
     expect(window.bilimiDesktop.registerAssistantRuntime).toHaveBeenCalled()
   })
 
-  it('shows the browser operation bar even when there is only one tab', () => {
+  it('shows the browser operation bar even when there is only one tab', async () => {
     renderAppWithRuntimeBridge()
 
     expect(screen.getByRole('tablist', { name: '网页标签' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '首页' })).toHaveAttribute('aria-selected', 'true')
     expect(document.querySelector('.app-shell')).toHaveAttribute('data-tabs-visible', 'true')
+    expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
   })
 
   it('returns a floating assistant snapshot from the active webview', async () => {
@@ -329,7 +332,7 @@ describe('App runtime integration', () => {
       )
     })
 
-    expect(await screen.findByRole('tablist')).toBeInTheDocument()
+    expect(await screen.findByRole('tablist', { name: '网页标签' })).toBeInTheDocument()
     expect(await screen.findByRole('tab', { name: /BV1demo/ })).toHaveAttribute('aria-selected', 'true')
     expect(document.querySelectorAll('webview')).toHaveLength(2)
     expect(document.querySelector('webview[data-active="true"]')).toHaveAttribute(

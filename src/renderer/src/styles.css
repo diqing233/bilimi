@@ -30,12 +30,20 @@ body[data-floating-window="true"] {
   width: 100%;
   height: 100%;
   display: grid;
-  grid-template-rows: 42px 1fr;
+  grid-template-columns: minmax(0, 1fr) auto;
   background: #050505;
+  overflow: hidden;
 }
 
-.app-shell[data-tabs-visible="false"] {
-  grid-template-rows: 1fr;
+.app-main {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 42px minmax(0, 1fr);
+}
+
+.app-shell[data-tabs-visible="false"] .app-main {
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .browser-tabs {
@@ -733,6 +741,63 @@ body[data-floating-window="true"] {
   height: 100%;
   box-sizing: border-box;
   overflow: auto;
+}
+
+.assistant-sidebar {
+  width: 430px;
+  min-width: 430px;
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  border-left: 1px solid rgba(64, 38, 23, 0.32);
+  background: #eadbc0;
+}
+
+.assistant-sidebar[data-collapsed="true"] {
+  width: 54px;
+  min-width: 54px;
+  grid-template-columns: 54px;
+}
+
+.assistant-sidebar__rail {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 8px 6px;
+  border-right: 1px solid rgba(113, 81, 48, 0.2);
+  background: linear-gradient(180deg, #251914, #3b2218);
+}
+
+.assistant-sidebar__rail-button {
+  width: 42px;
+  min-height: 42px;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  border: 1px solid rgba(255, 238, 204, 0.18);
+  border-radius: 7px;
+  background: rgba(255, 248, 235, 0.08);
+  color: #f8ead4;
+  cursor: pointer;
+  font: 12px "Noto Serif SC", "Songti SC", "SimSun", serif;
+}
+
+.assistant-sidebar__rail-button:hover,
+.assistant-sidebar__rail-button:focus-visible,
+.assistant-sidebar__rail-button[aria-pressed="true"] {
+  border-color: rgba(255, 229, 171, 0.42);
+  background: rgba(255, 244, 219, 0.18);
+}
+
+.assistant-sidebar__rail-button strong {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.assistant-sidebar__rail-button span {
+  font-size: 10px;
+  line-height: 1;
 }
 
 .memorial-panel {

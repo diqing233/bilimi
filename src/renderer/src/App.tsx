@@ -45,6 +45,7 @@ import type {
   AssistantRuntimeRequest,
   AssistantSnapshot
 } from './features/assistant/assistantRuntimeTypes'
+import { AssistantSidebar } from './features/assistant/AssistantSidebar'
 
 const HOME_TAB_ID = 'home'
 
@@ -542,50 +543,53 @@ export default function App() {
 
   return (
     <div className="app-shell" data-tabs-visible="true">
-      <div className="browser-tabs" role="tablist" aria-label="网页标签">
-        {tabs.map((tab) => (
-          <div
-            key={tab.id}
-            className="browser-tabs__item"
-            data-selected={tab.id === activeTabId ? 'true' : 'false'}
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab.id === activeTabId}
-              className="browser-tabs__tab"
-              onClick={() => setActiveTabId(tab.id)}
+      <div className="app-main">
+        <div className="browser-tabs" role="tablist" aria-label="网页标签">
+          {tabs.map((tab) => (
+            <div
+              key={tab.id}
+              className="browser-tabs__item"
+              data-selected={tab.id === activeTabId ? 'true' : 'false'}
             >
-              {tab.title}
-            </button>
-            {tab.id !== HOME_TAB_ID ? (
               <button
                 type="button"
-                className="browser-tabs__close"
-                aria-label={`关闭 ${tab.title}`}
-                title={`关闭 ${tab.title}`}
-                onClick={() => closeInternalTab(tab.id)}
+                role="tab"
+                aria-selected={tab.id === activeTabId}
+                className="browser-tabs__tab"
+                onClick={() => setActiveTabId(tab.id)}
               >
-                ×
+                {tab.title}
               </button>
-            ) : null}
-          </div>
-        ))}
+              {tab.id !== HOME_TAB_ID ? (
+                <button
+                  type="button"
+                  className="browser-tabs__close"
+                  aria-label={`关闭 ${tab.title}`}
+                  title={`关闭 ${tab.title}`}
+                  onClick={() => closeInternalTab(tab.id)}
+                >
+                  ×
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+        <div className="browser-stack">
+          {tabs.map((tab) => (
+            <BiliWebview
+              key={tab.id}
+              active={tab.id === activeTabId}
+              tabId={tab.id}
+              url={tab.url}
+              onLocationChange={updateTabUrl}
+              onOpenInTab={openInternalTab}
+              onReady={handleWebviewReady}
+              onTitleChange={updateTabTitle}
+            />
+          ))}
+        </div>
       </div>
-      <div className="browser-stack">
-        {tabs.map((tab) => (
-          <BiliWebview
-            key={tab.id}
-            active={tab.id === activeTabId}
-            tabId={tab.id}
-            url={tab.url}
-            onLocationChange={updateTabUrl}
-            onOpenInTab={openInternalTab}
-            onReady={handleWebviewReady}
-            onTitleChange={updateTabTitle}
-          />
-        ))}
-      </div>
+      <AssistantSidebar />
     </div>
   )
 }
