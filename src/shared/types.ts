@@ -100,6 +100,8 @@ export type TranscriptChapter = {
   segmentIndexes: number[]
 }
 
+export type VideoNoteTranscriptSource = 'auto' | 'manual' | 'audio'
+
 export type VideoNoteTimelineItem = {
   start: number | null
   title: string
@@ -125,7 +127,7 @@ export type VideoNoteAnnotation = {
 export type VideoNote = {
   id: string
   source: VideoNoteSourceMetadata
-  transcriptSource: 'auto' | 'manual'
+  transcriptSource: VideoNoteTranscriptSource
   transcript: TranscriptSegment[]
   chapters: TranscriptChapter[]
   overview: VideoNoteOverview
@@ -138,6 +140,34 @@ export type VideoNote = {
 export type VideoNoteExtractionResult = {
   source: VideoNoteSourceMetadata
   transcript: TranscriptSegment[]
-  transcriptSource: 'auto' | 'manual'
+  transcriptSource: VideoNoteTranscriptSource
   error?: string
+}
+
+export type VideoAudioTranscriptionProgressStep =
+  | 'preparing-session'
+  | 'downloading-audio'
+  | 'preparing-segments'
+  | 'transcribing-segment'
+  | 'merging-transcript'
+  | 'generating-note'
+
+export type VideoAudioTranscriptionProgress = {
+  step: VideoAudioTranscriptionProgressStep
+  message: string
+  segmentIndex?: number
+  segmentCount?: number
+}
+
+export type VideoAudioTranscriptionRequest = {
+  url: string
+  title: string
+  bvid?: string
+  aid?: number | string
+  cid?: number | string
+}
+
+export type VideoAudioTranscriptionResult = {
+  transcript: TranscriptSegment[]
+  transcriptSource: 'audio'
 }

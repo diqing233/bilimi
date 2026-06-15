@@ -1,9 +1,15 @@
-import { app, BrowserWindow, ipcMain, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, screen, session } from 'electron'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  clearOpenAiApiKey,
   getDesktopStore,
   loadAssistantPreferences,
+  loadOpenAiApiKey,
+  loadOpenAiApiKeyStatus,
   loadVideoNotes,
+  saveOpenAiApiKey,
   saveAssistantPreferences,
   saveVideoNote,
   type AssistantPreferences
@@ -28,9 +34,12 @@ import {
   createFloatingVisualBounds
 } from './floatingSealGeometry'
 import { createPreloadScriptPath } from './preloadPath'
+import { transcribeCurrentVideoAudio } from './videoTranscriptionService'
+import { BILIMI_SESSION_PARTITION } from '../../src/shared/constants'
 import type {
   AssistantAction,
   AssistantAutomationResult,
+  VideoAudioTranscriptionRequest,
   VideoNote
 } from '../../src/shared/types'
 import type {
@@ -333,6 +342,16 @@ function requestMainAssistantRuntime<TPayload>(
   })
 }
 
+function getOpenAiApiKey() {
+  const value = loadOpenAiApiKey(getDesktopStore())
+
+  if (!value) {
+    throw new Error('OpenAI API key is invalid or missing.')
+  }
+
+  return value
+}
+
 function createMainWindow() {
   const win = new BrowserWindow(createMainWindowOptions(createPreloadScriptPath(__dirname)))
 
@@ -355,9 +374,31 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle('assistant:save-preferences', (_event, preferences: AssistantPreferences) =>
     saveAssistantPreferences(getDesktopStore(), preferences)
   )
+  ipcMain.handle('openai:key-status', () => loadOpenAiApiKeyStatus(getDesktopStore()))
+  ipcMain.handle('openai:save-key', (_event, apiKey: string) =>
+    saveOpenAiApiKey(getDesktopStore(), apiKey)
+  )
+  ipcMain.handle('openai:clear-key', () => clearOpenAiApiKey(getDesktopStore()))
   ipcMain.handle('video-notes:load', () => loadVideoNotes(getDesktopStore()))
   ipcMain.handle('video-notes:save', (_event, note: VideoNote) =>
     saveVideoNote(getDesktopStore(), note)
+  )
+  ipcMain.handle(
+    'video-audio:transcribe-current',
+    async (event, request: VideoAudioTranscriptionRequest) => {
+      const tempDir = await mkdtemp(join(tmpdir(), 'bilimi-transcribe-'))
+      const sourceSession = session.fromPartition(BILIMI_SESSION_PARTITION)
+
+      return transcribeCurrentVideoAudio({
+        request,
+        apiKey: getOpenAiApiKey(),
+        session: sourceSession,
+        tempDir,
+        progress: (progress) => {
+          event.sender.send('video-audio:transcription-progress', progress)
+        }
+      })
+    }
   )
   ipcMain.handle('assistant-pet:restore-main-window', () => {
     restoreMainWindowForPet()
@@ -409,6 +450,11 @@ function registerAssistantPreferenceHandlers() {
     requestMainAssistantRuntime<VideoNote | null>({
       type: 'generate-video-note',
       manualTranscript
+    })
+  )
+  ipcMain.handle('floating-assistant:generate-video-note-from-audio', () =>
+    requestMainAssistantRuntime<VideoNote | null>({
+      type: 'generate-video-note-from-audio'
     })
   )
   ipcMain.handle('floating-assistant:ensure-ledgers', () =>

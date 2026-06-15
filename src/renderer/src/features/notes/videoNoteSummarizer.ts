@@ -5,14 +5,15 @@ import type {
   VideoNote,
   VideoNoteOverview,
   VideoNoteSourceMetadata,
-  VideoNoteTimelineItem
+  VideoNoteTimelineItem,
+  VideoNoteTranscriptSource
 } from '@shared/types'
 import { normalizeTranscriptSegments } from './transcriptNormalizer'
 
 type CreateLocalVideoNoteDraftInput = {
   now: string
   source: VideoNoteSourceMetadata
-  transcriptSource: 'auto' | 'manual'
+  transcriptSource: VideoNoteTranscriptSource
   transcript: TranscriptSegment[]
   userMemo?: string
 }

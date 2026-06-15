@@ -495,6 +495,27 @@ export default function App() {
     })
   }
 
+  async function generateRuntimeVideoNoteFromAudio(): Promise<VideoNote | null> {
+    const extraction = await readVideoNoteSource()
+
+    if (!extraction?.source.url || !window.bilimiDesktop?.transcribeCurrentVideoAudio) {
+      return null
+    }
+
+    const result = await window.bilimiDesktop.transcribeCurrentVideoAudio({
+      url: extraction.source.url,
+      title: extraction.source.title,
+      bvid: extraction.source.bvid
+    })
+
+    return createLocalVideoNoteDraft({
+      now: new Date().toISOString(),
+      source: extraction.source,
+      transcript: result.transcript,
+      transcriptSource: 'audio'
+    })
+  }
+
   useEffect(() => {
     if (!window.bilimiDesktop?.registerAssistantRuntime) {
       return
@@ -508,6 +529,8 @@ export default function App() {
           return runAssistantRuntimeAction(request.action, request.options)
         case 'generate-video-note':
           return generateRuntimeVideoNote(request.manualTranscript)
+        case 'generate-video-note-from-audio':
+          return generateRuntimeVideoNoteFromAudio()
         case 'save-video-note':
           await saveVideoNote(request.note)
           return request.note
@@ -530,6 +553,7 @@ export default function App() {
     activeTab?.url,
     executeOldFavoritePlan,
     generateRuntimeVideoNote,
+    generateRuntimeVideoNoteFromAudio,
     preferences,
     readFavoriteLedgerStatus,
     readCurrentVideoTime,

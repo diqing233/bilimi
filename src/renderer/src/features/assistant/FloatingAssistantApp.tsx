@@ -4,6 +4,7 @@ import type {
   AssistantPreferences,
   FavoriteLedgerStatus,
   RecommendationKind,
+  VideoAudioTranscriptionProgress,
   VideoNote
 } from '@shared/types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -95,6 +96,9 @@ export function FloatingAssistantApp({
   const [pageClickOnly, setPageClickOnly] = useState(true)
   const [videoNote, setVideoNote] = useState<VideoNote | null>(null)
   const [videoNoteLoading, setVideoNoteLoading] = useState(false)
+  const [transcriptionProgress, setTranscriptionProgress] =
+    useState<VideoAudioTranscriptionProgress | null>(null)
+  const [openAiApiKeyConfigured, setOpenAiApiKeyConfigured] = useState(false)
   const mounted = useRef(false)
   const activeTab = controlledActiveTab ?? uncontrolledActiveTab
   const isSidebarMode = mode === 'sidebar'
@@ -156,6 +160,30 @@ export function FloatingAssistantApp({
       void loadSnapshot({ resetVideoNote: true })
     })
   }, [loadSnapshot])
+
+  useEffect(() => {
+    return window.bilimiDesktop?.onVideoAudioTranscriptionProgress?.((progress) => {
+      setTranscriptionProgress(progress)
+    })
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadOpenAiApiKeyStatus() {
+      const status = await window.bilimiDesktop?.loadOpenAiApiKeyStatus?.()
+
+      if (!cancelled && status) {
+        setOpenAiApiKeyConfigured(status.configured)
+      }
+    }
+
+    void loadOpenAiApiKeyStatus()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const resolvedSnapshot = snapshot ?? createFallbackSnapshot()
   const resolvedVideoTitle = normalizeTitle(resolvedSnapshot.videoTitle)
@@ -261,6 +289,34 @@ export function FloatingAssistantApp({
       return note
     } finally {
       setVideoNoteLoading(false)
+    }
+  }
+
+  async function generateVideoNoteFromAudio() {
+    setVideoNoteLoading(true)
+
+    try {
+      const note = (await window.bilimiDesktop?.generateVideoNoteFromAudio?.()) ?? null
+      setVideoNote(note)
+      return note
+    } finally {
+      setVideoNoteLoading(false)
+    }
+  }
+
+  async function saveOpenAiApiKey(apiKey: string) {
+    const status = await window.bilimiDesktop?.saveOpenAiApiKey?.(apiKey)
+
+    if (status) {
+      setOpenAiApiKeyConfigured(status.configured)
+    }
+  }
+
+  async function clearOpenAiApiKey() {
+    const status = await window.bilimiDesktop?.clearOpenAiApiKey?.()
+
+    if (status) {
+      setOpenAiApiKeyConfigured(status.configured)
     }
   }
 
@@ -378,6 +434,7 @@ export function FloatingAssistantApp({
             onClose={closeAssistant}
             closeLabel={isSidebarMode ? '收起侧栏' : '合折'}
             onGenerateVideoNote={generateVideoNote}
+            onTranscribeVideoAudio={generateVideoNoteFromAudio}
             onSaveVideoNote={saveVideoNote}
             onChangeVideoNote={setVideoNote}
             onGetCurrentVideoTime={getCurrentVideoTime}
@@ -386,6 +443,10 @@ export function FloatingAssistantApp({
             onPageClickOnlyChange={setPageClickOnly}
             videoNote={videoNote}
             videoNoteLoading={videoNoteLoading}
+            transcriptionProgress={transcriptionProgress}
+            openAiApiKeyConfigured={openAiApiKeyConfigured}
+            onSaveOpenAiApiKey={saveOpenAiApiKey}
+            onClearOpenAiApiKey={clearOpenAiApiKey}
             runningAction={runningAction}
             actionsLocked={actionsLocked}
             feedback={feedback}

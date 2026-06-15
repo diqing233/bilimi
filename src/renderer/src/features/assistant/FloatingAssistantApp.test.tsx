@@ -5,7 +5,7 @@ import type {
   FavoriteLedgerStatus,
   VideoNote
 } from '@shared/types'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { FloatingAssistantApp } from './FloatingAssistantApp'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
@@ -74,7 +74,11 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const requestAssistantSnapshot = vi.fn().mockResolvedValue(createSnapshot())
   const runAssistantAction = vi.fn().mockResolvedValue(createResult('动作已完成。'))
   const generateVideoNote = vi.fn().mockResolvedValue(null)
+  const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(null)
   const saveVideoNote = vi.fn().mockResolvedValue([])
+  const loadOpenAiApiKeyStatus = vi.fn().mockResolvedValue({ configured: true })
+  const saveOpenAiApiKey = vi.fn().mockResolvedValue({ configured: true })
+  const clearOpenAiApiKey = vi.fn().mockResolvedValue({ configured: false })
   const ensureFavoriteLedgers = vi.fn().mockResolvedValue(createResult('册目已备齐。'))
   const scanOldFavorites = vi.fn().mockResolvedValue({
     items: [],
@@ -90,13 +94,17 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     ensureFavoriteLedgers,
     executeOldFavoritePlan,
     generateVideoNote,
+    generateVideoNoteFromAudio,
+    loadOpenAiApiKeyStatus,
     loadPreferences: vi.fn(),
     onAssistantSnapshotChanged,
     requestAssistantSnapshot,
     runAssistantAction,
+    saveOpenAiApiKey,
     savePreferences,
     saveVideoNote,
     scanOldFavorites,
+    clearOpenAiApiKey,
     ...overrides
   } satisfies Partial<Window['bilimiDesktop']>
 
@@ -239,6 +247,38 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
 
     await waitFor(() => expect(generateVideoNote).toHaveBeenCalledWith(undefined))
+    await waitFor(() => expect(screen.getAllByText('机器学习需要数据和模型。').length).toBeGreaterThan(0))
+  })
+
+  it('generates notes from audio and shows transcription progress', async () => {
+    let progressCallback:
+      | ((progress: { step: 'transcribing-segment'; message: string; segmentIndex: number; segmentCount: number }) => void)
+      | undefined
+    const note = { ...createVideoNote(), transcriptSource: 'audio' as const }
+    const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(note)
+    installDesktopApi({
+      generateVideoNoteFromAudio,
+      onVideoAudioTranscriptionProgress: vi.fn((callback) => {
+        progressCallback = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
+    act(() => {
+      progressCallback?.({
+        step: 'transcribing-segment',
+        message: 'Transcribing segment 1/2.',
+        segmentIndex: 1,
+        segmentCount: 2
+      })
+    })
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+
+    await waitFor(() => expect(generateVideoNoteFromAudio).toHaveBeenCalledOnce())
+    expect(screen.getByText('Transcribing segment 1/2.')).toBeInTheDocument()
     await waitFor(() => expect(screen.getAllByText('机器学习需要数据和模型。').length).toBeGreaterThan(0))
   })
 

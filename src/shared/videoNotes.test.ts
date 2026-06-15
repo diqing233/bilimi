@@ -68,6 +68,12 @@ describe('video note helpers', () => {
     expect(normalizeVideoNote(legacyNote as VideoNote).annotations).toEqual([])
   })
 
+  it('keeps audio transcript source when normalizing notes', () => {
+    const note = createNote({ transcriptSource: 'audio' })
+
+    expect(normalizeVideoNote(note).transcriptSource).toBe('audio')
+  })
+
   it('keeps annotations when updating an existing note', () => {
     const existing = createNote({ annotations: [sampleAnnotation] })
     const updated = createNote({

@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_ASSISTANT_PREFERENCES,
   loadVideoNotes,
+  loadOpenAiApiKey,
+  loadOpenAiApiKeyStatus,
   loadAssistantPreferences,
+  saveOpenAiApiKey,
   saveVideoNote,
   saveAssistantPreferences,
+  clearOpenAiApiKey,
   type DesktopStoreState,
   type AssistantStoreLike
 } from './store'
@@ -44,6 +48,7 @@ function createFakeStore(
     ledgerPromptDismissed:
       initial.ledgerPromptDismissed ?? DEFAULT_ASSISTANT_PREFERENCES.ledgerPromptDismissed,
     preferenceCounts: initial.preferenceCounts ?? { ...DEFAULT_ASSISTANT_PREFERENCES.preferenceCounts },
+    openAiApiKey: initial.openAiApiKey ?? '',
     videoNotes: initial.videoNotes ?? []
   }
 
@@ -169,5 +174,24 @@ describe('video note store helpers', () => {
         createdAt: first.createdAt
       }
     ])
+  })
+})
+
+describe('open ai key store helpers', () => {
+  it('saves and reports OpenAI key presence without exposing the key', () => {
+    const store = createFakeStore()
+
+    saveOpenAiApiKey(store, 'sk-test-secret')
+
+    expect(loadOpenAiApiKeyStatus(store)).toEqual({ configured: true })
+    expect(loadOpenAiApiKey(store)).toBe('sk-test-secret')
+  })
+
+  it('clears the OpenAI API key', () => {
+    const store = createFakeStore({ openAiApiKey: 'sk-test-secret' } as Partial<DesktopStoreState>)
+
+    clearOpenAiApiKey(store)
+
+    expect(loadOpenAiApiKeyStatus(store)).toEqual({ configured: false })
   })
 })

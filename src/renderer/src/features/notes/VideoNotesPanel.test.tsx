@@ -425,6 +425,109 @@ describe('VideoNotesPanel', () => {
     await waitFor(() => expect(onGenerate).toHaveBeenCalledWith('这是手动粘贴的文稿。'))
   })
 
+  it('shows audio transcription fallback when no note is present', () => {
+    render(
+      <VideoNotesPanel
+        note={null}
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+        onTranscribeAudio={vi.fn()}
+        openAiApiKeyConfigured
+      />
+    )
+
+    expect(screen.getByRole('button', { name: '转写音频' })).toBeInTheDocument()
+  })
+
+  it('runs audio transcription and reports progress', async () => {
+    const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
+
+    render(
+      <VideoNotesPanel
+        note={null}
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+        onTranscribeAudio={onTranscribeAudio}
+        openAiApiKeyConfigured
+        transcriptionProgress={{
+          step: 'transcribing-segment',
+          message: 'Transcribing segment 1/2.',
+          segmentIndex: 1,
+          segmentCount: 2
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+
+    await waitFor(() => expect(onTranscribeAudio).toHaveBeenCalledOnce())
+    expect(screen.getByRole('status')).toHaveTextContent('音频转写已完成')
+    expect(screen.getByText('Transcribing segment 1/2.')).toBeInTheDocument()
+  })
+
+  it('keeps manual paste available when audio transcription fails', async () => {
+    const onTranscribeAudio = vi.fn().mockRejectedValue(new Error('Audio download failed.'))
+
+    render(
+      <VideoNotesPanel
+        note={null}
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+        onTranscribeAudio={onTranscribeAudio}
+        openAiApiKeyConfigured
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Audio download failed.'))
+    expect(screen.getByLabelText('粘贴文稿')).toBeEnabled()
+  })
+
+  it('saves and clears the OpenAI API key without showing an existing secret', async () => {
+    const onSaveOpenAiApiKey = vi.fn().mockResolvedValue(undefined)
+    const onClearOpenAiApiKey = vi.fn().mockResolvedValue(undefined)
+
+    const { rerender } = render(
+      <VideoNotesPanel
+        note={null}
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+        openAiApiKeyConfigured={false}
+        onSaveOpenAiApiKey={onSaveOpenAiApiKey}
+        onClearOpenAiApiKey={onClearOpenAiApiKey}
+      />
+    )
+
+    fireEvent.change(screen.getByLabelText('OpenAI API Key'), {
+      target: { value: 'sk-test-secret' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存 Key' }))
+
+    await waitFor(() => expect(onSaveOpenAiApiKey).toHaveBeenCalledWith('sk-test-secret'))
+
+    rerender(
+      <VideoNotesPanel
+        note={null}
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+        openAiApiKeyConfigured
+        onSaveOpenAiApiKey={onSaveOpenAiApiKey}
+        onClearOpenAiApiKey={onClearOpenAiApiKey}
+      />
+    )
+
+    expect(screen.queryByDisplayValue('sk-test-secret')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '清除 Key' }))
+
+    await waitFor(() => expect(onClearOpenAiApiKey).toHaveBeenCalledOnce())
+  })
+
   it('disables generate actions and shows progress while loading', () => {
     render(
       <VideoNotesPanel

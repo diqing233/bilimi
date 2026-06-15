@@ -3,6 +3,9 @@ import type {
   AssistantAutomationResult,
   AssistantPreferences,
   FavoriteLedgerStatus,
+  VideoAudioTranscriptionProgress,
+  VideoAudioTranscriptionRequest,
+  VideoAudioTranscriptionResult,
   VideoNote
 } from '@shared/types'
 import type {
@@ -22,7 +25,9 @@ type BilimiDesktopApi = {
   executeOldFavoritePlan?: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
   finishFloatingSealDrag?: () => void
   generateVideoNote?: (manualTranscript?: string) => Promise<VideoNote | null>
+  generateVideoNoteFromAudio?: () => Promise<VideoNote | null>
   getCurrentVideoTime?: () => Promise<number>
+  loadOpenAiApiKeyStatus?: () => Promise<{ configured: boolean }>
   loadPreferences: () => Promise<AssistantPreferences>
   loadVideoNotes?: () => Promise<VideoNote[]>
   moveFloatingSealBy?: (deltaX: number, deltaY: number) => Promise<void>
@@ -34,6 +39,9 @@ type BilimiDesktopApi = {
   onOpenAssistant?: (callback: (payload?: AssistantOpenPayload) => void) => () => void
   onOpenInTab?: (callback: (url: string) => void) => () => void
   onRunAssistantAction?: (callback: (payload: { action: AssistantAction }) => void) => () => void
+  onVideoAudioTranscriptionProgress?: (
+    callback: (progress: VideoAudioTranscriptionProgress) => void
+  ) => () => void
   registerAssistantRuntime?: (
     handler: (request: AssistantRuntimeRequest) => Promise<AssistantRuntimeResponsePayload>
   ) => () => void
@@ -49,12 +57,17 @@ type BilimiDesktopApi = {
   ) => Promise<void>
   scanOldFavorites?: () => Promise<FavoriteLedgerPreview>
   savePreferences: (preferences: AssistantPreferences) => Promise<AssistantPreferences>
+  saveOpenAiApiKey?: (apiKey: string) => Promise<{ configured: boolean }>
   saveVideoNote?: (note: VideoNote) => Promise<VideoNote[]>
+  clearOpenAiApiKey?: () => Promise<{ configured: boolean }>
   seekVideoTime?: (seconds: number) => Promise<boolean>
   setAssistantPetState?: (state: AssistantPetState) => void
   startFloatingSealDrag?: (screenX: number, screenY: number) => void
   toggleFloatingAssistant?: () => Promise<void>
   toggleFloatingMenu?: () => Promise<void>
+  transcribeCurrentVideoAudio?: (
+    request: VideoAudioTranscriptionRequest
+  ) => Promise<VideoAudioTranscriptionResult>
 }
 
 type AssistantOpenPayload = {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { VideoNote, VideoNoteAnnotation } from '@shared/types'
+import type { VideoAudioTranscriptionProgress, VideoNote, VideoNoteAnnotation } from '@shared/types'
 import { createVideoNoteMarkdown } from './videoNoteMarkdown'
 import {
   removeVideoNoteAnnotation,
@@ -15,6 +15,11 @@ type VideoNotesPanelProps = {
   onChange?: (note: VideoNote) => void
   onGetCurrentTime?: () => Promise<number>
   onSeekToTime?: (seconds: number) => Promise<boolean>
+  onTranscribeAudio?: () => Promise<VideoNote | null>
+  transcriptionProgress?: VideoAudioTranscriptionProgress | null
+  openAiApiKeyConfigured?: boolean
+  onSaveOpenAiApiKey?: (apiKey: string) => Promise<void>
+  onClearOpenAiApiKey?: () => Promise<void>
 }
 
 type VideoNotesTab = 'overview' | 'transcript' | 'annotations' | 'export' | 'archive'
@@ -46,11 +51,17 @@ export function VideoNotesPanel({
   onSave,
   onChange,
   onGetCurrentTime,
-  onSeekToTime
+  onSeekToTime,
+  onTranscribeAudio,
+  transcriptionProgress = null,
+  openAiApiKeyConfigured = true,
+  onSaveOpenAiApiKey,
+  onClearOpenAiApiKey
 }: VideoNotesPanelProps): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<VideoNotesTab>('overview')
   const [manualTranscript, setManualTranscript] = useState('')
   const [localGenerating, setLocalGenerating] = useState(false)
+  const [transcribingAudio, setTranscribingAudio] = useState(false)
   const [generateFailed, setGenerateFailed] = useState(false)
   const [saving, setSaving] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
@@ -60,7 +71,9 @@ export function VideoNotesPanel({
   const [annotationStart, setAnnotationStart] = useState<number | null>(null)
   const [annotationTitle, setAnnotationTitle] = useState('')
   const [annotationBody, setAnnotationBody] = useState('')
-  const generationBusy = isLoading || localGenerating
+  const [openAiApiKeyDraft, setOpenAiApiKeyDraft] = useState('')
+  const [savingOpenAiApiKey, setSavingOpenAiApiKey] = useState(false)
+  const generationBusy = isLoading || localGenerating || transcribingAudio
   const markdown = useMemo(() => (note ? createVideoNoteMarkdown(note) : ''), [note])
   const sortedAnnotations = useMemo(
     () => sortVideoNoteAnnotations(note?.annotations ?? []),
@@ -92,6 +105,68 @@ export function VideoNotesPanel({
       setErrorMessage(error instanceof Error ? error.message : '整理札记时遇到未知差错。')
     } finally {
       setLocalGenerating(false)
+    }
+  }
+
+  async function handleTranscribeAudio(): Promise<void> {
+    if (!onTranscribeAudio || generationBusy) {
+      return
+    }
+
+    setTranscribingAudio(true)
+    setStatusMessage('')
+    setErrorMessage('')
+
+    try {
+      const generatedNote = await onTranscribeAudio()
+
+      if (generatedNote) {
+        setStatusMessage('音频转写已完成')
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '音频转写失败。')
+    } finally {
+      setTranscribingAudio(false)
+    }
+  }
+
+  async function handleSaveOpenAiApiKey(): Promise<void> {
+    if (!onSaveOpenAiApiKey || savingOpenAiApiKey || openAiApiKeyDraft.trim().length === 0) {
+      return
+    }
+
+    setSavingOpenAiApiKey(true)
+    setStatusMessage('')
+    setErrorMessage('')
+
+    try {
+      await onSaveOpenAiApiKey(openAiApiKeyDraft)
+      setOpenAiApiKeyDraft('')
+      setStatusMessage('OpenAI Key 已保存')
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '保存 OpenAI Key 失败。')
+    } finally {
+      setSavingOpenAiApiKey(false)
+    }
+  }
+
+  async function handleClearOpenAiApiKey(): Promise<void> {
+    if (!onClearOpenAiApiKey || savingOpenAiApiKey) {
+      return
+    }
+
+    setSavingOpenAiApiKey(true)
+    setStatusMessage('')
+    setErrorMessage('')
+
+    try {
+      await onClearOpenAiApiKey()
+      setOpenAiApiKeyDraft('')
+      setStatusMessage('OpenAI Key 已清除')
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '清除 OpenAI Key 失败。')
+    } finally {
+      setSavingOpenAiApiKey(false)
     }
   }
 
@@ -271,9 +346,47 @@ export function VideoNotesPanel({
   if (!note) {
     return (
       <section className="video-notes" aria-label="视频札记">
+        <div>
+          {openAiApiKeyConfigured ? (
+            <button
+              type="button"
+              disabled={!onClearOpenAiApiKey || savingOpenAiApiKey}
+              onClick={() => void handleClearOpenAiApiKey()}
+            >
+              清除 Key
+            </button>
+          ) : (
+            <>
+              <label htmlFor="openai-api-key">OpenAI API Key</label>
+              <input
+                id="openai-api-key"
+                type="password"
+                value={openAiApiKeyDraft}
+                onChange={(event) => setOpenAiApiKeyDraft(event.target.value)}
+              />
+              <button
+                type="button"
+                disabled={!onSaveOpenAiApiKey || savingOpenAiApiKey || openAiApiKeyDraft.trim().length === 0}
+                onClick={() => void handleSaveOpenAiApiKey()}
+              >
+                保存 Key
+              </button>
+            </>
+          )}
+        </div>
+
         <button type="button" disabled={generationBusy} onClick={() => void handleGenerate(undefined)}>
           {generationBusy ? '整理中...' : generateFailed ? '重新整理' : '整理札记'}
         </button>
+
+        <button
+          type="button"
+          disabled={!onTranscribeAudio || !openAiApiKeyConfigured || generationBusy}
+          onClick={() => void handleTranscribeAudio()}
+        >
+          {transcribingAudio ? '转写中...' : '转写音频'}
+        </button>
+        {transcriptionProgress ? <p>{transcriptionProgress.message}</p> : null}
 
         <div>
           <label htmlFor="manual-transcript">粘贴文稿</label>
@@ -300,6 +413,8 @@ export function VideoNotesPanel({
 
   return (
     <section className="video-notes" aria-label="视频札记">
+      {transcriptionProgress ? <p>{transcriptionProgress.message}</p> : null}
+
       <div role="tablist" aria-label="札记页签">
         {tabs.map((tab) => (
           <button

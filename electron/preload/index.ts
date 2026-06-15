@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { AssistantPreferences } from '../main/store'
-import type { AssistantAction, VideoNote } from '../../src/shared/types'
+import type {
+  AssistantAction,
+  VideoAudioTranscriptionProgress,
+  VideoAudioTranscriptionRequest,
+  VideoAudioTranscriptionResult,
+  VideoNote
+} from '../../src/shared/types'
 import type {
   AssistantRuntimeRequest,
   AssistantRuntimeResponsePayload,
@@ -116,6 +122,28 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('floating-menu:run-action', action, options) as Promise<void>,
   generateVideoNote: (manualTranscript?: string) =>
     ipcRenderer.invoke('floating-assistant:generate-video-note', manualTranscript),
+  generateVideoNoteFromAudio: () =>
+    ipcRenderer.invoke('floating-assistant:generate-video-note-from-audio') as Promise<VideoNote | null>,
+  transcribeCurrentVideoAudio: (request: VideoAudioTranscriptionRequest) =>
+    ipcRenderer.invoke('video-audio:transcribe-current', request) as Promise<VideoAudioTranscriptionResult>,
+  onVideoAudioTranscriptionProgress: (callback: (progress: VideoAudioTranscriptionProgress) => void) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      progress: VideoAudioTranscriptionProgress
+    ) => callback(progress)
+
+    ipcRenderer.on('video-audio:transcription-progress', listener)
+
+    return () => {
+      ipcRenderer.removeListener('video-audio:transcription-progress', listener)
+    }
+  },
+  loadOpenAiApiKeyStatus: () =>
+    ipcRenderer.invoke('openai:key-status') as Promise<{ configured: boolean }>,
+  saveOpenAiApiKey: (apiKey: string) =>
+    ipcRenderer.invoke('openai:save-key', apiKey) as Promise<{ configured: boolean }>,
+  clearOpenAiApiKey: () =>
+    ipcRenderer.invoke('openai:clear-key') as Promise<{ configured: boolean }>,
   ensureFavoriteLedgers: () => ipcRenderer.invoke('floating-assistant:ensure-ledgers'),
   scanOldFavorites: () => ipcRenderer.invoke('floating-assistant:scan-old-favorites'),
   executeOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) =>

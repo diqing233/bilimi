@@ -317,6 +317,42 @@ describe('App runtime integration', () => {
     expect(saveVideoNote).toHaveBeenCalledWith(expect.objectContaining({ id: 'bvid:BV1note' }))
   })
 
+  it('generates a video note from audio through the assistant runtime', async () => {
+    const { desktopApi, requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn().mockResolvedValue({
+        title: 'Audio demo',
+        bvid: 'BV1demo',
+        url: 'https://www.bilibili.com/video/BV1demo',
+        tags: [],
+        transcript: []
+      })
+    })
+    desktopApi.transcribeCurrentVideoAudio = vi.fn().mockResolvedValue({
+      transcriptSource: 'audio',
+      transcript: [{ start: 0, end: 2, text: 'audio transcript text' }]
+    })
+
+    const note = await requestRuntime({ id: 'audio-note-1', type: 'generate-video-note-from-audio' })
+
+    expect(desktopApi.transcribeCurrentVideoAudio).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://www.bilibili.com/video/BV1demo',
+        title: 'Audio demo',
+        bvid: 'BV1demo'
+      })
+    )
+    expect(note).toEqual(
+      expect.objectContaining({
+        transcriptSource: 'audio',
+        transcript: [{ start: 0, end: 2, text: 'audio transcript text' }]
+      })
+    )
+  })
+
   it('opens webview popup URLs as internal browser tabs', async () => {
     renderAppWithRuntimeBridge()
 
