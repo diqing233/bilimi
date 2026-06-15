@@ -78,8 +78,17 @@ export function buildVideoNoteExtractionScript(): string {
           text: clean(item.content)
         }))
         .filter((item) => item.text);
-      const subtitleUrlFrom = (candidate) =>
-        clean(candidate?.subtitle_url || candidate?.url || candidate?.ai_subtitle_url || candidate?.lan_doc || '');
+      const looksLikeSubtitleUrl = (value) =>
+        /^https?:\\/\\//i.test(value) || value.startsWith('//') || value.startsWith('/bfs/') || value.startsWith('/bfs/subtitle/');
+      const subtitleUrlFrom = (candidate) => {
+        const urls = [
+          clean(candidate?.subtitle_url),
+          clean(candidate?.url),
+          clean(candidate?.ai_subtitle_url)
+        ];
+
+        return urls.find(looksLikeSubtitleUrl) || '';
+      };
       const absoluteSubtitleUrl = (value) => {
         if (!value) {
           return '';
@@ -110,6 +119,27 @@ export function buildVideoNoteExtractionScript(): string {
           return [];
         }
       };
+      const fetchPlayerSubtitleCandidates = async (aid, cid) => {
+        if (!aid || !cid) {
+          return [];
+        }
+
+        try {
+          const response = await fetch(
+            'https://api.bilibili.com/x/player/v2?aid=' + encodeURIComponent(aid) + '&cid=' + encodeURIComponent(cid),
+            { credentials: 'include' }
+          );
+
+          if (!response.ok) {
+            return [];
+          }
+
+          const payload = await response.json();
+          return Array.from(payload?.data?.subtitle?.subtitles || []);
+        } catch {
+          return [];
+        }
+      };
       const readMeta = (name) =>
         document.querySelector('meta[name="' + name + '"],meta[property="' + name + '"]')?.getAttribute('content') || '';
       const textFrom = (selectors) =>
@@ -118,11 +148,13 @@ export function buildVideoNoteExtractionScript(): string {
           .join(' ');
       const initialState = window.__INITIAL_STATE__ || {};
       const videoData = initialState.videoData || initialState.videoInfo || {};
+      const aid = videoData.aid || initialState.aid || '';
+      const cid = videoData.cid || initialState.cid || videoData.pages?.[0]?.cid || initialState.pages?.[0]?.cid || '';
       const tags = Array.from(document.querySelectorAll('.tag-link,.tag,.video-tag,[class*="tag"] a,[class*="tag"] span'))
         .map((node) => clean(node.textContent))
         .filter(Boolean)
         .slice(0, 20);
-      const subtitleCandidates = [
+      let subtitleCandidates = [
         ...(videoData.subtitle?.list || []),
         ...(initialState.subtitle?.list || []),
         ...(window.__playinfo__?.subtitle?.subtitles || [])
@@ -134,6 +166,19 @@ export function buildVideoNoteExtractionScript(): string {
 
         if (fetchedTranscript.length > 0) {
           break;
+        }
+      }
+
+      if (fetchedTranscript.length === 0) {
+        const playerSubtitleCandidates = await fetchPlayerSubtitleCandidates(aid, cid);
+        subtitleCandidates = [...subtitleCandidates, ...playerSubtitleCandidates];
+
+        for (const candidate of playerSubtitleCandidates) {
+          fetchedTranscript = await fetchSubtitle(candidate);
+
+          if (fetchedTranscript.length > 0) {
+            break;
+          }
         }
       }
 

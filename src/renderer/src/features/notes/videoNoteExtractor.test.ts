@@ -94,6 +94,92 @@ describe('videoNoteExtractor', () => {
     expect(result.transcript).toEqual([])
   })
 
+  it('does not treat subtitle language labels as subtitle URLs', async () => {
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    Object.defineProperty(window, '__INITIAL_STATE__', {
+      configurable: true,
+      value: {
+        videoData: {
+          title: 'Language label only video',
+          bvid: 'BVlabel',
+          aid: 123,
+          cid: 456,
+          subtitle: {
+            list: [
+              {
+                lan: 'zh-Hans',
+                lan_doc: '中文（简体）',
+                subtitle_url: ''
+              }
+            ]
+          }
+        }
+      }
+    })
+
+    const result = await window.eval(buildVideoNoteExtractionScript())
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.bilibili.com/x/player/v2?aid=123&cid=456',
+      expect.objectContaining({ credentials: 'include' })
+    )
+    expect(fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining('%E4%B8%AD%E6%96%87'),
+      expect.anything()
+    )
+    expect(result.transcript).toEqual([])
+  })
+
+  it('falls back to the player subtitle API when page state has no subtitle URL', async () => {
+    const fetch = vi.fn(async (url: string) => {
+      if (url.includes('/x/player/v2')) {
+        return {
+          ok: true,
+          json: async () => ({
+            data: {
+              subtitle: {
+                subtitles: [{ subtitle_url: 'https://subtitle.test/player.json' }]
+              }
+            }
+          })
+        }
+      }
+
+      return {
+        ok: true,
+        json: async () => ({
+          body: [{ from: 8, to: 12, content: '播放器接口字幕' }]
+        })
+      }
+    })
+    vi.stubGlobal('fetch', fetch)
+    Object.defineProperty(window, '__INITIAL_STATE__', {
+      configurable: true,
+      value: {
+        videoData: {
+          title: 'Player API subtitle video',
+          bvid: 'BVplayer',
+          aid: 123,
+          cid: 456,
+          pages: [{ cid: 456 }]
+        }
+      }
+    })
+
+    const result = await window.eval(buildVideoNoteExtractionScript())
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.bilibili.com/x/player/v2?aid=123&cid=456',
+      expect.objectContaining({ credentials: 'include' })
+    )
+    expect(fetch).toHaveBeenCalledWith(
+      'https://subtitle.test/player.json',
+      expect.objectContaining({ credentials: 'include' })
+    )
+    expect(result.transcript).toEqual([{ start: 8, end: 12, text: '播放器接口字幕' }])
+  })
+
   it('normalizes raw page extraction into a safe result shape', () => {
     expect(
       normalizeExtractedVideoNoteResult({
