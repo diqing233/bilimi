@@ -467,6 +467,25 @@ describe('VideoNotesPanel', () => {
     expect(screen.getByText('Transcribing segment 1/2.')).toBeInTheDocument()
   })
 
+  it('offers audio transcription when an existing note has no transcript', async () => {
+    const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
+
+    render(
+      <VideoNotesPanel
+        note={{ ...sampleNote, transcript: [], transcriptSource: 'manual' }}
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+        onTranscribeAudio={onTranscribeAudio}
+        openAiApiKeyConfigured
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+
+    await waitFor(() => expect(onTranscribeAudio).toHaveBeenCalledOnce())
+  })
+
   it('keeps manual paste available when audio transcription fails', async () => {
     const onTranscribeAudio = vi.fn().mockRejectedValue(new Error('Audio download failed.'))
 

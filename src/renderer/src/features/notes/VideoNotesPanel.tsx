@@ -414,6 +414,18 @@ export function VideoNotesPanel({
   return (
     <section className="video-notes" aria-label="视频札记">
       {transcriptionProgress ? <p>{transcriptionProgress.message}</p> : null}
+      {note.transcript.length === 0 ? (
+        <div>
+          <p>尚未取得文稿，可转写音频或粘贴文稿后再整理。</p>
+          <button
+            type="button"
+            disabled={!onTranscribeAudio || !openAiApiKeyConfigured || generationBusy}
+            onClick={() => void handleTranscribeAudio()}
+          >
+            {transcribingAudio ? '转写中...' : '转写音频'}
+          </button>
+        </div>
+      ) : null}
 
       <div role="tablist" aria-label="札记页签">
         {tabs.map((tab) => (
