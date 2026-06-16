@@ -11,7 +11,6 @@ export type AssistantPreferences = {
 }
 
 export type DesktopStoreState = AssistantPreferences & {
-  openAiApiKey: string
   videoNotes: VideoNote[]
 }
 
@@ -21,7 +20,7 @@ export type AssistantStoreLike = {
 }
 
 export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
-  favoritesFolderName: 'Bilimi 内库',
+  favoritesFolderName: 'Bilimi 鍐呭簱',
   favoriteLedgers: createDefaultFavoriteLedgers(),
   ledgerPromptDismissed: false,
   preferenceCounts: {}
@@ -29,7 +28,6 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
 
 export const DEFAULT_DESKTOP_STORE_STATE: DesktopStoreState = {
   ...DEFAULT_ASSISTANT_PREFERENCES,
-  openAiApiKey: '',
   videoNotes: []
 }
 
@@ -81,31 +79,4 @@ export function saveVideoNote(
   store.set('videoNotes', notes)
 
   return notes
-}
-
-export function loadOpenAiApiKey(store: AssistantStoreLike = getDesktopStore()): string {
-  return store.get('openAiApiKey') ?? ''
-}
-
-export function loadOpenAiApiKeyStatus(
-  store: AssistantStoreLike = getDesktopStore()
-): { configured: boolean } {
-  return { configured: Boolean(loadOpenAiApiKey(store)) }
-}
-
-export function saveOpenAiApiKey(
-  store: AssistantStoreLike = getDesktopStore(),
-  apiKey: string
-): { configured: boolean } {
-  store.set('openAiApiKey', apiKey.trim())
-
-  return loadOpenAiApiKeyStatus(store)
-}
-
-export function clearOpenAiApiKey(
-  store: AssistantStoreLike = getDesktopStore()
-): { configured: boolean } {
-  store.set('openAiApiKey', '')
-
-  return loadOpenAiApiKeyStatus(store)
 }

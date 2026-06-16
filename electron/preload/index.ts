@@ -138,12 +138,6 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
       ipcRenderer.removeListener('video-audio:transcription-progress', listener)
     }
   },
-  loadOpenAiApiKeyStatus: () =>
-    ipcRenderer.invoke('openai:key-status') as Promise<{ configured: boolean }>,
-  saveOpenAiApiKey: (apiKey: string) =>
-    ipcRenderer.invoke('openai:save-key', apiKey) as Promise<{ configured: boolean }>,
-  clearOpenAiApiKey: () =>
-    ipcRenderer.invoke('openai:clear-key') as Promise<{ configured: boolean }>,
   ensureFavoriteLedgers: () => ipcRenderer.invoke('floating-assistant:ensure-ledgers'),
   scanOldFavorites: () => ipcRenderer.invoke('floating-assistant:scan-old-favorites'),
   executeOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) =>

@@ -288,9 +288,9 @@ describe('App runtime integration', () => {
     ).toBe(true)
   })
 
-  it('generates and saves notes for the floating assistant runtime', async () => {
+  it('generates default notes from audio for the floating assistant runtime', async () => {
     const saveVideoNote = vi.fn().mockResolvedValue([])
-    const { requestRuntime } = renderAppWithRuntimeBridge({ saveVideoNote })
+    const { desktopApi, requestRuntime } = renderAppWithRuntimeBridge({ saveVideoNote })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
@@ -304,9 +304,26 @@ describe('App runtime integration', () => {
       })
     })
 
+    desktopApi.transcribeCurrentVideoAudio = vi.fn().mockResolvedValue({
+      transcriptSource: 'audio',
+      transcript: [{ start: 0, end: 2, text: 'audio generated transcript' }]
+    })
+
     const note = await requestRuntime({ id: 'note-1', type: 'generate-video-note' })
 
-    expect(note).toEqual(expect.objectContaining({ id: 'bvid:BV1note' }))
+    expect(desktopApi.transcribeCurrentVideoAudio).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://www.bilibili.com/video/BV1note',
+        bvid: 'BV1note'
+      })
+    )
+    expect(note).toEqual(
+      expect.objectContaining({
+        id: 'bvid:BV1note',
+        transcriptSource: 'audio',
+        transcript: [{ start: 0, end: 2, text: 'audio generated transcript' }]
+      })
+    )
 
     await requestRuntime({
       id: 'save-note-1',
@@ -349,6 +366,37 @@ describe('App runtime integration', () => {
       expect.objectContaining({
         transcriptSource: 'audio',
         transcript: [{ start: 0, end: 2, text: 'audio transcript text' }]
+      })
+    )
+  })
+
+  it('keeps pasted transcript generation local without audio transcription', async () => {
+    const { desktopApi, requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn().mockResolvedValue({
+        title: 'Manual demo',
+        bvid: 'BVmanual',
+        url: 'https://www.bilibili.com/video/BVmanual',
+        tags: []
+      })
+    })
+    desktopApi.transcribeCurrentVideoAudio = vi.fn()
+
+    const note = await requestRuntime({
+      id: 'manual-note-1',
+      type: 'generate-video-note',
+      manualTranscript: '00:01 pasted transcript text'
+    })
+
+    expect(desktopApi.transcribeCurrentVideoAudio).not.toHaveBeenCalled()
+    expect(note).toEqual(
+      expect.objectContaining({
+        id: 'bvid:BVmanual',
+        transcriptSource: 'manual',
+        transcript: [{ start: 1, end: null, text: 'pasted transcript text' }]
       })
     )
   })

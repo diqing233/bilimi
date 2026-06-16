@@ -433,7 +433,6 @@ describe('VideoNotesPanel', () => {
         onGenerate={vi.fn()}
         onSave={vi.fn()}
         onTranscribeAudio={vi.fn()}
-        openAiApiKeyConfigured
       />
     )
 
@@ -450,7 +449,6 @@ describe('VideoNotesPanel', () => {
         onGenerate={vi.fn()}
         onSave={vi.fn()}
         onTranscribeAudio={onTranscribeAudio}
-        openAiApiKeyConfigured
         transcriptionProgress={{
           step: 'transcribing-segment',
           message: 'Transcribing segment 1/2.',
@@ -477,7 +475,6 @@ describe('VideoNotesPanel', () => {
         onGenerate={vi.fn()}
         onSave={vi.fn()}
         onTranscribeAudio={onTranscribeAudio}
-        openAiApiKeyConfigured
       />
     )
 
@@ -496,7 +493,6 @@ describe('VideoNotesPanel', () => {
         onGenerate={vi.fn()}
         onSave={vi.fn()}
         onTranscribeAudio={onTranscribeAudio}
-        openAiApiKeyConfigured
       />
     )
 
@@ -506,45 +502,21 @@ describe('VideoNotesPanel', () => {
     expect(screen.getByLabelText('粘贴文稿')).toBeEnabled()
   })
 
-  it('saves and clears the OpenAI API key without showing an existing secret', async () => {
-    const onSaveOpenAiApiKey = vi.fn().mockResolvedValue(undefined)
-    const onClearOpenAiApiKey = vi.fn().mockResolvedValue(undefined)
-
-    const { rerender } = render(
+  it('does not render OpenAI key controls for local transcription', () => {
+    render(
       <VideoNotesPanel
         note={null}
         isLoading={false}
         onGenerate={vi.fn()}
         onSave={vi.fn()}
-        openAiApiKeyConfigured={false}
-        onSaveOpenAiApiKey={onSaveOpenAiApiKey}
-        onClearOpenAiApiKey={onClearOpenAiApiKey}
+        onTranscribeAudio={vi.fn()}
       />
     )
 
-    fireEvent.change(screen.getByLabelText('OpenAI API Key'), {
-      target: { value: 'sk-test-secret' }
-    })
-    fireEvent.click(screen.getByRole('button', { name: '保存 Key' }))
-
-    await waitFor(() => expect(onSaveOpenAiApiKey).toHaveBeenCalledWith('sk-test-secret'))
-
-    rerender(
-      <VideoNotesPanel
-        note={null}
-        isLoading={false}
-        onGenerate={vi.fn()}
-        onSave={vi.fn()}
-        openAiApiKeyConfigured
-        onSaveOpenAiApiKey={onSaveOpenAiApiKey}
-        onClearOpenAiApiKey={onClearOpenAiApiKey}
-      />
-    )
-
-    expect(screen.queryByDisplayValue('sk-test-secret')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '清除 Key' }))
-
-    await waitFor(() => expect(onClearOpenAiApiKey).toHaveBeenCalledOnce())
+    expect(screen.queryByLabelText('OpenAI API Key')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '保存 Key' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '清除 Key' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '转写音频' })).toBeEnabled()
   })
 
   it('disables generate actions and shows progress while loading', () => {

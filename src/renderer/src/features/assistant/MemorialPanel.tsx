@@ -28,9 +28,6 @@ type MemorialPanelProps = {
   videoNote: VideoNote | null
   videoNoteLoading: boolean
   transcriptionProgress?: VideoAudioTranscriptionProgress | null
-  openAiApiKeyConfigured?: boolean
-  onSaveOpenAiApiKey?: (apiKey: string) => Promise<void>
-  onClearOpenAiApiKey?: () => Promise<void>
   runningAction?: AssistantAction | null
   actionsLocked?: boolean
   feedback?: {
@@ -75,9 +72,6 @@ export function MemorialPanel({
   videoNote,
   videoNoteLoading,
   transcriptionProgress,
-  openAiApiKeyConfigured,
-  onSaveOpenAiApiKey,
-  onClearOpenAiApiKey,
   runningAction = null,
   actionsLocked = runningAction !== null,
   feedback = null,
@@ -184,9 +178,6 @@ export function MemorialPanel({
             onGetCurrentTime={onGetCurrentVideoTime}
             onSeekToTime={onSeekVideoTime}
             transcriptionProgress={transcriptionProgress}
-            openAiApiKeyConfigured={openAiApiKeyConfigured}
-            onSaveOpenAiApiKey={onSaveOpenAiApiKey}
-            onClearOpenAiApiKey={onClearOpenAiApiKey}
           />
         )}
         {feedback ? (

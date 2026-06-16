@@ -11,14 +11,13 @@ import { downloadVideoAudio } from './audioDownload'
 import { segmentAudioForTranscription, type AudioSegment } from './audioSegmenter'
 import { exportBilibiliCookiesToFile } from './bilibiliCookieExport'
 import { resolveMediaToolPaths } from './mediaToolPaths'
-import { transcribeAudioSegment } from './openAiTranscription'
+import { transcribeAudioSegmentWithFasterWhisper } from './fasterWhisperTranscription'
 import { runProcess } from './audioDownload'
 
 type ServiceSessionLike = Pick<Session, 'cookies'>
 
 type ServiceDeps = {
   request: VideoAudioTranscriptionRequest
-  apiKey: string
   session: ServiceSessionLike
   tempDir: string
   progress?: (progress: VideoAudioTranscriptionProgress) => void
@@ -26,7 +25,7 @@ type ServiceDeps = {
   exportCookies?: typeof exportBilibiliCookiesToFile
   downloadAudio?: typeof downloadVideoAudio
   segmentAudio?: typeof segmentAudioForTranscription
-  transcribeSegment?: typeof transcribeAudioSegment
+  transcribeSegment?: typeof transcribeAudioSegmentWithFasterWhisper
   getAudioDuration?: (path: string, ffmpegPath?: string) => Promise<number>
   cleanup?: (path: string) => Promise<void>
 }
@@ -73,7 +72,6 @@ async function defaultCleanup(path: string): Promise<void> {
 
 export async function transcribeCurrentVideoAudio({
   request,
-  apiKey,
   session,
   tempDir,
   progress,
@@ -81,7 +79,7 @@ export async function transcribeCurrentVideoAudio({
   exportCookies = exportBilibiliCookiesToFile,
   downloadAudio = downloadVideoAudio,
   segmentAudio = segmentAudioForTranscription,
-  transcribeSegment = transcribeAudioSegment,
+  transcribeSegment = transcribeAudioSegmentWithFasterWhisper,
   getAudioDuration = getAudioDurationSeconds,
   cleanup = defaultCleanup
 }: ServiceDeps): Promise<VideoAudioTranscriptionResult> {
@@ -119,7 +117,6 @@ export async function transcribeCurrentVideoAudio({
       })
       transcript.push(
         ...(await transcribeSegment({
-          apiKey,
           path: segment.path,
           offsetSeconds: segment.offsetSeconds
         }))
