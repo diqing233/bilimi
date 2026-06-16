@@ -7,6 +7,12 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Transcribe audio with local faster-whisper.")
     parser.add_argument("--audio", required=True, help="Audio file path to transcribe.")
     parser.add_argument("--model", default="small", help="faster-whisper model name.")
+    parser.add_argument("--device", default="cpu", help="faster-whisper device, defaults to cpu.")
+    parser.add_argument(
+        "--compute-type",
+        default="int8",
+        help="faster-whisper compute type, defaults to int8 for CPU compatibility.",
+    )
     return parser.parse_args()
 
 
@@ -20,7 +26,7 @@ def main():
         return 3
 
     try:
-        model = WhisperModel(args.model)
+        model = WhisperModel(args.model, device=args.device, compute_type=args.compute_type)
         segments, _info = model.transcribe(args.audio)
         payload = {
             "segments": [

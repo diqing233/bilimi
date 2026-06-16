@@ -16,6 +16,8 @@ type FasterWhisperArgsInput = {
   scriptPath: string
   audioPath: string
   model: string
+  device?: string
+  computeType?: string
 }
 
 type TranscribeInput = {
@@ -34,6 +36,8 @@ type PythonCandidate = {
 }
 
 const DEFAULT_MODEL = 'small'
+const DEFAULT_DEVICE = 'cpu'
+const DEFAULT_COMPUTE_TYPE = 'int8'
 
 function cleanText(value = ''): string {
   return value.replace(/\s+/g, ' ').trim()
@@ -105,9 +109,21 @@ export function mapFasterWhisperOutputToSegments(
 export function buildFasterWhisperArgs({
   scriptPath,
   audioPath,
-  model
+  model,
+  device = DEFAULT_DEVICE,
+  computeType = DEFAULT_COMPUTE_TYPE
 }: FasterWhisperArgsInput): string[] {
-  return [scriptPath, '--audio', audioPath, '--model', model]
+  return [
+    scriptPath,
+    '--audio',
+    audioPath,
+    '--model',
+    model,
+    '--device',
+    device,
+    '--compute-type',
+    computeType
+  ]
 }
 
 export async function transcribeAudioSegmentWithFasterWhisper({

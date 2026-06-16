@@ -37,7 +37,11 @@ describe('fasterWhisperTranscription', () => {
       '--audio',
       'C:/tmp/segment-000.mp3',
       '--model',
-      'small'
+      'small',
+      '--device',
+      'cpu',
+      '--compute-type',
+      'int8'
     ])
   })
 
@@ -79,7 +83,11 @@ describe('fasterWhisperTranscription', () => {
       '--audio',
       'C:/tmp/segment-000.mp3',
       '--model',
-      'small'
+      'small',
+      '--device',
+      'cpu',
+      '--compute-type',
+      'int8'
     ])
   })
 
@@ -113,14 +121,22 @@ describe('fasterWhisperTranscription', () => {
       '--audio',
       'C:/tmp/segment-000.mp3',
       '--model',
-      'small'
+      'small',
+      '--device',
+      'cpu',
+      '--compute-type',
+      'int8'
     ])
     expect(runProcess).toHaveBeenNthCalledWith(2, 'python3', [
       'C:/app/tools/transcribe_faster_whisper.py',
       '--audio',
       'C:/tmp/segment-000.mp3',
       '--model',
-      'small'
+      'small',
+      '--device',
+      'cpu',
+      '--compute-type',
+      'int8'
     ])
   })
 
