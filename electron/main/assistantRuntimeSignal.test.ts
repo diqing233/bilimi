@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { requestAssistantRuntimeWhenReady } from './assistantRuntimeSignal'
+import {
+  createAssistantRuntimeTimeoutMs,
+  requestAssistantRuntimeWhenReady
+} from './assistantRuntimeSignal'
 import type { AssistantRuntimeResponse } from './assistantRuntimeSignal'
 
 function createRuntimeTarget(isLoading: boolean) {
@@ -45,6 +48,13 @@ function createResponseBus() {
 }
 
 describe('requestAssistantRuntimeWhenReady', () => {
+  it('uses a long default timeout only for audio note generation', () => {
+    expect(createAssistantRuntimeTimeoutMs({ type: 'generate-video-note-from-audio' })).toBe(
+      30 * 60 * 1000
+    )
+    expect(createAssistantRuntimeTimeoutMs({ type: 'snapshot' })).toBe(8000)
+  })
+
   it('sends a runtime request immediately when the renderer is loaded', async () => {
     const { target, send } = createRuntimeTarget(false)
     const bus = createResponseBus()
@@ -120,5 +130,28 @@ describe('requestAssistantRuntimeWhenReady', () => {
     bus.emitResponse({ id: 'req-4', ok: true, payload: { ok: true } })
 
     await expect(promise).resolves.toEqual({ ok: true })
+  })
+
+  it('keeps audio note generation alive past the default quick request timeout', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { target } = createRuntimeTarget(false)
+      const bus = createResponseBus()
+      const promise = requestAssistantRuntimeWhenReady<{ ok: boolean }>({
+        createRequestId: () => 'req-5',
+        request: { type: 'generate-video-note-from-audio' },
+        responseBus: bus,
+        target
+      })
+
+      await vi.advanceTimersByTimeAsync(8000)
+
+      bus.emitResponse({ id: 'req-5', ok: true, payload: { ok: true } })
+
+      await expect(promise).resolves.toEqual({ ok: true })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

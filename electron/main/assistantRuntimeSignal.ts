@@ -25,6 +25,9 @@ type AssistantRuntimeResponseBus = {
 
 type AssistantRuntimeRequestInput = Omit<AssistantRuntimeRequest, 'id'>
 
+const QUICK_RUNTIME_REQUEST_TIMEOUT_MS = 8000
+const AUDIO_NOTE_RUNTIME_REQUEST_TIMEOUT_MS = 30 * 60 * 1000
+
 export type AssistantRuntimeResponse =
   | {
       id: string
@@ -42,7 +45,7 @@ export function requestAssistantRuntimeWhenReady<TPayload>({
   request,
   responseBus,
   target,
-  timeoutMs = 8000
+  timeoutMs = createAssistantRuntimeTimeoutMs(request)
 }: {
   createRequestId: () => string
   request: AssistantRuntimeRequestInput
@@ -93,4 +96,12 @@ export function requestAssistantRuntimeWhenReady<TPayload>({
 
     sendRequest()
   })
+}
+
+export function createAssistantRuntimeTimeoutMs(request: AssistantRuntimeRequestInput): number {
+  if (request.type === 'generate-video-note-from-audio') {
+    return AUDIO_NOTE_RUNTIME_REQUEST_TIMEOUT_MS
+  }
+
+  return QUICK_RUNTIME_REQUEST_TIMEOUT_MS
 }
