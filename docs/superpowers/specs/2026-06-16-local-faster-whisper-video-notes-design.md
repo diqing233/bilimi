@@ -58,10 +58,11 @@
 
 新增 `tools/transcribe_faster_whisper.py`：
 
-- 参数接收音频文件路径、片段时间偏移、模型名称。
+- 参数接收音频文件路径、模型名称、运行设备和 compute type。
 - 默认模型为 `small`，兼顾中文识别质量和本地速度。
+- 默认运行参数为 `device=cpu`、`compute_type=int8`，避免普通 Windows 开发环境因为缺少 CUDA DLL 而失败。
 - 使用 `faster_whisper.WhisperModel` 转写音频。
-- 输出 JSON，格式包含 `segments: [{ start, end, text }]`。
+- 输出 UTF-8 JSON，格式包含 `segments: [{ start, end, text }]`。
 - Node 层负责把片段内时间加上 offset，形成全视频时间轴。
 
 ## 依赖发现
@@ -79,7 +80,11 @@
 python -m pip install faster-whisper
 ```
 
-`yt-dlp` 和 `ffmpeg` 继续使用现有 `mediaToolPaths` 发现逻辑。
+`yt-dlp`、`ffmpeg` 和 `ffprobe` 继续使用现有 `mediaToolPaths` 发现逻辑；`ffprobe` 与 `ffmpeg` 同目录，用于读取音频时长。
+
+Node 启动 Python 子进程时设置 `PYTHONUTF8=1` 和 `PYTHONIOENCODING=utf-8`，Python 脚本也会把 `stdout`/`stderr` 配置为 UTF-8，避免中文文稿在 Windows 本地编码下变成乱码。
+
+浮窗触发的 `generate-video-note-from-audio` 是长任务运行时请求，主进程等待时间应长于普通快请求；普通快请求保持短超时，音频札记请求使用长超时。
 
 ## 数据流
 
@@ -115,4 +120,3 @@ VideoNotesPanel
 4. `fasterWhisperTranscription` 能把 JSON 输出映射为 `TranscriptSegment[]`。
 5. Python 缺失、`faster_whisper` 缺失、转写进程失败时返回可读错误。
 6. 现有札记保存、批注、Markdown 导出测试继续通过。
-

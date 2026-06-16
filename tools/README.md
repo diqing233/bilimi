@@ -2,9 +2,9 @@
 
 Bilimi expects media tools to be present under a platform-specific directory:
 
-- Windows: `tools/win32/yt-dlp.exe` and `tools/win32/ffmpeg.exe`
-- macOS: `tools/darwin/yt-dlp` and `tools/darwin/ffmpeg`
-- Linux: `tools/linux/yt-dlp` and `tools/linux/ffmpeg`
+- Windows: `tools/win32/yt-dlp.exe`, `tools/win32/ffmpeg.exe`, and `tools/win32/ffprobe.exe`
+- macOS: `tools/darwin/yt-dlp`, `tools/darwin/ffmpeg`, and `tools/darwin/ffprobe`
+- Linux: `tools/linux/yt-dlp`, `tools/linux/ffmpeg`, and `tools/linux/ffprobe`
 
 The app does not download these tools at runtime. Development and packaged builds must provide them before audio transcription can run.
 
@@ -31,4 +31,4 @@ Install the Python dependency before using audio transcription:
 python -m pip install faster-whisper
 ```
 
-The transcription wrapper is `tools/transcribe_faster_whisper.py`.
+The transcription wrapper is `tools/transcribe_faster_whisper.py`. It defaults to `--device cpu --compute-type int8` for Windows-friendly local transcription and writes UTF-8 JSON output. The Node process also launches child processes with `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8` so Chinese transcript text is preserved.

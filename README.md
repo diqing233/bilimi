@@ -29,11 +29,13 @@ python -m pip install faster-whisper
 ```
 
 - Optional: set `BILIMI_PYTHON_PATH` when Bilimi should use a specific Python executable.
-- Provide bundled media tools before running transcription. See [tools/README.md](tools/README.md).
-  On Windows development checkouts, run:
+- Local transcription defaults to CPU with `int8` compute, so CUDA is not required.
+- Provide bundled media tools before running transcription. The app needs `yt-dlp`, `ffmpeg`, and `ffprobe`. See [tools/README.md](tools/README.md).
+  On Windows development checkouts, install them with:
 
 ```bash
 npm run setup:media-tools
 ```
 
+- Restart Bilimi after changing main-process code or installing local transcription prerequisites.
 - The app uses the current Bilibili session only for the user-started transcription job and removes temporary job files after completion or failure.
