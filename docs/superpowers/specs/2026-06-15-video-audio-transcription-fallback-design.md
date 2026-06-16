@@ -1,9 +1,11 @@
 # Bilimi Video Audio Transcription Fallback Design
 
 - Date: 2026-06-15
-- Status: Approved design draft
+- Status: Superseded on 2026-06-16 by `docs/superpowers/specs/2026-06-16-local-faster-whisper-video-notes-design.md`
 - Scope: Current-video audio transcription fallback for video notes
 - Decision: Bundle `yt-dlp` and `ffmpeg`, reuse the current Bilibili login session through temporary cookies, and transcribe audio with OpenAI `whisper-1`
+
+> Supersession note: the implemented transcription path no longer uses OpenAI `whisper-1` or an in-app OpenAI API key. Video notes now default to local `faster-whisper` audio transcription, while manual pasted transcripts remain available.
 
 ## Background
 

@@ -15,14 +15,19 @@ npm run build
 
 The assistant can create notes from:
 
-- Bilibili subtitle extraction when subtitles are available.
+- Current-video audio transcription with local `faster-whisper`.
 - Manually pasted transcript text.
-- Current-video audio transcription when no transcript is available.
 
-Audio transcription is initiated from the video note panel with `转写音频`. The renderer extracts current video metadata, while Electron main owns temporary cookies, media-tool execution, temporary files, and OpenAI transcription calls.
+Video note generation reads the current Bilibili video metadata for title, BV ID, URL, and archive context, then downloads the current video audio and transcribes it locally. Manually pasted transcript text remains available as a fallback and does not download audio.
 
 ## Audio Transcription Prerequisites
 
-- Configure an OpenAI API key from the video note panel. The key is stored with Electron desktop preferences and is not rendered back into the UI.
+- Install Python and `faster-whisper` before running local transcription:
+
+```bash
+python -m pip install faster-whisper
+```
+
+- Optional: set `BILIMI_PYTHON_PATH` when Bilimi should use a specific Python executable.
 - Provide bundled media tools before running transcription. See [tools/README.md](tools/README.md).
 - The app uses the current Bilibili session only for the user-started transcription job and removes temporary job files after completion or failure.

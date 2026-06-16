@@ -2,19 +2,25 @@
 
 ## Implementation Status
 
-Implemented on `2026-06-16`.
+Implemented on `2026-06-16`, then superseded on `2026-06-16` by `docs/superpowers/plans/2026-06-16-local-faster-whisper-video-notes.md`.
 
 - `59c9d2b feat: add video audio transcription fallback`
 - `818f87e fix: show audio transcription for empty notes`
 
-Current behavior:
+Superseded behavior from this plan:
 
 - `VideoNote.transcriptSource` supports `audio`.
 - The video note panel exposes `转写音频` when no note exists and when an existing note has an empty transcript.
-- OpenAI API keys are saved through the app UI and loaded from `electron-store`; the implementation does not rely on `OPENAI_API_KEY`.
+- OpenAI API keys were saved through the app UI and loaded from `electron-store`; the implementation did not rely on `OPENAI_API_KEY`.
 - Bundled `yt-dlp` and `ffmpeg` paths are resolved from `tools/<platform>/` in development and packaged resources in production.
 - Temporary Bilibili cookies, downloaded audio, and segment files are owned by Electron main and cleaned after the transcription job ends.
 - Verification after implementation: `npm test` and `npm run build`.
+
+Current behavior after the superseding local transcription work:
+
+- Video notes default to current-video audio transcription through local `faster-whisper`.
+- Manual pasted transcripts remain available.
+- OpenAI API key UI, store state, IPC handlers, and the OpenAI transcription client were removed.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
