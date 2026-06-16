@@ -1,4 +1,5 @@
 import importlib.util
+import io
 import sys
 import types
 import unittest
@@ -18,6 +19,11 @@ def load_script():
 
 
 class TranscribeFasterWhisperTest(unittest.TestCase):
+    def test_configures_stdout_as_utf8(self):
+        module = load_script()
+
+        self.assertEqual(module.configure_utf8_stdio(), "utf-8")
+
     def test_defaults_to_cpu_int8_model_runtime(self):
         calls = []
 
@@ -36,7 +42,7 @@ class TranscribeFasterWhisperTest(unittest.TestCase):
                 sys,
                 "argv",
                 ["transcribe_faster_whisper.py", "--audio", "sample.wav", "--model", "tiny"],
-            ):
+            ), patch("sys.stdout", io.StringIO()):
                 self.assertEqual(module.main(), 0)
 
         self.assertEqual(calls, [(("tiny",), {"device": "cpu", "compute_type": "int8"})])

@@ -1,7 +1,38 @@
 import { describe, expect, it, vi } from 'vitest'
-import { buildYtdlpAudioArgs, downloadVideoAudio } from './audioDownload'
+
+const spawn = vi.hoisted(() => vi.fn())
+
+vi.mock('node:child_process', () => ({ default: { spawn }, spawn }))
+
+import { EventEmitter } from 'node:events'
+import { buildYtdlpAudioArgs, downloadVideoAudio, runProcess } from './audioDownload'
 
 describe('audio download', () => {
+  it('runs child processes with UTF-8 Python output enabled', async () => {
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: EventEmitter
+      stderr: EventEmitter
+    }
+    child.stdout = new EventEmitter()
+    child.stderr = new EventEmitter()
+    spawn.mockReturnValue(child)
+
+    const promise = runProcess('python', ['script.py'])
+    child.emit('close', 0)
+
+    await expect(promise).resolves.toEqual({ stdout: '', stderr: '', exitCode: 0 })
+    expect(spawn).toHaveBeenCalledWith(
+      'python',
+      ['script.py'],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          PYTHONUTF8: '1',
+          PYTHONIOENCODING: 'utf-8'
+        })
+      })
+    )
+  })
+
   it('builds conservative yt-dlp args for one current video', () => {
     expect(
       buildYtdlpAudioArgs({

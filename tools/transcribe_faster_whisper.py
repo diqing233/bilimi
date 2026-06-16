@@ -3,6 +3,15 @@ import json
 import sys
 
 
+def configure_utf8_stdio():
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8")
+
+    return getattr(sys.stdout, "encoding", None)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Transcribe audio with local faster-whisper.")
     parser.add_argument("--audio", required=True, help="Audio file path to transcribe.")
@@ -17,6 +26,7 @@ def parse_args():
 
 
 def main():
+    configure_utf8_stdio()
     args = parse_args()
 
     try:

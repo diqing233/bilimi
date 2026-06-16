@@ -10,7 +10,14 @@ export type RunProcess = (command: string, args: string[]) => Promise<ProcessRes
 
 export function runProcess(command: string, args: string[]): Promise<ProcessResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { windowsHide: true })
+    const child = spawn(command, args, {
+      env: {
+        ...process.env,
+        PYTHONUTF8: '1',
+        PYTHONIOENCODING: 'utf-8'
+      },
+      windowsHide: true
+    })
     let stdout = ''
     let stderr = ''
 
