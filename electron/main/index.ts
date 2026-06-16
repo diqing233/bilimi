@@ -3,13 +3,9 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  clearOpenAiApiKey,
   getDesktopStore,
   loadAssistantPreferences,
-  loadOpenAiApiKey,
-  loadOpenAiApiKeyStatus,
   loadVideoNotes,
-  saveOpenAiApiKey,
   saveAssistantPreferences,
   saveVideoNote,
   type AssistantPreferences
@@ -342,16 +338,6 @@ function requestMainAssistantRuntime<TPayload>(
   })
 }
 
-function getOpenAiApiKey() {
-  const value = loadOpenAiApiKey(getDesktopStore())
-
-  if (!value) {
-    throw new Error('OpenAI API key is invalid or missing.')
-  }
-
-  return value
-}
-
 function createMainWindow() {
   const win = new BrowserWindow(createMainWindowOptions(createPreloadScriptPath(__dirname)))
 
@@ -374,11 +360,6 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle('assistant:save-preferences', (_event, preferences: AssistantPreferences) =>
     saveAssistantPreferences(getDesktopStore(), preferences)
   )
-  ipcMain.handle('openai:key-status', () => loadOpenAiApiKeyStatus(getDesktopStore()))
-  ipcMain.handle('openai:save-key', (_event, apiKey: string) =>
-    saveOpenAiApiKey(getDesktopStore(), apiKey)
-  )
-  ipcMain.handle('openai:clear-key', () => clearOpenAiApiKey(getDesktopStore()))
   ipcMain.handle('video-notes:load', () => loadVideoNotes(getDesktopStore()))
   ipcMain.handle('video-notes:save', (_event, note: VideoNote) =>
     saveVideoNote(getDesktopStore(), note)
@@ -391,7 +372,6 @@ function registerAssistantPreferenceHandlers() {
 
       return transcribeCurrentVideoAudio({
         request,
-        apiKey: getOpenAiApiKey(),
         session: sourceSession,
         tempDir,
         progress: (progress) => {

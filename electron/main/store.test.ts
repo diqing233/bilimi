@@ -2,13 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_ASSISTANT_PREFERENCES,
   loadVideoNotes,
-  loadOpenAiApiKey,
-  loadOpenAiApiKeyStatus,
   loadAssistantPreferences,
-  saveOpenAiApiKey,
   saveVideoNote,
   saveAssistantPreferences,
-  clearOpenAiApiKey,
   type DesktopStoreState,
   type AssistantStoreLike
 } from './store'
@@ -18,7 +14,7 @@ function createStoreNote(id = 'bvid:BV1store'): VideoNote {
   return {
     id,
     source: {
-      title: '札记',
+      title: '鏈',
       bvid: id.replace('bvid:', ''),
       url: 'https://www.bilibili.com/video/BV1store',
       tags: []
@@ -27,7 +23,7 @@ function createStoreNote(id = 'bvid:BV1store'): VideoNote {
     transcript: [],
     chapters: [],
     overview: {
-      shortSummary: ['摘要'],
+      shortSummary: ['鎽樿'],
       keywords: [],
       timeline: [],
       highlights: []
@@ -48,7 +44,6 @@ function createFakeStore(
     ledgerPromptDismissed:
       initial.ledgerPromptDismissed ?? DEFAULT_ASSISTANT_PREFERENCES.ledgerPromptDismissed,
     preferenceCounts: initial.preferenceCounts ?? { ...DEFAULT_ASSISTANT_PREFERENCES.preferenceCounts },
-    openAiApiKey: initial.openAiApiKey ?? '',
     videoNotes: initial.videoNotes ?? []
   }
 
@@ -88,8 +83,8 @@ describe('assistant preference store helpers', () => {
       favoriteLedgers: [
         {
           id: 'custom-photo',
-          displayName: 'Bilimi·光影留真',
-          keywords: ['摄影'],
+          displayName: 'Bilimi路鍏夊奖鐣欑湡',
+          keywords: ['鎽勫奖'],
           enabled: true,
           priority: 50,
           isDefault: false
@@ -103,7 +98,7 @@ describe('assistant preference store helpers', () => {
       favoriteLedgers: expect.arrayContaining([
         expect.objectContaining({
           id: 'custom-photo',
-          displayName: 'Bilimi·光影留真'
+          displayName: 'Bilimi路鍏夊奖鐣欑湡'
         })
       ])
     })
@@ -162,7 +157,7 @@ describe('video note store helpers', () => {
     const first = createStoreNote()
     const second = {
       ...first,
-      userMemo: '更新备注',
+      userMemo: '鏇存柊澶囨敞',
       createdAt: '2026-04-29T00:00:00.000Z',
       updatedAt: '2026-04-29T00:00:00.000Z'
     }
@@ -174,24 +169,5 @@ describe('video note store helpers', () => {
         createdAt: first.createdAt
       }
     ])
-  })
-})
-
-describe('open ai key store helpers', () => {
-  it('saves and reports OpenAI key presence without exposing the key', () => {
-    const store = createFakeStore()
-
-    saveOpenAiApiKey(store, 'sk-test-secret')
-
-    expect(loadOpenAiApiKeyStatus(store)).toEqual({ configured: true })
-    expect(loadOpenAiApiKey(store)).toBe('sk-test-secret')
-  })
-
-  it('clears the OpenAI API key', () => {
-    const store = createFakeStore({ openAiApiKey: 'sk-test-secret' } as Partial<DesktopStoreState>)
-
-    clearOpenAiApiKey(store)
-
-    expect(loadOpenAiApiKeyStatus(store)).toEqual({ configured: false })
   })
 })

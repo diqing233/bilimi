@@ -472,6 +472,11 @@ export default function App() {
 
   async function generateRuntimeVideoNote(manualTranscript?: string): Promise<VideoNote | null> {
     const hasManualTranscript = Boolean(manualTranscript?.trim())
+
+    if (!hasManualTranscript) {
+      return generateRuntimeVideoNoteFromAudio()
+    }
+
     const extraction = await readVideoNoteSource()
 
     if (!extraction && !hasManualTranscript) {

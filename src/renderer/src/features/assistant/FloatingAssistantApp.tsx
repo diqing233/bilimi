@@ -98,7 +98,6 @@ export function FloatingAssistantApp({
   const [videoNoteLoading, setVideoNoteLoading] = useState(false)
   const [transcriptionProgress, setTranscriptionProgress] =
     useState<VideoAudioTranscriptionProgress | null>(null)
-  const [openAiApiKeyConfigured, setOpenAiApiKeyConfigured] = useState(false)
   const mounted = useRef(false)
   const activeTab = controlledActiveTab ?? uncontrolledActiveTab
   const isSidebarMode = mode === 'sidebar'
@@ -165,24 +164,6 @@ export function FloatingAssistantApp({
     return window.bilimiDesktop?.onVideoAudioTranscriptionProgress?.((progress) => {
       setTranscriptionProgress(progress)
     })
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function loadOpenAiApiKeyStatus() {
-      const status = await window.bilimiDesktop?.loadOpenAiApiKeyStatus?.()
-
-      if (!cancelled && status) {
-        setOpenAiApiKeyConfigured(status.configured)
-      }
-    }
-
-    void loadOpenAiApiKeyStatus()
-
-    return () => {
-      cancelled = true
-    }
   }, [])
 
   const resolvedSnapshot = snapshot ?? createFallbackSnapshot()
@@ -301,22 +282,6 @@ export function FloatingAssistantApp({
       return note
     } finally {
       setVideoNoteLoading(false)
-    }
-  }
-
-  async function saveOpenAiApiKey(apiKey: string) {
-    const status = await window.bilimiDesktop?.saveOpenAiApiKey?.(apiKey)
-
-    if (status) {
-      setOpenAiApiKeyConfigured(status.configured)
-    }
-  }
-
-  async function clearOpenAiApiKey() {
-    const status = await window.bilimiDesktop?.clearOpenAiApiKey?.()
-
-    if (status) {
-      setOpenAiApiKeyConfigured(status.configured)
     }
   }
 
@@ -444,9 +409,6 @@ export function FloatingAssistantApp({
             videoNote={videoNote}
             videoNoteLoading={videoNoteLoading}
             transcriptionProgress={transcriptionProgress}
-            openAiApiKeyConfigured={openAiApiKeyConfigured}
-            onSaveOpenAiApiKey={saveOpenAiApiKey}
-            onClearOpenAiApiKey={clearOpenAiApiKey}
             runningAction={runningAction}
             actionsLocked={actionsLocked}
             feedback={feedback}
