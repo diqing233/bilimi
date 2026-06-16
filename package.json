@@ -8,6 +8,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "setup:media-tools": "node scripts/setup-media-tools.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -19,6 +19,10 @@ function executableName(baseName: 'yt-dlp' | 'ffmpeg', platform: NodeJS.Platform
   return platform === 'win32' ? `${baseName}.exe` : baseName
 }
 
+function ffprobeName(platform: NodeJS.Platform): string {
+  return platform === 'win32' ? 'ffprobe.exe' : 'ffprobe'
+}
+
 function normalizePath(path: string): string {
   return path.replace(/\\/g, '/')
 }
@@ -28,10 +32,15 @@ export function createMediaToolPaths(input: MediaToolPathInput): MediaToolPaths 
   const toolRoot = join(root, 'tools', input.platform)
   const ytdlpPath = normalizePath(join(toolRoot, executableName('yt-dlp', input.platform)))
   const ffmpegPath = normalizePath(join(toolRoot, executableName('ffmpeg', input.platform)))
+  const ffprobePath = normalizePath(join(toolRoot, ffprobeName(input.platform)))
 
-  for (const path of [ytdlpPath, ffmpegPath]) {
+  for (const path of [ytdlpPath, ffmpegPath, ffprobePath]) {
     if (!input.exists(path)) {
-      throw new Error(`Bundled media tool is missing: ${path}`)
+      const setupHint = input.isPackaged
+        ? 'Reinstall Bilimi or rebuild the package with bundled media tools.'
+        : 'Run npm run setup:media-tools from the project root, then restart Bilimi.'
+
+      throw new Error(`Bundled media tool is missing: ${path}. ${setupHint}`)
     }
   }
 

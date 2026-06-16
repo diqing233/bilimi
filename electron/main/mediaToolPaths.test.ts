@@ -46,6 +46,30 @@ describe('media tool paths', () => {
     ).toThrow('Bundled media tool is missing')
   })
 
+  it('tells developers how to install missing media tools', () => {
+    expect(() =>
+      createMediaToolPaths({
+        appPath: 'C:/Users/diqing/bilimi',
+        isPackaged: false,
+        platform: 'win32',
+        resourcesPath: 'C:/Users/diqing/bilimi/out',
+        exists: () => false
+      })
+    ).toThrow('npm run setup:media-tools')
+  })
+
+  it('requires ffprobe beside ffmpeg because duration probing uses it', () => {
+    expect(() =>
+      createMediaToolPaths({
+        appPath: 'C:/Users/diqing/bilimi',
+        isPackaged: false,
+        platform: 'win32',
+        resourcesPath: 'C:/Users/diqing/bilimi/out',
+        exists: (path) => !path.endsWith('ffprobe.exe')
+      })
+    ).toThrow('ffprobe.exe')
+  })
+
   it('uses the current Electron app paths in the default resolver', () => {
     expect(typeof resolveMediaToolPaths).toBe('function')
   })

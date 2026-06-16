@@ -8,6 +8,14 @@ Bilimi expects media tools to be present under a platform-specific directory:
 
 The app does not download these tools at runtime. Development and packaged builds must provide them before audio transcription can run.
 
+For local Windows development, install the expected files with:
+
+```bash
+npm run setup:media-tools
+```
+
+Downloaded binaries are ignored by git. Re-run the command when setting up a new checkout or when the note flow reports that a bundled media tool is missing.
+
 ## Local Transcription Runtime
 
 Video notes use local `faster-whisper` transcription. The app looks for Python in this order:

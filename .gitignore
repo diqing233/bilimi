@@ -22,3 +22,8 @@ build/
 .worktrees/
 .superpowers/
 out/
+
+# Downloaded local media tools
+tools/win32/
+tools/darwin/
+tools/linux/
