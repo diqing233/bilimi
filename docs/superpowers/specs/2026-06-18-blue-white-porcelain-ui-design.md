@@ -17,7 +17,7 @@ The Bilibili webview content itself is out of scope. The webview remains a neutr
 
 ## Visual Direction
 
-Use porcelain white and pale blue as the dominant surfaces. Use cobalt blue for selected states, primary action surfaces, rail accents, and progress color. Use light cyan as a secondary accent for hover, panel depth, and subtle glows.
+Use porcelain white and pale blue as the dominant surfaces. Use cobalt blue for selected states, primary action surfaces, sidebar boundary controls, and progress color. Use light cyan as a secondary accent for hover, panel depth, and subtle glows.
 
 The UI should feel aligned with the pet's white hair, blue ornaments, porcelain clothing, and light blue highlights. It should still feel like a compact desktop tool, not a decorative landing page.
 
@@ -46,7 +46,7 @@ Browser-stack backgrounds can remain dark enough to frame the webview, but shoul
 
 ### Assistant Sidebar
 
-The sidebar background becomes pale blue-white. The rail becomes a cobalt-to-blue vertical surface with translucent white rail buttons. Active rail buttons use white-blue fills and crisp cobalt borders.
+The sidebar background becomes pale blue-white. The collapsed state must not preserve a vertical rail; it uses only the floating browser/sidebar boundary control. The control should share the porcelain surface treatment, with crisp cobalt borders and legible selected or focus states.
 
 The sidebar workspace should share the same surface treatment as floating workspaces so embedded and floating modes feel related.
 

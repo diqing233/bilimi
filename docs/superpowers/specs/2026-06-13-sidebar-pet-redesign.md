@@ -39,12 +39,9 @@ The main Bilimi window becomes a two-column shell:
 
 The sidebar is open by default. The Bilibili browser area resizes to make room for it, so the sidebar does not cover webpage content.
 
-The sidebar can collapse into a narrow icon rail. The icon rail must provide:
+The sidebar can collapse completely out of the layout. Collapsing it must remove the sidebar column instead of preserving a vertical rail, so the browser regains the space.
 
-1. A collapse or expand control.
-2. Icon entry points for `批阅`, `礼记`, and `掌库`.
-
-Selecting a tab icon while collapsed expands the sidebar and switches to that tab.
+A small floating boundary control stays on the browser/sidebar edge. It provides the only collapsed-state affordance, toggles between `收` and `展`, and aligns vertically with the browser tab strip. `批阅`, `礼记`, and `掌库` remain available as tabs after the sidebar is expanded.
 
 ## 5. Sidebar Features
 
@@ -129,7 +126,7 @@ Detailed recovery instructions and retry controls belong in the sidebar. The pet
 2. Pet click restores or opens the main app window.
 3. Pet prompts may point the user back to the sidebar but must not perform platform-changing actions.
 4. The sidebar is open by default.
-5. Collapsing the sidebar preserves a narrow icon rail.
+5. Collapsing the sidebar removes the sidebar column and leaves only the floating boundary control.
 6. The embedded browser resizes when the sidebar opens or closes.
 7. The separate floating function panel is removed.
 
@@ -169,7 +166,7 @@ The redesign is complete when:
 
 1. The main window shows Bilibili content and a right-side Bilimi sidebar by default.
 2. The Bilibili content area resizes instead of being covered by the sidebar.
-3. The sidebar can collapse to and expand from an icon rail.
+3. The sidebar can collapse to a floating boundary control and expand from it.
 4. `批阅`, `礼记`, and `掌库` remain available in the sidebar.
 5. The old floating function panel no longer appears.
 6. The floating entry is replaced by an independent palace-maid desktop pet.

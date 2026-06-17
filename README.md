@@ -11,6 +11,12 @@ npm test
 npm run build
 ```
 
+## Assistant Sidebar
+
+The main Bilimi window uses a two-column layout: the embedded Bilibili browser on the left and the Bilimi assistant sidebar on the right. The sidebar opens on `批阅` by default, with `礼记` and `掌库` available as tabs inside the same workspace.
+
+Collapsing the sidebar removes the sidebar column instead of leaving a vertical rail. A small floating boundary button labeled `收` or `展` stays on the browser/sidebar edge and aligns with the browser tab strip.
+
 ## Desktop Pet
 
 Bilimi includes a small transparent Electron desktop pet window rendered by `PalaceMaidPetApp`. The current pet is a lightweight 2D blue-white porcelain chibi maid using generated transparent PNG character states plus small effect layers.
