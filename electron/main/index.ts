@@ -5,8 +5,12 @@ import { join } from 'node:path'
 import {
   getDesktopStore,
   loadAssistantPreferences,
+  loadVideoNoteArchives,
   loadVideoNotes,
+  saveVideoNoteArchiveVersion,
   saveAssistantPreferences,
+  deleteVideoNoteArchiveEntry,
+  deleteVideoNoteArchiveVersion,
   saveVideoNote,
   type AssistantPreferences
 } from './store'
@@ -363,6 +367,18 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle('video-notes:load', () => loadVideoNotes(getDesktopStore()))
   ipcMain.handle('video-notes:save', (_event, note: VideoNote) =>
     saveVideoNote(getDesktopStore(), note)
+  )
+  ipcMain.handle('video-note-archives:load', () => loadVideoNoteArchives(getDesktopStore()))
+  ipcMain.handle('video-note-archives:save-version', (_event, note: VideoNote) =>
+    saveVideoNoteArchiveVersion(getDesktopStore(), note)
+  )
+  ipcMain.handle('video-note-archives:delete-entry', (_event, archiveId: string) =>
+    deleteVideoNoteArchiveEntry(getDesktopStore(), archiveId)
+  )
+  ipcMain.handle(
+    'video-note-archives:delete-version',
+    (_event, archiveId: string, versionId: string) =>
+      deleteVideoNoteArchiveVersion(getDesktopStore(), archiveId, versionId)
   )
   ipcMain.handle(
     'video-audio:transcribe-current',

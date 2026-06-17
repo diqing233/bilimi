@@ -1,7 +1,13 @@
 import Store from 'electron-store'
 import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '../../src/shared/favoriteLedgers'
+import {
+  appendVideoNoteArchiveVersion,
+  deleteVideoNoteArchiveEntry as removeVideoNoteArchiveEntry,
+  deleteVideoNoteArchiveVersion as removeVideoNoteArchiveVersion,
+  normalizeVideoNoteArchives
+} from '../../src/shared/videoNoteArchive'
 import { normalizeVideoNotes, upsertVideoNote } from '../../src/shared/videoNotes'
-import type { FavoriteLedger, VideoNote } from '../../src/shared/types'
+import type { FavoriteLedger, VideoNote, VideoNoteArchiveEntry } from '../../src/shared/types'
 
 export type AssistantPreferences = {
   favoritesFolderName: string
@@ -12,6 +18,7 @@ export type AssistantPreferences = {
 
 export type DesktopStoreState = AssistantPreferences & {
   videoNotes: VideoNote[]
+  videoNoteArchives: VideoNoteArchiveEntry[]
 }
 
 export type AssistantStoreLike = {
@@ -28,7 +35,8 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
 
 export const DEFAULT_DESKTOP_STORE_STATE: DesktopStoreState = {
   ...DEFAULT_ASSISTANT_PREFERENCES,
-  videoNotes: []
+  videoNotes: [],
+  videoNoteArchives: []
 }
 
 let desktopStore: Store<DesktopStoreState> | undefined
@@ -79,4 +87,45 @@ export function saveVideoNote(
   store.set('videoNotes', notes)
 
   return notes
+}
+
+export function loadVideoNoteArchives(
+  store: AssistantStoreLike = getDesktopStore()
+): VideoNoteArchiveEntry[] {
+  return normalizeVideoNoteArchives(store.get('videoNoteArchives') ?? [])
+}
+
+export function saveVideoNoteArchiveVersion(
+  store: AssistantStoreLike = getDesktopStore(),
+  note: VideoNote,
+  createdAt: string = new Date().toISOString()
+): VideoNoteArchiveEntry[] {
+  const archives = appendVideoNoteArchiveVersion(loadVideoNoteArchives(store), note, createdAt)
+
+  store.set('videoNoteArchives', archives)
+
+  return archives
+}
+
+export function deleteVideoNoteArchiveEntry(
+  store: AssistantStoreLike = getDesktopStore(),
+  archiveId: string
+): VideoNoteArchiveEntry[] {
+  const archives = removeVideoNoteArchiveEntry(loadVideoNoteArchives(store), archiveId)
+
+  store.set('videoNoteArchives', archives)
+
+  return archives
+}
+
+export function deleteVideoNoteArchiveVersion(
+  store: AssistantStoreLike = getDesktopStore(),
+  archiveId: string,
+  versionId: string
+): VideoNoteArchiveEntry[] {
+  const archives = removeVideoNoteArchiveVersion(loadVideoNoteArchives(store), archiveId, versionId)
+
+  store.set('videoNoteArchives', archives)
+
+  return archives
 }

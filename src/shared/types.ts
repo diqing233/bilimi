@@ -137,6 +137,28 @@ export type VideoNote = {
   updatedAt: string
 }
 
+export type VideoNoteArchiveVersion = {
+  id: string
+  note: VideoNote
+  plainTranscript: string
+  summaryText: string
+  createdAt: string
+}
+
+export type VideoNoteArchiveEntry = {
+  id: string
+  source: VideoNoteSourceMetadata
+  versions: VideoNoteArchiveVersion[]
+  createdAt: string
+  updatedAt: string
+}
+
+export type VideoNoteArchiveSearchFilters = {
+  query: string
+  hasAnnotations?: boolean
+  hasMemo?: boolean
+}
+
 export type VideoNoteExtractionResult = {
   source: VideoNoteSourceMetadata
   transcript: TranscriptSegment[]

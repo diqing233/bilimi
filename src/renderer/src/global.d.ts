@@ -6,7 +6,8 @@ import type {
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionRequest,
   VideoAudioTranscriptionResult,
-  VideoNote
+  VideoNote,
+  VideoNoteArchiveEntry
 } from '@shared/types'
 import type {
   AssistantRuntimeRequest,
@@ -29,6 +30,7 @@ type BilimiDesktopApi = {
   getCurrentVideoTime?: () => Promise<number>
   loadPreferences: () => Promise<AssistantPreferences>
   loadVideoNotes?: () => Promise<VideoNote[]>
+  loadVideoNoteArchives?: () => Promise<VideoNoteArchiveEntry[]>
   moveFloatingSealBy?: (deltaX: number, deltaY: number) => Promise<void>
   moveFloatingSealTo?: (screenX: number, screenY: number) => void
   notifyAssistantSnapshotChanged?: () => void
@@ -57,6 +59,12 @@ type BilimiDesktopApi = {
   scanOldFavorites?: () => Promise<FavoriteLedgerPreview>
   savePreferences: (preferences: AssistantPreferences) => Promise<AssistantPreferences>
   saveVideoNote?: (note: VideoNote) => Promise<VideoNote[]>
+  saveVideoNoteArchiveVersion?: (note: VideoNote) => Promise<VideoNoteArchiveEntry[]>
+  deleteVideoNoteArchiveEntry?: (archiveId: string) => Promise<VideoNoteArchiveEntry[]>
+  deleteVideoNoteArchiveVersion?: (
+    archiveId: string,
+    versionId: string
+  ) => Promise<VideoNoteArchiveEntry[]>
   seekVideoTime?: (seconds: number) => Promise<boolean>
   setAssistantPetState?: (state: AssistantPetState) => void
   startFloatingSealDrag?: (screenX: number, screenY: number) => void

@@ -2,13 +2,17 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_ASSISTANT_PREFERENCES,
   loadVideoNotes,
+  loadVideoNoteArchives,
   loadAssistantPreferences,
+  saveVideoNoteArchiveVersion,
+  deleteVideoNoteArchiveEntry,
+  deleteVideoNoteArchiveVersion,
   saveVideoNote,
   saveAssistantPreferences,
   type DesktopStoreState,
   type AssistantStoreLike
 } from './store'
-import type { VideoNote } from '../../src/shared/types'
+import type { VideoNote, VideoNoteArchiveEntry } from '../../src/shared/types'
 
 function createStoreNote(id = 'bvid:BV1store'): VideoNote {
   return {
@@ -44,7 +48,8 @@ function createFakeStore(
     ledgerPromptDismissed:
       initial.ledgerPromptDismissed ?? DEFAULT_ASSISTANT_PREFERENCES.ledgerPromptDismissed,
     preferenceCounts: initial.preferenceCounts ?? { ...DEFAULT_ASSISTANT_PREFERENCES.preferenceCounts },
-    videoNotes: initial.videoNotes ?? []
+    videoNotes: initial.videoNotes ?? [],
+    videoNoteArchives: initial.videoNoteArchives ?? []
   }
 
   return {
@@ -169,5 +174,64 @@ describe('video note store helpers', () => {
         createdAt: first.createdAt
       }
     ])
+  })
+})
+
+describe('video note archive store helpers', () => {
+  it('loads an empty archive list by default', () => {
+    const store = createFakeStore()
+
+    expect(loadVideoNoteArchives(store)).toEqual([])
+  })
+
+  it('loads legacy archive entries with derived transcript and summary text', () => {
+    const note = createStoreNote()
+    const archive = {
+      id: note.id,
+      source: note.source,
+      versions: [
+        {
+          id: 'version-1',
+          note,
+          createdAt: '2026-06-17T00:00:00.000Z'
+        }
+      ],
+      createdAt: '2026-06-17T00:00:00.000Z',
+      updatedAt: '2026-06-17T00:00:00.000Z'
+    } as VideoNoteArchiveEntry
+    const store = createFakeStore({ videoNoteArchives: [archive] })
+
+    expect(loadVideoNoteArchives(store)[0].versions[0]).toEqual(
+      expect.objectContaining({
+        plainTranscript: '',
+        summaryText: expect.stringContaining('## 速览')
+      })
+    )
+  })
+
+  it('saves each generated note as a version in the archive', () => {
+    const store = createFakeStore()
+    const first = createStoreNote()
+    const second = {
+      ...first,
+      transcript: [{ start: null, end: null, text: '第二次转写。' }],
+      updatedAt: '2026-06-17T01:00:00.000Z'
+    }
+
+    expect(saveVideoNoteArchiveVersion(store, first, '2026-06-17T00:00:00.000Z')[0].versions).toHaveLength(1)
+    expect(saveVideoNoteArchiveVersion(store, second, '2026-06-17T01:00:00.000Z')[0].versions).toHaveLength(2)
+    expect(store.snapshot.videoNoteArchives[0].versions[1].plainTranscript).toBe('第二次转写。')
+  })
+
+  it('deletes archive entries and versions', () => {
+    const store = createFakeStore()
+    const note = createStoreNote()
+    saveVideoNoteArchiveVersion(store, note, '2026-06-17T00:00:00.000Z')
+    saveVideoNoteArchiveVersion(store, note, '2026-06-17T01:00:00.000Z')
+    const archiveId = store.snapshot.videoNoteArchives[0].id
+    const versionId = store.snapshot.videoNoteArchives[0].versions[0].id
+
+    expect(deleteVideoNoteArchiveVersion(store, archiveId, versionId)[0].versions).toHaveLength(1)
+    expect(deleteVideoNoteArchiveEntry(store, archiveId)).toEqual([])
   })
 })

@@ -5,7 +5,8 @@ import type {
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionRequest,
   VideoAudioTranscriptionResult,
-  VideoNote
+  VideoNote,
+  VideoNoteArchiveEntry
 } from '../../src/shared/types'
 import type {
   AssistantRuntimeRequest,
@@ -21,6 +22,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   closeFloatingMenu: () => ipcRenderer.send('floating-menu:close'),
   loadPreferences: () => ipcRenderer.invoke('assistant:load-preferences') as Promise<AssistantPreferences>,
   loadVideoNotes: () => ipcRenderer.invoke('video-notes:load') as Promise<VideoNote[]>,
+  loadVideoNoteArchives: () =>
+    ipcRenderer.invoke('video-note-archives:load') as Promise<VideoNoteArchiveEntry[]>,
   finishFloatingSealDrag: () => ipcRenderer.send('floating-seal:finish-drag'),
   moveFloatingSealBy: (deltaX: number, deltaY: number) =>
     ipcRenderer.invoke('floating-seal:move-by', deltaX, deltaY) as Promise<void>,
@@ -146,6 +149,16 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('assistant:save-preferences', preferences) as Promise<AssistantPreferences>,
   saveVideoNote: (note: VideoNote) =>
     ipcRenderer.invoke('video-notes:save', note) as Promise<VideoNote[]>,
+  saveVideoNoteArchiveVersion: (note: VideoNote) =>
+    ipcRenderer.invoke('video-note-archives:save-version', note) as Promise<VideoNoteArchiveEntry[]>,
+  deleteVideoNoteArchiveEntry: (archiveId: string) =>
+    ipcRenderer.invoke('video-note-archives:delete-entry', archiveId) as Promise<VideoNoteArchiveEntry[]>,
+  deleteVideoNoteArchiveVersion: (archiveId: string, versionId: string) =>
+    ipcRenderer.invoke(
+      'video-note-archives:delete-version',
+      archiveId,
+      versionId
+    ) as Promise<VideoNoteArchiveEntry[]>,
   setAssistantPetState: (state: AssistantPetState) =>
     ipcRenderer.send('assistant-pet:set-state', state),
   startFloatingSealDrag: (screenX: number, screenY: number) =>
