@@ -821,54 +821,53 @@ body[data-floating-window="true"] {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: 54px minmax(0, 1fr);
+  grid-template-columns: 46px minmax(0, 1fr);
   border-left: 1px solid rgba(31, 99, 181, 0.28);
   background: var(--porcelain-ice);
 }
 
 .assistant-sidebar[data-collapsed="true"] {
-  width: 54px;
-  min-width: 54px;
-  grid-template-columns: 54px;
+  width: 46px;
+  min-width: 46px;
+  grid-template-columns: 46px;
 }
 
 .assistant-sidebar__rail {
   display: grid;
   align-content: start;
   gap: 6px;
-  padding: 8px 6px;
-  border-right: 1px solid rgba(31, 99, 181, 0.2);
-  background: linear-gradient(180deg, var(--porcelain-edge), var(--porcelain-deep));
+  padding: 14px 5px 8px;
+  border-right: 1px solid rgba(31, 99, 181, 0.18);
+  background: rgba(220, 238, 255, 0.92);
 }
 
 .assistant-sidebar__rail-button {
-  width: 42px;
-  min-height: 42px;
+  width: 34px;
+  min-height: 34px;
   display: grid;
   place-items: center;
   gap: 2px;
-  border: 1px solid rgba(220, 238, 255, 0.24);
-  border-radius: 7px;
-  background: rgba(247, 251, 255, 0.12);
-  color: var(--porcelain-white);
+  border: 1px solid rgba(31, 99, 181, 0.24);
+  border-radius: 6px;
+  background: rgba(247, 251, 255, 0.88);
+  color: var(--porcelain-deep);
   cursor: pointer;
   font: 12px "Noto Serif SC", "Songti SC", "SimSun", serif;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow:
+    0 2px 6px rgba(31, 99, 181, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .assistant-sidebar__rail-button:hover,
-.assistant-sidebar__rail-button:focus-visible,
-.assistant-sidebar__rail-button[aria-pressed="true"] {
-  border-color: rgba(116, 199, 223, 0.42);
-  background: rgba(247, 251, 255, 0.22);
-}
-
-.assistant-sidebar__rail-button strong {
-  font-size: 14px;
-  line-height: 1;
+.assistant-sidebar__rail-button:focus-visible {
+  border-color: rgba(31, 99, 181, 0.46);
+  background: var(--porcelain-white);
+  color: var(--porcelain-primary);
 }
 
 .assistant-sidebar__rail-button span {
-  font-size: 10px;
   line-height: 1;
 }
 

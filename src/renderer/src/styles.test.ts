@@ -46,4 +46,14 @@ describe('renderer porcelain theme styles', () => {
       expect(styles).toContain(token)
     }
   })
+  it('keeps the sidebar rail as a light boundary control instead of a dark feature menu', () => {
+    const sidebarStyles = styles.replace(/\r\n/g, '\n')
+    const railRule = sidebarStyles.match(/\.assistant-sidebar__rail \{\n(?<body>[\s\S]*?)\n\}/)
+
+    expect(railRule?.groups?.body).toContain('background: rgba(220, 238, 255, 0.92);')
+    expect(railRule?.groups?.body).not.toContain('var(--porcelain-edge)')
+    expect(railRule?.groups?.body).not.toContain('var(--porcelain-deep)')
+    expect(sidebarStyles).toContain('grid-template-columns: 46px minmax(0, 1fr);')
+    expect(sidebarStyles).toContain('.assistant-sidebar[data-collapsed="true"] {\n  width: 46px;')
+  })
 })

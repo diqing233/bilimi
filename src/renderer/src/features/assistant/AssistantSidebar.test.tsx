@@ -31,10 +31,16 @@ describe('AssistantSidebar', () => {
     )
   })
 
-  it('collapses to the icon rail and expands from a tab icon', async () => {
+  it('uses the boundary control as the only rail action', async () => {
     installDesktopApi()
 
     render(<AssistantSidebar />)
+
+    const rail = screen.getByRole('navigation', { name: '侧边栏收合控制' })
+    expect(rail).toContainElement(screen.getByRole('button', { name: '收起侧边栏' }))
+    expect(screen.queryByRole('button', { name: '打开批阅' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '打开札记' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '打开掌库' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '收起侧边栏' }))
 
@@ -44,9 +50,9 @@ describe('AssistantSidebar', () => {
     )
     expect(screen.queryByRole('tab', { name: '批阅' })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '打开掌库' }))
+    fireEvent.click(screen.getByRole('button', { name: '展开侧边栏' }))
 
-    expect(await screen.findByRole('tab', { name: '掌库' })).toHaveAttribute(
+    expect(await screen.findByRole('tab', { name: '批阅' })).toHaveAttribute(
       'aria-selected',
       'true'
     )
