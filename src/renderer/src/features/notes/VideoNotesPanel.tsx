@@ -41,6 +41,14 @@ function formatTimestamp(seconds: number | null): string {
   return `${minutes.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}`
 }
 
+function createAnnotationTitle(value: string): string {
+  return value
+    .replace(/^(先|再|然后|接着|最后)?(介绍|说明|讲解|解释|总结)/, '')
+    .replace(/[。！？!?.,，、；;：:]+$/g, '')
+    .trim()
+    .slice(0, 18)
+}
+
 export function VideoNotesPanel({
   note,
   isLoading,
@@ -78,6 +86,11 @@ export function VideoNotesPanel({
 
   async function handleGenerate(manualText?: string): Promise<void> {
     if (generationBusy) {
+      return
+    }
+
+    if (!manualText?.trim() && onTranscribeAudio) {
+      await handleTranscribeAudio()
       return
     }
 
@@ -169,6 +182,16 @@ export function VideoNotesPanel({
     setAnnotationStart(null)
     setAnnotationTitle('')
     setAnnotationBody('')
+  }
+
+  function startAnnotationDraft(start: number | null, title: string): void {
+    setAnnotationId(null)
+    setAnnotationStart(start)
+    setAnnotationTitle(createAnnotationTitle(title))
+    setAnnotationBody('')
+    setActiveTab('annotations')
+    setStatusMessage('')
+    setErrorMessage('')
   }
 
   async function handleSaveAnnotation(): Promise<void> {
@@ -392,6 +415,9 @@ export function VideoNotesPanel({
                 <time>{formatTimestamp(item.start)}</time>
                 <strong>{item.title}</strong>
                 <p>{item.detail}</p>
+                <button type="button" onClick={() => startAnnotationDraft(item.start, item.title)}>
+                  加批注
+                </button>
               </li>
             ))}
           </ol>
@@ -421,6 +447,9 @@ export function VideoNotesPanel({
               <li key={`${segment.start ?? 'unknown'}-${index}`}>
                 <time>{formatTimestamp(segment.start)}</time>
                 <p>{segment.text}</p>
+                <button type="button" onClick={() => startAnnotationDraft(segment.start, segment.text)}>
+                  加批注
+                </button>
               </li>
             ))}
           </ol>

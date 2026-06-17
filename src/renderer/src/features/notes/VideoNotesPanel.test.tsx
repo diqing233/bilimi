@@ -54,6 +54,26 @@ describe('VideoNotesPanel', () => {
     await waitFor(() => expect(onGenerate).toHaveBeenCalledWith(undefined))
   })
 
+  it('uses audio transcription for the default note organization action when available', async () => {
+    const onGenerate = vi.fn().mockResolvedValue(null)
+    const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
+
+    render(
+      <VideoNotesPanel
+        note={null}
+        isLoading={false}
+        onGenerate={onGenerate}
+        onSave={vi.fn()}
+        onTranscribeAudio={onTranscribeAudio}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
+
+    await waitFor(() => expect(onTranscribeAudio).toHaveBeenCalledOnce())
+    expect(onGenerate).not.toHaveBeenCalled()
+  })
+
   it('switches between overview, transcript, and archive tabs when a note exists', () => {
     render(
       <VideoNotesPanel
@@ -122,6 +142,43 @@ describe('VideoNotesPanel', () => {
     expect(screen.getByText('先介绍机器学习的基本概念。')).toBeInTheDocument()
     expect(screen.getByText('01:15')).toBeInTheDocument()
     expect(screen.getByText('再说明训练数据如何影响模型。')).toBeInTheDocument()
+  })
+
+  it('starts a timestamp annotation from a transcript segment', () => {
+    render(
+      <VideoNotesPanel
+        note={sampleNote}
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+        onChange={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('tab', { name: '文稿' }))
+    fireEvent.click(screen.getAllByRole('button', { name: '加批注' })[1])
+
+    expect(screen.getByRole('tab', { name: '批注' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('button', { name: '01:15' })).toBeInTheDocument()
+    expect(screen.getByLabelText<HTMLInputElement>('批注标题').value).toBe('训练数据如何影响模型')
+  })
+
+  it('starts a timestamp annotation from a timeline item', () => {
+    render(
+      <VideoNotesPanel
+        note={sampleNote}
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+        onChange={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: '加批注' })[1])
+
+    expect(screen.getByRole('tab', { name: '批注' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('button', { name: '01:15' })).toBeInTheDocument()
+    expect(screen.getByLabelText<HTMLInputElement>('批注标题').value).toBe('数据')
   })
 
   it('shows archive metadata and reports after saving the note', async () => {

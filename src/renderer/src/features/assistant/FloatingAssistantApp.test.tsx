@@ -238,15 +238,15 @@ describe('FloatingAssistantApp', () => {
 
   it('generates notes through the floating assistant bridge', async () => {
     const note = createVideoNote()
-    const generateVideoNote = vi.fn().mockResolvedValue(note)
-    installDesktopApi({ generateVideoNote })
+    const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(note)
+    installDesktopApi({ generateVideoNoteFromAudio })
 
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
     fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
 
-    await waitFor(() => expect(generateVideoNote).toHaveBeenCalledWith(undefined))
+    await waitFor(() => expect(generateVideoNoteFromAudio).toHaveBeenCalledOnce())
     await waitFor(() => expect(screen.getAllByText('机器学习需要数据和模型。').length).toBeGreaterThan(0))
   })
 
@@ -283,17 +283,17 @@ describe('FloatingAssistantApp', () => {
   })
 
   it('passes video time controls into the notes panel', async () => {
-    const generateVideoNote = vi.fn().mockResolvedValue(createVideoNote())
+    const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(createVideoNote())
     const getCurrentVideoTime = vi.fn().mockResolvedValue(92)
     const seekVideoTime = vi.fn().mockResolvedValue(true)
     const saveVideoNote = vi.fn().mockResolvedValue([])
-    installDesktopApi({ generateVideoNote, getCurrentVideoTime, seekVideoTime, saveVideoNote })
+    installDesktopApi({ generateVideoNoteFromAudio, getCurrentVideoTime, seekVideoTime, saveVideoNote })
 
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
     fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
-    await waitFor(() => expect(generateVideoNote).toHaveBeenCalledWith(undefined))
+    await waitFor(() => expect(generateVideoNoteFromAudio).toHaveBeenCalledOnce())
 
     fireEvent.click(await screen.findByRole('tab', { name: '批注' }))
     fireEvent.click(screen.getByRole('button', { name: '取当前时间' }))
@@ -327,15 +327,15 @@ describe('FloatingAssistantApp', () => {
   })
 
   it('saves locally updated notes through the floating assistant bridge', async () => {
-    const generateVideoNote = vi.fn().mockResolvedValue(createVideoNote())
+    const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(createVideoNote())
     const saveVideoNote = vi.fn().mockResolvedValue([])
-    installDesktopApi({ generateVideoNote, saveVideoNote })
+    installDesktopApi({ generateVideoNoteFromAudio, saveVideoNote })
 
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
     fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
-    await waitFor(() => expect(generateVideoNote).toHaveBeenCalledWith(undefined))
+    await waitFor(() => expect(generateVideoNoteFromAudio).toHaveBeenCalledOnce())
 
     fireEvent.click(await screen.findByRole('tab', { name: '归档' }))
     fireEvent.change(screen.getByLabelText('本地备注'), {

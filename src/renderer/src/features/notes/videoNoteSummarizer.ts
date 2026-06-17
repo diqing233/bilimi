@@ -99,12 +99,26 @@ function createOverview(chapters: TranscriptChapter[], keywords: string[]): Vide
     title: chapter.title,
     detail: chapter.summary
   }))
+  const keyChapters = chapters.slice(0, 2)
+  const revisitChapters = chapters
+    .filter((chapter) => chapter.start !== null)
+    .slice(0, 2)
+  const shortSummary = [
+    `一句话：${chapters[0].summary}`,
+    ...keyChapters.map((chapter) => `核心要点：${chapter.summary}`),
+    ...(revisitChapters[0] ? [`值得复看：${revisitChapters[0].summary}`] : []),
+    '待查问题：这些方法如何迁移到你的真实项目里？'
+  ].slice(0, 5)
 
   return {
-    shortSummary: chapters.slice(0, 5).map((chapter) => chapter.summary),
+    shortSummary,
     keywords,
     timeline,
-    highlights: timeline.slice(0, 3)
+    highlights: revisitChapters.map((chapter) => ({
+      start: chapter.start,
+      title: '值得复看',
+      detail: chapter.summary
+    }))
   }
 }
 
