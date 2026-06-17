@@ -3,7 +3,8 @@ import type {
   AssistantAutomationResult,
   AssistantPreferences,
   FavoriteLedgerStatus,
-  VideoNote
+  VideoNote,
+  VideoNoteArchiveEntry
 } from '@shared/types'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
@@ -76,6 +77,10 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const generateVideoNote = vi.fn().mockResolvedValue(null)
   const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(null)
   const saveVideoNote = vi.fn().mockResolvedValue([])
+  const saveVideoNoteArchiveVersion = vi.fn().mockResolvedValue([])
+  const loadVideoNoteArchives = vi.fn().mockResolvedValue([])
+  const deleteVideoNoteArchiveEntry = vi.fn().mockResolvedValue([])
+  const deleteVideoNoteArchiveVersion = vi.fn().mockResolvedValue([])
   const loadOpenAiApiKeyStatus = vi.fn().mockResolvedValue({ configured: true })
   const saveOpenAiApiKey = vi.fn().mockResolvedValue({ configured: true })
   const clearOpenAiApiKey = vi.fn().mockResolvedValue({ configured: false })
@@ -103,6 +108,10 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     saveOpenAiApiKey,
     savePreferences,
     saveVideoNote,
+    saveVideoNoteArchiveVersion,
+    loadVideoNoteArchives,
+    deleteVideoNoteArchiveEntry,
+    deleteVideoNoteArchiveVersion,
     scanOldFavorites,
     clearOpenAiApiKey,
     ...overrides
@@ -282,6 +291,41 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() => expect(screen.getAllByText('机器学习需要数据和模型。').length).toBeGreaterThan(0))
   })
 
+  it('archives generated audio notes and opens the global archive panel', async () => {
+    const note = createVideoNote()
+    const archive: VideoNoteArchiveEntry = {
+      id: note.id,
+      source: note.source,
+      versions: [
+        {
+          id: `${note.id}:version:${note.updatedAt}`,
+          note,
+          plainTranscript: '机器学习需要数据和模型。',
+          summaryText: '## 速览\n\n- 机器学习需要数据和模型。',
+          createdAt: note.updatedAt
+        }
+      ],
+      createdAt: note.updatedAt,
+      updatedAt: note.updatedAt
+    }
+    const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(note)
+    const saveVideoNoteArchiveVersion = vi.fn().mockResolvedValue([archive])
+    const loadVideoNoteArchives = vi.fn().mockResolvedValue([archive])
+    installDesktopApi({ generateVideoNoteFromAudio, saveVideoNoteArchiveVersion, loadVideoNoteArchives })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+
+    await waitFor(() => expect(saveVideoNoteArchiveVersion).toHaveBeenCalledWith(note))
+    fireEvent.click(screen.getByRole('button', { name: '档案库' }))
+
+    expect(await screen.findByRole('region', { name: '全局档案库' })).toBeInTheDocument()
+    expect(screen.getByText('所有视频历史')).toBeInTheDocument()
+    expect(screen.getAllByText('机器学习入门教程').length).toBeGreaterThan(0)
+  })
+
   it('passes video time controls into the notes panel', async () => {
     const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(createVideoNote())
     const getCurrentVideoTime = vi.fn().mockResolvedValue(92)
@@ -295,7 +339,6 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
     await waitFor(() => expect(generateVideoNoteFromAudio).toHaveBeenCalledOnce())
 
-    fireEvent.click(await screen.findByRole('tab', { name: '批注' }))
     fireEvent.click(screen.getByRole('button', { name: '取当前时间' }))
     await waitFor(() => expect(getCurrentVideoTime).toHaveBeenCalledOnce())
 
@@ -337,10 +380,12 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
     await waitFor(() => expect(generateVideoNoteFromAudio).toHaveBeenCalledOnce())
 
-    fireEvent.click(await screen.findByRole('tab', { name: '归档' }))
     fireEvent.change(screen.getByLabelText('本地备注'), {
       target: { value: '悬浮窗里写下的复习备注。' }
     })
+    expect(screen.getByLabelText<HTMLTextAreaElement>('本地备注').value).toBe(
+      '悬浮窗里写下的复习备注。'
+    )
     fireEvent.click(screen.getByRole('button', { name: '保存札记' }))
 
     await waitFor(() =>

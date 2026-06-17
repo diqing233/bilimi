@@ -5,7 +5,8 @@ import type {
   FavoriteLedgerStatus,
   RecommendationKind,
   VideoAudioTranscriptionProgress,
-  VideoNote
+  VideoNote,
+  VideoNoteArchiveEntry
 } from '@shared/types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { composeMemorialComments } from '../comments/commentComposer'
@@ -19,6 +20,7 @@ import { CoinPrompt } from './CoinPrompt'
 import { CommentChooser } from './CommentChooser'
 import { FavoriteLedgerPanel } from './FavoriteLedgerPanel'
 import { MemorialPanel } from './MemorialPanel'
+import { VideoNoteArchivePanel } from '../notes/VideoNoteArchivePanel'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
 
@@ -33,6 +35,7 @@ const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
 }
 
 type AssistantWorkspaceTab = 'review' | 'notes' | 'ledger'
+type AssistantWorkspaceView = AssistantWorkspaceTab | 'noteArchive'
 
 type FloatingAssistantAppProps = {
   mode?: 'floating' | 'sidebar'
@@ -95,14 +98,18 @@ export function FloatingAssistantApp({
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null)
   const [pageClickOnly, setPageClickOnly] = useState(true)
   const [videoNote, setVideoNote] = useState<VideoNote | null>(null)
+  const [videoNoteArchives, setVideoNoteArchives] = useState<VideoNoteArchiveEntry[]>([])
   const [videoNoteLoading, setVideoNoteLoading] = useState(false)
   const [transcriptionProgress, setTranscriptionProgress] =
     useState<VideoAudioTranscriptionProgress | null>(null)
   const mounted = useRef(false)
   const activeTab = controlledActiveTab ?? uncontrolledActiveTab
+  const [activeView, setActiveView] = useState<AssistantWorkspaceView>(activeTab)
   const isSidebarMode = mode === 'sidebar'
 
   function setActiveTab(tab: AssistantWorkspaceTab) {
+    setActiveView(tab)
+
     if (controlledActiveTab === undefined) {
       setUncontrolledActiveTab(tab)
     }
@@ -145,9 +152,14 @@ export function FloatingAssistantApp({
   }, [])
 
   useEffect(() => {
+    setActiveView(activeTab)
+  }, [activeTab])
+
+  useEffect(() => {
     mounted.current = true
 
     void loadSnapshot()
+    void loadVideoNoteArchives()
 
     return () => {
       mounted.current = false
@@ -279,14 +291,44 @@ export function FloatingAssistantApp({
     try {
       const note = (await window.bilimiDesktop?.generateVideoNoteFromAudio?.()) ?? null
       setVideoNote(note)
+
+      if (note) {
+        const archives = await window.bilimiDesktop?.saveVideoNoteArchiveVersion?.(note)
+
+        if (archives) {
+          setVideoNoteArchives(archives)
+        }
+      }
+
       return note
     } finally {
       setVideoNoteLoading(false)
     }
   }
 
+  async function loadVideoNoteArchives() {
+    const archives = (await window.bilimiDesktop?.loadVideoNoteArchives?.()) ?? []
+    setVideoNoteArchives(archives)
+    return archives
+  }
+
+  async function deleteVideoNoteArchiveEntry(archiveId: string) {
+    const archives = (await window.bilimiDesktop?.deleteVideoNoteArchiveEntry?.(archiveId)) ?? []
+    setVideoNoteArchives(archives)
+  }
+
+  async function deleteVideoNoteArchiveVersion(archiveId: string, versionId: string) {
+    const archives =
+      (await window.bilimiDesktop?.deleteVideoNoteArchiveVersion?.(archiveId, versionId)) ?? []
+    setVideoNoteArchives(archives)
+  }
+
   async function saveVideoNote(note: VideoNote) {
     await window.bilimiDesktop?.saveVideoNote?.(note)
+  }
+
+  function handleChangeVideoNote(note: VideoNote) {
+    setVideoNote(note)
   }
 
   async function getCurrentVideoTime() {
@@ -374,7 +416,7 @@ export function FloatingAssistantApp({
           </button>
         </div>
 
-        {activeTab === 'ledger' ? (
+        {activeView === 'ledger' ? (
           <FavoriteLedgerPanel
             ledgers={preferences.favoriteLedgers}
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? []}
@@ -389,6 +431,14 @@ export function FloatingAssistantApp({
             onScanOldFavorites={scanOldFavorites}
             onExecuteOldFavoritePlan={executeOldFavoritePlan}
           />
+        ) : activeView === 'noteArchive' ? (
+          <VideoNoteArchivePanel
+            archives={videoNoteArchives}
+            onClose={() => setActiveTab('notes')}
+            onOpenSource={(url) => window.open(url)}
+            onDeleteEntry={deleteVideoNoteArchiveEntry}
+            onDeleteVersion={deleteVideoNoteArchiveVersion}
+          />
         ) : (
           <MemorialPanel
             recommendation={recommendation}
@@ -401,7 +451,7 @@ export function FloatingAssistantApp({
             onGenerateVideoNote={generateVideoNote}
             onTranscribeVideoAudio={generateVideoNoteFromAudio}
             onSaveVideoNote={saveVideoNote}
-            onChangeVideoNote={setVideoNote}
+            onChangeVideoNote={handleChangeVideoNote}
             onGetCurrentVideoTime={getCurrentVideoTime}
             onSeekVideoTime={seekVideoTime}
             pageClickOnly={pageClickOnly}
@@ -413,7 +463,11 @@ export function FloatingAssistantApp({
             actionsLocked={actionsLocked}
             feedback={feedback}
             onOpenLedgerPanel={() => setActiveTab('ledger')}
-            initialTab={activeTab === 'notes' ? 'notes' : 'review'}
+            onOpenVideoNoteArchive={() => {
+              void loadVideoNoteArchives()
+              setActiveView('noteArchive')
+            }}
+            initialTab={activeView === 'notes' ? 'notes' : 'review'}
             showTabs={false}
           />
         )}

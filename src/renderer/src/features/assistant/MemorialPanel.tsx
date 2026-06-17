@@ -23,6 +23,7 @@ type MemorialPanelProps = {
   onGetCurrentVideoTime?: () => Promise<number>
   onSeekVideoTime?: (seconds: number) => Promise<boolean>
   onOpenLedgerPanel?: () => void
+  onOpenVideoNoteArchive?: () => void
   pageClickOnly: boolean
   onPageClickOnlyChange: (pageClickOnly: boolean) => void
   videoNote: VideoNote | null
@@ -67,6 +68,7 @@ export function MemorialPanel({
   onGetCurrentVideoTime,
   onSeekVideoTime,
   onOpenLedgerPanel,
+  onOpenVideoNoteArchive,
   pageClickOnly,
   onPageClickOnlyChange,
   videoNote,
@@ -177,6 +179,7 @@ export function MemorialPanel({
             onChange={onChangeVideoNote}
             onGetCurrentTime={onGetCurrentVideoTime}
             onSeekToTime={onSeekVideoTime}
+            onOpenArchive={onOpenVideoNoteArchive}
             transcriptionProgress={transcriptionProgress}
           />
         )}
