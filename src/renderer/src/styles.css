@@ -833,15 +833,19 @@ body[data-floating-window="true"] {
 }
 
 .assistant-sidebar__rail {
+  position: relative;
   display: grid;
   align-content: start;
   gap: 6px;
-  padding: 14px 5px 8px;
+  padding: 0 5px 8px;
   border-right: 1px solid rgba(31, 99, 181, 0.18);
   background: rgba(220, 238, 255, 0.92);
 }
 
 .assistant-sidebar__rail-button {
+  position: absolute;
+  top: 12px;
+  left: 5px;
   width: 34px;
   min-height: 34px;
   display: grid;

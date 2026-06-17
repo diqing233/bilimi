@@ -51,9 +51,11 @@ describe('renderer porcelain theme styles', () => {
     const railRule = sidebarStyles.match(/\.assistant-sidebar__rail \{\n(?<body>[\s\S]*?)\n\}/)
 
     expect(railRule?.groups?.body).toContain('background: rgba(220, 238, 255, 0.92);')
+    expect(railRule?.groups?.body).toContain('position: relative;')
     expect(railRule?.groups?.body).not.toContain('var(--porcelain-edge)')
     expect(railRule?.groups?.body).not.toContain('var(--porcelain-deep)')
     expect(sidebarStyles).toContain('grid-template-columns: 46px minmax(0, 1fr);')
     expect(sidebarStyles).toContain('.assistant-sidebar[data-collapsed="true"] {\n  width: 46px;')
+    expect(sidebarStyles).toContain('.assistant-sidebar__rail-button {\n  position: absolute;\n  top: 12px;\n  left: 5px;')
   })
 })
