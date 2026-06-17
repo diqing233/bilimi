@@ -836,7 +836,7 @@ body[data-floating-window="true"] {
 
 .assistant-sidebar__collapse-button {
   position: absolute;
-  top: 12px;
+  top: 5px;
   left: -40px;
   z-index: 3;
   width: 34px;

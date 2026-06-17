@@ -53,6 +53,6 @@ describe('renderer porcelain theme styles', () => {
     expect(sidebarStyles).not.toContain('grid-template-columns: 46px minmax(0, 1fr);')
     expect(sidebarStyles).toContain('grid-template-columns: minmax(0, 1fr);')
     expect(sidebarStyles).toContain('.assistant-sidebar[data-collapsed="true"] {\n  width: 0;')
-    expect(sidebarStyles).toContain('.assistant-sidebar__collapse-button {\n  position: absolute;\n  top: 12px;\n  left: -40px;')
+    expect(sidebarStyles).toContain('.assistant-sidebar__collapse-button {\n  position: absolute;\n  top: 5px;\n  left: -40px;')
   })
 })
