@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { LayeredPetRenderer } from './LayeredPetRenderer'
 import {
   createPetStateView,
   normalizePetState,
@@ -18,6 +19,7 @@ export function PalaceMaidPetApp() {
   const suppressNextClick = useRef(false)
   const [pressed, setPressed] = useState(false)
   const [petState, setPetState] = useState<AssistantPetState>('idle')
+  const [clickReactionSignal, setClickReactionSignal] = useState(0)
   const stateView = createPetStateView(petState)
 
   useEffect(() => {
@@ -79,6 +81,7 @@ export function PalaceMaidPetApp() {
   }
 
   function restoreMainWindow() {
+    setClickReactionSignal((signal) => signal + 1)
     setPetState('hint')
     void window.bilimiDesktop?.restoreMainWindowFromPet?.()
   }
@@ -120,15 +123,7 @@ export function PalaceMaidPetApp() {
         }}
       >
         <span className="palace-maid-pet__halo" aria-hidden="true" />
-        <span className="palace-maid-pet__figure" aria-hidden="true">
-          <span className="palace-maid-pet__hair" />
-          <span className="palace-maid-pet__face">
-            <span className="palace-maid-pet__eye palace-maid-pet__eye--left" />
-            <span className="palace-maid-pet__eye palace-maid-pet__eye--right" />
-            <span className="palace-maid-pet__mouth" />
-          </span>
-          <span className="palace-maid-pet__robe" />
-        </span>
+        <LayeredPetRenderer petState={petState} clickReactionSignal={clickReactionSignal} />
         <span className="palace-maid-pet__bubble">
           <strong>{stateView.label}</strong>
           <span>{stateView.bubble}</span>

@@ -1,7 +1,24 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { PalaceMaidPetApp } from './PalaceMaidPetApp'
 import type { AssistantPetState } from './petState'
+
+vi.mock('./LayeredPetRenderer', () => ({
+  LayeredPetRenderer: ({
+    petState,
+    clickReactionSignal
+  }: {
+    petState: AssistantPetState
+    clickReactionSignal: number
+  }) => (
+    <span
+      data-testid="mock-layered-pet"
+      data-pet-state={petState}
+      data-click-reaction-signal={clickReactionSignal}
+    />
+  )
+}))
+
+import { PalaceMaidPetApp } from './PalaceMaidPetApp'
 
 function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const api = {
@@ -34,6 +51,10 @@ describe('PalaceMaidPetApp', () => {
     expect(api.restoreMainWindowFromPet).toHaveBeenCalledOnce()
     expect(window.bilimiDesktop.toggleFloatingAssistant).toBeUndefined()
     expect(window.bilimiDesktop.toggleFloatingMenu).toBeUndefined()
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute(
+      'data-click-reaction-signal',
+      '1'
+    )
   })
 
   it('renders pet state changes from the desktop shell', () => {
@@ -72,5 +93,9 @@ describe('PalaceMaidPetApp', () => {
     expect(api.startFloatingSealDrag).toHaveBeenCalledWith(110, 210)
     expect(api.finishFloatingSealDrag).toHaveBeenCalledOnce()
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute(
+      'data-click-reaction-signal',
+      '0'
+    )
   })
 })
