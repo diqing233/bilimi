@@ -8,6 +8,8 @@
 
 **Tech Stack:** Electron, React 19, TypeScript, Vite asset imports, Vitest, Testing Library, CSS keyframes, generated transparent PNG assets.
 
+**Implementation note (2026-06-17):** The final implementation intentionally diverged from the early fine-grained `base/`, `face/`, and `accessories/` asset split. After visual review, the shipped version uses five high-fidelity full-character state PNGs under `src/renderer/src/assets/pet/blue-white-maid/character/` plus four small effect PNGs under `effects/`. The runtime layer contract is `character | effect`; expression names remain in the model as semantic state metadata and future Live2D/Spine upgrade hooks, not as separate face image imports.
+
 ---
 
 ## File Structure
@@ -19,9 +21,9 @@
 - Create: `src/renderer/src/features/assistant/layeredPetModel.test.ts`
   - Unit-tests state mapping and transient overlay behavior.
 - Create: `src/renderer/src/features/assistant/petAssets.ts`
-  - Imports generated PNG assets and exposes a keyed asset manifest.
+  - Imports generated character-state PNG assets and effect PNG assets, then exposes a keyed asset manifest.
 - Create: `src/renderer/src/features/assistant/LayeredPetRenderer.tsx`
-  - Renders the layer stack with fixed ordering, active expression/effect layers, image failure fallback, and click transient timer.
+  - Renders the character/effect layer stack with fixed ordering, image failure fallback, and click transient timer.
 - Create: `src/renderer/src/features/assistant/LayeredPetRenderer.test.tsx`
   - Component-tests persistent state rendering, transient click behavior, fallback, and reduced-motion data attributes.
 - Modify: `src/renderer/src/features/assistant/PalaceMaidPetApp.tsx`
@@ -31,7 +33,7 @@
 - Modify: `src/renderer/src/styles.css`
   - Remove or neutralize old CSS-only character body styles and add layered pet stage, image layer, effect, state motion, transient, fallback, and reduced-motion styles.
 - Create generated asset files under `src/renderer/src/assets/pet/blue-white-maid/`
-  - Use original generated transparent PNG files with stable 512x512 canvases.
+  - Use original generated transparent PNG files with stable square canvases.
 
 Non-goals for this implementation:
 

@@ -11,6 +11,12 @@ npm test
 npm run build
 ```
 
+## Desktop Pet
+
+Bilimi includes a small transparent Electron desktop pet window rendered by `PalaceMaidPetApp`. The current pet is a lightweight 2D blue-white porcelain chibi maid using generated transparent PNG character states plus small effect layers.
+
+The pet supports `idle`, `hint`, `working`, and `error` status feedback, can be dragged, and restores or focuses the main Bilimi window when clicked. Dragging suppresses the follow-up click reaction. The pet is intentionally companion-only: it does not add platform controls, action menus, trays, teapots, cups, or other props.
+
 ## Video Notes
 
 The assistant can create notes from:

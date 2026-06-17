@@ -1,8 +1,8 @@
 # Layered 2D Desktop Pet Design
 
 - Date: 2026-06-17
-- Status: Approved design for implementation planning
-- Scope: Replace the current CSS-only palace-maid desktop pet direction with a lightweight layered 2D blue-white porcelain chibi maid pet, using generated transparent bitmap assets and DOM/CSS animation orchestration.
+- Status: Implemented on 2026-06-17
+- Scope: Replace the current CSS-only palace-maid desktop pet direction with a lightweight 2D blue-white porcelain chibi maid pet, using generated transparent bitmap assets and DOM/CSS animation orchestration.
 
 ## 1. Goal
 
@@ -27,11 +27,11 @@ The current primary character body is CSS-only DOM illustration inside `src/rend
 
 ## 3. Technical Choice
 
-Use transparent PNG/WebP layered assets rendered as DOM elements, with CSS keyframe animation and state classes.
+Use transparent PNG/WebP assets rendered as DOM elements, with CSS keyframe animation and state classes.
 
 This is preferred over pure CSS/DOM because the desired hair, eyes, robe pattern, tassels, porcelain-blue ornament detail, blush, and facial highlights are better represented as bitmap art than as CSS shapes.
 
-This is also preferred over a Canvas sprite sheet for the first version. Canvas is useful for dense frame animation, many particles, or pixel-level effects, but this pet needs a small number of named layers with state-driven transforms, opacity changes, and expression swaps. DOM layers are easier to inspect, test, click through, and later replace with a Live2D or Spine renderer boundary.
+This is also preferred over a Canvas sprite sheet for the first version. Canvas is useful for dense frame animation, many particles, or pixel-level effects, but this pet needs a small number of named visual assets with state-driven transforms, opacity changes, and expression swaps. DOM images are easier to inspect, test, click through, and later replace with a Live2D or Spine renderer boundary.
 
 The renderer should keep the current Electron window small and transparent. It should avoid network-loaded assets, heavy runtime dependencies, WebGL, and large frame sequences.
 
@@ -58,33 +58,24 @@ Recommended files:
 
 ## 5. Asset Organization
 
-Use a compact layered character rather than prop-heavy activity art.
+Use a compact character-state asset set rather than prop-heavy activity art.
 
-Recommended asset tree:
+Implemented asset tree:
 
 ```text
 src/renderer/src/assets/pet/blue-white-maid/
-  base/body.webp
-  base/head.webp
-  base/hair-back.webp
-  base/hair-front.webp
-  base/left-hand.webp
-  base/right-hand.webp
-  face/eyes-idle.webp
-  face/eyes-happy.webp
-  face/eyes-focused.webp
-  face/eyes-wronged.webp
-  face/mouth-smile.webp
-  face/mouth-open.webp
-  face/mouth-small.webp
-  accessories/ahoge.webp
-  accessories/tassel-left.webp
-  accessories/tassel-right.webp
-  effects/hint-sparkles.webp
-  effects/working-stars.webp
-  effects/error-sweat.webp
-  effects/click-hearts.webp
+  character/idle.png
+  character/hint.png
+  character/working.png
+  character/error.png
+  character/clicked.png
+  effects/hint-sparkles.png
+  effects/working-stars.png
+  effects/error-sweat.png
+  effects/click-hearts.png
 ```
+
+The first implementation intentionally uses five full-character state PNGs plus light effect layers. This replaced the originally proposed fine-grained `base/`, `face/`, and `accessories/` split after visual review showed that programmatic or overly granular placeholder art did not meet the required fidelity. The stable renderer contract remains `character` plus `effect` layers, with expressions represented in the selected character-state bitmap.
 
 The first asset set should be generated as original artwork in the same broad direction as the references:
 
@@ -97,7 +88,7 @@ The first asset set should be generated as original artwork in the same broad di
 
 Do not include trays, teapots, teacups, books, brooms, pillows, flowerpots, or other activity props in this first version. The small Electron floating window should prioritize face, silhouette, and motion.
 
-Each layer should share the same transparent canvas size so DOM placement is stable. The first target should be a square source canvas such as 512x512, then displayed at roughly the existing pet visual size. This avoids layout shifts when expressions change.
+Each character and effect asset should share a stable transparent canvas size so DOM placement is stable. The first implementation uses square transparent PNGs displayed at the existing pet visual size. This avoids layout shifts when states change.
 
 ## 6. State Mapping
 
@@ -109,10 +100,10 @@ Mood: calm, available, quietly present.
 
 Visual behavior:
 
-1. Idle eyes and smile.
-2. Slow breathing scale on the body.
+1. Idle eyes and smile in the `character/idle.png` state image.
+2. Slow breathing scale on the character layer.
 3. Gentle head bob.
-4. Slow ahoge and tassel sway.
+4. Hair and tassel motion implied by the state image and stage animation.
 5. No strong effect layer.
 
 ### hint
@@ -121,9 +112,9 @@ Mood: happy prompt or attention request.
 
 Visual behavior:
 
-1. Happy eyes and open smile.
+1. Happy eyes and open smile in the `character/hint.png` state image.
 2. Shorter upbeat bounce.
-3. One hand or both hands lift slightly through CSS transform.
+3. Prompting pose through the state image.
 4. Hint sparkles fade or twinkle near the head.
 5. Existing bubble remains the textual cue.
 
@@ -133,10 +124,10 @@ Mood: focused, cheering, "加油".
 
 Visual behavior:
 
-1. Focused or energetic eyes.
+1. Focused or energetic eyes in the `character/working.png` state image.
 2. Open or small determined mouth.
 3. Rhythmic bounce with slightly faster timing than idle.
-4. Hands lift in a cheer pose.
+4. Cheer pose through the state image.
 5. Working stars pulse lightly.
 
 ### error
@@ -145,7 +136,7 @@ Mood: wronged, apologetic, needs attention.
 
 Visual behavior:
 
-1. Wronged eyes and small mouth.
+1. Wronged eyes and small mouth in the `character/error.png` state image.
 2. Head lowers a few pixels.
 3. Reduced motion amplitude.
 4. Error sweat/cloud effect appears.
@@ -160,7 +151,7 @@ When the user clicks without dragging:
 1. `PalaceMaidPetApp` still restores or focuses the main Bilimi window.
 2. It also increments a click reaction signal.
 3. `LayeredPetRenderer` plays `clicked` for about 700-900ms.
-4. During `clicked`, the pet may show shy/happy expression, blush, hearts, and a quick bounce.
+4. During `clicked`, the renderer swaps to `character/clicked.png`, shows hearts, and plays a quick bounce.
 5. When the timer ends, the renderer returns to the latest persistent state.
 
 Dragging must not trigger `clicked`, and the click event that follows a drag release must still be suppressed.
@@ -182,9 +173,9 @@ export type PetRendererHandle = {
 }
 ```
 
-The DOM renderer can implement this behavior through props and effects today. A later `Live2DPetRenderer` or `SpinePetRenderer` can keep the same state and transient contract while replacing internal rendering.
+The DOM renderer implements this behavior through props and effects in the first bitmap version. A later `Live2DPetRenderer` or `SpinePetRenderer` can keep the same state and transient contract while replacing internal rendering.
 
-The named conceptual parts should remain stable across renderer types:
+The named conceptual parts should remain stable across renderer types, even though the first bitmap implementation stores them inside full-character state images:
 
 1. Head.
 2. Body.
@@ -235,7 +226,7 @@ Implementation should be verified with:
 
 The feature is complete when:
 
-1. The desktop pet uses layered transparent 2D bitmap assets as its primary character body.
+1. The desktop pet uses transparent 2D bitmap assets as its primary character body.
 2. The pet visually reads as an original blue-white porcelain chibi palace maid inspired by the references.
 3. `idle`, `hint`, `working`, and `error` show distinct expressions and motions.
 4. Click without drag plays a short shy/happy transient animation and still restores or focuses Bilimi.
