@@ -54,6 +54,36 @@ describe('VideoNotesPanel', () => {
     await waitFor(() => expect(onGenerate).toHaveBeenCalledWith(undefined))
   })
 
+  it('keeps the redesigned flat layout before a note exists', () => {
+    const onOpenArchive = vi.fn()
+
+    render(
+      <VideoNotesPanel
+        note={null}
+        currentVideoTitle="机器学习当前页"
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+        onTranscribeAudio={vi.fn()}
+        onOpenArchive={onOpenArchive}
+      />
+    )
+
+    expect(screen.getByRole('region', { name: '当前视频详情' })).toHaveTextContent('机器学习当前页')
+
+    const actions = screen.getAllByRole('button', { name: /转写音频|档案库/ })
+    expect(actions.map((button) => button.textContent)).toEqual(['转写音频', '档案库'])
+
+    const resultEntries = screen.getAllByRole('button', {
+      name: /无时间线文稿|带时间线文稿|一图流总结/
+    })
+    expect(resultEntries.map((entry) => entry.textContent)).toEqual([
+      '无时间线文稿纯文稿连续阅读，提供复制全文。',
+      '带时间线文稿按时间段阅读，可跳回视频、可加批注。',
+      '一图流总结结构化摘要，支持复制。'
+    ])
+  })
+
   it('uses audio transcription for the default note organization action when available', async () => {
     const onGenerate = vi.fn().mockResolvedValue(null)
     const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
@@ -68,7 +98,7 @@ describe('VideoNotesPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
 
     await waitFor(() => expect(onTranscribeAudio).toHaveBeenCalledOnce())
     expect(onGenerate).not.toHaveBeenCalled()
@@ -506,7 +536,7 @@ describe('VideoNotesPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
 
     await waitFor(() => expect(onTranscribeAudio).toHaveBeenCalledOnce())
-    expect(screen.getByRole('status')).toHaveTextContent('音频转写已完成')
+    expect(screen.getByText('音频转写已完成')).toBeInTheDocument()
     expect(screen.getByText('Transcribing segment 1/2.')).toBeInTheDocument()
   })
 

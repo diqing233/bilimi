@@ -253,7 +253,7 @@ describe('FloatingAssistantApp', () => {
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
-    fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
 
     await waitFor(() => expect(generateVideoNoteFromAudio).toHaveBeenCalledOnce())
     await waitFor(() => expect(screen.getAllByText('机器学习需要数据和模型。').length).toBeGreaterThan(0))
@@ -336,7 +336,7 @@ describe('FloatingAssistantApp', () => {
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
-    fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
     await waitFor(() => expect(generateVideoNoteFromAudio).toHaveBeenCalledOnce())
 
     fireEvent.click(screen.getByRole('button', { name: '取当前时间' }))
@@ -377,7 +377,7 @@ describe('FloatingAssistantApp', () => {
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
-    fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
     await waitFor(() => expect(generateVideoNoteFromAudio).toHaveBeenCalledOnce())
 
     fireEvent.change(screen.getByLabelText('本地备注'), {

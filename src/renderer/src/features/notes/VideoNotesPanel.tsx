@@ -10,6 +10,7 @@ import {
 
 type VideoNotesPanelProps = {
   note: VideoNote | null
+  currentVideoTitle?: string
   isLoading: boolean
   onGenerate: (manualTranscript?: string) => Promise<VideoNote | null>
   onSave: (note: VideoNote) => Promise<void>
@@ -51,6 +52,7 @@ function createAnnotationTitle(value: string): string {
 
 export function VideoNotesPanel({
   note,
+  currentVideoTitle = '当前视频',
   isLoading,
   onGenerate,
   onSave,
@@ -332,23 +334,68 @@ export function VideoNotesPanel({
   }
 
   if (!note) {
+    const primaryActionLabel = onTranscribeAudio ? '转写音频' : generateFailed ? '重新整理' : '整理札记'
+    const primaryActionBusyLabel = onTranscribeAudio ? '转写中...' : '整理中...'
+
     return (
       <section className="video-notes" aria-label="视频札记">
-        <button type="button" disabled={generationBusy} onClick={() => void handleGenerate(undefined)}>
-          {generationBusy ? '整理中...' : generateFailed ? '重新整理' : '整理札记'}
-        </button>
+        <section className="video-notes__source" aria-label="当前视频详情">
+          <span>当前视频详情</span>
+          <h3>{currentVideoTitle}</h3>
+          <dl>
+            <dt>UP</dt>
+            <dd>待转写后补齐</dd>
+            <dt>BV</dt>
+            <dd>待识别</dd>
+            <dt>链接</dt>
+            <dd>待转写后补齐</dd>
+          </dl>
+        </section>
 
-        <button
-          type="button"
-          disabled={!onTranscribeAudio || generationBusy}
-          onClick={() => void handleTranscribeAudio()}
-        >
-          {transcribingAudio ? '转写中...' : '转写音频'}
-        </button>
-        <button type="button" disabled={!onOpenArchive} onClick={onOpenArchive}>
-          档案库
-        </button>
-        {transcriptionProgress ? <p>{transcriptionProgress.message}</p> : null}
+        <section className="video-notes__primary-actions" aria-label="生成与归档">
+          <div>
+            <strong>生成与归档</strong>
+            <p>转写完成后保存到全局档案库；也可粘贴文稿兜底整理。</p>
+          </div>
+          <button
+            type="button"
+            disabled={generationBusy}
+            onClick={() => void handleGenerate(undefined)}
+          >
+            {generationBusy ? primaryActionBusyLabel : primaryActionLabel}
+          </button>
+          <button type="button" disabled={!onOpenArchive} onClick={onOpenArchive}>
+            档案库
+          </button>
+        </section>
+
+        {transcriptionProgress ? (
+          <div className="video-notes__progress" role="status">
+            <div>
+              <strong>{transcriptionProgress.message}</strong>
+              {transcriptionProgress.segmentIndex && transcriptionProgress.segmentCount ? (
+                <span>
+                  第 {transcriptionProgress.segmentIndex} / {transcriptionProgress.segmentCount} 段
+                </span>
+              ) : null}
+            </div>
+            {transcriptionProgress.segmentIndex && transcriptionProgress.segmentCount ? (
+              <progress
+                max={transcriptionProgress.segmentCount}
+                value={transcriptionProgress.segmentIndex}
+              />
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="video-notes__result-tabs" role="group" aria-label="札记结果入口">
+          {resultTabs.map((tab) => (
+            <button key={tab.id} type="button" disabled>
+              <strong>{tab.label}</strong>
+              <small>{tab.description}</small>
+            </button>
+          ))}
+        </div>
 
         <div>
           <label htmlFor="manual-transcript">粘贴文稿</label>

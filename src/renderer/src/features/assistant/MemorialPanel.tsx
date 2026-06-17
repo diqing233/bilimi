@@ -172,6 +172,7 @@ export function MemorialPanel({
         ) : (
           <VideoNotesPanel
             note={videoNote}
+            currentVideoTitle={videoTitle}
             isLoading={videoNoteLoading}
             onGenerate={onGenerateVideoNote}
             onTranscribeAudio={onTranscribeVideoAudio}
