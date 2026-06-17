@@ -74,35 +74,33 @@ describe('VideoNotesPanel', () => {
     expect(onGenerate).not.toHaveBeenCalled()
   })
 
-  it('switches between overview, transcript, and archive tabs when a note exists', () => {
+  it('shows the redesigned action and result entry order when a note exists', () => {
+    const onOpenArchive = vi.fn()
+    const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
+
     render(
       <VideoNotesPanel
         note={sampleNote}
         isLoading={false}
         onGenerate={vi.fn()}
         onSave={vi.fn()}
+        onTranscribeAudio={onTranscribeAudio}
+        onOpenArchive={onOpenArchive}
       />
     )
 
-    expect(screen.getByRole('tablist')).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: '速览' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByText('三分钟讲清机器学习的基本思路。')).toBeInTheDocument()
+    const actions = screen.getAllByRole('button', { name: /转写音频|档案库/ })
+    expect(actions.map((button) => button.textContent)).toEqual(['转写音频', '档案库'])
 
-    fireEvent.click(screen.getByRole('tab', { name: '文稿' }))
-    expect(screen.getByRole('tab', { name: '文稿' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByText('先介绍机器学习的基本概念。')).toBeInTheDocument()
+    const resultTabs = screen.getAllByRole('tab')
+    expect(resultTabs.map((tab) => tab.textContent)).toEqual([
+      '无时间线文稿纯文稿连续阅读，提供复制全文。',
+      '带时间线文稿按时间段阅读，可跳回视频、可加批注。',
+      '一图流总结结构化摘要，支持复制。'
+    ])
 
-    fireEvent.click(screen.getByRole('tab', { name: '批注' }))
-    expect(screen.getByRole('tab', { name: '批注' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByLabelText('批注标题')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('tab', { name: '导出' }))
-    expect(screen.getByRole('tab', { name: '导出' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('button', { name: '复制 Markdown' })).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('tab', { name: '归档' }))
-    expect(screen.getByRole('tab', { name: '归档' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByText('机器学习入门')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '档案库' }))
+    expect(onOpenArchive).toHaveBeenCalledOnce()
   })
 
   it('shows the overview summary and timeline highlights', () => {
@@ -114,6 +112,8 @@ describe('VideoNotesPanel', () => {
         onSave={vi.fn()}
       />
     )
+
+    fireEvent.click(screen.getByRole('tab', { name: /一图流总结/ }))
 
     expect(screen.getByText('三分钟讲清机器学习的基本思路。')).toBeInTheDocument()
     expect(screen.getByText('开场')).toBeInTheDocument()
@@ -136,7 +136,7 @@ describe('VideoNotesPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('tab', { name: '文稿' }))
+    fireEvent.click(screen.getByRole('tab', { name: /带时间线文稿/ }))
 
     expect(screen.getByText('00:00')).toBeInTheDocument()
     expect(screen.getByText('先介绍机器学习的基本概念。')).toBeInTheDocument()
@@ -155,11 +155,10 @@ describe('VideoNotesPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('tab', { name: '文稿' }))
+    fireEvent.click(screen.getByRole('tab', { name: /带时间线文稿/ }))
     fireEvent.click(screen.getAllByRole('button', { name: '加批注' })[1])
 
-    expect(screen.getByRole('tab', { name: '批注' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('button', { name: '01:15' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '01:15' }).length).toBeGreaterThan(0)
     expect(screen.getByLabelText<HTMLInputElement>('批注标题').value).toBe('训练数据如何影响模型')
   })
 
@@ -174,10 +173,10 @@ describe('VideoNotesPanel', () => {
       />
     )
 
+    fireEvent.click(screen.getByRole('tab', { name: /一图流总结/ }))
     fireEvent.click(screen.getAllByRole('button', { name: '加批注' })[1])
 
-    expect(screen.getByRole('tab', { name: '批注' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('button', { name: '01:15' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: '01:15' }).length).toBeGreaterThan(0)
     expect(screen.getByLabelText<HTMLInputElement>('批注标题').value).toBe('数据')
   })
 
@@ -193,7 +192,6 @@ describe('VideoNotesPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('tab', { name: '归档' }))
 
     expect(screen.getByText('机器学习入门')).toBeInTheDocument()
     expect(screen.getByText('李老师')).toBeInTheDocument()
@@ -222,7 +220,6 @@ describe('VideoNotesPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('tab', { name: '批注' }))
     fireEvent.click(screen.getByRole('button', { name: '取当前时间' }))
 
     await waitFor(() => expect(onGetCurrentTime).toHaveBeenCalledOnce())
@@ -275,7 +272,6 @@ describe('VideoNotesPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('tab', { name: '批注' }))
     fireEvent.click(screen.getByRole('button', { name: '02:05' }))
 
     await waitFor(() => expect(onSeekToTime).toHaveBeenCalledWith(125))
@@ -307,7 +303,6 @@ describe('VideoNotesPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('tab', { name: '批注' }))
     fireEvent.click(screen.getByRole('button', { name: '02:05' }))
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('未能跳转到该视频时间。'))
@@ -323,7 +318,6 @@ describe('VideoNotesPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('tab', { name: '批注' }))
     fireEvent.change(screen.getByLabelText('批注标题'), {
       target: { value: '无法保存的批注' }
     })
@@ -347,7 +341,6 @@ describe('VideoNotesPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('tab', { name: '批注' }))
     fireEvent.click(screen.getByRole('button', { name: '取当前时间' }))
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('无法读取当前播放时间'))
@@ -369,7 +362,6 @@ describe('VideoNotesPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('tab', { name: '导出' }))
     expect(screen.getByLabelText<HTMLTextAreaElement>('Markdown 预览').value).toContain(
       '# 机器学习入门'
     )
@@ -396,7 +388,6 @@ describe('VideoNotesPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('tab', { name: '导出' }))
     fireEvent.click(screen.getByRole('button', { name: '复制 Markdown' }))
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('剪贴板不可用'))
@@ -414,7 +405,6 @@ describe('VideoNotesPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('tab', { name: '归档' }))
     fireEvent.change(screen.getByLabelText('本地备注'), {
       target: { value: '这里要整理成长期复习材料。' }
     })
@@ -448,14 +438,12 @@ describe('VideoNotesPanel', () => {
 
     render(<StatefulPanel />)
 
-    fireEvent.click(screen.getByRole('tab', { name: '归档' }))
     fireEvent.change(screen.getByLabelText('本地备注'), {
       target: { value: '保存后导出也要看到这条备注。' }
     })
     fireEvent.click(screen.getByRole('button', { name: '保存札记' }))
 
     await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
-    fireEvent.click(screen.getByRole('tab', { name: '导出' }))
 
     expect(screen.getByLabelText<HTMLTextAreaElement>('Markdown 预览').value).toContain(
       '保存后导出也要看到这条备注。'
@@ -656,7 +644,6 @@ describe('VideoNotesPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('tab', { name: '归档' }))
     fireEvent.click(screen.getByRole('button', { name: '保存札记' }))
 
     expect(screen.getByRole('button', { name: '保存中...' })).toBeDisabled()
@@ -667,3 +654,4 @@ describe('VideoNotesPanel', () => {
     expect(screen.getByRole('button', { name: '保存札记' })).toBeEnabled()
   })
 })
+

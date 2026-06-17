@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useLayoutEffect, useMemo, useState } from 'react'
 import type { VideoAudioTranscriptionProgress, VideoNote, VideoNoteAnnotation } from '@shared/types'
+import { createPlainTranscriptText, createSummaryText } from '@shared/videoNoteArchive'
 import { createVideoNoteMarkdown } from './videoNoteMarkdown'
 import {
   removeVideoNoteAnnotation,
@@ -16,17 +17,16 @@ type VideoNotesPanelProps = {
   onGetCurrentTime?: () => Promise<number>
   onSeekToTime?: (seconds: number) => Promise<boolean>
   onTranscribeAudio?: () => Promise<VideoNote | null>
+  onOpenArchive?: () => void
   transcriptionProgress?: VideoAudioTranscriptionProgress | null
 }
 
-type VideoNotesTab = 'overview' | 'transcript' | 'annotations' | 'export' | 'archive'
+type VideoNotesResultTab = 'plain' | 'timed' | 'summary'
 
-const tabs: Array<{ id: VideoNotesTab; label: string }> = [
-  { id: 'overview', label: '速览' },
-  { id: 'transcript', label: '文稿' },
-  { id: 'annotations', label: '批注' },
-  { id: 'export', label: '导出' },
-  { id: 'archive', label: '归档' }
+const resultTabs: Array<{ id: VideoNotesResultTab; label: string; description: string }> = [
+  { id: 'plain', label: '无时间线文稿', description: '纯文稿连续阅读，提供复制全文。' },
+  { id: 'timed', label: '带时间线文稿', description: '按时间段阅读，可跳回视频、可加批注。' },
+  { id: 'summary', label: '一图流总结', description: '结构化摘要，支持复制。' }
 ]
 
 function formatTimestamp(seconds: number | null): string {
@@ -58,9 +58,10 @@ export function VideoNotesPanel({
   onGetCurrentTime,
   onSeekToTime,
   onTranscribeAudio,
+  onOpenArchive,
   transcriptionProgress = null
 }: VideoNotesPanelProps): React.JSX.Element {
-  const [activeTab, setActiveTab] = useState<VideoNotesTab>('overview')
+  const [activeResultTab, setActiveResultTab] = useState<VideoNotesResultTab>('plain')
   const [manualTranscript, setManualTranscript] = useState('')
   const [localGenerating, setLocalGenerating] = useState(false)
   const [transcribingAudio, setTranscribingAudio] = useState(false)
@@ -75,12 +76,14 @@ export function VideoNotesPanel({
   const [annotationBody, setAnnotationBody] = useState('')
   const generationBusy = isLoading || localGenerating || transcribingAudio
   const markdown = useMemo(() => (note ? createVideoNoteMarkdown(note) : ''), [note])
+  const plainTranscript = useMemo(() => (note ? createPlainTranscriptText(note) : ''), [note])
+  const summaryText = useMemo(() => (note ? createSummaryText(note) : ''), [note])
   const sortedAnnotations = useMemo(
     () => sortVideoNoteAnnotations(note?.annotations ?? []),
     [note?.annotations]
   )
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setMemoDraft(note?.userMemo ?? '')
   }, [note?.id, note?.userMemo])
 
@@ -189,7 +192,6 @@ export function VideoNotesPanel({
     setAnnotationStart(start)
     setAnnotationTitle(createAnnotationTitle(title))
     setAnnotationBody('')
-    setActiveTab('annotations')
     setStatusMessage('')
     setErrorMessage('')
   }
@@ -318,6 +320,17 @@ export function VideoNotesPanel({
     }
   }
 
+  async function copyText(value: string, successMessage: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(value)
+      setStatusMessage(successMessage)
+      setErrorMessage('')
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '复制失败。')
+      setStatusMessage('')
+    }
+  }
+
   if (!note) {
     return (
       <section className="video-notes" aria-label="视频札记">
@@ -331,6 +344,9 @@ export function VideoNotesPanel({
           onClick={() => void handleTranscribeAudio()}
         >
           {transcribingAudio ? '转写中...' : '转写音频'}
+        </button>
+        <button type="button" disabled={!onOpenArchive} onClick={onOpenArchive}>
+          档案库
         </button>
         {transcriptionProgress ? <p>{transcriptionProgress.message}</p> : null}
 
@@ -359,48 +375,134 @@ export function VideoNotesPanel({
 
   return (
     <section className="video-notes" aria-label="视频札记">
-      {transcriptionProgress ? <p>{transcriptionProgress.message}</p> : null}
+      <section className="video-notes__source" aria-label="当前视频详情">
+        <span>当前视频</span>
+        <h3>{note.source.title}</h3>
+        <dl>
+          <dt>UP</dt>
+          <dd>{note.source.author ?? '未署名'}</dd>
+          <dt>BV</dt>
+          <dd>{note.source.bvid ?? '未识别'}</dd>
+          <dt>链接</dt>
+          <dd>{note.source.url}</dd>
+        </dl>
+      </section>
+
+      <section className="video-notes__primary-actions" aria-label="生成与归档">
+        <div>
+          <strong>生成与归档</strong>
+          <p>转写完成后可保存到全局档案库。</p>
+        </div>
+        <button
+          type="button"
+          disabled={!onTranscribeAudio || generationBusy}
+          onClick={() => void handleTranscribeAudio()}
+        >
+          {transcribingAudio ? '转写中...' : '转写音频'}
+        </button>
+        <button type="button" disabled={!onOpenArchive} onClick={onOpenArchive}>
+          档案库
+        </button>
+      </section>
+
+      {transcriptionProgress ? (
+        <div className="video-notes__progress" role="status">
+          <div>
+            <strong>{transcriptionProgress.message}</strong>
+            {transcriptionProgress.segmentIndex && transcriptionProgress.segmentCount ? (
+              <span>
+                第 {transcriptionProgress.segmentIndex} / {transcriptionProgress.segmentCount} 段
+              </span>
+            ) : null}
+          </div>
+          {transcriptionProgress.segmentIndex && transcriptionProgress.segmentCount ? (
+            <progress
+              max={transcriptionProgress.segmentCount}
+              value={transcriptionProgress.segmentIndex}
+            />
+          ) : null}
+        </div>
+      ) : null}
       {note.transcript.length === 0 ? (
         <div>
-          <p>尚未取得文稿，可转写音频或粘贴文稿后再整理。</p>
-          <button
-            type="button"
-            disabled={!onTranscribeAudio || generationBusy}
-            onClick={() => void handleTranscribeAudio()}
-          >
-            {transcribingAudio ? '转写中...' : '转写音频'}
-          </button>
+          <p>尚未取得文稿。点击「转写音频」开始；如果当前视频无法下载，可粘贴文稿整理。</p>
         </div>
       ) : null}
 
-      <div role="tablist" aria-label="札记页签">
-        {tabs.map((tab) => (
+      <div className="video-notes__result-tabs" role="tablist" aria-label="札记结果">
+        {resultTabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
             role="tab"
-            aria-selected={activeTab === tab.id}
+            aria-selected={activeResultTab === tab.id}
             aria-controls={`video-notes-${tab.id}`}
             id={`video-notes-tab-${tab.id}`}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => setActiveResultTab(tab.id)}
           >
-            {tab.label}
+            <strong>{tab.label}</strong>
+            <small>{tab.description}</small>
           </button>
         ))}
       </div>
 
-      {activeTab === 'overview' && (
+      {activeResultTab === 'plain' && (
         <div
           role="tabpanel"
-          id="video-notes-overview"
-          aria-labelledby="video-notes-tab-overview"
+          id="video-notes-plain"
+          aria-labelledby="video-notes-tab-plain"
         >
+          <div className="video-notes__panel-header">
+            <strong>无时间线文稿</strong>
+            <button type="button" onClick={() => void copyText(plainTranscript, '全文已复制')}>
+              复制全文
+            </button>
+          </div>
+          <div className="video-notes__plain-text">
+            {plainTranscript ? plainTranscript : '暂无文稿。'}
+          </div>
+        </div>
+      )}
+
+      {activeResultTab === 'timed' && (
+        <div
+          role="tabpanel"
+          id="video-notes-timed"
+          aria-labelledby="video-notes-tab-timed"
+        >
+          <ol aria-label="带时间线文稿">
+            {note.transcript.map((segment, index) => (
+              <li key={`${segment.start ?? 'unknown'}-${index}`}>
+                <button type="button" onClick={() => void handleSeekToTime(segment.start)}>
+                  {formatTimestamp(segment.start)}
+                </button>
+                <p>{segment.text}</p>
+                <button type="button" onClick={() => startAnnotationDraft(segment.start, segment.text)}>
+                  加批注
+                </button>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {activeResultTab === 'summary' && (
+        <div
+          role="tabpanel"
+          id="video-notes-summary"
+          aria-labelledby="video-notes-tab-summary"
+        >
+          <div className="video-notes__panel-header">
+            <strong>一图流总结</strong>
+            <button type="button" onClick={() => void copyText(summaryText, '总结已复制')}>
+              复制总结
+            </button>
+          </div>
           <section aria-label="速览摘要">
             {note.overview.shortSummary.map((summary) => (
               <p key={summary}>{summary}</p>
             ))}
           </section>
-
           {note.overview.keywords.length > 0 ? (
             <ul className="video-notes__keywords" aria-label="关键词">
               {note.overview.keywords.map((keyword) => (
@@ -408,7 +510,6 @@ export function VideoNotesPanel({
               ))}
             </ul>
           ) : null}
-
           <ol aria-label="时间线重点">
             {note.overview.timeline.map((item, index) => (
               <li key={`${item.title}-${index}`}>
@@ -421,7 +522,6 @@ export function VideoNotesPanel({
               </li>
             ))}
           </ol>
-
           {note.overview.highlights.length > 0 ? (
             <ol className="video-notes__highlights" aria-label="高光片段">
               {note.overview.highlights.map((item, index) => (
@@ -436,31 +536,9 @@ export function VideoNotesPanel({
         </div>
       )}
 
-      {activeTab === 'transcript' && (
+      <section className="video-notes__annotations" aria-label="批注">
         <div
-          role="tabpanel"
-          id="video-notes-transcript"
-          aria-labelledby="video-notes-tab-transcript"
-        >
-          <ol aria-label="转写文稿">
-            {note.transcript.map((segment, index) => (
-              <li key={`${segment.start ?? 'unknown'}-${index}`}>
-                <time>{formatTimestamp(segment.start)}</time>
-                <p>{segment.text}</p>
-                <button type="button" onClick={() => startAnnotationDraft(segment.start, segment.text)}>
-                  加批注
-                </button>
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-
-      {activeTab === 'annotations' && (
-        <div
-          role="tabpanel"
           id="video-notes-annotations"
-          aria-labelledby="video-notes-tab-annotations"
         >
           <form
             onSubmit={(event) => {
@@ -527,61 +605,32 @@ export function VideoNotesPanel({
             </ol>
           ) : null}
 
-          {statusMessage ? <p role="status">{statusMessage}</p> : null}
-          {errorMessage ? <p role="alert">{errorMessage}</p> : null}
         </div>
-      )}
+      </section>
 
-      {activeTab === 'export' && (
-        <div
-          role="tabpanel"
-          id="video-notes-export"
-          aria-labelledby="video-notes-tab-export"
-        >
-          <label htmlFor="video-note-markdown-preview">Markdown 预览</label>
-          <textarea id="video-note-markdown-preview" value={markdown} readOnly />
-          <button type="button" onClick={() => void handleCopyMarkdown()}>
-            复制 Markdown
-          </button>
-          {statusMessage ? <p role="status">{statusMessage}</p> : null}
-          {errorMessage ? <p role="alert">{errorMessage}</p> : null}
+      <section className="video-notes__memo" aria-label="归档备注">
+        <div>
+          <label htmlFor="video-note-user-memo">本地备注</label>
+          <textarea
+            id="video-note-user-memo"
+            value={memoDraft}
+            onChange={(event) => setMemoDraft(event.target.value)}
+          />
         </div>
-      )}
 
-      {activeTab === 'archive' && (
-        <div
-          role="tabpanel"
-          id="video-notes-archive"
-          aria-labelledby="video-notes-tab-archive"
-        >
-          <dl>
-            <dt>标题</dt>
-            <dd>{note.source.title}</dd>
-            <dt>作者</dt>
-            <dd>{note.source.author ?? '未署名'}</dd>
-            <dt>BV号</dt>
-            <dd>{note.source.bvid ?? '未识别'}</dd>
-            <dt>链接</dt>
-            <dd>{note.source.url}</dd>
-          </dl>
+        <button type="button" disabled={saving} onClick={() => void handleSave()}>
+          {saving ? '保存中...' : '保存札记'}
+        </button>
 
-          <div>
-            <label htmlFor="video-note-user-memo">本地备注</label>
-            <textarea
-              id="video-note-user-memo"
-              value={memoDraft}
-              onChange={(event) => setMemoDraft(event.target.value)}
-            />
-          </div>
+        <label htmlFor="video-note-markdown-preview">Markdown 预览</label>
+        <textarea id="video-note-markdown-preview" value={markdown} readOnly />
+        <button type="button" onClick={() => void handleCopyMarkdown()}>
+          复制 Markdown
+        </button>
 
-          <button type="button" disabled={saving} onClick={() => void handleSave()}>
-            {saving ? '保存中...' : '保存札记'}
-          </button>
-
-          {errorMessage ? <p role="alert">{errorMessage}</p> : null}
-          {statusMessage ? <p role="status">{statusMessage}</p> : null}
-        </div>
-      )}
+      </section>
+      {errorMessage ? <p role="alert">{errorMessage}</p> : null}
+      {statusMessage ? <p role="status">{statusMessage}</p> : null}
     </section>
   )
 }
