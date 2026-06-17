@@ -39,6 +39,16 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
       ipcRenderer.removeListener('assistant-pet:state-changed', listener)
     }
   },
+  onAssistantPreferencesChanged: (callback: (preferences: AssistantPreferences) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, preferences: AssistantPreferences) =>
+      callback(preferences)
+
+    ipcRenderer.on('assistant:preferences-changed', listener)
+
+    return () => {
+      ipcRenderer.removeListener('assistant:preferences-changed', listener)
+    }
+  },
   onAssistantSnapshotChanged: (callback: () => void) => {
     const listener = () => callback()
 

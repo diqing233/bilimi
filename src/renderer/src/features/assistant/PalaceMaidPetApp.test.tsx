@@ -5,15 +5,18 @@ import type { AssistantPetState } from './petState'
 vi.mock('./LayeredPetRenderer', () => ({
   LayeredPetRenderer: ({
     petState,
-    clickReactionSignal
+    clickReactionSignal,
+    petStyle
   }: {
     petState: AssistantPetState
     clickReactionSignal: number
+    petStyle: string
   }) => (
     <span
       data-testid="mock-layered-pet"
       data-pet-state={petState}
       data-click-reaction-signal={clickReactionSignal}
+      data-pet-style={petStyle}
     />
   )
 }))
@@ -41,7 +44,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
 }
 
 describe('PalaceMaidPetApp', () => {
-  it('restores the main Bilimi window when clicked', () => {
+  it('restores the main Bilimi window when clicked', async () => {
     const api = installDesktopApi()
 
     render(<PalaceMaidPetApp />)
@@ -76,6 +79,25 @@ describe('PalaceMaidPetApp', () => {
 
     expect(screen.getByText('处理中')).toBeInTheDocument()
     expect(screen.getByText('奴婢正在传旨，稍候即回。')).toBeInTheDocument()
+  })
+
+  it('loads the persisted pet style for the floating pet renderer', async () => {
+    installDesktopApi({
+      loadPreferences: vi.fn().mockResolvedValue({
+        favoritesFolderName: 'Bilimi',
+        favoriteLedgers: [],
+        ledgerPromptDismissed: true,
+        preferenceCounts: {},
+        petStyle: 'classic'
+      })
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    expect(await screen.findByTestId('mock-layered-pet')).toHaveAttribute(
+      'data-pet-style',
+      'classic'
+    )
   })
 
   it('keeps dragging from restoring the main window', () => {

@@ -464,6 +464,7 @@ export default function App() {
       if (window.bilimiDesktop?.savePreferences) {
         const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
         setPreferences(createInitialAssistantPreferences(saved))
+        window.bilimiDesktop.notifyAssistantSnapshotChanged?.()
       }
     }
 

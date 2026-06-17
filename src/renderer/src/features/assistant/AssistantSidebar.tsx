@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { FloatingAssistantApp } from './FloatingAssistantApp'
 
-type AssistantSidebarTab = 'review' | 'notes' | 'ledger'
+type AssistantSidebarTab = 'review' | 'notes' | 'ledger' | 'settings'
 
 export function AssistantSidebar() {
   const [collapsed, setCollapsed] = useState(false)

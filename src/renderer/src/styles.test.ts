@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 const stylesPath = resolve(process.cwd(), 'src/renderer/src/styles.css')
 const styles = readFileSync(stylesPath, 'utf8')
+const normalizedStyles = styles.replace(/\r\n/g, '\n')
 
 describe('renderer porcelain theme styles', () => {
   it('removes the old brown-gold palette from global UI styles', () => {
@@ -46,6 +47,14 @@ describe('renderer porcelain theme styles', () => {
       expect(styles).toContain(token)
     }
   })
+
+  it('keeps the main app shell clipped to the window instead of exposing horizontal page scroll', () => {
+    expect(normalizedStyles).toContain('body {\n  overflow: hidden;')
+    expect(normalizedStyles).toContain('.app-shell {\n  position: relative;\n  width: 100%;')
+    expect(normalizedStyles).toContain('grid-template-columns: minmax(0, 1fr) auto;')
+    expect(normalizedStyles).toContain('overflow: hidden;')
+  })
+
   it('uses a floating sidebar collapse control without reserving a rail column', () => {
     const sidebarStyles = styles.replace(/\r\n/g, '\n')
 
@@ -54,5 +63,14 @@ describe('renderer porcelain theme styles', () => {
     expect(sidebarStyles).toContain('grid-template-columns: minmax(0, 1fr);')
     expect(sidebarStyles).toContain('.assistant-sidebar[data-collapsed="true"] {\n  width: 0;')
     expect(sidebarStyles).toContain('.assistant-sidebar__collapse-button {\n  position: absolute;\n  top: 5px;\n  left: -40px;')
+  })
+
+  it('gives the floating pet enough transparent stage space for the chibi and speech bubble', () => {
+    expect(normalizedStyles).toContain('.palace-maid-pet-shell {\n  width: 340px;\n  height: 220px;')
+    expect(normalizedStyles).toContain('.palace-maid-pet {\n  width: 178px;\n  height: 178px;')
+    expect(normalizedStyles).toContain('.palace-maid-pet {\n  width: 178px;\n  height: 178px;\n  border: none;')
+    expect(normalizedStyles).toContain('.palace-maid-pet__bubble {\n  position: absolute;\n  right: 186px;')
+    expect(normalizedStyles).toContain('width: 144px;')
+    expect(normalizedStyles).not.toContain('-webkit-line-clamp: 2;')
   })
 })

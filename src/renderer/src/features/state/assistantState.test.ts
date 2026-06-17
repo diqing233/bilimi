@@ -62,4 +62,11 @@ describe('assistant state', () => {
     expect(next.favoritesFolderName).toBe('Bilimi 内库')
     expect(next.preferenceCounts.funny).toBe(1)
   })
+  it('hydrates the selected pet style with a big-head default', () => {
+    expect(createInitialAssistantPreferences().petStyle).toBe('big-head')
+    expect(createInitialAssistantPreferences({ petStyle: 'classic' }).petStyle).toBe('classic')
+    expect(createInitialAssistantPreferences({ petStyle: 'unknown' as never }).petStyle).toBe(
+      'big-head'
+    )
+  })
 })

@@ -34,6 +34,7 @@ type BilimiDesktopApi = {
   moveFloatingSealBy?: (deltaX: number, deltaY: number) => Promise<void>
   moveFloatingSealTo?: (screenX: number, screenY: number) => void
   notifyAssistantSnapshotChanged?: () => void
+  onAssistantPreferencesChanged?: (callback: (preferences: AssistantPreferences) => void) => () => void
   onAssistantPetStateChanged?: (callback: (state: AssistantPetState) => void) => () => void
   onAssistantSnapshotChanged?: (callback: () => void) => () => void
   openAssistant?: () => Promise<void>

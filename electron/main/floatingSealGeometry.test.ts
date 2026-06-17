@@ -69,6 +69,15 @@ describe('floating menu geometry', () => {
     ).toEqual({ x: 900, y: 520, width: 92, height: 92 })
   })
 
+  it('supports a wider transparent host for the pet and its speech bubble', () => {
+    expect(
+      createFloatingHostBounds({
+        visualBounds: { x: 900, y: 520, width: 284, height: 164 },
+        padding: 28
+      })
+    ).toEqual({ x: 872, y: 492, width: 340, height: 220 })
+  })
+
   it('places the system menu above the seal when there is room', () => {
     expect(
       createFloatingMenuBounds({

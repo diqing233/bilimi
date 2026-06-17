@@ -50,7 +50,7 @@ import type {
 import type { AssistantPetState } from '../../src/renderer/src/features/assistant/petState'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../../src/renderer/src/features/favorites/favoriteLedgerPreview'
 
-const FLOATING_SEAL_VISUAL_SIZE = 92
+const FLOATING_SEAL_VISUAL_SIZE = { width: 284, height: 164 }
 const FLOATING_SEAL_SHADOW_PADDING = 28
 const FLOATING_SEAL_MARGIN = 24
 const FLOATING_SEAL_QUERY = { window: 'floating-seal' }
@@ -109,9 +109,9 @@ function loadRendererWindow(win: BrowserWindow, query: Record<string, string> = 
 function getFloatingSealBounds() {
   const { workArea } = screen.getPrimaryDisplay()
   const visualBounds = {
-    width: FLOATING_SEAL_VISUAL_SIZE,
-    height: FLOATING_SEAL_VISUAL_SIZE,
-    x: workArea.x + workArea.width - FLOATING_SEAL_VISUAL_SIZE - FLOATING_SEAL_MARGIN,
+    width: FLOATING_SEAL_VISUAL_SIZE.width,
+    height: FLOATING_SEAL_VISUAL_SIZE.height,
+    x: workArea.x + workArea.width - FLOATING_SEAL_VISUAL_SIZE.width - FLOATING_SEAL_MARGIN,
     y: workArea.y + Math.round(workArea.height * 0.62)
   }
 
@@ -185,6 +185,18 @@ function sendAssistantPetState() {
 function setAssistantPetState(state: AssistantPetState) {
   assistantPetState = state
   sendAssistantPetState()
+}
+
+function sendAssistantPreferencesChanged(preferences: AssistantPreferences) {
+  const targets = [floatingSealWindow, floatingAssistantController.getWindow()]
+
+  for (const target of targets) {
+    if (!target || target.isDestroyed()) {
+      continue
+    }
+
+    target.webContents.send('assistant:preferences-changed', preferences)
+  }
 }
 
 function createFloatingMenuWindow() {
@@ -361,9 +373,11 @@ function createMainWindow() {
 
 function registerAssistantPreferenceHandlers() {
   ipcMain.handle('assistant:load-preferences', () => loadAssistantPreferences())
-  ipcMain.handle('assistant:save-preferences', (_event, preferences: AssistantPreferences) =>
-    saveAssistantPreferences(getDesktopStore(), preferences)
-  )
+  ipcMain.handle('assistant:save-preferences', (_event, preferences: AssistantPreferences) => {
+    const saved = saveAssistantPreferences(getDesktopStore(), preferences)
+    sendAssistantPreferencesChanged(saved)
+    return saved
+  })
   ipcMain.handle('video-notes:load', () => loadVideoNotes(getDesktopStore()))
   ipcMain.handle('video-notes:save', (_event, note: VideoNote) =>
     saveVideoNote(getDesktopStore(), note)

@@ -16,7 +16,8 @@ function createPreferences(): AssistantPreferences {
     favoritesFolderName: 'Bilimi 内库',
     favoriteLedgers: createDefaultFavoriteLedgers(),
     ledgerPromptDismissed: true,
-    preferenceCounts: {}
+    preferenceCounts: {},
+    petStyle: 'big-head'
   }
 }
 
@@ -134,6 +135,7 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '札记' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '掌库' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '设置' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /赏.*轻赏此条/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /藏.*归入内库/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /赐.*投币厚赏/ })).toBeInTheDocument()
@@ -211,6 +213,23 @@ describe('FloatingAssistantApp', () => {
 
     expect(screen.getByRole('dialog', { name: '掌库' })).toBeInTheDocument()
     expect(screen.getByText(/尚缺/)).toBeInTheDocument()
+  })
+
+  it('saves the selected pet style from assistant settings', async () => {
+    const { savePreferences } = installDesktopApi()
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('radio', { name: '高清重置版' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          petStyle: 'classic'
+        })
+      )
+    )
   })
 
   it('refreshes the displayed video when the main window reports a snapshot change', async () => {

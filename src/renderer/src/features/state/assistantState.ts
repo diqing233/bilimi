@@ -18,6 +18,10 @@ export type AssistantStateEvent = {
   action: AssistantAction
 }
 
+export function normalizePetStyle(value: unknown): AssistantPreferences['petStyle'] {
+  return value === 'classic' ? 'classic' : 'big-head'
+}
+
 export function createInitialAssistantState(): AssistantState {
   return {
     lastAction: null,
@@ -32,6 +36,7 @@ export function createInitialAssistantPreferences(
     favoritesFolderName: persisted?.favoritesFolderName ?? 'Bilimi 内库',
     favoriteLedgers: normalizeFavoriteLedgers(persisted?.favoriteLedgers ?? createDefaultFavoriteLedgers()),
     ledgerPromptDismissed: Boolean(persisted?.ledgerPromptDismissed),
+    petStyle: normalizePetStyle(persisted?.petStyle),
     preferenceCounts: {
       ...createEmptyPreferenceCounts(),
       ...persisted?.preferenceCounts

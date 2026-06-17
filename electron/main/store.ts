@@ -13,6 +13,7 @@ export type AssistantPreferences = {
   favoritesFolderName: string
   favoriteLedgers: FavoriteLedger[]
   ledgerPromptDismissed: boolean
+  petStyle: 'big-head' | 'classic'
   preferenceCounts: Record<string, number>
 }
 
@@ -30,6 +31,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   favoritesFolderName: 'Bilimi 鍐呭簱',
   favoriteLedgers: createDefaultFavoriteLedgers(),
   ledgerPromptDismissed: false,
+  petStyle: 'big-head',
   preferenceCounts: {}
 }
 
@@ -54,10 +56,13 @@ export function getDesktopStore(): Store<DesktopStoreState> {
 export function loadAssistantPreferences(
   store: AssistantStoreLike = getDesktopStore()
 ): AssistantPreferences {
+  const petStyle = store.get('petStyle')
+
   return {
     favoritesFolderName: store.get('favoritesFolderName'),
     favoriteLedgers: normalizeFavoriteLedgers(store.get('favoriteLedgers')),
     ledgerPromptDismissed: Boolean(store.get('ledgerPromptDismissed')),
+    petStyle: petStyle === 'classic' ? 'classic' : 'big-head',
     preferenceCounts: store.get('preferenceCounts') ?? {}
   }
 }
@@ -69,6 +74,7 @@ export function saveAssistantPreferences(
   store.set('favoritesFolderName', preferences.favoritesFolderName)
   store.set('favoriteLedgers', normalizeFavoriteLedgers(preferences.favoriteLedgers))
   store.set('ledgerPromptDismissed', Boolean(preferences.ledgerPromptDismissed))
+  store.set('petStyle', preferences.petStyle === 'classic' ? 'classic' : 'big-head')
   store.set('preferenceCounts', preferences.preferenceCounts ?? {})
 
   return loadAssistantPreferences(store)

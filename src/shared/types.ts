@@ -58,6 +58,7 @@ export type AssistantPreferences = {
   favoritesFolderName: string
   favoriteLedgers: FavoriteLedger[]
   ledgerPromptDismissed: boolean
+  petStyle: 'big-head' | 'classic'
   preferenceCounts: Record<string, number>
 }
 

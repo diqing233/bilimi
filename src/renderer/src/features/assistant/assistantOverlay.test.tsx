@@ -303,6 +303,7 @@ describe('AssistantOverlay', () => {
         storedPreferences={{
           favoritesFolderName: 'Bilimi 内库',
           ledgerPromptDismissed: false,
+          petStyle: 'big-head',
           preferenceCounts: {},
           favoriteLedgers: [
             {

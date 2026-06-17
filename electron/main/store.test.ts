@@ -47,6 +47,7 @@ function createFakeStore(
     favoriteLedgers: initial.favoriteLedgers ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteLedgers,
     ledgerPromptDismissed:
       initial.ledgerPromptDismissed ?? DEFAULT_ASSISTANT_PREFERENCES.ledgerPromptDismissed,
+    petStyle: initial.petStyle ?? DEFAULT_ASSISTANT_PREFERENCES.petStyle,
     preferenceCounts: initial.preferenceCounts ?? { ...DEFAULT_ASSISTANT_PREFERENCES.preferenceCounts },
     videoNotes: initial.videoNotes ?? [],
     videoNoteArchives: initial.videoNoteArchives ?? []
@@ -116,6 +117,7 @@ describe('assistant preference store helpers', () => {
       favoritesFolderName: 'Archive',
       favoriteLedgers: DEFAULT_ASSISTANT_PREFERENCES.favoriteLedgers,
       ledgerPromptDismissed: false,
+      petStyle: 'classic',
       preferenceCounts: {
         story: 4,
         suspicious: 1
@@ -125,6 +127,7 @@ describe('assistant preference store helpers', () => {
     expect(saved).toMatchObject({
       favoritesFolderName: 'Archive',
       ledgerPromptDismissed: false,
+      petStyle: 'classic',
       preferenceCounts: {
         story: 4,
         suspicious: 1

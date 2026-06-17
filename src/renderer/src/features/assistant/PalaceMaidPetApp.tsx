@@ -5,6 +5,8 @@ import {
   normalizePetState,
   type AssistantPetState
 } from './petState'
+import { createInitialAssistantPreferences } from '../state/assistantState'
+import type { AssistantPreferences } from '@shared/types'
 
 const DRAG_THRESHOLD_PX = 5
 
@@ -19,12 +21,37 @@ export function PalaceMaidPetApp() {
   const suppressNextClick = useRef(false)
   const [pressed, setPressed] = useState(false)
   const [petState, setPetState] = useState<AssistantPetState>('idle')
+  const [petStyle, setPetStyle] = useState<AssistantPreferences['petStyle']>('big-head')
   const [clickReactionSignal, setClickReactionSignal] = useState(0)
   const stateView = createPetStateView(petState)
 
   useEffect(() => {
     return window.bilimiDesktop?.onAssistantPetStateChanged?.((state) => {
       setPetState(normalizePetState(state))
+    })
+  }, [])
+
+  useEffect(() => {
+    let disposed = false
+
+    async function loadPreferences() {
+      const preferences = await window.bilimiDesktop?.loadPreferences?.()
+
+      if (!disposed && preferences) {
+        setPetStyle(createInitialAssistantPreferences(preferences).petStyle)
+      }
+    }
+
+    void loadPreferences()
+
+    return () => {
+      disposed = true
+    }
+  }, [])
+
+  useEffect(() => {
+    return window.bilimiDesktop?.onAssistantPreferencesChanged?.((preferences) => {
+      setPetStyle(createInitialAssistantPreferences(preferences).petStyle)
     })
   }, [])
 
@@ -123,7 +150,11 @@ export function PalaceMaidPetApp() {
         }}
       >
         <span className="palace-maid-pet__halo" aria-hidden="true" />
-        <LayeredPetRenderer petState={petState} clickReactionSignal={clickReactionSignal} />
+        <LayeredPetRenderer
+          petState={petState}
+          clickReactionSignal={clickReactionSignal}
+          petStyle={petStyle}
+        />
         <span className="palace-maid-pet__bubble">
           <strong>{stateView.label}</strong>
           <span>{stateView.bubble}</span>

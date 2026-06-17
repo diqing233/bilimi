@@ -34,7 +34,7 @@ const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
   suspicious: '谨慎观察'
 }
 
-type AssistantWorkspaceTab = 'review' | 'notes' | 'ledger'
+type AssistantWorkspaceTab = 'review' | 'notes' | 'ledger' | 'settings'
 type AssistantWorkspaceView = AssistantWorkspaceTab | 'noteArchive'
 
 type FloatingAssistantAppProps = {
@@ -201,6 +201,13 @@ export function FloatingAssistantApp({
       const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
       setPreferences(createInitialAssistantPreferences(saved))
     }
+  }
+
+  function choosePetStyle(petStyle: AssistantPreferences['petStyle']) {
+    void persistPreferences({
+      ...preferences,
+      petStyle
+    })
   }
 
   async function persistFeedback(action: AssistantAction, kind: RecommendationKind) {
@@ -414,6 +421,14 @@ export function FloatingAssistantApp({
           >
             掌库
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'settings'}
+            onClick={() => setActiveTab('settings')}
+          >
+            设置
+          </button>
         </div>
 
         {activeView === 'ledger' ? (
@@ -431,6 +446,33 @@ export function FloatingAssistantApp({
             onScanOldFavorites={scanOldFavorites}
             onExecuteOldFavoritePlan={executeOldFavoritePlan}
           />
+        ) : activeView === 'settings' ? (
+          <section className="assistant-settings" aria-label="助手设置">
+            <header>
+              <h2>设置</h2>
+            </header>
+            <fieldset className="assistant-settings__group">
+              <legend>宠物样式</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="pet-style"
+                  checked={preferences.petStyle === 'big-head'}
+                  onChange={() => choosePetStyle('big-head')}
+                />
+                <span>大头 Q 版</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="pet-style"
+                  checked={preferences.petStyle === 'classic'}
+                  onChange={() => choosePetStyle('classic')}
+                />
+                <span>高清重置版</span>
+              </label>
+            </fieldset>
+          </section>
         ) : activeView === 'noteArchive' ? (
           <VideoNoteArchivePanel
             archives={videoNoteArchives}
