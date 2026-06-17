@@ -20,6 +20,8 @@ The assistant can create notes from:
 
 Video note generation reads the current Bilibili video metadata for title, BV ID, URL, and archive context, then downloads the current video audio and transcribes it locally. Manually pasted transcript text remains available as a fallback and does not download audio.
 
+The default `整理札记` action uses local audio transcription when it is available. Generated notes include a study-oriented overview with a one-sentence takeaway, key points, a revisit prompt, open questions, keywords, timeline items, and highlights. Timeline items and transcript segments expose `加批注`, which starts a timestamped annotation draft for that moment.
+
 ## Audio Transcription Prerequisites
 
 - Install Python and `faster-whisper` before running local transcription:
