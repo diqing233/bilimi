@@ -415,7 +415,7 @@ describe('FloatingAssistantApp', () => {
     render(<FloatingAssistantApp mode="sidebar" onRequestCollapse={onRequestCollapse} />)
 
     expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: '礼记' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '札记' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '掌库' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '收起侧栏' }))

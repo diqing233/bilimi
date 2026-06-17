@@ -404,7 +404,7 @@ export function FloatingAssistantApp({
             aria-selected={activeTab === 'notes'}
             onClick={() => setActiveTab('notes')}
           >
-            {isSidebarMode ? '礼记' : '札记'}
+            札记
           </button>
           <button
             type="button"

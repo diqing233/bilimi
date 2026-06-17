@@ -77,7 +77,7 @@ describe('App runtime integration', () => {
     expect(document.querySelector('.seal-button')).not.toBeInTheDocument()
     expect(screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })).toBeInTheDocument()
     expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: '礼记' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '札记' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '掌库' })).toBeInTheDocument()
     expect(window.bilimiDesktop.registerAssistantRuntime).toHaveBeenCalled()
   })

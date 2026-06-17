@@ -10,7 +10,7 @@ const RAIL_TABS: Array<{
   openLabel: string
 }> = [
   { id: 'review', label: '批阅', icon: '批', openLabel: '打开批阅' },
-  { id: 'notes', label: '礼记', icon: '记', openLabel: '打开礼记' },
+  { id: 'notes', label: '札记', icon: '记', openLabel: '打开札记' },
   { id: 'ledger', label: '掌库', icon: '库', openLabel: '打开掌库' }
 ]
 
