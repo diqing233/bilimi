@@ -46,16 +46,13 @@ describe('renderer porcelain theme styles', () => {
       expect(styles).toContain(token)
     }
   })
-  it('keeps the sidebar rail as a light boundary control instead of a dark feature menu', () => {
+  it('uses a floating sidebar collapse control without reserving a rail column', () => {
     const sidebarStyles = styles.replace(/\r\n/g, '\n')
-    const railRule = sidebarStyles.match(/\.assistant-sidebar__rail \{\n(?<body>[\s\S]*?)\n\}/)
 
-    expect(railRule?.groups?.body).toContain('background: rgba(220, 238, 255, 0.92);')
-    expect(railRule?.groups?.body).toContain('position: relative;')
-    expect(railRule?.groups?.body).not.toContain('var(--porcelain-edge)')
-    expect(railRule?.groups?.body).not.toContain('var(--porcelain-deep)')
-    expect(sidebarStyles).toContain('grid-template-columns: 46px minmax(0, 1fr);')
-    expect(sidebarStyles).toContain('.assistant-sidebar[data-collapsed="true"] {\n  width: 46px;')
-    expect(sidebarStyles).toContain('.assistant-sidebar__rail-button {\n  position: absolute;\n  top: 12px;\n  left: 5px;')
+    expect(sidebarStyles).not.toContain('.assistant-sidebar__rail')
+    expect(sidebarStyles).not.toContain('grid-template-columns: 46px minmax(0, 1fr);')
+    expect(sidebarStyles).toContain('grid-template-columns: minmax(0, 1fr);')
+    expect(sidebarStyles).toContain('.assistant-sidebar[data-collapsed="true"] {\n  width: 0;')
+    expect(sidebarStyles).toContain('.assistant-sidebar__collapse-button {\n  position: absolute;\n  top: 12px;\n  left: -40px;')
   })
 })

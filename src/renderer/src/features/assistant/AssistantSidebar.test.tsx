@@ -31,13 +31,15 @@ describe('AssistantSidebar', () => {
     )
   })
 
-  it('uses the boundary control as the only rail action', async () => {
+  it('uses a floating boundary control without rendering a rail column', async () => {
     installDesktopApi()
 
     render(<AssistantSidebar />)
 
-    const rail = screen.getByRole('navigation', { name: '侧边栏收合控制' })
-    expect(rail).toContainElement(screen.getByRole('button', { name: '收起侧边栏' }))
+    expect(screen.queryByRole('navigation', { name: '侧边栏收合控制' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '收起侧边栏' })).toHaveClass(
+      'assistant-sidebar__collapse-button'
+    )
     expect(screen.queryByRole('button', { name: '打开批阅' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '打开札记' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '打开掌库' })).not.toBeInTheDocument()

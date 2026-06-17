@@ -13,16 +13,14 @@ export function AssistantSidebar() {
       aria-label="Bilimi 侧边栏"
       data-collapsed={collapsed ? 'true' : 'false'}
     >
-      <nav className="assistant-sidebar__rail" aria-label="侧边栏收合控制">
-        <button
-          type="button"
-          className="assistant-sidebar__rail-button"
-          aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
-          onClick={() => setCollapsed((current) => !current)}
-        >
-          <span aria-hidden="true">{collapsed ? '展' : '收'}</span>
-        </button>
-      </nav>
+      <button
+        type="button"
+        className="assistant-sidebar__collapse-button"
+        aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
+        onClick={() => setCollapsed((current) => !current)}
+      >
+        <span aria-hidden="true">{collapsed ? '展' : '收'}</span>
+      </button>
       {collapsed ? null : (
         <FloatingAssistantApp
           mode="sidebar"
