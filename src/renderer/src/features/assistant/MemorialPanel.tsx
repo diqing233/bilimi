@@ -117,10 +117,6 @@ export function MemorialPanel({
               <p>{videoCategory}</p>
               <p>签语：{recommendation.badge}</p>
             </aside>
-            <div className="memorial-panel__copy">
-              <p>臣谨以此条进呈陛下，若准其留档，臣便代行轻赏。</p>
-              <p>若欲代拟奏表，臣已备下 {commentDrafts.length} 条奏折腔批语，静候钦点。</p>
-            </div>
             <div className="memorial-panel__actions" role="group" aria-label="批阅动作">
               {ACTIONS.map(({ action, label, description }) => (
                 <button

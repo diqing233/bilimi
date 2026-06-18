@@ -9,7 +9,7 @@ const inboxRecommendation: RecommendationLabel = {
 }
 
 describe('MemorialPanel', () => {
-  it('omits the temporary-review copy and red verdict block from the review panel', () => {
+  it('omits the temporary-review copy, guidance box and red verdict block from the review panel', () => {
     render(
       <MemorialPanel
         recommendation={inboxRecommendation}
@@ -28,6 +28,8 @@ describe('MemorialPanel', () => {
     )
 
     expect(screen.queryByText('此条暂存待阅，容后再归册。')).not.toBeInTheDocument()
+    expect(screen.queryByText('臣谨以此条进呈陛下，若准其留档，臣便代行轻赏。')).not.toBeInTheDocument()
+    expect(screen.queryByText('若欲代拟奏表，臣已备下 1 条奏折腔批语，静候钦点。')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '朱批' })).not.toBeInTheDocument()
     expect(screen.queryByText('此物可先过目，不必骤然重赏。')).not.toBeInTheDocument()
     expect(screen.getByRole('group', { name: '批阅动作' })).toBeInTheDocument()
