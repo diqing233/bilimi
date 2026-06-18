@@ -19,7 +19,9 @@ Collapsing the sidebar removes the sidebar column instead of leaving a vertical 
 
 ## Desktop Pet
 
-Bilimi includes a small transparent Electron desktop pet window rendered by `PalaceMaidPetApp`. The current pet is a lightweight 2D blue-white porcelain chibi maid using generated transparent PNG character states plus small effect layers.
+Bilimi includes a small transparent Electron desktop pet window rendered by `PalaceMaidPetApp` and `LayeredPetRenderer`. The pet is a lightweight 2D blue-white porcelain chibi maid with transparent PNG character states plus small effect layers.
+
+Assistant settings expose two pet styles: `big-head` for the compact big-head Q-version sprites and `classic` for the clearer full-body reset sprites. Pet style is persisted with the other assistant preferences and broadcast after saving so the main window, floating assistant, and desktop pet stay in sync without restarting.
 
 The pet supports `idle`, `hint`, `working`, and `error` status feedback, can be dragged, and restores or focuses the main Bilimi window when clicked. Dragging suppresses the follow-up click reaction. The pet is intentionally companion-only: it does not add platform controls, action menus, trays, teapots, cups, or other props.
 
