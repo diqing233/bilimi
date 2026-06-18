@@ -340,40 +340,64 @@ function centerOf(box: TextBox) {
 
 function clickAt(webview: VisualWebview, box: TextBox) {
   const point = centerOf(box)
-  const sendInputEvent = webview.sendInputEvent as unknown as
-    | ((event: Record<string, unknown>) => void)
-    | undefined
-  sendInputEvent?.({ type: 'mouseMove', x: point.x, y: point.y })
-  sendInputEvent?.({ button: 'left', clickCount: 1, type: 'mouseDown', x: point.x, y: point.y })
-  sendInputEvent?.({ button: 'left', clickCount: 1, type: 'mouseUp', x: point.x, y: point.y })
+  webview.sendInputEvent?.({ type: 'mouseMove', x: point.x, y: point.y })
+  webview.sendInputEvent?.({
+    button: 'left',
+    clickCount: 1,
+    type: 'mouseDown',
+    x: point.x,
+    y: point.y
+  })
+  webview.sendInputEvent?.({
+    button: 'left',
+    clickCount: 1,
+    type: 'mouseUp',
+    x: point.x,
+    y: point.y
+  })
 }
 
 function doubleClickAt(webview: VisualWebview, box: TextBox) {
   const point = centerOf(box)
-  const sendInputEvent = webview.sendInputEvent as unknown as
-    | ((event: Record<string, unknown>) => void)
-    | undefined
-  sendInputEvent?.({ type: 'mouseMove', x: point.x, y: point.y })
-  sendInputEvent?.({ button: 'left', clickCount: 1, type: 'mouseDown', x: point.x, y: point.y })
-  sendInputEvent?.({ button: 'left', clickCount: 1, type: 'mouseUp', x: point.x, y: point.y })
-  sendInputEvent?.({ button: 'left', clickCount: 2, type: 'mouseDown', x: point.x, y: point.y })
-  sendInputEvent?.({ button: 'left', clickCount: 2, type: 'mouseUp', x: point.x, y: point.y })
+  webview.sendInputEvent?.({ type: 'mouseMove', x: point.x, y: point.y })
+  webview.sendInputEvent?.({
+    button: 'left',
+    clickCount: 1,
+    type: 'mouseDown',
+    x: point.x,
+    y: point.y
+  })
+  webview.sendInputEvent?.({
+    button: 'left',
+    clickCount: 1,
+    type: 'mouseUp',
+    x: point.x,
+    y: point.y
+  })
+  webview.sendInputEvent?.({
+    button: 'left',
+    clickCount: 2,
+    type: 'mouseDown',
+    x: point.x,
+    y: point.y
+  })
+  webview.sendInputEvent?.({
+    button: 'left',
+    clickCount: 2,
+    type: 'mouseUp',
+    x: point.x,
+    y: point.y
+  })
 }
 
 function pressKey(webview: VisualWebview, keyCode: string) {
-  const sendInputEvent = webview.sendInputEvent as unknown as
-    | ((event: Record<string, unknown>) => void)
-    | undefined
-  sendInputEvent?.({ keyCode, type: 'keyDown' })
-  sendInputEvent?.({ keyCode, type: 'keyUp' })
+  webview.sendInputEvent?.({ keyCode, type: 'keyDown' })
+  webview.sendInputEvent?.({ keyCode, type: 'keyUp' })
 }
 
 function typeText(webview: VisualWebview, value: string) {
-  const sendInputEvent = webview.sendInputEvent as unknown as
-    | ((event: Record<string, unknown>) => void)
-    | undefined
   for (const char of value) {
-    sendInputEvent?.({ keyCode: char, type: 'char' })
+    webview.sendInputEvent?.({ keyCode: char, type: 'char' })
   }
 }
 

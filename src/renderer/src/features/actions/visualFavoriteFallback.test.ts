@@ -273,6 +273,38 @@ const context = {
 }
 
 describe('runVisualFavoriteFallback', () => {
+  it('keeps the Electron webview receiver when sending shortcut and mouse events', async () => {
+    const sentEvents: Record<string, unknown>[] = []
+    const webview = {
+      capturePage: vi.fn().mockResolvedValue({ toDataURL: vi.fn(() => 'data:image/png;base64,') }),
+      executeJavaScript: vi.fn().mockResolvedValue({
+        boxes: [
+          { text: '添加到收藏夹', x: 100, y: 80, width: 180, height: 32 },
+          { text: '+ 新建收藏夹', x: 120, y: 420, width: 140, height: 32 }
+        ]
+      }),
+      getWebContentsId: vi.fn(() => 42),
+      sendInputEvent(this: { getWebContentsId?: () => number }, event: Record<string, unknown>) {
+        if (!this.getWebContentsId) {
+          throw new Error("Cannot read properties of undefined (reading 'getWebContentsId')")
+        }
+
+        this.getWebContentsId()
+        sentEvents.push(event)
+      }
+    } as unknown as Electron.WebviewTag & {
+      sendInputEvent: (event: Record<string, unknown>) => void
+    }
+
+    const result = await runVisualFavoriteFallback(webview, context, {
+      openWithShortcut: true
+    })
+
+    expect(result.ok).toBe(false)
+    expect(result.missingTargets).toContain('visual-create-name')
+    expect(sentEvents).toContainEqual(expect.objectContaining({ keyCode: 'e', type: 'keyDown' }))
+  })
+
   it('presses the Bilibili favorite shortcut before reading the favorite dialog', async () => {
     const { sentEvents, webview } = createWebview([
       [{ text: '添加到收藏夹', x: 100, y: 80, width: 180, height: 32 }],
