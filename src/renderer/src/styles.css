@@ -824,6 +824,7 @@ body[data-floating-window="true"] {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
+  padding-left: 74px;
 }
 
 .assistant-sidebar-workspace > .memorial-panel,
@@ -879,7 +880,7 @@ body[data-floating-window="true"] {
 .assistant-sidebar__collapse-button {
   position: absolute;
   top: 5px;
-  left: -72px;
+  left: 4px;
   z-index: 3;
   min-width: 66px;
   min-height: 38px;
@@ -1026,12 +1027,13 @@ body[data-floating-window="true"] {
 .memorial-panel__action {
   min-height: 62px;
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr);
+  grid-template-columns: 1fr;
   grid-template-areas:
-    "mark label"
-    "mark desc";
+    "mark"
+    "label"
+    "desc";
   align-items: center;
-  gap: 2px 6px;
+  gap: 3px;
   border-radius: 6px;
   text-align: left;
   background:
@@ -1059,6 +1061,7 @@ body[data-floating-window="true"] {
   height: 44px;
   display: grid;
   place-items: center;
+  justify-self: center;
 }
 
 .memorial-panel__action-pet {
@@ -1091,18 +1094,22 @@ body[data-floating-window="true"] {
 
 .memorial-panel__action span {
   grid-area: label;
+  width: 100%;
   min-width: 0;
   color: var(--porcelain-text);
   font-weight: 700;
   font-size: 15px;
+  text-align: center;
   line-height: 1.25;
 }
 
 .memorial-panel__action small {
   grid-area: desc;
+  width: 100%;
   min-width: 0;
   color: var(--porcelain-muted);
   font-size: 12px;
+  text-align: center;
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
