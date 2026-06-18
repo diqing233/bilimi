@@ -186,5 +186,32 @@ describe('FloatingSealApp', () => {
     expect(seal).toHaveAttribute('data-pressed', 'false')
     expect(toggleFloatingAssistant).toHaveBeenCalledOnce()
   })
+
+  it('does not schedule opening reset after unmount when the toggle bridge resolves late', async () => {
+    let resolveToggle: () => void = () => undefined
+    const toggleRequest = new Promise<void>((resolve) => {
+      resolveToggle = resolve
+    })
+    const toggleFloatingAssistant = vi.fn(() => toggleRequest)
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout')
+
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        version: '0.1.0',
+        toggleFloatingAssistant
+      }
+    })
+
+    const { unmount } = render(<FloatingSealApp />)
+
+    fireEvent.click(screen.getByRole('button', { name: '打开 Bilimi 助手' }))
+    unmount()
+    resolveToggle()
+    await toggleRequest
+    await Promise.resolve()
+
+    expect(setTimeoutSpy).not.toHaveBeenCalled()
+  })
 })
 

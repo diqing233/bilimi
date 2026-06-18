@@ -13,7 +13,7 @@ npm run build
 
 ## Assistant Sidebar
 
-The main Bilimi window uses a two-column layout: the embedded Bilibili browser on the left and the Bilimi assistant sidebar on the right. The sidebar opens on `批阅` by default, with `礼记` and `掌库` available as tabs inside the same workspace.
+The main Bilimi window keeps native window controls but hides the default Electron application menu bar. It uses a two-column layout: the embedded Bilibili browser on the left and the Bilimi assistant sidebar on the right. The sidebar opens on `批阅` by default, with `礼记` and `掌库` available as tabs inside the same workspace.
 
 Collapsing the sidebar removes the sidebar column instead of leaving a vertical rail. A small floating boundary button labeled `收` or `展` stays on the browser/sidebar edge and aligns with the browser tab strip.
 

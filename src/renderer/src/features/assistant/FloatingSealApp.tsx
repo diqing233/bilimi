@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 const DRAG_THRESHOLD_PX = 5
 
@@ -11,8 +11,20 @@ type DragState = {
 export function FloatingSealApp() {
   const dragState = useRef<DragState | null>(null)
   const suppressNextClick = useRef(false)
+  const isMounted = useRef(true)
+  const openingResetTimeout = useRef<number | null>(null)
   const [pressed, setPressed] = useState(false)
   const [opening, setOpening] = useState(false)
+
+  useEffect(() => {
+    return () => {
+      isMounted.current = false
+
+      if (openingResetTimeout.current !== null) {
+        window.clearTimeout(openingResetTimeout.current)
+      }
+    }
+  }, [])
 
   function toggleAssistant() {
     setOpening(true)
@@ -21,7 +33,17 @@ export function FloatingSealApp() {
     const toggleRequest = toggleAssistantBridge?.()
 
     void Promise.resolve(toggleRequest).finally(() => {
-      window.setTimeout(() => setOpening(false), 160)
+      if (!isMounted.current) {
+        return
+      }
+
+      openingResetTimeout.current = window.setTimeout(() => {
+        openingResetTimeout.current = null
+
+        if (isMounted.current) {
+          setOpening(false)
+        }
+      }, 160)
     })
   }
 
