@@ -75,4 +75,41 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('width: 144px;')
     expect(normalizedStyles).not.toContain('-webkit-line-clamp: 2;')
   })
+
+  it('uses compact spacing for the review panel', () => {
+    expect(normalizedStyles).toContain(
+      '.memorial-panel__paper {\n  border: 1px solid rgba(31, 99, 181, 0.3);'
+    )
+    expect(normalizedStyles).toContain('padding: 8px;\n  max-height: calc(100vh - 16px);')
+    expect(normalizedStyles).toContain('display: grid;\n  gap: 6px;')
+    expect(normalizedStyles).toContain('.memorial-panel__action {\n  min-height: 52px;')
+    expect(normalizedStyles).toContain('grid-template-columns: 28px minmax(0, 1fr);')
+    expect(normalizedStyles).toContain(
+      '.memorial-panel__action strong {\n  grid-area: mark;\n  width: 24px;\n  height: 24px;'
+    )
+  })
+
+  it('uses compact spacing for the notes panel', () => {
+    expect(normalizedStyles).toContain(
+      '.video-notes {\n  color: var(--porcelain-text);\n  display: grid;\n  gap: 6px;'
+    )
+    expect(normalizedStyles).toContain('.video-notes__source {\n  display: grid;\n  gap: 4px;')
+    expect(normalizedStyles).toContain(
+      '.video-notes__source h3 {\n  margin: 0;\n  color: var(--porcelain-text);\n  font-size: 14px;'
+    )
+    expect(normalizedStyles).toContain(
+      '.video-notes__primary-actions button {\n  min-width: 76px;\n  min-height: 32px;'
+    )
+    expect(normalizedStyles).toContain(
+      '.video-notes__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(0, 1fr));\n  gap: 4px;'
+    )
+    expect(normalizedStyles).toContain(
+      '.video-notes__result-tabs button {\n  display: grid;\n  gap: 2px;\n  min-height: 44px;'
+    )
+    expect(normalizedStyles).toContain('.video-notes__plain-text {\n  max-height: 160px;')
+    expect(normalizedStyles).toContain('.video-notes textarea {\n  min-height: 60px;')
+    expect(normalizedStyles).toContain(
+      '.video-notes__memo textarea[readonly] {\n  min-height: 130px;'
+    )
+  })
 })
