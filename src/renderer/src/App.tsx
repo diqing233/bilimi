@@ -405,7 +405,8 @@ export default function App() {
   }
 
   async function runVisualFallback(
-    context: Parameters<typeof runVisualFavoriteFallback>[1]
+    context: Parameters<typeof runVisualFavoriteFallback>[1],
+    options?: Parameters<typeof runVisualFavoriteFallback>[2]
   ): Promise<AssistantAutomationResult> {
     const currentActiveWebview = getCurrentActiveWebview()
 
@@ -418,7 +419,7 @@ export default function App() {
       }
     }
 
-    return runVisualFavoriteFallback(currentActiveWebview, context)
+    return runVisualFavoriteFallback(currentActiveWebview, context, options)
   }
 
   async function saveVideoNote(note: VideoNote): Promise<void> {

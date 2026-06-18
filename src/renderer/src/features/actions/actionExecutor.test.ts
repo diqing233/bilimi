@@ -26,8 +26,7 @@ describe('executeAssistantAction', () => {
       runScript,
       favoritesFolderName: 'Bilimi 内库',
       favoriteLedgers,
-      targetLedgerId: 'humor',
-      favoriteApiFallbackEnabled: false
+      targetLedgerId: 'humor'
     })
 
     expect(runScript).toHaveBeenCalledTimes(2)
@@ -61,8 +60,7 @@ describe('executeAssistantAction', () => {
       runScript,
       favoritesFolderName: 'Bilimi 内库',
       favoriteLedgers,
-      targetLedgerId: 'humor',
-      favoriteApiFallbackEnabled: false
+      targetLedgerId: 'humor'
     })
 
     expect(runScript).toHaveBeenCalledTimes(2)
@@ -212,8 +210,7 @@ describe('executeAssistantAction', () => {
       favoritesFolderName: 'Bilimi 内库',
       favoriteLedgers,
       targetLedgerId: 'humor',
-      coinCount: 2,
-      favoriteApiFallbackEnabled: false
+      coinCount: 2
     })
 
     expect(runScript).toHaveBeenCalledTimes(2)
@@ -226,7 +223,7 @@ describe('executeAssistantAction', () => {
     )
   })
 
-  it('uses the Bilibili API fallback for 藏 even when page-click-only disabled API fallback', async () => {
+  it('uses shortcut-driven visual favorite automation instead of the API when page clicks only are requested', async () => {
     const runScript = vi
       .fn()
       .mockResolvedValueOnce({
@@ -241,7 +238,12 @@ describe('executeAssistantAction', () => {
         missingTargets: [],
         message: '已用 B 站接口归入 Bilimi 收藏夹。'
       })
-    const runVisualFallback = vi.fn()
+    const runVisualFallback = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['visual:favorite:shortcut:e', 'visual:favorite:select-folder', 'visual:favorite:confirm'],
+      missingTargets: [],
+      message: '已用屏幕识别和键鼠操作处理收藏夹。'
+    })
 
     const result = await executeAssistantAction({
       action: '藏',
@@ -253,13 +255,22 @@ describe('executeAssistantAction', () => {
       favoriteApiFallbackEnabled: false
     })
 
-    expect(runScript).toHaveBeenCalledTimes(2)
-    expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
-    expect(runScript.mock.calls[1][0]).toContain('Bilimi·见闻增广')
-    expect(runVisualFallback).not.toHaveBeenCalled()
+    expect(runScript).toHaveBeenCalledTimes(1)
+    expect(runScript.mock.calls[0][0]).toContain('"action":"藏"')
+    expect(runScript.mock.calls[0][0]).not.toContain('/x/v3/fav/resource/deal')
+    expect(runVisualFallback).toHaveBeenCalledWith(
+      {
+        favoriteFolders: expect.objectContaining({
+          knowledge: 'Bilimi·见闻增广'
+        }),
+        favoritesFolderName: 'Bilimi 内库',
+        targetLedgerId: 'knowledge'
+      },
+      expect.objectContaining({ openWithShortcut: true })
+    )
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
-      expect.arrayContaining(['favorite:open', 'api:favorite:list', 'api:favorite:add'])
+      expect.arrayContaining(['favorite:open', 'visual:favorite:shortcut:e', 'visual:favorite:confirm'])
     )
   })
 

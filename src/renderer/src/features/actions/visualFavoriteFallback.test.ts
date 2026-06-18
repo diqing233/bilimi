@@ -273,6 +273,31 @@ const context = {
 }
 
 describe('runVisualFavoriteFallback', () => {
+  it('presses the Bilibili favorite shortcut before reading the favorite dialog', async () => {
+    const { sentEvents, webview } = createWebview([
+      [{ text: '添加到收藏夹', x: 100, y: 80, width: 180, height: 32 }],
+      [{ text: '+ 新建收藏夹', x: 120, y: 420, width: 140, height: 32 }],
+      [{ text: '收藏夹名称', x: 120, y: 260, width: 180, height: 36 }],
+      [{ text: '创建', x: 240, y: 340, width: 80, height: 32 }],
+      [
+        { text: 'Bilimi·茶余解颐', x: 120, y: 470, width: 180, height: 32 },
+        { text: '确定', x: 250, y: 620, width: 120, height: 40 }
+      ]
+    ])
+
+    const result = await runVisualFavoriteFallback(webview, context, {
+      openWithShortcut: true
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.steps[0]).toBe('visual:favorite:shortcut:e')
+    expect(sentEvents[0]).toMatchObject({ keyCode: 'e', type: 'keyDown' })
+    expect(sentEvents[1]).toMatchObject({ keyCode: 'e', type: 'keyUp' })
+    expect(sentEvents).not.toContainEqual(
+      expect.objectContaining({ type: 'mouseDown', x: 50, y: 36 })
+    )
+  })
+
   it('clicks the visible favorite button before scrolling the favorite panel', async () => {
     const { scripts, sentEvents, webview } = createWebview([
       [{ text: '收藏', x: 10, y: 20, width: 80, height: 32 }],

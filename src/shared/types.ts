@@ -75,8 +75,13 @@ export type VisualAutomationContext = {
   targetLedgerId: FavoriteLedgerId
 }
 
+export type VisualAutomationOptions = {
+  openWithShortcut?: boolean
+}
+
 export type VisualAutomationFallback = (
-  context: VisualAutomationContext
+  context: VisualAutomationContext,
+  options?: VisualAutomationOptions
 ) => Promise<AssistantAutomationResult>
 
 export type VideoNoteSourceMetadata = {

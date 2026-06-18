@@ -134,6 +134,30 @@ export async function executeAssistantAction(args: ExecuteAssistantActionArgs) {
     return domResult
   }
 
+  const pageClickOnly = args.favoriteApiFallbackEnabled === false
+
+  if (pageClickOnly) {
+    if (!args.runVisualFallback || (!domResult.ok && favoriteMissingTargets(domResult).length === 0)) {
+      return domResult
+    }
+
+    const visualResult = await args.runVisualFallback(
+      {
+        favoriteFolders: favoriteLedgerNamesById(args.favoriteLedgers),
+        favoritesFolderName: args.favoritesFolderName,
+        targetLedgerId: args.targetLedgerId
+      },
+      { openWithShortcut: true }
+    )
+
+    return {
+      ok: visualResult.ok,
+      steps: [...domResult.steps, ...visualResult.steps],
+      missingTargets: visualResult.missingTargets,
+      message: visualResult.message
+    }
+  }
+
   const mustConfirmFavoriteFolder = usesFavorite(args.action)
   const apiResult =
     args.favoriteApiFallbackEnabled === false && !mustConfirmFavoriteFolder

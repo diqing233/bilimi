@@ -191,7 +191,20 @@ describe('App runtime integration', () => {
     })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+      sendInputEvent?: (event: Record<string, unknown>) => void
     }
+    const sentEvents: Record<string, unknown>[] = []
+    const visualFrames = [
+      [{ text: '添加到收藏夹', x: 100, y: 80, width: 180, height: 32 }],
+      [{ text: '+ 新建收藏夹', x: 120, y: 420, width: 140, height: 32 }],
+      [{ text: '收藏夹名称', x: 120, y: 260, width: 180, height: 36 }],
+      [{ text: '创建', x: 240, y: 340, width: 80, height: 32 }],
+      [
+        { text: 'Bilimi·见闻增广', x: 120, y: 470, width: 180, height: 32 },
+        { text: '确定', x: 250, y: 620, width: 120, height: 40 }
+      ]
+    ]
+    let visualFrameIndex = 0
     const executeJavaScript = vi.fn(async (script: string) => {
       if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
         return {
@@ -209,6 +222,20 @@ describe('App runtime integration', () => {
         }
       }
 
+      if (script.includes('modalClassName') && script.includes('containers')) {
+        return { containers: [], moved: false }
+      }
+
+      if (script.includes('__bilimiFavoriteFocusPoint')) {
+        return true
+      }
+
+      if (script.includes('__bilimiVisualTextBoxes')) {
+        const boxes = visualFrames[Math.min(visualFrameIndex, visualFrames.length - 1)]
+        visualFrameIndex += 1
+        return { boxes }
+      }
+
       return {
         ok: true,
         steps: ['favorite:open', 'favorite:folder', 'favorite'],
@@ -216,7 +243,12 @@ describe('App runtime integration', () => {
         message: '已按内容归入内库。'
       }
     })
-    Object.assign(webview, { executeJavaScript })
+    Object.assign(webview, {
+      executeJavaScript,
+      sendInputEvent: vi.fn((event: Record<string, unknown>) => {
+        sentEvents.push(event)
+      })
+    })
 
     const result = await requestRuntime({
       id: 'run-1',
@@ -228,7 +260,7 @@ describe('App runtime integration', () => {
     expect(result).toEqual(expect.objectContaining({ ok: true }))
     expect(result).toEqual(
       expect.objectContaining({
-        steps: expect.arrayContaining(['favorite', 'api:favorite:add'])
+        steps: expect.arrayContaining(['favorite', 'visual:favorite:shortcut:e', 'visual:favorite:confirm'])
       })
     )
     await waitFor(() =>
@@ -240,7 +272,8 @@ describe('App runtime integration', () => {
       executeJavaScript.mock.calls.some(([script]) =>
         script.includes('/x/v3/fav/resource/deal') && script.includes('Bilimi·见闻增广')
       )
-    ).toBe(true)
+    ).toBe(false)
+    expect(sentEvents).toContainEqual(expect.objectContaining({ keyCode: 'e', type: 'keyDown' }))
     expect(savePreferences).toHaveBeenCalledWith(
       expect.objectContaining({
         preferenceCounts: expect.objectContaining({
@@ -250,11 +283,24 @@ describe('App runtime integration', () => {
     )
   })
 
-  it('confirms 赐 favorites through the API even when the floating runtime requests page clicks only', async () => {
+  it('confirms 赐 favorites through shortcut-driven visual automation when the floating runtime requests page clicks only', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+      sendInputEvent?: (event: Record<string, unknown>) => void
     }
+    const sentEvents: Record<string, unknown>[] = []
+    const visualFrames = [
+      [{ text: '添加到收藏夹', x: 100, y: 80, width: 180, height: 32 }],
+      [{ text: '+ 新建收藏夹', x: 120, y: 420, width: 140, height: 32 }],
+      [{ text: '收藏夹名称', x: 120, y: 260, width: 180, height: 36 }],
+      [{ text: '创建', x: 240, y: 340, width: 80, height: 32 }],
+      [
+        { text: 'Bilimi·见闻增广', x: 120, y: 470, width: 180, height: 32 },
+        { text: '确定', x: 250, y: 620, width: 120, height: 40 }
+      ]
+    ]
+    let visualFrameIndex = 0
     const executeJavaScript = vi.fn(async (script: string) => {
       if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
         return {
@@ -272,6 +318,20 @@ describe('App runtime integration', () => {
         }
       }
 
+      if (script.includes('modalClassName') && script.includes('containers')) {
+        return { containers: [], moved: false }
+      }
+
+      if (script.includes('__bilimiFavoriteFocusPoint')) {
+        return true
+      }
+
+      if (script.includes('__bilimiVisualTextBoxes')) {
+        const boxes = visualFrames[Math.min(visualFrameIndex, visualFrames.length - 1)]
+        visualFrameIndex += 1
+        return { boxes }
+      }
+
       return {
         ok: true,
         steps: ['like', 'favorite:open', 'favorite:folder', 'favorite', 'coin:open', 'coin:2', 'coin:confirm'],
@@ -279,7 +339,12 @@ describe('App runtime integration', () => {
         message: '厚赐已成。'
       }
     })
-    Object.assign(webview, { executeJavaScript })
+    Object.assign(webview, {
+      executeJavaScript,
+      sendInputEvent: vi.fn((event: Record<string, unknown>) => {
+        sentEvents.push(event)
+      })
+    })
 
     const result = await requestRuntime({
       id: 'run-gift',
@@ -291,7 +356,7 @@ describe('App runtime integration', () => {
     expect(result).toEqual(
       expect.objectContaining({
         ok: true,
-        steps: expect.arrayContaining(['coin:confirm', 'api:favorite:add'])
+        steps: expect.arrayContaining(['coin:confirm', 'visual:favorite:shortcut:e', 'visual:favorite:confirm'])
       })
     )
     expect(executeJavaScript.mock.calls.some(([script]) => script.includes('"coinCount":2'))).toBe(true)
@@ -299,7 +364,8 @@ describe('App runtime integration', () => {
       executeJavaScript.mock.calls.some(([script]) =>
         script.includes('/x/v3/fav/resource/deal') && script.includes('Bilimi·见闻增广')
       )
-    ).toBe(true)
+    ).toBe(false)
+    expect(sentEvents).toContainEqual(expect.objectContaining({ keyCode: 'e', type: 'keyDown' }))
   })
 
   it('generates default notes from audio for the floating assistant runtime', async () => {

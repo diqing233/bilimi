@@ -16,6 +16,10 @@ type VisualWebview = Electron.WebviewTag & {
   capturePage?: () => Promise<{ toDataURL?: () => string }>
 }
 
+type VisualFavoriteFallbackOptions = {
+  openWithShortcut?: boolean
+}
+
 const OCR_SCRIPT = `
   (async () => {
     const injectedBoxes = window.__bilimiVisualTextBoxes || window.visualTextBoxes || [];
@@ -452,7 +456,17 @@ async function scrollFavoritePanel(webview: VisualWebview): Promise<ScrollFavori
   }
 }
 
-async function openFavoritePanel(webview: VisualWebview, steps: string[]) {
+async function openFavoritePanel(
+  webview: VisualWebview,
+  steps: string[],
+  options: VisualFavoriteFallbackOptions = {}
+) {
+  if (options.openWithShortcut) {
+    pressKey(webview, 'e')
+    steps.push('visual:favorite:shortcut:e')
+    await wait(160)
+  }
+
   const boxes = await readTextBoxes(webview)
   if (hasFavoritePanel(boxes)) {
     return true
@@ -555,7 +569,8 @@ async function waitForFavoriteConfirmButton(webview: VisualWebview) {
 
 export async function runVisualFavoriteFallback(
   webview: VisualWebview,
-  context: VisualAutomationContext
+  context: VisualAutomationContext,
+  options: VisualFavoriteFallbackOptions = {}
 ): Promise<AssistantAutomationResult> {
   if (!webview.sendInputEvent) {
     return {
@@ -578,7 +593,7 @@ export async function runVisualFavoriteFallback(
     }
   }
 
-  const panelOpened = await openFavoritePanel(webview, steps)
+  const panelOpened = await openFavoritePanel(webview, steps, options)
   if (!panelOpened) {
     return {
       ok: false,

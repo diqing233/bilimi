@@ -201,12 +201,6 @@ describe('AssistantOverlay', () => {
           resolveRunScript = resolve
         })
       )
-      .mockResolvedValueOnce({
-        ok: true,
-        steps: ['api:favorite:list', 'api:favorite:add'],
-        missingTargets: [],
-        message: '已用 B 站接口归入 Bilimi 收藏夹。'
-      })
 
     render(
       <AssistantOverlay
@@ -227,7 +221,7 @@ describe('AssistantOverlay', () => {
       message: '轻赏已入内库。'
     })
 
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('已用 B 站接口归入 Bilimi 收藏夹。'))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('轻赏已入内库。'))
   })
 
   it('lets the user confirm create-and-favorite without triggering a like action', async () => {
@@ -380,20 +374,12 @@ describe('AssistantOverlay', () => {
   })
 
   it('defaults to page-click-only fallback and shows the automation log', async () => {
-    const runScript = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: false,
-        steps: ['favorite:open'],
-        missingTargets: ['favorite-create-button'],
-        message: '尚有 favorite-create-button 未能寻见。'
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        steps: ['api:favorite:list'],
-        missingTargets: ['favorite-api'],
-        message: 'B 站收藏接口未能完成。'
-      })
+    const runScript = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      steps: ['favorite:open'],
+      missingTargets: ['favorite-create-button'],
+      message: '尚有 favorite-create-button 未能寻见。'
+    })
     const runVisualFallback = vi.fn().mockResolvedValue({
       ok: true,
       steps: ['visual:favorite:create'],
@@ -416,10 +402,15 @@ describe('AssistantOverlay', () => {
     fireEvent.click(getActionButton('藏'))
 
     await waitFor(() => expect(runVisualFallback).toHaveBeenCalledOnce())
-    expect(runScript).toHaveBeenCalledTimes(2)
+    expect(runScript).toHaveBeenCalledTimes(1)
+    expect(runVisualFallback).toHaveBeenCalledWith(
+      expect.objectContaining({
+        favoritesFolderName: 'Bilimi 内库'
+      }),
+      expect.objectContaining({ openWithShortcut: true })
+    )
     fireEvent.click(screen.getByRole('button', { name: '展开助手状态' }))
     expect(screen.getByText('执行日志')).toBeInTheDocument()
-    expect(screen.getByText('api:favorite:list')).toBeInTheDocument()
     expect(screen.getByText('visual:favorite:create')).toBeInTheDocument()
   })
 
