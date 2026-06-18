@@ -137,7 +137,7 @@ export async function executeAssistantAction(args: ExecuteAssistantActionArgs) {
   const pageClickOnly = args.favoriteApiFallbackEnabled === false
 
   if (pageClickOnly) {
-    if (!args.runVisualFallback || (!domResult.ok && favoriteMissingTargets(domResult).length === 0)) {
+    if (domResult.ok || !args.runVisualFallback || favoriteMissingTargets(domResult).length === 0) {
       return domResult
     }
 

@@ -274,6 +274,35 @@ describe('executeAssistantAction', () => {
     )
   })
 
+  it('does not run visual favorite fallback when page-click-only DOM automation already succeeds', async () => {
+    const runScript = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      steps: ['like', 'favorite:open', 'favorite:folder', 'favorite'],
+      missingTargets: [],
+      message: '轻赏已入内库。'
+    })
+    const runVisualFallback = vi.fn()
+
+    const result = await executeAssistantAction({
+      action: '赏',
+      runScript,
+      runVisualFallback,
+      favoritesFolderName: 'Bilimi 内库',
+      favoriteLedgers,
+      targetLedgerId: 'humor',
+      favoriteApiFallbackEnabled: false
+    })
+
+    expect(runScript).toHaveBeenCalledTimes(1)
+    expect(runVisualFallback).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      ok: true,
+      steps: ['like', 'favorite:open', 'favorite:folder', 'favorite'],
+      missingTargets: [],
+      message: '轻赏已入内库。'
+    })
+  })
+
   it('times out hung page scripts and uses the visual favorite fallback', async () => {
     vi.useFakeTimers()
 

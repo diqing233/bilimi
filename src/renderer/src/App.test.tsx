@@ -260,7 +260,7 @@ describe('App runtime integration', () => {
     expect(result).toEqual(expect.objectContaining({ ok: true }))
     expect(result).toEqual(
       expect.objectContaining({
-        steps: expect.arrayContaining(['favorite', 'visual:favorite:shortcut:e', 'visual:favorite:confirm'])
+        steps: expect.arrayContaining(['favorite:open', 'favorite:folder', 'favorite'])
       })
     )
     await waitFor(() =>
@@ -273,7 +273,7 @@ describe('App runtime integration', () => {
         script.includes('/x/v3/fav/resource/deal') && script.includes('Bilimi·见闻增广')
       )
     ).toBe(false)
-    expect(sentEvents).toContainEqual(expect.objectContaining({ keyCode: 'e', type: 'keyDown' }))
+    expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'e', type: 'keyDown' }))
     expect(savePreferences).toHaveBeenCalledWith(
       expect.objectContaining({
         preferenceCounts: expect.objectContaining({
@@ -283,7 +283,7 @@ describe('App runtime integration', () => {
     )
   })
 
-  it('confirms 赐 favorites through shortcut-driven visual automation when the floating runtime requests page clicks only', async () => {
+  it('keeps successful 赐 page-click-only actions on the page automation path', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
@@ -356,7 +356,7 @@ describe('App runtime integration', () => {
     expect(result).toEqual(
       expect.objectContaining({
         ok: true,
-        steps: expect.arrayContaining(['coin:confirm', 'visual:favorite:shortcut:e', 'visual:favorite:confirm'])
+        steps: expect.arrayContaining(['favorite', 'coin:confirm'])
       })
     )
     expect(executeJavaScript.mock.calls.some(([script]) => script.includes('"coinCount":2'))).toBe(true)
@@ -365,7 +365,7 @@ describe('App runtime integration', () => {
         script.includes('/x/v3/fav/resource/deal') && script.includes('Bilimi·见闻增广')
       )
     ).toBe(false)
-    expect(sentEvents).toContainEqual(expect.objectContaining({ keyCode: 'e', type: 'keyDown' }))
+    expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'e', type: 'keyDown' }))
   })
 
   it('generates default notes from audio for the floating assistant runtime', async () => {
