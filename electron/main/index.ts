@@ -188,7 +188,7 @@ function setAssistantPetState(state: AssistantPetState) {
 }
 
 function sendAssistantPreferencesChanged(preferences: AssistantPreferences) {
-  const targets = [floatingSealWindow, floatingAssistantController.getWindow()]
+  const targets = [mainWindow, floatingSealWindow, floatingAssistantController.getWindow()]
 
   for (const target of targets) {
     if (!target || target.isDestroyed()) {

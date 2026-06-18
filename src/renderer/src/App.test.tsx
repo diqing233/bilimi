@@ -29,6 +29,7 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
   let runtimeHandler:
     | ((request: AssistantRuntimeRequest) => Promise<AssistantRuntimeResponsePayload>)
     | undefined
+  let preferencesChanged: ((preferences: AssistantPreferences) => void) | undefined
   const registerAssistantRuntime = vi.fn(
     (handler: (request: AssistantRuntimeRequest) => Promise<AssistantRuntimeResponsePayload>) => {
       runtimeHandler = handler
@@ -39,6 +40,10 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
     version: '0.1.0',
     loadPreferences: vi.fn(),
     notifyAssistantSnapshotChanged: vi.fn(),
+    onAssistantPreferencesChanged: vi.fn((callback: (preferences: AssistantPreferences) => void) => {
+      preferencesChanged = callback
+      return vi.fn()
+    }),
     savePreferences: vi.fn(async (preferences: AssistantPreferences) => preferences),
     registerAssistantRuntime,
     ...apiOverrides
@@ -54,6 +59,15 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
   return {
     ...renderResult,
     desktopApi,
+    notifyPreferencesChanged: (preferences: AssistantPreferences) => {
+      if (!preferencesChanged) {
+        throw new Error('Assistant preferences listener was not registered.')
+      }
+
+      act(() => {
+        preferencesChanged?.(preferences)
+      })
+    },
     requestRuntime: async (request: AssistantRuntimeRequest) => {
       if (!runtimeHandler) {
         throw new Error('Assistant runtime was not registered.')
@@ -441,6 +455,28 @@ describe('App runtime integration', () => {
     })
 
     await waitFor(() => expect(desktopApi.notifyAssistantSnapshotChanged).toHaveBeenCalled())
+  })
+
+  it('uses externally changed assistant preferences in runtime snapshots', async () => {
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge()
+
+    notifyPreferencesChanged({
+      favoritesFolderName: 'Bilimi',
+      favoriteLedgers: createDefaultFavoriteLedgers(),
+      ledgerPromptDismissed: true,
+      preferenceCounts: {},
+      petStyle: 'classic'
+    })
+
+    const snapshot = await requestRuntime({ id: 'snapshot-preferences-1', type: 'snapshot' })
+
+    expect(snapshot).toEqual(
+      expect.objectContaining({
+        preferences: expect.objectContaining({
+          petStyle: 'classic'
+        })
+      })
+    )
   })
 
   it('scans old favorites through the runtime bridge', async () => {

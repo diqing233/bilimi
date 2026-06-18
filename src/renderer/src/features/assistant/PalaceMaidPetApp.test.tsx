@@ -100,6 +100,32 @@ describe('PalaceMaidPetApp', () => {
     )
   })
 
+  it('refreshes the floating pet renderer when assistant preferences change', async () => {
+    let preferencesChanged: ((preferences: Parameters<Window['bilimiDesktop']['savePreferences']>[0]) => void) | undefined
+    installDesktopApi({
+      onAssistantPreferencesChanged: vi.fn((callback) => {
+        preferencesChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-style', 'big-head')
+
+    act(() => {
+      preferencesChanged?.({
+        favoritesFolderName: 'Bilimi',
+        favoriteLedgers: [],
+        ledgerPromptDismissed: true,
+        preferenceCounts: {},
+        petStyle: 'classic'
+      })
+    })
+
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-style', 'classic')
+  })
+
   it('keeps dragging from restoring the main window', () => {
     const api = installDesktopApi()
 

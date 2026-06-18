@@ -108,6 +108,12 @@ export default function App() {
     }
   }, [])
 
+  useEffect(() => {
+    return window.bilimiDesktop?.onAssistantPreferencesChanged?.((nextPreferences) => {
+      setPreferences(createInitialAssistantPreferences(nextPreferences))
+    })
+  }, [])
+
   const notifyAssistantSnapshotChanged = useCallback(() => {
     window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
   }, [])
