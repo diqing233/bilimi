@@ -4,9 +4,11 @@
 
 **Goal:** Make the `批阅` and `札记` assistant pages visually smaller without changing their structure.
 
-**Architecture:** Keep React components untouched and implement the change in `src/renderer/src/styles.css`. Add focused stylesheet regression assertions in `src/renderer/src/styles.test.ts` so the compact density remains intentional.
+**Architecture:** Keep React components untouched and implement the change in `src/renderer/src/styles.css`. Add focused stylesheet regression assertions in `src/renderer/src/styles.test.ts` so the compact density remains intentional. The final implementation also prevents grid row stretching with `align-content: start` on the assistant paper and notes grid.
 
 **Tech Stack:** Electron, React, TypeScript, Vitest, CSS.
+
+**Status:** Implemented and verified on 2026-06-19. Primary implementation commit: `6a8801a`. Grid stretch correction commit: `492db67`.
 
 ---
 
@@ -15,7 +17,7 @@
 **Files:**
 - Modify: `src/renderer/src/styles.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append two style assertions inside the existing `describe('renderer porcelain theme styles', ...)` block:
 
@@ -42,7 +44,7 @@ Append two style assertions inside the existing `describe('renderer porcelain th
   })
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- src/renderer/src/styles.test.ts`
 
@@ -53,7 +55,7 @@ Expected: FAIL because current styles still use the larger spacing and heights.
 **Files:**
 - Modify: `src/renderer/src/styles.css`
 
-- [ ] **Step 1: Implement compact review panel CSS**
+- [x] **Step 1: Implement compact review panel CSS**
 
 Change only the existing rules for:
 - `.memorial-panel__paper`
@@ -66,7 +68,7 @@ Change only the existing rules for:
 
 Use the values asserted in Task 1 and keep the existing layout structure.
 
-- [ ] **Step 2: Implement compact notes panel CSS**
+- [x] **Step 2: Implement compact notes panel CSS**
 
 Change only the existing rules for:
 - `.video-notes`
@@ -86,11 +88,49 @@ Change only the existing rules for:
 
 Use the values asserted in Task 1 and keep the existing DOM structure.
 
-- [ ] **Step 3: Run focused style test**
+- [x] **Step 3: Run focused style test**
 
 Run: `npm test -- src/renderer/src/styles.test.ts`
 
 Expected: PASS.
+
+### Task 2.5: Prevent Full-Height Grid Row Stretching
+
+**Files:**
+- Modify: `src/renderer/src/styles.css`
+- Modify: `src/renderer/src/styles.test.ts`
+
+- [x] **Step 1: Add regression coverage for no-stretch grid layout**
+
+Add a style assertion that requires:
+
+```ts
+expect(normalizedStyles).toContain('display: grid;\n  align-content: start;\n  gap: 6px;')
+expect(normalizedStyles).toContain(
+  '.video-notes {\n  color: var(--porcelain-text);\n  display: grid;\n  align-content: start;\n  gap: 6px;'
+)
+```
+
+- [x] **Step 2: Run test to verify it fails**
+
+Run: `npm test -- src/renderer/src/styles.test.ts`
+
+Expected: FAIL because the compact CSS did not yet prevent grid rows from stretching in a full-height sidebar.
+
+- [x] **Step 3: Add `align-content: start`**
+
+Add `align-content: start` to `.memorial-panel__paper` and `.video-notes`.
+
+- [x] **Step 4: Verify the correction**
+
+Run:
+
+```bash
+npm test -- src/renderer/src/styles.test.ts src/renderer/src/features/assistant/MemorialPanel.test.tsx src/renderer/src/features/notes/VideoNotesPanel.test.tsx
+npm test
+```
+
+Expected: PASS. Full verification on 2026-06-19 passed 66 test files and 344 tests.
 
 ### Task 3: Run Related Regression Tests And Commit
 
@@ -99,19 +139,19 @@ Expected: PASS.
 - Verify: `src/renderer/src/features/notes/VideoNotesPanel.test.tsx`
 - Verify: `src/renderer/src/styles.test.ts`
 
-- [ ] **Step 1: Run related tests**
+- [x] **Step 1: Run related tests**
 
 Run: `npm test -- src/renderer/src/styles.test.ts src/renderer/src/features/assistant/MemorialPanel.test.tsx src/renderer/src/features/notes/VideoNotesPanel.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 2: Check diff scope**
+- [x] **Step 2: Check diff scope**
 
 Run: `git diff -- src/renderer/src/styles.css src/renderer/src/styles.test.ts docs/superpowers/plans/2026-06-19-review-notes-conservative-compact.md`
 
 Expected: Only compact layout styles, focused style test assertions, and this plan changed.
 
-- [ ] **Step 3: Commit implementation**
+- [x] **Step 3: Commit implementation**
 
 Stage only this task's files:
 
