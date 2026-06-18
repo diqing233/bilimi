@@ -884,6 +884,7 @@ body[data-floating-window="true"] {
   max-height: calc(100vh - 16px);
   overflow: auto;
   display: grid;
+  align-content: start;
   gap: 6px;
 }
 
@@ -1063,6 +1064,7 @@ body[data-floating-window="true"] {
 .video-notes {
   color: var(--porcelain-text);
   display: grid;
+  align-content: start;
   gap: 6px;
   font-size: 12px;
   line-height: 1.45;

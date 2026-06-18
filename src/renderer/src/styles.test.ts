@@ -91,7 +91,7 @@ describe('renderer porcelain theme styles', () => {
 
   it('uses compact spacing for the notes panel', () => {
     expect(normalizedStyles).toContain(
-      '.video-notes {\n  color: var(--porcelain-text);\n  display: grid;\n  gap: 6px;'
+      '.video-notes {\n  color: var(--porcelain-text);\n  display: grid;\n  align-content: start;\n  gap: 6px;'
     )
     expect(normalizedStyles).toContain('.video-notes__source {\n  display: grid;\n  gap: 4px;')
     expect(normalizedStyles).toContain(
@@ -110,6 +110,16 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.video-notes textarea {\n  min-height: 60px;')
     expect(normalizedStyles).toContain(
       '.video-notes__memo textarea[readonly] {\n  min-height: 130px;'
+    )
+  })
+
+  it('keeps assistant panel rows from stretching into tall empty blocks', () => {
+    expect(normalizedStyles).toContain(
+      '.memorial-panel__paper {\n  border: 1px solid rgba(31, 99, 181, 0.3);'
+    )
+    expect(normalizedStyles).toContain('display: grid;\n  align-content: start;\n  gap: 6px;')
+    expect(normalizedStyles).toContain(
+      '.video-notes {\n  color: var(--porcelain-text);\n  display: grid;\n  align-content: start;\n  gap: 6px;'
     )
   })
 })
