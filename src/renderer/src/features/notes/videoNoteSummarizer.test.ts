@@ -85,7 +85,7 @@ describe('videoNoteSummarizer', () => {
       transcript: []
     })
 
-    expect(note.overview.shortSummary).toEqual(['尚未取得文稿，可粘贴文稿后再整理。'])
+    expect(note.overview.shortSummary).toEqual(['尚未取得文稿，可先转写音频后再整理。'])
     expect(note.chapters).toEqual([])
   })
 })

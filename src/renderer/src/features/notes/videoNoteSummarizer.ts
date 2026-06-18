@@ -87,7 +87,7 @@ function createChapters(transcript: TranscriptSegment[]): TranscriptChapter[] {
 function createOverview(chapters: TranscriptChapter[], keywords: string[]): VideoNoteOverview {
   if (chapters.length === 0) {
     return {
-      shortSummary: ['尚未取得文稿，可粘贴文稿后再整理。'],
+      shortSummary: ['尚未取得文稿，可先转写音频后再整理。'],
       keywords,
       timeline: [],
       highlights: []

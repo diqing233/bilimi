@@ -12,7 +12,7 @@ type VideoNotesPanelProps = {
   note: VideoNote | null
   currentVideoTitle?: string
   isLoading: boolean
-  onGenerate: (manualTranscript?: string) => Promise<VideoNote | null>
+  onGenerate: () => Promise<VideoNote | null>
   onSave: (note: VideoNote) => Promise<void>
   onChange?: (note: VideoNote) => void
   onGetCurrentTime?: () => Promise<number>
@@ -64,7 +64,6 @@ export function VideoNotesPanel({
   transcriptionProgress = null
 }: VideoNotesPanelProps): React.JSX.Element {
   const [activeResultTab, setActiveResultTab] = useState<VideoNotesResultTab>('plain')
-  const [manualTranscript, setManualTranscript] = useState('')
   const [localGenerating, setLocalGenerating] = useState(false)
   const [transcribingAudio, setTranscribingAudio] = useState(false)
   const [generateFailed, setGenerateFailed] = useState(false)
@@ -89,12 +88,12 @@ export function VideoNotesPanel({
     setMemoDraft(note?.userMemo ?? '')
   }, [note?.id, note?.userMemo])
 
-  async function handleGenerate(manualText?: string): Promise<void> {
+  async function handleGenerate(): Promise<void> {
     if (generationBusy) {
       return
     }
 
-    if (!manualText?.trim() && onTranscribeAudio) {
+    if (onTranscribeAudio) {
       await handleTranscribeAudio()
       return
     }
@@ -105,7 +104,7 @@ export function VideoNotesPanel({
     setErrorMessage('')
 
     try {
-      const generatedNote = await onGenerate(manualText)
+      const generatedNote = await onGenerate()
 
       if (generatedNote) {
         setStatusMessage('札记已整理')
@@ -355,12 +354,12 @@ export function VideoNotesPanel({
         <section className="video-notes__primary-actions" aria-label="生成与归档">
           <div>
             <strong>生成与归档</strong>
-            <p>转写完成后保存到全局档案库；也可粘贴文稿兜底整理。</p>
+            <p>转写完成后保存到全局档案库。</p>
           </div>
           <button
             type="button"
             disabled={generationBusy}
-            onClick={() => void handleGenerate(undefined)}
+            onClick={() => void handleGenerate()}
           >
             {generationBusy ? primaryActionBusyLabel : primaryActionLabel}
           </button>
@@ -396,24 +395,6 @@ export function VideoNotesPanel({
             </button>
           ))}
         </div>
-
-        <div>
-          <label htmlFor="manual-transcript">粘贴文稿</label>
-          <textarea
-            id="manual-transcript"
-            value={manualTranscript}
-            disabled={generationBusy}
-            onChange={(event) => setManualTranscript(event.target.value)}
-          />
-        </div>
-
-        <button
-          type="button"
-          disabled={generationBusy || manualTranscript.trim().length === 0}
-          onClick={() => void handleGenerate(manualTranscript)}
-        >
-          整理粘贴文稿
-        </button>
         {errorMessage ? <p role="alert">{errorMessage}</p> : null}
         {statusMessage ? <p role="status">{statusMessage}</p> : null}
       </section>
@@ -472,7 +453,7 @@ export function VideoNotesPanel({
       ) : null}
       {note.transcript.length === 0 ? (
         <div>
-          <p>尚未取得文稿。点击「转写音频」开始；如果当前视频无法下载，可粘贴文稿整理。</p>
+          <p>尚未取得文稿。点击「转写音频」开始。</p>
         </div>
       ) : null}
 

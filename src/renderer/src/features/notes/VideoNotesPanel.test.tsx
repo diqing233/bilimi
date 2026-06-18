@@ -51,7 +51,7 @@ describe('VideoNotesPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
 
-    await waitFor(() => expect(onGenerate).toHaveBeenCalledWith(undefined))
+    await waitFor(() => expect(onGenerate).toHaveBeenCalledOnce())
   })
 
   it('keeps the redesigned flat layout before a note exists', () => {
@@ -480,8 +480,8 @@ describe('VideoNotesPanel', () => {
     )
   })
 
-  it('generates notes from pasted transcript text', async () => {
-    const onGenerate = vi.fn().mockResolvedValue(null)
+  it('does not render manual pasted transcript controls before a note exists', () => {
+    const onGenerate = vi.fn()
 
     render(
       <VideoNotesPanel
@@ -492,12 +492,10 @@ describe('VideoNotesPanel', () => {
       />
     )
 
-    fireEvent.change(screen.getByLabelText('粘贴文稿'), {
-      target: { value: '这是手动粘贴的文稿。' }
-    })
-    fireEvent.click(screen.getByRole('button', { name: '整理粘贴文稿' }))
-
-    await waitFor(() => expect(onGenerate).toHaveBeenCalledWith('这是手动粘贴的文稿。'))
+    expect(screen.queryByLabelText('粘贴文稿')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '整理粘贴文稿' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/粘贴文稿/)).not.toBeInTheDocument()
+    expect(onGenerate).not.toHaveBeenCalled()
   })
 
   it('shows audio transcription fallback when no note is present', () => {
@@ -558,7 +556,7 @@ describe('VideoNotesPanel', () => {
     await waitFor(() => expect(onTranscribeAudio).toHaveBeenCalledOnce())
   })
 
-  it('keeps manual paste available when audio transcription fails', async () => {
+  it('keeps manual paste hidden when audio transcription fails', async () => {
     const onTranscribeAudio = vi.fn().mockRejectedValue(new Error('Audio download failed.'))
 
     render(
@@ -574,7 +572,8 @@ describe('VideoNotesPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Audio download failed.'))
-    expect(screen.getByLabelText('粘贴文稿')).toBeEnabled()
+    expect(screen.queryByLabelText('粘贴文稿')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '整理粘贴文稿' })).not.toBeInTheDocument()
   })
 
   it('does not render OpenAI key controls for local transcription', () => {
@@ -605,8 +604,8 @@ describe('VideoNotesPanel', () => {
     )
 
     expect(screen.getByRole('button', { name: '整理中...' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '整理粘贴文稿' })).toBeDisabled()
-    expect(screen.getByLabelText('粘贴文稿')).toBeDisabled()
+    expect(screen.queryByRole('button', { name: '整理粘贴文稿' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('粘贴文稿')).not.toBeInTheDocument()
   })
 
   it('locks generate buttons during a local generation request and reports failures', async () => {
@@ -630,8 +629,8 @@ describe('VideoNotesPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理札记' }))
 
     expect(screen.getByRole('button', { name: '整理中...' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '整理粘贴文稿' })).toBeDisabled()
-    expect(screen.getByLabelText('粘贴文稿')).toBeDisabled()
+    expect(screen.queryByRole('button', { name: '整理粘贴文稿' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('粘贴文稿')).not.toBeInTheDocument()
 
     rejectGenerate!(new Error('文稿读取失败'))
 

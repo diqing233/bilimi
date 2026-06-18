@@ -38,7 +38,7 @@ describe('AssistantOverlay', () => {
     fireEvent.click(seal)
 
     expect(overlay).toHaveStyle({ left: '214px', top: '204px' })
-    expect(screen.queryByText('御前待阅折')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('案头奏折')).not.toBeInTheDocument()
   })
 
   it('opens on a deliberate click after the drag-release suppression window expires', async () => {
@@ -58,7 +58,7 @@ describe('AssistantOverlay', () => {
       await vi.runOnlyPendingTimersAsync()
       fireEvent.click(seal)
 
-      expect(screen.getByText('御前待阅折')).toBeInTheDocument()
+      expect(screen.getByLabelText('案头奏折')).toBeInTheDocument()
     } finally {
       vi.useRealTimers()
     }
@@ -82,7 +82,7 @@ describe('AssistantOverlay', () => {
       await vi.runOnlyPendingTimersAsync()
       fireEvent.click(seal)
 
-      expect(screen.getByText('御前待阅折')).toBeInTheDocument()
+      expect(screen.getByLabelText('案头奏折')).toBeInTheDocument()
       expect(overlay).toHaveStyle({ left: '72px', top: '56px' })
     } finally {
       vi.useRealTimers()
@@ -120,11 +120,14 @@ describe('AssistantOverlay', () => {
     render(<AssistantOverlay />)
 
     expect(screen.getByRole('button', { name: '开折批阅' })).toBeInTheDocument()
-    expect(screen.queryByText('御前待阅折')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('案头奏折')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
 
-    expect(screen.getByText('御前待阅折')).toBeInTheDocument()
+    expect(screen.getByLabelText('案头奏折')).toBeInTheDocument()
+    expect(screen.queryByText('今日所陈')).not.toBeInTheDocument()
+    expect(screen.queryByText('御前待阅折')).not.toBeInTheDocument()
+    expect(screen.queryByText('司礼监掌印官谨呈')).not.toBeInTheDocument()
     expect(getActionButton('赏')).toBeInTheDocument()
     expect(getActionButton('藏')).toBeInTheDocument()
     expect(getActionButton('赐')).toBeInTheDocument()
@@ -366,7 +369,7 @@ describe('AssistantOverlay', () => {
     fireEvent.click(getActionButton('赏'))
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('尚有 favorite 未能寻见。'))
-    expect(screen.getByText('御前待阅折')).toBeInTheDocument()
+    expect(screen.getByLabelText('案头奏折')).toBeInTheDocument()
   })
 
   it('defaults to page-click-only fallback and shows the automation log', async () => {

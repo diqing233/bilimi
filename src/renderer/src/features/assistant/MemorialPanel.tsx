@@ -16,7 +16,7 @@ type MemorialPanelProps = {
   videoTitle: string
   onAction: (action: AssistantAction) => void
   onClose: () => void
-  onGenerateVideoNote: (manualTranscript?: string) => Promise<VideoNote | null>
+  onGenerateVideoNote: () => Promise<VideoNote | null>
   onTranscribeVideoAudio?: () => Promise<VideoNote | null>
   onSaveVideoNote: (note: VideoNote) => Promise<void>
   onChangeVideoNote?: (note: VideoNote) => void
@@ -88,11 +88,6 @@ export function MemorialPanel({
   return (
     <section className="memorial-panel" aria-label="案头奏折">
       <div className="memorial-panel__paper">
-        <div className="memorial-panel__header">
-          <span>今日所陈</span>
-          <h2>御前待阅折</h2>
-          <span>司礼监掌印官谨呈</span>
-        </div>
         {showTabs ? (
           <div className="memorial-panel__tabs" role="tablist" aria-label="奏折页签">
             <button

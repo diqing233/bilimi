@@ -25,7 +25,6 @@ import { BILIMI_LEDGER_PREFIX } from '@shared/favoriteLedgers'
 import { classifyVideoContent, type VideoContentContext } from '../recommendation/videoClassifier'
 import { normalizeExtractedVideoNoteResult } from '../notes/videoNoteExtractor'
 import { createLocalVideoNoteDraft } from '../notes/videoNoteSummarizer'
-import { parseManualTranscript } from '../notes/transcriptNormalizer'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
 
 const CURRENT_TITLE = '早八生存实录'
@@ -418,23 +417,11 @@ export function AssistantOverlay({
     })
   }
 
-  async function generateVideoNote(manualTranscript?: string) {
+  async function generateVideoNote() {
     setVideoNoteLoading(true)
 
     try {
-      const hasManualTranscript = Boolean(manualTranscript?.trim())
-      const manualSegments = hasManualTranscript ? parseManualTranscript(manualTranscript ?? '') : []
-      const extraction = hasManualTranscript
-        ? await readVideoNoteSource?.() ?? {
-          source: {
-            title: resolvedVideoTitle,
-            tags: [],
-            url: resolvedVideoTitle
-          },
-          transcript: [],
-          transcriptSource: 'manual' as const
-        }
-        : await readVideoNoteSource?.()
+      const extraction = await readVideoNoteSource?.()
 
       if (!extraction) {
         return null
@@ -447,8 +434,8 @@ export function AssistantOverlay({
       const note = createLocalVideoNoteDraft({
         now: new Date().toISOString(),
         source: safeExtraction.source,
-        transcript: hasManualTranscript ? manualSegments : safeExtraction.transcript,
-        transcriptSource: hasManualTranscript ? 'manual' : safeExtraction.transcriptSource
+        transcript: safeExtraction.transcript,
+        transcriptSource: safeExtraction.transcriptSource
       })
 
       setVideoNote(note)
