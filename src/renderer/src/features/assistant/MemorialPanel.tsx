@@ -116,15 +116,10 @@ export function MemorialPanel({
               <p>签语：{recommendation.badge}</p>
             </aside>
             <div className="memorial-panel__copy">
-              <p>{recommendation.summary}</p>
               <p>臣谨以此条进呈陛下，若准其留档，臣便代行轻赏。</p>
               <p>若欲代拟奏表，臣已备下 {commentDrafts.length} 条奏折腔批语，静候钦点。</p>
             </div>
-            <aside className="memorial-panel__verdict">
-              <h3>朱批</h3>
-              <p>此物可先过目，不必骤然重赐。</p>
-            </aside>
-            <div className="memorial-panel__actions" aria-label="批阅动作">
+            <div className="memorial-panel__actions" role="group" aria-label="批阅动作">
               {ACTIONS.map(({ action, label, description }) => (
                 <button
                   key={action}

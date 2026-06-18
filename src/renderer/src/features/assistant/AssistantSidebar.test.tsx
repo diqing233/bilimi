@@ -31,7 +31,7 @@ describe('AssistantSidebar', () => {
     )
   })
 
-  it('uses a floating boundary control without rendering a rail column', async () => {
+  it('uses a compact bottom-right collapse control without rendering a rail column', async () => {
     installDesktopApi()
 
     render(<AssistantSidebar />)
