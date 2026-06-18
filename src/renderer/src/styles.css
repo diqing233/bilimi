@@ -839,41 +839,36 @@ body[data-floating-window="true"] {
 
 .assistant-sidebar__collapse-button {
   position: absolute;
-  right: 12px;
-  bottom: 12px;
+  top: 5px;
+  left: -40px;
   z-index: 3;
-  width: 54px;
-  min-height: 54px;
+  width: 34px;
+  min-height: 34px;
   display: grid;
   place-items: center;
   gap: 2px;
-  border: 1px solid rgba(31, 99, 181, 0.34);
+  border: 1px solid rgba(31, 99, 181, 0.24);
   border-radius: 6px;
-  background: rgba(31, 99, 181, 0.94);
-  color: var(--porcelain-surface);
+  background: rgba(247, 251, 255, 0.88);
+  color: var(--porcelain-deep);
   cursor: pointer;
   font: 12px "Noto Serif SC", "Songti SC", "SimSun", serif;
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1;
   box-shadow:
-    0 8px 18px rgba(31, 99, 181, 0.18),
-    inset 0 1px 0 rgba(255, 255, 255, 0.18);
-}
-
-.assistant-sidebar[data-collapsed="true"] .assistant-sidebar__collapse-button {
-  right: 12px;
-  bottom: 12px;
+    0 2px 6px rgba(31, 99, 181, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .assistant-sidebar__collapse-button:hover,
 .assistant-sidebar__collapse-button:focus-visible {
-  border-color: rgba(23, 69, 119, 0.5);
-  background: var(--porcelain-primary);
-  color: var(--porcelain-white);
+  border-color: rgba(31, 99, 181, 0.46);
+  background: var(--porcelain-white);
+  color: var(--porcelain-primary);
 }
 
 .assistant-sidebar__collapse-button span {
-  line-height: 1.25;
+  line-height: 1;
 }
 
 .memorial-panel {

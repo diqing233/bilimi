@@ -426,7 +426,7 @@ describe('FloatingAssistantApp', () => {
     expect(closeFloatingAssistant).toHaveBeenCalledOnce()
   })
 
-  it('renders as an embedded sidebar workspace and collapses instead of closing a floating window', async () => {
+  it('renders as an embedded sidebar workspace without an in-panel collapse button', async () => {
     const closeFloatingAssistant = vi.fn()
     const onRequestCollapse = vi.fn()
     installDesktopApi({ closeFloatingAssistant })
@@ -437,9 +437,8 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByRole('tab', { name: '札记' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '掌库' })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '收起侧栏' }))
-
-    expect(onRequestCollapse).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('button', { name: '收起侧栏' })).not.toBeInTheDocument()
+    expect(onRequestCollapse).not.toHaveBeenCalled()
     expect(closeFloatingAssistant).not.toHaveBeenCalled()
   })
 

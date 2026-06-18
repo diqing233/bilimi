@@ -55,16 +55,16 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('overflow: hidden;')
   })
 
-  it('uses a compact bottom-right sidebar collapse control without reserving a rail column', () => {
+  it('uses a left boundary sidebar collapse control without reserving a rail column', () => {
     const sidebarStyles = styles.replace(/\r\n/g, '\n')
 
     expect(sidebarStyles).not.toContain('.assistant-sidebar__rail')
     expect(sidebarStyles).not.toContain('grid-template-columns: 46px minmax(0, 1fr);')
     expect(sidebarStyles).toContain('grid-template-columns: minmax(0, 1fr);')
     expect(sidebarStyles).toContain('.assistant-sidebar[data-collapsed="true"] {\n  width: 0;')
-    expect(sidebarStyles).toContain('.assistant-sidebar__collapse-button {\n  position: absolute;\n  right: 12px;\n  bottom: 12px;')
-    expect(sidebarStyles).toContain('width: 54px;\n  min-height: 54px;')
-    expect(sidebarStyles).toContain('.assistant-sidebar[data-collapsed="true"] .assistant-sidebar__collapse-button {\n  right: 12px;\n  bottom: 12px;')
+    expect(sidebarStyles).toContain('.assistant-sidebar__collapse-button {\n  position: absolute;\n  top: 5px;\n  left: -40px;')
+    expect(sidebarStyles).toContain('width: 34px;\n  min-height: 34px;')
+    expect(sidebarStyles).not.toContain('.assistant-sidebar[data-collapsed="true"] .assistant-sidebar__collapse-button {\n  right: 12px;\n  bottom: 12px;')
   })
 
   it('gives the floating pet enough transparent stage space for the chibi and speech bubble', () => {

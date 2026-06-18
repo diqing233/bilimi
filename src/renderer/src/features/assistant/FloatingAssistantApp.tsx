@@ -490,6 +490,7 @@ export function FloatingAssistantApp({
             onAction={handleAction}
             onClose={closeAssistant}
             closeLabel={isSidebarMode ? '收起侧栏' : '合折'}
+            showCloseButton={!isSidebarMode}
             onGenerateVideoNote={generateVideoNote}
             onTranscribeVideoAudio={generateVideoNoteFromAudio}
             onSaveVideoNote={saveVideoNote}
