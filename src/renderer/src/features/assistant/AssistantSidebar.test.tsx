@@ -37,9 +37,10 @@ describe('AssistantSidebar', () => {
     render(<AssistantSidebar />)
 
     expect(screen.queryByRole('navigation', { name: '侧边栏收合控制' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '收起侧边栏' })).toHaveClass(
+    expect(screen.getByRole('button', { name: '折叠侧边栏' })).toHaveClass(
       'assistant-sidebar__collapse-button'
     )
+    expect(screen.getByText('折叠')).toHaveClass('assistant-sidebar__collapse-label')
     expect(screen.getByRole('img', { name: '小mi收起侧栏' })).toHaveClass(
       'assistant-sidebar__collapse-pet'
     )
@@ -47,7 +48,7 @@ describe('AssistantSidebar', () => {
     expect(screen.queryByRole('button', { name: '打开札记' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '打开掌库' })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '收起侧边栏' }))
+    fireEvent.click(screen.getByRole('button', { name: '折叠侧边栏' }))
 
     expect(screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })).toHaveAttribute(
       'data-collapsed',
@@ -57,6 +58,8 @@ describe('AssistantSidebar', () => {
     expect(screen.getByRole('img', { name: '小mi展开侧栏' })).toHaveClass(
       'assistant-sidebar__collapse-pet'
     )
+
+    expect(screen.getByText('展开')).toHaveClass('assistant-sidebar__collapse-label')
 
     fireEvent.click(screen.getByRole('button', { name: '展开侧边栏' }))
 

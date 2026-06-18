@@ -748,8 +748,8 @@ body[data-floating-window="true"] {
 }
 
 .floating-assistant-tabs__pet {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   object-fit: contain;
   filter: drop-shadow(0 2px 3px rgba(31, 99, 181, 0.18));
   pointer-events: none;
@@ -879,29 +879,32 @@ body[data-floating-window="true"] {
 .assistant-sidebar__collapse-button {
   position: absolute;
   top: 5px;
-  left: -40px;
+  left: -72px;
   z-index: 3;
-  width: 34px;
-  min-height: 34px;
+  min-width: 66px;
+  min-height: 38px;
   display: grid;
-  place-items: center;
-  gap: 2px;
+  grid-template-columns: 28px auto;
+  align-items: center;
+  justify-content: start;
+  gap: 4px;
   border: 1px solid rgba(31, 99, 181, 0.24);
   border-radius: 6px;
   background: rgba(247, 251, 255, 0.88);
   color: var(--porcelain-deep);
   cursor: pointer;
-  font: 12px "Noto Serif SC", "Songti SC", "SimSun", serif;
+  font: 13px "Noto Serif SC", "Songti SC", "SimSun", serif;
   font-weight: 700;
   line-height: 1;
+  padding: 3px 7px 3px 4px;
   box-shadow:
     0 2px 6px rgba(31, 99, 181, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .assistant-sidebar__collapse-pet {
-  width: 25px;
-  height: 25px;
+  width: 28px;
+  height: 28px;
   object-fit: contain;
   filter: drop-shadow(0 2px 3px rgba(31, 99, 181, 0.18));
   pointer-events: none;
@@ -916,8 +919,9 @@ body[data-floating-window="true"] {
   color: var(--porcelain-primary);
 }
 
-.assistant-sidebar__collapse-button span {
+.assistant-sidebar__collapse-label {
   line-height: 1;
+  white-space: nowrap;
 }
 
 .memorial-panel {
@@ -971,8 +975,8 @@ body[data-floating-window="true"] {
 .memorial-panel__meta,
 .memorial-panel__verdict {
   color: var(--porcelain-text);
-  line-height: 1.4;
-  font-size: 12px;
+  line-height: 1.5;
+  font-size: 14px;
 }
 
 .memorial-panel__copy,
@@ -997,8 +1001,8 @@ body[data-floating-window="true"] {
 
 .memorial-panel__actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  grid-template-columns: 1fr;
+  gap: 8px;
 }
 
 .memorial-panel__actions button,
@@ -1020,9 +1024,9 @@ body[data-floating-window="true"] {
 }
 
 .memorial-panel__action {
-  min-height: 52px;
+  min-height: 62px;
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr);
+  grid-template-columns: 46px minmax(0, 1fr);
   grid-template-areas:
     "mark label"
     "mark desc";
@@ -1051,15 +1055,15 @@ body[data-floating-window="true"] {
 .memorial-panel__action-icon {
   grid-area: mark;
   position: relative;
-  width: 30px;
-  height: 32px;
+  width: 42px;
+  height: 44px;
   display: grid;
   place-items: center;
 }
 
 .memorial-panel__action-pet {
-  width: 30px;
-  height: 30px;
+  width: 42px;
+  height: 42px;
   object-fit: contain;
   filter: drop-shadow(0 3px 4px rgba(31, 99, 181, 0.18));
   pointer-events: none;
@@ -1069,16 +1073,16 @@ body[data-floating-window="true"] {
 
 .memorial-panel__action strong {
   position: absolute;
-  right: -1px;
+  right: -2px;
   bottom: -1px;
-  width: 15px;
-  height: 15px;
+  width: 18px;
+  height: 18px;
   display: grid;
   place-items: center;
   border-radius: 999px;
   background: var(--porcelain-primary);
   color: var(--porcelain-white);
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.2),
@@ -1090,6 +1094,7 @@ body[data-floating-window="true"] {
   min-width: 0;
   color: var(--porcelain-text);
   font-weight: 700;
+  font-size: 15px;
   line-height: 1.25;
 }
 
@@ -1097,7 +1102,7 @@ body[data-floating-window="true"] {
   grid-area: desc;
   min-width: 0;
   color: var(--porcelain-muted);
-  font-size: 10.5px;
+  font-size: 12px;
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
@@ -1115,7 +1120,7 @@ body[data-floating-window="true"] {
 .memorial-panel__tabs button,
 .video-notes button,
 .video-notes [role="tab"] {
-  font-size: 12px;
+  font-size: 13px;
   padding: 4px 7px;
 }
 
@@ -1135,8 +1140,8 @@ body[data-floating-window="true"] {
   color: var(--porcelain-text);
   display: grid;
   align-content: start;
-  gap: 6px;
-  font-size: 12px;
+  gap: 8px;
+  font-size: 14px;
   line-height: 1.45;
 }
 
@@ -1166,13 +1171,13 @@ body[data-floating-window="true"] {
 .video-notes__source h3 {
   margin: 0;
   color: var(--porcelain-text);
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
 .video-notes__source dl {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .video-notes__primary-actions {
@@ -1187,8 +1192,8 @@ body[data-floating-window="true"] {
 }
 
 .video-notes__primary-actions button {
-  min-width: 76px;
-  min-height: 32px;
+  min-width: 88px;
+  min-height: 36px;
   border-radius: 5px;
   font-weight: 700;
 }
@@ -1220,7 +1225,7 @@ body[data-floating-window="true"] {
 .video-notes__result-tabs button {
   display: grid;
   gap: 2px;
-  min-height: 44px;
+  min-height: 50px;
   border-radius: 5px;
   text-align: left;
 }
@@ -1270,7 +1275,7 @@ body[data-floating-window="true"] {
   border: 1px solid rgba(31, 99, 181, 0.28);
   background: var(--porcelain-white);
   color: var(--porcelain-text);
-  font: 12px "Noto Serif SC", "Songti SC", "SimSun", serif;
+  font: 13px "Noto Serif SC", "Songti SC", "SimSun", serif;
   padding: 5px 6px;
 }
 
@@ -1282,7 +1287,7 @@ body[data-floating-window="true"] {
   border: 1px solid rgba(31, 99, 181, 0.28);
   background: var(--porcelain-white);
   color: var(--porcelain-text);
-  font: 12px "Noto Serif SC", "Songti SC", "SimSun", serif;
+  font: 13px "Noto Serif SC", "Songti SC", "SimSun", serif;
   padding: 5px;
 }
 
@@ -1327,7 +1332,7 @@ body[data-floating-window="true"] {
 
 .video-notes label {
   color: var(--porcelain-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .video-notes #video-notes-annotations > ol {

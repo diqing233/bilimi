@@ -17,7 +17,7 @@ export function AssistantSidebar() {
       <button
         type="button"
         className="assistant-sidebar__collapse-button"
-        aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
+        aria-label={collapsed ? '展开侧边栏' : '折叠侧边栏'}
         onClick={() => setCollapsed((current) => !current)}
       >
         <img
@@ -25,7 +25,9 @@ export function AssistantSidebar() {
           src={idlePetUrl}
           alt={collapsed ? '小mi展开侧栏' : '小mi收起侧栏'}
         />
-        <span aria-hidden="true">{collapsed ? '展' : '收'}</span>
+        <span className="assistant-sidebar__collapse-label" aria-hidden="true">
+          {collapsed ? '展开' : '折叠'}
+        </span>
       </button>
       {collapsed ? null : (
         <FloatingAssistantApp

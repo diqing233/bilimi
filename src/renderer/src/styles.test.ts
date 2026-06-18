@@ -59,11 +59,13 @@ describe('renderer porcelain theme styles', () => {
     const sidebarStyles = styles.replace(/\r\n/g, '\n')
 
     expect(sidebarStyles).not.toContain('.assistant-sidebar__rail')
-    expect(sidebarStyles).not.toContain('grid-template-columns: 46px minmax(0, 1fr);')
+    expect(sidebarStyles).not.toContain('.assistant-sidebar {\n  width: 46px;')
     expect(sidebarStyles).toContain('grid-template-columns: minmax(0, 1fr);')
     expect(sidebarStyles).toContain('.assistant-sidebar[data-collapsed="true"] {\n  width: 0;')
-    expect(sidebarStyles).toContain('.assistant-sidebar__collapse-button {\n  position: absolute;\n  top: 5px;\n  left: -40px;')
-    expect(sidebarStyles).toContain('width: 34px;\n  min-height: 34px;')
+    expect(sidebarStyles).toContain('.assistant-sidebar__collapse-button {\n  position: absolute;\n  top: 5px;\n  left: -72px;')
+    expect(sidebarStyles).toContain('min-width: 66px;\n  min-height: 38px;')
+    expect(sidebarStyles).toContain('grid-template-columns: 28px auto;')
+    expect(sidebarStyles).toContain('.assistant-sidebar__collapse-label {\n  line-height: 1;')
     expect(sidebarStyles).not.toContain('.assistant-sidebar[data-collapsed="true"] .assistant-sidebar__collapse-button {\n  right: 12px;\n  bottom: 12px;')
   })
 
@@ -81,36 +83,40 @@ describe('renderer porcelain theme styles', () => {
       '.memorial-panel__paper {\n  border: 1px solid rgba(31, 99, 181, 0.3);'
     )
     expect(normalizedStyles).toContain('padding: 8px;\n  max-height: calc(100vh - 16px);')
-    expect(normalizedStyles).toContain('display: grid;\n  gap: 6px;')
-    expect(normalizedStyles).toContain('.memorial-panel__action {\n  min-height: 52px;')
-    expect(normalizedStyles).toContain('grid-template-columns: 32px minmax(0, 1fr);')
+    expect(normalizedStyles).toContain('display: grid;\n  gap: 8px;')
+    expect(normalizedStyles).toContain('.memorial-panel__actions {\n  display: grid;\n  grid-template-columns: 1fr;')
+    expect(normalizedStyles).toContain('.memorial-panel__action {\n  min-height: 62px;')
+    expect(normalizedStyles).toContain('grid-template-columns: 46px minmax(0, 1fr);')
     expect(normalizedStyles).toContain(
-      '.memorial-panel__action-icon {\n  grid-area: mark;\n  position: relative;\n  width: 30px;\n  height: 32px;'
+      '.memorial-panel__action-icon {\n  grid-area: mark;\n  position: relative;\n  width: 42px;\n  height: 44px;'
     )
     expect(normalizedStyles).toContain(
-      '.memorial-panel__action-pet {\n  width: 30px;\n  height: 30px;'
+      '.memorial-panel__action-pet {\n  width: 42px;\n  height: 42px;'
     )
     expect(normalizedStyles).toContain(
-      '.memorial-panel__action strong {\n  position: absolute;\n  right: -1px;\n  bottom: -1px;\n  width: 15px;\n  height: 15px;'
+      '.memorial-panel__action strong {\n  position: absolute;\n  right: -2px;\n  bottom: -1px;\n  width: 18px;\n  height: 18px;'
     )
+    expect(normalizedStyles).toContain('.memorial-panel__copy,\n.memorial-panel__meta,\n.memorial-panel__verdict {\n  color: var(--porcelain-text);\n  line-height: 1.5;\n  font-size: 14px;')
+    expect(normalizedStyles).toContain('.memorial-panel__action span {\n  grid-area: label;\n  min-width: 0;\n  color: var(--porcelain-text);\n  font-weight: 700;\n  font-size: 15px;')
+    expect(normalizedStyles).toContain('.memorial-panel__action small {\n  grid-area: desc;\n  min-width: 0;\n  color: var(--porcelain-muted);\n  font-size: 12px;')
   })
 
   it('uses compact spacing for the notes panel', () => {
     expect(normalizedStyles).toContain(
-      '.video-notes {\n  color: var(--porcelain-text);\n  display: grid;\n  align-content: start;\n  gap: 6px;'
+      '.video-notes {\n  color: var(--porcelain-text);\n  display: grid;\n  align-content: start;\n  gap: 8px;\n  font-size: 14px;'
     )
     expect(normalizedStyles).toContain('.video-notes__source {\n  display: grid;\n  gap: 4px;')
     expect(normalizedStyles).toContain(
-      '.video-notes__source h3 {\n  margin: 0;\n  color: var(--porcelain-text);\n  font-size: 14px;'
+      '.video-notes__source h3 {\n  margin: 0;\n  color: var(--porcelain-text);\n  font-size: 16px;'
     )
     expect(normalizedStyles).toContain(
-      '.video-notes__primary-actions button {\n  min-width: 76px;\n  min-height: 32px;'
+      '.video-notes__primary-actions button {\n  min-width: 88px;\n  min-height: 36px;'
     )
     expect(normalizedStyles).toContain(
       '.video-notes__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(0, 1fr));\n  gap: 4px;'
     )
     expect(normalizedStyles).toContain(
-      '.video-notes__result-tabs button {\n  display: grid;\n  gap: 2px;\n  min-height: 44px;'
+      '.video-notes__result-tabs button {\n  display: grid;\n  gap: 2px;\n  min-height: 50px;'
     )
     expect(normalizedStyles).toContain('.video-notes__plain-text {\n  max-height: 160px;')
     expect(normalizedStyles).toContain('.video-notes textarea {\n  min-height: 60px;')
@@ -125,7 +131,7 @@ describe('renderer porcelain theme styles', () => {
     )
     expect(normalizedStyles).toContain('display: grid;\n  align-content: start;\n  gap: 6px;')
     expect(normalizedStyles).toContain(
-      '.video-notes {\n  color: var(--porcelain-text);\n  display: grid;\n  align-content: start;\n  gap: 6px;'
+      '.video-notes {\n  color: var(--porcelain-text);\n  display: grid;\n  align-content: start;\n  gap: 8px;'
     )
   })
 })
