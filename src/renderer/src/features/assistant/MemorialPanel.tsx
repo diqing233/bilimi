@@ -6,6 +6,10 @@ import type {
 } from '@shared/types'
 import { useEffect, useState } from 'react'
 import { VideoNotesPanel } from '../notes/VideoNotesPanel'
+import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
+import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
+import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
+import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
 
 type MemorialPanelTab = 'review' | 'notes'
 
@@ -46,11 +50,37 @@ const ACTIONS: Array<{
   action: AssistantAction
   label: string
   description: string
+  icon: string
+  iconAlt: string
 }> = [
-  { action: '赏', label: '轻赏此条', description: '点赞并归入当前 Bilimi 分册' },
-  { action: '藏', label: '归入内库', description: '只收藏到 Bilimi 分册' },
-  { action: '赐', label: '投币厚赏', description: '点赞、收藏，并先询问投币数量' },
-  { action: '表', label: '拟奏短评', description: '从三条候选评论中择一发送' }
+  {
+    action: '赏',
+    label: '轻赏此条',
+    description: '点赞并归入当前 Bilimi 分册',
+    icon: clickedPetUrl,
+    iconAlt: '小mi轻赏'
+  },
+  {
+    action: '藏',
+    label: '归入内库',
+    description: '只收藏到 Bilimi 分册',
+    icon: idlePetUrl,
+    iconAlt: '小mi归库'
+  },
+  {
+    action: '赐',
+    label: '投币厚赏',
+    description: '点赞、收藏，并先询问投币数量',
+    icon: workingPetUrl,
+    iconAlt: '小mi厚赏'
+  },
+  {
+    action: '表',
+    label: '拟奏短评',
+    description: '从三条候选评论中择一发送',
+    icon: hintPetUrl,
+    iconAlt: '小mi短评'
+  }
 ]
 
 export function MemorialPanel({
@@ -118,16 +148,20 @@ export function MemorialPanel({
               <p>签语：{recommendation.badge}</p>
             </aside>
             <div className="memorial-panel__actions" role="group" aria-label="批阅动作">
-              {ACTIONS.map(({ action, label, description }) => (
+              {ACTIONS.map(({ action, label, description, icon, iconAlt }) => (
                 <button
                   key={action}
                   type="button"
                   className="memorial-panel__action"
                   disabled={actionsLocked}
+                  aria-label={`${action} ${label} ${description}`}
                   aria-busy={runningAction === action}
                   onClick={() => void onAction(action)}
                 >
-                  <strong>{action}</strong>
+                  <span className="memorial-panel__action-icon">
+                    <img className="memorial-panel__action-pet" src={icon} alt={iconAlt} />
+                    <strong>{action}</strong>
+                  </span>
                   <span>{label}</span>
                   <small>{description}</small>
                 </button>

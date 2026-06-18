@@ -83,9 +83,15 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('padding: 8px;\n  max-height: calc(100vh - 16px);')
     expect(normalizedStyles).toContain('display: grid;\n  gap: 6px;')
     expect(normalizedStyles).toContain('.memorial-panel__action {\n  min-height: 52px;')
-    expect(normalizedStyles).toContain('grid-template-columns: 28px minmax(0, 1fr);')
+    expect(normalizedStyles).toContain('grid-template-columns: 32px minmax(0, 1fr);')
     expect(normalizedStyles).toContain(
-      '.memorial-panel__action strong {\n  grid-area: mark;\n  width: 24px;\n  height: 24px;'
+      '.memorial-panel__action-icon {\n  grid-area: mark;\n  position: relative;\n  width: 30px;\n  height: 32px;'
+    )
+    expect(normalizedStyles).toContain(
+      '.memorial-panel__action-pet {\n  width: 30px;\n  height: 30px;'
+    )
+    expect(normalizedStyles).toContain(
+      '.memorial-panel__action strong {\n  position: absolute;\n  right: -1px;\n  bottom: -1px;\n  width: 15px;\n  height: 15px;'
     )
   })
 

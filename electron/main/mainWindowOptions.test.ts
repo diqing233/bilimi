@@ -17,5 +17,8 @@ describe('createMainWindowOptions', () => {
       autoHideMenuBar: true,
       skipTaskbar: false
     })
+    expect(String(options.icon)).toMatch(
+      /src[\\/]renderer[\\/]src[\\/]assets[\\/]pet[\\/]blue-white-maid[\\/]character[\\/]big-head[\\/]idle\.png$/
+    )
   })
 })

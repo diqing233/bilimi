@@ -2,15 +2,24 @@ import { describe, expect, it } from 'vitest'
 import { createPetStateView, normalizePetState } from './petState'
 
 describe('petState', () => {
-  it('maps all palace maid pet states to visible labels', () => {
+  it('maps all Xiao Mi pet states to visible labels', () => {
     expect(createPetStateView('idle')).toEqual({
       state: 'idle',
-      label: '待机',
-      bubble: '奴婢候着，陛下唤我便是。'
+      label: '小mi待机',
+      bubble: '我是 bilimi，主人可以叫我小mi~'
     })
-    expect(createPetStateView('hint').label).toBe('提示')
-    expect(createPetStateView('working').label).toBe('处理中')
-    expect(createPetStateView('error').label).toBe('出错')
+    expect(createPetStateView('hint')).toMatchObject({
+      label: '小mi提示',
+      bubble: '主人，页面有新动静，小mi帮你盯着。'
+    })
+    expect(createPetStateView('working')).toMatchObject({
+      label: '小mi忙碌中',
+      bubble: '小mi正在处理，马上回来。'
+    })
+    expect(createPetStateView('error')).toMatchObject({
+      label: '小mi遇到问题',
+      bubble: '这里卡住了，主人回侧栏看一下吧。'
+    })
   })
 
   it('falls back to idle for unknown persisted or IPC values', () => {

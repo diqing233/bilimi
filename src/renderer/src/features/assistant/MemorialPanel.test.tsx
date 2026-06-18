@@ -34,4 +34,28 @@ describe('MemorialPanel', () => {
     expect(screen.queryByText('此物可先过目，不必骤然重赏。')).not.toBeInTheDocument()
     expect(screen.getByRole('group', { name: '批阅动作' })).toBeInTheDocument()
   })
+
+  it('adds Xiao Mi pet icons to the four primary review actions', () => {
+    render(
+      <MemorialPanel
+        recommendation={inboxRecommendation}
+        commentDrafts={['先留一评。']}
+        videoCategory="待分拣"
+        videoTitle="测试稿件"
+        onAction={vi.fn()}
+        onClose={vi.fn()}
+        onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
+        onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
+        pageClickOnly={true}
+        onPageClickOnlyChange={vi.fn()}
+        videoNote={null}
+        videoNoteLoading={false}
+      />
+    )
+
+    expect(screen.getByRole('img', { name: '小mi轻赏' })).toHaveClass('memorial-panel__action-pet')
+    expect(screen.getByRole('img', { name: '小mi归库' })).toHaveClass('memorial-panel__action-pet')
+    expect(screen.getByRole('img', { name: '小mi厚赏' })).toHaveClass('memorial-panel__action-pet')
+    expect(screen.getByRole('img', { name: '小mi短评' })).toHaveClass('memorial-panel__action-pet')
+  })
 })

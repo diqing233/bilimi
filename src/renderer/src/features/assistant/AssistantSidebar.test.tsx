@@ -40,6 +40,9 @@ describe('AssistantSidebar', () => {
     expect(screen.getByRole('button', { name: '收起侧边栏' })).toHaveClass(
       'assistant-sidebar__collapse-button'
     )
+    expect(screen.getByRole('img', { name: '小mi收起侧栏' })).toHaveClass(
+      'assistant-sidebar__collapse-pet'
+    )
     expect(screen.queryByRole('button', { name: '打开批阅' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '打开札记' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '打开掌库' })).not.toBeInTheDocument()
@@ -51,6 +54,9 @@ describe('AssistantSidebar', () => {
       'true'
     )
     expect(screen.queryByRole('tab', { name: '批阅' })).not.toBeInTheDocument()
+    expect(screen.getByRole('img', { name: '小mi展开侧栏' })).toHaveClass(
+      'assistant-sidebar__collapse-pet'
+    )
 
     fireEvent.click(screen.getByRole('button', { name: '展开侧边栏' }))
 

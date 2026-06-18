@@ -1,4 +1,5 @@
 import type { MouseEventHandler, PointerEventHandler } from 'react'
+import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 
 type SealButtonProps = {
   onOpen: () => void
@@ -33,8 +34,8 @@ export function SealButton({
       onPointerCancel={onPointerUp}
       aria-label="开折批阅"
     >
-      <span className="seal-button__hint">掌印官请旨：是否开折批阅？</span>
-      <span className="seal-button__face">玺</span>
+      <span className="seal-button__hint">我是 bilimi，主人可以叫我小mi~</span>
+      <img className="seal-button__pet" src={idlePetUrl} alt="小mi待机" />
     </button>
   )
 }

@@ -114,12 +114,12 @@ export function PalaceMaidPetApp() {
   }
 
   return (
-    <main className="palace-maid-pet-shell" aria-label="Bilimi 小宫女">
+    <main className="palace-maid-pet-shell" aria-label="Bilimi 小mi">
       <button
         className="palace-maid-pet"
         type="button"
-        aria-label="打开 Bilimi"
-        title="打开 Bilimi"
+        aria-label="打开 Bilimi，小mi在这里"
+        title="打开 Bilimi，小mi在这里"
         data-pet-state={stateView.state}
         data-pressed={pressed ? 'true' : 'false'}
         onClick={(event) => {

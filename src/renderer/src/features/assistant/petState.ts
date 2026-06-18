@@ -2,30 +2,30 @@ export type AssistantPetState = 'idle' | 'hint' | 'working' | 'error'
 
 export type AssistantPetStateView = {
   state: AssistantPetState
-  label: '待机' | '提示' | '处理中' | '出错'
+  label: '小mi待机' | '小mi提示' | '小mi忙碌中' | '小mi遇到问题'
   bubble: string
 }
 
 const STATE_VIEWS: Record<AssistantPetState, AssistantPetStateView> = {
   idle: {
     state: 'idle',
-    label: '待机',
-    bubble: '奴婢候着，陛下唤我便是。'
+    label: '小mi待机',
+    bubble: '我是 bilimi，主人可以叫我小mi~'
   },
   hint: {
     state: 'hint',
-    label: '提示',
-    bubble: '案头有新动静，请陛下回窗一观。'
+    label: '小mi提示',
+    bubble: '主人，页面有新动静，小mi帮你盯着。'
   },
   working: {
     state: 'working',
-    label: '处理中',
-    bubble: '奴婢正在传旨，稍候即回。'
+    label: '小mi忙碌中',
+    bubble: '小mi正在处理，马上回来。'
   },
   error: {
     state: 'error',
-    label: '出错',
-    bubble: '此事似有阻滞，请回侧栏细看。'
+    label: '小mi遇到问题',
+    bubble: '这里卡住了，主人回侧栏看一下吧。'
   }
 }
 

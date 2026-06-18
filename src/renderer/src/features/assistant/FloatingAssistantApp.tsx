@@ -21,6 +21,10 @@ import { CommentChooser } from './CommentChooser'
 import { FavoriteLedgerPanel } from './FavoriteLedgerPanel'
 import { MemorialPanel } from './MemorialPanel'
 import { VideoNoteArchivePanel } from '../notes/VideoNoteArchivePanel'
+import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
+import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
+import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
+import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
 
@@ -36,6 +40,18 @@ const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
 
 type AssistantWorkspaceTab = 'review' | 'notes' | 'ledger' | 'settings'
 type AssistantWorkspaceView = AssistantWorkspaceTab | 'noteArchive'
+
+const WORKSPACE_TABS: Array<{
+  id: AssistantWorkspaceTab
+  label: string
+  icon: string
+  iconAlt: string
+}> = [
+  { id: 'review', label: '批阅', icon: hintPetUrl, iconAlt: '小mi批阅' },
+  { id: 'notes', label: '札记', icon: workingPetUrl, iconAlt: '小mi札记' },
+  { id: 'ledger', label: '掌库', icon: clickedPetUrl, iconAlt: '小mi掌库' },
+  { id: 'settings', label: '设置', icon: idlePetUrl, iconAlt: '小mi设置' }
+]
 
 type FloatingAssistantAppProps = {
   mode?: 'floating' | 'sidebar'
@@ -397,38 +413,19 @@ export function FloatingAssistantApp({
   const workspace = (
     <section className={isSidebarMode ? 'assistant-sidebar-workspace' : 'floating-assistant-workspace'}>
         <div className="floating-assistant-tabs" role="tablist" aria-label="助手功能">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'review'}
-            onClick={() => setActiveTab('review')}
-          >
-            批阅
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'notes'}
-            onClick={() => setActiveTab('notes')}
-          >
-            札记
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'ledger'}
-            onClick={() => setActiveTab('ledger')}
-          >
-            掌库
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'settings'}
-            onClick={() => setActiveTab('settings')}
-          >
-            设置
-          </button>
+          {WORKSPACE_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-label={tab.label}
+              aria-selected={activeTab === tab.id}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              <img className="floating-assistant-tabs__pet" src={tab.icon} alt={tab.iconAlt} />
+              <span>{tab.label}</span>
+            </button>
+          ))}
         </div>
 
         {activeView === 'ledger' ? (

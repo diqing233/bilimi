@@ -49,7 +49,7 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    fireEvent.click(screen.getByRole('button', { name: '打开 Bilimi' }))
+    fireEvent.click(screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' }))
 
     expect(api.restoreMainWindowFromPet).toHaveBeenCalledOnce()
     expect(window.bilimiDesktop.toggleFloatingAssistant).toBeUndefined()
@@ -71,14 +71,14 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    expect(screen.getByText('待机')).toBeInTheDocument()
+    expect(screen.getByText('小mi待机')).toBeInTheDocument()
 
     act(() => {
       stateChanged?.('working')
     })
 
-    expect(screen.getByText('处理中')).toBeInTheDocument()
-    expect(screen.getByText('奴婢正在传旨，稍候即回。')).toBeInTheDocument()
+    expect(screen.getByText('小mi忙碌中')).toBeInTheDocument()
+    expect(screen.getByText('小mi正在处理，马上回来。')).toBeInTheDocument()
   })
 
   it('loads the persisted pet style for the floating pet renderer', async () => {
@@ -131,7 +131,7 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    const pet = screen.getByRole('button', { name: '打开 Bilimi' })
+    const pet = screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' })
 
     fireEvent.pointerDown(pet, { clientX: 10, clientY: 10, screenX: 110, screenY: 210, pointerId: 1 })
     fireEvent.pointerMove(pet, { clientX: 28, clientY: 22, screenX: 128, screenY: 222, pointerId: 1 })

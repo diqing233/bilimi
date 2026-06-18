@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import { FloatingAssistantApp } from './FloatingAssistantApp'
 
 type AssistantSidebarTab = 'review' | 'notes' | 'ledger' | 'settings'
@@ -19,6 +20,11 @@ export function AssistantSidebar() {
         aria-label={collapsed ? '展开侧边栏' : '收起侧边栏'}
         onClick={() => setCollapsed((current) => !current)}
       >
+        <img
+          className="assistant-sidebar__collapse-pet"
+          src={idlePetUrl}
+          alt={collapsed ? '小mi展开侧栏' : '小mi收起侧栏'}
+        />
         <span aria-hidden="true">{collapsed ? '展' : '收'}</span>
       </button>
       {collapsed ? null : (

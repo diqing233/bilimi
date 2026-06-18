@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 
 const DRAG_THRESHOLD_PX = 5
 
@@ -100,12 +101,12 @@ export function FloatingSealApp() {
   }
 
   return (
-    <main className="floating-seal-shell" aria-label="Bilimi 悬浮球">
+    <main className="floating-seal-shell" aria-label="Bilimi 小mi入口">
       <button
         className="floating-seal-button"
         type="button"
-        aria-label="打开 Bilimi 助手"
-        title="打开 Bilimi 助手"
+        aria-label="打开小mi助手"
+        title="打开小mi助手"
         data-opening={opening ? 'true' : 'false'}
         data-pressed={pressed ? 'true' : 'false'}
         onClick={(event) => {
@@ -157,9 +158,7 @@ export function FloatingSealApp() {
         }}
       >
         <span className="floating-seal-button__glow" aria-hidden="true" />
-        <span className="floating-seal-button__mark" aria-hidden="true">
-          玺
-        </span>
+        <img className="floating-seal-button__pet" src={idlePetUrl} alt="小mi待机" />
       </button>
     </main>
   )
