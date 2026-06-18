@@ -17,6 +17,15 @@ The main Bilimi window keeps native window controls but hides the default Electr
 
 Collapsing the sidebar removes the sidebar column instead of leaving a vertical rail. A small floating boundary button labeled `收` or `展` stays on the browser/sidebar edge and aligns with the browser tab strip.
 
+## Assistant Actions
+
+`批阅` actions run in the active Bilibili webview. Likes, coins, favorites, and comments first use page automation through the embedded page context. Favorite actions then have two modes:
+
+- Default mode may use the Bilibili favorite API as a confirmation or fallback layer. API usage is visible in automation steps such as `api:favorite:list`, `api:favorite:add`, or `api:favorite:create-folder`.
+- `仅页面点击` disables the favorite API path. If page automation succeeds, Bilimi returns that result directly. If page automation fails because a favorite target is missing, Bilimi opens the favorite dialog with the Bilibili `e` shortcut and finishes through visual text recognition plus webview input events.
+
+In `仅页面点击` mode, logs that only contain steps such as `favorite:open`, `favorite:folder`, `favorite`, and `visual:favorite:*` did not use the favorite API.
+
 ## Desktop Pet
 
 Bilimi includes a small transparent Electron desktop pet window rendered by `PalaceMaidPetApp` and `LayeredPetRenderer`. The pet is a lightweight 2D blue-white porcelain chibi maid with transparent PNG character states plus small effect layers.
