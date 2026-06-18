@@ -9,6 +9,7 @@ export function createMainWindowOptions(preload: string): Electron.BrowserWindow
     title: APP_TITLE,
     show: true,
     frame: true,
+    autoHideMenuBar: true,
     skipTaskbar: false,
     backgroundColor: '#1f140f',
     webPreferences: {

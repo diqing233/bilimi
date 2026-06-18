@@ -14,6 +14,7 @@ describe('createMainWindowOptions', () => {
       title: 'Bilimi',
       show: true,
       frame: true,
+      autoHideMenuBar: true,
       skipTaskbar: false
     })
   })
