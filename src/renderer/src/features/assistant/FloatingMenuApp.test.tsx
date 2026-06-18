@@ -20,7 +20,7 @@ describe('FloatingMenuApp', () => {
     expect(screen.getByRole('menuitem', { name: '藏' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: '赐' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: '评' })).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: '阅' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: '阅' })).not.toBeInTheDocument()
   })
 
   it('dispatches a menu action through the desktop bridge', async () => {

@@ -504,7 +504,6 @@ export function FloatingAssistantApp({
             runningAction={runningAction}
             actionsLocked={actionsLocked}
             feedback={feedback}
-            onOpenLedgerPanel={() => setActiveTab('ledger')}
             onOpenVideoNoteArchive={() => {
               void loadVideoNoteArchives()
               setActiveView('noteArchive')

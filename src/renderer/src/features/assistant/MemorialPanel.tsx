@@ -22,7 +22,6 @@ type MemorialPanelProps = {
   onChangeVideoNote?: (note: VideoNote) => void
   onGetCurrentVideoTime?: () => Promise<number>
   onSeekVideoTime?: (seconds: number) => Promise<boolean>
-  onOpenLedgerPanel?: () => void
   onOpenVideoNoteArchive?: () => void
   pageClickOnly: boolean
   onPageClickOnlyChange: (pageClickOnly: boolean) => void
@@ -50,8 +49,7 @@ const ACTIONS: Array<{
   { action: '赏', label: '轻赏此条', description: '点赞并归入当前 Bilimi 分册' },
   { action: '藏', label: '归入内库', description: '只收藏到 Bilimi 分册' },
   { action: '赐', label: '投币厚赏', description: '点赞、收藏，并先询问投币数量' },
-  { action: '表', label: '拟奏短评', description: '从三条候选评论中择一发送' },
-  { action: '阅', label: '本条已阅', description: '不改动页面，只登记本次批阅' }
+  { action: '表', label: '拟奏短评', description: '从三条候选评论中择一发送' }
 ]
 
 export function MemorialPanel({
@@ -67,7 +65,6 @@ export function MemorialPanel({
   onChangeVideoNote,
   onGetCurrentVideoTime,
   onSeekVideoTime,
-  onOpenLedgerPanel,
   onOpenVideoNoteArchive,
   pageClickOnly,
   onPageClickOnlyChange,
@@ -147,16 +144,6 @@ export function MemorialPanel({
                   <small>{description}</small>
                 </button>
               ))}
-              <button
-                type="button"
-                className="memorial-panel__action memorial-panel__action--ledger"
-                disabled={actionsLocked}
-                onClick={onOpenLedgerPanel}
-              >
-                <strong>库</strong>
-                <span>打开掌库</span>
-                <small>管理分册、补齐收藏夹、整理旧藏</small>
-              </button>
             </div>
             <label className="memorial-panel__toggle">
               <input

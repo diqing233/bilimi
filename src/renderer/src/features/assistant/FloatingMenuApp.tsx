@@ -6,8 +6,7 @@ const FLOATING_MENU_ACTIONS: Array<{ action: AssistantAction; label: string; hin
   { action: '赏', label: '赞', hint: '轻赏此条' },
   { action: '藏', label: '藏', hint: '归入内库' },
   { action: '赐', label: '赐', hint: '投币厚赏' },
-  { action: '表', label: '评', hint: '拟奏短评' },
-  { action: '阅', label: '阅', hint: '本条已阅' }
+  { action: '表', label: '评', hint: '拟奏短评' }
 ]
 
 export function FloatingMenuApp() {

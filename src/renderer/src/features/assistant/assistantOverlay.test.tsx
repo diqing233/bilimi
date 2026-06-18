@@ -6,16 +6,11 @@ const ACTION_BUTTON_NAMES = {
   赏: /赏.*轻赏此条/,
   藏: /藏.*归入内库/,
   赐: /赐.*投币厚赏/,
-  表: /表.*拟奏短评/,
-  阅: /阅.*本条已阅/
+  表: /表.*拟奏短评/
 } as const
 
 function getActionButton(action: keyof typeof ACTION_BUTTON_NAMES) {
   return screen.getByRole('button', { name: ACTION_BUTTON_NAMES[action] })
-}
-
-function getLedgerButton() {
-  return screen.getByRole('button', { name: /打开掌库/ })
 }
 
 describe('AssistantOverlay', () => {
@@ -134,7 +129,8 @@ describe('AssistantOverlay', () => {
     expect(getActionButton('藏')).toBeInTheDocument()
     expect(getActionButton('赐')).toBeInTheDocument()
     expect(getActionButton('表')).toBeInTheDocument()
-    expect(getActionButton('阅')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /阅.*本条已阅/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /打开掌库/ })).not.toBeInTheDocument()
   })
 
   it('runs an externally requested assistant action through the existing action path', async () => {
@@ -424,8 +420,6 @@ describe('AssistantOverlay', () => {
     expect(getActionButton('藏')).toBeDisabled()
     expect(getActionButton('赐')).toBeDisabled()
     expect(getActionButton('表')).toBeDisabled()
-    expect(getActionButton('阅')).toBeDisabled()
-    expect(getLedgerButton()).toBeDisabled()
     expect(screen.getByRole('button', { name: '赐一枚' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '赐两枚' })).toBeEnabled()
   })
@@ -440,8 +434,6 @@ describe('AssistantOverlay', () => {
     expect(getActionButton('藏')).toBeDisabled()
     expect(getActionButton('赐')).toBeDisabled()
     expect(getActionButton('表')).toBeDisabled()
-    expect(getActionButton('阅')).toBeDisabled()
-    expect(getLedgerButton()).toBeDisabled()
     expect(screen.getAllByRole('button').some((button) => button.textContent?.includes('亲览'))).toBe(true)
   })
 
@@ -501,15 +493,6 @@ describe('AssistantOverlay', () => {
     await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
     expect(runScript.mock.calls[0][0]).toContain(draft)
     expect(onRecordFeedback).toHaveBeenCalledWith('inbox', '表')
-  })
-
-  it('opens ledger panel from the memorial panel', () => {
-    render(<AssistantOverlay />)
-
-    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
-    fireEvent.click(getLedgerButton())
-
-    expect(screen.getByRole('dialog', { name: '掌库' })).toBeInTheDocument()
   })
 
   it('prompts first-time users to ask 掌库 when enabled ledgers are missing', async () => {

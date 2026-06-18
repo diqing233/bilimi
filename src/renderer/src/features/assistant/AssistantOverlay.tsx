@@ -641,7 +641,6 @@ export function AssistantOverlay({
               runningAction={runningAction}
               actionsLocked={actionsLocked}
               feedback={feedback}
-              onOpenLedgerPanel={() => setLedgerPanelOpen(true)}
             />
           )}
           {ledgerStatus && ledgerStatus.missingLedgerIds.length > 0 && !preferences.ledgerPromptDismissed ? (
