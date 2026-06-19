@@ -15,6 +15,8 @@ npm run build
 
 The main Bilimi window keeps native window controls but hides the default Electron application menu bar. It uses a two-column layout: the embedded Bilibili browser on the left and the Bilimi assistant sidebar on the right. The sidebar opens on `批阅` by default, with `札记`, `掌库`, and `设置` available as tabs inside the same workspace.
 
+The default main window width is sized for the embedded browser plus assistant sidebar: the initial window keeps at least 1360px of browser space beside the roughly 430px sidebar.
+
 The workspace tabs use Xiao Mi pet icons and keep each tab label horizontal. In sidebar mode the four tabs divide the available tab row evenly.
 
 Collapsing the sidebar removes the sidebar column instead of leaving a vertical rail. A small floating boundary button labeled `折叠` or `展开` stays on the browser/sidebar edge, keeps its left-boundary position, and is sized to fit inside the blue browser tab strip.
@@ -50,6 +52,8 @@ Video note generation reads the current Bilibili video metadata for title, BV ID
 When local audio transcription is available, the note page exposes `转写音频` and `档案库` as the primary actions. Without an existing note, the page still uses the flat A layout: current video details, generation/archive actions, disabled result entries, and a pasted-transcript fallback. Generated notes include a study-oriented overview with a one-sentence takeaway, key points, a revisit prompt, open questions, keywords, timeline items, and highlights. Timeline items and transcript segments expose `加批注`, which starts a timestamped annotation draft for that moment.
 
 Generated audio notes are also saved into the global video note archive. The archive stores one entry per video, merges by BV ID before falling back to URL, keeps every transcription as a version, and supports searching by title, author, BV ID, transcript, and summary. The archive panel provides dual-pane history browsing, version switching, copyable plain transcripts, copyable summaries, source opening, and deletion confirmation.
+
+The archive detail pane is intentionally wider than the video list pane. Long titles, transcript text, and summaries should wrap inside the visible detail pane without introducing horizontal scrolling.
 
 ## Audio Transcription Prerequisites
 

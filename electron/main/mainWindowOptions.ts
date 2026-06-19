@@ -10,7 +10,7 @@ export function getMainWindowIconPath(): string {
 
 export function createMainWindowOptions(preload: string): Electron.BrowserWindowConstructorOptions {
   return {
-    width: 1440,
+    width: 1800,
     height: 960,
     minWidth: 1280,
     minHeight: 820,
