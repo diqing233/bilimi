@@ -892,9 +892,9 @@ body[data-floating-window="true"] {
   left: -82px;
   z-index: 3;
   min-width: 66px;
-  min-height: 38px;
+  min-height: 32px;
   display: grid;
-  grid-template-columns: 28px auto;
+  grid-template-columns: 24px auto;
   align-items: center;
   justify-content: start;
   gap: 4px;
@@ -906,15 +906,15 @@ body[data-floating-window="true"] {
   font: 13px "Noto Serif SC", "Songti SC", "SimSun", serif;
   font-weight: 700;
   line-height: 1;
-  padding: 3px 7px 3px 4px;
+  padding: 2px 7px 2px 4px;
   box-shadow:
     0 2px 6px rgba(31, 99, 181, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .assistant-sidebar__collapse-pet {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   object-fit: contain;
   filter: drop-shadow(0 2px 3px rgba(31, 99, 181, 0.18));
   pointer-events: none;
