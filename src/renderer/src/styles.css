@@ -462,7 +462,7 @@ body[data-floating-window="true"] {
 
 .palace-maid-pet__resize-controls {
   position: absolute;
-  left: calc(50% + var(--floating-pet-size) * 0.42);
+  left: calc(50% + 96px);
   bottom: 14px;
   z-index: 4;
   display: flex;

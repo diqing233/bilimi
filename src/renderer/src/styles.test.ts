@@ -102,7 +102,10 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('width: min(204px, calc(100vw - 28px));')
     expect(normalizedStyles).toContain('.palace-maid-pet__resize-controls {')
     expect(normalizedStyles).toContain('.palace-maid-pet__resize-step {')
-    expect(normalizedStyles).toContain('left: calc(50% + var(--floating-pet-size) * 0.42);')
+    expect(normalizedStyles).toContain('left: calc(50% + 96px);')
+    expect(normalizedStyles).not.toContain(
+      'left: calc(50% + var(--floating-pet-size) * 0.42);'
+    )
     expect(normalizedStyles).toContain('bottom: 14px;')
     expect(normalizedStyles).toContain('opacity: 0;')
     expect(normalizedStyles).toContain('pointer-events: none;')
