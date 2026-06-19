@@ -13,9 +13,11 @@ npm run build
 
 ## Assistant Sidebar
 
-The main Bilimi window keeps native window controls but hides the default Electron application menu bar. It uses a two-column layout: the embedded Bilibili browser on the left and the Bilimi assistant sidebar on the right. The sidebar opens on `批阅` by default, with `礼记` and `掌库` available as tabs inside the same workspace.
+The main Bilimi window keeps native window controls but hides the default Electron application menu bar. It uses a two-column layout: the embedded Bilibili browser on the left and the Bilimi assistant sidebar on the right. The sidebar opens on `批阅` by default, with `札记`, `掌库`, and `设置` available as tabs inside the same workspace.
 
-Collapsing the sidebar removes the sidebar column instead of leaving a vertical rail. A small floating boundary button labeled `收` or `展` stays on the browser/sidebar edge and aligns with the browser tab strip.
+The workspace tabs use Xiao Mi pet icons and keep each tab label horizontal. In sidebar mode the four tabs divide the available tab row evenly.
+
+Collapsing the sidebar removes the sidebar column instead of leaving a vertical rail. A small floating boundary button labeled `折叠` or `展开` stays on the browser/sidebar edge, keeps its left-boundary position, and is sized to fit inside the blue browser tab strip.
 
 ## Assistant Actions
 
@@ -29,6 +31,8 @@ In `仅页面点击` mode, logs that only contain steps such as `favorite:open`,
 ## Desktop Pet
 
 Bilimi includes a small transparent Electron desktop pet window rendered by `PalaceMaidPetApp` and `LayeredPetRenderer`. The pet is a lightweight 2D blue-white porcelain chibi maid with transparent PNG character states plus small effect layers.
+
+The assistant persona is Xiao Mi: `我是 bilimi，主人可以叫我小mi~`. The app icon, floating seal, sidebar collapse button, workspace tabs, and review actions reuse the blue-white maid pet assets for a consistent identity.
 
 Assistant settings expose two pet styles: `big-head` for the compact big-head Q-version sprites and `classic` for the clearer full-body reset sprites. Pet style is persisted with the other assistant preferences and broadcast after saving so the main window, floating assistant, and desktop pet stay in sync without restarting.
 
