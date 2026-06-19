@@ -36,7 +36,8 @@ body:has(.floating-menu-shell),
 html:has(.floating-assistant-shell),
 body:has(.floating-assistant-shell),
 html[data-floating-window="true"],
-body[data-floating-window="true"] {
+body[data-floating-window="true"],
+#root[data-floating-window="true"] {
   background: transparent;
 }
 

@@ -16,11 +16,19 @@ export function markFloatingWindowDocument(
     return false
   }
 
+  const root = target.getElementById?.('root')
+
   target.documentElement.dataset.floatingWindow = 'true'
   target.body.dataset.floatingWindow = 'true'
+  if (root) {
+    root.dataset.floatingWindow = 'true'
+  }
+  target.documentElement.style.background = 'transparent'
+  target.body.style.background = 'transparent'
   target.documentElement.style.backgroundColor = 'transparent'
   target.body.style.backgroundColor = 'transparent'
-  target.getElementById?.('root')?.style.setProperty('background-color', 'transparent')
+  root?.style.setProperty('background', 'transparent')
+  root?.style.setProperty('background-color', 'transparent')
   target.title = ''
 
   return true
