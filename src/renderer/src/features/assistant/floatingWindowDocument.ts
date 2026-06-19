@@ -1,6 +1,7 @@
 type FloatingWindowDocumentTarget = {
   documentElement: HTMLElement
   body: HTMLElement
+  title: string
 }
 
 export function markFloatingWindowDocument(
@@ -16,6 +17,7 @@ export function markFloatingWindowDocument(
 
   target.documentElement.dataset.floatingWindow = 'true'
   target.body.dataset.floatingWindow = 'true'
+  target.title = ''
 
   return true
 }

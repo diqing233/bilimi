@@ -5,7 +5,7 @@ function createTarget() {
   const documentElement = document.createElement('html')
   const body = document.createElement('body')
 
-  return { documentElement, body }
+  return { documentElement, body, title: 'Bilimi' }
 }
 
 describe('markFloatingWindowDocument', () => {
@@ -16,6 +16,7 @@ describe('markFloatingWindowDocument', () => {
 
     expect(target.documentElement).toHaveAttribute('data-floating-window', 'true')
     expect(target.body).toHaveAttribute('data-floating-window', 'true')
+    expect(target.title).toBe('')
   })
 
   it('does not mark the normal browser window as floating', () => {
@@ -25,5 +26,6 @@ describe('markFloatingWindowDocument', () => {
 
     expect(target.documentElement).not.toHaveAttribute('data-floating-window')
     expect(target.body).not.toHaveAttribute('data-floating-window')
+    expect(target.title).toBe('Bilimi')
   })
 })
