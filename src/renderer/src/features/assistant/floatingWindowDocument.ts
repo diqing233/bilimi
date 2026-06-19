@@ -2,6 +2,7 @@ type FloatingWindowDocumentTarget = {
   documentElement: HTMLElement
   body: HTMLElement
   title: string
+  getElementById?: (id: string) => HTMLElement | null
 }
 
 export function markFloatingWindowDocument(
@@ -19,6 +20,7 @@ export function markFloatingWindowDocument(
   target.body.dataset.floatingWindow = 'true'
   target.documentElement.style.backgroundColor = 'transparent'
   target.body.style.backgroundColor = 'transparent'
+  target.getElementById?.('root')?.style.setProperty('background-color', 'transparent')
   target.title = ''
 
   return true

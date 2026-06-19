@@ -4,8 +4,16 @@ import { markFloatingWindowDocument } from './floatingWindowDocument'
 function createTarget() {
   const documentElement = document.createElement('html')
   const body = document.createElement('body')
+  const root = document.createElement('div')
+  root.id = 'root'
+  body.append(root)
 
-  return { documentElement, body, title: 'Bilimi' }
+  return {
+    documentElement,
+    body,
+    title: 'Bilimi',
+    getElementById: (id: string) => (id === 'root' ? root : null)
+  }
 }
 
 describe('markFloatingWindowDocument', () => {
@@ -18,6 +26,7 @@ describe('markFloatingWindowDocument', () => {
     expect(target.body).toHaveAttribute('data-floating-window', 'true')
     expect(target.documentElement.style.backgroundColor).toBe('transparent')
     expect(target.body.style.backgroundColor).toBe('transparent')
+    expect(target.getElementById('root')?.style.backgroundColor).toBe('transparent')
     expect(target.title).toBe('')
   })
 
