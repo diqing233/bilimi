@@ -92,7 +92,12 @@ describe('renderer porcelain theme styles', () => {
 
   it('gives the floating pet enough transparent stage space for the chibi and speech bubble', () => {
     expect(normalizedStyles).toContain('.palace-maid-pet-shell {\n  width: 100vw;\n  height: 100vh;')
-    expect(normalizedStyles).toContain('--floating-pet-size: clamp(148px, min(54vw, 50vh), 260px);')
+    expect(normalizedStyles).toContain(
+      '--floating-pet-size: clamp(148px, min(72vw, calc(100vh - 84px)), 340px);'
+    )
+    expect(normalizedStyles).not.toContain('min(54vw, 50vh)')
+    expect(normalizedStyles).not.toContain('min(54vw, calc(100vh - 96px))')
+    expect(normalizedStyles).not.toContain('min(72vw, calc(100vh - 96px))')
     expect(normalizedStyles).toContain('padding: 0 16px 18px;')
     expect(normalizedStyles).not.toContain('padding: 16px 16px 18px;')
     expect(normalizedStyles).toContain('.palace-maid-pet {\n  width: var(--floating-pet-size);\n  height: var(--floating-pet-size);')

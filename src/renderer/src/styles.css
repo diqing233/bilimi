@@ -269,7 +269,7 @@ body[data-floating-window="true"],
 .palace-maid-pet-shell {
   width: 100vw;
   height: 100vh;
-  --floating-pet-size: clamp(148px, min(54vw, 50vh), 260px);
+  --floating-pet-size: clamp(148px, min(72vw, calc(100vh - 84px)), 340px);
   display: grid;
   place-items: end center;
   box-sizing: border-box;
