@@ -16,7 +16,7 @@ describe('createFloatingSealWindowOptions', () => {
       title: '',
       frame: false,
       transparent: true,
-      resizable: true,
+      resizable: false,
       movable: true,
       minimizable: false,
       maximizable: false,

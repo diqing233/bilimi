@@ -268,11 +268,11 @@ body[data-floating-window="true"] {
 .palace-maid-pet-shell {
   width: 100vw;
   height: 100vh;
-  --floating-pet-size: clamp(148px, min(52vw, 64vh), 260px);
+  --floating-pet-size: clamp(148px, min(54vw, 50vh), 260px);
   display: grid;
   place-items: end center;
   box-sizing: border-box;
-  padding: 12px 16px 16px;
+  padding: 16px 16px 18px;
   overflow: hidden;
   background: transparent;
 }
@@ -433,9 +433,9 @@ body[data-floating-window="true"] {
 .palace-maid-pet__bubble {
   position: absolute;
   left: 50%;
-  bottom: calc(100% - 28px);
+  bottom: calc(100% + 6px);
   z-index: 2;
-  width: min(184px, calc(100vw - 28px));
+  width: min(204px, calc(100vw - 28px));
   box-sizing: border-box;
   display: grid;
   gap: 2px;

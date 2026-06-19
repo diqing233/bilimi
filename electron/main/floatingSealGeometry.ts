@@ -16,7 +16,7 @@ type OverlayPosition = {
 }
 
 const DEFAULT_GAP = 12
-const FLOATING_SEAL_MIN_SIZE = { width: 260, height: 190 }
+const FLOATING_SEAL_MIN_SIZE = { width: 300, height: 190 }
 const FLOATING_SEAL_MAX_SIZE = { width: 560, height: 440 }
 
 function clamp(value: number, min: number, max: number) {
@@ -51,18 +51,22 @@ export function createFloatingSealResizeBounds({
   minSize?: Size
   maxSize?: Size
 }): Bounds {
+  const widthDelta = currentCursor.x - startCursor.x
+  const heightDelta = currentCursor.y - startCursor.y
+  const startRatio = startBounds.width / startBounds.height
+  const scale = Math.max(
+    (startBounds.width + widthDelta) / startBounds.width,
+    (startBounds.height + heightDelta) / startBounds.height
+  )
+  const minScale = Math.max(minSize.width / startBounds.width, minSize.height / startBounds.height)
+  const maxScale = Math.min(maxSize.width / startBounds.width, maxSize.height / startBounds.height)
+  const nextScale = clamp(scale, minScale, maxScale)
+  const height = Math.round(startBounds.height * nextScale)
+
   return {
     ...startBounds,
-    width: clamp(
-      Math.round(startBounds.width + currentCursor.x - startCursor.x),
-      minSize.width,
-      maxSize.width
-    ),
-    height: clamp(
-      Math.round(startBounds.height + currentCursor.y - startCursor.y),
-      minSize.height,
-      maxSize.height
-    )
+    width: Math.round(height * startRatio),
+    height
   }
 }
 

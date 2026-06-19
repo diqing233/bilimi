@@ -184,4 +184,23 @@ describe('PalaceMaidPetApp', () => {
     expect(api.finishFloatingSealDrag).toHaveBeenCalledOnce()
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
+
+  it('keeps the resize handle outside the pet button so resizing does not press the pet', () => {
+    installDesktopApi()
+
+    render(<PalaceMaidPetApp />)
+
+    const pet = screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' })
+    const resizeHandle = screen.getByRole('button', { name: '调整小mi大小' })
+
+    fireEvent.pointerDown(resizeHandle, {
+      clientX: 332,
+      clientY: 212,
+      screenX: 1232,
+      screenY: 712,
+      pointerId: 2
+    })
+
+    expect(pet).toHaveAttribute('data-pressed', 'false')
+  })
 })
