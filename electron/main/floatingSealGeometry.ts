@@ -9,6 +9,12 @@ type Size = {
 }
 
 type Bounds = Point & Size
+type EdgePadding = {
+  top: number
+  right: number
+  bottom: number
+  left: number
+}
 
 type OverlayPosition = {
   left: number
@@ -21,6 +27,17 @@ const FLOATING_SEAL_MAX_SIZE = { width: 560, height: 440 }
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
+}
+
+function normalizePadding(padding: number | EdgePadding): EdgePadding {
+  return typeof padding === 'number'
+    ? {
+        top: padding,
+        right: padding,
+        bottom: padding,
+        left: padding
+      }
+    : padding
 }
 
 export function createFloatingSealDragPosition({
@@ -112,13 +129,15 @@ export function createFloatingHostBounds({
   padding
 }: {
   visualBounds: Bounds
-  padding: number
+  padding: number | EdgePadding
 }): Bounds {
+  const edges = normalizePadding(padding)
+
   return {
-    x: visualBounds.x - padding,
-    y: visualBounds.y - padding,
-    width: visualBounds.width + padding * 2,
-    height: visualBounds.height + padding * 2
+    x: visualBounds.x - edges.left,
+    y: visualBounds.y - edges.top,
+    width: visualBounds.width + edges.left + edges.right,
+    height: visualBounds.height + edges.top + edges.bottom
   }
 }
 
@@ -127,13 +146,15 @@ export function createFloatingVisualBounds({
   padding
 }: {
   hostBounds: Bounds
-  padding: number
+  padding: number | EdgePadding
 }): Bounds {
+  const edges = normalizePadding(padding)
+
   return {
-    x: hostBounds.x + padding,
-    y: hostBounds.y + padding,
-    width: Math.max(0, hostBounds.width - padding * 2),
-    height: Math.max(0, hostBounds.height - padding * 2)
+    x: hostBounds.x + edges.left,
+    y: hostBounds.y + edges.top,
+    width: Math.max(0, hostBounds.width - edges.left - edges.right),
+    height: Math.max(0, hostBounds.height - edges.top - edges.bottom)
   }
 }
 

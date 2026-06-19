@@ -80,6 +80,15 @@ describe('floating menu geometry', () => {
     ).toEqual({ x: 872, y: 492, width: 340, height: 220 })
   })
 
+  it('supports removing top host padding from the floating pet to avoid a visible empty strip', () => {
+    const padding = { top: 0, right: 28, bottom: 28, left: 28 }
+    const visualBounds = { x: 900, y: 520, width: 300, height: 232 }
+    const hostBounds = createFloatingHostBounds({ visualBounds, padding })
+
+    expect(hostBounds).toEqual({ x: 872, y: 520, width: 356, height: 260 })
+    expect(createFloatingVisualBounds({ hostBounds, padding })).toEqual(visualBounds)
+  })
+
   it('resizes the floating pet host proportionally around the pet foot anchor', () => {
     expect(
       createFloatingSealResizeBounds({

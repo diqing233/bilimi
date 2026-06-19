@@ -53,6 +53,12 @@ import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../../src
 
 const FLOATING_SEAL_VISUAL_SIZE = { width: 300, height: 232 }
 const FLOATING_SEAL_SHADOW_PADDING = 28
+const FLOATING_SEAL_HOST_PADDING = {
+  top: 0,
+  right: FLOATING_SEAL_SHADOW_PADDING,
+  bottom: FLOATING_SEAL_SHADOW_PADDING,
+  left: FLOATING_SEAL_SHADOW_PADDING
+}
 const FLOATING_SEAL_MARGIN = 24
 const FLOATING_SEAL_QUERY = { window: 'floating-seal' }
 const FLOATING_MENU_VISUAL_SIZE = { width: 184, height: 248 }
@@ -118,7 +124,7 @@ function getFloatingSealBounds() {
 
   return createFloatingHostBounds({
     visualBounds,
-    padding: FLOATING_SEAL_SHADOW_PADDING
+    padding: FLOATING_SEAL_HOST_PADDING
   })
 }
 
@@ -127,7 +133,7 @@ function getFloatingMenuBounds() {
   const display = screen.getDisplayMatching(sealHostBounds)
   const sealVisualBounds = createFloatingVisualBounds({
     hostBounds: sealHostBounds,
-    padding: FLOATING_SEAL_SHADOW_PADDING
+    padding: FLOATING_SEAL_HOST_PADDING
   })
   const visualBounds = createFloatingMenuBounds({
     sealBounds: sealVisualBounds,
@@ -146,7 +152,7 @@ function getFloatingAssistantBounds() {
   const display = screen.getDisplayMatching(sealHostBounds)
   const sealVisualBounds = createFloatingVisualBounds({
     hostBounds: sealHostBounds,
-    padding: FLOATING_SEAL_SHADOW_PADDING
+    padding: FLOATING_SEAL_HOST_PADDING
   })
 
   return createFloatingAssistantBounds({
