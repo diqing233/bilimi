@@ -31,7 +31,7 @@ import {
   createFloatingHostBounds,
   createFloatingMenuBounds,
   createFloatingSealDragPosition,
-  createFloatingSealResizeBounds,
+  createFloatingSealStepResizeBounds,
   createFloatingVisualBounds
 } from './floatingSealGeometry'
 import { createPreloadScriptPath } from './preloadPath'
@@ -64,10 +64,6 @@ const FLOATING_ASSISTANT_QUERY = { window: 'floating-assistant' }
 let mainWindow: BrowserWindow | null = null
 let floatingSealWindow: BrowserWindow | null = null
 let assistantPetState: AssistantPetState = 'idle'
-let floatingSealResizeSession: {
-  startBounds: Electron.Rectangle
-  startCursor: { x: number; y: number }
-} | null = null
 
 function openUrlInRendererTab(win: BrowserWindow, url: string) {
   if (!url || win.isDestroyed()) {
@@ -308,33 +304,27 @@ function startFloatingSealDrag(screenX: number, screenY: number) {
 
   closeFloatingMenuWindow()
   closeFloatingAssistantWindow()
-  floatingSealResizeSession = null
   floatingSealDragController.start({ x: screenX, y: screenY })
 }
 
-function startFloatingSealResize(screenX: number, screenY: number) {
+function resizeFloatingSealByStep(step: number) {
   if (!floatingSealWindow || floatingSealWindow.isDestroyed()) {
+    return
+  }
+
+  const resizeStep = Number.isFinite(step) ? Math.sign(step) : 0
+
+  if (resizeStep === 0) {
     return
   }
 
   closeFloatingMenuWindow()
   closeFloatingAssistantWindow()
   floatingSealDragController.finish()
-  floatingSealResizeSession = {
-    startBounds: floatingSealWindow.getBounds(),
-    startCursor: { x: screenX, y: screenY }
-  }
-}
-
-function resizeFloatingSeal(screenX: number, screenY: number) {
-  if (!floatingSealWindow || floatingSealWindow.isDestroyed() || !floatingSealResizeSession) {
-    return
-  }
-
   floatingSealWindow.setBounds(
-    createFloatingSealResizeBounds({
-      ...floatingSealResizeSession,
-      currentCursor: { x: screenX, y: screenY }
+    createFloatingSealStepResizeBounds({
+      startBounds: floatingSealWindow.getBounds(),
+      step: resizeStep
     })
   )
 }
@@ -355,7 +345,6 @@ function moveFloatingSealTo(screenX: number, screenY: number) {
 
 function finishFloatingSealDrag() {
   floatingSealDragController.finish()
-  floatingSealResizeSession = null
 }
 
 function restoreMainWindowForPet() {
@@ -533,11 +522,8 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.on('floating-seal:start-drag', (_event, screenX: number, screenY: number) => {
     startFloatingSealDrag(screenX, screenY)
   })
-  ipcMain.on('floating-seal:resize', (_event, screenX: number, screenY: number) => {
-    resizeFloatingSeal(screenX, screenY)
-  })
-  ipcMain.on('floating-seal:start-resize', (_event, screenX: number, screenY: number) => {
-    startFloatingSealResize(screenX, screenY)
+  ipcMain.on('floating-seal:resize-step', (_event, step: number) => {
+    resizeFloatingSealByStep(step)
   })
   ipcMain.handle('floating-seal:move-by', (_event, deltaX: number, deltaY: number) => {
     moveFloatingSealBy(deltaX, deltaY)

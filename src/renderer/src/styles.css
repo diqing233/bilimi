@@ -460,34 +460,39 @@ body[data-floating-window="true"] {
   overflow-wrap: anywhere;
 }
 
-.palace-maid-pet__resize-handle {
+.palace-maid-pet__resize-controls {
   position: absolute;
   left: calc(50% + var(--floating-pet-size) * 0.28);
-  bottom: 24px;
+  bottom: 20px;
   z-index: 4;
-  width: 24px;
-  height: 24px;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 3px;
+  border: 1px solid rgba(255, 254, 253, 0.72);
+  border-radius: 8px;
+  background: rgba(7, 26, 51, 0.7);
+  color: var(--porcelain-white);
+  touch-action: none;
+  transform: translateX(-50%);
+}
+
+.palace-maid-pet__resize-step {
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
   padding: 0;
-  border: 1px solid rgba(255, 254, 253, 0.78);
+  border: 1px solid rgba(255, 254, 253, 0.24);
   border-radius: 6px;
-  background: rgba(7, 26, 51, 0.7);
-  color: var(--porcelain-white);
-  cursor: nwse-resize;
-  touch-action: none;
+  background: rgba(247, 251, 255, 0.14);
+  color: inherit;
+  font: 700 17px/1 "Noto Serif SC", "Songti SC", "SimSun", serif;
+  cursor: pointer;
 }
 
-.palace-maid-pet__resize-handle span {
-  width: 10px;
-  height: 10px;
-  border-right: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  box-sizing: border-box;
-}
-
-.palace-maid-pet__resize-handle:hover,
-.palace-maid-pet__resize-handle:focus-visible {
+.palace-maid-pet__resize-step:hover,
+.palace-maid-pet__resize-step:focus-visible {
   background: rgba(23, 69, 119, 0.86);
   outline: none;
 }

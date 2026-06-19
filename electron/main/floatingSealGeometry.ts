@@ -74,6 +74,39 @@ export function createFloatingSealResizeBounds({
   }
 }
 
+export function createFloatingSealStepResizeBounds({
+  startBounds,
+  step,
+  stepScale = 0.1,
+  minSize = FLOATING_SEAL_MIN_SIZE,
+  maxSize = FLOATING_SEAL_MAX_SIZE
+}: {
+  startBounds: Bounds
+  step: number
+  stepScale?: number
+  minSize?: Size
+  maxSize?: Size
+}): Bounds {
+  const startRatio = startBounds.width / startBounds.height
+  const footAnchor = {
+    x: startBounds.x + startBounds.width / 2,
+    y: startBounds.y + startBounds.height
+  }
+  const scale = 1 + step * stepScale
+  const minScale = Math.max(minSize.width / startBounds.width, minSize.height / startBounds.height)
+  const maxScale = Math.min(maxSize.width / startBounds.width, maxSize.height / startBounds.height)
+  const nextScale = clamp(scale, minScale, maxScale)
+  const height = Math.round(startBounds.height * nextScale)
+  const width = Math.round(height * startRatio)
+
+  return {
+    x: Math.round(footAnchor.x - width / 2),
+    y: Math.round(footAnchor.y - height),
+    width,
+    height
+  }
+}
+
 export function createFloatingHostBounds({
   visualBounds,
   padding

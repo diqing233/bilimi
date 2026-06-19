@@ -14,12 +14,6 @@ export function createFloatingSealWindowOptions(
     title: '',
     frame: false,
     show: false,
-    titleBarStyle: 'customButtonsOnHover',
-    titleBarOverlay: {
-      color: '#00000000',
-      symbolColor: '#00000000',
-      height: 0
-    },
     transparent: true,
     resizable: false,
     movable: true,

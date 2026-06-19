@@ -6,7 +6,8 @@ import {
   createFloatingVisualBounds,
   createFloatingMenuBounds,
   createFloatingSealDragPosition,
-  createFloatingSealResizeBounds
+  createFloatingSealResizeBounds,
+  createFloatingSealStepResizeBounds
 } from './floatingSealGeometry'
 
 describe('floating seal geometry', () => {
@@ -107,6 +108,24 @@ describe('floating menu geometry', () => {
         currentCursor: { x: 1042, y: 712 }
       })
     ).toEqual({ x: 912, y: 544, width: 260, height: 168 })
+  })
+
+  it('steps the floating pet larger around the pet foot anchor', () => {
+    expect(
+      createFloatingSealStepResizeBounds({
+        startBounds: { x: 872, y: 492, width: 340, height: 220 },
+        step: 1
+      })
+    ).toEqual({ x: 855, y: 470, width: 374, height: 242 })
+  })
+
+  it('steps the floating pet smaller around the pet foot anchor', () => {
+    expect(
+      createFloatingSealStepResizeBounds({
+        startBounds: { x: 872, y: 492, width: 340, height: 220 },
+        step: -1
+      })
+    ).toEqual({ x: 889, y: 514, width: 306, height: 198 })
   })
 
   it('places the system menu above the seal when there is room', () => {

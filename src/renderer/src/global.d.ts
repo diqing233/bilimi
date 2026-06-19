@@ -49,7 +49,7 @@ type BilimiDesktopApi = {
   ) => () => void
   restoreMainWindowFromPet?: () => Promise<void>
   requestAssistantSnapshot?: () => Promise<AssistantSnapshot>
-  resizeFloatingSeal?: (screenX: number, screenY: number) => void
+  resizeFloatingSealByStep?: (step: number) => void
   runAssistantAction?: (
     action: AssistantAction,
     options?: FloatingAssistantActionOptions
@@ -69,7 +69,6 @@ type BilimiDesktopApi = {
   ) => Promise<VideoNoteArchiveEntry[]>
   seekVideoTime?: (seconds: number) => Promise<boolean>
   setAssistantPetState?: (state: AssistantPetState) => void
-  startFloatingSealResize?: (screenX: number, screenY: number) => void
   startFloatingSealDrag?: (screenX: number, screenY: number) => void
   toggleFloatingAssistant?: () => Promise<void>
   toggleFloatingMenu?: () => Promise<void>

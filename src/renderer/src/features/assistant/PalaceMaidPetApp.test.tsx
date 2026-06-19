@@ -31,9 +31,8 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     restoreMainWindowFromPet: vi.fn().mockResolvedValue(undefined),
     savePreferences: vi.fn(),
     loadPreferences: vi.fn(),
-    resizeFloatingSeal: vi.fn(),
+    resizeFloatingSealByStep: vi.fn(),
     startFloatingSealDrag: vi.fn(),
-    startFloatingSealResize: vi.fn(),
     ...overrides
   } satisfies Partial<Window['bilimiDesktop']>
 
@@ -149,51 +148,32 @@ describe('PalaceMaidPetApp', () => {
     )
   })
 
-  it('shows a bottom-right resize handle that resizes the floating pet without restoring the main window', () => {
+  it('shows foot-side step controls that resize the floating pet without restoring the main window', () => {
     const api = installDesktopApi()
 
     render(<PalaceMaidPetApp />)
 
-    const resizeHandle = screen.getByRole('button', { name: '调整小mi大小' })
+    const shrinkButton = screen.getByRole('button', { name: '缩小小mi' })
+    const growButton = screen.getByRole('button', { name: '放大小mi' })
 
-    fireEvent.pointerDown(resizeHandle, {
-      clientX: 332,
-      clientY: 212,
-      screenX: 1232,
-      screenY: 712,
-      pointerId: 2
-    })
-    fireEvent.pointerMove(resizeHandle, {
-      clientX: 354,
-      clientY: 238,
-      screenX: 1254,
-      screenY: 738,
-      pointerId: 2
-    })
-    fireEvent.pointerUp(resizeHandle, {
-      clientX: 354,
-      clientY: 238,
-      screenX: 1254,
-      screenY: 738,
-      pointerId: 2
-    })
-    fireEvent.click(resizeHandle)
+    fireEvent.click(shrinkButton)
+    fireEvent.click(growButton)
 
-    expect(api.startFloatingSealResize).toHaveBeenCalledWith(1232, 712)
-    expect(api.resizeFloatingSeal).toHaveBeenCalledWith(1254, 738)
-    expect(api.finishFloatingSealDrag).toHaveBeenCalledOnce()
+    expect(api.resizeFloatingSealByStep).toHaveBeenNthCalledWith(1, -1)
+    expect(api.resizeFloatingSealByStep).toHaveBeenNthCalledWith(2, 1)
+    expect(api.finishFloatingSealDrag).not.toHaveBeenCalled()
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
 
-  it('keeps the resize handle outside the pet button so resizing does not press the pet', () => {
+  it('keeps the resize controls outside the pet button so resizing does not press the pet', () => {
     installDesktopApi()
 
     render(<PalaceMaidPetApp />)
 
     const pet = screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' })
-    const resizeHandle = screen.getByRole('button', { name: '调整小mi大小' })
+    const shrinkButton = screen.getByRole('button', { name: '缩小小mi' })
 
-    fireEvent.pointerDown(resizeHandle, {
+    fireEvent.pointerDown(shrinkButton, {
       clientX: 332,
       clientY: 212,
       screenX: 1232,
