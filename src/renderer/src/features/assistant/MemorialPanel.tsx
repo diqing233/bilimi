@@ -162,8 +162,8 @@ export function MemorialPanel({
                     <img className="memorial-panel__action-pet" src={icon} alt={iconAlt} />
                     <strong>{action}</strong>
                   </span>
-                  <span>{label}</span>
-                  <small>{description}</small>
+                  <span className="memorial-panel__action-label">{label}</span>
+                  <small className="memorial-panel__action-description">{description}</small>
                 </button>
               ))}
             </div>

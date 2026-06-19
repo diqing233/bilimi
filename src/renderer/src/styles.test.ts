@@ -62,8 +62,8 @@ describe('renderer porcelain theme styles', () => {
     expect(sidebarStyles).not.toContain('.assistant-sidebar {\n  width: 46px;')
     expect(sidebarStyles).toContain('grid-template-columns: minmax(0, 1fr);')
     expect(sidebarStyles).toContain('.assistant-sidebar[data-collapsed="true"] {\n  width: 0;')
-    expect(sidebarStyles).toContain('.assistant-sidebar__collapse-button {\n  position: absolute;\n  top: 12px;\n  left: 4px;')
-    expect(sidebarStyles).not.toContain('left: -72px;')
+    expect(sidebarStyles).toContain('.assistant-sidebar__collapse-button {\n  position: absolute;\n  top: 12px;\n  left: -82px;')
+    expect(sidebarStyles).not.toContain('top: 5px;')
     expect(sidebarStyles).toContain('min-width: 66px;\n  min-height: 38px;')
     expect(sidebarStyles).toContain('grid-template-columns: 28px auto;')
     expect(sidebarStyles).toContain('.assistant-sidebar-workspace .floating-assistant-tabs {')
@@ -89,7 +89,7 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('display: grid;\n  gap: 8px;')
     expect(normalizedStyles).toContain('.memorial-panel__actions {\n  display: grid;\n  grid-template-columns: 1fr;')
     expect(normalizedStyles).toContain('.memorial-panel__action {\n  min-height: 62px;')
-    expect(normalizedStyles).toContain('grid-template-columns: 46px minmax(0, 1fr);')
+    expect(normalizedStyles).toContain('grid-template-columns: 58px minmax(0, 1fr);')
     expect(normalizedStyles).toContain('grid-template-areas:\n    "mark label"\n    "mark desc";')
     expect(normalizedStyles).toContain(
       '.memorial-panel__action-icon {\n  grid-area: mark;\n  position: relative;\n  width: 42px;\n  height: 44px;'
@@ -102,8 +102,9 @@ describe('renderer porcelain theme styles', () => {
       '.memorial-panel__action strong {\n  position: absolute;\n  right: -2px;\n  bottom: -1px;\n  width: 18px;\n  height: 18px;'
     )
     expect(normalizedStyles).toContain('.memorial-panel__copy,\n.memorial-panel__meta,\n.memorial-panel__verdict {\n  color: var(--porcelain-text);\n  line-height: 1.5;\n  font-size: 14px;')
-    expect(normalizedStyles).toContain('.memorial-panel__action span {\n  grid-area: label;\n  min-width: 0;\n  color: var(--porcelain-text);\n  font-weight: 700;\n  font-size: 15px;\n  text-align: left;')
-    expect(normalizedStyles).toContain('.memorial-panel__action small {\n  grid-area: desc;\n  min-width: 0;\n  color: var(--porcelain-muted);\n  font-size: 12px;\n  text-align: left;')
+    expect(normalizedStyles).not.toContain('.memorial-panel__action span {\n  grid-area: label;')
+    expect(normalizedStyles).toContain('.memorial-panel__action-label {\n  grid-area: label;\n  min-width: 0;\n  padding-left: 4px;\n  color: var(--porcelain-text);\n  font-weight: 700;\n  font-size: 15px;\n  text-align: left;')
+    expect(normalizedStyles).toContain('.memorial-panel__action-description {\n  grid-area: desc;\n  min-width: 0;\n  padding-left: 4px;\n  color: var(--porcelain-muted);\n  font-size: 12px;\n  text-align: left;')
   })
 
   it('uses compact spacing for the notes panel', () => {

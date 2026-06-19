@@ -57,5 +57,12 @@ describe('MemorialPanel', () => {
     expect(screen.getByRole('img', { name: '小mi归库' })).toHaveClass('memorial-panel__action-pet')
     expect(screen.getByRole('img', { name: '小mi厚赏' })).toHaveClass('memorial-panel__action-pet')
     expect(screen.getByRole('img', { name: '小mi短评' })).toHaveClass('memorial-panel__action-pet')
+    expect(screen.getByRole('img', { name: '小mi轻赏' }).closest('span')).not.toHaveClass(
+      'memorial-panel__action-label'
+    )
+    expect(screen.getByText('轻赏此条')).toHaveClass('memorial-panel__action-label')
+    expect(screen.getByText('点赞并归入当前 Bilimi 分册')).toHaveClass(
+      'memorial-panel__action-description'
+    )
   })
 })
