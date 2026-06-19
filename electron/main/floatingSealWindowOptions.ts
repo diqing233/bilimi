@@ -14,7 +14,7 @@ export function createFloatingSealWindowOptions(
     title: '',
     frame: false,
     transparent: true,
-    resizable: false,
+    resizable: true,
     movable: true,
     minimizable: false,
     maximizable: false,

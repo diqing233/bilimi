@@ -125,6 +125,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('floating-assistant:snapshot'),
   restoreMainWindowFromPet: () =>
     ipcRenderer.invoke('assistant-pet:restore-main-window') as Promise<void>,
+  resizeFloatingSeal: (screenX: number, screenY: number) =>
+    ipcRenderer.send('floating-seal:resize', screenX, screenY),
   getCurrentVideoTime: () =>
     ipcRenderer.invoke('floating-assistant:get-current-video-time') as Promise<number>,
   seekVideoTime: (seconds: number) =>
@@ -173,6 +175,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.send('assistant-pet:set-state', state),
   startFloatingSealDrag: (screenX: number, screenY: number) =>
     ipcRenderer.send('floating-seal:start-drag', screenX, screenY),
+  startFloatingSealResize: (screenX: number, screenY: number) =>
+    ipcRenderer.send('floating-seal:start-resize', screenX, screenY),
   toggleFloatingAssistant: () => ipcRenderer.invoke('floating-assistant:toggle') as Promise<void>,
   toggleFloatingMenu: () => ipcRenderer.invoke('floating-menu:toggle') as Promise<void>
 })

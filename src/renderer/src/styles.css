@@ -266,10 +266,13 @@ body[data-floating-window="true"] {
 }
 
 .palace-maid-pet-shell {
-  width: 340px;
-  height: 220px;
+  width: 100vw;
+  height: 100vh;
+  --floating-pet-size: clamp(148px, min(52vw, 64vh), 260px);
   display: grid;
-  place-items: center end;
+  place-items: end center;
+  box-sizing: border-box;
+  padding: 12px 16px 16px;
   overflow: hidden;
   background: transparent;
 }
@@ -383,8 +386,8 @@ body[data-floating-window="true"] {
 }
 
 .palace-maid-pet {
-  width: 178px;
-  height: 178px;
+  width: var(--floating-pet-size);
+  height: var(--floating-pet-size);
   border: none;
   background: transparent;
   color: var(--porcelain-text);
@@ -429,10 +432,10 @@ body[data-floating-window="true"] {
 
 .palace-maid-pet__bubble {
   position: absolute;
-  right: 186px;
-  bottom: 128px;
+  left: 50%;
+  bottom: calc(100% - 28px);
   z-index: 2;
-  width: 144px;
+  width: min(184px, calc(100vw - 28px));
   box-sizing: border-box;
   display: grid;
   gap: 2px;
@@ -445,6 +448,7 @@ body[data-floating-window="true"] {
   line-height: 1.35;
   text-align: left;
   box-shadow: 0 8px 18px rgba(7, 26, 51, 0.18);
+  transform: translateX(-50%);
 }
 
 .palace-maid-pet__bubble strong {
@@ -456,12 +460,44 @@ body[data-floating-window="true"] {
   overflow-wrap: anywhere;
 }
 
+.palace-maid-pet__resize-handle {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  z-index: 4;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255, 254, 253, 0.78);
+  border-radius: 6px;
+  background: rgba(7, 26, 51, 0.7);
+  color: var(--porcelain-white);
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+.palace-maid-pet__resize-handle span {
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  box-sizing: border-box;
+}
+
+.palace-maid-pet__resize-handle:hover,
+.palace-maid-pet__resize-handle:focus-visible {
+  background: rgba(23, 69, 119, 0.86);
+  outline: none;
+}
+
 .layered-pet {
   position: relative;
   z-index: 1;
   display: block;
-  width: 184px;
-  height: 184px;
+  width: calc(var(--floating-pet-size) + 6px);
+  height: calc(var(--floating-pet-size) + 6px);
   aspect-ratio: 1;
   pointer-events: none;
   transform-origin: 50% 78%;

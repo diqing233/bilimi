@@ -16,8 +16,15 @@ type DragState = {
   moved: boolean
 }
 
+type ResizeState = {
+  startClientX: number
+  startClientY: number
+  moved: boolean
+}
+
 export function PalaceMaidPetApp() {
   const dragState = useRef<DragState | null>(null)
+  const resizeState = useRef<ResizeState | null>(null)
   const suppressNextClick = useRef(false)
   const [pressed, setPressed] = useState(false)
   const [petState, setPetState] = useState<AssistantPetState>('idle')
@@ -107,6 +114,57 @@ export function PalaceMaidPetApp() {
     return false
   }
 
+  function startResize(clientX: number, clientY: number, screenX: number, screenY: number) {
+    dragState.current = null
+    resizeState.current = {
+      startClientX: clientX,
+      startClientY: clientY,
+      moved: false
+    }
+    setPressed(false)
+    window.bilimiDesktop?.startFloatingSealResize?.(screenX, screenY)
+  }
+
+  function moveResize(clientX: number, clientY: number, screenX: number, screenY: number) {
+    const currentResize = resizeState.current
+
+    if (!currentResize) {
+      return
+    }
+
+    const moved =
+      currentResize.moved ||
+      Math.hypot(clientX - currentResize.startClientX, clientY - currentResize.startClientY) >=
+        DRAG_THRESHOLD_PX
+
+    resizeState.current = {
+      ...currentResize,
+      moved
+    }
+
+    if (moved) {
+      window.bilimiDesktop?.resizeFloatingSeal?.(screenX, screenY)
+    }
+  }
+
+  function finishResize() {
+    const currentResize = resizeState.current
+
+    if (!currentResize) {
+      return false
+    }
+
+    resizeState.current = null
+    window.bilimiDesktop?.finishFloatingSealDrag?.()
+
+    if (currentResize.moved) {
+      suppressNextClick.current = true
+      return true
+    }
+
+    return false
+  }
+
   function restoreMainWindow() {
     setClickReactionSignal((signal) => signal + 1)
     setPetState('hint')
@@ -159,6 +217,38 @@ export function PalaceMaidPetApp() {
           <strong>{stateView.label}</strong>
           <span>{stateView.bubble}</span>
         </span>
+      </button>
+      <button
+        className="palace-maid-pet__resize-handle"
+        type="button"
+        aria-label="调整小mi大小"
+        title="调整小mi大小"
+        onClick={(event) => {
+          if (finishResize() || suppressNextClick.current) {
+            suppressNextClick.current = false
+            event.preventDefault()
+          }
+        }}
+        onPointerDown={(event) => {
+          event.stopPropagation()
+          event.currentTarget.setPointerCapture?.(event.pointerId)
+          startResize(event.clientX, event.clientY, event.screenX, event.screenY)
+        }}
+        onPointerMove={(event) => {
+          event.stopPropagation()
+          moveResize(event.clientX, event.clientY, event.screenX, event.screenY)
+        }}
+        onPointerUp={(event) => {
+          event.stopPropagation()
+          event.currentTarget.releasePointerCapture?.(event.pointerId)
+          finishResize()
+        }}
+        onPointerCancel={() => {
+          resizeState.current = null
+          window.bilimiDesktop?.finishFloatingSealDrag?.()
+        }}
+      >
+        <span aria-hidden="true" />
       </button>
     </main>
   )

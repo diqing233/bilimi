@@ -31,7 +31,9 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     restoreMainWindowFromPet: vi.fn().mockResolvedValue(undefined),
     savePreferences: vi.fn(),
     loadPreferences: vi.fn(),
+    resizeFloatingSeal: vi.fn(),
     startFloatingSealDrag: vi.fn(),
+    startFloatingSealResize: vi.fn(),
     ...overrides
   } satisfies Partial<Window['bilimiDesktop']>
 
@@ -145,5 +147,41 @@ describe('PalaceMaidPetApp', () => {
       'data-click-reaction-signal',
       '0'
     )
+  })
+
+  it('shows a bottom-right resize handle that resizes the floating pet without restoring the main window', () => {
+    const api = installDesktopApi()
+
+    render(<PalaceMaidPetApp />)
+
+    const resizeHandle = screen.getByRole('button', { name: '调整小mi大小' })
+
+    fireEvent.pointerDown(resizeHandle, {
+      clientX: 332,
+      clientY: 212,
+      screenX: 1232,
+      screenY: 712,
+      pointerId: 2
+    })
+    fireEvent.pointerMove(resizeHandle, {
+      clientX: 354,
+      clientY: 238,
+      screenX: 1254,
+      screenY: 738,
+      pointerId: 2
+    })
+    fireEvent.pointerUp(resizeHandle, {
+      clientX: 354,
+      clientY: 238,
+      screenX: 1254,
+      screenY: 738,
+      pointerId: 2
+    })
+    fireEvent.click(resizeHandle)
+
+    expect(api.startFloatingSealResize).toHaveBeenCalledWith(1232, 712)
+    expect(api.resizeFloatingSeal).toHaveBeenCalledWith(1254, 738)
+    expect(api.finishFloatingSealDrag).toHaveBeenCalledOnce()
+    expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
 })
