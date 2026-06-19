@@ -17,6 +17,8 @@ export function markFloatingWindowDocument(
 
   target.documentElement.dataset.floatingWindow = 'true'
   target.body.dataset.floatingWindow = 'true'
+  target.documentElement.style.backgroundColor = 'transparent'
+  target.body.style.backgroundColor = 'transparent'
   target.title = ''
 
   return true

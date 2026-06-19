@@ -433,7 +433,7 @@ body[data-floating-window="true"] {
 .palace-maid-pet__bubble {
   position: absolute;
   left: 50%;
-  bottom: calc(100% + 6px);
+  bottom: calc(100% + 18px);
   z-index: 2;
   width: min(204px, calc(100vw - 28px));
   box-sizing: border-box;
@@ -462,8 +462,8 @@ body[data-floating-window="true"] {
 
 .palace-maid-pet__resize-handle {
   position: absolute;
-  right: 7px;
-  bottom: 7px;
+  left: calc(50% + var(--floating-pet-size) * 0.28);
+  bottom: 24px;
   z-index: 4;
   width: 24px;
   height: 24px;

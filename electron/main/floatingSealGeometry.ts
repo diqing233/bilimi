@@ -62,10 +62,16 @@ export function createFloatingSealResizeBounds({
   const maxScale = Math.min(maxSize.width / startBounds.width, maxSize.height / startBounds.height)
   const nextScale = clamp(scale, minScale, maxScale)
   const height = Math.round(startBounds.height * nextScale)
+  const width = Math.round(height * startRatio)
+  const footAnchor = {
+    x: startBounds.x + startBounds.width / 2,
+    y: startBounds.y + startBounds.height
+  }
 
   return {
-    ...startBounds,
-    width: Math.round(height * startRatio),
+    x: Math.round(footAnchor.x - width / 2),
+    y: Math.round(footAnchor.y - height),
+    width,
     height
   }
 }

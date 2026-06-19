@@ -79,14 +79,14 @@ describe('floating menu geometry', () => {
     ).toEqual({ x: 872, y: 492, width: 340, height: 220 })
   })
 
-  it('resizes the floating pet host proportionally from the bottom-right handle', () => {
+  it('resizes the floating pet host proportionally around the pet foot anchor', () => {
     expect(
       createFloatingSealResizeBounds({
         startBounds: { x: 872, y: 492, width: 340, height: 220 },
         startCursor: { x: 1232, y: 712 },
         currentCursor: { x: 1298, y: 756 }
       })
-    ).toEqual({ x: 872, y: 492, width: 408, height: 264 })
+    ).toEqual({ x: 838, y: 448, width: 408, height: 264 })
   })
 
   it('keeps floating pet resize inside practical minimum and maximum sizes', () => {
@@ -96,7 +96,7 @@ describe('floating menu geometry', () => {
         startCursor: { x: 1232, y: 712 },
         currentCursor: { x: 900, y: 600 }
       })
-    ).toEqual({ x: 872, y: 492, width: 300, height: 194 })
+    ).toEqual({ x: 892, y: 518, width: 300, height: 194 })
   })
 
   it('places the system menu above the seal when there is room', () => {
