@@ -436,7 +436,7 @@ body[data-floating-window="true"],
   left: 50%;
   bottom: calc(100% + 18px);
   z-index: 2;
-  width: min(204px, calc(100vw - 28px));
+  width: calc(100vw - 8px);
   box-sizing: border-box;
   display: grid;
   gap: 2px;
