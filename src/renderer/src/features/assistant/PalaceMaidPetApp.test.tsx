@@ -181,6 +181,20 @@ describe('PalaceMaidPetApp', () => {
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
 
+  it('keeps the speech bubble outside the resizable pet button', () => {
+    installDesktopApi()
+
+    const { container } = render(<PalaceMaidPetApp />)
+
+    const bubble = container.querySelector('.palace-maid-pet__bubble')
+    const pet = container.querySelector('.palace-maid-pet')
+
+    expect(bubble).toBeInTheDocument()
+    expect(pet).toBeInTheDocument()
+    expect(bubble?.parentElement).toHaveClass('palace-maid-pet-shell')
+    expect(pet).not.toContainElement(bubble as HTMLElement)
+  })
+
   it('keeps the resize controls outside the pet button so resizing does not press the pet', () => {
     installDesktopApi()
 

@@ -102,13 +102,17 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain('padding: 16px 16px 18px;')
     expect(normalizedStyles).toContain('.palace-maid-pet {\n  width: var(--floating-pet-size);\n  height: var(--floating-pet-size);')
     expect(normalizedStyles).toContain('.palace-maid-pet__bubble {\n  position: absolute;\n  left: 50%;')
-    expect(normalizedStyles).toContain('left: 50%;\n  bottom: calc(100% + 18px);')
+    expect(normalizedStyles).toContain('left: 50%;\n  top: 1px;')
     expect(normalizedStyles).toContain('transform: translateX(-50%);')
     expect(normalizedStyles).toContain('width: calc(100vw - 8px);')
     expect(normalizedStyles).not.toContain('width: min(204px, calc(100vw - 28px));')
+    expect(normalizedStyles).not.toContain('bottom: calc(100% + 18px);')
     expect(normalizedStyles).toContain('.palace-maid-pet__resize-controls {')
     expect(normalizedStyles).toContain('.palace-maid-pet__resize-step {')
     expect(normalizedStyles).toContain('left: calc(50% + 96px);')
+    expect(normalizedStyles).toContain('border: 1px solid rgba(116, 199, 223, 0.72);')
+    expect(normalizedStyles).toContain('background: rgba(220, 238, 255, 0.86);')
+    expect(normalizedStyles).toContain('color: var(--porcelain-deep);')
     expect(normalizedStyles).not.toContain(
       'left: calc(50% + var(--floating-pet-size) * 0.42);'
     )

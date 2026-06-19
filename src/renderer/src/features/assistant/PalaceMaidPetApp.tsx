@@ -197,11 +197,11 @@ export function PalaceMaidPetApp() {
           clickReactionSignal={clickReactionSignal}
           petStyle={petStyle}
         />
-        <span className="palace-maid-pet__bubble">
-          <strong>{stateView.label}</strong>
-          <span>{stateView.bubble}</span>
-        </span>
       </button>
+      <span className="palace-maid-pet__bubble">
+        <strong>{stateView.label}</strong>
+        <span>{stateView.bubble}</span>
+      </span>
       <div
         className="palace-maid-pet__resize-controls"
         role="group"
