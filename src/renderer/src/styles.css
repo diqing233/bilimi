@@ -272,7 +272,7 @@ body[data-floating-window="true"] {
   display: grid;
   place-items: end center;
   box-sizing: border-box;
-  padding: 16px 16px 18px;
+  padding: 0 16px 18px;
   overflow: hidden;
   background: transparent;
 }

@@ -86,7 +86,17 @@ describe('floating menu geometry', () => {
         startCursor: { x: 1232, y: 712 },
         currentCursor: { x: 1298, y: 756 }
       })
-    ).toEqual({ x: 838, y: 448, width: 408, height: 264 })
+    ).toEqual({ x: 839, y: 449, width: 406, height: 263 })
+  })
+
+  it('shrinks naturally when the foot handle moves inward toward the pet anchor', () => {
+    expect(
+      createFloatingSealResizeBounds({
+        startBounds: { x: 872, y: 492, width: 340, height: 220 },
+        startCursor: { x: 1232, y: 712 },
+        currentCursor: { x: 1132, y: 712 }
+      })
+    ).toEqual({ x: 897, y: 524, width: 291, height: 188 })
   })
 
   it('keeps floating pet resize inside practical minimum and maximum sizes', () => {
@@ -94,9 +104,9 @@ describe('floating menu geometry', () => {
       createFloatingSealResizeBounds({
         startBounds: { x: 872, y: 492, width: 340, height: 220 },
         startCursor: { x: 1232, y: 712 },
-        currentCursor: { x: 900, y: 600 }
+        currentCursor: { x: 1042, y: 712 }
       })
-    ).toEqual({ x: 892, y: 518, width: 300, height: 194 })
+    ).toEqual({ x: 912, y: 544, width: 260, height: 168 })
   })
 
   it('places the system menu above the seal when there is room', () => {

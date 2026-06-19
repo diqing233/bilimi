@@ -173,7 +173,10 @@ function createFloatingSealWindow() {
   })
 
   loadRendererWindow(seal, FLOATING_SEAL_QUERY)
-  seal.webContents.once('did-finish-load', sendAssistantPetState)
+  seal.webContents.once('did-finish-load', () => {
+    sendAssistantPetState()
+    seal.show()
+  })
   floatingSealWindow = seal
 
   return seal

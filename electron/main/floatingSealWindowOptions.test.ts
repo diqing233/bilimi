@@ -15,8 +15,13 @@ describe('createFloatingSealWindowOptions', () => {
       height: 92,
       title: '',
       frame: false,
-      titleBarStyle: 'hidden',
-      titleBarOverlay: false,
+      show: false,
+      titleBarStyle: 'customButtonsOnHover',
+      titleBarOverlay: {
+        color: '#00000000',
+        symbolColor: '#00000000',
+        height: 0
+      },
       transparent: true,
       resizable: false,
       movable: true,
