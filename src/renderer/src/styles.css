@@ -729,9 +729,11 @@ body[data-floating-window="true"] {
 }
 
 .floating-assistant-tabs button {
+  width: 100%;
+  min-width: 0;
   min-height: 36px;
-  display: inline-grid;
-  grid-template-columns: auto auto;
+  display: grid;
+  grid-template-columns: 28px max-content;
   justify-content: center;
   align-items: center;
   gap: 5px;
@@ -745,6 +747,13 @@ body[data-floating-window="true"] {
     background 120ms ease,
     border-color 120ms ease,
     color 120ms ease;
+  white-space: nowrap;
+}
+
+.floating-assistant-tabs button span {
+  min-width: 0;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
 }
 
 .floating-assistant-tabs__pet {
@@ -824,7 +833,7 @@ body[data-floating-window="true"] {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
-  padding-left: 74px;
+  padding-left: 0;
 }
 
 .assistant-sidebar-workspace > .memorial-panel,

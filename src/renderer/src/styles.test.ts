@@ -67,9 +67,26 @@ describe('renderer porcelain theme styles', () => {
     expect(sidebarStyles).toContain('min-width: 66px;\n  min-height: 38px;')
     expect(sidebarStyles).toContain('grid-template-columns: 28px auto;')
     expect(sidebarStyles).toContain('.assistant-sidebar-workspace .floating-assistant-tabs {')
-    expect(sidebarStyles).toContain('padding-left: 74px;')
+    expect(sidebarStyles).toContain('padding-left: 0;')
     expect(sidebarStyles).toContain('.assistant-sidebar__collapse-label {\n  line-height: 1;')
     expect(sidebarStyles).not.toContain('.assistant-sidebar[data-collapsed="true"] .assistant-sidebar__collapse-button {\n  right: 12px;\n  bottom: 12px;')
+  })
+
+  it('keeps the four assistant tabs equally spaced with horizontal labels', () => {
+    expect(normalizedStyles).toContain(
+      '.floating-assistant-tabs {\n  display: grid;\n  grid-template-columns: repeat(4, minmax(0, 1fr));'
+    )
+    expect(normalizedStyles).toContain(
+      '.floating-assistant-tabs button {\n  width: 100%;\n  min-width: 0;\n  min-height: 36px;'
+    )
+    expect(normalizedStyles).toContain('grid-template-columns: 28px max-content;')
+    expect(normalizedStyles).toContain('white-space: nowrap;')
+    expect(normalizedStyles).toContain(
+      '.floating-assistant-tabs button span {\n  min-width: 0;\n  white-space: nowrap;\n  writing-mode: horizontal-tb;'
+    )
+    expect(normalizedStyles).toContain(
+      '.assistant-sidebar-workspace .floating-assistant-tabs {\n  display: grid;\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 6px;\n  padding-left: 0;'
+    )
   })
 
   it('gives the floating pet enough transparent stage space for the chibi and speech bubble', () => {
