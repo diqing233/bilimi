@@ -462,8 +462,8 @@ body[data-floating-window="true"] {
 
 .palace-maid-pet__resize-controls {
   position: absolute;
-  left: calc(50% + var(--floating-pet-size) * 0.28);
-  bottom: 20px;
+  left: calc(50% + var(--floating-pet-size) * 0.42);
+  bottom: 14px;
   z-index: 4;
   display: flex;
   gap: 4px;
@@ -475,6 +475,16 @@ body[data-floating-window="true"] {
   color: var(--porcelain-white);
   touch-action: none;
   transform: translateX(-50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.palace-maid-pet__resize-controls[data-visible="true"],
+.palace-maid-pet__resize-controls:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(-2px);
 }
 
 .palace-maid-pet__resize-step {

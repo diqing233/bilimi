@@ -18,8 +18,10 @@ type DragState = {
 
 export function PalaceMaidPetApp() {
   const dragState = useRef<DragState | null>(null)
+  const resizeControlsHideTimeout = useRef<number | null>(null)
   const suppressNextClick = useRef(false)
   const [pressed, setPressed] = useState(false)
+  const [resizeControlsVisible, setResizeControlsVisible] = useState(false)
   const [petState, setPetState] = useState<AssistantPetState>('idle')
   const [petStyle, setPetStyle] = useState<AssistantPreferences['petStyle']>('big-head')
   const [clickReactionSignal, setClickReactionSignal] = useState(0)
@@ -54,6 +56,34 @@ export function PalaceMaidPetApp() {
       setPetStyle(createInitialAssistantPreferences(preferences).petStyle)
     })
   }, [])
+
+  useEffect(() => {
+    return () => {
+      if (resizeControlsHideTimeout.current !== null) {
+        window.clearTimeout(resizeControlsHideTimeout.current)
+      }
+    }
+  }, [])
+
+  function showResizeControls() {
+    if (resizeControlsHideTimeout.current !== null) {
+      window.clearTimeout(resizeControlsHideTimeout.current)
+      resizeControlsHideTimeout.current = null
+    }
+
+    setResizeControlsVisible(true)
+  }
+
+  function scheduleHideResizeControls() {
+    if (resizeControlsHideTimeout.current !== null) {
+      window.clearTimeout(resizeControlsHideTimeout.current)
+    }
+
+    resizeControlsHideTimeout.current = window.setTimeout(() => {
+      setResizeControlsVisible(false)
+      resizeControlsHideTimeout.current = null
+    }, 350)
+  }
 
   function startDrag(clientX: number, clientY: number, screenX: number, screenY: number) {
     setPressed(true)
@@ -154,6 +184,12 @@ export function PalaceMaidPetApp() {
           dragState.current = null
           setPressed(false)
         }}
+        onPointerEnter={() => {
+          showResizeControls()
+        }}
+        onPointerLeave={() => {
+          scheduleHideResizeControls()
+        }}
       >
         <span className="palace-maid-pet__halo" aria-hidden="true" />
         <LayeredPetRenderer
@@ -166,7 +202,14 @@ export function PalaceMaidPetApp() {
           <span>{stateView.bubble}</span>
         </span>
       </button>
-      <div className="palace-maid-pet__resize-controls" aria-label="调整小mi大小">
+      <div
+        className="palace-maid-pet__resize-controls"
+        role="group"
+        aria-label="调整小mi大小"
+        data-visible={resizeControlsVisible ? 'true' : 'false'}
+        onPointerEnter={showResizeControls}
+        onPointerLeave={scheduleHideResizeControls}
+      >
         <button
           className="palace-maid-pet__resize-step"
           type="button"

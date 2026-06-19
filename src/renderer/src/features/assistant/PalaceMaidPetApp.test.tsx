@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantPetState } from './petState'
 
 vi.mock('./LayeredPetRenderer', () => ({
@@ -45,6 +45,10 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
 }
 
 describe('PalaceMaidPetApp', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('restores the main Bilimi window when clicked', async () => {
     const api = installDesktopApi()
 
@@ -153,6 +157,18 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
+    const pet = screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' })
+    const resizeControls = screen.getByRole('group', {
+      name: '调整小mi大小',
+      hidden: true
+    })
+
+    expect(resizeControls).toHaveAttribute('data-visible', 'false')
+
+    fireEvent.pointerEnter(pet)
+
+    expect(resizeControls).toHaveAttribute('data-visible', 'true')
+
     const shrinkButton = screen.getByRole('button', { name: '缩小小mi' })
     const growButton = screen.getByRole('button', { name: '放大小mi' })
 
@@ -171,6 +187,8 @@ describe('PalaceMaidPetApp', () => {
     render(<PalaceMaidPetApp />)
 
     const pet = screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' })
+    fireEvent.pointerEnter(pet)
+
     const shrinkButton = screen.getByRole('button', { name: '缩小小mi' })
 
     fireEvent.pointerDown(shrinkButton, {
@@ -182,5 +200,29 @@ describe('PalaceMaidPetApp', () => {
     })
 
     expect(pet).toHaveAttribute('data-pressed', 'false')
+  })
+
+  it('keeps resize controls visible briefly after leaving the pet so they can be reached', () => {
+    vi.useFakeTimers()
+    installDesktopApi()
+
+    render(<PalaceMaidPetApp />)
+
+    const pet = screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' })
+    const resizeControls = screen.getByRole('group', {
+      name: '调整小mi大小',
+      hidden: true
+    })
+
+    fireEvent.pointerEnter(pet)
+    fireEvent.pointerLeave(pet)
+
+    expect(resizeControls).toHaveAttribute('data-visible', 'true')
+
+    act(() => {
+      vi.advanceTimersByTime(350)
+    })
+
+    expect(resizeControls).toHaveAttribute('data-visible', 'false')
   })
 })
