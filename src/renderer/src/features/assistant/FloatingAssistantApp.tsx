@@ -18,6 +18,7 @@ import {
 } from '../state/assistantState'
 import { CoinPrompt } from './CoinPrompt'
 import { CommentChooser } from './CommentChooser'
+import { CommentIntentDialog } from './CommentIntentDialog'
 import { FavoriteLedgerPanel } from './FavoriteLedgerPanel'
 import { MemorialPanel } from './MemorialPanel'
 import { VideoNoteArchivePanel } from '../notes/VideoNoteArchivePanel'
@@ -110,6 +111,10 @@ export function FloatingAssistantApp({
     useState<AssistantWorkspaceTab>('review')
   const [coinPromptOpen, setCoinPromptOpen] = useState(false)
   const [commentChooserOpen, setCommentChooserOpen] = useState(false)
+  const [commentIntentOpen, setCommentIntentOpen] = useState(false)
+  const [commentIntentBusy, setCommentIntentBusy] = useState(false)
+  const [commentIntentError, setCommentIntentError] = useState('')
+  const [aiCommentDrafts, setAiCommentDrafts] = useState<string[]>([])
   const [runningAction, setRunningAction] = useState<AssistantAction | null>(null)
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null)
   const [pageClickOnly, setPageClickOnly] = useState(true)
@@ -118,6 +123,8 @@ export function FloatingAssistantApp({
   const [videoNoteLoading, setVideoNoteLoading] = useState(false)
   const [transcriptionProgress, setTranscriptionProgress] =
     useState<VideoAudioTranscriptionProgress | null>(null)
+  const [deepSeekApiKeyDraft, setDeepSeekApiKeyDraft] = useState('')
+  const [deepSeekStatusMessage, setDeepSeekStatusMessage] = useState('')
   const mounted = useRef(false)
   const activeTab = controlledActiveTab ?? uncontrolledActiveTab
   const [activeView, setActiveView] = useState<AssistantWorkspaceView>(activeTab)
@@ -206,9 +213,11 @@ export function FloatingAssistantApp({
     () => composeMemorialComments(currentKind, resolvedVideoTitle),
     [currentKind, resolvedVideoTitle]
   )
+  const activeCommentDrafts = aiCommentDrafts.length > 0 ? aiCommentDrafts : commentDrafts
   const videoCategory =
     VIDEO_CATEGORY_LABELS[currentKind] || stripBilimiPrefix(currentClassification.displayName) || currentKind
-  const actionsLocked = runningAction !== null || coinPromptOpen || commentChooserOpen
+  const actionsLocked =
+    runningAction !== null || coinPromptOpen || commentChooserOpen || commentIntentOpen
 
   async function persistPreferences(nextPreferences: AssistantPreferences) {
     setPreferences(nextPreferences)
@@ -226,9 +235,60 @@ export function FloatingAssistantApp({
     })
   }
 
+  function updateDeepSeekPreference(patch: Partial<AssistantPreferences>) {
+    setPreferences((current) => ({
+      ...current,
+      ...patch
+    }))
+  }
+
+  async function saveDeepSeekSettings() {
+    const keyDraft = deepSeekApiKeyDraft.trim()
+
+    if (keyDraft) {
+      await window.bilimiDesktop?.saveDeepSeekApiKey?.(keyDraft)
+      setDeepSeekApiKeyDraft('')
+    }
+
+    await persistPreferences(preferences)
+  }
+
+  async function testDeepSeekConnection() {
+    const result = await window.bilimiDesktop?.testDeepSeekConnection?.()
+    setDeepSeekStatusMessage(result?.message ?? 'DeepSeek test is unavailable.')
+  }
+
   async function persistFeedback(action: AssistantAction, kind: RecommendationKind) {
     const nextPreferences = recordAssistantPreferenceFeedback(preferences, kind, action)
     await persistPreferences(nextPreferences)
+  }
+
+  async function generateCommentDrafts(intent: string) {
+    setCommentIntentBusy(true)
+    setCommentIntentError('')
+
+    try {
+      const result = await window.bilimiDesktop?.generateDeepSeek?.({
+        kind: 'review-comment',
+        intent,
+        title: resolvedVideoTitle,
+        description: resolvedSnapshot.videoContentContext.description,
+        tags: resolvedSnapshot.videoContentContext.tags ?? [],
+        classification: currentClassification.displayName || currentKind
+      })
+
+      if (!result || result.kind !== 'review-comment') {
+        throw new Error('Comment generation failed.')
+      }
+
+      setAiCommentDrafts(result.comments)
+      setCommentIntentOpen(false)
+      setCommentChooserOpen(true)
+    } catch (error) {
+      setCommentIntentError(error instanceof Error ? error.message : 'Comment generation failed.')
+    } finally {
+      setCommentIntentBusy(false)
+    }
   }
 
   async function runAction(action: AssistantAction, options?: { coinCount?: 1 | 2; commentDraft?: string }) {
@@ -289,7 +349,9 @@ export function FloatingAssistantApp({
     }
 
     if (action === '表') {
-      setCommentChooserOpen(true)
+      setAiCommentDrafts([])
+      setCommentIntentError('')
+      setCommentIntentOpen(true)
       return
     }
 
@@ -327,6 +389,16 @@ export function FloatingAssistantApp({
     } finally {
       setVideoNoteLoading(false)
     }
+  }
+
+  async function generateNotePoster(note: VideoNote) {
+    const result = await window.bilimiDesktop?.generateDeepSeek?.({ kind: 'note-poster', note })
+
+    if (!result || result.kind !== 'note-poster') {
+      throw new Error('Poster generation failed.')
+    }
+
+    return result.poster
   }
 
   async function loadVideoNoteArchives() {
@@ -469,6 +541,57 @@ export function FloatingAssistantApp({
                 <span>高清重置版</span>
               </label>
             </fieldset>
+            <fieldset className="assistant-settings__group assistant-settings__group--deepseek">
+              <legend>DeepSeek</legend>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={preferences.deepseekEnabled}
+                  onChange={(event) =>
+                    updateDeepSeekPreference({ deepseekEnabled: event.currentTarget.checked })
+                  }
+                />
+                <span>Enable DeepSeek</span>
+              </label>
+              <label>
+                <span>DeepSeek API Key</span>
+                <input
+                  type="password"
+                  value={deepSeekApiKeyDraft}
+                  placeholder={preferences.deepseekApiKeyStored ? 'Stored' : ''}
+                  onChange={(event) => setDeepSeekApiKeyDraft(event.currentTarget.value)}
+                />
+              </label>
+              <label>
+                <span>DeepSeek Model</span>
+                <input
+                  type="text"
+                  value={preferences.deepseekModel}
+                  onChange={(event) =>
+                    updateDeepSeekPreference({ deepseekModel: event.currentTarget.value })
+                  }
+                />
+              </label>
+              <label>
+                <span>DeepSeek Base URL</span>
+                <input
+                  type="url"
+                  value={preferences.deepseekBaseUrl}
+                  onChange={(event) =>
+                    updateDeepSeekPreference({ deepseekBaseUrl: event.currentTarget.value })
+                  }
+                />
+              </label>
+              <div className="assistant-settings__actions">
+                <button type="button" onClick={() => void saveDeepSeekSettings()}>
+                  Save DeepSeek
+                </button>
+                <button type="button" onClick={() => void testDeepSeekConnection()}>
+                  Test DeepSeek
+                </button>
+              </div>
+              {deepSeekStatusMessage ? <p role="status">{deepSeekStatusMessage}</p> : null}
+            </fieldset>
           </section>
         ) : activeView === 'noteArchive' ? (
           <VideoNoteArchivePanel
@@ -490,6 +613,7 @@ export function FloatingAssistantApp({
             showCloseButton={!isSidebarMode}
             onGenerateVideoNote={generateVideoNote}
             onTranscribeVideoAudio={generateVideoNoteFromAudio}
+            onGeneratePoster={generateNotePoster}
             onSaveVideoNote={saveVideoNote}
             onChangeVideoNote={handleChangeVideoNote}
             onGetCurrentVideoTime={getCurrentVideoTime}
@@ -521,14 +645,31 @@ export function FloatingAssistantApp({
           />
         ) : null}
 
+        {commentIntentOpen ? (
+          <CommentIntentDialog
+            busy={commentIntentBusy}
+            error={commentIntentError}
+            onSubmit={(intent) => void generateCommentDrafts(intent)}
+            onCancel={() => {
+              setCommentIntentOpen(false)
+              setCommentIntentError('')
+              setAiCommentDrafts([])
+            }}
+          />
+        ) : null}
+
         {commentChooserOpen ? (
           <CommentChooser
-            drafts={commentDrafts}
+            drafts={activeCommentDrafts}
             onSelect={(commentDraft) => {
               setCommentChooserOpen(false)
+              setAiCommentDrafts([])
               void runAction('表', { commentDraft })
             }}
-            onCancel={() => setCommentChooserOpen(false)}
+            onCancel={() => {
+              setCommentChooserOpen(false)
+              setAiCommentDrafts([])
+            }}
           />
         ) : null}
     </section>

@@ -7,7 +7,7 @@ import {
   normalizeVideoNoteArchives
 } from '../../src/shared/videoNoteArchive'
 import { normalizeVideoNotes, upsertVideoNote } from '../../src/shared/videoNotes'
-import type { FavoriteLedger, VideoNote, VideoNoteArchiveEntry } from '../../src/shared/types'
+import type { DeepSeekKeyStatus, FavoriteLedger, VideoNote, VideoNoteArchiveEntry } from '../../src/shared/types'
 
 export type AssistantPreferences = {
   favoritesFolderName: string
@@ -15,9 +15,14 @@ export type AssistantPreferences = {
   ledgerPromptDismissed: boolean
   petStyle: 'big-head' | 'classic'
   preferenceCounts: Record<string, number>
+  deepseekEnabled: boolean
+  deepseekApiKeyStored: boolean
+  deepseekModel: string
+  deepseekBaseUrl: string
 }
 
 export type DesktopStoreState = AssistantPreferences & {
+  deepseekApiKey: string
   videoNotes: VideoNote[]
   videoNoteArchives: VideoNoteArchiveEntry[]
 }
@@ -32,11 +37,16 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   favoriteLedgers: createDefaultFavoriteLedgers(),
   ledgerPromptDismissed: false,
   petStyle: 'big-head',
-  preferenceCounts: {}
+  preferenceCounts: {},
+  deepseekEnabled: false,
+  deepseekApiKeyStored: false,
+  deepseekModel: 'deepseek-v4-flash',
+  deepseekBaseUrl: 'https://api.deepseek.com'
 }
 
 export const DEFAULT_DESKTOP_STORE_STATE: DesktopStoreState = {
   ...DEFAULT_ASSISTANT_PREFERENCES,
+  deepseekApiKey: '',
   videoNotes: [],
   videoNoteArchives: []
 }
@@ -57,13 +67,18 @@ export function loadAssistantPreferences(
   store: AssistantStoreLike = getDesktopStore()
 ): AssistantPreferences {
   const petStyle = store.get('petStyle')
+  const deepseekApiKey = store.get('deepseekApiKey') ?? ''
 
   return {
     favoritesFolderName: store.get('favoritesFolderName'),
     favoriteLedgers: normalizeFavoriteLedgers(store.get('favoriteLedgers')),
     ledgerPromptDismissed: Boolean(store.get('ledgerPromptDismissed')),
     petStyle: petStyle === 'classic' ? 'classic' : 'big-head',
-    preferenceCounts: store.get('preferenceCounts') ?? {}
+    preferenceCounts: store.get('preferenceCounts') ?? {},
+    deepseekEnabled: Boolean(store.get('deepseekEnabled')),
+    deepseekApiKeyStored: Boolean(String(deepseekApiKey).trim()),
+    deepseekModel: store.get('deepseekModel') || DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
+    deepseekBaseUrl: store.get('deepseekBaseUrl') || DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl
   }
 }
 
@@ -76,8 +91,47 @@ export function saveAssistantPreferences(
   store.set('ledgerPromptDismissed', Boolean(preferences.ledgerPromptDismissed))
   store.set('petStyle', preferences.petStyle === 'classic' ? 'classic' : 'big-head')
   store.set('preferenceCounts', preferences.preferenceCounts ?? {})
+  store.set('deepseekEnabled', Boolean(preferences.deepseekEnabled))
+  store.set('deepseekApiKeyStored', loadDeepSeekApiKeyStatus(store).configured)
+  store.set(
+    'deepseekModel',
+    preferences.deepseekModel || DEFAULT_ASSISTANT_PREFERENCES.deepseekModel
+  )
+  store.set(
+    'deepseekBaseUrl',
+    preferences.deepseekBaseUrl || DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl
+  )
 
   return loadAssistantPreferences(store)
+}
+
+export function loadDeepSeekApiKeyStatus(
+  store: AssistantStoreLike = getDesktopStore()
+): DeepSeekKeyStatus {
+  return { configured: Boolean((store.get('deepseekApiKey') ?? '').trim()) }
+}
+
+export function loadDeepSeekApiKey(store: AssistantStoreLike = getDesktopStore()): string {
+  return store.get('deepseekApiKey') ?? ''
+}
+
+export function saveDeepSeekApiKey(
+  store: AssistantStoreLike = getDesktopStore(),
+  key: string
+): DeepSeekKeyStatus {
+  store.set('deepseekApiKey', key.trim())
+  store.set('deepseekApiKeyStored', loadDeepSeekApiKeyStatus(store).configured)
+
+  return loadDeepSeekApiKeyStatus(store)
+}
+
+export function clearDeepSeekApiKey(
+  store: AssistantStoreLike = getDesktopStore()
+): DeepSeekKeyStatus {
+  store.set('deepseekApiKey', '')
+  store.set('deepseekApiKeyStored', false)
+
+  return loadDeepSeekApiKeyStatus(store)
 }
 
 export function loadVideoNotes(store: AssistantStoreLike = getDesktopStore()): VideoNote[] {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { LayeredPetRenderer } from './LayeredPetRenderer'
 import {
   createPetStateView,
@@ -6,7 +6,7 @@ import {
   type AssistantPetState
 } from './petState'
 import { createInitialAssistantPreferences } from '../state/assistantState'
-import type { AssistantPreferences } from '@shared/types'
+import type { AssistantPreferences, DeepSeekChatMessage } from '@shared/types'
 
 const DRAG_THRESHOLD_PX = 5
 
@@ -25,6 +25,11 @@ export function PalaceMaidPetApp() {
   const [petState, setPetState] = useState<AssistantPetState>('idle')
   const [petStyle, setPetStyle] = useState<AssistantPreferences['petStyle']>('big-head')
   const [clickReactionSignal, setClickReactionSignal] = useState(0)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatDraft, setChatDraft] = useState('')
+  const [chatMessages, setChatMessages] = useState<DeepSeekChatMessage[]>([])
+  const [chatBusy, setChatBusy] = useState(false)
+  const [chatError, setChatError] = useState('')
   const stateView = createPetStateView(petState)
 
   useEffect(() => {
@@ -149,6 +154,43 @@ export function PalaceMaidPetApp() {
     void window.bilimiDesktop?.restoreMainWindowFromPet?.()
   }
 
+  async function submitChatMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+
+    const content = chatDraft.trim()
+
+    if (!content || chatBusy) {
+      return
+    }
+
+    const messages = [...chatMessages, { role: 'user' as const, content }].slice(-6)
+    setChatMessages(messages)
+    setChatDraft('')
+    setChatBusy(true)
+    setChatError('')
+
+    try {
+      const result = await window.bilimiDesktop?.generateDeepSeek?.({
+        kind: 'pet-chat',
+        messages
+      })
+
+      if (!result || result.kind !== 'pet-chat') {
+        throw new Error('Xiao Mi could not answer right now.')
+      }
+
+      const nextMessages = [
+        ...messages,
+        { role: 'assistant' as const, content: result.message }
+      ].slice(-6)
+      setChatMessages(nextMessages)
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : 'Xiao Mi could not answer right now.')
+    } finally {
+      setChatBusy(false)
+    }
+  }
+
   return (
     <main className="palace-maid-pet-shell" aria-label="Bilimi 小mi">
       <button
@@ -198,9 +240,49 @@ export function PalaceMaidPetApp() {
           petStyle={petStyle}
         />
       </button>
-      <span className="palace-maid-pet__bubble">
-        <strong>{stateView.label}</strong>
-        <span>{stateView.bubble}</span>
+      <span className="palace-maid-pet__bubble" data-chat-open={chatOpen ? 'true' : 'false'}>
+        <button
+          className="palace-maid-pet__bubble-toggle"
+          type="button"
+          aria-label="Open Xiao Mi chat"
+          onClick={() => {
+            setChatOpen((open) => !open)
+          }}
+        >
+          <strong>{stateView.label}</strong>
+          <span>{stateView.bubble}</span>
+        </button>
+        {chatOpen ? (
+          <form className="palace-maid-pet__chat" onSubmit={submitChatMessage}>
+            {chatMessages.length > 0 ? (
+              <span className="palace-maid-pet__chat-log" aria-live="polite">
+                {chatMessages.map((message, index) => (
+                  <span
+                    className="palace-maid-pet__chat-message"
+                    data-role={message.role}
+                    key={`${message.role}-${index}-${message.content}`}
+                  >
+                    {message.content}
+                  </span>
+                ))}
+              </span>
+            ) : null}
+            {chatError ? <span role="alert">{chatError}</span> : null}
+            <label className="palace-maid-pet__chat-field">
+              <span>Talk to Xiao Mi</span>
+              <input
+                value={chatDraft}
+                onChange={(event) => {
+                  setChatDraft(event.target.value)
+                }}
+                disabled={chatBusy}
+              />
+            </label>
+            <button type="submit" disabled={chatBusy || !chatDraft.trim()}>
+              Send
+            </button>
+          </form>
+        ) : null}
       </span>
       <div
         className="palace-maid-pet__resize-controls"

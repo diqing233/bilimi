@@ -2,6 +2,10 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { AssistantPreferences } from '../main/store'
 import type {
   AssistantAction,
+  DeepSeekConnectionTestResult,
+  DeepSeekGenerateRequest,
+  DeepSeekGenerateResult,
+  DeepSeekKeyStatus,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionRequest,
   VideoAudioTranscriptionResult,
@@ -24,7 +28,11 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   loadVideoNotes: () => ipcRenderer.invoke('video-notes:load') as Promise<VideoNote[]>,
   loadVideoNoteArchives: () =>
     ipcRenderer.invoke('video-note-archives:load') as Promise<VideoNoteArchiveEntry[]>,
+  loadDeepSeekApiKeyStatus: () =>
+    ipcRenderer.invoke('deepseek:key-status') as Promise<DeepSeekKeyStatus>,
   finishFloatingSealDrag: () => ipcRenderer.send('floating-seal:finish-drag'),
+  generateDeepSeek: (request: DeepSeekGenerateRequest) =>
+    ipcRenderer.invoke('deepseek:generate', request) as Promise<DeepSeekGenerateResult>,
   moveFloatingSealBy: (deltaX: number, deltaY: number) =>
     ipcRenderer.invoke('floating-seal:move-by', deltaX, deltaY) as Promise<void>,
   moveFloatingSealTo: (screenX: number, screenY: number) =>
@@ -159,6 +167,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('floating-assistant:execute-old-favorite-plan', items),
   savePreferences: (preferences: AssistantPreferences) =>
     ipcRenderer.invoke('assistant:save-preferences', preferences) as Promise<AssistantPreferences>,
+  saveDeepSeekApiKey: (apiKey: string) =>
+    ipcRenderer.invoke('deepseek:save-key', apiKey) as Promise<DeepSeekKeyStatus>,
   saveVideoNote: (note: VideoNote) =>
     ipcRenderer.invoke('video-notes:save', note) as Promise<VideoNote[]>,
   saveVideoNoteArchiveVersion: (note: VideoNote) =>
@@ -171,10 +181,13 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
       archiveId,
       versionId
     ) as Promise<VideoNoteArchiveEntry[]>,
+  clearDeepSeekApiKey: () => ipcRenderer.invoke('deepseek:clear-key') as Promise<DeepSeekKeyStatus>,
   setAssistantPetState: (state: AssistantPetState) =>
     ipcRenderer.send('assistant-pet:set-state', state),
   startFloatingSealDrag: (screenX: number, screenY: number) =>
     ipcRenderer.send('floating-seal:start-drag', screenX, screenY),
   toggleFloatingAssistant: () => ipcRenderer.invoke('floating-assistant:toggle') as Promise<void>,
-  toggleFloatingMenu: () => ipcRenderer.invoke('floating-menu:toggle') as Promise<void>
+  toggleFloatingMenu: () => ipcRenderer.invoke('floating-menu:toggle') as Promise<void>,
+  testDeepSeekConnection: () =>
+    ipcRenderer.invoke('deepseek:test-connection') as Promise<DeepSeekConnectionTestResult>
 })

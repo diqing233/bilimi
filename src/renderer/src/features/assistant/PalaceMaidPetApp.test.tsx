@@ -31,6 +31,10 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     restoreMainWindowFromPet: vi.fn().mockResolvedValue(undefined),
     savePreferences: vi.fn(),
     loadPreferences: vi.fn(),
+    generateDeepSeek: vi.fn().mockResolvedValue({
+      kind: 'pet-chat',
+      message: 'This page looks worth watching.'
+    }),
     resizeFloatingSealByStep: vi.fn(),
     startFloatingSealDrag: vi.fn(),
     ...overrides
@@ -84,6 +88,40 @@ describe('PalaceMaidPetApp', () => {
 
     expect(screen.getByText('小mi忙碌中')).toBeInTheDocument()
     expect(screen.getByText('小mi正在处理，马上回来。')).toBeInTheDocument()
+  })
+
+  it('sends direct Xiao Mi chat messages through DeepSeek', async () => {
+    const api = installDesktopApi()
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Xiao Mi chat' }))
+    fireEvent.change(screen.getByLabelText('Talk to Xiao Mi'), {
+      target: { value: 'watch this page' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    expect(api.generateDeepSeek).toHaveBeenCalledWith({
+      kind: 'pet-chat',
+      messages: [{ role: 'user', content: 'watch this page' }]
+    })
+    expect(await screen.findByText('This page looks worth watching.')).toBeInTheDocument()
+  })
+
+  it('shows an alert when Xiao Mi chat fails', async () => {
+    installDesktopApi({
+      generateDeepSeek: vi.fn().mockRejectedValue(new Error('DeepSeek failed.'))
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Xiao Mi chat' }))
+    fireEvent.change(screen.getByLabelText('Talk to Xiao Mi'), {
+      target: { value: 'watch this page' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('DeepSeek failed.')
   })
 
   it('loads the persisted pet style for the floating pet renderer', async () => {

@@ -30,7 +30,7 @@
 - Modify: `src/renderer/src/features/state/assistantState.ts`
 - Test: `src/renderer/src/features/state/assistantState.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add tests that assert `createInitialAssistantPreferences()` returns:
 
@@ -45,7 +45,7 @@ Add tests that assert `createInitialAssistantPreferences()` returns:
 
 Also add a test where persisted `deepseekModel: ''` and `deepseekBaseUrl: 'bad-url'` normalize back to those defaults.
 
-- [ ] **Step 2: Run red test**
+- [x] **Step 2: Run red test**
 
 Run:
 
@@ -55,7 +55,7 @@ npm run test -- src/renderer/src/features/state/assistantState.test.ts
 
 Expected: FAIL because DeepSeek fields do not exist.
 
-- [ ] **Step 3: Implement shared types**
+- [x] **Step 3: Implement shared types**
 
 Extend `AssistantPreferences` in `src/shared/types.ts` with:
 
@@ -84,11 +84,11 @@ export type DeepSeekKeyStatus = { configured: boolean }
 export type DeepSeekConnectionTestResult = { ok: boolean; message: string }
 ```
 
-- [ ] **Step 4: Implement preference normalization**
+- [x] **Step 4: Implement preference normalization**
 
 In `assistantState.ts`, add defaults and URL/model normalization. Return the four new fields from `createInitialAssistantPreferences`.
 
-- [ ] **Step 5: Run green test**
+- [x] **Step 5: Run green test**
 
 Run:
 
@@ -104,7 +104,7 @@ Expected: PASS.
 - Modify: `electron/main/store.ts`
 - Test: `electron/main/store.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add tests that:
 
@@ -113,7 +113,7 @@ Add tests that:
 3. `clearDeepSeekApiKey(store)` returns status to `{ configured: false }`.
 4. `loadAssistantPreferences(store).deepseekApiKeyStored` reflects key presence.
 
-- [ ] **Step 2: Run red test**
+- [x] **Step 2: Run red test**
 
 Run:
 
@@ -123,7 +123,7 @@ npm run test -- electron/main/store.test.ts
 
 Expected: FAIL because store fields and helpers do not exist.
 
-- [ ] **Step 3: Implement store fields**
+- [x] **Step 3: Implement store fields**
 
 Add to `DesktopStoreState`:
 
@@ -137,7 +137,7 @@ deepseekApiKey: string
 
 Add matching defaults. Update test helper `createFakeStore`.
 
-- [ ] **Step 4: Implement key helpers**
+- [x] **Step 4: Implement key helpers**
 
 Export:
 
@@ -150,7 +150,7 @@ clearDeepSeekApiKey(store?): DeepSeekKeyStatus
 
 Keep the key out of `loadAssistantPreferences`; only return `deepseekApiKeyStored`.
 
-- [ ] **Step 5: Run green test**
+- [x] **Step 5: Run green test**
 
 Run:
 
@@ -166,7 +166,7 @@ Expected: PASS.
 - Create: `electron/main/deepseekService.ts`
 - Test: `electron/main/deepseekService.test.ts`
 
-- [ ] **Step 1: Write the failing service tests**
+- [x] **Step 1: Write the failing service tests**
 
 Create tests with injected `fetchImpl` for:
 
@@ -176,7 +176,7 @@ Create tests with injected `fetchImpl` for:
 4. `pet-chat` returns a short message string.
 5. A non-OK response rejects with `{ code: 'api-error' }`.
 
-- [ ] **Step 2: Run red test**
+- [x] **Step 2: Run red test**
 
 Run:
 
@@ -186,7 +186,7 @@ npm run test -- electron/main/deepseekService.test.ts
 
 Expected: FAIL because the service file does not exist.
 
-- [ ] **Step 3: Implement service**
+- [x] **Step 3: Implement service**
 
 Create:
 
@@ -205,7 +205,7 @@ Behavior:
 - Parse JSON from the first choice message content.
 - Limit comments to exactly 3, poster points to 5, keywords to 8, pet reply to 220 chars.
 
-- [ ] **Step 4: Run green test**
+- [x] **Step 4: Run green test**
 
 Run:
 
@@ -222,7 +222,7 @@ Expected: PASS.
 - Modify: `electron/preload/index.ts`
 - Modify: `src/renderer/src/global.d.ts`
 
-- [ ] **Step 1: Add type signatures first**
+- [x] **Step 1: Add type signatures first**
 
 Add to `BilimiDesktopApi` in `global.d.ts`:
 
@@ -234,7 +234,7 @@ clearDeepSeekApiKey?: () => Promise<DeepSeekKeyStatus>
 loadDeepSeekApiKeyStatus?: () => Promise<DeepSeekKeyStatus>
 ```
 
-- [ ] **Step 2: Run build red**
+- [x] **Step 2: Run build red**
 
 Run:
 
@@ -244,7 +244,7 @@ npm run build
 
 Expected: FAIL until imports/preload/main are complete.
 
-- [ ] **Step 3: Register main handlers**
+- [x] **Step 3: Register main handlers**
 
 In `registerAssistantPreferenceHandlers`, add handlers:
 
@@ -256,11 +256,11 @@ In `registerAssistantPreferenceHandlers`, add handlers:
 
 Use `loadAssistantPreferences`, `loadDeepSeekApiKey`, and `generateDeepSeekResult`.
 
-- [ ] **Step 4: Expose preload methods**
+- [x] **Step 4: Expose preload methods**
 
 Expose matching `window.bilimiDesktop` methods in `electron/preload/index.ts`.
 
-- [ ] **Step 5: Run green build and focused tests**
+- [x] **Step 5: Run green build and focused tests**
 
 Run:
 
@@ -278,7 +278,7 @@ Expected: PASS.
 - Test: `src/renderer/src/features/assistant/FloatingAssistantApp.test.tsx`
 - Modify/Test: `src/renderer/src/styles.css`, `src/renderer/src/styles.test.ts`
 
-- [ ] **Step 1: Write failing UI tests**
+- [x] **Step 1: Write failing UI tests**
 
 Add tests that switch to settings and assert:
 
@@ -287,7 +287,7 @@ Add tests that switch to settings and assert:
 3. Clicking `Save DeepSeek` calls `saveDeepSeekApiKey('sk-test')` when the key draft is non-empty, then calls `savePreferences` with model/base URL.
 4. Clicking `Test DeepSeek` calls `testDeepSeekConnection` and shows the returned message in `role="status"`.
 
-- [ ] **Step 2: Run red test**
+- [x] **Step 2: Run red test**
 
 Run:
 
@@ -297,7 +297,7 @@ npm run test -- src/renderer/src/features/assistant/FloatingAssistantApp.test.ts
 
 Expected: FAIL because controls do not exist.
 
-- [ ] **Step 3: Implement settings controls**
+- [x] **Step 3: Implement settings controls**
 
 In the existing settings section, add a `fieldset.assistant-settings__group--deepseek` with English labels:
 
@@ -310,11 +310,11 @@ In the existing settings section, add a `fieldset.assistant-settings__group--dee
 
 Update local `preferences` for checkbox/model/base URL changes. Save key through `saveDeepSeekApiKey`, then save preferences through `savePreferences`.
 
-- [ ] **Step 4: Add styles and style tests**
+- [x] **Step 4: Add styles and style tests**
 
 Add CSS for `.assistant-settings__group--deepseek` and `.assistant-settings__actions`. Add style tests that check those selectors exist.
 
-- [ ] **Step 5: Run green tests**
+- [x] **Step 5: Run green tests**
 
 Run:
 
@@ -333,7 +333,7 @@ Expected: PASS.
 - Modify: `src/renderer/src/features/assistant/MemorialPanel.tsx`
 - Modify: `src/renderer/src/styles.css`
 
-- [ ] **Step 1: Write failing dialog tests**
+- [x] **Step 1: Write failing dialog tests**
 
 Create tests for `CommentIntentDialog`:
 
@@ -344,7 +344,7 @@ Create tests for `CommentIntentDialog`:
 - Does not submit empty intent.
 - Shows `role="alert"` when `error` prop is set.
 
-- [ ] **Step 2: Run dialog red test**
+- [x] **Step 2: Run dialog red test**
 
 Run:
 
@@ -354,7 +354,7 @@ npm run test -- src/renderer/src/features/assistant/CommentIntentDialog.test.tsx
 
 Expected: FAIL because component does not exist.
 
-- [ ] **Step 3: Implement dialog**
+- [x] **Step 3: Implement dialog**
 
 Create a small `role="dialog"` component with props:
 
@@ -365,7 +365,7 @@ onSubmit: (intent: string) => void
 onCancel: () => void
 ```
 
-- [ ] **Step 4: Add stable test id to review action**
+- [x] **Step 4: Add stable test id to review action**
 
 In `MemorialPanel.tsx`, add:
 
@@ -375,12 +375,12 @@ data-testid={`review-action-${action}`}
 
 to each review action button. This avoids depending on the existing garbled label text.
 
-- [ ] **Step 5: Write failing review flow test**
+- [x] **Step 5: Write failing review flow test**
 
 In `FloatingAssistantApp.test.tsx`, click the table action via:
 
 ```ts
-fireEvent.click(await screen.findByTestId('review-action-表'))
+fireEvent.click(await screen.findByTestId('review-action-琛?))
 ```
 
 If the current source action literal is still garbled in tests, derive the selector from the action array after adding a stable ASCII test id such as `review-action-comment`.
@@ -394,7 +394,7 @@ Assert:
 5. The three AI comments are shown in `CommentChooser`.
 6. Clicking one calls `runAssistantAction` with that `commentDraft`.
 
-- [ ] **Step 6: Run red test**
+- [x] **Step 6: Run red test**
 
 Run:
 
@@ -404,7 +404,7 @@ npm run test -- src/renderer/src/features/assistant/FloatingAssistantApp.test.ts
 
 Expected: FAIL because `FloatingAssistantApp` still opens static comments directly.
 
-- [ ] **Step 7: Implement review flow**
+- [x] **Step 7: Implement review flow**
 
 In `FloatingAssistantApp.tsx`:
 
@@ -415,11 +415,11 @@ In `FloatingAssistantApp.tsx`:
 - On select, run existing action with selected draft and clear `aiCommentDrafts`.
 - On cancel, clear intent and drafts.
 
-- [ ] **Step 8: Add styles**
+- [x] **Step 8: Add styles**
 
 Add `.assistant-dialog--intent` and input sizing styles.
 
-- [ ] **Step 9: Run green tests**
+- [x] **Step 9: Run green tests**
 
 Run:
 
@@ -438,11 +438,11 @@ Expected: PASS.
 - Modify: `src/renderer/src/features/assistant/FloatingAssistantApp.tsx`
 - Modify: `src/renderer/src/styles.css`
 
-- [ ] **Step 1: Write failing poster helper tests**
+- [x] **Step 1: Write failing poster helper tests**
 
 Test `normalizePosterSummary` and `createPosterSvgDataUrl`. The data URL must start with `data:image/svg+xml;charset=utf-8,` and contain encoded poster text.
 
-- [ ] **Step 2: Run helper red test**
+- [x] **Step 2: Run helper red test**
 
 Run:
 
@@ -452,7 +452,7 @@ npm run test -- src/renderer/src/features/notes/notePoster.test.ts
 
 Expected: FAIL because helper does not exist.
 
-- [ ] **Step 3: Implement poster helper**
+- [x] **Step 3: Implement poster helper**
 
 Implement:
 
@@ -463,7 +463,7 @@ createPosterSvgDataUrl(summary: NotePosterSummary): string
 
 Use an SVG data URL for first version export. Keep the poster palette light and compact.
 
-- [ ] **Step 4: Write failing panel test**
+- [x] **Step 4: Write failing panel test**
 
 Add `VideoNotesPanel` prop:
 
@@ -479,7 +479,7 @@ Test:
 4. Assert returned title appears in a `region` named `One-image poster preview`.
 5. Assert link `Save image` has an SVG data URL.
 
-- [ ] **Step 5: Run panel red test**
+- [x] **Step 5: Run panel red test**
 
 Run:
 
@@ -489,7 +489,7 @@ npm run test -- src/renderer/src/features/notes/VideoNotesPanel.test.tsx
 
 Expected: FAIL because prop/UI do not exist.
 
-- [ ] **Step 6: Implement poster panel**
+- [x] **Step 6: Implement poster panel**
 
 In `VideoNotesPanel.tsx`, add poster state, a generate handler, preview markup, and save link. Use English labels for the new controls:
 
@@ -497,7 +497,7 @@ In `VideoNotesPanel.tsx`, add poster state, a generate handler, preview markup, 
 - `One-image poster preview`
 - `Save image`
 
-- [ ] **Step 7: Wire through MemorialPanel and FloatingAssistantApp**
+- [x] **Step 7: Wire through MemorialPanel and FloatingAssistantApp**
 
 Add `onGeneratePoster` prop to `MemorialPanel` and pass it to `VideoNotesPanel`.
 
@@ -511,11 +511,11 @@ async function generateNotePoster(note: VideoNote) {
 }
 ```
 
-- [ ] **Step 8: Add styles**
+- [x] **Step 8: Add styles**
 
 Add `.video-notes__poster` styles.
 
-- [ ] **Step 9: Run green tests**
+- [x] **Step 9: Run green tests**
 
 Run:
 
@@ -531,7 +531,7 @@ Expected: PASS.
 - Modify/Test: `src/renderer/src/features/assistant/PalaceMaidPetApp.tsx`, `src/renderer/src/features/assistant/PalaceMaidPetApp.test.tsx`
 - Modify: `src/renderer/src/styles.css`
 
-- [ ] **Step 1: Write failing pet chat tests**
+- [x] **Step 1: Write failing pet chat tests**
 
 Add tests using new English labels:
 
@@ -542,7 +542,7 @@ Add tests using new English labels:
 5. Assert reply text renders.
 6. Rejecting API call shows `role="alert"`.
 
-- [ ] **Step 2: Run pet red test**
+- [x] **Step 2: Run pet red test**
 
 Run:
 
@@ -552,7 +552,7 @@ npm run test -- src/renderer/src/features/assistant/PalaceMaidPetApp.test.tsx
 
 Expected: FAIL because chat UI does not exist.
 
-- [ ] **Step 3: Implement pet chat**
+- [x] **Step 3: Implement pet chat**
 
 In `PalaceMaidPetApp.tsx`:
 
@@ -562,11 +562,11 @@ In `PalaceMaidPetApp.tsx`:
 - Call `window.bilimiDesktop?.generateDeepSeek?.({ kind: 'pet-chat', messages })`.
 - Keep only the last six chat messages in memory.
 
-- [ ] **Step 4: Add styles**
+- [x] **Step 4: Add styles**
 
 Add bounded bubble styles for `[data-chat-open='true']`, `.palace-maid-pet__bubble-toggle`, `.palace-maid-pet__chat`, `.palace-maid-pet__chat-log`, and chat input.
 
-- [ ] **Step 5: Run green test**
+- [x] **Step 5: Run green test**
 
 Run:
 
@@ -581,7 +581,7 @@ Expected: PASS.
 **Files:**
 - All touched files.
 
-- [ ] **Step 1: Run focused tests**
+- [x] **Step 1: Run focused tests**
 
 Run:
 
@@ -591,7 +591,7 @@ npm run test -- src/renderer/src/features/state/assistantState.test.ts electron/
 
 Expected: PASS.
 
-- [ ] **Step 2: Run full tests**
+- [x] **Step 2: Run full tests**
 
 Run:
 
@@ -601,7 +601,7 @@ npm test
 
 Expected: PASS.
 
-- [ ] **Step 3: Run build**
+- [x] **Step 3: Run build**
 
 Run:
 
@@ -611,7 +611,7 @@ npm run build
 
 Expected: PASS.
 
-- [ ] **Step 4: Inspect status**
+- [x] **Step 4: Inspect status**
 
 Run:
 
@@ -621,7 +621,7 @@ git status --short
 
 Expected: only intentional implementation files are changed.
 
-- [ ] **Step 5: Create one implementation commit**
+- [x] **Step 5: Create one implementation commit**
 
 Stage all implementation changes and commit once, per `AGENTS.md`:
 

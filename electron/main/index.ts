@@ -4,9 +4,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   getDesktopStore,
+  clearDeepSeekApiKey,
+  loadDeepSeekApiKey,
+  loadDeepSeekApiKeyStatus,
   loadAssistantPreferences,
   loadVideoNoteArchives,
   loadVideoNotes,
+  saveDeepSeekApiKey,
   saveVideoNoteArchiveVersion,
   saveAssistantPreferences,
   deleteVideoNoteArchiveEntry,
@@ -36,10 +40,12 @@ import {
 } from './floatingSealGeometry'
 import { createPreloadScriptPath } from './preloadPath'
 import { transcribeCurrentVideoAudio } from './videoTranscriptionService'
+import { DeepSeekServiceError, generateDeepSeekResult } from './deepseekService'
 import { BILIMI_SESSION_PARTITION } from '../../src/shared/constants'
 import type {
   AssistantAction,
   AssistantAutomationResult,
+  DeepSeekGenerateRequest,
   VideoAudioTranscriptionRequest,
   VideoNote
 } from '../../src/shared/types'
@@ -409,6 +415,56 @@ function registerAssistantPreferenceHandlers() {
     const saved = saveAssistantPreferences(getDesktopStore(), preferences)
     sendAssistantPreferencesChanged(saved)
     return saved
+  })
+  ipcMain.handle('deepseek:key-status', () => loadDeepSeekApiKeyStatus(getDesktopStore()))
+  ipcMain.handle('deepseek:save-key', (_event, apiKey: string) => {
+    const status = saveDeepSeekApiKey(getDesktopStore(), apiKey)
+    sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+    return status
+  })
+  ipcMain.handle('deepseek:clear-key', () => {
+    const status = clearDeepSeekApiKey(getDesktopStore())
+    sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
+    return status
+  })
+  ipcMain.handle('deepseek:generate', (_event, request: DeepSeekGenerateRequest) => {
+    const preferences = loadAssistantPreferences(getDesktopStore())
+
+    return generateDeepSeekResult({
+      config: {
+        enabled: preferences.deepseekEnabled,
+        apiKey: loadDeepSeekApiKey(getDesktopStore()),
+        model: preferences.deepseekModel,
+        baseUrl: preferences.deepseekBaseUrl
+      },
+      request
+    })
+  })
+  ipcMain.handle('deepseek:test-connection', async () => {
+    const preferences = loadAssistantPreferences(getDesktopStore())
+
+    try {
+      await generateDeepSeekResult({
+        config: {
+          enabled: preferences.deepseekEnabled,
+          apiKey: loadDeepSeekApiKey(getDesktopStore()),
+          model: preferences.deepseekModel,
+          baseUrl: preferences.deepseekBaseUrl
+        },
+        request: {
+          kind: 'pet-chat',
+          messages: [{ role: 'user', content: 'Reply with OK.' }]
+        }
+      })
+
+      return { ok: true, message: 'DeepSeek connection succeeded.' }
+    } catch (error) {
+      if (error instanceof DeepSeekServiceError) {
+        return { ok: false, message: error.message }
+      }
+
+      return { ok: false, message: 'DeepSeek connection failed.' }
+    }
   })
   ipcMain.handle('video-notes:load', () => loadVideoNotes(getDesktopStore()))
   ipcMain.handle('video-notes:save', (_event, note: VideoNote) =>
