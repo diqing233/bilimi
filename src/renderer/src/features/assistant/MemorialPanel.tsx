@@ -17,6 +17,7 @@ type MemorialPanelTab = 'review' | 'notes'
 type MemorialPanelProps = {
   recommendation: RecommendationLabel
   commentDrafts: string[]
+  deepSeekEnabled?: boolean
   videoCategory?: string
   videoTitle: string
   onAction: (action: AssistantAction) => void
@@ -26,8 +27,6 @@ type MemorialPanelProps = {
   onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
   onSaveVideoNote: (note: VideoNote) => Promise<void>
   onChangeVideoNote?: (note: VideoNote) => void
-  onGetCurrentVideoTime?: () => Promise<number>
-  onSeekVideoTime?: (seconds: number) => Promise<boolean>
   onOpenVideoNoteArchive?: () => void
   pageClickOnly: boolean
   onPageClickOnlyChange: (pageClickOnly: boolean) => void
@@ -93,6 +92,7 @@ const ACTIONS: Array<{
 export function MemorialPanel({
   recommendation,
   commentDrafts,
+  deepSeekEnabled = false,
   videoCategory = '解闷小品',
   videoTitle,
   onAction,
@@ -102,8 +102,6 @@ export function MemorialPanel({
   onGeneratePoster,
   onSaveVideoNote,
   onChangeVideoNote,
-  onGetCurrentVideoTime,
-  onSeekVideoTime,
   onOpenVideoNoteArchive,
   pageClickOnly,
   onPageClickOnlyChange,
@@ -197,9 +195,8 @@ export function MemorialPanel({
             onGeneratePoster={onGeneratePoster}
             onSave={onSaveVideoNote}
             onChange={onChangeVideoNote}
-            onGetCurrentTime={onGetCurrentVideoTime}
-            onSeekToTime={onSeekVideoTime}
             onOpenArchive={onOpenVideoNoteArchive}
+            deepSeekEnabled={deepSeekEnabled}
             transcriptionProgress={transcriptionProgress}
           />
         )}

@@ -3,6 +3,7 @@ import type {
   AssistantAutomationResult,
   AssistantPreferences,
   FavoriteLedgerStatus,
+  NotePosterSummary,
   RecommendationKind,
   VideoAudioTranscriptionProgress,
   VideoNote,
@@ -116,6 +117,22 @@ function localizeDeepSeekStatusMessage(message: string): string {
     .replace(/^DeepSeek response did not include any content\.$/, 'DeepSeek 响应没有返回内容。')
     .replace(/^DeepSeek response could not be parsed\.$/, 'DeepSeek 响应解析失败。')
     .replace(/^DeepSeek response schema was invalid\.$/, 'DeepSeek 响应格式无效。')
+}
+
+function applyPosterSummaryToNote(note: VideoNote, poster: NotePosterSummary): VideoNote {
+  const summaryLines = [poster.subtitle, ...poster.keyPoints]
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  return {
+    ...note,
+    overview: {
+      ...note.overview,
+      shortSummary: summaryLines.length > 0 ? summaryLines : note.overview.shortSummary,
+      keywords: poster.keywords.length > 0 ? poster.keywords : note.overview.keywords
+    },
+    updatedAt: new Date().toISOString()
+  }
 }
 
 export function FloatingAssistantApp({
@@ -434,17 +451,24 @@ export function FloatingAssistantApp({
 
     try {
       const note = (await window.bilimiDesktop?.generateVideoNoteFromAudio?.()) ?? null
-      setVideoNote(note)
+      let noteToStore = note
 
-      if (note) {
-        const archives = await window.bilimiDesktop?.saveVideoNoteArchiveVersion?.(note)
+      if (noteToStore && preferences.deepseekEnabled) {
+        const poster = await generateNotePoster(noteToStore)
+        noteToStore = applyPosterSummaryToNote(noteToStore, poster)
+      }
+
+      setVideoNote(noteToStore)
+
+      if (noteToStore) {
+        const archives = await window.bilimiDesktop?.saveVideoNoteArchiveVersion?.(noteToStore)
 
         if (archives) {
           setVideoNoteArchives(archives)
         }
       }
 
-      return note
+      return noteToStore
     } finally {
       setVideoNoteLoading(false)
     }
@@ -485,21 +509,6 @@ export function FloatingAssistantApp({
     setVideoNote(note)
   }
 
-  async function getCurrentVideoTime() {
-    if (!window.bilimiDesktop?.getCurrentVideoTime) {
-      throw new Error('当前页面暂不能读取视频时间。')
-    }
-
-    return window.bilimiDesktop.getCurrentVideoTime()
-  }
-
-  async function seekVideoTime(seconds: number) {
-    if (!window.bilimiDesktop?.seekVideoTime) {
-      throw new Error('当前页面暂不能跳转视频时间。')
-    }
-
-    return window.bilimiDesktop.seekVideoTime(seconds)
-  }
 
   async function ensureFavoriteLedgers() {
     const result =
@@ -715,6 +724,7 @@ export function FloatingAssistantApp({
           <MemorialPanel
             recommendation={recommendation}
             commentDrafts={commentDrafts}
+            deepSeekEnabled={preferences.deepseekEnabled}
             videoCategory={videoCategory}
             videoTitle={resolvedVideoTitle}
             onAction={handleAction}
@@ -726,8 +736,6 @@ export function FloatingAssistantApp({
             onGeneratePoster={generateNotePoster}
             onSaveVideoNote={saveVideoNote}
             onChangeVideoNote={handleChangeVideoNote}
-            onGetCurrentVideoTime={getCurrentVideoTime}
-            onSeekVideoTime={seekVideoTime}
             pageClickOnly={pageClickOnly}
             onPageClickOnlyChange={setPageClickOnly}
             videoNote={videoNote}

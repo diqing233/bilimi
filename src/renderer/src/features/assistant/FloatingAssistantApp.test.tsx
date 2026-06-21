@@ -492,7 +492,9 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
 
     await waitFor(() => expect(generateVideoNoteFromAudio).toHaveBeenCalledOnce())
-    expect(screen.getByText('Transcribing segment 1/2.')).toBeInTheDocument()
+    expect(screen.getByText('正在转写第 1 / 2 段')).toBeInTheDocument()
+    expect(screen.getByText('50%')).toBeInTheDocument()
+    expect(screen.queryByText('Transcribing segment 1/2.')).not.toBeInTheDocument()
     await waitFor(() => expect(screen.getAllByText('机器学习需要数据和模型。').length).toBeGreaterThan(0))
   })
 
