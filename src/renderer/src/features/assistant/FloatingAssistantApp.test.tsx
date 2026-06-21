@@ -323,6 +323,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存 DeepSeek' }))
 
     await waitFor(() => expect(saveDeepSeekApiKey).toHaveBeenCalledWith('sk-test'))
+    expect(screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥').value).toBe('sk-test')
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -335,8 +336,25 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '测试 DeepSeek' }))
 
+    await waitFor(() => expect(saveDeepSeekApiKey).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledOnce())
     expect(await screen.findByRole('status')).toHaveTextContent('DeepSeek OK')
+  })
+
+  it('explains when the DeepSeek test bridge is not available', async () => {
+    installDesktopApi({
+      testDeepSeekConnection: undefined
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await screen.findAllByRole('tab')
+    fireEvent.click(screen.getAllByRole('tab')[3])
+    fireEvent.click(screen.getByRole('button', { name: '测试 DeepSeek' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'DeepSeek 测试功能未加载，请重启应用后再试。'
+    )
   })
 
   it('refreshes the displayed video when the main window reports a snapshot change', async () => {

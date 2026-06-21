@@ -247,15 +247,20 @@ export function FloatingAssistantApp({
 
     if (keyDraft) {
       await window.bilimiDesktop?.saveDeepSeekApiKey?.(keyDraft)
-      setDeepSeekApiKeyDraft('')
     }
 
     await persistPreferences(preferences)
   }
 
   async function testDeepSeekConnection() {
-    const result = await window.bilimiDesktop?.testDeepSeekConnection?.()
-    setDeepSeekStatusMessage(result?.message ?? 'DeepSeek 测试暂不可用。')
+    if (!window.bilimiDesktop?.testDeepSeekConnection) {
+      setDeepSeekStatusMessage('DeepSeek 测试功能未加载，请重启应用后再试。')
+      return
+    }
+
+    await saveDeepSeekSettings()
+    const result = await window.bilimiDesktop.testDeepSeekConnection()
+    setDeepSeekStatusMessage(result.message)
   }
 
   async function persistFeedback(action: AssistantAction, kind: RecommendationKind) {
