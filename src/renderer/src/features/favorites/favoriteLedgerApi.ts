@@ -137,6 +137,113 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
   `
 }
 
+export function buildSaveFavoriteLedgersScript(
+  nextLedgers: FavoriteLedger[],
+  previousLedgers: FavoriteLedger[]
+): string {
+  const payload = scriptPayload({ nextLedgers, previousLedgers })
+
+  return `
+    (async () => {
+      const payload = ${payload};
+      ${sharedScriptHelpers()}
+      const { csrf, mid } = readCredentials();
+      if (!csrf || !mid) {
+        return {
+          ok: false,
+          ledgers: payload.nextLedgers,
+          steps: [],
+          missingTargets: ['favorite-api-user'],
+          message: 'favorite credentials are unavailable'
+        };
+      }
+
+      const steps = ['api:ledger:list'];
+      const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
+      const listJson = await ensureApiOk(listResponse);
+      const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
+      const folderById = new Map(
+        folders
+          .map((folder) => [String(findFolderId(folder) || ''), folder])
+          .filter(([folderId]) => folderId)
+      );
+      let nextLedgers = payload.nextLedgers.map((ledger) => {
+        const folder = folders.find((candidate) => candidate?.title === ledger.displayName);
+        const folderId = findFolderId(folder);
+        return folderId ? { ...ledger, bilibiliFolderId: String(folderId) } : ledger;
+      });
+
+      for (let index = 0; index < nextLedgers.length; index += 1) {
+        const ledger = nextLedgers[index];
+        if (!ledger.enabled || ledger.bilibiliFolderId) {
+          continue;
+        }
+
+        const body = new URLSearchParams();
+        body.set('csrf', csrf);
+        body.set('privacy', '0');
+        body.set('title', ledger.displayName);
+        const response = await fetch('https://api.bilibili.com/x/v3/fav/folder/add', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'content-type': 'application/x-www-form-urlencoded;charset=UTF-8'
+          },
+          body
+        });
+        const json = await ensureApiOk(response);
+        const folderId = json.data?.id ?? json.data?.fid;
+        if (folderId) {
+          nextLedgers[index] = { ...ledger, bilibiliFolderId: String(folderId) };
+        }
+        steps.push('api:ledger:create:' + ledger.id);
+      }
+
+      const nextLedgerIds = new Set(nextLedgers.map((ledger) => ledger.id));
+      const canDeleteLedger = (ledger) => {
+        if (ledger.isDefault || !ledger.bilibiliFolderId) {
+          return false;
+        }
+
+        const folder = folderById.get(String(ledger.bilibiliFolderId));
+        const remoteTitle = String(folder?.title ?? '');
+        return String(ledger.displayName || '').startsWith('Bilimi') || remoteTitle.startsWith('Bilimi');
+      };
+      const removedLedgers = payload.previousLedgers.filter(
+        (ledger) => !nextLedgerIds.has(ledger.id) && canDeleteLedger(ledger)
+      );
+
+      for (const ledger of removedLedgers) {
+        const body = new URLSearchParams();
+        body.set('csrf', csrf);
+        body.set('media_ids', String(ledger.bilibiliFolderId));
+        const response = await fetch('https://api.bilibili.com/x/v3/fav/folder/del', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'content-type': 'application/x-www-form-urlencoded;charset=UTF-8'
+          },
+          body
+        });
+        await ensureApiOk(response);
+        steps.push('api:ledger:delete:' + ledger.id);
+      }
+
+      const missingTargets = nextLedgers
+        .filter((ledger) => ledger.enabled && !ledger.bilibiliFolderId)
+        .map((ledger) => ledger.id);
+
+      return {
+        ok: missingTargets.length === 0,
+        ledgers: nextLedgers,
+        steps,
+        missingTargets,
+        message: missingTargets.length === 0 ? 'favorite ledgers saved' : 'some favorite ledgers are still missing'
+      };
+    })();
+  `
+}
+
 export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
   const payload = scriptPayload({ ledgers })
 

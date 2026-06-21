@@ -4,6 +4,7 @@ import {
   buildEnsureFavoriteLedgersScript,
   buildExecuteFavoriteLedgerPlanScript,
   buildFavoriteLedgerStatusScript,
+  buildSaveFavoriteLedgersScript,
   buildScanOldFavoritesScript
 } from './favoriteLedgerApi'
 
@@ -94,6 +95,126 @@ describe('favorite ledger API scripts', () => {
 
     expect(result.ok).toBe(false)
     expect(result.missingTargets).toEqual(['humor'])
+  })
+
+  it('saves edited ledgers by creating missing enabled folders', async () => {
+    installCookies()
+    const previousLedgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
+      ...ledger,
+      bilibiliFolderId: '9001'
+    }))
+    const nextLedgers = [
+      previousLedgers[0],
+      {
+        ...createDefaultFavoriteLedgers()[1],
+        id: 'custom-bilimi',
+        displayName: 'Bilimi Custom',
+        bilibiliFolderId: undefined,
+        isDefault: false
+      }
+    ]
+    const requests: Array<{ body?: string; url: string }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        requests.push({ body: init?.body?.toString(), url })
+
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({
+            code: 0,
+            data: {
+              list: [{ id: 9001, title: previousLedgers[0].displayName }]
+            }
+          })
+        }
+
+        if (url.includes('/x/v3/fav/folder/add')) {
+          return Response.json({ code: 0, data: { id: 9002 } })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(buildSaveFavoriteLedgersScript(nextLedgers, previousLedgers))
+
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:create:custom-bilimi'])
+    expect(requests.filter((request) => request.url.includes('/folder/add'))).toHaveLength(1)
+    expect(requests[1].body).toContain('csrf=csrf-token')
+    expect(requests[1].body).toContain('title=Bilimi+Custom')
+    expect(result.ledgers.find((ledger) => ledger.id === 'custom-bilimi')?.bilibiliFolderId).toBe(
+      '9002'
+    )
+  })
+
+  it('only deletes removed Bilimi-managed folders when saving edited ledgers', async () => {
+    installCookies()
+    const baseLedgers = createDefaultFavoriteLedgers()
+    const nextLedgers = [baseLedgers[0]]
+    const previousLedgers = [
+      baseLedgers[0],
+      {
+        ...baseLedgers[1],
+        id: 'removed-bilimi',
+        displayName: 'Bilimi Old',
+        bilibiliFolderId: '9002',
+        isDefault: false
+      },
+      {
+        ...baseLedgers[2],
+        id: 'removed-personal',
+        displayName: 'Personal Old',
+        bilibiliFolderId: '9003',
+        isDefault: false
+      },
+      {
+        ...baseLedgers[3],
+        id: 'removed-default',
+        displayName: 'Bilimi Default',
+        bilibiliFolderId: '9004',
+        isDefault: true
+      }
+    ]
+    const requests: Array<{ body?: string; url: string }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        requests.push({ body: init?.body?.toString(), url })
+
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({
+            code: 0,
+            data: {
+              list: [
+                { id: 9001, title: baseLedgers[0].displayName },
+                { id: 9002, title: 'Bilimi Old' },
+                { id: 9003, title: 'Personal Old' },
+                { id: 9004, title: 'Bilimi Default' }
+              ]
+            }
+          })
+        }
+
+        if (url.includes('/x/v3/fav/folder/del')) {
+          return Response.json({ code: 0, data: {} })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(buildSaveFavoriteLedgersScript(nextLedgers, previousLedgers))
+
+    const deleteRequests = requests.filter((request) => request.url.includes('/folder/del'))
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:delete:removed-bilimi'])
+    expect(deleteRequests).toHaveLength(1)
+    const body = new URLSearchParams(deleteRequests[0].body)
+    expect(body.get('csrf')).toBe('csrf-token')
+    expect(body.get('media_ids')).toBe('9002')
   })
 
   it('appends old favorites without passing delete media ids', async () => {

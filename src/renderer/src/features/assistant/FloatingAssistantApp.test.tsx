@@ -117,6 +117,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const saveOpenAiApiKey = vi.fn().mockResolvedValue({ configured: true })
   const clearOpenAiApiKey = vi.fn().mockResolvedValue({ configured: false })
   const ensureFavoriteLedgers = vi.fn().mockResolvedValue(createResult('册目已备齐。'))
+  const saveFavoriteLedgers = vi.fn().mockResolvedValue(createResult('掌库已保存。'))
   const scanOldFavorites = vi.fn().mockResolvedValue({
     items: [],
     skippedSourceFolderTitles: []
@@ -145,6 +146,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     requestAssistantSnapshot,
     runAssistantAction,
     saveOpenAiApiKey,
+    saveFavoriteLedgers,
     savePreferences,
     saveVideoNote,
     saveVideoNoteArchiveVersion,
@@ -301,6 +303,34 @@ describe('FloatingAssistantApp', () => {
 
     expect(screen.getByRole('dialog', { name: '掌库' })).toBeInTheDocument()
     expect(screen.getByText(/尚缺/)).toBeInTheDocument()
+  })
+
+  it('saves ledger edits through the account sync bridge only after clicking 保存', async () => {
+    const saveFavoriteLedgers = vi.fn().mockResolvedValue(createResult('掌库已保存。'))
+    installDesktopApi({ saveFavoriteLedgers })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '掌库' }))
+    fireEvent.change(screen.getByLabelText('册名'), { target: { value: 'Bilimi Test' } })
+    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: 'test,video' } })
+    fireEvent.click(screen.getByRole('button', { name: '新增册目' }))
+
+    expect(saveFavoriteLedgers).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() =>
+      expect(saveFavoriteLedgers).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            displayName: 'Bilimi Test',
+            keywords: ['test', 'video'],
+            isDefault: false
+          })
+        ])
+      )
+    )
   })
 
   it('saves the selected pet style from assistant settings', async () => {

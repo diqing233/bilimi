@@ -6,6 +6,7 @@ import type {
   DeepSeekGenerateRequest,
   DeepSeekGenerateResult,
   DeepSeekKeyStatus,
+  FavoriteLedger,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionRequest,
   VideoAudioTranscriptionResult,
@@ -163,6 +164,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     }
   },
   ensureFavoriteLedgers: () => ipcRenderer.invoke('floating-assistant:ensure-ledgers'),
+  saveFavoriteLedgers: (ledgers: FavoriteLedger[]) =>
+    ipcRenderer.invoke('floating-assistant:save-ledgers', ledgers),
   scanOldFavorites: () => ipcRenderer.invoke('floating-assistant:scan-old-favorites'),
   executeOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) =>
     ipcRenderer.invoke('floating-assistant:execute-old-favorite-plan', items),

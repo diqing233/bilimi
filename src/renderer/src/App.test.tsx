@@ -9,6 +9,7 @@ import type {
 } from './features/assistant/assistantRuntimeTypes'
 
 const LEDGER_STATUS_SCRIPT_MARKER = '/x/v3/fav/folder/created/list-all'
+const LEDGER_SAVE_SCRIPT_MARKER = '/x/v3/fav/folder/add'
 const OLD_FAVORITE_SCAN_SCRIPT_MARKER = '/x/v3/fav/resource/list'
 const VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER = 'pageText: readText'
 
@@ -635,6 +636,57 @@ describe('App runtime integration', () => {
     )
     expect(executeJavaScript).toHaveBeenCalledWith(
       expect.stringContaining(OLD_FAVORITE_SCAN_SCRIPT_MARKER)
+    )
+  })
+
+  it('saves favorite ledgers through the runtime bridge and persists synced ids', async () => {
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({ savePreferences })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    const nextLedgers = [
+      {
+        ...createDefaultFavoriteLedgers()[0],
+        id: 'custom-bilimi',
+        displayName: 'Bilimi Custom',
+        isDefault: false,
+        bilibiliFolderId: undefined
+      }
+    ]
+    const syncedLedgers = [{ ...nextLedgers[0], bilibiliFolderId: '9001' }]
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes(LEDGER_SAVE_SCRIPT_MARKER)) {
+        return {
+          ok: true,
+          ledgers: syncedLedgers,
+          steps: ['api:ledger:list', 'api:ledger:create:custom-bilimi'],
+          missingTargets: [],
+          message: 'saved'
+        }
+      }
+
+      return emptyLedgerStatus()
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    const result = await requestRuntime({
+      id: 'save-ledgers-1',
+      type: 'save-ledgers',
+      ledgers: nextLedgers
+    })
+
+    expect(result).toEqual(expect.objectContaining({ ok: true }))
+    expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining(LEDGER_SAVE_SCRIPT_MARKER)
+    )
+    expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('Bilimi Custom'))
+    expect(savePreferences).toHaveBeenCalledWith(
+      expect.objectContaining({
+        favoriteLedgers: expect.arrayContaining([
+          expect.objectContaining({ id: 'custom-bilimi', bilibiliFolderId: '9001' })
+        ])
+      })
     )
   })
 })

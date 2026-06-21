@@ -527,6 +527,25 @@ export function FloatingAssistantApp({
     return result
   }
 
+  async function saveFavoriteLedgers(favoriteLedgers: AssistantPreferences['favoriteLedgers']) {
+    const result =
+      (await window.bilimiDesktop?.saveFavoriteLedgers?.(favoriteLedgers)) ??
+      createDefaultResult('掌库已保存。')
+    const nextSnapshot = await window.bilimiDesktop?.requestAssistantSnapshot?.()
+
+    if (nextSnapshot) {
+      setFavoriteLedgerStatus(nextSnapshot.favoriteLedgerStatus)
+      setPreferences(createInitialAssistantPreferences(nextSnapshot.preferences))
+    } else {
+      await persistPreferences({
+        ...preferences,
+        favoriteLedgers
+      })
+    }
+
+    return result
+  }
+
   async function scanOldFavorites(): Promise<FavoriteLedgerPreview> {
     return (
       (await window.bilimiDesktop?.scanOldFavorites?.()) ?? {
@@ -578,12 +597,7 @@ export function FloatingAssistantApp({
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? []}
             onClose={() => setActiveTab('review')}
             onEnsureLedgers={ensureFavoriteLedgers}
-            onSaveLedgers={(favoriteLedgers) => {
-              void persistPreferences({
-                ...preferences,
-                favoriteLedgers
-              })
-            }}
+            onSaveLedgers={saveFavoriteLedgers}
             onScanOldFavorites={scanOldFavorites}
             onExecuteOldFavoritePlan={executeOldFavoritePlan}
           />

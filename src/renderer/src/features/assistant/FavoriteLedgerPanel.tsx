@@ -1,6 +1,6 @@
 import { suggestFavoriteLedgerNames } from '@shared/favoriteLedgers'
 import type { AssistantAutomationResult, FavoriteLedger } from '@shared/types'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
 
 type FavoriteLedgerPanelProps = {
@@ -8,7 +8,7 @@ type FavoriteLedgerPanelProps = {
   missingLedgerIds: string[]
   onClose: () => void
   onEnsureLedgers: () => Promise<AssistantAutomationResult>
-  onSaveLedgers: (ledgers: FavoriteLedger[]) => void
+  onSaveLedgers: (ledgers: FavoriteLedger[]) => Promise<AssistantAutomationResult> | void
   onScanOldFavorites: () => Promise<FavoriteLedgerPreview>
   onExecuteOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
 }
@@ -24,6 +24,10 @@ function customLedgerId(name: string) {
   return `custom-${name.replace(/\W+/g, '-').replace(/^-|-$/g, '') || Date.now()}`
 }
 
+function canDeleteLedger(ledger: FavoriteLedger) {
+  return !ledger.isDefault && ledger.displayName.startsWith('Bilimi')
+}
+
 export function FavoriteLedgerPanel({
   ledgers,
   missingLedgerIds,
@@ -37,13 +41,22 @@ export function FavoriteLedgerPanel({
   const [displayName, setDisplayName] = useState('')
   const [keywordText, setKeywordText] = useState('')
   const [suggestedNames, setSuggestedNames] = useState<string[]>([])
+  const [draftLedgers, setDraftLedgers] = useState<FavoriteLedger[]>(ledgers)
   const [preview, setPreview] = useState<FavoriteLedgerPreview | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const ledgerNamesById = useMemo(
-    () => Object.fromEntries(ledgers.map((ledger) => [ledger.id, ledger.displayName])),
-    [ledgers]
+  const hasUnsavedChanges = useMemo(
+    () => JSON.stringify(draftLedgers) !== JSON.stringify(ledgers),
+    [draftLedgers, ledgers]
   )
+  const ledgerNamesById = useMemo(
+    () => Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName])),
+    [draftLedgers]
+  )
+
+  useEffect(() => {
+    setDraftLedgers(ledgers)
+  }, [ledgers])
 
   async function ensureLedgers() {
     setBusy(true)
@@ -67,14 +80,14 @@ export function FavoriteLedgerPanel({
       return
     }
 
-    onSaveLedgers([
-      ...ledgers,
+    setDraftLedgers([
+      ...draftLedgers,
       {
         id: customLedgerId(name),
         displayName: name,
         keywords: splitKeywords(keywordText || topic),
         enabled: true,
-        priority: ledgers.length + 100,
+        priority: draftLedgers.length + 100,
         isDefault: false
       }
     ])
@@ -85,12 +98,14 @@ export function FavoriteLedgerPanel({
   }
 
   function deleteLedger(ledgerId: string) {
-    onSaveLedgers(ledgers.filter((ledger) => ledger.id !== ledgerId))
+    setDraftLedgers((currentLedgers) =>
+      currentLedgers.filter((ledger) => ledger.id !== ledgerId || !canDeleteLedger(ledger))
+    )
   }
 
   function toggleLedger(ledgerId: string) {
-    onSaveLedgers(
-      ledgers.map((ledger) =>
+    setDraftLedgers(
+      draftLedgers.map((ledger) =>
         ledger.id === ledgerId
           ? {
               ...ledger,
@@ -99,6 +114,28 @@ export function FavoriteLedgerPanel({
           : ledger
       )
     )
+  }
+
+  async function saveLedgers() {
+    setBusy(true)
+    try {
+      const result = await onSaveLedgers(draftLedgers)
+      if (result?.message) {
+        setStatus(result.message)
+      } else {
+        setStatus('掌库已保存。')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function requestClose() {
+    if (hasUnsavedChanges && window.confirm('掌库尚有未保存调整。是否保存并同步到账号收藏夹？')) {
+      await saveLedgers()
+    }
+
+    onClose()
   }
 
   async function scanOldFavorites() {
@@ -130,7 +167,7 @@ export function FavoriteLedgerPanel({
     <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
       <div className="favorite-ledger-panel__header">
         <h2>掌库</h2>
-        <button type="button" onClick={onClose}>
+        <button type="button" onClick={() => void requestClose()}>
           合卷
         </button>
       </div>
@@ -145,13 +182,16 @@ export function FavoriteLedgerPanel({
         <button type="button" disabled={busy} onClick={() => void ensureLedgers()}>
           备册
         </button>
+        <button type="button" disabled={busy || !hasUnsavedChanges} onClick={() => void saveLedgers()}>
+          保存
+        </button>
         <button type="button" disabled={busy} onClick={() => void scanOldFavorites()}>
           整理旧藏
         </button>
       </div>
 
       <div className="favorite-ledger-panel__list">
-        {ledgers.map((ledger) => (
+        {draftLedgers.map((ledger) => (
           <article key={ledger.id} className="favorite-ledger-panel__item">
             <div>
               <strong>{ledger.displayName}</strong>
@@ -161,7 +201,7 @@ export function FavoriteLedgerPanel({
               <button type="button" onClick={() => toggleLedger(ledger.id)}>
                 {ledger.enabled ? '暂歇' : '复启'}
               </button>
-              {!ledger.isDefault ? (
+              {canDeleteLedger(ledger) ? (
                 <button
                   type="button"
                   aria-label={`删除 ${ledger.displayName}`}

@@ -2,6 +2,7 @@ import type {
   AssistantAction,
   AssistantAutomationResult,
   AssistantPreferences,
+  FavoriteLedger,
   FavoriteLedgerStatus,
   VideoNote
 } from '@shared/types'
@@ -35,6 +36,7 @@ export type AssistantRuntimeRequest =
   | { id: string; type: 'get-current-video-time' }
   | { id: string; type: 'seek-video-time'; seconds: number }
   | { id: string; type: 'ensure-ledgers' }
+  | { id: string; type: 'save-ledgers'; ledgers: FavoriteLedger[] }
   | { id: string; type: 'scan-old-favorites' }
   | { id: string; type: 'execute-old-favorite-plan'; items: FavoriteLedgerPreviewItem[] }
 

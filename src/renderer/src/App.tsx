@@ -4,6 +4,7 @@ import type {
   AssistantAutomationResult,
   AssistantPreferences,
   BrowserTabModel,
+  FavoriteLedger,
   FavoriteLedgerStatus,
   VideoNote,
   VideoNoteExtractionResult
@@ -30,6 +31,7 @@ import {
   buildEnsureFavoriteLedgersScript,
   buildExecuteFavoriteLedgerPlanScript,
   buildFavoriteLedgerStatusScript,
+  buildSaveFavoriteLedgersScript,
   buildScanOldFavoritesScript
 } from './features/favorites/favoriteLedgerApi'
 import {
@@ -392,6 +394,29 @@ export default function App() {
     return result
   }
 
+  async function saveFavoriteLedgers(nextLedgers: FavoriteLedger[]): Promise<AssistantAutomationResult> {
+    const result = await runScript(
+      buildSaveFavoriteLedgersScript(nextLedgers, preferences.favoriteLedgers)
+    ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
+
+    if (Array.isArray(result.ledgers)) {
+      const nextPreferences = createInitialAssistantPreferences({
+        ...preferences,
+        favoriteLedgers: result.ledgers
+      })
+      setPreferences(nextPreferences)
+
+      if (window.bilimiDesktop?.savePreferences) {
+        const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
+        setPreferences(createInitialAssistantPreferences(saved))
+      }
+
+      window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
+    }
+
+    return result
+  }
+
   async function scanOldFavorites(): Promise<FavoriteLedgerPreview> {
     const scanResult = await runScript(
       buildScanOldFavoritesScript(preferences.favoriteLedgers)
@@ -569,6 +594,8 @@ export default function App() {
           return seekVideoTime(request.seconds)
         case 'ensure-ledgers':
           return ensureFavoriteLedgers()
+        case 'save-ledgers':
+          return saveFavoriteLedgers(request.ledgers)
         case 'scan-old-favorites':
           return scanOldFavorites()
         case 'execute-old-favorite-plan':
@@ -589,6 +616,7 @@ export default function App() {
     readVideoContentContext,
     readVideoNoteSource,
     runAssistantRuntimeAction,
+    saveFavoriteLedgers,
     saveVideoNote,
     scanOldFavorites,
     seekVideoTime
