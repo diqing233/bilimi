@@ -21,6 +21,8 @@ The workspace tabs use Xiao Mi pet icons and keep each tab label horizontal. In 
 
 Collapsing the sidebar removes the sidebar column instead of leaving a vertical rail. A small floating boundary button labeled `折叠` or `展开` stays on the browser/sidebar edge, keeps its left-boundary position, and is sized to fit inside the blue browser tab strip.
 
+When the floating desktop pet restores or focuses the main window, the sidebar also expands if it was collapsed.
+
 ## Assistant Actions
 
 `批阅` actions run in the active Bilibili webview. Likes, coins, favorites, and comments first use page automation through the embedded page context. Favorite actions then have two modes:
@@ -30,6 +32,14 @@ Collapsing the sidebar removes the sidebar column instead of leaving a vertical 
 
 In `仅页面点击` mode, logs that only contain steps such as `favorite:open`, `favorite:folder`, `favorite`, and `visual:favorite:*` did not use the favorite API.
 
+## DeepSeek Assistant Features
+
+Assistant settings include a DeepSeek group for the AI-backed features used by review comments, one-image note summaries, and Xiao Mi pet chat. The API key is saved through the Electron main process and is not exposed to renderer state; normal preferences only store whether a key is present, whether DeepSeek is enabled, the model, and the base URL.
+
+The DeepSeek settings surface uses Chinese labels and provides `保存 DeepSeek`, `测试 DeepSeek`, and `重置 DeepSeek` actions in one row. Test feedback is localized to Chinese, and reset clears the key draft, disables DeepSeek, and restores the default model `deepseek-v4-flash` plus base URL `https://api.deepseek.com`.
+
+The settings also include a relay recommendation for [云枢智元](https://yunshulink.com/). It lists `deepseek-v4-pro` and `https://api.yunshulink.com/v1`, each with a small copy icon button.
+
 ## Desktop Pet
 
 Bilimi includes a small transparent Electron desktop pet window rendered by `PalaceMaidPetApp` and `LayeredPetRenderer`. The pet is a lightweight 2D blue-white porcelain chibi maid with transparent PNG character states plus small effect layers.
@@ -38,7 +48,11 @@ The assistant persona is Xiao Mi: `我是 bilimi，主人可以叫我小mi~`. Th
 
 Assistant settings expose two pet styles: `big-head` for the compact big-head Q-version sprites and `classic` for the clearer full-body reset sprites. Pet style is persisted with the other assistant preferences and broadcast after saving so the main window, floating assistant, and desktop pet stay in sync without restarting.
 
-The pet supports `idle`, `hint`, `working`, and `error` status feedback, can be dragged, and restores or focuses the main Bilimi window when clicked. Dragging suppresses the follow-up click reaction. The pet is intentionally companion-only: it does not add platform controls, action menus, trays, teapots, cups, or other props.
+The pet supports `idle`, `hint`, `working`, and `error` status feedback, can be dragged, and restores or focuses the main Bilimi window when clicked. Dragging suppresses the follow-up click reaction. Right-clicking the pet shows a compact `关闭宠物` confirmation button; clicking that prompt closes the pet window. Assistant settings also expose `唤醒宠物` and `关闭宠物` buttons for explicit pet window control.
+
+The top prompt bubble can expand into a short Xiao Mi chat form. Messages are kept in memory only for the active pet session and are sent through the same main-process DeepSeek bridge as review comments and note posters.
+
+The pet is intentionally companion-only: it does not add platform trays, teapots, cups, or other props.
 
 ## Video Notes
 
