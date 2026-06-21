@@ -1,6 +1,7 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantPetState } from './petState'
+import type { AssistantPreferences } from '@shared/types'
 
 vi.mock('./LayeredPetRenderer', () => ({
   LayeredPetRenderer: ({
@@ -22,6 +23,21 @@ vi.mock('./LayeredPetRenderer', () => ({
 }))
 
 import { PalaceMaidPetApp } from './PalaceMaidPetApp'
+
+function createPreferences(overrides: Partial<AssistantPreferences> = {}): AssistantPreferences {
+  return {
+    favoritesFolderName: 'Bilimi',
+    favoriteLedgers: [],
+    ledgerPromptDismissed: true,
+    preferenceCounts: {},
+    petStyle: 'big-head',
+    deepseekEnabled: false,
+    deepseekApiKeyStored: false,
+    deepseekModel: 'deepseek-v4-flash',
+    deepseekBaseUrl: 'https://api.deepseek.com',
+    ...overrides
+  }
+}
 
 function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const api = {
@@ -86,6 +102,42 @@ describe('PalaceMaidPetApp', () => {
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
 
+  it('adds a pet chat action to the right-click prompt', async () => {
+    const api = installDesktopApi({
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          deepseekEnabled: true,
+          deepseekApiKeyStored: true
+        })
+      )
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' }))
+
+    expect(screen.getByRole('button', { name: '关闭宠物' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '对话宠物' }))
+
+    await waitFor(() => expect(screen.getByLabelText('Talk to Xiao Mi')).toBeInTheDocument())
+    expect(api.closeAssistantPet).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: '关闭宠物' })).not.toBeInTheDocument()
+  })
+
+  it('hides the right-click prompt when the pet window loses focus', () => {
+    installDesktopApi()
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' }))
+
+    expect(screen.getByRole('button', { name: '关闭宠物' })).toBeInTheDocument()
+
+    fireEvent(window, new Event('blur'))
+
+    expect(screen.queryByRole('button', { name: '关闭宠物' })).not.toBeInTheDocument()
+  })
+
   it('renders pet state changes from the desktop shell', () => {
     let stateChanged: ((state: AssistantPetState) => void) | undefined
     installDesktopApi({
@@ -108,11 +160,19 @@ describe('PalaceMaidPetApp', () => {
   })
 
   it('sends direct Xiao Mi chat messages through DeepSeek', async () => {
-    const api = installDesktopApi()
+    const api = installDesktopApi({
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          deepseekEnabled: true,
+          deepseekApiKeyStored: true
+        })
+      )
+    })
 
     render(<PalaceMaidPetApp />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Xiao Mi chat' }))
+    await waitFor(() => expect(screen.getByLabelText('Talk to Xiao Mi')).toBeInTheDocument())
     fireEvent.change(screen.getByLabelText('Talk to Xiao Mi'), {
       target: { value: 'watch this page' }
     })
@@ -125,14 +185,35 @@ describe('PalaceMaidPetApp', () => {
     expect(await screen.findByText('This page looks worth watching.')).toBeInTheDocument()
   })
 
+  it('tells the owner to enable DeepSeek when opening pet chat without support', async () => {
+    const api = installDesktopApi()
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Xiao Mi chat' }))
+
+    expect(
+      await screen.findByText('主人，想要跟小mi交流的话去设置开启DeepSeek支持吧')
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText('Talk to Xiao Mi')).not.toBeInTheDocument()
+    expect(api.generateDeepSeek).not.toHaveBeenCalled()
+  })
+
   it('shows an alert when Xiao Mi chat fails', async () => {
     installDesktopApi({
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          deepseekEnabled: true,
+          deepseekApiKeyStored: true
+        })
+      ),
       generateDeepSeek: vi.fn().mockRejectedValue(new Error('DeepSeek failed.'))
     })
 
     render(<PalaceMaidPetApp />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Xiao Mi chat' }))
+    await waitFor(() => expect(screen.getByLabelText('Talk to Xiao Mi')).toBeInTheDocument())
     fireEvent.change(screen.getByLabelText('Talk to Xiao Mi'), {
       target: { value: 'watch this page' }
     })

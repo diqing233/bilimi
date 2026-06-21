@@ -9,6 +9,8 @@ import { createInitialAssistantPreferences } from '../state/assistantState'
 import type { AssistantPreferences, DeepSeekChatMessage } from '@shared/types'
 
 const DRAG_THRESHOLD_PX = 5
+const DEEPSEEK_CHAT_DISABLED_MESSAGE =
+  '主人，想要跟小mi交流的话去设置开启DeepSeek支持吧'
 
 type DragState = {
   startClientX: number
@@ -23,7 +25,9 @@ export function PalaceMaidPetApp() {
   const [pressed, setPressed] = useState(false)
   const [resizeControlsVisible, setResizeControlsVisible] = useState(false)
   const [petState, setPetState] = useState<AssistantPetState>('idle')
-  const [petStyle, setPetStyle] = useState<AssistantPreferences['petStyle']>('big-head')
+  const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
+    createInitialAssistantPreferences()
+  )
   const [clickReactionSignal, setClickReactionSignal] = useState(0)
   const [chatOpen, setChatOpen] = useState(false)
   const [chatDraft, setChatDraft] = useState('')
@@ -32,6 +36,7 @@ export function PalaceMaidPetApp() {
   const [chatError, setChatError] = useState('')
   const [closePromptVisible, setClosePromptVisible] = useState(false)
   const stateView = createPetStateView(petState)
+  const deepSeekChatEnabled = preferences.deepseekEnabled && preferences.deepseekApiKeyStored
 
   useEffect(() => {
     return window.bilimiDesktop?.onAssistantPetStateChanged?.((state) => {
@@ -45,8 +50,8 @@ export function PalaceMaidPetApp() {
     async function loadPreferences() {
       const preferences = await window.bilimiDesktop?.loadPreferences?.()
 
-      if (!disposed && preferences) {
-        setPetStyle(createInitialAssistantPreferences(preferences).petStyle)
+      if (!disposed) {
+        setPreferences(createInitialAssistantPreferences(preferences))
       }
     }
 
@@ -59,15 +64,22 @@ export function PalaceMaidPetApp() {
 
   useEffect(() => {
     return window.bilimiDesktop?.onAssistantPreferencesChanged?.((preferences) => {
-      setPetStyle(createInitialAssistantPreferences(preferences).petStyle)
+      setPreferences(createInitialAssistantPreferences(preferences))
     })
   }, [])
 
   useEffect(() => {
+    function hideClosePrompt() {
+      setClosePromptVisible(false)
+    }
+
+    window.addEventListener('blur', hideClosePrompt)
+
     return () => {
       if (resizeControlsHideTimeout.current !== null) {
         window.clearTimeout(resizeControlsHideTimeout.current)
       }
+      window.removeEventListener('blur', hideClosePrompt)
     }
   }, [])
 
@@ -162,6 +174,11 @@ export function PalaceMaidPetApp() {
     setClosePromptVisible(true)
   }
 
+  function openPetChat() {
+    setClosePromptVisible(false)
+    setChatOpen(true)
+  }
+
   function closePetFromPrompt() {
     setClosePromptVisible(false)
     window.bilimiDesktop?.closeAssistantPet?.()
@@ -254,26 +271,33 @@ export function PalaceMaidPetApp() {
         <LayeredPetRenderer
           petState={petState}
           clickReactionSignal={clickReactionSignal}
-          petStyle={petStyle}
+          petStyle={preferences.petStyle}
         />
       </button>
       {closePromptVisible ? (
-        <button
-          className="palace-maid-pet__close-prompt"
-          type="button"
-          onClick={closePetFromPrompt}
-        >
-          关闭宠物
-        </button>
+        <span className="palace-maid-pet__quick-actions" role="group" aria-label="小mi快捷操作">
+          <button
+            className="palace-maid-pet__quick-action"
+            type="button"
+            onClick={openPetChat}
+          >
+            对话宠物
+          </button>
+          <button
+            className="palace-maid-pet__quick-action"
+            type="button"
+            onClick={closePetFromPrompt}
+          >
+            关闭宠物
+          </button>
+        </span>
       ) : null}
       <span className="palace-maid-pet__bubble" data-chat-open={chatOpen ? 'true' : 'false'}>
         <button
           className="palace-maid-pet__bubble-toggle"
           type="button"
           aria-label="Open Xiao Mi chat"
-          onClick={() => {
-            setChatOpen((open) => !open)
-          }}
+          onClick={openPetChat}
         >
           <strong>{stateView.label}</strong>
           <span>{stateView.bubble}</span>
@@ -294,19 +318,27 @@ export function PalaceMaidPetApp() {
               </span>
             ) : null}
             {chatError ? <span role="alert">{chatError}</span> : null}
-            <label className="palace-maid-pet__chat-field">
-              <span>Talk to Xiao Mi</span>
-              <input
-                value={chatDraft}
-                onChange={(event) => {
-                  setChatDraft(event.target.value)
-                }}
-                disabled={chatBusy}
-              />
-            </label>
-            <button type="submit" disabled={chatBusy || !chatDraft.trim()}>
-              Send
-            </button>
+            {deepSeekChatEnabled ? (
+              <>
+                <label className="palace-maid-pet__chat-field">
+                  <span>Talk to Xiao Mi</span>
+                  <input
+                    value={chatDraft}
+                    onChange={(event) => {
+                      setChatDraft(event.target.value)
+                    }}
+                    disabled={chatBusy}
+                  />
+                </label>
+                <button type="submit" disabled={chatBusy || !chatDraft.trim()}>
+                  Send
+                </button>
+              </>
+            ) : (
+              <span className="palace-maid-pet__chat-disabled" role="status">
+                {DEEPSEEK_CHAT_DISABLED_MESSAGE}
+              </span>
+            )}
           </form>
         ) : null}
       </span>
