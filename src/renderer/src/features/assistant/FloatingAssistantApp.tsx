@@ -595,6 +595,18 @@ export function FloatingAssistantApp({
                   测试 DeepSeek
                 </button>
               </div>
+              <aside className="assistant-settings__deepseek-recommendation">
+                <strong>中转站推荐</strong>
+                <p>
+                  <a href="https://yunshulink.com/" target="_blank" rel="noreferrer">
+                    云枢智元
+                  </a>
+                  <span>官网 DeepSeek 价格 3 折起</span>
+                </p>
+                <p>API 密钥：创建令牌后，令牌分组请选择 deepseek（限时特价），复制密钥到这里使用。</p>
+                <p>推荐模型：deepseek-v4-pro</p>
+                <p>服务器地址：https://api.yunshulink.com/v1</p>
+              </aside>
               {deepSeekStatusMessage ? <p role="status">{deepSeekStatusMessage}</p> : null}
             </fieldset>
           </section>

@@ -191,5 +191,6 @@ describe('renderer porcelain theme styles', () => {
   it('styles the DeepSeek assistant settings group and actions', () => {
     expect(normalizedStyles).toContain('.assistant-settings__group--deepseek')
     expect(normalizedStyles).toContain('.assistant-settings__actions')
+    expect(normalizedStyles).toContain('.assistant-settings__deepseek-recommendation')
   })
 })

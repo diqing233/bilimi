@@ -308,6 +308,15 @@ describe('FloatingAssistantApp', () => {
     await screen.findAllByRole('tab')
     fireEvent.click(screen.getAllByRole('tab')[3])
 
+    expect(screen.getByRole('link', { name: '云枢智元' })).toHaveAttribute(
+      'href',
+      'https://yunshulink.com/'
+    )
+    expect(screen.getByText('官网 DeepSeek 价格 3 折起')).toBeInTheDocument()
+    expect(screen.getByText(/令牌分组请选择 deepseek（限时特价）/)).toBeInTheDocument()
+    expect(screen.getByText('推荐模型：deepseek-v4-pro')).toBeInTheDocument()
+    expect(screen.getByText('服务器地址：https://api.yunshulink.com/v1')).toBeInTheDocument()
+
     const enabled = screen.getByRole('checkbox', { name: '启用 DeepSeek' })
     fireEvent.click(enabled)
     fireEvent.change(screen.getByLabelText('DeepSeek API 密钥'), {

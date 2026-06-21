@@ -1976,6 +1976,28 @@ body[data-floating-window="true"],
   cursor: pointer;
 }
 
+.assistant-settings__deepseek-recommendation {
+  display: grid;
+  gap: 4px;
+  border: 1px solid rgba(116, 199, 223, 0.45);
+  background: rgba(220, 238, 255, 0.42);
+  color: var(--porcelain-text);
+  font-size: 13px;
+  line-height: 1.55;
+  padding: 8px 10px;
+}
+
+.assistant-settings__deepseek-recommendation strong,
+.assistant-settings__deepseek-recommendation p {
+  margin: 0;
+}
+
+.assistant-settings__deepseek-recommendation a {
+  color: var(--porcelain-accent);
+  font-weight: 700;
+  margin-right: 8px;
+}
+
 .assistant-dialog {
   width: min(420px, calc(100vw - 48px));
   border: 1px solid rgba(31, 99, 181, 0.28);
