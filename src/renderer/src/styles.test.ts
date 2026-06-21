@@ -191,8 +191,14 @@ describe('renderer porcelain theme styles', () => {
   it('styles the DeepSeek assistant settings group and actions', () => {
     expect(normalizedStyles).toContain('.assistant-settings__group--deepseek')
     expect(normalizedStyles).toContain('.assistant-settings__actions')
+    expect(normalizedStyles).toContain(
+      '.assistant-settings__group--deepseek .assistant-settings__actions'
+    )
+    expect(normalizedStyles).toContain('grid-template-columns: repeat(3, minmax(0, 1fr));')
     expect(normalizedStyles).toContain('.assistant-settings__actions button:active')
     expect(normalizedStyles).toContain('.assistant-settings__actions button:focus-visible')
     expect(normalizedStyles).toContain('.assistant-settings__deepseek-recommendation')
+    expect(normalizedStyles).toContain('.assistant-settings__copy-button')
+    expect(normalizedStyles).toContain('width: 18px;')
   })
 })

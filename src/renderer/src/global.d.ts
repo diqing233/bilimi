@@ -24,6 +24,7 @@ import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from './feature
 
 type BilimiDesktopApi = {
   version: string
+  closeAssistantPet?: () => void
   closeFloatingAssistant?: () => void
   closeFloatingMenu?: () => void
   ensureFavoriteLedgers?: () => Promise<AssistantAutomationResult>
@@ -80,6 +81,7 @@ type BilimiDesktopApi = {
   startFloatingSealDrag?: (screenX: number, screenY: number) => void
   toggleFloatingAssistant?: () => Promise<void>
   toggleFloatingMenu?: () => Promise<void>
+  wakeAssistantPet?: () => Promise<void>
   testDeepSeekConnection?: () => Promise<DeepSeekConnectionTestResult>
   transcribeCurrentVideoAudio?: (
     request: VideoAudioTranscriptionRequest

@@ -289,6 +289,27 @@ function closeFloatingAssistantWindow() {
   floatingAssistantController.close()
 }
 
+function closeAssistantPetWindow() {
+  closeFloatingMenuWindow()
+  closeFloatingAssistantWindow()
+
+  if (!floatingSealWindow || floatingSealWindow.isDestroyed()) {
+    return
+  }
+
+  floatingSealWindow.close()
+}
+
+function wakeAssistantPetWindow() {
+  if (!floatingSealWindow || floatingSealWindow.isDestroyed()) {
+    createFloatingSealWindow()
+    return
+  }
+
+  floatingSealWindow.show()
+  floatingSealWindow.focus()
+}
+
 function notifyFloatingAssistantSnapshotChanged() {
   const assistant = floatingAssistantController.getWindow()
 
@@ -501,8 +522,14 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle('assistant-pet:restore-main-window', () => {
     restoreMainWindowForPet()
   })
+  ipcMain.on('assistant-pet:close', () => {
+    closeAssistantPetWindow()
+  })
   ipcMain.on('assistant-pet:set-state', (_event, state: AssistantPetState) => {
     setAssistantPetState(state)
+  })
+  ipcMain.handle('assistant-pet:wake', () => {
+    wakeAssistantPetWindow()
   })
   ipcMain.handle('assistant:open-from-floating-seal', () => {
     restoreMainWindowForPet()

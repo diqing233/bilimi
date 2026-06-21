@@ -35,6 +35,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
       kind: 'pet-chat',
       message: 'This page looks worth watching.'
     }),
+    closeAssistantPet: vi.fn(),
     resizeFloatingSealByStep: vi.fn(),
     startFloatingSealDrag: vi.fn(),
     ...overrides
@@ -67,6 +68,17 @@ describe('PalaceMaidPetApp', () => {
       'data-click-reaction-signal',
       '1'
     )
+  })
+
+  it('closes the floating pet from the pet context menu click', () => {
+    const api = installDesktopApi()
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' }))
+
+    expect(api.closeAssistantPet).toHaveBeenCalledOnce()
+    expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
 
   it('renders pet state changes from the desktop shell', () => {

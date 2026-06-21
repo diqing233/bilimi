@@ -1937,6 +1937,43 @@ body[data-floating-window="true"],
   min-height: 32px;
 }
 
+.assistant-settings__pet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.assistant-settings__pet-actions button,
+.assistant-settings__copy-button {
+  border: 1px solid rgba(31, 99, 181, 0.3);
+  background: var(--porcelain-surface);
+  color: var(--porcelain-text);
+  font: inherit;
+  min-height: 28px;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition:
+    transform 120ms ease,
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.assistant-settings__pet-actions button:active,
+.assistant-settings__copy-button:active {
+  transform: translateY(1px);
+  background: rgba(220, 238, 255, 0.92);
+  border-color: rgba(31, 99, 181, 0.48);
+  box-shadow: inset 0 1px 3px rgba(7, 26, 51, 0.14);
+}
+
+.assistant-settings__pet-actions button:focus-visible,
+.assistant-settings__copy-button:focus-visible {
+  outline: 2px solid rgba(45, 134, 199, 0.42);
+  outline-offset: 2px;
+}
+
 .assistant-settings__group--deepseek label {
   display: grid;
   grid-template-columns: minmax(112px, 0.42fr) minmax(0, 1fr);
@@ -1971,6 +2008,11 @@ body[data-floating-window="true"],
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.assistant-settings__group--deepseek .assistant-settings__actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .assistant-settings__actions button {
@@ -2020,6 +2062,54 @@ body[data-floating-window="true"],
   color: var(--porcelain-accent);
   font-weight: 700;
   margin-right: 8px;
+}
+
+.assistant-settings__copy-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.assistant-settings__copy-row span {
+  min-width: 0;
+}
+
+.assistant-settings__copy-button {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+}
+
+.assistant-settings__copy-icon {
+  position: relative;
+  display: block;
+  width: 10px;
+  height: 10px;
+}
+
+.assistant-settings__copy-icon::before,
+.assistant-settings__copy-icon::after {
+  content: '';
+  position: absolute;
+  width: 7px;
+  height: 8px;
+  border: 1.25px solid currentColor;
+  background: rgba(247, 251, 255, 0.95);
+}
+
+.assistant-settings__copy-icon::before {
+  top: 0;
+  left: 2px;
+  opacity: 0.58;
+}
+
+.assistant-settings__copy-icon::after {
+  right: 2px;
+  bottom: 0;
 }
 
 .assistant-dialog {

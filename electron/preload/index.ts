@@ -22,6 +22,7 @@ import type { FavoriteLedgerPreviewItem } from '../../src/renderer/src/features/
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
   version: '0.1.0',
+  closeAssistantPet: () => ipcRenderer.send('assistant-pet:close'),
   closeFloatingAssistant: () => ipcRenderer.send('floating-assistant:close'),
   closeFloatingMenu: () => ipcRenderer.send('floating-menu:close'),
   loadPreferences: () => ipcRenderer.invoke('assistant:load-preferences') as Promise<AssistantPreferences>,
@@ -188,6 +189,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.send('floating-seal:start-drag', screenX, screenY),
   toggleFloatingAssistant: () => ipcRenderer.invoke('floating-assistant:toggle') as Promise<void>,
   toggleFloatingMenu: () => ipcRenderer.invoke('floating-menu:toggle') as Promise<void>,
+  wakeAssistantPet: () => ipcRenderer.invoke('assistant-pet:wake') as Promise<void>,
   testDeepSeekConnection: () =>
     ipcRenderer.invoke('deepseek:test-connection') as Promise<DeepSeekConnectionTestResult>
 })

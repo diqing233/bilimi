@@ -121,8 +121,11 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const executeOldFavoritePlan = vi.fn().mockResolvedValue(createResult('旧藏已归册。'))
   const savePreferences = vi.fn().mockImplementation(async (preferences: AssistantPreferences) => preferences)
   const closeFloatingAssistant = vi.fn()
+  const closeAssistantPet = vi.fn()
+  const wakeAssistantPet = vi.fn().mockResolvedValue(undefined)
   const api = {
     version: '0.1.0',
+    closeAssistantPet,
     closeFloatingAssistant,
     ensureFavoriteLedgers,
     executeOldFavoritePlan,
@@ -145,6 +148,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     deleteVideoNoteArchiveEntry,
     deleteVideoNoteArchiveVersion,
     scanOldFavorites,
+    wakeAssistantPet,
     clearOpenAiApiKey,
     ...overrides
   } satisfies Partial<Window['bilimiDesktop']>
@@ -289,12 +293,14 @@ describe('FloatingAssistantApp', () => {
   })
 
   it('saves the selected pet style from assistant settings', async () => {
-    const { savePreferences } = installDesktopApi()
+    const { closeAssistantPet, savePreferences, wakeAssistantPet } = installDesktopApi()
 
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
     fireEvent.click(screen.getByRole('radio', { name: '高清重置版' }))
+    fireEvent.click(screen.getByRole('button', { name: '唤醒宠物' }))
+    fireEvent.click(screen.getByRole('button', { name: '关闭宠物' }))
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
@@ -303,11 +309,18 @@ describe('FloatingAssistantApp', () => {
         })
       )
     )
+    expect(wakeAssistantPet).toHaveBeenCalledOnce()
+    expect(closeAssistantPet).toHaveBeenCalledOnce()
   })
 
   it('saves and tests DeepSeek assistant settings', async () => {
     const { clearDeepSeekApiKey, saveDeepSeekApiKey, savePreferences, testDeepSeekConnection } =
       installDesktopApi()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText }
+    })
 
     render(<FloatingAssistantApp />)
 
@@ -325,6 +338,15 @@ describe('FloatingAssistantApp', () => {
     expect(
       screen.getByText('开启后可使用批阅的拟奏短评、札记中的一图流总结、宠物对话功能。')
     ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '复制推荐模型' }))
+    expect(screen.getByRole('button', { name: '复制推荐模型' }).querySelector('.assistant-settings__copy-icon')).toBeInTheDocument()
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('deepseek-v4-pro'))
+    expect(await screen.findByRole('status')).toHaveTextContent('已复制推荐模型。')
+
+    fireEvent.click(screen.getByRole('button', { name: '复制服务器地址' }))
+    expect(screen.getByRole('button', { name: '复制服务器地址' }).querySelector('.assistant-settings__copy-icon')).toBeInTheDocument()
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://api.yunshulink.com/v1'))
+    expect(await screen.findByRole('status')).toHaveTextContent('已复制服务器地址。')
 
     const enabled = screen.getByRole('checkbox', { name: '启用 DeepSeek' })
     fireEvent.click(enabled)

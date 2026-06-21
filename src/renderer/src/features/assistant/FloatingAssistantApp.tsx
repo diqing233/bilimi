@@ -257,6 +257,14 @@ export function FloatingAssistantApp({
     })
   }
 
+  function wakeAssistantPet() {
+    void window.bilimiDesktop?.wakeAssistantPet?.()
+  }
+
+  function closeAssistantPet() {
+    window.bilimiDesktop?.closeAssistantPet?.()
+  }
+
   function updateDeepSeekPreference(patch: Partial<AssistantPreferences>) {
     setPreferences((current) => ({
       ...current,
@@ -298,6 +306,15 @@ export function FloatingAssistantApp({
     await window.bilimiDesktop?.clearDeepSeekApiKey?.()
     await persistPreferences(nextPreferences)
     setDeepSeekStatusMessage('DeepSeek 设置已重置。')
+  }
+
+  async function copyDeepSeekRecommendation(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value)
+      setDeepSeekStatusMessage(`已复制${label}。`)
+    } catch {
+      setDeepSeekStatusMessage(`${label}复制失败，请手动复制。`)
+    }
   }
 
   async function persistFeedback(action: AssistantAction, kind: RecommendationKind) {
@@ -582,6 +599,14 @@ export function FloatingAssistantApp({
                 />
                 <span>高清重置版</span>
               </label>
+              <div className="assistant-settings__pet-actions">
+                <button type="button" onClick={wakeAssistantPet}>
+                  唤醒宠物
+                </button>
+                <button type="button" onClick={closeAssistantPet}>
+                  关闭宠物
+                </button>
+              </div>
             </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--deepseek">
               <legend>DeepSeek</legend>
@@ -647,8 +672,33 @@ export function FloatingAssistantApp({
                   <span>官网 DeepSeek 价格 3 折起</span>
                 </p>
                 <p>API 密钥：创建令牌后，令牌分组请选择 deepseek（限时特价），复制密钥到这里使用。</p>
-                <p>推荐模型：deepseek-v4-pro</p>
-                <p>服务器地址：https://api.yunshulink.com/v1</p>
+                <p className="assistant-settings__copy-row">
+                  <span>推荐模型：deepseek-v4-pro</span>
+                  <button
+                    className="assistant-settings__copy-button"
+                    type="button"
+                    aria-label="复制推荐模型"
+                    onClick={() => void copyDeepSeekRecommendation('deepseek-v4-pro', '推荐模型')}
+                  >
+                    <span className="assistant-settings__copy-icon" aria-hidden="true" />
+                  </button>
+                </p>
+                <p className="assistant-settings__copy-row">
+                  <span>服务器地址：https://api.yunshulink.com/v1</span>
+                  <button
+                    className="assistant-settings__copy-button"
+                    type="button"
+                    aria-label="复制服务器地址"
+                    onClick={() =>
+                      void copyDeepSeekRecommendation(
+                        'https://api.yunshulink.com/v1',
+                        '服务器地址'
+                      )
+                    }
+                  >
+                    <span className="assistant-settings__copy-icon" aria-hidden="true" />
+                  </button>
+                </p>
               </aside>
               {deepSeekStatusMessage ? <p role="status">{deepSeekStatusMessage}</p> : null}
             </fieldset>

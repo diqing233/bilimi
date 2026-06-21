@@ -211,6 +211,12 @@ export function PalaceMaidPetApp() {
 
           restoreMainWindow()
         }}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          dragState.current = null
+          setPressed(false)
+          window.bilimiDesktop?.closeAssistantPet?.()
+        }}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture?.(event.pointerId)
           startDrag(event.clientX, event.clientY, event.screenX, event.screenY)
