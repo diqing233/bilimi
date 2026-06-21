@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import { FloatingAssistantApp } from './FloatingAssistantApp'
 
@@ -7,6 +7,12 @@ type AssistantSidebarTab = 'review' | 'notes' | 'ledger' | 'settings'
 export function AssistantSidebar() {
   const [collapsed, setCollapsed] = useState(false)
   const [activeTab, setActiveTab] = useState<AssistantSidebarTab>('review')
+
+  useEffect(() => {
+    return window.bilimiDesktop?.onOpenAssistant?.(() => {
+      setCollapsed(false)
+    })
+  }, [])
 
   return (
     <aside

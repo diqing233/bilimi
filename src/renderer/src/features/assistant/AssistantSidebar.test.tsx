@@ -1,18 +1,27 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { AssistantSidebar } from './AssistantSidebar'
 
 function installDesktopApi() {
+  let openAssistantCallback: (() => void) | undefined
   Object.defineProperty(window, 'bilimiDesktop', {
     configurable: true,
     value: {
       version: '0.1.0',
       loadPreferences: vi.fn(),
+      onOpenAssistant: vi.fn((callback) => {
+        openAssistantCallback = callback
+        return vi.fn()
+      }),
       onAssistantSnapshotChanged: vi.fn(),
       requestAssistantSnapshot: vi.fn().mockResolvedValue(undefined),
       savePreferences: vi.fn()
     }
   })
+
+  return {
+    openAssistant: () => openAssistantCallback?.()
+  }
 }
 
 describe('AssistantSidebar', () => {
@@ -66,6 +75,29 @@ describe('AssistantSidebar', () => {
     expect(await screen.findByRole('tab', { name: '批阅' })).toHaveAttribute(
       'aria-selected',
       'true'
+    )
+  })
+
+  it('expands the sidebar when the floating pet asks to open the assistant', async () => {
+    const api = installDesktopApi()
+
+    render(<AssistantSidebar />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '折叠侧边栏' }))
+
+    expect(screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })).toHaveAttribute(
+      'data-collapsed',
+      'true'
+    )
+
+    act(() => {
+      api.openAssistant()
+    })
+
+    expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })).toHaveAttribute(
+      'data-collapsed',
+      'false'
     )
   })
 })

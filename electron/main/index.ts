@@ -20,6 +20,7 @@ import {
 } from './store'
 import { requestAssistantRuntimeWhenReady } from './assistantRuntimeSignal'
 import { sendAssistantSnapshotChangedWhenReady } from './assistantSnapshotSignal'
+import { sendAssistantOpenWhenReady } from './assistantOpenSignal'
 import { FloatingMenuController } from './floatingMenuController'
 import { FloatingSealDragController } from './floatingSealDragController'
 import { createMainWindowOptions } from './mainWindowOptions'
@@ -385,6 +386,7 @@ function restoreMainWindowForPet() {
     createMainWindow,
     mainWindow
   })
+  sendAssistantOpenWhenReady(mainWindow)
 }
 
 let assistantRuntimeRequestIndex = 0

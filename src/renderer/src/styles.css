@@ -458,6 +458,27 @@ body[data-floating-window="true"],
   overflow: auto;
 }
 
+.palace-maid-pet__close-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--floating-pet-size) * 0.1);
+  z-index: 5;
+  transform: translateX(-50%);
+  border: 1px solid rgba(31, 99, 181, 0.32);
+  border-radius: 999px;
+  background: rgba(247, 251, 255, 0.96);
+  color: var(--porcelain-text);
+  font: 12px "Noto Serif SC", "Songti SC", "SimSun", serif;
+  padding: 5px 10px;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(7, 26, 51, 0.18);
+}
+
+.palace-maid-pet__close-prompt:active {
+  transform: translateX(-50%) translateY(1px);
+  background: rgba(220, 238, 255, 0.96);
+}
+
 .palace-maid-pet__bubble strong {
   font-size: 12px;
   line-height: 1.2;

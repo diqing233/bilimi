@@ -30,6 +30,7 @@ export function PalaceMaidPetApp() {
   const [chatMessages, setChatMessages] = useState<DeepSeekChatMessage[]>([])
   const [chatBusy, setChatBusy] = useState(false)
   const [chatError, setChatError] = useState('')
+  const [closePromptVisible, setClosePromptVisible] = useState(false)
   const stateView = createPetStateView(petState)
 
   useEffect(() => {
@@ -149,9 +150,21 @@ export function PalaceMaidPetApp() {
   }
 
   function restoreMainWindow() {
+    setClosePromptVisible(false)
     setClickReactionSignal((signal) => signal + 1)
     setPetState('hint')
     void window.bilimiDesktop?.restoreMainWindowFromPet?.()
+  }
+
+  function showClosePrompt() {
+    dragState.current = null
+    setPressed(false)
+    setClosePromptVisible(true)
+  }
+
+  function closePetFromPrompt() {
+    setClosePromptVisible(false)
+    window.bilimiDesktop?.closeAssistantPet?.()
   }
 
   async function submitChatMessage(event: FormEvent<HTMLFormElement>) {
@@ -213,9 +226,7 @@ export function PalaceMaidPetApp() {
         }}
         onContextMenu={(event) => {
           event.preventDefault()
-          dragState.current = null
-          setPressed(false)
-          window.bilimiDesktop?.closeAssistantPet?.()
+          showClosePrompt()
         }}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture?.(event.pointerId)
@@ -246,6 +257,15 @@ export function PalaceMaidPetApp() {
           petStyle={petStyle}
         />
       </button>
+      {closePromptVisible ? (
+        <button
+          className="palace-maid-pet__close-prompt"
+          type="button"
+          onClick={closePetFromPrompt}
+        >
+          关闭宠物
+        </button>
+      ) : null}
       <span className="palace-maid-pet__bubble" data-chat-open={chatOpen ? 'true' : 'false'}>
         <button
           className="palace-maid-pet__bubble-toggle"

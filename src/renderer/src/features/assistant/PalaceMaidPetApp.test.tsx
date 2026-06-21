@@ -70,12 +70,17 @@ describe('PalaceMaidPetApp', () => {
     )
   })
 
-  it('closes the floating pet from the pet context menu click', () => {
+  it('shows a close prompt on right click and closes after the prompt is clicked', () => {
     const api = installDesktopApi()
 
     render(<PalaceMaidPetApp />)
 
     fireEvent.contextMenu(screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' }))
+
+    expect(api.closeAssistantPet).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '关闭宠物' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '关闭宠物' }))
 
     expect(api.closeAssistantPet).toHaveBeenCalledOnce()
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
