@@ -17,7 +17,11 @@ function createPreferences(): AssistantPreferences {
     favoriteLedgers: createDefaultFavoriteLedgers(),
     ledgerPromptDismissed: true,
     preferenceCounts: {},
-    petStyle: 'big-head'
+    petStyle: 'big-head',
+    deepseekEnabled: false,
+    deepseekApiKeyStored: false,
+    deepseekModel: 'deepseek-v4-flash',
+    deepseekBaseUrl: 'https://api.deepseek.com'
   }
 }
 
@@ -77,11 +81,30 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const runAssistantAction = vi.fn().mockResolvedValue(createResult('动作已完成。'))
   const generateVideoNote = vi.fn().mockResolvedValue(null)
   const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(null)
+  const generateDeepSeek = vi.fn().mockImplementation(async (request) =>
+    request.kind === 'note-poster'
+      ? {
+          kind: 'note-poster',
+          poster: {
+            title: 'Learning Machine Models',
+            subtitle: 'Compact study poster',
+            keyPoints: ['Data quality matters'],
+            keywords: ['AI'],
+            prompt: 'clean poster'
+          }
+        }
+      : {
+          kind: 'review-comment',
+          comments: ['AI comment one', 'AI comment two', 'AI comment three']
+        }
+  )
   const saveVideoNote = vi.fn().mockResolvedValue([])
   const saveVideoNoteArchiveVersion = vi.fn().mockResolvedValue([])
   const loadVideoNoteArchives = vi.fn().mockResolvedValue([])
   const deleteVideoNoteArchiveEntry = vi.fn().mockResolvedValue([])
   const deleteVideoNoteArchiveVersion = vi.fn().mockResolvedValue([])
+  const saveDeepSeekApiKey = vi.fn().mockResolvedValue({ configured: true })
+  const testDeepSeekConnection = vi.fn().mockResolvedValue({ ok: true, message: 'DeepSeek OK' })
   const loadOpenAiApiKeyStatus = vi.fn().mockResolvedValue({ configured: true })
   const saveOpenAiApiKey = vi.fn().mockResolvedValue({ configured: true })
   const clearOpenAiApiKey = vi.fn().mockResolvedValue({ configured: false })
@@ -99,8 +122,11 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     closeFloatingAssistant,
     ensureFavoriteLedgers,
     executeOldFavoritePlan,
+    generateDeepSeek,
     generateVideoNote,
     generateVideoNoteFromAudio,
+    saveDeepSeekApiKey,
+    testDeepSeekConnection,
     loadOpenAiApiKeyStatus,
     loadPreferences: vi.fn(),
     onAssistantSnapshotChanged,
@@ -179,19 +205,57 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /表.*拟奏短评/ }))
 
-    expect(screen.getByText('臣已拟好三条，请陛下择其一。')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Comment intent'), {
+      target: { value: 'share a courtly note' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Generate comments' }))
 
-    const draftButton = screen.getAllByRole('button').find((button) =>
-      button.textContent?.includes('御览')
-    )
-    expect(draftButton).toBeTruthy()
-    fireEvent.click(draftButton!)
+    expect(await screen.findByText('AI comment one')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'AI comment one' }))
 
     await waitFor(() =>
       expect(runAssistantAction).toHaveBeenCalledWith(
         '表',
         expect.objectContaining({
-          commentDraft: expect.stringContaining('御览'),
+          commentDraft: 'AI comment one',
+          pageClickOnly: true
+        })
+      )
+    )
+  })
+
+  it('asks for comment intent and sends the selected AI comment draft', async () => {
+    const { generateDeepSeek, runAssistantAction } = installDesktopApi()
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByTestId('review-action-comment'))
+
+    expect(screen.getByLabelText('Comment intent')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Comment intent'), {
+      target: { value: 'praise technical detail' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Generate comments' }))
+
+    await waitFor(() =>
+      expect(generateDeepSeek).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'review-comment',
+          intent: 'praise technical detail'
+        })
+      )
+    )
+    expect(await screen.findByText('AI comment one')).toBeInTheDocument()
+    expect(screen.getByText('AI comment two')).toBeInTheDocument()
+    expect(screen.getByText('AI comment three')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'AI comment two' }))
+
+    await waitFor(() =>
+      expect(runAssistantAction).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          commentDraft: 'AI comment two',
           pageClickOnly: true
         })
       )
@@ -234,6 +298,45 @@ describe('FloatingAssistantApp', () => {
         })
       )
     )
+  })
+
+  it('saves and tests DeepSeek assistant settings', async () => {
+    const { saveDeepSeekApiKey, savePreferences, testDeepSeekConnection } = installDesktopApi()
+
+    render(<FloatingAssistantApp />)
+
+    await screen.findAllByRole('tab')
+    fireEvent.click(screen.getAllByRole('tab')[3])
+
+    const enabled = screen.getByRole('checkbox', { name: 'Enable DeepSeek' })
+    fireEvent.click(enabled)
+    fireEvent.change(screen.getByLabelText('DeepSeek API Key'), {
+      target: { value: 'sk-test' }
+    })
+    fireEvent.change(screen.getByLabelText('DeepSeek Model'), {
+      target: { value: 'deepseek-chat' }
+    })
+    fireEvent.change(screen.getByLabelText('DeepSeek Base URL'), {
+      target: { value: 'https://api.deepseek.local' }
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save DeepSeek' }))
+
+    await waitFor(() => expect(saveDeepSeekApiKey).toHaveBeenCalledWith('sk-test'))
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deepseekEnabled: true,
+          deepseekModel: 'deepseek-chat',
+          deepseekBaseUrl: 'https://api.deepseek.local'
+        })
+      )
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test DeepSeek' }))
+
+    await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledOnce())
+    expect(await screen.findByRole('status')).toHaveTextContent('DeepSeek OK')
   })
 
   it('refreshes the displayed video when the main window reports a snapshot change', async () => {

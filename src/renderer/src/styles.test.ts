@@ -187,4 +187,9 @@ describe('renderer porcelain theme styles', () => {
       '.video-notes {\n  color: var(--porcelain-text);\n  display: grid;\n  align-content: start;\n  gap: 8px;'
     )
   })
+
+  it('styles the DeepSeek assistant settings group and actions', () => {
+    expect(normalizedStyles).toContain('.assistant-settings__group--deepseek')
+    expect(normalizedStyles).toContain('.assistant-settings__actions')
+  })
 })

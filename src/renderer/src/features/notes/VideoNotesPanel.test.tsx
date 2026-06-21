@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { VideoNote } from '@shared/types'
+import type { NotePosterSummary, VideoNote } from '@shared/types'
 import { VideoNotesPanel } from './VideoNotesPanel'
 
 const sampleNote: VideoNote = {
@@ -154,6 +154,39 @@ describe('VideoNotesPanel', () => {
     expect(screen.getByText('训练数据')).toBeInTheDocument()
     expect(screen.getByText('核心提示')).toBeInTheDocument()
     expect(screen.getByText('训练数据决定模型上限。')).toBeInTheDocument()
+  })
+
+  it('generates a one-image poster preview from the summary tab', async () => {
+    const poster: NotePosterSummary = {
+      title: 'Learning Machine Models',
+      subtitle: 'Compact study poster',
+      keyPoints: ['Data quality matters', 'Models need examples'],
+      keywords: ['AI', 'notes'],
+      prompt: 'clean poster'
+    }
+    const onGeneratePoster = vi.fn().mockResolvedValue(poster)
+
+    render(
+      <VideoNotesPanel
+        note={sampleNote}
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+        onGeneratePoster={onGeneratePoster}
+      />
+    )
+
+    fireEvent.click(screen.getAllByRole('tab')[2])
+    fireEvent.click(screen.getByRole('button', { name: 'Generate one-image summary' }))
+
+    await waitFor(() => expect(onGeneratePoster).toHaveBeenCalledWith(sampleNote))
+    expect(
+      await screen.findByRole('region', { name: 'One-image poster preview' })
+    ).toHaveTextContent('Learning Machine Models')
+    expect(screen.getByRole('link', { name: 'Save image' })).toHaveAttribute(
+      'href',
+      expect.stringContaining('data:image/svg+xml;charset=utf-8,')
+    )
   })
 
   it('shows transcript segments with formatted timestamps', () => {

@@ -1,6 +1,7 @@
 import type {
   AssistantAction,
   RecommendationLabel,
+  NotePosterSummary,
   VideoAudioTranscriptionProgress,
   VideoNote
 } from '@shared/types'
@@ -22,6 +23,7 @@ type MemorialPanelProps = {
   onClose: () => void
   onGenerateVideoNote: () => Promise<VideoNote | null>
   onTranscribeVideoAudio?: () => Promise<VideoNote | null>
+  onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
   onSaveVideoNote: (note: VideoNote) => Promise<void>
   onChangeVideoNote?: (note: VideoNote) => void
   onGetCurrentVideoTime?: () => Promise<number>
@@ -48,6 +50,7 @@ type MemorialPanelProps = {
 
 const ACTIONS: Array<{
   action: AssistantAction
+  testId: string
   label: string
   description: string
   icon: string
@@ -57,6 +60,7 @@ const ACTIONS: Array<{
     action: '赏',
     label: '轻赏此条',
     description: '点赞并归入当前 Bilimi 分册',
+    testId: 'review-action-like',
     icon: clickedPetUrl,
     iconAlt: '小mi轻赏'
   },
@@ -64,6 +68,7 @@ const ACTIONS: Array<{
     action: '藏',
     label: '归入内库',
     description: '只收藏到 Bilimi 分册',
+    testId: 'review-action-favorite',
     icon: idlePetUrl,
     iconAlt: '小mi归库'
   },
@@ -71,6 +76,7 @@ const ACTIONS: Array<{
     action: '赐',
     label: '投币厚赏',
     description: '点赞、收藏，并先询问投币数量',
+    testId: 'review-action-coin',
     icon: workingPetUrl,
     iconAlt: '小mi厚赏'
   },
@@ -78,6 +84,7 @@ const ACTIONS: Array<{
     action: '表',
     label: '拟奏短评',
     description: '从三条候选评论中择一发送',
+    testId: 'review-action-comment',
     icon: hintPetUrl,
     iconAlt: '小mi短评'
   }
@@ -92,6 +99,7 @@ export function MemorialPanel({
   onClose,
   onGenerateVideoNote,
   onTranscribeVideoAudio,
+  onGeneratePoster,
   onSaveVideoNote,
   onChangeVideoNote,
   onGetCurrentVideoTime,
@@ -148,11 +156,12 @@ export function MemorialPanel({
               <p>签语：{recommendation.badge}</p>
             </aside>
             <div className="memorial-panel__actions" role="group" aria-label="批阅动作">
-              {ACTIONS.map(({ action, label, description, icon, iconAlt }) => (
+              {ACTIONS.map(({ action, testId, label, description, icon, iconAlt }) => (
                 <button
                   key={action}
                   type="button"
                   className="memorial-panel__action"
+                  data-testid={testId}
                   disabled={actionsLocked}
                   aria-label={`${action} ${label} ${description}`}
                   aria-busy={runningAction === action}
@@ -185,6 +194,7 @@ export function MemorialPanel({
             isLoading={videoNoteLoading}
             onGenerate={onGenerateVideoNote}
             onTranscribeAudio={onTranscribeVideoAudio}
+            onGeneratePoster={onGeneratePoster}
             onSave={onSaveVideoNote}
             onChange={onChangeVideoNote}
             onGetCurrentTime={onGetCurrentVideoTime}

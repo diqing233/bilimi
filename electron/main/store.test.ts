@@ -4,9 +4,12 @@ import {
   loadVideoNotes,
   loadVideoNoteArchives,
   loadAssistantPreferences,
+  loadDeepSeekApiKeyStatus,
   saveVideoNoteArchiveVersion,
   deleteVideoNoteArchiveEntry,
   deleteVideoNoteArchiveVersion,
+  clearDeepSeekApiKey,
+  saveDeepSeekApiKey,
   saveVideoNote,
   saveAssistantPreferences,
   type DesktopStoreState,
@@ -49,6 +52,12 @@ function createFakeStore(
       initial.ledgerPromptDismissed ?? DEFAULT_ASSISTANT_PREFERENCES.ledgerPromptDismissed,
     petStyle: initial.petStyle ?? DEFAULT_ASSISTANT_PREFERENCES.petStyle,
     preferenceCounts: initial.preferenceCounts ?? { ...DEFAULT_ASSISTANT_PREFERENCES.preferenceCounts },
+    deepseekEnabled: initial.deepseekEnabled ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekEnabled,
+    deepseekApiKeyStored:
+      initial.deepseekApiKeyStored ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekApiKeyStored,
+    deepseekModel: initial.deepseekModel ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
+    deepseekBaseUrl: initial.deepseekBaseUrl ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl,
+    deepseekApiKey: initial.deepseekApiKey ?? '',
     videoNotes: initial.videoNotes ?? [],
     videoNoteArchives: initial.videoNoteArchives ?? []
   }
@@ -121,7 +130,11 @@ describe('assistant preference store helpers', () => {
       preferenceCounts: {
         story: 4,
         suspicious: 1
-      }
+      },
+      deepseekEnabled: true,
+      deepseekApiKeyStored: false,
+      deepseekModel: 'deepseek-reasoner',
+      deepseekBaseUrl: 'https://deepseek.example'
     })
 
     expect(saved).toMatchObject({
@@ -131,10 +144,48 @@ describe('assistant preference store helpers', () => {
       preferenceCounts: {
         story: 4,
         suspicious: 1
-      }
+      },
+      deepseekEnabled: true,
+      deepseekModel: 'deepseek-reasoner',
+      deepseekBaseUrl: 'https://deepseek.example'
     })
     expect(store.snapshot).toMatchObject(saved)
     expect(store.snapshot.videoNotes).toEqual([])
+  })
+
+  it('persists DeepSeek settings and keeps the key out of assistant preferences', () => {
+    const store = createFakeStore()
+
+    const saved = saveAssistantPreferences(store, {
+      ...DEFAULT_ASSISTANT_PREFERENCES,
+      deepseekEnabled: true,
+      deepseekModel: 'deepseek-chat',
+      deepseekBaseUrl: 'https://api.deepseek.local'
+    })
+
+    expect(saved).toMatchObject({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: false,
+      deepseekModel: 'deepseek-chat',
+      deepseekBaseUrl: 'https://api.deepseek.local'
+    })
+    expect(store.snapshot.deepseekApiKey).toBe('')
+  })
+
+  it('saves and clears the DeepSeek API key status', () => {
+    const store = createFakeStore()
+
+    expect(loadDeepSeekApiKeyStatus(store)).toEqual({ configured: false })
+    expect(saveDeepSeekApiKey(store, 'sk-test')).toEqual({ configured: true })
+    expect(loadDeepSeekApiKeyStatus(store)).toEqual({ configured: true })
+    expect(clearDeepSeekApiKey(store)).toEqual({ configured: false })
+    expect(loadDeepSeekApiKeyStatus(store)).toEqual({ configured: false })
+  })
+
+  it('reflects DeepSeek API key presence in loaded assistant preferences', () => {
+    const store = createFakeStore({ deepseekApiKey: 'sk-test' })
+
+    expect(loadAssistantPreferences(store).deepseekApiKeyStored).toBe(true)
   })
 })
 

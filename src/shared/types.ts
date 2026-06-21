@@ -60,6 +60,10 @@ export type AssistantPreferences = {
   ledgerPromptDismissed: boolean
   petStyle: 'big-head' | 'classic'
   preferenceCounts: Record<string, number>
+  deepseekEnabled: boolean
+  deepseekApiKeyStored: boolean
+  deepseekModel: string
+  deepseekBaseUrl: string
 }
 
 export type AssistantAutomationResult = {
@@ -142,6 +146,49 @@ export type VideoNote = {
   createdAt: string
   updatedAt: string
 }
+
+export type DeepSeekErrorCode =
+  | 'not-configured'
+  | 'network-error'
+  | 'api-error'
+  | 'invalid-output'
+  | 'unknown'
+
+export type DeepSeekChatMessage = { role: 'user' | 'assistant'; content: string }
+
+export type NotePosterSummary = {
+  title: string
+  subtitle: string
+  keyPoints: string[]
+  keywords: string[]
+  prompt: string
+}
+
+export type DeepSeekGenerateRequest =
+  | {
+      kind: 'review-comment'
+      intent: string
+      title: string
+      author?: string
+      description?: string
+      tags: string[]
+      classification: string
+    }
+  | { kind: 'note-poster'; note: VideoNote }
+  | {
+      kind: 'pet-chat'
+      messages: DeepSeekChatMessage[]
+      context?: { title?: string; pageText?: string }
+    }
+
+export type DeepSeekGenerateResult =
+  | { kind: 'review-comment'; comments: string[] }
+  | { kind: 'note-poster'; poster: NotePosterSummary }
+  | { kind: 'pet-chat'; message: string }
+
+export type DeepSeekKeyStatus = { configured: boolean }
+
+export type DeepSeekConnectionTestResult = { ok: boolean; message: string }
 
 export type VideoNoteArchiveVersion = {
   id: string

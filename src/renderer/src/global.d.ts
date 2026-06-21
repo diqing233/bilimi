@@ -1,6 +1,10 @@
 import type {
   AssistantAction,
   AssistantAutomationResult,
+  DeepSeekConnectionTestResult,
+  DeepSeekGenerateRequest,
+  DeepSeekGenerateResult,
+  DeepSeekKeyStatus,
   AssistantPreferences,
   FavoriteLedgerStatus,
   VideoAudioTranscriptionProgress,
@@ -25,12 +29,14 @@ type BilimiDesktopApi = {
   ensureFavoriteLedgers?: () => Promise<AssistantAutomationResult>
   executeOldFavoritePlan?: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
   finishFloatingSealDrag?: () => void
+  generateDeepSeek?: (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
   generateVideoNote?: (manualTranscript?: string) => Promise<VideoNote | null>
   generateVideoNoteFromAudio?: () => Promise<VideoNote | null>
   getCurrentVideoTime?: () => Promise<number>
   loadPreferences: () => Promise<AssistantPreferences>
   loadVideoNotes?: () => Promise<VideoNote[]>
   loadVideoNoteArchives?: () => Promise<VideoNoteArchiveEntry[]>
+  loadDeepSeekApiKeyStatus?: () => Promise<DeepSeekKeyStatus>
   moveFloatingSealBy?: (deltaX: number, deltaY: number) => Promise<void>
   moveFloatingSealTo?: (screenX: number, screenY: number) => void
   notifyAssistantSnapshotChanged?: () => void
@@ -60,6 +66,7 @@ type BilimiDesktopApi = {
   ) => Promise<void>
   scanOldFavorites?: () => Promise<FavoriteLedgerPreview>
   savePreferences: (preferences: AssistantPreferences) => Promise<AssistantPreferences>
+  saveDeepSeekApiKey?: (apiKey: string) => Promise<DeepSeekKeyStatus>
   saveVideoNote?: (note: VideoNote) => Promise<VideoNote[]>
   saveVideoNoteArchiveVersion?: (note: VideoNote) => Promise<VideoNoteArchiveEntry[]>
   deleteVideoNoteArchiveEntry?: (archiveId: string) => Promise<VideoNoteArchiveEntry[]>
@@ -67,11 +74,13 @@ type BilimiDesktopApi = {
     archiveId: string,
     versionId: string
   ) => Promise<VideoNoteArchiveEntry[]>
+  clearDeepSeekApiKey?: () => Promise<DeepSeekKeyStatus>
   seekVideoTime?: (seconds: number) => Promise<boolean>
   setAssistantPetState?: (state: AssistantPetState) => void
   startFloatingSealDrag?: (screenX: number, screenY: number) => void
   toggleFloatingAssistant?: () => Promise<void>
   toggleFloatingMenu?: () => Promise<void>
+  testDeepSeekConnection?: () => Promise<DeepSeekConnectionTestResult>
   transcribeCurrentVideoAudio?: (
     request: VideoAudioTranscriptionRequest
   ) => Promise<VideoAudioTranscriptionResult>

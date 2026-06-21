@@ -69,4 +69,25 @@ describe('assistant state', () => {
       'big-head'
     )
   })
+
+  it('creates disabled DeepSeek preferences by default', () => {
+    expect(createInitialAssistantPreferences()).toMatchObject({
+      deepseekEnabled: false,
+      deepseekApiKeyStored: false,
+      deepseekModel: 'deepseek-v4-flash',
+      deepseekBaseUrl: 'https://api.deepseek.com'
+    })
+  })
+
+  it('normalizes invalid persisted DeepSeek preference values', () => {
+    expect(
+      createInitialAssistantPreferences({
+        deepseekModel: '',
+        deepseekBaseUrl: 'bad-url'
+      } as Partial<ReturnType<typeof createInitialAssistantPreferences>>)
+    ).toMatchObject({
+      deepseekModel: 'deepseek-v4-flash',
+      deepseekBaseUrl: 'https://api.deepseek.com'
+    })
+  })
 })

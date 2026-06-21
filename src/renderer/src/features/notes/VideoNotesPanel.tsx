@@ -1,7 +1,13 @@
 import { useLayoutEffect, useMemo, useState } from 'react'
-import type { VideoAudioTranscriptionProgress, VideoNote, VideoNoteAnnotation } from '@shared/types'
+import type {
+  NotePosterSummary,
+  VideoAudioTranscriptionProgress,
+  VideoNote,
+  VideoNoteAnnotation
+} from '@shared/types'
 import { createPlainTranscriptText, createSummaryText } from '@shared/videoNoteArchive'
 import { createVideoNoteMarkdown } from './videoNoteMarkdown'
+import { createPosterSvgDataUrl, normalizePosterSummary } from './notePoster'
 import {
   removeVideoNoteAnnotation,
   saveVideoNoteAnnotation,
@@ -18,6 +24,7 @@ type VideoNotesPanelProps = {
   onGetCurrentTime?: () => Promise<number>
   onSeekToTime?: (seconds: number) => Promise<boolean>
   onTranscribeAudio?: () => Promise<VideoNote | null>
+  onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
   onOpenArchive?: () => void
   transcriptionProgress?: VideoAudioTranscriptionProgress | null
 }
@@ -60,6 +67,7 @@ export function VideoNotesPanel({
   onGetCurrentTime,
   onSeekToTime,
   onTranscribeAudio,
+  onGeneratePoster,
   onOpenArchive,
   transcriptionProgress = null
 }: VideoNotesPanelProps): React.JSX.Element {
@@ -75,10 +83,16 @@ export function VideoNotesPanel({
   const [annotationStart, setAnnotationStart] = useState<number | null>(null)
   const [annotationTitle, setAnnotationTitle] = useState('')
   const [annotationBody, setAnnotationBody] = useState('')
+  const [posterSummary, setPosterSummary] = useState<NotePosterSummary | null>(null)
+  const [posterGenerating, setPosterGenerating] = useState(false)
   const generationBusy = isLoading || localGenerating || transcribingAudio
   const markdown = useMemo(() => (note ? createVideoNoteMarkdown(note) : ''), [note])
   const plainTranscript = useMemo(() => (note ? createPlainTranscriptText(note) : ''), [note])
   const summaryText = useMemo(() => (note ? createSummaryText(note) : ''), [note])
+  const posterDataUrl = useMemo(
+    () => (posterSummary ? createPosterSvgDataUrl(posterSummary) : ''),
+    [posterSummary]
+  )
   const sortedAnnotations = useMemo(
     () => sortVideoNoteAnnotations(note?.annotations ?? []),
     [note?.annotations]
@@ -161,6 +175,25 @@ export function VideoNotesPanel({
       setErrorMessage(error instanceof Error ? error.message : '保存札记时遇到未知差错。')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleGeneratePoster(): Promise<void> {
+    if (!note || !onGeneratePoster || posterGenerating) {
+      return
+    }
+
+    setPosterGenerating(true)
+    setStatusMessage('')
+    setErrorMessage('')
+
+    try {
+      const summary = await onGeneratePoster(note)
+      setPosterSummary(normalizePosterSummary(summary))
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Poster generation failed.')
+    } finally {
+      setPosterGenerating(false)
     }
   }
 
@@ -561,6 +594,32 @@ export function VideoNotesPanel({
               ))}
             </ol>
           ) : null}
+          <section className="video-notes__poster" aria-label="One-image poster preview">
+            <div className="video-notes__panel-header">
+              <strong>One-image poster preview</strong>
+              <button
+                type="button"
+                disabled={!onGeneratePoster || posterGenerating}
+                onClick={() => void handleGeneratePoster()}
+              >
+                {posterGenerating ? 'Generating...' : 'Generate one-image summary'}
+              </button>
+            </div>
+            {posterSummary ? (
+              <div>
+                <h4>{posterSummary.title}</h4>
+                <p>{posterSummary.subtitle}</p>
+                <ul>
+                  {posterSummary.keyPoints.map((point) => (
+                    <li key={point}>{point}</li>
+                  ))}
+                </ul>
+                <a href={posterDataUrl} download="bilimi-note-poster.svg">
+                  Save image
+                </a>
+              </div>
+            ) : null}
+          </section>
         </div>
       )}
 

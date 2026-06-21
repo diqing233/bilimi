@@ -1,6 +1,9 @@
 import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '@shared/favoriteLedgers'
 import type { AssistantAction, AssistantPreferences, RecommendationKind } from '@shared/types'
 
+const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash'
+const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
+
 export type AssistantState = {
   lastAction: AssistantAction | null
   preferenceCounts: Record<RecommendationKind, number>
@@ -22,6 +25,25 @@ export function normalizePetStyle(value: unknown): AssistantPreferences['petStyl
   return value === 'classic' ? 'classic' : 'big-head'
 }
 
+function normalizeDeepSeekModel(value: unknown): string {
+  return typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_DEEPSEEK_MODEL
+}
+
+function normalizeDeepSeekBaseUrl(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    return DEFAULT_DEEPSEEK_BASE_URL
+  }
+
+  try {
+    const url = new URL(value.trim())
+    return url.protocol === 'http:' || url.protocol === 'https:'
+      ? url.toString().replace(/\/$/, '')
+      : DEFAULT_DEEPSEEK_BASE_URL
+  } catch {
+    return DEFAULT_DEEPSEEK_BASE_URL
+  }
+}
+
 export function createInitialAssistantState(): AssistantState {
   return {
     lastAction: null,
@@ -40,7 +62,11 @@ export function createInitialAssistantPreferences(
     preferenceCounts: {
       ...createEmptyPreferenceCounts(),
       ...persisted?.preferenceCounts
-    }
+    },
+    deepseekEnabled: Boolean(persisted?.deepseekEnabled),
+    deepseekApiKeyStored: Boolean(persisted?.deepseekApiKeyStored),
+    deepseekModel: normalizeDeepSeekModel(persisted?.deepseekModel),
+    deepseekBaseUrl: normalizeDeepSeekBaseUrl(persisted?.deepseekBaseUrl)
   }
 }
 
