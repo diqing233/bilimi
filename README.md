@@ -48,9 +48,9 @@ The assistant persona is Xiao Mi: `我是 bilimi，主人可以叫我小mi~`. Th
 
 Assistant settings expose two pet styles: `big-head` for the compact big-head Q-version sprites and `classic` for the clearer full-body reset sprites. Pet style is persisted with the other assistant preferences and broadcast after saving so the main window, floating assistant, and desktop pet stay in sync without restarting.
 
-The pet supports `idle`, `hint`, `working`, and `error` status feedback, can be dragged, and restores or focuses the main Bilimi window when clicked. Dragging suppresses the follow-up click reaction. Right-clicking the pet shows a compact `关闭宠物` confirmation button; clicking that prompt closes the pet window. Assistant settings also expose `唤醒宠物` and `关闭宠物` buttons for explicit pet window control.
+The pet supports `idle`, `hint`, `working`, and `error` status feedback, can be dragged, and restores or focuses the main Bilimi window when clicked. Dragging suppresses the follow-up click reaction. Right-clicking the pet shows compact pill quick actions for `对话宠物` and `关闭宠物`; the quick actions disappear when the pet window loses focus. `对话宠物` opens the top prompt bubble chat, and `关闭宠物` closes the pet window. Assistant settings also expose `唤醒宠物` and `关闭宠物` buttons for explicit pet window control.
 
-The top prompt bubble can expand into a short Xiao Mi chat form. Messages are kept in memory only for the active pet session and are sent through the same main-process DeepSeek bridge as review comments and note posters.
+The top prompt bubble can expand into a short Xiao Mi chat form. Messages are kept in memory only for the active pet session and are sent through the same main-process DeepSeek bridge as review comments and note posters. If DeepSeek is not enabled or no key is stored, Xiao Mi shows `主人，想要跟小mi交流的话去设置开启DeepSeek支持吧` instead of sending a request.
 
 The pet is intentionally companion-only: it does not add platform trays, teapots, cups, or other props.
 
