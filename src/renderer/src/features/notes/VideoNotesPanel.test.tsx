@@ -97,6 +97,15 @@ describe('VideoNotesPanel', () => {
     expect(screen.getByText('Data quality matters')).toBeInTheDocument()
   })
 
+  it('starts audio transcription from one-image summary when no note exists', async () => {
+    const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
+    const onGeneratePoster = vi.fn()
+    renderPanel({ note: null, deepSeekEnabled: true, onTranscribeAudio, onGeneratePoster })
+    fireEvent.click(screen.getAllByRole('tab')[2])
+    await waitFor(() => expect(onTranscribeAudio).toHaveBeenCalledOnce())
+    expect(onGeneratePoster).not.toHaveBeenCalled()
+  })
+
   it('keeps timed transcript and one-image summary copy actions to top-right copy buttons', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })

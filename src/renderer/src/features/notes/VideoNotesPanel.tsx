@@ -137,18 +137,40 @@ export function VideoNotesPanel({
     }
   }
 
-  async function handleTranscribeAudio(): Promise<void> {
-    if (!onTranscribeAudio || generationBusy) return
+  async function runTranscribeAudio(): Promise<VideoNote | null> {
+    if (!onTranscribeAudio || generationBusy) return null
     setTranscribingAudio(true)
     setStatusMessage('')
     setErrorMessage('')
     try {
       const generatedNote = await onTranscribeAudio()
       if (generatedNote) setStatusMessage(deepSeekEnabled ? '音频已转写，并已生成 DeepSeek 一图流总结。' : '音频转写已完成。')
+      return generatedNote
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '音频转写失败。')
+      return null
     } finally {
       setTranscribingAudio(false)
+    }
+  }
+
+  async function handleTranscribeAudio(): Promise<void> {
+    await runTranscribeAudio()
+  }
+
+  async function generatePosterForNote(targetNote: VideoNote): Promise<void> {
+    if (!onGeneratePoster || posterGenerating) return
+    setPosterGenerating(true)
+    setStatusMessage('')
+    setErrorMessage('')
+    try {
+      const summary = await onGeneratePoster(targetNote)
+      setPosterSummary(summary)
+      setStatusMessage('DeepSeek 一图流总结已生成。')
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '一图流总结生成失败。')
+    } finally {
+      setPosterGenerating(false)
     }
   }
 
@@ -158,24 +180,17 @@ export function VideoNotesPanel({
       setErrorMessage('')
       return
     }
+    if (generationBusy || posterGenerating) return
     if (!note) {
-      setStatusMessage('请先转写音频，再生成一图流总结。')
-      setErrorMessage('')
+      if (!onTranscribeAudio) {
+        setStatusMessage('请先转写音频，再生成一图流总结。')
+        setErrorMessage('')
+        return
+      }
+      await runTranscribeAudio()
       return
     }
-    if (!onGeneratePoster || posterGenerating) return
-    setPosterGenerating(true)
-    setStatusMessage('')
-    setErrorMessage('')
-    try {
-      const summary = await onGeneratePoster(note)
-      setPosterSummary(summary)
-      setStatusMessage('DeepSeek 一图流总结已生成。')
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '一图流总结生成失败。')
-    } finally {
-      setPosterGenerating(false)
-    }
+    await generatePosterForNote(note)
   }
 
   function handleResultTabClick(tab: VideoNotesResultTab): void {
