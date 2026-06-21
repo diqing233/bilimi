@@ -119,7 +119,7 @@ describe('PalaceMaidPetApp', () => {
     expect(screen.getByRole('button', { name: '关闭宠物' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '对话宠物' }))
 
-    await waitFor(() => expect(screen.getByLabelText('Talk to Xiao Mi')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByLabelText('和小mi说话')).toBeInTheDocument())
     expect(api.closeAssistantPet).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: '关闭宠物' })).not.toBeInTheDocument()
   })
@@ -171,12 +171,12 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open Xiao Mi chat' }))
-    await waitFor(() => expect(screen.getByLabelText('Talk to Xiao Mi')).toBeInTheDocument())
-    fireEvent.change(screen.getByLabelText('Talk to Xiao Mi'), {
+    fireEvent.click(screen.getByRole('button', { name: '打开小mi对话' }))
+    await waitFor(() => expect(screen.getByLabelText('和小mi说话')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('和小mi说话'), {
       target: { value: 'watch this page' }
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
 
     expect(api.generateDeepSeek).toHaveBeenCalledWith({
       kind: 'pet-chat',
@@ -190,12 +190,12 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open Xiao Mi chat' }))
+    fireEvent.click(screen.getByRole('button', { name: '打开小mi对话' }))
 
     expect(
       await screen.findByText('主人，想要跟小mi交流的话去设置开启DeepSeek支持吧')
     ).toBeInTheDocument()
-    expect(screen.queryByLabelText('Talk to Xiao Mi')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('和小mi说话')).not.toBeInTheDocument()
     expect(api.generateDeepSeek).not.toHaveBeenCalled()
   })
 
@@ -212,12 +212,12 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open Xiao Mi chat' }))
-    await waitFor(() => expect(screen.getByLabelText('Talk to Xiao Mi')).toBeInTheDocument())
-    fireEvent.change(screen.getByLabelText('Talk to Xiao Mi'), {
+    fireEvent.click(screen.getByRole('button', { name: '打开小mi对话' }))
+    await waitFor(() => expect(screen.getByLabelText('和小mi说话')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('和小mi说话'), {
       target: { value: 'watch this page' }
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    fireEvent.click(screen.getByRole('button', { name: '发送' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('DeepSeek failed.')
   })

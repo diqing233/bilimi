@@ -296,7 +296,7 @@ export function PalaceMaidPetApp() {
         <button
           className="palace-maid-pet__bubble-toggle"
           type="button"
-          aria-label="Open Xiao Mi chat"
+          aria-label="打开小mi对话"
           onClick={openPetChat}
         >
           <strong>{stateView.label}</strong>
@@ -321,7 +321,7 @@ export function PalaceMaidPetApp() {
             {deepSeekChatEnabled ? (
               <>
                 <label className="palace-maid-pet__chat-field">
-                  <span>Talk to Xiao Mi</span>
+                  <span>和小mi说话</span>
                   <input
                     value={chatDraft}
                     onChange={(event) => {
@@ -331,7 +331,7 @@ export function PalaceMaidPetApp() {
                   />
                 </label>
                 <button type="submit" disabled={chatBusy || !chatDraft.trim()}>
-                  Send
+                  发送
                 </button>
               </>
             ) : (

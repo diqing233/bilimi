@@ -23,4 +23,22 @@ describe('pet quick action styles', () => {
     expectStyleSnippet('padding: 5px 10px;')
     expectStyleSnippet('.palace-maid-pet { width: var(--floating-pet-size); height: var(--floating-pet-size);')
   })
+
+  it('keeps the expanded chat bubble beside Xiao Mi and prevents press scaling', () => {
+    expectStyleSnippet(
+      '.palace-maid-pet__bubble[data-chat-open="true"] { left: calc(50% - var(--floating-pet-size) * 0.42); top: auto; bottom: calc(var(--floating-pet-size) * 0.34);'
+    )
+    expectStyleSnippet('width: min(320px, calc(50vw - 18px));')
+    expectStyleSnippet('transform: translateX(-100%);')
+    expectStyleSnippet('.palace-maid-pet:hover, .palace-maid-pet:focus-visible { transform: translateY(-1px);')
+    expectStyleSnippet(
+      '.palace-maid-pet:active, .palace-maid-pet[data-pressed="true"] { cursor: grabbing; transform: translateY(1px);'
+    )
+    expect(compactStyles).not.toContain(
+      '.palace-maid-pet:hover, .palace-maid-pet:focus-visible { transform: translateY(-1px) scale(1.02);'
+    )
+    expect(compactStyles).not.toContain(
+      '.palace-maid-pet:active, .palace-maid-pet[data-pressed="true"] { cursor: grabbing; transform: translateY(1px) scale(0.98);'
+    )
+  })
 })
