@@ -255,7 +255,7 @@ export function FloatingAssistantApp({
 
   async function testDeepSeekConnection() {
     const result = await window.bilimiDesktop?.testDeepSeekConnection?.()
-    setDeepSeekStatusMessage(result?.message ?? 'DeepSeek test is unavailable.')
+    setDeepSeekStatusMessage(result?.message ?? 'DeepSeek 测试暂不可用。')
   }
 
   async function persistFeedback(action: AssistantAction, kind: RecommendationKind) {
@@ -551,19 +551,19 @@ export function FloatingAssistantApp({
                     updateDeepSeekPreference({ deepseekEnabled: event.currentTarget.checked })
                   }
                 />
-                <span>Enable DeepSeek</span>
+                <span>启用 DeepSeek</span>
               </label>
               <label>
-                <span>DeepSeek API Key</span>
+                <span>DeepSeek API 密钥</span>
                 <input
                   type="password"
                   value={deepSeekApiKeyDraft}
-                  placeholder={preferences.deepseekApiKeyStored ? 'Stored' : ''}
+                  placeholder={preferences.deepseekApiKeyStored ? '已保存' : ''}
                   onChange={(event) => setDeepSeekApiKeyDraft(event.currentTarget.value)}
                 />
               </label>
               <label>
-                <span>DeepSeek Model</span>
+                <span>DeepSeek 模型</span>
                 <input
                   type="text"
                   value={preferences.deepseekModel}
@@ -573,7 +573,7 @@ export function FloatingAssistantApp({
                 />
               </label>
               <label>
-                <span>DeepSeek Base URL</span>
+                <span>DeepSeek 服务地址</span>
                 <input
                   type="url"
                   value={preferences.deepseekBaseUrl}
@@ -584,10 +584,10 @@ export function FloatingAssistantApp({
               </label>
               <div className="assistant-settings__actions">
                 <button type="button" onClick={() => void saveDeepSeekSettings()}>
-                  Save DeepSeek
+                  保存 DeepSeek
                 </button>
                 <button type="button" onClick={() => void testDeepSeekConnection()}>
-                  Test DeepSeek
+                  测试 DeepSeek
                 </button>
               </div>
               {deepSeekStatusMessage ? <p role="status">{deepSeekStatusMessage}</p> : null}

@@ -308,19 +308,19 @@ describe('FloatingAssistantApp', () => {
     await screen.findAllByRole('tab')
     fireEvent.click(screen.getAllByRole('tab')[3])
 
-    const enabled = screen.getByRole('checkbox', { name: 'Enable DeepSeek' })
+    const enabled = screen.getByRole('checkbox', { name: '启用 DeepSeek' })
     fireEvent.click(enabled)
-    fireEvent.change(screen.getByLabelText('DeepSeek API Key'), {
+    fireEvent.change(screen.getByLabelText('DeepSeek API 密钥'), {
       target: { value: 'sk-test' }
     })
-    fireEvent.change(screen.getByLabelText('DeepSeek Model'), {
+    fireEvent.change(screen.getByLabelText('DeepSeek 模型'), {
       target: { value: 'deepseek-chat' }
     })
-    fireEvent.change(screen.getByLabelText('DeepSeek Base URL'), {
+    fireEvent.change(screen.getByLabelText('DeepSeek 服务地址'), {
       target: { value: 'https://api.deepseek.local' }
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save DeepSeek' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存 DeepSeek' }))
 
     await waitFor(() => expect(saveDeepSeekApiKey).toHaveBeenCalledWith('sk-test'))
     await waitFor(() =>
@@ -333,7 +333,7 @@ describe('FloatingAssistantApp', () => {
       )
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Test DeepSeek' }))
+    fireEvent.click(screen.getByRole('button', { name: '测试 DeepSeek' }))
 
     await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledOnce())
     expect(await screen.findByRole('status')).toHaveTextContent('DeepSeek OK')
