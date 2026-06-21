@@ -1,0 +1,26 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { describe, expect, it } from 'vitest'
+
+const stylesPath = resolve(process.cwd(), 'src/renderer/src/styles.css')
+const compactStyles = readFileSync(stylesPath, 'utf8').replace(/\s+/g, ' ')
+
+function expectStyleSnippet(snippet: string): void {
+  expect(compactStyles).toContain(snippet.replace(/\s+/g, ' '))
+}
+
+describe('pet quick action styles', () => {
+  it('uses the old close prompt pill style without moving the floating pet', () => {
+    expectStyleSnippet(
+      '.palace-maid-pet__quick-actions { position: absolute; left: 50%; bottom: calc(var(--floating-pet-size) * 0.1);'
+    )
+    expectStyleSnippet(
+      '.palace-maid-pet__quick-action { border: 1px solid rgba(31, 99, 181, 0.32); border-radius: 999px;'
+    )
+    expectStyleSnippet(
+      'background: rgba(247, 251, 255, 0.96); color: var(--porcelain-text); font: 12px "Noto Serif SC", "Songti SC", "SimSun", serif;'
+    )
+    expectStyleSnippet('padding: 5px 10px;')
+    expectStyleSnippet('.palace-maid-pet { width: var(--floating-pet-size); height: var(--floating-pet-size);')
+  })
+})
