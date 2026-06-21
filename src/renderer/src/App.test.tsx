@@ -146,6 +146,50 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('prefers the active browser tab title when page extraction returns a stale video title', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (isLedgerStatusScript(script)) {
+          return emptyLedgerStatus()
+        }
+
+        if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+          return {
+            title: '你已经是一个成熟的玩家了，要学会自己更新游戏',
+            pageText: '当前页面文字仍然来自旧视频。'
+          }
+        }
+
+        return null
+      })
+    })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('page-title-updated', {
+          detail: {
+            title: '【怒九】这是我玩过最恐怖的小游戏！！ - 哔哩哔哩'
+          }
+        })
+      )
+    })
+
+    const snapshot = await requestRuntime({ id: 'snapshot-title-1', type: 'snapshot' })
+
+    expect(snapshot).toEqual(
+      expect.objectContaining({
+        videoTitle: '【怒九】这是我玩过最恐怖的小游戏！！',
+        videoContentContext: expect.objectContaining({
+          title: '【怒九】这是我玩过最恐怖的小游戏！！'
+        })
+      })
+    )
+  })
+
   it('reads the current video time through the assistant runtime', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {

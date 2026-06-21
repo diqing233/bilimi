@@ -1,3 +1,13 @@
+.memorial-panel__deepseek-status { color: var(--porcelain-muted); white-space: normal; }
+.assistant-dialog--comment-chooser { max-height: min(74vh, 560px); }
+.assistant-dialog__comment-list { display: grid; gap: 8px; max-height: min(48vh, 360px); overflow: auto; }
+.assistant-dialog__comment-choice { width: 100%; line-height: 1.55; white-space: normal; overflow-wrap: anywhere; }
+.assistant-sidebar-workspace .floating-assistant-tabs button { grid-template-columns: 24px minmax(0, auto); gap: 3px; min-height: 34px; padding: 3px 4px; font-size: 12px; overflow: hidden; }
+.assistant-sidebar-workspace .floating-assistant-tabs button span { overflow: hidden; text-overflow: ellipsis; }
+.assistant-sidebar-workspace .floating-assistant-tabs__pet { width: 24px; height: 24px; }
+.assistant-sidebar-workspace .assistant-dialog--comment-chooser { position: absolute; top: 58px; right: 12px; bottom: 12px; left: 12px; width: auto; box-sizing: border-box; max-height: none; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; z-index: 2; }
+.assistant-sidebar-workspace .assistant-dialog__comment-list { min-height: 0; max-height: none; overflow: auto; }
+
 .palace-maid-pet__quick-actions {
   position: absolute;
   left: 50%;

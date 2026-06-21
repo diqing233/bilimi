@@ -48,6 +48,7 @@ import type {
 import { AssistantSidebar } from './features/assistant/AssistantSidebar'
 
 const HOME_TAB_ID = 'home'
+const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
 
 function createTabTitle(url: string): string {
   try {
@@ -64,6 +65,19 @@ function createTabId(url: string): string {
   return `tab-${Math.abs(
     Array.from(url).reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) | 0, 7)
   )}`
+}
+
+function normalizeVideoTitle(title?: string): string | undefined {
+  const normalized = title?.replace(BILIBILI_TITLE_SUFFIX, '').trim()
+  return normalized || undefined
+}
+
+function normalizeActiveTabVideoTitle(tab?: BrowserTabModel): string | undefined {
+  if (!tab || tab.title === '首页' || tab.title === createTabTitle(tab.url)) {
+    return undefined
+  }
+
+  return normalizeVideoTitle(tab.title)
 }
 
 export default function App() {
@@ -258,18 +272,20 @@ export default function App() {
 
   async function readVideoContentContext(): Promise<VideoContentContext> {
     const currentActiveWebview = getCurrentActiveWebview()
+    const activeTabVideoTitle = normalizeActiveTabVideoTitle(activeTab)
 
     if (!currentActiveWebview?.executeJavaScript) {
-      return { title: activeTab?.title }
+      return { title: activeTabVideoTitle ?? activeTab?.title }
     }
 
     try {
-      return (await currentActiveWebview.executeJavaScript(
+      const context = (await currentActiveWebview.executeJavaScript(
         buildVideoContentContextScript(),
         true
       )) as VideoContentContext
+      return activeTabVideoTitle ? { ...context, title: activeTabVideoTitle } : context
     } catch {
-      return { title: activeTab?.title }
+      return { title: activeTabVideoTitle ?? activeTab?.title }
     }
   }
 
@@ -436,7 +452,7 @@ export default function App() {
       preferences,
       favoriteLedgerStatus,
       videoContentContext,
-      videoTitle: videoContentContext.title ?? activeTab?.title ?? '早八生存实录'
+      videoTitle: normalizeActiveTabVideoTitle(activeTab) ?? videoContentContext.title ?? '早八生存实录'
     }
   }
 

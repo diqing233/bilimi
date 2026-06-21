@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { FloatingAssistantApp } from './FloatingAssistantApp'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
 
-function createPreferences(): AssistantPreferences {
+function createPreferences(overrides: Partial<AssistantPreferences> = {}): AssistantPreferences {
   return {
     favoritesFolderName: 'Bilimi 内库',
     favoriteLedgers: createDefaultFavoriteLedgers(),
@@ -21,13 +21,16 @@ function createPreferences(): AssistantPreferences {
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
     deepseekModel: 'deepseek-v4-flash',
-    deepseekBaseUrl: 'https://api.deepseek.com'
+    deepseekBaseUrl: 'https://api.deepseek.com',
+    ...overrides
   }
 }
 
-function createSnapshot(): AssistantSnapshot {
+function createSnapshot(overrides: Partial<AssistantSnapshot> = {}): AssistantSnapshot {
+  const preferences = overrides.preferences ?? createPreferences()
+
   return {
-    preferences: createPreferences(),
+    preferences,
     favoriteLedgerStatus: {
       ok: true,
       ledgers: createDefaultFavoriteLedgers(),
@@ -38,7 +41,8 @@ function createSnapshot(): AssistantSnapshot {
       title: '三分钟讲清机器学习科普教程',
       pageText: '从原理到入门路线，适合学习收藏。'
     },
-    videoTitle: '三分钟讲清机器学习科普教程'
+    videoTitle: '三分钟讲清机器学习科普教程',
+    ...overrides
   }
 }
 
@@ -207,26 +211,27 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
-  it('chooses a comment draft inside the floating assistant before running 表', async () => {
-    const { runAssistantAction } = installDesktopApi()
+  it('uses default Xiao Mi comments directly when DeepSeek is disabled', async () => {
+    const { generateDeepSeek, runAssistantAction } = installDesktopApi()
 
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('button', { name: /表.*拟奏短评/ }))
 
-    fireEvent.change(screen.getByLabelText('Comment intent'), {
-      target: { value: 'share a courtly note' }
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Generate comments' }))
+    expect(screen.queryByLabelText('Comment intent')).not.toBeInTheDocument()
+    expect(generateDeepSeek).not.toHaveBeenCalled()
+    expect(screen.getByText('小mi拟好三条，主人点一条就发送。')).toBeInTheDocument()
+    const choices = screen.getAllByRole('button', { name: /三分钟讲清机器学习科普教程/ })
+    expect(choices).toHaveLength(3)
+    expect(choices[0]).toHaveTextContent(/小mi|我家主人/)
 
-    expect(await screen.findByText('AI comment one')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'AI comment one' }))
+    fireEvent.click(choices[0])
 
     await waitFor(() =>
       expect(runAssistantAction).toHaveBeenCalledWith(
         '表',
         expect.objectContaining({
-          commentDraft: 'AI comment one',
+          commentDraft: expect.stringContaining('三分钟讲清机器学习科普教程'),
           pageClickOnly: true
         })
       )
@@ -234,7 +239,13 @@ describe('FloatingAssistantApp', () => {
   })
 
   it('asks for comment intent and sends the selected AI comment draft', async () => {
-    const { generateDeepSeek, runAssistantAction } = installDesktopApi()
+    const preferences = createPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true
+    })
+    const { generateDeepSeek, runAssistantAction } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(createSnapshot({ preferences }))
+    })
 
     render(<FloatingAssistantApp />)
 

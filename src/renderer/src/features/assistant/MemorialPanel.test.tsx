@@ -65,4 +65,32 @@ describe('MemorialPanel', () => {
       'memorial-panel__action-description'
     )
   })
+
+  it('shows whether DeepSeek will generate comments or use default suggestions', () => {
+    const props = {
+      recommendation: inboxRecommendation,
+      commentDrafts: ['先留一评。'],
+      videoCategory: '待分拣',
+      videoTitle: '测试稿件',
+      onAction: vi.fn(),
+      onClose: vi.fn(),
+      onGenerateVideoNote: vi.fn().mockResolvedValue(null),
+      onSaveVideoNote: vi.fn().mockResolvedValue(undefined),
+      pageClickOnly: true,
+      onPageClickOnlyChange: vi.fn(),
+      videoNote: null,
+      videoNoteLoading: false
+    }
+    const { rerender } = render(<MemorialPanel {...props} deepSeekEnabled={false} />)
+
+    expect(screen.getByText('DeepSeek 未开启，表会推荐三条默认评论。')).toHaveClass(
+      'memorial-panel__deepseek-status'
+    )
+
+    rerender(<MemorialPanel {...props} deepSeekEnabled={true} />)
+
+    expect(screen.getByText('DeepSeek 已开启，表会生成三条有趣视频评论。')).toHaveClass(
+      'memorial-panel__deepseek-status'
+    )
+  })
 })

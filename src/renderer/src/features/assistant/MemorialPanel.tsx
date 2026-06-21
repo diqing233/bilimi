@@ -152,6 +152,11 @@ export function MemorialPanel({
               <p title={videoTitle}>{videoTitle}</p>
               <p>{videoCategory}</p>
               <p>签语：{recommendation.badge}</p>
+              <p className="memorial-panel__deepseek-status">
+                {deepSeekEnabled
+                  ? 'DeepSeek 已开启，表会生成三条有趣视频评论。'
+                  : 'DeepSeek 未开启，表会推荐三条默认评论。'}
+              </p>
             </aside>
             <div className="memorial-panel__actions" role="group" aria-label="批阅动作">
               {ACTIONS.map(({ action, testId, label, description, icon, iconAlt }) => (

@@ -427,6 +427,10 @@ export function FloatingAssistantApp({
     if (action === '表') {
       setAiCommentDrafts([])
       setCommentIntentError('')
+      if (!preferences.deepseekEnabled) {
+        setCommentChooserOpen(true)
+        return
+      }
       setCommentIntentOpen(true)
       return
     }
