@@ -31,6 +31,8 @@ import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favori
 
 const CURRENT_TITLE = '早八生存实录'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
+const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash'
+const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
 const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
   funny: '解闷小品',
   humor: '解闷小品',
@@ -94,6 +96,26 @@ function createDefaultResult(message: string): AssistantAutomationResult {
     missingTargets: [],
     message
   }
+}
+
+function localizeDeepSeekStatusMessage(message: string): string {
+  if (message === 'DeepSeek connection succeeded.') {
+    return 'DeepSeek 连接成功。'
+  }
+
+  if (message === 'DeepSeek connection failed.') {
+    return 'DeepSeek 连接失败。'
+  }
+
+  if (message === 'DeepSeek is not configured.') {
+    return '请先启用 DeepSeek 并填写 API 密钥。'
+  }
+
+  return message
+    .replace(/^DeepSeek API request failed:/, 'DeepSeek API 请求失败：')
+    .replace(/^DeepSeek response did not include any content\.$/, 'DeepSeek 响应没有返回内容。')
+    .replace(/^DeepSeek response could not be parsed\.$/, 'DeepSeek 响应解析失败。')
+    .replace(/^DeepSeek response schema was invalid\.$/, 'DeepSeek 响应格式无效。')
 }
 
 export function FloatingAssistantApp({
@@ -260,7 +282,22 @@ export function FloatingAssistantApp({
 
     await saveDeepSeekSettings()
     const result = await window.bilimiDesktop.testDeepSeekConnection()
-    setDeepSeekStatusMessage(result.message)
+    setDeepSeekStatusMessage(localizeDeepSeekStatusMessage(result.message))
+  }
+
+  async function resetDeepSeekSettings() {
+    const nextPreferences = {
+      ...preferences,
+      deepseekEnabled: false,
+      deepseekApiKeyStored: false,
+      deepseekModel: DEFAULT_DEEPSEEK_MODEL,
+      deepseekBaseUrl: DEFAULT_DEEPSEEK_BASE_URL
+    }
+
+    setDeepSeekApiKeyDraft('')
+    await window.bilimiDesktop?.clearDeepSeekApiKey?.()
+    await persistPreferences(nextPreferences)
+    setDeepSeekStatusMessage('DeepSeek 设置已重置。')
   }
 
   async function persistFeedback(action: AssistantAction, kind: RecommendationKind) {
@@ -558,6 +595,9 @@ export function FloatingAssistantApp({
                 />
                 <span>启用 DeepSeek</span>
               </label>
+              <p className="assistant-settings__deepseek-help">
+                开启后可使用批阅的拟奏短评、札记中的一图流总结、宠物对话功能。
+              </p>
               <label>
                 <span>DeepSeek API 密钥</span>
                 <input
@@ -593,6 +633,9 @@ export function FloatingAssistantApp({
                 </button>
                 <button type="button" onClick={() => void testDeepSeekConnection()}>
                   测试 DeepSeek
+                </button>
+                <button type="button" onClick={() => void resetDeepSeekSettings()}>
+                  重置 DeepSeek
                 </button>
               </div>
               <aside className="assistant-settings__deepseek-recommendation">

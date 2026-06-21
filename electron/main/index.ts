@@ -457,13 +457,13 @@ function registerAssistantPreferenceHandlers() {
         }
       })
 
-      return { ok: true, message: 'DeepSeek connection succeeded.' }
+      return { ok: true, message: 'DeepSeek 连接成功。' }
     } catch (error) {
       if (error instanceof DeepSeekServiceError) {
         return { ok: false, message: error.message }
       }
 
-      return { ok: false, message: 'DeepSeek connection failed.' }
+      return { ok: false, message: 'DeepSeek 连接失败。' }
     }
   })
   ipcMain.handle('video-notes:load', () => loadVideoNotes(getDesktopStore()))

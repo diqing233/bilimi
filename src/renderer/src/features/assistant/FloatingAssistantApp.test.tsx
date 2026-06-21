@@ -104,7 +104,11 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const deleteVideoNoteArchiveEntry = vi.fn().mockResolvedValue([])
   const deleteVideoNoteArchiveVersion = vi.fn().mockResolvedValue([])
   const saveDeepSeekApiKey = vi.fn().mockResolvedValue({ configured: true })
-  const testDeepSeekConnection = vi.fn().mockResolvedValue({ ok: true, message: 'DeepSeek OK' })
+  const clearDeepSeekApiKey = vi.fn().mockResolvedValue({ configured: false })
+  const testDeepSeekConnection = vi.fn().mockResolvedValue({
+    ok: true,
+    message: 'DeepSeek connection succeeded.'
+  })
   const loadOpenAiApiKeyStatus = vi.fn().mockResolvedValue({ configured: true })
   const saveOpenAiApiKey = vi.fn().mockResolvedValue({ configured: true })
   const clearOpenAiApiKey = vi.fn().mockResolvedValue({ configured: false })
@@ -126,6 +130,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     generateVideoNote,
     generateVideoNoteFromAudio,
     saveDeepSeekApiKey,
+    clearDeepSeekApiKey,
     testDeepSeekConnection,
     loadOpenAiApiKeyStatus,
     loadPreferences: vi.fn(),
@@ -301,7 +306,8 @@ describe('FloatingAssistantApp', () => {
   })
 
   it('saves and tests DeepSeek assistant settings', async () => {
-    const { saveDeepSeekApiKey, savePreferences, testDeepSeekConnection } = installDesktopApi()
+    const { clearDeepSeekApiKey, saveDeepSeekApiKey, savePreferences, testDeepSeekConnection } =
+      installDesktopApi()
 
     render(<FloatingAssistantApp />)
 
@@ -316,6 +322,9 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByText(/令牌分组请选择 deepseek（限时特价）/)).toBeInTheDocument()
     expect(screen.getByText('推荐模型：deepseek-v4-pro')).toBeInTheDocument()
     expect(screen.getByText('服务器地址：https://api.yunshulink.com/v1')).toBeInTheDocument()
+    expect(
+      screen.getByText('开启后可使用批阅的拟奏短评、札记中的一图流总结、宠物对话功能。')
+    ).toBeInTheDocument()
 
     const enabled = screen.getByRole('checkbox', { name: '启用 DeepSeek' })
     fireEvent.click(enabled)
@@ -347,7 +356,28 @@ describe('FloatingAssistantApp', () => {
 
     await waitFor(() => expect(saveDeepSeekApiKey).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledOnce())
-    expect(await screen.findByRole('status')).toHaveTextContent('DeepSeek OK')
+    expect(await screen.findByRole('status')).toHaveTextContent('DeepSeek 连接成功。')
+
+    fireEvent.click(screen.getByRole('button', { name: '重置 DeepSeek' }))
+
+    await waitFor(() => expect(clearDeepSeekApiKey).toHaveBeenCalledOnce())
+    expect(screen.getByRole('checkbox', { name: '启用 DeepSeek' })).not.toBeChecked()
+    expect(screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥').value).toBe('')
+    expect(screen.getByLabelText<HTMLInputElement>('DeepSeek 模型').value).toBe('deepseek-v4-flash')
+    expect(screen.getByLabelText<HTMLInputElement>('DeepSeek 服务地址').value).toBe(
+      'https://api.deepseek.com'
+    )
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deepseekEnabled: false,
+          deepseekApiKeyStored: false,
+          deepseekModel: 'deepseek-v4-flash',
+          deepseekBaseUrl: 'https://api.deepseek.com'
+        })
+      )
+    )
+    expect(await screen.findByRole('status')).toHaveTextContent('DeepSeek 设置已重置。')
   })
 
   it('explains when the DeepSeek test bridge is not available', async () => {
