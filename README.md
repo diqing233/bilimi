@@ -23,11 +23,13 @@ Collapsing the sidebar removes the sidebar column instead of leaving a vertical 
 
 Each browser tab keeps its own URL and page title. The assistant snapshot always follows the active tab, so switching videos refreshes the right-side `批阅` and `札记` context without allowing background tabs to overwrite the current workspace. Snapshot refresh signals are broadcast to both the in-window sidebar and the floating assistant window.
 
+The embedded Bilibili page captures Bilibili HTTPS links into Bilimi's internal browser tabs. Direct anchors and explicit video card shells may open a new in-app tab, but broad feed containers and native interactive controls such as buttons, inputs, and menu items remain owned by the Bilibili page so refresh controls do not become accidental tab-open triggers.
+
 When the floating desktop pet restores or focuses the main window, the sidebar also expands if it was collapsed.
 
 ## Floating Surfaces
 
-Bilimi starts a transparent 小咪 desktop pet window beside the main app. Clicking the pet restores or focuses the main window, right-clicking it opens quick actions for `对话宠物` and `关闭宠物`, and hover controls can resize the pet. Holding the left mouse button by itself does not resize or animate the pet; dragging only starts after pointer movement crosses the drag threshold, and a long stationary press suppresses the follow-up click restore. The pet window can also be woken or closed from assistant settings.
+Bilimi starts a transparent 小咪 desktop pet window beside the main app. The transparent host window stays at the fixed 356x260 stage size; resize controls adjust the character inside that stage rather than resizing the Electron window shell. Clicking the pet restores or focuses the main window, right-clicking it opens quick actions for `对话宠物` and `关闭宠物`, and hover controls can resize the pet character. Holding the left mouse button by itself does not resize or animate the pet; dragging only starts after pointer movement crosses the drag threshold, and a long stationary press suppresses the follow-up click restore. The pet window can also be woken or closed from assistant settings.
 
 The floating entry uses the same assistant workspace as the sidebar. It can run review actions, open video notes, manage favorite ledgers, and request the active main-window webview through the Electron bridge.
 
