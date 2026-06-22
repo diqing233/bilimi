@@ -326,6 +326,8 @@ Expected: PASS.
 
 ### Task 6: Review Intent Dialog and AI Comments
 
+2026-06-22 update: the active product behavior no longer asks for a comment intent before generation. When DeepSeek is enabled, clicking `表` calls the `review-comment` generator immediately with the current video context, then shows three candidates in `CommentChooser`. If generation fails or returns an unusable shape, the UI falls back to local 小咪 comments and still waits for the user to choose one before publishing.
+
 **Files:**
 - Create: `src/renderer/src/features/assistant/CommentIntentDialog.tsx`
 - Test: `src/renderer/src/features/assistant/CommentIntentDialog.test.tsx`
@@ -337,9 +339,9 @@ Expected: PASS.
 
 Create tests for `CommentIntentDialog`:
 
-- Input label: `Comment intent`
-- Submit button: `Generate comments`
-- Cancel button: `Cancel`
+- Input label: `评论方向`
+- Submit button: `生成评论`
+- 取消 button: `取消`
 - Trims submitted intent.
 - Does not submit empty intent.
 - Shows `role="alert"` when `error` prop is set.
@@ -362,7 +364,7 @@ Create a small `role="dialog"` component with props:
 busy: boolean
 error: string
 onSubmit: (intent: string) => void
-onCancel: () => void
+on取消: () => void
 ```
 
 - [x] **Step 4: Add stable test id to review action**
@@ -387,9 +389,9 @@ If the current source action literal is still garbled in tests, derive the selec
 
 Assert:
 
-1. `Comment intent` appears.
+1. `评论方向` appears.
 2. Enter `praise technical detail`.
-3. Click `Generate comments`.
+3. Click `生成评论`.
 4. `generateDeepSeek` is called with `{ kind: 'review-comment', intent: 'praise technical detail' }`.
 5. The three AI comments are shown in `CommentChooser`.
 6. Clicking one calls `runAssistantAction` with that `commentDraft`.

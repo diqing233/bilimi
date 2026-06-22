@@ -29,7 +29,7 @@ export function CommentIntentDialog({
   return (
     <form className="assistant-dialog assistant-dialog--intent" role="dialog" onSubmit={handleSubmit}>
       <label>
-        <span>Comment intent</span>
+        <span>评论方向</span>
         <textarea
           value={intent}
           disabled={busy}
@@ -39,10 +39,10 @@ export function CommentIntentDialog({
       {error ? <p role="alert">{error}</p> : null}
       <div className="assistant-settings__actions">
         <button type="submit" disabled={busy || !intent.trim()}>
-          Generate comments
+          生成评论
         </button>
         <button type="button" disabled={busy} onClick={onCancel}>
-          Cancel
+          取消
         </button>
       </div>
     </form>

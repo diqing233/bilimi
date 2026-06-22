@@ -257,7 +257,11 @@ export function FloatingAssistantApp({
   const videoCategory =
     VIDEO_CATEGORY_LABELS[currentKind] || stripBilimiPrefix(currentClassification.displayName) || currentKind
   const actionsLocked =
-    runningAction !== null || coinPromptOpen || commentChooserOpen || commentIntentOpen
+    runningAction !== null ||
+    coinPromptOpen ||
+    commentChooserOpen ||
+    commentIntentOpen ||
+    commentIntentBusy
 
   async function persistPreferences(nextPreferences: AssistantPreferences) {
     setPreferences(nextPreferences)
@@ -340,7 +344,7 @@ export function FloatingAssistantApp({
     await persistPreferences(nextPreferences)
   }
 
-  async function generateCommentDrafts(intent: string) {
+  async function generateCommentDrafts(intent = '') {
     setCommentIntentBusy(true)
     setCommentIntentError('')
 
@@ -435,7 +439,7 @@ export function FloatingAssistantApp({
         setCommentChooserOpen(true)
         return
       }
-      setCommentIntentOpen(true)
+      void generateCommentDrafts()
       return
     }
 

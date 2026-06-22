@@ -221,7 +221,7 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /表.*拟奏短评/ }))
 
-    expect(screen.queryByLabelText('Comment intent')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('评论方向')).not.toBeInTheDocument()
     expect(generateDeepSeek).not.toHaveBeenCalled()
     expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
     const choices = screen.getAllByRole('button', { name: /三分钟讲清机器学习科普教程/ })
@@ -242,7 +242,7 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
-  it('asks for comment intent and sends the selected AI comment draft', async () => {
+  it('generates AI comment drafts directly when DeepSeek is enabled', async () => {
     const preferences = createPreferences({
       deepseekEnabled: true,
       deepseekApiKeyStored: true
@@ -255,22 +255,17 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByTestId('review-action-comment'))
 
-    expect(screen.getByLabelText('Comment intent')).toBeInTheDocument()
-    fireEvent.change(screen.getByLabelText('Comment intent'), {
-      target: { value: 'praise technical detail' }
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Generate comments' }))
-
     await waitFor(() =>
       expect(generateDeepSeek).toHaveBeenCalledWith(
         expect.objectContaining({
           kind: 'review-comment',
-          intent: 'praise technical detail',
+          intent: '',
           author: '李老师讲AI',
           title: '三分钟讲清机器学习科普教程'
         })
       )
     )
+    expect(screen.queryByLabelText('评论方向')).not.toBeInTheDocument()
     expect(await screen.findByText('AI comment one')).toBeInTheDocument()
     expect(screen.getByText('AI comment two')).toBeInTheDocument()
     expect(screen.getByText('AI comment three')).toBeInTheDocument()
@@ -301,12 +296,9 @@ describe('FloatingAssistantApp', () => {
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByTestId('review-action-comment'))
-    fireEvent.change(screen.getByLabelText('Comment intent'), {
-      target: { value: 'funny and warm' }
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Generate comments' }))
 
     await waitFor(() => expect(generateDeepSeek).toHaveBeenCalledOnce())
+    expect(screen.queryByLabelText('评论方向')).not.toBeInTheDocument()
     const choices = await screen.findAllByRole('button', {
       name: /三分钟讲清机器学习科普教程/
     })

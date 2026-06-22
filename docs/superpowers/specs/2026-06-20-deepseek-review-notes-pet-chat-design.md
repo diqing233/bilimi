@@ -13,13 +13,13 @@ Bilimi already has four related surfaces:
 3. The notes page can generate structured video notes with summaries, timelines, highlights, annotations, and archive versions.
 4. The desktop pet shows a top prompt bubble and 小咪 state feedback.
 
-The new work should connect these surfaces through one DeepSeek-backed AI service. The user selected the full implementation route: a main-process DeepSeek service with thin feature-specific renderer entrances. The user also selected direct pet chat in the existing top 小咪 prompt bubble, review table comment generation with a user-supplied intent prompt, and one-image note summaries as a card-poster layout.
+The new work should connect these surfaces through one DeepSeek-backed AI service. The user selected the full implementation route: a main-process DeepSeek service with thin feature-specific renderer entrances. The user also selected direct pet chat in the existing top 小咪 prompt bubble, direct review table comment generation, and one-image note summaries as a card-poster layout.
 
 ## 2. Goals
 
 1. Settings expose DeepSeek API configuration and a test action.
 2. DeepSeek credentials stay in the main process and are not passed into renderer components or page scripts.
-3. The review table action asks the user for a short comment intent, generates three candidate comments, and lets the user choose one to publish.
+3. The review table action generates three candidate comments directly and lets the user choose one to publish.
 4. The notes page can generate a card-poster one-image summary from the current note.
 5. The desktop pet top prompt bubble can expand into a short 小咪 chat input and recent-message view.
 6. All three AI features share one request boundary and one configuration model.
@@ -73,20 +73,18 @@ The service should:
 
 ## 6. Review Table Comment Flow
 
-The existing review table action should become a two-step flow when DeepSeek is configured:
+The existing review table action should become a direct generation flow when DeepSeek is configured:
 
 1. User clicks the table action.
-2. Bilimi opens an intent dialog asking what kind of comment to write.
-3. The user enters a short intent, such as praising technical details, light teasing, or asking for updates.
-4. The renderer sends video title, author, description, tags, local classification, and the user intent to the DeepSeek service.
-5. The service returns three candidate comments.
-6. `CommentChooser` shows the three candidates.
-7. The user selects one and Bilimi runs the existing comment automation with that selected draft.
+2. The renderer sends video title, author, description, tags, and local classification to the DeepSeek service.
+3. The service returns three candidate comments.
+4. `CommentChooser` shows the three candidates.
+5. The user selects one and Bilimi runs the existing comment automation with that selected draft.
 
 If DeepSeek is disabled or fails, keep a recoverable UI path:
 
-- Show the error in the chooser or dialog.
-- Let the user retry or cancel.
+- Fall back to local 小咪 comment candidates.
+- Let the user cancel without publishing.
 - Do not publish anything until the user explicitly picks a draft.
 
 ## 7. One-Image Note Summary
@@ -156,7 +154,7 @@ flowchart LR
 2. Main-process store tests cover saving and loading DeepSeek non-secret settings and encrypted key presence.
 3. DeepSeek service tests use an injected fetch function and verify request payloads, parsing, timeout/error mapping, and no-key behavior.
 4. Settings tests cover rendering DeepSeek controls, saving model/base URL, replacing the key, and test-connection feedback.
-5. Review tests cover the intent dialog, AI candidate loading state, chooser rendering, retry/cancel, and selected candidate passing into the existing comment automation.
+5. Review tests cover direct AI candidate generation, chooser rendering, local fallback, cancel, and selected candidate passing into the existing comment automation.
 6. Notes tests cover the one-image action visibility, poster generation from an existing note, preview rendering, and save/export UI state.
 7. Pet tests cover expanding the top bubble into chat, sending a message, rendering a reply, disabled configuration state, and preserving restore/drag behavior.
 
@@ -164,7 +162,7 @@ flowchart LR
 
 1. User can configure DeepSeek from settings without exposing the key in renderer state.
 2. A successful test connection confirms the configured model and base URL.
-3. The review table action asks for a user comment intent, generates three choices, and only publishes after the user selects one.
+3. The review table action generates three choices directly, and only publishes after the user selects one.
 4. Notes can generate and preview an A-style card poster from the current note.
 5. The poster preview has a working save/export path or a clearly disabled fallback with a tested error message.
 6. The desktop pet top bubble supports direct short chat with 小咪 at the location shown in the user's screenshot.

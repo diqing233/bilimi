@@ -309,6 +309,34 @@ describe('PalaceMaidPetApp', () => {
     )
   })
 
+  it('keeps a long press still until the pointer moves far enough to drag', () => {
+    vi.useFakeTimers()
+    const api = installDesktopApi()
+
+    render(<PalaceMaidPetApp />)
+
+    const pet = screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' })
+
+    fireEvent.pointerDown(pet, { clientX: 10, clientY: 10, screenX: 110, screenY: 210, pointerId: 1 })
+    act(() => {
+      vi.advanceTimersByTime(450)
+    })
+
+    expect(pet).toHaveAttribute('data-pressed', 'false')
+    expect(api.startFloatingSealDrag).not.toHaveBeenCalled()
+    expect(api.resizeFloatingSealByStep).not.toHaveBeenCalled()
+
+    fireEvent.pointerUp(pet, { clientX: 10, clientY: 10, screenX: 110, screenY: 210, pointerId: 1 })
+    fireEvent.click(pet)
+
+    expect(api.finishFloatingSealDrag).not.toHaveBeenCalled()
+    expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute(
+      'data-click-reaction-signal',
+      '0'
+    )
+  })
+
   it('shows foot-side step controls that resize the floating pet without restoring the main window', () => {
     const api = installDesktopApi()
 

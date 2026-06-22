@@ -10,10 +10,10 @@ describe('CommentIntentDialog', () => {
       <CommentIntentDialog busy={false} error="" onSubmit={onSubmit} onCancel={vi.fn()} />
     )
 
-    fireEvent.change(screen.getByLabelText('Comment intent'), {
+    fireEvent.change(screen.getByLabelText('评论方向'), {
       target: { value: '  praise technical detail  ' }
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Generate comments' }))
+    fireEvent.click(screen.getByRole('button', { name: '生成评论' }))
 
     expect(onSubmit).toHaveBeenCalledWith('praise technical detail')
   })
@@ -25,7 +25,7 @@ describe('CommentIntentDialog', () => {
       <CommentIntentDialog busy={false} error="" onSubmit={onSubmit} onCancel={vi.fn()} />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Generate comments' }))
+    fireEvent.click(screen.getByRole('button', { name: '生成评论' }))
 
     expect(onSubmit).not.toHaveBeenCalled()
   })
@@ -43,7 +43,7 @@ describe('CommentIntentDialog', () => {
     )
 
     expect(screen.getByRole('alert')).toHaveTextContent('DeepSeek failed.')
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
 
     expect(onCancel).toHaveBeenCalledOnce()
   })

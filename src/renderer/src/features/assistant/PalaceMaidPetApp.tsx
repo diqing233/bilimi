@@ -9,17 +9,23 @@ import { createInitialAssistantPreferences } from '../state/assistantState'
 import type { AssistantPreferences, DeepSeekChatMessage } from '@shared/types'
 
 const DRAG_THRESHOLD_PX = 5
+const LONG_PRESS_SUPPRESSION_MS = 350
 const DEEPSEEK_CHAT_DISABLED_MESSAGE =
   '主人，想要跟小咪交流的话去设置开启DeepSeek支持吧'
 
 type DragState = {
   startClientX: number
   startClientY: number
+  startScreenX: number
+  startScreenY: number
   moved: boolean
+  started: boolean
+  longPress: boolean
 }
 
 export function PalaceMaidPetApp() {
   const dragState = useRef<DragState | null>(null)
+  const longPressTimeout = useRef<number | null>(null)
   const resizeControlsHideTimeout = useRef<number | null>(null)
   const suppressNextClick = useRef(false)
   const [pressed, setPressed] = useState(false)
@@ -77,6 +83,9 @@ export function PalaceMaidPetApp() {
     window.addEventListener('blur', hideClosePrompt)
 
     return () => {
+      if (longPressTimeout.current !== null) {
+        window.clearTimeout(longPressTimeout.current)
+      }
       if (resizeControlsHideTimeout.current !== null) {
         window.clearTimeout(resizeControlsHideTimeout.current)
       }
@@ -104,14 +113,30 @@ export function PalaceMaidPetApp() {
     }, 350)
   }
 
-  function startDrag(clientX: number, clientY: number, screenX: number, screenY: number) {
-    setPressed(true)
+  function startDragCandidate(clientX: number, clientY: number, screenX: number, screenY: number) {
+    if (longPressTimeout.current !== null) {
+      window.clearTimeout(longPressTimeout.current)
+    }
+
     dragState.current = {
       startClientX: clientX,
       startClientY: clientY,
+      startScreenX: screenX,
+      startScreenY: screenY,
+      started: false,
+      longPress: false,
       moved: false
     }
-    window.bilimiDesktop?.startFloatingSealDrag?.(screenX, screenY)
+
+    longPressTimeout.current = window.setTimeout(() => {
+      if (dragState.current && !dragState.current.moved && !dragState.current.started) {
+        dragState.current = {
+          ...dragState.current,
+          longPress: true
+        }
+      }
+      longPressTimeout.current = null
+    }, LONG_PRESS_SUPPRESSION_MS)
   }
 
   function moveDrag(clientX: number, clientY: number) {
@@ -126,18 +151,40 @@ export function PalaceMaidPetApp() {
       Math.hypot(clientX - currentDrag.startClientX, clientY - currentDrag.startClientY) >=
         DRAG_THRESHOLD_PX
 
+    if (moved) {
+      if (longPressTimeout.current !== null) {
+        window.clearTimeout(longPressTimeout.current)
+        longPressTimeout.current = null
+      }
+
+      if (!currentDrag.started) {
+        window.bilimiDesktop?.startFloatingSealDrag?.(
+          currentDrag.startScreenX,
+          currentDrag.startScreenY
+        )
+      }
+
+      dragState.current = {
+        ...currentDrag,
+        moved: true,
+        started: true
+      }
+      return
+    }
+
     dragState.current = {
       ...currentDrag,
       moved
-    }
-
-    if (moved) {
-      setPressed(false)
     }
   }
 
   function finishDrag() {
     const currentDrag = dragState.current
+
+    if (longPressTimeout.current !== null) {
+      window.clearTimeout(longPressTimeout.current)
+      longPressTimeout.current = null
+    }
 
     if (!currentDrag) {
       setPressed(false)
@@ -146,9 +193,12 @@ export function PalaceMaidPetApp() {
 
     dragState.current = null
     setPressed(false)
-    window.bilimiDesktop?.finishFloatingSealDrag?.()
 
-    if (currentDrag.moved) {
+    if (currentDrag.started) {
+      window.bilimiDesktop?.finishFloatingSealDrag?.()
+    }
+
+    if (currentDrag.moved || currentDrag.longPress) {
       suppressNextClick.current = true
       return true
     }
@@ -171,6 +221,10 @@ export function PalaceMaidPetApp() {
 
   function showClosePrompt() {
     dragState.current = null
+    if (longPressTimeout.current !== null) {
+      window.clearTimeout(longPressTimeout.current)
+      longPressTimeout.current = null
+    }
     setPressed(false)
     setClosePromptVisible(true)
   }
@@ -248,7 +302,7 @@ export function PalaceMaidPetApp() {
         }}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture?.(event.pointerId)
-          startDrag(event.clientX, event.clientY, event.screenX, event.screenY)
+          startDragCandidate(event.clientX, event.clientY, event.screenX, event.screenY)
         }}
         onPointerMove={(event) => {
           moveDrag(event.clientX, event.clientY)
@@ -259,13 +313,25 @@ export function PalaceMaidPetApp() {
         }}
         onPointerCancel={() => {
           dragState.current = null
+          if (longPressTimeout.current !== null) {
+            window.clearTimeout(longPressTimeout.current)
+            longPressTimeout.current = null
+          }
           setPressed(false)
+        }}
+        onPointerLeave={() => {
+          const currentDrag = dragState.current
+
+          if (currentDrag && !currentDrag.started) {
+            dragState.current = {
+              ...currentDrag,
+              longPress: true
+            }
+          }
+          scheduleHideResizeControls()
         }}
         onPointerEnter={() => {
           showResizeControls()
-        }}
-        onPointerLeave={() => {
-          scheduleHideResizeControls()
         }}
       >
         <span className="palace-maid-pet__halo" aria-hidden="true" />
