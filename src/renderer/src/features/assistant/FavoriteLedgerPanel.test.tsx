@@ -12,7 +12,7 @@ describe('FavoriteLedgerPanel', () => {
       message: '册目已备齐。'
     })
 
-    render(
+    const { container } = render(
       <FavoriteLedgerPanel
         ledgers={createDefaultFavoriteLedgers().slice(0, 2)}
         missingLedgerIds={['humor']}
@@ -30,6 +30,12 @@ describe('FavoriteLedgerPanel', () => {
 
     await waitFor(() => expect(onEnsureLedgers).toHaveBeenCalledOnce())
     expect(screen.getByRole('status')).toHaveTextContent('册目已备齐。')
+    const toolbar = container.querySelector('.favorite-ledger-panel__toolbar')
+    const status = container.querySelector('.favorite-ledger-panel__status')
+    const list = container.querySelector('.favorite-ledger-panel__list')
+
+    expect(toolbar?.compareDocumentPosition(status as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(status?.compareDocumentPosition(list as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   })
 
   it('adds a custom ledger from a recommended name only after 保存', async () => {

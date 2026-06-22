@@ -201,6 +201,13 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
+  it('keeps favorite ledger status near the toolbar and ledger copy compact', () => {
+    expectStyleSnippet('.favorite-ledger-panel__status { margin: 6px 0 0;')
+    expectStyleSnippet('.favorite-ledger-panel__item strong, .favorite-ledger-panel__preview strong { font-size: 15px;')
+    expectStyleSnippet('.favorite-ledger-panel__item small, .favorite-ledger-panel__preview small { margin-top: 3px; color: var(--porcelain-muted); font-size: 11px;')
+    expectStyleSnippet('.favorite-ledger-panel__preview h3 { font-size: 16px;')
+  })
+
   it('styles the DeepSeek assistant settings group and actions', () => {
     expect(normalizedStyles).toContain('.assistant-settings__group--deepseek')
     expect(normalizedStyles).toContain('.assistant-settings__actions')

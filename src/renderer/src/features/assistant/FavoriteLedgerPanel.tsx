@@ -197,6 +197,12 @@ export function FavoriteLedgerPanel({
         </button>
       </div>
 
+      {status ? (
+        <p className="favorite-ledger-panel__status" role="status">
+          {status}
+        </p>
+      ) : null}
+
       <div className="favorite-ledger-panel__list">
         {draftLedgers.map((ledger) => (
           <article key={ledger.id} className="favorite-ledger-panel__item">
@@ -279,11 +285,6 @@ export function FavoriteLedgerPanel({
         </div>
       ) : null}
 
-      {status ? (
-        <p className="favorite-ledger-panel__status" role="status">
-          {status}
-        </p>
-      ) : null}
     </section>
   )
 }
