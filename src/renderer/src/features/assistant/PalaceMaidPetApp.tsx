@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import { LayeredPetRenderer } from './LayeredPetRenderer'
 import {
   createPetStateView,
@@ -10,6 +10,10 @@ import type { AssistantPreferences, DeepSeekChatMessage } from '@shared/types'
 
 const DRAG_THRESHOLD_PX = 5
 const LONG_PRESS_SUPPRESSION_MS = 350
+const PET_SIZE_STEP_PX = 16
+const PET_SIZE_MIN_PX = 116
+const PET_SIZE_MAX_PX = 164
+const PET_SIZE_DEFAULT_PX = 148
 const DEEPSEEK_CHAT_DISABLED_MESSAGE =
   '主人，想要跟小咪交流的话去设置开启DeepSeek支持吧'
 
@@ -30,6 +34,7 @@ export function PalaceMaidPetApp() {
   const suppressNextClick = useRef(false)
   const [pressed, setPressed] = useState(false)
   const [resizeControlsVisible, setResizeControlsVisible] = useState(false)
+  const [petSize, setPetSize] = useState(PET_SIZE_DEFAULT_PX)
   const [petState, setPetState] = useState<AssistantPetState>('idle')
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences()
@@ -209,7 +214,12 @@ export function PalaceMaidPetApp() {
   function resizePetByStep(step: number) {
     dragState.current = null
     setPressed(false)
-    window.bilimiDesktop?.resizeFloatingSealByStep?.(step)
+    setPetSize((currentSize) =>
+      Math.min(
+        Math.max(currentSize + Math.sign(step) * PET_SIZE_STEP_PX, PET_SIZE_MIN_PX),
+        PET_SIZE_MAX_PX
+      )
+    )
   }
 
   function restoreMainWindow() {
@@ -277,7 +287,11 @@ export function PalaceMaidPetApp() {
   }
 
   return (
-    <main className="palace-maid-pet-shell" aria-label="Bilimi 小咪">
+    <main
+      className="palace-maid-pet-shell"
+      aria-label="Bilimi 小咪"
+      style={{ '--floating-pet-size': `${petSize}px` } as CSSProperties}
+    >
       <button
         className="palace-maid-pet"
         type="button"

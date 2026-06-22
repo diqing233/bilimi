@@ -343,12 +343,13 @@ describe('PalaceMaidPetApp', () => {
     )
   })
 
-  it('shows foot-side step controls that resize the floating pet without restoring the main window', () => {
+  it('shows foot-side step controls that resize only the pet character', () => {
     const api = installDesktopApi()
 
-    render(<PalaceMaidPetApp />)
+    const { container } = render(<PalaceMaidPetApp />)
 
     const pet = screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' })
+    const shell = container.querySelector('.palace-maid-pet-shell') as HTMLElement
     const resizeControls = screen.getByRole('group', {
       name: '调整小咪大小',
       hidden: true
@@ -364,10 +365,13 @@ describe('PalaceMaidPetApp', () => {
     const growButton = screen.getByRole('button', { name: '放大小咪' })
 
     fireEvent.click(shrinkButton)
-    fireEvent.click(growButton)
+    expect(shell.style.getPropertyValue('--floating-pet-size')).toBe('132px')
+    expect(api.resizeFloatingSealByStep).not.toHaveBeenCalled()
 
-    expect(api.resizeFloatingSealByStep).toHaveBeenNthCalledWith(1, -1)
-    expect(api.resizeFloatingSealByStep).toHaveBeenNthCalledWith(2, 1)
+    fireEvent.click(growButton)
+    expect(shell.style.getPropertyValue('--floating-pet-size')).toBe('148px')
+
+    expect(api.resizeFloatingSealByStep).not.toHaveBeenCalled()
     expect(api.finishFloatingSealDrag).not.toHaveBeenCalled()
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
@@ -445,7 +449,11 @@ describe('PalaceMaidPetApp', () => {
     expect(api.resizeFloatingSealByStep).not.toHaveBeenCalled()
 
     fireEvent.click(growButton)
-    expect(api.resizeFloatingSealByStep).toHaveBeenCalledOnce()
-    expect(api.resizeFloatingSealByStep).toHaveBeenCalledWith(1)
+    expect(api.resizeFloatingSealByStep).not.toHaveBeenCalled()
+    expect(
+      (document.querySelector('.palace-maid-pet-shell') as HTMLElement).style.getPropertyValue(
+        '--floating-pet-size'
+      )
+    ).toBe('164px')
   })
 })

@@ -520,7 +520,7 @@ body[data-floating-window="true"],
 .palace-maid-pet__bubble {
   position: absolute;
   left: 50%;
-  top: 1px;
+  bottom: calc(var(--floating-pet-size) + 10px);
   z-index: 2;
   width: calc(var(--floating-pet-host-width) - 8px);
   max-width: calc(var(--floating-pet-host-width) - 8px);
@@ -544,8 +544,7 @@ body[data-floating-window="true"],
 }
 .palace-maid-pet__bubble[data-chat-open="true"] {
   left: 50%;
-  top: auto;
-  bottom: calc(var(--floating-pet-size) * 0.34);
+  bottom: calc(var(--floating-pet-size) + 10px);
   width: min(320px, calc(var(--floating-pet-host-width) - 8px));
   gap: 7px;
   max-height: calc(100vh - 24px);

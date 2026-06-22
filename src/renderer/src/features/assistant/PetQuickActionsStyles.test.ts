@@ -28,7 +28,7 @@ describe('pet quick action styles', () => {
 
   it('keeps the expanded chat bubble inside the viewport and prevents press scaling', () => {
     expectStyleSnippet(
-      '.palace-maid-pet__bubble[data-chat-open="true"] { left: 50%; top: auto; bottom: calc(var(--floating-pet-size) * 0.34);'
+      '.palace-maid-pet__bubble[data-chat-open="true"] { left: 50%; bottom: calc(var(--floating-pet-size) + 10px);'
     )
     expectStyleSnippet('width: min(320px, calc(var(--floating-pet-host-width) - 8px));')
     expectStyleSnippet('max-width: calc(var(--floating-pet-host-width) - 8px);')
