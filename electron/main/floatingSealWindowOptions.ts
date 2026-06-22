@@ -11,6 +11,10 @@ export function createFloatingSealWindowOptions(
 ): Electron.BrowserWindowConstructorOptions {
   return {
     ...bounds,
+    minWidth: bounds.width,
+    maxWidth: bounds.width,
+    minHeight: bounds.height,
+    maxHeight: bounds.height,
     title: '',
     frame: false,
     show: false,

@@ -25,6 +25,7 @@ import { FloatingMenuController } from './floatingMenuController'
 import { FloatingSealDragController } from './floatingSealDragController'
 import { createMainWindowOptions } from './mainWindowOptions'
 import { restoreMainWindowFromPet } from './mainWindowRestore'
+import { installFixedFloatingSealBoundsGuard } from './floatingSealBoundsGuard'
 import { createFloatingSealWindowOptions } from './floatingSealWindowOptions'
 import {
   configureFloatingMenuWindow,
@@ -33,7 +34,6 @@ import {
 import { keepMainWindowTitle } from './windowTitleGuard'
 import {
   createFloatingAssistantBounds,
-  createFixedFloatingSealBounds,
   createFloatingHostBounds,
   createFloatingMenuBounds,
   createFloatingSealDragPosition,
@@ -77,6 +77,7 @@ const FLOATING_ASSISTANT_QUERY = { window: 'floating-assistant' }
 
 let mainWindow: BrowserWindow | null = null
 let floatingSealWindow: BrowserWindow | null = null
+let enforceFloatingSealWindowBounds: (() => void) | null = null
 let assistantPetState: AssistantPetState = 'idle'
 
 function openUrlInRendererTab(win: BrowserWindow, url: string) {
@@ -174,20 +175,24 @@ function createFloatingSealWindow() {
   const seal = new BrowserWindow(
     createFloatingSealWindowOptions(getFloatingSealBounds(), createPreloadScriptPath(__dirname))
   )
+  const enforceSealBounds = installFixedFloatingSealBoundsGuard(seal)
 
   seal.setAlwaysOnTop(true, 'floating')
   seal.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   seal.removeMenu()
   seal.on('closed', () => {
     floatingSealWindow = null
+    enforceFloatingSealWindowBounds = null
   })
 
   loadRendererWindow(seal, FLOATING_SEAL_QUERY)
   seal.webContents.once('did-finish-load', () => {
     sendAssistantPetState()
+    enforceSealBounds()
     seal.show()
   })
   floatingSealWindow = seal
+  enforceFloatingSealWindowBounds = enforceSealBounds
 
   return seal
 }
@@ -288,11 +293,7 @@ function resetFloatingSealWindowBounds() {
     return
   }
 
-  floatingSealWindow.setBounds(
-    createFixedFloatingSealBounds({
-      startBounds: floatingSealWindow.getBounds()
-    })
-  )
+  enforceFloatingSealWindowBounds?.()
 }
 
 function closeFloatingMenuWindow() {
@@ -320,6 +321,7 @@ function wakeAssistantPetWindow() {
     return
   }
 
+  resetFloatingSealWindowBounds()
   floatingSealWindow.show()
   floatingSealWindow.focus()
 }
