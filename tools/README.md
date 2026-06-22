@@ -14,6 +14,8 @@ For local Windows development, install the expected files with:
 npm run setup:media-tools
 ```
 
+The setup script currently automates downloads only on Windows. On macOS and Linux, place matching executable files in the platform directory listed above.
+
 Downloaded binaries are ignored by git. Re-run the command when setting up a new checkout or when the note flow reports that a bundled media tool is missing.
 
 ## Local Transcription Runtime

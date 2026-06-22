@@ -23,6 +23,12 @@ Collapsing the sidebar removes the sidebar column instead of leaving a vertical 
 
 When the floating desktop pet restores or focuses the main window, the sidebar also expands if it was collapsed.
 
+## Floating Surfaces
+
+Bilimi starts a transparent Xiao Mi desktop pet window beside the main app. Clicking the pet restores or focuses the main window, right-clicking it opens quick actions for `对话宠物` and `关闭宠物`, and hover controls can resize the pet. The pet window can also be woken or closed from assistant settings.
+
+The floating entry uses the same assistant workspace as the sidebar. It can run review actions, open video notes, manage favorite ledgers, and request the active main-window webview through the Electron bridge.
+
 ## Assistant Actions
 
 `批阅` actions run in the active Bilibili webview. Likes, coins, favorites, and comments first use page automation through the embedded page context. Favorite actions then have two modes:
@@ -63,7 +69,7 @@ The assistant can create notes from:
 
 Video note generation reads the current Bilibili video metadata for title, BV ID, URL, and archive context, then downloads the current video audio and transcribes it locally. Manually pasted transcript text remains available as a fallback and does not download audio.
 
-When local audio transcription is available, the note page exposes `转写音频` and `档案库` as the primary actions. Without an existing note, the page still uses the flat A layout: current video details, generation/archive actions, disabled result entries, and a pasted-transcript fallback. Generated notes include a study-oriented overview with a one-sentence takeaway, key points, a revisit prompt, open questions, keywords, timeline items, and highlights. Timeline items and transcript segments expose `加批注`, which starts a timestamped annotation draft for that moment.
+When local audio transcription is available, the note page exposes `转写音频` and `档案库` as the primary actions. Without an existing note, the page still uses the flat A layout: current video details, generation/archive actions, disabled result entries, and a pasted-transcript fallback. Generated notes include plain transcript, timed transcript, and `一图流总结` result tabs. The summary tab shows the local note summary by default and can ask DeepSeek for a compact structured summary when DeepSeek is enabled.
 
 Generated audio notes are also saved into the global video note archive. The archive stores one entry per video, merges by BV ID before falling back to URL, keeps every transcription as a version, and supports searching by title, author, BV ID, transcript, and summary. The archive panel provides dual-pane history browsing, version switching, copyable plain transcripts, copyable summaries, source opening, and deletion confirmation.
 
