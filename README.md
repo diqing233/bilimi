@@ -25,7 +25,7 @@ When the floating desktop pet restores or focuses the main window, the sidebar a
 
 ## Floating Surfaces
 
-Bilimi starts a transparent 小咪 desktop pet window beside the main app. Clicking the pet restores or focuses the main window, right-clicking it opens quick actions for `对话宠物` and `关闭宠物`, and hover controls can resize the pet. The pet window can also be woken or closed from assistant settings.
+Bilimi starts a transparent 小咪 desktop pet window beside the main app. Clicking the pet restores or focuses the main window, right-clicking it opens quick actions for `对话宠物` and `关闭宠物`, and hover controls can resize the pet. Holding the left mouse button by itself does not resize or animate the pet; dragging only starts after pointer movement crosses the drag threshold, and a long stationary press suppresses the follow-up click restore. The pet window can also be woken or closed from assistant settings.
 
 The floating entry uses the same assistant workspace as the sidebar. It can run review actions, open video notes, manage favorite ledgers, and request the active main-window webview through the Electron bridge.
 
@@ -37,6 +37,8 @@ The floating entry uses the same assistant workspace as the sidebar. It can run 
 - `仅页面点击` disables the favorite API path. If page automation succeeds, Bilimi returns that result directly. If page automation fails because a favorite target is missing, Bilimi opens the favorite dialog with the Bilibili `e` shortcut and finishes through visual text recognition plus webview input events.
 
 In `仅页面点击` mode, logs that only contain steps such as `favorite:open`, `favorite:folder`, `favorite`, and `visual:favorite:*` did not use the favorite API.
+
+For the `表` action, DeepSeek-enabled sessions generate three video-aware funny comments directly from the current video title, author, description, tags, and local classification. There is no required comment-direction prompt in the active flow. If DeepSeek is disabled or returns an unusable result, Bilimi falls back to three local 小咪 comments that still include the UP name and video title when available. Bilimi never publishes a comment until the user explicitly selects one candidate.
 
 ## DeepSeek Assistant Features
 
@@ -69,7 +71,7 @@ The assistant can create notes from:
 
 Video note generation reads the current Bilibili video metadata for title, BV ID, URL, and archive context, then downloads the current video audio and transcribes it locally. Manually pasted transcript text remains available as a fallback and does not download audio.
 
-When local audio transcription is available, the note page exposes `转写音频` and `档案库` as the primary actions. Without an existing note, the page still uses the flat A layout: current video details, generation/archive actions, disabled result entries, and a pasted-transcript fallback. Generated notes include plain transcript, timed transcript, and `一图流总结` result tabs. The summary tab shows the local note summary by default and can ask DeepSeek for a compact structured summary when DeepSeek is enabled.
+When local audio transcription is available, the note page exposes `转写音频` and `档案库` as the primary actions. Without an existing note, the page still uses the flat A layout: current video details, generation/archive actions, disabled result entries, and a pasted-transcript fallback. Generated notes include plain transcript, timed transcript, and `一图流总结` result tabs. The summary tab shows the local note summary by default and can ask DeepSeek for a compact structured summary when DeepSeek is enabled. A generated DeepSeek summary is cached for the current note `id` and `updatedAt`, so reopening the tab reuses the existing result instead of generating again.
 
 Generated audio notes are also saved into the global video note archive. The archive stores one entry per video, merges by BV ID before falling back to URL, keeps every transcription as a version, and supports searching by title, author, BV ID, transcript, and summary. The archive panel provides dual-pane history browsing, version switching, copyable plain transcripts, copyable summaries, source opening, and deletion confirmation.
 

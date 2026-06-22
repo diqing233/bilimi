@@ -17,9 +17,9 @@
 - `electron/main/store.ts`: non-secret DeepSeek settings plus key status/key helpers.
 - `electron/main/deepseekService.ts`: main-process DeepSeek request builder, response parser, and error mapper.
 - `electron/main/index.ts`, `electron/preload/index.ts`, `src/renderer/src/global.d.ts`: IPC/preload bridge.
-- `src/renderer/src/features/assistant/FloatingAssistantApp.tsx`: settings UI, review intent flow, note poster bridge.
-- `src/renderer/src/features/assistant/CommentIntentDialog.tsx`: intent prompt before generating comments.
-- `src/renderer/src/features/notes/VideoNotesPanel.tsx`, `src/renderer/src/features/notes/notePoster.ts`: poster preview/export.
+- `src/renderer/src/features/assistant/FloatingAssistantApp.tsx`: settings UI, direct review comment flow, note poster bridge.
+- `src/renderer/src/features/assistant/CommentIntentDialog.tsx`: legacy fallback component kept covered by tests, but not used by the active `表` flow.
+- `src/renderer/src/features/notes/VideoNotesPanel.tsx`, `src/renderer/src/features/notes/notePoster.ts`: one-image summary display, cache keying, and poster helper coverage.
 - `src/renderer/src/features/assistant/PalaceMaidPetApp.tsx`: top prompt bubble chat.
 - Existing adjacent test files plus new tests for new helper/component files.
 
@@ -282,10 +282,10 @@ Expected: PASS.
 
 Add tests that switch to settings and assert:
 
-1. A checkbox named `Enable DeepSeek` toggles `preferences.deepseekEnabled`.
-2. `DeepSeek API Key`, `DeepSeek Model`, and `DeepSeek Base URL` inputs render.
-3. Clicking `Save DeepSeek` calls `saveDeepSeekApiKey('sk-test')` when the key draft is non-empty, then calls `savePreferences` with model/base URL.
-4. Clicking `Test DeepSeek` calls `testDeepSeekConnection` and shows the returned message in `role="status"`.
+1. A checkbox named `启用 DeepSeek` toggles `preferences.deepseekEnabled`.
+2. `DeepSeek API 密钥`, `DeepSeek 模型`, and `DeepSeek 服务地址` inputs render.
+3. Clicking `保存 DeepSeek` calls `saveDeepSeekApiKey('sk-test')` when the key draft is non-empty, then calls `savePreferences` with model/base URL.
+4. Clicking `测试 DeepSeek` calls `testDeepSeekConnection` and shows the returned localized Chinese message in `role="status"`.
 
 - [x] **Step 2: Run red test**
 
@@ -299,14 +299,15 @@ Expected: FAIL because controls do not exist.
 
 - [x] **Step 3: Implement settings controls**
 
-In the existing settings section, add a `fieldset.assistant-settings__group--deepseek` with English labels:
+In the existing settings section, add a `fieldset.assistant-settings__group--deepseek` with Chinese labels:
 
-- `Enable DeepSeek`
-- `DeepSeek API Key`
-- `DeepSeek Model`
-- `DeepSeek Base URL`
-- `Save DeepSeek`
-- `Test DeepSeek`
+- `启用 DeepSeek`
+- `DeepSeek API 密钥`
+- `DeepSeek 模型`
+- `DeepSeek 服务地址`
+- `保存 DeepSeek`
+- `测试 DeepSeek`
+- `重置 DeepSeek`
 
 Update local `preferences` for checkbox/model/base URL changes. Save key through `saveDeepSeekApiKey`, then save preferences through `savePreferences`.
 
@@ -324,50 +325,15 @@ npm run test -- src/renderer/src/features/assistant/FloatingAssistantApp.test.ts
 
 Expected: PASS.
 
-### Task 6: Review Intent Dialog and AI Comments
+### Task 6: Direct Review AI Comments
 
 2026-06-22 update: the active product behavior no longer asks for a comment intent before generation. When DeepSeek is enabled, clicking `表` calls the `review-comment` generator immediately with the current video context, then shows three candidates in `CommentChooser`. If generation fails or returns an unusable shape, the UI falls back to local 小咪 comments and still waits for the user to choose one before publishing.
 
 **Files:**
-- Create: `src/renderer/src/features/assistant/CommentIntentDialog.tsx`
-- Test: `src/renderer/src/features/assistant/CommentIntentDialog.test.tsx`
 - Modify/Test: `src/renderer/src/features/assistant/FloatingAssistantApp.tsx`, `src/renderer/src/features/assistant/FloatingAssistantApp.test.tsx`
 - Modify: `src/renderer/src/features/assistant/MemorialPanel.tsx`
-- Modify: `src/renderer/src/styles.css`
 
-- [x] **Step 1: Write failing dialog tests**
-
-Create tests for `CommentIntentDialog`:
-
-- Input label: `评论方向`
-- Submit button: `生成评论`
-- 取消 button: `取消`
-- Trims submitted intent.
-- Does not submit empty intent.
-- Shows `role="alert"` when `error` prop is set.
-
-- [x] **Step 2: Run dialog red test**
-
-Run:
-
-```bash
-npm run test -- src/renderer/src/features/assistant/CommentIntentDialog.test.tsx
-```
-
-Expected: FAIL because component does not exist.
-
-- [x] **Step 3: Implement dialog**
-
-Create a small `role="dialog"` component with props:
-
-```ts
-busy: boolean
-error: string
-onSubmit: (intent: string) => void
-on取消: () => void
-```
-
-- [x] **Step 4: Add stable test id to review action**
+- [x] **Step 1: Add stable test id to review action**
 
 In `MemorialPanel.tsx`, add:
 
@@ -377,26 +343,18 @@ data-testid={`review-action-${action}`}
 
 to each review action button. This avoids depending on the existing garbled label text.
 
-- [x] **Step 5: Write failing review flow test**
+- [x] **Step 2: Write direct review flow tests**
 
-In `FloatingAssistantApp.test.tsx`, click the table action via:
+In `FloatingAssistantApp.test.tsx`, click the table action and assert:
 
-```ts
-fireEvent.click(await screen.findByTestId('review-action-琛?))
-```
+1. When DeepSeek is disabled, local 小咪 comments open directly and `generateDeepSeek` is not called.
+2. When DeepSeek is enabled, `generateDeepSeek` is called immediately with `{ kind: 'review-comment', intent: '' }` plus current video title, author, tags, description, and classification.
+3. The three AI comments are shown in `CommentChooser`.
+4. No `评论方向` dialog appears in the active flow.
+5. If DeepSeek returns an unusable shape or throws, the chooser falls back to local 小咪 comments.
+6. Clicking one candidate calls `runAssistantAction` with that `commentDraft`.
 
-If the current source action literal is still garbled in tests, derive the selector from the action array after adding a stable ASCII test id such as `review-action-comment`.
-
-Assert:
-
-1. `评论方向` appears.
-2. Enter `praise technical detail`.
-3. Click `生成评论`.
-4. `generateDeepSeek` is called with `{ kind: 'review-comment', intent: 'praise technical detail' }`.
-5. The three AI comments are shown in `CommentChooser`.
-6. Clicking one calls `runAssistantAction` with that `commentDraft`.
-
-- [x] **Step 6: Run red test**
+- [x] **Step 3: Run red test**
 
 Run:
 
@@ -406,32 +364,28 @@ npm run test -- src/renderer/src/features/assistant/FloatingAssistantApp.test.ts
 
 Expected: FAIL because `FloatingAssistantApp` still opens static comments directly.
 
-- [x] **Step 7: Implement review flow**
+- [x] **Step 4: Implement direct review flow**
 
 In `FloatingAssistantApp.tsx`:
 
-- Add state for `commentIntentOpen`, `commentIntentBusy`, `commentIntentError`, and `aiCommentDrafts`.
-- On table/comment action, open `CommentIntentDialog` instead of `CommentChooser`.
-- Build a `review-comment` request from current video title, page text, classification, and user intent.
-- On success, close intent dialog, set `aiCommentDrafts`, and open `CommentChooser`.
+- Add state for `aiCommentDrafts` and request busy locking.
+- On table/comment action, open `CommentChooser` directly when DeepSeek is disabled.
+- When DeepSeek is enabled, build a `review-comment` request from current video title, author, description, tags, classification, and empty intent.
+- On success, set `aiCommentDrafts` and open `CommentChooser`.
+- On failure or wrong result kind, clear `aiCommentDrafts` and open `CommentChooser` with local 小咪 comments.
 - On select, run existing action with selected draft and clear `aiCommentDrafts`.
-- On cancel, clear intent and drafts.
 
-- [x] **Step 8: Add styles**
-
-Add `.assistant-dialog--intent` and input sizing styles.
-
-- [x] **Step 9: Run green tests**
+- [x] **Step 5: Run green tests**
 
 Run:
 
 ```bash
-npm run test -- src/renderer/src/features/assistant/CommentIntentDialog.test.tsx src/renderer/src/features/assistant/FloatingAssistantApp.test.tsx
+npm run test -- src/renderer/src/features/assistant/FloatingAssistantApp.test.tsx
 ```
 
 Expected: PASS.
 
-### Task 7: Note Poster Summary
+### Task 7: One-Image Note Summary
 
 **Files:**
 - Create/Test: `src/renderer/src/features/notes/notePoster.ts`, `src/renderer/src/features/notes/notePoster.test.ts`
@@ -476,10 +430,11 @@ onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
 Test:
 
 1. Open the existing summary tab.
-2. Click `Generate one-image summary`.
+2. With DeepSeek enabled, opening `一图流总结` triggers generation once for the current note.
 3. Assert `onGeneratePoster(sampleNote)` was called.
-4. Assert returned title appears in a `region` named `One-image poster preview`.
-5. Assert link `Save image` has an SVG data URL.
+4. Assert returned title appears in a region named `DeepSeek 一图流总结`.
+5. Reopen the summary tab and assert the existing result is reused instead of calling `onGeneratePoster` again.
+6. Assert `复制全文` copies the summary text.
 
 - [x] **Step 5: Run panel red test**
 
@@ -491,13 +446,15 @@ npm run test -- src/renderer/src/features/notes/VideoNotesPanel.test.tsx
 
 Expected: FAIL because prop/UI do not exist.
 
-- [x] **Step 6: Implement poster panel**
+- [x] **Step 6: Implement summary panel**
 
-In `VideoNotesPanel.tsx`, add poster state, a generate handler, preview markup, and save link. Use English labels for the new controls:
+In `VideoNotesPanel.tsx`, add poster state, a generate handler, and preview markup. The active UI uses Chinese labels:
 
-- `Generate one-image summary`
-- `One-image poster preview`
-- `Save image`
+- Result tab: `一图流总结`
+- Region: `DeepSeek 一图流总结`
+- Copy action: `复制全文`
+
+Use `createPosterCacheKey(note) = note.id + ':' + note.updatedAt` so a generated DeepSeek summary is reused while the note has not changed. Opening the tab again must not regenerate.
 
 - [x] **Step 7: Wire through MemorialPanel and FloatingAssistantApp**
 
@@ -515,7 +472,7 @@ async function generateNotePoster(note: VideoNote) {
 
 - [x] **Step 8: Add styles**
 
-Add `.video-notes__poster` styles.
+Keep the summary panel consistent with the compact video notes layout and keyword chip styles.
 
 - [x] **Step 9: Run green tests**
 

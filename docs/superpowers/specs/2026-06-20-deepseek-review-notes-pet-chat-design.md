@@ -100,10 +100,11 @@ Add a one-image-summary action to the notes result area. When a current note exi
    - three to five key points
    - keywords
    - one revisit prompt or open question
-3. The renderer displays a poster preview card using normal HTML/CSS.
-4. The user can save the poster as an image.
+3. The renderer displays the DeepSeek summary inside the `一图流总结` result tab.
+4. The user can copy the summary text.
+5. The generated summary is cached for the current note `id` and `updatedAt`, so reopening the tab reuses the existing result instead of calling DeepSeek again.
 
-For the first implementation, use browser-side rendering of a DOM poster to a canvas or SVG-backed image if available in the existing stack. If image export becomes too brittle, ship a copyable poster preview first and keep image export behind a clear disabled or error state rather than pretending it worked.
+For the first implementation, ship the copyable structured summary first. Browser-side image export may be added later, but the UI must not show a save/export promise unless that path is implemented and tested.
 
 ## 8. Desktop Pet Chat
 
@@ -155,7 +156,7 @@ flowchart LR
 3. DeepSeek service tests use an injected fetch function and verify request payloads, parsing, timeout/error mapping, and no-key behavior.
 4. Settings tests cover rendering DeepSeek controls, saving model/base URL, replacing the key, and test-connection feedback.
 5. Review tests cover direct AI candidate generation, chooser rendering, local fallback, cancel, and selected candidate passing into the existing comment automation.
-6. Notes tests cover the one-image action visibility, poster generation from an existing note, preview rendering, and save/export UI state.
+6. Notes tests cover one-image summary visibility, DeepSeek generation from an existing note, preview rendering, copying, and cache reuse when the tab is reopened.
 7. Pet tests cover expanding the top bubble into chat, sending a message, rendering a reply, disabled configuration state, and preserving restore/drag behavior.
 
 ## 11. Acceptance Criteria
@@ -163,8 +164,8 @@ flowchart LR
 1. User can configure DeepSeek from settings without exposing the key in renderer state.
 2. A successful test connection confirms the configured model and base URL.
 3. The review table action generates three choices directly, and only publishes after the user selects one.
-4. Notes can generate and preview an A-style card poster from the current note.
-5. The poster preview has a working save/export path or a clearly disabled fallback with a tested error message.
+4. Notes can generate and preview an A-style structured summary from the current note.
+5. Reopening `一图流总结` for an unchanged note reuses the generated DeepSeek result instead of regenerating it.
 6. The desktop pet top bubble supports direct short chat with 小咪 at the location shown in the user's screenshot.
 7. Missing DeepSeek configuration is handled consistently across review, notes, and pet chat.
 8. Focused tests, full test suite, and build pass before the implementation is committed.
