@@ -654,8 +654,8 @@ body[data-floating-window="true"],
 }
 .palace-maid-pet__resize-controls {
   position: absolute;
-  right: max(8px, calc(50% - var(--floating-pet-size) * 0.46));
-  bottom: 14px;
+  right: 22px;
+  bottom: 34px;
   z-index: 4;
   display: flex;
   gap: 4px;
@@ -666,18 +666,17 @@ body[data-floating-window="true"],
   background: rgba(220, 238, 255, 0.86);
   color: var(--porcelain-deep);
   touch-action: none;
-  transform: translateY(0);
+  transform: none;
   opacity: 0;
   pointer-events: none;
   transition:
-    opacity 120ms ease,
-    transform 120ms ease;
+    opacity 120ms ease;
 }
 .palace-maid-pet__resize-controls[data-visible="true"],
 .palace-maid-pet__resize-controls:focus-within {
   opacity: 1;
   pointer-events: auto;
-  transform: translateY(-2px);
+  transform: none;
 }
 .palace-maid-pet__resize-step {
   width: 22px;
@@ -700,6 +699,9 @@ body[data-floating-window="true"],
 .palace-maid-pet__resize-step:focus-visible {
   background: rgba(116, 199, 223, 0.34);
   outline: none;
+}
+.palace-maid-pet__resize-step:active {
+  transform: none;
 }
 .layered-pet {
   position: relative;

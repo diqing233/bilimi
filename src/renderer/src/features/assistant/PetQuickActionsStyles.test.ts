@@ -39,8 +39,13 @@ describe('pet quick action styles', () => {
     expect(compactStyles).not.toContain('max-width: calc(100vw - 8px);')
     expectStyleSnippet('--pet-bubble-offset-x: -50%;')
     expectStyleSnippet(
-      '.palace-maid-pet__resize-controls { position: absolute; right: max(8px, calc(50% - var(--floating-pet-size) * 0.46));'
+      '.palace-maid-pet__resize-controls { position: absolute; right: 22px; bottom: 34px;'
     )
+    expectStyleSnippet('transform: none;')
+    expectStyleSnippet(
+      '.palace-maid-pet__resize-controls[data-visible="true"], .palace-maid-pet__resize-controls:focus-within { opacity: 1; pointer-events: auto; transform: none;'
+    )
+    expectStyleSnippet('.palace-maid-pet__resize-step:active { transform: none;')
     expectStyleSnippet('.palace-maid-pet:hover, .palace-maid-pet:focus-visible { transform: translateY(-1px);')
     expectStyleSnippet('.palace-maid-pet:active, .palace-maid-pet[data-pressed="true"] { cursor: grabbing;')
     expectStyleSnippet('.palace-maid-pet[data-pressed="true"]:hover, .palace-maid-pet[data-pressed="true"]:focus-visible { transform: none;')

@@ -23,12 +23,12 @@ export function markFloatingWindowDocument(
   if (root) {
     root.dataset.floatingWindow = 'true'
   }
-  target.documentElement.style.background = 'transparent'
-  target.body.style.background = 'transparent'
-  target.documentElement.style.backgroundColor = 'transparent'
-  target.body.style.backgroundColor = 'transparent'
-  root?.style.setProperty('background', 'transparent')
-  root?.style.setProperty('background-color', 'transparent')
+  target.documentElement.style.setProperty('background', 'transparent', 'important')
+  target.body.style.setProperty('background', 'transparent', 'important')
+  target.documentElement.style.setProperty('background-color', 'transparent', 'important')
+  target.body.style.setProperty('background-color', 'transparent', 'important')
+  root?.style.setProperty('background', 'transparent', 'important')
+  root?.style.setProperty('background-color', 'transparent', 'important')
   root?.style.setProperty('overflow', 'hidden')
   target.title = ''
 

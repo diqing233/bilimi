@@ -20,6 +20,8 @@ export function createFloatingSealWindowOptions(
     show: false,
     paintWhenInitiallyHidden: false,
     transparent: true,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: false,
     thickFrame: false,
     resizable: false,
     movable: true,

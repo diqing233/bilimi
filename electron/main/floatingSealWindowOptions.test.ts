@@ -22,6 +22,8 @@ describe('createFloatingSealWindowOptions', () => {
       show: false,
       paintWhenInitiallyHidden: false,
       transparent: true,
+      titleBarStyle: 'hidden',
+      titleBarOverlay: false,
       thickFrame: false,
       resizable: false,
       movable: true,
@@ -38,7 +40,5 @@ describe('createFloatingSealWindowOptions', () => {
         sandbox: false
       }
     })
-    expect(options).not.toHaveProperty('titleBarStyle')
-    expect(options).not.toHaveProperty('titleBarOverlay')
   })
 })

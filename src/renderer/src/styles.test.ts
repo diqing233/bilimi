@@ -124,7 +124,9 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain('bottom: calc(100% + 18px);')
     expect(normalizedStyles).toContain('.palace-maid-pet__resize-controls {')
     expect(normalizedStyles).toContain('.palace-maid-pet__resize-step {')
-    expect(normalizedStyles).toContain('right: max(8px, calc(50% - var(--floating-pet-size) * 0.46));')
+    expect(normalizedStyles).toContain('right: 22px;')
+    expect(normalizedStyles).toContain('bottom: 34px;')
+    expect(normalizedStyles).not.toContain('right: max(8px, calc(50% - var(--floating-pet-size) * 0.46));')
     expect(normalizedStyles).not.toContain('left: calc(50% + 96px);')
     expect(normalizedStyles).toContain('border: 1px solid rgba(116, 199, 223, 0.72);')
     expect(normalizedStyles).toContain('background: rgba(220, 238, 255, 0.86);')
@@ -132,12 +134,16 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain(
       'left: calc(50% + var(--floating-pet-size) * 0.42);'
     )
-    expect(normalizedStyles).toContain('bottom: 14px;')
+    expect(normalizedStyles).not.toContain('bottom: 14px;')
     expect(normalizedStyles).toContain('opacity: 0;')
     expect(normalizedStyles).toContain('pointer-events: none;')
     expect(normalizedStyles).toContain('.palace-maid-pet__resize-controls[data-visible="true"],')
     expect(normalizedStyles).toContain('opacity: 1;')
     expect(normalizedStyles).toContain('pointer-events: auto;')
+    expectStyleSnippet(
+      '.palace-maid-pet__resize-controls[data-visible="true"], .palace-maid-pet__resize-controls:focus-within { opacity: 1; pointer-events: auto; transform: none;'
+    )
+    expectStyleSnippet('.palace-maid-pet__resize-step:active { transform: none;')
     expect(normalizedStyles).not.toContain('.palace-maid-pet__resize-handle')
     expect(normalizedStyles).not.toContain('cursor: nwse-resize;')
     expect(normalizedStyles).not.toContain('right: 7px;\n  bottom: 7px;')

@@ -28,9 +28,19 @@ describe('markFloatingWindowDocument', () => {
     expect(target.body.style.backgroundColor).toBe('transparent')
     expect(target.documentElement.style.background).toBe('transparent')
     expect(target.body.style.background).toBe('transparent')
+    expect(target.documentElement.style.getPropertyPriority('background')).toBe('important')
+    expect(target.body.style.getPropertyPriority('background')).toBe('important')
+    expect(target.documentElement.style.getPropertyPriority('background-color')).toBe('important')
+    expect(target.body.style.getPropertyPriority('background-color')).toBe('important')
     expect(target.getElementById('root')).toHaveAttribute('data-floating-window', 'true')
     expect(target.getElementById('root')?.style.backgroundColor).toBe('transparent')
     expect(target.getElementById('root')?.style.background).toBe('transparent')
+    expect(target.getElementById('root')?.style.getPropertyPriority('background')).toBe(
+      'important'
+    )
+    expect(target.getElementById('root')?.style.getPropertyPriority('background-color')).toBe(
+      'important'
+    )
     expect(target.getElementById('root')?.style.overflow).toBe('hidden')
     expect(target.title).toBe('')
   })
