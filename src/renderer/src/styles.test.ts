@@ -96,10 +96,13 @@ describe('renderer porcelain theme styles', () => {
   })
 
   it('keeps the floating pet fixed-size inside its transparent stage', () => {
-    expect(normalizedStyles).toContain('.palace-maid-pet-shell {\n  width: 100vw;\n  height: 100vh;')
+    expect(normalizedStyles).toContain('.palace-maid-pet-shell {\n  width: 356px;\n  height: 260px;')
+    expect(normalizedStyles).toContain('max-width: 100vw;\n  max-height: 100vh;')
     expect(normalizedStyles).toContain('--floating-pet-size: 148px;')
     expect(normalizedStyles).toContain('--floating-pet-host-width: 356px;')
+    expect(normalizedStyles).toContain('--floating-pet-host-height: 260px;')
     expect(normalizedStyles).not.toContain('--floating-pet-size: clamp(')
+    expect(normalizedStyles).not.toContain('.palace-maid-pet-shell {\n  width: 100vw;\n  height: 100vh;')
     expect(normalizedStyles).not.toContain('min(54vw, 50vh)')
     expect(normalizedStyles).not.toContain('min(54vw, calc(100vh - 96px))')
     expect(normalizedStyles).not.toContain('min(72vw, calc(100vh - 96px))')

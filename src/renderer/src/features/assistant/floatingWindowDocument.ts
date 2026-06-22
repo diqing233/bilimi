@@ -29,6 +29,7 @@ export function markFloatingWindowDocument(
   target.body.style.backgroundColor = 'transparent'
   root?.style.setProperty('background', 'transparent')
   root?.style.setProperty('background-color', 'transparent')
+  root?.style.setProperty('overflow', 'hidden')
   target.title = ''
 
   return true

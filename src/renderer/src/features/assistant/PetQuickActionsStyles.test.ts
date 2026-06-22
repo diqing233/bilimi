@@ -21,7 +21,9 @@ describe('pet quick action styles', () => {
       'background: rgba(247, 251, 255, 0.96); color: var(--porcelain-text); font: 12px "Noto Serif SC", "Songti SC", "SimSun", serif;'
     )
     expectStyleSnippet('padding: 5px 10px;')
+    expectStyleSnippet('.palace-maid-pet-shell { width: 356px; height: 260px;')
     expectStyleSnippet('--floating-pet-size: 148px;')
+    expectStyleSnippet('--floating-pet-host-height: 260px;')
     expect(compactStyles).not.toContain('--floating-pet-size: clamp(')
     expectStyleSnippet('.palace-maid-pet { width: var(--floating-pet-size); height: var(--floating-pet-size);')
   })
