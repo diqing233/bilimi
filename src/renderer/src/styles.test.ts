@@ -95,11 +95,11 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
-  it('gives the floating pet enough transparent stage space for the chibi and speech bubble', () => {
+  it('keeps the floating pet fixed-size inside its transparent stage', () => {
     expect(normalizedStyles).toContain('.palace-maid-pet-shell {\n  width: 100vw;\n  height: 100vh;')
-    expect(normalizedStyles).toContain(
-      '--floating-pet-size: clamp(148px, min(72vw, calc(100vh - 84px)), 340px);'
-    )
+    expect(normalizedStyles).toContain('--floating-pet-size: 148px;')
+    expect(normalizedStyles).toContain('--floating-pet-host-width: 356px;')
+    expect(normalizedStyles).not.toContain('--floating-pet-size: clamp(')
     expect(normalizedStyles).not.toContain('min(54vw, 50vh)')
     expect(normalizedStyles).not.toContain('min(54vw, calc(100vh - 96px))')
     expect(normalizedStyles).not.toContain('min(72vw, calc(100vh - 96px))')
@@ -108,9 +108,11 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.palace-maid-pet {\n  width: var(--floating-pet-size);\n  height: var(--floating-pet-size);')
     expect(normalizedStyles).toContain('.palace-maid-pet__bubble {\n  position: absolute;\n  left: 50%;')
     expect(normalizedStyles).toContain('left: 50%;\n  top: 1px;')
-    expect(normalizedStyles).toContain('max-width: calc(100vw - 8px);')
+    expect(normalizedStyles).toContain('max-width: calc(var(--floating-pet-host-width) - 8px);')
     expect(normalizedStyles).toContain('transform: translateX(var(--pet-bubble-offset-x, -50%));')
-    expect(normalizedStyles).toContain('width: calc(100vw - 8px);')
+    expect(normalizedStyles).toContain('width: calc(var(--floating-pet-host-width) - 8px);')
+    expect(normalizedStyles).not.toContain('width: calc(100vw - 8px);')
+    expect(normalizedStyles).not.toContain('max-width: calc(100vw - 8px);')
     expect(normalizedStyles).not.toContain('width: min(204px, calc(100vw - 28px));')
     expect(normalizedStyles).not.toContain('bottom: calc(100% + 18px);')
     expect(normalizedStyles).toContain('.palace-maid-pet__resize-controls {')
