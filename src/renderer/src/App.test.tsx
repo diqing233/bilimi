@@ -81,6 +81,13 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
       })
 
       return response
+    },
+    requestRuntimeDirect: (request: AssistantRuntimeRequest) => {
+      if (!runtimeHandler) {
+        throw new Error('Assistant runtime was not registered.')
+      }
+
+      return runtimeHandler(request)
     }
   }
 }
@@ -186,6 +193,61 @@ describe('App runtime integration', () => {
         videoTitle: '【怒九】这是我玩过最恐怖的小游戏！！',
         videoContentContext: expect.objectContaining({
           title: '【怒九】这是我玩过最恐怖的小游戏！！'
+        })
+      })
+    )
+  })
+
+  it('returns the new active tab title when the assistant reloads immediately after a title event', async () => {
+    const { desktopApi, requestRuntimeDirect } = renderAppWithRuntimeBridge()
+    await act(async () => undefined)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (isLedgerStatusScript(script)) {
+          throw new Error('skip ledger status in immediate snapshot test')
+        }
+
+        if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+          return {
+            title: '上一条视频标题',
+            pageText: '页面提取结果还没有跟上标题变化。'
+          }
+        }
+
+        return null
+      })
+    })
+
+    let snapshotFromImmediateReload: AssistantRuntimeResponsePayload | undefined
+    let immediateReload: Promise<void> | undefined
+    desktopApi.notifyAssistantSnapshotChanged.mockImplementation(() => {
+      immediateReload = requestRuntimeDirect({
+        id: 'snapshot-title-immediate',
+        type: 'snapshot'
+      }).then((snapshot) => {
+        snapshotFromImmediateReload = snapshot
+      })
+    })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('page-title-updated', {
+          detail: {
+            title: '我们成立团队了！ - 哔哩哔哩'
+          }
+        })
+      )
+    })
+    await immediateReload
+
+    expect(snapshotFromImmediateReload).toEqual(
+      expect.objectContaining({
+        videoTitle: '我们成立团队了！',
+        videoContentContext: expect.objectContaining({
+          title: '我们成立团队了！'
         })
       })
     )

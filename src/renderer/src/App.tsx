@@ -91,6 +91,8 @@ export default function App() {
     }
   ])
   const [activeTabId, setActiveTabId] = useState(HOME_TAB_ID)
+  const tabsRef = useRef(tabs)
+  const activeTabIdRef = useRef(activeTabId)
   const [webviews, setWebviews] = useState<Record<string, Electron.WebviewTag>>({})
   const webviewRefs = useRef<Record<string, Electron.WebviewTag>>({})
   const activeTabChangeMounted = useRef(false)
@@ -102,6 +104,24 @@ export default function App() {
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0],
     [activeTabId, tabs]
   )
+
+  const commitTabs = useCallback(
+    (updater: (currentTabs: BrowserTabModel[]) => BrowserTabModel[]) => {
+      const nextTabs = updater(tabsRef.current)
+      tabsRef.current = nextTabs
+      setTabs(nextTabs)
+    },
+    []
+  )
+
+  const selectActiveTab = useCallback((nextActiveTabId: string) => {
+    activeTabIdRef.current = nextActiveTabId
+    setActiveTabId(nextActiveTabId)
+  }, [])
+
+  function getActiveTabSnapshot(): BrowserTabModel | undefined {
+    return tabsRef.current.find((tab) => tab.id === activeTabIdRef.current) ?? tabsRef.current[0]
+  }
   useEffect(() => {
     let cancelled = false
 
@@ -156,11 +176,11 @@ export default function App() {
       return
     }
 
-    setTabs((currentTabs) => {
+    commitTabs((currentTabs) => {
       const existingTab = currentTabs.find((tab) => tab.url === nextUrl)
 
       if (existingTab) {
-        setActiveTabId(existingTab.id)
+        selectActiveTab(existingTab.id)
         return currentTabs
       }
 
@@ -170,10 +190,10 @@ export default function App() {
         url: nextUrl
       }
 
-      setActiveTabId(nextTab.id)
+      selectActiveTab(nextTab.id)
       return [...currentTabs, nextTab]
     })
-  }, [])
+  }, [commitTabs, selectActiveTab])
 
   const closeInternalTab = useCallback(
     (tabIdToClose: string) => {
@@ -189,7 +209,7 @@ export default function App() {
         return remainingWebviews
       })
 
-      setTabs((currentTabs) => {
+      commitTabs((currentTabs) => {
         const tabIndex = currentTabs.findIndex((tab) => tab.id === tabIdToClose)
 
         if (tabIndex === -1) {
@@ -198,16 +218,16 @@ export default function App() {
 
         const nextTabs = currentTabs.filter((tab) => tab.id !== tabIdToClose)
 
-        if (activeTabId === tabIdToClose) {
+        if (activeTabIdRef.current === tabIdToClose) {
           const fallbackTab = currentTabs[tabIndex - 1] ?? nextTabs[0]
 
-          setActiveTabId(fallbackTab?.id ?? HOME_TAB_ID)
+          selectActiveTab(fallbackTab?.id ?? HOME_TAB_ID)
         }
 
         return nextTabs
       })
     },
-    [activeTabId]
+    [commitTabs, selectActiveTab]
   )
 
   useEffect(() => {
@@ -225,7 +245,7 @@ export default function App() {
 
   const updateTabUrl = useCallback(
     (tabId: string, url: string) => {
-      setTabs((currentTabs) =>
+      commitTabs((currentTabs) =>
         currentTabs.map((tab) =>
           tab.id === tabId
             ? {
@@ -237,16 +257,16 @@ export default function App() {
         )
       )
 
-      if (tabId === activeTabId) {
+      if (tabId === activeTabIdRef.current) {
         notifyAssistantSnapshotChanged()
       }
     },
-    [activeTabId, notifyAssistantSnapshotChanged]
+    [commitTabs, notifyAssistantSnapshotChanged]
   )
 
   const updateTabTitle = useCallback(
     (tabId: string, title: string) => {
-      setTabs((currentTabs) =>
+      commitTabs((currentTabs) =>
         currentTabs.map((tab) =>
           tab.id === tabId
             ? {
@@ -257,11 +277,11 @@ export default function App() {
         )
       )
 
-      if (tabId === activeTabId) {
+      if (tabId === activeTabIdRef.current) {
         notifyAssistantSnapshotChanged()
       }
     },
-    [activeTabId, notifyAssistantSnapshotChanged]
+    [commitTabs, notifyAssistantSnapshotChanged]
   )
 
   function getCurrentActiveWebview() {
@@ -274,10 +294,11 @@ export default function App() {
 
   async function readVideoContentContext(): Promise<VideoContentContext> {
     const currentActiveWebview = getCurrentActiveWebview()
-    const activeTabVideoTitle = normalizeActiveTabVideoTitle(activeTab)
+    const activeTabSnapshot = getActiveTabSnapshot()
+    const activeTabVideoTitle = normalizeActiveTabVideoTitle(activeTabSnapshot)
 
     if (!currentActiveWebview?.executeJavaScript) {
-      return { title: activeTabVideoTitle ?? activeTab?.title }
+      return { title: activeTabVideoTitle ?? activeTabSnapshot?.title }
     }
 
     try {
@@ -287,7 +308,7 @@ export default function App() {
       )) as VideoContentContext
       return activeTabVideoTitle ? { ...context, title: activeTabVideoTitle } : context
     } catch {
-      return { title: activeTabVideoTitle ?? activeTab?.title }
+      return { title: activeTabVideoTitle ?? activeTabSnapshot?.title }
     }
   }
 
@@ -472,12 +493,16 @@ export default function App() {
       readVideoContentContext(),
       readFavoriteLedgerStatus().catch(() => null)
     ])
+    const activeTabSnapshot = getActiveTabSnapshot()
 
     return {
       preferences,
       favoriteLedgerStatus,
       videoContentContext,
-      videoTitle: normalizeActiveTabVideoTitle(activeTab) ?? videoContentContext.title ?? '早八生存实录'
+      videoTitle:
+        normalizeActiveTabVideoTitle(activeTabSnapshot) ??
+        videoContentContext.title ??
+        '早八生存实录'
     }
   }
 
@@ -535,10 +560,11 @@ export default function App() {
     const transcript = hasManualTranscript
       ? parseManualTranscript(manualTranscript ?? '')
       : extraction?.transcript ?? []
+    const activeTabSnapshot = getActiveTabSnapshot()
     const source = extraction?.source ?? {
-      title: activeTab?.title ?? '早八生存实录',
+      title: activeTabSnapshot?.title ?? '早八生存实录',
       tags: [],
-      url: activeTab?.url ?? 'about:blank'
+      url: activeTabSnapshot?.url ?? 'about:blank'
     }
 
     return createLocalVideoNoteDraft({
@@ -605,8 +631,6 @@ export default function App() {
       }
     })
   }, [
-    activeTab?.title,
-    activeTab?.url,
     executeOldFavoritePlan,
     generateRuntimeVideoNote,
     generateRuntimeVideoNoteFromAudio,
@@ -637,7 +661,7 @@ export default function App() {
                 role="tab"
                 aria-selected={tab.id === activeTabId}
                 className="browser-tabs__tab"
-                onClick={() => setActiveTabId(tab.id)}
+                onClick={() => selectActiveTab(tab.id)}
               >
                 {tab.title}
               </button>
