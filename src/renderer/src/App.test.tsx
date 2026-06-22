@@ -653,7 +653,8 @@ describe('App runtime integration', () => {
   })
 
   it('scans old favorites through the runtime bridge', async () => {
-    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const generateDeepSeek = vi.fn()
+    const { requestRuntime } = renderAppWithRuntimeBridge({ generateDeepSeek })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string) => Promise<unknown>
     }
@@ -693,11 +694,123 @@ describe('App runtime integration', () => {
           expect.objectContaining({
             title: '机器学习入门教程'
           })
-        ]
+        ],
+        insights: expect.objectContaining({
+          totalVideos: 1
+        })
       })
     )
+    expect(generateDeepSeek).not.toHaveBeenCalled()
     expect(executeJavaScript).toHaveBeenCalledWith(
       expect.stringContaining(OLD_FAVORITE_SCAN_SCRIPT_MARKER)
+    )
+  })
+
+  it('enhances old favorite ledger candidates with DeepSeek when enabled', async () => {
+    const preferences = {
+      favoritesFolderName: 'Bilimi 内库',
+      favoriteLedgers: createDefaultFavoriteLedgers(),
+      ledgerPromptDismissed: true,
+      preferenceCounts: {},
+      petStyle: 'big-head' as const,
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekModel: 'deepseek-v4-flash',
+      deepseekBaseUrl: 'https://api.deepseek.com'
+    }
+    const generateDeepSeek = vi.fn().mockResolvedValue({
+      kind: 'favorite-ledger-insights',
+      suggestions: [
+        {
+          sourceKind: 'tag-cluster',
+          sourceName: 'AI',
+          displayName: 'Bilimi·AI效率工坊',
+          keywords: ['AI', '效率', '工具'],
+          reason: 'AI、效率、工具共现明显，适合合并成一个工作流册目。'
+        }
+      ]
+    })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      generateDeepSeek
+    })
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes(OLD_FAVORITE_SCAN_SCRIPT_MARKER)) {
+          return {
+            ok: true,
+            sourceFolders: [
+              {
+                id: '101',
+                title: '默认收藏夹',
+                videos: [
+                  {
+                    aid: 123,
+                    title: 'AI工具效率教程：第1期',
+                    author: '效率研究所',
+                    description: '适合学习收藏的科普教程',
+                    tags: ['AI', '效率', '工具'],
+                    category: '科技'
+                  },
+                  {
+                    aid: 124,
+                    title: 'AI工具效率教程：第2期',
+                    author: '效率研究所',
+                    description: '提示词',
+                    tags: ['AI', '效率', '工具'],
+                    category: '科技'
+                  },
+                  {
+                    aid: 125,
+                    title: 'AI工具效率教程：第3期',
+                    author: '效率研究所',
+                    description: '自动化',
+                    tags: ['AI', '工具', '自动化'],
+                    category: '科技'
+                  }
+                ]
+              }
+            ],
+            targetMembership: {},
+            steps: ['api:favorite:list'],
+            missingTargets: [],
+            message: 'old favorites scanned'
+          }
+        }
+
+        return emptyLedgerStatus()
+      })
+    })
+
+    const preview = await requestRuntime({ id: 'scan-ai-1', type: 'scan-old-favorites' })
+
+    expect(generateDeepSeek).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'favorite-ledger-insights',
+        totalVideos: 3,
+        candidates: expect.arrayContaining([
+          expect.objectContaining({
+            sourceName: 'AI',
+            displayName: 'Bilimi·AI工具'
+          })
+        ])
+      })
+    )
+    expect(preview).toEqual(
+      expect.objectContaining({
+        insights: expect.objectContaining({
+          candidateLedgers: expect.arrayContaining([
+            expect.objectContaining({
+              sourceName: 'AI',
+              displayName: 'Bilimi·AI效率工坊',
+              aiEnhanced: true
+            })
+          ])
+        })
+      })
     )
   })
 

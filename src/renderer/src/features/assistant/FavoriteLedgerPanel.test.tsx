@@ -258,4 +258,117 @@ describe('FavoriteLedgerPanel', () => {
     )
     expect(screen.queryByText('旧藏预览')).not.toBeInTheDocument()
   })
+
+  it('shows old favorite insights and lets users add suggested ledgers without AI', async () => {
+    const onSaveLedgers = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: [],
+      missingTargets: [],
+      message: '掌库已保存。'
+    })
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 6,
+        topAuthors: [{ name: '效率研究所', count: 4, share: 4 / 6 }],
+        topTags: [
+          { name: 'AI', count: 4 },
+          { name: '工具', count: 3 }
+        ],
+        topCategories: [{ name: '科技', count: 4 }],
+        titleSeries: [{ name: 'AI工具效率教程', count: 4 }],
+        candidateLedgers: [
+          {
+            kind: 'tag-cluster',
+            sourceName: 'AI',
+            displayName: 'Bilimi·AI工具',
+            keywords: ['AI', '工具', '效率'],
+            count: 4,
+            confidence: 'high',
+            reason: '高频标签“AI”出现 4 次，适合单独成册。',
+            aiEnhanced: false
+          }
+        ]
+      }
+    })
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    expect(await screen.findByText('旧藏画像')).toBeInTheDocument()
+    expect(screen.getByText('共扫描 6 条旧藏')).toBeInTheDocument()
+    expect(screen.getByText('效率研究所 4')).toBeInTheDocument()
+    expect(screen.getByText('AI 4')).toBeInTheDocument()
+    expect(screen.getByText('Bilimi·AI工具')).toBeInTheDocument()
+    expect(screen.getByText(/本地统计/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '采纳 Bilimi·AI工具' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() =>
+      expect(onSaveLedgers).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            displayName: 'Bilimi·AI工具',
+            keywords: ['AI', '工具', '效率'],
+            enabled: true,
+            isDefault: false
+          })
+        ])
+      )
+    )
+  })
+
+  it('marks AI-enhanced ledger suggestions when DeepSeek improves the local candidates', async () => {
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 4,
+        topAuthors: [],
+        topTags: [{ name: 'AI', count: 4 }],
+        topCategories: [],
+        titleSeries: [],
+        candidateLedgers: [
+          {
+            kind: 'tag-cluster',
+            sourceName: 'AI',
+            displayName: 'Bilimi·AI效率工坊',
+            keywords: ['AI', '效率', '工具'],
+            count: 4,
+            confidence: 'high',
+            reason: 'AI、效率、工具共现明显，适合合并成一个工作流册目。',
+            aiEnhanced: true
+          }
+        ]
+      }
+    })
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    expect(await screen.findByText('Bilimi·AI效率工坊')).toBeInTheDocument()
+    expect(screen.getByText(/AI 增强/)).toBeInTheDocument()
+  })
 })

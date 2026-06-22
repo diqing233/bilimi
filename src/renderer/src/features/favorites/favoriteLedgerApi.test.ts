@@ -342,7 +342,24 @@ describe('favorite ledger API scripts', () => {
             code: 0,
             data: {
               medias: [
-                { id: 123, title: 'Machine learning tutorial', intro: 'A practical lesson' }
+                {
+                  id: 123,
+                  title: 'Machine learning tutorial',
+                  intro: 'A practical lesson',
+                  upper: { name: 'AI Teacher' },
+                  cnt_info: { collect: 42 },
+                  ugc: { first_cid: 11 },
+                  bvid: 'BV123',
+                  page: 1,
+                  attr: 0,
+                  type: 2,
+                  link: 'https://www.bilibili.com/video/BV123',
+                  cover: 'https://i0.hdslb.com/bfs/archive/demo.jpg',
+                  pubtime: 1710000000,
+                  fav_time: 1720000000,
+                  tags: ['AI', 'Tutorial'],
+                  tname: 'Knowledge'
+                }
               ],
               has_more: true
             }
@@ -354,7 +371,14 @@ describe('favorite ledger API scripts', () => {
             code: 0,
             data: {
               medias: [
-                { id: 124, title: 'Comedy sketch', intro: 'Funny moment' }
+                {
+                  id: 124,
+                  title: 'Comedy sketch',
+                  intro: 'Funny moment',
+                  author: 'Comedy UP',
+                  tags: [{ name: 'Funny' }, 'Sketch'],
+                  category: 'Entertainment'
+                }
               ],
               has_more: false
             }
@@ -386,12 +410,18 @@ describe('favorite ledger API scripts', () => {
           {
             aid: 123,
             title: 'Machine learning tutorial',
-            description: 'A practical lesson'
+            description: 'A practical lesson',
+            author: 'AI Teacher',
+            tags: ['AI', 'Tutorial'],
+            category: 'Knowledge'
           },
           {
             aid: 124,
             title: 'Comedy sketch',
-            description: 'Funny moment'
+            description: 'Funny moment',
+            author: 'Comedy UP',
+            tags: ['Funny', 'Sketch'],
+            category: 'Entertainment'
           }
         ]
       }

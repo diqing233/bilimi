@@ -2,6 +2,7 @@ import type {
   DeepSeekErrorCode,
   DeepSeekGenerateRequest,
   DeepSeekGenerateResult,
+  FavoriteLedgerAiSuggestion,
   NotePosterSummary,
   VideoNote
 } from '../../src/shared/types'
@@ -45,6 +46,47 @@ function coerceStringArray(value: unknown, limit: number): string[] {
         .map((item) => item.trim())
         .slice(0, limit)
     : []
+}
+
+function coerceFavoriteLedgerSuggestions(value: unknown): FavoriteLedgerAiSuggestion[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map((item): FavoriteLedgerAiSuggestion | null => {
+      if (!item || typeof item !== 'object') {
+        return null
+      }
+
+      const candidate = item as Partial<FavoriteLedgerAiSuggestion>
+      const sourceKind = candidate.sourceKind
+      const sourceName = typeof candidate.sourceName === 'string' ? candidate.sourceName.trim() : ''
+      const displayName =
+        typeof candidate.displayName === 'string' ? candidate.displayName.trim() : ''
+      const reason = typeof candidate.reason === 'string' ? candidate.reason.trim() : ''
+      const keywords = coerceStringArray(candidate.keywords, 6)
+
+      if (
+        !sourceName ||
+        !displayName ||
+        !reason ||
+        keywords.length === 0 ||
+        !['author', 'tag-cluster', 'category', 'series'].includes(String(sourceKind))
+      ) {
+        return null
+      }
+
+      return {
+        sourceKind: sourceKind as FavoriteLedgerAiSuggestion['sourceKind'],
+        sourceName,
+        displayName,
+        keywords,
+        reason
+      }
+    })
+    .filter((item): item is FavoriteLedgerAiSuggestion => Boolean(item))
+    .slice(0, 8)
 }
 
 function parseJsonContent(content: string): unknown {
@@ -113,6 +155,27 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
     ]
   }
 
+  if (request.kind === 'favorite-ledger-insights') {
+    return [
+      {
+        role: 'system',
+        content:
+          'You help organize Bilibili favorite folders. Only enhance the provided deterministic candidates; do not invent new candidates. Return JSON only: {"suggestions":[{"sourceKind":"tag-cluster|author|category|series","sourceName":"","displayName":"Bilimi·...","keywords":[],"reason":""}]}'
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          totalVideos: request.totalVideos,
+          topAuthors: request.topAuthors,
+          topTags: request.topTags,
+          topCategories: request.topCategories,
+          titleSeries: request.titleSeries,
+          candidates: request.candidates
+        })
+      }
+    ]
+  }
+
   return [
     {
       role: 'system',
@@ -169,6 +232,23 @@ function parseResult(
         keywords,
         prompt
       }
+    }
+  }
+
+  if (request.kind === 'favorite-ledger-insights') {
+    const parsed = parseJsonContent(content) as { suggestions?: unknown }
+    const suggestions = coerceFavoriteLedgerSuggestions(parsed.suggestions)
+
+    if (suggestions.length === 0) {
+      throw new DeepSeekServiceError(
+        'invalid-output',
+        'DeepSeek did not return usable favorite ledger suggestions.'
+      )
+    }
+
+    return {
+      kind: 'favorite-ledger-insights',
+      suggestions
     }
   }
 

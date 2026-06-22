@@ -156,6 +156,38 @@ export type DeepSeekErrorCode =
 
 export type DeepSeekChatMessage = { role: 'user' | 'assistant'; content: string }
 
+export type FavoriteLedgerInsightSignal = {
+  name: string
+  count: number
+}
+
+export type FavoriteLedgerAuthorInsightSignal = FavoriteLedgerInsightSignal & {
+  share: number
+}
+
+export type FavoriteLedgerCandidateKind = 'author' | 'tag-cluster' | 'category' | 'series'
+
+export type FavoriteLedgerCandidateConfidence = 'high' | 'medium'
+
+export type FavoriteLedgerCandidateSummary = {
+  kind: FavoriteLedgerCandidateKind
+  sourceName: string
+  displayName: string
+  keywords: string[]
+  count: number
+  confidence: FavoriteLedgerCandidateConfidence
+  reason: string
+  aiEnhanced: boolean
+}
+
+export type FavoriteLedgerAiSuggestion = {
+  sourceKind: FavoriteLedgerCandidateKind
+  sourceName: string
+  displayName: string
+  keywords: string[]
+  reason: string
+}
+
 export type NotePosterSummary = {
   title: string
   subtitle: string
@@ -176,6 +208,15 @@ export type DeepSeekGenerateRequest =
     }
   | { kind: 'note-poster'; note: VideoNote }
   | {
+      kind: 'favorite-ledger-insights'
+      totalVideos: number
+      topAuthors: FavoriteLedgerAuthorInsightSignal[]
+      topTags: FavoriteLedgerInsightSignal[]
+      topCategories: FavoriteLedgerInsightSignal[]
+      titleSeries: FavoriteLedgerInsightSignal[]
+      candidates: FavoriteLedgerCandidateSummary[]
+    }
+  | {
       kind: 'pet-chat'
       messages: DeepSeekChatMessage[]
       context?: { title?: string; pageText?: string }
@@ -184,6 +225,7 @@ export type DeepSeekGenerateRequest =
 export type DeepSeekGenerateResult =
   | { kind: 'review-comment'; comments: string[] }
   | { kind: 'note-poster'; poster: NotePosterSummary }
+  | { kind: 'favorite-ledger-insights'; suggestions: FavoriteLedgerAiSuggestion[] }
   | { kind: 'pet-chat'; message: string }
 
 export type DeepSeekKeyStatus = { configured: boolean }

@@ -292,6 +292,23 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
         const readFolderVideos = async (folderId) => {
           const videos = [];
           let page = 1;
+          const cleanText = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim();
+          const readTagName = (tag) =>
+            typeof tag === 'string'
+              ? cleanText(tag)
+              : cleanText(tag?.name ?? tag?.tag_name ?? tag?.title);
+          const readTags = (media) => {
+            const rawTags = Array.isArray(media?.tags)
+              ? media.tags
+              : Array.isArray(media?.tag)
+                ? media.tag
+                : [];
+            return rawTags.map(readTagName).filter(Boolean).slice(0, 20);
+          };
+          const readAuthor = (media) =>
+            cleanText(media?.upper?.name ?? media?.upper?.uname ?? media?.owner?.name ?? media?.author);
+          const readCategory = (media) =>
+            cleanText(media?.tname ?? media?.category ?? media?.typename ?? media?.type_name);
 
           while (true) {
             const response = await fetch(buildResourceUrl(folderId, page), {
@@ -302,7 +319,10 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
             videos.push(...medias.map((media) => ({
               aid: Number(media?.id ?? media?.aid),
               title: String(media?.title ?? ''),
-              description: String(media?.intro ?? '')
+              description: String(media?.intro ?? ''),
+              author: readAuthor(media),
+              tags: readTags(media),
+              category: readCategory(media)
             })).filter((video) => Number.isFinite(video.aid) && video.aid > 0));
 
             if (!json.data?.has_more || medias.length === 0) {

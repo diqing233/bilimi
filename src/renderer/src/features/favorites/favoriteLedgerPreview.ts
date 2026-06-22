@@ -1,10 +1,12 @@
 import { isBilimiManagedLedgerName } from '@shared/favoriteLedgers'
 import type { FavoriteLedger } from '@shared/types'
+import { createFavoriteLedgerInsights, type FavoriteLedgerAiSuggestion, type FavoriteLedgerInsights } from './favoriteLedgerInsights'
 import { classifyVideoContent, type VideoContentContext } from '../recommendation/videoClassifier'
 
 export type FavoriteSourceVideo = VideoContentContext & {
   aid: number
   title: string
+  category?: string
 }
 
 export type FavoriteSourceFolder = {
@@ -30,12 +32,14 @@ export type FavoriteLedgerPreview = {
   message?: string
   items: FavoriteLedgerPreviewItem[]
   skippedSourceFolderTitles: string[]
+  insights?: FavoriteLedgerInsights
 }
 
 export function createFavoriteLedgerPreview(args: {
   ledgers: FavoriteLedger[]
   sourceFolders: FavoriteSourceFolder[]
   targetMembership: Record<string, number[]>
+  aiSuggestions?: FavoriteLedgerAiSuggestion[]
 }): FavoriteLedgerPreview {
   const skippedSourceFolderTitles: string[] = []
   const items: FavoriteLedgerPreviewItem[] = []
@@ -71,6 +75,11 @@ export function createFavoriteLedgerPreview(args: {
 
   return {
     items,
-    skippedSourceFolderTitles
+    skippedSourceFolderTitles,
+    insights: createFavoriteLedgerInsights({
+      sourceFolders: args.sourceFolders,
+      existingLedgerNames: args.ledgers.map((ledger) => ledger.displayName),
+      aiSuggestions: args.aiSuggestions
+    })
   }
 }

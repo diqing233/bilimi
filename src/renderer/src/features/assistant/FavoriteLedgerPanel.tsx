@@ -1,6 +1,7 @@
 import { suggestFavoriteLedgerNames } from '@shared/favoriteLedgers'
 import type { AssistantAutomationResult, FavoriteLedger } from '@shared/types'
 import { useEffect, useMemo, useState } from 'react'
+import type { FavoriteLedgerCandidate } from '../favorites/favoriteLedgerInsights'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
 
 type FavoriteLedgerPanelProps = {
@@ -25,6 +26,10 @@ function customLedgerId(name: string) {
 
 function canDeleteLedger(ledger: FavoriteLedger) {
   return !ledger.isDefault && ledger.displayName.startsWith('Bilimi')
+}
+
+function alreadyHasLedger(ledgers: FavoriteLedger[], displayName: string) {
+  return ledgers.some((ledger) => ledger.displayName === displayName)
 }
 
 function errorMessage(error: unknown) {
@@ -116,6 +121,26 @@ export function FavoriteLedgerPanel({
           : ledger
       )
     )
+  }
+
+  function adoptCandidate(candidate: FavoriteLedgerCandidate) {
+    if (alreadyHasLedger(draftLedgers, candidate.displayName)) {
+      setStatus('此册目已在掌库。')
+      return
+    }
+
+    setDraftLedgers([
+      ...draftLedgers,
+      {
+        id: customLedgerId(candidate.displayName),
+        displayName: candidate.displayName,
+        keywords: candidate.keywords,
+        enabled: true,
+        priority: draftLedgers.length + 100,
+        isDefault: false
+      }
+    ])
+    setStatus(`已采纳 ${candidate.displayName}，保存后生效。`)
   }
 
   async function saveLedgers() {
@@ -265,6 +290,66 @@ export function FavoriteLedgerPanel({
       {preview ? (
         <div className="favorite-ledger-panel__preview">
           <h3>旧藏预览</h3>
+          {preview.insights ? (
+            <section className="favorite-ledger-panel__insights" aria-label="旧藏画像">
+              <h4>旧藏画像</h4>
+              <p>共扫描 {preview.insights.totalVideos} 条旧藏</p>
+              <div className="favorite-ledger-panel__insight-columns">
+                <div>
+                  <strong>常追 UP</strong>
+                  <ul>
+                    {preview.insights.topAuthors.slice(0, 3).map((author) => (
+                      <li key={author.name}>
+                        {author.name} {author.count}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <strong>高频标签</strong>
+                  <ul>
+                    {preview.insights.topTags.slice(0, 5).map((tag) => (
+                      <li key={tag.name}>
+                        {tag.name} {tag.count}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <strong>分区</strong>
+                  <ul>
+                    {preview.insights.topCategories.slice(0, 3).map((category) => (
+                      <li key={category.name}>
+                        {category.name} {category.count}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+              {preview.insights.candidateLedgers.length > 0 ? (
+                <div className="favorite-ledger-panel__candidates">
+                  <strong>建议新建册目</strong>
+                  {preview.insights.candidateLedgers.map((candidate) => (
+                    <article key={`${candidate.kind}-${candidate.sourceName}`}>
+                      <div>
+                        <strong>{candidate.displayName}</strong>
+                        <small>
+                          {candidate.aiEnhanced ? 'AI 增强' : '本地统计'} · {candidate.reason}
+                        </small>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => adoptCandidate(candidate)}
+                        disabled={alreadyHasLedger(draftLedgers, candidate.displayName)}
+                      >
+                        采纳 {candidate.displayName}
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
           {preview.items.length > 0 ? (
             preview.items.map((item) => (
               <article key={`${item.sourceFolderTitle}-${item.aid}`}>

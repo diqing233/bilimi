@@ -118,6 +118,77 @@ describe('DeepSeek main service', () => {
     })
   })
 
+  it('parses favorite ledger insight suggestions without replacing deterministic scanning', async () => {
+    const fetchImpl = createJsonFetch(
+      JSON.stringify({
+        suggestions: [
+          {
+            sourceKind: 'tag-cluster',
+            sourceName: 'AI',
+            displayName: 'Bilimi·AI效率工坊',
+            keywords: ['AI', '效率', '自动化'],
+            reason: 'AI、效率、工具共现明显，适合合并成一个工作流册目。'
+          },
+          {
+            sourceKind: 'author',
+            sourceName: '效率研究所',
+            displayName: 'Bilimi·效率研究所追更',
+            keywords: ['效率研究所'],
+            reason: '固定 UP 收藏集中。'
+          }
+        ]
+      })
+    )
+
+    await expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: {
+          kind: 'favorite-ledger-insights',
+          totalVideos: 8,
+          topAuthors: [{ name: '效率研究所', count: 4, share: 0.5 }],
+          topTags: [
+            { name: 'AI', count: 5 },
+            { name: '工具', count: 3 }
+          ],
+          topCategories: [{ name: '科技', count: 5 }],
+          titleSeries: [{ name: 'AI工具效率教程', count: 4 }],
+          candidates: [
+            {
+              kind: 'tag-cluster',
+              sourceName: 'AI',
+              displayName: 'Bilimi·AI工具',
+              keywords: ['AI', '工具'],
+              count: 5,
+              confidence: 'high',
+              reason: '高频标签“AI”出现 5 次，适合单独成册。',
+              aiEnhanced: false
+            }
+          ]
+        },
+        fetchImpl
+      })
+    ).resolves.toEqual({
+      kind: 'favorite-ledger-insights',
+      suggestions: [
+        {
+          sourceKind: 'tag-cluster',
+          sourceName: 'AI',
+          displayName: 'Bilimi·AI效率工坊',
+          keywords: ['AI', '效率', '自动化'],
+          reason: 'AI、效率、工具共现明显，适合合并成一个工作流册目。'
+        },
+        {
+          sourceKind: 'author',
+          sourceName: '效率研究所',
+          displayName: 'Bilimi·效率研究所追更',
+          keywords: ['效率研究所'],
+          reason: '固定 UP 收藏集中。'
+        }
+      ]
+    })
+  })
+
   it('returns a short pet chat message string', async () => {
     const fetchImpl = createJsonFetch('Thanks for sharing this page.')
 

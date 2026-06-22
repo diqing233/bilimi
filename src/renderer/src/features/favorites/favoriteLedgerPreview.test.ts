@@ -38,6 +38,62 @@ describe('createFavoriteLedgerPreview', () => {
     expect(preview.skippedSourceFolderTitles).toEqual([managedKnowledgeFolder])
   })
 
+  it('attaches old-favorite insights for candidate ledger creation', () => {
+    const preview = createFavoriteLedgerPreview({
+      ledgers: createDefaultFavoriteLedgers(),
+      sourceFolders: [
+        {
+          id: '1',
+          title: '默认收藏夹',
+          videos: [
+            {
+              aid: 101,
+              title: 'AI工具效率教程：第1期',
+              author: '效率研究所',
+              description: '工具演示',
+              tags: ['AI', '效率', '工具'],
+              category: '科技'
+            },
+            {
+              aid: 102,
+              title: 'AI工具效率教程：第2期',
+              author: '效率研究所',
+              description: '自动化演示',
+              tags: ['AI', '效率', '工具'],
+              category: '科技'
+            },
+            {
+              aid: 103,
+              title: 'AI工具效率教程：第3期',
+              author: '效率研究所',
+              description: '提示词',
+              tags: ['AI', '提示词', '工具'],
+              category: '科技'
+            }
+          ]
+        }
+      ],
+      targetMembership: {}
+    })
+
+    expect(preview.insights).toMatchObject({
+      totalVideos: 3,
+      topAuthors: [expect.objectContaining({ name: '效率研究所', count: 3 })],
+      topTags: [
+        { name: 'AI', count: 3 },
+        { name: '工具', count: 3 },
+        { name: '效率', count: 2 },
+        { name: '提示词', count: 1 }
+      ],
+      candidateLedgers: expect.arrayContaining([
+        expect.objectContaining({
+          displayName: 'Bilimi·AI工具',
+          aiEnhanced: false
+        })
+      ])
+    })
+  })
+
   it('marks items already in the target ledger as skipped', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
       ledger.id === 'humor' ? { ...ledger, bilibiliFolderId: '9002' } : ledger

@@ -4,6 +4,7 @@ import type {
   AssistantAutomationResult,
   AssistantPreferences,
   BrowserTabModel,
+  DeepSeekGenerateRequest,
   FavoriteLedger,
   FavoriteLedgerStatus,
   VideoNote,
@@ -374,6 +375,51 @@ export default function App() {
     return currentActiveWebview.executeJavaScript(script) as Promise<AssistantAutomationResult>
   }
 
+  function canEnhanceFavoriteLedgerInsights(preview: FavoriteLedgerPreview) {
+    return Boolean(
+      preferences.deepseekEnabled &&
+        preferences.deepseekApiKeyStored &&
+        window.bilimiDesktop?.generateDeepSeek &&
+        preview.insights?.candidateLedgers.length
+    )
+  }
+
+  async function enhanceFavoriteLedgerPreview(
+    preview: FavoriteLedgerPreview,
+    sourceFolders: FavoriteSourceFolder[],
+    targetMembership: Record<string, number[]>
+  ): Promise<FavoriteLedgerPreview> {
+    if (!canEnhanceFavoriteLedgerInsights(preview) || !preview.insights) {
+      return preview
+    }
+
+    const request: DeepSeekGenerateRequest = {
+      kind: 'favorite-ledger-insights',
+      totalVideos: preview.insights.totalVideos,
+      topAuthors: preview.insights.topAuthors,
+      topTags: preview.insights.topTags,
+      topCategories: preview.insights.topCategories,
+      titleSeries: preview.insights.titleSeries,
+      candidates: preview.insights.candidateLedgers
+    }
+
+    try {
+      const result = await window.bilimiDesktop?.generateDeepSeek?.(request)
+      if (!result || result.kind !== 'favorite-ledger-insights') {
+        return preview
+      }
+
+      return createFavoriteLedgerPreview({
+        ledgers: preferences.favoriteLedgers,
+        sourceFolders,
+        targetMembership,
+        aiSuggestions: result.suggestions
+      })
+    } catch {
+      return preview
+    }
+  }
+
   async function readFavoriteLedgerStatus(): Promise<FavoriteLedgerStatus> {
     const status = await runScript(
       buildFavoriteLedgerStatusScript(preferences.favoriteLedgers)
@@ -455,11 +501,17 @@ export default function App() {
       }
     }
 
-    return createFavoriteLedgerPreview({
+    const preview = createFavoriteLedgerPreview({
       ledgers: preferences.favoriteLedgers,
       sourceFolders: scanResult.sourceFolders,
       targetMembership: scanResult.targetMembership
     })
+
+    return enhanceFavoriteLedgerPreview(
+      preview,
+      scanResult.sourceFolders,
+      scanResult.targetMembership
+    )
   }
 
   async function executeOldFavoritePlan(
