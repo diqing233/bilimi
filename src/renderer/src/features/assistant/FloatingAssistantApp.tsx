@@ -703,7 +703,7 @@ export function FloatingAssistantApp({
                   <a href="https://yunshulink.com/" target="_blank" rel="noreferrer">
                     云枢智元
                   </a>
-                  <span>官网 DeepSeek 价格 3 折起</span>
+                  <span>大模型token，官网两折起</span>
                 </p>
                 <p>API 密钥：创建令牌后，令牌分组请选择 deepseek（限时特价），复制密钥到这里使用。</p>
                 <p className="assistant-settings__copy-row">

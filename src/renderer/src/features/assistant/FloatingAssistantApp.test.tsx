@@ -406,7 +406,7 @@ describe('FloatingAssistantApp', () => {
       'href',
       'https://yunshulink.com/'
     )
-    expect(screen.getByText('官网 DeepSeek 价格 3 折起')).toBeInTheDocument()
+    expect(screen.getByText('大模型token，官网两折起')).toBeInTheDocument()
     expect(screen.getByText(/令牌分组请选择 deepseek（限时特价）/)).toBeInTheDocument()
     expect(screen.getByText('推荐模型：deepseek-v4-pro')).toBeInTheDocument()
     expect(screen.getByText('服务器地址：https://api.yunshulink.com/v1')).toBeInTheDocument()
