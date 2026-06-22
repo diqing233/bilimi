@@ -71,6 +71,7 @@ export function PalaceMaidPetApp() {
   useEffect(() => {
     function hideClosePrompt() {
       setClosePromptVisible(false)
+      setChatOpen(false)
     }
 
     window.addEventListener('blur', hideClosePrompt)

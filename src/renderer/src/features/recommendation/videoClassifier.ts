@@ -3,6 +3,7 @@ import type { FavoriteLedger, FavoriteLedgerClassification } from '@shared/types
 
 export type VideoContentContext = {
   title?: string
+  author?: string
   description?: string
   pageText?: string
   tags?: string[]
@@ -23,7 +24,7 @@ function normalize(value = '') {
 
 function buildSearchText(context: VideoContentContext) {
   return normalize(
-    [context.title, context.description, context.pageText, ...(context.tags ?? [])]
+    [context.title, context.author, context.description, context.pageText, ...(context.tags ?? [])]
       .filter(Boolean)
       .join(' ')
   )
@@ -128,6 +129,8 @@ export function buildVideoContentContextScript(): string {
           .map((selector) => Array.from(document.querySelectorAll(selector)).map((node) => node.textContent || '').join(' '))
           .filter(Boolean)
           .join(' ');
+      const initialState = window.__INITIAL_STATE__ || {};
+      const videoData = initialState.videoData || initialState.videoInfo || {};
 
       const tags = Array.from(
         document.querySelectorAll('.tag-link,.tag,.video-tag,[class*="tag"] a,[class*="tag"] span')
@@ -138,6 +141,7 @@ export function buildVideoContentContextScript(): string {
 
       return {
         title: document.querySelector('h1')?.textContent || document.title || '',
+        author: document.querySelector('.up-name,.username,[class*="up-name"]')?.textContent || videoData.owner?.name || '',
         description: readMeta('description') || readText(['.desc-info-text', '.video-desc', '[class*="desc"]']),
         pageText: readText(['h1', '.video-info-title', '.video-desc', '.desc-info-text', '.up-info', '.tag-panel']),
         tags

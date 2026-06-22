@@ -138,6 +138,27 @@ describe('PalaceMaidPetApp', () => {
     expect(screen.queryByRole('button', { name: '关闭宠物' })).not.toBeInTheDocument()
   })
 
+  it('returns the pet chat to the head bubble when the pet window loses focus', async () => {
+    installDesktopApi({
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          deepseekEnabled: true,
+          deepseekApiKeyStored: true
+        })
+      )
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.click(screen.getByRole('button', { name: '打开小mi对话' }))
+    await waitFor(() => expect(screen.getByLabelText('和小mi说话')).toBeInTheDocument())
+
+    fireEvent(window, new Event('blur'))
+
+    expect(screen.queryByLabelText('和小mi说话')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '打开小mi对话' })).toBeInTheDocument()
+  })
+
   it('renders pet state changes from the desktop shell', () => {
     let stateChanged: ((state: AssistantPetState) => void) | undefined
     installDesktopApi({
@@ -374,5 +395,23 @@ describe('PalaceMaidPetApp', () => {
     })
 
     expect(resizeControls).toHaveAttribute('data-visible', 'false')
+  })
+
+  it('ignores repeated pointer-down events on a resize step until the click commits one resize', () => {
+    const api = installDesktopApi()
+
+    render(<PalaceMaidPetApp />)
+
+    const pet = screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' })
+    fireEvent.pointerEnter(pet)
+    const growButton = screen.getByRole('button', { name: '放大小mi' })
+
+    fireEvent.pointerDown(growButton, { pointerId: 2 })
+    fireEvent.pointerDown(growButton, { pointerId: 2 })
+    expect(api.resizeFloatingSealByStep).not.toHaveBeenCalled()
+
+    fireEvent.click(growButton)
+    expect(api.resizeFloatingSealByStep).toHaveBeenCalledOnce()
+    expect(api.resizeFloatingSealByStep).toHaveBeenCalledWith(1)
   })
 })

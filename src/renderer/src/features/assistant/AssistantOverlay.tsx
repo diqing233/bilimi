@@ -183,6 +183,7 @@ export function AssistantOverlay({
     () => latestVideoContentContext ?? videoContentContext ?? { title: resolvedVideoTitle },
     [latestVideoContentContext, resolvedVideoTitle, videoContentContext]
   )
+  const resolvedVideoAuthor = resolvedVideoContentContext.author?.trim()
   const currentClassification = useMemo(
     () => classifyVideoContent(resolvedVideoContentContext, preferences.favoriteLedgers),
     [preferences.favoriteLedgers, resolvedVideoContentContext]
@@ -190,8 +191,8 @@ export function AssistantOverlay({
   const currentKind = currentClassification.ledgerId
   const recommendation = useMemo(() => describeRecommendation(currentKind), [currentKind])
   const commentDrafts = useMemo(
-    () => composeMemorialComments(currentKind, resolvedVideoTitle),
-    [currentKind, resolvedVideoTitle]
+    () => composeMemorialComments(currentKind, resolvedVideoTitle, resolvedVideoAuthor),
+    [currentKind, resolvedVideoAuthor, resolvedVideoTitle]
   )
   const videoCategory =
     VIDEO_CATEGORY_LABELS[currentKind] || stripBilimiPrefix(currentClassification.displayName) || currentKind

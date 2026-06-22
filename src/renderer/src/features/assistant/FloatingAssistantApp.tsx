@@ -242,6 +242,7 @@ export function FloatingAssistantApp({
 
   const resolvedSnapshot = snapshot ?? createFallbackSnapshot()
   const resolvedVideoTitle = normalizeTitle(resolvedSnapshot.videoTitle)
+  const resolvedVideoAuthor = resolvedSnapshot.videoContentContext.author?.trim()
   const currentClassification = useMemo(
     () => classifyVideoContent(resolvedSnapshot.videoContentContext, preferences.favoriteLedgers),
     [preferences.favoriteLedgers, resolvedSnapshot.videoContentContext]
@@ -249,8 +250,8 @@ export function FloatingAssistantApp({
   const currentKind = currentClassification.ledgerId
   const recommendation = useMemo(() => describeRecommendation(currentKind), [currentKind])
   const commentDrafts = useMemo(
-    () => composeMemorialComments(currentKind, resolvedVideoTitle),
-    [currentKind, resolvedVideoTitle]
+    () => composeMemorialComments(currentKind, resolvedVideoTitle, resolvedVideoAuthor),
+    [currentKind, resolvedVideoAuthor, resolvedVideoTitle]
   )
   const activeCommentDrafts = aiCommentDrafts.length > 0 ? aiCommentDrafts : commentDrafts
   const videoCategory =
@@ -348,6 +349,7 @@ export function FloatingAssistantApp({
         kind: 'review-comment',
         intent,
         title: resolvedVideoTitle,
+        author: resolvedVideoAuthor,
         description: resolvedSnapshot.videoContentContext.description,
         tags: resolvedSnapshot.videoContentContext.tags ?? [],
         classification: currentClassification.displayName || currentKind
@@ -361,7 +363,9 @@ export function FloatingAssistantApp({
       setCommentIntentOpen(false)
       setCommentChooserOpen(true)
     } catch (error) {
-      setCommentIntentError(error instanceof Error ? error.message : 'Comment generation failed.')
+      setAiCommentDrafts([])
+      setCommentIntentOpen(false)
+      setCommentChooserOpen(true)
     } finally {
       setCommentIntentBusy(false)
     }

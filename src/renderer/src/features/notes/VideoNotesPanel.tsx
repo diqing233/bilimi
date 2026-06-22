@@ -47,6 +47,10 @@ const progressLabelByStep: Record<VideoAudioTranscriptionProgress['step'], strin
   'generating-note': '正在生成札记'
 }
 
+function createPosterCacheKey(note: VideoNote): string {
+  return `${note.id}:${note.updatedAt}`
+}
+
 function formatTimestamp(seconds: number | null): string {
   if (seconds === null) return '--:--'
   const normalizedSeconds = Math.max(0, Math.floor(seconds))
@@ -106,14 +110,25 @@ export function VideoNotesPanel({
   const [generateFailed, setGenerateFailed] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
-  const [posterSummary, setPosterSummary] = useState<NotePosterSummary | null>(null)
+  const [posterSummary, setPosterSummary] = useState<{
+    noteKey: string
+    summary: NotePosterSummary
+  } | null>(null)
   const [posterGenerating, setPosterGenerating] = useState(false)
   const generationBusy = isLoading || localGenerating || transcribingAudio
+  const notePosterKey = note ? createPosterCacheKey(note) : ''
+  const activePosterSummary =
+    posterSummary && posterSummary.noteKey === notePosterKey ? posterSummary.summary : null
   const plainTranscript = useMemo(() => (note ? createPlainTranscriptText(note) : ''), [note])
   const timedTranscript = useMemo(() => (note ? createTimedTranscriptText(note.transcript) : ''), [note])
   const summaryText = useMemo(
-    () => (posterSummary ? createPosterText(posterSummary) : note ? createSummaryText(note) : ''),
-    [note, posterSummary]
+    () =>
+      activePosterSummary
+        ? createPosterText(activePosterSummary)
+        : note
+          ? createSummaryText(note)
+          : '',
+    [activePosterSummary, note]
   )
 
   async function handleGenerate(): Promise<void> {
@@ -165,7 +180,10 @@ export function VideoNotesPanel({
     setErrorMessage('')
     try {
       const summary = await onGeneratePoster(targetNote)
-      setPosterSummary(summary)
+      setPosterSummary({
+        noteKey: createPosterCacheKey(targetNote),
+        summary
+      })
       setStatusMessage('DeepSeek 一图流总结已生成。')
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '一图流总结生成失败。')
@@ -181,6 +199,7 @@ export function VideoNotesPanel({
       return
     }
     if (generationBusy || posterGenerating) return
+    if (activePosterSummary) return
     if (!note) {
       if (!onTranscribeAudio) {
         setStatusMessage('请先转写音频，再生成一图流总结。')
@@ -258,18 +277,18 @@ export function VideoNotesPanel({
           <p className="video-notes__summary-empty">请先到设置启用 DeepSeek 后再生成一图流总结。</p>
         ) : posterGenerating ? (
           <p role="status">DeepSeek 正在生成一图流总结...</p>
-        ) : posterSummary ? (
+        ) : activePosterSummary ? (
           <section aria-label="DeepSeek 一图流总结">
-            <h4>{posterSummary.title}</h4>
-            <p>{posterSummary.subtitle}</p>
+            <h4>{activePosterSummary.title}</h4>
+            <p>{activePosterSummary.subtitle}</p>
             <ul>
-              {posterSummary.keyPoints.map((point) => (
+              {activePosterSummary.keyPoints.map((point) => (
                 <li key={point}>{point}</li>
               ))}
             </ul>
-            {posterSummary.keywords.length > 0 ? (
+            {activePosterSummary.keywords.length > 0 ? (
               <ul className="video-notes__keywords" aria-label="关键词">
-                {posterSummary.keywords.map((keyword) => (
+                {activePosterSummary.keywords.map((keyword) => (
                   <li key={keyword}>{keyword}</li>
                 ))}
               </ul>

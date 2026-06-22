@@ -1,6 +1,6 @@
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import { describe, expect, it } from 'vitest'
-import { classifyVideoContent } from './videoClassifier'
+import { buildVideoContentContextScript, classifyVideoContent } from './videoClassifier'
 
 describe('classifyVideoContent', () => {
   it('classifies common Bilibili topics into the default ledger ids', () => {
@@ -72,5 +72,13 @@ describe('classifyVideoContent', () => {
       reviewRequired: true
     })
     expect(result.matchedKeywords).toEqual(expect.arrayContaining(['带货', '软广', '避雷']))
+  })
+
+  it('extracts author candidates for comment generation context', () => {
+    const script = buildVideoContentContextScript()
+
+    expect(script).toContain('author:')
+    expect(script).toContain('videoData.owner?.name')
+    expect(script).toContain('.up-name')
   })
 })

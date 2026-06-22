@@ -428,7 +428,15 @@ describe('AssistantOverlay', () => {
   })
 
   it('keeps action buttons locked before a comment draft is submitted', () => {
-    render(<AssistantOverlay favoritesFolderName="Bilimi 内库" />)
+    render(
+      <AssistantOverlay
+        favoritesFolderName="Bilimi 内库"
+        videoContentContext={{
+          title: '早八生存实录',
+          author: '早八观察员'
+        }}
+      />
+    )
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
     fireEvent.click(getActionButton('表'))
@@ -437,7 +445,8 @@ describe('AssistantOverlay', () => {
     expect(getActionButton('藏')).toBeDisabled()
     expect(getActionButton('赐')).toBeDisabled()
     expect(getActionButton('表')).toBeDisabled()
-    expect(screen.getAllByRole('button').some((button) => button.textContent?.includes('亲览'))).toBe(true)
+    expect(screen.getByText('小mi拟好三条，主人点一条就发送。')).toBeInTheDocument()
+    expect(screen.getAllByRole('button').some((button) => button.textContent?.includes('早八观察员'))).toBe(true)
   })
 
   it('prevents duplicate coin choice submissions', async () => {
@@ -481,15 +490,20 @@ describe('AssistantOverlay', () => {
         runScript={runScript}
         favoritesFolderName="Bilimi 内库"
         onRecordFeedback={onRecordFeedback}
+        videoContentContext={{
+          title: '早八生存实录',
+          author: '早八观察员'
+        }}
       />
     )
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
     fireEvent.click(getActionButton('表'))
 
-    const draft = '《早八生存实录》铺陈渐稳，臣不敢泄机，谨请陛下亲览。'
+    const draft =
+      '小mi替我家主人来夸早八观察员的《早八生存实录》：看得很入戏，像不小心点开了快乐开关。UP主请再接再厉，更新更多精彩视频！'
 
-    expect(screen.getByText('臣已拟好三条，请陛下择其一。')).toBeInTheDocument()
+    expect(screen.getByText('小mi拟好三条，主人点一条就发送。')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: draft }))
 

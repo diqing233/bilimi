@@ -83,7 +83,7 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
       {
         role: 'system',
         content:
-          'You write concise Bilibili review comment candidates. Return JSON only: {"comments":["...","...","..."]}.'
+          'You write concise, playful Bilibili review comment candidates in Chinese. Each comment must mention the video title and the UP name when provided. Return JSON only: {"comments":["...","...","..."]}.'
       },
       {
         role: 'user',

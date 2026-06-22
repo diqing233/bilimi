@@ -39,6 +39,7 @@ function createSnapshot(overrides: Partial<AssistantSnapshot> = {}): AssistantSn
     },
     videoContentContext: {
       title: '三分钟讲清机器学习科普教程',
+      author: '李老师讲AI',
       pageText: '从原理到入门路线，适合学习收藏。'
     },
     videoTitle: '三分钟讲清机器学习科普教程',
@@ -226,6 +227,7 @@ describe('FloatingAssistantApp', () => {
     const choices = screen.getAllByRole('button', { name: /三分钟讲清机器学习科普教程/ })
     expect(choices).toHaveLength(3)
     expect(choices[0]).toHaveTextContent(/小mi|我家主人/)
+    expect(choices[0]).toHaveTextContent('李老师讲AI')
 
     fireEvent.click(choices[0])
 
@@ -263,7 +265,9 @@ describe('FloatingAssistantApp', () => {
       expect(generateDeepSeek).toHaveBeenCalledWith(
         expect.objectContaining({
           kind: 'review-comment',
-          intent: 'praise technical detail'
+          intent: 'praise technical detail',
+          author: '李老师讲AI',
+          title: '三分钟讲清机器学习科普教程'
         })
       )
     )
@@ -278,6 +282,44 @@ describe('FloatingAssistantApp', () => {
         expect.any(String),
         expect.objectContaining({
           commentDraft: 'AI comment two',
+          pageClickOnly: true
+        })
+      )
+    )
+  })
+
+  it('falls back to Xiao Mi comments when DeepSeek comment generation is unusable', async () => {
+    const preferences = createPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true
+    })
+    const { generateDeepSeek, runAssistantAction } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(createSnapshot({ preferences })),
+      generateDeepSeek: vi.fn().mockResolvedValue({ kind: 'pet-chat', message: 'wrong shape' })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByTestId('review-action-comment'))
+    fireEvent.change(screen.getByLabelText('Comment intent'), {
+      target: { value: 'funny and warm' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Generate comments' }))
+
+    await waitFor(() => expect(generateDeepSeek).toHaveBeenCalledOnce())
+    const choices = await screen.findAllByRole('button', {
+      name: /三分钟讲清机器学习科普教程/
+    })
+    expect(choices).toHaveLength(3)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    fireEvent.click(choices[0])
+
+    await waitFor(() =>
+      expect(runAssistantAction).toHaveBeenCalledWith(
+        '表',
+        expect.objectContaining({
+          commentDraft: expect.stringContaining('李老师讲AI'),
           pageClickOnly: true
         })
       )
@@ -574,7 +616,7 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getAllByText('机器学习入门教程').length).toBeGreaterThan(0)
   })
 
-  it('passes video time controls into the notes panel', async () => {
+  it('keeps removed time annotation controls out of the notes panel', async () => {
     const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(createVideoNote())
     const getCurrentVideoTime = vi.fn().mockResolvedValue(92)
     const seekVideoTime = vi.fn().mockResolvedValue(true)
@@ -587,37 +629,16 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
     await waitFor(() => expect(generateVideoNoteFromAudio).toHaveBeenCalledOnce())
 
-    fireEvent.click(screen.getByRole('button', { name: '取当前时间' }))
-    await waitFor(() => expect(getCurrentVideoTime).toHaveBeenCalledOnce())
-
-    fireEvent.change(screen.getByLabelText('批注标题'), {
-      target: { value: '当前片段' }
-    })
-    fireEvent.change(screen.getByLabelText('批注正文'), {
-      target: { value: '这里值得复看。' }
-    })
-    fireEvent.click(screen.getByRole('button', { name: '保存批注' }))
-
-    await waitFor(() =>
-      expect(saveVideoNote).toHaveBeenCalledWith(
-        expect.objectContaining({
-          annotations: [
-            expect.objectContaining({
-              start: 92,
-              title: '当前片段',
-              body: '这里值得复看。'
-            })
-          ]
-        })
-      )
-    )
-    const timestampButton = await screen.findByRole('button', { name: '01:32' })
-    fireEvent.click(timestampButton)
-
-    await waitFor(() => expect(seekVideoTime).toHaveBeenCalledWith(92))
+    expect(screen.queryByRole('button', { name: '取当前时间' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('批注标题')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('批注正文')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '保存批注' })).not.toBeInTheDocument()
+    expect(getCurrentVideoTime).not.toHaveBeenCalled()
+    expect(seekVideoTime).not.toHaveBeenCalled()
+    expect(saveVideoNote).not.toHaveBeenCalled()
   })
 
-  it('saves locally updated notes through the floating assistant bridge', async () => {
+  it('keeps removed local memo editing out of the notes panel', async () => {
     const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(createVideoNote())
     const saveVideoNote = vi.fn().mockResolvedValue([])
     installDesktopApi({ generateVideoNoteFromAudio, saveVideoNote })
@@ -628,21 +649,9 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
     await waitFor(() => expect(generateVideoNoteFromAudio).toHaveBeenCalledOnce())
 
-    fireEvent.change(screen.getByLabelText('本地备注'), {
-      target: { value: '悬浮窗里写下的复习备注。' }
-    })
-    expect(screen.getByLabelText<HTMLTextAreaElement>('本地备注').value).toBe(
-      '悬浮窗里写下的复习备注。'
-    )
-    fireEvent.click(screen.getByRole('button', { name: '保存札记' }))
-
-    await waitFor(() =>
-      expect(saveVideoNote).toHaveBeenCalledWith(
-        expect.objectContaining({
-          userMemo: '悬浮窗里写下的复习备注。'
-        })
-      )
-    )
+    expect(screen.queryByLabelText('本地备注')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '保存札记' })).not.toBeInTheDocument()
+    expect(saveVideoNote).not.toHaveBeenCalled()
   })
 
   it('closes the system assistant from 合折', async () => {

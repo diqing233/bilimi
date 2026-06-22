@@ -97,6 +97,27 @@ describe('VideoNotesPanel', () => {
     expect(screen.getByText('Data quality matters')).toBeInTheDocument()
   })
 
+  it('reuses the generated one-image summary when the summary tab is reopened', async () => {
+    const poster: NotePosterSummary = {
+      title: 'Learning Machine Models',
+      subtitle: 'Compact study poster',
+      keyPoints: ['Data quality matters'],
+      keywords: ['AI'],
+      prompt: 'clean poster'
+    }
+    const onGeneratePoster = vi.fn().mockResolvedValue(poster)
+    renderPanel({ deepSeekEnabled: true, onGeneratePoster })
+
+    fireEvent.click(screen.getByRole('tab', { name: /一图流总结/ }))
+    expect(await screen.findByText('Learning Machine Models')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /一图流总结/ }))
+
+    expect(onGeneratePoster).toHaveBeenCalledOnce()
+    expect(screen.getByText('Learning Machine Models')).toBeInTheDocument()
+  })
+
   it('starts audio transcription from one-image summary when no note exists', async () => {
     const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
     const onGeneratePoster = vi.fn()
