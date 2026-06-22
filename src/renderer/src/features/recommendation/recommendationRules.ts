@@ -1,43 +1,43 @@
 import type { RecommendationKind, RecommendationLabel } from '@shared/types'
 
 const MAP: Partial<Record<RecommendationKind, RecommendationLabel>> = {
-  humor: {
+  kichiku: {
     badge: '可赏',
-    summary: '此条颇能解闷，失仪而不醇。'
+    summary: '适合归到鬼畜，偏娱乐向。'
   },
   knowledge: {
     badge: '可阅',
-    summary: '此条可增广见闻，宜列案头。'
+    summary: '适合归到知识，方便之后复看。'
   },
-  story: {
+  'short-drama': {
     badge: '请陛下过目',
-    summary: '此段剧情渐起，不敢先泄其机。'
+    summary: '适合归到小剧场，按剧情内容整理。'
   },
-  play: {
+  game: {
     badge: '可赏',
-    summary: '此条游艺有法，可供闲时观摩。'
+    summary: '适合归到游戏，方便按玩法或攻略复看。'
   },
-  life: {
+  food: {
     badge: '可藏',
-    summary: '此条烟火有味，可入日用清册。'
+    summary: '适合归到美食，探店和做饭内容放这里。'
   },
-  craft: {
+  'tech-digital': {
     badge: '可藏',
-    summary: '此条器用有方，宜留作工巧参照。'
+    summary: '适合归到科技数码，软件和工具内容放这里。'
   },
   music: {
     badge: '可赏',
-    summary: '此条声律可听，宜置清音小册。'
+    summary: '适合归到音乐，演奏、翻唱和现场内容放这里。'
   },
   inbox: {
     badge: '待分拣',
-    summary: '此条暂存待阅，容后再归册。'
+    summary: '暂时放到待分类，之后可以再细分。'
   }
 }
 
 const CUSTOM_LEDGER_LABEL: RecommendationLabel = {
   badge: '可藏',
-  summary: '此条合入自定册目，可请掌库留档。'
+  summary: '适合归到你自定义的收藏夹。'
 }
 
 export function describeRecommendation(kind: RecommendationKind): RecommendationLabel {

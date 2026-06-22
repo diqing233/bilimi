@@ -96,7 +96,7 @@ describe('createFavoriteLedgerPreview', () => {
 
   it('marks items already in the target ledger as skipped', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
-      ledger.id === 'humor' ? { ...ledger, bilibiliFolderId: '9002' } : ledger
+      ledger.id === 'entertainment' ? { ...ledger, bilibiliFolderId: '9002' } : ledger
     )
     const preview = createFavoriteLedgerPreview({
       ledgers,
@@ -113,6 +113,7 @@ describe('createFavoriteLedgerPreview', () => {
     })
 
     expect(preview.items[0]).toMatchObject({
+      targetLedgerId: 'entertainment',
       alreadyInTarget: true,
       selected: false
     })

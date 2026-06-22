@@ -37,6 +37,7 @@ export type FavoriteLedgerInsights = {
   topAuthors: FavoriteLedgerAuthorSignal[]
   topTags: FavoriteLedgerInsightSignal[]
   topCategories: FavoriteLedgerInsightSignal[]
+  sourceFolders: FavoriteLedgerInsightSignal[]
   titleSeries: FavoriteLedgerInsightSignal[]
   candidateLedgers: FavoriteLedgerCandidate[]
 }
@@ -265,12 +266,12 @@ function buildCategoryCandidates(
   totalVideos: number
 ): FavoriteLedgerCandidate[] {
   return topCategories
-    .filter((category) => category.count >= 5 && category.count / Math.max(totalVideos, 1) >= 0.6)
-    .slice(0, 1)
+    .filter((category) => category.count >= 3 || category.count / Math.max(totalVideos, 1) >= 0.35)
+    .slice(0, 3)
     .map((category) => ({
       kind: 'category' as const,
       sourceName: category.name,
-      displayName: `Bilimi·${category.name}精选`,
+      displayName: `Bilimi·${category.name}`,
       keywords: [category.name],
       count: category.count,
       confidence: confidence(category.count, totalVideos),
@@ -335,13 +336,28 @@ export function createFavoriteLedgerInsights(args: {
   }))
   const topTags = sortedTagSignals(tagCounts, videos)
   const topCategories = sortedSignals(categoryCounts)
+  const sourceFolders = args.sourceFolders
+    .map((folder, index) => ({
+      name: cleanText(folder.title),
+      count: folder.videos.length,
+      firstSeen: index
+    }))
+    .filter((folder) => folder.name && folder.count > 0)
+    .sort((left, right) => {
+      if (right.count !== left.count) {
+        return right.count - left.count
+      }
+
+      return left.firstSeen - right.firstSeen
+    })
+    .map(({ name, count }) => ({ name, count }))
   const titleSeries = sortedSignals(titleSeriesCounts)
   const tagCluster = buildTagCluster(videos, totalVideos)
   const candidates = [
     ...(tagCluster ? [tagCluster] : []),
     ...buildSeriesCandidates(titleSeries, totalVideos),
-    ...buildAuthorCandidates(topAuthors, totalVideos),
-    ...buildCategoryCandidates(topCategories, totalVideos)
+    ...buildCategoryCandidates(topCategories, totalVideos),
+    ...buildAuthorCandidates(topAuthors, totalVideos)
   ].filter((candidate) => !hasExistingLedger(candidate.displayName, args.existingLedgerNames))
 
   return {
@@ -349,6 +365,7 @@ export function createFavoriteLedgerInsights(args: {
     topAuthors,
     topTags,
     topCategories,
+    sourceFolders,
     titleSeries,
     candidateLedgers: applyAiSuggestions(candidates, args.aiSuggestions ?? [])
   }

@@ -3,79 +3,61 @@ import type { FavoriteLedger } from './types'
 
 export { BILIMI_LEDGER_PREFIX } from './constants'
 
-const DEFAULT_FAVORITE_LEDGERS: FavoriteLedger[] = [
-  {
-    id: 'knowledge',
-    displayName: 'Bilimi·见闻增广',
-    keywords: ['知识', '科普', '学习', '教程', '历史'],
+const DEFAULT_FAVORITE_LEDGER_DEFINITIONS = [
+  ['animation', '动画', ['动画', '番剧', '国创', 'MAD', 'AMV']],
+  ['kichiku', '鬼畜', ['鬼畜', '音MAD', '调教', '人力VOCALOID']],
+  ['dance', '舞蹈', ['舞蹈', '宅舞', '街舞', '翻跳']],
+  ['entertainment', '娱乐', ['娱乐', '综艺', '明星', '搞笑', '整活']],
+  ['tech-digital', '科技数码', ['科技', '数码', '手机', '电脑', '硬件', '软件']],
+  ['food', '美食', ['美食', '探店', '烹饪', '做饭', '吃播']],
+  ['car', '汽车', ['汽车', '新能源', '车评', '试驾']],
+  ['sports', '体育运动', ['体育', '运动', '健身', '篮球', '足球']],
+  ['game', '游戏', ['游戏', '电竞', '实况', '攻略', '单机']],
+  ['music', '音乐', ['音乐', '演奏', '翻唱', '乐器', '音乐现场']],
+  ['movie-tv', '影视', ['影视', '电影', '电视剧', '影评', '剪辑']],
+  ['knowledge', '知识', ['知识', '科普', '学习', '教程', '历史']],
+  ['news', '资讯', ['资讯', '新闻', '热点', '时事']],
+  ['short-drama', '小剧场', ['小剧场', '短剧', '剧情', '微电影']],
+  ['fashion-beauty', '时尚美妆', ['时尚', '美妆', '穿搭', '护肤']],
+  ['animal', '动物', ['动物', '宠物', '猫', '狗']],
+  ['home-property', '家装房产', ['家装', '房产', '装修', '买房']],
+  ['travel', '旅游出行', ['旅游', '旅行', '出行', '攻略']],
+  ['emotion', '情感', ['情感', '恋爱', '婚姻', '心理']],
+  ['uhd', '超高清', ['超高清', '4K', '8K', 'HDR']],
+  ['vlog', 'vlog', ['vlog', '日常', '生活记录']],
+  ['outdoor', '户外潮流', ['户外', '露营', '潮流', '骑行']],
+  ['rural', '三农', ['三农', '农村', '农业', '乡村']],
+  ['life-interest', '生活兴趣', ['生活', '兴趣', '收纳', '家居']],
+  ['podcast', '视频播客', ['播客', '访谈', '对谈', '聊天']],
+  ['painting', '绘画', ['绘画', '画画', '插画', '板绘']],
+  ['fitness', '健身', ['健身', '训练', '减脂', '增肌']],
+  ['parenting', '亲子', ['亲子', '育儿', '儿童', '家庭']],
+  ['life-tips', '生活经验', ['生活经验', '经验', '技巧', '避坑']],
+  ['ai', '人工智能', ['人工智能', 'AI', '大模型', 'ChatGPT', 'AIGC']],
+  ['handmade', '手工', ['手工', '制作', 'DIY', '模型']],
+  ['health', '健康', ['健康', '医学', '养生', '睡眠']],
+  ['public-good', '公益', ['公益', '志愿', '环保', '救助']],
+  ['documentary', '纪录片', ['纪录片', '纪实', '人文']],
+  ['inbox', '待分类', ['稍后', '待看', '暂存', '收藏']]
+] as const
+
+const DEFAULT_FAVORITE_LEDGERS: FavoriteLedger[] = DEFAULT_FAVORITE_LEDGER_DEFINITIONS.map(
+  ([id, name, keywords], index) => ({
+    id,
+    displayName: `${BILIMI_LEDGER_PREFIX}${name}`,
+    keywords: [...keywords],
     enabled: true,
-    priority: 10,
+    priority: (index + 1) * 10,
     isDefault: true
-  },
-  {
-    id: 'humor',
-    displayName: 'Bilimi·茶余解颐',
-    keywords: ['搞笑', '幽默', '相声', '整活', '娱乐'],
-    enabled: true,
-    priority: 20,
-    isDefault: true
-  },
-  {
-    id: 'story',
-    displayName: 'Bilimi·影剧情长',
-    keywords: ['影视', '剧情', '电影', '动画', '番剧'],
-    enabled: true,
-    priority: 30,
-    isDefault: true
-  },
-  {
-    id: 'play',
-    displayName: 'Bilimi·游艺演武',
-    keywords: ['游戏', '电竞', '实况', '攻略', '桌游'],
-    enabled: true,
-    priority: 40,
-    isDefault: true
-  },
-  {
-    id: 'life',
-    displayName: 'Bilimi·市井烟火',
-    keywords: ['生活', '美食', '旅行', '日常', '家居'],
-    enabled: true,
-    priority: 50,
-    isDefault: true
-  },
-  {
-    id: 'craft',
-    displayName: 'Bilimi·工巧器用',
-    keywords: ['手工', '数码', '工具', '科技', '制作'],
-    enabled: true,
-    priority: 60,
-    isDefault: true
-  },
-  {
-    id: 'music',
-    displayName: 'Bilimi·歌舞清音',
-    keywords: ['音乐', '舞蹈', '演奏', '翻唱', '乐器'],
-    enabled: true,
-    priority: 70,
-    isDefault: true
-  },
-  {
-    id: 'inbox',
-    displayName: 'Bilimi·暂存待阅',
-    keywords: ['稍后', '待看', '暂存', '收藏'],
-    enabled: true,
-    priority: 80,
-    isDefault: true
-  }
-]
+  })
+)
 
 const TOPIC_NAME_SUGGESTIONS: Record<string, string[]> = {
-  摄影: ['光影留真', '镜里春秋', '取景小札'],
-  编程: ['码艺札记', '机杼成文', '格物编修']
+  摄影: ['摄影', '摄影教程', '摄影灵感'],
+  编程: ['编程', '编程教程', '开发工具']
 }
 
-const DEFAULT_TOPIC_NAME_SUGGESTIONS = ['雅事新编', '案头清供', '珍闻小录']
+const DEFAULT_TOPIC_NAME_SUGGESTIONS = ['精选收藏', '学习资料', '待整理']
 
 function cloneLedger(ledger: FavoriteLedger): FavoriteLedger {
   return {

@@ -4,32 +4,51 @@ import { describe, expect, it, vi } from 'vitest'
 import { FavoriteLedgerPanel } from './FavoriteLedgerPanel'
 
 describe('FavoriteLedgerPanel', () => {
-  it('shows missing ledgers and creates them through 备册', async () => {
+  it('asks before scanning old favorites for personalized ledgers from 备册', async () => {
     const onEnsureLedgers = vi.fn().mockResolvedValue({
       ok: true,
       steps: ['api:ledger:list', 'api:ledger:create:humor'],
       missingTargets: [],
       message: '册目已备齐。'
     })
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 3,
+        topAuthors: [{ name: '效率研究所', count: 2, share: 2 / 3 }],
+        topTags: [{ name: 'AI', count: 2 }],
+        topCategories: [{ name: '科技数码', count: 2 }],
+        sourceFolders: [{ name: '默认收藏夹', count: 3 }],
+        titleSeries: [],
+        candidateLedgers: []
+      }
+    })
 
     const { container } = render(
       <FavoriteLedgerPanel
         ledgers={createDefaultFavoriteLedgers().slice(0, 2)}
-        missingLedgerIds={['humor']}
+        missingLedgerIds={['kichiku']}
         onEnsureLedgers={onEnsureLedgers}
         onSaveLedgers={vi.fn()}
-        onScanOldFavorites={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
         onExecuteOldFavoritePlan={vi.fn()}
       />
     )
 
     expect(screen.getByText('掌库')).toBeInTheDocument()
-    expect(screen.getByText('Bilimi·茶余解颐')).toBeInTheDocument()
+    expect(screen.getByText('Bilimi·鬼畜')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '备册' }))
 
-    await waitFor(() => expect(onEnsureLedgers).toHaveBeenCalledOnce())
-    expect(screen.getByRole('status')).toHaveTextContent('册目已备齐。')
+    expect(onEnsureLedgers).not.toHaveBeenCalled()
+    expect(screen.getByText('是否根据旧藏生成你的专属库房？')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '扫描旧藏生成' }))
+
+    await waitFor(() => expect(onScanOldFavorites).toHaveBeenCalledOnce())
+    expect(screen.getByText('基础数据')).toBeInTheDocument()
+    expect(screen.getByText('默认收藏夹 3')).toBeInTheDocument()
     const toolbar = container.querySelector('.favorite-ledger-panel__toolbar')
     const status = container.querySelector('.favorite-ledger-panel__status')
     const list = container.querySelector('.favorite-ledger-panel__list')
@@ -38,7 +57,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(status?.compareDocumentPosition(list as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   })
 
-  it('adds a custom ledger from a recommended name only after 保存', async () => {
+  it('syncs checked Bilibili categories and personalized candidates', async () => {
     const onSaveLedgers = vi.fn()
 
     render(
@@ -52,32 +71,27 @@ describe('FavoriteLedgerPanel', () => {
       />
     )
 
-    fireEvent.change(screen.getByLabelText('新增主题'), { target: { value: '摄影' } })
-    fireEvent.click(screen.getByRole('button', { name: '荐名' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Bilimi·光影留真' }))
-    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: '摄影,镜头,构图' } })
-    fireEvent.click(screen.getByRole('button', { name: '新增册目' }))
-
-    expect(onSaveLedgers).not.toHaveBeenCalled()
-    expect(screen.getByText('Bilimi·光影留真')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
 
     await waitFor(() =>
       expect(onSaveLedgers).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({
-            displayName: 'Bilimi·光影留真',
-            keywords: ['摄影', '镜头', '构图'],
+            displayName: 'Bilimi·动画',
             enabled: true,
-            isDefault: false
+            isDefault: true
+          }),
+          expect.objectContaining({
+            displayName: 'Bilimi·人工智能',
+            enabled: true,
+            isDefault: true
           })
         ])
       )
     )
   })
 
-  it('deletes only Bilimi custom ledgers after 保存', async () => {
+  it('deletes only Bilimi custom ledgers after 同步', async () => {
     const onSaveLedgers = vi.fn()
     const ledgers = [
       ...createDefaultFavoriteLedgers(),
@@ -117,7 +131,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('个人摄影夹')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '删除 个人摄影夹' })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
 
     await waitFor(() =>
       expect(onSaveLedgers).toHaveBeenCalledWith(
@@ -146,7 +160,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.queryByRole('button', { name: '合卷' })).not.toBeInTheDocument()
   })
 
-  it('scans old favorites before executing append operations', async () => {
+  it('scans old favorites and executes only checked append operations', async () => {
     const preview = {
       items: [
         {
@@ -155,7 +169,18 @@ describe('FavoriteLedgerPanel', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'knowledge',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·见闻增广',
+          targetDisplayName: 'Bilimi·知识',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        },
+        {
+          aid: 102,
+          title: '爆笑鬼畜合集',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'kichiku',
+          targetFolderId: '9002',
+          targetDisplayName: 'Bilimi·鬼畜',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -185,15 +210,21 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
 
     await screen.findByText('机器学习科普教程')
+    fireEvent.click(screen.getByLabelText('整理 爆笑鬼畜合集'))
     expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getByRole('button', { name: '确认归册' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
 
-    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith(preview.items))
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([preview.items[0]]))
   })
 
-  it('explains 保存 when there are no draft changes', async () => {
-    const onSaveLedgers = vi.fn()
+  it('runs 同步 even when local selections are unchanged', async () => {
+    const onSaveLedgers = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: [],
+      missingTargets: [],
+      message: '掌库已同步。'
+    })
 
     render(
       <FavoriteLedgerPanel
@@ -206,13 +237,13 @@ describe('FavoriteLedgerPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
 
-    expect(onSaveLedgers).not.toHaveBeenCalled()
-    expect(await screen.findByRole('status')).toHaveTextContent('暂无未保存调整。')
+    await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
+    expect(await screen.findByRole('status')).toHaveTextContent('掌库已同步。')
   })
 
-  it('shows save failures instead of failing silently', async () => {
+  it('shows sync failures instead of failing silently', async () => {
     const onSaveLedgers = vi.fn().mockRejectedValue(new Error('账号同步超时'))
 
     render(
@@ -226,10 +257,10 @@ describe('FavoriteLedgerPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getAllByRole('button', { name: '暂歇' })[0])
-    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    fireEvent.click(screen.getByLabelText('动画'))
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
 
-    expect(await screen.findByRole('status')).toHaveTextContent('保存未完成：账号同步超时')
+    expect(await screen.findByRole('status')).toHaveTextContent('同步未完成：账号同步超时')
   })
 
   it('shows old favorite scan failures instead of an empty preview', async () => {
@@ -264,7 +295,7 @@ describe('FavoriteLedgerPanel', () => {
       ok: true,
       steps: [],
       missingTargets: [],
-      message: '掌库已保存。'
+      message: '掌库已同步。'
     })
     const onScanOldFavorites = vi.fn().mockResolvedValue({
       items: [],
@@ -277,6 +308,7 @@ describe('FavoriteLedgerPanel', () => {
           { name: '工具', count: 3 }
         ],
         topCategories: [{ name: '科技', count: 4 }],
+        sourceFolders: [{ name: '默认收藏夹', count: 6 }],
         titleSeries: [{ name: 'AI工具效率教程', count: 4 }],
         candidateLedgers: [
           {
@@ -306,15 +338,16 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
 
-    expect(await screen.findByText('旧藏画像')).toBeInTheDocument()
+    expect(await screen.findByText('基础数据')).toBeInTheDocument()
     expect(screen.getByText('共扫描 6 条旧藏')).toBeInTheDocument()
     expect(screen.getByText('效率研究所 4')).toBeInTheDocument()
     expect(screen.getByText('AI 4')).toBeInTheDocument()
+    expect(screen.getByText('默认收藏夹 6')).toBeInTheDocument()
     expect(screen.getByText('Bilimi·AI工具')).toBeInTheDocument()
     expect(screen.getByText(/本地统计/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '采纳 Bilimi·AI工具' }))
-    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    fireEvent.click(screen.getByLabelText('Bilimi·AI工具'))
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
 
     await waitFor(() =>
       expect(onSaveLedgers).toHaveBeenCalledWith(

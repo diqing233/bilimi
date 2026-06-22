@@ -7,15 +7,17 @@ export type VideoContentContext = {
   description?: string
   pageText?: string
   tags?: string[]
+  category?: string
 }
 
 const RISK_KEYWORDS = ['带货', '广告', '软广', '恰饭', '推广', '避雷', '割韭菜', '骗局', '夸大', '引流', '标题党']
 
 const DEFAULT_LEDGER_KEYWORD_SUPPLEMENTS: Record<string, string[]> = {
-  humor: ['鬼畜'],
-  play: ['运动', '技巧'],
-  life: ['探店', 'vlog'],
-  craft: ['软件', '软件教程']
+  kichiku: ['鬼畜'],
+  sports: ['运动'],
+  food: ['探店'],
+  vlog: ['vlog'],
+  'tech-digital': ['软件教程', '工具', '效率']
 }
 
 function normalize(value = '') {
@@ -24,7 +26,14 @@ function normalize(value = '') {
 
 function buildSearchText(context: VideoContentContext) {
   return normalize(
-    [context.title, context.author, context.description, context.pageText, ...(context.tags ?? [])]
+    [
+      context.title,
+      context.author,
+      context.description,
+      context.pageText,
+      context.category,
+      ...(context.tags ?? [])
+    ]
       .filter(Boolean)
       .join(' ')
   )

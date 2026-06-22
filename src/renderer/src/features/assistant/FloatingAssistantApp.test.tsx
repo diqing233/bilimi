@@ -118,7 +118,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const saveOpenAiApiKey = vi.fn().mockResolvedValue({ configured: true })
   const clearOpenAiApiKey = vi.fn().mockResolvedValue({ configured: false })
   const ensureFavoriteLedgers = vi.fn().mockResolvedValue(createResult('册目已备齐。'))
-  const saveFavoriteLedgers = vi.fn().mockResolvedValue(createResult('掌库已保存。'))
+  const saveFavoriteLedgers = vi.fn().mockResolvedValue(createResult('掌库已同步。'))
   const scanOldFavorites = vi.fn().mockResolvedValue({
     items: [],
     skippedSourceFolderTitles: []
@@ -339,8 +339,8 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByText(/尚缺/)).toBeInTheDocument()
   })
 
-  it('saves ledger edits through the account sync bridge only after clicking 保存', async () => {
-    const saveFavoriteLedgers = vi.fn().mockResolvedValue(createResult('掌库已保存。'))
+  it('syncs ledger edits through the account sync bridge only after clicking 同步', async () => {
+    const saveFavoriteLedgers = vi.fn().mockResolvedValue(createResult('掌库已同步。'))
     installDesktopApi({ saveFavoriteLedgers })
 
     render(<FloatingAssistantApp />)
@@ -352,7 +352,7 @@ describe('FloatingAssistantApp', () => {
 
     expect(saveFavoriteLedgers).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
 
     await waitFor(() =>
       expect(saveFavoriteLedgers).toHaveBeenCalledWith(

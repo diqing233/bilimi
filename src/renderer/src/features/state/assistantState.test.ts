@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import {
   createInitialAssistantPreferences,
   createInitialAssistantState,
@@ -53,7 +54,7 @@ describe('assistant state', () => {
         favoriteLedgers: [],
         preferenceCounts: {}
       }).favoriteLedgers.map((ledger) => ledger.id)
-    ).toEqual(['knowledge', 'humor', 'story', 'play', 'life', 'craft', 'music', 'inbox'])
+    ).toEqual(createDefaultFavoriteLedgers().map((ledger) => ledger.id))
   })
 
   it('increments persisted preference counts after a successful action', () => {

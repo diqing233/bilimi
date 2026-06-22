@@ -48,7 +48,7 @@ describe('buildFavoriteApiFallbackScript', () => {
           code: 0,
           data: {
             id: 91000001,
-            title: 'Bilimi·见闻增广'
+            title: 'Bilimi·知识'
           },
           message: 'OK'
         })
@@ -73,7 +73,7 @@ describe('buildFavoriteApiFallbackScript', () => {
       'api:favorite:add'
     ])
     expect(requests[0].url).toContain('rid=2')
-    expect(requests[1].body).toContain('title=Bilimi%C2%B7%E8%A7%81%E9%97%BB%E5%A2%9E%E5%B9%BF')
+    expect(requests[1].body).toContain(`title=${encodeURIComponent('Bilimi·知识')}`)
     expect(requests[2].body).toContain('rid=2')
     expect(requests[2].body).toContain('add_media_ids=91000001')
     expect(requests[2].body).toContain('csrf=csrf-token')
@@ -97,7 +97,7 @@ describe('buildFavoriteApiFallbackScript', () => {
             code: 0,
             data: {
               list: [
-                { id: 91000001, title: 'Bilimi·茶余解颐' },
+                { id: 91000001, title: 'Bilimi·鬼畜' },
                 { id: 88459354, title: '默认收藏夹' }
               ]
             },
@@ -113,7 +113,7 @@ describe('buildFavoriteApiFallbackScript', () => {
       })
     )
 
-    const result = await window.eval(buildFavoriteApiFallbackScript(favoriteLedgers, 'humor'))
+    const result = await window.eval(buildFavoriteApiFallbackScript(favoriteLedgers, 'kichiku'))
 
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(['api:favorite:list', 'api:favorite:add'])
@@ -139,7 +139,7 @@ describe('buildFavoriteApiFallbackScript', () => {
           return Response.json({
             code: 0,
             data: {
-              list: [{ id: 91000001, title: 'Bilimi·茶余解颐' }]
+              list: [{ id: 91000001, title: 'Bilimi·鬼畜' }]
             },
             message: 'OK'
           })
@@ -153,7 +153,7 @@ describe('buildFavoriteApiFallbackScript', () => {
       })
     )
 
-    const result = await window.eval(buildFavoriteApiFallbackScript(favoriteLedgers, 'humor'))
+    const result = await window.eval(buildFavoriteApiFallbackScript(favoriteLedgers, 'kichiku'))
     const favoriteButton = document.querySelector('.video-fav') as HTMLElement
     const favoriteIcon = favoriteButton.querySelector('svg') as SVGElement
 

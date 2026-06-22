@@ -35,11 +35,13 @@ const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash'
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
 const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
-  funny: '解闷小品',
-  humor: '解闷小品',
-  knowledge: '见闻增广',
-  story: '剧情留档',
-  suspicious: '谨慎观察'
+  funny: '娱乐',
+  humor: '娱乐',
+  story: '小剧场',
+  play: '游戏',
+  life: '生活',
+  craft: '科技数码',
+  suspicious: '待确认'
 }
 
 type AssistantWorkspaceTab = 'review' | 'notes' | 'ledger' | 'settings'
@@ -538,7 +540,7 @@ export function FloatingAssistantApp({
   async function saveFavoriteLedgers(favoriteLedgers: AssistantPreferences['favoriteLedgers']) {
     const result =
       (await window.bilimiDesktop?.saveFavoriteLedgers?.(favoriteLedgers)) ??
-      createDefaultResult('掌库已保存。')
+      createDefaultResult('掌库已同步。')
     const nextSnapshot = await window.bilimiDesktop?.requestAssistantSnapshot?.()
 
     if (nextSnapshot) {

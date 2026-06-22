@@ -38,8 +38,8 @@ describe('favorite ledger API scripts', () => {
     const result = await window.eval(buildFavoriteLedgerStatusScript(ledgers))
 
     expect(result.ok).toBe(true)
-    expect(result.missingLedgerIds).toEqual(['humor', 'story', 'play', 'life', 'craft', 'music', 'inbox'])
-    expect(result.ledgers.find((ledger) => ledger.id === 'knowledge')?.bilibiliFolderId).toBe('1')
+    expect(result.missingLedgerIds).toEqual(ledgers.slice(1).map((ledger) => ledger.id))
+    expect(result.ledgers.find((ledger) => ledger.id === 'animation')?.bilibiliFolderId).toBe('1')
   })
 
   it('creates only missing enabled ledgers', async () => {
@@ -66,7 +66,7 @@ describe('favorite ledger API scripts', () => {
     const result = await window.eval(buildEnsureFavoriteLedgersScript(ledgers))
 
     expect(result.ok).toBe(true)
-    expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:create:humor'])
+    expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:create:kichiku'])
     expect(requests.filter((request) => request.url.includes('/folder/add'))).toHaveLength(1)
     expect(requests[1].body).toContain('csrf=csrf-token')
     expect(requests[1].body).toContain('privacy=0')
@@ -94,7 +94,7 @@ describe('favorite ledger API scripts', () => {
     const result = await window.eval(buildEnsureFavoriteLedgersScript(ledgers))
 
     expect(result.ok).toBe(false)
-    expect(result.missingTargets).toEqual(['humor'])
+    expect(result.missingTargets).toEqual(['kichiku'])
   })
 
   it('saves edited ledgers by creating missing enabled folders', async () => {

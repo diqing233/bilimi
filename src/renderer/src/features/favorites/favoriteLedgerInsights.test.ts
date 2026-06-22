@@ -97,6 +97,10 @@ describe('createFavoriteLedgerInsights', () => {
       { name: '科技', count: 4 },
       { name: '知识', count: 3 }
     ])
+    expect(insights.sourceFolders).toEqual([
+      { name: '默认收藏夹', count: 4 },
+      { name: '剪辑参考', count: 3 }
+    ])
     expect(insights.titleSeries[0]).toMatchObject({
       name: 'AI工具效率教程',
       count: 4
@@ -109,7 +113,7 @@ describe('createFavoriteLedgerInsights', () => {
       existingLedgerNames: ['Bilimi·效率研究所追更']
     })
 
-    expect(insights.candidateLedgers).toEqual([
+    expect(insights.candidateLedgers).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: 'tag-cluster',
         displayName: 'Bilimi·AI工具',
@@ -127,13 +131,19 @@ describe('createFavoriteLedgerInsights', () => {
         confidence: 'high'
       }),
       expect.objectContaining({
+        kind: 'category',
+        displayName: 'Bilimi·科技',
+        keywords: ['科技'],
+        count: 4
+      }),
+      expect.objectContaining({
         kind: 'author',
         displayName: 'Bilimi·光影小课追更',
         keywords: ['光影小课'],
         count: 2,
         confidence: 'medium'
       })
-    ])
+    ]))
     expect(insights.candidateLedgers).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({

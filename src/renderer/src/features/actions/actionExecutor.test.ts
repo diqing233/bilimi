@@ -26,13 +26,13 @@ describe('executeAssistantAction', () => {
       runScript,
       favoritesFolderName: 'Bilimi 内库',
       favoriteLedgers,
-      targetLedgerId: 'humor'
+      targetLedgerId: 'kichiku'
     })
 
     expect(runScript).toHaveBeenCalledTimes(2)
     expect(runScript.mock.calls[0][0]).toContain('"action":"藏"')
     expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
-    expect(runScript.mock.calls[1][0]).toContain('Bilimi·茶余解颐')
+    expect(runScript.mock.calls[1][0]).toContain('Bilimi·鬼畜')
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
       expect.arrayContaining(['favorite:open', 'favorite', 'api:favorite:list', 'api:favorite:add'])
@@ -60,12 +60,12 @@ describe('executeAssistantAction', () => {
       runScript,
       favoritesFolderName: 'Bilimi 内库',
       favoriteLedgers,
-      targetLedgerId: 'humor'
+      targetLedgerId: 'kichiku'
     })
 
     expect(runScript).toHaveBeenCalledTimes(2)
     expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
-    expect(runScript.mock.calls[1][0]).toContain('Bilimi·茶余解颐')
+    expect(runScript.mock.calls[1][0]).toContain('Bilimi·鬼畜')
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
       expect.arrayContaining(['like', 'favorite', 'api:favorite:list', 'api:favorite:add'])
@@ -92,14 +92,14 @@ describe('executeAssistantAction', () => {
       runVisualFallback,
       favoritesFolderName: 'Bilimi 内库',
       favoriteLedgers,
-      targetLedgerId: 'humor'
+      targetLedgerId: 'kichiku'
     })
 
     expect(runVisualFallback).toHaveBeenCalledWith({
       favoritesFolderName: 'Bilimi 内库',
-      targetLedgerId: 'humor',
+      targetLedgerId: 'kichiku',
       favoriteFolders: expect.objectContaining({
-        humor: 'Bilimi·茶余解颐'
+        kichiku: 'Bilimi·鬼畜'
       })
     })
     expect(result.ok).toBe(true)
@@ -136,7 +136,7 @@ describe('executeAssistantAction', () => {
 
     expect(runScript).toHaveBeenCalledTimes(2)
     expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
-    expect(runScript.mock.calls[1][0]).toContain('Bilimi·见闻增广')
+    expect(runScript.mock.calls[1][0]).toContain('Bilimi·知识')
     expect(runVisualFallback).not.toHaveBeenCalled()
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
@@ -167,13 +167,13 @@ describe('executeAssistantAction', () => {
       runVisualFallback,
       favoritesFolderName: 'Bilimi 内库',
       favoriteLedgers,
-      targetLedgerId: 'humor',
+      targetLedgerId: 'kichiku',
       coinCount: 2
     })
 
     expect(runScript).toHaveBeenCalledTimes(2)
     expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
-    expect(runScript.mock.calls[1][0]).toContain('Bilimi·茶余解颐')
+    expect(runScript.mock.calls[1][0]).toContain('Bilimi·鬼畜')
     expect(runVisualFallback).not.toHaveBeenCalled()
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
@@ -209,13 +209,13 @@ describe('executeAssistantAction', () => {
       runVisualFallback,
       favoritesFolderName: 'Bilimi 内库',
       favoriteLedgers,
-      targetLedgerId: 'humor',
+      targetLedgerId: 'kichiku',
       coinCount: 2
     })
 
     expect(runScript).toHaveBeenCalledTimes(2)
     expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
-    expect(runScript.mock.calls[1][0]).toContain('Bilimi·茶余解颐')
+    expect(runScript.mock.calls[1][0]).toContain('Bilimi·鬼畜')
     expect(runVisualFallback).not.toHaveBeenCalled()
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
@@ -261,7 +261,7 @@ describe('executeAssistantAction', () => {
     expect(runVisualFallback).toHaveBeenCalledWith(
       {
         favoriteFolders: expect.objectContaining({
-          knowledge: 'Bilimi·见闻增广'
+          knowledge: 'Bilimi·知识'
         }),
         favoritesFolderName: 'Bilimi 内库',
         targetLedgerId: 'knowledge'
@@ -289,7 +289,7 @@ describe('executeAssistantAction', () => {
       runVisualFallback,
       favoritesFolderName: 'Bilimi 内库',
       favoriteLedgers,
-      targetLedgerId: 'humor',
+      targetLedgerId: 'kichiku',
       favoriteApiFallbackEnabled: false
     })
 
@@ -326,7 +326,7 @@ describe('executeAssistantAction', () => {
         runVisualFallback,
         favoritesFolderName: 'Bilimi 内库',
         favoriteLedgers,
-        targetLedgerId: 'story'
+        targetLedgerId: 'short-drama'
       })
 
       await vi.advanceTimersByTimeAsync(15_001)

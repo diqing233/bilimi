@@ -38,11 +38,13 @@ const ASSISTANT_DIALOG_SIZE = { width: 420, height: 220 }
 const FAVORITE_LEDGER_PANEL_SIZE = { width: 520, height: 520 }
 const DRAG_CLICK_SUPPRESSION_MS = 120
 const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
-  funny: '解闷小品',
-  humor: '解闷小品',
-  knowledge: '见闻增广',
-  story: '剧情留档',
-  suspicious: '谨慎观察'
+  funny: '娱乐',
+  humor: '娱乐',
+  story: '小剧场',
+  play: '游戏',
+  life: '生活',
+  craft: '科技数码',
+  suspicious: '待确认'
 }
 
 type AssistantOverlayProps = {

@@ -5,15 +5,15 @@ describe('describeRecommendation', () => {
   it('describes default and custom favorite ledgers', () => {
     expect(describeRecommendation('knowledge')).toEqual({
       badge: '可阅',
-      summary: '此条可增广见闻，宜列案头。'
+      summary: '适合归到知识，方便之后复看。'
     })
     expect(describeRecommendation('inbox')).toEqual({
       badge: '待分拣',
-      summary: '此条暂存待阅，容后再归册。'
+      summary: '暂时放到待分类，之后可以再细分。'
     })
     expect(describeRecommendation('custom-photo')).toEqual({
       badge: '可藏',
-      summary: '此条合入自定册目，可请掌库留档。'
+      summary: '适合归到你自定义的收藏夹。'
     })
   })
 })
