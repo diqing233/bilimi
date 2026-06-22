@@ -6,6 +6,7 @@ describe('buildOpenVideoLinksInAppScript', () => {
 
   beforeEach(() => {
     document.body.innerHTML = ''
+    document.title = 'Bilimi'
     Object.defineProperty(window, 'open', {
       configurable: true,
       value: vi.fn()
@@ -14,6 +15,7 @@ describe('buildOpenVideoLinksInAppScript', () => {
 
   afterEach(() => {
     document.body.innerHTML = ''
+    document.title = 'Bilimi'
     Object.defineProperty(window, 'open', {
       configurable: true,
       value: originalOpen
@@ -67,6 +69,29 @@ describe('buildOpenVideoLinksInAppScript', () => {
     expect(click.defaultPrevented).toBe(true)
     expect(document.title).toContain('__BILIMI_OPEN_IN_TAB__:')
     expect(document.title).toContain(encodeURIComponent('https://www.bilibili.com/video/BV1card'))
+    expect(window.open).not.toHaveBeenCalled()
+  })
+
+  it('does not treat broad feed containers as a single clickable video card', () => {
+    document.body.innerHTML = `
+      <main class="feed-card">
+        <a href="https://www.bilibili.com/">home</a>
+        <section class="recommend-grid">
+          <article>
+            <button type="button"><span>refresh this slot</span></button>
+            <a href="https://www.bilibili.com/video/BV1inside">video</a>
+          </article>
+        </section>
+      </main>
+    `
+
+    window.eval(buildOpenVideoLinksInAppScript())
+    const click = new MouseEvent('click', { bubbles: true, button: 0, cancelable: true })
+
+    document.querySelector('button span')?.dispatchEvent(click)
+
+    expect(click.defaultPrevented).toBe(false)
+    expect(document.title).not.toContain('__BILIMI_OPEN_IN_TAB__:')
     expect(window.open).not.toHaveBeenCalled()
   })
 })

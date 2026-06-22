@@ -29,7 +29,7 @@ export function buildOpenLinksInAppScript(): string {
 
       const resolveCardUrl = (target) => {
         const card = target?.closest?.(
-          '[data-bvid], [data-aid], [data-url], [data-target-url], .bili-video-card, .video-card, .feed-card, .recommend-card, .card-box'
+          '[data-bvid], [data-aid], [data-url], [data-target-url], .bili-video-card, .video-card, .recommend-card, .card-box'
         );
 
         if (!card) {
@@ -66,7 +66,19 @@ export function buildOpenLinksInAppScript(): string {
       const resolveNavigableUrl = (target) => {
         const anchor = target?.closest?.('a[href]');
 
-        return readUrlFromAnchor(anchor) || resolveCardUrl(target);
+        if (anchor) {
+          return readUrlFromAnchor(anchor);
+        }
+
+        const interactiveControl = target?.closest?.(
+          'button, input, textarea, select, option, [role="button"], [role="menuitem"], [contenteditable="true"]'
+        );
+
+        if (interactiveControl) {
+          return null;
+        }
+
+        return resolveCardUrl(target);
       };
 
       const requestOpenInTab = (url) => {
