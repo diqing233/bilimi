@@ -40,6 +40,8 @@ describe('pet quick action styles', () => {
     )
     expectStyleSnippet('.palace-maid-pet:hover, .palace-maid-pet:focus-visible { transform: translateY(-1px);')
     expectStyleSnippet('.palace-maid-pet:active, .palace-maid-pet[data-pressed="true"] { cursor: grabbing;')
+    expectStyleSnippet('.palace-maid-pet[data-pressed="true"]:hover, .palace-maid-pet[data-pressed="true"]:focus-visible { transform: none;')
+    expectStyleSnippet('.palace-maid-pet[data-pressed="true"] .layered-pet { animation: none; transform: none;')
     expect(compactStyles).not.toContain(
       '.palace-maid-pet:active, .palace-maid-pet[data-pressed="true"] { cursor: grabbing; transform:'
     )

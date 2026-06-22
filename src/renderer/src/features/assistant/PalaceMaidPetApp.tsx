@@ -302,6 +302,7 @@ export function PalaceMaidPetApp() {
         }}
         onPointerDown={(event) => {
           event.currentTarget.setPointerCapture?.(event.pointerId)
+          setPressed(true)
           startDragCandidate(event.clientX, event.clientY, event.screenX, event.screenY)
         }}
         onPointerMove={(event) => {

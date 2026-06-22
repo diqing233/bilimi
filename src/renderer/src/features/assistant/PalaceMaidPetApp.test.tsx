@@ -318,15 +318,21 @@ describe('PalaceMaidPetApp', () => {
     const pet = screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' })
 
     fireEvent.pointerDown(pet, { clientX: 10, clientY: 10, screenX: 110, screenY: 210, pointerId: 1 })
+
+    expect(pet).toHaveAttribute('data-pressed', 'true')
+
     act(() => {
       vi.advanceTimersByTime(450)
     })
 
-    expect(pet).toHaveAttribute('data-pressed', 'false')
+    expect(pet).toHaveAttribute('data-pressed', 'true')
     expect(api.startFloatingSealDrag).not.toHaveBeenCalled()
     expect(api.resizeFloatingSealByStep).not.toHaveBeenCalled()
 
     fireEvent.pointerUp(pet, { clientX: 10, clientY: 10, screenX: 110, screenY: 210, pointerId: 1 })
+
+    expect(pet).toHaveAttribute('data-pressed', 'false')
+
     fireEvent.click(pet)
 
     expect(api.finishFloatingSealDrag).not.toHaveBeenCalled()
