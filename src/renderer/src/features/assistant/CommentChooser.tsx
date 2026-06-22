@@ -22,9 +22,9 @@ export function CommentChooser({ drafts, onSelect, onCancel }: CommentChooserPro
     <div
       className="assistant-dialog assistant-dialog--comment-chooser"
       role="dialog"
-      aria-label="小mi推荐评论"
+      aria-label="小咪推荐评论"
     >
-      <p>小mi拟好三条，主人点一条就发送。</p>
+      <p>小咪拟好三条，主人点一条就发送。</p>
       <div className="assistant-dialog__comment-list">
         {drafts.map((draft) => (
           <button

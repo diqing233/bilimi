@@ -10,7 +10,7 @@ import type { AssistantPreferences, DeepSeekChatMessage } from '@shared/types'
 
 const DRAG_THRESHOLD_PX = 5
 const DEEPSEEK_CHAT_DISABLED_MESSAGE =
-  '主人，想要跟小mi交流的话去设置开启DeepSeek支持吧'
+  '主人，想要跟小咪交流的话去设置开启DeepSeek支持吧'
 
 type DragState = {
   startClientX: number
@@ -207,7 +207,7 @@ export function PalaceMaidPetApp() {
       })
 
       if (!result || result.kind !== 'pet-chat') {
-        throw new Error('Xiao Mi could not answer right now.')
+        throw new Error('小咪现在还答不上来。')
       }
 
       const nextMessages = [
@@ -216,19 +216,19 @@ export function PalaceMaidPetApp() {
       ].slice(-6)
       setChatMessages(nextMessages)
     } catch (error) {
-      setChatError(error instanceof Error ? error.message : 'Xiao Mi could not answer right now.')
+      setChatError(error instanceof Error ? error.message : '小咪现在还答不上来。')
     } finally {
       setChatBusy(false)
     }
   }
 
   return (
-    <main className="palace-maid-pet-shell" aria-label="Bilimi 小mi">
+    <main className="palace-maid-pet-shell" aria-label="Bilimi 小咪">
       <button
         className="palace-maid-pet"
         type="button"
-        aria-label="打开 Bilimi，小mi在这里"
-        title="打开 Bilimi，小mi在这里"
+        aria-label="打开 Bilimi，小咪在这里"
+        title="打开 Bilimi，小咪在这里"
         data-pet-state={stateView.state}
         data-pressed={pressed ? 'true' : 'false'}
         onClick={(event) => {
@@ -276,7 +276,7 @@ export function PalaceMaidPetApp() {
         />
       </button>
       {closePromptVisible ? (
-        <span className="palace-maid-pet__quick-actions" role="group" aria-label="小mi快捷操作">
+        <span className="palace-maid-pet__quick-actions" role="group" aria-label="小咪快捷操作">
           <button
             className="palace-maid-pet__quick-action"
             type="button"
@@ -297,7 +297,7 @@ export function PalaceMaidPetApp() {
         <button
           className="palace-maid-pet__bubble-toggle"
           type="button"
-          aria-label="打开小mi对话"
+          aria-label="打开小咪对话"
           onClick={openPetChat}
         >
           <strong>{stateView.label}</strong>
@@ -322,7 +322,7 @@ export function PalaceMaidPetApp() {
             {deepSeekChatEnabled ? (
               <>
                 <label className="palace-maid-pet__chat-field">
-                  <span>和小mi说话</span>
+                  <span>和小咪说话</span>
                   <input
                     value={chatDraft}
                     onChange={(event) => {
@@ -346,7 +346,7 @@ export function PalaceMaidPetApp() {
       <div
         className="palace-maid-pet__resize-controls"
         role="group"
-        aria-label="调整小mi大小"
+        aria-label="调整小咪大小"
         data-visible={resizeControlsVisible ? 'true' : 'false'}
         onPointerEnter={showResizeControls}
         onPointerLeave={scheduleHideResizeControls}
@@ -354,8 +354,8 @@ export function PalaceMaidPetApp() {
         <button
           className="palace-maid-pet__resize-step"
           type="button"
-          aria-label="缩小小mi"
-          title="缩小小mi"
+          aria-label="缩小小咪"
+          title="缩小小咪"
           onClick={(event) => {
             event.preventDefault()
             event.stopPropagation()
@@ -371,8 +371,8 @@ export function PalaceMaidPetApp() {
         <button
           className="palace-maid-pet__resize-step"
           type="button"
-          aria-label="放大小mi"
-          title="放大小mi"
+          aria-label="放大小咪"
+          title="放大小咪"
           onClick={(event) => {
             event.preventDefault()
             event.stopPropagation()

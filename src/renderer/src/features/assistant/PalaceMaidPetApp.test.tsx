@@ -75,7 +75,7 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    fireEvent.click(screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' }))
+    fireEvent.click(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
 
     expect(api.restoreMainWindowFromPet).toHaveBeenCalledOnce()
     expect(window.bilimiDesktop.toggleFloatingAssistant).toBeUndefined()
@@ -91,7 +91,7 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    fireEvent.contextMenu(screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' }))
+    fireEvent.contextMenu(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
 
     expect(api.closeAssistantPet).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: '关闭宠物' })).toBeInTheDocument()
@@ -114,12 +114,12 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    fireEvent.contextMenu(screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' }))
+    fireEvent.contextMenu(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
 
     expect(screen.getByRole('button', { name: '关闭宠物' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '对话宠物' }))
 
-    await waitFor(() => expect(screen.getByLabelText('和小mi说话')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByLabelText('和小咪说话')).toBeInTheDocument())
     expect(api.closeAssistantPet).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: '关闭宠物' })).not.toBeInTheDocument()
   })
@@ -129,7 +129,7 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    fireEvent.contextMenu(screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' }))
+    fireEvent.contextMenu(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
 
     expect(screen.getByRole('button', { name: '关闭宠物' })).toBeInTheDocument()
 
@@ -150,13 +150,13 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    fireEvent.click(screen.getByRole('button', { name: '打开小mi对话' }))
-    await waitFor(() => expect(screen.getByLabelText('和小mi说话')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: '打开小咪对话' }))
+    await waitFor(() => expect(screen.getByLabelText('和小咪说话')).toBeInTheDocument())
 
     fireEvent(window, new Event('blur'))
 
-    expect(screen.queryByLabelText('和小mi说话')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '打开小mi对话' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('和小咪说话')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '打开小咪对话' })).toBeInTheDocument()
   })
 
   it('renders pet state changes from the desktop shell', () => {
@@ -170,17 +170,17 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    expect(screen.getByText('小mi待机')).toBeInTheDocument()
+    expect(screen.getByText('小咪待机')).toBeInTheDocument()
 
     act(() => {
       stateChanged?.('working')
     })
 
-    expect(screen.getByText('小mi忙碌中')).toBeInTheDocument()
-    expect(screen.getByText('小mi正在处理，马上回来。')).toBeInTheDocument()
+    expect(screen.getByText('小咪忙碌中')).toBeInTheDocument()
+    expect(screen.getByText('小咪正在处理，马上回来。')).toBeInTheDocument()
   })
 
-  it('sends direct Xiao Mi chat messages through DeepSeek', async () => {
+  it('sends direct 小咪 chat messages through DeepSeek', async () => {
     const api = installDesktopApi({
       loadPreferences: vi.fn().mockResolvedValue(
         createPreferences({
@@ -192,9 +192,9 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    fireEvent.click(screen.getByRole('button', { name: '打开小mi对话' }))
-    await waitFor(() => expect(screen.getByLabelText('和小mi说话')).toBeInTheDocument())
-    fireEvent.change(screen.getByLabelText('和小mi说话'), {
+    fireEvent.click(screen.getByRole('button', { name: '打开小咪对话' }))
+    await waitFor(() => expect(screen.getByLabelText('和小咪说话')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('和小咪说话'), {
       target: { value: 'watch this page' }
     })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
@@ -211,16 +211,16 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    fireEvent.click(screen.getByRole('button', { name: '打开小mi对话' }))
+    fireEvent.click(screen.getByRole('button', { name: '打开小咪对话' }))
 
     expect(
-      await screen.findByText('主人，想要跟小mi交流的话去设置开启DeepSeek支持吧')
+      await screen.findByText('主人，想要跟小咪交流的话去设置开启DeepSeek支持吧')
     ).toBeInTheDocument()
-    expect(screen.queryByLabelText('和小mi说话')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('和小咪说话')).not.toBeInTheDocument()
     expect(api.generateDeepSeek).not.toHaveBeenCalled()
   })
 
-  it('shows an alert when Xiao Mi chat fails', async () => {
+  it('shows an alert when 小咪 chat fails', async () => {
     installDesktopApi({
       loadPreferences: vi.fn().mockResolvedValue(
         createPreferences({
@@ -233,9 +233,9 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    fireEvent.click(screen.getByRole('button', { name: '打开小mi对话' }))
-    await waitFor(() => expect(screen.getByLabelText('和小mi说话')).toBeInTheDocument())
-    fireEvent.change(screen.getByLabelText('和小mi说话'), {
+    fireEvent.click(screen.getByRole('button', { name: '打开小咪对话' }))
+    await waitFor(() => expect(screen.getByLabelText('和小咪说话')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('和小咪说话'), {
       target: { value: 'watch this page' }
     })
     fireEvent.click(screen.getByRole('button', { name: '发送' }))
@@ -293,7 +293,7 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    const pet = screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' })
+    const pet = screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' })
 
     fireEvent.pointerDown(pet, { clientX: 10, clientY: 10, screenX: 110, screenY: 210, pointerId: 1 })
     fireEvent.pointerMove(pet, { clientX: 28, clientY: 22, screenX: 128, screenY: 222, pointerId: 1 })
@@ -314,9 +314,9 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    const pet = screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' })
+    const pet = screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' })
     const resizeControls = screen.getByRole('group', {
-      name: '调整小mi大小',
+      name: '调整小咪大小',
       hidden: true
     })
 
@@ -326,8 +326,8 @@ describe('PalaceMaidPetApp', () => {
 
     expect(resizeControls).toHaveAttribute('data-visible', 'true')
 
-    const shrinkButton = screen.getByRole('button', { name: '缩小小mi' })
-    const growButton = screen.getByRole('button', { name: '放大小mi' })
+    const shrinkButton = screen.getByRole('button', { name: '缩小小咪' })
+    const growButton = screen.getByRole('button', { name: '放大小咪' })
 
     fireEvent.click(shrinkButton)
     fireEvent.click(growButton)
@@ -357,10 +357,10 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    const pet = screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' })
+    const pet = screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' })
     fireEvent.pointerEnter(pet)
 
-    const shrinkButton = screen.getByRole('button', { name: '缩小小mi' })
+    const shrinkButton = screen.getByRole('button', { name: '缩小小咪' })
 
     fireEvent.pointerDown(shrinkButton, {
       clientX: 332,
@@ -379,9 +379,9 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    const pet = screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' })
+    const pet = screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' })
     const resizeControls = screen.getByRole('group', {
-      name: '调整小mi大小',
+      name: '调整小咪大小',
       hidden: true
     })
 
@@ -402,9 +402,9 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    const pet = screen.getByRole('button', { name: '打开 Bilimi，小mi在这里' })
+    const pet = screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' })
     fireEvent.pointerEnter(pet)
-    const growButton = screen.getByRole('button', { name: '放大小mi' })
+    const growButton = screen.getByRole('button', { name: '放大小咪' })
 
     fireEvent.pointerDown(growButton, { pointerId: 2 })
     fireEvent.pointerDown(growButton, { pointerId: 2 })

@@ -101,12 +101,12 @@ export function FloatingSealApp() {
   }
 
   return (
-    <main className="floating-seal-shell" aria-label="Bilimi 小mi入口">
+    <main className="floating-seal-shell" aria-label="Bilimi 小咪入口">
       <button
         className="floating-seal-button"
         type="button"
-        aria-label="打开小mi助手"
-        title="打开小mi助手"
+        aria-label="打开小咪助手"
+        title="打开小咪助手"
         data-opening={opening ? 'true' : 'false'}
         data-pressed={pressed ? 'true' : 'false'}
         onClick={(event) => {
@@ -158,7 +158,7 @@ export function FloatingSealApp() {
         }}
       >
         <span className="floating-seal-button__glow" aria-hidden="true" />
-        <img className="floating-seal-button__pet" src={idlePetUrl} alt="小mi待机" />
+        <img className="floating-seal-button__pet" src={idlePetUrl} alt="小咪待机" />
       </button>
     </main>
   )

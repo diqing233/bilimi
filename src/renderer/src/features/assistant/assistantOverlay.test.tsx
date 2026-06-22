@@ -445,7 +445,7 @@ describe('AssistantOverlay', () => {
     expect(getActionButton('藏')).toBeDisabled()
     expect(getActionButton('赐')).toBeDisabled()
     expect(getActionButton('表')).toBeDisabled()
-    expect(screen.getByText('小mi拟好三条，主人点一条就发送。')).toBeInTheDocument()
+    expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
     expect(screen.getAllByRole('button').some((button) => button.textContent?.includes('早八观察员'))).toBe(true)
   })
 
@@ -501,9 +501,9 @@ describe('AssistantOverlay', () => {
     fireEvent.click(getActionButton('表'))
 
     const draft =
-      '小mi替我家主人来夸早八观察员的《早八生存实录》：看得很入戏，像不小心点开了快乐开关。UP主请再接再厉，更新更多精彩视频！'
+      '小咪替我家主人来夸早八观察员的《早八生存实录》：看得很入戏，像不小心点开了快乐开关。UP主请再接再厉，更新更多精彩视频！'
 
-    expect(screen.getByText('小mi拟好三条，主人点一条就发送。')).toBeInTheDocument()
+    expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: draft }))
 

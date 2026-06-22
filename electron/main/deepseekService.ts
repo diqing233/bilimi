@@ -117,7 +117,7 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
     {
       role: 'system',
       content:
-        'You are Xiao Mi, a warm desktop pet assistant. Reply naturally and briefly in the user language.'
+        'You are 小咪, a warm desktop pet assistant. Reply naturally and briefly in the user language.'
     },
     ...(request.context
       ? [

@@ -34,8 +34,8 @@ export function SealButton({
       onPointerCancel={onPointerUp}
       aria-label="开折批阅"
     >
-      <span className="seal-button__hint">我是 bilimi，主人可以叫我小mi~</span>
-      <img className="seal-button__pet" src={idlePetUrl} alt="小mi待机" />
+      <span className="seal-button__hint">我是 bilimi，主人可以叫我小咪~</span>
+      <img className="seal-button__pet" src={idlePetUrl} alt="小咪待机" />
     </button>
   )
 }

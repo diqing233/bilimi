@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add one secure DeepSeek service that powers review comment candidates, note poster summaries, and direct Xiao Mi chat in the desktop pet prompt bubble.
+**Goal:** Add one secure DeepSeek service that powers review comment candidates, note poster summaries, and direct 小咪 chat in the desktop pet prompt bubble.
 
 **Architecture:** Store the DeepSeek key and call the API only in Electron main. Renderer code uses typed preload functions. Review, notes, and pet UI each add a thin feature flow over the same `generateDeepSeek` bridge.
 
@@ -535,8 +535,8 @@ Expected: PASS.
 
 Add tests using new English labels:
 
-1. Click a bubble button named `Open Xiao Mi chat`.
-2. Fill `Talk to Xiao Mi` with `watch this page`.
+1. Click a bubble button named `打开小咪对话`.
+2. Fill `和小咪说话` with `watch this page`.
 3. Click `Send`.
 4. Assert `generateDeepSeek` receives `{ kind: 'pet-chat', messages: [{ role: 'user', content: 'watch this page' }] }`.
 5. Assert reply text renders.
@@ -557,8 +557,8 @@ Expected: FAIL because chat UI does not exist.
 In `PalaceMaidPetApp.tsx`:
 
 - Add `chatOpen`, `chatDraft`, `chatMessages`, `chatBusy`, `chatError`.
-- Replace the static bubble content with a button `aria-label="Open Xiao Mi chat"` and an expanded form when open.
-- Use input label `Talk to Xiao Mi` and submit button `Send`.
+- Replace the static bubble content with a button `aria-label="打开小咪对话"` and an expanded form when open.
+- Use input label `和小咪说话` and submit button `Send`.
 - Call `window.bilimiDesktop?.generateDeepSeek?.({ kind: 'pet-chat', messages })`.
 - Keep only the last six chat messages in memory.
 

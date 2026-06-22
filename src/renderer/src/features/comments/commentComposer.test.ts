@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { composeMemorialComments } from './commentComposer'
 
 describe('composeMemorialComments', () => {
-  it('returns three Xiao Mi style options for knowledge content', () => {
+  it('returns three 小咪 style options for knowledge content', () => {
     const drafts = composeMemorialComments('knowledge', '如何高效背单词', '词汇研究所')
 
     expect(drafts).toHaveLength(3)
@@ -10,7 +10,7 @@ describe('composeMemorialComments', () => {
     for (const draft of drafts) {
       expect(draft).toContain('如何高效背单词')
       expect(draft).toContain('词汇研究所')
-      expect(draft).toMatch(/小mi|我家主人/)
+      expect(draft).toMatch(/小咪|我家主人/)
       expect(draft).toMatch(/UP主|up主/)
       expect(draft).toContain('再接再厉')
     }

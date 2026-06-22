@@ -38,13 +38,13 @@ describe('FloatingSealApp', () => {
 
     render(<FloatingSealApp />)
 
-    fireEvent.click(screen.getByRole('button', { name: '打开小mi助手' }))
+    fireEvent.click(screen.getByRole('button', { name: '打开小咪助手' }))
 
     expect(toggleFloatingAssistant).toHaveBeenCalledOnce()
     expect(toggleFloatingMenu).not.toHaveBeenCalled()
   })
 
-  it('uses Xiao Mi as the floating assistant button icon', () => {
+  it('uses 小咪 as the floating assistant button icon', () => {
     Object.defineProperty(window, 'bilimiDesktop', {
       configurable: true,
       value: {
@@ -55,8 +55,8 @@ describe('FloatingSealApp', () => {
 
     render(<FloatingSealApp />)
 
-    expect(screen.getByRole('button', { name: '打开小mi助手' })).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: '小mi待机' })).toHaveClass('floating-seal-button__pet')
+    expect(screen.getByRole('button', { name: '打开小咪助手' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: '小咪待机' })).toHaveClass('floating-seal-button__pet')
     expect(screen.queryByText('玺')).not.toBeInTheDocument()
   })
 
@@ -73,7 +73,7 @@ describe('FloatingSealApp', () => {
 
     render(<FloatingSealApp />)
 
-    fireEvent.click(screen.getByRole('button', { name: '打开小mi助手' }))
+    fireEvent.click(screen.getByRole('button', { name: '打开小咪助手' }))
 
     expect(toggleFloatingMenu).toHaveBeenCalledOnce()
   })
@@ -98,7 +98,7 @@ describe('FloatingSealApp', () => {
 
       render(<FloatingSealApp />)
 
-      const seal = screen.getByRole('button', { name: '打开小mi助手' })
+      const seal = screen.getByRole('button', { name: '打开小咪助手' })
 
       fireEvent.mouseDown(seal, { clientX: 40, clientY: 40, screenX: 140, screenY: 240 })
       fireEvent.mouseMove(seal, { clientX: 64, clientY: 52, screenX: 180, screenY: 270 })
@@ -131,7 +131,7 @@ describe('FloatingSealApp', () => {
 
       render(<FloatingSealApp />)
 
-      const seal = screen.getByRole('button', { name: '打开小mi助手' })
+      const seal = screen.getByRole('button', { name: '打开小咪助手' })
 
       fireEvent.mouseDown(seal, { clientX: 40, clientY: 40, screenX: 140, screenY: 240 })
       fireEvent.mouseMove(seal, { clientX: 64, clientY: 52, screenX: 180, screenY: 270 })
@@ -164,7 +164,7 @@ describe('FloatingSealApp', () => {
 
     render(<FloatingSealApp />)
 
-    const seal = screen.getByRole('button', { name: '打开小mi助手' })
+    const seal = screen.getByRole('button', { name: '打开小咪助手' })
 
     fireEvent.pointerDown(seal, { clientX: 40, clientY: 40, screenX: 140, screenY: 240, pointerId: 7 })
     fireEvent.pointerMove(seal, { clientX: 64, clientY: 52, screenX: 180, screenY: 270, pointerId: 7 })
@@ -190,7 +190,7 @@ describe('FloatingSealApp', () => {
 
     render(<FloatingSealApp />)
 
-    const seal = screen.getByRole('button', { name: '打开小mi助手' })
+    const seal = screen.getByRole('button', { name: '打开小咪助手' })
 
     fireEvent.pointerDown(seal, { clientX: 40, clientY: 40, pointerId: 7 })
 
@@ -221,7 +221,7 @@ describe('FloatingSealApp', () => {
 
     const { unmount } = render(<FloatingSealApp />)
 
-    fireEvent.click(screen.getByRole('button', { name: '打开小mi助手' }))
+    fireEvent.click(screen.getByRole('button', { name: '打开小咪助手' }))
     unmount()
     resolveToggle()
     await toggleRequest

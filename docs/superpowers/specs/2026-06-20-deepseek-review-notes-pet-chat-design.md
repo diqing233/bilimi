@@ -2,7 +2,7 @@
 
 - Date: 2026-06-20
 - Status: Design approved by user
-- Scope: Add DeepSeek API settings, AI comment drafting for the review table action, one-image note summaries, and direct Xiao Mi chat inside the desktop pet prompt bubble.
+- Scope: Add DeepSeek API settings, AI comment drafting for the review table action, one-image note summaries, and direct 小咪 chat inside the desktop pet prompt bubble.
 
 ## 1. Background
 
@@ -11,9 +11,9 @@ Bilimi already has four related surfaces:
 1. Assistant settings persist local preferences through the Electron main process.
 2. The review page can open `CommentChooser` and publish a selected comment draft.
 3. The notes page can generate structured video notes with summaries, timelines, highlights, annotations, and archive versions.
-4. The desktop pet shows a top prompt bubble and Xiao Mi state feedback.
+4. The desktop pet shows a top prompt bubble and 小咪 state feedback.
 
-The new work should connect these surfaces through one DeepSeek-backed AI service. The user selected the full implementation route: a main-process DeepSeek service with thin feature-specific renderer entrances. The user also selected direct pet chat in the existing top Xiao Mi prompt bubble, review table comment generation with a user-supplied intent prompt, and one-image note summaries as a card-poster layout.
+The new work should connect these surfaces through one DeepSeek-backed AI service. The user selected the full implementation route: a main-process DeepSeek service with thin feature-specific renderer entrances. The user also selected direct pet chat in the existing top 小咪 prompt bubble, review table comment generation with a user-supplied intent prompt, and one-image note summaries as a card-poster layout.
 
 ## 2. Goals
 
@@ -21,7 +21,7 @@ The new work should connect these surfaces through one DeepSeek-backed AI servic
 2. DeepSeek credentials stay in the main process and are not passed into renderer components or page scripts.
 3. The review table action asks the user for a short comment intent, generates three candidate comments, and lets the user choose one to publish.
 4. The notes page can generate a card-poster one-image summary from the current note.
-5. The desktop pet top prompt bubble can expand into a short Xiao Mi chat input and recent-message view.
+5. The desktop pet top prompt bubble can expand into a short 小咪 chat input and recent-message view.
 6. All three AI features share one request boundary and one configuration model.
 7. When DeepSeek is not configured or a request fails, the UI gives a clear recoverable state instead of silently falling back to fabricated AI output.
 
@@ -109,9 +109,9 @@ For the first implementation, use browser-side rendering of a DOM poster to a ca
 
 ## 8. Desktop Pet Chat
 
-The chat surface lives in the existing top Xiao Mi prompt bubble shown in the user's screenshot. Default state remains a compact prompt:
+The chat surface lives in the existing top 小咪 prompt bubble shown in the user's screenshot. Default state remains a compact prompt:
 
-- Title: Xiao Mi prompt.
+- Title: 小咪 prompt.
 - Body: current status or assistant hint.
 
 On click or focus:
@@ -120,7 +120,7 @@ On click or focus:
 2. It shows the last few short messages.
 3. It shows one input and a send button.
 4. Sending calls the DeepSeek `pet-chat` request with the recent conversation and current app or video context if available.
-5. Xiao Mi replies in a short persona voice.
+5. 小咪 replies in a short persona voice.
 
 Constraints:
 
@@ -167,7 +167,7 @@ flowchart LR
 3. The review table action asks for a user comment intent, generates three choices, and only publishes after the user selects one.
 4. Notes can generate and preview an A-style card poster from the current note.
 5. The poster preview has a working save/export path or a clearly disabled fallback with a tested error message.
-6. The desktop pet top bubble supports direct short chat with Xiao Mi at the location shown in the user's screenshot.
+6. The desktop pet top bubble supports direct short chat with 小咪 at the location shown in the user's screenshot.
 7. Missing DeepSeek configuration is handled consistently across review, notes, and pet chat.
 8. Focused tests, full test suite, and build pass before the implementation is committed.
 9. After implementation is complete, all feature changes are committed together in one git commit as requested by `AGENTS.md`.

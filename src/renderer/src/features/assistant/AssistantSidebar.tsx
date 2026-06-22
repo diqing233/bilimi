@@ -29,7 +29,7 @@ export function AssistantSidebar() {
         <img
           className="assistant-sidebar__collapse-pet"
           src={idlePetUrl}
-          alt={collapsed ? '小mi展开侧栏' : '小mi收起侧栏'}
+          alt={collapsed ? '小咪展开侧栏' : '小咪收起侧栏'}
         />
         <span className="assistant-sidebar__collapse-label" aria-hidden="true">
           {collapsed ? '展开' : '折叠'}

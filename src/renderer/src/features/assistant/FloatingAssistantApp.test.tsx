@@ -178,10 +178,10 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByRole('tab', { name: '札记' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '掌库' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '设置' })).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: '小mi批阅' })).toHaveClass('floating-assistant-tabs__pet')
-    expect(screen.getByRole('img', { name: '小mi札记' })).toHaveClass('floating-assistant-tabs__pet')
-    expect(screen.getByRole('img', { name: '小mi掌库' })).toHaveClass('floating-assistant-tabs__pet')
-    expect(screen.getByRole('img', { name: '小mi设置' })).toHaveClass('floating-assistant-tabs__pet')
+    expect(screen.getByRole('img', { name: '小咪批阅' })).toHaveClass('floating-assistant-tabs__pet')
+    expect(screen.getByRole('img', { name: '小咪札记' })).toHaveClass('floating-assistant-tabs__pet')
+    expect(screen.getByRole('img', { name: '小咪掌库' })).toHaveClass('floating-assistant-tabs__pet')
+    expect(screen.getByRole('img', { name: '小咪设置' })).toHaveClass('floating-assistant-tabs__pet')
     expect(screen.getByRole('button', { name: /赏.*轻赏此条/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /藏.*归入内库/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /赐.*投币厚赏/ })).toBeInTheDocument()
@@ -214,7 +214,7 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
-  it('uses default Xiao Mi comments directly when DeepSeek is disabled', async () => {
+  it('uses default 小咪 comments directly when DeepSeek is disabled', async () => {
     const { generateDeepSeek, runAssistantAction } = installDesktopApi()
 
     render(<FloatingAssistantApp />)
@@ -223,10 +223,10 @@ describe('FloatingAssistantApp', () => {
 
     expect(screen.queryByLabelText('Comment intent')).not.toBeInTheDocument()
     expect(generateDeepSeek).not.toHaveBeenCalled()
-    expect(screen.getByText('小mi拟好三条，主人点一条就发送。')).toBeInTheDocument()
+    expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
     const choices = screen.getAllByRole('button', { name: /三分钟讲清机器学习科普教程/ })
     expect(choices).toHaveLength(3)
-    expect(choices[0]).toHaveTextContent(/小mi|我家主人/)
+    expect(choices[0]).toHaveTextContent(/小咪|我家主人/)
     expect(choices[0]).toHaveTextContent('李老师讲AI')
 
     fireEvent.click(choices[0])
@@ -288,7 +288,7 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
-  it('falls back to Xiao Mi comments when DeepSeek comment generation is unusable', async () => {
+  it('falls back to 小咪 comments when DeepSeek comment generation is unusable', async () => {
     const preferences = createPreferences({
       deepseekEnabled: true,
       deepseekApiKeyStored: true

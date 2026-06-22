@@ -50,7 +50,7 @@ describe('AssistantSidebar', () => {
       'assistant-sidebar__collapse-button'
     )
     expect(screen.getByText('折叠')).toHaveClass('assistant-sidebar__collapse-label')
-    expect(screen.getByRole('img', { name: '小mi收起侧栏' })).toHaveClass(
+    expect(screen.getByRole('img', { name: '小咪收起侧栏' })).toHaveClass(
       'assistant-sidebar__collapse-pet'
     )
     expect(screen.queryByRole('button', { name: '打开批阅' })).not.toBeInTheDocument()
@@ -64,7 +64,7 @@ describe('AssistantSidebar', () => {
       'true'
     )
     expect(screen.queryByRole('tab', { name: '批阅' })).not.toBeInTheDocument()
-    expect(screen.getByRole('img', { name: '小mi展开侧栏' })).toHaveClass(
+    expect(screen.getByRole('img', { name: '小咪展开侧栏' })).toHaveClass(
       'assistant-sidebar__collapse-pet'
     )
 

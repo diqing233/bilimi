@@ -51,10 +51,10 @@ const WORKSPACE_TABS: Array<{
   icon: string
   iconAlt: string
 }> = [
-  { id: 'review', label: '批阅', icon: hintPetUrl, iconAlt: '小mi批阅' },
-  { id: 'notes', label: '札记', icon: workingPetUrl, iconAlt: '小mi札记' },
-  { id: 'ledger', label: '掌库', icon: clickedPetUrl, iconAlt: '小mi掌库' },
-  { id: 'settings', label: '设置', icon: idlePetUrl, iconAlt: '小mi设置' }
+  { id: 'review', label: '批阅', icon: hintPetUrl, iconAlt: '小咪批阅' },
+  { id: 'notes', label: '札记', icon: workingPetUrl, iconAlt: '小咪札记' },
+  { id: 'ledger', label: '掌库', icon: clickedPetUrl, iconAlt: '小咪掌库' },
+  { id: 'settings', label: '设置', icon: idlePetUrl, iconAlt: '小咪设置' }
 ]
 
 type FloatingAssistantAppProps = {
