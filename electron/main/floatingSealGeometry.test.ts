@@ -5,6 +5,7 @@ import {
   createFloatingHostBounds,
   createFloatingVisualBounds,
   createFloatingMenuBounds,
+  createFixedFloatingSealBounds,
   createFloatingSealDragPosition,
   createFloatingSealResizeBounds,
   createFloatingSealStepResizeBounds
@@ -53,6 +54,14 @@ describe('floating seal geometry', () => {
 })
 
 describe('floating menu geometry', () => {
+  it('restores an oversized floating pet host to the fixed activity area', () => {
+    expect(
+      createFixedFloatingSealBounds({
+        startBounds: { x: 872, y: 520, width: 655, height: 737 }
+      })
+    ).toEqual({ x: 872, y: 520, width: 356, height: 260 })
+  })
+
   it('expands transparent host bounds around visual content so shadows are not clipped into a square edge', () => {
     expect(
       createFloatingHostBounds({

@@ -22,6 +22,7 @@ type OverlayPosition = {
 }
 
 const DEFAULT_GAP = 12
+const FLOATING_SEAL_FIXED_SIZE = { width: 356, height: 260 }
 const FLOATING_SEAL_MIN_SIZE = { width: 260, height: 168 }
 const FLOATING_SEAL_MAX_SIZE = { width: 560, height: 440 }
 
@@ -121,6 +122,21 @@ export function createFloatingSealStepResizeBounds({
     y: Math.round(footAnchor.y - height),
     width,
     height
+  }
+}
+
+export function createFixedFloatingSealBounds({
+  startBounds,
+  fixedSize = FLOATING_SEAL_FIXED_SIZE
+}: {
+  startBounds: Bounds
+  fixedSize?: Size
+}): Bounds {
+  return {
+    x: startBounds.x,
+    y: startBounds.y,
+    width: fixedSize.width,
+    height: fixedSize.height
   }
 }
 

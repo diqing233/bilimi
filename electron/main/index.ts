@@ -33,10 +33,10 @@ import {
 import { keepMainWindowTitle } from './windowTitleGuard'
 import {
   createFloatingAssistantBounds,
+  createFixedFloatingSealBounds,
   createFloatingHostBounds,
   createFloatingMenuBounds,
   createFloatingSealDragPosition,
-  createFloatingSealStepResizeBounds,
   createFloatingVisualBounds
 } from './floatingSealGeometry'
 import { createPreloadScriptPath } from './preloadPath'
@@ -283,6 +283,18 @@ const floatingSealDragController = new FloatingSealDragController({
   }
 })
 
+function resetFloatingSealWindowBounds() {
+  if (!floatingSealWindow || floatingSealWindow.isDestroyed()) {
+    return
+  }
+
+  floatingSealWindow.setBounds(
+    createFixedFloatingSealBounds({
+      startBounds: floatingSealWindow.getBounds()
+    })
+  )
+}
+
 function closeFloatingMenuWindow() {
   floatingMenuController.close()
 }
@@ -335,6 +347,7 @@ function startFloatingSealDrag(screenX: number, screenY: number) {
 
   closeFloatingMenuWindow()
   closeFloatingAssistantWindow()
+  resetFloatingSealWindowBounds()
   floatingSealDragController.start({ x: screenX, y: screenY })
 }
 
@@ -352,12 +365,7 @@ function resizeFloatingSealByStep(step: number) {
   closeFloatingMenuWindow()
   closeFloatingAssistantWindow()
   floatingSealDragController.finish()
-  floatingSealWindow.setBounds(
-    createFloatingSealStepResizeBounds({
-      startBounds: floatingSealWindow.getBounds(),
-      step: resizeStep
-    })
-  )
+  resetFloatingSealWindowBounds()
 }
 
 function moveFloatingSealTo(screenX: number, screenY: number) {

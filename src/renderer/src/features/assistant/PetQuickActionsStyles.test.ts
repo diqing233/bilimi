@@ -22,6 +22,7 @@ describe('pet quick action styles', () => {
     )
     expectStyleSnippet('padding: 5px 10px;')
     expectStyleSnippet('.palace-maid-pet-shell { width: 356px; height: 260px;')
+    expectStyleSnippet('.palace-maid-pet-shell { width: 356px; height: 260px; position: relative;')
     expectStyleSnippet('--floating-pet-size: 148px;')
     expectStyleSnippet('--floating-pet-host-height: 260px;')
     expect(compactStyles).not.toContain('--floating-pet-size: clamp(')
