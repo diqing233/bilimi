@@ -21,3 +21,15 @@ export function sendAssistantSnapshotChangedWhenReady(target: AssistantSnapshotT
 
   sendSnapshotChangedSignal()
 }
+
+export function sendAssistantSnapshotChangedToTargets(
+  targets: Array<AssistantSnapshotTarget | null | undefined>
+) {
+  targets.forEach((target) => {
+    if (!target || target.isDestroyed()) {
+      return
+    }
+
+    sendAssistantSnapshotChangedWhenReady(target)
+  })
+}

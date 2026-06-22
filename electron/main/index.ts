@@ -19,7 +19,7 @@ import {
   type AssistantPreferences
 } from './store'
 import { requestAssistantRuntimeWhenReady } from './assistantRuntimeSignal'
-import { sendAssistantSnapshotChangedWhenReady } from './assistantSnapshotSignal'
+import { sendAssistantSnapshotChangedToTargets } from './assistantSnapshotSignal'
 import { sendAssistantOpenWhenReady } from './assistantOpenSignal'
 import { FloatingMenuController } from './floatingMenuController'
 import { FloatingSealDragController } from './floatingSealDragController'
@@ -315,11 +315,7 @@ function wakeAssistantPetWindow() {
 function notifyFloatingAssistantSnapshotChanged() {
   const assistant = floatingAssistantController.getWindow()
 
-  if (!assistant || assistant.isDestroyed()) {
-    return
-  }
-
-  sendAssistantSnapshotChangedWhenReady(assistant)
+  sendAssistantSnapshotChangedToTargets([mainWindow, assistant])
 }
 
 function moveFloatingSealBy(deltaX: number, deltaY: number) {

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { sendAssistantSnapshotChangedWhenReady } from './assistantSnapshotSignal'
+import {
+  sendAssistantSnapshotChangedWhenReady,
+  sendAssistantSnapshotChangedToTargets
+} from './assistantSnapshotSignal'
 
 function createSnapshotTarget(isLoading: boolean) {
   let finishLoad: (() => void) | undefined
@@ -45,5 +48,24 @@ describe('sendAssistantSnapshotChangedWhenReady', () => {
     finishLoad()
 
     expect(send).toHaveBeenCalledWith('floating-assistant:snapshot-changed')
+  })
+
+  it('sends snapshot refresh signals to every live assistant target', () => {
+    const main = createSnapshotTarget(false)
+    const floating = createSnapshotTarget(false)
+    const destroyed = {
+      isDestroyed: () => true,
+      webContents: {
+        isLoading: () => false,
+        once: vi.fn(),
+        send: vi.fn()
+      }
+    }
+
+    sendAssistantSnapshotChangedToTargets([main.target, null, destroyed, floating.target])
+
+    expect(main.send).toHaveBeenCalledWith('floating-assistant:snapshot-changed')
+    expect(floating.send).toHaveBeenCalledWith('floating-assistant:snapshot-changed')
+    expect(destroyed.webContents.send).not.toHaveBeenCalled()
   })
 })
