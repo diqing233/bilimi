@@ -6,7 +6,6 @@ import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favori
 type FavoriteLedgerPanelProps = {
   ledgers: FavoriteLedger[]
   missingLedgerIds: string[]
-  onClose: () => void
   onEnsureLedgers: () => Promise<AssistantAutomationResult>
   onSaveLedgers: (ledgers: FavoriteLedger[]) => Promise<AssistantAutomationResult> | void
   onScanOldFavorites: () => Promise<FavoriteLedgerPreview>
@@ -28,10 +27,13 @@ function canDeleteLedger(ledger: FavoriteLedger) {
   return !ledger.isDefault && ledger.displayName.startsWith('Bilimi')
 }
 
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error || '未知错误')
+}
+
 export function FavoriteLedgerPanel({
   ledgers,
   missingLedgerIds,
-  onClose,
   onEnsureLedgers,
   onSaveLedgers,
   onScanOldFavorites,
@@ -117,6 +119,11 @@ export function FavoriteLedgerPanel({
   }
 
   async function saveLedgers() {
+    if (!hasUnsavedChanges) {
+      setStatus('暂无未保存调整。')
+      return
+    }
+
     setBusy(true)
     try {
       const result = await onSaveLedgers(draftLedgers)
@@ -125,25 +132,28 @@ export function FavoriteLedgerPanel({
       } else {
         setStatus('掌库已保存。')
       }
+    } catch (error) {
+      setStatus(`保存未完成：${errorMessage(error)}`)
     } finally {
       setBusy(false)
     }
-  }
-
-  async function requestClose() {
-    if (hasUnsavedChanges && window.confirm('掌库尚有未保存调整。是否保存并同步到账号收藏夹？')) {
-      await saveLedgers()
-    }
-
-    onClose()
   }
 
   async function scanOldFavorites() {
     setBusy(true)
     try {
       const nextPreview = await onScanOldFavorites()
+      if (nextPreview.ok === false) {
+        setPreview(null)
+        setStatus(`整理旧藏未完成：${nextPreview.message || '请稍后重试。'}`)
+        return
+      }
+
       setPreview(nextPreview)
       setStatus(`已呈上 ${nextPreview.items.length} 条旧藏候选。`)
+    } catch (error) {
+      setPreview(null)
+      setStatus(`整理旧藏未完成：${errorMessage(error)}`)
     } finally {
       setBusy(false)
     }
@@ -167,9 +177,6 @@ export function FavoriteLedgerPanel({
     <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
       <div className="favorite-ledger-panel__header">
         <h2>掌库</h2>
-        <button type="button" onClick={() => void requestClose()}>
-          合卷
-        </button>
       </div>
 
       {missingLedgerIds.length > 0 ? (
@@ -182,7 +189,7 @@ export function FavoriteLedgerPanel({
         <button type="button" disabled={busy} onClick={() => void ensureLedgers()}>
           备册
         </button>
-        <button type="button" disabled={busy || !hasUnsavedChanges} onClick={() => void saveLedgers()}>
+        <button type="button" disabled={busy} onClick={() => void saveLedgers()}>
           保存
         </button>
         <button type="button" disabled={busy} onClick={() => void scanOldFavorites()}>

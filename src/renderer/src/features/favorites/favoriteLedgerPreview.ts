@@ -26,6 +26,8 @@ export type FavoriteLedgerPreviewItem = {
 }
 
 export type FavoriteLedgerPreview = {
+  ok?: boolean
+  message?: string
   items: FavoriteLedgerPreviewItem[]
   skippedSourceFolderTitles: string[]
 }

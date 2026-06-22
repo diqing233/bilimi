@@ -448,6 +448,8 @@ export default function App() {
 
     if (!scanResult.ok || !Array.isArray(scanResult.sourceFolders) || !scanResult.targetMembership) {
       return {
+        ok: false,
+        message: scanResult.message || '整理旧藏未完成。',
         items: [],
         skippedSourceFolderTitles: []
       }

@@ -603,7 +603,6 @@ export function FloatingAssistantApp({
           <FavoriteLedgerPanel
             ledgers={preferences.favoriteLedgers}
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? []}
-            onClose={() => setActiveTab('review')}
             onEnsureLedgers={ensureFavoriteLedgers}
             onSaveLedgers={saveFavoriteLedgers}
             onScanOldFavorites={scanOldFavorites}

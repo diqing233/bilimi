@@ -16,7 +16,6 @@ describe('FavoriteLedgerPanel', () => {
       <FavoriteLedgerPanel
         ledgers={createDefaultFavoriteLedgers().slice(0, 2)}
         missingLedgerIds={['humor']}
-        onClose={vi.fn()}
         onEnsureLedgers={onEnsureLedgers}
         onSaveLedgers={vi.fn()}
         onScanOldFavorites={vi.fn()}
@@ -40,7 +39,6 @@ describe('FavoriteLedgerPanel', () => {
       <FavoriteLedgerPanel
         ledgers={createDefaultFavoriteLedgers()}
         missingLedgerIds={[]}
-        onClose={vi.fn()}
         onEnsureLedgers={vi.fn()}
         onSaveLedgers={onSaveLedgers}
         onScanOldFavorites={vi.fn()}
@@ -99,7 +97,6 @@ describe('FavoriteLedgerPanel', () => {
       <FavoriteLedgerPanel
         ledgers={ledgers}
         missingLedgerIds={[]}
-        onClose={vi.fn()}
         onEnsureLedgers={vi.fn()}
         onSaveLedgers={onSaveLedgers}
         onScanOldFavorites={vi.fn()}
@@ -128,34 +125,19 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.queryByRole('button', { name: '删除 Bilimi·见闻增广' })).not.toBeInTheDocument()
   })
 
-  it('asks whether to save unsaved changes before closing', async () => {
-    const onClose = vi.fn()
-    const onSaveLedgers = vi.fn().mockResolvedValue({
-      ok: true,
-      steps: [],
-      missingTargets: [],
-      message: 'saved'
-    })
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
-
+  it('does not render the old close-only 合卷 button', () => {
     render(
       <FavoriteLedgerPanel
         ledgers={createDefaultFavoriteLedgers()}
         missingLedgerIds={[]}
-        onClose={onClose}
         onEnsureLedgers={vi.fn()}
-        onSaveLedgers={onSaveLedgers}
+        onSaveLedgers={vi.fn()}
         onScanOldFavorites={vi.fn()}
         onExecuteOldFavoritePlan={vi.fn()}
       />
     )
 
-    fireEvent.click(screen.getAllByRole('button', { name: '暂歇' })[0])
-    fireEvent.click(screen.getByRole('button', { name: '合卷' }))
-
-    await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
-    expect(window.confirm).toHaveBeenCalledWith('掌库尚有未保存调整。是否保存并同步到账号收藏夹？')
-    expect(onClose).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('button', { name: '合卷' })).not.toBeInTheDocument()
   })
 
   it('scans old favorites before executing append operations', async () => {
@@ -187,7 +169,6 @@ describe('FavoriteLedgerPanel', () => {
       <FavoriteLedgerPanel
         ledgers={createDefaultFavoriteLedgers()}
         missingLedgerIds={[]}
-        onClose={vi.fn()}
         onEnsureLedgers={vi.fn()}
         onSaveLedgers={vi.fn()}
         onScanOldFavorites={onScanOldFavorites}
@@ -203,5 +184,72 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认归册' }))
 
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith(preview.items))
+  })
+
+  it('explains 保存 when there are no draft changes', async () => {
+    const onSaveLedgers = vi.fn()
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    expect(onSaveLedgers).not.toHaveBeenCalled()
+    expect(await screen.findByRole('status')).toHaveTextContent('暂无未保存调整。')
+  })
+
+  it('shows save failures instead of failing silently', async () => {
+    const onSaveLedgers = vi.fn().mockRejectedValue(new Error('账号同步超时'))
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: '暂歇' })[0])
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('保存未完成：账号同步超时')
+  })
+
+  it('shows old favorite scan failures instead of an empty preview', async () => {
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      ok: false,
+      message: '未能读取登录凭据，无法整理旧藏。',
+      items: [],
+      skippedSourceFolderTitles: []
+    })
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '整理旧藏未完成：未能读取登录凭据，无法整理旧藏。'
+    )
+    expect(screen.queryByText('旧藏预览')).not.toBeInTheDocument()
   })
 })

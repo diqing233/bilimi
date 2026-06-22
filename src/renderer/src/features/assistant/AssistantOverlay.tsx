@@ -648,7 +648,6 @@ export function AssistantOverlay({
             <FavoriteLedgerPanel
               ledgers={preferences.favoriteLedgers}
               missingLedgerIds={ledgerStatus?.missingLedgerIds ?? []}
-              onClose={() => setLedgerPanelOpen(false)}
               onEnsureLedgers={ensureFavoriteLedgers}
               onSaveLedgers={(favoriteLedgers) => {
                 void persistPreferences({
