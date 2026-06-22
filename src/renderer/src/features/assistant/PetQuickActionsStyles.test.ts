@@ -35,8 +35,9 @@ describe('pet quick action styles', () => {
       '.palace-maid-pet__resize-controls { position: absolute; right: max(8px, calc(50% - var(--floating-pet-size) * 0.46));'
     )
     expectStyleSnippet('.palace-maid-pet:hover, .palace-maid-pet:focus-visible { transform: translateY(-1px);')
-    expectStyleSnippet(
-      '.palace-maid-pet:active, .palace-maid-pet[data-pressed="true"] { cursor: grabbing; transform: translateY(1px);'
+    expectStyleSnippet('.palace-maid-pet:active, .palace-maid-pet[data-pressed="true"] { cursor: grabbing;')
+    expect(compactStyles).not.toContain(
+      '.palace-maid-pet:active, .palace-maid-pet[data-pressed="true"] { cursor: grabbing; transform:'
     )
     expect(compactStyles).not.toContain(
       '.palace-maid-pet:hover, .palace-maid-pet:focus-visible { transform: translateY(-1px) scale(1.02);'

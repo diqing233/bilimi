@@ -482,7 +482,6 @@ body[data-floating-window="true"],
 .palace-maid-pet:active,
 .palace-maid-pet[data-pressed="true"] {
   cursor: grabbing;
-  transform: translateY(1px);
 }
 .palace-maid-pet[data-pet-state="working"] {
   filter: saturate(1.08) brightness(1.04);
