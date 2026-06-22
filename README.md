@@ -21,6 +21,8 @@ The workspace tabs use 小咪 pet icons and keep each tab label horizontal. In s
 
 Collapsing the sidebar removes the sidebar column instead of leaving a vertical rail. A small floating boundary button labeled `折叠` or `展开` stays on the browser/sidebar edge, keeps its left-boundary position, and is sized to fit inside the blue browser tab strip.
 
+Each browser tab keeps its own URL and page title. The assistant snapshot always follows the active tab, so switching videos refreshes the right-side `批阅` and `札记` context without allowing background tabs to overwrite the current workspace. Snapshot refresh signals are broadcast to both the in-window sidebar and the floating assistant window.
+
 When the floating desktop pet restores or focuses the main window, the sidebar also expands if it was collapsed.
 
 ## Floating Surfaces
