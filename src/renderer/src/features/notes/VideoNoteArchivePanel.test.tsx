@@ -178,9 +178,15 @@ describe('VideoNoteArchivePanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '备注' }))
 
-    fireEvent.change(screen.getByLabelText('本地备注'), {
+    const memoInput = screen.getByLabelText('本地备注')
+    fireEvent.change(memoInput, {
       target: { value: '下次复盘时先看这条。' }
     })
+
+    expect(memoInput).toHaveValue('下次复盘时先看这条。')
+    expect(onUpdateVersion).not.toHaveBeenCalled()
+
+    fireEvent.blur(memoInput)
 
     await waitFor(() =>
       expect(onUpdateVersion).toHaveBeenLastCalledWith(
@@ -195,7 +201,7 @@ describe('VideoNoteArchivePanel', () => {
     fireEvent.click(screen.getByLabelText('有备注'))
     expect(screen.getByRole('button', { name: /React 状态管理/ })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '星星收藏' }))
+    fireEvent.click(screen.getByRole('button', { name: '星标收藏' }))
 
     await waitFor(() =>
       expect(onUpdateVersion).toHaveBeenLastCalledWith(
@@ -210,6 +216,35 @@ describe('VideoNoteArchivePanel', () => {
     fireEvent.click(screen.getByLabelText('有备注'))
     fireEvent.click(screen.getByRole('button', { name: '星标' }))
     expect(screen.getByRole('button', { name: /React 状态管理/ })).toBeInTheDocument()
+  })
+
+  it('keeps memo editing available when the memo filter is active', async () => {
+    const onUpdateVersion = vi.fn().mockResolvedValue(undefined)
+
+    renderArchivePanel({ onUpdateVersion })
+
+    fireEvent.click(screen.getByLabelText('有备注'))
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('button', { name: '备注' }))
+
+    const memoInput = screen.getByLabelText('本地备注')
+    fireEvent.change(memoInput, { target: { value: '' } })
+
+    expect(screen.getByRole('article', { name: '机器学习入门' })).toBeInTheDocument()
+    expect(memoInput).toHaveValue('')
+
+    fireEvent.change(memoInput, { target: { value: '重新整理重点。' } })
+    fireEvent.blur(memoInput)
+
+    await waitFor(() =>
+      expect(onUpdateVersion).toHaveBeenLastCalledWith(
+        'bvid:BV1note',
+        'bvid:BV1note:version:2026-06-17T01:00:00.000Z',
+        expect.objectContaining({
+          userMemo: '重新整理重点。'
+        })
+      )
+    )
   })
 
   it('opens source and confirms destructive deletes', async () => {

@@ -66,6 +66,7 @@ export function VideoNoteArchivePanel({
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null)
   const [activeResultTab, setActiveResultTab] = useState<ArchiveResultTab | null>(null)
   const [memoOpen, setMemoOpen] = useState(false)
+  const [memoDraft, setMemoDraft] = useState('')
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
   const [statusMessage, setStatusMessage] = useState('')
   const filteredArchives = useMemo(
@@ -73,7 +74,7 @@ export function VideoNoteArchivePanel({
     [localArchives, hasMemo, hasStarred, query]
   )
   const selectedArchive =
-    filteredArchives.find((archive) => archive.id === selectedArchiveId) ?? null
+    localArchives.find((archive) => archive.id === selectedArchiveId) ?? null
   const selectedVersion =
     selectedArchive?.versions.find((version) => version.id === selectedVersionId) ??
     selectedArchive?.versions.at(-1) ??
@@ -94,6 +95,10 @@ export function VideoNoteArchivePanel({
       setSelectedVersionId(selectedArchive.versions.at(-1)?.id ?? null)
     }
   }, [selectedArchive, selectedArchiveId, selectedVersion])
+
+  useEffect(() => {
+    setMemoDraft(selectedVersion?.note.userMemo ?? '')
+  }, [selectedVersion?.id, selectedVersion?.note.userMemo])
 
   function selectArchive(archive: VideoNoteArchiveEntry): void {
     setSelectedArchiveId(archive.id)
@@ -147,11 +152,14 @@ export function VideoNoteArchivePanel({
     await onUpdateVersion(selectedArchive.id, selectedVersion.id, note)
   }
 
-  function updateMemo(value: string): void {
+  function saveMemoDraft(): void {
     if (!selectedVersion) return
+    const nextMemo = memoDraft
+    if (nextMemo === selectedVersion.note.userMemo) return
+
     void updateSelectedNote({
       ...selectedVersion.note,
-      userMemo: value,
+      userMemo: nextMemo,
       updatedAt: new Date().toISOString()
     })
   }
@@ -271,11 +279,13 @@ export function VideoNoteArchivePanel({
         </label>
         <button
           type="button"
-          className="video-note-archive__star-filter"
+          className="video-note-archive__star-button video-note-archive__star-filter"
+          aria-label="星标"
           aria-pressed={hasStarred}
+          title="星标"
           onClick={() => setHasStarred((current) => !current)}
         >
-          星标
+          ⭐
         </button>
       </div>
 
@@ -361,8 +371,15 @@ export function VideoNoteArchivePanel({
               <button type="button" aria-pressed={memoOpen} onClick={() => setMemoOpen((open) => !open)}>
                 备注
               </button>
-              <button type="button" aria-pressed={Boolean(selectedVersion.note.starred)} onClick={toggleStarred}>
-                星星收藏
+              <button
+                type="button"
+                className="video-note-archive__star-button"
+                aria-label="星标收藏"
+                aria-pressed={Boolean(selectedVersion.note.starred)}
+                title="星标收藏"
+                onClick={toggleStarred}
+              >
+                ⭐
               </button>
             </div>
 
@@ -371,8 +388,9 @@ export function VideoNoteArchivePanel({
                 <label>
                   本地备注
                   <textarea
-                    value={selectedVersion.note.userMemo}
-                    onChange={(event) => updateMemo(event.currentTarget.value)}
+                    value={memoDraft}
+                    onChange={(event) => setMemoDraft(event.currentTarget.value)}
+                    onBlur={saveMemoDraft}
                   />
                 </label>
               </section>
