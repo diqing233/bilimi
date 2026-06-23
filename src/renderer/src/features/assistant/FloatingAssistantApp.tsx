@@ -327,7 +327,7 @@ export function FloatingAssistantApp({
   }
 
   function choosePetStyle(petStyle: AssistantPreferences['petStyle']) {
-    tellPet('success', petStyle === 'big-head' ? '小咪换回大头 Q 版啦～' : '小咪换成高清重置版啦～')
+    tellPet('success', petStyle === 'big-head' ? '小咪换回萌版大头啦～' : '小咪换成Q版小人啦～')
     void persistPreferences({
       ...preferences,
       petStyle
@@ -740,7 +740,7 @@ export function FloatingAssistantApp({
                   checked={preferences.petStyle === 'big-head'}
                   onChange={() => choosePetStyle('big-head')}
                 />
-                <span>大头 Q 版</span>
+                <span>萌版大头</span>
               </label>
               <label>
                 <input
@@ -749,7 +749,7 @@ export function FloatingAssistantApp({
                   checked={preferences.petStyle === 'classic'}
                   onChange={() => choosePetStyle('classic')}
                 />
-                <span>高清重置版</span>
+                <span>Q版小人</span>
               </label>
               <div className="assistant-settings__pet-actions">
                 <button type="button" onClick={wakeAssistantPet}>

@@ -376,7 +376,7 @@ describe('FloatingAssistantApp', () => {
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
-    fireEvent.click(screen.getByRole('radio', { name: '高清重置版' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Q版小人' }))
     fireEvent.click(screen.getByRole('button', { name: '唤醒宠物' }))
     fireEvent.click(screen.getByRole('button', { name: '关闭宠物' }))
 
