@@ -34,10 +34,12 @@ describe('createFloatingSealWindowOptions', () => {
       skipTaskbar: true,
       backgroundColor: '#00000000',
       hasShadow: false,
+      roundedCorners: false,
       webPreferences: {
         preload: 'C:/bilimi/out/preload/index.mjs',
         contextIsolation: true,
-        sandbox: false
+        sandbox: false,
+        backgroundThrottling: false
       }
     })
   })

@@ -32,10 +32,12 @@ export function createFloatingSealWindowOptions(
     skipTaskbar: true,
     backgroundColor: '#00000000',
     hasShadow: false,
+    roundedCorners: false,
     webPreferences: {
       preload,
       contextIsolation: true,
-      sandbox: false
+      sandbox: false,
+      backgroundThrottling: false
     }
   }
 }

@@ -26,6 +26,7 @@ import { FloatingSealDragController } from './floatingSealDragController'
 import { createMainWindowOptions } from './mainWindowOptions'
 import { restoreMainWindowFromPet } from './mainWindowRestore'
 import { installFixedFloatingSealBoundsGuard } from './floatingSealBoundsGuard'
+import { installFloatingSealWhiteStripFix } from './floatingSealWhiteStripFix'
 import { createFloatingSealWindowOptions } from './floatingSealWindowOptions'
 import {
   configureFloatingMenuWindow,
@@ -59,7 +60,7 @@ import type {
 import type { AssistantPetState } from '../../src/renderer/src/features/assistant/petState'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../../src/renderer/src/features/favorites/favoriteLedgerPreview'
 
-const FLOATING_SEAL_VISUAL_SIZE = { width: 300, height: 232 }
+const FLOATING_SEAL_VISUAL_SIZE = { width: 280, height: 332 }
 const FLOATING_SEAL_SHADOW_PADDING = 28
 const FLOATING_SEAL_HOST_PADDING = {
   top: 0,
@@ -128,7 +129,8 @@ function getFloatingSealBounds() {
     width: FLOATING_SEAL_VISUAL_SIZE.width,
     height: FLOATING_SEAL_VISUAL_SIZE.height,
     x: workArea.x + workArea.width - FLOATING_SEAL_VISUAL_SIZE.width - FLOATING_SEAL_MARGIN,
-    y: workArea.y + Math.round(workArea.height * 0.62)
+    // 锚定宠物底部位置，使活动区加高时向上扩展、宠物保持原位。
+    y: workArea.y + Math.round(workArea.height * 0.84) - FLOATING_SEAL_VISUAL_SIZE.height
   }
 
   return createFloatingHostBounds({
@@ -180,7 +182,13 @@ function createFloatingSealWindow() {
   seal.setAlwaysOnTop(true, 'floating')
   seal.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   seal.removeMenu()
+
+  // Windows 透明窗口失活时 DWM 会把原生帧渲染成白条，移动窗口可强制重新合成。
+  const disposeWhiteStripFix =
+    process.platform === 'win32' ? installFloatingSealWhiteStripFix(seal) : null
+
   seal.on('closed', () => {
+    disposeWhiteStripFix?.()
     floatingSealWindow = null
     enforceFloatingSealWindowBounds = null
   })

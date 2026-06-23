@@ -17,16 +17,16 @@ describe('enforceFixedFloatingSealBounds', () => {
       setMaximumSize
     })
 
-    expect(setMinimumSize).toHaveBeenCalledWith(356, 260)
-    expect(setMaximumSize).toHaveBeenCalledWith(356, 260)
-    expect(setBounds).toHaveBeenCalledWith({ x: 12, y: 28, width: 356, height: 260 })
+    expect(setMinimumSize).toHaveBeenCalledWith(336, 360)
+    expect(setMaximumSize).toHaveBeenCalledWith(336, 360)
+    expect(setBounds).toHaveBeenCalledWith({ x: 12, y: 28, width: 336, height: 360 })
   })
 
   it('does not churn bounds when the pet window is already fixed', () => {
     const setBounds = vi.fn()
 
     enforceFixedFloatingSealBounds({
-      getBounds: () => ({ x: 12, y: 28, width: 356, height: 260 }),
+      getBounds: () => ({ x: 12, y: 28, width: 336, height: 360 }),
       setBounds,
       setMinimumSize: vi.fn(),
       setMaximumSize: vi.fn()
@@ -36,7 +36,7 @@ describe('enforceFixedFloatingSealBounds', () => {
   })
 
   it('re-locks the pet window when Electron emits a resize event', () => {
-    let bounds = { x: 12, y: 28, width: 356, height: 260 }
+    let bounds = { x: 12, y: 28, width: 336, height: 360 }
     const listeners = new Map<string, () => void>()
     const setBounds = vi.fn((nextBounds) => {
       bounds = nextBounds
@@ -56,7 +56,7 @@ describe('enforceFixedFloatingSealBounds', () => {
     bounds = { x: 12, y: 28, width: 824, height: 1080 }
     listeners.get('resize')?.()
 
-    expect(setBounds).toHaveBeenCalledWith({ x: 12, y: 28, width: 356, height: 260 })
+    expect(setBounds).toHaveBeenCalledWith({ x: 12, y: 28, width: 336, height: 360 })
   })
 
   it('does not recurse when correcting bounds emits another resize event', () => {

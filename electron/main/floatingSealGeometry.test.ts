@@ -59,7 +59,7 @@ describe('floating menu geometry', () => {
       createFixedFloatingSealBounds({
         startBounds: { x: 872, y: 520, width: 655, height: 737 }
       })
-    ).toEqual({ x: 872, y: 520, width: 356, height: 260 })
+    ).toEqual({ x: 872, y: 520, width: 336, height: 360 })
   })
 
   it('expands transparent host bounds around visual content so shadows are not clipped into a square edge', () => {
@@ -91,10 +91,10 @@ describe('floating menu geometry', () => {
 
   it('supports removing top host padding from the floating pet to avoid a visible empty strip', () => {
     const padding = { top: 0, right: 28, bottom: 28, left: 28 }
-    const visualBounds = { x: 900, y: 520, width: 300, height: 232 }
+    const visualBounds = { x: 900, y: 520, width: 280, height: 332 }
     const hostBounds = createFloatingHostBounds({ visualBounds, padding })
 
-    expect(hostBounds).toEqual({ x: 872, y: 520, width: 356, height: 260 })
+    expect(hostBounds).toEqual({ x: 872, y: 520, width: 336, height: 360 })
     expect(createFloatingVisualBounds({ hostBounds, padding })).toEqual(visualBounds)
   })
 

@@ -21,10 +21,10 @@ describe('pet quick action styles', () => {
       'background: rgba(247, 251, 255, 0.96); color: var(--porcelain-text); font: 12px "Noto Serif SC", "Songti SC", "SimSun", serif;'
     )
     expectStyleSnippet('padding: 5px 10px;')
-    expectStyleSnippet('.palace-maid-pet-shell { width: 356px; height: 260px;')
-    expectStyleSnippet('.palace-maid-pet-shell { width: 356px; height: 260px; position: relative;')
+    expectStyleSnippet('.palace-maid-pet-shell { width: 336px; height: 360px;')
+    expectStyleSnippet('.palace-maid-pet-shell { width: 336px; height: 360px; position: relative;')
     expectStyleSnippet('--floating-pet-size: 148px;')
-    expectStyleSnippet('--floating-pet-host-height: 260px;')
+    expectStyleSnippet('--floating-pet-host-height: 360px;')
     expect(compactStyles).not.toContain('--floating-pet-size: clamp(')
     expectStyleSnippet('.palace-maid-pet { width: var(--floating-pet-size); height: var(--floating-pet-size);')
   })
@@ -33,7 +33,7 @@ describe('pet quick action styles', () => {
     expectStyleSnippet(
       '.palace-maid-pet__bubble[data-chat-open="true"] { left: 50%; bottom: calc(var(--floating-pet-size) + 10px);'
     )
-    expectStyleSnippet('width: min(320px, calc(var(--floating-pet-host-width) - 8px));')
+    expectStyleSnippet('width: min(300px, calc(var(--floating-pet-host-width) - 8px));')
     expectStyleSnippet('max-width: calc(var(--floating-pet-host-width) - 8px);')
     expect(compactStyles).not.toContain('width: min(320px, calc(100vw - 8px));')
     expect(compactStyles).not.toContain('max-width: calc(100vw - 8px);')

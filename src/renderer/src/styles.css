@@ -338,14 +338,14 @@ body[data-floating-window="true"],
   background: transparent;
 }
 .palace-maid-pet-shell {
-  width: 356px;
-  height: 260px;
+  width: 336px;
+  height: 360px;
   position: relative;
   max-width: 100vw;
   max-height: 100vh;
   --floating-pet-size: 148px;
-  --floating-pet-host-width: 356px;
-  --floating-pet-host-height: 260px;
+  --floating-pet-host-width: 336px;
+  --floating-pet-host-height: 360px;
   display: grid;
   place-items: end center;
   box-sizing: border-box;
@@ -549,10 +549,12 @@ body[data-floating-window="true"],
 .palace-maid-pet__bubble[data-chat-open="true"] {
   left: 50%;
   bottom: calc(var(--floating-pet-size) + 10px);
-  width: min(320px, calc(var(--floating-pet-host-width) - 8px));
+  width: min(300px, calc(var(--floating-pet-host-width) - 8px));
+  display: flex;
+  flex-direction: column;
   gap: 7px;
-  max-height: calc(var(--floating-pet-host-height) - 24px);
-  overflow: auto;
+  max-height: calc(var(--floating-pet-host-height) - var(--floating-pet-size) - 22px);
+  overflow: hidden;
   --pet-bubble-offset-x: -50%;
 }
 .palace-maid-pet__close-prompt {
@@ -588,6 +590,7 @@ body[data-floating-window="true"],
 .palace-maid-pet__bubble-toggle {
   display: grid;
   gap: 2px;
+  flex: none;
   padding: 0;
   border: 0;
   background: transparent;
@@ -598,13 +601,17 @@ body[data-floating-window="true"],
   cursor: pointer;
 }
 .palace-maid-pet__chat {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
+  flex: 0 1 auto;
+  min-height: 0;
 }
 .palace-maid-pet__chat-log {
   display: grid;
   gap: 4px;
-  max-height: 118px;
+  flex: 0 1 auto;
+  min-height: 0;
   overflow: auto;
 }
 .palace-maid-pet__chat-message {
@@ -617,6 +624,7 @@ body[data-floating-window="true"],
 }
 .palace-maid-pet__chat-disabled {
   padding: 5px 6px;
+  flex: none;
   border: 1px solid rgba(31, 99, 181, 0.18);
   border-radius: 6px;
   background: rgba(220, 238, 255, 0.62);
@@ -627,6 +635,7 @@ body[data-floating-window="true"],
 .palace-maid-pet__chat-field {
   display: grid;
   gap: 3px;
+  flex: none;
 }
 .palace-maid-pet__chat-field input {
   width: 100%;
@@ -640,6 +649,7 @@ body[data-floating-window="true"],
 }
 .palace-maid-pet__chat button[type="submit"] {
   justify-self: end;
+  flex: none;
   padding: 4px 8px;
   border: 1px solid rgba(31, 99, 181, 0.28);
   border-radius: 6px;
