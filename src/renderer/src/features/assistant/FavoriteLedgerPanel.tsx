@@ -15,7 +15,7 @@ type FavoriteLedgerPanelProps = {
 
 function splitKeywords(value: string) {
   return value
-    .split(/[,，]/)
+    .split(/[,，、/]/)
     .map((keyword) => keyword.trim())
     .filter(Boolean)
 }
@@ -55,6 +55,7 @@ export function FavoriteLedgerPanel({
   const [keywordText, setKeywordText] = useState('')
   const [suggestedNames, setSuggestedNames] = useState<string[]>([])
   const [draftLedgers, setDraftLedgers] = useState<FavoriteLedger[]>(ledgers)
+  const [activeLedgerId, setActiveLedgerId] = useState<string | null>(ledgers[0]?.id ?? null)
   const [preview, setPreview] = useState<FavoriteLedgerPreview | null>(null)
   const [setupPromptVisible, setSetupPromptVisible] = useState(false)
   const [selectedDefaultLedgerIds, setSelectedDefaultLedgerIds] = useState<Set<string>>(
@@ -72,11 +73,21 @@ export function FavoriteLedgerPanel({
     () => Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName])),
     [draftLedgers]
   )
+  const activeLedger = useMemo(
+    () =>
+      draftLedgers.find((ledger) => ledger.id === activeLedgerId) ??
+      draftLedgers[0] ??
+      null,
+    [activeLedgerId, draftLedgers]
+  )
 
   useEffect(() => {
     setDraftLedgers(ledgers)
     setSelectedDefaultLedgerIds(
       new Set(ledgers.filter((ledger) => ledger.enabled && ledger.isDefault).map((ledger) => ledger.id))
+    )
+    setActiveLedgerId((currentId) =>
+      currentId && ledgers.some((ledger) => ledger.id === currentId) ? currentId : (ledgers[0]?.id ?? null)
     )
   }, [ledgers])
 
@@ -102,17 +113,17 @@ export function FavoriteLedgerPanel({
       return
     }
 
-    setDraftLedgers([
-      ...draftLedgers,
-      {
-        id: customLedgerId(name),
-        displayName: name,
-        keywords: splitKeywords(keywordText || topic),
-        enabled: true,
-        priority: draftLedgers.length + 100,
-        isDefault: false
-      }
-    ])
+    const nextLedger = {
+      id: customLedgerId(name),
+      displayName: name,
+      keywords: splitKeywords(keywordText || topic),
+      enabled: true,
+      priority: draftLedgers.length + 100,
+      isDefault: false
+    }
+
+    setDraftLedgers([...draftLedgers, nextLedger])
+    setActiveLedgerId(nextLedger.id)
     setTopic('')
     setDisplayName('')
     setKeywordText('')
@@ -120,9 +131,13 @@ export function FavoriteLedgerPanel({
   }
 
   function deleteLedger(ledgerId: string) {
-    setDraftLedgers((currentLedgers) =>
-      currentLedgers.filter((ledger) => ledger.id !== ledgerId || !canDeleteLedger(ledger))
-    )
+    setDraftLedgers((currentLedgers) => {
+      const nextLedgers = currentLedgers.filter((ledger) => ledger.id !== ledgerId || !canDeleteLedger(ledger))
+      if (ledgerId === activeLedgerId) {
+        setActiveLedgerId(nextLedgers[0]?.id ?? null)
+      }
+      return nextLedgers
+    })
   }
 
   function toggleLedger(ledgerId: string) {
@@ -141,6 +156,59 @@ export function FavoriteLedgerPanel({
           : ledger
       )
     )
+  }
+
+  function selectLedger(ledger: FavoriteLedger) {
+    setActiveLedgerId(ledger.id)
+    if (ledger.isDefault) {
+      toggleDefaultLedger(ledger.id)
+      setDraftLedgers(
+        draftLedgers.map((item) =>
+          item.id === ledger.id
+            ? {
+                ...item,
+                enabled: !item.enabled
+              }
+            : item
+        )
+      )
+      return
+    }
+
+    toggleLedger(ledger.id)
+  }
+
+  function updateActiveLedger(patch: Partial<Pick<FavoriteLedger, 'displayName' | 'keywords'>>) {
+    if (!activeLedger) {
+      return
+    }
+
+    setDraftLedgers((currentLedgers) =>
+      currentLedgers.map((ledger) =>
+        ledger.id === activeLedger.id
+          ? {
+              ...ledger,
+              ...patch
+            }
+          : ledger
+      )
+    )
+  }
+
+  function addKeywordToActiveLedger() {
+    if (!activeLedger) {
+      return
+    }
+
+    updateActiveLedger({ keywords: [...activeLedger.keywords, '新关键词'] })
+  }
+
+  function deleteLastKeywordFromActiveLedger() {
+    if (!activeLedger || activeLedger.keywords.length === 0) {
+      return
+    }
+
+    updateActiveLedger({ keywords: activeLedger.keywords.slice(0, -1) })
   }
 
   function candidateKey(candidate: FavoriteLedgerCandidate) {
@@ -314,9 +382,6 @@ export function FavoriteLedgerPanel({
         <button type="button" disabled={busy} onClick={showSetupPrompt}>
           备册
         </button>
-        <button type="button" disabled={busy} onClick={() => void saveLedgers()}>
-          同步
-        </button>
         <button type="button" disabled={busy} onClick={() => void scanOldFavorites()}>
           整理旧藏
         </button>
@@ -343,47 +408,73 @@ export function FavoriteLedgerPanel({
       ) : null}
 
       <section className="favorite-ledger-panel__checklist" aria-label="推荐主分类收藏夹">
-        <h3>推荐主分类收藏夹</h3>
+        <div className="favorite-ledger-panel__category-header">
+          <h3>推荐主分类收藏夹</h3>
+          <button type="button" disabled={busy} onClick={() => void saveLedgers()}>
+            同步
+          </button>
+        </div>
         <div className="favorite-ledger-panel__chips">
           {draftLedgers
-            .filter((ledger) => ledger.isDefault)
             .map((ledger) => (
-              <label key={ledger.id}>
-                <input
-                  type="checkbox"
-                  checked={selectedDefaultLedgerIds.has(ledger.id)}
-                  onChange={() => toggleDefaultLedger(ledger.id)}
-                />
+              <button
+                key={ledger.id}
+                type="button"
+                aria-pressed={ledger.isDefault ? selectedDefaultLedgerIds.has(ledger.id) : ledger.enabled}
+                data-active={activeLedger?.id === ledger.id}
+                onClick={() => selectLedger(ledger)}
+              >
                 {ledger.displayName.replace(/^Bilimi[·\s-]*/, '')}
-              </label>
+              </button>
             ))}
         </div>
       </section>
 
-      <div className="favorite-ledger-panel__list">
-        {draftLedgers.map((ledger) => (
-          <article key={ledger.id} className="favorite-ledger-panel__item">
-            <div>
-              <strong>{ledger.displayName}</strong>
-              <small>{ledger.enabled ? '听差' : '暂歇'} · {ledger.keywords.join('、') || '未设关键词'}</small>
-            </div>
-            <div className="favorite-ledger-panel__item-actions">
-              <button type="button" onClick={() => toggleLedger(ledger.id)}>
-                {ledger.enabled ? '暂歇' : '复启'}
+      {activeLedger ? (
+        <section className="favorite-ledger-panel__editor" aria-label="当前收藏夹">
+          <div className="favorite-ledger-panel__editor-title">
+            <strong>正在编辑：{activeLedger.displayName}</strong>
+            {!activeLedger.isDefault ? (
+              <button
+                type="button"
+                aria-label={`删除 ${activeLedger.displayName}`}
+                onClick={() => deleteLedger(activeLedger.id)}
+                disabled={!canDeleteLedger(activeLedger)}
+              >
+                删除
               </button>
-              {canDeleteLedger(ledger) ? (
-                <button
-                  type="button"
-                  aria-label={`删除 ${ledger.displayName}`}
-                  onClick={() => deleteLedger(ledger.id)}
-                >
-                  删除
-                </button>
-              ) : null}
-            </div>
-          </article>
-        ))}
-      </div>
+            ) : null}
+          </div>
+          <label>
+            册名
+            <input
+              value={activeLedger.displayName}
+              onChange={(event) => updateActiveLedger({ displayName: event.currentTarget.value })}
+            />
+          </label>
+          <label>
+            关键词
+            <textarea
+              value={activeLedger.keywords.join('、')}
+              onChange={(event) =>
+                updateActiveLedger({ keywords: splitKeywords(event.currentTarget.value) })
+              }
+            />
+          </label>
+          <div className="favorite-ledger-panel__keyword-actions">
+            <button
+              type="button"
+              onClick={deleteLastKeywordFromActiveLedger}
+              disabled={activeLedger.keywords.length === 0}
+            >
+              删除末词
+            </button>
+            <button type="button" onClick={addKeywordToActiveLedger}>
+              新增关键词
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <fieldset className="favorite-ledger-panel__form">
         <legend>新立册目</legend>

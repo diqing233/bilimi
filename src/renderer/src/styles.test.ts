@@ -212,8 +212,9 @@ describe('renderer porcelain theme styles', () => {
 
   it('keeps favorite ledger status near the toolbar and ledger copy compact', () => {
     expectStyleSnippet('.favorite-ledger-panel__status { margin: 6px 0 0;')
-    expectStyleSnippet('.favorite-ledger-panel__item strong, .favorite-ledger-panel__preview strong { font-size: 15px;')
-    expectStyleSnippet('.favorite-ledger-panel__item small, .favorite-ledger-panel__preview small { margin-top: 3px; color: var(--porcelain-muted); font-size: 11px;')
+    expectStyleSnippet('.favorite-ledger-panel__chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));')
+    expectStyleSnippet('.favorite-ledger-panel__chips button[aria-pressed="true"] { border-color: rgba(31, 99, 181, 0.62);')
+    expectStyleSnippet('.favorite-ledger-panel__editor strong, .favorite-ledger-panel__preview strong { font-size: 15px;')
     expectStyleSnippet('.favorite-ledger-panel__preview h3 { font-size: 16px;')
   })
 

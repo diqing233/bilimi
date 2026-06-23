@@ -1,5 +1,5 @@
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { FavoriteLedgerPanel } from './FavoriteLedgerPanel'
 
@@ -37,7 +37,7 @@ describe('FavoriteLedgerPanel', () => {
     )
 
     expect(screen.getByText('掌库')).toBeInTheDocument()
-    expect(screen.getByText('Bilimi·鬼畜')).toBeInTheDocument()
+    expect(screen.getByText('尚缺 Bilimi·鬼畜。')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '备册' }))
 
@@ -51,10 +51,10 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('默认收藏夹 3')).toBeInTheDocument()
     const toolbar = container.querySelector('.favorite-ledger-panel__toolbar')
     const status = container.querySelector('.favorite-ledger-panel__status')
-    const list = container.querySelector('.favorite-ledger-panel__list')
+    const editor = container.querySelector('.favorite-ledger-panel__editor')
 
     expect(toolbar?.compareDocumentPosition(status as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
-    expect(status?.compareDocumentPosition(list as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(status?.compareDocumentPosition(editor as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   })
 
   it('syncs checked Bilibili categories and personalized candidates', async () => {
@@ -85,6 +85,51 @@ describe('FavoriteLedgerPanel', () => {
             displayName: 'Bilimi·人工智能',
             enabled: true,
             isDefault: true
+          })
+        ])
+      )
+    )
+  })
+
+  it('edits the active ledger from the highlighted ledger buttons', async () => {
+    const onSaveLedgers = vi.fn()
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    expect(screen.queryByText('Bilimi·见闻增广')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '暂歇' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
+
+    expect(screen.getByText('正在编辑：Bilimi·鬼畜')).toBeInTheDocument()
+    const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
+    fireEvent.change(editor.getByLabelText('册名'), {
+      target: { value: 'Bilimi·音MAD' }
+    })
+    fireEvent.change(editor.getByLabelText('关键词'), {
+      target: { value: '音MAD、鬼畜, 调音 / 人力' }
+    })
+    fireEvent.click(editor.getByRole('button', { name: '删除末词' }))
+    fireEvent.click(editor.getByRole('button', { name: '新增关键词' }))
+
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+
+    await waitFor(() =>
+      expect(onSaveLedgers).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'kichiku',
+            displayName: 'Bilimi·音MAD',
+            keywords: ['音MAD', '鬼畜', '调音', '新关键词']
           })
         ])
       )
@@ -124,12 +169,14 @@ describe('FavoriteLedgerPanel', () => {
       />
     )
 
+    fireEvent.click(screen.getByRole('button', { name: '光影留真' }))
     fireEvent.click(screen.getByRole('button', { name: '删除 Bilimi·光影留真' }))
 
     expect(onSaveLedgers).not.toHaveBeenCalled()
     expect(screen.queryByText('Bilimi·光影留真')).not.toBeInTheDocument()
-    expect(screen.getByText('个人摄影夹')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '删除 个人摄影夹' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '个人摄影夹' }))
+    expect(screen.getByText('正在编辑：个人摄影夹')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '删除 个人摄影夹' })).toBeDisabled()
 
     fireEvent.click(screen.getByRole('button', { name: '同步' }))
 
@@ -257,7 +304,7 @@ describe('FavoriteLedgerPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByLabelText('动画'))
+    fireEvent.click(screen.getByRole('button', { name: '动画' }))
     fireEvent.click(screen.getByRole('button', { name: '同步' }))
 
     expect(await screen.findByRole('status')).toHaveTextContent('同步未完成：账号同步超时')

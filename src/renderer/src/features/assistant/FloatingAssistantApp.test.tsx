@@ -6,7 +6,7 @@ import type {
   VideoNote,
   VideoNoteArchiveEntry
 } from '@shared/types'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { FloatingAssistantApp } from './FloatingAssistantApp'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
@@ -346,9 +346,10 @@ describe('FloatingAssistantApp', () => {
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '掌库' }))
-    fireEvent.change(screen.getByLabelText('册名'), { target: { value: 'Bilimi Test' } })
-    fireEvent.change(screen.getByLabelText('关键词'), { target: { value: 'test,video' } })
-    fireEvent.click(screen.getByRole('button', { name: '新增册目' }))
+    const newLedgerForm = within(screen.getByRole('group', { name: '新立册目' }))
+    fireEvent.change(newLedgerForm.getByLabelText('册名'), { target: { value: 'Bilimi Test' } })
+    fireEvent.change(newLedgerForm.getByLabelText('关键词'), { target: { value: 'test,video' } })
+    fireEvent.click(newLedgerForm.getByRole('button', { name: '新增册目' }))
 
     expect(saveFavoriteLedgers).not.toHaveBeenCalled()
 
