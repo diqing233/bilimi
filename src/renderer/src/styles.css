@@ -1868,6 +1868,16 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__editor-title {
   justify-content: space-between;
 }
+.favorite-ledger-panel__category-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.favorite-ledger-panel__category-actions button {
+  min-height: 30px;
+  padding: 5px 8px;
+}
 .favorite-ledger-panel__chips {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
@@ -1915,14 +1925,6 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__chip-item > button:first-child[data-active="true"] {
   outline: 2px solid rgba(116, 199, 223, 0.72);
   outline-offset: 1px;
-}
-.favorite-ledger-panel__add-shortcut {
-  min-width: 0;
-  min-height: 34px;
-  border-radius: 5px;
-  border-style: dashed;
-  color: var(--porcelain-deep);
-  font-weight: 800;
 }
 .favorite-ledger-panel__editor,
 .favorite-ledger-panel__preview article {

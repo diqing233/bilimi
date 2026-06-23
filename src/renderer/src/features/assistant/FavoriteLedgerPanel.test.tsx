@@ -91,6 +91,38 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
+  it('uses a compact ledger header with reset, expand, new, and sync controls', async () => {
+    const ledgers = createDefaultFavoriteLedgers()
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={ledgers}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    const ledgerRegion = screen.getByRole('region', { name: '收藏夹' })
+    expect(within(ledgerRegion).getByRole('heading', { name: '收藏夹' })).toBeInTheDocument()
+    expect(screen.queryByText('推荐主分类收藏夹')).not.toBeInTheDocument()
+
+    expect(within(ledgerRegion).getByRole('button', { name: '重置' })).toBeInTheDocument()
+    expect(within(ledgerRegion).getByRole('button', { name: '展开' })).toBeInTheDocument()
+    expect(within(ledgerRegion).getByRole('button', { name: '新建收藏夹' })).toBeInTheDocument()
+    expect(within(ledgerRegion).getByRole('button', { name: '同步' })).toBeInTheDocument()
+
+    expect(within(ledgerRegion).getByRole('button', { name: '动画' })).toBeInTheDocument()
+    expect(within(ledgerRegion).queryByRole('button', { name: 'vlog' })).not.toBeInTheDocument()
+
+    fireEvent.click(within(ledgerRegion).getByRole('button', { name: '展开' }))
+
+    expect(within(ledgerRegion).getByRole('button', { name: 'vlog' })).toBeInTheDocument()
+    expect(within(ledgerRegion).getByRole('button', { name: '折叠' })).toBeInTheDocument()
+  })
+
   it('selects a ledger without changing whether it syncs', async () => {
     const onSaveLedgers = vi.fn()
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
@@ -192,17 +224,14 @@ describe('FavoriteLedgerPanel', () => {
       />
     )
 
-    const chips = screen.getByRole('region', { name: '推荐主分类收藏夹' })
-    const chipButtons = within(chips).getAllByRole('button')
-    const addCustomLedgerIndex = chipButtons.findIndex(
-      (button) => button.getAttribute('aria-label') === '新建收藏夹'
-    )
+    const chips = screen.getByRole('region', { name: '收藏夹' })
+    fireEvent.click(within(chips).getByRole('button', { name: '展开' }))
 
-    expect(addCustomLedgerIndex).toBe(chipButtons.length - 1)
-    expect(chipButtons[addCustomLedgerIndex]).toHaveTextContent('新建收藏夹')
+    expect(chips.querySelector('.favorite-ledger-panel__add-shortcut')).not.toBeInTheDocument()
+    expect(within(chips).getByRole('button', { name: '新建收藏夹' })).toBeInTheDocument()
     expect(screen.queryByRole('group', { name: '新立册目' })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹' }))
+    fireEvent.click(within(chips).getByRole('button', { name: '新建收藏夹' }))
 
     expect(screen.getByText('正在编辑：Bilimi·')).toBeInTheDocument()
     const nextChipItems = Array.from(
@@ -211,10 +240,8 @@ describe('FavoriteLedgerPanel', () => {
     const newLedgerItemIndex = nextChipItems.findIndex((item) =>
       within(item as HTMLElement).queryByRole('button', { name: '选择新建收藏夹' })
     )
-    const nextAddCustomLedgerIndex = nextChipItems.findIndex((item) =>
-      (item as HTMLElement).classList.contains('favorite-ledger-panel__add-shortcut')
-    )
-    expect(newLedgerItemIndex).toBe(nextAddCustomLedgerIndex - 1)
+    expect(newLedgerItemIndex).toBe(nextChipItems.length - 1)
+    expect(within(chips).getByRole('button', { name: '新建收藏夹' })).toBeInTheDocument()
     const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
     fireEvent.change(editor.getByLabelText('册名'), { target: { value: '摄影' } })
     fireEvent.change(editor.getByLabelText('关键词'), { target: { value: '摄影 写真、镜头' } })
@@ -234,7 +261,7 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
-  it('keeps the new ledger shortcut last and saves the dragged ledger order', async () => {
+  it('saves the dragged ledger order and keeps new ledgers in the header action', async () => {
     const onSaveLedgers = vi.fn().mockResolvedValue({
       ok: true,
       steps: [],
@@ -253,7 +280,8 @@ describe('FavoriteLedgerPanel', () => {
       />
     )
 
-    const chips = screen.getByRole('region', { name: '推荐主分类收藏夹' })
+    const chips = screen.getByRole('region', { name: '收藏夹' })
+    fireEvent.click(within(chips).getByRole('button', { name: '展开' }))
     const chipGrid = chips.querySelector('.favorite-ledger-panel__chips')!
     const musicItem = within(chips).getByRole('button', { name: '音乐' }).closest('.favorite-ledger-panel__chip-item')!
     const knowledgeItem = within(chips).getByRole('button', { name: '知识' }).closest('.favorite-ledger-panel__chip-item')!
@@ -263,8 +291,10 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.drop(knowledgeItem, { dataTransfer: { getData: () => 'music' } })
 
     expect(
-      Array.from(chipGrid.children).at(-1)?.classList.contains('favorite-ledger-panel__add-shortcut')
-    ).toBe(true)
+      Array.from(chipGrid.children).some((item) =>
+        item.classList.contains('favorite-ledger-panel__add-shortcut')
+      )
+    ).toBe(false)
 
     fireEvent.click(screen.getByRole('button', { name: '同步' }))
 
@@ -283,6 +313,54 @@ describe('FavoriteLedgerPanel', () => {
       savedLedgers.find((ledger) => ledger.id === 'music')!.priority
     )
     expect(await screen.findByRole('status')).toHaveTextContent('掌库已同步。')
+  })
+
+  it('resets the ledger draft to the initial defaults before saving', async () => {
+    const onSaveLedgers = vi.fn()
+    const ledgers = createDefaultFavoriteLedgers().map((ledger, index) =>
+      ledger.id === 'animation'
+        ? {
+            ...ledger,
+            displayName: 'Bilimi·动画改名',
+            enabled: false,
+            priority: 999
+          }
+        : {
+            ...ledger,
+            priority: (index + 5) * 10
+          }
+    )
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={ledgers}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '重置' }))
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+
+    await waitFor(() =>
+      expect(onSaveLedgers).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'animation',
+            displayName: 'Bilimi·动画',
+            enabled: true,
+            priority: 10
+          }),
+          expect.objectContaining({
+            id: 'animal',
+            enabled: false
+          })
+        ])
+      )
+    )
   })
 
   it('edits the active ledger from the highlighted ledger buttons', async () => {
@@ -420,6 +498,7 @@ describe('FavoriteLedgerPanel', () => {
       />
     )
 
+    fireEvent.click(screen.getByRole('button', { name: '展开' }))
     fireEvent.click(screen.getByRole('button', { name: '光影留真' }))
     fireEvent.click(screen.getByRole('button', { name: '删除 Bilimi·光影留真' }))
 

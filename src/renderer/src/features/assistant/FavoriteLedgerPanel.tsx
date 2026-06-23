@@ -1,4 +1,4 @@
-import { BILIMI_LEDGER_PREFIX } from '@shared/favoriteLedgers'
+import { BILIMI_LEDGER_PREFIX, createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import type { AssistantAutomationResult, FavoriteLedger } from '@shared/types'
 import { useEffect, useMemo, useState, type DragEvent } from 'react'
 import type { FavoriteLedgerCandidate } from '../favorites/favoriteLedgerInsights'
@@ -84,6 +84,14 @@ function saveStatusMessage(result: AssistantAutomationResult | void) {
   return message ? `保存成功：${message}` : '保存成功：掌库已同步。'
 }
 
+function visibleLedgers(ledgers: FavoriteLedger[], expanded: boolean) {
+  if (expanded) {
+    return ledgers
+  }
+
+  return ledgers.slice(0, Math.ceil(ledgers.length / 2))
+}
+
 export function FavoriteLedgerPanel({
   ledgers,
   missingLedgerIds,
@@ -105,6 +113,7 @@ export function FavoriteLedgerPanel({
   const [saveStatus, setSaveStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [draggedLedgerId, setDraggedLedgerId] = useState<string | null>(null)
+  const [ledgerListExpanded, setLedgerListExpanded] = useState(false)
   const hasUnsavedChanges = useMemo(
     () => JSON.stringify(draftLedgers) !== JSON.stringify(ledgers),
     [draftLedgers, ledgers]
@@ -154,6 +163,20 @@ export function FavoriteLedgerPanel({
 
     setDraftLedgers(nextLedgers)
     setActiveLedgerId(nextLedger.id)
+    setLedgerListExpanded(true)
+    setSaveStatus(null)
+  }
+
+  function resetLedgers() {
+    const defaultLedgers = createDefaultFavoriteLedgers()
+    setDraftLedgers(defaultLedgers)
+    setSelectedDefaultLedgerIds(
+      new Set(defaultLedgers.filter((ledger) => ledger.enabled && ledger.isDefault).map((ledger) => ledger.id))
+    )
+    setActiveLedgerId(defaultLedgers[0]?.id ?? null)
+    setSelectedCandidateKeys(new Set())
+    setLedgerListExpanded(false)
+    setStatus(null)
     setSaveStatus(null)
   }
 
@@ -401,6 +424,9 @@ export function FavoriteLedgerPanel({
     }
   }
 
+  const ledgersToDisplay = visibleLedgers(draftLedgers, ledgerListExpanded)
+  const canToggleLedgerList = draftLedgers.length > ledgersToDisplay.length || ledgerListExpanded
+
   return (
     <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
       <div className="favorite-ledger-panel__header">
@@ -442,15 +468,33 @@ export function FavoriteLedgerPanel({
         </p>
       ) : null}
 
-      <section className="favorite-ledger-panel__checklist" aria-label="推荐主分类收藏夹">
+      <section className="favorite-ledger-panel__checklist" aria-label="收藏夹">
         <div className="favorite-ledger-panel__category-header">
-          <h3>推荐主分类收藏夹</h3>
-          <button type="button" disabled={busy} onClick={() => void saveLedgers()}>
-            同步
-          </button>
+          <h3>收藏夹</h3>
+          <div className="favorite-ledger-panel__category-actions">
+            <button type="button" disabled={busy} onClick={resetLedgers}>
+              重置
+            </button>
+            {canToggleLedgerList ? (
+              <button
+                type="button"
+                aria-expanded={ledgerListExpanded}
+                disabled={busy}
+                onClick={() => setLedgerListExpanded((current) => !current)}
+              >
+                {ledgerListExpanded ? '折叠' : '展开'}
+              </button>
+            ) : null}
+            <button type="button" disabled={busy} onClick={addBlankLedger}>
+              新建收藏夹
+            </button>
+            <button type="button" disabled={busy} onClick={() => void saveLedgers()}>
+              同步
+            </button>
+          </div>
         </div>
         <div className="favorite-ledger-panel__chips">
-          {draftLedgers.map((ledger) => {
+          {ledgersToDisplay.map((ledger) => {
             const ledgerEnabled = ledger.isDefault
               ? selectedDefaultLedgerIds.has(ledger.id)
               : ledger.enabled
@@ -488,14 +532,6 @@ export function FavoriteLedgerPanel({
               </div>
             )
           })}
-          <button
-            type="button"
-            className="favorite-ledger-panel__add-shortcut"
-            aria-label="新建收藏夹"
-            onClick={addBlankLedger}
-          >
-            新建收藏夹
-          </button>
         </div>
       </section>
 

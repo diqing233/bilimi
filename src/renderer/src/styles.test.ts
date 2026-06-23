@@ -212,13 +212,13 @@ describe('renderer porcelain theme styles', () => {
 
   it('keeps favorite ledger status near the toolbar and ledger copy compact', () => {
     expectStyleSnippet('.favorite-ledger-panel__status { margin: 6px 0 0;')
+    expectStyleSnippet('.favorite-ledger-panel__category-actions { display: flex; flex-wrap: wrap;')
     expectStyleSnippet('.favorite-ledger-panel__chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));')
     expectStyleSnippet('.favorite-ledger-panel__chip-item { display: grid; grid-template-columns: minmax(0, 1fr) 28px;')
     expectStyleSnippet('.favorite-ledger-panel__chip-item[data-dragging="true"] { opacity: 0.58;')
     expectStyleSnippet('.favorite-ledger-panel__chip-action { min-width: 28px; width: 28px;')
     expectStyleSnippet('.favorite-ledger-panel__chip-item > button:first-child[aria-pressed="true"] { border-color: rgba(31, 99, 181, 0.42); background: rgba(220, 238, 255, 0.78);')
     expectStyleSnippet('.favorite-ledger-panel__chip-action[data-enabled="true"] { border-color: rgba(31, 99, 181, 0.42); background: rgba(220, 238, 255, 0.78);')
-    expectStyleSnippet('.favorite-ledger-panel__add-shortcut { min-width: 0; min-height: 34px;')
     expectStyleSnippet('.favorite-ledger-panel__save-status { color: var(--porcelain-muted); font-size: 12px;')
     expectStyleSnippet('.favorite-ledger-panel__prefixed-input { display: grid; grid-template-columns: auto minmax(0, 1fr);')
     expectStyleSnippet('.favorite-ledger-panel__keyword-hint { margin: 0; color: var(--porcelain-muted);')
