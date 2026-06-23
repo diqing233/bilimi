@@ -1840,21 +1840,21 @@ body[data-floating-window="true"],
   );
   color: var(--porcelain-text);
   box-shadow: 0 24px 48px rgba(7, 26, 51, 0.22);
-  padding: 14px;
+  padding: 8px;
 }
 .favorite-ledger-panel__topbar {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   border: 1px solid rgba(31, 99, 181, 0.28);
-  background: rgba(255, 255, 255, 0.92);
-  padding: 8px 10px;
+  background: rgba(247, 251, 255, 0.64);
+  padding: 8px;
 }
 .favorite-ledger-panel__workspace {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   border: 1px solid rgba(31, 99, 181, 0.28);
-  background: rgba(220, 238, 255, 0.32);
-  margin-top: 10px;
+  background: rgba(247, 251, 255, 0.64);
+  margin-top: 6px;
   padding: 8px;
 }
 .favorite-ledger-panel__header,
@@ -1895,8 +1895,8 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__form,
 .favorite-ledger-panel__preview {
   display: grid;
-  gap: 8px;
-  margin-top: 10px;
+  gap: 6px;
+  margin-top: 6px;
 }
 .favorite-ledger-panel__workspace > .favorite-ledger-panel__checklist,
 .favorite-ledger-panel__workspace > .favorite-ledger-panel__editor {
@@ -2000,7 +2000,7 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__editor,
 .favorite-ledger-panel__preview article {
   border: 1px solid rgba(31, 99, 181, 0.18);
-  background: rgba(220, 238, 255, 0.5);
+  background: rgba(247, 251, 255, 0.64);
   padding: 8px;
 }
 .favorite-ledger-panel__editor label {
