@@ -1873,9 +1873,10 @@ body[data-floating-window="true"],
 .favorite-ledger-panel p {
   margin: 0;
 }
-.favorite-ledger-panel h2 {
+.favorite-ledger-panel h2,
+.favorite-ledger-panel h3 {
   font-size: 18px;
-  font-weight: 500;
+  font-weight: 700;
 }
 .favorite-ledger-panel__notice,
 .favorite-ledger-panel__status {
