@@ -172,7 +172,6 @@ export function AssistantOverlay({
   const [panelMinimized, setPanelMinimized] = useState(false)
   const [runningAction, setRunningAction] = useState<AssistantAction | null>(null)
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null)
-  const [pageClickOnly, setPageClickOnly] = useState(true)
   const [latestVideoContentContext, setLatestVideoContentContext] = useState<
     VideoContentContext | undefined
   >(videoContentContext)
@@ -478,7 +477,7 @@ export function AssistantOverlay({
         favoritesFolderName: resolvedFavoritesFolderName,
         runScript,
         runVisualFallback,
-        favoriteApiFallbackEnabled: !pageClickOnly,
+        favoriteApiFallbackEnabled: preferences.bilibiliOperationMode !== 'page-visual',
         coinCount: options?.coinCount,
         commentDraft: options?.commentDraft,
         favoriteLedgers: preferences.favoriteLedgers,
@@ -622,10 +621,6 @@ export function AssistantOverlay({
               onGenerateVideoNote={generateVideoNote}
               onSaveVideoNote={persistVideoNote}
               onChangeVideoNote={setVideoNote}
-              onGetCurrentVideoTime={readCurrentVideoTime}
-              onSeekVideoTime={seekVideoTime}
-              pageClickOnly={pageClickOnly}
-              onPageClickOnlyChange={setPageClickOnly}
               videoNote={videoNote}
               videoNoteLoading={videoNoteLoading}
               runningAction={runningAction}

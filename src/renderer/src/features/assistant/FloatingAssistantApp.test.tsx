@@ -18,6 +18,7 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     ledgerPromptDismissed: true,
     preferenceCounts: {},
     petStyle: 'big-head',
+    bilibiliOperationMode: 'api-assisted',
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
     deepseekModel: 'deepseek-v4-flash',
@@ -210,7 +211,7 @@ describe('FloatingAssistantApp', () => {
         '赐',
         expect.objectContaining({
           coinCount: 2,
-          pageClickOnly: true
+          pageClickOnly: false
         })
       )
     )
@@ -238,7 +239,7 @@ describe('FloatingAssistantApp', () => {
         '表',
         expect.objectContaining({
           commentDraft: expect.stringContaining('三分钟讲清机器学习科普教程'),
-          pageClickOnly: true
+          pageClickOnly: false
         })
       )
     )
@@ -279,7 +280,7 @@ describe('FloatingAssistantApp', () => {
         expect.any(String),
         expect.objectContaining({
           commentDraft: 'AI comment two',
-          pageClickOnly: true
+          pageClickOnly: false
         })
       )
     )
@@ -314,6 +315,43 @@ describe('FloatingAssistantApp', () => {
         '表',
         expect.objectContaining({
           commentDraft: expect.stringContaining('李老师讲AI'),
+          pageClickOnly: false
+        })
+      )
+    )
+  })
+
+  it('moves the Bilibili operation mode out of review and persists it from settings', async () => {
+    const { runAssistantAction, savePreferences } = installDesktopApi()
+
+    render(<FloatingAssistantApp />)
+
+    expect(await screen.findByRole('button', { name: /藏.*归入内库/ })).toBeInTheDocument()
+    expect(screen.queryByRole('switch', { name: '仅页面点击' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: '设置' }))
+
+    expect(screen.getByRole('group', { name: 'B 站操作方式' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'B 站 API 辅助' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: '纯页面 DOM/视觉操作（未完成）' })).not.toBeChecked()
+
+    fireEvent.click(screen.getByRole('radio', { name: '纯页面 DOM/视觉操作（未完成）' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          bilibiliOperationMode: 'page-visual'
+        })
+      )
+    )
+
+    fireEvent.click(screen.getByRole('tab', { name: '批阅' }))
+    fireEvent.click(await screen.findByRole('button', { name: /藏.*归入内库/ }))
+
+    await waitFor(() =>
+      expect(runAssistantAction).toHaveBeenCalledWith(
+        '藏',
+        expect.objectContaining({
           pageClickOnly: true
         })
       )

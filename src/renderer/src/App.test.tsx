@@ -679,7 +679,12 @@ describe('App runtime integration', () => {
       favoriteLedgers: createDefaultFavoriteLedgers(),
       ledgerPromptDismissed: true,
       preferenceCounts: {},
-      petStyle: 'classic'
+      petStyle: 'classic',
+      bilibiliOperationMode: 'api-assisted',
+      deepseekEnabled: false,
+      deepseekApiKeyStored: false,
+      deepseekModel: 'deepseek-v4-flash',
+      deepseekBaseUrl: 'https://api.deepseek.com'
     })
 
     const snapshot = await requestRuntime({ id: 'snapshot-preferences-1', type: 'snapshot' })
@@ -754,6 +759,7 @@ describe('App runtime integration', () => {
       ledgerPromptDismissed: true,
       preferenceCounts: {},
       petStyle: 'big-head' as const,
+      bilibiliOperationMode: 'api-assisted' as const,
       deepseekEnabled: true,
       deepseekApiKeyStored: true,
       deepseekModel: 'deepseek-v4-flash',

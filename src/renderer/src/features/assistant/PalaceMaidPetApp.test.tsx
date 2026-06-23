@@ -31,6 +31,7 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     ledgerPromptDismissed: true,
     preferenceCounts: {},
     petStyle: 'big-head',
+    bilibiliOperationMode: 'api-assisted',
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
     deepseekModel: 'deepseek-v4-flash',
@@ -351,7 +352,12 @@ describe('PalaceMaidPetApp', () => {
         favoriteLedgers: [],
         ledgerPromptDismissed: true,
         preferenceCounts: {},
-        petStyle: 'classic'
+        petStyle: 'classic',
+        bilibiliOperationMode: 'api-assisted',
+        deepseekEnabled: false,
+        deepseekApiKeyStored: false,
+        deepseekModel: 'deepseek-v4-flash',
+        deepseekBaseUrl: 'https://api.deepseek.com'
       })
     })
 
@@ -382,7 +388,12 @@ describe('PalaceMaidPetApp', () => {
         favoriteLedgers: [],
         ledgerPromptDismissed: true,
         preferenceCounts: {},
-        petStyle: 'classic'
+        petStyle: 'classic',
+        bilibiliOperationMode: 'api-assisted',
+        deepseekEnabled: false,
+        deepseekApiKeyStored: false,
+        deepseekModel: 'deepseek-v4-flash',
+        deepseekBaseUrl: 'https://api.deepseek.com'
       })
     })
 

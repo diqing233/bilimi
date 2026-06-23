@@ -52,6 +52,8 @@ function createFakeStore(
     ledgerPromptDismissed:
       initial.ledgerPromptDismissed ?? DEFAULT_ASSISTANT_PREFERENCES.ledgerPromptDismissed,
     petStyle: initial.petStyle ?? DEFAULT_ASSISTANT_PREFERENCES.petStyle,
+    bilibiliOperationMode:
+      initial.bilibiliOperationMode ?? DEFAULT_ASSISTANT_PREFERENCES.bilibiliOperationMode,
     preferenceCounts: initial.preferenceCounts ?? { ...DEFAULT_ASSISTANT_PREFERENCES.preferenceCounts },
     deepseekEnabled: initial.deepseekEnabled ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekEnabled,
     deepseekApiKeyStored:
@@ -127,6 +129,7 @@ describe('assistant preference store helpers', () => {
       favoritesFolderName: 'Archive',
       favoriteLedgers: DEFAULT_ASSISTANT_PREFERENCES.favoriteLedgers,
       ledgerPromptDismissed: false,
+      bilibiliOperationMode: 'page-visual',
       petStyle: 'classic',
       preferenceCounts: {
         story: 4,
@@ -141,6 +144,7 @@ describe('assistant preference store helpers', () => {
     expect(saved).toMatchObject({
       favoritesFolderName: 'Archive',
       ledgerPromptDismissed: false,
+      bilibiliOperationMode: 'page-visual',
       petStyle: 'classic',
       preferenceCounts: {
         story: 4,

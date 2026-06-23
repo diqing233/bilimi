@@ -205,6 +205,18 @@ describe('AssistantOverlay', () => {
       <AssistantOverlay
         runScript={runScript}
         favoritesFolderName="Bilimi 内库"
+        storedPreferences={{
+          favoritesFolderName: 'Bilimi 内库',
+          favoriteLedgers: [],
+          ledgerPromptDismissed: true,
+          petStyle: 'big-head',
+          bilibiliOperationMode: 'page-visual',
+          deepseekEnabled: false,
+          deepseekApiKeyStored: false,
+          deepseekModel: 'deepseek-v4-flash',
+          deepseekBaseUrl: 'https://api.deepseek.com',
+          preferenceCounts: {}
+        }}
       />
     )
 
@@ -297,6 +309,11 @@ describe('AssistantOverlay', () => {
           favoritesFolderName: 'Bilimi 内库',
           ledgerPromptDismissed: false,
           petStyle: 'big-head',
+          bilibiliOperationMode: 'api-assisted',
+          deepseekEnabled: false,
+          deepseekApiKeyStored: false,
+          deepseekModel: 'deepseek-v4-flash',
+          deepseekBaseUrl: 'https://api.deepseek.com',
           preferenceCounts: {},
           favoriteLedgers: [
             {
@@ -372,7 +389,7 @@ describe('AssistantOverlay', () => {
     expect(screen.getByLabelText('案头奏折')).toBeInTheDocument()
   })
 
-  it('defaults to page-click-only fallback and shows the automation log', async () => {
+  it('uses page-visual preferences for visual fallback and shows the automation log', async () => {
     const runScript = vi.fn().mockResolvedValueOnce({
       ok: false,
       steps: ['favorite:open'],
@@ -391,12 +408,23 @@ describe('AssistantOverlay', () => {
         runScript={runScript}
         runVisualFallback={runVisualFallback}
         favoritesFolderName="Bilimi 内库"
+        storedPreferences={{
+          favoritesFolderName: 'Bilimi 内库',
+          favoriteLedgers: [],
+          ledgerPromptDismissed: true,
+          petStyle: 'big-head',
+          bilibiliOperationMode: 'page-visual',
+          deepseekEnabled: false,
+          deepseekApiKeyStored: false,
+          deepseekModel: 'deepseek-v4-flash',
+          deepseekBaseUrl: 'https://api.deepseek.com',
+          preferenceCounts: {}
+        }}
       />
     )
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
-
-    expect(screen.getByRole('switch', { name: '仅页面点击' })).toBeChecked()
+    expect(screen.queryByRole('switch', { name: '仅页面点击' })).not.toBeInTheDocument()
 
     fireEvent.click(getActionButton('藏'))
 

@@ -202,7 +202,6 @@ export function FloatingAssistantApp({
   const [aiCommentDrafts, setAiCommentDrafts] = useState<string[]>([])
   const [runningAction, setRunningAction] = useState<AssistantAction | null>(null)
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null)
-  const [pageClickOnly, setPageClickOnly] = useState(true)
   const [videoNote, setVideoNote] = useState<VideoNote | null>(null)
   const [videoNoteArchives, setVideoNoteArchives] = useState<VideoNoteArchiveEntry[]>([])
   const [videoNoteLoading, setVideoNoteLoading] = useState(false)
@@ -334,6 +333,15 @@ export function FloatingAssistantApp({
     })
   }
 
+  function chooseBilibiliOperationMode(
+    bilibiliOperationMode: AssistantPreferences['bilibiliOperationMode']
+  ) {
+    void persistPreferences({
+      ...preferences,
+      bilibiliOperationMode
+    })
+  }
+
   function wakeAssistantPet() {
     tellPet('success', '小咪醒着呢，随时陪主人看视频。')
     void window.bilimiDesktop?.wakeAssistantPet?.()
@@ -461,7 +469,7 @@ export function FloatingAssistantApp({
       const result =
         (await window.bilimiDesktop?.runAssistantAction?.(action, {
           ...options,
-          pageClickOnly
+          pageClickOnly: preferences.bilibiliOperationMode === 'page-visual'
         })) ?? createDefaultResult('此折已阅。')
 
       if (result.ok && action !== '阅') {
@@ -770,6 +778,27 @@ export function FloatingAssistantApp({
                 </button>
               </div>
             </fieldset>
+            <fieldset className="assistant-settings__group">
+              <legend>B 站操作方式</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="bilibili-operation-mode"
+                  checked={preferences.bilibiliOperationMode === 'page-visual'}
+                  onChange={() => chooseBilibiliOperationMode('page-visual')}
+                />
+                <span>纯页面 DOM/视觉操作（未完成）</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="bilibili-operation-mode"
+                  checked={preferences.bilibiliOperationMode === 'api-assisted'}
+                  onChange={() => chooseBilibiliOperationMode('api-assisted')}
+                />
+                <span>B 站 API 辅助</span>
+              </label>
+            </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--deepseek">
               <legend>DeepSeek</legend>
               <label>
@@ -890,8 +919,6 @@ export function FloatingAssistantApp({
             onGeneratePoster={generateNotePoster}
             onSaveVideoNote={saveVideoNote}
             onChangeVideoNote={handleChangeVideoNote}
-            pageClickOnly={pageClickOnly}
-            onPageClickOnlyChange={setPageClickOnly}
             videoNote={videoNote}
             videoNoteLoading={videoNoteLoading}
             transcriptionProgress={transcriptionProgress}

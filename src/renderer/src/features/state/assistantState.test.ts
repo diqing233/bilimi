@@ -122,6 +122,7 @@ describe('assistant state', () => {
 
   it('creates disabled DeepSeek preferences by default', () => {
     expect(createInitialAssistantPreferences()).toMatchObject({
+      bilibiliOperationMode: 'api-assisted',
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
       deepseekModel: 'deepseek-v4-flash',
@@ -132,12 +133,24 @@ describe('assistant state', () => {
   it('normalizes invalid persisted DeepSeek preference values', () => {
     expect(
       createInitialAssistantPreferences({
+        bilibiliOperationMode: 'unsupported' as never,
         deepseekModel: '',
         deepseekBaseUrl: 'bad-url'
       } as Partial<ReturnType<typeof createInitialAssistantPreferences>>)
     ).toMatchObject({
+      bilibiliOperationMode: 'api-assisted',
       deepseekModel: 'deepseek-v4-flash',
       deepseekBaseUrl: 'https://api.deepseek.com'
+    })
+  })
+
+  it('hydrates the Bilibili operation mode when it is persisted', () => {
+    expect(
+      createInitialAssistantPreferences({
+        bilibiliOperationMode: 'page-visual'
+      })
+    ).toMatchObject({
+      bilibiliOperationMode: 'page-visual'
     })
   })
 })

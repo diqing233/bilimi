@@ -20,8 +20,6 @@ describe('MemorialPanel', () => {
         onClose={vi.fn()}
         onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
         onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
-        pageClickOnly={true}
-        onPageClickOnlyChange={vi.fn()}
         videoNote={null}
         videoNoteLoading={false}
       />
@@ -33,6 +31,7 @@ describe('MemorialPanel', () => {
     expect(screen.queryByRole('heading', { name: '朱批' })).not.toBeInTheDocument()
     expect(screen.queryByText('此物可先过目，不必骤然重赏。')).not.toBeInTheDocument()
     expect(screen.getByRole('group', { name: '批阅动作' })).toBeInTheDocument()
+    expect(screen.queryByRole('switch', { name: '仅页面点击' })).not.toBeInTheDocument()
   })
 
   it('adds 小咪 pet icons to the four primary review actions', () => {
@@ -46,8 +45,6 @@ describe('MemorialPanel', () => {
         onClose={vi.fn()}
         onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
         onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
-        pageClickOnly={true}
-        onPageClickOnlyChange={vi.fn()}
         videoNote={null}
         videoNoteLoading={false}
       />
@@ -76,8 +73,6 @@ describe('MemorialPanel', () => {
       onClose: vi.fn(),
       onGenerateVideoNote: vi.fn().mockResolvedValue(null),
       onSaveVideoNote: vi.fn().mockResolvedValue(undefined),
-      pageClickOnly: true,
-      onPageClickOnlyChange: vi.fn(),
       videoNote: null,
       videoNoteLoading: false
     }

@@ -28,8 +28,6 @@ type MemorialPanelProps = {
   onSaveVideoNote: (note: VideoNote) => Promise<void>
   onChangeVideoNote?: (note: VideoNote) => void
   onOpenVideoNoteArchive?: () => void
-  pageClickOnly: boolean
-  onPageClickOnlyChange: (pageClickOnly: boolean) => void
   videoNote: VideoNote | null
   videoNoteLoading: boolean
   transcriptionProgress?: VideoAudioTranscriptionProgress | null
@@ -103,8 +101,6 @@ export function MemorialPanel({
   onSaveVideoNote,
   onChangeVideoNote,
   onOpenVideoNoteArchive,
-  pageClickOnly,
-  onPageClickOnlyChange,
   videoNote,
   videoNoteLoading,
   transcriptionProgress,
@@ -179,16 +175,6 @@ export function MemorialPanel({
                 </button>
               ))}
             </div>
-            <label className="memorial-panel__toggle">
-              <input
-                type="checkbox"
-                role="switch"
-                checked={pageClickOnly}
-                disabled={actionsLocked}
-                onChange={(event) => onPageClickOnlyChange(event.currentTarget.checked)}
-              />
-              <span>仅页面点击</span>
-            </label>
           </div>
         ) : (
           <VideoNotesPanel

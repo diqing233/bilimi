@@ -15,6 +15,7 @@ export type AssistantPreferences = {
   favoriteLedgers: FavoriteLedger[]
   ledgerPromptDismissed: boolean
   petStyle: 'big-head' | 'classic'
+  bilibiliOperationMode: 'page-visual' | 'api-assisted'
   preferenceCounts: Record<string, number>
   deepseekEnabled: boolean
   deepseekApiKeyStored: boolean
@@ -38,6 +39,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   favoriteLedgers: createDefaultFavoriteLedgers(),
   ledgerPromptDismissed: false,
   petStyle: 'big-head',
+  bilibiliOperationMode: 'api-assisted',
   preferenceCounts: {},
   deepseekEnabled: false,
   deepseekApiKeyStored: false,
@@ -68,6 +70,7 @@ export function loadAssistantPreferences(
   store: AssistantStoreLike = getDesktopStore()
 ): AssistantPreferences {
   const petStyle = store.get('petStyle')
+  const bilibiliOperationMode = store.get('bilibiliOperationMode')
   const deepseekApiKey = store.get('deepseekApiKey') ?? ''
 
   return {
@@ -75,6 +78,8 @@ export function loadAssistantPreferences(
     favoriteLedgers: normalizeFavoriteLedgers(store.get('favoriteLedgers')),
     ledgerPromptDismissed: Boolean(store.get('ledgerPromptDismissed')),
     petStyle: petStyle === 'classic' ? 'classic' : 'big-head',
+    bilibiliOperationMode:
+      bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted',
     preferenceCounts: store.get('preferenceCounts') ?? {},
     deepseekEnabled: Boolean(store.get('deepseekEnabled')),
     deepseekApiKeyStored: Boolean(String(deepseekApiKey).trim()),
@@ -91,6 +96,10 @@ export function saveAssistantPreferences(
   store.set('favoriteLedgers', normalizeFavoriteLedgers(preferences.favoriteLedgers))
   store.set('ledgerPromptDismissed', Boolean(preferences.ledgerPromptDismissed))
   store.set('petStyle', preferences.petStyle === 'classic' ? 'classic' : 'big-head')
+  store.set(
+    'bilibiliOperationMode',
+    preferences.bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted'
+  )
   store.set('preferenceCounts', preferences.preferenceCounts ?? {})
   store.set('deepseekEnabled', Boolean(preferences.deepseekEnabled))
   store.set('deepseekApiKeyStored', loadDeepSeekApiKeyStatus(store).configured)

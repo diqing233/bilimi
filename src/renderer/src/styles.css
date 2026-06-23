@@ -1347,15 +1347,6 @@ body[data-floating-window="true"],
   line-height: 1.25;
   overflow-wrap: anywhere;
 }
-.memorial-panel__toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  justify-self: start;
-  color: var(--porcelain-muted);
-  font-size: 12px;
-  line-height: 1.3;
-}
 .memorial-panel__tabs button,
 .video-notes button,
 .video-notes [role="tab"] {
@@ -1711,7 +1702,15 @@ body[data-floating-window="true"],
   display: grid;
   gap: 4px;
 }
-.video-note-archive__star-filter[aria-pressed="true"] {
+.video-note-archive__star-button {
+  min-width: 36px;
+  min-height: 36px;
+  display: inline-grid;
+  place-items: center;
+  font-size: 16px;
+  line-height: 1;
+}
+.video-note-archive__star-button[aria-pressed="true"] {
   background: var(--porcelain-primary);
   color: var(--porcelain-surface);
 }

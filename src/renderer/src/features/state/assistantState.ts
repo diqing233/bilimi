@@ -25,6 +25,12 @@ export function normalizePetStyle(value: unknown): AssistantPreferences['petStyl
   return value === 'classic' ? 'classic' : 'big-head'
 }
 
+export function normalizeBilibiliOperationMode(
+  value: unknown
+): AssistantPreferences['bilibiliOperationMode'] {
+  return value === 'page-visual' ? 'page-visual' : 'api-assisted'
+}
+
 function normalizeDeepSeekModel(value: unknown): string {
   return typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_DEEPSEEK_MODEL
 }
@@ -59,6 +65,7 @@ export function createInitialAssistantPreferences(
     favoriteLedgers: normalizeFavoriteLedgers(persisted?.favoriteLedgers ?? createDefaultFavoriteLedgers()),
     ledgerPromptDismissed: Boolean(persisted?.ledgerPromptDismissed),
     petStyle: normalizePetStyle(persisted?.petStyle),
+    bilibiliOperationMode: normalizeBilibiliOperationMode(persisted?.bilibiliOperationMode),
     preferenceCounts: {
       ...createEmptyPreferenceCounts(),
       ...persisted?.preferenceCounts
