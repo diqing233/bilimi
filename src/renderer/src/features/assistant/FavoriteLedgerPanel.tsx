@@ -84,7 +84,7 @@ function saveStatusMessage(result: AssistantAutomationResult | void) {
   return message ? `保存成功：${message}` : '保存成功：掌库已同步。'
 }
 
-const COLLAPSED_LEDGER_COUNT = 3
+const COLLAPSED_LEDGER_COUNT = 15
 
 function visibleLedgers(ledgers: FavoriteLedger[], expanded: boolean) {
   if (expanded) {

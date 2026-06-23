@@ -28,7 +28,7 @@ describe('FavoriteLedgerPanel', () => {
     const { container } = render(
       <FavoriteLedgerPanel
         ledgers={createDefaultFavoriteLedgers().slice(0, 2)}
-        missingLedgerIds={['kichiku']}
+        missingLedgerIds={['game']}
         onEnsureLedgers={onEnsureLedgers}
         onSaveLedgers={vi.fn()}
         onScanOldFavorites={onScanOldFavorites}
@@ -37,7 +37,7 @@ describe('FavoriteLedgerPanel', () => {
     )
 
     expect(screen.getByText('掌库')).toBeInTheDocument()
-    expect(screen.getByText('尚缺 Bilimi·鬼畜。')).toBeInTheDocument()
+    expect(screen.getByText('尚缺 Bilimi·游戏。')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '备册' }))
 
@@ -91,7 +91,7 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
-  it('uses a compact ledger header with one ledger row and a lower-right expand control', async () => {
+  it('uses a compact ledger header with the framed default ledgers and a lower-right expand control', async () => {
     const ledgers = createDefaultFavoriteLedgers()
 
     render(
@@ -115,12 +115,29 @@ describe('FavoriteLedgerPanel', () => {
     expect(within(headerActions as HTMLElement).getByRole('button', { name: '新建收藏夹' })).toBeInTheDocument()
     expect(within(headerActions as HTMLElement).getByRole('button', { name: '同步' })).toBeInTheDocument()
 
-    expect(within(ledgerRegion).getByRole('button', { name: '动画' })).toBeInTheDocument()
-    expect(within(ledgerRegion).getByRole('button', { name: '鬼畜' })).toBeInTheDocument()
-    expect(within(ledgerRegion).getByRole('button', { name: '舞蹈' })).toBeInTheDocument()
-    expect(within(ledgerRegion).queryByRole('button', { name: '娱乐' })).not.toBeInTheDocument()
+    const visibleLedgerNames = Array.from(
+      ledgerRegion.querySelector('.favorite-ledger-panel__chips')?.children ?? []
+    ).map((item) => within(item as HTMLElement).getAllByRole('button')[0].textContent)
+    expect(visibleLedgerNames).toEqual([
+      '动画',
+      '游戏',
+      '鬼畜',
+      '音乐',
+      '舞蹈',
+      '影视',
+      '娱乐',
+      '知识',
+      '科技数码',
+      '资讯',
+      '美食',
+      '待分类',
+      '体育运动',
+      '时尚美妆',
+      '动物'
+    ])
+    expect(within(ledgerRegion).queryByRole('button', { name: '人工智能' })).not.toBeInTheDocument()
     expect(within(ledgerRegion).queryByRole('button', { name: 'vlog' })).not.toBeInTheDocument()
-    expect(ledgerRegion.querySelector('.favorite-ledger-panel__chips')?.children).toHaveLength(3)
+    expect(ledgerRegion.querySelector('.favorite-ledger-panel__chips')?.children).toHaveLength(15)
     const listToggle = ledgerRegion.querySelector('.favorite-ledger-panel__list-toggle')!
     expect(within(listToggle as HTMLElement).getByRole('button', { name: '展开' })).toBeInTheDocument()
 
@@ -307,12 +324,8 @@ describe('FavoriteLedgerPanel', () => {
 
     await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
     const savedLedgers = onSaveLedgers.mock.calls[0][0]
-    expect(savedLedgers.map((ledger) => ledger.id).slice(8, 12)).toEqual([
-      'game',
-      'movie-tv',
-      'knowledge',
-      'music'
-    ])
+    const savedLedgerIds = savedLedgers.map((ledger) => ledger.id)
+    expect(savedLedgerIds.indexOf('music')).toBe(savedLedgerIds.indexOf('knowledge') + 1)
     expect(savedLedgers.find((ledger) => ledger.id === 'movie-tv')!.priority).toBeLessThan(
       savedLedgers.find((ledger) => ledger.id === 'knowledge')!.priority
     )

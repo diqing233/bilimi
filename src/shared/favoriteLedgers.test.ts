@@ -30,43 +30,58 @@ describe('favorite ledger model', () => {
     expect(createDefaultFavoriteLedgers()).toHaveLength(35)
   })
 
-  it('orders common partitions first and only enables them by default', () => {
+  it('orders reset defaults like the ledger panel reference and only enables checked defaults', () => {
     const ledgers = createDefaultFavoriteLedgers()
 
-    expect(ledgers.slice(0, 16).map((ledger) => ledger.displayName)).toEqual([
+    expect(ledgers.map((ledger) => ledger.displayName)).toEqual([
       'Bilimi·动画',
-      'Bilimi·鬼畜',
-      'Bilimi·舞蹈',
-      'Bilimi·娱乐',
-      'Bilimi·科技数码',
-      'Bilimi·美食',
-      'Bilimi·汽车',
-      'Bilimi·体育运动',
       'Bilimi·游戏',
+      'Bilimi·鬼畜',
       'Bilimi·音乐',
+      'Bilimi·舞蹈',
       'Bilimi·影视',
+      'Bilimi·娱乐',
       'Bilimi·知识',
+      'Bilimi·科技数码',
       'Bilimi·资讯',
-      'Bilimi·小剧场',
+      'Bilimi·美食',
+      'Bilimi·待分类',
+      'Bilimi·体育运动',
       'Bilimi·时尚美妆',
-      'Bilimi·待分类'
+      'Bilimi·动物',
+      'Bilimi·人工智能',
+      'Bilimi·小剧场',
+      'Bilimi·汽车',
+      'Bilimi·家装房产',
+      'Bilimi·旅游出行',
+      'Bilimi·情感',
+      'Bilimi·超高清',
+      'Bilimi·vlog',
+      'Bilimi·户外潮流',
+      'Bilimi·三农',
+      'Bilimi·生活兴趣',
+      'Bilimi·视频播客',
+      'Bilimi·绘画',
+      'Bilimi·健身',
+      'Bilimi·亲子',
+      'Bilimi·生活经验',
+      'Bilimi·手工',
+      'Bilimi·健康',
+      'Bilimi·公益',
+      'Bilimi·纪录片'
     ])
     expect(ledgers.filter((ledger) => ledger.enabled).map((ledger) => ledger.id)).toEqual([
       'animation',
-      'kichiku',
-      'dance',
-      'entertainment',
-      'tech-digital',
-      'food',
-      'car',
-      'sports',
       'game',
+      'kichiku',
       'music',
+      'dance',
       'movie-tv',
+      'entertainment',
       'knowledge',
+      'tech-digital',
       'news',
-      'short-drama',
-      'fashion-beauty',
+      'food',
       'inbox'
     ])
   })

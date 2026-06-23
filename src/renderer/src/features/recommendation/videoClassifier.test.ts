@@ -10,9 +10,7 @@ describe('classifyVideoContent', () => {
       'knowledge'
     )
     expect(classifyVideoContent({ title: '爆笑整活鬼畜合集' }, ledgers).ledgerId).toBe('kichiku')
-    expect(classifyVideoContent({ title: '第十二集剧情反转名场面' }, ledgers).ledgerId).toBe(
-      'short-drama'
-    )
+    expect(classifyVideoContent({ title: '第十二集剧情反转名场面' }, ledgers).ledgerId).toBe('inbox')
     expect(classifyVideoContent({ title: '电竞赛事操作技巧复盘' }, ledgers).ledgerId).toBe('game')
     expect(classifyVideoContent({ title: '周末探店美食 Vlog' }, ledgers).ledgerId).toBe('food')
     expect(classifyVideoContent({ title: '效率软件与数码工具测评' }, ledgers).ledgerId).toBe(
@@ -25,9 +23,20 @@ describe('classifyVideoContent', () => {
     const ledgers = createDefaultFavoriteLedgers()
 
     expect(classifyVideoContent({ title: '鬼畜合集' }, ledgers).ledgerId).toBe('kichiku')
-    expect(classifyVideoContent({ title: '运动技巧' }, ledgers).ledgerId).toBe('sports')
+    expect(classifyVideoContent({ title: '运动技巧' }, ledgers).ledgerId).toBe('inbox')
     expect(classifyVideoContent({ title: '探店 Vlog' }, ledgers).ledgerId).toBe('food')
     expect(classifyVideoContent({ title: '软件教程' }, ledgers).ledgerId).toBe('tech-digital')
+  })
+
+  it('classifies visible but unchecked defaults after users enable them', () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'short-drama' || ledger.id === 'sports' ? { ...ledger, enabled: true } : ledger
+    )
+
+    expect(classifyVideoContent({ title: '第十二集剧情反转名场面' }, ledgers).ledgerId).toBe(
+      'short-drama'
+    )
+    expect(classifyVideoContent({ title: '运动技巧' }, ledgers).ledgerId).toBe('sports')
   })
 
   it('uses old favorite category names as local non-AI classification signals', () => {
