@@ -49,9 +49,11 @@ import type {
   AssistantSnapshot
 } from './features/assistant/assistantRuntimeTypes'
 import { AssistantSidebar } from './features/assistant/AssistantSidebar'
+import { PET_VIDEO_OPENING_LINES, pickPetLine } from './features/assistant/petInteractionLines'
 
 const HOME_TAB_ID = 'home'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
+const BILIBILI_VIDEO_URL_PATTERN = /bilibili\.com\/video\/([^/?#]+)/i
 
 function createTabTitle(url: string): string {
   try {
@@ -83,6 +85,10 @@ function normalizeActiveTabVideoTitle(tab?: BrowserTabModel): string | undefined
   return normalizeVideoTitle(tab.title)
 }
 
+function readBilibiliVideoKey(url: string): string | undefined {
+  return url.match(BILIBILI_VIDEO_URL_PATTERN)?.[1]
+}
+
 export default function App() {
   const [tabs, setTabs] = useState<BrowserTabModel[]>([
     {
@@ -97,6 +103,7 @@ export default function App() {
   const [webviews, setWebviews] = useState<Record<string, Electron.WebviewTag>>({})
   const webviewRefs = useRef<Record<string, Electron.WebviewTag>>({})
   const activeTabChangeMounted = useRef(false)
+  const lastPetVideoKey = useRef<string | undefined>(undefined)
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences()
   )
@@ -259,6 +266,16 @@ export default function App() {
       )
 
       if (tabId === activeTabIdRef.current) {
+        const videoKey = readBilibiliVideoKey(url)
+
+        if (videoKey && videoKey !== lastPetVideoKey.current) {
+          lastPetVideoKey.current = videoKey
+          window.bilimiDesktop?.setAssistantPetHint?.({
+            tone: 'hint',
+            message: pickPetLine(PET_VIDEO_OPENING_LINES)
+          })
+        }
+
         notifyAssistantSnapshotChanged()
       }
     },
@@ -742,6 +759,9 @@ export default function App() {
               url={tab.url}
               onLocationChange={updateTabUrl}
               onOpenInTab={openInternalTab}
+              onPageInteractionHint={(message) => {
+                window.bilimiDesktop?.setAssistantPetHint?.({ tone: 'hint', message })
+              }}
               onReady={handleWebviewReady}
               onTitleChange={updateTabTitle}
             />

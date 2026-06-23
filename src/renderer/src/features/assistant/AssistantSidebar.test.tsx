@@ -15,12 +15,14 @@ function installDesktopApi() {
       }),
       onAssistantSnapshotChanged: vi.fn(),
       requestAssistantSnapshot: vi.fn().mockResolvedValue(undefined),
-      savePreferences: vi.fn()
+      savePreferences: vi.fn(),
+      setAssistantPetHint: vi.fn()
     }
   })
 
   return {
-    openAssistant: () => openAssistantCallback?.()
+    openAssistant: () => openAssistantCallback?.(),
+    setAssistantPetHint: window.bilimiDesktop.setAssistantPetHint as ReturnType<typeof vi.fn>
   }
 }
 
@@ -99,5 +101,27 @@ describe('AssistantSidebar', () => {
       'data-collapsed',
       'false'
     )
+  })
+
+  it('gets anxious when the sidebar stays collapsed for a while', async () => {
+    vi.useFakeTimers()
+    const api = installDesktopApi()
+
+    try {
+      render(<AssistantSidebar />)
+
+      fireEvent.click(screen.getByRole('button', { name: '折叠侧边栏' }))
+
+      act(() => {
+        vi.advanceTimersByTime(60_000)
+      })
+
+      expect(api.setAssistantPetHint).toHaveBeenCalledWith({
+        tone: 'hint',
+        message: '主人，小咪被折叠好久啦，回来点点我嘛。'
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

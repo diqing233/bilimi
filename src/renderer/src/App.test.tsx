@@ -45,6 +45,7 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
       preferencesChanged = callback
       return vi.fn()
     }),
+    setAssistantPetHint: vi.fn(),
     savePreferences: vi.fn(async (preferences: AssistantPreferences) => preferences),
     registerAssistantRuntime,
     ...apiOverrides
@@ -628,6 +629,46 @@ describe('App runtime integration', () => {
     })
 
     await waitFor(() => expect(desktopApi.notifyAssistantSnapshotChanged).toHaveBeenCalled())
+  })
+
+  it('lets 小咪 react once when a fresh video opens', async () => {
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
+    const { desktopApi } = renderAppWithRuntimeBridge()
+
+    try {
+      const homeWebview = document.getElementById('bilimi-webview') as HTMLElement
+
+      act(() => {
+        homeWebview.dispatchEvent(
+          new CustomEvent('did-navigate-in-page', {
+            detail: {
+              url: 'https://www.bilibili.com/video/BV1fresh'
+            }
+          })
+        )
+      })
+
+      await waitFor(() =>
+        expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith({
+          tone: 'hint',
+          message: '小咪好期待呀，这个视频会不会很有意思～'
+        })
+      )
+
+      act(() => {
+        homeWebview.dispatchEvent(
+          new CustomEvent('did-navigate-in-page', {
+            detail: {
+              url: 'https://www.bilibili.com/video/BV1fresh'
+            }
+          })
+        )
+      })
+
+      expect(desktopApi.setAssistantPetHint).toHaveBeenCalledTimes(1)
+    } finally {
+      random.mockRestore()
+    }
   })
 
   it('uses externally changed assistant preferences in runtime snapshots', async () => {

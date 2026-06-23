@@ -47,6 +47,33 @@ describe('BiliWebview', () => {
     expect(onOpenInTab).toHaveBeenCalledWith('https://www.bilibili.com/video/BV1title')
   })
 
+  it('reports 小咪 hints from bilibili interaction title signals', () => {
+    const onPageInteractionHint = vi.fn()
+
+    render(
+      <BiliWebview
+        active
+        tabId="home"
+        url="https://www.bilibili.com"
+        onPageInteractionHint={onPageInteractionHint}
+      />
+    )
+
+    const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('page-title-updated', {
+          detail: {
+            title: `__BILIMI_PET_HINT__:${encodeURIComponent('小咪看到主人点赞啦～')}`
+          }
+        })
+      )
+    })
+
+    expect(onPageInteractionHint).toHaveBeenCalledWith('小咪看到主人点赞啦～')
+  })
+
   it('does not drive the webview src from later location updates', () => {
     const { rerender } = render(
       <BiliWebview active tabId="home" url="https://www.bilibili.com/video/BV1initial" />

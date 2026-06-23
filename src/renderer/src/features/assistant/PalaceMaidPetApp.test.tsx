@@ -227,6 +227,47 @@ describe('PalaceMaidPetApp', () => {
     expect(screen.getByText('主人，小咪正在帮你整理札记～')).toBeInTheDocument()
   })
 
+  it('keeps the speech bubble free of the pet hint title line', () => {
+    let hintChanged: ((hint: AssistantPetHint) => void) | undefined
+    installDesktopApi({
+      onAssistantPetHintChanged: vi.fn((callback) => {
+        hintChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    act(() => {
+      hintChanged?.({
+        tone: 'hint',
+        message: '\u5c0f\u54aa\u5207\u6362\u5230\u8fd9\u6761\u63d0\u793a\u4e86\u3002'
+      })
+    })
+
+    expect(screen.queryByText('\u5c0f\u54aa\u63d0\u793a')).not.toBeInTheDocument()
+    expect(screen.getByText('\u5c0f\u54aa\u5207\u6362\u5230\u8fd9\u6761\u63d0\u793a\u4e86\u3002')).toBeInTheDocument()
+  })
+
+  it('offers a caring idle greeting after the owner leaves it alone', () => {
+    vi.useFakeTimers()
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
+    installDesktopApi()
+
+    try {
+      render(<PalaceMaidPetApp />)
+
+      act(() => {
+        vi.advanceTimersByTime(45_000)
+      })
+
+      expect(screen.getByText('主人还在吗？小咪在这里陪你慢慢看。')).toBeInTheDocument()
+      expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'hint')
+    } finally {
+      random.mockRestore()
+    }
+  })
+
   it('scrolls the pet chat down to the newest reply', async () => {
     const scrollIntoView = vi.fn()
     const originalScrollIntoView = Element.prototype.scrollIntoView

@@ -2,6 +2,7 @@ export function buildOpenLinksInAppScript(): string {
   return `
     (() => {
       const openSignalPrefix = '__BILIMI_OPEN_IN_TAB__:';
+      const petHintSignalPrefix = '__BILIMI_PET_HINT__:';
 
       if (window.__bilimiOpenLinksInstalled) {
         return true;
@@ -92,6 +93,71 @@ export function buildOpenLinksInAppScript(): string {
         }, 0);
       };
 
+      const readText = (target) => {
+        return [
+          target?.getAttribute?.('aria-label'),
+          target?.getAttribute?.('title'),
+          target?.innerText,
+          target?.textContent
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+      };
+
+      const resolvePetHint = (target) => {
+        const control = target?.closest?.(
+          'button, input[type="button"], input[type="submit"], [role="button"], .video-like, .video-coin, .video-fav, .video-share, .bpx-player-ctrl-play, .bpx-player-video-btn-start, .nav-search-btn'
+        );
+
+        if (!control) {
+          return null;
+        }
+
+        const text = readText(control);
+
+        if (/点赞|赞|like/i.test(text)) {
+          return '小咪看到主人点赞啦，喜欢就要亮出来～';
+        }
+
+        if (/投币|coin/i.test(text)) {
+          return '给喜欢的视频投币，小咪懂主人这份认真。';
+        }
+
+        if (/收藏|fav|稍后再看/i.test(text)) {
+          return '小咪帮主人记着：好东西要收好。';
+        }
+
+        if (/评论|发送|回复|comment/i.test(text)) {
+          return '主人要发评论啦，小咪在旁边帮你打气。';
+        }
+
+        if (/分享|share/i.test(text)) {
+          return '想分享给别人看？小咪觉得这支有点东西。';
+        }
+
+        if (/搜索|search/i.test(text)) {
+          return '小咪跟着主人一起找找看。';
+        }
+
+        if (/播放|暂停|play|pause/i.test(text)) {
+          return '小咪坐好啦，继续看这一段。';
+        }
+
+        return null;
+      };
+
+      const requestPetHint = (message) => {
+        const previousTitle = document.title;
+        document.title = petHintSignalPrefix + encodeURIComponent(message);
+
+        window.setTimeout(() => {
+          if (document.title === petHintSignalPrefix + encodeURIComponent(message)) {
+            document.title = previousTitle;
+          }
+        }, 0);
+      };
+
       document.addEventListener(
         'click',
         (event) => {
@@ -107,6 +173,12 @@ export function buildOpenLinksInAppScript(): string {
           }
 
           const url = resolveNavigableUrl(event.target);
+
+          const petHint = resolvePetHint(event.target);
+
+          if (petHint) {
+            requestPetHint(petHint);
+          }
 
           if (!url) {
             return;

@@ -94,4 +94,17 @@ describe('buildOpenVideoLinksInAppScript', () => {
     expect(document.title).not.toContain('__BILIMI_OPEN_IN_TAB__:')
     expect(window.open).not.toHaveBeenCalled()
   })
+
+  it('signals selected bilibili page interactions without blocking the original click', () => {
+    document.body.innerHTML = '<button type="button" aria-label="点赞"><span>点赞</span></button>'
+
+    window.eval(buildOpenVideoLinksInAppScript())
+    const click = new MouseEvent('click', { bubbles: true, button: 0, cancelable: true })
+
+    document.querySelector('button span')?.dispatchEvent(click)
+
+    expect(click.defaultPrevented).toBe(false)
+    expect(document.title).toContain('__BILIMI_PET_HINT__:')
+    expect(document.title).toContain(encodeURIComponent('小咪看到主人点赞啦，喜欢就要亮出来～'))
+  })
 })

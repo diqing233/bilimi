@@ -3,6 +3,7 @@ import { createBrowserSurfaceModel } from './browserSurfaceModel'
 import { buildOpenLinksInAppScript } from './linkCaptureScript'
 
 const OPEN_IN_TAB_TITLE_PREFIX = '__BILIMI_OPEN_IN_TAB__:'
+const PET_HINT_TITLE_PREFIX = '__BILIMI_PET_HINT__:'
 
 type BiliWebviewProps = {
   active: boolean
@@ -11,6 +12,7 @@ type BiliWebviewProps = {
   onLocationChange?: (tabId: string, url: string) => void
   onOpenInTab?: (url: string) => void
   onReady?: (tabId: string, webview: Electron.WebviewTag) => void
+  onPageInteractionHint?: (message: string) => void
   onTitleChange?: (tabId: string, title: string) => void
 }
 
@@ -43,12 +45,25 @@ function readOpenInTabTitleSignal(title: string): string | undefined {
   }
 }
 
+function readPetHintTitleSignal(title: string): string | undefined {
+  if (!title.startsWith(PET_HINT_TITLE_PREFIX)) {
+    return undefined
+  }
+
+  try {
+    return decodeURIComponent(title.slice(PET_HINT_TITLE_PREFIX.length))
+  } catch {
+    return undefined
+  }
+}
+
 export function BiliWebview({
   active,
   tabId,
   url,
   onLocationChange,
   onOpenInTab,
+  onPageInteractionHint,
   onReady,
   onTitleChange
 }: BiliWebviewProps) {
@@ -106,6 +121,13 @@ export function BiliWebview({
         return
       }
 
+      const petHint = readPetHintTitleSignal(nextTitle)
+
+      if (petHint) {
+        onPageInteractionHint?.(petHint)
+        return
+      }
+
       onTitleChange?.(tabId, nextTitle)
     }
 
@@ -124,7 +146,7 @@ export function BiliWebview({
       webview.removeEventListener('did-navigate-in-page', handleLocationChange)
       webview.removeEventListener('page-title-updated', handleTitleChange)
     }
-  }, [onLocationChange, onOpenInTab, onReady, onTitleChange, tabId])
+  }, [onLocationChange, onOpenInTab, onPageInteractionHint, onReady, onTitleChange, tabId])
 
   return (
     <webview

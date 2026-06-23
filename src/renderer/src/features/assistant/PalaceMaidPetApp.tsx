@@ -8,9 +8,11 @@ import {
 } from './petState'
 import { createInitialAssistantPreferences } from '../state/assistantState'
 import type { AssistantPreferences, DeepSeekChatMessage } from '@shared/types'
+import { PET_IDLE_GREETINGS, pickPetLine } from './petInteractionLines'
 
 const DRAG_THRESHOLD_PX = 5
 const LONG_PRESS_SUPPRESSION_MS = 350
+const IDLE_GREETING_DELAY_MS = 45_000
 const PET_SIZE_STEP_PX = 16
 const PET_SIZE_MIN_PX = 116
 const PET_SIZE_MAX_PX = 164
@@ -31,6 +33,7 @@ type DragState = {
 export function PalaceMaidPetApp() {
   const dragState = useRef<DragState | null>(null)
   const longPressTimeout = useRef<number | null>(null)
+  const idleGreetingTimeout = useRef<number | null>(null)
   const resizeControlsHideTimeout = useRef<number | null>(null)
   const interactiveHoverCount = useRef(0)
   const suppressNextClick = useRef(false)
@@ -55,9 +58,26 @@ export function PalaceMaidPetApp() {
   const bubbleMessage = petHint?.message ?? stateView.bubble
   const deepSeekChatEnabled = preferences.deepseekEnabled && preferences.deepseekApiKeyStored
 
+  function showLocalPetHint(tone: AssistantPetHint['tone'], message: string) {
+    setPetHint({ tone, message })
+  }
+
+  function scheduleIdleGreeting() {
+    if (idleGreetingTimeout.current !== null) {
+      window.clearTimeout(idleGreetingTimeout.current)
+    }
+
+    idleGreetingTimeout.current = window.setTimeout(() => {
+      showLocalPetHint('hint', pickPetLine(PET_IDLE_GREETINGS))
+      idleGreetingTimeout.current = null
+      scheduleIdleGreeting()
+    }, IDLE_GREETING_DELAY_MS)
+  }
+
   useEffect(() => {
     return window.bilimiDesktop?.onAssistantPetStateChanged?.((state) => {
       setPetState(normalizePetState(state))
+      scheduleIdleGreeting()
     })
   }, [])
 
@@ -69,10 +89,8 @@ export function PalaceMaidPetApp() {
         return
       }
 
-      setPetHint({
-        tone: hint.tone === 'working' || hint.tone === 'error' ? hint.tone : 'hint',
-        message
-      })
+      showLocalPetHint(hint.tone === 'working' || hint.tone === 'error' ? hint.tone : 'hint', message)
+      scheduleIdleGreeting()
     })
   }, [])
 
@@ -114,6 +132,9 @@ export function PalaceMaidPetApp() {
       if (longPressTimeout.current !== null) {
         window.clearTimeout(longPressTimeout.current)
       }
+      if (idleGreetingTimeout.current !== null) {
+        window.clearTimeout(idleGreetingTimeout.current)
+      }
       if (resizeControlsHideTimeout.current !== null) {
         window.clearTimeout(resizeControlsHideTimeout.current)
       }
@@ -122,8 +143,20 @@ export function PalaceMaidPetApp() {
     }
   }, [])
 
+  useEffect(() => {
+    scheduleIdleGreeting()
+
+    return () => {
+      if (idleGreetingTimeout.current !== null) {
+        window.clearTimeout(idleGreetingTimeout.current)
+        idleGreetingTimeout.current = null
+      }
+    }
+  }, [])
+
   function enterInteractiveRegion() {
     interactiveHoverCount.current += 1
+    scheduleIdleGreeting()
     window.bilimiDesktop?.setFloatingSealMouseTransparent?.(false)
   }
 
