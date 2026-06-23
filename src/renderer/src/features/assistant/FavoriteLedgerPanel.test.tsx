@@ -51,10 +51,10 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('默认收藏夹 3')).toBeInTheDocument()
     const toolbar = container.querySelector('.favorite-ledger-panel__toolbar')
     const status = container.querySelector('.favorite-ledger-panel__status')
-    const editor = container.querySelector('.favorite-ledger-panel__editor')
+    const workspace = container.querySelector('.favorite-ledger-panel__workspace')
 
     expect(toolbar?.compareDocumentPosition(status as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
-    expect(status?.compareDocumentPosition(editor as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(status?.compareDocumentPosition(workspace as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   })
 
   it('syncs checked Bilibili categories and personalized candidates', async () => {
@@ -91,7 +91,7 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
-  it('uses a compact ledger header with the framed default ledgers and a lower-right expand control', async () => {
+  it('uses a compact ledger header with the framed default ledgers and lower-right creation controls', async () => {
     const ledgers = createDefaultFavoriteLedgers()
 
     render(
@@ -112,7 +112,7 @@ describe('FavoriteLedgerPanel', () => {
     const headerActions = ledgerRegion.querySelector('.favorite-ledger-panel__category-actions')!
     expect(within(headerActions as HTMLElement).getByRole('button', { name: '重置' })).toBeInTheDocument()
     expect(within(headerActions as HTMLElement).queryByRole('button', { name: '展开' })).not.toBeInTheDocument()
-    expect(within(headerActions as HTMLElement).getByRole('button', { name: '新建收藏夹' })).toBeInTheDocument()
+    expect(within(headerActions as HTMLElement).queryByRole('button', { name: '新建收藏夹' })).not.toBeInTheDocument()
     expect(within(headerActions as HTMLElement).getByRole('button', { name: '同步' })).toBeInTheDocument()
 
     const visibleLedgerNames = Array.from(
@@ -139,12 +139,36 @@ describe('FavoriteLedgerPanel', () => {
     expect(within(ledgerRegion).queryByRole('button', { name: 'vlog' })).not.toBeInTheDocument()
     expect(ledgerRegion.querySelector('.favorite-ledger-panel__chips')?.children).toHaveLength(15)
     const listToggle = ledgerRegion.querySelector('.favorite-ledger-panel__list-toggle')!
+    const creationControls = within(listToggle as HTMLElement).getAllByRole('button')
+    expect(creationControls.map((button) => button.textContent)).toEqual(['新建收藏夹', '展开'])
     expect(within(listToggle as HTMLElement).getByRole('button', { name: '展开' })).toBeInTheDocument()
 
     fireEvent.click(within(listToggle as HTMLElement).getByRole('button', { name: '展开' }))
 
     expect(within(ledgerRegion).getByRole('button', { name: 'vlog' })).toBeInTheDocument()
+    expect(within(listToggle as HTMLElement).getByRole('button', { name: '新建收藏夹' })).toBeInTheDocument()
     expect(within(listToggle as HTMLElement).getByRole('button', { name: '折叠' })).toBeInTheDocument()
+  })
+
+  it('starts with an empty editor area until a ledger is selected', () => {
+    const { container } = render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    expect(container.querySelector('.favorite-ledger-panel__editor-placeholder')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
+
+    expect(screen.getByRole('region', { name: '当前收藏夹' })).toBeInTheDocument()
+    expect(screen.getByText('正在编辑：Bilimi·鬼畜')).toBeInTheDocument()
   })
 
   it('frames the ledger title and setup actions together in the topbar', () => {
@@ -180,7 +204,7 @@ describe('FavoriteLedgerPanel', () => {
     const workspace = container.querySelector('.favorite-ledger-panel__workspace')
     expect(workspace).toBeInTheDocument()
     expect(workspace?.querySelector('.favorite-ledger-panel__checklist')).toBeInTheDocument()
-    expect(workspace?.querySelector('.favorite-ledger-panel__editor')).toBeInTheDocument()
+    expect(workspace?.querySelector('.favorite-ledger-panel__editor-placeholder')).toBeInTheDocument()
   })
 
   it('selects a ledger without changing whether it syncs', async () => {
@@ -530,6 +554,140 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
+  it('collapses an unmodified editor when selecting another ledger', () => {
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
+    expect(screen.getByText('正在编辑：Bilimi·鬼畜')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '影视' }))
+
+    expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
+    expect(screen.queryByText('正在编辑：Bilimi·影视')).not.toBeInTheDocument()
+  })
+
+  it('collapses an unmodified editor when clicking outside the editor', () => {
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
+    expect(screen.getByText('正在编辑：Bilimi·鬼畜')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('heading', { name: '掌库' }))
+
+    expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
+  })
+
+  it('warns instead of switching away when the active ledger has unsaved edits', () => {
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
+    const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
+    fireEvent.change(editor.getByLabelText('册名'), {
+      target: { value: '音MAD' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '影视' }))
+
+    expect(screen.getByText('正在编辑：Bilimi·音MAD')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('当前收藏夹有未保存修改，请先保存。')
+  })
+
+  it('keeps an unsaved editor open when clicking outside the editor', () => {
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
+    const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
+    fireEvent.change(editor.getByLabelText('册名'), {
+      target: { value: '音MAD' }
+    })
+    fireEvent.click(screen.getByRole('heading', { name: '掌库' }))
+
+    expect(screen.getByText('正在编辑：Bilimi·音MAD')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('当前收藏夹有未保存修改，请先保存。')
+  })
+
+  it('places save before delete in the editor title and deletes only the selected duplicate-id ledger', () => {
+    const ledgers = [
+      ...createDefaultFavoriteLedgers(),
+      {
+        id: 'custom-new-ledger',
+        displayName: 'Bilimi·摄影',
+        keywords: ['摄影'],
+        enabled: true,
+        priority: 100,
+        isDefault: false
+      },
+      {
+        id: 'custom-new-ledger',
+        displayName: 'Bilimi·剪辑',
+        keywords: ['剪辑'],
+        enabled: true,
+        priority: 110,
+        isDefault: false
+      }
+    ]
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={ledgers}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    const chips = screen.getByRole('region', { name: '收藏夹' })
+    fireEvent.click(within(chips).getByRole('button', { name: '展开' }))
+    fireEvent.click(screen.getByRole('button', { name: '摄影' }))
+
+    const editorTitle = screen.getByText('正在编辑：Bilimi·摄影').closest('.favorite-ledger-panel__editor-title')!
+    const titleButtons = within(editorTitle as HTMLElement).getAllByRole('button')
+    expect(titleButtons.map((button) => button.textContent)).toEqual(['保存', '删除'])
+
+    fireEvent.click(within(editorTitle as HTMLElement).getByRole('button', { name: '删除 Bilimi·摄影' }))
+
+    expect(screen.queryByRole('button', { name: '摄影' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '剪辑' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
+  })
+
   it('keeps the Bilimi prefix fixed while editing a managed ledger name', async () => {
     const onSaveLedgers = vi.fn()
 
@@ -579,6 +737,8 @@ describe('FavoriteLedgerPanel', () => {
         onExecuteOldFavoritePlan={vi.fn()}
       />
     )
+
+    fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
 
     expect(
       screen.getByText('关键词是这个册目的匹配规则：Bilimi 会用它们判断当前视频或旧藏应归到哪一册。')

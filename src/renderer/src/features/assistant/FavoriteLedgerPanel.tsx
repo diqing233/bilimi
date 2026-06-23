@@ -1,6 +1,6 @@
 import { BILIMI_LEDGER_PREFIX, createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import type { AssistantAutomationResult, FavoriteLedger } from '@shared/types'
-import { useEffect, useMemo, useState, type DragEvent } from 'react'
+import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react'
 import type { FavoriteLedgerCandidate } from '../favorites/favoriteLedgerInsights'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
 
@@ -21,7 +21,8 @@ function splitKeywords(value: string) {
 }
 
 function customLedgerId(name: string) {
-  return `custom-${name.replace(/\W+/g, '-').replace(/^-|-$/g, '') || Date.now()}`
+  const base = name.replace(/\W+/g, '-').replace(/^-|-$/g, '') || 'ledger'
+  return `custom-${base}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
 function canDeleteLedger(ledger: FavoriteLedger) {
@@ -104,7 +105,8 @@ export function FavoriteLedgerPanel({
   onExecuteOldFavoritePlan
 }: FavoriteLedgerPanelProps) {
   const [draftLedgers, setDraftLedgers] = useState<FavoriteLedger[]>(ledgers)
-  const [activeLedgerId, setActiveLedgerId] = useState<string | null>(ledgers[0]?.id ?? null)
+  const [activeLedgerId, setActiveLedgerId] = useState<string | null>(null)
+  const [activeLedgerIndex, setActiveLedgerIndex] = useState<number | null>(null)
   const [preview, setPreview] = useState<FavoriteLedgerPreview | null>(null)
   const [setupPromptVisible, setSetupPromptVisible] = useState(false)
   const [selectedDefaultLedgerIds, setSelectedDefaultLedgerIds] = useState<Set<string>>(
@@ -118,29 +120,32 @@ export function FavoriteLedgerPanel({
   const [draggedLedgerId, setDraggedLedgerId] = useState<string | null>(null)
   const [dragTargetLedgerId, setDragTargetLedgerId] = useState<string | null>(null)
   const [ledgerListExpanded, setLedgerListExpanded] = useState(false)
-  const hasUnsavedChanges = useMemo(
-    () => JSON.stringify(draftLedgers) !== JSON.stringify(ledgers),
-    [draftLedgers, ledgers]
-  )
   const ledgerNamesById = useMemo(
     () => Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName])),
     [draftLedgers]
   )
   const activeLedger = useMemo(
     () =>
-      draftLedgers.find((ledger) => ledger.id === activeLedgerId) ??
-      draftLedgers[0] ??
-      null,
-    [activeLedgerId, draftLedgers]
+      activeLedgerIndex === null
+        ? null
+        : (draftLedgers[activeLedgerIndex] ?? null),
+    [activeLedgerIndex, draftLedgers]
   )
+  const activeLedgerHasUnsavedChanges = useMemo(() => {
+    if (!activeLedger) {
+      return false
+    }
+
+    const originalLedger = ledgers.find((ledger) => ledger.id === activeLedger.id)
+    return JSON.stringify(activeLedger) !== JSON.stringify(originalLedger ?? null)
+  }, [activeLedger, ledgers])
   useEffect(() => {
     setDraftLedgers(ledgers)
     setSelectedDefaultLedgerIds(
       new Set(ledgers.filter((ledger) => ledger.enabled && ledger.isDefault).map((ledger) => ledger.id))
     )
-    setActiveLedgerId((currentId) =>
-      currentId && ledgers.some((ledger) => ledger.id === currentId) ? currentId : (ledgers[0]?.id ?? null)
-    )
+    setActiveLedgerId(null)
+    setActiveLedgerIndex(null)
     finishLedgerDrag()
   }, [ledgers])
 
@@ -168,6 +173,7 @@ export function FavoriteLedgerPanel({
 
     setDraftLedgers(nextLedgers)
     setActiveLedgerId(nextLedger.id)
+    setActiveLedgerIndex(nextLedgers.length - 1)
     setLedgerListExpanded(true)
     setSaveStatus(null)
   }
@@ -178,7 +184,8 @@ export function FavoriteLedgerPanel({
     setSelectedDefaultLedgerIds(
       new Set(defaultLedgers.filter((ledger) => ledger.enabled && ledger.isDefault).map((ledger) => ledger.id))
     )
-    setActiveLedgerId(defaultLedgers[0]?.id ?? null)
+    setActiveLedgerId(null)
+    setActiveLedgerIndex(null)
     setSelectedCandidateKeys(new Set())
     setLedgerListExpanded(false)
     setStatus(null)
@@ -187,9 +194,16 @@ export function FavoriteLedgerPanel({
 
   function deleteLedger(ledgerId: string) {
     setDraftLedgers((currentLedgers) => {
-      const nextLedgers = currentLedgers.filter((ledger) => ledger.id !== ledgerId || !canDeleteLedger(ledger))
+      const ledgerIndex =
+        activeLedgerIndex !== null && currentLedgers[activeLedgerIndex]?.id === ledgerId
+          ? activeLedgerIndex
+          : currentLedgers.findIndex((ledger) => ledger.id === ledgerId)
+      const nextLedgers = currentLedgers.filter(
+        (ledger, index) => index !== ledgerIndex || !canDeleteLedger(ledger)
+      )
       if (ledgerId === activeLedgerId) {
-        setActiveLedgerId(nextLedgers[0]?.id ?? null)
+        setActiveLedgerId(null)
+        setActiveLedgerIndex(null)
       }
       setSaveStatus(null)
       return nextLedgers
@@ -214,8 +228,60 @@ export function FavoriteLedgerPanel({
     )
   }
 
-  function selectLedger(ledger: FavoriteLedger) {
+  function selectLedger(ledger: FavoriteLedger, ledgerIndex: number) {
+    if (activeLedgerId && activeLedgerId !== ledger.id) {
+      if (activeLedgerHasUnsavedChanges) {
+        setSaveStatus('当前收藏夹有未保存修改，请先保存。')
+        return
+      }
+
+      setActiveLedgerId(null)
+      setActiveLedgerIndex(null)
+      return
+    }
+
+    if (activeLedgerId === ledger.id && activeLedgerIndex !== ledgerIndex) {
+      if (activeLedgerHasUnsavedChanges) {
+        setSaveStatus('当前收藏夹有未保存修改，请先保存。')
+        return
+      }
+
+      setActiveLedgerId(null)
+      setActiveLedgerIndex(null)
+      return
+    }
+
     setActiveLedgerId(ledger.id)
+    setActiveLedgerIndex(ledgerIndex)
+    setSaveStatus(null)
+  }
+
+  function closeActiveLedgerEditor() {
+    if (!activeLedger) {
+      return
+    }
+
+    if (activeLedgerHasUnsavedChanges) {
+      setSaveStatus('当前收藏夹有未保存修改，请先保存。')
+      return
+    }
+
+    setActiveLedgerId(null)
+    setActiveLedgerIndex(null)
+  }
+
+  function handlePanelClick(event: MouseEvent<HTMLElement>) {
+    const target = event.target as HTMLElement | null
+    if (
+      !target ||
+      target.closest(
+        '.favorite-ledger-panel__editor, .favorite-ledger-panel__chips, .favorite-ledger-panel__list-toggle, .favorite-ledger-panel__category-actions, .favorite-ledger-panel__toolbar, .favorite-ledger-panel__preview, .favorite-ledger-panel__setup-prompt'
+      )
+    ) {
+      return
+    }
+
+    closeActiveLedgerEditor()
   }
 
   function updateActiveLedger(patch: Partial<Pick<FavoriteLedger, 'displayName' | 'keywords'>>) {
@@ -379,6 +445,8 @@ export function FavoriteLedgerPanel({
     try {
       const result = await onSaveLedgers(nextLedgers)
       setSaveStatus(saveStatusMessage(result))
+      setActiveLedgerId(null)
+      setActiveLedgerIndex(null)
     } catch (error) {
       setSaveStatus(`同步未完成：${errorMessage(error)}`)
     } finally {
@@ -450,7 +518,12 @@ export function FavoriteLedgerPanel({
   const canToggleLedgerList = draftLedgers.length > ledgersToDisplay.length || ledgerListExpanded
 
   return (
-    <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
+    <section
+      role="dialog"
+      aria-label="掌库"
+      className="favorite-ledger-panel"
+      onClick={handlePanelClick}
+    >
       <div className="favorite-ledger-panel__topbar">
         <div className="favorite-ledger-panel__header">
           <h2>掌库</h2>
@@ -491,6 +564,11 @@ export function FavoriteLedgerPanel({
           {status}
         </p>
       ) : null}
+      {saveStatus ? (
+        <p className="favorite-ledger-panel__save-status" role="status">
+          {saveStatus}
+        </p>
+      ) : null}
 
       <div className="favorite-ledger-panel__workspace">
         <section className="favorite-ledger-panel__checklist" aria-label="收藏夹">
@@ -500,16 +578,13 @@ export function FavoriteLedgerPanel({
             <button type="button" disabled={busy} onClick={resetLedgers}>
               重置
             </button>
-            <button type="button" disabled={busy} onClick={addBlankLedger}>
-              新建收藏夹
-            </button>
             <button type="button" disabled={busy} onClick={() => void saveLedgers()}>
               同步
             </button>
           </div>
         </div>
         <div className="favorite-ledger-panel__chips">
-          {ledgersToDisplay.map((ledger) => {
+          {ledgersToDisplay.map((ledger, ledgerIndex) => {
             const ledgerEnabled = ledger.isDefault
               ? selectedDefaultLedgerIds.has(ledger.id)
               : ledger.enabled
@@ -517,7 +592,7 @@ export function FavoriteLedgerPanel({
             const selectLedgerLabel = ledgerLabel || '新建收藏夹'
             return (
               <div
-                key={ledger.id}
+                key={`${ledger.id}-${ledgerIndex}`}
                 className="favorite-ledger-panel__chip-item"
                 draggable
                 data-dragging={draggedLedgerId === ledger.id}
@@ -531,8 +606,8 @@ export function FavoriteLedgerPanel({
                   type="button"
                   aria-label={ledgerLabel ? undefined : `选择${selectLedgerLabel}`}
                   aria-pressed={ledgerEnabled}
-                  data-active={activeLedger?.id === ledger.id}
-                  onClick={() => selectLedger(ledger)}
+                  data-active={activeLedger?.id === ledger.id && activeLedgerIndex === ledgerIndex}
+                  onClick={() => selectLedger(ledger, ledgerIndex)}
                 >
                   {ledgerLabel}
                 </button>
@@ -549,8 +624,11 @@ export function FavoriteLedgerPanel({
             )
           })}
         </div>
-        {canToggleLedgerList ? (
-          <div className="favorite-ledger-panel__list-toggle">
+        <div className="favorite-ledger-panel__list-toggle">
+          <button type="button" disabled={busy} onClick={addBlankLedger}>
+            新建收藏夹
+          </button>
+          {canToggleLedgerList ? (
             <button
               type="button"
               aria-expanded={ledgerListExpanded}
@@ -559,24 +637,29 @@ export function FavoriteLedgerPanel({
             >
               {ledgerListExpanded ? '折叠' : '展开'}
             </button>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
         </section>
 
       {activeLedger ? (
         <section className="favorite-ledger-panel__editor" aria-label="当前收藏夹">
           <div className="favorite-ledger-panel__editor-title">
             <strong>正在编辑：{activeLedger.displayName}</strong>
-            {!activeLedger.isDefault ? (
-              <button
-                type="button"
-                aria-label={`删除 ${activeLedger.displayName}`}
-                onClick={() => deleteLedger(activeLedger.id)}
-                disabled={!canDeleteLedger(activeLedger)}
-              >
-                删除
+            <div className="favorite-ledger-panel__editor-actions">
+              <button type="button" disabled={busy} onClick={() => void saveLedgers()}>
+                保存
               </button>
-            ) : null}
+              {!activeLedger.isDefault ? (
+                <button
+                  type="button"
+                  aria-label={`删除 ${activeLedger.displayName}`}
+                  onClick={() => deleteLedger(activeLedger.id)}
+                  disabled={!canDeleteLedger(activeLedger)}
+                >
+                  删除
+                </button>
+              ) : null}
+            </div>
           </div>
         <label>
           册名
@@ -615,17 +698,11 @@ export function FavoriteLedgerPanel({
             不同关键词用顿号或空格隔开，逗号、斜杠也能识别。
           </p>
           <div className="favorite-ledger-panel__keyword-actions">
-            <button type="button" disabled={busy} onClick={() => void saveLedgers()}>
-              保存
-            </button>
-            {saveStatus ? (
-              <span className="favorite-ledger-panel__save-status" role="status">
-                {saveStatus}
-              </span>
-            ) : null}
           </div>
         </section>
-      ) : null}
+      ) : (
+        <div className="favorite-ledger-panel__editor-placeholder" aria-hidden="true" />
+      )}
 
       </div>
 
