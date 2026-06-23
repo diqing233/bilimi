@@ -57,6 +57,55 @@ describe('assistant state', () => {
     ).toEqual(createDefaultFavoriteLedgers().map((ledger) => ledger.id))
   })
 
+  it('removes retired Bilimi default ledgers from persisted preferences', () => {
+    const retiredLedgerNames = [
+      'Bilimi·见闻增广',
+      'Bilimi·茶余解颐',
+      'Bilimi·影剧情长',
+      'Bilimi·游艺演武',
+      'Bilimi·市井烟火',
+      'Bilimi·工巧器用',
+      'Bilimi·歌舞清音',
+      'Bilimi·暂存待阅'
+    ]
+    const preferences = createInitialAssistantPreferences({
+      favoriteLedgers: [
+        ...retiredLedgerNames.map((displayName, index) => ({
+          id: `retired-${index}`,
+          displayName,
+          keywords: [displayName.replace('Bilimi·', '')],
+          enabled: true,
+          priority: (index + 1) * 10,
+          isDefault: true
+        })),
+        {
+          id: 'custom-photo',
+          displayName: 'Bilimi·光影留真',
+          keywords: ['摄影'],
+          enabled: true,
+          priority: 50,
+          isDefault: false
+        }
+      ]
+    })
+
+    expect(preferences.favoriteLedgers.map((ledger) => ledger.displayName)).not.toEqual(
+      expect.arrayContaining(retiredLedgerNames)
+    )
+    expect(preferences.favoriteLedgers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'custom-photo',
+          displayName: 'Bilimi·光影留真'
+        }),
+        expect.objectContaining({
+          id: 'animation',
+          displayName: 'Bilimi·动画'
+        })
+      ])
+    )
+  })
+
   it('increments persisted preference counts after a successful action', () => {
     const next = recordAssistantPreferenceFeedback(createInitialAssistantPreferences(), 'funny', LIKE_ACTION)
 

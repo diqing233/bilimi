@@ -41,6 +41,17 @@ const DEFAULT_FAVORITE_LEDGER_DEFINITIONS = [
   ['inbox', '待分类', ['稍后', '待看', '暂存', '收藏']]
 ] as const
 
+const RETIRED_DEFAULT_FAVORITE_LEDGER_NAMES = new Set([
+  'Bilimi·见闻增广',
+  'Bilimi·茶余解颐',
+  'Bilimi·影剧情长',
+  'Bilimi·游艺演武',
+  'Bilimi·市井烟火',
+  'Bilimi·工巧器用',
+  'Bilimi·歌舞清音',
+  'Bilimi·暂存待阅'
+])
+
 const DEFAULT_FAVORITE_LEDGERS: FavoriteLedger[] = DEFAULT_FAVORITE_LEDGER_DEFINITIONS.map(
   ([id, name, keywords], index) => ({
     id,
@@ -71,7 +82,11 @@ export function createDefaultFavoriteLedgers(): FavoriteLedger[] {
 }
 
 export function normalizeFavoriteLedgers(ledgers: FavoriteLedger[]): FavoriteLedger[] {
-  const normalized = ledgers.map(cloneLedger)
+  const normalized = ledgers
+    .filter(
+      (ledger) => !ledger.isDefault || !RETIRED_DEFAULT_FAVORITE_LEDGER_NAMES.has(ledger.displayName)
+    )
+    .map(cloneLedger)
   const existingLedgerIds = new Set(normalized.map((ledger) => ledger.id))
 
   for (const defaultLedger of DEFAULT_FAVORITE_LEDGERS) {
