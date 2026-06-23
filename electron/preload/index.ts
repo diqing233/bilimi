@@ -189,6 +189,13 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('video-notes:save', note) as Promise<VideoNote[]>,
   saveVideoNoteArchiveVersion: (note: VideoNote) =>
     ipcRenderer.invoke('video-note-archives:save-version', note) as Promise<VideoNoteArchiveEntry[]>,
+  updateVideoNoteArchiveVersion: (archiveId: string, versionId: string, note: VideoNote) =>
+    ipcRenderer.invoke(
+      'video-note-archives:update-version',
+      archiveId,
+      versionId,
+      note
+    ) as Promise<VideoNoteArchiveEntry[]>,
   deleteVideoNoteArchiveEntry: (archiveId: string) =>
     ipcRenderer.invoke('video-note-archives:delete-entry', archiveId) as Promise<VideoNoteArchiveEntry[]>,
   deleteVideoNoteArchiveVersion: (archiveId: string, versionId: string) =>

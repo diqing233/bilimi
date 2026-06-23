@@ -165,6 +165,35 @@ export function deleteVideoNoteArchiveVersion(
     .filter((archive) => archive.versions.length > 0)
 }
 
+export function updateVideoNoteArchiveVersion(
+  archives: VideoNoteArchiveEntry[],
+  archiveId: string,
+  versionId: string,
+  note: VideoNote
+): VideoNoteArchiveEntry[] {
+  const normalizedNote = normalizeVideoNote(note)
+
+  return normalizeVideoNoteArchives(archives).map((archive) =>
+    archive.id === archiveId
+      ? {
+          ...archive,
+          source: normalizedNote.source,
+          versions: archive.versions.map((version) =>
+            version.id === versionId
+              ? {
+                  ...version,
+                  note: normalizedNote,
+                  plainTranscript: createPlainTranscriptText(normalizedNote),
+                  summaryText: createSummaryText(normalizedNote)
+                }
+              : version
+          ),
+          updatedAt: normalizedNote.updatedAt || archive.updatedAt
+        }
+      : archive
+  )
+}
+
 function archiveMatchesQuery(archive: VideoNoteArchiveEntry, query: string): boolean {
   if (!query) {
     return true

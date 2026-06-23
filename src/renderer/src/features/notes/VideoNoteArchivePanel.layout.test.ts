@@ -6,10 +6,8 @@ const stylesPath = resolve(process.cwd(), 'src/renderer/src/styles.css')
 const styles = readFileSync(stylesPath, 'utf8').replace(/\r\n/g, '\n')
 
 describe('VideoNoteArchivePanel layout styles', () => {
-  it('gives the archive detail pane more default width than the list pane', () => {
-    expect(styles).toContain(
-      'grid-template-columns: minmax(130px, 0.72fr) minmax(0, 1.68fr);'
-    )
+  it('stacks the archive list above the detail pane', () => {
+    expect(styles).toContain('grid-template-rows: minmax(150px, 0.9fr) minmax(0, 1.1fr);')
   })
 
   it('keeps archive detail content inside the visible pane by default', () => {

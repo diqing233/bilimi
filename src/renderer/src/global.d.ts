@@ -73,6 +73,11 @@ type BilimiDesktopApi = {
   saveDeepSeekApiKey?: (apiKey: string) => Promise<DeepSeekKeyStatus>
   saveVideoNote?: (note: VideoNote) => Promise<VideoNote[]>
   saveVideoNoteArchiveVersion?: (note: VideoNote) => Promise<VideoNoteArchiveEntry[]>
+  updateVideoNoteArchiveVersion?: (
+    archiveId: string,
+    versionId: string,
+    note: VideoNote
+  ) => Promise<VideoNoteArchiveEntry[]>
   deleteVideoNoteArchiveEntry?: (archiveId: string) => Promise<VideoNoteArchiveEntry[]>
   deleteVideoNoteArchiveVersion?: (
     archiveId: string,

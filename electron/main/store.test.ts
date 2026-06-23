@@ -6,6 +6,7 @@ import {
   loadAssistantPreferences,
   loadDeepSeekApiKeyStatus,
   saveVideoNoteArchiveVersion,
+  updateVideoNoteArchiveVersion,
   deleteVideoNoteArchiveEntry,
   deleteVideoNoteArchiveVersion,
   clearDeepSeekApiKey,
@@ -275,6 +276,23 @@ describe('video note archive store helpers', () => {
     expect(saveVideoNoteArchiveVersion(store, first, '2026-06-17T00:00:00.000Z')[0].versions).toHaveLength(1)
     expect(saveVideoNoteArchiveVersion(store, second, '2026-06-17T01:00:00.000Z')[0].versions).toHaveLength(2)
     expect(store.snapshot.videoNoteArchives[0].versions[1].plainTranscript).toBe('第二次转写。')
+  })
+
+  it('updates a saved archive version in place', () => {
+    const store = createFakeStore()
+    const note = createStoreNote()
+    saveVideoNoteArchiveVersion(store, note, '2026-06-17T00:00:00.000Z')
+    const archiveId = store.snapshot.videoNoteArchives[0].id
+    const versionId = store.snapshot.videoNoteArchives[0].versions[0].id
+
+    const updated = updateVideoNoteArchiveVersion(store, archiveId, versionId, {
+      ...note,
+      userMemo: '离开档案库前保存',
+      updatedAt: '2026-06-17T02:00:00.000Z'
+    })
+
+    expect(updated[0].versions).toHaveLength(1)
+    expect(store.snapshot.videoNoteArchives[0].versions[0].note.userMemo).toBe('离开档案库前保存')
   })
 
   it('deletes archive entries and versions', () => {

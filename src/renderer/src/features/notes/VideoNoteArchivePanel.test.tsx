@@ -74,35 +74,49 @@ function createArchives(): VideoNoteArchiveEntry[] {
   )
 }
 
+function renderArchivePanel(overrides: Partial<React.ComponentProps<typeof VideoNoteArchivePanel>> = {}) {
+  return render(
+    <VideoNoteArchivePanel
+      archives={createArchives()}
+      onClose={vi.fn()}
+      onOpenSource={vi.fn()}
+      onUpdateVersion={vi.fn()}
+      onDeleteEntry={vi.fn()}
+      onDeleteVersion={vi.fn()}
+      {...overrides}
+    />
+  )
+}
+
 describe('VideoNoteArchivePanel', () => {
-  it('renders searchable archive list and selected video detail', () => {
-    render(
-      <VideoNoteArchivePanel
-        archives={createArchives()}
-        onClose={vi.fn()}
-        onOpenSource={vi.fn()}
-        onDeleteEntry={vi.fn()}
-        onDeleteVersion={vi.fn()}
-      />
-    )
+  it('renders searchable archive list before showing selected video detail', () => {
+    renderArchivePanel()
 
     expect(screen.getByRole('searchbox', { name: '搜索档案' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /机器学习入门/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /React 状态管理/ })).toBeInTheDocument()
+    expect(screen.queryByText('第二版纯文稿。')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+
     expect(screen.getByText('第二版纯文稿。')).toBeInTheDocument()
     expect(screen.getByText('期末复习')).toBeInTheDocument()
   })
 
+  it('shows archive detail below the list only after a video is selected', () => {
+    renderArchivePanel()
+
+    expect(screen.getByRole('list', { name: '视频列表' })).toBeInTheDocument()
+    expect(screen.queryByRole('article', { name: '机器学习入门' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+
+    expect(screen.getByRole('article', { name: '机器学习入门' })).toBeInTheDocument()
+    expect(screen.getByRole('tablist', { name: '档案文稿' })).toBeInTheDocument()
+  })
+
   it('searches title, author, bvid, transcript and summary text', () => {
-    render(
-      <VideoNoteArchivePanel
-        archives={createArchives()}
-        onClose={vi.fn()}
-        onOpenSource={vi.fn()}
-        onDeleteEntry={vi.fn()}
-        onDeleteVersion={vi.fn()}
-      />
-    )
+    renderArchivePanel()
 
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索档案' }), {
       target: { value: 'reducer' }
@@ -113,15 +127,7 @@ describe('VideoNoteArchivePanel', () => {
   })
 
   it('filters archives with annotations and memo', () => {
-    render(
-      <VideoNoteArchivePanel
-        archives={createArchives()}
-        onClose={vi.fn()}
-        onOpenSource={vi.fn()}
-        onDeleteEntry={vi.fn()}
-        onDeleteVersion={vi.fn()}
-      />
-    )
+    renderArchivePanel()
 
     fireEvent.click(screen.getByLabelText('有批注'))
 
@@ -133,15 +139,7 @@ describe('VideoNoteArchivePanel', () => {
   })
 
   it('switches selected video and version', () => {
-    render(
-      <VideoNoteArchivePanel
-        archives={createArchives()}
-        onClose={vi.fn()}
-        onOpenSource={vi.fn()}
-        onDeleteEntry={vi.fn()}
-        onDeleteVersion={vi.fn()}
-      />
-    )
+    renderArchivePanel()
 
     fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
     fireEvent.change(screen.getByLabelText('历史版本'), {
@@ -158,21 +156,65 @@ describe('VideoNoteArchivePanel', () => {
       value: { writeText }
     })
 
-    render(
-      <VideoNoteArchivePanel
-        archives={createArchives()}
-        onClose={vi.fn()}
-        onOpenSource={vi.fn()}
-        onDeleteEntry={vi.fn()}
-        onDeleteVersion={vi.fn()}
-      />
-    )
+    renderArchivePanel()
 
-    fireEvent.click(screen.getByRole('button', { name: '复制纯文稿' }))
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+    fireEvent.click(screen.getByRole('button', { name: '复制' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('第二版纯文稿。'))
 
-    fireEvent.click(screen.getByRole('button', { name: '复制总结' }))
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+    fireEvent.click(screen.getByRole('button', { name: '复制' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining('## 速览')))
+  })
+
+  it('saves archive annotations and memo while keeping them filterable', async () => {
+    const onUpdateVersion = vi.fn().mockResolvedValue(undefined)
+
+    renderArchivePanel({ onUpdateVersion })
+
+    fireEvent.click(screen.getByRole('button', { name: /React 状态管理/ }))
+    fireEvent.change(screen.getByLabelText('批注标题'), {
+      target: { value: 'Hooks 对比' }
+    })
+    fireEvent.change(screen.getByLabelText('批注正文'), {
+      target: { value: '这里要补一段 useReducer 的例子。' }
+    })
+
+    await waitFor(() =>
+      expect(onUpdateVersion).toHaveBeenLastCalledWith(
+        'bvid:BV1react',
+        'bvid:BV1react:version:2026-06-16T00:00:00.000Z',
+        expect.objectContaining({
+          annotations: expect.arrayContaining([
+            expect.objectContaining({
+              title: 'Hooks 对比',
+              body: '这里要补一段 useReducer 的例子。'
+            })
+          ])
+        })
+      )
+    )
+
+    fireEvent.click(screen.getByLabelText('有批注'))
+    expect(screen.getByRole('button', { name: /React 状态管理/ })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('本地备注'), {
+      target: { value: '下次复盘时先看这条。' }
+    })
+
+    await waitFor(() =>
+      expect(onUpdateVersion).toHaveBeenLastCalledWith(
+        'bvid:BV1react',
+        'bvid:BV1react:version:2026-06-16T00:00:00.000Z',
+        expect.objectContaining({
+          userMemo: '下次复盘时先看这条。'
+        })
+      )
+    )
+
+    fireEvent.click(screen.getByLabelText('有备注'))
+    expect(screen.getByRole('button', { name: /React 状态管理/ })).toBeInTheDocument()
   })
 
   it('opens source and confirms destructive deletes', async () => {
@@ -180,16 +222,9 @@ describe('VideoNoteArchivePanel', () => {
     const onDeleteEntry = vi.fn().mockResolvedValue(undefined)
     const onDeleteVersion = vi.fn().mockResolvedValue(undefined)
 
-    render(
-      <VideoNoteArchivePanel
-        archives={createArchives()}
-        onClose={vi.fn()}
-        onOpenSource={onOpenSource}
-        onDeleteEntry={onDeleteEntry}
-        onDeleteVersion={onDeleteVersion}
-      />
-    )
+    renderArchivePanel({ onOpenSource, onDeleteEntry, onDeleteVersion })
 
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
     fireEvent.click(screen.getByRole('button', { name: '打开来源' }))
     expect(onOpenSource).toHaveBeenCalledWith('https://www.bilibili.com/video/BV1note')
 

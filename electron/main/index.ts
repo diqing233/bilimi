@@ -12,6 +12,7 @@ import {
   loadVideoNotes,
   saveDeepSeekApiKey,
   saveVideoNoteArchiveVersion,
+  updateVideoNoteArchiveVersion,
   saveAssistantPreferences,
   deleteVideoNoteArchiveEntry,
   deleteVideoNoteArchiveVersion,
@@ -532,6 +533,11 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle('video-note-archives:load', () => loadVideoNoteArchives(getDesktopStore()))
   ipcMain.handle('video-note-archives:save-version', (_event, note: VideoNote) =>
     saveVideoNoteArchiveVersion(getDesktopStore(), note)
+  )
+  ipcMain.handle(
+    'video-note-archives:update-version',
+    (_event, archiveId: string, versionId: string, note: VideoNote) =>
+      updateVideoNoteArchiveVersion(getDesktopStore(), archiveId, versionId, note)
   )
   ipcMain.handle('video-note-archives:delete-entry', (_event, archiveId: string) =>
     deleteVideoNoteArchiveEntry(getDesktopStore(), archiveId)

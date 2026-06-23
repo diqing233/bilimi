@@ -6,7 +6,8 @@ import {
   createSummaryText,
   deleteVideoNoteArchiveEntry,
   deleteVideoNoteArchiveVersion,
-  searchVideoNoteArchives
+  searchVideoNoteArchives,
+  updateVideoNoteArchiveVersion
 } from './videoNoteArchive'
 import { createVideoNoteId } from './videoNotes'
 
@@ -122,6 +123,40 @@ describe('video note archive helpers', () => {
 
     expect(deleteVideoNoteArchiveVersion(archives, archiveId, versionId)[0].versions).toHaveLength(1)
     expect(deleteVideoNoteArchiveEntry(archives, archiveId)).toEqual([])
+  })
+
+  it('updates an existing archive version without appending a new transcription', () => {
+    const archives = appendVideoNoteArchiveVersion([], createNote(), '2026-06-17T00:00:00.000Z')
+    const updatedNote = {
+      ...archives[0].versions[0].note,
+      annotations: [
+        {
+          id: 'annotation-1',
+          start: null,
+          title: '复看',
+          body: '这里需要补充例子。',
+          createdAt: '2026-06-18T00:00:00.000Z',
+          updatedAt: '2026-06-18T00:00:00.000Z'
+        }
+      ],
+      userMemo: '周末复习',
+      updatedAt: '2026-06-18T00:00:00.000Z'
+    }
+
+    const updated = updateVideoNoteArchiveVersion(
+      archives,
+      archives[0].id,
+      archives[0].versions[0].id,
+      updatedNote
+    )
+
+    expect(updated[0].versions).toHaveLength(1)
+    expect(updated[0].versions[0].note).toMatchObject({
+      annotations: [expect.objectContaining({ title: '复看' })],
+      userMemo: '周末复习'
+    })
+    expect(searchVideoNoteArchives(updated, { query: '', hasAnnotations: true })).toHaveLength(1)
+    expect(searchVideoNoteArchives(updated, { query: '', hasMemo: true })).toHaveLength(1)
   })
 
   it('normalizes legacy archive entries with usable versions', () => {

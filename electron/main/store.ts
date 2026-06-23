@@ -4,7 +4,8 @@ import {
   appendVideoNoteArchiveVersion,
   deleteVideoNoteArchiveEntry as removeVideoNoteArchiveEntry,
   deleteVideoNoteArchiveVersion as removeVideoNoteArchiveVersion,
-  normalizeVideoNoteArchives
+  normalizeVideoNoteArchives,
+  updateVideoNoteArchiveVersion as replaceVideoNoteArchiveVersion
 } from '../../src/shared/videoNoteArchive'
 import { normalizeVideoNotes, upsertVideoNote } from '../../src/shared/videoNotes'
 import type { DeepSeekKeyStatus, FavoriteLedger, VideoNote, VideoNoteArchiveEntry } from '../../src/shared/types'
@@ -184,6 +185,24 @@ export function deleteVideoNoteArchiveVersion(
   versionId: string
 ): VideoNoteArchiveEntry[] {
   const archives = removeVideoNoteArchiveVersion(loadVideoNoteArchives(store), archiveId, versionId)
+
+  store.set('videoNoteArchives', archives)
+
+  return archives
+}
+
+export function updateVideoNoteArchiveVersion(
+  store: AssistantStoreLike = getDesktopStore(),
+  archiveId: string,
+  versionId: string,
+  note: VideoNote
+): VideoNoteArchiveEntry[] {
+  const archives = replaceVideoNoteArchiveVersion(
+    loadVideoNoteArchives(store),
+    archiveId,
+    versionId,
+    note
+  )
 
   store.set('videoNoteArchives', archives)
 

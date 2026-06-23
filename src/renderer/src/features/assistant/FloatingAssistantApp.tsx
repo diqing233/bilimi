@@ -619,6 +619,16 @@ export function FloatingAssistantApp({
     tellPet('success', '这个版本已经删掉啦。')
   }
 
+  async function updateVideoNoteArchiveVersion(
+    archiveId: string,
+    versionId: string,
+    note: VideoNote
+  ) {
+    const archives =
+      (await window.bilimiDesktop?.updateVideoNoteArchiveVersion?.(archiveId, versionId, note)) ?? []
+    setVideoNoteArchives(archives)
+  }
+
   async function saveVideoNote(note: VideoNote) {
     await window.bilimiDesktop?.saveVideoNote?.(note)
     tellPet('success', '札记保存好了。')
@@ -860,6 +870,7 @@ export function FloatingAssistantApp({
             archives={videoNoteArchives}
             onClose={() => setActiveTab('notes')}
             onOpenSource={(url) => window.open(url)}
+            onUpdateVersion={updateVideoNoteArchiveVersion}
             onDeleteEntry={deleteVideoNoteArchiveEntry}
             onDeleteVersion={deleteVideoNoteArchiveVersion}
           />
