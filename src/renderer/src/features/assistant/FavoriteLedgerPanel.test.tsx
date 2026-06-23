@@ -115,7 +115,8 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(ledgerButton)
 
-    expect(screen.getByDisplayValue(targetLedger.displayName)).toBeInTheDocument()
+    expect(screen.getByText(`正在编辑：${targetLedger.displayName}`)).toBeInTheDocument()
+    expect(screen.getByDisplayValue(targetLabel)).toBeInTheDocument()
     expect(ledgerButton).toHaveAttribute('aria-pressed', 'false')
 
     fireEvent.click(screen.getByRole('button', { name: '同步' }))
@@ -242,6 +243,61 @@ describe('FavoriteLedgerPanel', () => {
         ])
       )
     )
+  })
+
+  it('keeps the Bilimi prefix fixed while editing a managed ledger name', async () => {
+    const onSaveLedgers = vi.fn()
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
+    const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
+
+    expect(editor.getByText('Bilimi·')).toBeInTheDocument()
+    const nameInput = editor.getByLabelText('册名')
+    expect(nameInput).toHaveValue('鬼畜')
+
+    fireEvent.change(nameInput, {
+      target: { value: '音MAD' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+
+    await waitFor(() =>
+      expect(onSaveLedgers).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'kichiku',
+            displayName: 'Bilimi·音MAD'
+          })
+        ])
+      )
+    )
+  })
+
+  it('explains that ledger keywords are rules used to match future favorites', () => {
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    expect(
+      screen.getByText('关键词是这个册目的匹配规则：Bilimi 会用它们判断当前视频或旧藏应归到哪一册。')
+    ).toBeInTheDocument()
   })
 
   it('deletes only Bilimi custom ledgers after 同步', async () => {

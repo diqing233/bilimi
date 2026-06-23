@@ -359,7 +359,7 @@ describe('FloatingAssistantApp', () => {
       expect(saveFavoriteLedgers).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({
-            displayName: 'Bilimi Test',
+            displayName: 'Bilimi·Test',
             keywords: ['test', 'video'],
             isDefault: false
           })
