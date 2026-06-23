@@ -54,6 +54,20 @@ function prefixedBilimiLedgerName(name: string) {
   return `${BILIMI_LEDGER_PREFIX}${stripBilimiLedgerPrefix(name)}`
 }
 
+function addShortcutAnchorIndex(ledgers: FavoriteLedger[]) {
+  const lastCustomBilimiIndex = ledgers.reduce(
+    (lastIndex, ledger, index) => (!ledger.isDefault && isBilimiLedger(ledger) ? index : lastIndex),
+    -1
+  )
+
+  if (lastCustomBilimiIndex >= 0) {
+    return lastCustomBilimiIndex
+  }
+
+  const documentaryIndex = ledgers.findIndex((ledger) => ledger.id === 'documentary')
+  return documentaryIndex >= 0 ? documentaryIndex : ledgers.length - 1
+}
+
 export function FavoriteLedgerPanel({
   ledgers,
   missingLedgerIds,
@@ -109,16 +123,22 @@ export function FavoriteLedgerPanel({
   }
 
   function addBlankLedger() {
+    const insertIndex = addShortcutAnchorIndex(draftLedgers) + 1
     const nextLedger = {
       id: customLedgerId('new-ledger'),
       displayName: BILIMI_LEDGER_PREFIX,
       keywords: [],
       enabled: true,
-      priority: draftLedgers.length + 100,
+      priority: insertIndex + 100,
       isDefault: false
     }
+    const nextLedgers = [
+      ...draftLedgers.slice(0, insertIndex),
+      nextLedger,
+      ...draftLedgers.slice(insertIndex)
+    ]
 
-    setDraftLedgers([...draftLedgers, nextLedger])
+    setDraftLedgers(nextLedgers)
     setActiveLedgerId(nextLedger.id)
   }
 
@@ -336,6 +356,8 @@ export function FavoriteLedgerPanel({
     }
   }
 
+  const addShortcutLedgerIndex = addShortcutAnchorIndex(draftLedgers)
+
   return (
     <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
       <div className="favorite-ledger-panel__header">
@@ -385,16 +407,18 @@ export function FavoriteLedgerPanel({
           </button>
         </div>
         <div className="favorite-ledger-panel__chips">
-          {draftLedgers.map((ledger) => {
+          {draftLedgers.map((ledger, ledgerIndex) => {
             const ledgerEnabled = ledger.isDefault
               ? selectedDefaultLedgerIds.has(ledger.id)
               : ledger.enabled
             const ledgerLabel = ledger.displayName.replace(/^Bilimi[·\s-]*/, '')
+            const selectLedgerLabel = ledgerLabel || '新建收藏夹'
             return (
               <Fragment key={ledger.id}>
                 <div className="favorite-ledger-panel__chip-item">
                   <button
                     type="button"
+                    aria-label={ledgerLabel ? undefined : `选择${selectLedgerLabel}`}
                     aria-pressed={ledgerEnabled}
                     data-active={activeLedger?.id === ledger.id}
                     onClick={() => selectLedger(ledger)}
@@ -411,14 +435,14 @@ export function FavoriteLedgerPanel({
                     {ledgerEnabled ? '✓' : '+'}
                   </button>
                 </div>
-                {ledger.id === 'documentary' ? (
+                {ledgerIndex === addShortcutLedgerIndex ? (
                   <button
                     type="button"
                     className="favorite-ledger-panel__add-shortcut"
-                    aria-label="添加新收藏"
+                    aria-label="新建收藏夹"
                     onClick={addBlankLedger}
                   >
-                    +
+                    新建收藏夹
                   </button>
                 ) : null}
               </Fragment>

@@ -196,15 +196,26 @@ describe('FavoriteLedgerPanel', () => {
     const chipButtons = within(chips).getAllByRole('button')
     const documentaryIndex = chipButtons.findIndex((button) => button.textContent === '纪录片')
     const addCustomLedgerIndex = chipButtons.findIndex(
-      (button) => button.getAttribute('aria-label') === '添加新收藏'
+      (button) => button.getAttribute('aria-label') === '新建收藏夹'
     )
 
     expect(addCustomLedgerIndex).toBe(documentaryIndex + 2)
+    expect(chipButtons[addCustomLedgerIndex]).toHaveTextContent('新建收藏夹')
     expect(screen.queryByRole('group', { name: '新立册目' })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '添加新收藏' }))
+    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹' }))
 
     expect(screen.getByText('正在编辑：Bilimi·')).toBeInTheDocument()
+    const nextChipItems = Array.from(
+      chips.querySelector('.favorite-ledger-panel__chips')?.children ?? []
+    )
+    const newLedgerItemIndex = nextChipItems.findIndex((item) =>
+      within(item as HTMLElement).queryByRole('button', { name: '选择新建收藏夹' })
+    )
+    const nextAddCustomLedgerIndex = nextChipItems.findIndex((item) =>
+      (item as HTMLElement).classList.contains('favorite-ledger-panel__add-shortcut')
+    )
+    expect(newLedgerItemIndex).toBe(nextAddCustomLedgerIndex - 1)
     const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
     fireEvent.change(editor.getByLabelText('册名'), { target: { value: '摄影' } })
     fireEvent.change(editor.getByLabelText('关键词'), { target: { value: '摄影 写真、镜头' } })

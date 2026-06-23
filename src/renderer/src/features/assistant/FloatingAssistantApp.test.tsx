@@ -346,7 +346,7 @@ describe('FloatingAssistantApp', () => {
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '掌库' }))
-    fireEvent.click(screen.getByRole('button', { name: '添加新收藏' }))
+    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹' }))
     const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
     fireEvent.change(editor.getByLabelText('册名'), { target: { value: 'Bilimi Test' } })
     fireEvent.change(editor.getByLabelText('关键词'), { target: { value: 'test video' } })
