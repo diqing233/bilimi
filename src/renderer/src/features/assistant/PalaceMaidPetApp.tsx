@@ -3,6 +3,7 @@ import { LayeredPetRenderer } from './LayeredPetRenderer'
 import {
   createPetStateView,
   normalizePetState,
+  type AssistantPetHint,
   type AssistantPetState
 } from './petState'
 import { createInitialAssistantPreferences } from '../state/assistantState'
@@ -47,13 +48,31 @@ export function PalaceMaidPetApp() {
   const [chatMessages, setChatMessages] = useState<DeepSeekChatMessage[]>([])
   const [chatBusy, setChatBusy] = useState(false)
   const [chatError, setChatError] = useState('')
+  const [petHint, setPetHint] = useState<AssistantPetHint | null>(null)
   const [closePromptVisible, setClosePromptVisible] = useState(false)
-  const stateView = createPetStateView(petState)
+  const visiblePetState = petHint?.tone ?? petState
+  const stateView = createPetStateView(visiblePetState)
+  const bubbleMessage = petHint?.message ?? stateView.bubble
   const deepSeekChatEnabled = preferences.deepseekEnabled && preferences.deepseekApiKeyStored
 
   useEffect(() => {
     return window.bilimiDesktop?.onAssistantPetStateChanged?.((state) => {
       setPetState(normalizePetState(state))
+    })
+  }, [])
+
+  useEffect(() => {
+    return window.bilimiDesktop?.onAssistantPetHintChanged?.((hint) => {
+      const message = hint.message.trim()
+
+      if (!message) {
+        return
+      }
+
+      setPetHint({
+        tone: hint.tone === 'working' || hint.tone === 'error' ? hint.tone : 'hint',
+        message
+      })
     })
   }, [])
 
@@ -379,7 +398,7 @@ export function PalaceMaidPetApp() {
       >
         <span className="palace-maid-pet__halo" aria-hidden="true" />
         <LayeredPetRenderer
-          petState={petState}
+          petState={visiblePetState}
           clickReactionSignal={clickReactionSignal}
           petStyle={preferences.petStyle}
         />
@@ -421,7 +440,7 @@ export function PalaceMaidPetApp() {
           onClick={openPetChat}
         >
           <strong>{stateView.label}</strong>
-          <span>{stateView.bubble}</span>
+          <span>{bubbleMessage}</span>
         </button>
         {chatOpen ? (
           <form className="palace-maid-pet__chat" onSubmit={submitChatMessage}>

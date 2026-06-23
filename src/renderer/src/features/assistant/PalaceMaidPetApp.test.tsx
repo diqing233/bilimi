@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AssistantPetState } from './petState'
+import type { AssistantPetHint, AssistantPetState } from './petState'
 import type { AssistantPreferences } from '@shared/types'
 
 vi.mock('./LayeredPetRenderer', () => ({
@@ -43,6 +43,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const api = {
     version: '0.1.0',
     finishFloatingSealDrag: vi.fn(),
+    onAssistantPetHintChanged: vi.fn(),
     onAssistantPetStateChanged: vi.fn(),
     restoreMainWindowFromPet: vi.fn().mockResolvedValue(undefined),
     savePreferences: vi.fn(),
@@ -204,6 +205,25 @@ describe('PalaceMaidPetApp', () => {
       messages: [{ role: 'user', content: 'watch this page' }]
     })
     expect(await screen.findByText('This page looks worth watching.')).toBeInTheDocument()
+  })
+
+  it('speaks button-triggered hints in 小咪 voice without DeepSeek', () => {
+    let hintChanged: ((hint: AssistantPetHint) => void) | undefined
+    installDesktopApi({
+      onAssistantPetHintChanged: vi.fn((callback) => {
+        hintChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    act(() => {
+      hintChanged?.({ tone: 'working', message: '主人，小咪正在帮你整理札记～' })
+    })
+
+    expect(screen.getByText('小咪忙碌中')).toBeInTheDocument()
+    expect(screen.getByText('主人，小咪正在帮你整理札记～')).toBeInTheDocument()
   })
 
   it('scrolls the pet chat down to the newest reply', async () => {

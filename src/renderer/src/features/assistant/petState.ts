@@ -1,5 +1,10 @@
 export type AssistantPetState = 'idle' | 'hint' | 'working' | 'error'
 
+export type AssistantPetHint = {
+  tone: Exclude<AssistantPetState, 'idle'>
+  message: string
+}
+
 export type AssistantPetStateView = {
   state: AssistantPetState
   label: '小咪待机' | '小咪提示' | '小咪忙碌中' | '小咪遇到问题'

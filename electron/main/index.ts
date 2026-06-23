@@ -58,7 +58,10 @@ import type {
   AssistantSnapshot,
   FloatingAssistantActionOptions
 } from '../../src/renderer/src/features/assistant/assistantRuntimeTypes'
-import type { AssistantPetState } from '../../src/renderer/src/features/assistant/petState'
+import type {
+  AssistantPetHint,
+  AssistantPetState
+} from '../../src/renderer/src/features/assistant/petState'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../../src/renderer/src/features/favorites/favoriteLedgerPreview'
 
 const FLOATING_SEAL_VISUAL_SIZE = { width: 280, height: 352 }
@@ -218,6 +221,14 @@ function sendAssistantPetState() {
 function setAssistantPetState(state: AssistantPetState) {
   assistantPetState = state
   sendAssistantPetState()
+}
+
+function sendAssistantPetHint(hint: AssistantPetHint) {
+  if (!floatingSealWindow || floatingSealWindow.isDestroyed()) {
+    return
+  }
+
+  floatingSealWindow.webContents.send('assistant-pet:hint-changed', hint)
 }
 
 function sendAssistantPreferencesChanged(preferences: AssistantPreferences) {
@@ -554,6 +565,14 @@ function registerAssistantPreferenceHandlers() {
   })
   ipcMain.on('assistant-pet:set-state', (_event, state: AssistantPetState) => {
     setAssistantPetState(state)
+  })
+  ipcMain.on('assistant-pet:set-hint', (_event, hint: AssistantPetHint) => {
+    if (!hint || typeof hint.message !== 'string') {
+      return
+    }
+
+    const tone = hint.tone === 'working' || hint.tone === 'error' ? hint.tone : 'hint'
+    sendAssistantPetHint({ tone, message: hint.message })
   })
   ipcMain.handle('assistant-pet:wake', () => {
     wakeAssistantPetWindow()

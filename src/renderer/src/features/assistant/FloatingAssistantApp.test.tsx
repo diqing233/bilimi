@@ -129,6 +129,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const closeFloatingAssistant = vi.fn()
   const closeAssistantPet = vi.fn()
   const wakeAssistantPet = vi.fn().mockResolvedValue(undefined)
+  const setAssistantPetHint = vi.fn()
   const api = {
     version: '0.1.0',
     closeAssistantPet,
@@ -155,6 +156,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     deleteVideoNoteArchiveEntry,
     deleteVideoNoteArchiveVersion,
     scanOldFavorites,
+    setAssistantPetHint,
     wakeAssistantPet,
     clearOpenAiApiKey,
     ...overrides
@@ -675,9 +677,11 @@ describe('FloatingAssistantApp', () => {
 
   it('reports working and hint pet states around successful sidebar actions', async () => {
     const setAssistantPetState = vi.fn()
+    const setAssistantPetHint = vi.fn()
     const runAssistantAction = vi.fn().mockResolvedValue(createResult('动作已完成。'))
     installDesktopApi({
       runAssistantAction,
+      setAssistantPetHint,
       setAssistantPetState
     })
 
@@ -688,5 +692,13 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() => expect(runAssistantAction).toHaveBeenCalled())
     expect(setAssistantPetState).toHaveBeenNthCalledWith(1, 'working')
     expect(setAssistantPetState).toHaveBeenLastCalledWith('hint')
+    expect(setAssistantPetHint).toHaveBeenNthCalledWith(1, {
+      tone: 'working',
+      message: '主人，小咪正在把它收进合适的 Bilimi 分册～'
+    })
+    expect(setAssistantPetHint).toHaveBeenLastCalledWith({
+      tone: 'hint',
+      message: '主人，收好啦，这支视频已经进 Bilimi 分册了。'
+    })
   })
 })

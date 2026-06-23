@@ -204,6 +204,31 @@ describe('DeepSeek main service', () => {
     ).resolves.toEqual({ kind: 'pet-chat', message: 'Thanks for sharing this page.' })
   })
 
+  it('teaches pet chat enough Bilimi product context to answer user questions', async () => {
+    const fetchImpl = createJsonFetch('Bilimi helps you review, collect, and summarize Bilibili videos.')
+
+    await generateDeepSeekResult({
+      config: baseConfig,
+      request: {
+        kind: 'pet-chat',
+        messages: [{ role: 'user', content: 'bilimi 可以做什么？' }]
+      },
+      fetchImpl
+    })
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
+      messages: Array<{ role: string; content: string }>
+    }
+    const systemMessage = body.messages.find((message) => message.role === 'system')?.content ?? ''
+
+    expect(systemMessage).toContain('Bilimi')
+    expect(systemMessage).toContain('Bilibili')
+    expect(systemMessage).toContain('批阅')
+    expect(systemMessage).toContain('掌库')
+    expect(systemMessage).toContain('札记')
+    expect(systemMessage).toContain('DeepSeek')
+  })
+
   it('maps non-OK API responses to api-error', async () => {
     await expect(
       generateDeepSeekResult({

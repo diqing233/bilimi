@@ -18,7 +18,10 @@ import type {
   AssistantRuntimeResponsePayload,
   FloatingAssistantActionOptions
 } from '../../src/renderer/src/features/assistant/assistantRuntimeTypes'
-import type { AssistantPetState } from '../../src/renderer/src/features/assistant/petState'
+import type {
+  AssistantPetHint,
+  AssistantPetState
+} from '../../src/renderer/src/features/assistant/petState'
 import type { FavoriteLedgerPreviewItem } from '../../src/renderer/src/features/favorites/favoriteLedgerPreview'
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
@@ -47,6 +50,15 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
 
     return () => {
       ipcRenderer.removeListener('assistant-pet:state-changed', listener)
+    }
+  },
+  onAssistantPetHintChanged: (callback: (hint: AssistantPetHint) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, hint: AssistantPetHint) => callback(hint)
+
+    ipcRenderer.on('assistant-pet:hint-changed', listener)
+
+    return () => {
+      ipcRenderer.removeListener('assistant-pet:hint-changed', listener)
     }
   },
   onAssistantPreferencesChanged: (callback: (preferences: AssistantPreferences) => void) => {
@@ -188,6 +200,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   clearDeepSeekApiKey: () => ipcRenderer.invoke('deepseek:clear-key') as Promise<DeepSeekKeyStatus>,
   setAssistantPetState: (state: AssistantPetState) =>
     ipcRenderer.send('assistant-pet:set-state', state),
+  setAssistantPetHint: (hint: AssistantPetHint) =>
+    ipcRenderer.send('assistant-pet:set-hint', hint),
   setFloatingSealMouseTransparent: (transparent: boolean) =>
     ipcRenderer.send('floating-seal:set-mouse-transparent', transparent),
   startFloatingSealDrag: (screenX: number, screenY: number) =>

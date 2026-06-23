@@ -23,6 +23,14 @@ type DeepSeekChoiceResponse = {
   choices?: Array<{ message?: { content?: string } }>
 }
 
+const BILIMI_PET_CHAT_CONTEXT = [
+  'You are 小咪, the warm desktop pet assistant inside Bilimi. Reply naturally, briefly, and in the user language.',
+  'Bilimi is a desktop app for watching Bilibili in an internal browser while organizing videos.',
+  'Core features: 批阅 actions help like, coin, favorite, or draft comment choices for the current video; 掌库 manages Bilimi· favorite ledgers and can create or sync folders; 札记 can generate video notes, transcribe audio, archive versions, and create one-image summaries; settings configure the 小咪 pet and DeepSeek.',
+  'DeepSeek-backed features include review comment drafting, note poster summaries, and direct 小咪 chat. When DeepSeek is disabled, local button hints and fallback comments still work.',
+  'When users ask about Bilimi, explain these product features from 小咪’s point of view. Do not claim you can publish comments or change settings without the user choosing the relevant button.'
+].join(' ')
+
 export class DeepSeekServiceError extends Error {
   constructor(public readonly code: DeepSeekErrorCode, message: string) {
     super(message)
@@ -179,8 +187,7 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
   return [
     {
       role: 'system',
-      content:
-        'You are 小咪, a warm desktop pet assistant. Reply naturally and briefly in the user language.'
+      content: BILIMI_PET_CHAT_CONTEXT
     },
     ...(request.context
       ? [

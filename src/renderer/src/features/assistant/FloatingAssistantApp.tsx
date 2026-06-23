@@ -73,6 +73,37 @@ type ActionFeedback = {
   missingTargets: string[]
 }
 
+const ACTION_PROGRESS_HINTS: Record<AssistantAction, string> = {
+  赏: '主人，小咪正在帮这支视频点个喜欢～',
+  藏: '主人，小咪正在把它收进合适的 Bilimi 分册～',
+  赐: '主人，小咪正在把硬币准备好～',
+  表: '主人，小咪正在备好短评候选，等你拍板～',
+  阅: '主人，小咪正在登记已阅～'
+}
+
+const ACTION_SUCCESS_HINTS: Record<AssistantAction, string> = {
+  赏: '做好啦，喜欢和分册都替主人处理好了～',
+  藏: '收好啦，这支视频已经进 Bilimi 分册了。',
+  赐: '投币完成啦，小咪给这份喜欢盖章了～',
+  表: '短评已经送出啦，还是由主人选中的那句。',
+  阅: '已阅登记完成，主人可以继续看下一支啦。'
+}
+
+const ACTION_ERROR_HINTS: Record<AssistantAction, string> = {
+  赏: '主人，这次点赞归册没跑顺，小咪需要你看一眼提示。',
+  藏: '主人，收藏归册遇到问题了，小咪把原因放在面板里。',
+  赐: '主人，投币这一步卡住了，小咪把错误留给你看。',
+  表: '主人，短评流程没完成，小咪把问题同步出来了。',
+  阅: '主人，已阅登记失败了，小咪把细节放在提示里。'
+}
+
+const TAB_HINTS: Record<AssistantWorkspaceTab, string> = {
+  review: '小咪切到批阅啦，当前视频的操作都在这里。',
+  notes: '小咪切到札记啦，可以转写、整理和存档。',
+  ledger: '小咪切到掌库啦，Bilimi 分册在这里管理。',
+  settings: '小咪切到设置啦，宠物和 DeepSeek 都在这里调。'
+}
+
 function createFallbackSnapshot(): AssistantSnapshot {
   const preferences = createInitialAssistantPreferences()
 
@@ -99,6 +130,19 @@ function createDefaultResult(message: string): AssistantAutomationResult {
     missingTargets: [],
     message
   }
+}
+
+function createPetHintMessage(message: string) {
+  const trimmed = message.trim()
+  if (!trimmed) {
+    return '主人，小咪已经同步到这里啦。'
+  }
+
+  if (/^(主人|小咪)/.test(trimmed)) {
+    return trimmed
+  }
+
+  return `主人，${trimmed}`
 }
 
 function localizeDeepSeekStatusMessage(message: string): string {
@@ -171,8 +215,16 @@ export function FloatingAssistantApp({
   const [activeView, setActiveView] = useState<AssistantWorkspaceView>(activeTab)
   const isSidebarMode = mode === 'sidebar'
 
+  function tellPet(tone: ActionFeedback['tone'], message: string) {
+    window.bilimiDesktop?.setAssistantPetHint?.({
+      tone: tone === 'progress' ? 'working' : tone === 'error' ? 'error' : 'hint',
+      message: createPetHintMessage(message)
+    })
+  }
+
   function setActiveTab(tab: AssistantWorkspaceTab) {
     setActiveView(tab)
+    tellPet('success', TAB_HINTS[tab])
 
     if (controlledActiveTab === undefined) {
       setUncontrolledActiveTab(tab)
@@ -223,7 +275,7 @@ export function FloatingAssistantApp({
     mounted.current = true
 
     void loadSnapshot()
-    void loadVideoNoteArchives()
+    void loadVideoNoteArchives({ silent: true })
 
     return () => {
       mounted.current = false
@@ -275,6 +327,7 @@ export function FloatingAssistantApp({
   }
 
   function choosePetStyle(petStyle: AssistantPreferences['petStyle']) {
+    tellPet('success', petStyle === 'big-head' ? '小咪换回大头 Q 版啦～' : '小咪换成高清重置版啦～')
     void persistPreferences({
       ...preferences,
       petStyle
@@ -282,10 +335,12 @@ export function FloatingAssistantApp({
   }
 
   function wakeAssistantPet() {
+    tellPet('success', '小咪醒着呢，随时陪主人看视频。')
     void window.bilimiDesktop?.wakeAssistantPet?.()
   }
 
   function closeAssistantPet() {
+    tellPet('success', '小咪先收起来，需要时再叫我就好。')
     window.bilimiDesktop?.closeAssistantPet?.()
   }
 
@@ -299,22 +354,29 @@ export function FloatingAssistantApp({
   async function saveDeepSeekSettings() {
     const keyDraft = deepSeekApiKeyDraft.trim()
 
+    tellPet('progress', '小咪正在保存 DeepSeek 设置。')
+
     if (keyDraft) {
       await window.bilimiDesktop?.saveDeepSeekApiKey?.(keyDraft)
     }
 
     await persistPreferences(preferences)
+    tellPet('success', 'DeepSeek 设置保存好啦。')
   }
 
   async function testDeepSeekConnection() {
     if (!window.bilimiDesktop?.testDeepSeekConnection) {
       setDeepSeekStatusMessage('DeepSeek 测试功能未加载，请重启应用后再试。')
+      tellPet('error', 'DeepSeek 测试功能还没加载好。')
       return
     }
 
+    tellPet('progress', '小咪正在测试 DeepSeek 连接。')
     await saveDeepSeekSettings()
     const result = await window.bilimiDesktop.testDeepSeekConnection()
-    setDeepSeekStatusMessage(localizeDeepSeekStatusMessage(result.message))
+    const statusMessage = localizeDeepSeekStatusMessage(result.message)
+    setDeepSeekStatusMessage(statusMessage)
+    tellPet(result.ok ? 'success' : 'error', statusMessage)
   }
 
   async function resetDeepSeekSettings() {
@@ -330,14 +392,17 @@ export function FloatingAssistantApp({
     await window.bilimiDesktop?.clearDeepSeekApiKey?.()
     await persistPreferences(nextPreferences)
     setDeepSeekStatusMessage('DeepSeek 设置已重置。')
+    tellPet('success', 'DeepSeek 设置已经重置，小咪回到本地提示模式啦。')
   }
 
   async function copyDeepSeekRecommendation(value: string, label: string) {
     try {
       await navigator.clipboard.writeText(value)
       setDeepSeekStatusMessage(`已复制${label}。`)
+      tellPet('success', `${label}已复制好啦。`)
     } catch {
       setDeepSeekStatusMessage(`${label}复制失败，请手动复制。`)
+      tellPet('error', `${label}复制失败，请主人手动复制。`)
     }
   }
 
@@ -384,6 +449,7 @@ export function FloatingAssistantApp({
 
     setRunningAction(action)
     window.bilimiDesktop?.setAssistantPetState?.('working')
+    tellPet('progress', ACTION_PROGRESS_HINTS[action])
     setFeedback({
       tone: 'progress',
       message: action === '阅' ? '正在登记已阅。' : '正在代批，请稍候。',
@@ -408,14 +474,20 @@ export function FloatingAssistantApp({
         steps: result.steps,
         missingTargets: result.missingTargets
       })
+      tellPet(
+        result.ok ? 'success' : 'error',
+        result.ok ? ACTION_SUCCESS_HINTS[action] : ACTION_ERROR_HINTS[action]
+      )
       window.bilimiDesktop?.setAssistantPetState?.(result.ok ? 'hint' : 'error')
     } catch (error) {
+      const message = error instanceof Error ? error.message : '代批时遇到未知差错。'
       setFeedback({
         tone: 'error',
-        message: error instanceof Error ? error.message : '代批时遇到未知差错。',
+        message,
         steps: [],
         missingTargets: []
       })
+      tellPet('error', message)
       window.bilimiDesktop?.setAssistantPetState?.('error')
     } finally {
       setRunningAction(null)
@@ -430,6 +502,7 @@ export function FloatingAssistantApp({
     setFeedback(null)
 
     if (action === '赐') {
+      tellPet('success', '主人，先选要投几枚硬币，小咪等你确认。')
       setCoinPromptOpen(true)
       return
     }
@@ -438,9 +511,11 @@ export function FloatingAssistantApp({
       setAiCommentDrafts([])
       setCommentIntentError('')
       if (!preferences.deepseekEnabled) {
+        tellPet('success', 'DeepSeek 没开也没关系，小咪先给你本地短评候选。')
         setCommentChooserOpen(true)
         return
       }
+      tellPet('progress', ACTION_PROGRESS_HINTS[action])
       void generateCommentDrafts()
       return
     }
@@ -450,11 +525,16 @@ export function FloatingAssistantApp({
 
   async function generateVideoNote(manualTranscript?: string) {
     setVideoNoteLoading(true)
+    tellPet('progress', manualTranscript ? '小咪正在把粘贴的文稿整理成札记。' : '小咪正在生成当前视频札记。')
 
     try {
       const note = (await window.bilimiDesktop?.generateVideoNote?.(manualTranscript)) ?? null
       setVideoNote(note)
+      tellPet(note ? 'success' : 'error', note ? '札记整理好了，主人可以检查啦。' : '小咪没拿到可用札记结果。')
       return note
+    } catch (error) {
+      tellPet('error', error instanceof Error ? error.message : '札记生成遇到问题。')
+      throw error
     } finally {
       setVideoNoteLoading(false)
     }
@@ -462,6 +542,7 @@ export function FloatingAssistantApp({
 
   async function generateVideoNoteFromAudio() {
     setVideoNoteLoading(true)
+    tellPet('progress', '小咪正在转写音频并整理札记，这一步可能要等一下。')
 
     try {
       const note = (await window.bilimiDesktop?.generateVideoNoteFromAudio?.()) ?? null
@@ -473,6 +554,10 @@ export function FloatingAssistantApp({
       }
 
       setVideoNote(noteToStore)
+      tellPet(
+        noteToStore ? 'success' : 'error',
+        noteToStore ? '音频札记整理好了，小咪也帮你存档啦。' : '小咪没拿到可用的音频札记。'
+      )
 
       if (noteToStore) {
         const archives = await window.bilimiDesktop?.saveVideoNoteArchiveVersion?.(noteToStore)
@@ -483,40 +568,60 @@ export function FloatingAssistantApp({
       }
 
       return noteToStore
+    } catch (error) {
+      tellPet('error', error instanceof Error ? error.message : '转写音频时遇到问题。')
+      throw error
     } finally {
       setVideoNoteLoading(false)
     }
   }
 
   async function generateNotePoster(note: VideoNote) {
+    tellPet('progress', '小咪正在整理一图流总结。')
     const result = await window.bilimiDesktop?.generateDeepSeek?.({ kind: 'note-poster', note })
 
     if (!result || result.kind !== 'note-poster') {
+      tellPet('error', '一图流总结没有生成成功。')
       throw new Error('Poster generation failed.')
     }
 
+    tellPet('success', '一图流总结做好啦。')
     return result.poster
   }
 
-  async function loadVideoNoteArchives() {
+  async function loadVideoNoteArchives({ silent = false } = {}) {
+    if (!silent) {
+      tellPet('progress', '小咪正在打开档案库。')
+    }
+
     const archives = (await window.bilimiDesktop?.loadVideoNoteArchives?.()) ?? []
     setVideoNoteArchives(archives)
+
+    if (!silent) {
+      tellPet('success', '档案库已同步。')
+    }
+
     return archives
   }
 
   async function deleteVideoNoteArchiveEntry(archiveId: string) {
+    tellPet('progress', '小咪正在删除这份档案。')
     const archives = (await window.bilimiDesktop?.deleteVideoNoteArchiveEntry?.(archiveId)) ?? []
     setVideoNoteArchives(archives)
+    tellPet('success', '这份档案已经删掉啦。')
   }
 
   async function deleteVideoNoteArchiveVersion(archiveId: string, versionId: string) {
+    tellPet('progress', '小咪正在删除这个档案版本。')
     const archives =
       (await window.bilimiDesktop?.deleteVideoNoteArchiveVersion?.(archiveId, versionId)) ?? []
     setVideoNoteArchives(archives)
+    tellPet('success', '这个版本已经删掉啦。')
   }
 
   async function saveVideoNote(note: VideoNote) {
     await window.bilimiDesktop?.saveVideoNote?.(note)
+    tellPet('success', '札记保存好了。')
   }
 
   function handleChangeVideoNote(note: VideoNote) {
@@ -525,6 +630,7 @@ export function FloatingAssistantApp({
 
 
   async function ensureFavoriteLedgers() {
+    tellPet('progress', '小咪正在检查 Bilimi 分册是否齐全。')
     const result =
       (await window.bilimiDesktop?.ensureFavoriteLedgers?.()) ?? createDefaultResult('册目已备齐。')
     const nextSnapshot = await window.bilimiDesktop?.requestAssistantSnapshot?.()
@@ -534,10 +640,12 @@ export function FloatingAssistantApp({
       setPreferences(createInitialAssistantPreferences(nextSnapshot.preferences))
     }
 
+    tellPet(result.ok ? 'success' : 'error', result.message)
     return result
   }
 
   async function saveFavoriteLedgers(favoriteLedgers: AssistantPreferences['favoriteLedgers']) {
+    tellPet('progress', '小咪正在同步掌库册目。')
     const result =
       (await window.bilimiDesktop?.saveFavoriteLedgers?.(favoriteLedgers)) ??
       createDefaultResult('掌库已同步。')
@@ -553,28 +661,36 @@ export function FloatingAssistantApp({
       })
     }
 
+    tellPet(result.ok ? 'success' : 'error', result.message)
     return result
   }
 
   async function scanOldFavorites(): Promise<FavoriteLedgerPreview> {
-    return (
+    tellPet('progress', '小咪正在扫描旧收藏夹。')
+    const preview =
       (await window.bilimiDesktop?.scanOldFavorites?.()) ?? {
         items: [],
         skippedSourceFolderTitles: []
       }
-    )
+
+    tellPet('success', preview.items.length > 0 ? '旧藏扫描好了，小咪列出可归册项目。' : '旧藏扫描好了，暂时没有需要归册的项目。')
+    return preview
   }
 
   async function executeOldFavoritePlan(
     items: FavoriteLedgerPreviewItem[]
   ): Promise<AssistantAutomationResult> {
-    return (
+    tellPet('progress', '小咪正在按计划归整旧藏。')
+    const result =
       (await window.bilimiDesktop?.executeOldFavoritePlan?.(items)) ??
       createDefaultResult('旧藏已归册。')
-    )
+
+    tellPet(result.ok ? 'success' : 'error', result.message)
+    return result
   }
 
   function closeAssistant() {
+    tellPet('success', isSidebarMode ? '侧栏先收起来，小咪还在旁边。' : '悬浮助手先合上啦。')
     if (isSidebarMode) {
       onRequestCollapse?.()
       return
