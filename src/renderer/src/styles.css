@@ -339,13 +339,13 @@ body[data-floating-window="true"],
 }
 .palace-maid-pet-shell {
   width: 336px;
-  height: 360px;
+  height: 380px;
   position: relative;
   max-width: 100vw;
   max-height: 100vh;
   --floating-pet-size: 148px;
   --floating-pet-host-width: 336px;
-  --floating-pet-host-height: 360px;
+  --floating-pet-host-height: 380px;
   display: grid;
   place-items: end center;
   box-sizing: border-box;
@@ -526,8 +526,8 @@ body[data-floating-window="true"],
   left: 50%;
   bottom: calc(var(--floating-pet-size) + 10px);
   z-index: 2;
-  width: calc(var(--floating-pet-host-width) - 8px);
-  max-width: calc(var(--floating-pet-host-width) - 8px);
+  width: min(270px, calc(var(--floating-pet-host-width) - 8px));
+  max-width: min(270px, calc(var(--floating-pet-host-width) - 8px));
   box-sizing: border-box;
   display: grid;
   gap: 2px;
@@ -549,12 +549,13 @@ body[data-floating-window="true"],
 .palace-maid-pet__bubble[data-chat-open="true"] {
   left: 50%;
   bottom: calc(var(--floating-pet-size) + 10px);
-  width: min(255px, calc(var(--floating-pet-host-width) - 8px));
+  width: min(270px, calc(var(--floating-pet-host-width) - 8px));
   display: flex;
   flex-direction: column;
   gap: 7px;
   max-height: calc(var(--floating-pet-host-height) - var(--floating-pet-size) - 22px);
   overflow: hidden;
+  overflow-y: auto;
   --pet-bubble-offset-x: -50%;
 }
 .palace-maid-pet__close-prompt {
@@ -610,9 +611,14 @@ body[data-floating-window="true"],
 .palace-maid-pet__chat-log {
   display: grid;
   gap: 4px;
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+}
+.palace-maid-pet__chat-tail {
+  display: block;
+  width: 1px;
+  height: 1px;
 }
 .palace-maid-pet__chat-message {
   padding: 4px 6px;
@@ -661,6 +667,10 @@ body[data-floating-window="true"],
 .palace-maid-pet__chat button[type="submit"]:disabled {
   cursor: not-allowed;
   opacity: 0.56;
+}
+.palace-maid-pet__chat-field,
+.palace-maid-pet__chat button[type="submit"] {
+  flex-shrink: 0;
 }
 .palace-maid-pet__resize-controls {
   position: absolute;

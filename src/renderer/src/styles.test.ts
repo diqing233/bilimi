@@ -96,14 +96,14 @@ describe('renderer porcelain theme styles', () => {
   })
 
   it('keeps the floating pet fixed-size inside its transparent stage', () => {
-    expect(normalizedStyles).toContain('.palace-maid-pet-shell {\n  width: 336px;\n  height: 360px;')
+    expect(normalizedStyles).toContain('.palace-maid-pet-shell {\n  width: 336px;\n  height: 380px;')
     expectStyleSnippet(
-      '.palace-maid-pet-shell { width: 336px; height: 360px; position: relative;'
+      '.palace-maid-pet-shell { width: 336px; height: 380px; position: relative;'
     )
     expect(normalizedStyles).toContain('max-width: 100vw;\n  max-height: 100vh;')
     expect(normalizedStyles).toContain('--floating-pet-size: 148px;')
     expect(normalizedStyles).toContain('--floating-pet-host-width: 336px;')
-    expect(normalizedStyles).toContain('--floating-pet-host-height: 360px;')
+    expect(normalizedStyles).toContain('--floating-pet-host-height: 380px;')
     expect(normalizedStyles).not.toContain('--floating-pet-size: clamp(')
     expect(normalizedStyles).not.toContain('.palace-maid-pet-shell {\n  width: 100vw;\n  height: 100vh;')
     expect(normalizedStyles).not.toContain('min(54vw, 50vh)')
@@ -115,9 +115,10 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.palace-maid-pet__bubble {\n  position: absolute;\n  left: 50%;')
     expect(normalizedStyles).toContain('left: 50%;\n  bottom: calc(var(--floating-pet-size) + 10px);')
     expect(normalizedStyles).not.toContain('top: 1px;')
-    expect(normalizedStyles).toContain('max-width: calc(var(--floating-pet-host-width) - 8px);')
+    expect(normalizedStyles).toContain('max-width: min(270px, calc(var(--floating-pet-host-width) - 8px));')
     expect(normalizedStyles).toContain('transform: translateX(var(--pet-bubble-offset-x, -50%));')
-    expect(normalizedStyles).toContain('width: calc(var(--floating-pet-host-width) - 8px);')
+    expect(normalizedStyles).toContain('width: min(270px, calc(var(--floating-pet-host-width) - 8px));')
+    expect(normalizedStyles).not.toContain('width: calc(var(--floating-pet-host-width) - 8px);')
     expect(normalizedStyles).not.toContain('width: calc(100vw - 8px);')
     expect(normalizedStyles).not.toContain('max-width: calc(100vw - 8px);')
     expect(normalizedStyles).not.toContain('width: min(204px, calc(100vw - 28px));')

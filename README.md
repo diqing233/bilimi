@@ -29,7 +29,7 @@ When the floating desktop pet restores or focuses the main window, the sidebar a
 
 ## Floating Surfaces
 
-Bilimi starts a transparent 小咪 desktop pet window beside the main app. The transparent host window stays at the fixed 336x360 stage size; resize controls adjust the character inside that stage rather than resizing the Electron window shell. Clicking the pet restores or focuses the main window, right-clicking it opens quick actions for `对话宠物` and `关闭宠物`, and hover controls can resize the pet character. Holding the left mouse button by itself does not resize or animate the pet; dragging only starts after pointer movement crosses the drag threshold, and a long stationary press suppresses the follow-up click restore. The pet window can also be woken or closed from assistant settings.
+Bilimi starts a transparent 小咪 desktop pet window beside the main app. The transparent host window stays at the fixed 336x380 stage size; resize controls adjust the character inside that stage rather than resizing the Electron window shell. Clicking the pet restores or focuses the main window, right-clicking it opens quick actions for `对话宠物` and `关闭宠物`, and hover controls can resize the pet character. Holding the left mouse button by itself does not resize or animate the pet; dragging only starts after pointer movement crosses the drag threshold, and a long stationary press suppresses the follow-up click restore. The pet window can also be woken or closed from assistant settings.
 
 The floating entry uses the same assistant workspace as the sidebar. It can run review actions, open video notes, manage favorite ledgers, and request the active main-window webview through the Electron bridge.
 

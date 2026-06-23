@@ -206,6 +206,45 @@ describe('PalaceMaidPetApp', () => {
     expect(await screen.findByText('This page looks worth watching.')).toBeInTheDocument()
   })
 
+  it('scrolls the pet chat down to the newest reply', async () => {
+    const scrollIntoView = vi.fn()
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    const api = installDesktopApi({
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          deepseekEnabled: true,
+          deepseekApiKeyStored: true
+        })
+      )
+    })
+
+    try {
+      const { container } = render(<PalaceMaidPetApp />)
+
+      fireEvent.click(container.querySelector('.palace-maid-pet__bubble-toggle') as HTMLElement)
+      const chatInput = await waitFor(() => {
+        const input = container.querySelector('.palace-maid-pet__chat-field input')
+        expect(input).not.toBeNull()
+        return input as HTMLInputElement
+      })
+      fireEvent.change(chatInput, {
+        target: { value: 'watch this page' }
+      })
+      fireEvent.click(
+        container.querySelector('.palace-maid-pet__chat button[type="submit"]') as HTMLElement
+      )
+
+      expect(api.generateDeepSeek).toHaveBeenCalledOnce()
+      expect(await screen.findByText('This page looks worth watching.')).toBeInTheDocument()
+      await waitFor(() =>
+        expect(scrollIntoView).toHaveBeenLastCalledWith({ block: 'end', behavior: 'smooth' })
+      )
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    }
+  })
+
   it('tells the owner to enable DeepSeek when opening pet chat without support', async () => {
     const api = installDesktopApi()
 

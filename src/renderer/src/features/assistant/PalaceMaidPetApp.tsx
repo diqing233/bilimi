@@ -32,6 +32,7 @@ export function PalaceMaidPetApp() {
   const longPressTimeout = useRef<number | null>(null)
   const resizeControlsHideTimeout = useRef<number | null>(null)
   const suppressNextClick = useRef(false)
+  const chatTailRef = useRef<HTMLSpanElement | null>(null)
   const [pressed, setPressed] = useState(false)
   const [resizeControlsVisible, setResizeControlsVisible] = useState(false)
   const [petSize, setPetSize] = useState(PET_SIZE_DEFAULT_PX)
@@ -97,6 +98,14 @@ export function PalaceMaidPetApp() {
       window.removeEventListener('blur', hideClosePrompt)
     }
   }, [])
+
+  useEffect(() => {
+    if (!chatOpen || chatMessages.length === 0) {
+      return
+    }
+
+    chatTailRef.current?.scrollIntoView?.({ block: 'end', behavior: 'smooth' })
+  }, [chatMessages.length, chatOpen])
 
   function showResizeControls() {
     if (resizeControlsHideTimeout.current !== null) {
@@ -397,6 +406,7 @@ export function PalaceMaidPetApp() {
                     {message.content}
                   </span>
                 ))}
+                <span className="palace-maid-pet__chat-tail" ref={chatTailRef} aria-hidden="true" />
               </span>
             ) : null}
             {chatError ? <span role="alert">{chatError}</span> : null}

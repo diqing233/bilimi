@@ -60,7 +60,7 @@ import type {
 import type { AssistantPetState } from '../../src/renderer/src/features/assistant/petState'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../../src/renderer/src/features/favorites/favoriteLedgerPreview'
 
-const FLOATING_SEAL_VISUAL_SIZE = { width: 280, height: 332 }
+const FLOATING_SEAL_VISUAL_SIZE = { width: 280, height: 352 }
 const FLOATING_SEAL_SHADOW_PADDING = 28
 const FLOATING_SEAL_HOST_PADDING = {
   top: 0,

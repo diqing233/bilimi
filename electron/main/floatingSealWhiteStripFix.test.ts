@@ -7,7 +7,7 @@ import {
 
 type Listener = () => void
 
-function createHarness(initialBounds = { x: 120, y: 240, width: 336, height: 360 }) {
+function createHarness(initialBounds = { x: 120, y: 240, width: 336, height: 380 }) {
   const listeners = new Map<string, Listener>()
   let scheduled: Array<{ id: number; cb: () => void; delayMs: number }> = []
   let nextTimerId = 1
@@ -55,7 +55,7 @@ function createHarness(initialBounds = { x: 120, y: 240, width: 336, height: 360
 
 describe('createNudgePositions', () => {
   it('offsets the window position by one pixel and back to the original', () => {
-    const positions = createNudgePositions({ x: 120, y: 240, width: 336, height: 360 })
+    const positions = createNudgePositions({ x: 120, y: 240, width: 336, height: 380 })
 
     expect(positions.nudged).toEqual({ x: 121, y: 240 })
     expect(positions.restored).toEqual({ x: 120, y: 240 })
@@ -85,7 +85,7 @@ describe('createRecompositeSteps', () => {
 
 describe('installFloatingSealWhiteStripFix', () => {
   it('nudges the window position and restores it, retrying a few times, on blur', () => {
-    const harness = createHarness({ x: 120, y: 240, width: 336, height: 360 })
+    const harness = createHarness({ x: 120, y: 240, width: 336, height: 380 })
 
     harness.listeners.get('blur')?.()
     harness.flushAll()
@@ -111,7 +111,7 @@ describe('installFloatingSealWhiteStripFix', () => {
   })
 
   it('cancels pending nudges and settles back to the original position on focus', () => {
-    const harness = createHarness({ x: 120, y: 240, width: 336, height: 360 })
+    const harness = createHarness({ x: 120, y: 240, width: 336, height: 380 })
 
     harness.listeners.get('blur')?.()
     expect(harness.scheduled.length).toBeGreaterThan(0)
@@ -128,11 +128,11 @@ describe('installFloatingSealWhiteStripFix', () => {
   })
 
   it('restores to the bounds captured at blur time, not the live bounds', () => {
-    const harness = createHarness({ x: 120, y: 240, width: 336, height: 360 })
+    const harness = createHarness({ x: 120, y: 240, width: 336, height: 380 })
 
     harness.listeners.get('blur')?.()
     // Simulate the window drifting after the nudge began.
-    harness.target.getBounds.mockReturnValue({ x: 999, y: 999, width: 336, height: 360 })
+    harness.target.getBounds.mockReturnValue({ x: 999, y: 999, width: 336, height: 380 })
     harness.flushAll()
 
     expect(harness.target.setPosition).toHaveBeenLastCalledWith(120, 240)
@@ -152,7 +152,7 @@ describe('installFloatingSealWhiteStripFix', () => {
   })
 
   it('dispose cancels pending nudges and restores the original position', () => {
-    const harness = createHarness({ x: 120, y: 240, width: 336, height: 360 })
+    const harness = createHarness({ x: 120, y: 240, width: 336, height: 380 })
 
     harness.listeners.get('blur')?.()
     harness.dispose()
