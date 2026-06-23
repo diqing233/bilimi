@@ -68,7 +68,7 @@ function reorderLedgers(ledgers: FavoriteLedger[], draggedLedgerId: string, targ
   const nextLedgers = [...ledgers]
   const [draggedLedger] = nextLedgers.splice(draggedIndex, 1)
   const nextTargetIndex = nextLedgers.findIndex((ledger) => ledger.id === targetLedgerId)
-  nextLedgers.splice(nextTargetIndex + 1, 0, draggedLedger)
+  nextLedgers.splice(nextTargetIndex, 0, draggedLedger)
   return nextLedgers
 }
 
@@ -323,6 +323,10 @@ export function FavoriteLedgerPanel({
     if (!draggedLedgerId || draggedLedgerId === targetLedgerId) {
       setDragTargetLedgerId(null)
       setDragPreviewLedgers(draftLedgers)
+      return
+    }
+
+    if (dragTargetLedgerId === targetLedgerId) {
       return
     }
 
