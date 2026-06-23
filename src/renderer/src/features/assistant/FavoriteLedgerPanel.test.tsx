@@ -325,12 +325,12 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
     const savedLedgers = onSaveLedgers.mock.calls[0][0]
     const savedLedgerIds = savedLedgers.map((ledger) => ledger.id)
-    expect(savedLedgerIds.indexOf('music')).toBe(savedLedgerIds.indexOf('knowledge') - 1)
+    expect(savedLedgerIds.indexOf('music')).toBe(savedLedgerIds.indexOf('knowledge') + 1)
     expect(savedLedgers.find((ledger) => ledger.id === 'movie-tv')!.priority).toBeLessThan(
       savedLedgers.find((ledger) => ledger.id === 'knowledge')!.priority
     )
-    expect(savedLedgers.find((ledger) => ledger.id === 'music')!.priority).toBeLessThan(
-      savedLedgers.find((ledger) => ledger.id === 'knowledge')!.priority
+    expect(savedLedgers.find((ledger) => ledger.id === 'knowledge')!.priority).toBeLessThan(
+      savedLedgers.find((ledger) => ledger.id === 'music')!.priority
     )
     expect(await screen.findByRole('status')).toHaveTextContent('掌库已同步。')
   })

@@ -68,7 +68,8 @@ function reorderLedgers(ledgers: FavoriteLedger[], draggedLedgerId: string, targ
   const nextLedgers = [...ledgers]
   const [draggedLedger] = nextLedgers.splice(draggedIndex, 1)
   const nextTargetIndex = nextLedgers.findIndex((ledger) => ledger.id === targetLedgerId)
-  nextLedgers.splice(nextTargetIndex, 0, draggedLedger)
+  const insertionIndex = draggedIndex < targetIndex ? nextTargetIndex + 1 : nextTargetIndex
+  nextLedgers.splice(insertionIndex, 0, draggedLedger)
   return nextLedgers
 }
 
