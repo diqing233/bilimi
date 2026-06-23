@@ -1925,6 +1925,7 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__list-toggle {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
 }
 .favorite-ledger-panel__list-toggle button {
   min-height: 30px;
@@ -2003,6 +2004,10 @@ body[data-floating-window="true"],
   border: 1px solid rgba(31, 99, 181, 0.18);
   background: rgba(247, 251, 255, 0.64);
   padding: 8px;
+}
+.favorite-ledger-panel__editor-actions {
+  display: flex;
+  gap: 8px;
 }
 .favorite-ledger-panel__editor label {
   display: grid;
