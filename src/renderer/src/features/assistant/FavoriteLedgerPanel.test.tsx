@@ -335,6 +335,35 @@ describe('FavoriteLedgerPanel', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('掌库已同步。')
   })
 
+  it('previews displaced ledger positions while dragging over another ledger', async () => {
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    const chips = screen.getByRole('region', { name: '收藏夹' })
+    fireEvent.click(within(chips).getByRole('button', { name: '展开' }))
+    const chipGrid = chips.querySelector('.favorite-ledger-panel__chips')!
+    const musicItem = within(chips).getByRole('button', { name: '音乐' }).closest('.favorite-ledger-panel__chip-item')!
+    const knowledgeItem = within(chips).getByRole('button', { name: '知识' }).closest('.favorite-ledger-panel__chip-item')!
+
+    fireEvent.dragStart(musicItem, { dataTransfer: { effectAllowed: '', setData: vi.fn() } })
+    fireEvent.dragOver(knowledgeItem, { dataTransfer: { dropEffect: '' } })
+
+    const previewOrder = Array.from(chipGrid.children).map(
+      (item) => item.querySelector('button')?.textContent ?? ''
+    )
+
+    expect(previewOrder.indexOf('音乐')).toBe(previewOrder.indexOf('知识') + 1)
+    expect(knowledgeItem).toHaveAttribute('data-drop-target', 'true')
+  })
+
   it('resets the ledger draft to the initial defaults before saving', async () => {
     const onSaveLedgers = vi.fn()
     const ledgers = createDefaultFavoriteLedgers().map((ledger, index) =>

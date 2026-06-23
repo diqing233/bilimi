@@ -115,6 +115,8 @@ export function FavoriteLedgerPanel({
   const [saveStatus, setSaveStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [draggedLedgerId, setDraggedLedgerId] = useState<string | null>(null)
+  const [dragTargetLedgerId, setDragTargetLedgerId] = useState<string | null>(null)
+  const [dragPreviewLedgers, setDragPreviewLedgers] = useState<FavoriteLedger[] | null>(null)
   const [ledgerListExpanded, setLedgerListExpanded] = useState(false)
   const hasUnsavedChanges = useMemo(
     () => JSON.stringify(draftLedgers) !== JSON.stringify(ledgers),
@@ -139,6 +141,7 @@ export function FavoriteLedgerPanel({
     setActiveLedgerId((currentId) =>
       currentId && ledgers.some((ledger) => ledger.id === currentId) ? currentId : (ledgers[0]?.id ?? null)
     )
+    finishLedgerDrag()
   }, [ledgers])
 
   function showSetupPrompt() {
@@ -308,25 +311,43 @@ export function FavoriteLedgerPanel({
 
   function handleLedgerDragStart(event: DragEvent<HTMLDivElement>, ledgerId: string) {
     setDraggedLedgerId(ledgerId)
+    setDragTargetLedgerId(null)
+    setDragPreviewLedgers(draftLedgers)
     event.dataTransfer.effectAllowed = 'move'
     event.dataTransfer.setData('text/plain', ledgerId)
   }
 
-  function handleLedgerDragOver(event: DragEvent<HTMLDivElement>) {
+  function handleLedgerDragOver(event: DragEvent<HTMLDivElement>, targetLedgerId: string) {
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
+    if (!draggedLedgerId || draggedLedgerId === targetLedgerId) {
+      setDragTargetLedgerId(null)
+      setDragPreviewLedgers(draftLedgers)
+      return
+    }
+
+    setDragTargetLedgerId(targetLedgerId)
+    setDragPreviewLedgers(reorderLedgers(draftLedgers, draggedLedgerId, targetLedgerId))
   }
 
   function handleLedgerDrop(event: DragEvent<HTMLDivElement>, targetLedgerId: string) {
     event.preventDefault()
     const sourceLedgerId = event.dataTransfer?.getData('text/plain') || draggedLedgerId
     setDraggedLedgerId(null)
+    setDragTargetLedgerId(null)
+    setDragPreviewLedgers(null)
     if (!sourceLedgerId) {
       return
     }
 
     setDraftLedgers((currentLedgers) => withSequentialPriorities(reorderLedgers(currentLedgers, sourceLedgerId, targetLedgerId)))
     setSaveStatus(null)
+  }
+
+  function finishLedgerDrag() {
+    setDraggedLedgerId(null)
+    setDragTargetLedgerId(null)
+    setDragPreviewLedgers(null)
   }
 
   async function saveLedgers() {
@@ -426,7 +447,8 @@ export function FavoriteLedgerPanel({
     }
   }
 
-  const ledgersToDisplay = visibleLedgers(draftLedgers, ledgerListExpanded)
+  const previewLedgers = dragPreviewLedgers ?? draftLedgers
+  const ledgersToDisplay = visibleLedgers(previewLedgers, ledgerListExpanded)
   const canToggleLedgerList = draftLedgers.length > ledgersToDisplay.length || ledgerListExpanded
 
   return (
@@ -498,10 +520,11 @@ export function FavoriteLedgerPanel({
                 className="favorite-ledger-panel__chip-item"
                 draggable
                 data-dragging={draggedLedgerId === ledger.id}
+                data-drop-target={dragTargetLedgerId === ledger.id}
                 onDragStart={(event) => handleLedgerDragStart(event, ledger.id)}
-                onDragOver={handleLedgerDragOver}
+                onDragOver={(event) => handleLedgerDragOver(event, ledger.id)}
                 onDrop={(event) => handleLedgerDrop(event, ledger.id)}
-                onDragEnd={() => setDraggedLedgerId(null)}
+                onDragEnd={finishLedgerDrag}
               >
                 <button
                   type="button"
