@@ -1,6 +1,6 @@
 import { suggestFavoriteLedgerNames } from '@shared/favoriteLedgers'
 import type { AssistantAutomationResult, FavoriteLedger } from '@shared/types'
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { FavoriteLedgerCandidate } from '../favorites/favoriteLedgerInsights'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
 
@@ -58,6 +58,7 @@ export function FavoriteLedgerPanel({
   const [activeLedgerId, setActiveLedgerId] = useState<string | null>(ledgers[0]?.id ?? null)
   const [preview, setPreview] = useState<FavoriteLedgerPreview | null>(null)
   const [setupPromptVisible, setSetupPromptVisible] = useState(false)
+  const newLedgerTopicInputRef = useRef<HTMLInputElement>(null)
   const [selectedDefaultLedgerIds, setSelectedDefaultLedgerIds] = useState<Set<string>>(
     () => new Set(ledgers.filter((ledger) => ledger.enabled && ledger.isDefault).map((ledger) => ledger.id))
   )
@@ -80,7 +81,6 @@ export function FavoriteLedgerPanel({
       null,
     [activeLedgerId, draftLedgers]
   )
-
   useEffect(() => {
     setDraftLedgers(ledgers)
     setSelectedDefaultLedgerIds(
@@ -160,22 +160,6 @@ export function FavoriteLedgerPanel({
 
   function selectLedger(ledger: FavoriteLedger) {
     setActiveLedgerId(ledger.id)
-    if (ledger.isDefault) {
-      toggleDefaultLedger(ledger.id)
-      setDraftLedgers(
-        draftLedgers.map((item) =>
-          item.id === ledger.id
-            ? {
-                ...item,
-                enabled: !item.enabled
-              }
-            : item
-        )
-      )
-      return
-    }
-
-    toggleLedger(ledger.id)
   }
 
   function updateActiveLedger(patch: Partial<Pick<FavoriteLedger, 'displayName' | 'keywords'>>) {
@@ -366,6 +350,11 @@ export function FavoriteLedgerPanel({
     }
   }
 
+  function focusNewLedgerForm() {
+    newLedgerTopicInputRef.current?.focus()
+    newLedgerTopicInputRef.current?.scrollIntoView({ block: 'center' })
+  }
+
   return (
     <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
       <div className="favorite-ledger-panel__header">
@@ -415,18 +404,45 @@ export function FavoriteLedgerPanel({
           </button>
         </div>
         <div className="favorite-ledger-panel__chips">
-          {draftLedgers
-            .map((ledger) => (
-              <button
-                key={ledger.id}
-                type="button"
-                aria-pressed={ledger.isDefault ? selectedDefaultLedgerIds.has(ledger.id) : ledger.enabled}
-                data-active={activeLedger?.id === ledger.id}
-                onClick={() => selectLedger(ledger)}
-              >
-                {ledger.displayName.replace(/^Bilimi[·\s-]*/, '')}
-              </button>
-            ))}
+          {draftLedgers.map((ledger) => {
+            const ledgerEnabled = ledger.isDefault
+              ? selectedDefaultLedgerIds.has(ledger.id)
+              : ledger.enabled
+            const ledgerLabel = ledger.displayName.replace(/^Bilimi[·\s-]*/, '')
+            return (
+              <Fragment key={ledger.id}>
+                <div className="favorite-ledger-panel__chip-item">
+                  <button
+                    type="button"
+                    aria-pressed={ledgerEnabled}
+                    data-active={activeLedger?.id === ledger.id}
+                    onClick={() => selectLedger(ledger)}
+                  >
+                    {ledgerLabel}
+                  </button>
+                  <button
+                    type="button"
+                    className="favorite-ledger-panel__chip-action"
+                    aria-label={`${ledgerEnabled ? '移出同步' : '加入同步'} ${ledger.displayName}`}
+                    data-enabled={ledgerEnabled}
+                    onClick={() => toggleLedger(ledger.id)}
+                  >
+                    {ledgerEnabled ? '✓' : '+'}
+                  </button>
+                </div>
+                {ledger.id === 'documentary' ? (
+                  <button
+                    type="button"
+                    className="favorite-ledger-panel__add-shortcut"
+                    aria-label="添加新收藏"
+                    onClick={focusNewLedgerForm}
+                  >
+                    +
+                  </button>
+                ) : null}
+              </Fragment>
+            )
+          })}
         </div>
       </section>
 
@@ -480,7 +496,11 @@ export function FavoriteLedgerPanel({
         <legend>新立册目</legend>
         <label>
           新增主题
-          <input value={topic} onChange={(event) => setTopic(event.currentTarget.value)} />
+          <input
+            ref={newLedgerTopicInputRef}
+            value={topic}
+            onChange={(event) => setTopic(event.currentTarget.value)}
+          />
         </label>
         <button type="button" onClick={recommendNames}>
           荐名

@@ -213,7 +213,12 @@ describe('renderer porcelain theme styles', () => {
   it('keeps favorite ledger status near the toolbar and ledger copy compact', () => {
     expectStyleSnippet('.favorite-ledger-panel__status { margin: 6px 0 0;')
     expectStyleSnippet('.favorite-ledger-panel__chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));')
-    expectStyleSnippet('.favorite-ledger-panel__chips button[aria-pressed="true"] { border-color: rgba(31, 99, 181, 0.62);')
+    expectStyleSnippet('.favorite-ledger-panel__chip-item { display: grid; grid-template-columns: minmax(0, 1fr) 28px;')
+    expectStyleSnippet('.favorite-ledger-panel__chip-action { min-width: 28px; width: 28px;')
+    expectStyleSnippet('.favorite-ledger-panel__chip-item > button:first-child[aria-pressed="true"] { border-color: rgba(31, 99, 181, 0.42); background: rgba(220, 238, 255, 0.78);')
+    expectStyleSnippet('.favorite-ledger-panel__chip-action[data-enabled="true"] { border-color: rgba(31, 99, 181, 0.42); background: rgba(247, 251, 255, 0.92);')
+    expectStyleSnippet('.favorite-ledger-panel__add-shortcut { min-width: 0; min-height: 34px;')
+    expect(normalizedStyles).not.toContain('favorite-ledger-panel__sync-confirm')
     expectStyleSnippet('.favorite-ledger-panel__editor strong, .favorite-ledger-panel__preview strong { font-size: 15px;')
     expectStyleSnippet('.favorite-ledger-panel__preview h3 { font-size: 16px;')
   })

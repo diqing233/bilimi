@@ -91,6 +91,114 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
+  it('selects a ledger without changing whether it syncs', async () => {
+    const onSaveLedgers = vi.fn()
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'kichiku' ? { ...ledger, enabled: false } : ledger
+    )
+    const targetLedger = ledgers.find((ledger) => ledger.id === 'kichiku')!
+    const targetLabel = targetLedger.displayName.replace(/^Bilimi.?/, '')
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={ledgers}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    const ledgerButton = screen.getByRole('button', { name: targetLabel })
+    expect(ledgerButton).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(ledgerButton)
+
+    expect(screen.getByDisplayValue(targetLedger.displayName)).toBeInTheDocument()
+    expect(ledgerButton).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+
+    await waitFor(() =>
+      expect(onSaveLedgers).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'kichiku',
+            enabled: false
+          })
+        ])
+      )
+    )
+  })
+
+  it('adds a disabled ledger to sync without asking for confirmation', async () => {
+    const onSaveLedgers = vi.fn()
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'kichiku' ? { ...ledger, enabled: false } : ledger
+    )
+    const targetLedger = ledgers.find((ledger) => ledger.id === 'kichiku')!
+    const targetLabel = targetLedger.displayName.replace(/^Bilimi.?/, '')
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={ledgers}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    const ledgerButton = screen.getByRole('button', { name: targetLabel })
+    const addButton = screen.getByRole('button', {
+      name: new RegExp(targetLedger.displayName)
+    })
+    fireEvent.click(addButton)
+
+    expect(ledgerButton).toHaveAttribute('aria-pressed', 'true')
+    expect(
+      screen
+        .queryAllByRole('dialog')
+        .some((dialog) => dialog.classList.contains('favorite-ledger-panel__sync-confirm'))
+    ).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+
+    await waitFor(() =>
+      expect(onSaveLedgers).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'kichiku',
+            enabled: true
+          })
+        ])
+      )
+    )
+  })
+
+  it('shows the new custom ledger shortcut immediately after documentary', () => {
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    const chips = screen.getByRole('region', { name: '推荐主分类收藏夹' })
+    const chipButtons = within(chips).getAllByRole('button')
+    const documentaryIndex = chipButtons.findIndex((button) => button.textContent === '纪录片')
+    const addCustomLedgerIndex = chipButtons.findIndex(
+      (button) => button.getAttribute('aria-label') === '添加新收藏'
+    )
+
+    expect(addCustomLedgerIndex).toBe(documentaryIndex + 2)
+  })
+
   it('edits the active ledger from the highlighted ledger buttons', async () => {
     const onSaveLedgers = vi.fn()
 
