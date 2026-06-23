@@ -1883,6 +1883,14 @@ body[data-floating-window="true"],
   grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
   gap: 6px;
 }
+.favorite-ledger-panel__list-toggle {
+  display: flex;
+  justify-content: flex-end;
+}
+.favorite-ledger-panel__list-toggle button {
+  min-height: 30px;
+  padding: 5px 8px;
+}
 .favorite-ledger-panel__chip-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 28px;

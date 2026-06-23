@@ -91,7 +91,7 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
-  it('uses a compact ledger header with reset, expand, new, and sync controls', async () => {
+  it('uses a compact ledger header with one ledger row and a lower-right expand control', async () => {
     const ledgers = createDefaultFavoriteLedgers()
 
     render(
@@ -109,18 +109,25 @@ describe('FavoriteLedgerPanel', () => {
     expect(within(ledgerRegion).getByRole('heading', { name: '收藏夹' })).toBeInTheDocument()
     expect(screen.queryByText('推荐主分类收藏夹')).not.toBeInTheDocument()
 
-    expect(within(ledgerRegion).getByRole('button', { name: '重置' })).toBeInTheDocument()
-    expect(within(ledgerRegion).getByRole('button', { name: '展开' })).toBeInTheDocument()
-    expect(within(ledgerRegion).getByRole('button', { name: '新建收藏夹' })).toBeInTheDocument()
-    expect(within(ledgerRegion).getByRole('button', { name: '同步' })).toBeInTheDocument()
+    const headerActions = ledgerRegion.querySelector('.favorite-ledger-panel__category-actions')!
+    expect(within(headerActions as HTMLElement).getByRole('button', { name: '重置' })).toBeInTheDocument()
+    expect(within(headerActions as HTMLElement).queryByRole('button', { name: '展开' })).not.toBeInTheDocument()
+    expect(within(headerActions as HTMLElement).getByRole('button', { name: '新建收藏夹' })).toBeInTheDocument()
+    expect(within(headerActions as HTMLElement).getByRole('button', { name: '同步' })).toBeInTheDocument()
 
     expect(within(ledgerRegion).getByRole('button', { name: '动画' })).toBeInTheDocument()
+    expect(within(ledgerRegion).getByRole('button', { name: '鬼畜' })).toBeInTheDocument()
+    expect(within(ledgerRegion).getByRole('button', { name: '舞蹈' })).toBeInTheDocument()
+    expect(within(ledgerRegion).queryByRole('button', { name: '娱乐' })).not.toBeInTheDocument()
     expect(within(ledgerRegion).queryByRole('button', { name: 'vlog' })).not.toBeInTheDocument()
+    expect(ledgerRegion.querySelector('.favorite-ledger-panel__chips')?.children).toHaveLength(3)
+    const listToggle = ledgerRegion.querySelector('.favorite-ledger-panel__list-toggle')!
+    expect(within(listToggle as HTMLElement).getByRole('button', { name: '展开' })).toBeInTheDocument()
 
-    fireEvent.click(within(ledgerRegion).getByRole('button', { name: '展开' }))
+    fireEvent.click(within(listToggle as HTMLElement).getByRole('button', { name: '展开' }))
 
     expect(within(ledgerRegion).getByRole('button', { name: 'vlog' })).toBeInTheDocument()
-    expect(within(ledgerRegion).getByRole('button', { name: '折叠' })).toBeInTheDocument()
+    expect(within(listToggle as HTMLElement).getByRole('button', { name: '折叠' })).toBeInTheDocument()
   })
 
   it('selects a ledger without changing whether it syncs', async () => {

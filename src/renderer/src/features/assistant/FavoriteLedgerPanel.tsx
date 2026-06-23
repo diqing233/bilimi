@@ -84,12 +84,14 @@ function saveStatusMessage(result: AssistantAutomationResult | void) {
   return message ? `保存成功：${message}` : '保存成功：掌库已同步。'
 }
 
+const COLLAPSED_LEDGER_COUNT = 3
+
 function visibleLedgers(ledgers: FavoriteLedger[], expanded: boolean) {
   if (expanded) {
     return ledgers
   }
 
-  return ledgers.slice(0, Math.ceil(ledgers.length / 2))
+  return ledgers.slice(0, COLLAPSED_LEDGER_COUNT)
 }
 
 export function FavoriteLedgerPanel({
@@ -475,16 +477,6 @@ export function FavoriteLedgerPanel({
             <button type="button" disabled={busy} onClick={resetLedgers}>
               重置
             </button>
-            {canToggleLedgerList ? (
-              <button
-                type="button"
-                aria-expanded={ledgerListExpanded}
-                disabled={busy}
-                onClick={() => setLedgerListExpanded((current) => !current)}
-              >
-                {ledgerListExpanded ? '折叠' : '展开'}
-              </button>
-            ) : null}
             <button type="button" disabled={busy} onClick={addBlankLedger}>
               新建收藏夹
             </button>
@@ -533,6 +525,18 @@ export function FavoriteLedgerPanel({
             )
           })}
         </div>
+        {canToggleLedgerList ? (
+          <div className="favorite-ledger-panel__list-toggle">
+            <button
+              type="button"
+              aria-expanded={ledgerListExpanded}
+              disabled={busy}
+              onClick={() => setLedgerListExpanded((current) => !current)}
+            >
+              {ledgerListExpanded ? '折叠' : '展开'}
+            </button>
+          </div>
+        ) : null}
       </section>
 
       {activeLedger ? (
