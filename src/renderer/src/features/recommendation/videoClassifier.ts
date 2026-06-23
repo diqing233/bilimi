@@ -24,6 +24,15 @@ function normalize(value = '') {
   return value.toLocaleLowerCase().replace(/\s+/g, '')
 }
 
+const FIELD_WEIGHTS = {
+  title: 2,
+  author: 1.5,
+  description: 1,
+  pageText: 0.5,
+  category: 2.5,
+  tags: 3
+} as const
+
 function buildSearchText(context: VideoContentContext) {
   return normalize(
     [
@@ -41,6 +50,35 @@ function buildSearchText(context: VideoContentContext) {
 
 function matchedKeywords(text: string, keywords: string[]) {
   return keywords.filter((keyword) => text.includes(normalize(keyword)))
+}
+
+function scoreKeywords(context: VideoContentContext, keywords: string[]) {
+  const fieldTexts = [
+    { text: normalize(context.title), weight: FIELD_WEIGHTS.title },
+    { text: normalize(context.author), weight: FIELD_WEIGHTS.author },
+    { text: normalize(context.description), weight: FIELD_WEIGHTS.description },
+    { text: normalize(context.pageText), weight: FIELD_WEIGHTS.pageText },
+    { text: normalize(context.category), weight: FIELD_WEIGHTS.category },
+    { text: normalize((context.tags ?? []).join(' ')), weight: FIELD_WEIGHTS.tags }
+  ]
+
+  const matches: string[] = []
+  let score = 0
+
+  for (const keyword of keywords) {
+    const normalizedKeyword = normalize(keyword)
+    const keywordScore = fieldTexts.reduce(
+      (total, field) => (field.text.includes(normalizedKeyword) ? total + field.weight : total),
+      0
+    )
+
+    if (keywordScore > 0) {
+      matches.push(keyword)
+      score += keywordScore
+    }
+  }
+
+  return { matches, score }
 }
 
 function ledgerKeywords(ledger: FavoriteLedger) {
@@ -91,14 +129,15 @@ export function classifyVideoContent(
 
   const scored = enabledLedgers
     .filter((ledger) => ledger.id !== 'inbox')
-    .map((ledger) => ({
-      ledger,
-      matches: matchedKeywords(text, ledgerKeywords(ledger))
-    }))
+    .map((ledger) => ({ ledger, ...scoreKeywords(context, ledgerKeywords(ledger)) }))
     .filter((entry) => entry.matches.length > 0)
     .sort((left, right) => {
       if (left.ledger.isDefault !== right.ledger.isDefault) {
         return left.ledger.isDefault ? 1 : -1
+      }
+
+      if (right.score !== left.score) {
+        return right.score - left.score
       }
 
       if (right.matches.length !== left.matches.length) {

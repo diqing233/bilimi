@@ -48,6 +48,42 @@ describe('classifyVideoContent', () => {
     ).toBe('tech-digital')
   })
 
+  it('scores tags higher than title and page text when classification signals conflict', () => {
+    const ledgers = [
+      {
+        id: 'custom-title-topic',
+        displayName: 'Bilimi·Title Topic',
+        keywords: ['title-tech'],
+        enabled: true,
+        priority: -20,
+        isDefault: false
+      },
+      {
+        id: 'custom-tag-topic',
+        displayName: 'Bilimi·Tag Topic',
+        keywords: ['tag-food'],
+        enabled: true,
+        priority: -10,
+        isDefault: false
+      },
+      ...createDefaultFavoriteLedgers()
+    ]
+
+    expect(
+      classifyVideoContent(
+        {
+          title: 'title-tech',
+          pageText: 'title-tech',
+          tags: ['tag-food']
+        },
+        ledgers
+      )
+    ).toMatchObject({
+      ledgerId: 'custom-tag-topic',
+      matchedKeywords: ['tag-food']
+    })
+  })
+
   it('prioritizes enabled custom ledgers over default ledgers', () => {
     const ledgers = [
       ...createDefaultFavoriteLedgers(),

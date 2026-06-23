@@ -741,7 +741,7 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
 
     expect(
-      screen.getByText('关键词是这个册目的匹配规则：Bilimi 会用它们判断当前视频或旧藏应归到哪一册。')
+      screen.getByText('建议优先填写 B 站标签里的词；标签命中权重最高，标题、分区、简介等信息会辅助判断。')
     ).toBeInTheDocument()
   })
 
@@ -1060,5 +1060,24 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(await screen.findByText('Bilimi·AI效率工坊')).toBeInTheDocument()
     expect(screen.getByText(/AI 增强/)).toBeInTheDocument()
+  })
+
+  it('recommends using Bilibili tags as ledger keywords', () => {
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
+
+    expect(
+      screen.getByText('建议优先填写 B 站标签里的词；标签命中权重最高，标题、分区、简介等信息会辅助判断。')
+    ).toBeInTheDocument()
   })
 })

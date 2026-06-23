@@ -692,7 +692,7 @@ export function FavoriteLedgerPanel({
             />
           </label>
           <p className="favorite-ledger-panel__keyword-hint">
-            关键词是这个册目的匹配规则：Bilimi 会用它们判断当前视频或旧藏应归到哪一册。
+            建议优先填写 B 站标签里的词；标签命中权重最高，标题、分区、简介等信息会辅助判断。
           </p>
           <p className="favorite-ledger-panel__keyword-hint">
             不同关键词用顿号或空格隔开，逗号、斜杠也能识别。
