@@ -335,7 +335,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('掌库已同步。')
   })
 
-  it('previews displaced ledger positions while dragging over another ledger', async () => {
+  it('keeps ledger positions stable while showing an insertion line during dragging', async () => {
     render(
       <FavoriteLedgerPanel
         ledgers={createDefaultFavoriteLedgers()}
@@ -352,16 +352,51 @@ describe('FavoriteLedgerPanel', () => {
     const chipGrid = chips.querySelector('.favorite-ledger-panel__chips')!
     const musicItem = within(chips).getByRole('button', { name: '音乐' }).closest('.favorite-ledger-panel__chip-item')!
     const knowledgeItem = within(chips).getByRole('button', { name: '知识' }).closest('.favorite-ledger-panel__chip-item')!
+    const orderBeforeDrag = Array.from(chipGrid.children).map(
+      (item) => item.querySelector('button')?.textContent ?? ''
+    )
 
     fireEvent.dragStart(musicItem, { dataTransfer: { effectAllowed: '', setData: vi.fn() } })
     fireEvent.dragOver(knowledgeItem, { dataTransfer: { dropEffect: '' } })
 
-    const previewOrder = Array.from(chipGrid.children).map(
+    const stableOrder = Array.from(chipGrid.children).map(
       (item) => item.querySelector('button')?.textContent ?? ''
     )
 
-    expect(previewOrder.indexOf('音乐')).toBe(previewOrder.indexOf('知识') - 1)
+    expect(stableOrder).toEqual(orderBeforeDrag)
+    expect(musicItem).toHaveAttribute('data-dragging', 'true')
     expect(knowledgeItem).toHaveAttribute('data-drop-target', 'true')
+  })
+
+  it('moves a later dragged ledger before the insertion-line target on drop', async () => {
+    const onSaveLedgers = vi.fn()
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    const chips = screen.getByRole('region', { name: '收藏夹' })
+    fireEvent.click(within(chips).getByRole('button', { name: '展开' }))
+    const musicItem = within(chips).getByRole('button', { name: '音乐' }).closest('.favorite-ledger-panel__chip-item')!
+    const gameItem = within(chips).getByRole('button', { name: '游戏' }).closest('.favorite-ledger-panel__chip-item')!
+
+    fireEvent.dragStart(musicItem, { dataTransfer: { effectAllowed: '', setData: vi.fn() } })
+    fireEvent.dragOver(gameItem, { dataTransfer: { dropEffect: '' } })
+    fireEvent.drop(gameItem, { dataTransfer: { getData: () => 'music' } })
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+
+    await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
+    const savedLedgerIds = onSaveLedgers.mock.calls[0][0].map((ledger) => ledger.id)
+    expect(savedLedgerIds.indexOf('music')).toBe(savedLedgerIds.indexOf('game') - 1)
+    expect(savedLedgerIds.indexOf('animation')).toBeLessThan(savedLedgerIds.indexOf('music'))
+    expect(savedLedgerIds.indexOf('game')).toBeLessThan(savedLedgerIds.indexOf('kichiku'))
   })
 
   it('resets the ledger draft to the initial defaults before saving', async () => {

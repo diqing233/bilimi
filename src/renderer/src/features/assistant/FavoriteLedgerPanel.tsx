@@ -116,7 +116,6 @@ export function FavoriteLedgerPanel({
   const [busy, setBusy] = useState(false)
   const [draggedLedgerId, setDraggedLedgerId] = useState<string | null>(null)
   const [dragTargetLedgerId, setDragTargetLedgerId] = useState<string | null>(null)
-  const [dragPreviewLedgers, setDragPreviewLedgers] = useState<FavoriteLedger[] | null>(null)
   const [ledgerListExpanded, setLedgerListExpanded] = useState(false)
   const hasUnsavedChanges = useMemo(
     () => JSON.stringify(draftLedgers) !== JSON.stringify(ledgers),
@@ -312,7 +311,6 @@ export function FavoriteLedgerPanel({
   function handleLedgerDragStart(event: DragEvent<HTMLDivElement>, ledgerId: string) {
     setDraggedLedgerId(ledgerId)
     setDragTargetLedgerId(null)
-    setDragPreviewLedgers(draftLedgers)
     event.dataTransfer.effectAllowed = 'move'
     event.dataTransfer.setData('text/plain', ledgerId)
   }
@@ -322,7 +320,6 @@ export function FavoriteLedgerPanel({
     event.dataTransfer.dropEffect = 'move'
     if (!draggedLedgerId || draggedLedgerId === targetLedgerId) {
       setDragTargetLedgerId(null)
-      setDragPreviewLedgers(draftLedgers)
       return
     }
 
@@ -331,7 +328,6 @@ export function FavoriteLedgerPanel({
     }
 
     setDragTargetLedgerId(targetLedgerId)
-    setDragPreviewLedgers(reorderLedgers(draftLedgers, draggedLedgerId, targetLedgerId))
   }
 
   function handleLedgerDrop(event: DragEvent<HTMLDivElement>, targetLedgerId: string) {
@@ -339,7 +335,6 @@ export function FavoriteLedgerPanel({
     const sourceLedgerId = event.dataTransfer?.getData('text/plain') || draggedLedgerId
     setDraggedLedgerId(null)
     setDragTargetLedgerId(null)
-    setDragPreviewLedgers(null)
     if (!sourceLedgerId) {
       return
     }
@@ -351,7 +346,6 @@ export function FavoriteLedgerPanel({
   function finishLedgerDrag() {
     setDraggedLedgerId(null)
     setDragTargetLedgerId(null)
-    setDragPreviewLedgers(null)
   }
 
   async function saveLedgers() {
@@ -451,8 +445,7 @@ export function FavoriteLedgerPanel({
     }
   }
 
-  const previewLedgers = dragPreviewLedgers ?? draftLedgers
-  const ledgersToDisplay = visibleLedgers(previewLedgers, ledgerListExpanded)
+  const ledgersToDisplay = visibleLedgers(draftLedgers, ledgerListExpanded)
   const canToggleLedgerList = draftLedgers.length > ledgersToDisplay.length || ledgerListExpanded
 
   return (
