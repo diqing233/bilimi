@@ -549,7 +549,7 @@ body[data-floating-window="true"],
 .palace-maid-pet__bubble[data-chat-open="true"] {
   left: 50%;
   bottom: calc(var(--floating-pet-size) + 10px);
-  width: min(300px, calc(var(--floating-pet-host-width) - 8px));
+  width: min(255px, calc(var(--floating-pet-host-width) - 8px));
   display: flex;
   flex-direction: column;
   gap: 7px;

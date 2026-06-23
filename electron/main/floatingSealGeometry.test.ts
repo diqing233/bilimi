@@ -128,6 +128,16 @@ describe('floating menu geometry', () => {
     ).toEqual({ x: 912, y: 544, width: 260, height: 168 })
   })
 
+  it('allows several more floating pet resize steps before clamping at the maximum size', () => {
+    expect(
+      createFloatingSealResizeBounds({
+        startBounds: { x: 872, y: 492, width: 340, height: 220 },
+        startCursor: { x: 1232, y: 712 },
+        currentCursor: { x: 1832, y: 1112 }
+      })
+    ).toEqual({ x: 702, y: 272, width: 680, height: 440 })
+  })
+
   it('steps the floating pet larger around the pet foot anchor', () => {
     expect(
       createFloatingSealStepResizeBounds({

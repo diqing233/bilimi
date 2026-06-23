@@ -24,7 +24,7 @@ type OverlayPosition = {
 const DEFAULT_GAP = 12
 const FLOATING_SEAL_FIXED_SIZE = { width: 336, height: 360 }
 const FLOATING_SEAL_MIN_SIZE = { width: 260, height: 168 }
-const FLOATING_SEAL_MAX_SIZE = { width: 560, height: 440 }
+const FLOATING_SEAL_MAX_SIZE = { width: 680, height: 560 }
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)

@@ -33,7 +33,8 @@ describe('pet quick action styles', () => {
     expectStyleSnippet(
       '.palace-maid-pet__bubble[data-chat-open="true"] { left: 50%; bottom: calc(var(--floating-pet-size) + 10px);'
     )
-    expectStyleSnippet('width: min(300px, calc(var(--floating-pet-host-width) - 8px));')
+    expectStyleSnippet('width: min(255px, calc(var(--floating-pet-host-width) - 8px));')
+    expect(compactStyles).not.toContain('width: min(300px, calc(var(--floating-pet-host-width) - 8px));')
     expectStyleSnippet('max-width: calc(var(--floating-pet-host-width) - 8px);')
     expect(compactStyles).not.toContain('width: min(320px, calc(100vw - 8px));')
     expect(compactStyles).not.toContain('max-width: calc(100vw - 8px);')
