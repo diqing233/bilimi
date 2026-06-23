@@ -1457,6 +1457,13 @@ body[data-floating-window="true"],
   opacity: 0.78;
   line-height: 1.2;
 }
+.video-note-archive__result-tabs button {
+  display: block;
+  min-height: 36px;
+  font-size: 12px;
+  font-weight: 400;
+  text-align: center;
+}
 .video-notes [role="tabpanel"] {
   display: grid;
   gap: 6px;
@@ -1704,6 +1711,10 @@ body[data-floating-window="true"],
   display: grid;
   gap: 4px;
 }
+.video-note-archive__star-filter[aria-pressed="true"] {
+  background: var(--porcelain-primary);
+  color: var(--porcelain-surface);
+}
 .video-note-archive__body {
   min-height: 0;
   display: grid;
@@ -1788,6 +1799,16 @@ body[data-floating-window="true"],
 .video-note-archive__result-panel time {
   color: var(--porcelain-primary);
   font-weight: 700;
+}
+.video-note-archive__note-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.video-note-archive__note-actions button[aria-pressed="true"] {
+  background: var(--porcelain-primary);
+  color: var(--porcelain-surface);
 }
 .video-note-archive__editor {
   align-content: start;

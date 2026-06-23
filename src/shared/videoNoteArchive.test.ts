@@ -89,27 +89,18 @@ describe('video note archive helpers', () => {
     expect(searchVideoNoteArchives(archives, { query: '不存在' })).toHaveLength(0)
   })
 
-  it('filters archives with annotations and memo', () => {
+  it('filters archives with memo and starred notes', () => {
     const archives = appendVideoNoteArchiveVersion(
       [],
       createNote({
-        annotations: [
-          {
-            id: 'annotation-1',
-            start: 75,
-            title: '数据',
-            body: '复看。',
-            createdAt: '2026-06-17T00:00:00.000Z',
-            updatedAt: '2026-06-17T00:00:00.000Z'
-          }
-        ],
-        userMemo: '准备复习。'
+        userMemo: '准备复习。',
+        starred: true
       }),
       '2026-06-17T00:00:00.000Z'
     )
 
-    expect(searchVideoNoteArchives(archives, { query: '', hasAnnotations: true })).toHaveLength(1)
     expect(searchVideoNoteArchives(archives, { query: '', hasMemo: true })).toHaveLength(1)
+    expect(searchVideoNoteArchives(archives, { query: '', hasStarred: true })).toHaveLength(1)
   })
 
   it('deletes archive entries and individual versions', () => {
@@ -140,6 +131,7 @@ describe('video note archive helpers', () => {
         }
       ],
       userMemo: '周末复习',
+      starred: true,
       updatedAt: '2026-06-18T00:00:00.000Z'
     }
 
@@ -153,10 +145,11 @@ describe('video note archive helpers', () => {
     expect(updated[0].versions).toHaveLength(1)
     expect(updated[0].versions[0].note).toMatchObject({
       annotations: [expect.objectContaining({ title: '复看' })],
-      userMemo: '周末复习'
+      userMemo: '周末复习',
+      starred: true
     })
-    expect(searchVideoNoteArchives(updated, { query: '', hasAnnotations: true })).toHaveLength(1)
     expect(searchVideoNoteArchives(updated, { query: '', hasMemo: true })).toHaveLength(1)
+    expect(searchVideoNoteArchives(updated, { query: '', hasStarred: true })).toHaveLength(1)
   })
 
   it('normalizes legacy archive entries with usable versions', () => {

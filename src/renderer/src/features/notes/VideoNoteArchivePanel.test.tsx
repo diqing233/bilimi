@@ -39,17 +39,8 @@ function createArchives(): VideoNoteArchiveEntry[] {
   const secondNote = createNote({
     transcript: [{ start: 3, end: 8, text: '第二版纯文稿。' }],
     updatedAt: '2026-06-17T01:00:00.000Z',
-    annotations: [
-      {
-        id: 'annotation-1',
-        start: 3,
-        title: '复看',
-        body: '这一版更清楚。',
-        createdAt: '2026-06-17T01:00:00.000Z',
-        updatedAt: '2026-06-17T01:00:00.000Z'
-      }
-    ],
-    userMemo: '期末复习'
+    userMemo: '期末复习',
+    starred: true
   })
   const otherNote = createNote({
     id: 'bvid:BV1react',
@@ -99,8 +90,12 @@ describe('VideoNoteArchivePanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
 
+    expect(screen.queryByText('第二版纯文稿。')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: '无时间线文稿' }))
+
     expect(screen.getByText('第二版纯文稿。')).toBeInTheDocument()
-    expect(screen.getByText('期末复习')).toBeInTheDocument()
+    expect(screen.queryByLabelText('批注标题')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('批注正文')).not.toBeInTheDocument()
   })
 
   it('shows archive detail below the list only after a video is selected', () => {
@@ -113,6 +108,7 @@ describe('VideoNoteArchivePanel', () => {
 
     expect(screen.getByRole('article', { name: '机器学习入门' })).toBeInTheDocument()
     expect(screen.getByRole('tablist', { name: '档案文稿' })).toBeInTheDocument()
+    expect(screen.queryByText('纯文稿连续阅读，提供复制全文。')).not.toBeInTheDocument()
   })
 
   it('searches title, author, bvid, transcript and summary text', () => {
@@ -126,16 +122,19 @@ describe('VideoNoteArchivePanel', () => {
     expect(screen.getByRole('button', { name: /React 状态管理/ })).toBeInTheDocument()
   })
 
-  it('filters archives with annotations and memo', () => {
+  it('filters archives with memo and starred notes', () => {
     renderArchivePanel()
 
-    fireEvent.click(screen.getByLabelText('有批注'))
+    expect(screen.queryByLabelText('有批注')).not.toBeInTheDocument()
 
+    fireEvent.click(screen.getByLabelText('有备注'))
     expect(screen.getByRole('button', { name: /机器学习入门/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /React 状态管理/ })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByLabelText('有备注'))
+    fireEvent.click(screen.getByRole('button', { name: '星标' }))
     expect(screen.getByRole('button', { name: /机器学习入门/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /React 状态管理/ })).not.toBeInTheDocument()
   })
 
   it('switches selected video and version', () => {
@@ -146,6 +145,7 @@ describe('VideoNoteArchivePanel', () => {
       target: { value: 'bvid:BV1note:version:2026-06-17T00:00:00.000Z' }
     })
 
+    fireEvent.click(screen.getByRole('tab', { name: '无时间线文稿' }))
     expect(screen.getByText(/先介绍机器学习的基本概念/)).toBeInTheDocument()
   })
 
@@ -159,45 +159,24 @@ describe('VideoNoteArchivePanel', () => {
     renderArchivePanel()
 
     fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
-    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+    fireEvent.click(screen.getByRole('tab', { name: '无时间线文稿' }))
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('第二版纯文稿。'))
 
-    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+    fireEvent.click(screen.getByRole('tab', { name: 'DeepSeek 总结' }))
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining('## 速览')))
   })
 
-  it('saves archive annotations and memo while keeping them filterable', async () => {
+  it('saves archive memo and starred state while keeping them filterable', async () => {
     const onUpdateVersion = vi.fn().mockResolvedValue(undefined)
 
     renderArchivePanel({ onUpdateVersion })
 
     fireEvent.click(screen.getByRole('button', { name: /React 状态管理/ }))
-    fireEvent.change(screen.getByLabelText('批注标题'), {
-      target: { value: 'Hooks 对比' }
-    })
-    fireEvent.change(screen.getByLabelText('批注正文'), {
-      target: { value: '这里要补一段 useReducer 的例子。' }
-    })
+    expect(screen.queryByLabelText('本地备注')).not.toBeInTheDocument()
 
-    await waitFor(() =>
-      expect(onUpdateVersion).toHaveBeenLastCalledWith(
-        'bvid:BV1react',
-        'bvid:BV1react:version:2026-06-16T00:00:00.000Z',
-        expect.objectContaining({
-          annotations: expect.arrayContaining([
-            expect.objectContaining({
-              title: 'Hooks 对比',
-              body: '这里要补一段 useReducer 的例子。'
-            })
-          ])
-        })
-      )
-    )
-
-    fireEvent.click(screen.getByLabelText('有批注'))
-    expect(screen.getByRole('button', { name: /React 状态管理/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '备注' }))
 
     fireEvent.change(screen.getByLabelText('本地备注'), {
       target: { value: '下次复盘时先看这条。' }
@@ -214,6 +193,22 @@ describe('VideoNoteArchivePanel', () => {
     )
 
     fireEvent.click(screen.getByLabelText('有备注'))
+    expect(screen.getByRole('button', { name: /React 状态管理/ })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '星星收藏' }))
+
+    await waitFor(() =>
+      expect(onUpdateVersion).toHaveBeenLastCalledWith(
+        'bvid:BV1react',
+        'bvid:BV1react:version:2026-06-16T00:00:00.000Z',
+        expect.objectContaining({
+          starred: true
+        })
+      )
+    )
+
+    fireEvent.click(screen.getByLabelText('有备注'))
+    fireEvent.click(screen.getByRole('button', { name: '星标' }))
     expect(screen.getByRole('button', { name: /React 状态管理/ })).toBeInTheDocument()
   })
 

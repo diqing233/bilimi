@@ -219,12 +219,12 @@ function archiveMatchesQuery(archive: VideoNoteArchiveEntry, query: string): boo
   return searchableText.includes(normalizedQuery)
 }
 
-function archiveHasAnnotations(archive: VideoNoteArchiveEntry): boolean {
-  return archive.versions.some((version) => version.note.annotations.length > 0)
-}
-
 function archiveHasMemo(archive: VideoNoteArchiveEntry): boolean {
   return archive.versions.some((version) => version.note.userMemo.trim().length > 0)
+}
+
+function archiveHasStarred(archive: VideoNoteArchiveEntry): boolean {
+  return archive.versions.some((version) => Boolean(version.note.starred))
 }
 
 export function searchVideoNoteArchives(
@@ -235,7 +235,7 @@ export function searchVideoNoteArchives(
 
   return normalizeVideoNoteArchives(archives)
     .filter((archive) => archiveMatchesQuery(archive, query))
-    .filter((archive) => !filters.hasAnnotations || archiveHasAnnotations(archive))
     .filter((archive) => !filters.hasMemo || archiveHasMemo(archive))
+    .filter((archive) => !filters.hasStarred || archiveHasStarred(archive))
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
 }

@@ -17,10 +17,10 @@ type VideoNoteArchivePanelProps = {
 
 type ArchiveResultTab = 'plain' | 'timed' | 'summary'
 
-const archiveResultTabs: Array<{ id: ArchiveResultTab; label: string; description: string }> = [
-  { id: 'plain', label: '无时间线文稿', description: '纯文稿连续阅读，提供复制全文。' },
-  { id: 'timed', label: '带时间线文稿', description: '按时间段阅读，提供复制全文。' },
-  { id: 'summary', label: 'DeepSeek 总结', description: '更丰富精细的结构化摘要，提供复制全文。' }
+const archiveResultTabs: Array<{ id: ArchiveResultTab; label: string }> = [
+  { id: 'plain', label: '无时间线文稿' },
+  { id: 'timed', label: '带时间线文稿' },
+  { id: 'summary', label: 'DeepSeek 总结' }
 ]
 
 type PendingDelete =
@@ -60,16 +60,17 @@ export function VideoNoteArchivePanel({
 }: VideoNoteArchivePanelProps): React.JSX.Element {
   const [localArchives, setLocalArchives] = useState<VideoNoteArchiveEntry[]>(archives)
   const [query, setQuery] = useState('')
-  const [hasAnnotations, setHasAnnotations] = useState(false)
   const [hasMemo, setHasMemo] = useState(false)
+  const [hasStarred, setHasStarred] = useState(false)
   const [selectedArchiveId, setSelectedArchiveId] = useState<string | null>(null)
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null)
-  const [activeResultTab, setActiveResultTab] = useState<ArchiveResultTab>('plain')
+  const [activeResultTab, setActiveResultTab] = useState<ArchiveResultTab | null>(null)
+  const [memoOpen, setMemoOpen] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
   const [statusMessage, setStatusMessage] = useState('')
   const filteredArchives = useMemo(
-    () => searchVideoNoteArchives(localArchives, { query, hasAnnotations, hasMemo }),
-    [localArchives, hasAnnotations, hasMemo, query]
+    () => searchVideoNoteArchives(localArchives, { query, hasMemo, hasStarred }),
+    [localArchives, hasMemo, hasStarred, query]
   )
   const selectedArchive =
     filteredArchives.find((archive) => archive.id === selectedArchiveId) ?? null
@@ -97,7 +98,8 @@ export function VideoNoteArchivePanel({
   function selectArchive(archive: VideoNoteArchiveEntry): void {
     setSelectedArchiveId(archive.id)
     setSelectedVersionId(archive.versions.at(-1)?.id ?? null)
-    setActiveResultTab('plain')
+    setActiveResultTab(null)
+    setMemoOpen(false)
   }
 
   async function copyText(value: string, message: string): Promise<void> {
@@ -145,27 +147,6 @@ export function VideoNoteArchivePanel({
     await onUpdateVersion(selectedArchive.id, selectedVersion.id, note)
   }
 
-  function updateAnnotationDraft(field: 'title' | 'body', value: string): void {
-    if (!selectedVersion) return
-    const now = new Date().toISOString()
-    const existing = selectedVersion.note.annotations[0]
-    const nextAnnotation = {
-      id: existing?.id ?? `archive-annotation:${now}`,
-      start: existing?.start ?? null,
-      title: field === 'title' ? value : (existing?.title ?? ''),
-      body: field === 'body' ? value : (existing?.body ?? ''),
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now
-    }
-    const nextNote = {
-      ...selectedVersion.note,
-      annotations: [nextAnnotation, ...selectedVersion.note.annotations.slice(1)],
-      updatedAt: now
-    }
-
-    void updateSelectedNote(nextNote)
-  }
-
   function updateMemo(value: string): void {
     if (!selectedVersion) return
     void updateSelectedNote({
@@ -175,9 +156,22 @@ export function VideoNoteArchivePanel({
     })
   }
 
+  function toggleStarred(): void {
+    if (!selectedVersion) return
+    void updateSelectedNote({
+      ...selectedVersion.note,
+      starred: !selectedVersion.note.starred,
+      updatedAt: new Date().toISOString()
+    })
+  }
+
   function renderResultTabs(): React.JSX.Element {
     return (
-      <div className="video-notes__result-tabs" role="tablist" aria-label="档案文稿">
+      <div
+        className="video-notes__result-tabs video-note-archive__result-tabs"
+        role="tablist"
+        aria-label="档案文稿"
+      >
         {archiveResultTabs.map((tab) => (
           <button
             key={tab.id}
@@ -188,15 +182,18 @@ export function VideoNoteArchivePanel({
             id={'video-note-archive-tab-' + tab.id}
             onClick={() => setActiveResultTab(tab.id)}
           >
-            <strong>{tab.label}</strong>
-            <small>{tab.description}</small>
+            {tab.label}
           </button>
         ))}
       </div>
     )
   }
 
-  function renderActiveResult(version: VideoNoteArchiveVersion): React.JSX.Element {
+  function renderActiveResult(version: VideoNoteArchiveVersion): React.JSX.Element | null {
+    if (!activeResultTab) {
+      return null
+    }
+
     const copyTextByTab: Record<ArchiveResultTab, string> = {
       plain: version.plainTranscript,
       timed: createTimedTranscriptText(version.note),
@@ -267,19 +264,19 @@ export function VideoNoteArchivePanel({
         <label>
           <input
             type="checkbox"
-            checked={hasAnnotations}
-            onChange={(event) => setHasAnnotations(event.target.checked)}
-          />
-          有批注
-        </label>
-        <label>
-          <input
-            type="checkbox"
             checked={hasMemo}
             onChange={(event) => setHasMemo(event.target.checked)}
           />
           有备注
         </label>
+        <button
+          type="button"
+          className="video-note-archive__star-filter"
+          aria-pressed={hasStarred}
+          onClick={() => setHasStarred((current) => !current)}
+        >
+          星标
+        </button>
       </div>
 
       <div className="video-note-archive__body">
@@ -287,11 +284,6 @@ export function VideoNoteArchivePanel({
           {filteredArchives.length > 0 ? (
             filteredArchives.map((archive) => {
               const latestVersion = getLatestVersion(archive)
-              const annotationCount = archive.versions.reduce(
-                (count, version) => count + version.note.annotations.length,
-                0
-              )
-
               return (
                 <li key={archive.id}>
                   <button
@@ -302,7 +294,8 @@ export function VideoNoteArchivePanel({
                     <strong>{archive.source.title}</strong>
                     <small>
                       {archive.source.author ?? '未署名'} · {archive.source.bvid ?? '未识别'} ·{' '}
-                      {archive.versions.length} 次转写 · {annotationCount} 条批注
+                      {archive.versions.length} 次转写
+                      {archive.versions.some((version) => version.note.starred) ? ' · 已星标' : ''}
                     </small>
                     <small>{latestVersion ? latestVersion.createdAt : archive.updatedAt}</small>
                   </button>
@@ -364,47 +357,30 @@ export function VideoNoteArchivePanel({
             {renderResultTabs()}
             {renderActiveResult(selectedVersion)}
 
-            <section className="video-note-archive__editor">
-              <h4>批注和备注</h4>
-              <label>
-                批注标题
-                <input
-                  type="text"
-                  value={selectedVersion.note.annotations[0]?.title ?? ''}
-                  onChange={(event) => updateAnnotationDraft('title', event.currentTarget.value)}
-                />
-              </label>
-              <label>
-                批注正文
-                <textarea
-                  value={selectedVersion.note.annotations[0]?.body ?? ''}
-                  onChange={(event) => updateAnnotationDraft('body', event.currentTarget.value)}
-                />
-              </label>
-              <label>
-                本地备注
-                <textarea
-                  value={selectedVersion.note.userMemo}
-                  onChange={(event) => updateMemo(event.currentTarget.value)}
-                />
-              </label>
-              {selectedVersion.note.annotations.length > 0 ? (
-                <ol>
-                  {selectedVersion.note.annotations.map((annotation) => (
-                    <li key={annotation.id}>
-                      <strong>{annotation.title}</strong>
-                      {annotation.body ? <p>{annotation.body}</p> : null}
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <p>暂无批注。</p>
-              )}
-            </section>
+            <div className="video-note-archive__note-actions">
+              <button type="button" aria-pressed={memoOpen} onClick={() => setMemoOpen((open) => !open)}>
+                备注
+              </button>
+              <button type="button" aria-pressed={Boolean(selectedVersion.note.starred)} onClick={toggleStarred}>
+                星星收藏
+              </button>
+            </div>
+
+            {memoOpen ? (
+              <section className="video-note-archive__editor" aria-label="备注">
+                <label>
+                  本地备注
+                  <textarea
+                    value={selectedVersion.note.userMemo}
+                    onChange={(event) => updateMemo(event.currentTarget.value)}
+                  />
+                </label>
+              </section>
+            ) : null}
           </article>
         ) : (
           <section className="video-note-archive__detail">
-            <p>请选择上方档案查看文稿、批注和备注。</p>
+            <p>请选择上方档案查看文稿、备注和星标。</p>
           </section>
         )}
       </div>

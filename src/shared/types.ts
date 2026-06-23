@@ -170,6 +170,7 @@ export type VideoNote = {
   overview: VideoNoteOverview
   annotations: VideoNoteAnnotation[]
   userMemo: string
+  starred?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -277,8 +278,8 @@ export type VideoNoteArchiveEntry = {
 
 export type VideoNoteArchiveSearchFilters = {
   query: string
-  hasAnnotations?: boolean
   hasMemo?: boolean
+  hasStarred?: boolean
 }
 
 export type VideoNoteExtractionResult = {
