@@ -38,7 +38,11 @@ describe('favorite ledger API scripts', () => {
     const result = await window.eval(buildFavoriteLedgerStatusScript(ledgers))
 
     expect(result.ok).toBe(true)
-    expect(result.missingLedgerIds).toEqual(ledgers.slice(1).map((ledger) => ledger.id))
+    expect(result.missingLedgerIds).toEqual(
+      ledgers
+        .filter((ledger) => ledger.id !== 'animation' && ledger.enabled)
+        .map((ledger) => ledger.id)
+    )
     expect(result.ledgers.find((ledger) => ledger.id === 'animation')?.bilibiliFolderId).toBe('1')
   })
 

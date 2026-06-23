@@ -28,7 +28,47 @@ describe('favorite ledger model', () => {
       ])
     )
     expect(createDefaultFavoriteLedgers()).toHaveLength(35)
-    expect(createDefaultFavoriteLedgers().every((ledger) => ledger.enabled)).toBe(true)
+  })
+
+  it('orders common partitions first and only enables them by default', () => {
+    const ledgers = createDefaultFavoriteLedgers()
+
+    expect(ledgers.slice(0, 16).map((ledger) => ledger.displayName)).toEqual([
+      'Bilimi·动画',
+      'Bilimi·鬼畜',
+      'Bilimi·舞蹈',
+      'Bilimi·娱乐',
+      'Bilimi·科技数码',
+      'Bilimi·美食',
+      'Bilimi·汽车',
+      'Bilimi·体育运动',
+      'Bilimi·游戏',
+      'Bilimi·音乐',
+      'Bilimi·影视',
+      'Bilimi·知识',
+      'Bilimi·资讯',
+      'Bilimi·小剧场',
+      'Bilimi·时尚美妆',
+      'Bilimi·待分类'
+    ])
+    expect(ledgers.filter((ledger) => ledger.enabled).map((ledger) => ledger.id)).toEqual([
+      'animation',
+      'kichiku',
+      'dance',
+      'entertainment',
+      'tech-digital',
+      'food',
+      'car',
+      'sports',
+      'game',
+      'music',
+      'movie-tv',
+      'knowledge',
+      'news',
+      'short-drama',
+      'fashion-beauty',
+      'inbox'
+    ])
   })
 
   it('preserves custom ledgers and fills missing default ledgers', () => {

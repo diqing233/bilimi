@@ -19,6 +19,7 @@ const DEFAULT_FAVORITE_LEDGER_DEFINITIONS = [
   ['news', '资讯', ['资讯', '新闻', '热点', '时事']],
   ['short-drama', '小剧场', ['小剧场', '短剧', '剧情', '微电影']],
   ['fashion-beauty', '时尚美妆', ['时尚', '美妆', '穿搭', '护肤']],
+  ['inbox', '待分类', ['稍后', '待看', '暂存', '收藏']],
   ['animal', '动物', ['动物', '宠物', '猫', '狗']],
   ['home-property', '家装房产', ['家装', '房产', '装修', '买房']],
   ['travel', '旅游出行', ['旅游', '旅行', '出行', '攻略']],
@@ -37,9 +38,27 @@ const DEFAULT_FAVORITE_LEDGER_DEFINITIONS = [
   ['handmade', '手工', ['手工', '制作', 'DIY', '模型']],
   ['health', '健康', ['健康', '医学', '养生', '睡眠']],
   ['public-good', '公益', ['公益', '志愿', '环保', '救助']],
-  ['documentary', '纪录片', ['纪录片', '纪实', '人文']],
-  ['inbox', '待分类', ['稍后', '待看', '暂存', '收藏']]
+  ['documentary', '纪录片', ['纪录片', '纪实', '人文']]
 ] as const
+
+const DEFAULT_ENABLED_LEDGER_IDS = new Set([
+  'animation',
+  'kichiku',
+  'dance',
+  'entertainment',
+  'tech-digital',
+  'food',
+  'car',
+  'sports',
+  'game',
+  'music',
+  'movie-tv',
+  'knowledge',
+  'news',
+  'short-drama',
+  'fashion-beauty',
+  'inbox'
+])
 
 const RETIRED_DEFAULT_FAVORITE_LEDGER_NAMES = new Set([
   'Bilimi·见闻增广',
@@ -57,7 +76,7 @@ const DEFAULT_FAVORITE_LEDGERS: FavoriteLedger[] = DEFAULT_FAVORITE_LEDGER_DEFIN
     id,
     displayName: `${BILIMI_LEDGER_PREFIX}${name}`,
     keywords: [...keywords],
-    enabled: true,
+    enabled: DEFAULT_ENABLED_LEDGER_IDS.has(id),
     priority: (index + 1) * 10,
     isDefault: true
   })

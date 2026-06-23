@@ -1,6 +1,6 @@
 import { BILIMI_LEDGER_PREFIX } from '@shared/favoriteLedgers'
 import type { AssistantAutomationResult, FavoriteLedger } from '@shared/types'
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type DragEvent } from 'react'
 import type { FavoriteLedgerCandidate } from '../favorites/favoriteLedgerInsights'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
 
@@ -54,18 +54,34 @@ function prefixedBilimiLedgerName(name: string) {
   return `${BILIMI_LEDGER_PREFIX}${stripBilimiLedgerPrefix(name)}`
 }
 
-function addShortcutAnchorIndex(ledgers: FavoriteLedger[]) {
-  const lastCustomBilimiIndex = ledgers.reduce(
-    (lastIndex, ledger, index) => (!ledger.isDefault && isBilimiLedger(ledger) ? index : lastIndex),
-    -1
-  )
-
-  if (lastCustomBilimiIndex >= 0) {
-    return lastCustomBilimiIndex
+function reorderLedgers(ledgers: FavoriteLedger[], draggedLedgerId: string, targetLedgerId: string) {
+  if (draggedLedgerId === targetLedgerId) {
+    return ledgers
   }
 
-  const documentaryIndex = ledgers.findIndex((ledger) => ledger.id === 'documentary')
-  return documentaryIndex >= 0 ? documentaryIndex : ledgers.length - 1
+  const draggedIndex = ledgers.findIndex((ledger) => ledger.id === draggedLedgerId)
+  const targetIndex = ledgers.findIndex((ledger) => ledger.id === targetLedgerId)
+  if (draggedIndex < 0 || targetIndex < 0) {
+    return ledgers
+  }
+
+  const nextLedgers = [...ledgers]
+  const [draggedLedger] = nextLedgers.splice(draggedIndex, 1)
+  const nextTargetIndex = nextLedgers.findIndex((ledger) => ledger.id === targetLedgerId)
+  nextLedgers.splice(nextTargetIndex + 1, 0, draggedLedger)
+  return nextLedgers
+}
+
+function withSequentialPriorities(ledgers: FavoriteLedger[]) {
+  return ledgers.map((ledger, index) => ({
+    ...ledger,
+    priority: (index + 1) * 10
+  }))
+}
+
+function saveStatusMessage(result: AssistantAutomationResult | void) {
+  const message = result?.message === 'favorite ledgers saved' ? '掌库已同步。' : result?.message
+  return message ? `保存成功：${message}` : '保存成功：掌库已同步。'
 }
 
 export function FavoriteLedgerPanel({
@@ -86,7 +102,9 @@ export function FavoriteLedgerPanel({
   const [selectedCandidateKeys, setSelectedCandidateKeys] = useState<Set<string>>(new Set())
   const [selectedOldFavoriteAids, setSelectedOldFavoriteAids] = useState<Set<number>>(new Set())
   const [status, setStatus] = useState<string | null>(null)
+  const [saveStatus, setSaveStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [draggedLedgerId, setDraggedLedgerId] = useState<string | null>(null)
   const hasUnsavedChanges = useMemo(
     () => JSON.stringify(draftLedgers) !== JSON.stringify(ledgers),
     [draftLedgers, ledgers]
@@ -115,6 +133,7 @@ export function FavoriteLedgerPanel({
   function showSetupPrompt() {
     setSetupPromptVisible(true)
     setStatus(null)
+    setSaveStatus(null)
   }
 
   async function scanPersonalizedSetup() {
@@ -123,23 +142,19 @@ export function FavoriteLedgerPanel({
   }
 
   function addBlankLedger() {
-    const insertIndex = addShortcutAnchorIndex(draftLedgers) + 1
     const nextLedger = {
       id: customLedgerId('new-ledger'),
       displayName: BILIMI_LEDGER_PREFIX,
       keywords: [],
       enabled: true,
-      priority: insertIndex + 100,
+      priority: (draftLedgers.length + 1) * 10,
       isDefault: false
     }
-    const nextLedgers = [
-      ...draftLedgers.slice(0, insertIndex),
-      nextLedger,
-      ...draftLedgers.slice(insertIndex)
-    ]
+    const nextLedgers = [...draftLedgers, nextLedger]
 
     setDraftLedgers(nextLedgers)
     setActiveLedgerId(nextLedger.id)
+    setSaveStatus(null)
   }
 
   function deleteLedger(ledgerId: string) {
@@ -148,6 +163,7 @@ export function FavoriteLedgerPanel({
       if (ledgerId === activeLedgerId) {
         setActiveLedgerId(nextLedgers[0]?.id ?? null)
       }
+      setSaveStatus(null)
       return nextLedgers
     })
   }
@@ -179,8 +195,9 @@ export function FavoriteLedgerPanel({
       return
     }
 
-    setDraftLedgers((currentLedgers) =>
-      currentLedgers.map((ledger) =>
+    setDraftLedgers((currentLedgers) => {
+      setSaveStatus(null)
+      return currentLedgers.map((ledger) =>
         ledger.id === activeLedger.id
           ? {
               ...ledger,
@@ -188,7 +205,7 @@ export function FavoriteLedgerPanel({
             }
           : ledger
       )
-    )
+    })
   }
 
   function updateActiveLedgerName(name: string) {
@@ -206,6 +223,7 @@ export function FavoriteLedgerPanel({
   }
 
   function toggleDefaultLedger(ledgerId: string) {
+    setSaveStatus(null)
     setSelectedDefaultLedgerIds((current) => {
       const next = new Set(current)
       if (next.has(ledgerId)) {
@@ -220,6 +238,7 @@ export function FavoriteLedgerPanel({
   function toggleCandidate(candidate: FavoriteLedgerCandidate) {
     const key = candidateKey(candidate)
     setSelectedCandidateKeys((current) => {
+      setSaveStatus(null)
       const next = new Set(current)
       if (next.has(key)) {
         next.delete(key)
@@ -259,6 +278,30 @@ export function FavoriteLedgerPanel({
       }
     ])
     setStatus(`已采纳 ${candidate.displayName}，保存后生效。`)
+    setSaveStatus(null)
+  }
+
+  function handleLedgerDragStart(event: DragEvent<HTMLDivElement>, ledgerId: string) {
+    setDraggedLedgerId(ledgerId)
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', ledgerId)
+  }
+
+  function handleLedgerDragOver(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+  }
+
+  function handleLedgerDrop(event: DragEvent<HTMLDivElement>, targetLedgerId: string) {
+    event.preventDefault()
+    const sourceLedgerId = event.dataTransfer?.getData('text/plain') || draggedLedgerId
+    setDraggedLedgerId(null)
+    if (!sourceLedgerId) {
+      return
+    }
+
+    setDraftLedgers((currentLedgers) => withSequentialPriorities(reorderLedgers(currentLedgers, sourceLedgerId, targetLedgerId)))
+    setSaveStatus(null)
   }
 
   async function saveLedgers() {
@@ -266,13 +309,15 @@ export function FavoriteLedgerPanel({
     const selectedCandidates = candidates.filter((candidate) =>
       selectedCandidateKeys.has(candidateKey(candidate))
     )
-    const nextLedgers = draftLedgers.map((ledger) =>
-      ledger.isDefault
-        ? {
-            ...ledger,
-            enabled: selectedDefaultLedgerIds.has(ledger.id)
-          }
-        : ledger
+    const nextLedgers = withSequentialPriorities(
+      draftLedgers.map((ledger) =>
+        ledger.isDefault
+          ? {
+              ...ledger,
+              enabled: selectedDefaultLedgerIds.has(ledger.id)
+            }
+          : ledger
+      )
     )
 
     for (const candidate of selectedCandidates) {
@@ -280,19 +325,17 @@ export function FavoriteLedgerPanel({
         continue
       }
 
-      nextLedgers.push(candidateToLedger(candidate, nextLedgers.length + 100))
+      nextLedgers.push(candidateToLedger(candidate, (nextLedgers.length + 1) * 10))
     }
 
     setBusy(true)
+    setStatus(null)
+    setSaveStatus('正在保存...')
     try {
       const result = await onSaveLedgers(nextLedgers)
-      if (result?.message) {
-        setStatus(result.message)
-      } else {
-        setStatus('掌库已同步。')
-      }
+      setSaveStatus(saveStatusMessage(result))
     } catch (error) {
-      setStatus(`同步未完成：${errorMessage(error)}`)
+      setSaveStatus(`同步未完成：${errorMessage(error)}`)
     } finally {
       setBusy(false)
     }
@@ -300,6 +343,7 @@ export function FavoriteLedgerPanel({
 
   async function scanOldFavorites(mode: 'setup' | 'organize' = 'organize') {
     setBusy(true)
+    setSaveStatus(null)
     try {
       const nextPreview = await onScanOldFavorites()
       if (nextPreview.ok === false) {
@@ -347,6 +391,7 @@ export function FavoriteLedgerPanel({
     }
 
     setBusy(true)
+    setSaveStatus(null)
     try {
       const selectedItems = preview.items.filter((item) => selectedOldFavoriteAids.has(item.aid))
       const result = await onExecuteOldFavoritePlan(selectedItems)
@@ -355,8 +400,6 @@ export function FavoriteLedgerPanel({
       setBusy(false)
     }
   }
-
-  const addShortcutLedgerIndex = addShortcutAnchorIndex(draftLedgers)
 
   return (
     <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
@@ -407,47 +450,52 @@ export function FavoriteLedgerPanel({
           </button>
         </div>
         <div className="favorite-ledger-panel__chips">
-          {draftLedgers.map((ledger, ledgerIndex) => {
+          {draftLedgers.map((ledger) => {
             const ledgerEnabled = ledger.isDefault
               ? selectedDefaultLedgerIds.has(ledger.id)
               : ledger.enabled
             const ledgerLabel = ledger.displayName.replace(/^Bilimi[·\s-]*/, '')
             const selectLedgerLabel = ledgerLabel || '新建收藏夹'
             return (
-              <Fragment key={ledger.id}>
-                <div className="favorite-ledger-panel__chip-item">
-                  <button
-                    type="button"
-                    aria-label={ledgerLabel ? undefined : `选择${selectLedgerLabel}`}
-                    aria-pressed={ledgerEnabled}
-                    data-active={activeLedger?.id === ledger.id}
-                    onClick={() => selectLedger(ledger)}
-                  >
-                    {ledgerLabel}
-                  </button>
-                  <button
-                    type="button"
-                    className="favorite-ledger-panel__chip-action"
-                    aria-label={`${ledgerEnabled ? '移出同步' : '加入同步'} ${ledger.displayName}`}
-                    data-enabled={ledgerEnabled}
-                    onClick={() => toggleLedger(ledger.id)}
-                  >
-                    {ledgerEnabled ? '✓' : '+'}
-                  </button>
-                </div>
-                {ledgerIndex === addShortcutLedgerIndex ? (
-                  <button
-                    type="button"
-                    className="favorite-ledger-panel__add-shortcut"
-                    aria-label="新建收藏夹"
-                    onClick={addBlankLedger}
-                  >
-                    新建收藏夹
-                  </button>
-                ) : null}
-              </Fragment>
+              <div
+                key={ledger.id}
+                className="favorite-ledger-panel__chip-item"
+                draggable
+                data-dragging={draggedLedgerId === ledger.id}
+                onDragStart={(event) => handleLedgerDragStart(event, ledger.id)}
+                onDragOver={handleLedgerDragOver}
+                onDrop={(event) => handleLedgerDrop(event, ledger.id)}
+                onDragEnd={() => setDraggedLedgerId(null)}
+              >
+                <button
+                  type="button"
+                  aria-label={ledgerLabel ? undefined : `选择${selectLedgerLabel}`}
+                  aria-pressed={ledgerEnabled}
+                  data-active={activeLedger?.id === ledger.id}
+                  onClick={() => selectLedger(ledger)}
+                >
+                  {ledgerLabel}
+                </button>
+                <button
+                  type="button"
+                  className="favorite-ledger-panel__chip-action"
+                  aria-label={`${ledgerEnabled ? '移出同步' : '加入同步'} ${ledger.displayName}`}
+                  data-enabled={ledgerEnabled}
+                  onClick={() => toggleLedger(ledger.id)}
+                >
+                  {ledgerEnabled ? '✓' : '+'}
+                </button>
+              </div>
             )
           })}
+          <button
+            type="button"
+            className="favorite-ledger-panel__add-shortcut"
+            aria-label="新建收藏夹"
+            onClick={addBlankLedger}
+          >
+            新建收藏夹
+          </button>
         </div>
       </section>
 
@@ -506,6 +554,11 @@ export function FavoriteLedgerPanel({
             <button type="button" disabled={busy} onClick={() => void saveLedgers()}>
               保存
             </button>
+            {saveStatus ? (
+              <span className="favorite-ledger-panel__save-status" role="status">
+                {saveStatus}
+              </span>
+            ) : null}
           </div>
         </section>
       ) : null}

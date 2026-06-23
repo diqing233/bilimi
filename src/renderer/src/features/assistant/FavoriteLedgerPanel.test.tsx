@@ -82,7 +82,7 @@ describe('FavoriteLedgerPanel', () => {
             isDefault: true
           }),
           expect.objectContaining({
-            displayName: 'Bilimi·人工智能',
+            displayName: 'Bilimi·知识',
             enabled: true,
             isDefault: true
           })
@@ -178,7 +178,7 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
-  it('creates a new custom ledger from the shortcut after documentary without the old form', async () => {
+  it('creates a new custom ledger from the final shortcut without the old form', async () => {
     const onSaveLedgers = vi.fn()
 
     render(
@@ -194,12 +194,11 @@ describe('FavoriteLedgerPanel', () => {
 
     const chips = screen.getByRole('region', { name: '推荐主分类收藏夹' })
     const chipButtons = within(chips).getAllByRole('button')
-    const documentaryIndex = chipButtons.findIndex((button) => button.textContent === '纪录片')
     const addCustomLedgerIndex = chipButtons.findIndex(
       (button) => button.getAttribute('aria-label') === '新建收藏夹'
     )
 
-    expect(addCustomLedgerIndex).toBe(documentaryIndex + 2)
+    expect(addCustomLedgerIndex).toBe(chipButtons.length - 1)
     expect(chipButtons[addCustomLedgerIndex]).toHaveTextContent('新建收藏夹')
     expect(screen.queryByRole('group', { name: '新立册目' })).not.toBeInTheDocument()
 
@@ -233,6 +232,57 @@ describe('FavoriteLedgerPanel', () => {
         ])
       )
     )
+  })
+
+  it('keeps the new ledger shortcut last and saves the dragged ledger order', async () => {
+    const onSaveLedgers = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: [],
+      missingTargets: [],
+      message: '掌库已同步。'
+    })
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    const chips = screen.getByRole('region', { name: '推荐主分类收藏夹' })
+    const chipGrid = chips.querySelector('.favorite-ledger-panel__chips')!
+    const musicItem = within(chips).getByRole('button', { name: '音乐' }).closest('.favorite-ledger-panel__chip-item')!
+    const knowledgeItem = within(chips).getByRole('button', { name: '知识' }).closest('.favorite-ledger-panel__chip-item')!
+
+    fireEvent.dragStart(musicItem, { dataTransfer: { effectAllowed: '', setData: vi.fn() } })
+    fireEvent.dragOver(knowledgeItem, { dataTransfer: { dropEffect: '' } })
+    fireEvent.drop(knowledgeItem, { dataTransfer: { getData: () => 'music' } })
+
+    expect(
+      Array.from(chipGrid.children).at(-1)?.classList.contains('favorite-ledger-panel__add-shortcut')
+    ).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+
+    await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
+    const savedLedgers = onSaveLedgers.mock.calls[0][0]
+    expect(savedLedgers.map((ledger) => ledger.id).slice(8, 12)).toEqual([
+      'game',
+      'movie-tv',
+      'knowledge',
+      'music'
+    ])
+    expect(savedLedgers.find((ledger) => ledger.id === 'movie-tv')!.priority).toBeLessThan(
+      savedLedgers.find((ledger) => ledger.id === 'knowledge')!.priority
+    )
+    expect(savedLedgers.find((ledger) => ledger.id === 'knowledge')!.priority).toBeLessThan(
+      savedLedgers.find((ledger) => ledger.id === 'music')!.priority
+    )
+    expect(await screen.findByRole('status')).toHaveTextContent('掌库已同步。')
   })
 
   it('edits the active ledger from the highlighted ledger buttons', async () => {
