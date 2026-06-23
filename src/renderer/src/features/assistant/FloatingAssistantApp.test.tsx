@@ -346,14 +346,14 @@ describe('FloatingAssistantApp', () => {
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '掌库' }))
-    const newLedgerForm = within(screen.getByRole('group', { name: '新立册目' }))
-    fireEvent.change(newLedgerForm.getByLabelText('册名'), { target: { value: 'Bilimi Test' } })
-    fireEvent.change(newLedgerForm.getByLabelText('关键词'), { target: { value: 'test,video' } })
-    fireEvent.click(newLedgerForm.getByRole('button', { name: '新增册目' }))
+    fireEvent.click(screen.getByRole('button', { name: '添加新收藏' }))
+    const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
+    fireEvent.change(editor.getByLabelText('册名'), { target: { value: 'Bilimi Test' } })
+    fireEvent.change(editor.getByLabelText('关键词'), { target: { value: 'test video' } })
 
     expect(saveFavoriteLedgers).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+    fireEvent.click(editor.getByRole('button', { name: '保存' }))
 
     await waitFor(() =>
       expect(saveFavoriteLedgers).toHaveBeenCalledWith(

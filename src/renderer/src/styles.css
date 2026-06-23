@@ -1825,8 +1825,7 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__header,
 .favorite-ledger-panel__toolbar,
 .favorite-ledger-panel__category-header,
-.favorite-ledger-panel__editor-title,
-.favorite-ledger-panel__suggestions {
+.favorite-ledger-panel__editor-title {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1991,18 +1990,6 @@ body[data-floating-window="true"],
   color: var(--porcelain-muted);
   font-size: 11px;
   line-height: 1.4;
-}
-.favorite-ledger-panel__form {
-  border: 1px solid rgba(31, 99, 181, 0.24);
-  padding: 10px;
-}
-.favorite-ledger-panel__form label {
-  display: grid;
-  gap: 4px;
-  font-size: 12px;
-}
-.favorite-ledger-panel__suggestions {
-  flex-wrap: wrap;
 }
 .favorite-ledger-prompt {
   width: min(236px, calc(100vw - 16px));

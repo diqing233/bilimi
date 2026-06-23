@@ -178,13 +178,15 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
-  it('shows the new custom ledger shortcut immediately after documentary', () => {
+  it('creates a new custom ledger from the shortcut after documentary without the old form', async () => {
+    const onSaveLedgers = vi.fn()
+
     render(
       <FavoriteLedgerPanel
         ledgers={createDefaultFavoriteLedgers()}
         missingLedgerIds={[]}
         onEnsureLedgers={vi.fn()}
-        onSaveLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
         onScanOldFavorites={vi.fn()}
         onExecuteOldFavoritePlan={vi.fn()}
       />
@@ -198,6 +200,28 @@ describe('FavoriteLedgerPanel', () => {
     )
 
     expect(addCustomLedgerIndex).toBe(documentaryIndex + 2)
+    expect(screen.queryByRole('group', { name: '新立册目' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '添加新收藏' }))
+
+    expect(screen.getByText('正在编辑：Bilimi·')).toBeInTheDocument()
+    const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
+    fireEvent.change(editor.getByLabelText('册名'), { target: { value: '摄影' } })
+    fireEvent.change(editor.getByLabelText('关键词'), { target: { value: '摄影 写真、镜头' } })
+    fireEvent.click(editor.getByRole('button', { name: '保存' }))
+
+    await waitFor(() =>
+      expect(onSaveLedgers).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            displayName: 'Bilimi·摄影',
+            keywords: ['摄影', '写真', '镜头'],
+            enabled: true,
+            isDefault: false
+          })
+        ])
+      )
+    )
   })
 
   it('edits the active ledger from the highlighted ledger buttons', async () => {
@@ -225,12 +249,14 @@ describe('FavoriteLedgerPanel', () => {
       target: { value: 'Bilimi·音MAD' }
     })
     fireEvent.change(editor.getByLabelText('关键词'), {
-      target: { value: '音MAD、鬼畜, 调音 / 人力' }
+      target: { value: '音MAD、鬼畜 调音 / 人力' }
     })
-    fireEvent.click(editor.getByRole('button', { name: '删除末词' }))
-    fireEvent.click(editor.getByRole('button', { name: '新增关键词' }))
 
-    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+    expect(editor.queryByRole('button', { name: '删除末词' })).not.toBeInTheDocument()
+    expect(editor.queryByRole('button', { name: '新增关键词' })).not.toBeInTheDocument()
+    expect(screen.getByText('不同关键词用顿号或空格隔开，逗号、斜杠也能识别。')).toBeInTheDocument()
+
+    fireEvent.click(editor.getByRole('button', { name: '保存' }))
 
     await waitFor(() =>
       expect(onSaveLedgers).toHaveBeenCalledWith(
@@ -238,7 +264,7 @@ describe('FavoriteLedgerPanel', () => {
           expect.objectContaining({
             id: 'kichiku',
             displayName: 'Bilimi·音MAD',
-            keywords: ['音MAD', '鬼畜', '调音', '新关键词']
+            keywords: ['音MAD', '鬼畜', '调音', '人力']
           })
         ])
       )

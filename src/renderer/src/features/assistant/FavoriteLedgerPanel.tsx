@@ -1,6 +1,6 @@
-import { BILIMI_LEDGER_PREFIX, suggestFavoriteLedgerNames } from '@shared/favoriteLedgers'
+import { BILIMI_LEDGER_PREFIX } from '@shared/favoriteLedgers'
 import type { AssistantAutomationResult, FavoriteLedger } from '@shared/types'
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import type { FavoriteLedgerCandidate } from '../favorites/favoriteLedgerInsights'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
 
@@ -15,7 +15,7 @@ type FavoriteLedgerPanelProps = {
 
 function splitKeywords(value: string) {
   return value
-    .split(/[,，、/]/)
+    .split(/[\s,，、/]+/)
     .map((keyword) => keyword.trim())
     .filter(Boolean)
 }
@@ -62,15 +62,10 @@ export function FavoriteLedgerPanel({
   onScanOldFavorites,
   onExecuteOldFavoritePlan
 }: FavoriteLedgerPanelProps) {
-  const [topic, setTopic] = useState('')
-  const [displayName, setDisplayName] = useState('')
-  const [keywordText, setKeywordText] = useState('')
-  const [suggestedNames, setSuggestedNames] = useState<string[]>([])
   const [draftLedgers, setDraftLedgers] = useState<FavoriteLedger[]>(ledgers)
   const [activeLedgerId, setActiveLedgerId] = useState<string | null>(ledgers[0]?.id ?? null)
   const [preview, setPreview] = useState<FavoriteLedgerPreview | null>(null)
   const [setupPromptVisible, setSetupPromptVisible] = useState(false)
-  const newLedgerTopicInputRef = useRef<HTMLInputElement>(null)
   const [selectedDefaultLedgerIds, setSelectedDefaultLedgerIds] = useState<Set<string>>(
     () => new Set(ledgers.filter((ledger) => ledger.enabled && ledger.isDefault).map((ledger) => ledger.id))
   )
@@ -113,23 +108,11 @@ export function FavoriteLedgerPanel({
     await scanOldFavorites('setup')
   }
 
-  function recommendNames() {
-    const names = suggestFavoriteLedgerNames(topic)
-    setSuggestedNames(names)
-    setDisplayName(names[0] ? stripBilimiLedgerPrefix(names[0]) : '')
-  }
-
-  function addLedger() {
-    const name = stripBilimiLedgerPrefix(displayName)
-    if (!name) {
-      return
-    }
-    const nextDisplayName = `${BILIMI_LEDGER_PREFIX}${name}`
-
+  function addBlankLedger() {
     const nextLedger = {
-      id: customLedgerId(name),
-      displayName: nextDisplayName,
-      keywords: splitKeywords(keywordText || topic),
+      id: customLedgerId('new-ledger'),
+      displayName: BILIMI_LEDGER_PREFIX,
+      keywords: [],
       enabled: true,
       priority: draftLedgers.length + 100,
       isDefault: false
@@ -137,10 +120,6 @@ export function FavoriteLedgerPanel({
 
     setDraftLedgers([...draftLedgers, nextLedger])
     setActiveLedgerId(nextLedger.id)
-    setTopic('')
-    setDisplayName('')
-    setKeywordText('')
-    setSuggestedNames([])
   }
 
   function deleteLedger(ledgerId: string) {
@@ -200,22 +179,6 @@ export function FavoriteLedgerPanel({
     updateActiveLedger({
       displayName: isBilimiLedger(activeLedger) ? prefixedBilimiLedgerName(name) : name
     })
-  }
-
-  function addKeywordToActiveLedger() {
-    if (!activeLedger) {
-      return
-    }
-
-    updateActiveLedger({ keywords: [...activeLedger.keywords, '新关键词'] })
-  }
-
-  function deleteLastKeywordFromActiveLedger() {
-    if (!activeLedger || activeLedger.keywords.length === 0) {
-      return
-    }
-
-    updateActiveLedger({ keywords: activeLedger.keywords.slice(0, -1) })
   }
 
   function candidateKey(candidate: FavoriteLedgerCandidate) {
@@ -373,11 +336,6 @@ export function FavoriteLedgerPanel({
     }
   }
 
-  function focusNewLedgerForm() {
-    newLedgerTopicInputRef.current?.focus()
-    newLedgerTopicInputRef.current?.scrollIntoView({ block: 'center' })
-  }
-
   return (
     <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
       <div className="favorite-ledger-panel__header">
@@ -458,7 +416,7 @@ export function FavoriteLedgerPanel({
                     type="button"
                     className="favorite-ledger-panel__add-shortcut"
                     aria-label="添加新收藏"
-                    onClick={focusNewLedgerForm}
+                    onClick={addBlankLedger}
                   >
                     +
                   </button>
@@ -517,67 +475,16 @@ export function FavoriteLedgerPanel({
           <p className="favorite-ledger-panel__keyword-hint">
             关键词是这个册目的匹配规则：Bilimi 会用它们判断当前视频或旧藏应归到哪一册。
           </p>
+          <p className="favorite-ledger-panel__keyword-hint">
+            不同关键词用顿号或空格隔开，逗号、斜杠也能识别。
+          </p>
           <div className="favorite-ledger-panel__keyword-actions">
-            <button
-              type="button"
-              onClick={deleteLastKeywordFromActiveLedger}
-              disabled={activeLedger.keywords.length === 0}
-            >
-              删除末词
-            </button>
-            <button type="button" onClick={addKeywordToActiveLedger}>
-              新增关键词
+            <button type="button" disabled={busy} onClick={() => void saveLedgers()}>
+              保存
             </button>
           </div>
         </section>
       ) : null}
-
-      <fieldset className="favorite-ledger-panel__form">
-        <legend>新立册目</legend>
-        <label>
-          新增主题
-          <input
-            ref={newLedgerTopicInputRef}
-            value={topic}
-            onChange={(event) => setTopic(event.currentTarget.value)}
-          />
-        </label>
-        <button type="button" onClick={recommendNames}>
-          荐名
-        </button>
-        {suggestedNames.length > 0 ? (
-          <div className="favorite-ledger-panel__suggestions">
-            {suggestedNames.map((name) => (
-              <button key={name} type="button" onClick={() => setDisplayName(stripBilimiLedgerPrefix(name))}>
-                {name}
-              </button>
-            ))}
-          </div>
-        ) : null}
-        <label>
-          册名
-          <span className="favorite-ledger-panel__prefixed-input">
-            <span className="favorite-ledger-panel__fixed-prefix" aria-hidden="true">
-              {BILIMI_LEDGER_PREFIX}
-            </span>
-            <input
-              aria-label="册名"
-              value={displayName}
-              onChange={(event) => setDisplayName(stripBilimiLedgerPrefix(event.currentTarget.value))}
-            />
-          </span>
-        </label>
-        <label>
-          关键词
-          <input
-            value={keywordText}
-            onChange={(event) => setKeywordText(event.currentTarget.value)}
-          />
-        </label>
-        <button type="button" onClick={addLedger}>
-          新增册目
-        </button>
-      </fieldset>
 
       {preview ? (
         <div className="favorite-ledger-panel__preview">
