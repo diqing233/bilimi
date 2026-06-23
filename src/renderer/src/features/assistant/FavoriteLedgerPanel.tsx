@@ -451,8 +451,19 @@ export function FavoriteLedgerPanel({
 
   return (
     <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
-      <div className="favorite-ledger-panel__header">
-        <h2>掌库</h2>
+      <div className="favorite-ledger-panel__topbar">
+        <div className="favorite-ledger-panel__header">
+          <h2>掌库</h2>
+        </div>
+
+        <div className="favorite-ledger-panel__toolbar">
+          <button type="button" disabled={busy} onClick={showSetupPrompt}>
+            备册
+          </button>
+          <button type="button" disabled={busy} onClick={() => void scanOldFavorites()}>
+            整理旧藏
+          </button>
+        </div>
       </div>
 
       {missingLedgerIds.length > 0 ? (
@@ -460,15 +471,6 @@ export function FavoriteLedgerPanel({
           尚缺 {missingLedgerIds.map((id) => ledgerNamesById[id] ?? id).join('、')}。
         </p>
       ) : null}
-
-      <div className="favorite-ledger-panel__toolbar">
-        <button type="button" disabled={busy} onClick={showSetupPrompt}>
-          备册
-        </button>
-        <button type="button" disabled={busy} onClick={() => void scanOldFavorites()}>
-          整理旧藏
-        </button>
-      </div>
 
       {setupPromptVisible ? (
         <section className="favorite-ledger-panel__setup-prompt" aria-label="备册确认">
@@ -490,7 +492,8 @@ export function FavoriteLedgerPanel({
         </p>
       ) : null}
 
-      <section className="favorite-ledger-panel__checklist" aria-label="收藏夹">
+      <div className="favorite-ledger-panel__workspace">
+        <section className="favorite-ledger-panel__checklist" aria-label="收藏夹">
         <div className="favorite-ledger-panel__category-header">
           <h3>收藏夹</h3>
           <div className="favorite-ledger-panel__category-actions">
@@ -558,7 +561,7 @@ export function FavoriteLedgerPanel({
             </button>
           </div>
         ) : null}
-      </section>
+        </section>
 
       {activeLedger ? (
         <section className="favorite-ledger-panel__editor" aria-label="当前收藏夹">
@@ -623,6 +626,8 @@ export function FavoriteLedgerPanel({
           </div>
         </section>
       ) : null}
+
+      </div>
 
       {preview ? (
         <div className="favorite-ledger-panel__preview">

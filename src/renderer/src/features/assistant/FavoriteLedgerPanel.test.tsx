@@ -147,6 +147,42 @@ describe('FavoriteLedgerPanel', () => {
     expect(within(listToggle as HTMLElement).getByRole('button', { name: '折叠' })).toBeInTheDocument()
   })
 
+  it('frames the ledger title and setup actions together in the topbar', () => {
+    const { container } = render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    const topbar = container.querySelector('.favorite-ledger-panel__topbar')
+    expect(topbar).toBeInTheDocument()
+    expect(topbar?.querySelector('.favorite-ledger-panel__header')).toBeInTheDocument()
+    expect(topbar?.querySelector('.favorite-ledger-panel__toolbar')).toBeInTheDocument()
+  })
+
+  it('frames the ledger list and editor together in the workspace', () => {
+    const { container } = render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    const workspace = container.querySelector('.favorite-ledger-panel__workspace')
+    expect(workspace).toBeInTheDocument()
+    expect(workspace?.querySelector('.favorite-ledger-panel__checklist')).toBeInTheDocument()
+    expect(workspace?.querySelector('.favorite-ledger-panel__editor')).toBeInTheDocument()
+  })
+
   it('selects a ledger without changing whether it syncs', async () => {
     const onSaveLedgers = vi.fn()
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
