@@ -474,6 +474,28 @@ describe('PalaceMaidPetApp', () => {
     expect(resizeControls).toHaveAttribute('data-visible', 'false')
   })
 
+  it('lets transparent host pixels click through unless the cursor is over pet controls', () => {
+    const api = installDesktopApi({
+      setFloatingSealMouseTransparent: vi.fn()
+    })
+
+    const { container } = render(<PalaceMaidPetApp />)
+
+    const pet = container.querySelector('.palace-maid-pet') as HTMLElement
+    const bubble = container.querySelector('.palace-maid-pet__bubble') as HTMLElement
+
+    expect(api.setFloatingSealMouseTransparent).toHaveBeenCalledWith(true)
+
+    fireEvent.pointerEnter(pet)
+    expect(api.setFloatingSealMouseTransparent).toHaveBeenLastCalledWith(false)
+
+    fireEvent.pointerLeave(pet)
+    expect(api.setFloatingSealMouseTransparent).toHaveBeenLastCalledWith(true)
+
+    fireEvent.pointerEnter(bubble)
+    expect(api.setFloatingSealMouseTransparent).toHaveBeenLastCalledWith(false)
+  })
+
   it('ignores repeated pointer-down events on a resize step until the click commits one resize', () => {
     const api = installDesktopApi()
 

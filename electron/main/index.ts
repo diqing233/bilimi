@@ -26,6 +26,7 @@ import { FloatingSealDragController } from './floatingSealDragController'
 import { createMainWindowOptions } from './mainWindowOptions'
 import { restoreMainWindowFromPet } from './mainWindowRestore'
 import { installFixedFloatingSealBoundsGuard } from './floatingSealBoundsGuard'
+import { setFloatingSealMouseTransparency } from './floatingSealMouseTransparency'
 import { installFloatingSealWhiteStripFix } from './floatingSealWhiteStripFix'
 import { createFloatingSealWindowOptions } from './floatingSealWindowOptions'
 import {
@@ -181,6 +182,7 @@ function createFloatingSealWindow() {
 
   seal.setAlwaysOnTop(true, 'floating')
   seal.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  setFloatingSealMouseTransparency(seal, true)
   seal.removeMenu()
 
   // Windows 透明窗口失活时 DWM 会把原生帧渲染成白条，移动窗口可强制重新合成。
@@ -321,6 +323,14 @@ function closeAssistantPetWindow() {
   }
 
   floatingSealWindow.close()
+}
+
+function setFloatingSealWindowMouseTransparent(transparent: boolean) {
+  if (!floatingSealWindow || floatingSealWindow.isDestroyed()) {
+    return
+  }
+
+  setFloatingSealMouseTransparency(floatingSealWindow, transparent)
 }
 
 function wakeAssistantPetWindow() {
@@ -636,6 +646,9 @@ function registerAssistantPreferenceHandlers() {
   })
   ipcMain.on('floating-seal:resize-step', (_event, step: number) => {
     resizeFloatingSealByStep(step)
+  })
+  ipcMain.on('floating-seal:set-mouse-transparent', (_event, transparent: boolean) => {
+    setFloatingSealWindowMouseTransparent(Boolean(transparent))
   })
   ipcMain.handle('floating-seal:move-by', (_event, deltaX: number, deltaY: number) => {
     moveFloatingSealBy(deltaX, deltaY)

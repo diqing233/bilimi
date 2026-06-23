@@ -31,6 +31,7 @@ export function PalaceMaidPetApp() {
   const dragState = useRef<DragState | null>(null)
   const longPressTimeout = useRef<number | null>(null)
   const resizeControlsHideTimeout = useRef<number | null>(null)
+  const interactiveHoverCount = useRef(0)
   const suppressNextClick = useRef(false)
   const chatTailRef = useRef<HTMLSpanElement | null>(null)
   const [pressed, setPressed] = useState(false)
@@ -81,6 +82,8 @@ export function PalaceMaidPetApp() {
   }, [])
 
   useEffect(() => {
+    window.bilimiDesktop?.setFloatingSealMouseTransparent?.(true)
+
     function hideClosePrompt() {
       setClosePromptVisible(false)
       setChatOpen(false)
@@ -95,9 +98,23 @@ export function PalaceMaidPetApp() {
       if (resizeControlsHideTimeout.current !== null) {
         window.clearTimeout(resizeControlsHideTimeout.current)
       }
+      window.bilimiDesktop?.setFloatingSealMouseTransparent?.(true)
       window.removeEventListener('blur', hideClosePrompt)
     }
   }, [])
+
+  function enterInteractiveRegion() {
+    interactiveHoverCount.current += 1
+    window.bilimiDesktop?.setFloatingSealMouseTransparent?.(false)
+  }
+
+  function leaveInteractiveRegion() {
+    interactiveHoverCount.current = Math.max(0, interactiveHoverCount.current - 1)
+
+    if (interactiveHoverCount.current === 0) {
+      window.bilimiDesktop?.setFloatingSealMouseTransparent?.(true)
+    }
+  }
 
   useEffect(() => {
     if (!chatOpen || chatMessages.length === 0) {
@@ -353,8 +370,10 @@ export function PalaceMaidPetApp() {
             }
           }
           scheduleHideResizeControls()
+          leaveInteractiveRegion()
         }}
         onPointerEnter={() => {
+          enterInteractiveRegion()
           showResizeControls()
         }}
       >
@@ -366,7 +385,13 @@ export function PalaceMaidPetApp() {
         />
       </button>
       {closePromptVisible ? (
-        <span className="palace-maid-pet__quick-actions" role="group" aria-label="小咪快捷操作">
+        <span
+          className="palace-maid-pet__quick-actions"
+          role="group"
+          aria-label="小咪快捷操作"
+          onPointerEnter={enterInteractiveRegion}
+          onPointerLeave={leaveInteractiveRegion}
+        >
           <button
             className="palace-maid-pet__quick-action"
             type="button"
@@ -383,7 +408,12 @@ export function PalaceMaidPetApp() {
           </button>
         </span>
       ) : null}
-      <span className="palace-maid-pet__bubble" data-chat-open={chatOpen ? 'true' : 'false'}>
+      <span
+        className="palace-maid-pet__bubble"
+        data-chat-open={chatOpen ? 'true' : 'false'}
+        onPointerEnter={enterInteractiveRegion}
+        onPointerLeave={leaveInteractiveRegion}
+      >
         <button
           className="palace-maid-pet__bubble-toggle"
           type="button"
@@ -439,8 +469,14 @@ export function PalaceMaidPetApp() {
         role="group"
         aria-label="调整小咪大小"
         data-visible={resizeControlsVisible ? 'true' : 'false'}
-        onPointerEnter={showResizeControls}
-        onPointerLeave={scheduleHideResizeControls}
+        onPointerEnter={() => {
+          enterInteractiveRegion()
+          showResizeControls()
+        }}
+        onPointerLeave={() => {
+          scheduleHideResizeControls()
+          leaveInteractiveRegion()
+        }}
       >
         <button
           className="palace-maid-pet__resize-step"

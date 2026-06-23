@@ -188,6 +188,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   clearDeepSeekApiKey: () => ipcRenderer.invoke('deepseek:clear-key') as Promise<DeepSeekKeyStatus>,
   setAssistantPetState: (state: AssistantPetState) =>
     ipcRenderer.send('assistant-pet:set-state', state),
+  setFloatingSealMouseTransparent: (transparent: boolean) =>
+    ipcRenderer.send('floating-seal:set-mouse-transparent', transparent),
   startFloatingSealDrag: (screenX: number, screenY: number) =>
     ipcRenderer.send('floating-seal:start-drag', screenX, screenY),
   toggleFloatingAssistant: () => ipcRenderer.invoke('floating-assistant:toggle') as Promise<void>,

@@ -80,6 +80,7 @@ type BilimiDesktopApi = {
   clearDeepSeekApiKey?: () => Promise<DeepSeekKeyStatus>
   seekVideoTime?: (seconds: number) => Promise<boolean>
   setAssistantPetState?: (state: AssistantPetState) => void
+  setFloatingSealMouseTransparent?: (transparent: boolean) => void
   startFloatingSealDrag?: (screenX: number, screenY: number) => void
   toggleFloatingAssistant?: () => Promise<void>
   toggleFloatingMenu?: () => Promise<void>
