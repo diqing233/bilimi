@@ -577,15 +577,15 @@ export function FloatingAssistantApp({
   }
 
   async function generateNotePoster(note: VideoNote) {
-    tellPet('progress', '小咪正在整理一图流总结。')
+    tellPet('progress', '小咪正在整理 DeepSeek 总结。')
     const result = await window.bilimiDesktop?.generateDeepSeek?.({ kind: 'note-poster', note })
 
     if (!result || result.kind !== 'note-poster') {
-      tellPet('error', '一图流总结没有生成成功。')
+      tellPet('error', 'DeepSeek 总结没有生成成功。')
       throw new Error('Poster generation failed.')
     }
 
-    tellPet('success', '一图流总结做好啦。')
+    tellPet('success', 'DeepSeek 总结做好啦。')
     return result.poster
   }
 
@@ -773,7 +773,7 @@ export function FloatingAssistantApp({
                 <span>启用 DeepSeek</span>
               </label>
               <p className="assistant-settings__deepseek-help">
-                开启后可使用批阅的拟奏短评、札记中的一图流总结、宠物对话功能。
+                开启后可使用批阅的拟奏短评、札记中的 DeepSeek 总结、宠物对话功能。
               </p>
               <label>
                 <span>DeepSeek API 密钥</span>

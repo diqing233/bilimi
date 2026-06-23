@@ -118,6 +118,39 @@ describe('DeepSeek main service', () => {
     })
   })
 
+  it('asks DeepSeek for a richer Chinese note summary instead of a compact poster', async () => {
+    const fetchImpl = createJsonFetch(
+      JSON.stringify({
+        title: '机器学习入门',
+        subtitle: '围绕概念、数据和训练目标展开的精读总结',
+        keyPoints: [
+          '先解释机器学习的基本定义，再说明它如何从样本中归纳规律。',
+          '重点强调训练数据质量会直接影响模型表现和泛化上限。'
+        ],
+        keywords: ['机器学习', '训练数据'],
+        prompt: '适合复习的 DeepSeek 结构化总结'
+      })
+    )
+
+    await generateDeepSeekResult({
+      config: baseConfig,
+      request: { kind: 'note-poster', note: createNote() },
+      fetchImpl
+    })
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
+      messages: Array<{ role: string; content: string }>
+    }
+    const systemMessage = body.messages.find((message) => message.role === 'system')?.content ?? ''
+
+    expect(systemMessage).toContain('DeepSeek 视频札记总结')
+    expect(systemMessage).toContain('中文')
+    expect(systemMessage).toContain('更丰富')
+    expect(systemMessage).toContain('更精细')
+    expect(systemMessage).toContain('4 到 5 条')
+    expect(systemMessage).not.toContain('compact one-image video note poster')
+  })
+
   it('parses favorite ledger insight suggestions without replacing deterministic scanning', async () => {
     const fetchImpl = createJsonFetch(
       JSON.stringify({

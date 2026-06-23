@@ -414,7 +414,7 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByText('推荐模型：deepseek-v4-pro')).toBeInTheDocument()
     expect(screen.getByText('服务器地址：https://api.yunshulink.com/v1')).toBeInTheDocument()
     expect(
-      screen.getByText('开启后可使用批阅的拟奏短评、札记中的一图流总结、宠物对话功能。')
+      screen.getByText('开启后可使用批阅的拟奏短评、札记中的 DeepSeek 总结、宠物对话功能。')
     ).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '复制推荐模型' }))
     expect(screen.getByRole('button', { name: '复制推荐模型' }).querySelector('.assistant-settings__copy-icon')).toBeInTheDocument()

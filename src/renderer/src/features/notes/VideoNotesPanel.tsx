@@ -26,7 +26,7 @@ type VideoNotesResultTab = 'plain' | 'timed' | 'summary'
 const resultTabs: Array<{ id: VideoNotesResultTab; label: string; description: string }> = [
   { id: 'plain', label: '无时间线文稿', description: '纯文稿连续阅读，提供复制全文。' },
   { id: 'timed', label: '带时间线文稿', description: '按时间段阅读，提供复制全文。' },
-  { id: 'summary', label: '一图流总结', description: 'DeepSeek 结构化摘要，提供复制全文。' }
+  { id: 'summary', label: 'DeepSeek 总结', description: '更丰富精细的结构化摘要，提供复制全文。' }
 ]
 
 const progressFallbackByStep: Record<VideoAudioTranscriptionProgress['step'], number> = {
@@ -159,7 +159,7 @@ export function VideoNotesPanel({
     setErrorMessage('')
     try {
       const generatedNote = await onTranscribeAudio()
-      if (generatedNote) setStatusMessage(deepSeekEnabled ? '音频已转写，并已生成 DeepSeek 一图流总结。' : '音频转写已完成。')
+      if (generatedNote) setStatusMessage(deepSeekEnabled ? '音频已转写，可继续生成 DeepSeek 总结。' : '音频转写已完成。')
       return generatedNote
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '音频转写失败。')
@@ -184,9 +184,9 @@ export function VideoNotesPanel({
         noteKey: createPosterCacheKey(targetNote),
         summary
       })
-      setStatusMessage('DeepSeek 一图流总结已生成。')
+      setStatusMessage('DeepSeek 总结已生成。')
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '一图流总结生成失败。')
+      setErrorMessage(error instanceof Error ? error.message : 'DeepSeek 总结生成失败。')
     } finally {
       setPosterGenerating(false)
     }
@@ -194,7 +194,7 @@ export function VideoNotesPanel({
 
   async function handleGeneratePoster(): Promise<void> {
     if (!deepSeekEnabled) {
-      setStatusMessage('请先到设置启用 DeepSeek 后再生成一图流总结。')
+      setStatusMessage('请先到设置启用 DeepSeek 后再生成总结。')
       setErrorMessage('')
       return
     }
@@ -202,7 +202,7 @@ export function VideoNotesPanel({
     if (activePosterSummary) return
     if (!note) {
       if (!onTranscribeAudio) {
-        setStatusMessage('请先转写音频，再生成一图流总结。')
+        setStatusMessage('请先转写音频，再生成 DeepSeek 总结。')
         setErrorMessage('')
         return
       }
@@ -264,21 +264,21 @@ export function VideoNotesPanel({
   }
 
   function renderSummaryPanel(): React.JSX.Element {
-    const summaryCopy = summaryText || '暂无一图流总结。'
+    const summaryCopy = summaryText || '暂无 DeepSeek 总结。'
     return (
       <div role="tabpanel" id="video-notes-summary" aria-labelledby="video-notes-tab-summary">
         <div className="video-notes__panel-header">
-          <strong>一图流总结</strong>
+          <strong>DeepSeek 总结</strong>
           <button type="button" onClick={() => void copyText(summaryCopy, '全文已复制')}>
             复制全文
           </button>
         </div>
         {!deepSeekEnabled ? (
-          <p className="video-notes__summary-empty">请先到设置启用 DeepSeek 后再生成一图流总结。</p>
+          <p className="video-notes__summary-empty">请先到设置启用 DeepSeek 后再生成总结。</p>
         ) : posterGenerating ? (
-          <p role="status">DeepSeek 正在生成一图流总结...</p>
+          <p role="status">DeepSeek 正在生成总结...</p>
         ) : activePosterSummary ? (
-          <section aria-label="DeepSeek 一图流总结">
+          <section aria-label="DeepSeek 总结">
             <h4>{activePosterSummary.title}</h4>
             <p>{activePosterSummary.subtitle}</p>
             <ul>
@@ -295,7 +295,7 @@ export function VideoNotesPanel({
             ) : null}
           </section>
         ) : note ? (
-          <section aria-label="DeepSeek 一图流总结">
+          <section aria-label="DeepSeek 总结">
             {note.overview.shortSummary.map((summary) => (
               <p key={summary}>{summary}</p>
             ))}
@@ -308,7 +308,7 @@ export function VideoNotesPanel({
             ) : null}
           </section>
         ) : (
-          <p className="video-notes__summary-empty">请先转写音频，再生成一图流总结。</p>
+          <p className="video-notes__summary-empty">请先转写音频，再生成 DeepSeek 总结。</p>
         )}
       </div>
     )

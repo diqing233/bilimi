@@ -73,15 +73,15 @@ describe('VideoNotesPanel', () => {
     expect(screen.queryByText('Transcribing segment 1/2.')).not.toBeInTheDocument()
   })
 
-  it('prompts users to enable DeepSeek when opening one-image summary while disabled', () => {
+  it('prompts users to enable DeepSeek when opening DeepSeek summary while disabled', () => {
     const onGeneratePoster = vi.fn()
     renderPanel({ deepSeekEnabled: false, onGeneratePoster })
-    fireEvent.click(screen.getByRole('tab', { name: /一图流总结/ }))
-    expect(screen.getAllByText('请先到设置启用 DeepSeek 后再生成一图流总结。').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+    expect(screen.getAllByText('请先到设置启用 DeepSeek 后再生成总结。').length).toBeGreaterThan(0)
     expect(onGeneratePoster).not.toHaveBeenCalled()
   })
 
-  it('generates one-image summary independently when DeepSeek is enabled', async () => {
+  it('generates DeepSeek summary independently when DeepSeek is enabled', async () => {
     const poster: NotePosterSummary = {
       title: 'Learning Machine Models',
       subtitle: 'Compact study poster',
@@ -91,13 +91,13 @@ describe('VideoNotesPanel', () => {
     }
     const onGeneratePoster = vi.fn().mockResolvedValue(poster)
     renderPanel({ deepSeekEnabled: true, onGeneratePoster })
-    fireEvent.click(screen.getByRole('tab', { name: /一图流总结/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
     await waitFor(() => expect(onGeneratePoster).toHaveBeenCalledWith(sampleNote))
-    expect(await screen.findByRole('region', { name: 'DeepSeek 一图流总结' })).toHaveTextContent('Learning Machine Models')
+    expect(await screen.findByRole('region', { name: 'DeepSeek 总结' })).toHaveTextContent('Learning Machine Models')
     expect(screen.getByText('Data quality matters')).toBeInTheDocument()
   })
 
-  it('reuses the generated one-image summary when the summary tab is reopened', async () => {
+  it('reuses the generated DeepSeek summary when the summary tab is reopened', async () => {
     const poster: NotePosterSummary = {
       title: 'Learning Machine Models',
       subtitle: 'Compact study poster',
@@ -108,17 +108,17 @@ describe('VideoNotesPanel', () => {
     const onGeneratePoster = vi.fn().mockResolvedValue(poster)
     renderPanel({ deepSeekEnabled: true, onGeneratePoster })
 
-    fireEvent.click(screen.getByRole('tab', { name: /一图流总结/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
     expect(await screen.findByText('Learning Machine Models')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
-    fireEvent.click(screen.getByRole('tab', { name: /一图流总结/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
 
     expect(onGeneratePoster).toHaveBeenCalledOnce()
     expect(screen.getByText('Learning Machine Models')).toBeInTheDocument()
   })
 
-  it('starts audio transcription from one-image summary when no note exists', async () => {
+  it('starts audio transcription from DeepSeek summary when no note exists', async () => {
     const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
     const onGeneratePoster = vi.fn()
     renderPanel({ note: null, deepSeekEnabled: true, onTranscribeAudio, onGeneratePoster })
@@ -127,7 +127,7 @@ describe('VideoNotesPanel', () => {
     expect(onGeneratePoster).not.toHaveBeenCalled()
   })
 
-  it('keeps timed transcript and one-image summary copy actions to top-right copy buttons', async () => {
+  it('keeps timed transcript and DeepSeek summary copy actions to top-right copy buttons', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
     renderPanel()
@@ -136,7 +136,7 @@ describe('VideoNotesPanel', () => {
     expect(screen.getByText('先介绍机器学习的基本概念。')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '复制全文' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining('[00:00] 先介绍机器学习的基本概念。')))
-    fireEvent.click(screen.getByRole('tab', { name: /一图流总结/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
     expect(screen.getByRole('button', { name: '复制全文' })).toBeInTheDocument()
   })
 

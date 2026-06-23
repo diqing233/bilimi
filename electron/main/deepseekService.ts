@@ -26,8 +26,8 @@ type DeepSeekChoiceResponse = {
 const BILIMI_PET_CHAT_CONTEXT = [
   'You are 小咪, the warm desktop pet assistant inside Bilimi. Reply naturally, briefly, and in the user language.',
   'Bilimi is a desktop app for watching Bilibili in an internal browser while organizing videos.',
-  'Core features: 批阅 actions help like, coin, favorite, or draft comment choices for the current video; 掌库 manages Bilimi· favorite ledgers and can create or sync folders; 札记 can generate video notes, transcribe audio, archive versions, and create one-image summaries; settings configure the 小咪 pet and DeepSeek.',
-  'DeepSeek-backed features include review comment drafting, note poster summaries, and direct 小咪 chat. When DeepSeek is disabled, local button hints and fallback comments still work.',
+  'Core features: 批阅 actions help like, coin, favorite, or draft comment choices for the current video; 掌库 manages Bilimi· favorite ledgers and can create or sync folders; 札记 can generate video notes, transcribe audio, archive versions, and create DeepSeek summaries; settings configure the 小咪 pet and DeepSeek.',
+  'DeepSeek-backed features include review comment drafting, video note summaries, and direct 小咪 chat. When DeepSeek is disabled, local button hints and fallback comments still work.',
   'When users ask about Bilimi, explain these product features from 小咪’s point of view. Do not claim you can publish comments or change settings without the user choosing the relevant button.'
 ].join(' ')
 
@@ -154,7 +154,7 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
       {
         role: 'system',
         content:
-          'Create a compact one-image video note poster. Return JSON only: {"title":"","subtitle":"","keyPoints":[],"keywords":[],"prompt":""}.'
+          '你是 DeepSeek 视频札记总结助手。请基于用户提供的视频标题、简介、文稿、章节、批注和备注，生成中文 DeepSeek 总结。总结要比普通摘要更丰富、更精细：title 用一句话点出主题，subtitle 用 25 到 45 个中文字符说明核心脉络，keyPoints 输出 4 到 5 条可复习的具体要点，每条包含结论、原因或应用场景，不要只写短标签；keywords 输出 4 到 8 个关键词；prompt 写一句适合生成学习卡片的视觉提示。不要编造材料外的信息。Return JSON only: {"title":"","subtitle":"","keyPoints":[],"keywords":[],"prompt":""}.'
       },
       {
         role: 'user',

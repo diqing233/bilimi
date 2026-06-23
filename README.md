@@ -54,7 +54,7 @@ For the `表` action, DeepSeek-enabled sessions generate three video-aware funny
 
 ## DeepSeek Assistant Features
 
-Assistant settings include a DeepSeek group for the AI-backed features used by review comments, one-image note summaries, and 小咪 pet chat. The API key is saved through the Electron main process and is not exposed to renderer state; normal preferences only store whether a key is present, whether DeepSeek is enabled, the model, and the base URL.
+Assistant settings include a DeepSeek group for the AI-backed features used by review comments, video note summaries, and 小咪 pet chat. The API key is saved through the Electron main process and is not exposed to renderer state; normal preferences only store whether a key is present, whether DeepSeek is enabled, the model, and the base URL.
 
 The DeepSeek settings surface uses Chinese labels and provides `保存 DeepSeek`, `测试 DeepSeek`, and `重置 DeepSeek` actions in one row. Test feedback is localized to Chinese, and reset clears the key draft, disables DeepSeek, and restores the default model `deepseek-v4-flash` plus base URL `https://api.deepseek.com`.
 
@@ -83,7 +83,7 @@ The assistant can create notes from:
 
 Video note generation reads the current Bilibili video metadata for title, BV ID, URL, and archive context, then downloads the current video audio and transcribes it locally. Manually pasted transcript text remains available as a fallback and does not download audio.
 
-When local audio transcription is available, the note page exposes `转写音频` and `档案库` as the primary actions. Without an existing note, the page still uses the flat A layout: current video details, generation/archive actions, disabled result entries, and a pasted-transcript fallback. Generated notes include plain transcript, timed transcript, and `一图流总结` result tabs. The summary tab shows the local note summary by default and can ask DeepSeek for a compact structured summary when DeepSeek is enabled. A generated DeepSeek summary is cached for the current note `id` and `updatedAt`, so reopening the tab reuses the existing result instead of generating again.
+When local audio transcription is available, the note page exposes `转写音频` and `档案库` as the primary actions. Without an existing note, the page still uses the flat A layout: current video details, generation/archive actions, disabled result entries, and a pasted-transcript fallback. Generated notes include plain transcript, timed transcript, and `DeepSeek 总结` result tabs. The summary tab shows the local note summary by default and can ask DeepSeek for a richer structured Chinese summary when DeepSeek is enabled. A generated DeepSeek summary is cached for the current note `id` and `updatedAt`, so reopening the tab reuses the existing result instead of generating again.
 
 Generated audio notes are also saved into the global video note archive. The archive stores one entry per video, merges by BV ID before falling back to URL, keeps every transcription as a version, and supports searching by title, author, BV ID, transcript, and summary. The archive panel provides dual-pane history browsing, version switching, copyable plain transcripts, copyable summaries, source opening, and deletion confirmation.
 
