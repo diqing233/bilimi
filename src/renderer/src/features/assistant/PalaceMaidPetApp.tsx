@@ -439,7 +439,6 @@ export function PalaceMaidPetApp() {
           aria-label="打开小咪对话"
           onClick={openPetChat}
         >
-          <strong>{stateView.label}</strong>
           <span>{bubbleMessage}</span>
         </button>
         {chatOpen ? (

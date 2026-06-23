@@ -171,14 +171,15 @@ describe('PalaceMaidPetApp', () => {
 
     render(<PalaceMaidPetApp />)
 
-    expect(screen.getByText('小咪待机')).toBeInTheDocument()
+    expect(screen.getByText('我是 bilimi，主人可以叫我小咪~')).toBeInTheDocument()
 
     act(() => {
       stateChanged?.('working')
     })
 
-    expect(screen.getByText('小咪忙碌中')).toBeInTheDocument()
+    expect(screen.queryByText('小咪忙碌中')).not.toBeInTheDocument()
     expect(screen.getByText('小咪正在处理，马上回来。')).toBeInTheDocument()
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'working')
   })
 
   it('sends direct 小咪 chat messages through DeepSeek', async () => {
@@ -222,7 +223,7 @@ describe('PalaceMaidPetApp', () => {
       hintChanged?.({ tone: 'working', message: '主人，小咪正在帮你整理札记～' })
     })
 
-    expect(screen.getByText('小咪忙碌中')).toBeInTheDocument()
+    expect(screen.queryByText('小咪忙碌中')).not.toBeInTheDocument()
     expect(screen.getByText('主人，小咪正在帮你整理札记～')).toBeInTheDocument()
   })
 
