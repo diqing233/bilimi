@@ -1880,7 +1880,7 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__chips {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
 }
 .favorite-ledger-panel__list-toggle {
