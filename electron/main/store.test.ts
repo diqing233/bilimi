@@ -13,10 +13,16 @@ import {
   saveDeepSeekApiKey,
   saveVideoNote,
   saveAssistantPreferences,
+  loadVideoAudioTranscriptionQueue,
+  saveVideoAudioTranscriptionQueue,
   type DesktopStoreState,
   type AssistantStoreLike
 } from './store'
-import type { VideoNote, VideoNoteArchiveEntry } from '../../src/shared/types'
+import type {
+  VideoAudioTranscriptionQueueItem,
+  VideoNote,
+  VideoNoteArchiveEntry
+} from '../../src/shared/types'
 
 function createStoreNote(id = 'bvid:BV1store'): VideoNote {
   return {
@@ -62,7 +68,8 @@ function createFakeStore(
     deepseekBaseUrl: initial.deepseekBaseUrl ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl,
     deepseekApiKey: initial.deepseekApiKey ?? '',
     videoNotes: initial.videoNotes ?? [],
-    videoNoteArchives: initial.videoNoteArchives ?? []
+    videoNoteArchives: initial.videoNoteArchives ?? [],
+    videoAudioTranscriptionQueue: initial.videoAudioTranscriptionQueue ?? []
   }
 
   return {
@@ -309,5 +316,48 @@ describe('video note archive store helpers', () => {
 
     expect(deleteVideoNoteArchiveVersion(store, archiveId, versionId)[0].versions).toHaveLength(1)
     expect(deleteVideoNoteArchiveEntry(store, archiveId)).toEqual([])
+  })
+})
+
+describe('video audio transcription queue store helpers', () => {
+  it('loads an empty queue by default', () => {
+    const store = createFakeStore()
+
+    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([])
+  })
+
+  it('saves queue items and normalizes interrupted running jobs as failed on load', () => {
+    const runningItem: VideoAudioTranscriptionQueueItem = {
+      id: 'bvid:BV1queue',
+      url: 'https://www.bilibili.com/video/BV1queue',
+      title: 'Queue video',
+      bvid: 'BV1queue',
+      status: 'running',
+      createdAt: '2026-06-25T00:00:00.000Z',
+      updatedAt: '2026-06-25T00:01:00.000Z',
+      startedAt: '2026-06-25T00:00:30.000Z'
+    }
+    const pendingItem: VideoAudioTranscriptionQueueItem = {
+      id: 'bvid:BV2queue',
+      url: 'https://www.bilibili.com/video/BV2queue',
+      title: 'Second queue video',
+      bvid: 'BV2queue',
+      status: 'pending',
+      createdAt: '2026-06-25T00:02:00.000Z',
+      updatedAt: '2026-06-25T00:02:00.000Z'
+    }
+    const store = createFakeStore()
+
+    saveVideoAudioTranscriptionQueue(store, [runningItem, pendingItem])
+
+    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual([runningItem, pendingItem])
+    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([
+      {
+        ...runningItem,
+        status: 'failed',
+        errorMessage: 'Bilimi was closed before this transcription finished.'
+      },
+      pendingItem
+    ])
   })
 })

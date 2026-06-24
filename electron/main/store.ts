@@ -8,7 +8,13 @@ import {
   updateVideoNoteArchiveVersion as replaceVideoNoteArchiveVersion
 } from '../../src/shared/videoNoteArchive'
 import { normalizeVideoNotes, upsertVideoNote } from '../../src/shared/videoNotes'
-import type { DeepSeekKeyStatus, FavoriteLedger, VideoNote, VideoNoteArchiveEntry } from '../../src/shared/types'
+import type {
+  DeepSeekKeyStatus,
+  FavoriteLedger,
+  VideoAudioTranscriptionQueueItem,
+  VideoNote,
+  VideoNoteArchiveEntry
+} from '../../src/shared/types'
 
 export type AssistantPreferences = {
   favoritesFolderName: string
@@ -27,6 +33,7 @@ export type DesktopStoreState = AssistantPreferences & {
   deepseekApiKey: string
   videoNotes: VideoNote[]
   videoNoteArchives: VideoNoteArchiveEntry[]
+  videoAudioTranscriptionQueue: VideoAudioTranscriptionQueueItem[]
 }
 
 export type AssistantStoreLike = {
@@ -51,7 +58,8 @@ export const DEFAULT_DESKTOP_STORE_STATE: DesktopStoreState = {
   ...DEFAULT_ASSISTANT_PREFERENCES,
   deepseekApiKey: '',
   videoNotes: [],
-  videoNoteArchives: []
+  videoNoteArchives: [],
+  videoAudioTranscriptionQueue: []
 }
 
 let desktopStore: Store<DesktopStoreState> | undefined
@@ -216,4 +224,27 @@ export function updateVideoNoteArchiveVersion(
   store.set('videoNoteArchives', archives)
 
   return archives
+}
+
+export function loadVideoAudioTranscriptionQueue(
+  store: AssistantStoreLike = getDesktopStore()
+): VideoAudioTranscriptionQueueItem[] {
+  return (store.get('videoAudioTranscriptionQueue') ?? []).map((item) =>
+    item.status === 'running'
+      ? {
+          ...item,
+          status: 'failed',
+          errorMessage: 'Bilimi was closed before this transcription finished.'
+        }
+      : item
+  )
+}
+
+export function saveVideoAudioTranscriptionQueue(
+  store: AssistantStoreLike = getDesktopStore(),
+  items: VideoAudioTranscriptionQueueItem[]
+): VideoAudioTranscriptionQueueItem[] {
+  store.set('videoAudioTranscriptionQueue', items)
+
+  return items
 }

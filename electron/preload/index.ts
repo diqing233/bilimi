@@ -8,6 +8,7 @@ import type {
   DeepSeekKeyStatus,
   FavoriteLedger,
   VideoAudioTranscriptionProgress,
+  VideoAudioTranscriptionQueueSnapshot,
   VideoAudioTranscriptionRequest,
   VideoAudioTranscriptionResult,
   VideoNote,
@@ -161,8 +162,37 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('floating-assistant:generate-video-note', manualTranscript),
   generateVideoNoteFromAudio: () =>
     ipcRenderer.invoke('floating-assistant:generate-video-note-from-audio') as Promise<VideoNote | null>,
+  enqueueCurrentVideoAudioTranscription: () =>
+    ipcRenderer.invoke(
+      'floating-assistant:enqueue-current-video-audio'
+    ) as Promise<VideoAudioTranscriptionQueueSnapshot | null>,
   transcribeCurrentVideoAudio: (request: VideoAudioTranscriptionRequest) =>
     ipcRenderer.invoke('video-audio:transcribe-current', request) as Promise<VideoAudioTranscriptionResult>,
+  loadVideoAudioTranscriptionQueue: () =>
+    ipcRenderer.invoke('video-audio:transcription-queue-load') as Promise<VideoAudioTranscriptionQueueSnapshot>,
+  enqueueVideoAudioTranscription: (request: VideoAudioTranscriptionRequest) =>
+    ipcRenderer.invoke(
+      'video-audio:transcription-queue-enqueue',
+      request
+    ) as Promise<VideoAudioTranscriptionQueueSnapshot>,
+  cancelVideoAudioTranscription: (id: string) =>
+    ipcRenderer.invoke('video-audio:transcription-queue-cancel', id) as Promise<VideoAudioTranscriptionQueueSnapshot>,
+  retryVideoAudioTranscription: (id: string) =>
+    ipcRenderer.invoke('video-audio:transcription-queue-retry', id) as Promise<VideoAudioTranscriptionQueueSnapshot>,
+  onVideoAudioTranscriptionQueueChanged: (
+    callback: (snapshot: VideoAudioTranscriptionQueueSnapshot) => void
+  ) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      snapshot: VideoAudioTranscriptionQueueSnapshot
+    ) => callback(snapshot)
+
+    ipcRenderer.on('video-audio:transcription-queue-changed', listener)
+
+    return () => {
+      ipcRenderer.removeListener('video-audio:transcription-queue-changed', listener)
+    }
+  },
   onVideoAudioTranscriptionProgress: (callback: (progress: VideoAudioTranscriptionProgress) => void) => {
     const listener = (
       _event: Electron.IpcRendererEvent,
