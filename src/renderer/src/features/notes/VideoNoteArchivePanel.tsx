@@ -269,14 +269,6 @@ export function VideoNoteArchivePanel({
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={hasMemo}
-            onChange={(event) => setHasMemo(event.target.checked)}
-          />
-          有备注
-        </label>
         <button
           type="button"
           className="video-note-archive__star-button video-note-archive__star-filter"
@@ -287,6 +279,14 @@ export function VideoNoteArchivePanel({
         >
           ⭐
         </button>
+        <label>
+          <input
+            type="checkbox"
+            checked={hasMemo}
+            onChange={(event) => setHasMemo(event.target.checked)}
+          />
+          有备注
+        </label>
       </div>
 
       <div className="video-note-archive__body">

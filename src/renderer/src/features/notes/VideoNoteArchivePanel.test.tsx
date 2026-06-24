@@ -137,6 +137,21 @@ describe('VideoNoteArchivePanel', () => {
     expect(screen.queryByRole('button', { name: /React 状态管理/ })).not.toBeInTheDocument()
   })
 
+  it('places the top archive star filter before the memo filter', () => {
+    renderArchivePanel()
+
+    const toolbar = screen.getByRole('searchbox', { name: '搜索档案' }).closest(
+      '.video-note-archive__toolbar'
+    )
+    const searchLabel = screen.getByRole('searchbox', { name: '搜索档案' }).closest('label')
+    const starFilter = screen.getByRole('button', { name: '星标' })
+    const memoFilter = screen.getByLabelText('有备注').closest('label')
+
+    expect(toolbar?.children[0]).toBe(searchLabel)
+    expect(toolbar?.children[1]).toBe(starFilter)
+    expect(toolbar?.children[2]).toBe(memoFilter)
+  })
+
   it('switches selected video and version', () => {
     renderArchivePanel()
 
