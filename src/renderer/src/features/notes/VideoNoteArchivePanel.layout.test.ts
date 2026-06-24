@@ -15,6 +15,13 @@ describe('VideoNoteArchivePanel layout styles', () => {
     expect(styles).toContain('min-height: 30px;')
   })
 
+  it('keeps version controls, starred toggle and memo toggle on one row', () => {
+    expect(styles).toContain('.video-note-archive__version-controls {\n  display: flex;')
+    expect(styles).toContain('.video-note-archive__version-controls label {\n  flex: 1 1 180px;')
+    expect(styles).toContain('.video-note-archive__version-controls .video-note-archive__star-button {\n  min-width: 30px;')
+    expect(styles).toContain('.video-note-archive__version-controls button:not(.video-note-archive__star-button) {\n  min-height: 30px;')
+  })
+
   it('stacks the archive list above the detail pane', () => {
     expect(styles).toContain('grid-template-rows: minmax(150px, 0.9fr) minmax(0, 1.1fr);')
   })

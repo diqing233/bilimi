@@ -149,6 +149,24 @@ describe('VideoNoteArchivePanel', () => {
     expect(screen.getByText(/先介绍机器学习的基本概念/)).toBeInTheDocument()
   })
 
+  it('opens the memo editor directly below the version controls', () => {
+    renderArchivePanel()
+
+    fireEvent.click(screen.getByRole('button', { name: /BV1note/ }))
+    fireEvent.click(screen.getByRole('button', { name: '\u5907\u6ce8' }))
+
+    const detail = screen.getByRole('article', { name: /\u673a\u5668\u5b66\u4e60/ })
+    const controls = detail.querySelector('.video-note-archive__version-controls')
+    const editor = screen.getByLabelText('\u5907\u6ce8')
+    const actions = detail.querySelector('.video-note-archive__actions')
+
+    expect(controls).not.toBeNull()
+    expect(controls?.nextElementSibling).toBe(editor)
+    expect(editor.compareDocumentPosition(actions as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    )
+  })
+
   it('copies transcript and summary text', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {

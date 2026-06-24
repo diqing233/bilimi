@@ -1788,6 +1788,24 @@ body[data-floating-window="true"],
   min-height: 64px;
   resize: vertical;
 }
+.video-note-archive__version-controls {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.video-note-archive__version-controls label {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.video-note-archive__version-controls .video-note-archive__star-button {
+  min-width: 30px;
+  min-height: 30px;
+  font-size: 14px;
+}
+.video-note-archive__version-controls button:not(.video-note-archive__star-button) {
+  min-height: 30px;
+}
 .video-note-archive__detail section {
   display: grid;
   gap: 6px;

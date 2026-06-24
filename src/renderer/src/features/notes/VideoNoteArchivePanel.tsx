@@ -326,19 +326,47 @@ export function VideoNoteArchivePanel({
               </p>
             </header>
 
-            <label>
-              历史版本
-              <select
-                value={selectedVersion.id}
-                onChange={(event) => setSelectedVersionId(event.target.value)}
+            <div className="video-note-archive__version-controls">
+              <label>
+                历史版本
+                <select
+                  value={selectedVersion.id}
+                  onChange={(event) => setSelectedVersionId(event.target.value)}
+                >
+                  {selectedArchive.versions.map((version, index) => (
+                    <option key={version.id} value={version.id}>
+                      {formatVersionLabel(version, index)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="video-note-archive__star-button"
+                aria-label="星标收藏"
+                aria-pressed={Boolean(selectedVersion.note.starred)}
+                title="星标收藏"
+                onClick={toggleStarred}
               >
-                {selectedArchive.versions.map((version, index) => (
-                  <option key={version.id} value={version.id}>
-                    {formatVersionLabel(version, index)}
-                  </option>
-                ))}
-              </select>
-            </label>
+                ⭐
+              </button>
+              <button type="button" aria-pressed={memoOpen} onClick={() => setMemoOpen((open) => !open)}>
+                备注
+              </button>
+            </div>
+
+            {memoOpen ? (
+              <section className="video-note-archive__editor" aria-label="备注">
+                <label>
+                  本地备注
+                  <textarea
+                    value={memoDraft}
+                    onChange={(event) => setMemoDraft(event.currentTarget.value)}
+                    onBlur={saveMemoDraft}
+                  />
+                </label>
+              </section>
+            ) : null}
 
             <div className="video-note-archive__actions">
               <button type="button" onClick={() => onOpenSource(selectedArchive.source.url)}>
@@ -367,34 +395,6 @@ export function VideoNoteArchivePanel({
             {renderResultTabs()}
             {renderActiveResult(selectedVersion)}
 
-            <div className="video-note-archive__note-actions">
-              <button type="button" aria-pressed={memoOpen} onClick={() => setMemoOpen((open) => !open)}>
-                备注
-              </button>
-              <button
-                type="button"
-                className="video-note-archive__star-button"
-                aria-label="星标收藏"
-                aria-pressed={Boolean(selectedVersion.note.starred)}
-                title="星标收藏"
-                onClick={toggleStarred}
-              >
-                ⭐
-              </button>
-            </div>
-
-            {memoOpen ? (
-              <section className="video-note-archive__editor" aria-label="备注">
-                <label>
-                  本地备注
-                  <textarea
-                    value={memoDraft}
-                    onChange={(event) => setMemoDraft(event.currentTarget.value)}
-                    onBlur={saveMemoDraft}
-                  />
-                </label>
-              </section>
-            ) : null}
           </article>
         ) : (
           <section className="video-note-archive__detail">
