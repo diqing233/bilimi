@@ -127,17 +127,17 @@ describe('VideoNoteArchivePanel', () => {
 
     expect(screen.queryByLabelText('有批注')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByLabelText('有备注'))
+    fireEvent.click(screen.getByRole('button', { name: '已备注' }))
     expect(screen.getByRole('button', { name: /机器学习入门/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /React 状态管理/ })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByLabelText('有备注'))
+    fireEvent.click(screen.getByRole('button', { name: '已备注' }))
     fireEvent.click(screen.getByRole('button', { name: '星标' }))
     expect(screen.getByRole('button', { name: /机器学习入门/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /React 状态管理/ })).not.toBeInTheDocument()
   })
 
-  it('places the top archive star filter before the memo filter', () => {
+  it('places the top archive star filter and memo button beside the search field', () => {
     renderArchivePanel()
 
     const toolbar = screen.getByRole('searchbox', { name: '搜索档案' }).closest(
@@ -145,11 +145,12 @@ describe('VideoNoteArchivePanel', () => {
     )
     const searchLabel = screen.getByRole('searchbox', { name: '搜索档案' }).closest('label')
     const starFilter = screen.getByRole('button', { name: '星标' })
-    const memoFilter = screen.getByLabelText('有备注').closest('label')
+    const memoFilter = screen.getByRole('button', { name: '已备注' })
 
     expect(toolbar?.children[0]).toBe(searchLabel)
     expect(toolbar?.children[1]).toBe(starFilter)
     expect(toolbar?.children[2]).toBe(memoFilter)
+    expect(screen.queryByRole('checkbox', { name: '有备注' })).not.toBeInTheDocument()
   })
 
   it('switches selected video and version', () => {
@@ -231,7 +232,7 @@ describe('VideoNoteArchivePanel', () => {
       )
     )
 
-    fireEvent.click(screen.getByLabelText('有备注'))
+    fireEvent.click(screen.getByRole('button', { name: '已备注' }))
     expect(screen.getByRole('button', { name: /React 状态管理/ })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '星标收藏' }))
@@ -246,7 +247,7 @@ describe('VideoNoteArchivePanel', () => {
       )
     )
 
-    fireEvent.click(screen.getByLabelText('有备注'))
+    fireEvent.click(screen.getByRole('button', { name: '已备注' }))
     fireEvent.click(screen.getByRole('button', { name: '星标' }))
     expect(screen.getByRole('button', { name: /React 状态管理/ })).toBeInTheDocument()
   })
@@ -256,7 +257,7 @@ describe('VideoNoteArchivePanel', () => {
 
     renderArchivePanel({ onUpdateVersion })
 
-    fireEvent.click(screen.getByLabelText('有备注'))
+    fireEvent.click(screen.getByRole('button', { name: '已备注' }))
     fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
     fireEvent.click(screen.getByRole('button', { name: '备注' }))
 

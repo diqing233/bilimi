@@ -11,9 +11,8 @@ describe('VideoNoteArchivePanel layout styles', () => {
     expect(styles).toContain('justify-content: flex-end;')
     expect(styles).toContain('.video-note-archive__toolbar {\n  border: 1px solid rgba(31, 99, 181, 0.16);\n  background: rgba(247, 251, 255, 0.64);\n  padding: 8px;\n  justify-content: flex-end;\n  align-items: flex-end;')
     expect(styles).toContain('.video-note-archive__toolbar label:first-child {\n  flex: 1 1 180px;')
-    expect(styles).toContain('.video-note-archive__toolbar label:first-child input {\n  width: 100%;')
-    expect(styles).toContain('.video-note-archive__star-filter {\n  min-width: 30px;')
-    expect(styles).toContain('min-height: 30px;')
+    expect(styles).toContain('.video-note-archive__toolbar label:first-child input {\n  width: 100%;\n  height: 42px;')
+    expect(styles).toContain('.video-note-archive__star-filter,\n.video-note-archive__memo-filter {\n  height: 42px;')
   })
 
   it('keeps version controls, starred toggle and memo toggle on one row', () => {

@@ -279,14 +279,14 @@ export function VideoNoteArchivePanel({
         >
           ⭐
         </button>
-        <label>
-          <input
-            type="checkbox"
-            checked={hasMemo}
-            onChange={(event) => setHasMemo(event.target.checked)}
-          />
-          有备注
-        </label>
+        <button
+          type="button"
+          className="video-note-archive__memo-filter"
+          aria-pressed={hasMemo}
+          onClick={() => setHasMemo((current) => !current)}
+        >
+          已备注
+        </button>
       </div>
 
       <div className="video-note-archive__body">
