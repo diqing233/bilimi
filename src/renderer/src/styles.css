@@ -1420,7 +1420,6 @@ body[data-floating-window="true"],
   gap: 4px;
 }
 .video-notes__source > span,
-.video-notes__primary-actions strong,
 .video-notes__panel-header strong {
   color: var(--porcelain-text);
   font-weight: 700;
@@ -1962,9 +1961,9 @@ body[data-floating-window="true"],
   align-items: center;
   justify-content: space-between;
   gap: 6px 8px;
-  border: 1px solid rgba(31, 99, 181, 0.28);
-  background: rgba(247, 251, 255, 0.64);
-  padding: 8px;
+  border: 0;
+  background: transparent;
+  padding: 0;
 }
 .favorite-ledger-panel__workspace {
   display: grid;
