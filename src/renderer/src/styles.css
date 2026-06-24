@@ -1011,10 +1011,6 @@ body[data-floating-window="true"],
   white-space: nowrap;
   writing-mode: horizontal-tb;
 }
-.floating-assistant-tabs button[data-icon-only="true"] {
-  grid-template-columns: 28px;
-  justify-content: center;
-}
 .floating-assistant-tabs__pet {
   width: 28px;
   height: 28px;
@@ -1444,6 +1440,9 @@ body[data-floating-window="true"],
   grid-template-columns: 1fr;
   gap: 6px;
   align-items: center;
+  border: 0;
+  background: transparent;
+  padding: 0;
 }
 .video-notes__progress {
   display: grid;

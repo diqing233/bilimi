@@ -204,12 +204,8 @@ export function VideoNotesPanel({
     if (generationBusy || posterGenerating) return
     if (activePosterSummary) return
     if (!note) {
-      if (!onTranscribeAudio) {
-        setStatusMessage('请先转写音频，再生成 DeepSeek 总结。')
-        setErrorMessage('')
-        return
-      }
-      await runTranscribeAudio()
+      setStatusMessage('请先转写音频，再生成 DeepSeek 总结。')
+      setErrorMessage('')
       return
     }
     await generatePosterForNote(note)

@@ -562,10 +562,9 @@ export function FloatingAssistantApp({
       }
 
       setVideoNote(noteToStore)
-      tellPet(
-        noteToStore ? 'success' : 'error',
-        noteToStore ? '音频札记整理好了，小咪也帮你存档啦。' : '小咪没拿到可用的音频札记。'
-      )
+      if (noteToStore) {
+        tellPet('success', '音频札记整理好了，小咪也帮你存档啦。')
+      }
 
       if (noteToStore) {
         const archives = await window.bilimiDesktop?.saveVideoNoteArchiveVersion?.(noteToStore)
@@ -727,11 +726,10 @@ export function FloatingAssistantApp({
               role="tab"
               aria-label={tab.label}
               aria-selected={activeTab === tab.id}
-              data-icon-only={tab.id === 'ledger' ? 'true' : undefined}
               onClick={() => setActiveTab(tab.id)}
             >
               <img className="floating-assistant-tabs__pet" src={tab.icon} alt={tab.iconAlt} />
-              <span className={tab.id === 'ledger' ? 'sr-only' : undefined}>{tab.label}</span>
+              <span>{tab.label}</span>
             </button>
           ))}
         </div>

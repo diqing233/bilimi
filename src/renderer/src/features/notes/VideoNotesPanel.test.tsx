@@ -137,12 +137,13 @@ describe('VideoNotesPanel', () => {
     expect(screen.getByText('Learning Machine Models')).toBeInTheDocument()
   })
 
-  it('starts audio transcription from DeepSeek summary when no note exists', async () => {
+  it('does not start audio transcription from DeepSeek summary when no note exists', async () => {
     const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
     const onGeneratePoster = vi.fn()
     renderPanel({ note: null, deepSeekEnabled: true, onTranscribeAudio, onGeneratePoster })
     fireEvent.click(screen.getAllByRole('tab')[2])
-    await waitFor(() => expect(onTranscribeAudio).toHaveBeenCalledOnce())
+    expect(screen.getAllByText('请先转写音频，再生成 DeepSeek 总结。').length).toBeGreaterThan(0)
+    expect(onTranscribeAudio).not.toHaveBeenCalled()
     expect(onGeneratePoster).not.toHaveBeenCalled()
   })
 

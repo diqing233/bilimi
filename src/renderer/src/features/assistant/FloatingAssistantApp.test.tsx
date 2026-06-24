@@ -580,6 +580,23 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() => expect(screen.getAllByText('机器学习需要数据和模型。').length).toBeGreaterThan(0))
   })
 
+  it('keeps audio transcription quiet when no video is available', async () => {
+    const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(null)
+    const setAssistantPetHint = vi.fn()
+    installDesktopApi({ generateVideoNoteFromAudio, setAssistantPetHint })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+
+    await waitFor(() => expect(generateVideoNoteFromAudio).toHaveBeenCalledOnce())
+    expect(screen.queryByText(/打开视频/)).not.toBeInTheDocument()
+    expect(
+      setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'error')
+    ).toBe(false)
+  })
+
   it('generates notes from audio and shows transcription progress', async () => {
     let progressCallback:
       | ((progress: { step: 'transcribing-segment'; message: string; segmentIndex: number; segmentCount: number }) => void)

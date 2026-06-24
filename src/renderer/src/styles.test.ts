@@ -90,6 +90,9 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain(
       '.floating-assistant-tabs button span {\n  min-width: 0;\n  white-space: nowrap;\n  writing-mode: horizontal-tb;'
     )
+    expect(normalizedStyles).not.toContain(
+      '.floating-assistant-tabs button[data-icon-only="true"]'
+    )
     expect(normalizedStyles).toContain(
       '.assistant-sidebar-workspace .floating-assistant-tabs {\n  display: grid;\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 6px;\n  padding-left: 0;'
     )
@@ -186,6 +189,9 @@ describe('renderer porcelain theme styles', () => {
       '.video-notes__source h3 {\n  margin: 0;\n  color: var(--porcelain-text);\n  font-size: 16px;'
     )
     expectStyleSnippet('.video-notes__primary-actions { display: grid; grid-template-columns: 1fr;')
+    expectStyleSnippet(
+      '.video-notes__primary-actions { display: grid; grid-template-columns: 1fr; gap: 6px; align-items: center; border: 0; background: transparent; padding: 0;'
+    )
     expect(normalizedStyles).not.toContain('.video-notes__primary-title')
     expectStyleSnippet('.assistant-action-button { min-height: 62px; display: grid; grid-template-columns: 58px minmax(0, 1fr);')
     expect(normalizedStyles).toContain(
