@@ -8,11 +8,9 @@ import {
   loadDeepSeekApiKey,
   loadDeepSeekApiKeyStatus,
   loadAssistantPreferences,
-  loadVideoAudioTranscriptionQueue,
   loadVideoNoteArchives,
   loadVideoNotes,
   saveDeepSeekApiKey,
-  saveVideoAudioTranscriptionQueue,
   saveVideoNoteArchiveVersion,
   updateVideoNoteArchiveVersion,
   saveAssistantPreferences,
@@ -46,7 +44,6 @@ import {
 } from './floatingSealGeometry'
 import { createPreloadScriptPath } from './preloadPath'
 import { transcribeCurrentVideoAudio } from './videoTranscriptionService'
-import { createVideoTranscriptionQueue } from './videoTranscriptionQueue'
 import { DeepSeekServiceError, generateDeepSeekResult } from './deepseekService'
 import { BILIMI_SESSION_PARTITION } from '../../src/shared/constants'
 import type {
@@ -54,7 +51,6 @@ import type {
   AssistantAutomationResult,
   DeepSeekGenerateRequest,
   FavoriteLedger,
-  VideoAudioTranscriptionQueueSnapshot,
   VideoAudioTranscriptionRequest,
   VideoNote
 } from '../../src/shared/types'
@@ -431,9 +427,6 @@ function restoreMainWindowForPet() {
 }
 
 let assistantRuntimeRequestIndex = 0
-let videoTranscriptionQueue:
-  | ReturnType<typeof createVideoTranscriptionQueue>
-  | null = null
 
 function createAssistantRuntimeRequestId() {
   assistantRuntimeRequestIndex += 1
@@ -474,44 +467,6 @@ function createMainWindow() {
   loadRendererWindow(win)
 
   return win
-}
-
-function sendVideoAudioTranscriptionQueueChanged(snapshot: VideoAudioTranscriptionQueueSnapshot) {
-  const targets = [mainWindow, floatingSealWindow, floatingAssistantController.getWindow()]
-
-  for (const target of targets) {
-    if (!target || target.isDestroyed()) {
-      continue
-    }
-
-    target.webContents.send('video-audio:transcription-queue-changed', snapshot)
-  }
-}
-
-function getVideoTranscriptionQueue() {
-  if (!videoTranscriptionQueue) {
-    videoTranscriptionQueue = createVideoTranscriptionQueue({
-      loadItems: () => loadVideoAudioTranscriptionQueue(getDesktopStore()),
-      saveItems: (items) => {
-        saveVideoAudioTranscriptionQueue(getDesktopStore(), items)
-      },
-      transcribe: async (request, progress) => {
-        const tempDir = await mkdtemp(join(tmpdir(), 'bilimi-transcribe-'))
-        const sourceSession = session.fromPartition(BILIMI_SESSION_PARTITION)
-
-        return transcribeCurrentVideoAudio({
-          request,
-          session: sourceSession,
-          tempDir,
-          progress
-        })
-      },
-      saveArchiveVersion: (note) => saveVideoNoteArchiveVersion(getDesktopStore(), note),
-      onSnapshot: sendVideoAudioTranscriptionQueueChanged
-    })
-  }
-
-  return videoTranscriptionQueue
 }
 
 function registerAssistantPreferenceHandlers() {
@@ -608,20 +563,6 @@ function registerAssistantPreferenceHandlers() {
       })
     }
   )
-  ipcMain.handle('video-audio:transcription-queue-load', () =>
-    getVideoTranscriptionQueue().getSnapshot()
-  )
-  ipcMain.handle(
-    'video-audio:transcription-queue-enqueue',
-    (_event, request: VideoAudioTranscriptionRequest) =>
-      getVideoTranscriptionQueue().enqueue(request)
-  )
-  ipcMain.handle('video-audio:transcription-queue-cancel', (_event, id: string) =>
-    getVideoTranscriptionQueue().cancel(id)
-  )
-  ipcMain.handle('video-audio:transcription-queue-retry', (_event, id: string) =>
-    getVideoTranscriptionQueue().retry(id)
-  )
   ipcMain.handle('assistant-pet:restore-main-window', () => {
     restoreMainWindowForPet()
   })
@@ -691,11 +632,6 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle('floating-assistant:generate-video-note-from-audio', () =>
     requestMainAssistantRuntime<VideoNote | null>({
       type: 'generate-video-note-from-audio'
-    })
-  )
-  ipcMain.handle('floating-assistant:enqueue-current-video-audio', () =>
-    requestMainAssistantRuntime<VideoAudioTranscriptionQueueSnapshot | null>({
-      type: 'enqueue-current-video-audio'
     })
   )
   ipcMain.handle('floating-assistant:ensure-ledgers', () =>

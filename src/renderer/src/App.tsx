@@ -8,8 +8,7 @@ import type {
   FavoriteLedger,
   FavoriteLedgerStatus,
   VideoNote,
-  VideoNoteExtractionResult,
-  VideoAudioTranscriptionQueueSnapshot
+  VideoNoteExtractionResult
 } from '@shared/types'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { runVisualFavoriteFallback } from './features/actions/visualFavoriteFallback'
@@ -668,20 +667,6 @@ export default function App() {
     })
   }
 
-  async function enqueueRuntimeVideoAudioTranscription(): Promise<VideoAudioTranscriptionQueueSnapshot | null> {
-    const extraction = await readVideoNoteSource()
-
-    if (!extraction?.source.url || !window.bilimiDesktop?.enqueueVideoAudioTranscription) {
-      return null
-    }
-
-    return window.bilimiDesktop.enqueueVideoAudioTranscription({
-      url: extraction.source.url,
-      title: extraction.source.title,
-      bvid: extraction.source.bvid
-    })
-  }
-
   useEffect(() => {
     if (!window.bilimiDesktop?.registerAssistantRuntime) {
       return
@@ -697,8 +682,6 @@ export default function App() {
           return generateRuntimeVideoNote(request.manualTranscript)
         case 'generate-video-note-from-audio':
           return generateRuntimeVideoNoteFromAudio()
-        case 'enqueue-current-video-audio':
-          return enqueueRuntimeVideoAudioTranscription()
         case 'save-video-note':
           await saveVideoNote(request.note)
           return request.note
