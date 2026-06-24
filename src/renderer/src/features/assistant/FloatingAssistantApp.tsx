@@ -727,10 +727,11 @@ export function FloatingAssistantApp({
               role="tab"
               aria-label={tab.label}
               aria-selected={activeTab === tab.id}
+              data-icon-only={tab.id === 'ledger' ? 'true' : undefined}
               onClick={() => setActiveTab(tab.id)}
             >
               <img className="floating-assistant-tabs__pet" src={tab.icon} alt={tab.iconAlt} />
-              <span>{tab.label}</span>
+              <span className={tab.id === 'ledger' ? 'sr-only' : undefined}>{tab.label}</span>
             </button>
           ))}
         </div>

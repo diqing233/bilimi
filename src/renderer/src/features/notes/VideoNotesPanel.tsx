@@ -6,6 +6,9 @@ import type {
   VideoNote
 } from '@shared/types'
 import { createPlainTranscriptText, createSummaryText } from '@shared/videoNoteArchive'
+import { AssistantActionButton } from '../assistant/AssistantActionButton'
+import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
+import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
 
 type VideoNotesPanelProps = {
   note: VideoNote | null
@@ -335,21 +338,29 @@ export function VideoNotesPanel({
         </dl>
       </section>
 
-      <section className="video-notes__primary-actions" aria-label="生成与归档">
-        <strong className="video-notes__primary-title">生成与归档</strong>
-        <button
+      <section className="video-notes__primary-actions" aria-label="札记主操作">
+        <AssistantActionButton
           type="button"
           aria-label={primaryActionLabel}
           disabled={generationBusy}
           onClick={() => void handleGenerate()}
-        >
-          <span>{generationBusy ? primaryActionBusyLabel : primaryActionLabel}</span>
-          <small>{primaryActionDescription}</small>
-        </button>
-        <button type="button" aria-label="档案库" disabled={!onOpenArchive} onClick={onOpenArchive}>
-          <span>档案库</span>
-          <small>可查看或备注已保存视频文稿</small>
-        </button>
+          icon={workingPetUrl}
+          iconAlt="小咪转写音频"
+          badge="写"
+          label={generationBusy ? primaryActionBusyLabel : primaryActionLabel}
+          description={primaryActionDescription}
+        />
+        <AssistantActionButton
+          type="button"
+          aria-label="档案库"
+          disabled={!onOpenArchive}
+          onClick={onOpenArchive}
+          icon={idlePetUrl}
+          iconAlt="小咪档案库"
+          badge="档"
+          label="档案库"
+          description="可查看或备注已保存视频文稿"
+        />
       </section>
 
       {renderProgress()}

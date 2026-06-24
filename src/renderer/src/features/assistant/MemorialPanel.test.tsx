@@ -50,16 +50,16 @@ describe('MemorialPanel', () => {
       />
     )
 
-    expect(screen.getByRole('img', { name: '小咪轻赏' })).toHaveClass('memorial-panel__action-pet')
-    expect(screen.getByRole('img', { name: '小咪归库' })).toHaveClass('memorial-panel__action-pet')
-    expect(screen.getByRole('img', { name: '小咪厚赏' })).toHaveClass('memorial-panel__action-pet')
-    expect(screen.getByRole('img', { name: '小咪短评' })).toHaveClass('memorial-panel__action-pet')
+    expect(screen.getByRole('img', { name: '小咪轻赏' })).toHaveClass('assistant-action-button__pet')
+    expect(screen.getByRole('img', { name: '小咪归库' })).toHaveClass('assistant-action-button__pet')
+    expect(screen.getByRole('img', { name: '小咪厚赏' })).toHaveClass('assistant-action-button__pet')
+    expect(screen.getByRole('img', { name: '小咪短评' })).toHaveClass('assistant-action-button__pet')
     expect(screen.getByRole('img', { name: '小咪轻赏' }).closest('span')).not.toHaveClass(
-      'memorial-panel__action-label'
+      'assistant-action-button__label'
     )
-    expect(screen.getByText('轻赏此条')).toHaveClass('memorial-panel__action-label')
+    expect(screen.getByText('轻赏此条')).toHaveClass('assistant-action-button__label')
     expect(screen.getByText('点赞并归入当前 Bilimi 分册')).toHaveClass(
-      'memorial-panel__action-description'
+      'assistant-action-button__description'
     )
   })
 

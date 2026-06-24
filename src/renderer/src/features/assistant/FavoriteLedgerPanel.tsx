@@ -3,6 +3,9 @@ import type { AssistantAutomationResult, FavoriteLedger } from '@shared/types'
 import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react'
 import type { FavoriteLedgerCandidate } from '../favorites/favoriteLedgerInsights'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
+import { AssistantActionButton } from './AssistantActionButton'
+import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
+import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
 
 type FavoriteLedgerPanelProps = {
   ledgers: FavoriteLedger[]
@@ -526,23 +529,32 @@ export function FavoriteLedgerPanel({
     >
       <div className="favorite-ledger-panel__topbar">
         <div className="favorite-ledger-panel__header">
-          <h2>掌库</h2>
+          <h2 className="sr-only">掌库</h2>
         </div>
 
         <div className="favorite-ledger-panel__toolbar">
-          <button type="button" aria-label="备册" disabled={busy} onClick={showSetupPrompt}>
-            <span>备册</span>
-            <small>生成专属bilimi收藏夹，以便批阅和归类</small>
-          </button>
-          <button
+          <AssistantActionButton
+            type="button"
+            aria-label="备册"
+            disabled={busy}
+            onClick={showSetupPrompt}
+            icon={clickedPetUrl}
+            iconAlt="小咪备册"
+            badge="备"
+            label="备册"
+            description="生成专属 Bilimi 收藏夹，以便批阅和归类"
+          />
+          <AssistantActionButton
             type="button"
             aria-label="整理旧藏"
             disabled={busy}
             onClick={() => void scanOldFavorites()}
-          >
-            <span>整理旧藏</span>
-            <small>扫描并整理旧收藏放在bilimi收藏里</small>
-          </button>
+            icon={hintPetUrl}
+            iconAlt="小咪整理旧藏"
+            badge="整"
+            label="整理旧藏"
+            description="扫描并整理旧收藏，放进 Bilimi 收藏里"
+          />
         </div>
         <p className="favorite-ledger-panel__safety-note">
           同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧

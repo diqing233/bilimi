@@ -11,6 +11,7 @@ import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/c
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
+import { AssistantActionButton } from './AssistantActionButton'
 
 type MemorialPanelTab = 'review' | 'notes'
 
@@ -156,23 +157,21 @@ export function MemorialPanel({
             </aside>
             <div className="memorial-panel__actions" role="group" aria-label="批阅动作">
               {ACTIONS.map(({ action, testId, label, description, icon, iconAlt }) => (
-                <button
+                <AssistantActionButton
                   key={action}
                   type="button"
-                  className="memorial-panel__action"
                   data-testid={testId}
                   disabled={actionsLocked}
                   aria-label={`${action} ${label} ${description}`}
                   aria-busy={runningAction === action}
                   onClick={() => void onAction(action)}
+                  icon={icon}
+                  iconAlt={iconAlt}
+                  badge={action}
+                  label={label}
+                  description={description}
                 >
-                  <span className="memorial-panel__action-icon">
-                    <img className="memorial-panel__action-pet" src={icon} alt={iconAlt} />
-                    <strong>{action}</strong>
-                  </span>
-                  <span className="memorial-panel__action-label">{label}</span>
-                  <small className="memorial-panel__action-description">{description}</small>
-                </button>
+                </AssistantActionButton>
               ))}
             </div>
           </div>

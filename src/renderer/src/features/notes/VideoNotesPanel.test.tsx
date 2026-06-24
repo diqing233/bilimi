@@ -51,11 +51,18 @@ describe('VideoNotesPanel', () => {
     renderPanel({ note: null, onTranscribeAudio: vi.fn(), onOpenArchive: vi.fn() })
 
     expect(screen.queryByText('转写完成后保存到全局档案库。')).not.toBeInTheDocument()
+    expect(screen.queryByText('生成与归档')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '转写音频' })).toHaveTextContent(
       '下载音频并生成文稿自动保存在档案库里'
     )
     expect(screen.getByRole('button', { name: '档案库' })).toHaveTextContent(
       '可查看或备注已保存视频文稿'
+    )
+    expect(screen.getByRole('img', { name: '小咪转写音频' })).toHaveClass(
+      'assistant-action-button__pet'
+    )
+    expect(screen.getByRole('img', { name: '小咪档案库' })).toHaveClass(
+      'assistant-action-button__pet'
     )
   })
 

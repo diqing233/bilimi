@@ -36,7 +36,7 @@ describe('FavoriteLedgerPanel', () => {
       />
     )
 
-    expect(screen.getByText('掌库')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '掌库' })).toHaveClass('sr-only')
     expect(screen.getByText('尚缺 Bilimi·游戏。')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '备册' }))
@@ -188,10 +188,16 @@ describe('FavoriteLedgerPanel', () => {
     expect(topbar?.querySelector('.favorite-ledger-panel__header')).toBeInTheDocument()
     expect(topbar?.querySelector('.favorite-ledger-panel__toolbar')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '备册' })).toHaveTextContent(
-      '生成专属bilimi收藏夹，以便批阅和归类'
+      '生成专属 Bilimi 收藏夹，以便批阅和归类'
     )
     expect(screen.getByRole('button', { name: '整理旧藏' })).toHaveTextContent(
-      '扫描并整理旧收藏放在bilimi收藏里'
+      '扫描并整理旧收藏，放进 Bilimi 收藏里'
+    )
+    expect(screen.getByRole('img', { name: '小咪备册' })).toHaveClass(
+      'assistant-action-button__pet'
+    )
+    expect(screen.getByRole('img', { name: '小咪整理旧藏' })).toHaveClass(
+      'assistant-action-button__pet'
     )
     expect(
       screen.getByText('同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧')
@@ -599,7 +605,9 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
     expect(screen.getByText('正在编辑：Bilimi·鬼畜')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('heading', { name: '掌库' }))
+    fireEvent.click(
+      screen.getByText('同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧')
+    )
 
     expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
   })
@@ -644,7 +652,9 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.change(editor.getByLabelText('册名'), {
       target: { value: '音MAD' }
     })
-    fireEvent.click(screen.getByRole('heading', { name: '掌库' }))
+    fireEvent.click(
+      screen.getByText('同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧')
+    )
 
     expect(screen.getByText('正在编辑：Bilimi·音MAD')).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('当前收藏夹有未保存修改，请先保存。')

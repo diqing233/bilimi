@@ -158,23 +158,23 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('padding: 8px;\n  max-height: calc(100vh - 16px);')
     expect(normalizedStyles).toContain('display: grid;\n  gap: 8px;')
     expect(normalizedStyles).toContain('.memorial-panel__actions {\n  display: grid;\n  grid-template-columns: 1fr;')
-    expect(normalizedStyles).toContain('.memorial-panel__action {\n  min-height: 62px;')
+    expect(normalizedStyles).toContain('.assistant-action-button {\n  min-height: 62px;')
     expect(normalizedStyles).toContain('grid-template-columns: 58px minmax(0, 1fr);')
     expectStyleSnippet('grid-template-areas: "mark label" "mark desc";')
     expect(normalizedStyles).toContain(
-      '.memorial-panel__action-icon {\n  grid-area: mark;\n  position: relative;\n  width: 42px;\n  height: 44px;'
+      '.assistant-action-button__icon {\n  grid-area: mark;\n  position: relative;\n  width: 42px;\n  height: 44px;'
     )
     expect(normalizedStyles).toContain('justify-self: start;')
     expect(normalizedStyles).toContain(
-      '.memorial-panel__action-pet {\n  width: 42px;\n  height: 42px;'
+      '.assistant-action-button__pet {\n  width: 42px;\n  height: 42px;'
     )
     expect(normalizedStyles).toContain(
-      '.memorial-panel__action strong {\n  position: absolute;\n  right: -2px;\n  bottom: -1px;\n  width: 18px;\n  height: 18px;'
+      '.assistant-action-button__icon strong {\n  position: absolute;\n  right: -2px;\n  bottom: -1px;\n  width: 18px;\n  height: 18px;'
     )
     expect(normalizedStyles).toContain('.memorial-panel__copy,\n.memorial-panel__meta,\n.memorial-panel__verdict {\n  color: var(--porcelain-text);\n  line-height: 1.5;\n  font-size: 14px;')
     expect(normalizedStyles).not.toContain('.memorial-panel__action span {\n  grid-area: label;')
-    expect(normalizedStyles).toContain('.memorial-panel__action-label {\n  grid-area: label;\n  min-width: 0;\n  padding-left: 4px;\n  color: var(--porcelain-text);\n  font-weight: 700;\n  font-size: 15px;\n  text-align: left;')
-    expect(normalizedStyles).toContain('.memorial-panel__action-description {\n  grid-area: desc;\n  min-width: 0;\n  padding-left: 4px;\n  color: var(--porcelain-muted);\n  font-size: 12px;\n  text-align: left;')
+    expect(normalizedStyles).toContain('.assistant-action-button__label {\n  grid-area: label;\n  min-width: 0;\n  padding-left: 4px;\n  color: var(--porcelain-text);\n  font-weight: 700;\n  font-size: 15px;\n  text-align: left;')
+    expect(normalizedStyles).toContain('.assistant-action-button__description {\n  grid-area: desc;\n  min-width: 0;\n  padding-left: 4px;\n  color: var(--porcelain-muted);\n  font-size: 12px;\n  text-align: left;')
   })
 
   it('uses compact spacing for the notes panel', () => {
@@ -185,13 +185,9 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain(
       '.video-notes__source h3 {\n  margin: 0;\n  color: var(--porcelain-text);\n  font-size: 16px;'
     )
-    expect(normalizedStyles).toContain(
-      '.video-notes__primary-actions button {\n  display: grid;\n  gap: 2px;\n  min-width: 88px;\n  min-height: 54px;'
-    )
-    expectStyleSnippet('.video-notes__primary-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));')
-    expectStyleSnippet('.video-notes__primary-title { grid-column: 1 / -1;')
-    expectStyleSnippet('.video-notes__primary-actions button { display: grid; gap: 2px; min-width: 88px; min-height: 54px;')
-    expectStyleSnippet('.video-notes__primary-actions button small, .favorite-ledger-panel__toolbar button small { color: inherit; font-size: 12px;')
+    expectStyleSnippet('.video-notes__primary-actions { display: grid; grid-template-columns: 1fr;')
+    expect(normalizedStyles).not.toContain('.video-notes__primary-title')
+    expectStyleSnippet('.assistant-action-button { min-height: 62px; display: grid; grid-template-columns: 58px minmax(0, 1fr);')
     expect(normalizedStyles).toContain(
       '.video-notes__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(0, 1fr));\n  gap: 4px;'
     )
@@ -217,8 +213,8 @@ describe('renderer porcelain theme styles', () => {
 
   it('keeps favorite ledger status near the toolbar and ledger copy compact', () => {
     expectStyleSnippet('.favorite-ledger-panel__topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px;')
-    expectStyleSnippet('.favorite-ledger-panel__toolbar { margin-left: auto;')
-    expectStyleSnippet('.favorite-ledger-panel__toolbar button { display: grid; gap: 2px; min-width: 110px; min-height: 58px;')
+    expectStyleSnippet('.favorite-ledger-panel__toolbar { display: grid; grid-template-columns: 1fr; width: 100%;')
+    expectStyleSnippet('.assistant-action-button:hover:not(:disabled), .assistant-action-button:focus-visible:not(:disabled) { border-color: rgba(31, 99, 181, 0.5);')
     expectStyleSnippet('.favorite-ledger-panel__safety-note { flex: 1 0 100%; color: var(--porcelain-muted); font-size: 12px;')
     expectStyleSnippet('.favorite-ledger-panel__status { margin: 6px 0 0;')
     expectStyleSnippet('.favorite-ledger-panel__category-actions { display: flex; flex-wrap: wrap;')
