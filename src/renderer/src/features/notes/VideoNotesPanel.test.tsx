@@ -47,6 +47,18 @@ function renderPanel(props: Partial<ComponentProps<typeof VideoNotesPanel>> = {}
 }
 
 describe('VideoNotesPanel', () => {
+  it('puts archive guidance inside the primary action buttons', () => {
+    renderPanel({ note: null, onTranscribeAudio: vi.fn(), onOpenArchive: vi.fn() })
+
+    expect(screen.queryByText('转写完成后保存到全局档案库。')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '转写音频' })).toHaveTextContent(
+      '下载音频并生成文稿自动保存在档案库里'
+    )
+    expect(screen.getByRole('button', { name: '档案库' })).toHaveTextContent(
+      '可查看或备注已保存视频文稿'
+    )
+  })
+
   it('uses audio transcription for the primary action when available', async () => {
     const onGenerate = vi.fn().mockResolvedValue(null)
     const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)

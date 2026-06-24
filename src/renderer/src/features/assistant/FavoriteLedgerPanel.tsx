@@ -530,13 +530,23 @@ export function FavoriteLedgerPanel({
         </div>
 
         <div className="favorite-ledger-panel__toolbar">
-          <button type="button" disabled={busy} onClick={showSetupPrompt}>
-            备册
+          <button type="button" aria-label="备册" disabled={busy} onClick={showSetupPrompt}>
+            <span>备册</span>
+            <small>生成专属bilimi收藏夹，以便批阅和归类</small>
           </button>
-          <button type="button" disabled={busy} onClick={() => void scanOldFavorites()}>
-            整理旧藏
+          <button
+            type="button"
+            aria-label="整理旧藏"
+            disabled={busy}
+            onClick={() => void scanOldFavorites()}
+          >
+            <span>整理旧藏</span>
+            <small>扫描并整理旧收藏放在bilimi收藏里</small>
           </button>
         </div>
+        <p className="favorite-ledger-panel__safety-note">
+          同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧
+        </p>
       </div>
 
       {missingLedgerIds.length > 0 ? (

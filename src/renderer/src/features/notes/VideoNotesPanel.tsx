@@ -316,6 +316,9 @@ export function VideoNotesPanel({
 
   const primaryActionLabel = onTranscribeAudio ? '转写音频' : generateFailed ? '重新整理' : '整理札记'
   const primaryActionBusyLabel = onTranscribeAudio ? '转写中...' : '整理中...'
+  const primaryActionDescription = onTranscribeAudio
+    ? '下载音频并生成文稿自动保存在档案库里'
+    : '整理当前视频文稿'
 
   return (
     <section className="video-notes" aria-label="视频札记">
@@ -333,15 +336,19 @@ export function VideoNotesPanel({
       </section>
 
       <section className="video-notes__primary-actions" aria-label="生成与归档">
-        <div>
-          <strong>生成与归档</strong>
-          <p>转写完成后保存到全局档案库。</p>
-        </div>
-        <button type="button" disabled={generationBusy} onClick={() => void handleGenerate()}>
-          {generationBusy ? primaryActionBusyLabel : primaryActionLabel}
+        <strong className="video-notes__primary-title">生成与归档</strong>
+        <button
+          type="button"
+          aria-label={primaryActionLabel}
+          disabled={generationBusy}
+          onClick={() => void handleGenerate()}
+        >
+          <span>{generationBusy ? primaryActionBusyLabel : primaryActionLabel}</span>
+          <small>{primaryActionDescription}</small>
         </button>
-        <button type="button" disabled={!onOpenArchive} onClick={onOpenArchive}>
-          档案库
+        <button type="button" aria-label="档案库" disabled={!onOpenArchive} onClick={onOpenArchive}>
+          <span>档案库</span>
+          <small>可查看或备注已保存视频文稿</small>
         </button>
       </section>
 

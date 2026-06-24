@@ -187,6 +187,15 @@ describe('FavoriteLedgerPanel', () => {
     expect(topbar).toBeInTheDocument()
     expect(topbar?.querySelector('.favorite-ledger-panel__header')).toBeInTheDocument()
     expect(topbar?.querySelector('.favorite-ledger-panel__toolbar')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '备册' })).toHaveTextContent(
+      '生成专属bilimi收藏夹，以便批阅和归类'
+    )
+    expect(screen.getByRole('button', { name: '整理旧藏' })).toHaveTextContent(
+      '扫描并整理旧收藏放在bilimi收藏里'
+    )
+    expect(
+      screen.getByText('同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧')
+    ).toBeInTheDocument()
   })
 
   it('frames the ledger list and editor together in the workspace', () => {
