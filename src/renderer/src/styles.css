@@ -1690,6 +1690,7 @@ body[data-floating-window="true"],
   border: 1px solid rgba(31, 99, 181, 0.16);
   background: rgba(247, 251, 255, 0.64);
   padding: 8px;
+  justify-content: flex-end;
 }
 .video-note-archive__toolbar label {
   display: flex;
@@ -1698,9 +1699,17 @@ body[data-floating-window="true"],
   color: var(--porcelain-muted);
 }
 .video-note-archive__toolbar label:first-child {
-  flex: 1 1 180px;
+  order: 2;
+  flex: 1 0 100%;
   display: grid;
   gap: 4px;
+}
+.video-note-archive__toolbar label:first-child input {
+  width: 100%;
+}
+.video-note-archive__toolbar label:not(:first-child),
+.video-note-archive__star-filter {
+  order: 1;
 }
 .video-note-archive__star-button {
   min-width: 36px;
