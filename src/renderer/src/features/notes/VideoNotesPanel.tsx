@@ -21,8 +21,6 @@ type VideoNotesPanelProps = {
   onChange?: (note: VideoNote) => void
   onTranscribeAudio?: () => Promise<VideoNote | null>
   onEnqueueTranscription?: () => Promise<VideoAudioTranscriptionQueueSnapshot | null>
-  onCancelQueuedTranscription?: (id: string) => void
-  onRetryQueuedTranscription?: (id: string) => void
   onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
   onOpenArchive?: () => void
   deepSeekEnabled?: boolean
@@ -54,14 +52,6 @@ const progressLabelByStep: Record<VideoAudioTranscriptionProgress['step'], strin
   'transcribing-segment': '正在转写音频',
   'merging-transcript': '正在合并文稿',
   'generating-note': '正在生成札记'
-}
-
-const queueStatusLabel: Record<VideoAudioTranscriptionQueueItem['status'], string> = {
-  pending: '等待中',
-  running: '转写中',
-  completed: '已归档',
-  failed: '失败',
-  canceled: '已取消'
 }
 
 function createPosterCacheKey(note: VideoNote): string {
@@ -117,8 +107,6 @@ export function VideoNotesPanel({
   onGenerate,
   onTranscribeAudio,
   onEnqueueTranscription,
-  onCancelQueuedTranscription,
-  onRetryQueuedTranscription,
   onGeneratePoster,
   onOpenArchive,
   deepSeekEnabled = false,
@@ -136,6 +124,19 @@ export function VideoNotesPanel({
     summary: NotePosterSummary
   } | null>(null)
   const [posterGenerating, setPosterGenerating] = useState(false)
+  const activeQueueItem = useMemo(
+    () =>
+      transcriptionQueue?.items.find((item) =>
+        transcriptionQueue.activeItemId
+          ? item.id === transcriptionQueue.activeItemId
+          : item.status === 'running'
+      ) ?? null,
+    [transcriptionQueue]
+  )
+  const queuedItemCount = useMemo(
+    () => transcriptionQueue?.items.filter((item) => item.status === 'pending').length ?? 0,
+    [transcriptionQueue]
+  )
   const generationBusy = isLoading || localGenerating || transcribingAudio
   const notePosterKey = note ? createPosterCacheKey(note) : ''
   const activePosterSummary =
@@ -155,6 +156,10 @@ export function VideoNotesPanel({
   async function handleGenerate(): Promise<void> {
     if (generationBusy) return
     if (onTranscribeAudio) {
+      if (onEnqueueTranscription) {
+        await handleEnqueueTranscription()
+        return
+      }
       await handleTranscribeAudio()
       return
     }
@@ -200,7 +205,18 @@ export function VideoNotesPanel({
     setErrorMessage('')
     try {
       const snapshot = await onEnqueueTranscription()
-      if (snapshot) setStatusMessage('已加入转写队列。')
+      if (snapshot) {
+        const runningTitle =
+          snapshot.items.find((item) =>
+            snapshot.activeItemId ? item.id === snapshot.activeItemId : item.status === 'running'
+          )?.title ?? activeQueueItem?.title
+
+        setStatusMessage(
+          runningTitle && runningTitle !== currentVideoTitle
+            ? `正在转写「${runningTitle}」，「${currentVideoTitle}」已加入队列。`
+            : `「${currentVideoTitle}」已开始转写。`
+        )
+      }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '加入转写队列失败。')
     }
@@ -284,38 +300,15 @@ export function VideoNotesPanel({
   }
 
   function renderTranscriptionQueue(): React.JSX.Element | null {
-    if (!transcriptionQueue || transcriptionQueue.items.length === 0) return null
+    if (!activeQueueItem) return null
 
     return (
-      <section className="video-notes__queue" aria-label="转写队列">
+      <section className="video-notes__queue" aria-label="转写状态">
         <div className="video-notes__panel-header">
-          <strong>转写队列</strong>
-          <span>{transcriptionQueue.items.length} 项</span>
+          <strong>正在转写：{activeQueueItem.title}</strong>
+          <span>排队中：{queuedItemCount} 个</span>
         </div>
-        <ol>
-          {transcriptionQueue.items.map((item) => (
-            <li key={item.id} data-status={item.status}>
-              <div>
-                <strong>{item.title}</strong>
-                <span>{queueStatusLabel[item.status]}</span>
-              </div>
-              {renderQueueItemProgress(item)}
-              {item.errorMessage ? <p>{item.errorMessage}</p> : null}
-              <div className="video-notes__queue-actions">
-                {item.status === 'pending' ? (
-                  <button type="button" onClick={() => onCancelQueuedTranscription?.(item.id)}>
-                    取消 {item.title}
-                  </button>
-                ) : null}
-                {item.status === 'failed' || item.status === 'canceled' ? (
-                  <button type="button" onClick={() => onRetryQueuedTranscription?.(item.id)}>
-                    重试 {item.title}
-                  </button>
-                ) : null}
-              </div>
-            </li>
-          ))}
-        </ol>
+        {renderQueueItemProgress(activeQueueItem)}
       </section>
     )
   }
@@ -425,19 +418,6 @@ export function VideoNotesPanel({
           label={generationBusy ? primaryActionBusyLabel : primaryActionLabel}
           description={primaryActionDescription}
         />
-        {onEnqueueTranscription ? (
-          <AssistantActionButton
-            type="button"
-            aria-label="加入队列"
-            disabled={generationBusy}
-            onClick={() => void handleEnqueueTranscription()}
-            icon={workingPetUrl}
-            iconAlt="小咪加入转写队列"
-            badge="列"
-            label="加入队列"
-            description="加入后台队列，按顺序自动转写并归档"
-          />
-        ) : null}
         <AssistantActionButton
           type="button"
           aria-label="档案库"

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { VideoAudioTranscriptionQueueSnapshot, VideoNote } from '@shared/types'
 import { VideoNotesPanel } from './VideoNotesPanel'
@@ -29,8 +29,6 @@ const sampleNote: VideoNote = {
 
 function renderQueuePanel(queue: VideoAudioTranscriptionQueueSnapshot) {
   const onEnqueueTranscription = vi.fn().mockResolvedValue(queue)
-  const onCancelQueuedTranscription = vi.fn()
-  const onRetryQueuedTranscription = vi.fn()
 
   render(
     <VideoNotesPanel
@@ -40,21 +38,17 @@ function renderQueuePanel(queue: VideoAudioTranscriptionQueueSnapshot) {
       onSave={vi.fn()}
       onTranscribeAudio={vi.fn()}
       onEnqueueTranscription={onEnqueueTranscription}
-      onCancelQueuedTranscription={onCancelQueuedTranscription}
-      onRetryQueuedTranscription={onRetryQueuedTranscription}
       transcriptionQueue={queue}
     />
   )
 
   return {
-    onEnqueueTranscription,
-    onCancelQueuedTranscription,
-    onRetryQueuedTranscription
+    onEnqueueTranscription
   }
 }
 
 describe('VideoNotesPanel transcription queue', () => {
-  it('enqueues the current video and renders retryable queue rows', async () => {
+  it('renders a compact running transcription status without extra queue controls', () => {
     const queue: VideoAudioTranscriptionQueueSnapshot = {
       activeItemId: 'bvid:BV2note',
       items: [
@@ -94,21 +88,16 @@ describe('VideoNotesPanel transcription queue', () => {
         }
       ]
     }
-    const { onCancelQueuedTranscription, onEnqueueTranscription, onRetryQueuedTranscription } =
-      renderQueuePanel(queue)
+    renderQueuePanel(queue)
 
-    fireEvent.click(screen.getByRole('button', { name: '加入队列' }))
+    const status = screen.getByRole('region', { name: '转写状态' })
 
-    await waitFor(() => expect(onEnqueueTranscription).toHaveBeenCalledOnce())
-    expect(screen.getByRole('region', { name: '转写队列' })).toHaveTextContent('Pending video')
-    expect(screen.getByRole('region', { name: '转写队列' })).toHaveTextContent('Running video')
+    expect(status).toHaveTextContent('正在转写：Running video')
+    expect(status).toHaveTextContent('排队中：1 个')
     expect(screen.getByText('正在转写第 2 / 4 段')).toBeInTheDocument()
-    expect(screen.getByText('Audio download failed.')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: '取消 Pending video' }))
-    expect(onCancelQueuedTranscription).toHaveBeenCalledWith('bvid:BV1note')
-
-    fireEvent.click(screen.getByRole('button', { name: '重试 Failed video' }))
-    expect(onRetryQueuedTranscription).toHaveBeenCalledWith('bvid:BV3note')
+    expect(screen.queryByRole('button', { name: '加入队列' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /取消/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /重试/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('Audio download failed.')).not.toBeInTheDocument()
   })
 })

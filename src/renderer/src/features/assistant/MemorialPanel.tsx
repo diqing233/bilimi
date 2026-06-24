@@ -192,8 +192,6 @@ export function MemorialPanel({
             onGenerate={onGenerateVideoNote}
             onTranscribeAudio={onTranscribeVideoAudio}
             onEnqueueTranscription={onEnqueueVideoAudioTranscription}
-            onCancelQueuedTranscription={onCancelQueuedVideoAudioTranscription}
-            onRetryQueuedTranscription={onRetryQueuedVideoAudioTranscription}
             onGeneratePoster={onGeneratePoster}
             onSave={onSaveVideoNote}
             onChange={onChangeVideoNote}

@@ -149,4 +149,31 @@ describe('video transcription queue', () => {
 
     expect(queue.getSnapshot().items.map((item) => item.status)).toEqual(['failed', 'completed'])
   })
+
+  it('does not duplicate a video that is already pending or running', async () => {
+    const first = createDeferred<{ transcript: TranscriptSegment[]; transcriptSource: 'audio' }>()
+    const transcribe = vi.fn().mockReturnValue(first.promise)
+    const queue = createVideoTranscriptionQueue({
+      loadItems: createStore().load,
+      saveItems: vi.fn(),
+      transcribe,
+      saveArchiveVersion: vi.fn(),
+      now: () => '2026-06-25T00:00:00.000Z'
+    })
+
+    queue.enqueue(createRequest())
+    queue.enqueue(createRequest())
+    await flushMicrotasks()
+    queue.enqueue(createRequest())
+
+    expect(queue.getSnapshot().items).toHaveLength(1)
+    expect(queue.getSnapshot().items[0]).toMatchObject({
+      id: 'bvid:BV1queue',
+      status: 'running'
+    })
+    expect(transcribe).toHaveBeenCalledOnce()
+
+    first.resolve({ transcript: createTranscript('first'), transcriptSource: 'audio' })
+    await flushMicrotasks()
+  })
 })

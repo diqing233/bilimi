@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a serial video audio transcription queue that saves completed jobs into the existing video note archive.
+**Goal:** Add a serial video audio transcription queue behind the existing `转写音频` action and save completed jobs into the existing video note archive.
 
-**Architecture:** The Electron main process owns queue state, persistence, and execution. Renderer components enqueue the current video and render queue controls through preload APIs.
+**Architecture:** The Electron main process owns queue state, persistence, and execution. Renderer components enqueue the current video through the existing primary action and render compact running status through preload APIs.
 
 **Tech Stack:** Electron IPC, React, TypeScript, Vitest, existing `transcribeCurrentVideoAudio`, `createLocalVideoNoteDraft`, and archive store helpers.
 
@@ -50,8 +50,8 @@
 - Test: `src/renderer/src/features/notes/VideoNotesPanel.test.tsx`
 - Test: `src/renderer/src/features/assistant/FloatingAssistantApp.test.tsx`
 
-- [x] Add an "add to queue" action beside direct transcription.
-- [x] Render queue rows with status, progress, retry, and cancel actions.
+- [x] Route the existing `转写音频` action through the queue when the queue bridge is available.
+- [x] Render compact running status with the active video title, progress, and pending count without adding a separate queue button.
 - [x] Refresh archive state when queue jobs complete.
 
 ### Task 5: Verification

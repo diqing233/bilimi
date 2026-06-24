@@ -107,6 +107,22 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const saveVideoNote = vi.fn().mockResolvedValue([])
   const saveVideoNoteArchiveVersion = vi.fn().mockResolvedValue([])
   const loadVideoNoteArchives = vi.fn().mockResolvedValue([])
+  const loadVideoAudioTranscriptionQueue = vi.fn().mockResolvedValue({ items: [] })
+  const enqueueCurrentVideoAudioTranscription = vi.fn().mockResolvedValue({
+    activeItemId: 'bvid:BV1note',
+    items: [
+      {
+        id: 'bvid:BV1note',
+        url: 'https://www.bilibili.com/video/BV1note',
+        title: '机器学习入门教程',
+        bvid: 'BV1note',
+        status: 'running',
+        createdAt: '2026-06-25T00:00:00.000Z',
+        updatedAt: '2026-06-25T00:00:00.000Z'
+      }
+    ]
+  })
+  const onVideoAudioTranscriptionQueueChanged = vi.fn((_callback) => vi.fn())
   const deleteVideoNoteArchiveEntry = vi.fn().mockResolvedValue([])
   const deleteVideoNoteArchiveVersion = vi.fn().mockResolvedValue([])
   const saveDeepSeekApiKey = vi.fn().mockResolvedValue({ configured: true })
@@ -154,6 +170,9 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     saveVideoNote,
     saveVideoNoteArchiveVersion,
     loadVideoNoteArchives,
+    loadVideoAudioTranscriptionQueue,
+    enqueueCurrentVideoAudioTranscription,
+    onVideoAudioTranscriptionQueueChanged,
     deleteVideoNoteArchiveEntry,
     deleteVideoNoteArchiveVersion,
     scanOldFavorites,
@@ -566,31 +585,47 @@ describe('FloatingAssistantApp', () => {
     expect(requestAssistantSnapshot).toHaveBeenCalledTimes(2)
   })
 
-  it('generates notes through the floating assistant bridge', async () => {
-    const note = createVideoNote()
-    const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(note)
-    installDesktopApi({ generateVideoNoteFromAudio })
+  it('enqueues audio transcription through the floating assistant bridge', async () => {
+    const generateVideoNoteFromAudio = vi.fn()
+    const enqueueCurrentVideoAudioTranscription = vi.fn().mockResolvedValue({
+      activeItemId: 'bvid:BV1note',
+      items: [
+        {
+          id: 'bvid:BV1note',
+          url: 'https://www.bilibili.com/video/BV1note',
+          title: '三分钟讲清机器学习科普教程',
+          bvid: 'BV1note',
+          status: 'running',
+          createdAt: '2026-06-25T00:00:00.000Z',
+          updatedAt: '2026-06-25T00:00:00.000Z'
+        }
+      ]
+    })
+    installDesktopApi({ generateVideoNoteFromAudio, enqueueCurrentVideoAudioTranscription })
 
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
 
-    await waitFor(() => expect(generateVideoNoteFromAudio).toHaveBeenCalledOnce())
-    await waitFor(() => expect(screen.getAllByText('机器学习需要数据和模型。').length).toBeGreaterThan(0))
+    await waitFor(() => expect(enqueueCurrentVideoAudioTranscription).toHaveBeenCalledOnce())
+    expect(generateVideoNoteFromAudio).not.toHaveBeenCalled()
+    expect(await screen.findByText('「三分钟讲清机器学习科普教程」已开始转写。')).toBeInTheDocument()
   })
 
   it('keeps audio transcription quiet when no video is available', async () => {
     const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(null)
+    const enqueueCurrentVideoAudioTranscription = vi.fn().mockResolvedValue(null)
     const setAssistantPetHint = vi.fn()
-    installDesktopApi({ generateVideoNoteFromAudio, setAssistantPetHint })
+    installDesktopApi({ generateVideoNoteFromAudio, enqueueCurrentVideoAudioTranscription, setAssistantPetHint })
 
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
 
-    await waitFor(() => expect(generateVideoNoteFromAudio).toHaveBeenCalledOnce())
+    await waitFor(() => expect(enqueueCurrentVideoAudioTranscription).toHaveBeenCalledOnce())
+    expect(generateVideoNoteFromAudio).not.toHaveBeenCalled()
     expect(screen.queryByText(/打开视频/)).not.toBeInTheDocument()
     expect(
       setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'error')
@@ -601,10 +636,30 @@ describe('FloatingAssistantApp', () => {
     let progressCallback:
       | ((progress: { step: 'transcribing-segment'; message: string; segmentIndex: number; segmentCount: number }) => void)
       | undefined
-    const note = { ...createVideoNote(), transcriptSource: 'audio' as const }
-    const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(note)
+    const generateVideoNoteFromAudio = vi.fn()
+    const enqueueCurrentVideoAudioTranscription = vi.fn().mockResolvedValue({
+      activeItemId: 'bvid:BV1note',
+      items: [
+        {
+          id: 'bvid:BV1note',
+          url: 'https://www.bilibili.com/video/BV1note',
+          title: '机器学习入门教程',
+          bvid: 'BV1note',
+          status: 'running',
+          createdAt: '2026-06-25T00:00:00.000Z',
+          updatedAt: '2026-06-25T00:00:00.000Z',
+          progress: {
+            step: 'transcribing-segment',
+            message: 'Transcribing segment 1/2.',
+            segmentIndex: 1,
+            segmentCount: 2
+          }
+        }
+      ]
+    })
     installDesktopApi({
       generateVideoNoteFromAudio,
+      enqueueCurrentVideoAudioTranscription,
       onVideoAudioTranscriptionProgress: vi.fn((callback) => {
         progressCallback = callback
         return vi.fn()
@@ -624,11 +679,11 @@ describe('FloatingAssistantApp', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
 
-    await waitFor(() => expect(generateVideoNoteFromAudio).toHaveBeenCalledOnce())
-    expect(screen.getByText('正在转写第 1 / 2 段')).toBeInTheDocument()
-    expect(screen.getByText('50%')).toBeInTheDocument()
+    await waitFor(() => expect(enqueueCurrentVideoAudioTranscription).toHaveBeenCalledOnce())
+    expect(generateVideoNoteFromAudio).not.toHaveBeenCalled()
+    expect(screen.getAllByText('正在转写第 1 / 2 段').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('50%').length).toBeGreaterThan(0)
     expect(screen.queryByText('Transcribing segment 1/2.')).not.toBeInTheDocument()
-    await waitFor(() => expect(screen.getAllByText('机器学习需要数据和模型。').length).toBeGreaterThan(0))
   })
 
   it('archives generated audio notes and opens the global archive panel', async () => {
@@ -648,17 +703,57 @@ describe('FloatingAssistantApp', () => {
       createdAt: note.updatedAt,
       updatedAt: note.updatedAt
     }
-    const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(note)
-    const saveVideoNoteArchiveVersion = vi.fn().mockResolvedValue([archive])
     const loadVideoNoteArchives = vi.fn().mockResolvedValue([archive])
-    installDesktopApi({ generateVideoNoteFromAudio, saveVideoNoteArchiveVersion, loadVideoNoteArchives })
+    let queueChanged:
+      | Parameters<NonNullable<Window['bilimiDesktop']['onVideoAudioTranscriptionQueueChanged']>>[0]
+      | undefined
+    const enqueueCurrentVideoAudioTranscription = vi.fn().mockResolvedValue({
+      activeItemId: 'bvid:BV1note',
+      items: [
+        {
+          id: 'bvid:BV1note',
+          url: 'https://www.bilibili.com/video/BV1note',
+          title: '机器学习入门教程',
+          bvid: 'BV1note',
+          status: 'running',
+          createdAt: '2026-06-25T00:00:00.000Z',
+          updatedAt: '2026-06-25T00:00:00.000Z'
+        }
+      ]
+    })
+    installDesktopApi({
+      enqueueCurrentVideoAudioTranscription,
+      loadVideoNoteArchives,
+      onVideoAudioTranscriptionQueueChanged: vi.fn((callback) => {
+        queueChanged = callback
+        return vi.fn()
+      })
+    })
 
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
 
-    await waitFor(() => expect(saveVideoNoteArchiveVersion).toHaveBeenCalledWith(note))
+    await waitFor(() => expect(enqueueCurrentVideoAudioTranscription).toHaveBeenCalledOnce())
+    act(() => {
+      queueChanged?.({
+        items: [
+          {
+            id: 'bvid:BV1note',
+            url: 'https://www.bilibili.com/video/BV1note',
+            title: '机器学习入门教程',
+            bvid: 'BV1note',
+            status: 'completed',
+            createdAt: '2026-06-25T00:00:00.000Z',
+            updatedAt: '2026-06-25T00:01:00.000Z',
+            completedAt: '2026-06-25T00:01:00.000Z',
+            archiveNoteId: note.id
+          }
+        ]
+      })
+    })
+    await waitFor(() => expect(loadVideoNoteArchives).toHaveBeenCalledTimes(2))
     fireEvent.click(screen.getByRole('button', { name: '档案库' }))
 
     expect(await screen.findByRole('region', { name: '全局档案库' })).toBeInTheDocument()
@@ -667,17 +762,25 @@ describe('FloatingAssistantApp', () => {
   })
 
   it('keeps removed time annotation controls out of the notes panel', async () => {
-    const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(createVideoNote())
+    const generateVideoNoteFromAudio = vi.fn()
+    const enqueueCurrentVideoAudioTranscription = vi.fn().mockResolvedValue({ items: [] })
     const getCurrentVideoTime = vi.fn().mockResolvedValue(92)
     const seekVideoTime = vi.fn().mockResolvedValue(true)
     const saveVideoNote = vi.fn().mockResolvedValue([])
-    installDesktopApi({ generateVideoNoteFromAudio, getCurrentVideoTime, seekVideoTime, saveVideoNote })
+    installDesktopApi({
+      generateVideoNoteFromAudio,
+      enqueueCurrentVideoAudioTranscription,
+      getCurrentVideoTime,
+      seekVideoTime,
+      saveVideoNote
+    })
 
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
-    await waitFor(() => expect(generateVideoNoteFromAudio).toHaveBeenCalledOnce())
+    await waitFor(() => expect(enqueueCurrentVideoAudioTranscription).toHaveBeenCalledOnce())
+    expect(generateVideoNoteFromAudio).not.toHaveBeenCalled()
 
     expect(screen.queryByRole('button', { name: '取当前时间' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('批注标题')).not.toBeInTheDocument()
@@ -689,15 +792,17 @@ describe('FloatingAssistantApp', () => {
   })
 
   it('keeps removed local memo editing out of the notes panel', async () => {
-    const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(createVideoNote())
+    const generateVideoNoteFromAudio = vi.fn()
+    const enqueueCurrentVideoAudioTranscription = vi.fn().mockResolvedValue({ items: [] })
     const saveVideoNote = vi.fn().mockResolvedValue([])
-    installDesktopApi({ generateVideoNoteFromAudio, saveVideoNote })
+    installDesktopApi({ generateVideoNoteFromAudio, enqueueCurrentVideoAudioTranscription, saveVideoNote })
 
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
-    await waitFor(() => expect(generateVideoNoteFromAudio).toHaveBeenCalledOnce())
+    await waitFor(() => expect(enqueueCurrentVideoAudioTranscription).toHaveBeenCalledOnce())
+    expect(generateVideoNoteFromAudio).not.toHaveBeenCalled()
 
     expect(screen.queryByLabelText('本地备注')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '保存札记' })).not.toBeInTheDocument()
