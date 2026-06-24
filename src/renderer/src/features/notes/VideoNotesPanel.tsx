@@ -3,6 +3,8 @@ import type {
   NotePosterSummary,
   TranscriptSegment,
   VideoAudioTranscriptionProgress,
+  VideoAudioTranscriptionQueueItem,
+  VideoAudioTranscriptionQueueSnapshot,
   VideoNote
 } from '@shared/types'
 import { createPlainTranscriptText, createSummaryText } from '@shared/videoNoteArchive'
@@ -18,10 +20,12 @@ type VideoNotesPanelProps = {
   onSave: (note: VideoNote) => Promise<void>
   onChange?: (note: VideoNote) => void
   onTranscribeAudio?: () => Promise<VideoNote | null>
+  onEnqueueTranscription?: () => Promise<VideoAudioTranscriptionQueueSnapshot | null>
   onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
   onOpenArchive?: () => void
   deepSeekEnabled?: boolean
   transcriptionProgress?: VideoAudioTranscriptionProgress | null
+  transcriptionQueue?: VideoAudioTranscriptionQueueSnapshot
 }
 
 type VideoNotesResultTab = 'plain' | 'timed' | 'summary'
@@ -102,10 +106,12 @@ export function VideoNotesPanel({
   isLoading,
   onGenerate,
   onTranscribeAudio,
+  onEnqueueTranscription,
   onGeneratePoster,
   onOpenArchive,
   deepSeekEnabled = false,
-  transcriptionProgress = null
+  transcriptionProgress = null,
+  transcriptionQueue
 }: VideoNotesPanelProps): React.JSX.Element {
   const [activeResultTab, setActiveResultTab] = useState<VideoNotesResultTab>('plain')
   const [localGenerating, setLocalGenerating] = useState(false)
@@ -118,6 +124,19 @@ export function VideoNotesPanel({
     summary: NotePosterSummary
   } | null>(null)
   const [posterGenerating, setPosterGenerating] = useState(false)
+  const activeQueueItem = useMemo(
+    () =>
+      transcriptionQueue?.items.find((item) =>
+        transcriptionQueue.activeItemId
+          ? item.id === transcriptionQueue.activeItemId
+          : item.status === 'running'
+      ) ?? null,
+    [transcriptionQueue]
+  )
+  const queuedItemCount = useMemo(
+    () => transcriptionQueue?.items.filter((item) => item.status === 'pending').length ?? 0,
+    [transcriptionQueue]
+  )
   const generationBusy = isLoading || localGenerating || transcribingAudio
   const notePosterKey = note ? createPosterCacheKey(note) : ''
   const activePosterSummary =
@@ -137,6 +156,10 @@ export function VideoNotesPanel({
   async function handleGenerate(): Promise<void> {
     if (generationBusy) return
     if (onTranscribeAudio) {
+      if (onEnqueueTranscription) {
+        await handleEnqueueTranscription()
+        return
+      }
       await handleTranscribeAudio()
       return
     }
@@ -174,6 +197,29 @@ export function VideoNotesPanel({
 
   async function handleTranscribeAudio(): Promise<void> {
     await runTranscribeAudio()
+  }
+
+  async function handleEnqueueTranscription(): Promise<void> {
+    if (!onEnqueueTranscription || generationBusy) return
+    setStatusMessage('')
+    setErrorMessage('')
+    try {
+      const snapshot = await onEnqueueTranscription()
+      if (snapshot) {
+        const runningTitle =
+          snapshot.items.find((item) =>
+            snapshot.activeItemId ? item.id === snapshot.activeItemId : item.status === 'running'
+          )?.title ?? activeQueueItem?.title
+
+        setStatusMessage(
+          runningTitle && runningTitle !== currentVideoTitle
+            ? `正在转写「${runningTitle}」，「${currentVideoTitle}」已加入队列。`
+            : `「${currentVideoTitle}」已开始转写。`
+        )
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : '加入转写队列失败。')
+    }
   }
 
   async function generatePosterForNote(targetNote: VideoNote): Promise<void> {
@@ -238,6 +284,32 @@ export function VideoNotesPanel({
         </div>
         <progress max={100} value={progress.percent} aria-label="音频转写进度" />
       </div>
+    )
+  }
+
+  function renderQueueItemProgress(item: VideoAudioTranscriptionQueueItem): React.JSX.Element | null {
+    if (!item.progress) return null
+    const progress = formatProgress(item.progress)
+
+    return (
+      <div className="video-notes__queue-progress">
+        <span>{progress.label}</span>
+        <span>{progress.percent}%</span>
+      </div>
+    )
+  }
+
+  function renderTranscriptionQueue(): React.JSX.Element | null {
+    if (!activeQueueItem) return null
+
+    return (
+      <section className="video-notes__queue" aria-label="转写状态">
+        <div className="video-notes__panel-header">
+          <strong>正在转写：{activeQueueItem.title}</strong>
+          <span>排队中：{queuedItemCount} 个</span>
+        </div>
+        {renderQueueItemProgress(activeQueueItem)}
+      </section>
     )
   }
 
@@ -360,6 +432,7 @@ export function VideoNotesPanel({
       </section>
 
       {renderProgress()}
+      {renderTranscriptionQueue()}
       {renderResultTabs()}
 
       {!note ? (

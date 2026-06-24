@@ -6,6 +6,7 @@ import type {
   NotePosterSummary,
   RecommendationKind,
   VideoAudioTranscriptionProgress,
+  VideoAudioTranscriptionQueueSnapshot,
   VideoNote,
   VideoNoteArchiveEntry
 } from '@shared/types'
@@ -207,6 +208,9 @@ export function FloatingAssistantApp({
   const [videoNoteLoading, setVideoNoteLoading] = useState(false)
   const [transcriptionProgress, setTranscriptionProgress] =
     useState<VideoAudioTranscriptionProgress | null>(null)
+  const [transcriptionQueue, setTranscriptionQueue] = useState<VideoAudioTranscriptionQueueSnapshot>({
+    items: []
+  })
   const [deepSeekApiKeyDraft, setDeepSeekApiKeyDraft] = useState('')
   const [deepSeekStatusMessage, setDeepSeekStatusMessage] = useState('')
   const mounted = useRef(false)
@@ -275,6 +279,7 @@ export function FloatingAssistantApp({
 
     void loadSnapshot()
     void loadVideoNoteArchives({ silent: true })
+    void loadVideoAudioTranscriptionQueue()
 
     return () => {
       mounted.current = false
@@ -292,6 +297,19 @@ export function FloatingAssistantApp({
       setTranscriptionProgress(progress)
     })
   }, [])
+
+  useEffect(() => {
+    return window.bilimiDesktop?.onVideoAudioTranscriptionQueueChanged?.((snapshot) => {
+      const hadRunning = transcriptionQueue.items.some((item) => item.status === 'running')
+      const hasRunning = snapshot.items.some((item) => item.status === 'running')
+
+      setTranscriptionQueue(snapshot)
+
+      if (hadRunning && !hasRunning && snapshot.items.some((item) => item.status === 'completed')) {
+        void loadVideoNoteArchives({ silent: true })
+      }
+    })
+  }, [transcriptionQueue.items])
 
   const resolvedSnapshot = snapshot ?? createFallbackSnapshot()
   const resolvedVideoTitle = normalizeTitle(resolvedSnapshot.videoTitle)
@@ -581,6 +599,37 @@ export function FloatingAssistantApp({
     } finally {
       setVideoNoteLoading(false)
     }
+  }
+
+  async function loadVideoAudioTranscriptionQueue() {
+    const snapshot = (await window.bilimiDesktop?.loadVideoAudioTranscriptionQueue?.()) ?? {
+      items: []
+    }
+    setTranscriptionQueue(snapshot)
+    return snapshot
+  }
+
+  async function enqueueVideoAudioTranscription() {
+    if (!window.bilimiDesktop?.enqueueCurrentVideoAudioTranscription) {
+      tellPet('error', '请先打开一个可转写的视频。')
+      return null
+    }
+
+    tellPet('progress', '已加入转写队列，小咪会按顺序处理。')
+    const nextQueue = await window.bilimiDesktop.enqueueCurrentVideoAudioTranscription?.()
+
+    if (nextQueue) setTranscriptionQueue(nextQueue)
+    return nextQueue
+  }
+
+  async function cancelQueuedVideoAudioTranscription(id: string) {
+    const snapshot = await window.bilimiDesktop?.cancelVideoAudioTranscription?.(id)
+    if (snapshot) setTranscriptionQueue(snapshot)
+  }
+
+  async function retryQueuedVideoAudioTranscription(id: string) {
+    const snapshot = await window.bilimiDesktop?.retryVideoAudioTranscription?.(id)
+    if (snapshot) setTranscriptionQueue(snapshot)
   }
 
   async function generateNotePoster(note: VideoNote) {
@@ -915,12 +964,20 @@ export function FloatingAssistantApp({
             showCloseButton={!isSidebarMode}
             onGenerateVideoNote={generateVideoNote}
             onTranscribeVideoAudio={generateVideoNoteFromAudio}
+            onEnqueueVideoAudioTranscription={enqueueVideoAudioTranscription}
+            onCancelQueuedVideoAudioTranscription={(id) => {
+              void cancelQueuedVideoAudioTranscription(id)
+            }}
+            onRetryQueuedVideoAudioTranscription={(id) => {
+              void retryQueuedVideoAudioTranscription(id)
+            }}
             onGeneratePoster={generateNotePoster}
             onSaveVideoNote={saveVideoNote}
             onChangeVideoNote={handleChangeVideoNote}
             videoNote={videoNote}
             videoNoteLoading={videoNoteLoading}
             transcriptionProgress={transcriptionProgress}
+            transcriptionQueue={transcriptionQueue}
             runningAction={runningAction}
             actionsLocked={actionsLocked}
             feedback={feedback}

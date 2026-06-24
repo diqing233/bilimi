@@ -1,7 +1,7 @@
 import type { ComponentProps } from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { NotePosterSummary, VideoNote } from '@shared/types'
+import type { NotePosterSummary, VideoAudioTranscriptionQueueSnapshot, VideoNote } from '@shared/types'
 import { VideoNotesPanel } from './VideoNotesPanel'
 
 const sampleNote: VideoNote = {
@@ -78,6 +78,102 @@ describe('VideoNotesPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
     await waitFor(() => expect(onTranscribeAudio).toHaveBeenCalledOnce())
     expect(onGenerate).not.toHaveBeenCalled()
+  })
+
+  it('uses the primary transcription action to enqueue the first video when queue support is available', async () => {
+    const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
+    const onEnqueueTranscription = vi.fn().mockResolvedValue({
+      activeItemId: 'bvid:BV-current',
+      items: [
+        {
+          id: 'bvid:BV-current',
+          url: 'https://www.bilibili.com/video/BV-current',
+          title: '当前视频',
+          bvid: 'BV-current',
+          status: 'running',
+          createdAt: '2026-06-25T00:00:00.000Z',
+          updatedAt: '2026-06-25T00:00:00.000Z'
+        }
+      ]
+    } satisfies VideoAudioTranscriptionQueueSnapshot)
+
+    renderPanel({
+      note: null,
+      currentVideoTitle: '当前视频',
+      onTranscribeAudio,
+      onEnqueueTranscription,
+      transcriptionQueue: { items: [] }
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+
+    await waitFor(() => expect(onEnqueueTranscription).toHaveBeenCalledOnce())
+    expect(onTranscribeAudio).not.toHaveBeenCalled()
+    expect(await screen.findByText('「当前视频」已开始转写。')).toBeInTheDocument()
+  })
+
+  it('uses the primary transcription action to enqueue when another video is already running', async () => {
+    const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
+    const onEnqueueTranscription = vi.fn().mockResolvedValue({
+      activeItemId: 'bvid:BV-running',
+      items: [
+        {
+          id: 'bvid:BV-running',
+          url: 'https://www.bilibili.com/video/BV-running',
+          title: '正在跑的视频',
+          bvid: 'BV-running',
+          status: 'running',
+          createdAt: '2026-06-25T00:00:00.000Z',
+          updatedAt: '2026-06-25T00:00:00.000Z'
+        },
+        {
+          id: 'bvid:BV-next',
+          url: 'https://www.bilibili.com/video/BV-next',
+          title: '当前视频',
+          bvid: 'BV-next',
+          status: 'pending',
+          createdAt: '2026-06-25T00:01:00.000Z',
+          updatedAt: '2026-06-25T00:01:00.000Z'
+        }
+      ]
+    } satisfies VideoAudioTranscriptionQueueSnapshot)
+
+    renderPanel({
+      note: null,
+      currentVideoTitle: '当前视频',
+      onTranscribeAudio,
+      onEnqueueTranscription,
+      transcriptionQueue: {
+        activeItemId: 'bvid:BV-running',
+        items: [
+          {
+            id: 'bvid:BV-running',
+            url: 'https://www.bilibili.com/video/BV-running',
+            title: '正在跑的视频',
+            bvid: 'BV-running',
+            status: 'running',
+            createdAt: '2026-06-25T00:00:00.000Z',
+            updatedAt: '2026-06-25T00:00:00.000Z',
+            progress: {
+              step: 'transcribing-segment',
+              message: 'Transcribing segment 1/2.',
+              segmentIndex: 1,
+              segmentCount: 2
+            }
+          }
+        ]
+      }
+    })
+
+    expect(screen.queryByRole('button', { name: '加入队列' })).not.toBeInTheDocument()
+    expect(screen.getByText('正在转写：正在跑的视频')).toBeInTheDocument()
+    expect(screen.getByText('排队中：0 个')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+
+    await waitFor(() => expect(onEnqueueTranscription).toHaveBeenCalledOnce())
+    expect(onTranscribeAudio).not.toHaveBeenCalled()
+    expect(await screen.findByText('正在转写「正在跑的视频」，「当前视频」已加入队列。')).toBeInTheDocument()
   })
 
   it('shows Chinese transcription progress with a visual percentage', () => {

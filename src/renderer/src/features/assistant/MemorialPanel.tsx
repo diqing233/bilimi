@@ -3,6 +3,7 @@ import type {
   RecommendationLabel,
   NotePosterSummary,
   VideoAudioTranscriptionProgress,
+  VideoAudioTranscriptionQueueSnapshot,
   VideoNote
 } from '@shared/types'
 import { useEffect, useState } from 'react'
@@ -25,6 +26,9 @@ type MemorialPanelProps = {
   onClose: () => void
   onGenerateVideoNote: () => Promise<VideoNote | null>
   onTranscribeVideoAudio?: () => Promise<VideoNote | null>
+  onEnqueueVideoAudioTranscription?: () => Promise<VideoAudioTranscriptionQueueSnapshot | null>
+  onCancelQueuedVideoAudioTranscription?: (id: string) => void
+  onRetryQueuedVideoAudioTranscription?: (id: string) => void
   onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
   onSaveVideoNote: (note: VideoNote) => Promise<void>
   onChangeVideoNote?: (note: VideoNote) => void
@@ -32,6 +36,7 @@ type MemorialPanelProps = {
   videoNote: VideoNote | null
   videoNoteLoading: boolean
   transcriptionProgress?: VideoAudioTranscriptionProgress | null
+  transcriptionQueue?: VideoAudioTranscriptionQueueSnapshot
   runningAction?: AssistantAction | null
   actionsLocked?: boolean
   feedback?: {
@@ -98,6 +103,9 @@ export function MemorialPanel({
   onClose,
   onGenerateVideoNote,
   onTranscribeVideoAudio,
+  onEnqueueVideoAudioTranscription,
+  onCancelQueuedVideoAudioTranscription,
+  onRetryQueuedVideoAudioTranscription,
   onGeneratePoster,
   onSaveVideoNote,
   onChangeVideoNote,
@@ -105,6 +113,7 @@ export function MemorialPanel({
   videoNote,
   videoNoteLoading,
   transcriptionProgress,
+  transcriptionQueue,
   runningAction = null,
   actionsLocked = runningAction !== null,
   feedback = null,
@@ -182,12 +191,14 @@ export function MemorialPanel({
             isLoading={videoNoteLoading}
             onGenerate={onGenerateVideoNote}
             onTranscribeAudio={onTranscribeVideoAudio}
+            onEnqueueTranscription={onEnqueueVideoAudioTranscription}
             onGeneratePoster={onGeneratePoster}
             onSave={onSaveVideoNote}
             onChange={onChangeVideoNote}
             onOpenArchive={onOpenVideoNoteArchive}
             deepSeekEnabled={deepSeekEnabled}
             transcriptionProgress={transcriptionProgress}
+            transcriptionQueue={transcriptionQueue}
           />
         )}
         {feedback ? (

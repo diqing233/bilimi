@@ -9,6 +9,7 @@ import type {
   FavoriteLedger,
   FavoriteLedgerStatus,
   VideoAudioTranscriptionProgress,
+  VideoAudioTranscriptionQueueSnapshot,
   VideoAudioTranscriptionRequest,
   VideoAudioTranscriptionResult,
   VideoNote,
@@ -34,6 +35,7 @@ type BilimiDesktopApi = {
   generateDeepSeek?: (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
   generateVideoNote?: (manualTranscript?: string) => Promise<VideoNote | null>
   generateVideoNoteFromAudio?: () => Promise<VideoNote | null>
+  enqueueCurrentVideoAudioTranscription?: () => Promise<VideoAudioTranscriptionQueueSnapshot | null>
   getCurrentVideoTime?: () => Promise<number>
   loadPreferences: () => Promise<AssistantPreferences>
   loadVideoNotes?: () => Promise<VideoNote[]>
@@ -96,6 +98,15 @@ type BilimiDesktopApi = {
   transcribeCurrentVideoAudio?: (
     request: VideoAudioTranscriptionRequest
   ) => Promise<VideoAudioTranscriptionResult>
+  loadVideoAudioTranscriptionQueue?: () => Promise<VideoAudioTranscriptionQueueSnapshot>
+  enqueueVideoAudioTranscription?: (
+    request: VideoAudioTranscriptionRequest
+  ) => Promise<VideoAudioTranscriptionQueueSnapshot>
+  cancelVideoAudioTranscription?: (id: string) => Promise<VideoAudioTranscriptionQueueSnapshot>
+  retryVideoAudioTranscription?: (id: string) => Promise<VideoAudioTranscriptionQueueSnapshot>
+  onVideoAudioTranscriptionQueueChanged?: (
+    callback: (snapshot: VideoAudioTranscriptionQueueSnapshot) => void
+  ) => () => void
 }
 
 type AssistantOpenPayload = {

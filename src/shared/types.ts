@@ -317,3 +317,27 @@ export type VideoAudioTranscriptionResult = {
   transcript: TranscriptSegment[]
   transcriptSource: 'audio'
 }
+
+export type VideoAudioTranscriptionQueueStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'canceled'
+
+export type VideoAudioTranscriptionQueueItem = VideoAudioTranscriptionRequest & {
+  id: string
+  status: VideoAudioTranscriptionQueueStatus
+  createdAt: string
+  updatedAt: string
+  startedAt?: string
+  completedAt?: string
+  progress?: VideoAudioTranscriptionProgress
+  errorMessage?: string
+  archiveNoteId?: string
+}
+
+export type VideoAudioTranscriptionQueueSnapshot = {
+  items: VideoAudioTranscriptionQueueItem[]
+  activeItemId?: string
+}
