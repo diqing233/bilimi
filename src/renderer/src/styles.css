@@ -1691,6 +1691,7 @@ body[data-floating-window="true"],
   background: rgba(247, 251, 255, 0.64);
   padding: 8px;
   justify-content: flex-end;
+  align-items: flex-end;
 }
 .video-note-archive__toolbar label {
   display: flex;
