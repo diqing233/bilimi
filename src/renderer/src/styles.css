@@ -1699,17 +1699,17 @@ body[data-floating-window="true"],
   color: var(--porcelain-muted);
 }
 .video-note-archive__toolbar label:first-child {
-  order: 2;
-  flex: 1 0 100%;
+  flex: 1 1 180px;
   display: grid;
   gap: 4px;
 }
 .video-note-archive__toolbar label:first-child input {
   width: 100%;
 }
-.video-note-archive__toolbar label:not(:first-child),
 .video-note-archive__star-filter {
-  order: 1;
+  min-width: 30px;
+  min-height: 30px;
+  font-size: 14px;
 }
 .video-note-archive__star-button {
   min-width: 36px;
