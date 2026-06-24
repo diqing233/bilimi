@@ -181,7 +181,7 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.memorial-panel__copy,\n.memorial-panel__meta,\n.memorial-panel__verdict {\n  color: var(--porcelain-text);\n  line-height: 1.5;\n  font-size: 14px;')
     expect(normalizedStyles).not.toContain('.memorial-panel__action span {\n  grid-area: label;')
     expect(normalizedStyles).toContain('.assistant-action-button__label {\n  grid-area: label;\n  min-width: 0;\n  padding-left: 4px;\n  color: var(--porcelain-text);\n  font-weight: 700;\n  font-size: 15px;\n  text-align: left;')
-    expect(normalizedStyles).toContain('.assistant-action-button__description {\n  grid-area: desc;\n  min-width: 0;\n  padding-left: 4px;\n  color: var(--porcelain-muted);\n  font-size: 12px;\n  text-align: left;')
+    expect(normalizedStyles).toContain('.assistant-action-button__description {\n  grid-area: desc;\n  min-width: 0;\n  padding-left: 4px;\n  color: var(--porcelain-muted);\n  font-size: 12px;\n  font-weight: 700;\n  text-align: left;')
   })
 
   it('uses compact spacing for the notes panel', () => {

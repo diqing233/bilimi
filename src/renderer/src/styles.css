@@ -1354,6 +1354,7 @@ body[data-floating-window="true"],
   padding-left: 4px;
   color: var(--porcelain-muted);
   font-size: 12px;
+  font-weight: 700;
   text-align: left;
   line-height: 1.25;
   overflow-wrap: anywhere;
