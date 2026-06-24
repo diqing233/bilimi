@@ -342,7 +342,7 @@ export function VideoNotesPanel({
           onClick={() => void handleGenerate()}
           icon={workingPetUrl}
           iconAlt="小咪转写音频"
-          badge="写"
+          badge="转"
           label={generationBusy ? primaryActionBusyLabel : primaryActionLabel}
           description={primaryActionDescription}
         />
@@ -353,7 +353,7 @@ export function VideoNotesPanel({
           onClick={onOpenArchive}
           icon={idlePetUrl}
           iconAlt="小咪档案库"
-          badge="档"
+          badge="库"
           label="档案库"
           description="可查看或备注已保存视频文稿"
         />
