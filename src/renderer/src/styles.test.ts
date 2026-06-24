@@ -212,6 +212,9 @@ describe('renderer porcelain theme styles', () => {
   })
 
   it('keeps favorite ledger status near the toolbar and ledger copy compact', () => {
+    expectStyleSnippet('.favorite-ledger-panel__topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px;')
+    expectStyleSnippet('.favorite-ledger-panel__toolbar { margin-left: auto;')
+    expectStyleSnippet('.favorite-ledger-panel__toolbar button { min-width: 88px; min-height: 36px; border-radius: 5px; font-weight: 700;')
     expectStyleSnippet('.favorite-ledger-panel__status { margin: 6px 0 0;')
     expectStyleSnippet('.favorite-ledger-panel__category-actions { display: flex; flex-wrap: wrap;')
     expectStyleSnippet('.favorite-ledger-panel__chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));')

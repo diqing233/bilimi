@@ -1895,8 +1895,11 @@ body[data-floating-window="true"],
   padding: 8px;
 }
 .favorite-ledger-panel__topbar {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 8px;
   border: 1px solid rgba(31, 99, 181, 0.28);
   background: rgba(247, 251, 255, 0.64);
   padding: 8px;
@@ -1919,6 +1922,15 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__header {
   justify-content: space-between;
+}
+.favorite-ledger-panel__toolbar {
+  margin-left: auto;
+}
+.favorite-ledger-panel__toolbar button {
+  min-width: 88px;
+  min-height: 36px;
+  border-radius: 5px;
+  font-weight: 700;
 }
 .favorite-ledger-panel h2,
 .favorite-ledger-panel h3,
