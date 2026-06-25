@@ -50,6 +50,7 @@ import { transcribeCurrentVideoAudio } from './videoTranscriptionService'
 import { createVideoTranscriptionQueue } from './videoTranscriptionQueue'
 import { DeepSeekServiceError, generateDeepSeekResult } from './deepseekService'
 import { BILIMI_SESSION_PARTITION } from '../../src/shared/constants'
+import { configureAppIdentity } from './appIdentity'
 import type {
   AssistantAction,
   AssistantAutomationResult,
@@ -749,6 +750,8 @@ function registerAssistantPreferenceHandlers() {
     moveFloatingSealBy(deltaX, deltaY)
   })
 }
+
+configureAppIdentity(app)
 
 app.whenReady().then(() => {
   registerAssistantPreferenceHandlers()

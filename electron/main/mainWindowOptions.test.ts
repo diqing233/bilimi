@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createMainWindowOptions } from './mainWindowOptions'
+import { createMainWindowOptions, getMainWindowIconPath } from './mainWindowOptions'
 
 describe('createMainWindowOptions', () => {
   it('creates a wide project browser window with native window controls', () => {
@@ -18,7 +18,7 @@ describe('createMainWindowOptions', () => {
       skipTaskbar: false
     })
     expect(String(options.icon)).toMatch(
-      /src[\\/]renderer[\\/]src[\\/]assets[\\/]pet[\\/]blue-white-maid[\\/]character[\\/]big-head[\\/]idle\.png$/
+      /src[\\/]renderer[\\/]src[\\/]assets[\\/]pet[\\/]blue-white-maid[\\/]character[\\/]big-head[\\/]idle\.png$|electron[\\/]assets[\\/]bilimi\.ico$/
     )
   })
 
@@ -27,5 +27,11 @@ describe('createMainWindowOptions', () => {
     const embeddedSidebarWidth = 430
 
     expect(Number(options.width) - embeddedSidebarWidth).toBeGreaterThanOrEqual(1360)
+  })
+
+  it('uses a Bilimi ico as the Windows taskbar and task manager icon', () => {
+    const iconPath = getMainWindowIconPath('win32')
+
+    expect(iconPath).toMatch(/electron[\\/]assets[\\/]bilimi\.ico$/)
   })
 })

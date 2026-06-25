@@ -1,7 +1,11 @@
 import { resolve } from 'node:path'
 import { APP_TITLE } from '../../src/shared/constants'
 
-export function getMainWindowIconPath(): string {
+export function getMainWindowIconPath(platform = process.platform): string {
+  if (platform === 'win32') {
+    return resolve(__dirname, '../../electron/assets/bilimi.ico')
+  }
+
   return resolve(
     __dirname,
     '../../src/renderer/src/assets/pet/blue-white-maid/character/big-head/idle.png'
