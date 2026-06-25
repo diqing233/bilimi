@@ -2333,20 +2333,22 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__guide-steps {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(88px, 1fr));
   gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
 }
 .favorite-ledger-panel__guide-steps button {
-  min-width: 0;
+  width: 100%;
+  min-width: 88px;
   height: 36px;
   min-height: 36px;
-  padding: 0 8px;
+  padding: 0 9px;
   font-size: 12px;
   line-height: 1.2;
   text-align: center;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
 }
 .favorite-ledger-panel__guide-steps button[aria-current="step"] {
   border-color: rgba(31, 99, 181, 0.5);
@@ -2361,18 +2363,25 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__guide-metrics article {
   display: grid;
-  gap: 3px;
+  grid-template-rows: 30px 22px;
+  align-items: start;
+  gap: 2px;
   min-width: 0;
   border: 1px solid rgba(31, 99, 181, 0.16);
   background: rgba(255, 255, 255, 0.56);
   padding: 7px;
 }
 .favorite-ledger-panel__guide-metrics span {
+  min-height: 30px;
+  display: flex;
+  align-items: flex-start;
   color: var(--porcelain-muted);
   font-size: 11px;
   line-height: 1.25;
 }
 .favorite-ledger-panel__guide-metrics strong {
+  align-self: start;
+  font-variant-numeric: tabular-nums;
   color: var(--porcelain-deep);
   font-size: 18px;
   line-height: 1;
