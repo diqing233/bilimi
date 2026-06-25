@@ -101,6 +101,39 @@ describe('favorite ledger API scripts', () => {
     expect(result.missingTargets).toEqual(['game'])
   })
 
+  it('recreates an enabled ledger when its stored folder id no longer exists during setup', async () => {
+    installCookies()
+    const inboxLedger = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'inbox')!,
+      bilibiliFolderId: '9001'
+    }
+    const requests: Array<{ body?: string; url: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        requests.push({ body: init?.body?.toString(), url })
+
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({ code: 0, data: { list: [] } })
+        }
+
+        if (url.includes('/x/v3/fav/folder/add')) {
+          return Response.json({ code: 0, data: { id: 9002 } })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(buildEnsureFavoriteLedgersScript([inboxLedger]))
+
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:create:inbox'])
+    expect(result.ledgers.find((ledger) => ledger.id === 'inbox')?.bilibiliFolderId).toBe('9002')
+    const createRequest = requests.find((request) => request.url.includes('/folder/add'))
+    expect(createRequest?.body).toContain(`title=${encodeURIComponent(inboxLedger.displayName)}`)
+  })
+
   it('saves edited ledgers by creating missing enabled folders', async () => {
     installCookies()
     const previousLedgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
@@ -151,6 +184,40 @@ describe('favorite ledger API scripts', () => {
     expect(result.ledgers.find((ledger) => ledger.id === 'custom-bilimi')?.bilibiliFolderId).toBe(
       '9002'
     )
+  })
+
+  it('recreates an enabled ledger when its stored folder id no longer exists while saving', async () => {
+    installCookies()
+    const inboxLedger = {
+      ...createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'inbox')!,
+      bilibiliFolderId: '9001'
+    }
+    const requests: Array<{ body?: string; url: string }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        requests.push({ body: init?.body?.toString(), url })
+
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({ code: 0, data: { list: [] } })
+        }
+
+        if (url.includes('/x/v3/fav/folder/add')) {
+          return Response.json({ code: 0, data: { id: 9002 } })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(buildSaveFavoriteLedgersScript([inboxLedger], [inboxLedger]))
+
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:create:inbox'])
+    expect(result.ledgers.find((ledger) => ledger.id === 'inbox')?.bilibiliFolderId).toBe('9002')
+    const createRequest = requests.find((request) => request.url.includes('/folder/add'))
+    expect(createRequest?.body).toContain(`title=${encodeURIComponent(inboxLedger.displayName)}`)
   })
 
   it('only deletes removed Bilimi-managed folders when saving edited ledgers', async () => {
@@ -279,6 +346,39 @@ describe('favorite ledger API scripts', () => {
     expect(body.get('statistics')).toBeTruthy()
   })
 
+  it('asks the user to sync when confirming old favorites without a target folder id', async () => {
+    installCookies()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(
+      buildExecuteFavoriteLedgerPlanScript([
+        {
+          aid: 123,
+          title: '待分类旧藏',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'inbox',
+          targetDisplayName: 'Bilimi·待分类',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        }
+      ])
+    )
+
+    expect(result).toMatchObject({
+      ok: false,
+      steps: [],
+      missingTargets: ['inbox']
+    })
+    expect(result.message).toContain('掌库和 B 站收藏夹不一致')
+    expect(result.message).toContain('请先同步掌库')
+  })
+
   it('returns structured failure when appending a favorite fails', async () => {
     installCookies()
     vi.stubGlobal(
@@ -314,6 +414,48 @@ describe('favorite ledger API scripts', () => {
       missingTargets: ['favorite-ledger-append:123'],
       message: expect.stringContaining('账号未登录')
     })
+  })
+
+  it('asks the user to sync when a stale target folder id cannot be refreshed before retry', async () => {
+    installCookies()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.includes('/x/v3/fav/resource/deal')) {
+          return Response.json({ code: 62002, message: '目标收藏夹不存在', data: {} })
+        }
+
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({ code: 0, data: { list: [] } })
+        }
+
+        throw new Error(`Unexpected request: ${url} ${init?.body?.toString() ?? ''}`)
+      })
+    )
+
+    const result = await window.eval(
+      buildExecuteFavoriteLedgerPlanScript([
+        {
+          aid: 123,
+          title: '待分类旧藏',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'inbox',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi·待分类',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        }
+      ])
+    )
+
+    expect(result).toMatchObject({
+      ok: false,
+      steps: ['api:ledger:append-failed:123'],
+      missingTargets: ['favorite-ledger-append:123']
+    })
+    expect(result.message).toContain('掌库和 B 站收藏夹不一致')
+    expect(result.message).toContain('请先同步掌库')
   })
 
   it('continues appending old favorites when one selected item no longer exists', async () => {

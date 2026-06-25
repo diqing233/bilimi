@@ -55,6 +55,26 @@ function sharedScriptHelpers(): string {
       return url.toString();
     };
     const findFolderId = (folder) => folder?.id ?? folder?.fid;
+    const syncLedgerFolderIds = (ledgers, folders) => {
+      const folderById = new Map(
+        folders
+          .map((folder) => [String(findFolderId(folder) || ''), folder])
+          .filter(([folderId]) => folderId)
+      );
+      return ledgers.map((ledger) => {
+        const storedFolder = ledger.bilibiliFolderId
+          ? folderById.get(String(ledger.bilibiliFolderId))
+          : null;
+        const folder = storedFolder || folders.find((candidate) => candidate?.title === ledger.displayName);
+        const folderId = findFolderId(folder);
+        if (folderId) {
+          return { ...ledger, bilibiliFolderId: String(folderId) };
+        }
+
+        const { bilibiliFolderId, ...ledgerWithoutStaleFolderId } = ledger;
+        return ledgerWithoutStaleFolderId;
+      });
+    };
   `
 }
 
@@ -73,11 +93,7 @@ export function buildFavoriteLedgerStatusScript(ledgers: FavoriteLedger[]): stri
       const response = await fetch(buildListUrl(mid), { credentials: 'include' });
       const json = await ensureApiOk(response, 'favorite folder list');
       const folders = Array.isArray(json.data?.list) ? json.data.list : [];
-      const nextLedgers = payload.ledgers.map((ledger) => {
-        const folder = folders.find((candidate) => candidate?.title === ledger.displayName);
-        const folderId = findFolderId(folder);
-        return folderId ? { ...ledger, bilibiliFolderId: String(folderId) } : ledger;
-      });
+      const nextLedgers = syncLedgerFolderIds(payload.ledgers, folders);
 
       return {
         ok: true,
@@ -105,11 +121,7 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
       const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
       const listJson = await ensureApiOk(listResponse, 'favorite folder list');
       const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
-      const nextLedgers = payload.ledgers.map((ledger) => {
-        const folder = folders.find((candidate) => candidate?.title === ledger.displayName);
-        const folderId = findFolderId(folder);
-        return folderId ? { ...ledger, bilibiliFolderId: String(folderId) } : ledger;
-      });
+      const nextLedgers = syncLedgerFolderIds(payload.ledgers, folders);
 
       for (let index = 0; index < nextLedgers.length; index += 1) {
         const ledger = nextLedgers[index];
@@ -180,11 +192,7 @@ export function buildSaveFavoriteLedgersScript(
           .map((folder) => [String(findFolderId(folder) || ''), folder])
           .filter(([folderId]) => folderId)
       );
-      let nextLedgers = payload.nextLedgers.map((ledger) => {
-        const folder = folders.find((candidate) => candidate?.title === ledger.displayName);
-        const folderId = findFolderId(folder);
-        return folderId ? { ...ledger, bilibiliFolderId: String(folderId) } : ledger;
-      });
+      let nextLedgers = syncLedgerFolderIds(payload.nextLedgers, folders);
 
       for (let index = 0; index < nextLedgers.length; index += 1) {
         const ledger = nextLedgers[index];
@@ -424,6 +432,8 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
       const steps = [];
       const missingTargets = [];
       const appendFailures = [];
+      let syncRequired = false;
+      const syncRequiredMessage = '掌库和 B 站收藏夹不一致，请先同步掌库后再确认执行。';
 
       try {
         const { csrf } = readCredentials();
@@ -437,6 +447,7 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
           }
           if (!item.targetFolderId) {
             missingTargets.push(item.targetLedgerId);
+            syncRequired = true;
             return false;
           }
           return true;
@@ -485,6 +496,9 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
             try {
               const refreshedFolderId = await refreshTargetFolderId(item.targetDisplayName);
               if (!refreshedFolderId || refreshedFolderId === String(item.targetFolderId)) {
+                if (!refreshedFolderId) {
+                  syncRequired = true;
+                }
                 throw error;
               }
 
@@ -522,6 +536,7 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
               appendFailures.length +
               ' failed' +
               (failedTitles ? ' (' + failedTitles + ')' : '') +
+              (syncRequired ? ' ' + syncRequiredMessage : '') +
               (hasHtmlLoginFailure ? ' 请重新登录 Bilibili 后再试。' : '') +
               '.'
           };
@@ -531,7 +546,7 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
           ok: missingTargets.length === 0,
           steps,
           missingTargets,
-          message: missingTargets.length === 0 ? '旧藏已归册。' : '部分条目缺少目标册目。'
+          message: missingTargets.length === 0 ? '旧藏已归册。' : syncRequiredMessage
         };
       } catch (error) {
         return {
