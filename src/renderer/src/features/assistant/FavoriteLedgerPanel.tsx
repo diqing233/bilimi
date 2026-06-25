@@ -93,11 +93,12 @@ const COLLAPSED_LEDGER_COUNT = 15
 const FAVORITE_LEDGER_SAFETY_NOTE =
   '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
 const LEDGER_SYNC_HINT =
-  '取消勾选后点击同步，会删除对应的 Bilimi 收藏夹；再次勾选后同步会重新创建。'
+  '自定义你的bilimi收藏夹，点击收藏名字可以进行编辑，添加好后点击【同步】即可更新到b站；取消勾选再点击同步，也会删除对应的 Bilimi 收藏夹。'
 type OldFavoriteGuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
+type OldFavoriteGuideMode = 'setup' | 'organize'
 const OLD_FAVORITE_GUIDE_STEPS: Array<{ id: OldFavoriteGuideStep; label: string }> = [
   { id: 'scan', label: '扫描概览' },
-  { id: 'generated', label: '生成收藏夹' },
+  { id: 'generated', label: '推荐收藏夹' },
   { id: 'preview', label: '归档预览' },
   { id: 'confirm', label: '确认执行' }
 ]
@@ -135,6 +136,7 @@ export function FavoriteLedgerPanel({
   const [dragTargetLedgerId, setDragTargetLedgerId] = useState<string | null>(null)
   const [ledgerListExpanded, setLedgerListExpanded] = useState(false)
   const [oldFavoriteStep, setOldFavoriteStep] = useState<OldFavoriteGuideStep>('scan')
+  const [oldFavoriteGuideMode, setOldFavoriteGuideMode] = useState<OldFavoriteGuideMode>('organize')
   const ledgerNamesById = useMemo(
     () => Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName])),
     [draftLedgers]
@@ -175,6 +177,17 @@ export function FavoriteLedgerPanel({
     await scanOldFavorites('setup')
   }
 
+  async function startOrganizingOldFavorites() {
+    if (missingLedgerIds.length > 0) {
+      setSetupPromptVisible(true)
+      setStatus('请先备册，再整理旧藏。')
+      setSaveStatus(null)
+      return
+    }
+
+    await scanOldFavorites()
+  }
+
   function addBlankLedger() {
     const nextLedger = {
       id: customLedgerId('new-ledger'),
@@ -194,11 +207,12 @@ export function FavoriteLedgerPanel({
   }
 
   function resetLedgers() {
-    const defaultLedgers = createDefaultFavoriteLedgers()
+    const defaultLedgers = createDefaultFavoriteLedgers().map((ledger) => ({
+      ...ledger,
+      enabled: false
+    }))
     setDraftLedgers(defaultLedgers)
-    setSelectedDefaultLedgerIds(
-      new Set(defaultLedgers.filter((ledger) => ledger.enabled && ledger.isDefault).map((ledger) => ledger.id))
-    )
+    setSelectedDefaultLedgerIds(new Set())
     setActiveLedgerId(null)
     setActiveLedgerIndex(null)
     setSelectedCandidateKeys(new Set())
@@ -513,6 +527,7 @@ export function FavoriteLedgerPanel({
 
       setPreview(nextPreview)
       setOldFavoriteStep('scan')
+      setOldFavoriteGuideMode(mode)
       setSelectedOldFavoriteAids(
         new Set(
           nextPreview.items
@@ -628,7 +643,7 @@ export function FavoriteLedgerPanel({
             type="button"
             aria-label="整理旧藏"
             disabled={busy}
-            onClick={() => void scanOldFavorites()}
+            onClick={() => void startOrganizingOldFavorites()}
             icon={hintPetUrl}
             iconAlt="小咪整理旧藏"
             badge="整"
@@ -803,9 +818,12 @@ export function FavoriteLedgerPanel({
       </div>
 
       {preview ? (
-        <section className="favorite-ledger-panel__old-favorites-guide" aria-label="整理旧藏向导">
+        <section
+          className="favorite-ledger-panel__old-favorites-guide"
+          aria-label={oldFavoriteGuideMode === 'setup' ? '备册向导' : '整理旧藏向导'}
+        >
           <div className="favorite-ledger-panel__guide-header">
-            <h3>整理旧藏</h3>
+            <h3>{oldFavoriteGuideMode === 'setup' ? '备册' : '整理旧藏'}</h3>
             <nav className="favorite-ledger-panel__guide-steps" aria-label="整理旧藏步骤">
               {OLD_FAVORITE_GUIDE_STEPS.map((step) => (
                 <button
@@ -929,7 +947,13 @@ export function FavoriteLedgerPanel({
           {oldFavoriteStep === 'preview' ? (
             <div className="favorite-ledger-panel__preview">
               <h4>归档预览</h4>
-              {preview.items.length > 0 ? (
+              {oldFavoriteGuideMode === 'setup' ? (
+                draftLedgers.map((ledger) => (
+                  <article key={ledger.id}>
+                    <strong>{ledger.displayName}</strong>
+                  </article>
+                ))
+              ) : preview.items.length > 0 ? (
                 preview.items.map((item) => (
                   <article key={`${item.sourceFolderTitle}-${item.aid}`}>
                     <label>
@@ -943,7 +967,7 @@ export function FavoriteLedgerPanel({
                       <span>
                         <strong>{item.title}</strong>
                         <small>
-                          {item.sourceFolderTitle} → {item.targetDisplayName}
+                          放入 {item.targetDisplayName}
                           {item.alreadyInTarget ? ' · 已在目标' : ''}
                           {item.reviewRequired ? ' · 需要复核' : ''}
                         </small>
@@ -960,20 +984,31 @@ export function FavoriteLedgerPanel({
           {oldFavoriteStep === 'confirm' ? (
             <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
               <h4>确认执行</h4>
-              <p>已选择 {selectedOldFavoriteItems.length} 条旧藏</p>
-              {oldFavoriteTargetWarning ? (
-                <p className="favorite-ledger-panel__confirm-warning" role="alert">
-                  {oldFavoriteTargetWarning}
-                </p>
-              ) : null}
-              <p>只会追加到 Bilimi 收藏夹，不会删除、移动或取消原收藏。</p>
-              <button
-                type="button"
-                disabled={busy || selectedOldFavoriteItems.length === 0}
-                onClick={() => void executeOldFavoritePlan()}
-              >
-                确认整理
-              </button>
+              {oldFavoriteGuideMode === 'setup' ? (
+                <>
+                  <p>确认后会把当前勾选收藏夹同步到 B 站。</p>
+                  <button type="button" disabled={busy} onClick={() => void saveLedgers()}>
+                    确认同步
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p>已选择 {selectedOldFavoriteItems.length} 条旧藏</p>
+                  {oldFavoriteTargetWarning ? (
+                    <p className="favorite-ledger-panel__confirm-warning" role="alert">
+                      {oldFavoriteTargetWarning}
+                    </p>
+                  ) : null}
+                  <p>只会追加到 Bilimi 收藏夹，不会删除、移动或取消原收藏。</p>
+                  <button
+                    type="button"
+                    disabled={busy || selectedOldFavoriteItems.length === 0}
+                    onClick={() => void executeOldFavoritePlan()}
+                  >
+                    确认整理
+                  </button>
+                </>
+              )}
             </section>
           ) : null}
         </section>
