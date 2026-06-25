@@ -11,7 +11,7 @@ import type {
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { executeAssistantAction } from '../actions/actionExecutor'
 import { composeMemorialComments } from '../comments/commentComposer'
-import { describeRecommendation } from '../recommendation/recommendationRules'
+import { describeVideoClassificationRecommendation } from '../recommendation/recommendationRules'
 import {
   createInitialAssistantPreferences,
   recordAssistantPreferenceFeedback
@@ -190,7 +190,10 @@ export function AssistantOverlay({
     [preferences.favoriteLedgers, resolvedVideoContentContext]
   )
   const currentKind = currentClassification.ledgerId
-  const recommendation = useMemo(() => describeRecommendation(currentKind), [currentKind])
+  const recommendation = useMemo(
+    () => describeVideoClassificationRecommendation(currentClassification),
+    [currentClassification]
+  )
   const commentDrafts = useMemo(
     () => composeMemorialComments(currentKind, resolvedVideoTitle, resolvedVideoAuthor),
     [currentKind, resolvedVideoAuthor, resolvedVideoTitle]

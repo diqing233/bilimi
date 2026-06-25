@@ -88,4 +88,29 @@ describe('MemorialPanel', () => {
       'memorial-panel__deepseek-status'
     )
   })
+
+  it('shows the recommendation summary as the visible classification hint', () => {
+    render(
+      <MemorialPanel
+        recommendation={{
+          badge: '待分拣',
+          summary: '更适合归到旅游出行，当前先待分拣。',
+          hint: '标签更像旅游出行，先放到待分类，备册后再归档。'
+        }}
+        commentDrafts={['先留一评。']}
+        videoCategory="待分拣"
+        videoTitle="测试稿件"
+        onAction={vi.fn()}
+        onClose={vi.fn()}
+        onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
+        onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
+        videoNote={null}
+        videoNoteLoading={false}
+      />
+    )
+
+    expect(screen.getByText('标签更像旅游出行，先放到待分类，备册后再归档。')).toHaveClass(
+      'memorial-panel__recommendation-summary'
+    )
+  })
 })

@@ -1,4 +1,8 @@
-import type { RecommendationKind, RecommendationLabel } from '@shared/types'
+import type {
+  FavoriteLedgerClassification,
+  RecommendationKind,
+  RecommendationLabel
+} from '@shared/types'
 
 const MAP: Partial<Record<RecommendationKind, RecommendationLabel>> = {
   kichiku: {
@@ -42,4 +46,24 @@ const CUSTOM_LEDGER_LABEL: RecommendationLabel = {
 
 export function describeRecommendation(kind: RecommendationKind): RecommendationLabel {
   return MAP[kind] ?? CUSTOM_LEDGER_LABEL
+}
+
+function stripBilimiPrefix(displayName: string) {
+  return displayName.replace(/^Bilimi[·\s-]*/, '').trim()
+}
+
+export function describeVideoClassificationRecommendation(
+  classification: FavoriteLedgerClassification
+): RecommendationLabel {
+  if (classification.ledgerId === 'inbox' && classification.suggestedDisplayName) {
+    const suggestedName = stripBilimiPrefix(classification.suggestedDisplayName)
+
+    return {
+      badge: '待分拣',
+      summary: `更适合归到${suggestedName}，但该册目尚未同步。`,
+      hint: `标签更像${suggestedName}，先放到待分类，备册后再归档。`
+    }
+  }
+
+  return describeRecommendation(classification.ledgerId)
 }

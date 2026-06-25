@@ -52,16 +52,10 @@ function matchedKeywords(text: string, keywords: string[]) {
   return keywords.filter((keyword) => text.includes(normalize(keyword)))
 }
 
-function scoreKeywords(context: VideoContentContext, keywords: string[]) {
-  const fieldTexts = [
-    { text: normalize(context.title), weight: FIELD_WEIGHTS.title },
-    { text: normalize(context.author), weight: FIELD_WEIGHTS.author },
-    { text: normalize(context.description), weight: FIELD_WEIGHTS.description },
-    { text: normalize(context.pageText), weight: FIELD_WEIGHTS.pageText },
-    { text: normalize(context.category), weight: FIELD_WEIGHTS.category },
-    { text: normalize((context.tags ?? []).join(' ')), weight: FIELD_WEIGHTS.tags }
-  ]
-
+function scoreKeywordFields(
+  keywords: string[],
+  fieldTexts: Array<{ text: string; weight: number }>
+) {
   const matches: string[] = []
   let score = 0
 
@@ -81,6 +75,24 @@ function scoreKeywords(context: VideoContentContext, keywords: string[]) {
   return { matches, score }
 }
 
+function scoreKeywords(context: VideoContentContext, keywords: string[]) {
+  return scoreKeywordFields(keywords, [
+    { text: normalize(context.title), weight: FIELD_WEIGHTS.title },
+    { text: normalize(context.author), weight: FIELD_WEIGHTS.author },
+    { text: normalize(context.description), weight: FIELD_WEIGHTS.description },
+    { text: normalize(context.pageText), weight: FIELD_WEIGHTS.pageText },
+    { text: normalize(context.category), weight: FIELD_WEIGHTS.category },
+    { text: normalize((context.tags ?? []).join(' ')), weight: FIELD_WEIGHTS.tags }
+  ])
+}
+
+function scoreExplicitContextKeywords(context: VideoContentContext, keywords: string[]) {
+  return scoreKeywordFields(keywords, [
+    { text: normalize(context.category), weight: FIELD_WEIGHTS.category },
+    { text: normalize((context.tags ?? []).join(' ')), weight: FIELD_WEIGHTS.tags }
+  ])
+}
+
 function ledgerKeywords(ledger: FavoriteLedger) {
   return [...ledger.keywords, ...(DEFAULT_LEDGER_KEYWORD_SUPPLEMENTS[ledger.id] ?? [])]
 }
@@ -97,15 +109,6 @@ export function classifyVideoContent(
   ledgers: FavoriteLedger[] = createDefaultFavoriteLedgers()
 ): FavoriteLedgerClassification {
   const text = buildSearchText(context)
-  const enabledLedgers = ledgers
-    .filter((ledger) => ledger.enabled)
-    .sort((left, right) => {
-      if (left.isDefault !== right.isDefault) {
-        return left.isDefault ? 1 : -1
-      }
-
-      return left.priority - right.priority
-    })
   const inbox = inboxLedger(ledgers)
   const riskMatches = matchedKeywords(text, RISK_KEYWORDS)
 
@@ -127,10 +130,21 @@ export function classifyVideoContent(
     }
   }
 
-  const scored = enabledLedgers
+  const scored = ledgers
     .filter((ledger) => ledger.id !== 'inbox')
-    .map((ledger) => ({ ledger, ...scoreKeywords(context, ledgerKeywords(ledger)) }))
-    .filter((entry) => entry.matches.length > 0)
+    .map((ledger) => {
+      const keywords = ledgerKeywords(ledger)
+      return {
+        ledger,
+        explicitScore: scoreExplicitContextKeywords(context, keywords).score,
+        ...scoreKeywords(context, keywords)
+      }
+    })
+    .filter(
+      (entry) =>
+        entry.matches.length > 0 &&
+        (entry.ledger.enabled || (entry.ledger.isDefault && entry.explicitScore > 0))
+    )
     .sort((left, right) => {
       if (left.ledger.isDefault !== right.ledger.isDefault) {
         return left.ledger.isDefault ? 1 : -1
@@ -155,6 +169,17 @@ export function classifyVideoContent(
       displayName: inbox.displayName,
       matchedKeywords: [],
       reviewRequired: false
+    }
+  }
+
+  if (best.ledger.isDefault && !best.ledger.enabled) {
+    return {
+      ledgerId: inbox.id,
+      displayName: inbox.displayName,
+      matchedKeywords: best.matches,
+      reviewRequired: true,
+      suggestedLedgerId: best.ledger.id,
+      suggestedDisplayName: best.ledger.displayName
     }
   }
 

@@ -258,6 +258,39 @@ describe('FloatingAssistantApp', () => {
     expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'done')).toBe(true)
   })
 
+  it('suggests a better unsynced default ledger while collecting to inbox', async () => {
+    const preferences = createPreferences()
+    const runAssistantAction = vi.fn().mockResolvedValue(createResult('动作已完成。'))
+    installDesktopApi({
+      runAssistantAction,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences,
+          videoContentContext: {
+            title: '大阪地铁自动扶梯现场音乐',
+            pageText: '演奏 音乐 现场',
+            tags: ['旅游', '生活记录', 'Klook旅行体验师', '出国', '真实', 'Klook客服旅行']
+          },
+          videoTitle: '大阪地铁自动扶梯现场音乐'
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    expect(await screen.findByText('标签更像旅游出行，先放到待分类，备册后再归档。')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /藏.*归入内库/ }))
+
+    await waitFor(() =>
+      expect(runAssistantAction).toHaveBeenCalledWith(
+        '藏',
+        expect.objectContaining({
+          pageClickOnly: false
+        })
+      )
+    )
+  })
+
   it('dismisses review action feedback when switching to another workspace page', async () => {
     installDesktopApi({
       runAssistantAction: vi.fn().mockResolvedValue({

@@ -168,6 +168,9 @@ export function MemorialPanel({
               <p title={videoTitle}>{videoTitle}</p>
               <p>{videoCategory}</p>
               <p>签语：{recommendation.badge}</p>
+              {recommendation.hint ? (
+                <p className="memorial-panel__recommendation-summary">{recommendation.hint}</p>
+              ) : null}
               <p className="memorial-panel__deepseek-status">
                 {deepSeekEnabled
                   ? 'DeepSeek 已开启，表会生成三条有趣视频评论。'

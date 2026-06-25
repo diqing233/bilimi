@@ -2,6 +2,11 @@
   color: var(--porcelain-muted);
   white-space: normal;
 }
+.memorial-panel__recommendation-summary {
+  color: var(--porcelain-muted);
+  line-height: 1.45;
+  white-space: normal;
+}
 .assistant-dialog--comment-chooser {
   max-height: min(74vh, 560px);
 }

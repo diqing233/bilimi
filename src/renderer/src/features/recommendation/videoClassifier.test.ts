@@ -84,6 +84,28 @@ describe('classifyVideoContent', () => {
     })
   })
 
+  it('uses explicit Bilibili tags to classify visible defaults before enabled-title noise', () => {
+    const ledgers = createDefaultFavoriteLedgers()
+
+    expect(
+      classifyVideoContent(
+        {
+          title: '大阪地铁自动扶梯现场音乐',
+          pageText: '演奏 音乐 现场',
+          tags: ['旅游', '生活记录', 'Klook旅行体验师', '出国', '真实', 'Klook客服旅行']
+        },
+        ledgers
+      )
+    ).toMatchObject({
+      ledgerId: 'inbox',
+      displayName: 'Bilimi·待分类',
+      reviewRequired: true,
+      suggestedLedgerId: 'travel',
+      suggestedDisplayName: 'Bilimi·旅游出行',
+      matchedKeywords: expect.arrayContaining(['旅游', '旅行'])
+    })
+  })
+
   it('prioritizes enabled custom ledgers over default ledgers', () => {
     const ledgers = [
       ...createDefaultFavoriteLedgers(),

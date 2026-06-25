@@ -21,7 +21,7 @@ import { createNotePosterText } from '@shared/videoNoteArchive'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { composeMemorialComments } from '../comments/commentComposer'
 import { classifyVideoContent } from '../recommendation/videoClassifier'
-import { describeRecommendation } from '../recommendation/recommendationRules'
+import { describeVideoClassificationRecommendation } from '../recommendation/recommendationRules'
 import {
   createInitialAssistantPreferences,
   recordAssistantPreferenceFeedback
@@ -359,7 +359,10 @@ export function FloatingAssistantApp({
     [preferences.favoriteLedgers, resolvedSnapshot.videoContentContext]
   )
   const currentKind = currentClassification.ledgerId
-  const recommendation = useMemo(() => describeRecommendation(currentKind), [currentKind])
+  const recommendation = useMemo(
+    () => describeVideoClassificationRecommendation(currentClassification),
+    [currentClassification]
+  )
   const commentDrafts = useMemo(
     () => composeMemorialComments(currentKind, resolvedVideoTitle, resolvedVideoAuthor),
     [currentKind, resolvedVideoAuthor, resolvedVideoTitle]

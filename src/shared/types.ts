@@ -73,6 +73,8 @@ export type FavoriteLedgerClassification = {
   displayName: string
   matchedKeywords: string[]
   reviewRequired: boolean
+  suggestedLedgerId?: FavoriteLedgerId
+  suggestedDisplayName?: string
 }
 
 export type FavoriteLedgerStatus = {
@@ -85,6 +87,7 @@ export type FavoriteLedgerStatus = {
 export type RecommendationLabel = {
   badge: '可赏' | '可阅' | '请陛下过目' | '慎入' | '可藏' | '待分拣'
   summary: string
+  hint?: string
 }
 
 export type AssistantPreferences = {

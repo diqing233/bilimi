@@ -411,6 +411,61 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('collects to inbox when an unsynced default ledger is only a stronger suggestion', async () => {
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      savePreferences
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          title: '大阪地铁自动扶梯现场音乐',
+          pageText: '演奏 音乐 现场',
+          tags: ['旅游', '生活记录', 'Klook旅行体验师', '出国', '真实', 'Klook客服旅行']
+        }
+      }
+
+      return {
+        ok: true,
+        steps: ['favorite:open', 'favorite:folder', 'favorite'],
+        missingTargets: [],
+        message: '已按内容归入内库。'
+      }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    const result = await requestRuntime({
+      id: 'run-suggested-default',
+      type: 'run-action',
+      action: '藏',
+      options: { pageClickOnly: true }
+    })
+
+    expect(result).toEqual(expect.objectContaining({ ok: true }))
+    await waitFor(() =>
+      expect(executeJavaScript).toHaveBeenCalledWith(
+        expect.stringContaining('"targetLedgerId":"inbox"')
+      )
+    )
+    expect(savePreferences).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preferenceCounts: expect.objectContaining({
+          inbox: 1
+        })
+      })
+    )
+    expect(savePreferences).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        preferenceCounts: expect.objectContaining({
+          travel: 1
+        })
+      })
+    )
+  })
+
   it('keeps successful 赐 page-click-only actions on the page automation path', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
