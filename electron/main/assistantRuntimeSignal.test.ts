@@ -48,10 +48,11 @@ function createResponseBus() {
 }
 
 describe('requestAssistantRuntimeWhenReady', () => {
-  it('uses a long default timeout only for audio note generation', () => {
+  it('uses a long default timeout for long-running runtime requests', () => {
     expect(createAssistantRuntimeTimeoutMs({ type: 'generate-video-note-from-audio' })).toBe(
       30 * 60 * 1000
     )
+    expect(createAssistantRuntimeTimeoutMs({ type: 'scan-old-favorites' })).toBe(30 * 60 * 1000)
     expect(createAssistantRuntimeTimeoutMs({ type: 'snapshot' })).toBe(8000)
   })
 
@@ -148,6 +149,29 @@ describe('requestAssistantRuntimeWhenReady', () => {
       await vi.advanceTimersByTimeAsync(8000)
 
       bus.emitResponse({ id: 'req-5', ok: true, payload: { ok: true } })
+
+      await expect(promise).resolves.toEqual({ ok: true })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps old favorite scans alive past the default quick request timeout', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { target } = createRuntimeTarget(false)
+      const bus = createResponseBus()
+      const promise = requestAssistantRuntimeWhenReady<{ ok: boolean }>({
+        createRequestId: () => 'req-6',
+        request: { type: 'scan-old-favorites' },
+        responseBus: bus,
+        target
+      })
+
+      await vi.advanceTimersByTimeAsync(8000)
+
+      bus.emitResponse({ id: 'req-6', ok: true, payload: { ok: true } })
 
       await expect(promise).resolves.toEqual({ ok: true })
     } finally {
