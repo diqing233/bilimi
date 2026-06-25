@@ -340,6 +340,21 @@ export function FavoriteLedgerPanel({
     })
   }
 
+  function setAllLedgersEnabled(enabled: boolean) {
+    setSaveStatus(null)
+    setSelectedDefaultLedgerIds(
+      enabled
+        ? new Set(draftLedgers.filter((ledger) => ledger.isDefault).map((ledger) => ledger.id))
+        : new Set()
+    )
+    setDraftLedgers((currentLedgers) =>
+      currentLedgers.map((ledger) => ({
+        ...ledger,
+        enabled
+      }))
+    )
+  }
+
   function toggleCandidate(candidate: FavoriteLedgerCandidate) {
     const key = candidateKey(candidate)
     setSelectedCandidateKeys((current) => {
@@ -647,11 +662,20 @@ export function FavoriteLedgerPanel({
             <button type="button" disabled={busy} onClick={resetLedgers}>
               重置
             </button>
+            <button type="button" disabled={busy} onClick={() => setAllLedgersEnabled(true)}>
+              全选
+            </button>
+            <button type="button" disabled={busy} onClick={() => setAllLedgersEnabled(false)}>
+              取消全选
+            </button>
             <button type="button" disabled={busy} onClick={() => void saveLedgers()}>
               同步
             </button>
           </div>
         </div>
+        <p className="favorite-ledger-panel__sync-hint">
+          取消勾选后点击同步，会停用该收藏夹；删除 Bilimi 自建收藏夹后同步，会从 B 站删除。
+        </p>
         <div className="favorite-ledger-panel__chips">
           {ledgersToDisplay.map((ledger, ledgerIndex) => {
             const ledgerEnabled = ledger.isDefault

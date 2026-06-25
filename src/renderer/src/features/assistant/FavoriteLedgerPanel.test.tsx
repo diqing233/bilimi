@@ -122,9 +122,14 @@ describe('FavoriteLedgerPanel', () => {
 
     const headerActions = ledgerRegion.querySelector('.favorite-ledger-panel__category-actions')!
     expect(within(headerActions as HTMLElement).getByRole('button', { name: '重置' })).toBeInTheDocument()
+    expect(within(headerActions as HTMLElement).getByRole('button', { name: '全选' })).toBeInTheDocument()
+    expect(within(headerActions as HTMLElement).getByRole('button', { name: '取消全选' })).toBeInTheDocument()
     expect(within(headerActions as HTMLElement).queryByRole('button', { name: '展开' })).not.toBeInTheDocument()
     expect(within(headerActions as HTMLElement).queryByRole('button', { name: '新建收藏夹' })).not.toBeInTheDocument()
     expect(within(headerActions as HTMLElement).getByRole('button', { name: '同步' })).toBeInTheDocument()
+    expect(
+      within(ledgerRegion).getByText('取消勾选后点击同步，会停用该收藏夹；删除 Bilimi 自建收藏夹后同步，会从 B 站删除。')
+    ).toBeInTheDocument()
 
     const visibleLedgerNames = Array.from(
       ledgerRegion.querySelector('.favorite-ledger-panel__chips')?.children ?? []
@@ -159,6 +164,52 @@ describe('FavoriteLedgerPanel', () => {
     expect(within(ledgerRegion).getByRole('button', { name: 'vlog' })).toBeInTheDocument()
     expect(within(listToggle as HTMLElement).getByRole('button', { name: '新建收藏夹' })).toBeInTheDocument()
     expect(within(listToggle as HTMLElement).getByRole('button', { name: '折叠' })).toBeInTheDocument()
+  })
+
+  it('selects and clears every ledger before sync from the header actions', async () => {
+    const onSaveLedgers = vi.fn()
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'kichiku' || ledger.id === 'knowledge' ? { ...ledger, enabled: false } : ledger
+    )
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={ledgers}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    const ledgerRegion = screen.getByRole('region', { name: '收藏夹' })
+    const headerActions = ledgerRegion.querySelector('.favorite-ledger-panel__category-actions')!
+
+    fireEvent.click(within(headerActions as HTMLElement).getByRole('button', { name: '全选' }))
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+
+    await waitFor(() =>
+      expect(onSaveLedgers).toHaveBeenLastCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'kichiku', enabled: true }),
+          expect.objectContaining({ id: 'knowledge', enabled: true })
+        ])
+      )
+    )
+
+    fireEvent.click(within(headerActions as HTMLElement).getByRole('button', { name: '取消全选' }))
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+
+    await waitFor(() =>
+      expect(onSaveLedgers).toHaveBeenLastCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({ id: 'animation', enabled: false }),
+          expect.objectContaining({ id: 'kichiku', enabled: false }),
+          expect.objectContaining({ id: 'knowledge', enabled: false })
+        ])
+      )
+    )
   })
 
   it('starts with an empty editor area until a ledger is selected', () => {

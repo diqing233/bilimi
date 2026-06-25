@@ -242,6 +242,7 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__safety-note { flex: 1 0 100%; color: var(--porcelain-muted); font-size: 12px;')
     expectStyleSnippet('.favorite-ledger-panel__status { margin: 6px 0 0;')
     expectStyleSnippet('.favorite-ledger-panel__category-actions { display: flex; flex-wrap: wrap;')
+    expectStyleSnippet('.favorite-ledger-panel__sync-hint { margin: 0; color: var(--porcelain-muted); font-size: 12px;')
     expectStyleSnippet('.favorite-ledger-panel__chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));')
     expectStyleSnippet('.favorite-ledger-panel__list-toggle { display: flex; justify-content: flex-end; gap: 8px;')
     expectStyleSnippet('.favorite-ledger-panel__editor-actions { display: flex; gap: 8px;')
