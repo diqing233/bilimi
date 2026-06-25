@@ -13,6 +13,7 @@ type BiliWebviewProps = {
   onOpenInTab?: (url: string) => void
   onReady?: (tabId: string, webview: Electron.WebviewTag) => void
   onPageInteractionHint?: (message: string) => void
+  onHtmlFullscreenChange?: (tabId: string, fullscreen: boolean) => void
   onTitleChange?: (tabId: string, title: string) => void
 }
 
@@ -63,6 +64,7 @@ export function BiliWebview({
   url,
   onLocationChange,
   onOpenInTab,
+  onHtmlFullscreenChange,
   onPageInteractionHint,
   onReady,
   onTitleChange
@@ -107,6 +109,14 @@ export function BiliWebview({
       }
     }
 
+    const handleEnterHtmlFullscreen = () => {
+      onHtmlFullscreenChange?.(tabId, true)
+    }
+
+    const handleLeaveHtmlFullscreen = () => {
+      onHtmlFullscreenChange?.(tabId, false)
+    }
+
     const handleTitleChange = (event: Event) => {
       const nextTitle = readEventTitle(event as WebviewUrlEvent)
 
@@ -136,6 +146,8 @@ export function BiliWebview({
     webview.addEventListener('did-finish-load', installLinkCapture)
     webview.addEventListener('did-navigate', handleLocationChange)
     webview.addEventListener('did-navigate-in-page', handleLocationChange)
+    webview.addEventListener('enter-html-full-screen', handleEnterHtmlFullscreen)
+    webview.addEventListener('leave-html-full-screen', handleLeaveHtmlFullscreen)
     webview.addEventListener('page-title-updated', handleTitleChange)
 
     return () => {
@@ -144,9 +156,11 @@ export function BiliWebview({
       webview.removeEventListener('did-finish-load', installLinkCapture)
       webview.removeEventListener('did-navigate', handleLocationChange)
       webview.removeEventListener('did-navigate-in-page', handleLocationChange)
+      webview.removeEventListener('enter-html-full-screen', handleEnterHtmlFullscreen)
+      webview.removeEventListener('leave-html-full-screen', handleLeaveHtmlFullscreen)
       webview.removeEventListener('page-title-updated', handleTitleChange)
     }
-  }, [onLocationChange, onOpenInTab, onPageInteractionHint, onReady, onTitleChange, tabId])
+  }, [onHtmlFullscreenChange, onLocationChange, onOpenInTab, onPageInteractionHint, onReady, onTitleChange, tabId])
 
   return (
     <webview

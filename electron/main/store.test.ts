@@ -58,6 +58,9 @@ function createFakeStore(
     ledgerPromptDismissed:
       initial.ledgerPromptDismissed ?? DEFAULT_ASSISTANT_PREFERENCES.ledgerPromptDismissed,
     petStyle: initial.petStyle ?? DEFAULT_ASSISTANT_PREFERENCES.petStyle,
+    hidePetDuringVideoFullscreen:
+      initial.hidePetDuringVideoFullscreen ??
+      DEFAULT_ASSISTANT_PREFERENCES.hidePetDuringVideoFullscreen,
     bilibiliOperationMode:
       initial.bilibiliOperationMode ?? DEFAULT_ASSISTANT_PREFERENCES.bilibiliOperationMode,
     preferenceCounts: initial.preferenceCounts ?? { ...DEFAULT_ASSISTANT_PREFERENCES.preferenceCounts },
@@ -138,6 +141,7 @@ describe('assistant preference store helpers', () => {
       ledgerPromptDismissed: false,
       bilibiliOperationMode: 'page-visual',
       petStyle: 'classic',
+      hidePetDuringVideoFullscreen: true,
       preferenceCounts: {
         story: 4,
         suspicious: 1
@@ -153,6 +157,7 @@ describe('assistant preference store helpers', () => {
       ledgerPromptDismissed: false,
       bilibiliOperationMode: 'page-visual',
       petStyle: 'classic',
+      hidePetDuringVideoFullscreen: true,
       preferenceCounts: {
         story: 4,
         suspicious: 1

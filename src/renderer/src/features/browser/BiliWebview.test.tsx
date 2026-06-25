@@ -74,6 +74,29 @@ describe('BiliWebview', () => {
     expect(onPageInteractionHint).toHaveBeenCalledWith('小咪看到主人点赞啦～')
   })
 
+  it('reports HTML fullscreen changes from the embedded video page', () => {
+    const onHtmlFullscreenChange = vi.fn()
+
+    render(
+      <BiliWebview
+        active
+        tabId="home"
+        url="https://www.bilibili.com"
+        onHtmlFullscreenChange={onHtmlFullscreenChange}
+      />
+    )
+
+    const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+
+    act(() => {
+      webview.dispatchEvent(new Event('enter-html-full-screen'))
+      webview.dispatchEvent(new Event('leave-html-full-screen'))
+    })
+
+    expect(onHtmlFullscreenChange).toHaveBeenNthCalledWith(1, 'home', true)
+    expect(onHtmlFullscreenChange).toHaveBeenNthCalledWith(2, 'home', false)
+  })
+
   it('does not drive the webview src from later location updates', () => {
     const { rerender } = render(
       <BiliWebview active tabId="home" url="https://www.bilibili.com/video/BV1initial" />

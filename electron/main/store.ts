@@ -21,6 +21,7 @@ export type AssistantPreferences = {
   favoriteLedgers: FavoriteLedger[]
   ledgerPromptDismissed: boolean
   petStyle: 'big-head' | 'classic'
+  hidePetDuringVideoFullscreen: boolean
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
   preferenceCounts: Record<string, number>
   deepseekEnabled: boolean
@@ -46,6 +47,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   favoriteLedgers: createDefaultFavoriteLedgers(),
   ledgerPromptDismissed: false,
   petStyle: 'big-head',
+  hidePetDuringVideoFullscreen: false,
   bilibiliOperationMode: 'api-assisted',
   preferenceCounts: {},
   deepseekEnabled: false,
@@ -86,6 +88,7 @@ export function loadAssistantPreferences(
     favoriteLedgers: normalizeFavoriteLedgers(store.get('favoriteLedgers')),
     ledgerPromptDismissed: Boolean(store.get('ledgerPromptDismissed')),
     petStyle: petStyle === 'classic' ? 'classic' : 'big-head',
+    hidePetDuringVideoFullscreen: Boolean(store.get('hidePetDuringVideoFullscreen')),
     bilibiliOperationMode:
       bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted',
     preferenceCounts: store.get('preferenceCounts') ?? {},
@@ -104,6 +107,7 @@ export function saveAssistantPreferences(
   store.set('favoriteLedgers', normalizeFavoriteLedgers(preferences.favoriteLedgers))
   store.set('ledgerPromptDismissed', Boolean(preferences.ledgerPromptDismissed))
   store.set('petStyle', preferences.petStyle === 'classic' ? 'classic' : 'big-head')
+  store.set('hidePetDuringVideoFullscreen', Boolean(preferences.hidePetDuringVideoFullscreen))
   store.set(
     'bilibiliOperationMode',
     preferences.bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted'

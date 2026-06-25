@@ -65,6 +65,7 @@ export function createInitialAssistantPreferences(
     favoriteLedgers: normalizeFavoriteLedgers(persisted?.favoriteLedgers ?? createDefaultFavoriteLedgers()),
     ledgerPromptDismissed: Boolean(persisted?.ledgerPromptDismissed),
     petStyle: normalizePetStyle(persisted?.petStyle),
+    hidePetDuringVideoFullscreen: Boolean(persisted?.hidePetDuringVideoFullscreen),
     bilibiliOperationMode: normalizeBilibiliOperationMode(persisted?.bilibiliOperationMode),
     preferenceCounts: {
       ...createEmptyPreferenceCounts(),

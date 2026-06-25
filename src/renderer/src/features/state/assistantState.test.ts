@@ -114,6 +114,7 @@ describe('assistant state', () => {
   })
   it('hydrates the selected pet style with a big-head default', () => {
     expect(createInitialAssistantPreferences().petStyle).toBe('big-head')
+    expect(createInitialAssistantPreferences().hidePetDuringVideoFullscreen).toBe(false)
     expect(createInitialAssistantPreferences({ petStyle: 'classic' }).petStyle).toBe('classic')
     expect(createInitialAssistantPreferences({ petStyle: 'unknown' as never }).petStyle).toBe(
       'big-head'
@@ -142,6 +143,14 @@ describe('assistant state', () => {
       deepseekModel: 'deepseek-v4-flash',
       deepseekBaseUrl: 'https://api.deepseek.com'
     })
+  })
+
+  it('hydrates the video fullscreen pet visibility preference', () => {
+    expect(
+      createInitialAssistantPreferences({
+        hidePetDuringVideoFullscreen: true
+      }).hidePetDuringVideoFullscreen
+    ).toBe(true)
   })
 
   it('hydrates the Bilibili operation mode when it is persisted', () => {

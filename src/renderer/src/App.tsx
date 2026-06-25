@@ -55,6 +55,7 @@ import { PET_VIDEO_OPENING_LINES, pickPetLine } from './features/assistant/petIn
 const HOME_TAB_ID = 'home'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
 const BILIBILI_VIDEO_URL_PATTERN = /bilibili\.com\/video\/([^/?#]+)/i
+export const VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS = 900
 
 function createTabTitle(url: string): string {
   try {
@@ -105,6 +106,8 @@ export default function App() {
   const webviewRefs = useRef<Record<string, Electron.WebviewTag>>({})
   const activeTabChangeMounted = useRef(false)
   const lastPetVideoKey = useRef<string | undefined>(undefined)
+  const petHiddenForVideoFullscreen = useRef(false)
+  const videoFullscreenPetCloseTimer = useRef<number | null>(null)
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences()
   )
@@ -162,6 +165,70 @@ export default function App() {
   const notifyAssistantSnapshotChanged = useCallback(() => {
     window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
   }, [])
+
+  const clearVideoFullscreenPetCloseTimer = useCallback(() => {
+    if (videoFullscreenPetCloseTimer.current === null) {
+      return
+    }
+
+    window.clearTimeout(videoFullscreenPetCloseTimer.current)
+    videoFullscreenPetCloseTimer.current = null
+  }, [])
+
+  const restorePetAfterVideoFullscreen = useCallback(() => {
+    petHiddenForVideoFullscreen.current = false
+    clearVideoFullscreenPetCloseTimer()
+
+    void Promise.resolve(window.bilimiDesktop?.wakeAssistantPet?.()).finally(() => {
+      window.bilimiDesktop?.setAssistantPetHint?.({
+        tone: 'hint',
+        message: '全屏看完感觉怎么样？要不要和小咪互动一下？'
+      })
+    })
+  }, [clearVideoFullscreenPetCloseTimer])
+
+  const handleHtmlFullscreenChange = useCallback(
+    (tabId: string, fullscreen: boolean) => {
+      if (tabId !== activeTabIdRef.current || !preferences.hidePetDuringVideoFullscreen) {
+        return
+      }
+
+      if (fullscreen) {
+        if (petHiddenForVideoFullscreen.current) {
+          return
+        }
+
+        petHiddenForVideoFullscreen.current = true
+        window.bilimiDesktop?.setAssistantPetHint?.({
+          tone: 'sleepy',
+          message: '主人先安心全屏看，小咪不挡画面，待会儿回来找你～'
+        })
+        clearVideoFullscreenPetCloseTimer()
+        videoFullscreenPetCloseTimer.current = window.setTimeout(() => {
+          videoFullscreenPetCloseTimer.current = null
+          window.bilimiDesktop?.closeAssistantPet?.()
+        }, VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS)
+        return
+      }
+
+      if (petHiddenForVideoFullscreen.current) {
+        restorePetAfterVideoFullscreen()
+      }
+    },
+    [
+      clearVideoFullscreenPetCloseTimer,
+      preferences.hidePetDuringVideoFullscreen,
+      restorePetAfterVideoFullscreen
+    ]
+  )
+
+  useEffect(() => {
+    if (!preferences.hidePetDuringVideoFullscreen && petHiddenForVideoFullscreen.current) {
+      restorePetAfterVideoFullscreen()
+    }
+  }, [preferences.hidePetDuringVideoFullscreen, restorePetAfterVideoFullscreen])
+
+  useEffect(() => clearVideoFullscreenPetCloseTimer, [clearVideoFullscreenPetCloseTimer])
 
   const handleWebviewReady = useCallback((tabId: string, webview: Electron.WebviewTag) => {
     webviewRefs.current[tabId] = webview
@@ -776,6 +843,7 @@ export default function App() {
               url={tab.url}
               onLocationChange={updateTabUrl}
               onOpenInTab={openInternalTab}
+              onHtmlFullscreenChange={handleHtmlFullscreenChange}
               onPageInteractionHint={(message) => {
                 window.bilimiDesktop?.setAssistantPetHint?.({ tone: 'hint', message })
               }}

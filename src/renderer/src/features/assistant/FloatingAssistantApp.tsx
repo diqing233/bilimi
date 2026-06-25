@@ -376,6 +376,19 @@ export function FloatingAssistantApp({
     })
   }
 
+  function toggleVideoFullscreenPetVisibility(hidePetDuringVideoFullscreen: boolean) {
+    tellPet(
+      'success',
+      hidePetDuringVideoFullscreen
+        ? '全屏看视频时，小咪会先让出画面。'
+        : '小咪会常驻陪主人看视频啦。'
+    )
+    void persistPreferences({
+      ...preferences,
+      hidePetDuringVideoFullscreen
+    })
+  }
+
   function chooseBilibiliOperationMode(
     bilibiliOperationMode: AssistantPreferences['bilibiliOperationMode']
   ) {
@@ -841,6 +854,16 @@ export function FloatingAssistantApp({
                   onChange={() => choosePetStyle('classic')}
                 />
                 <span>Q版小人</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={preferences.hidePetDuringVideoFullscreen}
+                  onChange={(event) =>
+                    toggleVideoFullscreenPetVisibility(event.currentTarget.checked)
+                  }
+                />
+                <span>全屏视频时自动收起小咪</span>
               </label>
               <div className="assistant-settings__pet-actions">
                 <button type="button" onClick={wakeAssistantPet}>

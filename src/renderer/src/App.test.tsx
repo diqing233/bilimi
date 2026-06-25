@@ -2,7 +2,7 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import type { AssistantPreferences } from '@shared/types'
 import { describe, expect, it, vi } from 'vitest'
-import App from './App'
+import App, { VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS } from './App'
 import type {
   AssistantRuntimeRequest,
   AssistantRuntimeResponsePayload
@@ -23,6 +23,25 @@ function emptyLedgerStatus() {
     ledgers: createDefaultFavoriteLedgers(),
     missingLedgerIds: [],
     message: '册目查验已毕。'
+  }
+}
+
+function createAppPreferences(
+  overrides: Partial<AssistantPreferences> = {}
+): AssistantPreferences {
+  return {
+    favoritesFolderName: 'Bilimi 内库',
+    favoriteLedgers: createDefaultFavoriteLedgers(),
+    ledgerPromptDismissed: true,
+    preferenceCounts: {},
+    petStyle: 'big-head',
+    hidePetDuringVideoFullscreen: false,
+    bilibiliOperationMode: 'api-assisted',
+    deepseekEnabled: false,
+    deepseekApiKeyStored: false,
+    deepseekModel: 'deepseek-v4-flash',
+    deepseekBaseUrl: 'https://api.deepseek.com',
+    ...overrides
   }
 }
 
@@ -671,21 +690,78 @@ describe('App runtime integration', () => {
     }
   })
 
+  it('hides and restores 小咪 around active video fullscreen when enabled', async () => {
+    vi.useFakeTimers()
+    const preferences = createAppPreferences({ hidePetDuringVideoFullscreen: true })
+    const closeAssistantPet = vi.fn()
+    const wakeAssistantPet = vi.fn().mockResolvedValue(undefined)
+    const { desktopApi } = renderAppWithRuntimeBridge({
+      closeAssistantPet,
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      wakeAssistantPet
+    })
+
+    try {
+      await act(async () => undefined)
+      const homeWebview = document.getElementById('bilimi-webview') as HTMLElement
+
+      act(() => {
+        homeWebview.dispatchEvent(new Event('enter-html-full-screen'))
+      })
+
+      expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith({
+        tone: 'sleepy',
+        message: '主人先安心全屏看，小咪不挡画面，待会儿回来找你～'
+      })
+      expect(closeAssistantPet).not.toHaveBeenCalled()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS)
+      })
+
+      expect(closeAssistantPet).toHaveBeenCalledOnce()
+
+      await act(async () => {
+        homeWebview.dispatchEvent(new Event('leave-html-full-screen'))
+        await Promise.resolve()
+      })
+
+      expect(wakeAssistantPet).toHaveBeenCalledOnce()
+      expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith({
+        tone: 'hint',
+        message: '全屏看完感觉怎么样？要不要和小咪互动一下？'
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps 小咪 resident around video fullscreen when the setting is disabled', async () => {
+    vi.useFakeTimers()
+    const closeAssistantPet = vi.fn()
+    const wakeAssistantPet = vi.fn().mockResolvedValue(undefined)
+    renderAppWithRuntimeBridge({ closeAssistantPet, wakeAssistantPet })
+
+    try {
+      const homeWebview = document.getElementById('bilimi-webview') as HTMLElement
+
+      await act(async () => {
+        homeWebview.dispatchEvent(new Event('enter-html-full-screen'))
+        await vi.advanceTimersByTimeAsync(VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS)
+        homeWebview.dispatchEvent(new Event('leave-html-full-screen'))
+      })
+
+      expect(closeAssistantPet).not.toHaveBeenCalled()
+      expect(wakeAssistantPet).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('uses externally changed assistant preferences in runtime snapshots', async () => {
     const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge()
 
-    notifyPreferencesChanged({
-      favoritesFolderName: 'Bilimi',
-      favoriteLedgers: createDefaultFavoriteLedgers(),
-      ledgerPromptDismissed: true,
-      preferenceCounts: {},
-      petStyle: 'classic',
-      bilibiliOperationMode: 'api-assisted',
-      deepseekEnabled: false,
-      deepseekApiKeyStored: false,
-      deepseekModel: 'deepseek-v4-flash',
-      deepseekBaseUrl: 'https://api.deepseek.com'
-    })
+    notifyPreferencesChanged(createAppPreferences({ favoritesFolderName: 'Bilimi', petStyle: 'classic' }))
 
     const snapshot = await requestRuntime({ id: 'snapshot-preferences-1', type: 'snapshot' })
 
@@ -753,18 +829,10 @@ describe('App runtime integration', () => {
   })
 
   it('enhances old favorite ledger candidates with DeepSeek when enabled', async () => {
-    const preferences = {
-      favoritesFolderName: 'Bilimi 内库',
-      favoriteLedgers: createDefaultFavoriteLedgers(),
-      ledgerPromptDismissed: true,
-      preferenceCounts: {},
-      petStyle: 'big-head' as const,
-      bilibiliOperationMode: 'api-assisted' as const,
+    const preferences = createAppPreferences({
       deepseekEnabled: true,
-      deepseekApiKeyStored: true,
-      deepseekModel: 'deepseek-v4-flash',
-      deepseekBaseUrl: 'https://api.deepseek.com'
-    }
+      deepseekApiKeyStored: true
+    })
     const generateDeepSeek = vi.fn().mockResolvedValue({
       kind: 'favorite-ledger-insights',
       suggestions: [

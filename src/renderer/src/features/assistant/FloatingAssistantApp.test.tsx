@@ -18,6 +18,7 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     ledgerPromptDismissed: true,
     preferenceCounts: {},
     petStyle: 'big-head',
+    hidePetDuringVideoFullscreen: false,
     bilibiliOperationMode: 'api-assisted',
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
@@ -447,13 +448,14 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
-  it('saves the selected pet style from assistant settings', async () => {
+  it('saves the selected pet style and fullscreen pet visibility from assistant settings', async () => {
     const { closeAssistantPet, savePreferences, wakeAssistantPet } = installDesktopApi()
 
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
     fireEvent.click(screen.getByRole('radio', { name: 'Q版小人' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '全屏视频时自动收起小咪' }))
     fireEvent.click(screen.getByRole('button', { name: '唤醒宠物' }))
     fireEvent.click(screen.getByRole('button', { name: '关闭宠物' }))
 
@@ -461,6 +463,13 @@ describe('FloatingAssistantApp', () => {
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
           petStyle: 'classic'
+        })
+      )
+    )
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          hidePetDuringVideoFullscreen: true
         })
       )
     )

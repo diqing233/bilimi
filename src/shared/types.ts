@@ -86,6 +86,7 @@ export type AssistantPreferences = {
   favoriteLedgers: FavoriteLedger[]
   ledgerPromptDismissed: boolean
   petStyle: 'big-head' | 'classic'
+  hidePetDuringVideoFullscreen: boolean
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
   preferenceCounts: Record<string, number>
   deepseekEnabled: boolean
