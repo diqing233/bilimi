@@ -28,10 +28,23 @@ function sharedScriptHelpers(): string {
       csrf: readCookie('bili_jct'),
       mid: readCookie('DedeUserID')
     });
-    const ensureApiOk = async (response) => {
-      const json = await response.json();
+    const ensureApiOk = async (response, label = 'Bilibili API') => {
+      const contentType = response.headers?.get?.('content-type') || '';
+      const bodyText = await response.text();
+      const trimmedBody = bodyText.trim();
+      if (/html/i.test(contentType) || /^<!doctype html/i.test(trimmedBody) || /^<html/i.test(trimmedBody)) {
+        throw new Error(label + ' returned HTML instead of JSON. Please log in to Bilibili again or retry later.');
+      }
+
+      let json = null;
+      try {
+        json = bodyText ? JSON.parse(bodyText) : null;
+      } catch {
+        throw new Error(label + ' returned a non-JSON response.');
+      }
+
       if (!response.ok || !json || json.code !== 0) {
-        throw new Error(json?.message || response.statusText || 'Bilibili API request failed');
+        throw new Error(label + ' failed: ' + (json?.message || response.statusText || 'Bilibili API request failed'));
       }
       return json;
     };
@@ -58,7 +71,7 @@ export function buildFavoriteLedgerStatusScript(ledgers: FavoriteLedger[]): stri
       }
 
       const response = await fetch(buildListUrl(mid), { credentials: 'include' });
-      const json = await ensureApiOk(response);
+      const json = await ensureApiOk(response, 'favorite folder list');
       const folders = Array.isArray(json.data?.list) ? json.data.list : [];
       const nextLedgers = payload.ledgers.map((ledger) => {
         const folder = folders.find((candidate) => candidate?.title === ledger.displayName);
@@ -90,7 +103,7 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
 
       const steps = ['api:ledger:list'];
       const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
-      const listJson = await ensureApiOk(listResponse);
+      const listJson = await ensureApiOk(listResponse, 'favorite folder list');
       const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
       const nextLedgers = payload.ledgers.map((ledger) => {
         const folder = folders.find((candidate) => candidate?.title === ledger.displayName);
@@ -116,7 +129,7 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
           },
           body
         });
-        const json = await ensureApiOk(response);
+        const json = await ensureApiOk(response, 'favorite ledger create');
         const folderId = json.data?.id ?? json.data?.fid;
         if (folderId) {
           nextLedgers[index] = { ...ledger, bilibiliFolderId: String(folderId) };
@@ -160,7 +173,7 @@ export function buildSaveFavoriteLedgersScript(
 
       const steps = ['api:ledger:list'];
       const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
-      const listJson = await ensureApiOk(listResponse);
+      const listJson = await ensureApiOk(listResponse, 'favorite folder list');
       const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
       const folderById = new Map(
         folders
@@ -191,7 +204,7 @@ export function buildSaveFavoriteLedgersScript(
           },
           body
         });
-        const json = await ensureApiOk(response);
+        const json = await ensureApiOk(response, 'favorite ledger create');
         const folderId = json.data?.id ?? json.data?.fid;
         if (folderId) {
           nextLedgers[index] = { ...ledger, bilibiliFolderId: String(folderId) };
@@ -225,7 +238,7 @@ export function buildSaveFavoriteLedgersScript(
           },
           body
         });
-        await ensureApiOk(response);
+        await ensureApiOk(response, 'favorite ledger delete');
         steps.push('api:ledger:delete:' + ledger.id);
       }
 
@@ -267,7 +280,7 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
         }
 
         const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
-        const listJson = await ensureApiOk(listResponse);
+        const listJson = await ensureApiOk(listResponse, 'favorite folder list');
         const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
         const targetFolderIds = new Set(
           payload.ledgers
@@ -314,7 +327,7 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
             const response = await fetch(buildResourceUrl(folderId, page), {
               credentials: 'include'
             });
-            const json = await ensureApiOk(response);
+            const json = await ensureApiOk(response, 'favorite resource list for folder ' + folderId);
             const medias = Array.isArray(json.data?.medias) ? json.data.medias : [];
             videos.push(...medias.map((media) => ({
               aid: Number(media?.id ?? media?.aid),
@@ -425,7 +438,7 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
             },
             body
           });
-          await ensureApiOk(response);
+          await ensureApiOk(response, 'favorite ledger append');
           steps.push('api:ledger:append:' + item.aid);
         }
 

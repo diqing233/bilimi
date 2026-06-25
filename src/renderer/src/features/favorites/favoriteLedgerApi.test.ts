@@ -438,4 +438,37 @@ describe('favorite ledger API scripts', () => {
     ])
     expect(requests.some((url) => url.includes('/x/v3/fav/resource/deal'))).toBe(false)
   })
+
+  it('reports a readable error when old favorite scan receives html instead of json', async () => {
+    installCookies()
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
+      ...ledger,
+      bilibiliFolderId: '9001'
+    }))
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return new Response('<!DOCTYPE html><html><body>login</body></html>', {
+            headers: { 'content-type': 'text/html;charset=utf-8' },
+            status: 200
+          })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+
+    expect(result).toMatchObject({
+      ok: false,
+      sourceFolders: [],
+      targetMembership: {},
+      missingTargets: ['favorite-ledger-api']
+    })
+    expect(result.message).toContain('favorite folder list returned HTML instead of JSON')
+    expect(result.message).not.toContain('Unexpected token')
+  })
 })
