@@ -168,6 +168,11 @@ export function FavoriteLedgerPanel({
 
   async function scanPersonalizedSetup() {
     setSetupPromptVisible(false)
+    try {
+      await syncCheckedLedgersForSetupScan()
+    } catch {
+      return
+    }
     await scanOldFavorites('setup')
   }
 
@@ -426,7 +431,7 @@ export function FavoriteLedgerPanel({
     setDragTargetLedgerId(null)
   }
 
-  async function saveLedgers() {
+  function buildLedgersToSave(includeSelectedCandidates = true) {
     const candidates = preview?.insights?.candidateLedgers ?? []
     const selectedCandidates = candidates.filter((candidate) =>
       selectedCandidateKeys.has(candidateKey(candidate))
@@ -442,13 +447,19 @@ export function FavoriteLedgerPanel({
       )
     )
 
-    for (const candidate of selectedCandidates) {
+    for (const candidate of includeSelectedCandidates ? selectedCandidates : []) {
       if (alreadyHasLedger(nextLedgers, candidate.displayName)) {
         continue
       }
 
       nextLedgers.push(candidateToLedger(candidate, (nextLedgers.length + 1) * 10))
     }
+
+    return nextLedgers
+  }
+
+  async function saveLedgers() {
+    const nextLedgers = buildLedgersToSave()
 
     setBusy(true)
     setStatus(null)
@@ -460,6 +471,25 @@ export function FavoriteLedgerPanel({
       setActiveLedgerIndex(null)
     } catch (error) {
       setSaveStatus(`同步未完成：${errorMessage(error)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function syncCheckedLedgersForSetupScan() {
+    const nextLedgers = buildLedgersToSave(false)
+
+    setBusy(true)
+    setStatus(null)
+    setSaveStatus('正在同步已勾选收藏夹...')
+    try {
+      const result = await onSaveLedgers(nextLedgers)
+      setSaveStatus(saveStatusMessage(result))
+      setActiveLedgerId(null)
+      setActiveLedgerIndex(null)
+    } catch (error) {
+      setSaveStatus(`同步未完成：${errorMessage(error)}`)
+      throw error
     } finally {
       setBusy(false)
     }
@@ -850,6 +880,7 @@ export function FavoriteLedgerPanel({
           {oldFavoriteStep === 'generated' ? (
             <section className="favorite-ledger-panel__candidates" aria-label="专属收藏夹候选">
               <h4>专属收藏夹候选</h4>
+              <p>已先同步当前勾选的收藏夹；若勾选下方候选，请再点“同步”创建。</p>
               {preview.insights?.candidateLedgers.length ? (
                 preview.insights.candidateLedgers.map((candidate) => (
                   <article key={`${candidate.kind}-${candidate.sourceName}`}>

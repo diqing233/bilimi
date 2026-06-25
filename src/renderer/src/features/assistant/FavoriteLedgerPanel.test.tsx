@@ -11,6 +11,12 @@ describe('FavoriteLedgerPanel', () => {
       missingTargets: [],
       message: '册目已备齐。'
     })
+    const onSaveLedgers = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: [],
+      missingTargets: [],
+      message: '掌库已同步。'
+    })
     const onScanOldFavorites = vi.fn().mockResolvedValue({
       items: [],
       skippedSourceFolderTitles: [],
@@ -30,7 +36,7 @@ describe('FavoriteLedgerPanel', () => {
         ledgers={createDefaultFavoriteLedgers().slice(0, 2)}
         missingLedgerIds={['game']}
         onEnsureLedgers={onEnsureLedgers}
-        onSaveLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
         onScanOldFavorites={onScanOldFavorites}
         onExecuteOldFavoritePlan={vi.fn()}
       />
@@ -46,9 +52,23 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '扫描旧藏生成' }))
 
+    await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
     await waitFor(() => expect(onScanOldFavorites).toHaveBeenCalledOnce())
+    expect(onSaveLedgers.mock.invocationCallOrder[0]).toBeLessThan(
+      onScanOldFavorites.mock.invocationCallOrder[0]
+    )
+    expect(onSaveLedgers).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ displayName: 'Bilimi·动画', enabled: true }),
+        expect.objectContaining({ displayName: 'Bilimi·游戏', enabled: true })
+      ])
+    )
     expect(screen.getByText('基础数据')).toBeInTheDocument()
     expect(screen.getByText('默认收藏夹 3')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '生成收藏夹' }))
+    expect(
+      screen.getByText('已先同步当前勾选的收藏夹；若勾选下方候选，请再点“同步”创建。')
+    ).toBeInTheDocument()
     const toolbar = container.querySelector('.favorite-ledger-panel__toolbar')
     const status = container.querySelector('.favorite-ledger-panel__status')
     const workspace = container.querySelector('.favorite-ledger-panel__workspace')
