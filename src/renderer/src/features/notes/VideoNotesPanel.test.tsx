@@ -249,6 +249,10 @@ describe('VideoNotesPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '点击总结' }))
     await waitFor(() => expect(onGeneratePoster).toHaveBeenCalledWith(sampleNote))
     expect(onArchivePosterSummary).toHaveBeenCalledWith(sampleNote, poster)
+    expect(screen.getByRole('button', { name: '点击总结' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
     expect(await screen.findByRole('region', { name: 'DeepSeek 总结' })).toHaveTextContent('Learning Machine Models')
     expect(screen.getByText('Data quality matters')).toBeInTheDocument()
   })
@@ -292,6 +296,10 @@ describe('VideoNotesPanel', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: /DeepSeek/ }))
     fireEvent.click(screen.getByRole('button', { name: '自动总结' }))
+    expect(screen.getByRole('button', { name: '自动总结' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
 
     await waitFor(() =>

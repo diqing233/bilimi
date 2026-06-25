@@ -359,6 +359,7 @@ export function VideoNotesPanel({
           </button>
           <button
             type="button"
+            aria-pressed={Boolean(activePosterSummary)}
             disabled={!deepSeekEnabled || posterGenerating || Boolean(activePosterSummary)}
             onClick={() => void handleGeneratePoster()}
           >
