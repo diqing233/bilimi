@@ -145,6 +145,8 @@ export function FavoriteLedgerPanel({
   )
   const [selectedCandidateKeys, setSelectedCandidateKeys] = useState<Set<string>>(new Set())
   const [selectedOldFavoriteAids, setSelectedOldFavoriteAids] = useState<Set<number>>(new Set())
+  const [selectedOldFavoriteSourceFolderTitles, setSelectedOldFavoriteSourceFolderTitles] =
+    useState<Set<string>>(new Set())
   const [status, setStatus] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -596,6 +598,7 @@ export function FavoriteLedgerPanel({
       setPreview(nextPreview)
       setOldFavoriteStep('scan')
       setOldFavoriteGuideMode(mode)
+      setLedgerListExpanded(true)
       if (mode === 'setup') {
         const nextLedgers = mergeDefaultLedgers(draftLedgers)
         setDraftLedgers(nextLedgers)
@@ -609,6 +612,9 @@ export function FavoriteLedgerPanel({
             .filter((item) => item.selected && !item.alreadyInTarget && !item.reviewRequired)
             .map((item) => item.aid)
         )
+      )
+      setSelectedOldFavoriteSourceFolderTitles(
+        new Set(nextPreview.items.map((item) => item.sourceFolderTitle))
       )
       setStatus(
         mode === 'setup'
@@ -635,6 +641,18 @@ export function FavoriteLedgerPanel({
     })
   }
 
+  function toggleOldFavoriteSourceFolder(sourceFolderTitle: string) {
+    setSelectedOldFavoriteSourceFolderTitles((current) => {
+      const next = new Set(current)
+      if (next.has(sourceFolderTitle)) {
+        next.delete(sourceFolderTitle)
+      } else {
+        next.add(sourceFolderTitle)
+      }
+      return next
+    })
+  }
+
   async function executeOldFavoritePlan() {
     if (!preview) {
       return
@@ -649,9 +667,7 @@ export function FavoriteLedgerPanel({
       setActiveLedgerId(null)
       setActiveLedgerIndex(null)
 
-      const selectedItems = preview.items.filter(
-        (item) => selectedOldFavoriteAids.has(item.aid) && item.targetFolderId
-      )
+      const selectedItems = selectedOldFavoriteItems.filter((item) => item.targetFolderId)
       if (selectedItems.length === 0) {
         setStatus('收藏夹已同步，请重新扫描旧藏后再确认整理。')
         return
@@ -670,7 +686,26 @@ export function FavoriteLedgerPanel({
   const allLedgersSelected = draftLedgers.length > 0 && draftLedgers.every(ledgerEnabled)
   const bulkToggleLabel = allLedgersSelected ? '取消全选' : '全选'
   const canToggleLedgerList = draftLedgers.length > ledgersToDisplay.length || ledgerListExpanded
-  const selectedOldFavoriteItems = preview?.items.filter((item) => selectedOldFavoriteAids.has(item.aid)) ?? []
+  const selectableOldFavoriteItems = useMemo(
+    () =>
+      preview?.items.filter((item) =>
+        selectedOldFavoriteSourceFolderTitles.has(item.sourceFolderTitle)
+      ) ?? [],
+    [preview, selectedOldFavoriteSourceFolderTitles]
+  )
+  const oldFavoriteSourceFolders = useMemo(() => {
+    const sourceFolderCounts = new Map<string, number>()
+    for (const item of preview?.items ?? []) {
+      sourceFolderCounts.set(item.sourceFolderTitle, (sourceFolderCounts.get(item.sourceFolderTitle) ?? 0) + 1)
+    }
+    for (const folder of preview?.insights?.sourceFolders ?? []) {
+      sourceFolderCounts.set(folder.name, folder.count)
+    }
+
+    return Array.from(sourceFolderCounts, ([name, count]) => ({ name, count }))
+  }, [preview])
+  const selectedOldFavoriteItems =
+    selectableOldFavoriteItems.filter((item) => selectedOldFavoriteAids.has(item.aid)) ?? []
   const missingOldFavoriteTargetNames = Array.from(
     new Set(
       selectedOldFavoriteItems
@@ -683,13 +718,15 @@ export function FavoriteLedgerPanel({
       ? `确认整理会先同步 ${missingOldFavoriteTargetNames.join('、')} 收藏夹；同步后请重新扫描旧藏以归档到新建收藏夹。`
       : null
   const autoSelectedOldFavoriteCount =
-    preview?.items.filter((item) => item.selected && !item.alreadyInTarget && !item.reviewRequired).length ?? 0
-  const reviewRequiredOldFavoriteCount = preview?.items.filter((item) => item.reviewRequired).length ?? 0
-  const alreadyInTargetOldFavoriteCount = preview?.items.filter((item) => item.alreadyInTarget).length ?? 0
+    selectableOldFavoriteItems.filter((item) => item.selected && !item.alreadyInTarget && !item.reviewRequired)
+      .length ?? 0
+  const reviewRequiredOldFavoriteCount = selectableOldFavoriteItems.filter((item) => item.reviewRequired).length ?? 0
+  const alreadyInTargetOldFavoriteCount =
+    selectableOldFavoriteItems.filter((item) => item.alreadyInTarget).length ?? 0
   const skippedSourceFolderCount = preview?.skippedSourceFolderTitles.length ?? 0
   const oldFavoriteRecommendedLedgerCounts = useMemo(() => {
     const counts = new Map<string, number>()
-    for (const item of preview?.items ?? []) {
+    for (const item of selectableOldFavoriteItems) {
       if (item.alreadyInTarget) {
         continue
       }
@@ -697,16 +734,23 @@ export function FavoriteLedgerPanel({
       counts.set(item.targetLedgerId, (counts.get(item.targetLedgerId) ?? 0) + 1)
     }
     return counts
-  }, [preview])
+  }, [selectableOldFavoriteItems])
+  const oldFavoritePresetLedgers = useMemo(
+    () => draftLedgers.filter((ledger) => ledger.isDefault),
+    [draftLedgers]
+  )
   const oldFavoriteRecommendedLedgers = useMemo(
     () =>
       draftLedgers.filter(
         (ledger) =>
-          oldFavoriteRecommendedLedgerCounts.has(ledger.id) && !ledgerEnabled(ledger)
+          !ledger.isDefault &&
+          oldFavoriteRecommendedLedgerCounts.has(ledger.id) &&
+          !ledgerEnabled(ledger)
       ),
     [draftLedgers, oldFavoriteRecommendedLedgerCounts, selectedDefaultLedgerIds]
   )
-  const hasOldFavoriteRecommendedLedgers = oldFavoriteRecommendedLedgers.length > 0
+  const hasOldFavoriteRecommendedLedgers =
+    oldFavoritePresetLedgers.length > 0 || oldFavoriteRecommendedLedgers.length > 0
 
   function oldFavoriteRecommendationText(ledger: FavoriteLedger) {
     const count = oldFavoriteRecommendedLedgerCounts.get(ledger.id) ?? 0
@@ -999,9 +1043,25 @@ export function FavoriteLedgerPanel({
                     <div>
                       <strong>来源收藏夹</strong>
                       <ul>
-                        {(preview.insights.sourceFolders ?? []).slice(0, 5).map((folder) => (
+                        {oldFavoriteSourceFolders.slice(0, 5).map((folder) => (
                           <li key={folder.name}>
-                            {folder.name} {folder.count}
+                            {oldFavoriteGuideMode === 'organize' ? (
+                              <label>
+                                <input
+                                  type="checkbox"
+                                  aria-label={`整理来源 ${folder.name}`}
+                                  checked={selectedOldFavoriteSourceFolderTitles.has(folder.name)}
+                                  onChange={() => toggleOldFavoriteSourceFolder(folder.name)}
+                                />
+                                <span>
+                                  {folder.name} {folder.count}
+                                </span>
+                              </label>
+                            ) : (
+                              <>
+                                {folder.name} {folder.count}
+                              </>
+                            )}
                           </li>
                         ))}
                       </ul>
@@ -1016,27 +1076,23 @@ export function FavoriteLedgerPanel({
             <section className="favorite-ledger-panel__candidates" aria-label="专属收藏夹候选">
               <h4>专属收藏夹候选</h4>
               <p>确认执行后，会把上方已勾选收藏夹和下方勾选候选同步到 B 站收藏夹里。</p>
-              {oldFavoriteGuideMode === 'setup'
-                ? draftLedgers
-                    .filter((ledger) => ledger.isDefault)
-                    .map((ledger) => (
-                      <article key={ledger.id}>
-                        <label>
-                          <input
-                            type="checkbox"
-                            aria-label={ledger.displayName}
-                            checked={ledgerEnabled(ledger)}
-                            onChange={() => toggleLedger(ledger.id)}
-                          />
-                          <span>
-                            <strong>{ledger.displayName}</strong>
-                            <small>{oldFavoriteRecommendationText(ledger)}</small>
-                            <small>{ledger.keywords.join('、')}</small>
-                          </span>
-                        </label>
-                      </article>
-                    ))
-                : null}
+              {oldFavoritePresetLedgers.map((ledger) => (
+                <article key={ledger.id}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      aria-label={ledger.displayName}
+                      checked={ledgerEnabled(ledger)}
+                      onChange={() => toggleLedger(ledger.id)}
+                    />
+                    <span>
+                      <strong>{ledger.displayName}</strong>
+                      <small>{oldFavoriteRecommendationText(ledger)}</small>
+                      <small>{ledger.keywords.join('、')}</small>
+                    </span>
+                  </label>
+                </article>
+              ))}
               {oldFavoriteGuideMode !== 'setup'
                 ? oldFavoriteRecommendedLedgers.map((ledger) => (
                     <article key={ledger.id}>
@@ -1097,8 +1153,8 @@ export function FavoriteLedgerPanel({
                     <strong>{ledger.displayName}</strong>
                   </article>
                 ))
-              ) : preview.items.length > 0 ? (
-                preview.items.map((item) => (
+              ) : selectableOldFavoriteItems.length > 0 ? (
+                selectableOldFavoriteItems.map((item) => (
                   <article key={`${item.sourceFolderTitle}-${item.aid}`}>
                     <label>
                       <input

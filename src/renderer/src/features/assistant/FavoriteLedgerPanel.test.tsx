@@ -1158,6 +1158,81 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([preview.items[0]]))
   })
 
+  it('lets users choose which old favorite source folders to organize from the scan overview', async () => {
+    const preview = {
+      items: [
+        {
+          aid: 101,
+          title: '机器学习科普教程',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi·知识',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        },
+        {
+          aid: 202,
+          title: '东京旅行攻略',
+          sourceFolderTitle: '旅行收藏',
+          targetLedgerId: 'travel',
+          targetFolderId: '9002',
+          targetDisplayName: 'Bilimi·旅游出行',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        }
+      ],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 2,
+        topAuthors: [],
+        topTags: [],
+        topCategories: [],
+        sourceFolders: [
+          { name: '默认收藏夹', count: 1 },
+          { name: '旅行收藏', count: 1 }
+        ],
+        titleSeries: [],
+        candidateLedgers: []
+      }
+    }
+    const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
+    const onExecuteOldFavoritePlan = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: [],
+      missingTargets: [],
+      message: '旧藏整理已毕。'
+    })
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={onExecuteOldFavoritePlan}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+
+    fireEvent.click(screen.getByLabelText('整理来源 旅行收藏'))
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+
+    expect(screen.getByText('机器学习科普教程')).toBeInTheDocument()
+    expect(screen.queryByText('东京旅行攻略')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    expect(screen.getByText('已选择 1 条旧藏')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([preview.items[0]]))
+  })
+
   it('syncs ledgers on confirmation and asks to rescan when selected old favorites are missing target folders', async () => {
     const preview = {
       items: [
@@ -1523,6 +1598,49 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByLabelText('Bilimi·知识'))
 
     expect(knowledgeTopButton).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('shows preset Bilimi ledgers as selectable recommendations while organizing old favorites', async () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'travel' ? { ...ledger, enabled: false } : ledger
+    )
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 1,
+        topAuthors: [],
+        topTags: [],
+        topCategories: [],
+        sourceFolders: [{ name: '默认收藏夹', count: 1 }],
+        titleSeries: [],
+        candidateLedgers: []
+      }
+    })
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={ledgers}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+
+    const ledgerRegion = screen.getByRole('region', { name: '收藏夹' })
+    const travelTopButton = within(ledgerRegion).getByRole('button', { name: '旅游出行' })
+    expect(travelTopButton).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByLabelText('Bilimi·旅游出行')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Bilimi·旅游出行'))
+
+    expect(travelTopButton).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('marks AI-enhanced ledger suggestions when DeepSeek improves the local candidates', async () => {
