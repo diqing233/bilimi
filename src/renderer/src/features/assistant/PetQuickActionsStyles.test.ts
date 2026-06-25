@@ -46,7 +46,7 @@ describe('pet quick action styles', () => {
     expect(compactStyles).not.toContain('max-width: calc(100vw - 8px);')
     expectStyleSnippet('--pet-bubble-offset-x: -50%;')
     expectStyleSnippet(
-      '.palace-maid-pet__resize-controls { position: absolute; right: 22px; bottom: 18px;'
+      '.palace-maid-pet__resize-controls { position: absolute; right: 34px; bottom: 2px;'
     )
     expectStyleSnippet('transform: none;')
     expectStyleSnippet(

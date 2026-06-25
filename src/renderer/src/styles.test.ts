@@ -129,8 +129,10 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain('bottom: calc(100% + 18px);')
     expect(normalizedStyles).toContain('.palace-maid-pet__resize-controls {')
     expect(normalizedStyles).toContain('.palace-maid-pet__resize-step {')
-    expect(normalizedStyles).toContain('right: 22px;')
-    expect(normalizedStyles).toContain('bottom: 18px;')
+    expectStyleSnippet(
+      '.palace-maid-pet__resize-controls { position: absolute; right: 34px; bottom: 2px;'
+    )
+    expect(normalizedStyles).not.toContain('right: 22px;\n  bottom: 18px;')
     expect(normalizedStyles).not.toContain('bottom: 34px;')
     expect(normalizedStyles).not.toContain('right: max(8px, calc(50% - var(--floating-pet-size) * 0.46));')
     expect(normalizedStyles).not.toContain('left: calc(50% + 96px);')
@@ -150,8 +152,9 @@ describe('renderer porcelain theme styles', () => {
       '.palace-maid-pet__resize-controls[data-visible="true"], .palace-maid-pet__resize-controls:focus-within { opacity: 1; pointer-events: auto; transform: none;'
     )
     expectStyleSnippet(
-      '.palace-maid-pet__hover-shortcuts { position: absolute; left: 58px; bottom: 2px;'
+      '.palace-maid-pet__hover-shortcuts { position: absolute; left: 38px; bottom: 2px;'
     )
+    expect(normalizedStyles).not.toContain('left: 58px;\n  bottom: 2px;')
     expectStyleSnippet(
       '.palace-maid-pet__hover-shortcuts[data-layout="fan"] .palace-maid-pet__hover-shortcut:nth-child(1) { transform: translate(12px, 0);'
     )

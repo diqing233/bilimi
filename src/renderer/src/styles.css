@@ -681,8 +681,8 @@ body[data-floating-window="true"],
 }
 .palace-maid-pet__resize-controls {
   position: absolute;
-  right: 22px;
-  bottom: 18px;
+  right: 34px;
+  bottom: 2px;
   z-index: 4;
   display: flex;
   gap: 4px;
@@ -732,7 +732,7 @@ body[data-floating-window="true"],
 }
 .palace-maid-pet__hover-shortcuts {
   position: absolute;
-  left: 58px;
+  left: 38px;
   bottom: 2px;
   z-index: 4;
   display: grid;
