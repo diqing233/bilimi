@@ -1602,6 +1602,21 @@ body[data-floating-window="true"],
   flex: 0 0 auto;
   border-radius: 6px;
 }
+.video-notes__summary-mode {
+  display: grid;
+  gap: 2px;
+  min-width: 112px;
+  min-height: 38px;
+  justify-items: start;
+  padding: 5px 10px;
+  line-height: 1.2;
+  text-align: left;
+  white-space: normal;
+}
+.video-notes__summary-mode small {
+  color: var(--porcelain-muted);
+  font-size: 11px;
+}
 .video-notes__panel-header button[aria-pressed="true"] {
   border-color: rgba(31, 99, 181, 0.58);
   background: rgba(220, 238, 255, 0.88);

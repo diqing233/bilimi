@@ -251,20 +251,17 @@ export function VideoNotesPanel({
     }
   }
 
-  async function handleGeneratePoster(): Promise<void> {
-    if (!deepSeekEnabled) {
-      setStatusMessage('请先到设置启用 DeepSeek 后再生成总结。')
-      setErrorMessage('')
+  async function handleSummaryModeToggle(): Promise<void> {
+    if (!deepSeekEnabled || posterGenerating) {
       return
     }
-    if (generationBusy || posterGenerating) return
-    if (activePosterSummary) return
-    if (!note) {
-      setStatusMessage('请先转写音频，再生成 DeepSeek 总结。')
-      setErrorMessage('')
-      return
+
+    const nextAutoSummaryMode = !autoSummarizeWithDeepSeek
+    setAutoSummarizeWithDeepSeek(nextAutoSummaryMode)
+
+    if (nextAutoSummaryMode && note && !activePosterSummary) {
+      await generatePosterForNote(note)
     }
-    await generatePosterForNote(note)
   }
 
   function handleResultTabClick(tab: VideoNotesResultTab): void {
@@ -345,6 +342,8 @@ export function VideoNotesPanel({
 
   function renderSummaryPanel(): React.JSX.Element {
     const summaryCopy = summaryText || '暂无 DeepSeek 总结。'
+    const summaryModeLabel = autoSummarizeWithDeepSeek ? '自动总结' : '点击总结'
+    const summaryModeHint = autoSummarizeWithDeepSeek ? '点击切回手动' : '点击切到自动'
     return (
       <div role="tabpanel" id="video-notes-summary" aria-labelledby="video-notes-tab-summary">
         <div className="video-notes__panel-header">
@@ -353,17 +352,11 @@ export function VideoNotesPanel({
             type="button"
             aria-pressed={autoSummarizeWithDeepSeek}
             disabled={!deepSeekEnabled || posterGenerating}
-            onClick={() => setAutoSummarizeWithDeepSeek((enabled) => !enabled)}
+            className="video-notes__summary-mode"
+            onClick={() => void handleSummaryModeToggle()}
           >
-            自动总结
-          </button>
-          <button
-            type="button"
-            aria-pressed={Boolean(activePosterSummary)}
-            disabled={!deepSeekEnabled || posterGenerating || Boolean(activePosterSummary)}
-            onClick={() => void handleGeneratePoster()}
-          >
-            点击总结
+            <strong>{summaryModeLabel}</strong>
+            <small>{summaryModeHint}</small>
           </button>
           <button type="button" onClick={() => void copyText(summaryCopy, '全文已复制')}>
             复制全文
