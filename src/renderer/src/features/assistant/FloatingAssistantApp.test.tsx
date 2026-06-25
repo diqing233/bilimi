@@ -485,14 +485,17 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
 
+    expect(screen.getByText('宠物设置')).toBeInTheDocument()
+    expect(screen.queryByText('宠物样式')).not.toBeInTheDocument()
     const shortcutGroup = screen.getByRole('group', { name: '悬浮快捷按钮' })
-    expect(within(shortcutGroup).getByRole('checkbox', { name: '赏 轻赏此条' })).toBeChecked()
-    expect(within(shortcutGroup).getByRole('checkbox', { name: '赐 投币厚赏' })).toBeChecked()
-    expect(within(shortcutGroup).getByRole('checkbox', { name: '表 拟奏短评' })).toBeChecked()
-    expect(within(shortcutGroup).getByRole('checkbox', { name: '转 转写音频' })).toBeChecked()
-    expect(within(shortcutGroup).getByRole('checkbox', { name: '藏 归入内库' })).toBeDisabled()
+    expect(within(shortcutGroup).queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(within(shortcutGroup).getByRole('button', { name: '赏 轻赏此条 第 1 位' })).toHaveTextContent('1')
+    expect(within(shortcutGroup).getByRole('button', { name: '赐 投币厚赏 第 2 位' })).toHaveTextContent('2')
+    expect(within(shortcutGroup).getByRole('button', { name: '表 拟奏短评 第 3 位' })).toHaveTextContent('3')
+    expect(within(shortcutGroup).getByRole('button', { name: '转 转写音频 第 4 位' })).toHaveTextContent('4')
+    expect(within(shortcutGroup).getByRole('button', { name: '藏 归入内库' })).toBeDisabled()
 
-    fireEvent.click(within(shortcutGroup).getByRole('checkbox', { name: '转 转写音频' }))
+    fireEvent.click(within(shortcutGroup).getByRole('button', { name: '转 转写音频 第 4 位' }))
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
@@ -502,7 +505,7 @@ describe('FloatingAssistantApp', () => {
       )
     )
 
-    fireEvent.click(within(shortcutGroup).getByRole('checkbox', { name: '藏 归入内库' }))
+    fireEvent.click(within(shortcutGroup).getByRole('button', { name: '藏 归入内库' }))
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
@@ -511,6 +514,29 @@ describe('FloatingAssistantApp', () => {
         })
       )
     )
+  })
+
+  it('lets settings clear every pet hover shortcut', async () => {
+    const { savePreferences } = installDesktopApi()
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+
+    const shortcutGroup = screen.getByRole('group', { name: '悬浮快捷按钮' })
+    fireEvent.click(within(shortcutGroup).getByRole('button', { name: '转 转写音频 第 4 位' }))
+    fireEvent.click(within(shortcutGroup).getByRole('button', { name: '表 拟奏短评 第 3 位' }))
+    fireEvent.click(within(shortcutGroup).getByRole('button', { name: '赐 投币厚赏 第 2 位' }))
+    fireEvent.click(within(shortcutGroup).getByRole('button', { name: '赏 轻赏此条 第 1 位' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          petHoverShortcuts: []
+        })
+      )
+    )
+    expect(within(shortcutGroup).getByRole('button', { name: '赏 轻赏此条' })).not.toBeDisabled()
   })
 
   it('saves and tests DeepSeek assistant settings', async () => {

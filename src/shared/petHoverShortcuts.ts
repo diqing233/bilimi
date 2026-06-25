@@ -61,7 +61,7 @@ export function normalizePetHoverShortcuts(value: unknown): PetHoverShortcutId[]
     }
   }
 
-  return normalized.length > 0 ? normalized : DEFAULT_PET_HOVER_SHORTCUTS
+  return normalized
 }
 
 export function resolvePetHoverShortcuts(value: unknown): PetHoverShortcut[] {

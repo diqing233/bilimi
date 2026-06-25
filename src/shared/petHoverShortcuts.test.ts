@@ -24,4 +24,8 @@ describe('pet hover shortcuts', () => {
       ])
     ).toEqual(['favorite', 'like', 'coin', 'comment'])
   })
+
+  it('keeps an explicit empty custom shortcut list empty', () => {
+    expect(normalizePetHoverShortcuts([])).toEqual([])
+  })
 })

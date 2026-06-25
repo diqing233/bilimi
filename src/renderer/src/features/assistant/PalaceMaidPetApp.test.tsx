@@ -522,6 +522,7 @@ describe('PalaceMaidPetApp', () => {
 
     const shortcuts = screen.getByRole('group', { name: '小咪悬浮快捷按钮', hidden: true })
     expect(shortcuts).toHaveAttribute('data-visible', 'true')
+    expect(shortcuts).toHaveAttribute('data-layout', 'fan')
     expect(screen.getAllByTestId('pet-hover-shortcut')).toHaveLength(4)
     expect(screen.getByRole('button', { name: '赏' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '赐' })).toBeInTheDocument()
@@ -559,6 +560,24 @@ describe('PalaceMaidPetApp', () => {
     expect(screen.getByRole('button', { name: '备' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '整' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '表' })).not.toBeInTheDocument()
+  })
+
+  it('allows the configured hover shortcut list to be empty', async () => {
+    installDesktopApi({
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          petHoverShortcuts: []
+        })
+      )
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
+
+    await waitFor(() =>
+      expect(screen.queryAllByTestId('pet-hover-shortcut')).toHaveLength(0)
+    )
   })
 
   it('keeps the speech bubble outside the resizable pet button', () => {

@@ -370,6 +370,7 @@ export function FloatingAssistantApp({
     commentChooserOpen ||
     commentIntentOpen ||
     commentIntentBusy
+  const selectedPetHoverShortcuts = normalizePetHoverShortcuts(preferences.petHoverShortcuts)
 
   async function persistPreferences(nextPreferences: AssistantPreferences) {
     setPreferences(nextPreferences)
@@ -402,7 +403,12 @@ export function FloatingAssistantApp({
   }
 
   function togglePetHoverShortcut(shortcutId: PetHoverShortcutId, selected: boolean) {
-    const currentShortcuts = normalizePetHoverShortcuts(preferences.petHoverShortcuts)
+    const currentShortcuts = selectedPetHoverShortcuts
+
+    if (selected && currentShortcuts.length >= PET_HOVER_SHORTCUT_LIMIT) {
+      return
+    }
+
     const nextShortcuts = selected
       ? [...currentShortcuts, shortcutId]
       : currentShortcuts.filter((id) => id !== shortcutId)
@@ -869,8 +875,8 @@ export function FloatingAssistantApp({
             <header>
               <h2>设置</h2>
             </header>
-            <fieldset className="assistant-settings__group">
-              <legend>宠物样式</legend>
+            <fieldset className="assistant-settings__group assistant-settings__group--pet">
+              <legend>宠物设置</legend>
               <label>
                 <input
                   type="radio"
@@ -889,6 +895,7 @@ export function FloatingAssistantApp({
                 />
                 <span>Q版小人</span>
               </label>
+              <div className="assistant-settings__pet-divider" aria-hidden="true" />
               <label>
                 <input
                   type="checkbox"
@@ -899,33 +906,40 @@ export function FloatingAssistantApp({
                 />
                 <span>全屏视频时自动收起小咪</span>
               </label>
+              <div className="assistant-settings__pet-divider" aria-hidden="true" />
               <div
                 className="assistant-settings__hover-shortcuts"
                 role="group"
                 aria-label="悬浮快捷按钮"
               >
                 {PET_HOVER_SHORTCUTS.map((shortcut) => {
-                  const selectedShortcuts = normalizePetHoverShortcuts(preferences.petHoverShortcuts)
-                  const checked = selectedShortcuts.includes(shortcut.id)
-                  const selectionFull = selectedShortcuts.length >= PET_HOVER_SHORTCUT_LIMIT
+                  const selectedIndex = selectedPetHoverShortcuts.indexOf(shortcut.id)
+                  const selected = selectedIndex >= 0
+                  const selectionFull = selectedPetHoverShortcuts.length >= PET_HOVER_SHORTCUT_LIMIT
+                  const orderLabel = selected ? ` 第 ${selectedIndex + 1} 位` : ''
 
                   return (
-                    <label key={shortcut.id}>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={!checked && selectionFull}
-                        onChange={(event) =>
-                          togglePetHoverShortcut(shortcut.id, event.currentTarget.checked)
-                        }
-                      />
-                      <span>
-                        {shortcut.label} {shortcut.title}
+                    <button
+                      key={shortcut.id}
+                      className="assistant-settings__hover-shortcut"
+                      type="button"
+                      aria-label={`${shortcut.label} ${shortcut.title}${orderLabel}`}
+                      aria-pressed={selected}
+                      disabled={!selected && selectionFull}
+                      onClick={() => togglePetHoverShortcut(shortcut.id, !selected)}
+                    >
+                      <span className="assistant-settings__hover-shortcut-mark">
+                        {selected ? selectedIndex + 1 : shortcut.label}
                       </span>
-                    </label>
+                      <span className="assistant-settings__hover-shortcut-copy">
+                        <strong>{shortcut.label}</strong>
+                        <small>{shortcut.title}</small>
+                      </span>
+                    </button>
                   )
                 })}
               </div>
+              <div className="assistant-settings__pet-divider" aria-hidden="true" />
               <div className="assistant-settings__pet-actions">
                 <button type="button" onClick={wakeAssistantPet}>
                   唤醒宠物

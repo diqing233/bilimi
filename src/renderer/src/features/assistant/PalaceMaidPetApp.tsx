@@ -485,6 +485,7 @@ export function PalaceMaidPetApp() {
         role="group"
         aria-label="小咪悬浮快捷按钮"
         data-visible={hoverShortcutsVisible ? 'true' : 'false'}
+        data-layout="fan"
         onPointerEnter={() => {
           enterInteractiveRegion()
           showHoverShortcuts()

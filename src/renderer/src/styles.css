@@ -732,11 +732,11 @@ body[data-floating-window="true"],
 }
 .palace-maid-pet__hover-shortcuts {
   position: absolute;
-  left: 22px;
-  bottom: 54px;
+  left: 18px;
+  bottom: 50px;
   z-index: 4;
   display: grid;
-  gap: 5px;
+  gap: 2px;
   touch-action: none;
   opacity: 0;
   pointer-events: none;
@@ -752,13 +752,13 @@ body[data-floating-window="true"],
   transform: translateX(0);
 }
 .palace-maid-pet__hover-shortcut {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
   padding: 0;
   border: 1px solid rgba(31, 99, 181, 0.28);
-  border-radius: 8px;
+  border-radius: 999px;
   background: rgba(247, 251, 255, 0.92);
   color: var(--porcelain-deep);
   font:
@@ -769,6 +769,18 @@ body[data-floating-window="true"],
   box-shadow: 0 5px 12px rgba(7, 26, 51, 0.16);
   cursor: pointer;
 }
+.palace-maid-pet__hover-shortcuts[data-layout="fan"] .palace-maid-pet__hover-shortcut:nth-child(1) {
+  transform: translate(18px, -16px);
+}
+.palace-maid-pet__hover-shortcuts[data-layout="fan"] .palace-maid-pet__hover-shortcut:nth-child(2) {
+  transform: translate(5px, -6px);
+}
+.palace-maid-pet__hover-shortcuts[data-layout="fan"] .palace-maid-pet__hover-shortcut:nth-child(3) {
+  transform: translate(0, 4px);
+}
+.palace-maid-pet__hover-shortcuts[data-layout="fan"] .palace-maid-pet__hover-shortcut:nth-child(4) {
+  transform: translate(13px, 14px);
+}
 .palace-maid-pet__hover-shortcut:hover,
 .palace-maid-pet__hover-shortcut:focus-visible {
   border-color: rgba(31, 99, 181, 0.42);
@@ -776,7 +788,7 @@ body[data-floating-window="true"],
   outline: none;
 }
 .palace-maid-pet__hover-shortcut:active {
-  transform: translateY(1px);
+  filter: brightness(0.98);
 }
 .layered-pet {
   position: relative;
@@ -2452,14 +2464,61 @@ body[data-floating-window="true"],
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
-.assistant-settings__hover-shortcuts label {
-  min-height: 28px;
-  padding: 4px 6px;
+.assistant-settings__pet-divider {
+  height: 1px;
+  border-top: 1px dashed rgba(31, 99, 181, 0.24);
+}
+.assistant-settings__hover-shortcut {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 7px;
   border: 1px solid rgba(31, 99, 181, 0.14);
   background: rgba(255, 255, 255, 0.5);
+  color: var(--porcelain-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
-.assistant-settings__hover-shortcuts label:has(input:disabled) {
+.assistant-settings__hover-shortcut[aria-pressed="true"] {
+  border-color: rgba(31, 99, 181, 0.34);
+  background: rgba(220, 238, 255, 0.64);
+}
+.assistant-settings__hover-shortcut:disabled {
   opacity: 0.52;
+  cursor: not-allowed;
+}
+.assistant-settings__hover-shortcut-mark {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(31, 99, 181, 0.3);
+  border-radius: 999px;
+  background: rgba(247, 251, 255, 0.84);
+  color: var(--porcelain-deep);
+  font-weight: 700;
+}
+.assistant-settings__hover-shortcut[aria-pressed="true"] .assistant-settings__hover-shortcut-mark {
+  background: var(--porcelain-deep);
+  color: var(--porcelain-surface);
+}
+.assistant-settings__hover-shortcut-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.assistant-settings__hover-shortcut-copy strong,
+.assistant-settings__hover-shortcut-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assistant-settings__hover-shortcut-copy small {
+  color: var(--porcelain-muted);
+  font-size: 11px;
 }
 .assistant-settings__pet-actions {
   display: flex;
