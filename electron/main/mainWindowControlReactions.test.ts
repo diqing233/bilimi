@@ -75,7 +75,7 @@ describe('installMainWindowControlReactions', () => {
     }
   })
 
-  it('says farewell before closing XiaoMi and the main window', () => {
+  it('lets the app close immediately while XiaoMi closes herself after farewell', () => {
     vi.useFakeTimers()
     const random = vi.spyOn(Math, 'random').mockReturnValue(0)
     const window = createTestWindow()
@@ -92,7 +92,7 @@ describe('installMainWindowControlReactions', () => {
 
       window.emit('close', closeEvent)
 
-      expect(closeEvent.preventDefault).toHaveBeenCalledOnce()
+      expect(closeEvent.preventDefault).not.toHaveBeenCalled()
       expect(sendPetHint).toHaveBeenCalledWith({
         tone: 'sleepy',
         message: '那小咪先退场啦，主人下次见。'
@@ -103,7 +103,7 @@ describe('installMainWindowControlReactions', () => {
       vi.advanceTimersByTime(MAIN_WINDOW_CLOSE_FAREWELL_DELAY_MS)
 
       expect(closeAssistantPet).toHaveBeenCalledOnce()
-      expect(window.close).toHaveBeenCalledOnce()
+      expect(window.close).not.toHaveBeenCalled()
     } finally {
       random.mockRestore()
       vi.useRealTimers()

@@ -2,10 +2,6 @@ import type { AssistantPetHint } from '../../src/renderer/src/features/assistant
 
 export const MAIN_WINDOW_CLOSE_FAREWELL_DELAY_MS = 900
 
-type MainWindowControlEvent = {
-  preventDefault?: () => void
-}
-
 type MainWindowControlTarget = {
   close: () => void
   on: (
@@ -53,7 +49,7 @@ export function installMainWindowControlReactions({
   sendPetHint,
   window
 }: MainWindowControlReactionsOptions) {
-  let closeAfterFarewell = false
+  let closeAssistantPetAfterFarewell = false
 
   window.on('minimize', () => {
     sendPetHint({
@@ -76,21 +72,19 @@ export function installMainWindowControlReactions({
     })
   })
 
-  window.on('close', (event: MainWindowControlEvent) => {
-    if (closeAfterFarewell) {
+  window.on('close', () => {
+    if (closeAssistantPetAfterFarewell) {
       return
     }
 
-    event.preventDefault?.()
+    closeAssistantPetAfterFarewell = true
     sendPetHint({
       tone: 'sleepy',
       message: pickLine(CLOSE_LINES)
     })
 
     setTimeout(() => {
-      closeAfterFarewell = true
       closeAssistantPet()
-      window.close()
     }, MAIN_WINDOW_CLOSE_FAREWELL_DELAY_MS)
   })
 }
