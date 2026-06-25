@@ -31,6 +31,7 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     ledgerPromptDismissed: true,
     preferenceCounts: {},
     petStyle: 'big-head',
+    petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
     hidePetDuringVideoFullscreen: false,
     bilibiliOperationMode: 'api-assisted',
     deepseekEnabled: false,
@@ -370,6 +371,7 @@ describe('PalaceMaidPetApp', () => {
         ledgerPromptDismissed: true,
         preferenceCounts: {},
         petStyle: 'classic',
+        petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
         hidePetDuringVideoFullscreen: false,
         bilibiliOperationMode: 'api-assisted',
         deepseekEnabled: false,
@@ -407,6 +409,7 @@ describe('PalaceMaidPetApp', () => {
         ledgerPromptDismissed: true,
         preferenceCounts: {},
         petStyle: 'classic',
+        petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
         hidePetDuringVideoFullscreen: false,
         bilibiliOperationMode: 'api-assisted',
         deepseekEnabled: false,
@@ -505,6 +508,57 @@ describe('PalaceMaidPetApp', () => {
     expect(api.resizeFloatingSealByStep).not.toHaveBeenCalled()
     expect(api.finishFloatingSealDrag).not.toHaveBeenCalled()
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
+  })
+
+  it('shows the configured hover shortcuts beside the pet and runs immediate video actions', async () => {
+    const api = installDesktopApi({
+      runFloatingMenuAction: vi.fn().mockResolvedValue(undefined)
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    const pet = screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' })
+    fireEvent.pointerEnter(pet)
+
+    const shortcuts = screen.getByRole('group', { name: '小咪悬浮快捷按钮', hidden: true })
+    expect(shortcuts).toHaveAttribute('data-visible', 'true')
+    expect(screen.getAllByTestId('pet-hover-shortcut')).toHaveLength(4)
+    expect(screen.getByRole('button', { name: '赏' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '赐' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '表' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '转' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '赏' }))
+
+    await waitFor(() => expect(api.runFloatingMenuAction).toHaveBeenCalledWith('赏'))
+    expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
+  })
+
+  it('keeps custom hover shortcuts capped to the first four valid configured buttons', async () => {
+    installDesktopApi({
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          petHoverShortcuts: [
+            'favorite',
+            'library',
+            'prepare-ledgers',
+            'organize-old-favorites',
+            'comment'
+          ]
+        })
+      )
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '藏' })).toBeInTheDocument())
+    expect(screen.getAllByTestId('pet-hover-shortcut')).toHaveLength(4)
+    expect(screen.getByRole('button', { name: '库' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '备' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '整' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '表' })).not.toBeInTheDocument()
   })
 
   it('keeps the speech bubble outside the resizable pet button', () => {

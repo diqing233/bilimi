@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
+import { resolvePetHoverShortcuts, type PetHoverShortcut } from '@shared/petHoverShortcuts'
 import { LayeredPetRenderer } from './LayeredPetRenderer'
 import {
   createPetStateView,
@@ -35,11 +36,13 @@ export function PalaceMaidPetApp() {
   const longPressTimeout = useRef<number | null>(null)
   const idleGreetingTimeout = useRef<number | null>(null)
   const resizeControlsHideTimeout = useRef<number | null>(null)
+  const hoverShortcutsHideTimeout = useRef<number | null>(null)
   const interactiveHoverCount = useRef(0)
   const suppressNextClick = useRef(false)
   const chatTailRef = useRef<HTMLSpanElement | null>(null)
   const [pressed, setPressed] = useState(false)
   const [resizeControlsVisible, setResizeControlsVisible] = useState(false)
+  const [hoverShortcutsVisible, setHoverShortcutsVisible] = useState(false)
   const [petSize, setPetSize] = useState(PET_SIZE_DEFAULT_PX)
   const [petState, setPetState] = useState<AssistantPetState>('idle')
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
@@ -57,6 +60,7 @@ export function PalaceMaidPetApp() {
   const stateView = createPetStateView(visiblePetState)
   const bubbleMessage = petHint?.message ?? stateView.bubble
   const deepSeekChatEnabled = preferences.deepseekEnabled && preferences.deepseekApiKeyStored
+  const hoverShortcuts = resolvePetHoverShortcuts(preferences.petHoverShortcuts)
 
   function showLocalPetHint(tone: AssistantPetHint['tone'], message: string) {
     setPetHint({ tone, message })
@@ -138,6 +142,9 @@ export function PalaceMaidPetApp() {
       if (resizeControlsHideTimeout.current !== null) {
         window.clearTimeout(resizeControlsHideTimeout.current)
       }
+      if (hoverShortcutsHideTimeout.current !== null) {
+        window.clearTimeout(hoverShortcutsHideTimeout.current)
+      }
       window.bilimiDesktop?.setFloatingSealMouseTransparent?.(true)
       window.removeEventListener('blur', hideClosePrompt)
     }
@@ -185,6 +192,15 @@ export function PalaceMaidPetApp() {
     setResizeControlsVisible(true)
   }
 
+  function showHoverShortcuts() {
+    if (hoverShortcutsHideTimeout.current !== null) {
+      window.clearTimeout(hoverShortcutsHideTimeout.current)
+      hoverShortcutsHideTimeout.current = null
+    }
+
+    setHoverShortcutsVisible(true)
+  }
+
   function scheduleHideResizeControls() {
     if (resizeControlsHideTimeout.current !== null) {
       window.clearTimeout(resizeControlsHideTimeout.current)
@@ -193,6 +209,17 @@ export function PalaceMaidPetApp() {
     resizeControlsHideTimeout.current = window.setTimeout(() => {
       setResizeControlsVisible(false)
       resizeControlsHideTimeout.current = null
+    }, 350)
+  }
+
+  function scheduleHideHoverShortcuts() {
+    if (hoverShortcutsHideTimeout.current !== null) {
+      window.clearTimeout(hoverShortcutsHideTimeout.current)
+    }
+
+    hoverShortcutsHideTimeout.current = window.setTimeout(() => {
+      setHoverShortcutsVisible(false)
+      hoverShortcutsHideTimeout.current = null
     }, 350)
   }
 
@@ -304,6 +331,21 @@ export function PalaceMaidPetApp() {
     setClosePromptVisible(false)
     setClickReactionSignal((signal) => signal + 1)
     showLocalPetHint('shy', pickPetLine(PET_WELCOME_HOME_LINES))
+    void window.bilimiDesktop?.restoreMainWindowFromPet?.()
+  }
+
+  function runHoverShortcut(shortcut: PetHoverShortcut) {
+    dragState.current = null
+    setPressed(false)
+    setClosePromptVisible(false)
+
+    if (shortcut.intent === 'video-action' && shortcut.action && shortcut.action !== '赐') {
+      showLocalPetHint('working', `主人，小咪这就去办「${shortcut.label}」。`)
+      void window.bilimiDesktop?.runFloatingMenuAction?.(shortcut.action)
+      return
+    }
+
+    showLocalPetHint('hint', `主人，请在 Bilimi 里继续处理「${shortcut.title}」。`)
     void window.bilimiDesktop?.restoreMainWindowFromPet?.()
   }
 
@@ -422,11 +464,13 @@ export function PalaceMaidPetApp() {
             }
           }
           scheduleHideResizeControls()
+          scheduleHideHoverShortcuts()
           leaveInteractiveRegion()
         }}
         onPointerEnter={() => {
           enterInteractiveRegion()
           showResizeControls()
+          showHoverShortcuts()
         }}
       >
         <span className="palace-maid-pet__halo" aria-hidden="true" />
@@ -436,6 +480,42 @@ export function PalaceMaidPetApp() {
           petStyle={preferences.petStyle}
         />
       </button>
+      <div
+        className="palace-maid-pet__hover-shortcuts"
+        role="group"
+        aria-label="小咪悬浮快捷按钮"
+        data-visible={hoverShortcutsVisible ? 'true' : 'false'}
+        onPointerEnter={() => {
+          enterInteractiveRegion()
+          showHoverShortcuts()
+        }}
+        onPointerLeave={() => {
+          scheduleHideHoverShortcuts()
+          leaveInteractiveRegion()
+        }}
+      >
+        {hoverShortcuts.map((shortcut) => (
+          <button
+            key={shortcut.id}
+            className="palace-maid-pet__hover-shortcut"
+            type="button"
+            aria-label={shortcut.label}
+            title={shortcut.title}
+            data-testid="pet-hover-shortcut"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              runHoverShortcut(shortcut)
+            }}
+            onPointerDown={(event) => {
+              event.stopPropagation()
+              setPressed(false)
+            }}
+          >
+            {shortcut.label}
+          </button>
+        ))}
+      </div>
       {closePromptVisible ? (
         <span
           className="palace-maid-pet__quick-actions"

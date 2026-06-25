@@ -1,6 +1,11 @@
 import Store from 'electron-store'
 import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '../../src/shared/favoriteLedgers'
 import {
+  DEFAULT_PET_HOVER_SHORTCUTS,
+  normalizePetHoverShortcuts,
+  type PetHoverShortcutId
+} from '../../src/shared/petHoverShortcuts'
+import {
   appendVideoNoteArchiveVersion,
   deleteVideoNoteArchiveEntry as removeVideoNoteArchiveEntry,
   deleteVideoNoteArchiveVersion as removeVideoNoteArchiveVersion,
@@ -21,6 +26,7 @@ export type AssistantPreferences = {
   favoriteLedgers: FavoriteLedger[]
   ledgerPromptDismissed: boolean
   petStyle: 'big-head' | 'classic'
+  petHoverShortcuts: PetHoverShortcutId[]
   hidePetDuringVideoFullscreen: boolean
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
   preferenceCounts: Record<string, number>
@@ -47,6 +53,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   favoriteLedgers: createDefaultFavoriteLedgers(),
   ledgerPromptDismissed: false,
   petStyle: 'big-head',
+  petHoverShortcuts: DEFAULT_PET_HOVER_SHORTCUTS,
   hidePetDuringVideoFullscreen: false,
   bilibiliOperationMode: 'api-assisted',
   preferenceCounts: {},
@@ -88,6 +95,7 @@ export function loadAssistantPreferences(
     favoriteLedgers: normalizeFavoriteLedgers(store.get('favoriteLedgers')),
     ledgerPromptDismissed: Boolean(store.get('ledgerPromptDismissed')),
     petStyle: petStyle === 'classic' ? 'classic' : 'big-head',
+    petHoverShortcuts: normalizePetHoverShortcuts(store.get('petHoverShortcuts')),
     hidePetDuringVideoFullscreen: Boolean(store.get('hidePetDuringVideoFullscreen')),
     bilibiliOperationMode:
       bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted',
@@ -107,6 +115,7 @@ export function saveAssistantPreferences(
   store.set('favoriteLedgers', normalizeFavoriteLedgers(preferences.favoriteLedgers))
   store.set('ledgerPromptDismissed', Boolean(preferences.ledgerPromptDismissed))
   store.set('petStyle', preferences.petStyle === 'classic' ? 'classic' : 'big-head')
+  store.set('petHoverShortcuts', normalizePetHoverShortcuts(preferences.petHoverShortcuts))
   store.set('hidePetDuringVideoFullscreen', Boolean(preferences.hidePetDuringVideoFullscreen))
   store.set(
     'bilibiliOperationMode',

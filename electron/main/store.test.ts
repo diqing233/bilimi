@@ -58,6 +58,7 @@ function createFakeStore(
     ledgerPromptDismissed:
       initial.ledgerPromptDismissed ?? DEFAULT_ASSISTANT_PREFERENCES.ledgerPromptDismissed,
     petStyle: initial.petStyle ?? DEFAULT_ASSISTANT_PREFERENCES.petStyle,
+    petHoverShortcuts: initial.petHoverShortcuts ?? DEFAULT_ASSISTANT_PREFERENCES.petHoverShortcuts,
     hidePetDuringVideoFullscreen:
       initial.hidePetDuringVideoFullscreen ??
       DEFAULT_ASSISTANT_PREFERENCES.hidePetDuringVideoFullscreen,
@@ -141,6 +142,7 @@ describe('assistant preference store helpers', () => {
       ledgerPromptDismissed: false,
       bilibiliOperationMode: 'page-visual',
       petStyle: 'classic',
+      petHoverShortcuts: ['favorite', 'library', 'prepare-ledgers', 'organize-old-favorites'],
       hidePetDuringVideoFullscreen: true,
       preferenceCounts: {
         story: 4,
@@ -157,6 +159,7 @@ describe('assistant preference store helpers', () => {
       ledgerPromptDismissed: false,
       bilibiliOperationMode: 'page-visual',
       petStyle: 'classic',
+      petHoverShortcuts: ['favorite', 'library', 'prepare-ledgers', 'organize-old-favorites'],
       hidePetDuringVideoFullscreen: true,
       preferenceCounts: {
         story: 4,
@@ -187,6 +190,34 @@ describe('assistant preference store helpers', () => {
       deepseekBaseUrl: 'https://api.deepseek.local'
     })
     expect(store.snapshot.deepseekApiKey).toBe('')
+  })
+
+  it('normalizes persisted pet hover shortcuts to four valid entries', () => {
+    const store = createFakeStore({
+      petHoverShortcuts: [
+        'favorite',
+        'library',
+        'favorite',
+        'prepare-ledgers',
+        'organize-old-favorites',
+        'comment',
+        'invalid'
+      ] as never
+    })
+
+    expect(loadAssistantPreferences(store).petHoverShortcuts).toEqual([
+      'favorite',
+      'library',
+      'prepare-ledgers',
+      'organize-old-favorites'
+    ])
+
+    saveAssistantPreferences(store, {
+      ...DEFAULT_ASSISTANT_PREFERENCES,
+      petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe', 'library']
+    } as never)
+
+    expect(store.snapshot.petHoverShortcuts).toEqual(['like', 'coin', 'comment', 'transcribe'])
   })
 
   it('saves and clears the DeepSeek API key status', () => {

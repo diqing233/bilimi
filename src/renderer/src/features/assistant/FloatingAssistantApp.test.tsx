@@ -18,6 +18,7 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     ledgerPromptDismissed: true,
     preferenceCounts: {},
     petStyle: 'big-head',
+    petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
     hidePetDuringVideoFullscreen: false,
     bilibiliOperationMode: 'api-assisted',
     deepseekEnabled: false,
@@ -475,6 +476,41 @@ describe('FloatingAssistantApp', () => {
     )
     expect(wakeAssistantPet).toHaveBeenCalledOnce()
     expect(closeAssistantPet).toHaveBeenCalledOnce()
+  })
+
+  it('lets settings choose up to four pet hover shortcuts', async () => {
+    const { savePreferences } = installDesktopApi()
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+
+    const shortcutGroup = screen.getByRole('group', { name: '悬浮快捷按钮' })
+    expect(within(shortcutGroup).getByRole('checkbox', { name: '赏 轻赏此条' })).toBeChecked()
+    expect(within(shortcutGroup).getByRole('checkbox', { name: '赐 投币厚赏' })).toBeChecked()
+    expect(within(shortcutGroup).getByRole('checkbox', { name: '表 拟奏短评' })).toBeChecked()
+    expect(within(shortcutGroup).getByRole('checkbox', { name: '转 转写音频' })).toBeChecked()
+    expect(within(shortcutGroup).getByRole('checkbox', { name: '藏 归入内库' })).toBeDisabled()
+
+    fireEvent.click(within(shortcutGroup).getByRole('checkbox', { name: '转 转写音频' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          petHoverShortcuts: ['like', 'coin', 'comment']
+        })
+      )
+    )
+
+    fireEvent.click(within(shortcutGroup).getByRole('checkbox', { name: '藏 归入内库' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          petHoverShortcuts: ['like', 'coin', 'comment', 'favorite']
+        })
+      )
+    )
   })
 
   it('saves and tests DeepSeek assistant settings', async () => {

@@ -1,3 +1,5 @@
+import type { PetHoverShortcutId } from './petHoverShortcuts'
+
 export type AssistantAction = '赏' | '藏' | '赐' | '表' | '阅'
 
 export type BrowserSurfaceModel = {
@@ -86,6 +88,7 @@ export type AssistantPreferences = {
   favoriteLedgers: FavoriteLedger[]
   ledgerPromptDismissed: boolean
   petStyle: 'big-head' | 'classic'
+  petHoverShortcuts: PetHoverShortcutId[]
   hidePetDuringVideoFullscreen: boolean
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
   preferenceCounts: Record<string, number>

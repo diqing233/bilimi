@@ -10,6 +10,12 @@ import type {
   VideoNote,
   VideoNoteArchiveEntry
 } from '@shared/types'
+import {
+  PET_HOVER_SHORTCUTS,
+  PET_HOVER_SHORTCUT_LIMIT,
+  normalizePetHoverShortcuts,
+  type PetHoverShortcutId
+} from '@shared/petHoverShortcuts'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { composeMemorialComments } from '../comments/commentComposer'
 import { classifyVideoContent } from '../recommendation/videoClassifier'
@@ -392,6 +398,18 @@ export function FloatingAssistantApp({
     void persistPreferences({
       ...preferences,
       hidePetDuringVideoFullscreen
+    })
+  }
+
+  function togglePetHoverShortcut(shortcutId: PetHoverShortcutId, selected: boolean) {
+    const currentShortcuts = normalizePetHoverShortcuts(preferences.petHoverShortcuts)
+    const nextShortcuts = selected
+      ? [...currentShortcuts, shortcutId]
+      : currentShortcuts.filter((id) => id !== shortcutId)
+
+    void persistPreferences({
+      ...preferences,
+      petHoverShortcuts: normalizePetHoverShortcuts(nextShortcuts)
     })
   }
 
@@ -881,6 +899,33 @@ export function FloatingAssistantApp({
                 />
                 <span>全屏视频时自动收起小咪</span>
               </label>
+              <div
+                className="assistant-settings__hover-shortcuts"
+                role="group"
+                aria-label="悬浮快捷按钮"
+              >
+                {PET_HOVER_SHORTCUTS.map((shortcut) => {
+                  const selectedShortcuts = normalizePetHoverShortcuts(preferences.petHoverShortcuts)
+                  const checked = selectedShortcuts.includes(shortcut.id)
+                  const selectionFull = selectedShortcuts.length >= PET_HOVER_SHORTCUT_LIMIT
+
+                  return (
+                    <label key={shortcut.id}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={!checked && selectionFull}
+                        onChange={(event) =>
+                          togglePetHoverShortcut(shortcut.id, event.currentTarget.checked)
+                        }
+                      />
+                      <span>
+                        {shortcut.label} {shortcut.title}
+                      </span>
+                    </label>
+                  )
+                })}
+              </div>
               <div className="assistant-settings__pet-actions">
                 <button type="button" onClick={wakeAssistantPet}>
                   唤醒宠物

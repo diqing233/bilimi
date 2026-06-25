@@ -35,6 +35,7 @@ function createAppPreferences(
     ledgerPromptDismissed: true,
     preferenceCounts: {},
     petStyle: 'big-head',
+    petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
     hidePetDuringVideoFullscreen: false,
     bilibiliOperationMode: 'api-assisted',
     deepseekEnabled: false,

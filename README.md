@@ -29,7 +29,7 @@ When the floating desktop pet restores or focuses the main window, the sidebar a
 
 ## Floating Surfaces
 
-Bilimi starts a transparent 小咪 desktop pet window beside the main app. The transparent host window stays at the fixed 336x380 stage size; resize controls adjust the character inside that stage rather than resizing the Electron window shell. Clicking the pet restores or focuses the main window, right-clicking it opens quick actions for `对话宠物` and `关闭宠物`, and hover controls can resize the pet character. Holding the left mouse button by itself does not resize or animate the pet; dragging only starts after pointer movement crosses the drag threshold, and a long stationary press suppresses the follow-up click restore. The pet window can also be woken or closed from assistant settings.
+Bilimi starts a transparent 小咪 desktop pet window beside the main app. The transparent host window stays at the fixed 336x380 stage size; resize controls adjust the character inside that stage rather than resizing the Electron window shell. Clicking the pet restores or focuses the main window, right-clicking it opens quick actions for `对话宠物` and `关闭宠物`, and hover controls can resize the pet character or reveal up to four user-selected shortcut buttons. Holding the left mouse button by itself does not resize or animate the pet; dragging only starts after pointer movement crosses the drag threshold, and a long stationary press suppresses the follow-up click restore. The pet window can also be woken or closed from assistant settings.
 
 The floating entry uses the same assistant workspace as the sidebar. It can run review actions, open video notes, manage favorite ledgers, and request the active main-window webview through the Electron bridge.
 
@@ -66,7 +66,7 @@ Bilimi includes a small transparent Electron desktop pet window rendered by `Pal
 
 The assistant persona is 小咪: `我是 bilimi，主人可以叫我小咪~`. The app icon, floating seal, sidebar collapse button, workspace tabs, and review actions reuse the blue-white maid pet assets for a consistent identity.
 
-Assistant settings expose two pet styles: `big-head` for the compact big-head Q-version sprites and `classic` for the clearer full-body reset sprites. Pet style is persisted with the other assistant preferences and broadcast after saving so the main window, floating assistant, and desktop pet stay in sync without restarting.
+Assistant settings expose two pet styles: `big-head` for the compact big-head Q-version sprites and `classic` for the clearer full-body reset sprites. Pet style and the pet hover shortcut list are persisted with the other assistant preferences and broadcast after saving so the main window, floating assistant, and desktop pet stay in sync without restarting. The default hover shortcuts are `赏`, `赐`, `表`, and `转`; settings let the user choose from `赏藏赐表转库备整`, capped at four visible buttons.
 
 The pet supports `idle`, `hint`, `working`, and `error` status feedback, can be dragged, and restores or focuses the main Bilimi window when clicked. Dragging suppresses the follow-up click reaction. Right-clicking the pet shows compact pill quick actions for `对话宠物` and `关闭宠物`; the quick actions disappear when the pet window loses focus. `对话宠物` opens the top prompt bubble chat, and `关闭宠物` closes the pet window. Assistant settings also expose `唤醒宠物` and `关闭宠物` buttons for explicit pet window control.
 

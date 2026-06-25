@@ -1,4 +1,5 @@
 import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '@shared/favoriteLedgers'
+import { normalizePetHoverShortcuts } from '@shared/petHoverShortcuts'
 import type { AssistantAction, AssistantPreferences, RecommendationKind } from '@shared/types'
 
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash'
@@ -65,6 +66,7 @@ export function createInitialAssistantPreferences(
     favoriteLedgers: normalizeFavoriteLedgers(persisted?.favoriteLedgers ?? createDefaultFavoriteLedgers()),
     ledgerPromptDismissed: Boolean(persisted?.ledgerPromptDismissed),
     petStyle: normalizePetStyle(persisted?.petStyle),
+    petHoverShortcuts: normalizePetHoverShortcuts(persisted?.petHoverShortcuts),
     hidePetDuringVideoFullscreen: Boolean(persisted?.hidePetDuringVideoFullscreen),
     bilibiliOperationMode: normalizeBilibiliOperationMode(persisted?.bilibiliOperationMode),
     preferenceCounts: {
