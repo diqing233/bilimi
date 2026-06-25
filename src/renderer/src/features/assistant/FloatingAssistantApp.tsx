@@ -259,6 +259,7 @@ export function FloatingAssistantApp({
   }
 
   function setActiveTab(tab: AssistantWorkspaceTab) {
+    setFeedback(null)
     setActiveView(tab)
     tellPet('success', TAB_HINTS[tab])
 

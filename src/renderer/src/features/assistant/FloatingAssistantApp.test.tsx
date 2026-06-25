@@ -258,6 +258,29 @@ describe('FloatingAssistantApp', () => {
     expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'done')).toBe(true)
   })
 
+  it('dismisses review action feedback when switching to another workspace page', async () => {
+    installDesktopApi({
+      runAssistantAction: vi.fn().mockResolvedValue({
+        ok: true,
+        steps: ['like:already-liked'],
+        missingTargets: [],
+        message: 'Saved to Bilimi.'
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByTestId('review-action-like'))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Saved to Bilimi.')
+    expect(screen.getByText('like:already-liked')).toBeInTheDocument()
+
+    fireEvent.click(screen.getAllByRole('tab')[1])
+
+    expect(screen.queryByText('Saved to Bilimi.')).not.toBeInTheDocument()
+    expect(screen.queryByText('like:already-liked')).not.toBeInTheDocument()
+  })
+
   it('uses default 小咪 comments directly when DeepSeek is disabled', async () => {
     const { generateDeepSeek, runAssistantAction } = installDesktopApi()
 
