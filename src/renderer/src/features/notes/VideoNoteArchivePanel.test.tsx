@@ -198,8 +198,9 @@ describe('VideoNoteArchivePanel', () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('第二版纯文稿。'))
 
     fireEvent.click(screen.getByRole('tab', { name: 'DeepSeek 总结' }))
+    expect(screen.getByText('暂无 DeepSeek 总结。')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining('## 速览')))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(''))
   })
 
   it('saves archive memo and starred state while keeping them filterable', async () => {

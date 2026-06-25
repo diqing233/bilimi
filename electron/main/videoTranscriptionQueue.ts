@@ -16,7 +16,8 @@ type QueueDeps = {
     request: VideoAudioTranscriptionRequest,
     progress: (progress: VideoAudioTranscriptionProgress) => void
   ) => Promise<VideoAudioTranscriptionResult>
-  saveArchiveVersion: (note: VideoNote) => unknown
+  summarizeNote?: (note: VideoNote) => Promise<string>
+  saveArchiveVersion: (note: VideoNote, summaryText: string) => unknown
   now?: () => string
   onSnapshot?: (snapshot: VideoAudioTranscriptionQueueSnapshot) => void
 }
@@ -65,6 +66,7 @@ export function createVideoTranscriptionQueue({
   loadItems,
   saveItems,
   transcribe,
+  summarizeNote,
   saveArchiveVersion,
   now = () => new Date().toISOString(),
   onSnapshot
@@ -118,8 +120,10 @@ export function createVideoTranscriptionQueue({
       })
       const completedAt = now()
       const note = createNoteFromQueueItem(runningItem, result.transcript, completedAt)
+      const summaryText =
+        runningItem.summarizeWithDeepSeek && summarizeNote ? await summarizeNote(note) : ''
 
-      saveArchiveVersion(note)
+      saveArchiveVersion(note, summaryText)
       updateItem(runningItem.id, (item) => ({
         ...item,
         status: 'completed',

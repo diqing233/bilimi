@@ -16,6 +16,10 @@ import { AssistantActionButton } from './AssistantActionButton'
 
 type MemorialPanelTab = 'review' | 'notes'
 
+type VideoNoteTranscriptionOptions = {
+  summarizeWithDeepSeek?: boolean
+}
+
 type MemorialPanelProps = {
   recommendation: RecommendationLabel
   commentDrafts: string[]
@@ -25,11 +29,16 @@ type MemorialPanelProps = {
   onAction: (action: AssistantAction) => void
   onClose: () => void
   onGenerateVideoNote: () => Promise<VideoNote | null>
-  onTranscribeVideoAudio?: () => Promise<VideoNote | null>
-  onEnqueueVideoAudioTranscription?: () => Promise<VideoAudioTranscriptionQueueSnapshot | null>
+  onTranscribeVideoAudio?: (
+    options?: VideoNoteTranscriptionOptions
+  ) => Promise<VideoNote | null>
+  onEnqueueVideoAudioTranscription?: (
+    options?: VideoNoteTranscriptionOptions
+  ) => Promise<VideoAudioTranscriptionQueueSnapshot | null>
   onCancelQueuedVideoAudioTranscription?: (id: string) => void
   onRetryQueuedVideoAudioTranscription?: (id: string) => void
   onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
+  onArchivePosterSummary?: (note: VideoNote, poster: NotePosterSummary) => Promise<void>
   onSaveVideoNote: (note: VideoNote) => Promise<void>
   onChangeVideoNote?: (note: VideoNote) => void
   onOpenVideoNoteArchive?: () => void
@@ -107,6 +116,7 @@ export function MemorialPanel({
   onCancelQueuedVideoAudioTranscription,
   onRetryQueuedVideoAudioTranscription,
   onGeneratePoster,
+  onArchivePosterSummary,
   onSaveVideoNote,
   onChangeVideoNote,
   onOpenVideoNoteArchive,
@@ -193,6 +203,7 @@ export function MemorialPanel({
             onTranscribeAudio={onTranscribeVideoAudio}
             onEnqueueTranscription={onEnqueueVideoAudioTranscription}
             onGeneratePoster={onGeneratePoster}
+            onArchivePosterSummary={onArchivePosterSummary}
             onSave={onSaveVideoNote}
             onChange={onChangeVideoNote}
             onOpenArchive={onOpenVideoNoteArchive}

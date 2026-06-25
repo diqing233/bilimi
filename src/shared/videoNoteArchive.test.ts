@@ -75,9 +75,20 @@ describe('video note archive helpers', () => {
     expect(afterSecond[0].versions[1]).toEqual(
       expect.objectContaining({
         plainTranscript: '第二次转写的正文。',
-        summaryText: expect.stringContaining('机器学习')
+        summaryText: ''
       })
     )
+  })
+
+  it('stores explicit DeepSeek summary text when appending an archive version', () => {
+    const archives = appendVideoNoteArchiveVersion(
+      [],
+      createNote(),
+      '2026-06-17T00:00:00.000Z',
+      'DeepSeek summary text'
+    )
+
+    expect(archives[0].versions[0].summaryText).toBe('DeepSeek summary text')
   })
 
   it('searches title, author, bvid, transcript and summary text', () => {

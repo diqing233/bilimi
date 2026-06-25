@@ -16,6 +16,7 @@ import {
   normalizePetHoverShortcuts,
   type PetHoverShortcutId
 } from '@shared/petHoverShortcuts'
+import { createNotePosterText } from '@shared/videoNoteArchive'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { composeMemorialComments } from '../comments/commentComposer'
 import { classifyVideoContent } from '../recommendation/videoClassifier'
@@ -634,7 +635,7 @@ export function FloatingAssistantApp({
     }
   }
 
-  async function generateVideoNoteFromAudio() {
+  async function generateVideoNoteFromAudio(options?: { summarizeWithDeepSeek?: boolean }) {
     setVideoNoteLoading(true)
     tellPet('progress', '小咪正在转写音频并整理札记，这一步可能要等一下。')
 
@@ -642,9 +643,12 @@ export function FloatingAssistantApp({
       const note = (await window.bilimiDesktop?.generateVideoNoteFromAudio?.()) ?? null
       let noteToStore = note
 
-      if (noteToStore && preferences.deepseekEnabled) {
+      let summaryText = ''
+
+      if (noteToStore && preferences.deepseekEnabled && options?.summarizeWithDeepSeek) {
         const poster = await generateNotePoster(noteToStore)
         noteToStore = applyPosterSummaryToNote(noteToStore, poster)
+        summaryText = createNotePosterText(poster)
       }
 
       setVideoNote(noteToStore)
@@ -653,7 +657,10 @@ export function FloatingAssistantApp({
       }
 
       if (noteToStore) {
-        const archives = await window.bilimiDesktop?.saveVideoNoteArchiveVersion?.(noteToStore)
+        const archives = await window.bilimiDesktop?.saveVideoNoteArchiveVersion?.(
+          noteToStore,
+          summaryText
+        )
 
         if (archives) {
           setVideoNoteArchives(archives)
@@ -678,14 +685,14 @@ export function FloatingAssistantApp({
     return snapshot
   }
 
-  async function enqueueVideoAudioTranscription() {
+  async function enqueueVideoAudioTranscription(options?: { summarizeWithDeepSeek?: boolean }) {
     if (!window.bilimiDesktop?.enqueueCurrentVideoAudioTranscription) {
       tellPet('error', '请先打开一个可转写的视频。')
       return null
     }
 
     tellPet('progress', '已加入转写队列，小咪会按顺序处理。')
-    const nextQueue = await window.bilimiDesktop.enqueueCurrentVideoAudioTranscription?.()
+    const nextQueue = await window.bilimiDesktop.enqueueCurrentVideoAudioTranscription?.(options)
 
     if (nextQueue) {
       transcriptionQueueRef.current = nextQueue
@@ -721,6 +728,17 @@ export function FloatingAssistantApp({
 
     tellPet('success', 'DeepSeek 总结做好啦。')
     return result.poster
+  }
+
+  async function archiveNotePosterSummary(note: VideoNote, poster: NotePosterSummary) {
+    const archives = await window.bilimiDesktop?.saveVideoNoteArchiveVersion?.(
+      note,
+      createNotePosterText(poster)
+    )
+
+    if (archives) {
+      setVideoNoteArchives(archives)
+    }
   }
 
   async function loadVideoNoteArchives({ silent = false } = {}) {
@@ -1095,6 +1113,7 @@ export function FloatingAssistantApp({
               void retryQueuedVideoAudioTranscription(id)
             }}
             onGeneratePoster={generateNotePoster}
+            onArchivePosterSummary={archiveNotePosterSummary}
             onSaveVideoNote={saveVideoNote}
             onChangeVideoNote={handleChangeVideoNote}
             videoNote={videoNote}

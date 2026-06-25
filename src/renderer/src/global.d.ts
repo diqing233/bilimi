@@ -35,7 +35,9 @@ type BilimiDesktopApi = {
   generateDeepSeek?: (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
   generateVideoNote?: (manualTranscript?: string) => Promise<VideoNote | null>
   generateVideoNoteFromAudio?: () => Promise<VideoNote | null>
-  enqueueCurrentVideoAudioTranscription?: () => Promise<VideoAudioTranscriptionQueueSnapshot | null>
+  enqueueCurrentVideoAudioTranscription?: (options?: {
+    summarizeWithDeepSeek?: boolean
+  }) => Promise<VideoAudioTranscriptionQueueSnapshot | null>
   getCurrentVideoTime?: () => Promise<number>
   loadPreferences: () => Promise<AssistantPreferences>
   loadVideoNotes?: () => Promise<VideoNote[]>
@@ -74,7 +76,10 @@ type BilimiDesktopApi = {
   savePreferences: (preferences: AssistantPreferences) => Promise<AssistantPreferences>
   saveDeepSeekApiKey?: (apiKey: string) => Promise<DeepSeekKeyStatus>
   saveVideoNote?: (note: VideoNote) => Promise<VideoNote[]>
-  saveVideoNoteArchiveVersion?: (note: VideoNote) => Promise<VideoNoteArchiveEntry[]>
+  saveVideoNoteArchiveVersion?: (
+    note: VideoNote,
+    summaryText?: string
+  ) => Promise<VideoNoteArchiveEntry[]>
   updateVideoNoteArchiveVersion?: (
     archiveId: string,
     versionId: string,

@@ -162,9 +162,10 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('floating-assistant:generate-video-note', manualTranscript),
   generateVideoNoteFromAudio: () =>
     ipcRenderer.invoke('floating-assistant:generate-video-note-from-audio') as Promise<VideoNote | null>,
-  enqueueCurrentVideoAudioTranscription: () =>
+  enqueueCurrentVideoAudioTranscription: (options?: { summarizeWithDeepSeek?: boolean }) =>
     ipcRenderer.invoke(
-      'floating-assistant:enqueue-current-video-audio'
+      'floating-assistant:enqueue-current-video-audio',
+      options
     ) as Promise<VideoAudioTranscriptionQueueSnapshot | null>,
   transcribeCurrentVideoAudio: (request: VideoAudioTranscriptionRequest) =>
     ipcRenderer.invoke('video-audio:transcribe-current', request) as Promise<VideoAudioTranscriptionResult>,
@@ -217,8 +218,12 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('deepseek:save-key', apiKey) as Promise<DeepSeekKeyStatus>,
   saveVideoNote: (note: VideoNote) =>
     ipcRenderer.invoke('video-notes:save', note) as Promise<VideoNote[]>,
-  saveVideoNoteArchiveVersion: (note: VideoNote) =>
-    ipcRenderer.invoke('video-note-archives:save-version', note) as Promise<VideoNoteArchiveEntry[]>,
+  saveVideoNoteArchiveVersion: (note: VideoNote, summaryText?: string) =>
+    ipcRenderer.invoke(
+      'video-note-archives:save-version',
+      note,
+      summaryText
+    ) as Promise<VideoNoteArchiveEntry[]>,
   updateVideoNoteArchiveVersion: (archiveId: string, versionId: string, note: VideoNote) =>
     ipcRenderer.invoke(
       'video-note-archives:update-version',

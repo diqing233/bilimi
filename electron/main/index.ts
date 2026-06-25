@@ -50,6 +50,7 @@ import { transcribeCurrentVideoAudio } from './videoTranscriptionService'
 import { createVideoTranscriptionQueue } from './videoTranscriptionQueue'
 import { DeepSeekServiceError, generateDeepSeekResult } from './deepseekService'
 import { BILIMI_SESSION_PARTITION } from '../../src/shared/constants'
+import { createNotePosterText } from '../../src/shared/videoNoteArchive'
 import { configureAppIdentity } from './appIdentity'
 import type {
   AssistantAction,
@@ -513,7 +514,26 @@ function getVideoTranscriptionQueue() {
           progress
         })
       },
-      saveArchiveVersion: (note) => saveVideoNoteArchiveVersion(getDesktopStore(), note),
+      summarizeNote: async (note) => {
+        const preferences = loadAssistantPreferences(getDesktopStore())
+        const result = await generateDeepSeekResult({
+          config: {
+            enabled: preferences.deepseekEnabled,
+            apiKey: loadDeepSeekApiKey(getDesktopStore()),
+            model: preferences.deepseekModel,
+            baseUrl: preferences.deepseekBaseUrl
+          },
+          request: { kind: 'note-poster', note }
+        })
+
+        if (result.kind !== 'note-poster') {
+          throw new Error('DeepSeek summary failed.')
+        }
+
+        return createNotePosterText(result.poster)
+      },
+      saveArchiveVersion: (note, summaryText) =>
+        saveVideoNoteArchiveVersion(getDesktopStore(), note, undefined, summaryText),
       onSnapshot: sendVideoAudioTranscriptionQueueChanged
     })
   }
@@ -583,8 +603,8 @@ function registerAssistantPreferenceHandlers() {
     saveVideoNote(getDesktopStore(), note)
   )
   ipcMain.handle('video-note-archives:load', () => loadVideoNoteArchives(getDesktopStore()))
-  ipcMain.handle('video-note-archives:save-version', (_event, note: VideoNote) =>
-    saveVideoNoteArchiveVersion(getDesktopStore(), note)
+  ipcMain.handle('video-note-archives:save-version', (_event, note: VideoNote, summaryText = '') =>
+    saveVideoNoteArchiveVersion(getDesktopStore(), note, undefined, summaryText)
   )
   ipcMain.handle(
     'video-note-archives:update-version',
@@ -700,9 +720,10 @@ function registerAssistantPreferenceHandlers() {
       type: 'generate-video-note-from-audio'
     })
   )
-  ipcMain.handle('floating-assistant:enqueue-current-video-audio', () =>
+  ipcMain.handle('floating-assistant:enqueue-current-video-audio', (_event, options?: { summarizeWithDeepSeek?: boolean }) =>
     requestMainAssistantRuntime<VideoAudioTranscriptionQueueSnapshot | null>({
-      type: 'enqueue-current-video-audio'
+      type: 'enqueue-current-video-audio',
+      summarizeWithDeepSeek: Boolean(options?.summarizeWithDeepSeek)
     })
   )
   ipcMain.handle('floating-assistant:ensure-ledgers', () =>

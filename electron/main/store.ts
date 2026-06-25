@@ -189,9 +189,15 @@ export function loadVideoNoteArchives(
 export function saveVideoNoteArchiveVersion(
   store: AssistantStoreLike = getDesktopStore(),
   note: VideoNote,
-  createdAt: string = new Date().toISOString()
+  createdAt: string = new Date().toISOString(),
+  summaryText = ''
 ): VideoNoteArchiveEntry[] {
-  const archives = appendVideoNoteArchiveVersion(loadVideoNoteArchives(store), note, createdAt)
+  const archives = appendVideoNoteArchiveVersion(
+    loadVideoNoteArchives(store),
+    note,
+    createdAt,
+    summaryText
+  )
 
   store.set('videoNoteArchives', archives)
 

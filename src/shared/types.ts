@@ -315,6 +315,7 @@ export type VideoAudioTranscriptionRequest = {
   bvid?: string
   aid?: number | string
   cid?: number | string
+  summarizeWithDeepSeek?: boolean
 }
 
 export type VideoAudioTranscriptionResult = {

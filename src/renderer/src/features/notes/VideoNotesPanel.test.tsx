@@ -232,7 +232,7 @@ describe('VideoNotesPanel', () => {
     expect(onGeneratePoster).not.toHaveBeenCalled()
   })
 
-  it('generates DeepSeek summary independently when DeepSeek is enabled', async () => {
+  it('waits for an explicit DeepSeek summary click when DeepSeek is enabled', async () => {
     const poster: NotePosterSummary = {
       title: 'Learning Machine Models',
       subtitle: 'Compact study poster',
@@ -241,9 +241,14 @@ describe('VideoNotesPanel', () => {
       prompt: 'clean poster'
     }
     const onGeneratePoster = vi.fn().mockResolvedValue(poster)
-    renderPanel({ deepSeekEnabled: true, onGeneratePoster })
+    const onArchivePosterSummary = vi.fn().mockResolvedValue(undefined)
+    renderPanel({ deepSeekEnabled: true, onGeneratePoster, onArchivePosterSummary })
     fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+    expect(onGeneratePoster).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '点击总结' }))
     await waitFor(() => expect(onGeneratePoster).toHaveBeenCalledWith(sampleNote))
+    expect(onArchivePosterSummary).toHaveBeenCalledWith(sampleNote, poster)
     expect(await screen.findByRole('region', { name: 'DeepSeek 总结' })).toHaveTextContent('Learning Machine Models')
     expect(screen.getByText('Data quality matters')).toBeInTheDocument()
   })
@@ -260,11 +265,13 @@ describe('VideoNotesPanel', () => {
     renderPanel({ deepSeekEnabled: true, onGeneratePoster })
 
     fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+    fireEvent.click(screen.getByRole('button', { name: '点击总结' }))
     expect(await screen.findByText('Learning Machine Models')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
     fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
 
+    fireEvent.click(screen.getByRole('button', { name: '点击总结' }))
     expect(onGeneratePoster).toHaveBeenCalledOnce()
     expect(screen.getByText('Learning Machine Models')).toBeInTheDocument()
   })
@@ -277,6 +284,19 @@ describe('VideoNotesPanel', () => {
     expect(screen.getAllByText('请先转写音频，再生成 DeepSeek 总结。').length).toBeGreaterThan(0)
     expect(onTranscribeAudio).not.toHaveBeenCalled()
     expect(onGeneratePoster).not.toHaveBeenCalled()
+  })
+
+  it('requests automatic DeepSeek summary when auto summary mode is enabled before transcribing', async () => {
+    const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
+    renderPanel({ note: null, deepSeekEnabled: true, onTranscribeAudio })
+
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek/ }))
+    fireEvent.click(screen.getByRole('button', { name: '自动总结' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+
+    await waitFor(() =>
+      expect(onTranscribeAudio).toHaveBeenCalledWith({ summarizeWithDeepSeek: true })
+    )
   })
 
   it('keeps timed transcript and DeepSeek summary copy actions to top-right copy buttons', async () => {

@@ -735,7 +735,9 @@ export default function App() {
     })
   }
 
-  async function enqueueRuntimeVideoAudioTranscription(): Promise<VideoAudioTranscriptionQueueSnapshot | null> {
+  async function enqueueRuntimeVideoAudioTranscription(options?: {
+    summarizeWithDeepSeek?: boolean
+  }): Promise<VideoAudioTranscriptionQueueSnapshot | null> {
     const extraction = await readVideoNoteSource()
 
     if (!extraction?.source.url || !window.bilimiDesktop?.enqueueVideoAudioTranscription) {
@@ -745,7 +747,8 @@ export default function App() {
     return window.bilimiDesktop.enqueueVideoAudioTranscription({
       url: extraction.source.url,
       title: extraction.source.title,
-      bvid: extraction.source.bvid
+      bvid: extraction.source.bvid,
+      summarizeWithDeepSeek: Boolean(options?.summarizeWithDeepSeek)
     })
   }
 
@@ -765,7 +768,9 @@ export default function App() {
         case 'generate-video-note-from-audio':
           return generateRuntimeVideoNoteFromAudio()
         case 'enqueue-current-video-audio':
-          return enqueueRuntimeVideoAudioTranscription()
+          return enqueueRuntimeVideoAudioTranscription({
+            summarizeWithDeepSeek: request.summarizeWithDeepSeek
+          })
         case 'save-video-note':
           await saveVideoNote(request.note)
           return request.note

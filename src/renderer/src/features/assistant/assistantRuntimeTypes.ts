@@ -33,7 +33,7 @@ export type AssistantRuntimeRequest =
     }
   | { id: string; type: 'generate-video-note'; manualTranscript?: string }
   | { id: string; type: 'generate-video-note-from-audio' }
-  | { id: string; type: 'enqueue-current-video-audio' }
+  | { id: string; type: 'enqueue-current-video-audio'; summarizeWithDeepSeek?: boolean }
   | { id: string; type: 'save-video-note'; note: VideoNote }
   | { id: string; type: 'get-current-video-time' }
   | { id: string; type: 'seek-video-time'; seconds: number }

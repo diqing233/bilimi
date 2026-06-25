@@ -323,6 +323,23 @@ describe('video note archive store helpers', () => {
     expect(saveVideoNoteArchiveVersion(store, first, '2026-06-17T00:00:00.000Z')[0].versions).toHaveLength(1)
     expect(saveVideoNoteArchiveVersion(store, second, '2026-06-17T01:00:00.000Z')[0].versions).toHaveLength(2)
     expect(store.snapshot.videoNoteArchives[0].versions[1].plainTranscript).toBe('第二次转写。')
+    expect(store.snapshot.videoNoteArchives[0].versions[1].summaryText).toBe('')
+  })
+
+  it('stores explicit DeepSeek summary text with archive versions', () => {
+    const store = createFakeStore()
+    const note = createStoreNote()
+
+    saveVideoNoteArchiveVersion(
+      store,
+      note,
+      '2026-06-17T00:00:00.000Z',
+      'DeepSeek summary text'
+    )
+
+    expect(store.snapshot.videoNoteArchives[0].versions[0].summaryText).toBe(
+      'DeepSeek summary text'
+    )
   })
 
   it('updates a saved archive version in place', () => {

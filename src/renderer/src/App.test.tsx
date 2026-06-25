@@ -578,6 +578,38 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('passes automatic DeepSeek summary preference into queued audio transcription', async () => {
+    const { desktopApi, requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn().mockResolvedValue({
+        title: 'Queued audio demo',
+        bvid: 'BV1queue',
+        url: 'https://www.bilibili.com/video/BV1queue',
+        tags: [],
+        transcript: []
+      })
+    })
+    desktopApi.enqueueVideoAudioTranscription = vi.fn().mockResolvedValue({ items: [] })
+
+    await requestRuntime({
+      id: 'queue-audio-1',
+      type: 'enqueue-current-video-audio',
+      summarizeWithDeepSeek: true
+    })
+
+    expect(desktopApi.enqueueVideoAudioTranscription).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://www.bilibili.com/video/BV1queue',
+        title: 'Queued audio demo',
+        bvid: 'BV1queue',
+        summarizeWithDeepSeek: true
+      })
+    )
+  })
+
   it('keeps pasted transcript generation local without audio transcription', async () => {
     const { desktopApi, requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {

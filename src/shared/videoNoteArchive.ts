@@ -4,7 +4,8 @@ import type {
   VideoNoteArchiveEntry,
   VideoNoteArchiveSearchFilters,
   VideoNoteArchiveVersion,
-  VideoNoteTimelineItem
+  VideoNoteTimelineItem,
+  NotePosterSummary
 } from './types'
 import { createVideoNoteId, normalizeVideoNote } from './videoNotes'
 
@@ -102,7 +103,8 @@ export function normalizeVideoNoteArchives(
 export function appendVideoNoteArchiveVersion(
   archives: VideoNoteArchiveEntry[],
   note: VideoNote,
-  createdAt: string
+  createdAt: string,
+  summaryText = ''
 ): VideoNoteArchiveEntry[] {
   const normalizedArchives = normalizeVideoNoteArchives(archives)
   const normalizedNote = normalizeVideoNote(note)
@@ -111,7 +113,7 @@ export function appendVideoNoteArchiveVersion(
     id: createVersionId(normalizedNote, createdAt),
     note: normalizedNote,
     plainTranscript: createPlainTranscriptText(normalizedNote),
-    summaryText: createSummaryText(normalizedNote),
+    summaryText,
     createdAt
   }
   const existingArchive = normalizedArchives.find((archive) => archive.id === archiveId)
@@ -165,6 +167,18 @@ export function deleteVideoNoteArchiveVersion(
     .filter((archive) => archive.versions.length > 0)
 }
 
+export function createNotePosterText(poster: NotePosterSummary): string {
+  return [
+    poster.title,
+    poster.subtitle,
+    '',
+    ...poster.keyPoints.map((point) => '- ' + point),
+    poster.keywords.length > 0 ? '关键词：' + poster.keywords.join('、') : ''
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
 export function updateVideoNoteArchiveVersion(
   archives: VideoNoteArchiveEntry[],
   archiveId: string,
@@ -184,7 +198,7 @@ export function updateVideoNoteArchiveVersion(
                   ...version,
                   note: normalizedNote,
                   plainTranscript: createPlainTranscriptText(normalizedNote),
-                  summaryText: createSummaryText(normalizedNote)
+                  summaryText: version.summaryText
                 }
               : version
           ),

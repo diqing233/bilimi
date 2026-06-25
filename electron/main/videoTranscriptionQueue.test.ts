@@ -100,7 +100,8 @@ describe('video transcription queue', () => {
         id: 'bvid:BV1queue',
         transcript: createTranscript('first transcript'),
         transcriptSource: 'audio'
-      })
+      }),
+      ''
     )
     expect(transcribe).toHaveBeenCalledTimes(2)
     expect(queue.getSnapshot().items.map((item) => item.status)).toEqual(['completed', 'running'])
@@ -112,6 +113,69 @@ describe('video transcription queue', () => {
     expect(queue.getSnapshot().items.map((item) => item.status)).toEqual(['completed', 'completed'])
     expect(store.save).toHaveBeenCalled()
     expect(snapshots.at(-1)?.activeItemId).toBeUndefined()
+  })
+
+  it('generates and saves DeepSeek summary text only for jobs that request auto summary', async () => {
+    const transcribe = vi.fn().mockResolvedValue({
+      transcript: createTranscript('summary transcript'),
+      transcriptSource: 'audio'
+    })
+    const summarizeNote = vi.fn().mockResolvedValue('DeepSeek summary text')
+    const saveArchiveVersion = vi.fn()
+    const queue = createVideoTranscriptionQueue({
+      loadItems: createStore().load,
+      saveItems: vi.fn(),
+      transcribe,
+      summarizeNote,
+      saveArchiveVersion,
+      now: () => '2026-06-25T00:00:00.000Z'
+    })
+
+    queue.enqueue(createRequest({ summarizeWithDeepSeek: true }))
+    await flushMicrotasks()
+    await flushMicrotasks()
+
+    expect(summarizeNote).toHaveBeenCalledWith(
+      expect.objectContaining<Partial<VideoNote>>({
+        id: 'bvid:BV1queue',
+        transcript: createTranscript('summary transcript')
+      })
+    )
+    expect(saveArchiveVersion).toHaveBeenCalledWith(
+      expect.objectContaining<Partial<VideoNote>>({
+        id: 'bvid:BV1queue'
+      }),
+      'DeepSeek summary text'
+    )
+  })
+
+  it('saves queued notes without summary text when auto summary is not requested', async () => {
+    const transcribe = vi.fn().mockResolvedValue({
+      transcript: createTranscript('plain transcript'),
+      transcriptSource: 'audio'
+    })
+    const summarizeNote = vi.fn()
+    const saveArchiveVersion = vi.fn()
+    const queue = createVideoTranscriptionQueue({
+      loadItems: createStore().load,
+      saveItems: vi.fn(),
+      transcribe,
+      summarizeNote,
+      saveArchiveVersion,
+      now: () => '2026-06-25T00:00:00.000Z'
+    })
+
+    queue.enqueue(createRequest())
+    await flushMicrotasks()
+    await flushMicrotasks()
+
+    expect(summarizeNote).not.toHaveBeenCalled()
+    expect(saveArchiveVersion).toHaveBeenCalledWith(
+      expect.objectContaining<Partial<VideoNote>>({
+        id: 'bvid:BV1queue'
+      }),
+      ''
+    )
   })
 
   it('marks failed jobs and continues with the next pending item', async () => {

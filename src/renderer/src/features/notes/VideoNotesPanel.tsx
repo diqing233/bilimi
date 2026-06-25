@@ -7,10 +7,18 @@ import type {
   VideoAudioTranscriptionQueueSnapshot,
   VideoNote
 } from '@shared/types'
-import { createPlainTranscriptText, createSummaryText } from '@shared/videoNoteArchive'
+import {
+  createNotePosterText,
+  createPlainTranscriptText,
+  createSummaryText
+} from '@shared/videoNoteArchive'
 import { AssistantActionButton } from '../assistant/AssistantActionButton'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
+
+type VideoNotesGenerateOptions = {
+  summarizeWithDeepSeek?: boolean
+}
 
 type VideoNotesPanelProps = {
   note: VideoNote | null
@@ -19,9 +27,12 @@ type VideoNotesPanelProps = {
   onGenerate: () => Promise<VideoNote | null>
   onSave: (note: VideoNote) => Promise<void>
   onChange?: (note: VideoNote) => void
-  onTranscribeAudio?: () => Promise<VideoNote | null>
-  onEnqueueTranscription?: () => Promise<VideoAudioTranscriptionQueueSnapshot | null>
+  onTranscribeAudio?: (options?: VideoNotesGenerateOptions) => Promise<VideoNote | null>
+  onEnqueueTranscription?: (
+    options?: VideoNotesGenerateOptions
+  ) => Promise<VideoAudioTranscriptionQueueSnapshot | null>
   onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
+  onArchivePosterSummary?: (note: VideoNote, poster: NotePosterSummary) => Promise<void>
   onOpenArchive?: () => void
   deepSeekEnabled?: boolean
   transcriptionProgress?: VideoAudioTranscriptionProgress | null
@@ -88,18 +99,6 @@ function createTimedTranscriptText(segments: TranscriptSegment[]): string {
     .join('\n\n')
 }
 
-function createPosterText(poster: NotePosterSummary): string {
-  return [
-    poster.title,
-    poster.subtitle,
-    '',
-    ...poster.keyPoints.map((point) => '- ' + point),
-    poster.keywords.length > 0 ? '关键词：' + poster.keywords.join('、') : ''
-  ]
-    .filter(Boolean)
-    .join('\n')
-}
-
 export function VideoNotesPanel({
   note,
   currentVideoTitle = '当前视频',
@@ -108,6 +107,7 @@ export function VideoNotesPanel({
   onTranscribeAudio,
   onEnqueueTranscription,
   onGeneratePoster,
+  onArchivePosterSummary,
   onOpenArchive,
   deepSeekEnabled = false,
   transcriptionProgress = null,
@@ -116,6 +116,7 @@ export function VideoNotesPanel({
   const [activeResultTab, setActiveResultTab] = useState<VideoNotesResultTab | null>(null)
   const [localGenerating, setLocalGenerating] = useState(false)
   const [transcribingAudio, setTranscribingAudio] = useState(false)
+  const [autoSummarizeWithDeepSeek, setAutoSummarizeWithDeepSeek] = useState(false)
   const [generateFailed, setGenerateFailed] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
@@ -146,7 +147,7 @@ export function VideoNotesPanel({
   const summaryText = useMemo(
     () =>
       activePosterSummary
-        ? createPosterText(activePosterSummary)
+        ? createNotePosterText(activePosterSummary)
         : note
           ? createSummaryText(note)
           : '',
@@ -178,6 +179,12 @@ export function VideoNotesPanel({
     }
   }
 
+  function createDeepSeekOptions(): VideoNotesGenerateOptions {
+    return {
+      summarizeWithDeepSeek: deepSeekEnabled && autoSummarizeWithDeepSeek
+    }
+  }
+
   async function runTranscribeAudio(): Promise<VideoNote | null> {
     if (!onTranscribeAudio || generationBusy) return null
     setActiveResultTab('plain')
@@ -185,7 +192,7 @@ export function VideoNotesPanel({
     setStatusMessage('')
     setErrorMessage('')
     try {
-      const generatedNote = await onTranscribeAudio()
+      const generatedNote = await onTranscribeAudio(createDeepSeekOptions())
       if (generatedNote) setStatusMessage(deepSeekEnabled ? '音频已转写，可继续生成 DeepSeek 总结。' : '音频转写已完成。')
       return generatedNote
     } catch (error) {
@@ -206,7 +213,7 @@ export function VideoNotesPanel({
     setStatusMessage('')
     setErrorMessage('')
     try {
-      const snapshot = await onEnqueueTranscription()
+      const snapshot = await onEnqueueTranscription(createDeepSeekOptions())
       if (snapshot) {
         const runningTitle =
           snapshot.items.find((item) =>
@@ -231,6 +238,7 @@ export function VideoNotesPanel({
     setErrorMessage('')
     try {
       const summary = await onGeneratePoster(targetNote)
+      await onArchivePosterSummary?.(targetNote, summary)
       setPosterSummary({
         noteKey: createPosterCacheKey(targetNote),
         summary
@@ -261,7 +269,6 @@ export function VideoNotesPanel({
 
   function handleResultTabClick(tab: VideoNotesResultTab): void {
     setActiveResultTab(tab)
-    if (tab === 'summary') void handleGeneratePoster()
   }
 
   async function copyText(value: string, successMessage: string): Promise<void> {
@@ -342,6 +349,21 @@ export function VideoNotesPanel({
       <div role="tabpanel" id="video-notes-summary" aria-labelledby="video-notes-tab-summary">
         <div className="video-notes__panel-header">
           <strong>DeepSeek 总结</strong>
+          <button
+            type="button"
+            aria-pressed={autoSummarizeWithDeepSeek}
+            disabled={!deepSeekEnabled || posterGenerating}
+            onClick={() => setAutoSummarizeWithDeepSeek((enabled) => !enabled)}
+          >
+            自动总结
+          </button>
+          <button
+            type="button"
+            disabled={!deepSeekEnabled || posterGenerating || Boolean(activePosterSummary)}
+            onClick={() => void handleGeneratePoster()}
+          >
+            点击总结
+          </button>
           <button type="button" onClick={() => void copyText(summaryCopy, '全文已复制')}>
             复制全文
           </button>
