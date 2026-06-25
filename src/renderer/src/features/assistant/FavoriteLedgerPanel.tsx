@@ -90,8 +90,10 @@ function saveStatusMessage(result: AssistantAutomationResult | void) {
 }
 
 const COLLAPSED_LEDGER_COUNT = 15
+const FAVORITE_LEDGER_SAFETY_NOTE =
+  '同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
 const LEDGER_SYNC_HINT =
-  '同一个视频可以同时保存在不同收藏夹里；取消勾选后点击同步，未勾选的 Bilimi 收藏夹会从 B 站删除；再次勾选后同步会重新创建。'
+  '取消勾选后点击同步，会删除对应的 Bilimi 收藏夹；再次勾选后同步会重新创建。'
 type OldFavoriteGuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
 const OLD_FAVORITE_GUIDE_STEPS: Array<{ id: OldFavoriteGuideStep; label: string }> = [
   { id: 'scan', label: '扫描概览' },
@@ -164,7 +166,7 @@ export function FavoriteLedgerPanel({
 
   function showSetupPrompt() {
     setSetupPromptVisible(true)
-    setStatus(LEDGER_SYNC_HINT)
+    setStatus(null)
     setSaveStatus(null)
   }
 
@@ -344,7 +346,7 @@ export function FavoriteLedgerPanel({
 
   function setAllLedgersEnabled(enabled: boolean) {
     setSaveStatus(null)
-    setStatus(LEDGER_SYNC_HINT)
+    setStatus(null)
     setSelectedDefaultLedgerIds(
       enabled
         ? new Set(draftLedgers.filter((ledger) => ledger.isDefault).map((ledger) => ledger.id))
@@ -631,6 +633,7 @@ export function FavoriteLedgerPanel({
             description="扫描并整理旧收藏，放进 Bilimi 收藏里"
           />
         </div>
+        <p className="favorite-ledger-panel__safety-note">{FAVORITE_LEDGER_SAFETY_NOTE}</p>
       </div>
 
       {missingLedgerIds.length > 0 ? (
@@ -653,9 +656,11 @@ export function FavoriteLedgerPanel({
         </section>
       ) : null}
 
-      <p className="favorite-ledger-panel__status" role="status">
-        {status ?? saveStatus ?? LEDGER_SYNC_HINT}
-      </p>
+      {status || saveStatus ? (
+        <p className="favorite-ledger-panel__status" role="status">
+          {status ?? saveStatus}
+        </p>
+      ) : null}
 
       <div className="favorite-ledger-panel__workspace">
         <section className="favorite-ledger-panel__checklist" aria-label="收藏夹">
@@ -673,6 +678,7 @@ export function FavoriteLedgerPanel({
             </button>
           </div>
         </div>
+        <p className="favorite-ledger-panel__sync-hint">{LEDGER_SYNC_HINT}</p>
         <div className="favorite-ledger-panel__chips">
           {ledgersToDisplay.map((ledger, ledgerIndex) => {
             const isLedgerEnabled = ledgerEnabled(ledger)

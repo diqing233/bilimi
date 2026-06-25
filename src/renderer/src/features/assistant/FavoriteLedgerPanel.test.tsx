@@ -127,10 +127,10 @@ describe('FavoriteLedgerPanel', () => {
     expect(within(headerActions as HTMLElement).queryByRole('button', { name: '展开' })).not.toBeInTheDocument()
     expect(within(headerActions as HTMLElement).queryByRole('button', { name: '新建收藏夹' })).not.toBeInTheDocument()
     expect(within(headerActions as HTMLElement).getByRole('button', { name: '同步' })).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent(
-      '同一个视频可以同时保存在不同收藏夹里；取消勾选后点击同步，未勾选的 Bilimi 收藏夹会从 B 站删除；再次勾选后同步会重新创建。'
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(ledgerRegion.querySelector('.favorite-ledger-panel__sync-hint')).toHaveTextContent(
+      '取消勾选后点击同步，会删除对应的 Bilimi 收藏夹；再次勾选后同步会重新创建。'
     )
-    expect(ledgerRegion.querySelector('.favorite-ledger-panel__sync-hint')).not.toBeInTheDocument()
 
     const visibleLedgerNames = Array.from(
       ledgerRegion.querySelector('.favorite-ledger-panel__chips')?.children ?? []
@@ -264,10 +264,10 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByRole('img', { name: '小咪整理旧藏' })).toHaveClass(
       'assistant-action-button__pet'
     )
-    expect(screen.getByRole('status')).toHaveTextContent('同一个视频可以同时保存在不同收藏夹里')
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
     expect(
-      screen.queryByText('同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧')
-    ).not.toBeInTheDocument()
+      screen.getByText('同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧')
+    ).toHaveClass('favorite-ledger-panel__safety-note')
   })
 
   it('frames the ledger list and editor together in the workspace', () => {
@@ -671,7 +671,9 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
     expect(screen.getByText('正在编辑：Bilimi·鬼畜')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('status'))
+    fireEvent.click(
+      screen.getByText('同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧')
+    )
 
     expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
   })
@@ -716,7 +718,9 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.change(editor.getByLabelText('册名'), {
       target: { value: '音MAD' }
     })
-    fireEvent.click(screen.getByRole('status'))
+    fireEvent.click(
+      screen.getByText('同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧')
+    )
 
     expect(screen.getByText('正在编辑：Bilimi·音MAD')).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('当前收藏夹有未保存修改，请先保存。')

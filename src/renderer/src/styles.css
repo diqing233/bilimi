@@ -2122,6 +2122,12 @@ body[data-floating-window="true"],
   font-size: 18px;
   font-weight: 700;
 }
+.favorite-ledger-panel__safety-note {
+  flex: 1 0 100%;
+  color: var(--porcelain-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
 .favorite-ledger-panel__notice,
 .favorite-ledger-panel__status {
   border: 1px solid rgba(31, 99, 181, 0.24);
@@ -2150,6 +2156,11 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__category-header,
 .favorite-ledger-panel__editor-title {
   justify-content: space-between;
+}
+.favorite-ledger-panel__sync-hint {
+  color: var(--porcelain-muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 .favorite-ledger-panel__category-actions {
   display: flex;
