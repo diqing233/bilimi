@@ -502,6 +502,7 @@ export function FavoriteLedgerPanel({
   async function scanOldFavorites(mode: 'setup' | 'organize' = 'organize') {
     setBusy(true)
     setSaveStatus(null)
+    setStatus('正在扫描旧藏，请稍候。')
     try {
       const nextPreview = await onScanOldFavorites()
       if (nextPreview.ok === false) {

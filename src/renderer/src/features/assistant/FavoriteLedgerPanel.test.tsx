@@ -1,6 +1,7 @@
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
 import { FavoriteLedgerPanel } from './FavoriteLedgerPanel'
 
 describe('FavoriteLedgerPanel', () => {
@@ -1198,6 +1199,38 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '同步' }))
 
     expect(await screen.findByRole('status')).toHaveTextContent('同步未完成：账号同步超时')
+  })
+
+  it('shows a status message while old favorites are scanning', async () => {
+    let resolveScan: (preview: FavoriteLedgerPreview) => void = () => {}
+    const onScanOldFavorites = vi.fn(
+      () =>
+        new Promise<FavoriteLedgerPreview>((resolve) => {
+          resolveScan = resolve
+        })
+    )
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    expect(screen.getByRole('status')).toHaveTextContent('正在扫描旧藏，请稍候。')
+
+    await act(async () => {
+      resolveScan({
+        items: [],
+        skippedSourceFolderTitles: []
+      })
+    })
   })
 
   it('shows old favorite scan failures instead of an empty preview', async () => {
