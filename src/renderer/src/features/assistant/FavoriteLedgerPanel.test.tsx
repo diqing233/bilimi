@@ -8,7 +8,7 @@ describe('FavoriteLedgerPanel', () => {
   const safetyNote =
     '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
 
-  it('asks before scanning old favorites for personalized ledgers from 备册', async () => {
+  it('backs up ledgers directly from 备册 without the old setup prompt', async () => {
     const onEnsureLedgers = vi.fn().mockResolvedValue({
       ok: true,
       steps: ['api:ledger:list', 'api:ledger:create:humor'],
@@ -37,7 +37,7 @@ describe('FavoriteLedgerPanel', () => {
 
     const { container } = render(
       <FavoriteLedgerPanel
-        ledgers={createDefaultFavoriteLedgers().slice(0, 2)}
+        ledgers={createDefaultFavoriteLedgers()}
         missingLedgerIds={['game']}
         onEnsureLedgers={onEnsureLedgers}
         onSaveLedgers={onSaveLedgers}
@@ -52,27 +52,21 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '备册' }))
 
     expect(onEnsureLedgers).not.toHaveBeenCalled()
-    expect(screen.getByText('是否根据旧藏生成你的专属库房？')).toBeInTheDocument()
+    expect(onScanOldFavorites).not.toHaveBeenCalled()
+    expect(screen.queryByText('是否根据旧藏生成你的专属库房？')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '扫描旧藏生成' }))
-
-    await waitFor(() => expect(onScanOldFavorites).toHaveBeenCalledOnce())
-    expect(onSaveLedgers).not.toHaveBeenCalled()
-    expect(await screen.findByRole('region', { name: '备册向导' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '备册' })).toBeInTheDocument()
-    expect(screen.getByText('基础数据')).toBeInTheDocument()
-    expect(screen.getByText('默认收藏夹 3')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
-    expect(
-      screen.getByText('确认执行后，会把上方已勾选收藏夹和下方勾选候选同步到 B 站收藏夹里。')
-    ).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
-    expect(screen.getByText('Bilimi·动画')).toBeInTheDocument()
-    expect(screen.getByText('Bilimi·游戏')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
-    fireEvent.click(screen.getByRole('button', { name: '确认同步' }))
     await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
-    expect(onEnsureLedgers).not.toHaveBeenCalled()
+
+    expect(onSaveLedgers).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ displayName: 'Bilimi·动画', enabled: true }),
+        expect.objectContaining({ displayName: 'Bilimi·游戏', enabled: true }),
+        expect.objectContaining({ displayName: 'Bilimi·知识', enabled: true })
+      ])
+    )
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '小咪备册已完成，主人可以再增加自己想要的收藏夹，点击同步即可'
+    )
     const toolbar = container.querySelector('.favorite-ledger-panel__toolbar')
     const status = container.querySelector('.favorite-ledger-panel__status')
     const workspace = container.querySelector('.favorite-ledger-panel__workspace')
@@ -1053,8 +1047,20 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([preview.items[0]]))
   })
 
-  it('asks users to setup ledgers before organizing old favorites', () => {
-    const onScanOldFavorites = vi.fn()
+  it('asks users to backup before organizing old favorites when ledgers are missing', async () => {
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 3,
+        topAuthors: [],
+        topTags: [],
+        topCategories: [],
+        sourceFolders: [{ name: '默认收藏夹', count: 3 }],
+        titleSeries: [],
+        candidateLedgers: []
+      }
+    })
 
     render(
       <FavoriteLedgerPanel
@@ -1069,9 +1075,8 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
 
-    expect(onScanOldFavorites).not.toHaveBeenCalled()
+    expect(screen.queryByText('是否根据旧藏生成你的专属库房？')).not.toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('请先备册，再整理旧藏。')
-    expect(screen.getByText('是否根据旧藏生成你的专属库房？')).toBeInTheDocument()
   })
 
   it('scans old favorites and executes only checked append operations', async () => {
@@ -1364,6 +1369,119 @@ describe('FavoriteLedgerPanel', () => {
         ])
       )
     )
+  })
+
+  it('backs up the top ledger checklist immediately from 备册', async () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'knowledge' ? { ...ledger, enabled: false } : ledger
+    )
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 6,
+        topAuthors: [],
+        topTags: [{ name: 'AI', count: 4 }],
+        topCategories: [],
+        sourceFolders: [{ name: '默认收藏夹', count: 6 }],
+        titleSeries: [],
+        candidateLedgers: [
+          {
+            kind: 'tag-cluster',
+            sourceName: 'AI',
+            displayName: 'Bilimi·AI工具',
+            keywords: ['AI', '工具', '效率'],
+            count: 4,
+            confidence: 'high',
+            reason: '高频标签“AI”出现 4 次，适合单独成册。',
+            aiEnhanced: false
+          }
+        ]
+      }
+    })
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={ledgers}
+        missingLedgerIds={['knowledge']}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '备册' }))
+
+    const ledgerRegion = screen.getByRole('region', { name: '收藏夹' })
+    const knowledgeTopButton = within(ledgerRegion).getByRole('button', { name: '知识' })
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '小咪备册已完成，主人可以再增加自己想要的收藏夹，点击同步即可'
+    )
+    expect(knowledgeTopButton).toHaveAttribute('aria-pressed', 'true')
+
+    expect(within(ledgerRegion).queryByRole('button', { name: 'AI工具' })).not.toBeInTheDocument()
+  })
+
+  it('syncs setup recommendations with the top ledger checklist immediately', async () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'knowledge' ? { ...ledger, enabled: false } : ledger
+    )
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 6,
+        topAuthors: [],
+        topTags: [{ name: 'AI', count: 4 }],
+        topCategories: [],
+        sourceFolders: [{ name: '默认收藏夹', count: 6 }],
+        titleSeries: [],
+        candidateLedgers: [
+          {
+            kind: 'tag-cluster',
+            sourceName: 'AI',
+            displayName: 'Bilimi·AI工具',
+            keywords: ['AI', '工具', '效率'],
+            count: 4,
+            confidence: 'high',
+            reason: '高频标签“AI”出现 4 次，适合单独成册。',
+            aiEnhanced: false
+          }
+        ]
+      }
+    })
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={ledgers}
+        missingLedgerIds={['knowledge']}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '备册向导' })
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+
+    const ledgerRegion = screen.getByRole('region', { name: '收藏夹' })
+    const knowledgeTopButton = within(ledgerRegion).getByRole('button', { name: '知识' })
+    expect(knowledgeTopButton).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(screen.getByLabelText('Bilimi·知识'))
+    expect(knowledgeTopButton).toHaveAttribute('aria-pressed', 'true')
+
+    expect(within(ledgerRegion).queryByRole('button', { name: 'AI工具' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Bilimi·AI工具'))
+    expect(within(ledgerRegion).getByRole('button', { name: 'AI工具' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+
+    fireEvent.click(screen.getByLabelText('Bilimi·AI工具'))
+    expect(within(ledgerRegion).queryByRole('button', { name: 'AI工具' })).not.toBeInTheDocument()
   })
 
   it('marks AI-enhanced ledger suggestions when DeepSeek improves the local candidates', async () => {

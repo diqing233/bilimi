@@ -36,6 +36,17 @@ function alreadyHasLedger(ledgers: FavoriteLedger[], displayName: string) {
   return ledgers.some((ledger) => ledger.displayName === displayName)
 }
 
+function mergeDefaultLedgers(ledgers: FavoriteLedger[], enabled?: boolean) {
+  const ledgerById = new Map(ledgers.map((ledger) => [ledger.id, ledger]))
+  const mergedDefaults = createDefaultFavoriteLedgers().map((ledger) => ({
+    ...(ledgerById.get(ledger.id) ?? ledger),
+    enabled: enabled ?? ledgerById.get(ledger.id)?.enabled ?? ledger.enabled
+  }))
+  const customLedgers = ledgers.filter((ledger) => !ledger.isDefault)
+
+  return withSequentialPriorities([...mergedDefaults, ...customLedgers])
+}
+
 function candidateLedgerId(candidate: FavoriteLedgerCandidate) {
   return `custom-${candidate.kind}-${candidate.sourceName
     .replace(/\W+/g, '-')
@@ -94,6 +105,8 @@ const FAVORITE_LEDGER_SAFETY_NOTE =
   '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
 const LEDGER_SYNC_HINT =
   '自定义你的bilimi收藏夹，点击收藏名字可以进行编辑，添加好后点击【同步】即可更新到b站；取消勾选再点击同步，也会删除对应的 Bilimi 收藏夹。'
+const BACKUP_COMPLETE_MESSAGE =
+  '小咪备册已完成，主人可以再增加自己想要的收藏夹，点击同步即可'
 type OldFavoriteGuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
 type OldFavoriteGuideMode = 'setup' | 'organize'
 const OLD_FAVORITE_GUIDE_STEPS: Array<{ id: OldFavoriteGuideStep; label: string }> = [
@@ -114,7 +127,6 @@ function visibleLedgers(ledgers: FavoriteLedger[], expanded: boolean) {
 export function FavoriteLedgerPanel({
   ledgers,
   missingLedgerIds,
-  onEnsureLedgers,
   onSaveLedgers,
   onScanOldFavorites,
   onExecuteOldFavoritePlan
@@ -123,7 +135,6 @@ export function FavoriteLedgerPanel({
   const [activeLedgerId, setActiveLedgerId] = useState<string | null>(null)
   const [activeLedgerIndex, setActiveLedgerIndex] = useState<number | null>(null)
   const [preview, setPreview] = useState<FavoriteLedgerPreview | null>(null)
-  const [setupPromptVisible, setSetupPromptVisible] = useState(false)
   const [selectedDefaultLedgerIds, setSelectedDefaultLedgerIds] = useState<Set<string>>(
     () => new Set(ledgers.filter((ledger) => ledger.enabled && ledger.isDefault).map((ledger) => ledger.id))
   )
@@ -166,22 +177,9 @@ export function FavoriteLedgerPanel({
     finishLedgerDrag()
   }, [ledgers])
 
-  function showSetupPrompt() {
-    setSetupPromptVisible(true)
-    setStatus(null)
-    setSaveStatus(null)
-  }
-
-  async function scanPersonalizedSetup() {
-    setSetupPromptVisible(false)
-    await scanOldFavorites('setup')
-  }
-
   async function startOrganizingOldFavorites() {
     if (missingLedgerIds.length > 0) {
-      setSetupPromptVisible(true)
-      setStatus('请先备册，再整理旧藏。')
-      setSaveStatus(null)
+      await scanOldFavorites('setup')
       return
     }
 
@@ -304,7 +302,7 @@ export function FavoriteLedgerPanel({
     if (
       !target ||
       target.closest(
-        '.favorite-ledger-panel__editor, .favorite-ledger-panel__chips, .favorite-ledger-panel__list-toggle, .favorite-ledger-panel__category-actions, .favorite-ledger-panel__toolbar, .favorite-ledger-panel__preview, .favorite-ledger-panel__old-favorites-guide, .favorite-ledger-panel__setup-prompt'
+        '.favorite-ledger-panel__editor, .favorite-ledger-panel__chips, .favorite-ledger-panel__list-toggle, .favorite-ledger-panel__category-actions, .favorite-ledger-panel__toolbar, .favorite-ledger-panel__preview, .favorite-ledger-panel__old-favorites-guide'
       )
     ) {
       return
@@ -389,8 +387,36 @@ export function FavoriteLedgerPanel({
       const next = new Set(current)
       if (next.has(key)) {
         next.delete(key)
+        setDraftLedgers((currentLedgers) =>
+          currentLedgers.filter(
+            (ledger) =>
+              !(
+                !ledger.isDefault &&
+                ledger.id === candidateLedgerId(candidate) &&
+                ledger.displayName === candidate.displayName
+              )
+          )
+        )
       } else {
         next.add(key)
+        setDraftLedgers((currentLedgers) => {
+          if (alreadyHasLedger(currentLedgers, candidate.displayName)) {
+            return currentLedgers.map((ledger) =>
+              ledger.displayName === candidate.displayName
+                ? {
+                    ...ledger,
+                    enabled: true
+                  }
+                : ledger
+            )
+          }
+
+          return withSequentialPriorities([
+            ...currentLedgers,
+            candidateToLedger(candidate, (currentLedgers.length + 1) * 10)
+          ])
+        })
+        setLedgerListExpanded(true)
       }
       return next
     })
@@ -468,17 +494,18 @@ export function FavoriteLedgerPanel({
     setDragTargetLedgerId(null)
   }
 
-  function buildLedgersToSave(includeSelectedCandidates = true) {
+  function buildLedgersToSave(includeSelectedCandidates = true, includeDefaultLedgers = false) {
     const candidates = preview?.insights?.candidateLedgers ?? []
     const selectedCandidates = candidates.filter((candidate) =>
       selectedCandidateKeys.has(candidateKey(candidate))
     )
+    const ledgersToBuild = includeDefaultLedgers ? mergeDefaultLedgers(draftLedgers, true) : draftLedgers
     const nextLedgers = withSequentialPriorities(
-      draftLedgers.map((ledger) =>
+      ledgersToBuild.map((ledger) =>
         ledger.isDefault
           ? {
               ...ledger,
-              enabled: selectedDefaultLedgerIds.has(ledger.id)
+              enabled: includeDefaultLedgers || selectedDefaultLedgerIds.has(ledger.id)
             }
           : ledger
       )
@@ -495,15 +522,32 @@ export function FavoriteLedgerPanel({
     return nextLedgers
   }
 
-  async function saveLedgers() {
-    const nextLedgers = buildLedgersToSave()
+  async function saveLedgers(options: {
+    includeSelectedCandidates?: boolean
+    includeDefaultLedgers?: boolean
+    successMessage?: string
+    pendingMessage?: string
+  } = {}) {
+    const nextLedgers = buildLedgersToSave(
+      options.includeSelectedCandidates ?? true,
+      options.includeDefaultLedgers ?? false
+    )
 
     setBusy(true)
     setStatus(null)
-    setSaveStatus('正在保存...')
+    setSaveStatus(options.pendingMessage ?? '正在保存...')
     try {
       const result = await onSaveLedgers(nextLedgers)
-      setSaveStatus(saveStatusMessage(result))
+      if (options.includeDefaultLedgers && result?.ok !== false) {
+        setDraftLedgers(nextLedgers)
+        setSelectedDefaultLedgerIds(new Set(nextLedgers.filter((ledger) => ledger.isDefault).map((ledger) => ledger.id)))
+      }
+      if (options.successMessage && result?.ok !== false) {
+        setSaveStatus(null)
+        setStatus(options.successMessage)
+      } else {
+        setSaveStatus(saveStatusMessage(result))
+      }
       setActiveLedgerId(null)
       setActiveLedgerIndex(null)
     } catch (error) {
@@ -528,6 +572,13 @@ export function FavoriteLedgerPanel({
       setPreview(nextPreview)
       setOldFavoriteStep('scan')
       setOldFavoriteGuideMode(mode)
+      if (mode === 'setup') {
+        const nextLedgers = mergeDefaultLedgers(draftLedgers)
+        setDraftLedgers(nextLedgers)
+        setSelectedDefaultLedgerIds(
+          new Set(nextLedgers.filter((ledger) => ledger.enabled && ledger.isDefault).map((ledger) => ledger.id))
+        )
+      }
       setSelectedOldFavoriteAids(
         new Set(
           nextPreview.items
@@ -632,7 +683,14 @@ export function FavoriteLedgerPanel({
             type="button"
             aria-label="备册"
             disabled={busy}
-            onClick={showSetupPrompt}
+            onClick={() =>
+              void saveLedgers({
+                includeSelectedCandidates: false,
+                includeDefaultLedgers: true,
+                pendingMessage: '正在备册...',
+                successMessage: BACKUP_COMPLETE_MESSAGE
+              })
+            }
             icon={clickedPetUrl}
             iconAlt="小咪备册"
             badge="备"
@@ -657,20 +715,6 @@ export function FavoriteLedgerPanel({
         <p className="favorite-ledger-panel__notice">
           尚缺 {missingLedgerIds.map((id) => ledgerNamesById[id] ?? id).join('、')}。
         </p>
-      ) : null}
-
-      {setupPromptVisible ? (
-        <section className="favorite-ledger-panel__setup-prompt" aria-label="备册确认">
-          <strong>是否根据旧藏生成你的专属库房？</strong>
-          <div>
-            <button type="button" disabled={busy} onClick={() => void scanPersonalizedSetup()}>
-              扫描旧藏生成
-            </button>
-            <button type="button" disabled={busy} onClick={() => setSetupPromptVisible(false)}>
-              先手动勾选
-            </button>
-          </div>
-        </section>
       ) : null}
 
       {status || saveStatus ? (
@@ -917,27 +961,53 @@ export function FavoriteLedgerPanel({
             <section className="favorite-ledger-panel__candidates" aria-label="专属收藏夹候选">
               <h4>专属收藏夹候选</h4>
               <p>确认执行后，会把上方已勾选收藏夹和下方勾选候选同步到 B 站收藏夹里。</p>
+              {oldFavoriteGuideMode === 'setup'
+                ? draftLedgers
+                    .filter((ledger) => ledger.isDefault)
+                    .map((ledger) => (
+                      <article key={ledger.id}>
+                        <label>
+                          <input
+                            type="checkbox"
+                            aria-label={ledger.displayName}
+                            checked={ledgerEnabled(ledger)}
+                            onChange={() => toggleLedger(ledger.id)}
+                          />
+                          <span>
+                            <strong>{ledger.displayName}</strong>
+                            <small>初始收藏夹</small>
+                            <small>{ledger.keywords.join('、')}</small>
+                          </span>
+                        </label>
+                      </article>
+                    ))
+                : null}
               {preview.insights?.candidateLedgers.length ? (
-                preview.insights.candidateLedgers.map((candidate) => (
-                  <article key={`${candidate.kind}-${candidate.sourceName}`}>
-                    <label>
-                      <input
-                        type="checkbox"
-                        aria-label={candidate.displayName}
-                        checked={selectedCandidateKeys.has(candidateKey(candidate))}
-                        disabled={alreadyHasLedger(draftLedgers, candidate.displayName)}
-                        onChange={() => toggleCandidate(candidate)}
-                      />
-                      <span>
-                        <strong>{candidate.displayName}</strong>
-                        <small>
-                          {candidate.aiEnhanced ? 'DeepSeek 增强' : '本地统计'} · {candidate.reason}
-                        </small>
-                        <small>{candidate.keywords.join('、')}</small>
-                      </span>
-                    </label>
-                  </article>
-                ))
+                preview.insights.candidateLedgers.map((candidate) => {
+                  const key = candidateKey(candidate)
+                  const isSelected = selectedCandidateKeys.has(key)
+
+                  return (
+                    <article key={`${candidate.kind}-${candidate.sourceName}`}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          aria-label={candidate.displayName}
+                          checked={isSelected}
+                          disabled={!isSelected && alreadyHasLedger(draftLedgers, candidate.displayName)}
+                          onChange={() => toggleCandidate(candidate)}
+                        />
+                        <span>
+                          <strong>{candidate.displayName}</strong>
+                          <small>
+                            {candidate.aiEnhanced ? 'DeepSeek 增强' : '本地统计'} · {candidate.reason}
+                          </small>
+                          <small>{candidate.keywords.join('、')}</small>
+                        </span>
+                      </label>
+                    </article>
+                  )
+                })
               ) : (
                 <p>暂无新收藏夹候选，可直接查看归档预览。</p>
               )}
