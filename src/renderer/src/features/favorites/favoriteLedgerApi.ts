@@ -220,9 +220,8 @@ export function buildSaveFavoriteLedgersScript(
         steps.push('api:ledger:create:' + ledger.id);
       }
 
-      const nextLedgerIds = new Set(nextLedgers.map((ledger) => ledger.id));
-      const canDeleteLedger = (ledger) => {
-        if (ledger.isDefault || !ledger.bilibiliFolderId) {
+      const canDeleteManagedFolder = (ledger) => {
+        if (!ledger.bilibiliFolderId) {
           return false;
         }
 
@@ -230,8 +229,36 @@ export function buildSaveFavoriteLedgersScript(
         const remoteTitle = String(folder?.title ?? '');
         return String(ledger.displayName || '').startsWith('Bilimi') || remoteTitle.startsWith('Bilimi');
       };
+      const canDeleteRemovedLedger = (ledger) => !ledger.isDefault && canDeleteManagedFolder(ledger);
+      const disabledLedgers = nextLedgers.filter((ledger) => !ledger.enabled && canDeleteManagedFolder(ledger));
+
+      for (const ledger of disabledLedgers) {
+        const body = new URLSearchParams();
+        body.set('csrf', csrf);
+        body.set('media_ids', String(ledger.bilibiliFolderId));
+        const response = await fetch('https://api.bilibili.com/x/v3/fav/folder/del', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'content-type': 'application/x-www-form-urlencoded;charset=UTF-8'
+          },
+          body
+        });
+        await ensureApiOk(response, 'favorite ledger delete');
+        nextLedgers = nextLedgers.map((item) => {
+          if (item.id !== ledger.id) {
+            return item;
+          }
+
+          const { bilibiliFolderId, ...ledgerWithoutFolderId } = item;
+          return ledgerWithoutFolderId;
+        });
+        steps.push('api:ledger:delete:' + ledger.id);
+      }
+
+      const nextLedgerIds = new Set(nextLedgers.map((ledger) => ledger.id));
       const removedLedgers = payload.previousLedgers.filter(
-        (ledger) => !nextLedgerIds.has(ledger.id) && canDeleteLedger(ledger)
+        (ledger) => !nextLedgerIds.has(ledger.id) && canDeleteRemovedLedger(ledger)
       );
 
       for (const ledger of removedLedgers) {

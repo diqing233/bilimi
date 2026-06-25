@@ -90,6 +90,8 @@ function saveStatusMessage(result: AssistantAutomationResult | void) {
 }
 
 const COLLAPSED_LEDGER_COUNT = 15
+const LEDGER_SYNC_HINT =
+  '同一个视频可以同时保存在不同收藏夹里；取消勾选后点击同步，未勾选的 Bilimi 收藏夹会从 B 站删除；再次勾选后同步会重新创建。'
 type OldFavoriteGuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
 const OLD_FAVORITE_GUIDE_STEPS: Array<{ id: OldFavoriteGuideStep; label: string }> = [
   { id: 'scan', label: '扫描概览' },
@@ -162,7 +164,7 @@ export function FavoriteLedgerPanel({
 
   function showSetupPrompt() {
     setSetupPromptVisible(true)
-    setStatus(null)
+    setStatus(LEDGER_SYNC_HINT)
     setSaveStatus(null)
   }
 
@@ -342,6 +344,7 @@ export function FavoriteLedgerPanel({
 
   function setAllLedgersEnabled(enabled: boolean) {
     setSaveStatus(null)
+    setStatus(LEDGER_SYNC_HINT)
     setSelectedDefaultLedgerIds(
       enabled
         ? new Set(draftLedgers.filter((ledger) => ledger.isDefault).map((ledger) => ledger.id))
@@ -353,6 +356,14 @@ export function FavoriteLedgerPanel({
         enabled
       }))
     )
+  }
+
+  function ledgerEnabled(ledger: FavoriteLedger) {
+    return ledger.isDefault ? selectedDefaultLedgerIds.has(ledger.id) : ledger.enabled
+  }
+
+  function toggleAllLedgers() {
+    setAllLedgersEnabled(!draftLedgers.every(ledgerEnabled))
   }
 
   function toggleCandidate(candidate: FavoriteLedgerCandidate) {
@@ -563,6 +574,8 @@ export function FavoriteLedgerPanel({
   }
 
   const ledgersToDisplay = visibleLedgers(draftLedgers, ledgerListExpanded)
+  const allLedgersSelected = draftLedgers.length > 0 && draftLedgers.every(ledgerEnabled)
+  const bulkToggleLabel = allLedgersSelected ? '取消全选' : '全选'
   const canToggleLedgerList = draftLedgers.length > ledgersToDisplay.length || ledgerListExpanded
   const selectedOldFavoriteItems = preview?.items.filter((item) => selectedOldFavoriteAids.has(item.aid)) ?? []
   const missingOldFavoriteTargetNames = Array.from(
@@ -618,9 +631,6 @@ export function FavoriteLedgerPanel({
             description="扫描并整理旧收藏，放进 Bilimi 收藏里"
           />
         </div>
-        <p className="favorite-ledger-panel__safety-note">
-          同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧
-        </p>
       </div>
 
       {missingLedgerIds.length > 0 ? (
@@ -643,16 +653,9 @@ export function FavoriteLedgerPanel({
         </section>
       ) : null}
 
-      {status ? (
-        <p className="favorite-ledger-panel__status" role="status">
-          {status}
-        </p>
-      ) : null}
-      {saveStatus ? (
-        <p className="favorite-ledger-panel__save-status" role="status">
-          {saveStatus}
-        </p>
-      ) : null}
+      <p className="favorite-ledger-panel__status" role="status">
+        {status ?? saveStatus ?? LEDGER_SYNC_HINT}
+      </p>
 
       <div className="favorite-ledger-panel__workspace">
         <section className="favorite-ledger-panel__checklist" aria-label="收藏夹">
@@ -662,25 +665,17 @@ export function FavoriteLedgerPanel({
             <button type="button" disabled={busy} onClick={resetLedgers}>
               重置
             </button>
-            <button type="button" disabled={busy} onClick={() => setAllLedgersEnabled(true)}>
-              全选
-            </button>
-            <button type="button" disabled={busy} onClick={() => setAllLedgersEnabled(false)}>
-              取消全选
+            <button type="button" disabled={busy} onClick={toggleAllLedgers}>
+              {bulkToggleLabel}
             </button>
             <button type="button" disabled={busy} onClick={() => void saveLedgers()}>
               同步
             </button>
           </div>
         </div>
-        <p className="favorite-ledger-panel__sync-hint">
-          取消勾选后点击同步，会停用该收藏夹；删除 Bilimi 自建收藏夹后同步，会从 B 站删除。
-        </p>
         <div className="favorite-ledger-panel__chips">
           {ledgersToDisplay.map((ledger, ledgerIndex) => {
-            const ledgerEnabled = ledger.isDefault
-              ? selectedDefaultLedgerIds.has(ledger.id)
-              : ledger.enabled
+            const isLedgerEnabled = ledgerEnabled(ledger)
             const ledgerLabel = ledger.displayName.replace(/^Bilimi[·\s-]*/, '')
             const selectLedgerLabel = ledgerLabel || '新建收藏夹'
             return (
@@ -698,7 +693,7 @@ export function FavoriteLedgerPanel({
                 <button
                   type="button"
                   aria-label={ledgerLabel ? undefined : `选择${selectLedgerLabel}`}
-                  aria-pressed={ledgerEnabled}
+                  aria-pressed={isLedgerEnabled}
                   data-active={activeLedger?.id === ledger.id && activeLedgerIndex === ledgerIndex}
                   onClick={() => selectLedger(ledger, ledgerIndex)}
                 >
@@ -707,11 +702,11 @@ export function FavoriteLedgerPanel({
                 <button
                   type="button"
                   className="favorite-ledger-panel__chip-action"
-                  aria-label={`${ledgerEnabled ? '移出同步' : '加入同步'} ${ledger.displayName}`}
-                  data-enabled={ledgerEnabled}
+                  aria-label={`${isLedgerEnabled ? '移出同步' : '加入同步'} ${ledger.displayName}`}
+                  data-enabled={isLedgerEnabled}
                   onClick={() => toggleLedger(ledger.id)}
                 >
-                  {ledgerEnabled ? '✓' : '+'}
+                  {isLedgerEnabled ? '✓' : '+'}
                 </button>
               </div>
             )

@@ -288,6 +288,68 @@ describe('favorite ledger API scripts', () => {
     expect(body.get('media_ids')).toBe('9002')
   })
 
+  it('deletes disabled Bilimi-managed folders while keeping them in preferences', async () => {
+    installCookies()
+    const baseLedgers = createDefaultFavoriteLedgers()
+    const nextLedgers = [
+      {
+        ...baseLedgers[0],
+        enabled: false,
+        bilibiliFolderId: '9001'
+      },
+      {
+        ...baseLedgers[1],
+        displayName: '个人收藏夹',
+        enabled: false,
+        bilibiliFolderId: '9002',
+        isDefault: false
+      }
+    ]
+    const requests: Array<{ body?: string; url: string }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        requests.push({ body: init?.body?.toString(), url })
+
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({
+            code: 0,
+            data: {
+              list: [
+                { id: 9001, title: baseLedgers[0].displayName },
+                { id: 9002, title: '个人收藏夹' }
+              ]
+            }
+          })
+        }
+
+        if (url.includes('/x/v3/fav/folder/del')) {
+          return Response.json({ code: 0, data: {} })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(buildSaveFavoriteLedgersScript(nextLedgers, nextLedgers))
+
+    const deleteRequests = requests.filter((request) => request.url.includes('/folder/del'))
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:delete:animation'])
+    expect(deleteRequests).toHaveLength(1)
+    expect(new URLSearchParams(deleteRequests[0].body).get('media_ids')).toBe('9001')
+    const disabledLedger = result.ledgers.find((ledger) => ledger.id === 'animation')
+    expect(disabledLedger).toEqual(
+      expect.objectContaining({
+        id: 'animation',
+        enabled: false
+      })
+    )
+    expect(disabledLedger).not.toHaveProperty('bilibiliFolderId')
+    expect(result.ledgers.find((ledger) => ledger.id === 'game')?.bilibiliFolderId).toBe('9002')
+  })
+
   it('appends old favorites without passing delete media ids', async () => {
     installCookies()
     const requests: Array<{ body?: string; url: string }> = []
