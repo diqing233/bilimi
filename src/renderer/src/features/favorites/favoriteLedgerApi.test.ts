@@ -379,6 +379,65 @@ describe('favorite ledger API scripts', () => {
     expect(requests.filter((request) => request.url.includes('/x/v3/fav/resource/deal'))).toHaveLength(2)
   })
 
+  it('summarizes repeated html append failures with one login hint', async () => {
+    installCookies()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/x/v3/fav/resource/deal')) {
+          return new Response('<!DOCTYPE html><html><body>login</body></html>', {
+            headers: { 'content-type': 'text/html;charset=utf-8' },
+            status: 200
+          })
+        }
+
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({ code: 0, data: { list: [] } })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(
+      buildExecuteFavoriteLedgerPlanScript([
+        {
+          aid: 123,
+          title: '旧藏甲',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi·知识',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        },
+        {
+          aid: 456,
+          title: '旧藏乙',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi·知识',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        }
+      ])
+    )
+
+    expect(result).toMatchObject({
+      ok: false,
+      steps: ['api:ledger:append-failed:123', 'api:ledger:append-failed:456'],
+      missingTargets: ['favorite-ledger-append:123', 'favorite-ledger-append:456']
+    })
+    expect(result.message).toContain('0 appended, 2 failed')
+    expect(result.message).toContain('旧藏甲')
+    expect(result.message).toContain('旧藏乙')
+    expect(result.message.match(/Please log in to Bilibili again/g)).toBeNull()
+    expect(result.message.match(/请重新登录 Bilibili/g)).toHaveLength(1)
+  })
+
   it('refreshes a stale target folder id and retries an old favorite append once', async () => {
     installCookies()
     const requests: Array<{ body?: string; url: string }> = []

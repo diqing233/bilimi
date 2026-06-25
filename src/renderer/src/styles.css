@@ -2278,10 +2278,15 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__guide-steps button {
   min-width: 0;
-  min-height: 30px;
-  padding: 5px 6px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 8px;
   font-size: 12px;
-  overflow-wrap: anywhere;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .favorite-ledger-panel__guide-steps button[aria-current="step"] {
   border-color: rgba(31, 99, 181, 0.5);

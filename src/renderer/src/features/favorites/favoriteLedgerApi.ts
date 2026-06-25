@@ -502,9 +502,14 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
 
         const appendCount = steps.filter((step) => step.startsWith('api:ledger:append:')).length;
         if (appendFailures.length > 0) {
+          const isHtmlLoginFailure = (message) =>
+            /returned HTML instead of JSON|log in to Bilibili/i.test(String(message || ''));
+          const hasHtmlLoginFailure = appendFailures.some((failure) => isHtmlLoginFailure(failure.message));
+          const summarizeFailureMessage = (message) =>
+            isHtmlLoginFailure(message) ? 'Bilibili 登录状态失效' : String(message || 'unknown error');
           const failedTitles = appendFailures
             .slice(0, 3)
-            .map((failure) => (failure.title || String(failure.aid)) + ': ' + failure.message)
+            .map((failure) => (failure.title || String(failure.aid)) + ': ' + summarizeFailureMessage(failure.message))
             .join('、');
           return {
             ok: false,
@@ -517,6 +522,7 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
               appendFailures.length +
               ' failed' +
               (failedTitles ? ' (' + failedTitles + ')' : '') +
+              (hasHtmlLoginFailure ? ' 请重新登录 Bilibili 后再试。' : '') +
               '.'
           };
         }
