@@ -90,6 +90,13 @@ function saveStatusMessage(result: AssistantAutomationResult | void) {
 }
 
 const COLLAPSED_LEDGER_COUNT = 15
+type OldFavoriteGuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
+const OLD_FAVORITE_GUIDE_STEPS: Array<{ id: OldFavoriteGuideStep; label: string }> = [
+  { id: 'scan', label: '扫描概览' },
+  { id: 'generated', label: '生成收藏夹' },
+  { id: 'preview', label: '归档预览' },
+  { id: 'confirm', label: '确认执行' }
+]
 
 function visibleLedgers(ledgers: FavoriteLedger[], expanded: boolean) {
   if (expanded) {
@@ -123,6 +130,7 @@ export function FavoriteLedgerPanel({
   const [draggedLedgerId, setDraggedLedgerId] = useState<string | null>(null)
   const [dragTargetLedgerId, setDragTargetLedgerId] = useState<string | null>(null)
   const [ledgerListExpanded, setLedgerListExpanded] = useState(false)
+  const [oldFavoriteStep, setOldFavoriteStep] = useState<OldFavoriteGuideStep>('scan')
   const ledgerNamesById = useMemo(
     () => Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName])),
     [draftLedgers]
@@ -278,7 +286,7 @@ export function FavoriteLedgerPanel({
     if (
       !target ||
       target.closest(
-        '.favorite-ledger-panel__editor, .favorite-ledger-panel__chips, .favorite-ledger-panel__list-toggle, .favorite-ledger-panel__category-actions, .favorite-ledger-panel__toolbar, .favorite-ledger-panel__preview, .favorite-ledger-panel__setup-prompt'
+        '.favorite-ledger-panel__editor, .favorite-ledger-panel__chips, .favorite-ledger-panel__list-toggle, .favorite-ledger-panel__category-actions, .favorite-ledger-panel__toolbar, .favorite-ledger-panel__preview, .favorite-ledger-panel__old-favorites-guide, .favorite-ledger-panel__setup-prompt'
       )
     ) {
       return
@@ -469,6 +477,7 @@ export function FavoriteLedgerPanel({
       }
 
       setPreview(nextPreview)
+      setOldFavoriteStep('scan')
       setSelectedOldFavoriteAids(
         new Set(
           nextPreview.items
@@ -519,6 +528,12 @@ export function FavoriteLedgerPanel({
 
   const ledgersToDisplay = visibleLedgers(draftLedgers, ledgerListExpanded)
   const canToggleLedgerList = draftLedgers.length > ledgersToDisplay.length || ledgerListExpanded
+  const selectedOldFavoriteItems = preview?.items.filter((item) => selectedOldFavoriteAids.has(item.aid)) ?? []
+  const autoSelectedOldFavoriteCount =
+    preview?.items.filter((item) => item.selected && !item.alreadyInTarget && !item.reviewRequired).length ?? 0
+  const reviewRequiredOldFavoriteCount = preview?.items.filter((item) => item.reviewRequired).length ?? 0
+  const alreadyInTargetOldFavoriteCount = preview?.items.filter((item) => item.alreadyInTarget).length ?? 0
+  const skippedSourceFolderCount = preview?.skippedSourceFolderTitles.length ?? 0
 
   return (
     <section
@@ -729,109 +744,174 @@ export function FavoriteLedgerPanel({
       </div>
 
       {preview ? (
-        <div className="favorite-ledger-panel__preview">
-          <h3>旧藏预览</h3>
-          {preview.insights ? (
+        <section className="favorite-ledger-panel__old-favorites-guide" aria-label="整理旧藏向导">
+          <div className="favorite-ledger-panel__guide-header">
+            <h3>整理旧藏</h3>
+            <nav className="favorite-ledger-panel__guide-steps" aria-label="整理旧藏步骤">
+              {OLD_FAVORITE_GUIDE_STEPS.map((step) => (
+                <button
+                  key={step.id}
+                  type="button"
+                  aria-current={oldFavoriteStep === step.id ? 'step' : undefined}
+                  onClick={() => setOldFavoriteStep(step.id)}
+                >
+                  {step.label}
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          {oldFavoriteStep === 'scan' ? (
             <section className="favorite-ledger-panel__insights" aria-label="基础数据">
               <h4>基础数据</h4>
-              <p>共扫描 {preview.insights.totalVideos} 条旧藏</p>
-              <div className="favorite-ledger-panel__insight-columns">
-                <div>
-                  <strong>常追 UP</strong>
-                  <ul>
-                    {preview.insights.topAuthors.slice(0, 3).map((author) => (
-                      <li key={author.name}>
-                        {author.name} {author.count}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div>
-                  <strong>高频标签</strong>
-                  <ul>
-                    {preview.insights.topTags.slice(0, 5).map((tag) => (
-                      <li key={tag.name}>
-                        {tag.name} {tag.count}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div>
-                  <strong>分区</strong>
-                  <ul>
-                    {preview.insights.topCategories.slice(0, 3).map((category) => (
-                      <li key={category.name}>
-                        {category.name} {category.count}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div>
-                  <strong>来源收藏夹</strong>
-                  <ul>
-                    {(preview.insights.sourceFolders ?? []).slice(0, 5).map((folder) => (
-                      <li key={folder.name}>
-                        {folder.name} {folder.count}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+              <div className="favorite-ledger-panel__guide-metrics">
+                <article>
+                  <span>共扫描</span>
+                  <strong>{preview.insights?.totalVideos ?? preview.items.length}</strong>
+                </article>
+                <article>
+                  <span>可自动归档</span>
+                  <strong>{autoSelectedOldFavoriteCount}</strong>
+                </article>
+                <article>
+                  <span>需复核</span>
+                  <strong>{reviewRequiredOldFavoriteCount}</strong>
+                </article>
+                <article>
+                  <span>已存在</span>
+                  <strong>{alreadyInTargetOldFavoriteCount}</strong>
+                </article>
+                <article>
+                  <span>跳过来源</span>
+                  <strong>{skippedSourceFolderCount}</strong>
+                </article>
               </div>
-              {preview.insights.candidateLedgers.length > 0 ? (
-                <div className="favorite-ledger-panel__candidates">
-                  <strong>专属收藏夹候选</strong>
-                  {preview.insights.candidateLedgers.map((candidate) => (
-                    <article key={`${candidate.kind}-${candidate.sourceName}`}>
-                      <label>
-                        <input
-                          type="checkbox"
-                          aria-label={candidate.displayName}
-                          checked={selectedCandidateKeys.has(candidateKey(candidate))}
-                          disabled={alreadyHasLedger(draftLedgers, candidate.displayName)}
-                          onChange={() => toggleCandidate(candidate)}
-                        />
-                        <span>
-                          <strong>{candidate.displayName}</strong>
-                          <small>
-                            {candidate.aiEnhanced ? 'AI 增强' : '本地统计'} · {candidate.reason}
-                          </small>
-                        </span>
-                      </label>
-                    </article>
-                  ))}
-                </div>
+              {preview.insights ? (
+                <>
+                  <p>共扫描 {preview.insights.totalVideos} 条旧藏</p>
+                  <div className="favorite-ledger-panel__insight-columns">
+                    <div>
+                      <strong>常追 UP</strong>
+                      <ul>
+                        {preview.insights.topAuthors.slice(0, 3).map((author) => (
+                          <li key={author.name}>
+                            {author.name} {author.count}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <strong>高频标签</strong>
+                      <ul>
+                        {preview.insights.topTags.slice(0, 5).map((tag) => (
+                          <li key={tag.name}>
+                            {tag.name} {tag.count}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <strong>分区</strong>
+                      <ul>
+                        {preview.insights.topCategories.slice(0, 3).map((category) => (
+                          <li key={category.name}>
+                            {category.name} {category.count}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <strong>来源收藏夹</strong>
+                      <ul>
+                        {(preview.insights.sourceFolders ?? []).slice(0, 5).map((folder) => (
+                          <li key={folder.name}>
+                            {folder.name} {folder.count}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </>
               ) : null}
             </section>
           ) : null}
-          {preview.items.length > 0 ? (
-            preview.items.map((item) => (
-              <article key={`${item.sourceFolderTitle}-${item.aid}`}>
-                <label>
-                  <input
-                    type="checkbox"
-                    aria-label={`整理 ${item.title}`}
-                    checked={selectedOldFavoriteAids.has(item.aid)}
-                    disabled={item.alreadyInTarget}
-                    onChange={() => toggleOldFavorite(item.aid)}
-                  />
-                  <span>
-                    <strong>{item.title}</strong>
-                    <small>
-                      {item.sourceFolderTitle} → {item.targetDisplayName}
-                      {item.alreadyInTarget ? ' · 已在册' : ''}
-                      {item.reviewRequired ? ' · 谨慎观望' : ''}
-                    </small>
-                  </span>
-                </label>
-              </article>
-            ))
-          ) : (
-            <p>暂无可归册旧藏。</p>
-          )}
-          <button type="button" disabled={busy || selectedOldFavoriteAids.size === 0} onClick={() => void executeOldFavoritePlan()}>
-            确认整理
-          </button>
-        </div>
+
+          {oldFavoriteStep === 'generated' ? (
+            <section className="favorite-ledger-panel__candidates" aria-label="专属收藏夹候选">
+              <h4>专属收藏夹候选</h4>
+              {preview.insights?.candidateLedgers.length ? (
+                preview.insights.candidateLedgers.map((candidate) => (
+                  <article key={`${candidate.kind}-${candidate.sourceName}`}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        aria-label={candidate.displayName}
+                        checked={selectedCandidateKeys.has(candidateKey(candidate))}
+                        disabled={alreadyHasLedger(draftLedgers, candidate.displayName)}
+                        onChange={() => toggleCandidate(candidate)}
+                      />
+                      <span>
+                        <strong>{candidate.displayName}</strong>
+                        <small>
+                          {candidate.aiEnhanced ? 'DeepSeek 增强' : '本地统计'} · {candidate.reason}
+                        </small>
+                        <small>{candidate.keywords.join('、')}</small>
+                      </span>
+                    </label>
+                  </article>
+                ))
+              ) : (
+                <p>暂无新收藏夹候选，可直接查看归档预览。</p>
+              )}
+            </section>
+          ) : null}
+
+          {oldFavoriteStep === 'preview' ? (
+            <div className="favorite-ledger-panel__preview">
+              <h4>归档预览</h4>
+              {preview.items.length > 0 ? (
+                preview.items.map((item) => (
+                  <article key={`${item.sourceFolderTitle}-${item.aid}`}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        aria-label={`整理 ${item.title}`}
+                        checked={selectedOldFavoriteAids.has(item.aid)}
+                        disabled={item.alreadyInTarget}
+                        onChange={() => toggleOldFavorite(item.aid)}
+                      />
+                      <span>
+                        <strong>{item.title}</strong>
+                        <small>
+                          {item.sourceFolderTitle} → {item.targetDisplayName}
+                          {item.alreadyInTarget ? ' · 已在目标' : ''}
+                          {item.reviewRequired ? ' · 需要复核' : ''}
+                        </small>
+                      </span>
+                    </label>
+                  </article>
+                ))
+              ) : (
+                <p>暂无可归册旧藏。</p>
+              )}
+            </div>
+          ) : null}
+
+          {oldFavoriteStep === 'confirm' ? (
+            <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
+              <h4>确认执行</h4>
+              <p>已选择 {selectedOldFavoriteItems.length} 条旧藏</p>
+              <p>只会追加到 Bilimi 收藏夹，不会删除、移动或取消原收藏。</p>
+              <button
+                type="button"
+                disabled={busy || selectedOldFavoriteItems.length === 0}
+                onClick={() => void executeOldFavoritePlan()}
+              >
+                确认整理
+              </button>
+            </section>
+          ) : null}
+        </section>
       ) : null}
 
     </section>

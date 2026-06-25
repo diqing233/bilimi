@@ -247,6 +247,15 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__preview h3 { font-size: 16px;')
   })
 
+  it('styles the old favorites guide as a step-based review flow', () => {
+    expectStyleSnippet('.favorite-ledger-panel__old-favorites-guide { display: grid; gap: 10px;')
+    expectStyleSnippet('.favorite-ledger-panel__guide-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));')
+    expectStyleSnippet('.favorite-ledger-panel__guide-steps button[aria-current="step"] { border-color: rgba(31, 99, 181, 0.5);')
+    expectStyleSnippet('.favorite-ledger-panel__guide-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));')
+    expectStyleSnippet('.favorite-ledger-panel__candidates article, .favorite-ledger-panel__confirm { border: 1px solid rgba(31, 99, 181, 0.18);')
+    expectStyleSnippet('.favorite-ledger-panel__candidates label, .favorite-ledger-panel__preview label { display: grid; grid-template-columns: auto minmax(0, 1fr);')
+  })
+
   it('styles the DeepSeek assistant settings group and actions', () => {
     expect(normalizedStyles).toContain('.assistant-settings__group--deepseek')
     expect(normalizedStyles).toContain('.assistant-settings__actions')

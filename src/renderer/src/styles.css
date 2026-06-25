@@ -2259,6 +2259,80 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__preview h3 {
   font-size: 16px;
 }
+.favorite-ledger-panel__old-favorites-guide {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  border: 1px solid rgba(31, 99, 181, 0.2);
+  background: rgba(247, 251, 255, 0.72);
+  padding: 10px;
+}
+.favorite-ledger-panel__guide-header {
+  display: grid;
+  gap: 8px;
+}
+.favorite-ledger-panel__guide-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.favorite-ledger-panel__guide-steps button {
+  min-width: 0;
+  min-height: 30px;
+  padding: 5px 6px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.favorite-ledger-panel__guide-steps button[aria-current="step"] {
+  border-color: rgba(31, 99, 181, 0.5);
+  background: rgba(220, 238, 255, 0.9);
+  color: var(--porcelain-deep);
+  font-weight: 800;
+}
+.favorite-ledger-panel__guide-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+.favorite-ledger-panel__guide-metrics article {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  border: 1px solid rgba(31, 99, 181, 0.16);
+  background: rgba(255, 255, 255, 0.56);
+  padding: 7px;
+}
+.favorite-ledger-panel__guide-metrics span {
+  color: var(--porcelain-muted);
+  font-size: 11px;
+  line-height: 1.25;
+}
+.favorite-ledger-panel__guide-metrics strong {
+  color: var(--porcelain-deep);
+  font-size: 18px;
+  line-height: 1;
+}
+.favorite-ledger-panel__candidates {
+  display: grid;
+  gap: 8px;
+}
+.favorite-ledger-panel__candidates article,
+.favorite-ledger-panel__confirm {
+  border: 1px solid rgba(31, 99, 181, 0.18);
+  background: rgba(255, 255, 255, 0.58);
+  padding: 8px;
+}
+.favorite-ledger-panel__candidates label,
+.favorite-ledger-panel__preview label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+.favorite-ledger-panel__confirm {
+  display: grid;
+  gap: 8px;
+}
 .favorite-ledger-panel__preview small {
   margin-top: 3px;
   color: var(--porcelain-muted);

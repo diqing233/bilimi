@@ -836,6 +836,120 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.queryByRole('button', { name: '合卷' })).not.toBeInTheDocument()
   })
 
+  it('guides old favorite organization through scan, generated ledgers, preview, and confirmation', async () => {
+    const preview = {
+      items: [
+        {
+          aid: 101,
+          title: '机器学习科普教程',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi路知识',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        },
+        {
+          aid: 102,
+          title: '标题党软广避雷',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'inbox',
+          targetFolderId: '9008',
+          targetDisplayName: 'Bilimi路待分类',
+          reviewRequired: true,
+          alreadyInTarget: false,
+          selected: false
+        },
+        {
+          aid: 103,
+          title: '已经归档的视频',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi路知识',
+          reviewRequired: false,
+          alreadyInTarget: true,
+          selected: false
+        }
+      ],
+      skippedSourceFolderTitles: ['Bilimi路知识'],
+      insights: {
+        totalVideos: 3,
+        topAuthors: [{ name: '效率研究所', count: 2, share: 2 / 3 }],
+        topTags: [{ name: 'AI', count: 2 }],
+        topCategories: [{ name: '科技', count: 2 }],
+        sourceFolders: [{ name: '默认收藏夹', count: 3 }],
+        titleSeries: [],
+        candidateLedgers: [
+          {
+            kind: 'tag-cluster' as const,
+            sourceName: 'AI',
+            displayName: 'Bilimi路AI效率工坊',
+            keywords: ['AI', '效率', '工具'],
+            count: 2,
+            confidence: 'medium' as const,
+            reason: 'DeepSeek 认为 AI 与效率工具可以合并成一个工作流收藏夹。',
+            aiEnhanced: true
+          }
+        ]
+      }
+    }
+    const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
+    const onExecuteOldFavoritePlan = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['api:ledger:append:101'],
+      missingTargets: [],
+      message: '旧藏整理已完成。'
+    })
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={onExecuteOldFavoritePlan}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    expect(await screen.findByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByText('可自动归档')).toBeInTheDocument()
+    expect(screen.getAllByText('1').length).toBeGreaterThanOrEqual(4)
+    expect(screen.getByText('需复核')).toBeInTheDocument()
+    expect(screen.getByText('已存在')).toBeInTheDocument()
+    expect(screen.getByText('跳过来源')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '生成收藏夹' }))
+
+    expect(screen.getByText('Bilimi路AI效率工坊')).toBeInTheDocument()
+    expect(screen.getByText(/DeepSeek 增强/)).toBeInTheDocument()
+    expect(screen.getByText('AI、效率、工具')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+
+    expect(screen.getByText('机器学习科普教程')).toBeInTheDocument()
+    expect(screen.getByText('标题党软广避雷')).toBeInTheDocument()
+    expect(screen.getByText(/需要复核/)).toBeInTheDocument()
+    expect(screen.getByText(/已在目标/)).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('整理 机器学习科普教程'))
+
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+
+    expect(screen.getByText('已选择 0 条旧藏')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '确认整理' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByLabelText('整理 机器学习科普教程'))
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([preview.items[0]]))
+  })
+
   it('scans old favorites and executes only checked append operations', async () => {
     const preview = {
       items: [
@@ -885,10 +999,13 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
 
-    await screen.findByText('机器学习科普教程')
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    expect(screen.getByText('机器学习科普教程')).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('整理 爆笑鬼畜合集'))
     expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
 
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
     fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
 
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([preview.items[0]]))
@@ -1019,6 +1136,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('效率研究所 4')).toBeInTheDocument()
     expect(screen.getByText('AI 4')).toBeInTheDocument()
     expect(screen.getByText('默认收藏夹 6')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '生成收藏夹' }))
     expect(screen.getByText('Bilimi·AI工具')).toBeInTheDocument()
     expect(screen.getByText(/本地统计/)).toBeInTheDocument()
 
@@ -1077,8 +1195,10 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
 
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '生成收藏夹' }))
     expect(await screen.findByText('Bilimi·AI效率工坊')).toBeInTheDocument()
-    expect(screen.getByText(/AI 增强/)).toBeInTheDocument()
+    expect(screen.getByText(/DeepSeek 增强/)).toBeInTheDocument()
   })
 
   it('recommends using Bilibili tags as ledger keywords', () => {
