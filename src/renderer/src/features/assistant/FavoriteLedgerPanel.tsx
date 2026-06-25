@@ -529,6 +529,17 @@ export function FavoriteLedgerPanel({
   const ledgersToDisplay = visibleLedgers(draftLedgers, ledgerListExpanded)
   const canToggleLedgerList = draftLedgers.length > ledgersToDisplay.length || ledgerListExpanded
   const selectedOldFavoriteItems = preview?.items.filter((item) => selectedOldFavoriteAids.has(item.aid)) ?? []
+  const missingOldFavoriteTargetNames = Array.from(
+    new Set(
+      selectedOldFavoriteItems
+        .filter((item) => !item.targetFolderId)
+        .map((item) => item.targetDisplayName || ledgerNamesById[item.targetLedgerId] || item.targetLedgerId)
+    )
+  )
+  const oldFavoriteTargetWarning =
+    missingOldFavoriteTargetNames.length > 0
+      ? `掌库和 B 站收藏夹不一致，${missingOldFavoriteTargetNames.join('、')} 收藏夹缺失，建议同步之后再确认整理。`
+      : null
   const autoSelectedOldFavoriteCount =
     preview?.items.filter((item) => item.selected && !item.alreadyInTarget && !item.reviewRequired).length ?? 0
   const reviewRequiredOldFavoriteCount = preview?.items.filter((item) => item.reviewRequired).length ?? 0
@@ -901,10 +912,15 @@ export function FavoriteLedgerPanel({
             <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
               <h4>确认执行</h4>
               <p>已选择 {selectedOldFavoriteItems.length} 条旧藏</p>
+              {oldFavoriteTargetWarning ? (
+                <p className="favorite-ledger-panel__confirm-warning" role="alert">
+                  {oldFavoriteTargetWarning}
+                </p>
+              ) : null}
               <p>只会追加到 Bilimi 收藏夹，不会删除、移动或取消原收藏。</p>
               <button
                 type="button"
-                disabled={busy || selectedOldFavoriteItems.length === 0}
+                disabled={busy || selectedOldFavoriteItems.length === 0 || Boolean(oldFavoriteTargetWarning)}
                 onClick={() => void executeOldFavoritePlan()}
               >
                 确认整理

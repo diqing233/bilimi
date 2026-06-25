@@ -1011,6 +1011,49 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([preview.items[0]]))
   })
 
+  it('warns on confirmation when selected old favorites are missing target folders', async () => {
+    const preview = {
+      items: [
+        {
+          aid: 101,
+          title: '待分类旧藏',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'inbox',
+          targetFolderId: '',
+          targetDisplayName: 'Bilimi·待分类',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        }
+      ],
+      skippedSourceFolderTitles: []
+    }
+    const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
+    const onExecuteOldFavoritePlan = vi.fn()
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={onExecuteOldFavoritePlan}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+
+    expect(screen.getByText('已选择 1 条旧藏')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      '掌库和 B 站收藏夹不一致，Bilimi·待分类 收藏夹缺失，建议同步之后再确认整理。'
+    )
+    expect(screen.getByRole('button', { name: '确认整理' })).toBeDisabled()
+    expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
+  })
+
   it('runs 同步 even when local selections are unchanged', async () => {
     const onSaveLedgers = vi.fn().mockResolvedValue({
       ok: true,
