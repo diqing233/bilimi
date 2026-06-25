@@ -10,6 +10,7 @@ export type FavoriteLedgerPreviewItem = {
   reviewRequired: boolean
   alreadyInTarget: boolean
   selected: boolean
+  selectedCandidateTarget?: boolean
 }
 
 function scriptPayload(value: unknown): string {
@@ -476,7 +477,7 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
           if (item.selected === false || item.alreadyInTarget === true) {
             return false;
           }
-          if (!item.targetFolderId) {
+          if (!item.targetFolderId && !item.selectedCandidateTarget) {
             missingTargets.push(item.targetLedgerId);
             syncRequired = true;
             return false;
@@ -521,7 +522,19 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
 
         for (const item of executableItems) {
           try {
-            await appendItem(item, item.targetFolderId);
+            let targetFolderId = item.targetFolderId;
+            if (!targetFolderId && item.selectedCandidateTarget) {
+              targetFolderId = await refreshTargetFolderId(item.targetDisplayName);
+              if (targetFolderId) {
+                steps.push('api:ledger:append-refresh:' + item.aid);
+              }
+            }
+            if (!targetFolderId) {
+              missingTargets.push(item.targetLedgerId);
+              syncRequired = true;
+              throw new Error(syncRequiredMessage);
+            }
+            await appendItem(item, targetFolderId);
             steps.push('api:ledger:append:' + item.aid);
           } catch (error) {
             try {

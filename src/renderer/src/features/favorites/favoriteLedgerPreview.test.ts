@@ -94,6 +94,39 @@ describe('createFavoriteLedgerPreview', () => {
     })
   })
 
+  it('records generated candidate targets for inbox old favorites', () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'inbox' ? { ...ledger, bilibiliFolderId: '9008' } : ledger
+    )
+    const preview = createFavoriteLedgerPreview({
+      ledgers,
+      sourceFolders: [
+        {
+          id: '1',
+          title: '默认收藏夹',
+          videos: [
+            { aid: 101, title: '光影构图入门', tags: ['摄影'], category: '摄影' },
+            { aid: 102, title: '街拍镜头选择', tags: ['摄影'], category: '摄影' },
+            { aid: 103, title: '旅行照片调色', tags: ['摄影'], category: '摄影' }
+          ]
+        }
+      ],
+      targetMembership: {}
+    })
+
+    expect(preview.items[0]).toMatchObject({
+      targetLedgerId: 'inbox',
+      candidateTargets: [
+        expect.objectContaining({
+          candidateKey: 'tag-cluster:摄影',
+          ledgerId: 'custom-tag-cluster-摄影',
+          displayName: 'Bilimi·摄影'
+        })
+      ]
+    })
+    expect(preview.items[0].candidateTargets).toHaveLength(1)
+  })
+
   it('marks items already in the target ledger as skipped', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
       ledger.id === 'entertainment' ? { ...ledger, bilibiliFolderId: '9002' } : ledger

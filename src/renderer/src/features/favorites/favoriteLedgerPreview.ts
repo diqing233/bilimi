@@ -1,6 +1,11 @@
 import { isBilimiManagedLedgerName } from '@shared/favoriteLedgers'
 import type { FavoriteLedger } from '@shared/types'
-import { createFavoriteLedgerInsights, type FavoriteLedgerAiSuggestion, type FavoriteLedgerInsights } from './favoriteLedgerInsights'
+import {
+  createFavoriteLedgerInsights,
+  type FavoriteLedgerAiSuggestion,
+  type FavoriteLedgerCandidate,
+  type FavoriteLedgerInsights
+} from './favoriteLedgerInsights'
 import { classifyVideoContent, type VideoContentContext } from '../recommendation/videoClassifier'
 
 export type FavoriteSourceVideo = VideoContentContext & {
@@ -25,6 +30,15 @@ export type FavoriteLedgerPreviewItem = {
   reviewRequired: boolean
   alreadyInTarget: boolean
   selected: boolean
+  selectedCandidateTarget?: boolean
+  candidateTargets?: FavoriteLedgerPreviewCandidateTarget[]
+}
+
+export type FavoriteLedgerPreviewCandidateTarget = {
+  candidateKey: string
+  ledgerId: string
+  displayName: string
+  keywords: string[]
 }
 
 export type FavoriteLedgerPreview = {
@@ -43,6 +57,11 @@ export function createFavoriteLedgerPreview(args: {
 }): FavoriteLedgerPreview {
   const skippedSourceFolderTitles: string[] = []
   const items: FavoriteLedgerPreviewItem[] = []
+  const insights = createFavoriteLedgerInsights({
+    sourceFolders: args.sourceFolders,
+    existingLedgerNames: args.ledgers.map((ledger) => ledger.displayName),
+    aiSuggestions: args.aiSuggestions
+  })
 
   for (const folder of args.sourceFolders) {
     if (isBilimiManagedLedgerName(folder.title)) {
@@ -68,7 +87,8 @@ export function createFavoriteLedgerPreview(args: {
         targetDisplayName: targetLedger?.displayName ?? classification.displayName,
         reviewRequired: classification.reviewRequired,
         alreadyInTarget,
-        selected
+        selected,
+        candidateTargets: candidateTargetsForVideo(video, insights.candidateLedgers)
       })
     }
   }
@@ -76,10 +96,63 @@ export function createFavoriteLedgerPreview(args: {
   return {
     items,
     skippedSourceFolderTitles,
-    insights: createFavoriteLedgerInsights({
-      sourceFolders: args.sourceFolders,
-      existingLedgerNames: args.ledgers.map((ledger) => ledger.displayName),
-      aiSuggestions: args.aiSuggestions
-    })
+    insights
   }
+}
+
+function candidateKey(candidate: FavoriteLedgerCandidate) {
+  return `${candidate.kind}:${candidate.sourceName}`
+}
+
+function candidateLedgerId(candidate: FavoriteLedgerCandidate) {
+  return `custom-${candidate.kind}-${candidate.sourceName
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-|-$/g, '')}`
+}
+
+function normalize(value = '') {
+  return value.toLocaleLowerCase().replace(/\s+/g, '')
+}
+
+function videoText(video: FavoriteSourceVideo) {
+  return normalize(
+    [
+      video.title,
+      video.author,
+      video.description,
+      video.pageText,
+      video.category,
+      ...(video.tags ?? [])
+    ]
+      .filter(Boolean)
+      .join(' ')
+  )
+}
+
+function candidateTargetsForVideo(
+  video: FavoriteSourceVideo,
+  candidates: FavoriteLedgerCandidate[]
+): FavoriteLedgerPreviewCandidateTarget[] {
+  const text = videoText(video)
+  if (!text) {
+    return []
+  }
+
+  return candidates
+    .filter((candidate) =>
+      candidate.keywords.some((keyword) => text.includes(normalize(keyword)))
+    )
+    .reduce<FavoriteLedgerPreviewCandidateTarget[]>((targets, candidate) => {
+      if (targets.some((target) => target.displayName === candidate.displayName)) {
+        return targets
+      }
+
+      targets.push({
+        candidateKey: candidateKey(candidate),
+        ledgerId: candidateLedgerId(candidate),
+        displayName: candidate.displayName,
+        keywords: candidate.keywords
+      })
+      return targets
+    }, [])
 }

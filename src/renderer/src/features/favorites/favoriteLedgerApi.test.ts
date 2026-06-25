@@ -489,6 +489,58 @@ describe('favorite ledger API scripts', () => {
     expect(result.message).toContain('请先同步掌库')
   })
 
+  it('refreshes a newly synced generated ledger folder id before appending old favorites', async () => {
+    installCookies()
+    const requests: Array<{ body?: string; url: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        requests.push({ body: init?.body?.toString(), url })
+
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({
+            code: 0,
+            data: {
+              list: [{ id: 9010, title: 'Bilimi·摄影' }]
+            }
+          })
+        }
+
+        if (url.includes('/x/v3/fav/resource/deal')) {
+          return Response.json({ code: 0, data: {} })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(
+      buildExecuteFavoriteLedgerPlanScript([
+        {
+          aid: 123,
+          title: '光影构图入门',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'custom-tag-cluster-摄影',
+          targetDisplayName: 'Bilimi·摄影',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          selectedCandidateTarget: true
+        }
+      ])
+    )
+
+    expect(result).toMatchObject({
+      ok: true,
+      steps: ['api:ledger:append-refresh:123', 'api:ledger:append:123'],
+      missingTargets: []
+    })
+    const appendBody = new URLSearchParams(
+      requests.find((request) => request.url.includes('/x/v3/fav/resource/deal'))?.body
+    )
+    expect(appendBody.get('add_media_ids')).toBe('9010')
+  })
+
   it('returns structured failure when appending a favorite fails', async () => {
     installCookies()
     vi.stubGlobal(

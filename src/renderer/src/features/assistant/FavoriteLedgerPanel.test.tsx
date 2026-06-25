@@ -936,7 +936,15 @@ describe('FavoriteLedgerPanel', () => {
           targetDisplayName: 'Bilimi路知识',
           reviewRequired: false,
           alreadyInTarget: false,
-          selected: true
+          selected: true,
+          candidateTargets: [
+            {
+              candidateKey: 'tag-cluster:AI',
+              ledgerId: 'custom-tag-cluster-AI',
+              displayName: 'Bilimi路AI效率工坊',
+              keywords: ['AI', '效率', '工具']
+            }
+          ]
         },
         {
           aid: 102,
@@ -1023,17 +1031,16 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('Bilimi路AI效率工坊')).toBeInTheDocument()
     expect(screen.getByText(/DeepSeek 增强/)).toBeInTheDocument()
     expect(screen.getByText('AI、效率、工具')).toBeInTheDocument()
-    const generatedCandidate = screen.getByText('Bilimi路AI效率工坊').closest('article')!
-    const presetLedger = screen.getByText('Bilimi·动画').closest('article')!
-    expect(generatedCandidate.compareDocumentPosition(presetLedger)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING
-    )
+    const candidateSection = screen.getByRole('region', { name: '专属收藏夹候选' })
+    const firstCandidateCard = candidateSection.querySelector('article')!
+    expect(firstCandidateCard).toHaveTextContent('Bilimi路AI效率工坊')
+    expect(firstCandidateCard).toHaveTextContent('旧藏推荐 · 1 条旧藏适合归入此收藏夹')
     fireEvent.click(screen.getByLabelText('Bilimi路AI效率工坊'))
 
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
 
     expect(screen.getByText('机器学习科普教程')).toBeInTheDocument()
-    expect(screen.getByText('放入 Bilimi路知识')).toBeInTheDocument()
+    expect(screen.getByText('放入 Bilimi路AI效率工坊')).toBeInTheDocument()
     expect(screen.getByText('标题党软广避雷')).toBeInTheDocument()
     expect(screen.getByText(/需要复核/)).toBeInTheDocument()
     expect(screen.getByText(/已在目标/)).toBeInTheDocument()
@@ -1063,7 +1070,17 @@ describe('FavoriteLedgerPanel', () => {
         })
       ])
     )
-    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([preview.items[0]]))
+    await waitFor(() =>
+      expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([
+        expect.objectContaining({
+          aid: 101,
+          targetLedgerId: 'custom-tag-cluster-AI',
+          targetFolderId: '',
+          targetDisplayName: 'Bilimi路AI效率工坊',
+          selectedCandidateTarget: true
+        })
+      ])
+    )
   })
 
   it('runs one setup scan before organizing old favorites when ledgers are missing', async () => {
@@ -1470,6 +1487,76 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
+  it('uses selected generated ledgers to preview old favorites instead of leaving them in inbox', async () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'inbox' ? { ...ledger, bilibiliFolderId: '9008' } : ledger
+    )
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 101,
+          title: '光影构图入门',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'inbox',
+          targetFolderId: '9008',
+          targetDisplayName: 'Bilimi·待分类',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          candidateTargets: [
+            {
+              candidateKey: 'tag-cluster:摄影',
+              ledgerId: 'custom-tag-cluster-摄影',
+              displayName: 'Bilimi·摄影',
+              keywords: ['摄影']
+            }
+          ]
+        }
+      ],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 1,
+        topAuthors: [],
+        topTags: [{ name: '摄影', count: 1 }],
+        topCategories: [{ name: '摄影', count: 1 }],
+        sourceFolders: [{ name: '默认收藏夹', count: 1 }],
+        titleSeries: [],
+        candidateLedgers: [
+          {
+            kind: 'tag-cluster',
+            sourceName: '摄影',
+            displayName: 'Bilimi·摄影',
+            keywords: ['摄影'],
+            count: 1,
+            confidence: 'medium',
+            reason: '摄影相关旧藏适合单独成册。',
+            aiEnhanced: false
+          }
+        ]
+      }
+    })
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={ledgers}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(screen.getByLabelText('Bilimi·摄影'))
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+
+    expect(screen.getByText('放入 Bilimi·摄影')).toBeInTheDocument()
+    expect(screen.queryByText('放入 Bilimi·待分类')).not.toBeInTheDocument()
+  })
+
   it('backs up the top ledger checklist immediately from 备册', async () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
       ledger.id === 'knowledge' ? { ...ledger, enabled: false } : ledger
@@ -1610,7 +1697,19 @@ describe('FavoriteLedgerPanel', () => {
       ledger.id === 'travel' ? { ...ledger, enabled: false } : ledger
     )
     const onScanOldFavorites = vi.fn().mockResolvedValue({
-      items: [],
+      items: [
+        {
+          aid: 101,
+          title: '东京旅行攻略',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'travel',
+          targetFolderId: '9002',
+          targetDisplayName: 'Bilimi·旅游出行',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        }
+      ],
       skippedSourceFolderTitles: [],
       insights: {
         totalVideos: 1,
@@ -1705,6 +1804,56 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(animationRecommendation).toHaveTextContent('旧藏推荐 · 2 条旧藏适合归入此收藏夹')
     expect(animationRecommendation).not.toHaveTextContent('初始收藏夹')
+  })
+
+  it('collapses preset ledgers without old favorite matches behind an extra toggle', async () => {
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 101,
+          title: '动画分镜教程',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'animation',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi·动画',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        }
+      ],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 1,
+        topAuthors: [],
+        topTags: [],
+        topCategories: [{ name: '动画', count: 1 }],
+        sourceFolders: [{ name: '默认收藏夹', count: 1 }],
+        titleSeries: [],
+        candidateLedgers: []
+      }
+    })
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+
+    expect(screen.getByLabelText('Bilimi·动画')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Bilimi·体育运动')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '显示其他收藏夹' }))
+
+    expect(screen.getByLabelText('Bilimi·体育运动')).toBeInTheDocument()
   })
 
   it('marks AI-enhanced ledger suggestions when DeepSeek improves the local candidates', async () => {
