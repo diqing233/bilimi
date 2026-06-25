@@ -360,7 +360,7 @@ body[data-floating-window="true"],
   display: grid;
   place-items: end center;
   box-sizing: border-box;
-  padding: 0 16px 18px;
+  padding: 0 16px 2px;
   overflow: hidden;
   background: transparent;
 }
@@ -682,7 +682,7 @@ body[data-floating-window="true"],
 .palace-maid-pet__resize-controls {
   position: absolute;
   right: 22px;
-  bottom: 34px;
+  bottom: 18px;
   z-index: 4;
   display: flex;
   gap: 4px;
