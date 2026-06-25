@@ -4,6 +4,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { FavoriteLedgerPanel } from './FavoriteLedgerPanel'
 
 describe('FavoriteLedgerPanel', () => {
+  const safetyNote =
+    '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
+
   it('asks before scanning old favorites for personalized ledgers from 备册', async () => {
     const onEnsureLedgers = vi.fn().mockResolvedValue({
       ok: true,
@@ -265,9 +268,10 @@ describe('FavoriteLedgerPanel', () => {
       'assistant-action-button__pet'
     )
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
-    expect(
-      screen.getByText('同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧')
-    ).toHaveClass('favorite-ledger-panel__safety-note')
+    const safetyNoteElement = screen.getByText(safetyNote)
+    const setupButton = screen.getByRole('button', { name: '备册' })
+    expect(safetyNoteElement).toHaveClass('favorite-ledger-panel__safety-note')
+    expect(safetyNoteElement.compareDocumentPosition(setupButton)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   })
 
   it('frames the ledger list and editor together in the workspace', () => {
@@ -672,7 +676,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('正在编辑：Bilimi·鬼畜')).toBeInTheDocument()
 
     fireEvent.click(
-      screen.getByText('同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧')
+      screen.getByText(safetyNote)
     )
 
     expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
@@ -719,7 +723,7 @@ describe('FavoriteLedgerPanel', () => {
       target: { value: '音MAD' }
     })
     fireEvent.click(
-      screen.getByText('同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧')
+      screen.getByText(safetyNote)
     )
 
     expect(screen.getByText('正在编辑：Bilimi·音MAD')).toBeInTheDocument()

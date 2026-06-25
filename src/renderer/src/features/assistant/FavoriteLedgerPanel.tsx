@@ -91,7 +91,7 @@ function saveStatusMessage(result: AssistantAutomationResult | void) {
 
 const COLLAPSED_LEDGER_COUNT = 15
 const FAVORITE_LEDGER_SAFETY_NOTE =
-  '同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
+  '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
 const LEDGER_SYNC_HINT =
   '取消勾选后点击同步，会删除对应的 Bilimi 收藏夹；再次勾选后同步会重新创建。'
 type OldFavoriteGuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
@@ -609,6 +609,8 @@ export function FavoriteLedgerPanel({
           <h2 className="sr-only">掌库</h2>
         </div>
 
+        <p className="favorite-ledger-panel__safety-note">{FAVORITE_LEDGER_SAFETY_NOTE}</p>
+
         <div className="favorite-ledger-panel__toolbar">
           <AssistantActionButton
             type="button"
@@ -633,7 +635,6 @@ export function FavoriteLedgerPanel({
             description="扫描并整理旧收藏，放进 Bilimi 收藏里"
           />
         </div>
-        <p className="favorite-ledger-panel__safety-note">{FAVORITE_LEDGER_SAFETY_NOTE}</p>
       </div>
 
       {missingLedgerIds.length > 0 ? (
