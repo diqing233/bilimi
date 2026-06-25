@@ -53,6 +53,7 @@ type BilimiDesktopApi = {
   openAssistant?: () => Promise<void>
   onOpenAssistant?: (callback: (payload?: AssistantOpenPayload) => void) => () => void
   onOpenInTab?: (callback: (url: string) => void) => () => void
+  openBilibiliFavorites?: () => Promise<AssistantAutomationResult>
   onRunAssistantAction?: (callback: (payload: { action: AssistantAction }) => void) => () => void
   onVideoAudioTranscriptionProgress?: (
     callback: (progress: VideoAudioTranscriptionProgress) => void

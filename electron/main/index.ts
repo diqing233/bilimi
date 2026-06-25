@@ -735,6 +735,11 @@ function registerAssistantPreferenceHandlers() {
       ledgers
     })
   )
+  ipcMain.handle('floating-assistant:open-bilibili-favorites', () =>
+    requestMainAssistantRuntime<AssistantAutomationResult>({
+      type: 'open-bilibili-favorites'
+    })
+  )
   ipcMain.handle('floating-assistant:scan-old-favorites', () =>
     requestMainAssistantRuntime<FavoriteLedgerPreview>({ type: 'scan-old-favorites' })
   )

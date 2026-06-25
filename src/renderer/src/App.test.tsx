@@ -1012,4 +1012,36 @@ describe('App runtime integration', () => {
       })
     )
   })
+
+  it('opens the active Bilibili favorites page through the runtime bridge', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+      loadURL?: (url: string) => Promise<void>
+    }
+    const loadURL = vi.fn().mockResolvedValue(undefined)
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes('DedeUserID')) {
+        return '12345'
+      }
+
+      return emptyLedgerStatus()
+    })
+    Object.assign(webview, { executeJavaScript, loadURL })
+
+    const result = await requestRuntime({
+      id: 'open-favorites-1',
+      type: 'open-bilibili-favorites'
+    } as AssistantRuntimeRequest)
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        steps: expect.arrayContaining(['favorite-page:open'])
+      })
+    )
+    expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('DedeUserID'), true)
+    expect(loadURL).toHaveBeenCalledWith('https://space.bilibili.com/12345/favlist')
+    expect(screen.getByRole('tab', { name: 'favlist' })).toHaveAttribute('aria-selected', 'true')
+  })
 })

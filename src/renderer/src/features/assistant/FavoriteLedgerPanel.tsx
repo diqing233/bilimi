@@ -12,6 +12,7 @@ type FavoriteLedgerPanelProps = {
   missingLedgerIds: string[]
   onEnsureLedgers: () => Promise<AssistantAutomationResult>
   onSaveLedgers: (ledgers: FavoriteLedger[]) => Promise<AssistantAutomationResult> | void
+  onOpenFavoritePage?: () => Promise<AssistantAutomationResult> | void
   onScanOldFavorites: () => Promise<FavoriteLedgerPreview>
   onExecuteOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
 }
@@ -128,6 +129,7 @@ export function FavoriteLedgerPanel({
   ledgers,
   missingLedgerIds,
   onSaveLedgers,
+  onOpenFavoritePage,
   onScanOldFavorites,
   onExecuteOldFavoritePlan
 }: FavoriteLedgerPanelProps) {
@@ -528,6 +530,7 @@ export function FavoriteLedgerPanel({
     includeDefaultLedgers?: boolean
     successMessage?: string
     pendingMessage?: string
+    onSuccess?: () => Promise<void> | void
   } = {}) {
     const nextLedgers = buildLedgersToSave(
       options.includeSelectedCandidates ?? true,
@@ -551,6 +554,9 @@ export function FavoriteLedgerPanel({
       }
       setActiveLedgerId(null)
       setActiveLedgerIndex(null)
+      if (result?.ok !== false) {
+        await options.onSuccess?.()
+      }
     } catch (error) {
       setSaveStatus(`同步未完成：${errorMessage(error)}`)
     } finally {
@@ -687,9 +693,11 @@ export function FavoriteLedgerPanel({
             onClick={() =>
               void saveLedgers({
                 includeSelectedCandidates: false,
-                includeDefaultLedgers: true,
                 pendingMessage: '正在备册...',
-                successMessage: BACKUP_COMPLETE_MESSAGE
+                successMessage: BACKUP_COMPLETE_MESSAGE,
+                onSuccess: async () => {
+                  await onOpenFavoritePage?.()
+                }
               })
             }
             icon={clickedPetUrl}

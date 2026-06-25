@@ -9,6 +9,9 @@ describe('FavoriteLedgerPanel', () => {
     '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
 
   it('backs up ledgers directly from 备册 without the old setup prompt', async () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'knowledge' ? { ...ledger, enabled: false } : ledger
+    )
     const onEnsureLedgers = vi.fn().mockResolvedValue({
       ok: true,
       steps: ['api:ledger:list', 'api:ledger:create:humor'],
@@ -20,6 +23,12 @@ describe('FavoriteLedgerPanel', () => {
       steps: [],
       missingTargets: [],
       message: '掌库已同步。'
+    })
+    const onOpenFavoritePage = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['favorite-page:open'],
+      missingTargets: [],
+      message: '已打开 B 站收藏夹。'
     })
     const onScanOldFavorites = vi.fn().mockResolvedValue({
       items: [],
@@ -34,17 +43,19 @@ describe('FavoriteLedgerPanel', () => {
         candidateLedgers: []
       }
     })
+    const props: Parameters<typeof FavoriteLedgerPanel>[0] & {
+      onOpenFavoritePage: typeof onOpenFavoritePage
+    } = {
+      ledgers,
+      missingLedgerIds: ['game'],
+      onEnsureLedgers,
+      onSaveLedgers,
+      onScanOldFavorites,
+      onExecuteOldFavoritePlan: vi.fn(),
+      onOpenFavoritePage
+    }
 
-    const { container } = render(
-      <FavoriteLedgerPanel
-        ledgers={createDefaultFavoriteLedgers()}
-        missingLedgerIds={['game']}
-        onEnsureLedgers={onEnsureLedgers}
-        onSaveLedgers={onSaveLedgers}
-        onScanOldFavorites={onScanOldFavorites}
-        onExecuteOldFavoritePlan={vi.fn()}
-      />
-    )
+    const { container } = render(<FavoriteLedgerPanel {...props} />)
 
     expect(screen.getByRole('heading', { name: '掌库' })).toHaveClass('sr-only')
     expect(screen.getByText('尚缺 Bilimi·游戏。')).toBeInTheDocument()
@@ -61,9 +72,10 @@ describe('FavoriteLedgerPanel', () => {
       expect.arrayContaining([
         expect.objectContaining({ displayName: 'Bilimi·动画', enabled: true }),
         expect.objectContaining({ displayName: 'Bilimi·游戏', enabled: true }),
-        expect.objectContaining({ displayName: 'Bilimi·知识', enabled: true })
+        expect.objectContaining({ displayName: 'Bilimi·知识', enabled: false })
       ])
     )
+    await waitFor(() => expect(onOpenFavoritePage).toHaveBeenCalledOnce())
     expect(await screen.findByRole('status')).toHaveTextContent(
       '小咪备册已完成，主人可以再增加自己想要的收藏夹，点击同步即可'
     )
@@ -1378,6 +1390,12 @@ describe('FavoriteLedgerPanel', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
       ledger.id === 'knowledge' ? { ...ledger, enabled: false } : ledger
     )
+    const onSaveLedgers = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: [],
+      missingTargets: [],
+      message: '掌库已同步。'
+    })
     const onScanOldFavorites = vi.fn().mockResolvedValue({
       items: [],
       skippedSourceFolderTitles: [],
@@ -1408,7 +1426,7 @@ describe('FavoriteLedgerPanel', () => {
         ledgers={ledgers}
         missingLedgerIds={['knowledge']}
         onEnsureLedgers={vi.fn()}
-        onSaveLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
         onScanOldFavorites={onScanOldFavorites}
         onExecuteOldFavoritePlan={vi.fn()}
       />
@@ -1421,7 +1439,10 @@ describe('FavoriteLedgerPanel', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(
       '小咪备册已完成，主人可以再增加自己想要的收藏夹，点击同步即可'
     )
-    expect(knowledgeTopButton).toHaveAttribute('aria-pressed', 'true')
+    expect(knowledgeTopButton).toHaveAttribute('aria-pressed', 'false')
+    expect(onSaveLedgers).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ id: 'knowledge', enabled: false })])
+    )
 
     expect(within(ledgerRegion).queryByRole('button', { name: 'AI工具' })).not.toBeInTheDocument()
   })

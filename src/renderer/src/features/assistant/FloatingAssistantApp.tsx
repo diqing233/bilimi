@@ -828,6 +828,16 @@ export function FloatingAssistantApp({
     return result
   }
 
+  async function openFavoritePage() {
+    tellPet('progress', '小咪正在打开 B 站收藏夹。')
+    const result =
+      (await window.bilimiDesktop?.openBilibiliFavorites?.()) ??
+      createDefaultResult('已打开 B 站收藏夹。')
+
+    tellPet(result.ok ? 'success' : 'error', result.message)
+    return result
+  }
+
   async function scanOldFavorites(): Promise<FavoriteLedgerPreview> {
     tellPet('progress', '小咪正在扫描旧收藏夹。')
     const preview =
@@ -886,6 +896,7 @@ export function FloatingAssistantApp({
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? []}
             onEnsureLedgers={ensureFavoriteLedgers}
             onSaveLedgers={saveFavoriteLedgers}
+            onOpenFavoritePage={openFavoritePage}
             onScanOldFavorites={scanOldFavorites}
             onExecuteOldFavoritePlan={executeOldFavoritePlan}
           />

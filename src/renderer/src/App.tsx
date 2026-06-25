@@ -605,6 +605,63 @@ export default function App() {
     return runScript(buildExecuteFavoriteLedgerPlanScript(items))
   }
 
+  async function openBilibiliFavorites(): Promise<AssistantAutomationResult> {
+    const currentActiveWebview = getCurrentActiveWebview()
+
+    if (!currentActiveWebview?.executeJavaScript) {
+      return {
+        ok: false,
+        steps: [],
+        missingTargets: ['webview'],
+        message: '浏览框台尚未备妥，无法打开 B 站收藏夹。'
+      }
+    }
+
+    try {
+      const rawMid = await currentActiveWebview.executeJavaScript(
+        `(() => {
+          const match = String(document.cookie || '').match(/(?:^|;\\s*)DedeUserID=([^;]+)/)
+          return match ? decodeURIComponent(match[1]) : ''
+        })()`,
+        true
+      )
+      const mid = String(rawMid ?? '').trim()
+
+      if (!/^\d+$/.test(mid)) {
+        return {
+          ok: false,
+          steps: ['favorite-page:read-user'],
+          missingTargets: ['bilibili-user'],
+          message: '未能读取 B 站用户 ID，无法打开收藏夹。'
+        }
+      }
+
+      const favoriteUrl = `https://space.bilibili.com/${mid}/favlist`
+
+      if (typeof currentActiveWebview.loadURL === 'function') {
+        await currentActiveWebview.loadURL(favoriteUrl)
+      } else {
+        currentActiveWebview.setAttribute('src', favoriteUrl)
+      }
+
+      updateTabUrl(activeTabIdRef.current, favoriteUrl)
+
+      return {
+        ok: true,
+        steps: ['favorite-page:read-user', 'favorite-page:open'],
+        missingTargets: [],
+        message: '已打开 B 站收藏夹。'
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        steps: [],
+        missingTargets: ['favorite-page'],
+        message: `打开 B 站收藏夹未完成：${error instanceof Error ? error.message : String(error)}`
+      }
+    }
+  }
+
   async function runVisualFallback(
     context: Parameters<typeof runVisualFavoriteFallback>[1],
     options?: Parameters<typeof runVisualFavoriteFallback>[2]
@@ -782,6 +839,8 @@ export default function App() {
           return ensureFavoriteLedgers()
         case 'save-ledgers':
           return saveFavoriteLedgers(request.ledgers)
+        case 'open-bilibili-favorites':
+          return openBilibiliFavorites()
         case 'scan-old-favorites':
           return scanOldFavorites()
         case 'execute-old-favorite-plan':
@@ -794,6 +853,7 @@ export default function App() {
     executeOldFavoritePlan,
     generateRuntimeVideoNote,
     generateRuntimeVideoNoteFromAudio,
+    openBilibiliFavorites,
     preferences,
     readFavoriteLedgerStatus,
     readCurrentVideoTime,
