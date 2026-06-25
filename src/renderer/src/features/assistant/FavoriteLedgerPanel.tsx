@@ -168,11 +168,6 @@ export function FavoriteLedgerPanel({
 
   async function scanPersonalizedSetup() {
     setSetupPromptVisible(false)
-    try {
-      await syncCheckedLedgersForSetupScan()
-    } catch {
-      return
-    }
     await scanOldFavorites('setup')
   }
 
@@ -476,25 +471,6 @@ export function FavoriteLedgerPanel({
     }
   }
 
-  async function syncCheckedLedgersForSetupScan() {
-    const nextLedgers = buildLedgersToSave(false)
-
-    setBusy(true)
-    setStatus(null)
-    setSaveStatus('正在同步已勾选收藏夹...')
-    try {
-      const result = await onSaveLedgers(nextLedgers)
-      setSaveStatus(saveStatusMessage(result))
-      setActiveLedgerId(null)
-      setActiveLedgerIndex(null)
-    } catch (error) {
-      setSaveStatus(`同步未完成：${errorMessage(error)}`)
-      throw error
-    } finally {
-      setBusy(false)
-    }
-  }
-
   async function scanOldFavorites(mode: 'setup' | 'organize' = 'organize') {
     setBusy(true)
     setSaveStatus(null)
@@ -548,9 +524,24 @@ export function FavoriteLedgerPanel({
     setBusy(true)
     setSaveStatus(null)
     try {
-      const selectedItems = preview.items.filter((item) => selectedOldFavoriteAids.has(item.aid))
+      const nextLedgers = buildLedgersToSave()
+      const saveResult = await onSaveLedgers(nextLedgers)
+      setSaveStatus(saveStatusMessage(saveResult))
+      setActiveLedgerId(null)
+      setActiveLedgerIndex(null)
+
+      const selectedItems = preview.items.filter(
+        (item) => selectedOldFavoriteAids.has(item.aid) && item.targetFolderId
+      )
+      if (selectedItems.length === 0) {
+        setStatus('收藏夹已同步，请重新扫描旧藏后再确认整理。')
+        return
+      }
+
       const result = await onExecuteOldFavoritePlan(selectedItems)
       setStatus(result.message)
+    } catch (error) {
+      setStatus(`整理旧藏未完成：${errorMessage(error)}`)
     } finally {
       setBusy(false)
     }
@@ -568,7 +559,7 @@ export function FavoriteLedgerPanel({
   )
   const oldFavoriteTargetWarning =
     missingOldFavoriteTargetNames.length > 0
-      ? `掌库和 B 站收藏夹不一致，${missingOldFavoriteTargetNames.join('、')} 收藏夹缺失，建议同步之后再确认整理。`
+      ? `确认整理会先同步 ${missingOldFavoriteTargetNames.join('、')} 收藏夹；同步后请重新扫描旧藏以归档到新建收藏夹。`
       : null
   const autoSelectedOldFavoriteCount =
     preview?.items.filter((item) => item.selected && !item.alreadyInTarget && !item.reviewRequired).length ?? 0
@@ -880,7 +871,7 @@ export function FavoriteLedgerPanel({
           {oldFavoriteStep === 'generated' ? (
             <section className="favorite-ledger-panel__candidates" aria-label="专属收藏夹候选">
               <h4>专属收藏夹候选</h4>
-              <p>已先同步当前勾选的收藏夹；若勾选下方候选，请再点“同步”创建。</p>
+              <p>确认执行后，会把上方已勾选收藏夹和下方勾选候选同步到 B 站收藏夹里。</p>
               {preview.insights?.candidateLedgers.length ? (
                 preview.insights.candidateLedgers.map((candidate) => (
                   <article key={`${candidate.kind}-${candidate.sourceName}`}>
@@ -951,7 +942,7 @@ export function FavoriteLedgerPanel({
               <p>只会追加到 Bilimi 收藏夹，不会删除、移动或取消原收藏。</p>
               <button
                 type="button"
-                disabled={busy || selectedOldFavoriteItems.length === 0 || Boolean(oldFavoriteTargetWarning)}
+                disabled={busy || selectedOldFavoriteItems.length === 0}
                 onClick={() => void executeOldFavoritePlan()}
               >
                 确认整理

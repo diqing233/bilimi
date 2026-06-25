@@ -52,22 +52,13 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '扫描旧藏生成' }))
 
-    await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
     await waitFor(() => expect(onScanOldFavorites).toHaveBeenCalledOnce())
-    expect(onSaveLedgers.mock.invocationCallOrder[0]).toBeLessThan(
-      onScanOldFavorites.mock.invocationCallOrder[0]
-    )
-    expect(onSaveLedgers).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({ displayName: 'Bilimi·动画', enabled: true }),
-        expect.objectContaining({ displayName: 'Bilimi·游戏', enabled: true })
-      ])
-    )
+    expect(onSaveLedgers).not.toHaveBeenCalled()
     expect(screen.getByText('基础数据')).toBeInTheDocument()
     expect(screen.getByText('默认收藏夹 3')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '生成收藏夹' }))
     expect(
-      screen.getByText('已先同步当前勾选的收藏夹；若勾选下方候选，请再点“同步”创建。')
+      screen.getByText('确认执行后，会把上方已勾选收藏夹和下方勾选候选同步到 B 站收藏夹里。')
     ).toBeInTheDocument()
     const toolbar = container.querySelector('.favorite-ledger-panel__toolbar')
     const status = container.querySelector('.favorite-ledger-panel__status')
@@ -915,6 +906,12 @@ describe('FavoriteLedgerPanel', () => {
         ]
       }
     }
+    const onSaveLedgers = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: [],
+      missingTargets: [],
+      message: '掌库已同步。'
+    })
     const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
     const onExecuteOldFavoritePlan = vi.fn().mockResolvedValue({
       ok: true,
@@ -928,7 +925,7 @@ describe('FavoriteLedgerPanel', () => {
         ledgers={createDefaultFavoriteLedgers()}
         missingLedgerIds={[]}
         onEnsureLedgers={vi.fn()}
-        onSaveLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
         onScanOldFavorites={onScanOldFavorites}
         onExecuteOldFavoritePlan={onExecuteOldFavoritePlan}
       />
@@ -949,6 +946,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('Bilimi路AI效率工坊')).toBeInTheDocument()
     expect(screen.getByText(/DeepSeek 增强/)).toBeInTheDocument()
     expect(screen.getByText('AI、效率、工具')).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('Bilimi路AI效率工坊'))
 
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
 
@@ -967,6 +965,21 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
     fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
 
+    await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
+    expect(onSaveLedgers.mock.invocationCallOrder[0]).toBeLessThan(
+      onExecuteOldFavoritePlan.mock.invocationCallOrder[0]
+    )
+    expect(onSaveLedgers).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ displayName: 'Bilimi·动画', enabled: true }),
+        expect.objectContaining({
+          displayName: 'Bilimi路AI效率工坊',
+          keywords: ['AI', '效率', '工具'],
+          enabled: true,
+          isDefault: false
+        })
+      ])
+    )
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([preview.items[0]]))
   })
 
@@ -1031,7 +1044,7 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([preview.items[0]]))
   })
 
-  it('warns on confirmation when selected old favorites are missing target folders', async () => {
+  it('syncs ledgers on confirmation and asks to rescan when selected old favorites are missing target folders', async () => {
     const preview = {
       items: [
         {
@@ -1048,6 +1061,12 @@ describe('FavoriteLedgerPanel', () => {
       ],
       skippedSourceFolderTitles: []
     }
+    const onSaveLedgers = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: [],
+      missingTargets: [],
+      message: '掌库已同步。'
+    })
     const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
     const onExecuteOldFavoritePlan = vi.fn()
 
@@ -1056,7 +1075,7 @@ describe('FavoriteLedgerPanel', () => {
         ledgers={createDefaultFavoriteLedgers()}
         missingLedgerIds={[]}
         onEnsureLedgers={vi.fn()}
-        onSaveLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
         onScanOldFavorites={onScanOldFavorites}
         onExecuteOldFavoritePlan={onExecuteOldFavoritePlan}
       />
@@ -1068,10 +1087,13 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(screen.getByText('已选择 1 条旧藏')).toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent(
-      '掌库和 B 站收藏夹不一致，Bilimi·待分类 收藏夹缺失，建议同步之后再确认整理。'
+      '确认整理会先同步 Bilimi·待分类 收藏夹；同步后请重新扫描旧藏以归档到新建收藏夹。'
     )
-    expect(screen.getByRole('button', { name: '确认整理' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+
+    await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
     expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
+    expect(screen.getByText('收藏夹已同步，请重新扫描旧藏后再确认整理。')).toBeInTheDocument()
   })
 
   it('runs 同步 even when local selections are unchanged', async () => {
