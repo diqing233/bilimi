@@ -8,7 +8,7 @@ import {
 } from './petState'
 import { createInitialAssistantPreferences } from '../state/assistantState'
 import type { AssistantPreferences, DeepSeekChatMessage } from '@shared/types'
-import { PET_IDLE_GREETINGS, pickPetLine } from './petInteractionLines'
+import { PET_IDLE_GREETINGS, PET_WELCOME_HOME_LINES, pickPetLine } from './petInteractionLines'
 
 const DRAG_THRESHOLD_PX = 5
 const LONG_PRESS_SUPPRESSION_MS = 350
@@ -303,7 +303,7 @@ export function PalaceMaidPetApp() {
   function restoreMainWindow() {
     setClosePromptVisible(false)
     setClickReactionSignal((signal) => signal + 1)
-    setPetState('hint')
+    showLocalPetHint('shy', pickPetLine(PET_WELCOME_HOME_LINES))
     void window.bilimiDesktop?.restoreMainWindowFromPet?.()
   }
 

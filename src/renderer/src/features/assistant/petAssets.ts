@@ -30,6 +30,13 @@ export const blueWhiteMaidPetAssetsByStyle: Record<PetStyle, PetAssetManifest> =
       hint: bigHeadHintCharacterUrl,
       working: bigHeadWorkingCharacterUrl,
       error: bigHeadErrorCharacterUrl,
+      happy: bigHeadClickedCharacterUrl,
+      shy: bigHeadClickedCharacterUrl,
+      thinking: bigHeadHintCharacterUrl,
+      cheer: bigHeadWorkingCharacterUrl,
+      sleepy: bigHeadIdleCharacterUrl,
+      surprised: bigHeadHintCharacterUrl,
+      done: bigHeadClickedCharacterUrl,
       clicked: bigHeadClickedCharacterUrl
     },
     effects: {
@@ -45,6 +52,13 @@ export const blueWhiteMaidPetAssetsByStyle: Record<PetStyle, PetAssetManifest> =
       hint: classicHintCharacterUrl,
       working: classicWorkingCharacterUrl,
       error: classicErrorCharacterUrl,
+      happy: classicClickedCharacterUrl,
+      shy: classicClickedCharacterUrl,
+      thinking: classicHintCharacterUrl,
+      cheer: classicWorkingCharacterUrl,
+      sleepy: classicIdleCharacterUrl,
+      surprised: classicHintCharacterUrl,
+      done: classicClickedCharacterUrl,
       clicked: classicClickedCharacterUrl
     },
     effects: {
@@ -68,6 +82,13 @@ export const legacyBlueWhiteMaidPetAssets: PetAssetManifest = {
     hint: classicHintCharacterUrl,
     working: classicWorkingCharacterUrl,
     error: classicErrorCharacterUrl,
+    happy: classicClickedCharacterUrl,
+    shy: classicClickedCharacterUrl,
+    thinking: classicHintCharacterUrl,
+    cheer: classicWorkingCharacterUrl,
+    sleepy: classicIdleCharacterUrl,
+    surprised: classicHintCharacterUrl,
+    done: classicClickedCharacterUrl,
     clicked: classicClickedCharacterUrl
   },
   effects: {

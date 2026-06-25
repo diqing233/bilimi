@@ -107,4 +107,28 @@ describe('buildOpenVideoLinksInAppScript', () => {
     expect(document.title).toContain('__BILIMI_PET_HINT__:')
     expect(document.title).toContain(encodeURIComponent('小咪看到主人点赞啦，喜欢就要亮出来～'))
   })
+
+  it('reminds the owner to review after the current video finishes once per page url', () => {
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: new URL('https://www.bilibili.com/video/BV1finish')
+    })
+    document.body.innerHTML = '<video></video>'
+
+    window.eval(buildOpenVideoLinksInAppScript())
+    const video = document.querySelector('video') as HTMLVideoElement
+
+    video.dispatchEvent(new Event('ended', { bubbles: true }))
+
+    const firstTitle = document.title
+    expect(firstTitle).toContain('__BILIMI_PET_HINT__:')
+    expect(firstTitle).toContain(
+      encodeURIComponent('视频看完啦，要不要去批阅一下？小咪陪主人收个尾。')
+    )
+
+    document.title = 'Bilimi'
+    video.dispatchEvent(new Event('ended', { bubbles: true }))
+
+    expect(document.title).toBe('Bilimi')
+  })
 })

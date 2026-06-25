@@ -88,6 +88,22 @@ describe('PalaceMaidPetApp', () => {
     )
   })
 
+  it('welcomes the owner home with a stronger emotional hint when clicked to restore', async () => {
+    const api = installDesktopApi()
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.click(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
+
+    expect(api.restoreMainWindowFromPet).toHaveBeenCalledOnce()
+    expect(screen.getByText(/欢迎回来|一直在等你|主人回来啦|欢迎回家/)).toBeInTheDocument()
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'shy')
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute(
+      'data-click-reaction-signal',
+      '1'
+    )
+  })
+
   it('shows a close prompt on right click and closes after the prompt is clicked', () => {
     const api = installDesktopApi()
 

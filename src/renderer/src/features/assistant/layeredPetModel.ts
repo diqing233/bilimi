@@ -50,6 +50,62 @@ const STATE_VISUALS: Record<
     },
     effect: 'error-sweat',
     motion: 'error'
+  },
+  happy: {
+    expression: {
+      eyes: 'happy',
+      mouth: 'smile'
+    },
+    effect: 'click-hearts',
+    motion: 'happy'
+  },
+  shy: {
+    expression: {
+      eyes: 'happy',
+      mouth: 'small'
+    },
+    effect: 'click-hearts',
+    motion: 'shy'
+  },
+  thinking: {
+    expression: {
+      eyes: 'focused',
+      mouth: 'small'
+    },
+    effect: 'hint-sparkles',
+    motion: 'thinking'
+  },
+  cheer: {
+    expression: {
+      eyes: 'happy',
+      mouth: 'open'
+    },
+    effect: 'working-stars',
+    motion: 'cheer'
+  },
+  sleepy: {
+    expression: {
+      eyes: 'sleepy',
+      mouth: 'small'
+    },
+    effect: 'none',
+    motion: 'sleepy'
+  },
+  surprised: {
+    expression: {
+      eyes: 'surprised',
+      mouth: 'open'
+    },
+    effect: 'hint-sparkles',
+    motion: 'surprised'
+  },
+  done: {
+    expression: {
+      eyes: 'happy',
+      mouth: 'smile'
+    },
+    effect: 'click-hearts',
+    motion: 'done'
   }
 }
 

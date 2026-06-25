@@ -28,6 +28,7 @@ import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/c
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
+import type { AssistantPetHint } from './petState'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
 
@@ -72,6 +73,27 @@ type ActionFeedback = {
   message: string
   steps: string[]
   missingTargets: string[]
+}
+
+type PetFeedbackTone =
+  | ActionFeedback['tone']
+  | 'happy'
+  | 'shy'
+  | 'thinking'
+  | 'cheer'
+  | 'surprised'
+  | 'done'
+
+const PET_FEEDBACK_TONES: Record<PetFeedbackTone, AssistantPetHint['tone']> = {
+  progress: 'working',
+  success: 'happy',
+  error: 'error',
+  happy: 'happy',
+  shy: 'shy',
+  thinking: 'thinking',
+  cheer: 'cheer',
+  surprised: 'surprised',
+  done: 'done'
 }
 
 const ACTION_PROGRESS_HINTS: Record<AssistantAction, string> = {
@@ -218,9 +240,9 @@ export function FloatingAssistantApp({
   const [activeView, setActiveView] = useState<AssistantWorkspaceView>(activeTab)
   const isSidebarMode = mode === 'sidebar'
 
-  function tellPet(tone: ActionFeedback['tone'], message: string) {
+  function tellPet(tone: PetFeedbackTone, message: string) {
     window.bilimiDesktop?.setAssistantPetHint?.({
-      tone: tone === 'progress' ? 'working' : tone === 'error' ? 'error' : 'hint',
+      tone: PET_FEEDBACK_TONES[tone],
       message: createPetHintMessage(message)
     })
   }
@@ -474,8 +496,8 @@ export function FloatingAssistantApp({
     }
 
     setRunningAction(action)
-    window.bilimiDesktop?.setAssistantPetState?.('working')
-    tellPet('progress', ACTION_PROGRESS_HINTS[action])
+    window.bilimiDesktop?.setAssistantPetState?.('cheer')
+    tellPet('cheer', ACTION_PROGRESS_HINTS[action])
     setFeedback({
       tone: 'progress',
       message: action === '阅' ? '正在登记已阅。' : '正在代批，请稍候。',
@@ -501,10 +523,10 @@ export function FloatingAssistantApp({
         missingTargets: result.missingTargets
       })
       tellPet(
-        result.ok ? 'success' : 'error',
+        result.ok ? 'done' : 'error',
         result.ok ? ACTION_SUCCESS_HINTS[action] : ACTION_ERROR_HINTS[action]
       )
-      window.bilimiDesktop?.setAssistantPetState?.(result.ok ? 'hint' : 'error')
+      window.bilimiDesktop?.setAssistantPetState?.(result.ok ? 'done' : 'error')
     } catch (error) {
       const message = error instanceof Error ? error.message : '代批时遇到未知差错。'
       setFeedback({

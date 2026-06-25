@@ -236,6 +236,26 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
+  it('uses key-moment emotional tones while running review actions', async () => {
+    const setAssistantPetHint = vi.fn()
+    const { runAssistantAction } = installDesktopApi({ setAssistantPetHint })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /赏.*轻赏此条/ }))
+
+    await waitFor(() =>
+      expect(runAssistantAction).toHaveBeenCalledWith(
+        '赏',
+        expect.objectContaining({
+          pageClickOnly: false
+        })
+      )
+    )
+    expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'cheer')).toBe(true)
+    expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'done')).toBe(true)
+  })
+
   it('uses default 小咪 comments directly when DeepSeek is disabled', async () => {
     const { generateDeepSeek, runAssistantAction } = installDesktopApi()
 
@@ -835,7 +855,7 @@ describe('FloatingAssistantApp', () => {
     expect(closeFloatingAssistant).not.toHaveBeenCalled()
   })
 
-  it('reports working and hint pet states around successful sidebar actions', async () => {
+  it('reports cheer and done pet states around successful sidebar actions', async () => {
     const setAssistantPetState = vi.fn()
     const setAssistantPetHint = vi.fn()
     const runAssistantAction = vi.fn().mockResolvedValue(createResult('动作已完成。'))
@@ -850,14 +870,14 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(await screen.findByRole('button', { name: /藏.*归入内库/ }))
 
     await waitFor(() => expect(runAssistantAction).toHaveBeenCalled())
-    expect(setAssistantPetState).toHaveBeenNthCalledWith(1, 'working')
-    expect(setAssistantPetState).toHaveBeenLastCalledWith('hint')
+    expect(setAssistantPetState).toHaveBeenNthCalledWith(1, 'cheer')
+    expect(setAssistantPetState).toHaveBeenLastCalledWith('done')
     expect(setAssistantPetHint).toHaveBeenNthCalledWith(1, {
-      tone: 'working',
+      tone: 'cheer',
       message: '主人，小咪正在把它收进合适的 Bilimi 分册～'
     })
     expect(setAssistantPetHint).toHaveBeenLastCalledWith({
-      tone: 'hint',
+      tone: 'done',
       message: '主人，收好啦，这支视频已经进 Bilimi 分册了。'
     })
   })

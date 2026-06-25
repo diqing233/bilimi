@@ -42,6 +42,76 @@ describe('layeredPetModel', () => {
       effect: 'error-sweat',
       motion: 'error'
     })
+
+    expect(createLayeredPetView('happy')).toMatchObject({
+      state: 'happy',
+      expression: {
+        eyes: 'happy',
+        mouth: 'smile'
+      },
+      effect: 'click-hearts',
+      motion: 'happy'
+    })
+
+    expect(createLayeredPetView('shy')).toMatchObject({
+      state: 'shy',
+      expression: {
+        eyes: 'happy',
+        mouth: 'small'
+      },
+      effect: 'click-hearts',
+      motion: 'shy'
+    })
+
+    expect(createLayeredPetView('thinking')).toMatchObject({
+      state: 'thinking',
+      expression: {
+        eyes: 'focused',
+        mouth: 'small'
+      },
+      effect: 'hint-sparkles',
+      motion: 'thinking'
+    })
+
+    expect(createLayeredPetView('cheer')).toMatchObject({
+      state: 'cheer',
+      expression: {
+        eyes: 'happy',
+        mouth: 'open'
+      },
+      effect: 'working-stars',
+      motion: 'cheer'
+    })
+
+    expect(createLayeredPetView('sleepy')).toMatchObject({
+      state: 'sleepy',
+      expression: {
+        eyes: 'sleepy',
+        mouth: 'small'
+      },
+      effect: 'none',
+      motion: 'sleepy'
+    })
+
+    expect(createLayeredPetView('surprised')).toMatchObject({
+      state: 'surprised',
+      expression: {
+        eyes: 'surprised',
+        mouth: 'open'
+      },
+      effect: 'hint-sparkles',
+      motion: 'surprised'
+    })
+
+    expect(createLayeredPetView('done')).toMatchObject({
+      state: 'done',
+      expression: {
+        eyes: 'happy',
+        mouth: 'smile'
+      },
+      effect: 'click-hearts',
+      motion: 'done'
+    })
   })
 
   it('creates a clicked transient without changing the persistent state contract', () => {

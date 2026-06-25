@@ -158,6 +158,29 @@ export function buildOpenLinksInAppScript(): string {
         }, 0);
       };
 
+      const reviewedFinishedVideoUrls = new Set();
+
+      const requestVideoFinishedHint = () => {
+        const currentUrl = window.location.href;
+
+        if (reviewedFinishedVideoUrls.has(currentUrl)) {
+          return;
+        }
+
+        reviewedFinishedVideoUrls.add(currentUrl);
+        requestPetHint('视频看完啦，要不要去批阅一下？小咪陪主人收个尾。');
+      };
+
+      document.addEventListener(
+        'ended',
+        (event) => {
+          if (event.target?.tagName?.toLowerCase?.() === 'video') {
+            requestVideoFinishedHint();
+          }
+        },
+        true
+      );
+
       document.addEventListener(
         'click',
         (event) => {

@@ -2,13 +2,25 @@ import type { AssistantPetState } from './petState'
 
 export type PetLayerId = 'character' | 'effect'
 
-export type PetEyes = 'idle' | 'happy' | 'focused' | 'wronged'
+export type PetEyes = 'idle' | 'happy' | 'focused' | 'wronged' | 'sleepy' | 'surprised'
 
 export type PetMouth = 'smile' | 'open' | 'small'
 
 export type PetEffect = 'none' | 'hint-sparkles' | 'working-stars' | 'error-sweat' | 'click-hearts'
 
-export type PetMotion = 'idle' | 'hint' | 'working' | 'error' | 'clicked'
+export type PetMotion =
+  | 'idle'
+  | 'hint'
+  | 'working'
+  | 'error'
+  | 'clicked'
+  | 'happy'
+  | 'shy'
+  | 'thinking'
+  | 'cheer'
+  | 'sleepy'
+  | 'surprised'
+  | 'done'
 
 export type PetTransient = 'clicked'
 
