@@ -257,9 +257,12 @@ describe('renderer porcelain theme styles', () => {
 
   it('styles the old favorites guide as a step-based review flow', () => {
     expectStyleSnippet('.favorite-ledger-panel__old-favorites-guide { display: grid; gap: 10px;')
-    expectStyleSnippet('.favorite-ledger-panel__guide-steps { display: grid; grid-template-columns: repeat(4, minmax(88px, 1fr));')
-    expectStyleSnippet('.favorite-ledger-panel__guide-steps button { width: 100%; min-width: 88px;')
-    expectStyleSnippet('.favorite-ledger-panel__guide-steps button { width: 100%; min-width: 88px; height: 36px; min-height: 36px; padding: 0 9px;')
+    expectStyleSnippet('.favorite-ledger-panel__guide-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));')
+    expectStyleSnippet('.favorite-ledger-panel__guide-steps button { width: 100%; min-width: 0;')
+    expectStyleSnippet('.favorite-ledger-panel__guide-steps button { width: 100%; min-width: 0; height: 36px; min-height: 36px; padding: 0 6px;')
+    expect(compactStyles).not.toContain(
+      '.favorite-ledger-panel__guide-steps { display: grid; grid-template-columns: repeat(4, minmax(88px, 1fr)); gap: 6px; overflow-x: auto;'
+    )
     expect(compactStyles).not.toContain(
       '.favorite-ledger-panel__guide-steps button { min-width: 0; height: 36px; min-height: 36px; padding: 0 8px; font-size: 12px; line-height: 1.2; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'
     )
