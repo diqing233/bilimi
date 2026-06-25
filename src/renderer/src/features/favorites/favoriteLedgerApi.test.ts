@@ -502,7 +502,8 @@ describe('favorite ledger API scripts', () => {
                   intro: 'Funny moment',
                   author: 'Comedy UP',
                   tags: [{ name: 'Funny' }, 'Sketch'],
-                  category: 'Entertainment'
+                  category: 'Entertainment',
+                  type: 2
                 }
               ],
               has_more: false
@@ -514,7 +515,7 @@ describe('favorite ledger API scripts', () => {
           return Response.json({
             code: 0,
             data: {
-              medias: [{ id: 123, title: 'Machine learning tutorial', intro: '' }],
+              medias: [{ id: 123, title: 'Machine learning tutorial', intro: '', type: 2 }],
               has_more: false
             }
           })
@@ -558,6 +559,54 @@ describe('favorite ledger API scripts', () => {
       'api:favorite:scan-target:9001'
     ])
     expect(requests.some((url) => url.includes('/x/v3/fav/resource/deal'))).toBe(false)
+  })
+
+  it('scans only video resources from old favorite folders', async () => {
+    installCookies()
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
+      ...ledger,
+      bilibiliFolderId: '9001'
+    }))
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({
+            code: 0,
+            data: {
+              list: [{ id: 101, title: 'Default Favorites' }]
+            }
+          })
+        }
+
+        if (url.includes('media_id=101')) {
+          return Response.json({
+            code: 0,
+            data: {
+              medias: [
+                { id: 123, title: 'Video tutorial', intro: 'video', type: 2 },
+                { id: 223, title: 'Bangumi episode', intro: 'episode', type: 24 },
+                { id: 323, title: 'Article note', intro: 'article', type: 12 },
+                { id: 423, title: 'Missing video', intro: 'missing', type: 2, attr: 9 },
+                { id: 523, title: 'Link video', intro: 'video by link', link: 'https://www.bilibili.com/video/BV123' }
+              ],
+              has_more: false
+            }
+          })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+
+    expect(result.ok).toBe(true)
+    expect(result.sourceFolders[0].videos.map((video) => video.title)).toEqual([
+      'Video tutorial',
+      'Link video'
+    ])
   })
 
   it('reports a readable error when old favorite scan receives html instead of json', async () => {

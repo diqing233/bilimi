@@ -322,6 +322,28 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
             cleanText(media?.upper?.name ?? media?.upper?.uname ?? media?.owner?.name ?? media?.author);
           const readCategory = (media) =>
             cleanText(media?.tname ?? media?.category ?? media?.typename ?? media?.type_name);
+          const isVideoMedia = (media) => {
+            const type = Number(media?.type);
+            if (Number.isFinite(type)) {
+              return type === 2;
+            }
+
+            const link = String(media?.link ?? media?.uri ?? media?.url ?? '');
+            return /\\/video\\//i.test(link);
+          };
+          const isUnavailableMedia = (media) => {
+            const title = cleanText(media?.title);
+            const attr = Number(media?.attr);
+            const state = Number(media?.state ?? media?.status);
+            return (
+              media?.is_invalid === true ||
+              media?.invalid === true ||
+              media?.is_deleted === true ||
+              (Number.isFinite(attr) && attr !== 0) ||
+              (Number.isFinite(state) && state < 0) ||
+              /已失效|已删除|不存在|失效视频/.test(title)
+            );
+          };
 
           while (true) {
             const response = await fetch(buildResourceUrl(folderId, page), {
@@ -329,7 +351,7 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
             });
             const json = await ensureApiOk(response, 'favorite resource list for folder ' + folderId);
             const medias = Array.isArray(json.data?.medias) ? json.data.medias : [];
-            videos.push(...medias.map((media) => ({
+            videos.push(...medias.filter((media) => isVideoMedia(media) && !isUnavailableMedia(media)).map((media) => ({
               aid: Number(media?.id ?? media?.aid),
               title: String(media?.title ?? ''),
               description: String(media?.intro ?? ''),
