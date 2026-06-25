@@ -27,6 +27,7 @@ import { sendAssistantOpenWhenReady } from './assistantOpenSignal'
 import { FloatingMenuController } from './floatingMenuController'
 import { FloatingSealDragController } from './floatingSealDragController'
 import { createMainWindowOptions } from './mainWindowOptions'
+import { installMainWindowControlReactions } from './mainWindowControlReactions'
 import { restoreMainWindowFromPet } from './mainWindowRestore'
 import { installFixedFloatingSealBoundsGuard } from './floatingSealBoundsGuard'
 import { setFloatingSealMouseTransparency } from './floatingSealMouseTransparency'
@@ -464,6 +465,11 @@ function createMainWindow() {
 
   mainWindow = win
   keepMainWindowTitle(win)
+  installMainWindowControlReactions({
+    closeAssistantPet: closeAssistantPetWindow,
+    sendPetHint: sendAssistantPetHint,
+    window: win
+  })
   installWindowOpenRouting(win)
   win.on('closed', () => {
     if (mainWindow === win) {
