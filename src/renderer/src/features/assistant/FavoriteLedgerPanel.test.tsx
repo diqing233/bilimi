@@ -1023,6 +1023,11 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('Bilimi路AI效率工坊')).toBeInTheDocument()
     expect(screen.getByText(/DeepSeek 增强/)).toBeInTheDocument()
     expect(screen.getByText('AI、效率、工具')).toBeInTheDocument()
+    const generatedCandidate = screen.getByText('Bilimi路AI效率工坊').closest('article')!
+    const presetLedger = screen.getByText('Bilimi·动画').closest('article')!
+    expect(generatedCandidate.compareDocumentPosition(presetLedger)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    )
     fireEvent.click(screen.getByLabelText('Bilimi路AI效率工坊'))
 
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
@@ -1641,6 +1646,65 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByLabelText('Bilimi·旅游出行'))
 
     expect(travelTopButton).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('shows matching old favorite counts for already checked preset ledgers', async () => {
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 101,
+          title: '动画分镜教程',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'animation',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi·动画',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        },
+        {
+          aid: 102,
+          title: '番剧演出解析',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'animation',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi·动画',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        }
+      ],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 2,
+        topAuthors: [],
+        topTags: [],
+        topCategories: [{ name: '动画', count: 2 }],
+        sourceFolders: [{ name: '默认收藏夹', count: 2 }],
+        titleSeries: [],
+        candidateLedgers: []
+      }
+    })
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+
+    const animationRecommendation = screen.getByLabelText('Bilimi·动画').closest('article')!
+
+    expect(animationRecommendation).toHaveTextContent('旧藏推荐 · 2 条旧藏适合归入此收藏夹')
+    expect(animationRecommendation).not.toHaveTextContent('初始收藏夹')
   })
 
   it('marks AI-enhanced ledger suggestions when DeepSeek improves the local candidates', async () => {

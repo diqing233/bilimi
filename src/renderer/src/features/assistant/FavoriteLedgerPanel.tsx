@@ -754,7 +754,7 @@ export function FavoriteLedgerPanel({
 
   function oldFavoriteRecommendationText(ledger: FavoriteLedger) {
     const count = oldFavoriteRecommendedLedgerCounts.get(ledger.id) ?? 0
-    return count > 0 && !ledgerEnabled(ledger)
+    return count > 0
       ? `旧藏推荐 · ${count} 条旧藏适合归入此收藏夹`
       : '初始收藏夹'
   }
@@ -1076,6 +1076,35 @@ export function FavoriteLedgerPanel({
             <section className="favorite-ledger-panel__candidates" aria-label="专属收藏夹候选">
               <h4>专属收藏夹候选</h4>
               <p>确认执行后，会把上方已勾选收藏夹和下方勾选候选同步到 B 站收藏夹里。</p>
+              {preview.insights?.candidateLedgers.length ? (
+                preview.insights.candidateLedgers.map((candidate) => {
+                  const key = candidateKey(candidate)
+                  const isSelected = selectedCandidateKeys.has(key)
+
+                  return (
+                    <article key={`${candidate.kind}-${candidate.sourceName}`}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          aria-label={candidate.displayName}
+                          checked={isSelected}
+                          disabled={!isSelected && alreadyHasLedger(draftLedgers, candidate.displayName)}
+                          onChange={() => toggleCandidate(candidate)}
+                        />
+                        <span>
+                          <strong>{candidate.displayName}</strong>
+                          <small>
+                            {candidate.aiEnhanced ? 'DeepSeek 增强' : '本地统计'} · {candidate.reason}
+                          </small>
+                          <small>{candidate.keywords.join('、')}</small>
+                        </span>
+                      </label>
+                    </article>
+                  )
+                })
+              ) : hasOldFavoriteRecommendedLedgers ? null : (
+                <p>暂无新收藏夹候选，可直接查看归档预览。</p>
+              )}
               {oldFavoritePresetLedgers.map((ledger) => (
                 <article key={ledger.id}>
                   <label>
@@ -1112,35 +1141,6 @@ export function FavoriteLedgerPanel({
                     </article>
                   ))
                 : null}
-              {preview.insights?.candidateLedgers.length ? (
-                preview.insights.candidateLedgers.map((candidate) => {
-                  const key = candidateKey(candidate)
-                  const isSelected = selectedCandidateKeys.has(key)
-
-                  return (
-                    <article key={`${candidate.kind}-${candidate.sourceName}`}>
-                      <label>
-                        <input
-                          type="checkbox"
-                          aria-label={candidate.displayName}
-                          checked={isSelected}
-                          disabled={!isSelected && alreadyHasLedger(draftLedgers, candidate.displayName)}
-                          onChange={() => toggleCandidate(candidate)}
-                        />
-                        <span>
-                          <strong>{candidate.displayName}</strong>
-                          <small>
-                            {candidate.aiEnhanced ? 'DeepSeek 增强' : '本地统计'} · {candidate.reason}
-                          </small>
-                          <small>{candidate.keywords.join('、')}</small>
-                        </span>
-                      </label>
-                    </article>
-                  )
-                })
-              ) : hasOldFavoriteRecommendedLedgers ? null : (
-                <p>暂无新收藏夹候选，可直接查看归档预览。</p>
-              )}
             </section>
           ) : null}
 
