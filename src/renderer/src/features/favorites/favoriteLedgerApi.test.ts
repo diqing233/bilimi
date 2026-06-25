@@ -310,10 +310,131 @@ describe('favorite ledger API scripts', () => {
 
     expect(result).toMatchObject({
       ok: false,
-      steps: [],
-      missingTargets: ['favorite-ledger-api'],
+      steps: ['api:ledger:append-failed:123'],
+      missingTargets: ['favorite-ledger-append:123'],
       message: expect.stringContaining('账号未登录')
     })
+  })
+
+  it('continues appending old favorites when one selected item no longer exists', async () => {
+    installCookies()
+    const requests: Array<{ body?: string; url: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        requests.push({ body: init?.body?.toString(), url })
+
+        if (url.includes('/x/v3/fav/resource/deal')) {
+          const body = new URLSearchParams(init?.body?.toString())
+          if (body.get('rid') === '123') {
+            return Response.json({ code: 62002, message: '您访问的内容不存在', data: {} })
+          }
+
+          return Response.json({ code: 0, data: {} })
+        }
+
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({ code: 0, data: { list: [] } })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(
+      buildExecuteFavoriteLedgerPlanScript([
+        {
+          aid: 123,
+          title: '失效旧藏',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi·知识',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        },
+        {
+          aid: 456,
+          title: '可归册旧藏',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi·知识',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        }
+      ])
+    )
+
+    expect(result).toMatchObject({
+      ok: false,
+      steps: ['api:ledger:append-failed:123', 'api:ledger:append:456'],
+      missingTargets: ['favorite-ledger-append:123']
+    })
+    expect(result.message).toContain('partially completed')
+    expect(result.message).toContain('1 appended')
+    expect(result.message).toContain('1 failed')
+    expect(requests.filter((request) => request.url.includes('/x/v3/fav/resource/deal'))).toHaveLength(2)
+  })
+
+  it('refreshes a stale target folder id and retries an old favorite append once', async () => {
+    installCookies()
+    const requests: Array<{ body?: string; url: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        requests.push({ body: init?.body?.toString(), url })
+
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({
+            code: 0,
+            data: {
+              list: [{ id: 9009, title: 'Bilimi·知识' }]
+            }
+          })
+        }
+
+        if (url.includes('/x/v3/fav/resource/deal')) {
+          const body = new URLSearchParams(init?.body?.toString())
+          if (body.get('add_media_ids') === '9001') {
+            return Response.json({ code: 62002, message: '您访问的内容不存在', data: {} })
+          }
+
+          return Response.json({ code: 0, data: {} })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(
+      buildExecuteFavoriteLedgerPlanScript([
+        {
+          aid: 123,
+          title: '可归册旧藏',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi·知识',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        }
+      ])
+    )
+
+    expect(result).toMatchObject({
+      ok: true,
+      steps: ['api:ledger:append-retry:123', 'api:ledger:append:123'],
+      missingTargets: []
+    })
+    const appendBodies = requests
+      .filter((request) => request.url.includes('/x/v3/fav/resource/deal'))
+      .map((request) => new URLSearchParams(request.body))
+    expect(appendBodies.map((body) => body.get('add_media_ids'))).toEqual(['9001', '9009'])
+    expect(appendBodies[1].get('del_media_ids')).toBe('')
   })
 
   it('scans old favorites without moving items from their source folders', async () => {

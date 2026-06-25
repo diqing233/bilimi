@@ -401,6 +401,7 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
       ${sharedScriptHelpers()}
       const steps = [];
       const missingTargets = [];
+      const appendFailures = [];
 
       try {
         const { csrf } = readCredentials();
@@ -419,9 +420,9 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
           return true;
         });
 
-        for (const item of executableItems) {
+        const appendItem = async (item, targetFolderId) => {
           const body = new URLSearchParams();
-          body.set('add_media_ids', String(item.targetFolderId));
+          body.set('add_media_ids', String(targetFolderId));
           body.set('csrf', csrf);
           body.set('del_media_ids', '');
           body.set('rid', String(item.aid));
@@ -439,7 +440,63 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
             body
           });
           await ensureApiOk(response, 'favorite ledger append');
-          steps.push('api:ledger:append:' + item.aid);
+        };
+        const refreshTargetFolderId = async (targetDisplayName) => {
+          const { mid } = readCredentials();
+          if (!mid || !targetDisplayName) {
+            return '';
+          }
+
+          const response = await fetch(buildListUrl(mid), { credentials: 'include' });
+          const json = await ensureApiOk(response, 'favorite folder list');
+          const folders = Array.isArray(json.data?.list) ? json.data.list : [];
+          const folder = folders.find((candidate) => candidate?.title === targetDisplayName);
+          const folderId = findFolderId(folder);
+          return folderId ? String(folderId) : '';
+        };
+
+        for (const item of executableItems) {
+          try {
+            await appendItem(item, item.targetFolderId);
+            steps.push('api:ledger:append:' + item.aid);
+          } catch (error) {
+            try {
+              const refreshedFolderId = await refreshTargetFolderId(item.targetDisplayName);
+              if (!refreshedFolderId || refreshedFolderId === String(item.targetFolderId)) {
+                throw error;
+              }
+
+              steps.push('api:ledger:append-retry:' + item.aid);
+              await appendItem(item, refreshedFolderId);
+              steps.push('api:ledger:append:' + item.aid);
+            } catch {
+              const message = error instanceof Error ? error.message : String(error || 'unknown error');
+              appendFailures.push({ aid: item.aid, title: item.title, message });
+              missingTargets.push('favorite-ledger-append:' + item.aid);
+              steps.push('api:ledger:append-failed:' + item.aid);
+            }
+          }
+        }
+
+        const appendCount = steps.filter((step) => step.startsWith('api:ledger:append:')).length;
+        if (appendFailures.length > 0) {
+          const failedTitles = appendFailures
+            .slice(0, 3)
+            .map((failure) => (failure.title || String(failure.aid)) + ': ' + failure.message)
+            .join('、');
+          return {
+            ok: false,
+            steps,
+            missingTargets,
+            message:
+              'old favorite organization partially completed: ' +
+              appendCount +
+              ' appended, ' +
+              appendFailures.length +
+              ' failed' +
+              (failedTitles ? ' (' + failedTitles + ')' : '') +
+              '.'
+          };
         }
 
         return {
