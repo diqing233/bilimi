@@ -1061,7 +1061,7 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([preview.items[0]]))
   })
 
-  it('asks users to backup before organizing old favorites when ledgers are missing', async () => {
+  it('runs one setup scan before organizing old favorites when ledgers are missing', async () => {
     const onScanOldFavorites = vi.fn().mockResolvedValue({
       items: [],
       skippedSourceFolderTitles: [],
@@ -1089,9 +1089,11 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
 
-    expect(onScanOldFavorites).not.toHaveBeenCalled()
+    await waitFor(() => expect(onScanOldFavorites).toHaveBeenCalledOnce())
+    expect(await screen.findByRole('region', { name: '备册向导' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '备册' })).toBeInTheDocument()
     expect(screen.queryByText('是否根据旧藏生成你的专属库房？')).not.toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('请先备册，再整理旧藏。')
+    expect(screen.getByRole('status')).toHaveTextContent('已扫描 3 条旧藏，可勾选库房后同步。')
   })
 
   it('scans old favorites and executes only checked append operations', async () => {
@@ -1455,6 +1457,72 @@ describe('FavoriteLedgerPanel', () => {
     )
 
     expect(within(ledgerRegion).queryByRole('button', { name: 'AI工具' })).not.toBeInTheDocument()
+  })
+
+  it('recommends existing unchecked ledgers that match scanned old favorites', async () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'knowledge' ? { ...ledger, enabled: false } : ledger
+    )
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 101,
+          title: '机器学习科普教程',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '',
+          targetDisplayName: 'Bilimi·知识',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: false
+        },
+        {
+          aid: 102,
+          title: '深度学习入门路线',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '',
+          targetDisplayName: 'Bilimi·知识',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: false
+        }
+      ],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 2,
+        topAuthors: [],
+        topTags: [{ name: '学习', count: 2 }],
+        topCategories: [{ name: '知识', count: 2 }],
+        sourceFolders: [{ name: '默认收藏夹', count: 2 }],
+        titleSeries: [],
+        candidateLedgers: []
+      }
+    })
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={ledgers}
+        missingLedgerIds={['knowledge']}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '备册向导' })
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+
+    const ledgerRegion = screen.getByRole('region', { name: '收藏夹' })
+    const knowledgeTopButton = within(ledgerRegion).getByRole('button', { name: '知识' })
+    expect(knowledgeTopButton).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByText('旧藏推荐 · 2 条旧藏适合归入此收藏夹')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Bilimi·知识'))
+
+    expect(knowledgeTopButton).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('marks AI-enhanced ledger suggestions when DeepSeek improves the local candidates', async () => {

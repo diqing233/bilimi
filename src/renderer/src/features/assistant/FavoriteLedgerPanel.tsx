@@ -184,8 +184,7 @@ export function FavoriteLedgerPanel({
 
   async function startOrganizingOldFavorites() {
     if (missingLedgerIds.length > 0) {
-      setStatus('请先备册，再整理旧藏。')
-      setSaveStatus(null)
+      await scanOldFavorites('setup')
       return
     }
 
@@ -688,6 +687,33 @@ export function FavoriteLedgerPanel({
   const reviewRequiredOldFavoriteCount = preview?.items.filter((item) => item.reviewRequired).length ?? 0
   const alreadyInTargetOldFavoriteCount = preview?.items.filter((item) => item.alreadyInTarget).length ?? 0
   const skippedSourceFolderCount = preview?.skippedSourceFolderTitles.length ?? 0
+  const oldFavoriteRecommendedLedgerCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const item of preview?.items ?? []) {
+      if (item.alreadyInTarget) {
+        continue
+      }
+
+      counts.set(item.targetLedgerId, (counts.get(item.targetLedgerId) ?? 0) + 1)
+    }
+    return counts
+  }, [preview])
+  const oldFavoriteRecommendedLedgers = useMemo(
+    () =>
+      draftLedgers.filter(
+        (ledger) =>
+          oldFavoriteRecommendedLedgerCounts.has(ledger.id) && !ledgerEnabled(ledger)
+      ),
+    [draftLedgers, oldFavoriteRecommendedLedgerCounts, selectedDefaultLedgerIds]
+  )
+  const hasOldFavoriteRecommendedLedgers = oldFavoriteRecommendedLedgers.length > 0
+
+  function oldFavoriteRecommendationText(ledger: FavoriteLedger) {
+    const count = oldFavoriteRecommendedLedgerCounts.get(ledger.id) ?? 0
+    return count > 0 && !ledgerEnabled(ledger)
+      ? `旧藏推荐 · ${count} 条旧藏适合归入此收藏夹`
+      : '初始收藏夹'
+  }
 
   return (
     <section
@@ -1004,12 +1030,31 @@ export function FavoriteLedgerPanel({
                           />
                           <span>
                             <strong>{ledger.displayName}</strong>
-                            <small>初始收藏夹</small>
+                            <small>{oldFavoriteRecommendationText(ledger)}</small>
                             <small>{ledger.keywords.join('、')}</small>
                           </span>
                         </label>
                       </article>
                     ))
+                : null}
+              {oldFavoriteGuideMode !== 'setup'
+                ? oldFavoriteRecommendedLedgers.map((ledger) => (
+                    <article key={ledger.id}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          aria-label={ledger.displayName}
+                          checked={ledgerEnabled(ledger)}
+                          onChange={() => toggleLedger(ledger.id)}
+                        />
+                        <span>
+                          <strong>{ledger.displayName}</strong>
+                          <small>{oldFavoriteRecommendationText(ledger)}</small>
+                          <small>{ledger.keywords.join('、')}</small>
+                        </span>
+                      </label>
+                    </article>
+                  ))
                 : null}
               {preview.insights?.candidateLedgers.length ? (
                 preview.insights.candidateLedgers.map((candidate) => {
@@ -1037,7 +1082,7 @@ export function FavoriteLedgerPanel({
                     </article>
                   )
                 })
-              ) : (
+              ) : hasOldFavoriteRecommendedLedgers ? null : (
                 <p>暂无新收藏夹候选，可直接查看归档预览。</p>
               )}
             </section>
