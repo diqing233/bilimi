@@ -147,6 +147,14 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet(
       '.palace-maid-pet__resize-controls[data-visible="true"], .palace-maid-pet__resize-controls:focus-within { opacity: 1; pointer-events: auto; transform: none;'
     )
+    expectStyleSnippet(
+      '.palace-maid-pet__hover-shortcuts { position: absolute; left: 58px; bottom: 2px;'
+    )
+    expectStyleSnippet(
+      '.palace-maid-pet__hover-shortcuts[data-layout="fan"] .palace-maid-pet__hover-shortcut:nth-child(1) { transform: translate(12px, 0);'
+    )
+    expect(normalizedStyles).not.toContain('left: 18px;\n  bottom: 50px;')
+    expect(normalizedStyles).not.toContain('transform: translate(18px, -16px);')
     expectStyleSnippet('.palace-maid-pet__resize-step:active { transform: none;')
     expect(normalizedStyles).not.toContain('.palace-maid-pet__resize-handle')
     expect(normalizedStyles).not.toContain('cursor: nwse-resize;')

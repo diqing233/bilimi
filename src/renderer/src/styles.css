@@ -732,8 +732,8 @@ body[data-floating-window="true"],
 }
 .palace-maid-pet__hover-shortcuts {
   position: absolute;
-  left: 18px;
-  bottom: 50px;
+  left: 58px;
+  bottom: 2px;
   z-index: 4;
   display: grid;
   gap: 2px;
@@ -770,16 +770,16 @@ body[data-floating-window="true"],
   cursor: pointer;
 }
 .palace-maid-pet__hover-shortcuts[data-layout="fan"] .palace-maid-pet__hover-shortcut:nth-child(1) {
-  transform: translate(18px, -16px);
+  transform: translate(12px, 0);
 }
 .palace-maid-pet__hover-shortcuts[data-layout="fan"] .palace-maid-pet__hover-shortcut:nth-child(2) {
-  transform: translate(5px, -6px);
+  transform: translate(2px, -1px);
 }
 .palace-maid-pet__hover-shortcuts[data-layout="fan"] .palace-maid-pet__hover-shortcut:nth-child(3) {
-  transform: translate(0, 4px);
+  transform: translate(0, 0);
 }
 .palace-maid-pet__hover-shortcuts[data-layout="fan"] .palace-maid-pet__hover-shortcut:nth-child(4) {
-  transform: translate(13px, 14px);
+  transform: translate(9px, 1px);
 }
 .palace-maid-pet__hover-shortcut:hover,
 .palace-maid-pet__hover-shortcut:focus-visible {
