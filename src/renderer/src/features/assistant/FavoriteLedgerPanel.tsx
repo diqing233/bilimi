@@ -179,7 +179,8 @@ export function FavoriteLedgerPanel({
 
   async function startOrganizingOldFavorites() {
     if (missingLedgerIds.length > 0) {
-      await scanOldFavorites('setup')
+      setStatus('请先备册，再整理旧藏。')
+      setSaveStatus(null)
       return
     }
 
