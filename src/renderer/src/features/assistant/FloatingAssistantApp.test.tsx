@@ -830,13 +830,18 @@ describe('FloatingAssistantApp', () => {
   })
 
   it('closes the system assistant from 合折', async () => {
-    const { closeFloatingAssistant } = installDesktopApi()
+    const setAssistantPetHint = vi.fn()
+    const { closeFloatingAssistant } = installDesktopApi({ setAssistantPetHint })
 
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('button', { name: '合折' }))
 
     expect(closeFloatingAssistant).toHaveBeenCalledOnce()
+    expect(setAssistantPetHint).toHaveBeenCalledWith({
+      tone: 'sleepy',
+      message: expect.stringMatching(/先收起来|等你回来|待会儿见|回来再叫我/)
+    })
   })
 
   it('renders as an embedded sidebar workspace without an in-panel collapse button', async () => {

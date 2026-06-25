@@ -10,6 +10,12 @@ export const PET_WELCOME_HOME_LINES = [
   '小咪在这里，欢迎回家。'
 ]
 
+export const PET_COLLAPSE_FAREWELL_LINES = [
+  '那小咪先收起来啦，等你回来。',
+  '主人去忙吧，小咪待会儿见。',
+  '小咪先安静一下，主人回来再叫我。'
+]
+
 export const PET_VIDEO_OPENING_LINES = [
   '小咪好期待呀，这个视频会不会很有意思～',
   '新视频打开啦，小咪已经搬好小板凳了。',

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import { FloatingAssistantApp } from './FloatingAssistantApp'
+import { PET_COLLAPSE_FAREWELL_LINES, pickPetLine } from './petInteractionLines'
 
 type AssistantSidebarTab = 'review' | 'notes' | 'ledger' | 'settings'
 const COLLAPSED_NUDGE_DELAY_MS = 60_000
@@ -8,6 +9,14 @@ const COLLAPSED_NUDGE_DELAY_MS = 60_000
 export function AssistantSidebar() {
   const [collapsed, setCollapsed] = useState(false)
   const [activeTab, setActiveTab] = useState<AssistantSidebarTab>('review')
+
+  function collapseSidebar() {
+    window.bilimiDesktop?.setAssistantPetHint?.({
+      tone: 'sleepy',
+      message: pickPetLine(PET_COLLAPSE_FAREWELL_LINES)
+    })
+    setCollapsed(true)
+  }
 
   useEffect(() => {
     return window.bilimiDesktop?.onOpenAssistant?.(() => {
@@ -42,7 +51,14 @@ export function AssistantSidebar() {
         type="button"
         className="assistant-sidebar__collapse-button"
         aria-label={collapsed ? '展开侧边栏' : '折叠侧边栏'}
-        onClick={() => setCollapsed((current) => !current)}
+        onClick={() => {
+          if (collapsed) {
+            setCollapsed(false)
+            return
+          }
+
+          collapseSidebar()
+        }}
       >
         <img
           className="assistant-sidebar__collapse-pet"
@@ -58,7 +74,7 @@ export function AssistantSidebar() {
           mode="sidebar"
           activeTab={activeTab}
           onActiveTabChange={setActiveTab}
-          onRequestCollapse={() => setCollapsed(true)}
+          onRequestCollapse={collapseSidebar}
         />
       )}
     </aside>

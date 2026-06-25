@@ -31,6 +31,7 @@ import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/w
 import type { AssistantPetHint } from './petState'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
+import { PET_COLLAPSE_FAREWELL_LINES, pickPetLine } from './petInteractionLines'
 
 const CURRENT_TITLE = '早八生存实录'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
@@ -81,6 +82,7 @@ type PetFeedbackTone =
   | 'shy'
   | 'thinking'
   | 'cheer'
+  | 'sleepy'
   | 'surprised'
   | 'done'
 
@@ -92,6 +94,7 @@ const PET_FEEDBACK_TONES: Record<PetFeedbackTone, AssistantPetHint['tone']> = {
   shy: 'shy',
   thinking: 'thinking',
   cheer: 'cheer',
+  sleepy: 'sleepy',
   surprised: 'surprised',
   done: 'done'
 }
@@ -778,12 +781,12 @@ export function FloatingAssistantApp({
   }
 
   function closeAssistant() {
-    tellPet('success', isSidebarMode ? '侧栏先收起来，小咪还在旁边。' : '悬浮助手先合上啦。')
     if (isSidebarMode) {
       onRequestCollapse?.()
       return
     }
 
+    tellPet('sleepy', pickPetLine(PET_COLLAPSE_FAREWELL_LINES))
     window.bilimiDesktop?.closeFloatingAssistant?.()
   }
 

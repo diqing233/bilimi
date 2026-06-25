@@ -124,4 +124,17 @@ describe('AssistantSidebar', () => {
       vi.useRealTimers()
     }
   })
+
+  it('says goodbye when the sidebar is collapsed', () => {
+    const api = installDesktopApi()
+
+    render(<AssistantSidebar />)
+
+    fireEvent.click(screen.getByRole('button', { name: '折叠侧边栏' }))
+
+    expect(api.setAssistantPetHint).toHaveBeenCalledWith({
+      tone: 'sleepy',
+      message: expect.stringMatching(/先收起来|等你回来|待会儿见|回来再叫我/)
+    })
+  })
 })
