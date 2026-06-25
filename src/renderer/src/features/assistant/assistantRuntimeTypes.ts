@@ -3,6 +3,7 @@ import type {
   AssistantAutomationResult,
   AssistantPreferences,
   FavoriteLedger,
+  FavoriteLedgerSaveOptions,
   FavoriteLedgerStatus,
   VideoAudioTranscriptionQueueSnapshot,
   VideoNote
@@ -38,7 +39,7 @@ export type AssistantRuntimeRequest =
   | { id: string; type: 'get-current-video-time' }
   | { id: string; type: 'seek-video-time'; seconds: number }
   | { id: string; type: 'ensure-ledgers' }
-  | { id: string; type: 'save-ledgers'; ledgers: FavoriteLedger[] }
+  | { id: string; type: 'save-ledgers'; ledgers: FavoriteLedger[]; options?: FavoriteLedgerSaveOptions }
   | { id: string; type: 'open-bilibili-favorites' }
   | { id: string; type: 'scan-old-favorites' }
   | { id: string; type: 'execute-old-favorite-plan'; items: FavoriteLedgerPreviewItem[] }

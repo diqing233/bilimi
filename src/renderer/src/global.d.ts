@@ -7,6 +7,7 @@ import type {
   DeepSeekKeyStatus,
   AssistantPreferences,
   FavoriteLedger,
+  FavoriteLedgerSaveOptions,
   FavoriteLedgerStatus,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionQueueSnapshot,
@@ -73,7 +74,10 @@ type BilimiDesktopApi = {
     options?: FloatingAssistantActionOptions
   ) => Promise<void>
   scanOldFavorites?: () => Promise<FavoriteLedgerPreview>
-  saveFavoriteLedgers?: (ledgers: FavoriteLedger[]) => Promise<AssistantAutomationResult>
+  saveFavoriteLedgers?: (
+    ledgers: FavoriteLedger[],
+    options?: FavoriteLedgerSaveOptions
+  ) => Promise<AssistantAutomationResult>
   savePreferences: (preferences: AssistantPreferences) => Promise<AssistantPreferences>
   saveDeepSeekApiKey?: (apiKey: string) => Promise<DeepSeekKeyStatus>
   saveVideoNote?: (note: VideoNote) => Promise<VideoNote[]>

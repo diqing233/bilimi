@@ -6,6 +6,7 @@ import type {
   BrowserTabModel,
   DeepSeekGenerateRequest,
   FavoriteLedger,
+  FavoriteLedgerSaveOptions,
   FavoriteLedgerStatus,
   VideoNote,
   VideoNoteExtractionResult,
@@ -546,9 +547,12 @@ export default function App() {
     return result
   }
 
-  async function saveFavoriteLedgers(nextLedgers: FavoriteLedger[]): Promise<AssistantAutomationResult> {
+  async function saveFavoriteLedgers(
+    nextLedgers: FavoriteLedger[],
+    options?: FavoriteLedgerSaveOptions
+  ): Promise<AssistantAutomationResult> {
     const result = await runScript(
-      buildSaveFavoriteLedgersScript(nextLedgers, preferences.favoriteLedgers)
+      buildSaveFavoriteLedgersScript(nextLedgers, preferences.favoriteLedgers, options)
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
     if (Array.isArray(result.ledgers)) {
@@ -638,13 +642,7 @@ export default function App() {
 
       const favoriteUrl = `https://space.bilibili.com/${mid}/favlist`
 
-      if (typeof currentActiveWebview.loadURL === 'function') {
-        await currentActiveWebview.loadURL(favoriteUrl)
-      } else {
-        currentActiveWebview.setAttribute('src', favoriteUrl)
-      }
-
-      updateTabUrl(activeTabIdRef.current, favoriteUrl)
+      openInternalTab(favoriteUrl)
 
       return {
         ok: true,
@@ -838,7 +836,7 @@ export default function App() {
         case 'ensure-ledgers':
           return ensureFavoriteLedgers()
         case 'save-ledgers':
-          return saveFavoriteLedgers(request.ledgers)
+          return saveFavoriteLedgers(request.ledgers, request.options)
         case 'open-bilibili-favorites':
           return openBilibiliFavorites()
         case 'scan-old-favorites':

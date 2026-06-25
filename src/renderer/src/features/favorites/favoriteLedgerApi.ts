@@ -1,4 +1,4 @@
-import type { FavoriteLedger } from '@shared/types'
+import type { FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
 
 export type FavoriteLedgerPreviewItem = {
   aid: number
@@ -164,9 +164,10 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
 
 export function buildSaveFavoriteLedgersScript(
   nextLedgers: FavoriteLedger[],
-  previousLedgers: FavoriteLedger[]
+  previousLedgers: FavoriteLedger[],
+  options: FavoriteLedgerSaveOptions = {}
 ): string {
-  const payload = scriptPayload({ nextLedgers, previousLedgers })
+  const payload = scriptPayload({ nextLedgers, options, previousLedgers })
 
   return `
     (async () => {
@@ -230,7 +231,10 @@ export function buildSaveFavoriteLedgersScript(
         return String(ledger.displayName || '').startsWith('Bilimi') || remoteTitle.startsWith('Bilimi');
       };
       const canDeleteRemovedLedger = (ledger) => !ledger.isDefault && canDeleteManagedFolder(ledger);
-      const disabledLedgers = nextLedgers.filter((ledger) => !ledger.enabled && canDeleteManagedFolder(ledger));
+      const shouldDeleteDisabled = payload.options?.deleteDisabled !== false;
+      const disabledLedgers = shouldDeleteDisabled
+        ? nextLedgers.filter((ledger) => !ledger.enabled && canDeleteManagedFolder(ledger))
+        : [];
 
       for (const ledger of disabledLedgers) {
         const body = new URLSearchParams();

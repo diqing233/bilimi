@@ -57,6 +57,7 @@ import type {
   AssistantAutomationResult,
   DeepSeekGenerateRequest,
   FavoriteLedger,
+  FavoriteLedgerSaveOptions,
   VideoAudioTranscriptionQueueSnapshot,
   VideoAudioTranscriptionRequest,
   VideoNote
@@ -729,10 +730,13 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle('floating-assistant:ensure-ledgers', () =>
     requestMainAssistantRuntime<AssistantAutomationResult>({ type: 'ensure-ledgers' })
   )
-  ipcMain.handle('floating-assistant:save-ledgers', (_event, ledgers: FavoriteLedger[]) =>
+  ipcMain.handle(
+    'floating-assistant:save-ledgers',
+    (_event, ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) =>
     requestMainAssistantRuntime<AssistantAutomationResult>({
       type: 'save-ledgers',
-      ledgers
+      ledgers,
+      options
     })
   )
   ipcMain.handle('floating-assistant:open-bilibili-favorites', () =>

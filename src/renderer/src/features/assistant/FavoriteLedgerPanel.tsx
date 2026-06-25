@@ -1,5 +1,5 @@
 import { BILIMI_LEDGER_PREFIX, createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
-import type { AssistantAutomationResult, FavoriteLedger } from '@shared/types'
+import type { AssistantAutomationResult, FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
 import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react'
 import type { FavoriteLedgerCandidate } from '../favorites/favoriteLedgerInsights'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
@@ -11,7 +11,10 @@ type FavoriteLedgerPanelProps = {
   ledgers: FavoriteLedger[]
   missingLedgerIds: string[]
   onEnsureLedgers: () => Promise<AssistantAutomationResult>
-  onSaveLedgers: (ledgers: FavoriteLedger[]) => Promise<AssistantAutomationResult> | void
+  onSaveLedgers: (
+    ledgers: FavoriteLedger[],
+    options?: FavoriteLedgerSaveOptions
+  ) => Promise<AssistantAutomationResult> | void
   onOpenFavoritePage?: () => Promise<AssistantAutomationResult> | void
   onScanOldFavorites: () => Promise<FavoriteLedgerPreview>
   onExecuteOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
@@ -502,13 +505,18 @@ export function FavoriteLedgerPanel({
     const selectedCandidates = candidates.filter((candidate) =>
       selectedCandidateKeys.has(candidateKey(candidate))
     )
-    const ledgersToBuild = includeDefaultLedgers ? mergeDefaultLedgers(draftLedgers, true) : draftLedgers
+    const defaultEnabledById = new Map(
+      createDefaultFavoriteLedgers().map((ledger) => [ledger.id, ledger.enabled])
+    )
+    const ledgersToBuild = includeDefaultLedgers ? mergeDefaultLedgers(draftLedgers) : draftLedgers
     const nextLedgers = withSequentialPriorities(
       ledgersToBuild.map((ledger) =>
         ledger.isDefault
           ? {
               ...ledger,
-              enabled: includeDefaultLedgers || selectedDefaultLedgerIds.has(ledger.id)
+              enabled: includeDefaultLedgers
+                ? (defaultEnabledById.get(ledger.id) ?? selectedDefaultLedgerIds.has(ledger.id))
+                : selectedDefaultLedgerIds.has(ledger.id)
             }
           : ledger
       )
@@ -531,6 +539,7 @@ export function FavoriteLedgerPanel({
     successMessage?: string
     pendingMessage?: string
     onSuccess?: () => Promise<void> | void
+    saveOptions?: FavoriteLedgerSaveOptions
   } = {}) {
     const nextLedgers = buildLedgersToSave(
       options.includeSelectedCandidates ?? true,
@@ -541,10 +550,19 @@ export function FavoriteLedgerPanel({
     setStatus(null)
     setSaveStatus(options.pendingMessage ?? '正在保存...')
     try {
-      const result = await onSaveLedgers(nextLedgers)
+      const result =
+        options.saveOptions === undefined
+          ? await onSaveLedgers(nextLedgers)
+          : await onSaveLedgers(nextLedgers, options.saveOptions)
       if (options.includeDefaultLedgers && result?.ok !== false) {
         setDraftLedgers(nextLedgers)
-        setSelectedDefaultLedgerIds(new Set(nextLedgers.filter((ledger) => ledger.isDefault).map((ledger) => ledger.id)))
+        setSelectedDefaultLedgerIds(
+          new Set(
+            nextLedgers
+              .filter((ledger) => ledger.enabled && ledger.isDefault)
+              .map((ledger) => ledger.id)
+          )
+        )
       }
       if (options.successMessage && result?.ok !== false) {
         setSaveStatus(null)
@@ -695,6 +713,8 @@ export function FavoriteLedgerPanel({
                 includeSelectedCandidates: false,
                 pendingMessage: '正在备册...',
                 successMessage: BACKUP_COMPLETE_MESSAGE,
+                includeDefaultLedgers: true,
+                saveOptions: { deleteDisabled: false },
                 onSuccess: async () => {
                   await onOpenFavoritePage?.()
                 }

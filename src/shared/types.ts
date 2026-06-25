@@ -64,6 +64,10 @@ export type FavoriteLedger = {
   isDefault: boolean
 }
 
+export type FavoriteLedgerSaveOptions = {
+  deleteDisabled?: boolean
+}
+
 export type FavoriteLedgerClassification = {
   ledgerId: FavoriteLedgerId
   displayName: string

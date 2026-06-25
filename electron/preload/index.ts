@@ -7,6 +7,7 @@ import type {
   DeepSeekGenerateResult,
   DeepSeekKeyStatus,
   FavoriteLedger,
+  FavoriteLedgerSaveOptions,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionQueueSnapshot,
   VideoAudioTranscriptionRequest,
@@ -207,8 +208,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     }
   },
   ensureFavoriteLedgers: () => ipcRenderer.invoke('floating-assistant:ensure-ledgers'),
-  saveFavoriteLedgers: (ledgers: FavoriteLedger[]) =>
-    ipcRenderer.invoke('floating-assistant:save-ledgers', ledgers),
+  saveFavoriteLedgers: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) =>
+    ipcRenderer.invoke('floating-assistant:save-ledgers', ledgers, options),
   openBilibiliFavorites: () => ipcRenderer.invoke('floating-assistant:open-bilibili-favorites'),
   scanOldFavorites: () => ipcRenderer.invoke('floating-assistant:scan-old-favorites'),
   executeOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) =>

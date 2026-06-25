@@ -2,6 +2,7 @@ import type {
   AssistantAction,
   AssistantAutomationResult,
   AssistantPreferences,
+  FavoriteLedgerSaveOptions,
   FavoriteLedgerStatus,
   NotePosterSummary,
   RecommendationKind,
@@ -807,10 +808,15 @@ export function FloatingAssistantApp({
     return result
   }
 
-  async function saveFavoriteLedgers(favoriteLedgers: AssistantPreferences['favoriteLedgers']) {
+  async function saveFavoriteLedgers(
+    favoriteLedgers: AssistantPreferences['favoriteLedgers'],
+    options?: FavoriteLedgerSaveOptions
+  ) {
     tellPet('progress', '小咪正在同步掌库册目。')
     const result =
-      (await window.bilimiDesktop?.saveFavoriteLedgers?.(favoriteLedgers)) ??
+      (await (options === undefined
+        ? window.bilimiDesktop?.saveFavoriteLedgers?.(favoriteLedgers)
+        : window.bilimiDesktop?.saveFavoriteLedgers?.(favoriteLedgers, options))) ??
       createDefaultResult('掌库已同步。')
     const nextSnapshot = await window.bilimiDesktop?.requestAssistantSnapshot?.()
 

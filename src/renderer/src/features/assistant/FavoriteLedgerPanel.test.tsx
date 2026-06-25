@@ -72,8 +72,10 @@ describe('FavoriteLedgerPanel', () => {
       expect.arrayContaining([
         expect.objectContaining({ displayName: 'Bilimi·动画', enabled: true }),
         expect.objectContaining({ displayName: 'Bilimi·游戏', enabled: true }),
-        expect.objectContaining({ displayName: 'Bilimi·知识', enabled: false })
-      ])
+        expect.objectContaining({ displayName: 'Bilimi·知识', enabled: true }),
+        expect.objectContaining({ displayName: 'Bilimi·体育运动', enabled: false })
+      ]),
+      { deleteDisabled: false }
     )
     await waitFor(() => expect(onOpenFavoritePage).toHaveBeenCalledOnce())
     expect(await screen.findByRole('status')).toHaveTextContent(
@@ -1439,9 +1441,17 @@ describe('FavoriteLedgerPanel', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(
       '小咪备册已完成，主人可以再增加自己想要的收藏夹，点击同步即可'
     )
-    expect(knowledgeTopButton).toHaveAttribute('aria-pressed', 'false')
+    expect(knowledgeTopButton).toHaveAttribute('aria-pressed', 'true')
+    expect(within(ledgerRegion).getByRole('button', { name: '体育运动' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    )
     expect(onSaveLedgers).toHaveBeenCalledWith(
-      expect.arrayContaining([expect.objectContaining({ id: 'knowledge', enabled: false })])
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'knowledge', enabled: true }),
+        expect.objectContaining({ id: 'sports', enabled: false })
+      ]),
+      { deleteDisabled: false }
     )
 
     expect(within(ledgerRegion).queryByRole('button', { name: 'AI工具' })).not.toBeInTheDocument()
