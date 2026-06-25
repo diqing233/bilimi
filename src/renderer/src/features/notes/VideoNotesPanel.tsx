@@ -113,7 +113,7 @@ export function VideoNotesPanel({
   transcriptionProgress = null,
   transcriptionQueue
 }: VideoNotesPanelProps): React.JSX.Element {
-  const [activeResultTab, setActiveResultTab] = useState<VideoNotesResultTab>('plain')
+  const [activeResultTab, setActiveResultTab] = useState<VideoNotesResultTab | null>(null)
   const [localGenerating, setLocalGenerating] = useState(false)
   const [transcribingAudio, setTranscribingAudio] = useState(false)
   const [generateFailed, setGenerateFailed] = useState(false)
@@ -180,6 +180,7 @@ export function VideoNotesPanel({
 
   async function runTranscribeAudio(): Promise<VideoNote | null> {
     if (!onTranscribeAudio || generationBusy) return null
+    setActiveResultTab('plain')
     setTranscribingAudio(true)
     setStatusMessage('')
     setErrorMessage('')
@@ -201,6 +202,7 @@ export function VideoNotesPanel({
 
   async function handleEnqueueTranscription(): Promise<void> {
     if (!onEnqueueTranscription || generationBusy) return
+    setActiveResultTab('plain')
     setStatusMessage('')
     setErrorMessage('')
     try {
@@ -435,7 +437,7 @@ export function VideoNotesPanel({
       {renderTranscriptionQueue()}
       {renderResultTabs()}
 
-      {!note ? (
+      {!note && activeResultTab ? (
         activeResultTab === 'summary' ? (
           renderSummaryPanel()
         ) : (

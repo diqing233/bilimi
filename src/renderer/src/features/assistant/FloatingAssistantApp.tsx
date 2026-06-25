@@ -239,6 +239,7 @@ export function FloatingAssistantApp({
   const [deepSeekApiKeyDraft, setDeepSeekApiKeyDraft] = useState('')
   const [deepSeekStatusMessage, setDeepSeekStatusMessage] = useState('')
   const mounted = useRef(false)
+  const transcriptionQueueRef = useRef<VideoAudioTranscriptionQueueSnapshot>({ items: [] })
   const activeTab = controlledActiveTab ?? uncontrolledActiveTab
   const [activeView, setActiveView] = useState<AssistantWorkspaceView>(activeTab)
   const isSidebarMode = mode === 'sidebar'
@@ -324,17 +325,22 @@ export function FloatingAssistantApp({
   }, [])
 
   useEffect(() => {
+    transcriptionQueueRef.current = transcriptionQueue
+  }, [transcriptionQueue])
+
+  useEffect(() => {
     return window.bilimiDesktop?.onVideoAudioTranscriptionQueueChanged?.((snapshot) => {
-      const hadRunning = transcriptionQueue.items.some((item) => item.status === 'running')
+      const hadRunning = transcriptionQueueRef.current.items.some((item) => item.status === 'running')
       const hasRunning = snapshot.items.some((item) => item.status === 'running')
 
+      transcriptionQueueRef.current = snapshot
       setTranscriptionQueue(snapshot)
 
       if (hadRunning && !hasRunning && snapshot.items.some((item) => item.status === 'completed')) {
         void loadVideoNoteArchives({ silent: true })
       }
     })
-  }, [transcriptionQueue.items])
+  }, [])
 
   const resolvedSnapshot = snapshot ?? createFallbackSnapshot()
   const resolvedVideoTitle = normalizeTitle(resolvedSnapshot.videoTitle)
@@ -643,6 +649,7 @@ export function FloatingAssistantApp({
     const snapshot = (await window.bilimiDesktop?.loadVideoAudioTranscriptionQueue?.()) ?? {
       items: []
     }
+    transcriptionQueueRef.current = snapshot
     setTranscriptionQueue(snapshot)
     return snapshot
   }
@@ -656,18 +663,27 @@ export function FloatingAssistantApp({
     tellPet('progress', '已加入转写队列，小咪会按顺序处理。')
     const nextQueue = await window.bilimiDesktop.enqueueCurrentVideoAudioTranscription?.()
 
-    if (nextQueue) setTranscriptionQueue(nextQueue)
+    if (nextQueue) {
+      transcriptionQueueRef.current = nextQueue
+      setTranscriptionQueue(nextQueue)
+    }
     return nextQueue
   }
 
   async function cancelQueuedVideoAudioTranscription(id: string) {
     const snapshot = await window.bilimiDesktop?.cancelVideoAudioTranscription?.(id)
-    if (snapshot) setTranscriptionQueue(snapshot)
+    if (snapshot) {
+      transcriptionQueueRef.current = snapshot
+      setTranscriptionQueue(snapshot)
+    }
   }
 
   async function retryQueuedVideoAudioTranscription(id: string) {
     const snapshot = await window.bilimiDesktop?.retryVideoAudioTranscription?.(id)
-    if (snapshot) setTranscriptionQueue(snapshot)
+    if (snapshot) {
+      transcriptionQueueRef.current = snapshot
+      setTranscriptionQueue(snapshot)
+    }
   }
 
   async function generateNotePoster(note: VideoNote) {

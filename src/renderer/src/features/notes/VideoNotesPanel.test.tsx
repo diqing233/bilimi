@@ -80,6 +80,37 @@ describe('VideoNotesPanel', () => {
     expect(onGenerate).not.toHaveBeenCalled()
   })
 
+  it('keeps transcript result panels closed until audio transcription starts', async () => {
+    const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
+    const { rerender } = renderPanel({ note: null, onTranscribeAudio })
+
+    expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveAttribute(
+      'aria-selected',
+      'false'
+    )
+    expect(screen.queryByText('暂无文稿。点击“转写音频”开始。')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+
+    await waitFor(() => expect(onTranscribeAudio).toHaveBeenCalledOnce())
+    rerender(
+      <VideoNotesPanel
+        note={sampleNote}
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+        onTranscribeAudio={onTranscribeAudio}
+      />
+    )
+    expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+    expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).toHaveTextContent(
+      '先介绍机器学习的基本概念。'
+    )
+  })
+
   it('uses the primary transcription action to enqueue the first video when queue support is available', async () => {
     const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
     const onEnqueueTranscription = vi.fn().mockResolvedValue({
