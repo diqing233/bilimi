@@ -116,8 +116,8 @@ describe('createFavoriteLedgerInsights', () => {
     expect(insights.candidateLedgers).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: 'tag-cluster',
-        displayName: 'Bilimi·AI工具',
-        keywords: ['AI', '工具', '效率'],
+        displayName: 'Bilimi·AI',
+        keywords: ['AI'],
         count: 4,
         confidence: 'high',
         aiEnhanced: false,
@@ -190,6 +190,36 @@ describe('createFavoriteLedgerInsights', () => {
           kind: 'category',
           displayName: 'Bilimi·知识',
           count: 1
+        })
+      ])
+    )
+  })
+
+  it('keeps high-frequency tag candidates scoped to the top tag only', () => {
+    const insights = createFavoriteLedgerInsights({
+      sourceFolders: [
+        {
+          id: '1',
+          title: '默认收藏夹',
+          videos: [
+            { aid: 401, title: '配队一', tags: ['原神', '攻略', '深渊'] },
+            { aid: 402, title: '配队二', tags: ['原神', '攻略', '角色'] },
+            { aid: 403, title: '配队三', tags: ['原神', '攻略', '抽卡'] },
+            { aid: 404, title: '配队四', tags: ['原神', '实况'] }
+          ]
+        }
+      ],
+      existingLedgerNames: []
+    })
+
+    expect(insights.candidateLedgers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'tag-cluster',
+          sourceName: '原神',
+          displayName: 'Bilimi·原神',
+          keywords: ['原神'],
+          count: 4
         })
       ])
     )

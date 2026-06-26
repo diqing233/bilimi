@@ -1007,7 +1007,7 @@ describe('App runtime integration', () => {
           candidateLedgers: expect.arrayContaining([
             expect.objectContaining({
               sourceName: 'AI',
-              displayName: 'Bilimi·AI工具',
+              displayName: 'Bilimi·AI',
               aiEnhanced: false
             })
           ])
@@ -1028,7 +1028,7 @@ describe('App runtime integration', () => {
         candidates: expect.arrayContaining([
           expect.objectContaining({
             sourceName: 'AI',
-            displayName: 'Bilimi·AI工具'
+            displayName: 'Bilimi·AI'
           })
         ])
       })

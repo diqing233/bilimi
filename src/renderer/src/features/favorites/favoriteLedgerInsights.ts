@@ -173,7 +173,6 @@ function confidence(count: number, totalVideos: number): FavoriteLedgerCandidate
 
 function buildTagCluster(videos: FavoriteSourceVideo[], totalVideos: number): FavoriteLedgerCandidate | null {
   const tagCounts = new Map<string, CountedName>()
-  const tagCoCounts = new Map<string, CountedName>()
 
   for (const video of videos) {
     for (const tag of video.tags ?? []) {
@@ -192,24 +191,9 @@ function buildTagCluster(videos: FavoriteSourceVideo[], totalVideos: number): Fa
     return null
   }
 
-  for (const video of videos) {
-    const normalizedTags = (video.tags ?? []).map(cleanText).filter(Boolean)
-    if (!normalizedTags.includes(topTag.name)) {
-      continue
-    }
-
-    for (const tag of normalizedTags) {
-      if (tag !== topTag.name) {
-        increment(tagCoCounts, tag)
-      }
-    }
-  }
-
-  const relatedTags = sortedSignals(tagCoCounts)
-    .filter((tag) => tag.count >= 2)
-    .slice(0, 2)
-  const displaySuffix = [topTag.name, relatedTags[0]?.name].filter(Boolean).join('')
-  const keywords = [topTag.name, ...relatedTags.map((tag) => tag.name)].map(cleanKeyword)
+  const keyword = cleanKeyword(topTag.name)
+  const displaySuffix = topTag.name
+  const keywords = keyword ? [keyword] : []
 
   return {
     kind: 'tag-cluster',

@@ -124,7 +124,7 @@ describe('createFavoriteLedgerPreview', () => {
       ],
       candidateLedgers: expect.arrayContaining([
         expect.objectContaining({
-          displayName: 'Bilimi·AI工具',
+          displayName: 'Bilimi·AI',
           aiEnhanced: false
         })
       ])
