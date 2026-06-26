@@ -1276,16 +1276,56 @@ describe('FavoriteLedgerPanel', () => {
               keywords: ['影视飓风']
             }
           ]
+        },
+        {
+          aid: 103,
+          title: '影视飓风调色教程',
+          sourceFolderTitle: 'Bilimi·影视飓风追更',
+          targetLedgerId: 'movie-tv',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi·影视',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          targets: [
+            {
+              ledgerId: 'movie-tv',
+              folderId: '9001',
+              displayName: 'Bilimi·影视',
+              keywords: ['影视'],
+              alreadyInTarget: false,
+              selected: true
+            },
+            {
+              ledgerId: 'custom-author-影视飓风',
+              folderId: '',
+              displayName: 'Bilimi·影视飓风追更',
+              keywords: ['影视飓风'],
+              alreadyInTarget: false,
+              selected: true,
+              selectedCandidateTarget: true,
+              candidateKey: 'author:影视飓风'
+            }
+          ],
+          candidateTargets: [
+            {
+              candidateKey: 'author:影视飓风',
+              ledgerId: 'custom-author-影视飓风',
+              displayName: 'Bilimi·影视飓风追更',
+              keywords: ['影视飓风']
+            }
+          ]
         }
       ],
       skippedSourceFolderTitles: [],
       insights: {
-        totalVideos: 2,
-        topAuthors: [{ name: '影视飓风', count: 2, share: 1 }],
+        totalVideos: 3,
+        topAuthors: [{ name: '影视飓风', count: 3, share: 1 }],
         topTags: [],
         topCategories: [{ name: '影视', count: 2 }],
         sourceFolders: [
           { name: '默认收藏夹', count: 1 },
+          { name: 'Bilimi·影视飓风追更', count: 4 },
           { name: 'Bilimi·待分类', count: 1 }
         ],
         titleSeries: [],
@@ -1328,19 +1368,20 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('扫描收藏夹')).toBeInTheDocument()
     expect(screen.getByText('用户收藏夹')).toBeInTheDocument()
     expect(screen.getByText('Bilimi 工作夹')).toBeInTheDocument()
+    expect(screen.getByLabelText('整理来源 Bilimi·影视飓风追更')).toBeChecked()
     expect(screen.getByLabelText('整理来源 Bilimi·待分类')).toBeChecked()
 
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
     expect(screen.getByLabelText('Bilimi·影视飓风追更')).toBeChecked()
     expect(screen.getByLabelText('Bilimi·影视')).toBeChecked()
-    expect(screen.getByLabelText('Bilimi·影视飓风追更').closest('article')).toHaveTextContent('2 条适合')
-    expect(screen.getByLabelText('Bilimi·影视').closest('article')).toHaveTextContent('2 条适合')
+    expect(screen.getByLabelText('Bilimi·影视飓风追更').closest('article')).toHaveTextContent('3 条适合')
+    expect(screen.getByLabelText('Bilimi·影视').closest('article')).toHaveTextContent('3 条适合')
     expect(screen.queryByText('初始收藏夹')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
 
-    const movieGroup = screen.getByRole('group', { name: 'Bilimi·影视 2 条' })
-    const authorGroup = screen.getByRole('group', { name: 'Bilimi·影视飓风追更 2 条' })
+    const movieGroup = screen.getByRole('group', { name: 'Bilimi·影视 3 条' })
+    const authorGroup = screen.getByRole('group', { name: 'Bilimi·影视飓风追更 3 条' })
     expect(within(movieGroup).getByLabelText('全选 Bilimi·影视')).toBeChecked()
     expect(within(authorGroup).getByLabelText('全选 Bilimi·影视飓风追更')).toBeChecked()
     expect(within(movieGroup).getByText('影视飓风相机评测')).toBeInTheDocument()

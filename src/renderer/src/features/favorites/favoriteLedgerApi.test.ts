@@ -800,7 +800,7 @@ describe('favorite ledger API scripts', () => {
     expect(appendBodies[1].get('del_media_ids')).toBe('')
   })
 
-  it('scans old favorites without moving items from their source folders', async () => {
+  it('scans old favorites and Bilimi target folders without moving source items', async () => {
     installCookies()
     const ledgers = createDefaultFavoriteLedgers().slice(0, 2).map((ledger, index) => ({
       ...ledger,
@@ -913,18 +913,33 @@ describe('favorite ledger API scripts', () => {
             category: 'Entertainment'
           }
         ]
+      },
+      {
+        id: '9001',
+        title: ledgers[0].displayName,
+        videos: [
+          {
+            aid: 123,
+            title: 'Machine learning tutorial',
+            description: '',
+            author: '',
+            tags: [],
+            category: ''
+          }
+        ]
       }
     ])
     expect(result.targetMembership).toEqual({ '9001': [123] })
     expect(result.steps).toEqual([
       'api:favorite:list',
       'api:favorite:scan-source:101',
-      'api:favorite:scan-target:9001'
+      'api:favorite:scan-target:9001',
+      'api:favorite:scan-source:9001'
     ])
     expect(requests.some((url) => url.includes('/x/v3/fav/resource/deal'))).toBe(false)
   })
 
-  it('scans Bilimi inbox as both a target membership folder and an old favorite source', async () => {
+  it('scans Bilimi ledgers as both target membership folders and old favorite sources', async () => {
     installCookies()
     const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
       if (ledger.id === 'inbox') {
@@ -966,7 +981,7 @@ describe('favorite ledger API scripts', () => {
           return Response.json({
             code: 0,
             data: {
-              medias: [{ id: 123, title: 'Machine learning tutorial', type: 2 }],
+              medias: [{ id: 789, title: 'Knowledge archive tutorial', type: 2 }],
               has_more: false
             }
           })
@@ -993,6 +1008,11 @@ describe('favorite ledger API scripts', () => {
       expect.arrayContaining([
         expect.objectContaining({ id: '101', title: 'Default Favorites' }),
         expect.objectContaining({
+          id: '9001',
+          title: 'Bilimi·知识',
+          videos: [expect.objectContaining({ aid: 789, title: 'Knowledge archive tutorial' })]
+        }),
+        expect.objectContaining({
           id: '9008',
           title: 'Bilimi·待分类',
           videos: [expect.objectContaining({ aid: 456, title: 'Inbox tutorial' })]
@@ -1000,11 +1020,12 @@ describe('favorite ledger API scripts', () => {
       ])
     )
     expect(result.targetMembership).toMatchObject({
-      '9001': [123],
+      '9001': [789],
       '9008': [456]
     })
     expect(result.steps).toEqual(
       expect.arrayContaining([
+        'api:favorite:scan-source:9001',
         'api:favorite:scan-source:9008',
         'api:favorite:scan-target:9008'
       ])

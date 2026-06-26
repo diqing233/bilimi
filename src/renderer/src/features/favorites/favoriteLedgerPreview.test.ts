@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { createFavoriteLedgerPreview } from './favoriteLedgerPreview'
 
 describe('createFavoriteLedgerPreview', () => {
-  it('excludes Bilimi-managed source folders and suggests append-only targets', () => {
+  it('keeps Bilimi-managed folders as selectable source folders for second-pass organizing', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
       ledger.id === 'knowledge' ? { ...ledger, bilibiliFolderId: '9001' } : ledger
     )
@@ -33,9 +33,13 @@ describe('createFavoriteLedgerPreview', () => {
         targetFolderId: '9001',
         alreadyInTarget: false,
         selected: true
+      }),
+      expect.objectContaining({
+        aid: 102,
+        sourceFolderTitle: managedKnowledgeFolder
       })
     ])
-    expect(preview.skippedSourceFolderTitles).toEqual([managedKnowledgeFolder])
+    expect(preview.skippedSourceFolderTitles).toEqual([])
   })
 
   it('keeps Bilimi inbox as a selectable old favorite source folder', () => {

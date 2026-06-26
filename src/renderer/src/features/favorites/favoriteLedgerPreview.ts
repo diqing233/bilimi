@@ -1,4 +1,3 @@
-import { isBilimiManagedLedgerName } from '@shared/favoriteLedgers'
 import type { FavoriteLedger } from '@shared/types'
 import {
   createFavoriteLedgerInsights,
@@ -75,14 +74,7 @@ export function createFavoriteLedgerPreview(args: {
     aiSuggestions: args.aiSuggestions
   })
 
-  const inboxLedger = args.ledgers.find((ledger) => ledger.id === 'inbox')
-
   for (const folder of args.sourceFolders) {
-    if (isBilimiManagedLedgerName(folder.title) && folder.title !== inboxLedger?.displayName) {
-      skippedSourceFolderTitles.push(folder.title)
-      continue
-    }
-
     for (const video of folder.videos) {
       const classification = classifyVideoContent(video, args.ledgers)
       const targetLedger = args.ledgers.find((ledger) => ledger.id === classification.ledgerId)
