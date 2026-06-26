@@ -145,11 +145,6 @@ type OldFavoriteSourceFolderSummary = {
   count: number
 }
 
-type OldFavoriteCategoryRecommendation = {
-  ledger: FavoriteLedger
-  count: number
-}
-
 function visibleLedgers(ledgers: FavoriteLedger[], expanded: boolean) {
   if (expanded) {
     return ledgers
@@ -396,7 +391,6 @@ function buildSelectedOldFavoritePlanItems(args: {
   items: FavoriteLedgerPreviewItem[]
   selectedTargetKeys: Set<string>
   selectedCandidateKeys: Set<string>
-  inboxLedger: FavoriteLedger | null
 }): FavoriteLedgerPreviewItem[] {
   const planItems: FavoriteLedgerPreviewItem[] = []
 
@@ -411,23 +405,7 @@ function buildSelectedOldFavoritePlanItems(args: {
       }
       return args.selectedTargetKeys.has(oldFavoriteTargetKey(item.aid, target.ledgerId))
     })
-    const targets =
-      selectedTargets.length > 0
-        ? selectedTargets
-        : args.inboxLedger
-          ? [
-              {
-                ledgerId: args.inboxLedger.id,
-                folderId: args.inboxLedger.bilibiliFolderId ?? '',
-                displayName: args.inboxLedger.displayName,
-                keywords: args.inboxLedger.keywords,
-                alreadyInTarget: false,
-                selected: true
-              }
-            ]
-          : []
-
-    for (const target of targets) {
+    for (const target of selectedTargets) {
       planItems.push({
         ...item,
         targets: undefined,
@@ -480,7 +458,6 @@ export function FavoriteLedgerPanel({
   const [ledgerListExpanded, setLedgerListExpanded] = useState(false)
   const [oldFavoriteStep, setOldFavoriteStep] = useState<OldFavoriteGuideStep>('scan')
   const [oldFavoriteGuideMode, setOldFavoriteGuideMode] = useState<OldFavoriteGuideMode>('organize')
-  const [oldFavoriteOtherLedgersExpanded, setOldFavoriteOtherLedgersExpanded] = useState(false)
   const [oldFavoriteDeepSeekEnhanced, setOldFavoriteDeepSeekEnhanced] = useState(false)
   const ledgerNamesById = useMemo(
     () => Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName])),
@@ -782,10 +759,6 @@ export function FavoriteLedgerPanel({
     })
   }
 
-  function toggleCandidate(candidate: FavoriteLedgerCandidate) {
-    setCandidateSelected(candidate, !selectedCandidateKeys.has(candidateKey(candidate)))
-  }
-
   function candidateToLedger(candidate: FavoriteLedgerCandidate, priority: number): FavoriteLedger {
     return {
       id: candidateLedgerId(candidate),
@@ -795,27 +768,6 @@ export function FavoriteLedgerPanel({
       priority,
       isDefault: false
     }
-  }
-
-  function adoptCandidate(candidate: FavoriteLedgerCandidate) {
-    if (alreadyHasLedger(draftLedgers, candidate.displayName)) {
-      setStatus('此册目已在掌库。')
-      return
-    }
-
-    setDraftLedgers([
-      ...draftLedgers,
-      {
-        id: customLedgerId(candidate.displayName),
-        displayName: candidate.displayName,
-        keywords: candidate.keywords,
-        enabled: true,
-        priority: draftLedgers.length + 100,
-        isDefault: false
-      }
-    ])
-    setStatus(`已采纳 ${candidate.displayName}，保存后生效。`)
-    setSaveStatus(null)
   }
 
   function handleLedgerDragStart(event: DragEvent<HTMLDivElement>, ledgerId: string) {
@@ -947,7 +899,7 @@ export function FavoriteLedgerPanel({
     setBusy(true)
     setSaveStatus(null)
     setOldFavoriteExecutionProgress(null)
-    setStatus(options.enhanceWithDeepSeek ? '正在用 DeepSeek 补判待分类，请稍候。' : '正在扫描旧藏，请稍候。')
+    setStatus(options.enhanceWithDeepSeek ? '正在用 DeepSeek 补判旧藏，请稍候。' : '正在扫描旧藏，请稍候。')
     try {
       const nextPreview = await onScanOldFavorites({
         enhanceWithDeepSeek: Boolean(options.enhanceWithDeepSeek)
@@ -962,7 +914,6 @@ export function FavoriteLedgerPanel({
       setOldFavoriteStep('scan')
       setOldFavoriteGuideMode(mode)
       setOldFavoriteDeepSeekEnhanced(Boolean(options.enhanceWithDeepSeek))
-      setOldFavoriteOtherLedgersExpanded(false)
       setLedgerListExpanded(true)
       const nextCandidateKeys = recommendedCandidateKeysForPreview(nextPreview)
       const nextRecommendedLedgerIds = recommendedLedgerIdsForPreview(nextPreview)
@@ -1167,18 +1118,14 @@ export function FavoriteLedgerPanel({
     () => oldFavoriteSourceFolders.filter((folder) => isBilimiManagedLedgerName(folder.name)),
     [oldFavoriteSourceFolders]
   )
-  const selectedOldFavoriteItems =
-    selectableOldFavoriteItems.filter((item) => selectedOldFavoriteAids.has(item.aid)) ?? []
-  const inboxLedger = useMemo(() => draftLedgers.find((ledger) => ledger.id === 'inbox') ?? null, [draftLedgers])
   const selectedOldFavoritePlanItems = useMemo(
     () =>
       buildSelectedOldFavoritePlanItems({
         items: selectableOldFavoriteItems,
         selectedTargetKeys: selectedOldFavoriteTargetKeys,
-        selectedCandidateKeys,
-        inboxLedger
+        selectedCandidateKeys
       }),
-    [selectableOldFavoriteItems, selectedOldFavoriteTargetKeys, selectedCandidateKeys, inboxLedger]
+    [selectableOldFavoriteItems, selectedOldFavoriteTargetKeys, selectedCandidateKeys]
   )
   const missingOldFavoriteTargetNames = Array.from(
     new Set(
@@ -1191,7 +1138,6 @@ export function FavoriteLedgerPanel({
     missingOldFavoriteTargetNames.length > 0
       ? `确认整理会先同步 ${missingOldFavoriteTargetNames.join('、')} 收藏夹；同步后请重新扫描旧藏以归档到新建收藏夹。`
       : null
-  const oldFavoriteInboxCount = selectedOldFavoritePlanItems.filter((item) => item.targetLedgerId === 'inbox').length
   const autoSelectedOldFavoriteCount =
     selectableOldFavoriteItems.filter((item) => item.selected && !item.alreadyInTarget && !item.reviewRequired)
       .length ?? 0
@@ -1199,23 +1145,6 @@ export function FavoriteLedgerPanel({
   const alreadyInTargetOldFavoriteCount =
     selectableOldFavoriteItems.filter((item) => item.alreadyInTarget).length ?? 0
   const skippedSourceFolderCount = preview?.skippedSourceFolderTitles.length ?? 0
-  const oldFavoriteRecommendedLedgerCounts = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const item of selectableOldFavoriteItems) {
-      if (item.alreadyInTarget) {
-        continue
-      }
-
-      for (const target of targetsForOldFavoriteItem(item)) {
-        if (target.selectedCandidateTarget || target.alreadyInTarget) {
-          continue
-        }
-
-        counts.set(target.ledgerId, (counts.get(target.ledgerId) ?? 0) + 1)
-      }
-    }
-    return counts
-  }, [selectableOldFavoriteItems])
   const oldFavoriteCandidateCounts = useMemo(() => {
     const counts = new Map<string, number>()
     for (const item of selectableOldFavoriteItems) {
@@ -1229,56 +1158,22 @@ export function FavoriteLedgerPanel({
     }
     return counts
   }, [selectableOldFavoriteItems])
-  const oldFavoritePresetLedgers = useMemo(
-    () =>
-      draftLedgers.filter(
-        (ledger) => ledger.isDefault && ledger.id !== 'inbox' && oldFavoriteRecommendedLedgerCounts.has(ledger.id)
-      ),
-    [draftLedgers, oldFavoriteRecommendedLedgerCounts]
-  )
-  const oldFavoriteNewCategoryRecommendations = useMemo<OldFavoriteCategoryRecommendation[]>(
-    () =>
-      oldFavoritePresetLedgers
-        .filter((ledger) => !ledger.bilibiliFolderId)
-        .map((ledger) => ({
-          ledger,
-          count: oldFavoriteRecommendedLedgerCounts.get(ledger.id) ?? 0
-        })),
-    [oldFavoritePresetLedgers, oldFavoriteRecommendedLedgerCounts]
-  )
-  const oldFavoritePreparedCategoryRecommendations = useMemo<OldFavoriteCategoryRecommendation[]>(
-    () =>
-      oldFavoritePresetLedgers
-        .filter((ledger) => Boolean(ledger.bilibiliFolderId))
-        .map((ledger) => ({
-          ledger,
-          count: oldFavoriteRecommendedLedgerCounts.get(ledger.id) ?? 0
-        })),
-    [oldFavoritePresetLedgers, oldFavoriteRecommendedLedgerCounts]
-  )
-  const oldFavoriteRecommendedLedgers = useMemo(
-    () =>
-      draftLedgers.filter(
-        (ledger) =>
-          !ledger.isDefault &&
-          oldFavoriteRecommendedLedgerCounts.has(ledger.id) &&
-          !ledgerEnabled(ledger)
-      ),
-    [draftLedgers, oldFavoriteRecommendedLedgerCounts, selectedDefaultLedgerIds]
-  )
-  const hasOldFavoriteRecommendedLedgers =
-    oldFavoritePresetLedgers.length > 0 ||
-    oldFavoriteRecommendedLedgers.length > 0
-  const hasOldFavoriteInboxToSplit = oldFavoriteInboxCount > 0
   const oldFavoriteTargetGroups = useMemo(
     () => buildOldFavoriteTargetGroups(selectableOldFavoriteItems, selectedCandidateKeys, selectedOldFavoriteTargetKeys),
     [selectableOldFavoriteItems, selectedCandidateKeys, selectedOldFavoriteTargetKeys]
   )
-
-  function oldFavoriteRecommendationText(ledger: FavoriteLedger) {
-    const count = oldFavoriteRecommendedLedgerCounts.get(ledger.id) ?? 0
-    return count > 0 ? `${count} 条适合` : '收藏夹'
-  }
+  const oldFavoriteFollowUpCandidates = useMemo(
+    () =>
+      preview?.insights?.candidateLedgers.filter(
+        (candidate) => candidate.kind === 'author' || candidate.kind === 'series'
+      ) ?? [],
+    [preview]
+  )
+  const oldFavoriteTagCandidates = useMemo(
+    () =>
+      preview?.insights?.candidateLedgers.filter((candidate) => candidate.kind === 'tag-cluster') ?? [],
+    [preview]
+  )
 
   function oldFavoriteCandidateDetailText(candidate: FavoriteLedgerCandidate) {
     const count = oldFavoriteCandidateCounts.get(candidateKey(candidate)) ?? candidate.count
@@ -1290,84 +1185,6 @@ export function FavoriteLedgerPanel({
   function oldFavoriteCandidateRecommendationText(candidate: FavoriteLedgerCandidate) {
     const count = oldFavoriteCandidateCounts.get(candidateKey(candidate)) ?? 0
     return count > 0 ? `${count} 条适合` : '按扫描结果生成'
-  }
-
-  function renderOldFavoriteLedgerOption(ledger: FavoriteLedger) {
-    return (
-      <article key={ledger.id}>
-        <label>
-          <input
-            type="checkbox"
-            aria-label={ledger.displayName}
-            checked={ledgerEnabled(ledger)}
-            onChange={() => toggleLedger(ledger.id)}
-          />
-          <span>
-            <strong>{favoriteLedgerDisplayShortName(ledger.displayName)}</strong>
-            <small>{oldFavoriteRecommendationText(ledger)}</small>
-            <small>{ledger.keywords.join('、')}</small>
-          </span>
-        </label>
-      </article>
-    )
-  }
-
-  function renderOldFavoriteCategoryLedgerOption(ledger: FavoriteLedger) {
-    return (
-      <article key={ledger.id}>
-        <label>
-          <input
-            type="checkbox"
-            aria-label={ledger.displayName}
-            checked={ledgerEnabled(ledger)}
-            onChange={() => toggleLedger(ledger.id)}
-          />
-          <span>
-            <strong>{favoriteLedgerDisplayShortName(ledger.displayName)}</strong>
-            <small>{oldFavoriteRecommendationText(ledger)}</small>
-          </span>
-        </label>
-      </article>
-    )
-  }
-
-  function renderOldFavoriteCategoryRecommendationControl(recommendation?: OldFavoriteCategoryRecommendation) {
-    if (!recommendation) {
-      return null
-    }
-
-    return (
-      <label>
-        <input
-          type="checkbox"
-          aria-label={recommendation.ledger.displayName}
-          checked={ledgerEnabled(recommendation.ledger)}
-          onChange={() => toggleLedger(recommendation.ledger.id)}
-        />
-        <span>{favoriteLedgerDisplayShortName(recommendation.ledger.displayName)}</span>
-      </label>
-    )
-  }
-
-  function renderOldFavoriteCategoryRecommendationRows() {
-    const rowCount = Math.max(
-      oldFavoriteNewCategoryRecommendations.length,
-      oldFavoritePreparedCategoryRecommendations.length
-    )
-
-    return Array.from({ length: rowCount }, (_, index) => {
-      const nextRecommendation = oldFavoriteNewCategoryRecommendations[index]
-      const preparedRecommendation = oldFavoritePreparedCategoryRecommendations[index]
-
-      return (
-        <tr key={`category-recommendation-${index}`}>
-          <td>{renderOldFavoriteCategoryRecommendationControl(nextRecommendation)}</td>
-          <td>{nextRecommendation?.count ?? ''}</td>
-          <td>{renderOldFavoriteCategoryRecommendationControl(preparedRecommendation)}</td>
-          <td>{preparedRecommendation?.count ?? ''}</td>
-        </tr>
-      )
-    })
   }
 
   function renderOldFavoriteSourceFolder(folder: OldFavoriteSourceFolderSummary) {
@@ -1643,7 +1460,7 @@ export function FavoriteLedgerPanel({
               </div>
               {preview.insights ? (
                 <>
-                  <p>共扫描 {preview.insights.totalVideos} 条旧藏，待分类 {oldFavoriteInboxCount}</p>
+                  <p>共扫描 {preview.insights.totalVideos} 条旧藏，生成 {preview.insights.candidateLedgers.length} 个候选收藏夹</p>
                   <div className="favorite-ledger-panel__insight-columns">
                     <div>
                       <strong>扫描收藏夹</strong>
@@ -1667,20 +1484,20 @@ export function FavoriteLedgerPanel({
                         <span>
                           {oldFavoriteDeepSeekEnhanced
                             ? 'DeepSeek 已补判，可查看推荐收藏夹。'
-                            : '待分类偏多时，可让 DeepSeek 继续补判。'}
+                            : '候选不够准时，可让 DeepSeek 继续补判。'}
                         </span>
                         <button
                           type="button"
                           disabled={busy || oldFavoriteDeepSeekEnhanced}
                           onClick={() => void enhanceOldFavoritesWithDeepSeek()}
                         >
-                          智能补判待分类
+                          智能补判旧藏
                         </button>
                       </>
                     ) : deepSeekReady ? (
-                      <span>在设置中开启“用 DeepSeek 辅助整理旧藏”后，可继续压低待分类。</span>
+                      <span>在设置中开启“用 DeepSeek 辅助整理旧藏”后，可继续补判旧藏。</span>
                     ) : (
-                      <span>配置并启用 DeepSeek 后，可继续压低待分类。</span>
+                      <span>配置并启用 DeepSeek 后，可继续补判旧藏。</span>
                     )}
                   </div>
                 </>
@@ -1695,10 +1512,8 @@ export function FavoriteLedgerPanel({
               <div className="favorite-ledger-panel__candidate-section">
                 <h5>专属 UP 追更</h5>
                 <div className="favorite-ledger-panel__candidate-list favorite-ledger-panel__candidate-list--detailed">
-                {preview.insights?.candidateLedgers.length ? (
-                  preview.insights.candidateLedgers
-                    .filter((candidate) => candidate.kind === 'author' || candidate.kind === 'series')
-                    .map((candidate) => {
+                {oldFavoriteFollowUpCandidates.length ? (
+                  oldFavoriteFollowUpCandidates.map((candidate) => {
                   const key = candidateKey(candidate)
                   const isSelected = selectedCandidateKeys.has(key)
 
@@ -1722,52 +1537,15 @@ export function FavoriteLedgerPanel({
                   )
                   })
                 ) : null}
-                {preview.insights?.candidateLedgers.some((candidate) => candidate.kind === 'author' || candidate.kind === 'series') ? null : (
+                {oldFavoriteFollowUpCandidates.length ? null : (
                   <p>暂无专属 UP 追更候选。</p>
                 )}
                 </div>
               </div>
               <div className="favorite-ledger-panel__candidate-section">
-                <h5>推荐分区收藏夹</h5>
-                {hasOldFavoriteRecommendedLedgers ? (
-                  <table
-                    className="favorite-ledger-panel__category-recommendations"
-                    aria-label="推荐分区收藏夹"
-                  >
-                    <thead>
-                      <tr>
-                        <th>建议勾选收藏</th>
-                        <th>符合视频数量</th>
-                        <th>已备册收藏</th>
-                        <th>符合视频数量</th>
-                      </tr>
-                    </thead>
-                    <tbody>{renderOldFavoriteCategoryRecommendationRows()}</tbody>
-                  </table>
-                ) : null}
-                {hasOldFavoriteInboxToSplit ? (
-                  <section className="favorite-ledger-panel__inbox-split" aria-label="待拆解内容">
-                    <strong>待分类 {oldFavoriteInboxCount}</strong>
-                    <span>这些旧藏还没有可靠分区，建议继续补判后再减少待分类。</span>
-                    {deepSeekReady && deepSeekOldFavoriteAssistanceEnabled ? (
-                      <button
-                        type="button"
-                        disabled={busy || oldFavoriteDeepSeekEnhanced}
-                        onClick={() => void enhanceOldFavoritesWithDeepSeek()}
-                      >
-                        智能补判待分类
-                      </button>
-                    ) : deepSeekReady ? (
-                      <small>在设置中开启“用 DeepSeek 辅助整理旧藏”后，可继续补判。</small>
-                    ) : (
-                      <small>配置并启用 DeepSeek 后，可继续补判。</small>
-                    )}
-                  </section>
-                ) : null}
+                <h5>高频标签收藏夹</h5>
                 <div className="favorite-ledger-panel__candidate-list favorite-ledger-panel__candidate-list--compact">
-                {preview.insights?.candidateLedgers
-                  .filter((candidate) => candidate.kind !== 'author' && candidate.kind !== 'series')
-                  .map((candidate) => {
+                {oldFavoriteTagCandidates.map((candidate) => {
                     const key = candidateKey(candidate)
                     const isSelected = selectedCandidateKeys.has(key)
 
@@ -1790,11 +1568,8 @@ export function FavoriteLedgerPanel({
                       </article>
                     )
                   })}
-                {oldFavoriteGuideMode !== 'setup'
-                  ? oldFavoriteRecommendedLedgers.map(renderOldFavoriteCategoryLedgerOption)
-                  : null}
-                {hasOldFavoriteRecommendedLedgers || preview.insights?.candidateLedgers.length ? null : (
-                  <p>暂无推荐分区收藏夹，可直接查看归档预览。</p>
+                {oldFavoriteTagCandidates.length ? null : (
+                  <p>暂无高频标签收藏夹候选，可直接查看归档预览。</p>
                 )}
                 </div>
               </div>
