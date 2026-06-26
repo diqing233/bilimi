@@ -2445,6 +2445,75 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByRole('group', { name: 'Bilimi·原神 1 条' })).toBeInTheDocument()
   })
 
+  it('shows twelve tag recommendations by default and expands to twenty-four', async () => {
+    const tagNames = Array.from({ length: 24 }, (_, index) => `标签${index + 1}`)
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: tagNames.map((tagName, index) => ({
+        aid: 3000 + index,
+        title: `${tagName} 视频`,
+        sourceFolderTitle: '默认收藏夹',
+        targetLedgerId: 'inbox',
+        targetFolderId: '',
+        targetDisplayName: 'Bilimi·待分类',
+        reviewRequired: false,
+        alreadyInTarget: false,
+        selected: false,
+        candidateTargets: [
+          {
+            candidateKey: `tag-cluster:${tagName}`,
+            ledgerId: `custom-tag-cluster-${tagName}`,
+            displayName: `Bilimi·${tagName}`,
+            keywords: [tagName]
+          }
+        ]
+      })),
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 48,
+        topAuthors: [],
+        topTags: tagNames.map((tagName) => ({ name: tagName, count: 2 })),
+        topCategories: [],
+        sourceFolders: [{ name: '默认收藏夹', count: 48 }],
+        titleSeries: [],
+        candidateLedgers: tagNames.map((tagName) => ({
+          kind: 'tag-cluster' as const,
+          sourceName: tagName,
+          displayName: `Bilimi·${tagName}`,
+          keywords: [tagName],
+          count: 2,
+          confidence: 'medium' as const,
+          reason: `高频标签“${tagName}”出现 2 次，适合单独成册。`,
+          aiEnhanced: false
+        }))
+      }
+    })
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+
+    const candidates = screen.getByRole('region', { name: '专属收藏夹候选' })
+    expect(within(candidates).getByLabelText('Bilimi·标签1')).not.toBeChecked()
+    expect(within(candidates).getByLabelText('Bilimi·标签12')).toBeInTheDocument()
+    expect(within(candidates).queryByLabelText('Bilimi·标签13')).not.toBeInTheDocument()
+
+    fireEvent.click(within(candidates).getByRole('button', { name: '展开更多高频标签' }))
+
+    expect(within(candidates).getByLabelText('Bilimi·标签24')).toBeInTheDocument()
+    expect(within(candidates).getAllByText(/条适合/)).toHaveLength(24)
+  })
+
   it('keeps the old favorite guide instead of rescanning when the ledger panel is reopened', async () => {
     const onScanOldFavorites = vi.fn().mockResolvedValue({
       items: [

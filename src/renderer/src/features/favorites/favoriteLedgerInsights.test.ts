@@ -153,7 +153,7 @@ describe('createFavoriteLedgerInsights', () => {
     )
   })
 
-  it('creates tag and category candidates even from a single matching old favorite', () => {
+  it('keeps single-use tags out of generated candidates while preserving category candidates', () => {
     const insights = createFavoriteLedgerInsights({
       sourceFolders: [
         {
@@ -182,14 +182,16 @@ describe('createFavoriteLedgerInsights', () => {
     expect(insights.candidateLedgers).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          kind: 'tag-cluster',
-          displayName: 'Bilimi·摄影',
-          count: 1
-        }),
-        expect.objectContaining({
           kind: 'category',
           displayName: 'Bilimi·知识',
           count: 1
+        })
+      ])
+    )
+    expect(insights.candidateLedgers).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'tag-cluster'
         })
       ])
     )
@@ -227,6 +229,38 @@ describe('createFavoriteLedgerInsights', () => {
           displayName: 'Bilimi·攻略',
           keywords: ['攻略'],
           count: 3
+        })
+      ])
+    )
+  })
+
+  it('keeps up to twenty-four repeated tag candidates', () => {
+    const insights = createFavoriteLedgerInsights({
+      sourceFolders: [
+        {
+          id: '1',
+          title: '默认收藏夹',
+          videos: Array.from({ length: 60 }, (_, index) => ({
+            aid: 500 + index,
+            title: `标签样本 ${index + 1}`,
+            tags: [`标签${Math.floor(index / 2) + 1}`]
+          }))
+        }
+      ],
+      existingLedgerNames: []
+    })
+
+    const tagCandidates = insights.candidateLedgers.filter(
+      (candidate) => candidate.kind === 'tag-cluster'
+    )
+
+    expect(tagCandidates).toHaveLength(24)
+    expect(tagCandidates.at(0)).toMatchObject({ sourceName: '标签1', count: 2 })
+    expect(tagCandidates.at(23)).toMatchObject({ sourceName: '标签24', count: 2 })
+    expect(tagCandidates).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceName: '标签25'
         })
       ])
     )

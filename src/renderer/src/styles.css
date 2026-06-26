@@ -2419,14 +2419,8 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__candidate-list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
-}
-.favorite-ledger-panel__candidate-list--detailed {
-  grid-template-columns: 1fr;
-}
-.favorite-ledger-panel__candidate-list--compact {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .favorite-ledger-panel__category-recommendations {
   width: 100%;
@@ -2483,7 +2477,8 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__candidates article {
   min-width: 0;
-  padding: 6px;
+  min-height: 42px;
+  padding: 6px 7px;
 }
 .favorite-ledger-panel__candidates label,
 .favorite-ledger-panel__preview label {
@@ -2500,8 +2495,11 @@ body[data-floating-window="true"],
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.favorite-ledger-panel__candidate-list--detailed small {
-  white-space: normal;
+.favorite-ledger-panel__candidate-list > button {
+  grid-column: 1 / -1;
+  justify-self: end;
+  min-height: 30px;
+  padding: 5px 8px;
 }
 .favorite-ledger-panel__deepseek-assist {
   display: grid;

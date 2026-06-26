@@ -187,7 +187,7 @@ function buildTagClusters(videos: FavoriteSourceVideo[], totalVideos: number): F
 
     return left.firstSeen - right.firstSeen
   })
-  const candidateTags = sortedTags.filter((tag, index) => index === 0 || tag.count >= 2).slice(0, 6)
+  const candidateTags = sortedTags.filter((tag) => tag.count >= 2).slice(0, 24)
 
   return candidateTags.map((tag) => {
     const keyword = cleanKeyword(tag.name)

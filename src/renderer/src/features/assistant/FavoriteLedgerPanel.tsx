@@ -115,6 +115,8 @@ function saveStatusMessage(result: AssistantAutomationResult | void) {
 }
 
 const COLLAPSED_LEDGER_COUNT = 15
+const COLLAPSED_TAG_CANDIDATE_COUNT = 12
+const EXPANDED_TAG_CANDIDATE_COUNT = 24
 const FAVORITE_LEDGER_SAFETY_NOTE =
   '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
 const LEDGER_SYNC_HINT =
@@ -188,11 +190,28 @@ function recommendedCandidateKeysForPreview(preview: FavoriteLedgerPreview) {
 
   const keys = new Set<string>()
   for (const candidate of preview.insights?.candidateLedgers ?? []) {
-    if ((counts.get(candidateKey(candidate)) ?? candidate.count) > 0) {
+    const count = counts.get(candidateKey(candidate)) ?? candidate.count
+    if (shouldAutoSelectCandidate(candidate, count, preview.insights?.totalVideos ?? preview.items.length)) {
       keys.add(candidateKey(candidate))
     }
   }
   return keys
+}
+
+function shouldAutoSelectCandidate(
+  candidate: FavoriteLedgerCandidate,
+  matchedCount: number,
+  totalVideos: number
+) {
+  if (matchedCount <= 0) {
+    return false
+  }
+
+  if (candidate.aiEnhanced || candidate.kind !== 'tag-cluster') {
+    return true
+  }
+
+  return matchedCount >= 3 || matchedCount / Math.max(totalVideos, 1) >= 0.08
 }
 
 function mergeCandidateLedgers(
@@ -459,6 +478,7 @@ export function FavoriteLedgerPanel({
   const [oldFavoriteStep, setOldFavoriteStep] = useState<OldFavoriteGuideStep>('scan')
   const [oldFavoriteGuideMode, setOldFavoriteGuideMode] = useState<OldFavoriteGuideMode>('organize')
   const [oldFavoriteDeepSeekEnhanced, setOldFavoriteDeepSeekEnhanced] = useState(false)
+  const [tagCandidatesExpanded, setTagCandidatesExpanded] = useState(false)
   const ledgerNamesById = useMemo(
     () => Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName])),
     [draftLedgers]
@@ -914,6 +934,7 @@ export function FavoriteLedgerPanel({
       setOldFavoriteStep('scan')
       setOldFavoriteGuideMode(mode)
       setOldFavoriteDeepSeekEnhanced(Boolean(options.enhanceWithDeepSeek))
+      setTagCandidatesExpanded(false)
       setLedgerListExpanded(true)
       const nextCandidateKeys = recommendedCandidateKeysForPreview(nextPreview)
       const nextRecommendedLedgerIds = recommendedLedgerIdsForPreview(nextPreview)
@@ -1174,6 +1195,16 @@ export function FavoriteLedgerPanel({
       preview?.insights?.candidateLedgers.filter((candidate) => candidate.kind === 'tag-cluster') ?? [],
     [preview]
   )
+  const visibleOldFavoriteTagCandidates = useMemo(
+    () =>
+      oldFavoriteTagCandidates.slice(
+        0,
+        tagCandidatesExpanded ? EXPANDED_TAG_CANDIDATE_COUNT : COLLAPSED_TAG_CANDIDATE_COUNT
+      ),
+    [oldFavoriteTagCandidates, tagCandidatesExpanded]
+  )
+  const canExpandOldFavoriteTagCandidates =
+    !tagCandidatesExpanded && oldFavoriteTagCandidates.length > COLLAPSED_TAG_CANDIDATE_COUNT
 
   function oldFavoriteCandidateDetailText(candidate: FavoriteLedgerCandidate) {
     const count = oldFavoriteCandidateCounts.get(candidateKey(candidate)) ?? candidate.count
@@ -1511,7 +1542,7 @@ export function FavoriteLedgerPanel({
               <p>确认执行后，会把已勾选候选同步到 B 站收藏夹里。</p>
               <div className="favorite-ledger-panel__candidate-section">
                 <h5>专属 UP 追更</h5>
-                <div className="favorite-ledger-panel__candidate-list favorite-ledger-panel__candidate-list--detailed">
+                <div className="favorite-ledger-panel__candidate-list">
                 {oldFavoriteFollowUpCandidates.length ? (
                   oldFavoriteFollowUpCandidates.map((candidate) => {
                   const key = candidateKey(candidate)
@@ -1544,8 +1575,8 @@ export function FavoriteLedgerPanel({
               </div>
               <div className="favorite-ledger-panel__candidate-section">
                 <h5>高频标签收藏夹</h5>
-                <div className="favorite-ledger-panel__candidate-list favorite-ledger-panel__candidate-list--compact">
-                {oldFavoriteTagCandidates.map((candidate) => {
+                <div className="favorite-ledger-panel__candidate-list">
+                {visibleOldFavoriteTagCandidates.map((candidate) => {
                     const key = candidateKey(candidate)
                     const isSelected = selectedCandidateKeys.has(key)
 
@@ -1571,6 +1602,11 @@ export function FavoriteLedgerPanel({
                 {oldFavoriteTagCandidates.length ? null : (
                   <p>暂无高频标签收藏夹候选，可直接查看归档预览。</p>
                 )}
+                {canExpandOldFavoriteTagCandidates ? (
+                  <button type="button" onClick={() => setTagCandidatesExpanded(true)}>
+                    展开更多高频标签
+                  </button>
+                ) : null}
                 </div>
               </div>
             </section>
