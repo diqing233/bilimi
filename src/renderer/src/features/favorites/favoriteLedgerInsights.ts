@@ -188,7 +188,7 @@ function buildTagCluster(videos: FavoriteSourceVideo[], totalVideos: number): Fa
 
     return left.firstSeen - right.firstSeen
   })[0]
-  if (!topTag || topTag.count < 3 || topTag.count / Math.max(totalVideos, 1) < 0.5) {
+  if (!topTag) {
     return null
   }
 
@@ -266,7 +266,7 @@ function buildCategoryCandidates(
   totalVideos: number
 ): FavoriteLedgerCandidate[] {
   return topCategories
-    .filter((category) => category.count >= 3 || category.count / Math.max(totalVideos, 1) >= 0.35)
+    .filter((category) => category.count > 0)
     .slice(0, 3)
     .map((category) => ({
       kind: 'category' as const,

@@ -153,6 +153,48 @@ describe('createFavoriteLedgerInsights', () => {
     )
   })
 
+  it('creates tag and category candidates even from a single matching old favorite', () => {
+    const insights = createFavoriteLedgerInsights({
+      sourceFolders: [
+        {
+          id: '1',
+          title: '默认收藏夹',
+          videos: [
+            {
+              aid: 301,
+              title: '单条摄影后期案例',
+              author: '光影小课',
+              description: '',
+              tags: ['摄影', '后期'],
+              category: '知识'
+            }
+          ]
+        }
+      ],
+      existingLedgerNames: []
+    })
+
+    expect(insights.topTags).toEqual([
+      { name: '摄影', count: 1 },
+      { name: '后期', count: 1 }
+    ])
+    expect(insights.topCategories).toEqual([{ name: '知识', count: 1 }])
+    expect(insights.candidateLedgers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'tag-cluster',
+          displayName: 'Bilimi·摄影',
+          count: 1
+        }),
+        expect.objectContaining({
+          kind: 'category',
+          displayName: 'Bilimi·知识',
+          count: 1
+        })
+      ])
+    )
+  })
+
   it('applies AI enhancements only to matching deterministic candidates', () => {
     const insights = createFavoriteLedgerInsights({
       sourceFolders: createSourceFolders(),

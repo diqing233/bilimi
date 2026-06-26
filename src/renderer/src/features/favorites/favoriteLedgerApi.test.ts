@@ -924,6 +924,93 @@ describe('favorite ledger API scripts', () => {
     expect(requests.some((url) => url.includes('/x/v3/fav/resource/deal'))).toBe(false)
   })
 
+  it('scans Bilimi inbox as both a target membership folder and an old favorite source', async () => {
+    installCookies()
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
+      if (ledger.id === 'inbox') {
+        return { ...ledger, bilibiliFolderId: '9008' }
+      }
+      if (ledger.id === 'knowledge') {
+        return { ...ledger, bilibiliFolderId: '9001' }
+      }
+      return ledger
+    })
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({
+            code: 0,
+            data: {
+              list: [
+                { id: 101, title: 'Default Favorites' },
+                { id: 9001, title: 'Bilimi·知识' },
+                { id: 9008, title: 'Bilimi·待分类' }
+              ]
+            }
+          })
+        }
+
+        if (url.includes('media_id=101')) {
+          return Response.json({
+            code: 0,
+            data: {
+              medias: [{ id: 123, title: 'Machine learning tutorial', type: 2 }],
+              has_more: false
+            }
+          })
+        }
+
+        if (url.includes('media_id=9001')) {
+          return Response.json({
+            code: 0,
+            data: {
+              medias: [{ id: 123, title: 'Machine learning tutorial', type: 2 }],
+              has_more: false
+            }
+          })
+        }
+
+        if (url.includes('media_id=9008')) {
+          return Response.json({
+            code: 0,
+            data: {
+              medias: [{ id: 456, title: 'Inbox tutorial', tags: ['学习'], type: 2 }],
+              has_more: false
+            }
+          })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+
+    expect(result.ok).toBe(true)
+    expect(result.sourceFolders).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: '101', title: 'Default Favorites' }),
+        expect.objectContaining({
+          id: '9008',
+          title: 'Bilimi·待分类',
+          videos: [expect.objectContaining({ aid: 456, title: 'Inbox tutorial' })]
+        })
+      ])
+    )
+    expect(result.targetMembership).toMatchObject({
+      '9001': [123],
+      '9008': [456]
+    })
+    expect(result.steps).toEqual(
+      expect.arrayContaining([
+        'api:favorite:scan-source:9008',
+        'api:favorite:scan-target:9008'
+      ])
+    )
+  })
+
   it('scans only video resources from old favorite folders', async () => {
     installCookies()
     const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({

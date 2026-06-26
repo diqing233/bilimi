@@ -328,6 +328,13 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
             .filter(Boolean)
             .map(String)
         );
+        const inboxFolderIds = new Set(
+          payload.ledgers
+            .filter((ledger) => ledger.id === 'inbox')
+            .map((ledger) => ledger.bilibiliFolderId)
+            .filter(Boolean)
+            .map(String)
+        );
         const sourceFolders = [];
         const targetMembership = {};
         steps.push('api:favorite:list');
@@ -422,7 +429,9 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
           if (targetFolderIds.has(folderIdString)) {
             targetMembership[folderIdString] = videos.map((video) => video.aid);
             steps.push('api:favorite:scan-target:' + folderIdString);
-          } else {
+          }
+
+          if (!targetFolderIds.has(folderIdString) || inboxFolderIds.has(folderIdString)) {
             sourceFolders.push({
               id: folderIdString,
               title: String(folder?.title ?? ''),
