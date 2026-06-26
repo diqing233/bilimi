@@ -1,4 +1,4 @@
-import { BILIMI_LEDGER_PREFIX, createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
+import { BILIMI_LEDGER_PREFIX, createDefaultFavoriteLedgers, isBilimiManagedLedgerName } from '@shared/favoriteLedgers'
 import type { AssistantAutomationResult, FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
 import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react'
 import type { FavoriteLedgerCandidate } from '../favorites/favoriteLedgerInsights'
@@ -136,6 +136,11 @@ type OldFavoriteTargetGroup = {
     target: FavoriteLedgerPreviewTarget
     selected: boolean
   }>
+}
+
+type OldFavoriteSourceFolderSummary = {
+  name: string
+  count: number
 }
 
 function visibleLedgers(ledgers: FavoriteLedger[], expanded: boolean) {
@@ -1102,7 +1107,7 @@ export function FavoriteLedgerPanel({
         .map((item) => itemWithSelectedCandidateTargets(item, selectedCandidateKeys)) ?? [],
     [preview, selectedOldFavoriteSourceFolderTitles, selectedCandidateKeys]
   )
-  const oldFavoriteSourceFolders = useMemo(() => {
+  const oldFavoriteSourceFolders = useMemo<OldFavoriteSourceFolderSummary[]>(() => {
     const sourceFolderCounts = new Map<string, number>()
     for (const item of preview?.items ?? []) {
       sourceFolderCounts.set(item.sourceFolderTitle, (sourceFolderCounts.get(item.sourceFolderTitle) ?? 0) + 1)
@@ -1113,6 +1118,14 @@ export function FavoriteLedgerPanel({
 
     return Array.from(sourceFolderCounts, ([name, count]) => ({ name, count }))
   }, [preview])
+  const oldFavoriteUserSourceFolders = useMemo(
+    () => oldFavoriteSourceFolders.filter((folder) => !isBilimiManagedLedgerName(folder.name)),
+    [oldFavoriteSourceFolders]
+  )
+  const oldFavoriteBilimiSourceFolders = useMemo(
+    () => oldFavoriteSourceFolders.filter((folder) => isBilimiManagedLedgerName(folder.name)),
+    [oldFavoriteSourceFolders]
+  )
   const selectedOldFavoriteItems =
     selectableOldFavoriteItems.filter((item) => selectedOldFavoriteAids.has(item.aid)) ?? []
   const inboxLedger = useMemo(() => draftLedgers.find((ledger) => ledger.id === 'inbox') ?? null, [draftLedgers])
@@ -1223,6 +1236,30 @@ export function FavoriteLedgerPanel({
           </span>
         </label>
       </article>
+    )
+  }
+
+  function renderOldFavoriteSourceFolder(folder: OldFavoriteSourceFolderSummary) {
+    return (
+      <li key={folder.name}>
+        {oldFavoriteGuideMode === 'organize' ? (
+          <label>
+            <input
+              type="checkbox"
+              aria-label={`整理来源 ${folder.name}`}
+              checked={selectedOldFavoriteSourceFolderTitles.has(folder.name)}
+              onChange={() => toggleOldFavoriteSourceFolder(folder.name)}
+            />
+            <span>
+              {folder.name} {folder.count}
+            </span>
+          </label>
+        ) : (
+          <>
+            {folder.name} {folder.count}
+          </>
+        )}
+      </li>
     )
   }
 
@@ -1478,60 +1515,19 @@ export function FavoriteLedgerPanel({
                   <p>共扫描 {preview.insights.totalVideos} 条旧藏</p>
                   <div className="favorite-ledger-panel__insight-columns">
                     <div>
-                      <strong>常追 UP</strong>
-                      <ul>
-                        {preview.insights.topAuthors.slice(0, 3).map((author) => (
-                          <li key={author.name}>
-                            {author.name} {author.count}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div>
-                      <strong>高频标签</strong>
-                      <ul>
-                        {preview.insights.topTags.slice(0, 5).map((tag) => (
-                          <li key={tag.name}>
-                            {tag.name} {tag.count}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div>
-                      <strong>分区</strong>
-                      <ul>
-                        {preview.insights.topCategories.slice(0, 3).map((category) => (
-                          <li key={category.name}>
-                            {category.name} {category.count}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div>
-                      <strong>来源收藏夹</strong>
-                      <ul>
-                        {oldFavoriteSourceFolders.map((folder) => (
-                          <li key={folder.name}>
-                            {oldFavoriteGuideMode === 'organize' ? (
-                              <label>
-                                <input
-                                  type="checkbox"
-                                  aria-label={`整理来源 ${folder.name}`}
-                                  checked={selectedOldFavoriteSourceFolderTitles.has(folder.name)}
-                                  onChange={() => toggleOldFavoriteSourceFolder(folder.name)}
-                                />
-                                <span>
-                                  {folder.name} {folder.count}
-                                </span>
-                              </label>
-                            ) : (
-                              <>
-                                {folder.name} {folder.count}
-                              </>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
+                      <strong>扫描收藏夹</strong>
+                      {oldFavoriteUserSourceFolders.length > 0 ? (
+                        <div>
+                          <small>用户收藏夹</small>
+                          <ul>{oldFavoriteUserSourceFolders.map(renderOldFavoriteSourceFolder)}</ul>
+                        </div>
+                      ) : null}
+                      {oldFavoriteBilimiSourceFolders.length > 0 ? (
+                        <div>
+                          <small>Bilimi 工作夹</small>
+                          <ul>{oldFavoriteBilimiSourceFolders.map(renderOldFavoriteSourceFolder)}</ul>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </>

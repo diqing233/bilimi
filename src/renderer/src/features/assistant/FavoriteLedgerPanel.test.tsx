@@ -1325,6 +1325,9 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
 
+    expect(screen.getByText('扫描收藏夹')).toBeInTheDocument()
+    expect(screen.getByText('用户收藏夹')).toBeInTheDocument()
+    expect(screen.getByText('Bilimi 工作夹')).toBeInTheDocument()
     expect(screen.getByLabelText('整理来源 Bilimi·待分类')).toBeChecked()
 
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
@@ -1729,7 +1732,10 @@ describe('FavoriteLedgerPanel', () => {
           { name: '工具', count: 3 }
         ],
         topCategories: [{ name: '科技', count: 4 }],
-        sourceFolders: [{ name: '默认收藏夹', count: 6 }],
+        sourceFolders: [
+          { name: '默认收藏夹', count: 6 },
+          { name: 'Bilimi·待分类', count: 2 }
+        ],
         titleSeries: [{ name: 'AI工具效率教程', count: 4 }],
         candidateLedgers: [
           {
@@ -1761,9 +1767,14 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(await screen.findByText('基础数据')).toBeInTheDocument()
     expect(screen.getByText('共扫描 6 条旧藏')).toBeInTheDocument()
-    expect(screen.getByText('效率研究所 4')).toBeInTheDocument()
-    expect(screen.getByText('AI 4')).toBeInTheDocument()
+    expect(screen.queryByText('常追 UP')).not.toBeInTheDocument()
+    expect(screen.queryByText('高频标签')).not.toBeInTheDocument()
+    expect(screen.queryByText('分区')).not.toBeInTheDocument()
+    expect(screen.getByText('扫描收藏夹')).toBeInTheDocument()
+    expect(screen.getByText('用户收藏夹')).toBeInTheDocument()
+    expect(screen.getByText('Bilimi 工作夹')).toBeInTheDocument()
     expect(screen.getByText('默认收藏夹 6')).toBeInTheDocument()
+    expect(screen.getByText('Bilimi·待分类 2')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
     expect(screen.getByText('Bilimi·AI工具')).toBeInTheDocument()
     expect(screen.getByLabelText('Bilimi·AI工具')).toBeChecked()
