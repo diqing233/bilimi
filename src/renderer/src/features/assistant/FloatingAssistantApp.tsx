@@ -425,15 +425,6 @@ export function FloatingAssistantApp({
     })
   }
 
-  function chooseBilibiliOperationMode(
-    bilibiliOperationMode: AssistantPreferences['bilibiliOperationMode']
-  ) {
-    void persistPreferences({
-      ...preferences,
-      bilibiliOperationMode
-    })
-  }
-
   function wakeAssistantPet() {
     tellPet('success', '小咪醒着呢，随时陪主人看视频。')
     void window.bilimiDesktop?.wakeAssistantPet?.()
@@ -1003,27 +994,6 @@ export function FloatingAssistantApp({
                   关闭宠物
                 </button>
               </div>
-            </fieldset>
-            <fieldset className="assistant-settings__group">
-              <legend>B 站操作方式</legend>
-              <label>
-                <input
-                  type="radio"
-                  name="bilibili-operation-mode"
-                  checked={preferences.bilibiliOperationMode === 'page-visual'}
-                  onChange={() => chooseBilibiliOperationMode('page-visual')}
-                />
-                <span>纯页面 DOM/视觉操作（未完成）</span>
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="bilibili-operation-mode"
-                  checked={preferences.bilibiliOperationMode === 'api-assisted'}
-                  onChange={() => chooseBilibiliOperationMode('api-assisted')}
-                />
-                <span>B 站 API 辅助</span>
-              </label>
             </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--deepseek">
               <legend>DeepSeek</legend>

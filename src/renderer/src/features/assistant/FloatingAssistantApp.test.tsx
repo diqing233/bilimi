@@ -420,8 +420,11 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
-  it('moves the Bilibili operation mode out of review and persists it from settings', async () => {
-    const { runAssistantAction, savePreferences } = installDesktopApi()
+  it('hides Bilibili operation mode settings while preserving the current preference', async () => {
+    const preferences = createPreferences({ bilibiliOperationMode: 'page-visual' })
+    const { runAssistantAction } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(createSnapshot({ preferences }))
+    })
 
     render(<FloatingAssistantApp />)
 
@@ -430,19 +433,9 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: '设置' }))
 
-    expect(screen.getByRole('group', { name: 'B 站操作方式' })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: 'B 站 API 辅助' })).toBeChecked()
-    expect(screen.getByRole('radio', { name: '纯页面 DOM/视觉操作（未完成）' })).not.toBeChecked()
-
-    fireEvent.click(screen.getByRole('radio', { name: '纯页面 DOM/视觉操作（未完成）' }))
-
-    await waitFor(() =>
-      expect(savePreferences).toHaveBeenCalledWith(
-        expect.objectContaining({
-          bilibiliOperationMode: 'page-visual'
-        })
-      )
-    )
+    expect(screen.queryByRole('group', { name: 'B 站操作方式' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('radio', { name: 'B 站 API 辅助' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('radio', { name: '纯页面 DOM/视觉操作（未完成）' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('tab', { name: '批阅' }))
     fireEvent.click(await screen.findByRole('button', { name: /藏.*归入内库/ }))
