@@ -1243,7 +1243,10 @@ export function FavoriteLedgerPanel({
     return counts
   }, [selectableOldFavoriteItems])
   const oldFavoritePresetLedgers = useMemo(
-    () => draftLedgers.filter((ledger) => ledger.isDefault && oldFavoriteRecommendedLedgerCounts.has(ledger.id)),
+    () =>
+      draftLedgers.filter(
+        (ledger) => ledger.isDefault && ledger.id !== 'inbox' && oldFavoriteRecommendedLedgerCounts.has(ledger.id)
+      ),
     [draftLedgers, oldFavoriteRecommendedLedgerCounts]
   )
   const oldFavoriteNewCategoryRecommendations = useMemo<OldFavoriteCategoryRecommendation[]>(
@@ -1279,6 +1282,7 @@ export function FavoriteLedgerPanel({
   const hasOldFavoriteRecommendedLedgers =
     oldFavoritePresetLedgers.length > 0 ||
     oldFavoriteRecommendedLedgers.length > 0
+  const hasOldFavoriteInboxToSplit = oldFavoriteInboxCount > 0
   const oldFavoriteTargetGroups = useMemo(
     () => buildOldFavoriteTargetGroups(selectableOldFavoriteItems, selectedCandidateKeys, selectedOldFavoriteTargetKeys),
     [selectableOldFavoriteItems, selectedCandidateKeys, selectedOldFavoriteTargetKeys]
@@ -1753,6 +1757,25 @@ export function FavoriteLedgerPanel({
                     </thead>
                     <tbody>{renderOldFavoriteCategoryRecommendationRows()}</tbody>
                   </table>
+                ) : null}
+                {hasOldFavoriteInboxToSplit ? (
+                  <section className="favorite-ledger-panel__inbox-split" aria-label="待拆解内容">
+                    <strong>待分类 {oldFavoriteInboxCount}</strong>
+                    <span>这些旧藏还没有可靠分区，建议继续补判后再减少待分类。</span>
+                    {deepSeekReady && deepSeekOldFavoriteAssistanceEnabled ? (
+                      <button
+                        type="button"
+                        disabled={busy || oldFavoriteDeepSeekEnhanced}
+                        onClick={() => void enhanceOldFavoritesWithDeepSeek()}
+                      >
+                        智能补判待分类
+                      </button>
+                    ) : deepSeekReady ? (
+                      <small>在设置中开启“用 DeepSeek 辅助整理旧藏”后，可继续补判。</small>
+                    ) : (
+                      <small>配置并启用 DeepSeek 后，可继续补判。</small>
+                    )}
+                  </section>
                 ) : null}
                 <div className="favorite-ledger-panel__candidate-list favorite-ledger-panel__candidate-list--compact">
                 {preview.insights?.candidateLedgers

@@ -2468,6 +2468,24 @@ body[data-floating-window="true"],
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.favorite-ledger-panel__inbox-split {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  align-items: center;
+  border: 1px solid rgba(31, 99, 181, 0.18);
+  background: rgba(255, 255, 255, 0.58);
+  padding: 7px 8px;
+  font-size: 12px;
+}
+.favorite-ledger-panel__inbox-split strong {
+  color: var(--porcelain-deep);
+}
+.favorite-ledger-panel__inbox-split span,
+.favorite-ledger-panel__inbox-split small {
+  min-width: 0;
+  color: var(--porcelain-muted);
+}
 .favorite-ledger-panel__candidates article,
 .favorite-ledger-panel__confirm {
   border: 1px solid rgba(31, 99, 181, 0.18);

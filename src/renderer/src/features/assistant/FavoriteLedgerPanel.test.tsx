@@ -2274,6 +2274,72 @@ describe('FavoriteLedgerPanel', () => {
     expect(gameRow.children[3]).toHaveTextContent('1')
   })
 
+  it('keeps inbox out of category recommendations and shows it as content to split further', async () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'knowledge' ? { ...ledger, enabled: false } : ledger
+    )
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 101,
+          title: '机器学习入门',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '',
+          targetDisplayName: 'Bilimi·知识',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: false
+        },
+        {
+          aid: 102,
+          title: '暂时无法判断的旧藏',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'inbox',
+          targetFolderId: '9008',
+          targetDisplayName: 'Bilimi·待分类',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        }
+      ],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 2,
+        topAuthors: [],
+        topTags: [],
+        topCategories: [{ name: '知识', count: 1 }],
+        sourceFolders: [{ name: '默认收藏夹', count: 2 }],
+        titleSeries: [],
+        candidateLedgers: []
+      }
+    })
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={ledgers}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={vi.fn()}
+        deepSeekOldFavoriteAssistanceEnabled
+        deepSeekReady
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+
+    const categoryTable = screen.getByRole('table', { name: '推荐分区收藏夹' })
+    expect(within(categoryTable).queryByLabelText('Bilimi·待分类')).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '待拆解内容' })).toHaveTextContent('1')
+    expect(screen.getByRole('region', { name: '待拆解内容' })).toHaveTextContent('继续补判')
+    expect(within(screen.getByRole('region', { name: '待拆解内容' })).getByRole('button', { name: '智能补判待分类' }))
+      .toBeInTheDocument()
+  })
+
   it('hides preset ledgers without old favorite matches from recommendations', async () => {
     const onScanOldFavorites = vi.fn().mockResolvedValue({
       items: [
