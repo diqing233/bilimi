@@ -126,6 +126,7 @@ describe('assistant state', () => {
       bilibiliOperationMode: 'api-assisted',
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
+      deepseekAutoSummaryEnabled: false,
       deepseekModel: 'deepseek-v4-flash',
       deepseekBaseUrl: 'https://api.deepseek.com'
     })
@@ -135,11 +136,13 @@ describe('assistant state', () => {
     expect(
       createInitialAssistantPreferences({
         bilibiliOperationMode: 'unsupported' as never,
+        deepseekAutoSummaryEnabled: true,
         deepseekModel: '',
         deepseekBaseUrl: 'bad-url'
       } as Partial<ReturnType<typeof createInitialAssistantPreferences>>)
     ).toMatchObject({
       bilibiliOperationMode: 'api-assisted',
+      deepseekAutoSummaryEnabled: true,
       deepseekModel: 'deepseek-v4-flash',
       deepseekBaseUrl: 'https://api.deepseek.com'
     })

@@ -485,6 +485,7 @@ export function FloatingAssistantApp({
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
       deepseekOldFavoriteAssistanceEnabled: false,
+      deepseekAutoSummaryEnabled: false,
       deepseekModel: DEFAULT_DEEPSEEK_MODEL,
       deepseekBaseUrl: DEFAULT_DEEPSEEK_BASE_URL
     }
@@ -1052,6 +1053,18 @@ export function FloatingAssistantApp({
                 <span>用 DeepSeek 辅助整理旧藏</span>
               </label>
               <label>
+                <input
+                  type="checkbox"
+                  checked={preferences.deepseekAutoSummaryEnabled}
+                  onChange={(event) =>
+                    updateDeepSeekPreference({
+                      deepseekAutoSummaryEnabled: event.currentTarget.checked
+                    })
+                  }
+                />
+                <span>转写完成后自动生成 DeepSeek 总结</span>
+              </label>
+              <label>
                 <span>DeepSeek API 密钥</span>
                 <input
                   type="password"
@@ -1145,6 +1158,7 @@ export function FloatingAssistantApp({
             recommendation={recommendation}
             commentDrafts={commentDrafts}
             deepSeekEnabled={preferences.deepseekEnabled}
+            deepSeekAutoSummaryEnabled={preferences.deepseekAutoSummaryEnabled}
             videoCategory={videoCategory}
             videoTitle={resolvedVideoTitle}
             onAction={handleAction}

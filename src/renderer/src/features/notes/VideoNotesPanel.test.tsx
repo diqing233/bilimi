@@ -232,7 +232,7 @@ describe('VideoNotesPanel', () => {
     expect(onGeneratePoster).not.toHaveBeenCalled()
   })
 
-  it('toggles DeepSeek summary mode from one button and generates once', async () => {
+  it('generates DeepSeek summary from an explicit current-note action', async () => {
     const poster: NotePosterSummary = {
       title: 'Learning Machine Models',
       subtitle: 'Compact study poster',
@@ -245,14 +245,13 @@ describe('VideoNotesPanel', () => {
     renderPanel({ deepSeekEnabled: true, onGeneratePoster, onArchivePosterSummary })
     fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
     expect(onGeneratePoster).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: /点击总结/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /自动总结/ })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /点击总结/ }))
+    fireEvent.click(screen.getByRole('button', { name: '生成总结' }))
     await waitFor(() => expect(onGeneratePoster).toHaveBeenCalledWith(sampleNote))
     expect(onArchivePosterSummary).toHaveBeenCalledWith(sampleNote, poster)
-    expect(screen.getByRole('button', { name: /自动总结/ })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    )
+    expect(await screen.findByRole('button', { name: '重新总结' })).toBeInTheDocument()
     expect(await screen.findByRole('region', { name: 'DeepSeek 总结' })).toHaveTextContent('Learning Machine Models')
     expect(screen.getByText('Data quality matters')).toBeInTheDocument()
   })
@@ -269,18 +268,14 @@ describe('VideoNotesPanel', () => {
     renderPanel({ deepSeekEnabled: true, onGeneratePoster })
 
     fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
-    fireEvent.click(screen.getByRole('button', { name: /点击总结/ }))
+    fireEvent.click(screen.getByRole('button', { name: '生成总结' }))
     expect(await screen.findByText('Learning Machine Models')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
     fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
 
-    fireEvent.click(screen.getByRole('button', { name: /自动总结/ }))
     expect(onGeneratePoster).toHaveBeenCalledOnce()
-    expect(screen.getByRole('button', { name: /点击总结/ })).toHaveAttribute(
-      'aria-pressed',
-      'false'
-    )
+    expect(screen.getByRole('button', { name: '重新总结' })).toBeInTheDocument()
     expect(screen.getByText('Learning Machine Models')).toBeInTheDocument()
   })
 
@@ -294,16 +289,17 @@ describe('VideoNotesPanel', () => {
     expect(onGeneratePoster).not.toHaveBeenCalled()
   })
 
-  it('requests automatic DeepSeek summary when auto summary mode is enabled before transcribing', async () => {
+  it('requests automatic DeepSeek summary when enabled in settings before transcribing', async () => {
     const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
-    renderPanel({ note: null, deepSeekEnabled: true, onTranscribeAudio })
+    renderPanel({
+      note: null,
+      deepSeekEnabled: true,
+      deepSeekAutoSummaryEnabled: true,
+      onTranscribeAudio
+    })
 
     fireEvent.click(screen.getByRole('tab', { name: /DeepSeek/ }))
-    fireEvent.click(screen.getByRole('button', { name: /点击总结/ }))
-    expect(screen.getByRole('button', { name: /自动总结/ })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    )
+    expect(screen.getByRole('button', { name: '生成总结' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
 
     await waitFor(() =>

@@ -33,6 +33,7 @@ export type AssistantPreferences = {
   deepseekEnabled: boolean
   deepseekApiKeyStored: boolean
   deepseekOldFavoriteAssistanceEnabled: boolean
+  deepseekAutoSummaryEnabled: boolean
   deepseekModel: string
   deepseekBaseUrl: string
 }
@@ -61,6 +62,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   deepseekEnabled: false,
   deepseekApiKeyStored: false,
   deepseekOldFavoriteAssistanceEnabled: false,
+  deepseekAutoSummaryEnabled: false,
   deepseekModel: 'deepseek-v4-flash',
   deepseekBaseUrl: 'https://api.deepseek.com'
 }
@@ -105,6 +107,7 @@ export function loadAssistantPreferences(
     deepseekEnabled: Boolean(store.get('deepseekEnabled')),
     deepseekApiKeyStored: Boolean(String(deepseekApiKey).trim()),
     deepseekOldFavoriteAssistanceEnabled: Boolean(store.get('deepseekOldFavoriteAssistanceEnabled')),
+    deepseekAutoSummaryEnabled: Boolean(store.get('deepseekAutoSummaryEnabled')),
     deepseekModel: store.get('deepseekModel') || DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
     deepseekBaseUrl: store.get('deepseekBaseUrl') || DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl
   }
@@ -131,6 +134,7 @@ export function saveAssistantPreferences(
     'deepseekOldFavoriteAssistanceEnabled',
     Boolean(preferences.deepseekOldFavoriteAssistanceEnabled)
   )
+  store.set('deepseekAutoSummaryEnabled', Boolean(preferences.deepseekAutoSummaryEnabled))
   store.set(
     'deepseekModel',
     preferences.deepseekModel || DEFAULT_ASSISTANT_PREFERENCES.deepseekModel

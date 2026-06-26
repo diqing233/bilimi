@@ -232,7 +232,10 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain(
       '.video-notes {\n  color: var(--porcelain-text);\n  display: grid;\n  align-content: start;\n  gap: 8px;'
     )
-    expectStyleSnippet('.video-notes__panel-header button[aria-pressed="true"] { border-color: rgba(31, 99, 181, 0.58); background: rgba(220, 238, 255, 0.88);')
+    expectStyleSnippet(
+      '.video-notes__panel-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; margin-left: auto;'
+    )
+    expectStyleSnippet('.video-notes__summary-generate { font-weight: 700;')
   })
 
   it('keeps favorite ledger status near the toolbar and ledger copy compact', () => {

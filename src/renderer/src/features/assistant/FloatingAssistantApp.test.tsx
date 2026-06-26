@@ -24,6 +24,7 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
     deepseekOldFavoriteAssistanceEnabled: false,
+    deepseekAutoSummaryEnabled: false,
     deepseekModel: 'deepseek-v4-flash',
     deepseekBaseUrl: 'https://api.deepseek.com',
     ...overrides
@@ -634,6 +635,7 @@ describe('FloatingAssistantApp', () => {
     const enabled = screen.getByRole('checkbox', { name: '启用 DeepSeek' })
     fireEvent.click(enabled)
     fireEvent.click(screen.getByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' }))
     fireEvent.change(screen.getByLabelText('DeepSeek API 密钥'), {
       target: { value: 'sk-test' }
     })
@@ -653,6 +655,7 @@ describe('FloatingAssistantApp', () => {
         expect.objectContaining({
           deepseekEnabled: true,
           deepseekOldFavoriteAssistanceEnabled: true,
+          deepseekAutoSummaryEnabled: true,
           deepseekModel: 'deepseek-chat',
           deepseekBaseUrl: 'https://api.deepseek.local'
         })
@@ -670,6 +673,7 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() => expect(clearDeepSeekApiKey).toHaveBeenCalledOnce())
     expect(screen.getByRole('checkbox', { name: '启用 DeepSeek' })).not.toBeChecked()
     expect(screen.getByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' })).not.toBeChecked()
     expect(screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥').value).toBe('')
     expect(screen.getByLabelText<HTMLInputElement>('DeepSeek 模型').value).toBe('deepseek-v4-flash')
     expect(screen.getByLabelText<HTMLInputElement>('DeepSeek 服务地址').value).toBe(
@@ -681,6 +685,7 @@ describe('FloatingAssistantApp', () => {
           deepseekEnabled: false,
           deepseekApiKeyStored: false,
           deepseekOldFavoriteAssistanceEnabled: false,
+          deepseekAutoSummaryEnabled: false,
           deepseekModel: 'deepseek-v4-flash',
           deepseekBaseUrl: 'https://api.deepseek.com'
         })

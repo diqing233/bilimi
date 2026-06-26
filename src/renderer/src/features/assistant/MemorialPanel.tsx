@@ -24,6 +24,7 @@ type MemorialPanelProps = {
   recommendation: RecommendationLabel
   commentDrafts: string[]
   deepSeekEnabled?: boolean
+  deepSeekAutoSummaryEnabled?: boolean
   videoCategory?: string
   videoTitle: string
   onAction: (action: AssistantAction) => void
@@ -106,6 +107,7 @@ export function MemorialPanel({
   recommendation,
   commentDrafts,
   deepSeekEnabled = false,
+  deepSeekAutoSummaryEnabled = false,
   videoCategory = '解闷小品',
   videoTitle,
   onAction,
@@ -211,6 +213,7 @@ export function MemorialPanel({
             onChange={onChangeVideoNote}
             onOpenArchive={onOpenVideoNoteArchive}
             deepSeekEnabled={deepSeekEnabled}
+            deepSeekAutoSummaryEnabled={deepSeekAutoSummaryEnabled}
             transcriptionProgress={transcriptionProgress}
             transcriptionQueue={transcriptionQueue}
           />

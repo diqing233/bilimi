@@ -35,6 +35,7 @@ type VideoNotesPanelProps = {
   onArchivePosterSummary?: (note: VideoNote, poster: NotePosterSummary) => Promise<void>
   onOpenArchive?: () => void
   deepSeekEnabled?: boolean
+  deepSeekAutoSummaryEnabled?: boolean
   transcriptionProgress?: VideoAudioTranscriptionProgress | null
   transcriptionQueue?: VideoAudioTranscriptionQueueSnapshot
 }
@@ -110,13 +111,13 @@ export function VideoNotesPanel({
   onArchivePosterSummary,
   onOpenArchive,
   deepSeekEnabled = false,
+  deepSeekAutoSummaryEnabled = false,
   transcriptionProgress = null,
   transcriptionQueue
 }: VideoNotesPanelProps): React.JSX.Element {
   const [activeResultTab, setActiveResultTab] = useState<VideoNotesResultTab | null>(null)
   const [localGenerating, setLocalGenerating] = useState(false)
   const [transcribingAudio, setTranscribingAudio] = useState(false)
-  const [autoSummarizeWithDeepSeek, setAutoSummarizeWithDeepSeek] = useState(false)
   const [generateFailed, setGenerateFailed] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
@@ -181,7 +182,7 @@ export function VideoNotesPanel({
 
   function createDeepSeekOptions(): VideoNotesGenerateOptions {
     return {
-      summarizeWithDeepSeek: deepSeekEnabled && autoSummarizeWithDeepSeek
+      summarizeWithDeepSeek: deepSeekEnabled && deepSeekAutoSummaryEnabled
     }
   }
 
@@ -248,19 +249,6 @@ export function VideoNotesPanel({
       setErrorMessage(error instanceof Error ? error.message : 'DeepSeek 总结生成失败。')
     } finally {
       setPosterGenerating(false)
-    }
-  }
-
-  async function handleSummaryModeToggle(): Promise<void> {
-    if (!deepSeekEnabled || posterGenerating) {
-      return
-    }
-
-    const nextAutoSummaryMode = !autoSummarizeWithDeepSeek
-    setAutoSummarizeWithDeepSeek(nextAutoSummaryMode)
-
-    if (nextAutoSummaryMode && note && !activePosterSummary) {
-      await generatePosterForNote(note)
     }
   }
 
@@ -342,25 +330,25 @@ export function VideoNotesPanel({
 
   function renderSummaryPanel(): React.JSX.Element {
     const summaryCopy = summaryText || '暂无 DeepSeek 总结。'
-    const summaryModeLabel = autoSummarizeWithDeepSeek ? '自动总结' : '点击总结'
-    const summaryModeHint = autoSummarizeWithDeepSeek ? '点击切回手动' : '点击切到自动'
+    const summaryActionLabel = activePosterSummary ? '重新总结' : '生成总结'
+    const summaryActionDisabled = !deepSeekEnabled || !note || posterGenerating
     return (
       <div role="tabpanel" id="video-notes-summary" aria-labelledby="video-notes-tab-summary">
         <div className="video-notes__panel-header">
           <strong>DeepSeek 总结</strong>
-          <button
-            type="button"
-            aria-pressed={autoSummarizeWithDeepSeek}
-            disabled={!deepSeekEnabled || posterGenerating}
-            className="video-notes__summary-mode"
-            onClick={() => void handleSummaryModeToggle()}
-          >
-            <strong>{summaryModeLabel}</strong>
-            <small>{summaryModeHint}</small>
-          </button>
-          <button type="button" onClick={() => void copyText(summaryCopy, '全文已复制')}>
-            复制全文
-          </button>
+          <div className="video-notes__panel-actions">
+            <button
+              type="button"
+              className="video-notes__summary-generate"
+              disabled={summaryActionDisabled}
+              onClick={() => note && void generatePosterForNote(note)}
+            >
+              {posterGenerating ? '生成中...' : summaryActionLabel}
+            </button>
+            <button type="button" onClick={() => void copyText(summaryCopy, '全文已复制')}>
+              复制全文
+            </button>
+          </div>
         </div>
         {!deepSeekEnabled ? (
           <p className="video-notes__summary-empty">请先到设置启用 DeepSeek 后再生成总结。</p>

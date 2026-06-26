@@ -102,6 +102,7 @@ export type AssistantPreferences = {
   deepseekEnabled: boolean
   deepseekApiKeyStored: boolean
   deepseekOldFavoriteAssistanceEnabled: boolean
+  deepseekAutoSummaryEnabled: boolean
   deepseekModel: string
   deepseekBaseUrl: string
 }

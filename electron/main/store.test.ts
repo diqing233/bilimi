@@ -71,6 +71,8 @@ function createFakeStore(
     deepseekOldFavoriteAssistanceEnabled:
       initial.deepseekOldFavoriteAssistanceEnabled ??
       DEFAULT_ASSISTANT_PREFERENCES.deepseekOldFavoriteAssistanceEnabled,
+    deepseekAutoSummaryEnabled:
+      initial.deepseekAutoSummaryEnabled ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekAutoSummaryEnabled,
     deepseekModel: initial.deepseekModel ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
     deepseekBaseUrl: initial.deepseekBaseUrl ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl,
     deepseekApiKey: initial.deepseekApiKey ?? '',
@@ -185,6 +187,7 @@ describe('assistant preference store helpers', () => {
       ...DEFAULT_ASSISTANT_PREFERENCES,
       deepseekEnabled: true,
       deepseekOldFavoriteAssistanceEnabled: true,
+      deepseekAutoSummaryEnabled: true,
       deepseekModel: 'deepseek-chat',
       deepseekBaseUrl: 'https://api.deepseek.local'
     })
@@ -193,6 +196,7 @@ describe('assistant preference store helpers', () => {
       deepseekEnabled: true,
       deepseekApiKeyStored: false,
       deepseekOldFavoriteAssistanceEnabled: true,
+      deepseekAutoSummaryEnabled: true,
       deepseekModel: 'deepseek-chat',
       deepseekBaseUrl: 'https://api.deepseek.local'
     })
