@@ -145,6 +145,11 @@ type OldFavoriteSourceFolderSummary = {
   count: number
 }
 
+type OldFavoriteCategoryRecommendation = {
+  ledger: FavoriteLedger
+  count: number
+}
+
 function visibleLedgers(ledgers: FavoriteLedger[], expanded: boolean) {
   if (expanded) {
     return ledgers
@@ -215,9 +220,25 @@ function mergeCandidateLedgers(
 
 function defaultOldFavoriteTargetKeys(
   preview: FavoriteLedgerPreview,
-  selectedCandidateKeys: Set<string>
+  selectedCandidateKeys: Set<string>,
+  selectedLedgerIds: Set<string> = new Set()
 ) {
-  return selectedTargetKeysForPreview(preview, selectedCandidateKeys)
+  const keys = selectedTargetKeysForPreview(preview, selectedCandidateKeys)
+  for (const item of preview.items) {
+    if (item.alreadyInTarget) {
+      continue
+    }
+
+    for (const target of targetsForOldFavoriteItem(item)) {
+      if (target.selectedCandidateTarget || target.alreadyInTarget || target.ledgerId === 'inbox') {
+        continue
+      }
+      if (selectedLedgerIds.has(target.ledgerId)) {
+        keys.add(oldFavoriteTargetKey(item.aid, target.ledgerId))
+      }
+    }
+  }
+  return keys
 }
 
 function recommendedLedgerIdsForPreview(preview: FavoriteLedgerPreview) {
@@ -461,6 +482,9 @@ export function FavoriteLedgerPanel({
   const [oldFavoriteGuideMode, setOldFavoriteGuideMode] = useState<OldFavoriteGuideMode>('organize')
   const [oldFavoriteOtherLedgersExpanded, setOldFavoriteOtherLedgersExpanded] = useState(false)
   const [oldFavoriteDeepSeekEnhanced, setOldFavoriteDeepSeekEnhanced] = useState(false)
+  const [oldFavoriteInitiallyEnabledLedgerIds, setOldFavoriteInitiallyEnabledLedgerIds] = useState<Set<string>>(
+    new Set()
+  )
   const ledgerNamesById = useMemo(
     () => Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName])),
     [draftLedgers]
@@ -948,6 +972,9 @@ export function FavoriteLedgerPanel({
       setOldFavoriteStep('scan')
       setOldFavoriteGuideMode(mode)
       setOldFavoriteDeepSeekEnhanced(Boolean(options.enhanceWithDeepSeek))
+      setOldFavoriteInitiallyEnabledLedgerIds(
+        new Set(draftLedgers.filter((ledger) => ledgerEnabled(ledger)).map((ledger) => ledger.id))
+      )
       setOldFavoriteOtherLedgersExpanded(false)
       setLedgerListExpanded(true)
       const nextCandidateKeys = recommendedCandidateKeysForPreview(nextPreview)
@@ -972,7 +999,11 @@ export function FavoriteLedgerPanel({
         return next
       })
       if (mode === 'setup') {
-        const nextLedgers = mergeDefaultLedgers(draftLedgers)
+        const nextLedgers = mergeDefaultLedgers(
+          draftLedgers.map((ledger) =>
+            nextRecommendedLedgerIds.has(ledger.id) ? { ...ledger, enabled: true } : ledger
+          )
+        )
         setDraftLedgers(nextLedgers)
         setSelectedDefaultLedgerIds(
           new Set(nextLedgers.filter((ledger) => ledger.enabled && ledger.isDefault).map((ledger) => ledger.id))
@@ -985,7 +1016,9 @@ export function FavoriteLedgerPanel({
             .map((item) => item.aid)
         )
       )
-      setSelectedOldFavoriteTargetKeys(defaultOldFavoriteTargetKeys(nextPreview, nextCandidateKeys))
+      setSelectedOldFavoriteTargetKeys(
+        defaultOldFavoriteTargetKeys(nextPreview, nextCandidateKeys, nextRecommendedLedgerIds)
+      )
       setSelectedOldFavoriteSourceFolderTitles(
         new Set(nextPreview.items.map((item) => item.sourceFolderTitle))
       )
@@ -1215,6 +1248,26 @@ export function FavoriteLedgerPanel({
     () => draftLedgers.filter((ledger) => ledger.isDefault && oldFavoriteRecommendedLedgerCounts.has(ledger.id)),
     [draftLedgers, oldFavoriteRecommendedLedgerCounts]
   )
+  const oldFavoriteNewCategoryRecommendations = useMemo<OldFavoriteCategoryRecommendation[]>(
+    () =>
+      oldFavoritePresetLedgers
+        .filter((ledger) => !oldFavoriteInitiallyEnabledLedgerIds.has(ledger.id))
+        .map((ledger) => ({
+          ledger,
+          count: oldFavoriteRecommendedLedgerCounts.get(ledger.id) ?? 0
+        })),
+    [oldFavoriteInitiallyEnabledLedgerIds, oldFavoritePresetLedgers, oldFavoriteRecommendedLedgerCounts]
+  )
+  const oldFavoritePreparedCategoryRecommendations = useMemo<OldFavoriteCategoryRecommendation[]>(
+    () =>
+      oldFavoritePresetLedgers
+        .filter((ledger) => oldFavoriteInitiallyEnabledLedgerIds.has(ledger.id))
+        .map((ledger) => ({
+          ledger,
+          count: oldFavoriteRecommendedLedgerCounts.get(ledger.id) ?? 0
+        })),
+    [oldFavoriteInitiallyEnabledLedgerIds, oldFavoritePresetLedgers, oldFavoriteRecommendedLedgerCounts]
+  )
   const oldFavoriteRecommendedLedgers = useMemo(
     () =>
       draftLedgers.filter(
@@ -1287,6 +1340,45 @@ export function FavoriteLedgerPanel({
         </label>
       </article>
     )
+  }
+
+  function renderOldFavoriteCategoryRecommendationControl(recommendation?: OldFavoriteCategoryRecommendation) {
+    if (!recommendation) {
+      return null
+    }
+
+    return (
+      <label>
+        <input
+          type="checkbox"
+          aria-label={recommendation.ledger.displayName}
+          checked={ledgerEnabled(recommendation.ledger)}
+          onChange={() => toggleLedger(recommendation.ledger.id)}
+        />
+        <span>{favoriteLedgerDisplayShortName(recommendation.ledger.displayName)}</span>
+      </label>
+    )
+  }
+
+  function renderOldFavoriteCategoryRecommendationRows() {
+    const rowCount = Math.max(
+      oldFavoriteNewCategoryRecommendations.length,
+      oldFavoritePreparedCategoryRecommendations.length
+    )
+
+    return Array.from({ length: rowCount }, (_, index) => {
+      const nextRecommendation = oldFavoriteNewCategoryRecommendations[index]
+      const preparedRecommendation = oldFavoritePreparedCategoryRecommendations[index]
+
+      return (
+        <tr key={`category-recommendation-${index}`}>
+          <td>{renderOldFavoriteCategoryRecommendationControl(nextRecommendation)}</td>
+          <td>{nextRecommendation?.count ?? ''}</td>
+          <td>{renderOldFavoriteCategoryRecommendationControl(preparedRecommendation)}</td>
+          <td>{preparedRecommendation?.count ?? ''}</td>
+        </tr>
+      )
+    })
   }
 
   function renderOldFavoriteSourceFolder(folder: OldFavoriteSourceFolderSummary) {
@@ -1562,7 +1654,7 @@ export function FavoriteLedgerPanel({
               </div>
               {preview.insights ? (
                 <>
-                  <p>共扫描 {preview.insights.totalVideos} 条旧藏</p>
+                  <p>共扫描 {preview.insights.totalVideos} 条旧藏，待分类 {oldFavoriteInboxCount}</p>
                   <div className="favorite-ledger-panel__insight-columns">
                     <div>
                       <strong>扫描收藏夹</strong>
@@ -1581,7 +1673,6 @@ export function FavoriteLedgerPanel({
                     </div>
                   </div>
                   <div className="favorite-ledger-panel__deepseek-assist">
-                    <strong>待分类 {oldFavoriteInboxCount}</strong>
                     {deepSeekReady && deepSeekOldFavoriteAssistanceEnabled ? (
                       <>
                         <span>
@@ -1649,6 +1740,22 @@ export function FavoriteLedgerPanel({
               </div>
               <div className="favorite-ledger-panel__candidate-section">
                 <h5>推荐分区收藏夹</h5>
+                {hasOldFavoriteRecommendedLedgers ? (
+                  <table
+                    className="favorite-ledger-panel__category-recommendations"
+                    aria-label="推荐分区收藏夹"
+                  >
+                    <thead>
+                      <tr>
+                        <th>推荐增加收藏</th>
+                        <th>符合视频数量</th>
+                        <th>已备册收藏</th>
+                        <th>符合视频数量</th>
+                      </tr>
+                    </thead>
+                    <tbody>{renderOldFavoriteCategoryRecommendationRows()}</tbody>
+                  </table>
+                ) : null}
                 <div className="favorite-ledger-panel__candidate-list favorite-ledger-panel__candidate-list--compact">
                 {preview.insights?.candidateLedgers
                   .filter((candidate) => candidate.kind !== 'author' && candidate.kind !== 'series')
@@ -1675,7 +1782,6 @@ export function FavoriteLedgerPanel({
                       </article>
                     )
                   })}
-                {oldFavoritePresetLedgers.map(renderOldFavoriteLedgerOption)}
                 {oldFavoriteGuideMode !== 'setup'
                   ? oldFavoriteRecommendedLedgers.map(renderOldFavoriteCategoryLedgerOption)
                   : null}

@@ -2439,6 +2439,35 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__candidate-list--compact {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
+.favorite-ledger-panel__category-recommendations {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+}
+.favorite-ledger-panel__category-recommendations th,
+.favorite-ledger-panel__category-recommendations td {
+  min-width: 0;
+  padding: 3px 4px;
+  text-align: left;
+  vertical-align: middle;
+}
+.favorite-ledger-panel__category-recommendations th {
+  color: var(--porcelain-deep);
+  font-weight: 700;
+}
+.favorite-ledger-panel__category-recommendations label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px;
+  align-items: center;
+}
+.favorite-ledger-panel__category-recommendations span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .favorite-ledger-panel__candidates article,
 .favorite-ledger-panel__confirm {
   border: 1px solid rgba(31, 99, 181, 0.18);
