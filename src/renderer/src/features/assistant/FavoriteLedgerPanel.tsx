@@ -1204,9 +1204,7 @@ export function FavoriteLedgerPanel({
     missingOldFavoriteTargetNames.length > 0
       ? `确认整理会先同步 ${missingOldFavoriteTargetNames.join('、')} 收藏夹；同步后请重新扫描旧藏以归档到新建收藏夹。`
       : null
-  const oldFavoriteInboxCount = selectableOldFavoriteItems.filter((item) =>
-    targetsForOldFavoriteItem(item).some((target) => target.ledgerId === 'inbox')
-  ).length
+  const oldFavoriteInboxCount = selectedOldFavoritePlanItems.filter((item) => item.targetLedgerId === 'inbox').length
   const autoSelectedOldFavoriteCount =
     selectableOldFavoriteItems.filter((item) => item.selected && !item.alreadyInTarget && !item.reviewRequired)
       .length ?? 0

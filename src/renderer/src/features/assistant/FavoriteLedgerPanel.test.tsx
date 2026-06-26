@@ -1922,6 +1922,7 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
+    expect(screen.getByText('共扫描 1 条旧藏，待分类 0')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
     expect(screen.getByLabelText('Bilimi·摄影')).toBeChecked()
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
