@@ -595,14 +595,8 @@ export function FavoriteLedgerPanel({
   }
 
   function selectLedger(ledger: FavoriteLedger, ledgerIndex: number) {
-    if (activeLedgerId && activeLedgerId !== ledger.id) {
-      if (activeLedgerHasUnsavedChanges) {
-        setSaveStatus('当前收藏夹有未保存修改，请先保存。')
-        return
-      }
-
-      setActiveLedgerId(null)
-      setActiveLedgerIndex(null)
+    if (activeLedgerId && activeLedgerId !== ledger.id && activeLedgerHasUnsavedChanges) {
+      setSaveStatus('当前收藏夹有未保存修改，请先保存。')
       return
     }
 
@@ -621,7 +615,6 @@ export function FavoriteLedgerPanel({
     setActiveLedgerIndex(ledgerIndex)
     setSaveStatus(null)
   }
-
   function closeActiveLedgerEditor() {
     if (!activeLedger) {
       return
