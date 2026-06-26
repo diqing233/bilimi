@@ -939,6 +939,65 @@ describe('favorite ledger API scripts', () => {
     expect(requests.some((url) => url.includes('/x/v3/fav/resource/deal'))).toBe(false)
   })
 
+  it('fills missing old favorite tags from the Bilibili tag detail API', async () => {
+    installCookies()
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1)
+    const requests: string[] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        requests.push(url)
+
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({
+            code: 0,
+            data: {
+              list: [{ id: 101, title: 'Default Favorites' }]
+            }
+          })
+        }
+
+        if (url.includes('/x/v3/fav/resource/list')) {
+          return Response.json({
+            code: 0,
+            data: {
+              medias: [
+                {
+                  id: 123,
+                  title: '角色配队',
+                  intro: '深渊配队记录',
+                  upper: { name: 'Genshin UP' },
+                  type: 2
+                }
+              ],
+              has_more: false
+            }
+          })
+        }
+
+        if (url.includes('/x/tag/archive/tags') && url.includes('aid=123')) {
+          return Response.json({
+            code: 0,
+            data: [{ tag_name: '原神' }, { name: '攻略' }]
+          })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+
+    expect(result.ok).toBe(true)
+    expect(result.sourceFolders[0].videos[0]).toMatchObject({
+      aid: 123,
+      title: '角色配队',
+      tags: ['原神', '攻略']
+    })
+    expect(requests.some((url) => url.includes('/x/tag/archive/tags') && url.includes('aid=123'))).toBe(true)
+  })
+
   it('scans Bilimi ledgers as both target membership folders and old favorite sources', async () => {
     installCookies()
     const ledgers = createDefaultFavoriteLedgers().map((ledger) => {

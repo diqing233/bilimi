@@ -343,6 +343,11 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
           url.searchParams.set('platform', 'web');
           return url.toString();
         };
+        const buildTagUrl = (aid) => {
+          const url = new URL('https://api.bilibili.com/x/tag/archive/tags');
+          url.searchParams.set('aid', String(aid));
+          return url.toString();
+        };
         const readFolderVideos = async (folderId) => {
           const videos = [];
           let page = 1;
@@ -351,13 +356,28 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
             typeof tag === 'string'
               ? cleanText(tag)
               : cleanText(tag?.name ?? tag?.tag_name ?? tag?.title);
+          const readTagList = (rawTags) => rawTags.map(readTagName).filter(Boolean).slice(0, 20);
           const readTags = (media) => {
             const rawTags = Array.isArray(media?.tags)
               ? media.tags
               : Array.isArray(media?.tag)
                 ? media.tag
                 : [];
-            return rawTags.map(readTagName).filter(Boolean).slice(0, 20);
+            return readTagList(rawTags);
+          };
+          const fetchDetailTags = async (aid) => {
+            try {
+              const response = await fetch(buildTagUrl(aid), { credentials: 'include' });
+              const json = await ensureApiOk(response, 'video tag list for ' + aid);
+              const rawTags = Array.isArray(json.data)
+                ? json.data
+                : Array.isArray(json.data?.tags)
+                  ? json.data.tags
+                  : [];
+              return readTagList(rawTags);
+            } catch {
+              return [];
+            }
           };
           const readAuthor = (media) =>
             cleanText(media?.upper?.name ?? media?.upper?.uname ?? media?.owner?.name ?? media?.author);
@@ -392,14 +412,24 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
             });
             const json = await ensureApiOk(response, 'favorite resource list for folder ' + folderId);
             const medias = Array.isArray(json.data?.medias) ? json.data.medias : [];
-            videos.push(...medias.filter((media) => isVideoMedia(media) && !isUnavailableMedia(media)).map((media) => ({
-              aid: Number(media?.id ?? media?.aid),
-              title: String(media?.title ?? ''),
-              description: String(media?.intro ?? ''),
-              author: readAuthor(media),
-              tags: readTags(media),
-              category: readCategory(media)
-            })).filter((video) => Number.isFinite(video.aid) && video.aid > 0));
+            const pageVideos = [];
+            for (const media of medias.filter((media) => isVideoMedia(media) && !isUnavailableMedia(media))) {
+              const aid = Number(media?.id ?? media?.aid);
+              if (!Number.isFinite(aid) || aid <= 0) {
+                continue;
+              }
+
+              const tags = readTags(media);
+              pageVideos.push({
+                aid,
+                title: String(media?.title ?? ''),
+                description: String(media?.intro ?? ''),
+                author: readAuthor(media),
+                tags: tags.length > 0 ? tags : await fetchDetailTags(aid),
+                category: readCategory(media)
+              });
+            }
+            videos.push(...pageVideos);
 
             if (!json.data?.has_more || medias.length === 0) {
               break;
