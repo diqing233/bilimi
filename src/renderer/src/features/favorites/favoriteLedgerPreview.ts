@@ -91,6 +91,7 @@ export function createFavoriteLedgerPreview(args: {
         targetMembership: args.targetMembership,
         primaryLedgerId: classification.ledgerId,
         primaryDisplayName: targetLedger?.displayName ?? classification.displayName,
+        suggestedLedgerId: classification.suggestedLedgerId,
         reviewRequired: classification.reviewRequired,
         candidateTargets
       })
@@ -124,6 +125,7 @@ function previewTargetsForVideo(args: {
   targetMembership: Record<string, number[]>
   primaryLedgerId: string
   primaryDisplayName: string
+  suggestedLedgerId?: string
   reviewRequired: boolean
   candidateTargets: FavoriteLedgerPreviewCandidateTarget[]
 }): FavoriteLedgerPreviewTarget[] {
@@ -161,6 +163,22 @@ function previewTargetsForVideo(args: {
       alreadyInTarget,
       selected
     })
+  }
+
+  if (args.suggestedLedgerId) {
+    const suggestedLedger = args.ledgers.find((ledger) => ledger.id === args.suggestedLedgerId)
+    if (suggestedLedger) {
+      const folderId = suggestedLedger.bilibiliFolderId ?? ''
+      const alreadyInTarget = folderId ? (args.targetMembership[folderId] ?? []).includes(args.video.aid) : false
+      pushTarget({
+        ledgerId: suggestedLedger.id,
+        folderId,
+        displayName: suggestedLedger.displayName,
+        keywords: suggestedLedger.keywords,
+        alreadyInTarget,
+        selected: Boolean(folderId) && !alreadyInTarget
+      })
+    }
   }
 
   for (const target of args.candidateTargets) {

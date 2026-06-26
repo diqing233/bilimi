@@ -2180,10 +2180,13 @@ describe('FavoriteLedgerPanel', () => {
     expect(animationRecommendation).not.toBeInTheDocument()
   })
 
-  it('separates newly recommended unchecked category ledgers from already prepared ledgers', async () => {
+  it('separates suggested category ledgers by Bilibili folder readiness', async () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
       if (ledger.id === 'knowledge' || ledger.id === 'movie-tv') {
         return { ...ledger, enabled: false }
+      }
+      if (ledger.id === 'game') {
+        return { ...ledger, enabled: false, bilibiliFolderId: '9001' }
       }
       return ledger
     })
@@ -2256,7 +2259,7 @@ describe('FavoriteLedgerPanel', () => {
 
     const categoryTable = screen.getByRole('table', { name: '推荐分区收藏夹' })
     const rows = within(categoryTable).getAllByRole('row')
-    expect(rows[0]).toHaveTextContent('推荐增加收藏')
+    expect(rows[0]).toHaveTextContent('建议勾选收藏')
     expect(rows[0]).toHaveTextContent('符合视频数量')
     expect(rows[0]).toHaveTextContent('已备册收藏')
     expect(rows[0]).toHaveTextContent('符合视频数量')

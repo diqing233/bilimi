@@ -46,6 +46,18 @@ describe('classifyVideoContent', () => {
       classifyVideoContent({ title: '年度旗舰横评', tags: [], category: '科技数码' }, ledgers)
         .ledgerId
     ).toBe('tech-digital')
+    expect(classifyVideoContent({ title: '东京周末路线', tags: [], category: '出行' }, ledgers)).toMatchObject({
+      ledgerId: 'inbox',
+      reviewRequired: true,
+      suggestedLedgerId: 'travel',
+      suggestedDisplayName: 'Bilimi·旅游出行'
+    })
+    expect(classifyVideoContent({ title: '露营装备清单', tags: [], category: '户外' }, ledgers)).toMatchObject({
+      ledgerId: 'inbox',
+      reviewRequired: true,
+      suggestedLedgerId: 'outdoor',
+      suggestedDisplayName: 'Bilimi·户外潮流'
+    })
   })
 
   it('scores tags higher than title and page text when classification signals conflict', () => {

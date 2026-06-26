@@ -482,9 +482,6 @@ export function FavoriteLedgerPanel({
   const [oldFavoriteGuideMode, setOldFavoriteGuideMode] = useState<OldFavoriteGuideMode>('organize')
   const [oldFavoriteOtherLedgersExpanded, setOldFavoriteOtherLedgersExpanded] = useState(false)
   const [oldFavoriteDeepSeekEnhanced, setOldFavoriteDeepSeekEnhanced] = useState(false)
-  const [oldFavoriteInitiallyEnabledLedgerIds, setOldFavoriteInitiallyEnabledLedgerIds] = useState<Set<string>>(
-    new Set()
-  )
   const ledgerNamesById = useMemo(
     () => Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName])),
     [draftLedgers]
@@ -972,9 +969,6 @@ export function FavoriteLedgerPanel({
       setOldFavoriteStep('scan')
       setOldFavoriteGuideMode(mode)
       setOldFavoriteDeepSeekEnhanced(Boolean(options.enhanceWithDeepSeek))
-      setOldFavoriteInitiallyEnabledLedgerIds(
-        new Set(draftLedgers.filter((ledger) => ledgerEnabled(ledger)).map((ledger) => ledger.id))
-      )
       setOldFavoriteOtherLedgersExpanded(false)
       setLedgerListExpanded(true)
       const nextCandidateKeys = recommendedCandidateKeysForPreview(nextPreview)
@@ -1252,22 +1246,22 @@ export function FavoriteLedgerPanel({
   const oldFavoriteNewCategoryRecommendations = useMemo<OldFavoriteCategoryRecommendation[]>(
     () =>
       oldFavoritePresetLedgers
-        .filter((ledger) => !oldFavoriteInitiallyEnabledLedgerIds.has(ledger.id))
+        .filter((ledger) => !ledger.bilibiliFolderId)
         .map((ledger) => ({
           ledger,
           count: oldFavoriteRecommendedLedgerCounts.get(ledger.id) ?? 0
         })),
-    [oldFavoriteInitiallyEnabledLedgerIds, oldFavoritePresetLedgers, oldFavoriteRecommendedLedgerCounts]
+    [oldFavoritePresetLedgers, oldFavoriteRecommendedLedgerCounts]
   )
   const oldFavoritePreparedCategoryRecommendations = useMemo<OldFavoriteCategoryRecommendation[]>(
     () =>
       oldFavoritePresetLedgers
-        .filter((ledger) => oldFavoriteInitiallyEnabledLedgerIds.has(ledger.id))
+        .filter((ledger) => Boolean(ledger.bilibiliFolderId))
         .map((ledger) => ({
           ledger,
           count: oldFavoriteRecommendedLedgerCounts.get(ledger.id) ?? 0
         })),
-    [oldFavoriteInitiallyEnabledLedgerIds, oldFavoritePresetLedgers, oldFavoriteRecommendedLedgerCounts]
+    [oldFavoritePresetLedgers, oldFavoriteRecommendedLedgerCounts]
   )
   const oldFavoriteRecommendedLedgers = useMemo(
     () =>
@@ -1749,7 +1743,7 @@ export function FavoriteLedgerPanel({
                   >
                     <thead>
                       <tr>
-                        <th>推荐增加收藏</th>
+                        <th>建议勾选收藏</th>
                         <th>符合视频数量</th>
                         <th>已备册收藏</th>
                         <th>符合视频数量</th>

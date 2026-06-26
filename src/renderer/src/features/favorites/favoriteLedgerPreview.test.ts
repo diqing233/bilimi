@@ -285,4 +285,52 @@ describe('createFavoriteLedgerPreview', () => {
       selected: false
     })
   })
+
+  it('uses suggested disabled default ledgers as old-favorite targets instead of inbox fallback', () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
+      if (ledger.id === 'travel') {
+        return { ...ledger, bilibiliFolderId: '9010' }
+      }
+      if (ledger.id === 'inbox') {
+        return { ...ledger, bilibiliFolderId: '9008' }
+      }
+      return ledger
+    })
+    const preview = createFavoriteLedgerPreview({
+      ledgers,
+      sourceFolders: [
+        {
+          id: '1',
+          title: '默认收藏夹',
+          videos: [
+            {
+              aid: 501,
+              title: '大阪地铁自动扶梯现场音乐',
+              tags: ['旅游', '出国'],
+              category: '出行'
+            }
+          ]
+        }
+      ],
+      targetMembership: {}
+    })
+
+    expect(preview.items[0]).toMatchObject({
+      targetLedgerId: 'inbox',
+      targetFolderId: '9008',
+      reviewRequired: true,
+      selected: false
+    })
+    expect(preview.items[0].targets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ledgerId: 'travel',
+          folderId: '9010',
+          displayName: 'Bilimi·旅游出行',
+          selected: true
+        })
+      ])
+    )
+    expect(preview.items[0].targets?.some((target) => target.ledgerId === 'inbox')).toBe(false)
+  })
 })
