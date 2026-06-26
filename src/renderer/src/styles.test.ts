@@ -280,6 +280,11 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics strong { align-self: start; font-variant-numeric: tabular-nums;')
     expectStyleSnippet('.favorite-ledger-panel__candidates article, .favorite-ledger-panel__confirm { border: 1px solid rgba(31, 99, 181, 0.18);')
     expectStyleSnippet('.favorite-ledger-panel__candidates label, .favorite-ledger-panel__preview label { display: grid; grid-template-columns: auto minmax(0, 1fr);')
+    expectStyleSnippet('.favorite-ledger-panel__preview-groups { display: grid; grid-auto-columns: minmax(220px, 82%); grid-auto-flow: column;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-groups { display: grid; grid-auto-columns: minmax(220px, 82%); grid-auto-flow: column; gap: 8px; overflow-x: auto;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-group { display: grid; align-content: start; gap: 6px;')
+    expectStyleSnippet('.favorite-ledger-panel__old-favorite-progress { display: grid; gap: 6px;')
+    expectStyleSnippet('.favorite-ledger-panel__old-favorite-progress progress { width: 100%;')
   })
 
   it('styles the DeepSeek assistant settings group and actions', () => {

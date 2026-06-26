@@ -2,7 +2,11 @@ import { BILIMI_LEDGER_PREFIX, createDefaultFavoriteLedgers } from '@shared/favo
 import type { AssistantAutomationResult, FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
 import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react'
 import type { FavoriteLedgerCandidate } from '../favorites/favoriteLedgerInsights'
-import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
+import type {
+  FavoriteLedgerPreview,
+  FavoriteLedgerPreviewItem,
+  FavoriteLedgerPreviewTarget
+} from '../favorites/favoriteLedgerPreview'
 import { AssistantActionButton } from './AssistantActionButton'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
@@ -38,6 +42,10 @@ function canDeleteLedger(ledger: FavoriteLedger) {
 
 function alreadyHasLedger(ledgers: FavoriteLedger[], displayName: string) {
   return ledgers.some((ledger) => ledger.displayName === displayName)
+}
+
+function candidateKey(candidate: FavoriteLedgerCandidate) {
+  return `${candidate.kind}:${candidate.sourceName}`
 }
 
 function mergeDefaultLedgers(ledgers: FavoriteLedger[], enabled?: boolean) {
@@ -120,12 +128,219 @@ const OLD_FAVORITE_GUIDE_STEPS: Array<{ id: OldFavoriteGuideStep; label: string 
   { id: 'confirm', label: '确认执行' }
 ]
 
+type OldFavoriteTargetGroup = {
+  ledgerId: string
+  displayName: string
+  entries: Array<{
+    item: FavoriteLedgerPreviewItem
+    target: FavoriteLedgerPreviewTarget
+    selected: boolean
+  }>
+}
+
 function visibleLedgers(ledgers: FavoriteLedger[], expanded: boolean) {
   if (expanded) {
     return ledgers
   }
 
   return ledgers.slice(0, COLLAPSED_LEDGER_COUNT)
+}
+
+function oldFavoriteTargetKey(aid: number, ledgerId: string) {
+  return `${aid}:${ledgerId}`
+}
+
+function candidateLedgerIdFromCandidate(candidate: FavoriteLedgerCandidate) {
+  return `custom-${candidate.kind}-${candidate.sourceName
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-|-$/g, '')}`
+}
+
+function candidateToFavoriteLedger(candidate: FavoriteLedgerCandidate, priority: number): FavoriteLedger {
+  return {
+    id: candidateLedgerIdFromCandidate(candidate),
+    displayName: candidate.displayName,
+    keywords: candidate.keywords,
+    enabled: true,
+    priority,
+    isDefault: false
+  }
+}
+
+function recommendedCandidateKeysForPreview(preview: FavoriteLedgerPreview) {
+  const counts = new Map<string, number>()
+  for (const item of preview.items) {
+    for (const target of item.candidateTargets ?? []) {
+      counts.set(target.candidateKey, (counts.get(target.candidateKey) ?? 0) + 1)
+    }
+  }
+
+  const keys = new Set<string>()
+  for (const candidate of preview.insights?.candidateLedgers ?? []) {
+    if ((counts.get(candidateKey(candidate)) ?? candidate.count) >= 2) {
+      keys.add(candidateKey(candidate))
+    }
+  }
+  return keys
+}
+
+function mergeCandidateLedgers(
+  ledgers: FavoriteLedger[],
+  preview: FavoriteLedgerPreview,
+  selectedCandidateKeys: Set<string>
+) {
+  const nextLedgers = [...ledgers]
+  for (const candidate of preview.insights?.candidateLedgers ?? []) {
+    if (!selectedCandidateKeys.has(candidateKey(candidate))) {
+      continue
+    }
+    if (alreadyHasLedger(nextLedgers, candidate.displayName)) {
+      continue
+    }
+    nextLedgers.push(candidateToFavoriteLedger(candidate, (nextLedgers.length + 1) * 10))
+  }
+  return withSequentialPriorities(nextLedgers)
+}
+
+function defaultOldFavoriteTargetKeys(
+  preview: FavoriteLedgerPreview,
+  selectedCandidateKeys: Set<string>
+) {
+  return selectedTargetKeysForPreview(preview, selectedCandidateKeys)
+}
+
+function legacyTargetForOldFavoriteItem(item: FavoriteLedgerPreviewItem): FavoriteLedgerPreviewTarget {
+  return {
+    ledgerId: item.targetLedgerId,
+    folderId: item.targetFolderId,
+    displayName: item.targetDisplayName,
+    keywords: [],
+    alreadyInTarget: item.alreadyInTarget,
+    selected: item.selected,
+    selectedCandidateTarget: item.selectedCandidateTarget
+  }
+}
+
+function targetsForOldFavoriteItem(item: FavoriteLedgerPreviewItem): FavoriteLedgerPreviewTarget[] {
+  return item.targets?.length ? item.targets : [legacyTargetForOldFavoriteItem(item)]
+}
+
+function selectedTargetKeysForPreview(
+  preview: FavoriteLedgerPreview,
+  selectedCandidateKeys: Set<string>
+) {
+  const keys = new Set<string>()
+  for (const item of preview.items) {
+    for (const target of targetsForOldFavoriteItem(item)) {
+      if (target.selectedCandidateTarget && target.candidateKey && !selectedCandidateKeys.has(target.candidateKey)) {
+        continue
+      }
+      if (target.selected && !target.alreadyInTarget) {
+        keys.add(oldFavoriteTargetKey(item.aid, target.ledgerId))
+      }
+    }
+  }
+  return keys
+}
+
+function buildOldFavoriteTargetGroups(
+  items: FavoriteLedgerPreviewItem[],
+  selectedCandidateKeys: Set<string>,
+  selectedTargetKeys: Set<string>
+): OldFavoriteTargetGroup[] {
+  const groups = new Map<string, OldFavoriteTargetGroup>()
+  for (const item of items) {
+    if (item.alreadyInTarget) {
+      continue
+    }
+
+    for (const target of targetsForOldFavoriteItem(item)) {
+      if (target.alreadyInTarget) {
+        continue
+      }
+
+      if (target.selectedCandidateTarget && target.candidateKey && !selectedCandidateKeys.has(target.candidateKey)) {
+        continue
+      }
+
+      const group = groups.get(target.ledgerId) ?? {
+        ledgerId: target.ledgerId,
+        displayName: target.displayName,
+        entries: []
+      }
+      group.entries.push({
+        item,
+        target,
+        selected: selectedTargetKeys.has(oldFavoriteTargetKey(item.aid, target.ledgerId))
+      })
+      groups.set(target.ledgerId, group)
+    }
+  }
+
+  return Array.from(groups.values())
+}
+
+function selectedOldFavoriteItemBatches(items: FavoriteLedgerPreviewItem[]) {
+  const batches = new Map<number, FavoriteLedgerPreviewItem[]>()
+  for (const item of items) {
+    const batch = batches.get(item.aid) ?? []
+    batch.push(item)
+    batches.set(item.aid, batch)
+  }
+  return Array.from(batches.values())
+}
+
+function buildSelectedOldFavoritePlanItems(args: {
+  items: FavoriteLedgerPreviewItem[]
+  selectedTargetKeys: Set<string>
+  selectedCandidateKeys: Set<string>
+  inboxLedger: FavoriteLedger | null
+}): FavoriteLedgerPreviewItem[] {
+  const planItems: FavoriteLedgerPreviewItem[] = []
+
+  for (const item of args.items) {
+    if (item.alreadyInTarget) {
+      continue
+    }
+
+    const selectedTargets = targetsForOldFavoriteItem(item).filter((target) => {
+      if (target.selectedCandidateTarget && target.candidateKey && !args.selectedCandidateKeys.has(target.candidateKey)) {
+        return false
+      }
+      return args.selectedTargetKeys.has(oldFavoriteTargetKey(item.aid, target.ledgerId))
+    })
+    const targets =
+      selectedTargets.length > 0
+        ? selectedTargets
+        : args.inboxLedger
+          ? [
+              {
+                ledgerId: args.inboxLedger.id,
+                folderId: args.inboxLedger.bilibiliFolderId ?? '',
+                displayName: args.inboxLedger.displayName,
+                keywords: args.inboxLedger.keywords,
+                alreadyInTarget: false,
+                selected: true
+              }
+            ]
+          : []
+
+    for (const target of targets) {
+      planItems.push({
+        ...item,
+        targets: undefined,
+        targetLedgerId: target.ledgerId,
+        targetFolderId: target.folderId,
+        targetDisplayName: target.displayName,
+        alreadyInTarget: target.alreadyInTarget,
+        selected: true,
+        selectedCandidateTarget: target.selectedCandidateTarget,
+        reviewRequired: false
+      })
+    }
+  }
+
+  return planItems
 }
 
 export function FavoriteLedgerPanel({
@@ -145,8 +360,14 @@ export function FavoriteLedgerPanel({
   )
   const [selectedCandidateKeys, setSelectedCandidateKeys] = useState<Set<string>>(new Set())
   const [selectedOldFavoriteAids, setSelectedOldFavoriteAids] = useState<Set<number>>(new Set())
+  const [selectedOldFavoriteTargetKeys, setSelectedOldFavoriteTargetKeys] = useState<Set<string>>(new Set())
   const [selectedOldFavoriteSourceFolderTitles, setSelectedOldFavoriteSourceFolderTitles] =
     useState<Set<string>>(new Set())
+  const [oldFavoriteExecutionProgress, setOldFavoriteExecutionProgress] = useState<{
+    completed: number
+    total: number
+  } | null>(null)
+  const [oldFavoriteExecuting, setOldFavoriteExecuting] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -347,10 +568,6 @@ export function FavoriteLedgerPanel({
     })
   }
 
-  function candidateKey(candidate: FavoriteLedgerCandidate) {
-    return `${candidate.kind}:${candidate.sourceName}`
-  }
-
   function toggleDefaultLedger(ledgerId: string) {
     setSaveStatus(null)
     setSelectedDefaultLedgerIds((current) => {
@@ -388,13 +605,29 @@ export function FavoriteLedgerPanel({
     setAllLedgersEnabled(!draftLedgers.every(ledgerEnabled))
   }
 
-  function toggleCandidate(candidate: FavoriteLedgerCandidate) {
+  function setCandidateSelected(candidate: FavoriteLedgerCandidate, selected: boolean) {
     const key = candidateKey(candidate)
     setSelectedCandidateKeys((current) => {
       setSaveStatus(null)
       const next = new Set(current)
-      if (next.has(key)) {
+      if (!selected) {
         next.delete(key)
+        setSelectedOldFavoriteTargetKeys((currentTargets) => {
+          const nextTargets = new Set(currentTargets)
+          for (const item of selectableOldFavoriteItems) {
+            for (const target of targetsForOldFavoriteItem(item)) {
+              if (target.candidateKey === key) {
+                nextTargets.delete(oldFavoriteTargetKey(item.aid, target.ledgerId))
+              }
+            }
+            for (const target of item.candidateTargets ?? []) {
+              if (target.candidateKey === key) {
+                nextTargets.delete(oldFavoriteTargetKey(item.aid, target.ledgerId))
+              }
+            }
+          }
+          return nextTargets
+        })
         setDraftLedgers((currentLedgers) =>
           currentLedgers.filter(
             (ledger) =>
@@ -407,6 +640,22 @@ export function FavoriteLedgerPanel({
         )
       } else {
         next.add(key)
+        setSelectedOldFavoriteTargetKeys((currentTargets) => {
+          const nextTargets = new Set(currentTargets)
+          for (const item of selectableOldFavoriteItems) {
+            for (const target of targetsForOldFavoriteItem(item)) {
+              if (target.candidateKey === key && target.selected && !target.alreadyInTarget) {
+                nextTargets.add(oldFavoriteTargetKey(item.aid, target.ledgerId))
+              }
+            }
+            for (const target of item.candidateTargets ?? []) {
+              if (target.candidateKey === key && !item.alreadyInTarget) {
+                nextTargets.add(oldFavoriteTargetKey(item.aid, target.ledgerId))
+              }
+            }
+          }
+          return nextTargets
+        })
         setDraftLedgers((currentLedgers) => {
           if (alreadyHasLedger(currentLedgers, candidate.displayName)) {
             return currentLedgers.map((ledger) =>
@@ -428,6 +677,10 @@ export function FavoriteLedgerPanel({
       }
       return next
     })
+  }
+
+  function toggleCandidate(candidate: FavoriteLedgerCandidate) {
+    setCandidateSelected(candidate, !selectedCandidateKeys.has(candidateKey(candidate)))
   }
 
   function candidateToLedger(candidate: FavoriteLedgerCandidate, priority: number): FavoriteLedger {
@@ -587,6 +840,7 @@ export function FavoriteLedgerPanel({
   async function scanOldFavorites(mode: 'setup' | 'organize' = 'organize') {
     setBusy(true)
     setSaveStatus(null)
+    setOldFavoriteExecutionProgress(null)
     setStatus('正在扫描旧藏，请稍候。')
     try {
       const nextPreview = await onScanOldFavorites()
@@ -601,6 +855,9 @@ export function FavoriteLedgerPanel({
       setOldFavoriteGuideMode(mode)
       setOldFavoriteOtherLedgersExpanded(false)
       setLedgerListExpanded(true)
+      const nextCandidateKeys = recommendedCandidateKeysForPreview(nextPreview)
+      setSelectedCandidateKeys(nextCandidateKeys)
+      setDraftLedgers((currentLedgers) => mergeCandidateLedgers(currentLedgers, nextPreview, nextCandidateKeys))
       if (mode === 'setup') {
         const nextLedgers = mergeDefaultLedgers(draftLedgers)
         setDraftLedgers(nextLedgers)
@@ -615,6 +872,7 @@ export function FavoriteLedgerPanel({
             .map((item) => item.aid)
         )
       )
+      setSelectedOldFavoriteTargetKeys(defaultOldFavoriteTargetKeys(nextPreview, nextCandidateKeys))
       setSelectedOldFavoriteSourceFolderTitles(
         new Set(nextPreview.items.map((item) => item.sourceFolderTitle))
       )
@@ -643,6 +901,46 @@ export function FavoriteLedgerPanel({
     })
   }
 
+  function toggleOldFavoriteTarget(aid: number, ledgerId: string) {
+    const key = oldFavoriteTargetKey(aid, ledgerId)
+    setSelectedOldFavoriteTargetKeys((current) => {
+      const next = new Set(current)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+    setSelectedOldFavoriteAids((current) => {
+      const next = new Set(current)
+      next.add(aid)
+      return next
+    })
+  }
+
+  function setOldFavoriteTargetGroupSelected(group: OldFavoriteTargetGroup, selected: boolean) {
+    setSelectedOldFavoriteTargetKeys((current) => {
+      const next = new Set(current)
+      for (const entry of group.entries) {
+        const key = oldFavoriteTargetKey(entry.item.aid, group.ledgerId)
+        if (selected) {
+          next.add(key)
+        } else {
+          next.delete(key)
+        }
+      }
+      return next
+    })
+    setSelectedOldFavoriteAids((current) => {
+      const next = new Set(current)
+      for (const entry of group.entries) {
+        next.add(entry.item.aid)
+      }
+      return next
+    })
+  }
+
   function toggleOldFavoriteSourceFolder(sourceFolderTitle: string) {
     setSelectedOldFavoriteSourceFolderTitles((current) => {
       const next = new Set(current)
@@ -660,7 +958,8 @@ export function FavoriteLedgerPanel({
       return
     }
 
-    setBusy(true)
+    setOldFavoriteExecuting(true)
+    setOldFavoriteExecutionProgress(null)
     setSaveStatus(null)
     try {
       const nextLedgers = buildLedgersToSave()
@@ -669,7 +968,7 @@ export function FavoriteLedgerPanel({
       setActiveLedgerId(null)
       setActiveLedgerIndex(null)
 
-      const selectedItems = selectedOldFavoriteItems.filter(
+      const selectedItems = selectedOldFavoritePlanItems.filter(
         (item) => item.targetFolderId || item.selectedCandidateTarget
       )
       if (selectedItems.length === 0) {
@@ -677,12 +976,25 @@ export function FavoriteLedgerPanel({
         return
       }
 
-      const result = await onExecuteOldFavoritePlan(selectedItems)
-      setStatus(result.message)
+      const itemBatches = selectedOldFavoriteItemBatches(selectedItems)
+      setOldFavoriteExecutionProgress({ completed: 0, total: itemBatches.length })
+      const results: AssistantAutomationResult[] = []
+      for (const [index, itemBatch] of itemBatches.entries()) {
+        const result = await onExecuteOldFavoritePlan(itemBatch)
+        results.push(result)
+        setOldFavoriteExecutionProgress({ completed: index + 1, total: itemBatches.length })
+      }
+      const failedCount = results.filter((result) => result.ok === false).length
+      const lastMessage = results.at(-1)?.message
+      setStatus(
+        failedCount > 0
+          ? `整理旧藏完成：${itemBatches.length - failedCount} 条成功，${failedCount} 条失败。${lastMessage ?? ''}`
+          : lastMessage ?? '旧藏已归册。'
+      )
     } catch (error) {
       setStatus(`整理旧藏未完成：${errorMessage(error)}`)
     } finally {
-      setBusy(false)
+      setOldFavoriteExecuting(false)
     }
   }
 
@@ -710,9 +1022,20 @@ export function FavoriteLedgerPanel({
   }, [preview])
   const selectedOldFavoriteItems =
     selectableOldFavoriteItems.filter((item) => selectedOldFavoriteAids.has(item.aid)) ?? []
+  const inboxLedger = useMemo(() => draftLedgers.find((ledger) => ledger.id === 'inbox') ?? null, [draftLedgers])
+  const selectedOldFavoritePlanItems = useMemo(
+    () =>
+      buildSelectedOldFavoritePlanItems({
+        items: selectableOldFavoriteItems,
+        selectedTargetKeys: selectedOldFavoriteTargetKeys,
+        selectedCandidateKeys,
+        inboxLedger
+      }),
+    [selectableOldFavoriteItems, selectedOldFavoriteTargetKeys, selectedCandidateKeys, inboxLedger]
+  )
   const missingOldFavoriteTargetNames = Array.from(
     new Set(
-      selectedOldFavoriteItems
+      selectedOldFavoritePlanItems
         .filter((item) => !item.targetFolderId && !item.selectedCandidateTarget)
         .map((item) => item.targetDisplayName || ledgerNamesById[item.targetLedgerId] || item.targetLedgerId)
     )
@@ -774,22 +1097,26 @@ export function FavoriteLedgerPanel({
     oldFavoritePresetLedgers.length > 0 ||
     oldFavoriteOtherPresetLedgers.length > 0 ||
     oldFavoriteRecommendedLedgers.length > 0
+  const oldFavoriteTargetGroups = useMemo(
+    () => buildOldFavoriteTargetGroups(selectableOldFavoriteItems, selectedCandidateKeys, selectedOldFavoriteTargetKeys),
+    [selectableOldFavoriteItems, selectedCandidateKeys, selectedOldFavoriteTargetKeys]
+  )
 
   function oldFavoriteRecommendationText(ledger: FavoriteLedger) {
     const count = oldFavoriteRecommendedLedgerCounts.get(ledger.id) ?? 0
-    return count > 0
-      ? `旧藏推荐 · ${count} 条旧藏适合归入此收藏夹`
-      : '初始收藏夹'
+    return count > 0 ? `${count} 条适合` : '收藏夹'
   }
 
   function oldFavoriteCandidateRecommendationText(candidate: FavoriteLedgerCandidate) {
     const count = oldFavoriteCandidateCounts.get(candidateKey(candidate)) ?? 0
-    return count > 0
-      ? `旧藏推荐 · ${count} 条旧藏适合归入此收藏夹`
-      : '按扫描结果生成'
+    return count > 0 ? `${count} 条适合` : '按扫描结果生成'
   }
 
   function oldFavoriteItemWithSelectedCandidate(item: FavoriteLedgerPreviewItem): FavoriteLedgerPreviewItem {
+    if (item.targets?.length) {
+      return item
+    }
+
     const target = item.candidateTargets?.find((candidateTarget) =>
       selectedCandidateKeys.has(candidateTarget.candidateKey)
     )
@@ -797,8 +1124,26 @@ export function FavoriteLedgerPanel({
       return item
     }
 
+    const targets: FavoriteLedgerPreviewTarget[] =
+      item.targetLedgerId === 'inbox'
+        ? []
+        : [legacyTargetForOldFavoriteItem(item)]
+
     return {
       ...item,
+      targets: [
+        ...targets,
+        {
+          ledgerId: target.ledgerId,
+          folderId: '',
+          displayName: target.displayName,
+          keywords: target.keywords,
+          alreadyInTarget: false,
+          selected: true,
+          selectedCandidateTarget: true,
+          candidateKey: target.candidateKey
+        }
+      ],
       targetLedgerId: target.ledgerId,
       targetFolderId: '',
       targetDisplayName: target.displayName,
@@ -1156,8 +1501,9 @@ export function FavoriteLedgerPanel({
                           type="checkbox"
                           aria-label={candidate.displayName}
                           checked={isSelected}
-                          disabled={!isSelected && alreadyHasLedger(draftLedgers, candidate.displayName)}
-                          onChange={() => toggleCandidate(candidate)}
+                          disabled={!isSelected && alreadyHasLedger(ledgers, candidate.displayName)}
+                          onClick={() => setCandidateSelected(candidate, !isSelected)}
+                          onChange={() => undefined}
                         />
                         <span>
                           <strong>{candidate.displayName}</strong>
@@ -1221,28 +1567,60 @@ export function FavoriteLedgerPanel({
                     <strong>{ledger.displayName}</strong>
                   </article>
                 ))
-              ) : selectableOldFavoriteItems.length > 0 ? (
-                selectableOldFavoriteItems.map((item) => (
-                  <article key={`${item.sourceFolderTitle}-${item.aid}`}>
-                    <label>
-                      <input
-                        type="checkbox"
-                        aria-label={`整理 ${item.title}`}
-                        checked={selectedOldFavoriteAids.has(item.aid)}
-                        disabled={item.alreadyInTarget}
-                        onChange={() => toggleOldFavorite(item.aid)}
-                      />
-                      <span>
-                        <strong>{item.title}</strong>
-                        <small>
-                          放入 {item.targetDisplayName}
-                          {item.alreadyInTarget ? ' · 已在目标' : ''}
-                          {item.reviewRequired ? ' · 需要复核' : ''}
-                        </small>
-                      </span>
-                    </label>
-                  </article>
-                ))
+              ) : oldFavoriteTargetGroups.length > 0 ? (
+                <div className="favorite-ledger-panel__preview-groups">
+                  {oldFavoriteTargetGroups.map((group) => {
+                    const selectedCount = group.entries.filter((entry) => entry.selected).length
+                    const allSelected = group.entries.length > 0 && selectedCount === group.entries.length
+
+                    return (
+                      <section
+                        key={group.ledgerId}
+                        className="favorite-ledger-panel__preview-group"
+                        role="group"
+                        aria-label={`${group.displayName} ${group.entries.length} 条`}
+                      >
+                        <header>
+                          <label>
+                            <input
+                              type="checkbox"
+                              aria-label={`全选 ${group.displayName}`}
+                              checked={allSelected}
+                              onChange={(event) =>
+                                setOldFavoriteTargetGroupSelected(group, event.currentTarget.checked)
+                              }
+                            />
+                            <span>
+                              <strong>{group.displayName}</strong>
+                              <small>{group.entries.length} 条适合</small>
+                            </span>
+                          </label>
+                        </header>
+                        {group.entries.map(({ item, target, selected }) => (
+                          <article key={`${group.ledgerId}-${item.sourceFolderTitle}-${item.aid}`}>
+                            <label>
+                              <input
+                                type="checkbox"
+                                aria-label={`整理 ${item.title} 到 ${group.displayName}`}
+                                checked={selected}
+                                disabled={target.alreadyInTarget}
+                                onChange={() => toggleOldFavoriteTarget(item.aid, group.ledgerId)}
+                              />
+                              <span>
+                                <strong>{item.title}</strong>
+                                <small>
+                                  来源 {item.sourceFolderTitle}
+                                  {target.alreadyInTarget ? ' · 已在目标' : ''}
+                                  {item.reviewRequired ? ' · 需要复核' : ''}
+                                </small>
+                              </span>
+                            </label>
+                          </article>
+                        ))}
+                      </section>
+                    )
+                  })}
+                </div>
               ) : (
                 <p>暂无可归册旧藏。</p>
               )}
@@ -1261,19 +1639,35 @@ export function FavoriteLedgerPanel({
                 </>
               ) : (
                 <>
-                  <p>已选择 {selectedOldFavoriteItems.length} 条旧藏</p>
+                  <p>已选择 {selectedOldFavoritePlanItems.length} 条归档任务</p>
                   {oldFavoriteTargetWarning ? (
                     <p className="favorite-ledger-panel__confirm-warning" role="alert">
                       {oldFavoriteTargetWarning}
                     </p>
                   ) : null}
                   <p>只会追加到 Bilimi 收藏夹，不会删除、移动或取消原收藏。</p>
+                  {oldFavoriteExecutionProgress ? (
+                    <div
+                      className="favorite-ledger-panel__old-favorite-progress"
+                      role="status"
+                      aria-live="polite"
+                    >
+                      <strong>
+                        整理进度 {oldFavoriteExecutionProgress.completed}/{oldFavoriteExecutionProgress.total}
+                      </strong>
+                      <progress
+                        max={oldFavoriteExecutionProgress.total}
+                        value={oldFavoriteExecutionProgress.completed}
+                        aria-label="整理旧藏进度"
+                      />
+                    </div>
+                  ) : null}
                   <button
                     type="button"
-                    disabled={busy || selectedOldFavoriteItems.length === 0}
+                    disabled={oldFavoriteExecuting || selectedOldFavoritePlanItems.length === 0}
                     onClick={() => void executeOldFavoritePlan()}
                   >
-                    确认整理
+                    {oldFavoriteExecuting ? '整理中' : '确认整理'}
                   </button>
                 </>
               )}

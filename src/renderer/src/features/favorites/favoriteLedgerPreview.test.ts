@@ -38,6 +38,39 @@ describe('createFavoriteLedgerPreview', () => {
     expect(preview.skippedSourceFolderTitles).toEqual([managedKnowledgeFolder])
   })
 
+  it('keeps Bilimi inbox as a selectable old favorite source folder', () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'inbox'
+        ? { ...ledger, bilibiliFolderId: '9008' }
+        : ledger.id === 'knowledge'
+          ? { ...ledger, bilibiliFolderId: '9001' }
+          : ledger
+    )
+    const inboxFolder = ledgers.find((ledger) => ledger.id === 'inbox')!.displayName
+    const preview = createFavoriteLedgerPreview({
+      ledgers,
+      sourceFolders: [
+        {
+          id: '9008',
+          title: inboxFolder,
+          videos: [{ aid: 101, title: '机器学习科普教程', tags: ['学习'] }]
+        }
+      ],
+      targetMembership: {
+        '9008': [101]
+      }
+    })
+
+    expect(preview.skippedSourceFolderTitles).toEqual([])
+    expect(preview.items[0]).toMatchObject({
+      aid: 101,
+      sourceFolderTitle: inboxFolder,
+      targetLedgerId: 'knowledge',
+      targetFolderId: '9001',
+      selected: true
+    })
+  })
+
   it('attaches old-favorite insights for candidate ledger creation', () => {
     const preview = createFavoriteLedgerPreview({
       ledgers: createDefaultFavoriteLedgers(),
@@ -125,6 +158,58 @@ describe('createFavoriteLedgerPreview', () => {
       ]
     })
     expect(preview.items[0].candidateTargets).toHaveLength(1)
+  })
+
+  it('records multiple recommended targets for one video while keeping inbox as fallback only', () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
+      if (ledger.id === 'movie-tv') {
+        return { ...ledger, bilibiliFolderId: '9001' }
+      }
+      if (ledger.id === 'inbox') {
+        return { ...ledger, bilibiliFolderId: '9008' }
+      }
+      return ledger
+    })
+    const preview = createFavoriteLedgerPreview({
+      ledgers,
+      sourceFolders: [
+        {
+          id: '1',
+          title: '默认收藏夹',
+          videos: [
+            {
+              aid: 101,
+              title: '影视飓风相机评测',
+              author: '影视飓风',
+              tags: ['影视', '摄影'],
+              category: '影视'
+            },
+            {
+              aid: 102,
+              title: '影视飓风剪辑教程',
+              author: '影视飓风',
+              tags: ['影视', '摄影'],
+              category: '影视'
+            }
+          ]
+        }
+      ],
+      targetMembership: {}
+    })
+
+    expect(preview.items[0].targetLedgerId).toBe('movie-tv')
+    expect(preview.items[0].targets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ledgerId: 'movie-tv', folderId: '9001', selected: true }),
+        expect.objectContaining({
+          ledgerId: 'custom-author-影视飓风',
+          displayName: 'Bilimi·影视飓风追更',
+          selectedCandidateTarget: true,
+          selected: true
+        })
+      ])
+    )
+    expect(preview.items[0].targets?.some((target) => target.ledgerId === 'inbox')).toBe(false)
   })
 
   it('marks items already in the target ledger as skipped', () => {

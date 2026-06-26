@@ -2442,6 +2442,41 @@ body[data-floating-window="true"],
   font-size: 11px;
   line-height: 1.4;
 }
+.favorite-ledger-panel__preview-groups {
+  display: grid;
+  grid-auto-columns: minmax(220px, 82%);
+  grid-auto-flow: column;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scroll-snap-type: x proximity;
+}
+.favorite-ledger-panel__preview-group {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid rgba(31, 99, 181, 0.18);
+  background: rgba(255, 255, 255, 0.52);
+  padding: 8px;
+  scroll-snap-align: start;
+}
+.favorite-ledger-panel__preview-group header label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+.favorite-ledger-panel__old-favorite-progress {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(31, 99, 181, 0.18);
+  background: rgba(220, 238, 255, 0.52);
+  padding: 8px;
+}
+.favorite-ledger-panel__old-favorite-progress progress {
+  width: 100%;
+}
 .favorite-ledger-prompt {
   width: min(236px, calc(100vw - 16px));
   border: 1px solid rgba(31, 99, 181, 0.28);
