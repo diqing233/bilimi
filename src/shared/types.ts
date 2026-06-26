@@ -44,11 +44,11 @@ export type DefaultFavoriteLedgerId =
   | 'fitness'
   | 'parenting'
   | 'life-tips'
+  | 'anime'
+  | 'acg'
   | 'ai'
-  | 'handmade'
   | 'health'
   | 'public-good'
-  | 'documentary'
   | 'inbox'
 
 export type FavoriteLedgerId = string

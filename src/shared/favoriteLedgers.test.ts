@@ -24,6 +24,8 @@ describe('favorite ledger model', () => {
         ['movie-tv', 'Bilimi·影视'],
         ['knowledge', 'Bilimi·知识'],
         ['ai', 'Bilimi·人工智能'],
+        ['anime', 'Bilimi·番剧'],
+        ['acg', 'Bilimi·二次元'],
         ['inbox', 'Bilimi·待分类']
       ])
     )
@@ -65,11 +67,13 @@ describe('favorite ledger model', () => {
       'Bilimi·健身',
       'Bilimi·亲子',
       'Bilimi·生活经验',
-      'Bilimi·手工',
+      'Bilimi·番剧',
+      'Bilimi·二次元',
       'Bilimi·健康',
-      'Bilimi·公益',
-      'Bilimi·纪录片'
+      'Bilimi·公益'
     ])
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·手工')
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·纪录片')
     expect(ledgers.filter((ledger) => ledger.enabled).map((ledger) => ledger.id)).toEqual([
       'animation',
       'game',
@@ -119,6 +123,32 @@ describe('favorite ledger model', () => {
       'Bilimi·光影留真'
     )
     expect(ledgers.find((ledger) => ledger.id === 'inbox')?.displayName).toBe('Bilimi·待分类')
+  })
+
+  it('retires removed default ledgers from saved preferences', () => {
+    const ledgers = normalizeFavoriteLedgers([
+      {
+        id: 'handmade',
+        displayName: 'Bilimi·手工',
+        keywords: ['手工'],
+        enabled: true,
+        priority: 320,
+        isDefault: true
+      },
+      {
+        id: 'documentary',
+        displayName: 'Bilimi·纪录片',
+        keywords: ['纪录片'],
+        enabled: true,
+        priority: 350,
+        isDefault: true
+      }
+    ])
+
+    expect(ledgers.map((ledger) => ledger.id)).not.toContain('handmade')
+    expect(ledgers.map((ledger) => ledger.id)).not.toContain('documentary')
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·手工')
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·纪录片')
   })
 
   it('recognizes only Bilimi-prefixed ledger names as managed', () => {

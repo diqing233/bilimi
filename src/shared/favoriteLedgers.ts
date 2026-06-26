@@ -35,10 +35,10 @@ const DEFAULT_FAVORITE_LEDGER_DEFINITIONS = [
   ['fitness', '健身', ['健身', '训练', '减脂', '增肌']],
   ['parenting', '亲子', ['亲子', '育儿', '儿童', '家庭']],
   ['life-tips', '生活经验', ['生活经验', '经验', '技巧', '避坑']],
-  ['handmade', '手工', ['手工', '制作', 'DIY', '模型']],
+  ['anime', '番剧', ['番剧', '追番', '新番', '动画剧集', '动漫']],
+  ['acg', '二次元', ['二次元', 'ACG', '动漫', '同人', '虚拟UP']],
   ['health', '健康', ['健康', '医学', '养生', '睡眠']],
-  ['public-good', '公益', ['公益', '志愿', '环保', '救助']],
-  ['documentary', '纪录片', ['纪录片', '纪实', '人文']]
+  ['public-good', '公益', ['公益', '志愿', '环保', '救助']]
 ] as const
 
 const DEFAULT_ENABLED_LEDGER_IDS = new Set([
@@ -64,7 +64,9 @@ const RETIRED_DEFAULT_FAVORITE_LEDGER_NAMES = new Set([
   'Bilimi·市井烟火',
   'Bilimi·工巧器用',
   'Bilimi·歌舞清音',
-  'Bilimi·暂存待阅'
+  'Bilimi·暂存待阅',
+  'Bilimi·手工',
+  'Bilimi·纪录片'
 ])
 
 const DEFAULT_FAVORITE_LEDGERS: FavoriteLedger[] = DEFAULT_FAVORITE_LEDGER_DEFINITIONS.map(
