@@ -1614,7 +1614,10 @@ export function FavoriteLedgerPanel({
                             </span>
                           </label>
                         </header>
-                        <div className="favorite-ledger-panel__preview-videos">
+                        <div
+                          className="favorite-ledger-panel__preview-videos"
+                          aria-label={`${group.displayName} 视频`}
+                        >
                           {group.entries.map(({ item, target, selected }) => (
                             <article key={`${group.ledgerId}-${item.sourceFolderTitle}-${item.aid}`}>
                               <label>
