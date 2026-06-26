@@ -1112,4 +1112,69 @@ describe('favorite ledger API scripts', () => {
     expect(result.message).toContain('favorite folder list returned HTML instead of JSON')
     expect(result.message).not.toContain('Unexpected token')
   })
+
+  it('continues scanning old favorites when one resource folder returns html', async () => {
+    installCookies()
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
+      ...ledger,
+      bilibiliFolderId: '9001'
+    }))
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({
+            code: 0,
+            data: {
+              list: [
+                { id: 101, title: 'Default Favorites' },
+                { id: 102, title: 'Login Redirect Favorites' }
+              ]
+            }
+          })
+        }
+
+        if (url.includes('media_id=101')) {
+          return Response.json({
+            code: 0,
+            data: {
+              medias: [{ id: 123, title: 'Video tutorial', intro: 'video', type: 2 }],
+              has_more: false
+            }
+          })
+        }
+
+        if (url.includes('media_id=102')) {
+          return new Response('<!DOCTYPE html><html><body>login</body></html>', {
+            headers: { 'content-type': 'text/html;charset=utf-8' },
+            status: 200
+          })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+
+    expect(result).toMatchObject({
+      ok: true,
+      skippedSourceFolderTitles: ['Login Redirect Favorites'],
+      sourceFolders: [
+        {
+          id: '101',
+          title: 'Default Favorites',
+          videos: [expect.objectContaining({ aid: 123, title: 'Video tutorial' })]
+        }
+      ],
+      missingTargets: []
+    })
+    expect(result.steps).toEqual([
+      'api:favorite:list',
+      'api:favorite:scan-source:101',
+      'api:favorite:scan-source-failed:102'
+    ])
+    expect(result.message).toContain('skipped 1 folder')
+  })
 })

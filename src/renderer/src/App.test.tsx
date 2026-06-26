@@ -886,6 +886,7 @@ describe('App runtime integration', () => {
             }
           ],
           targetMembership: {},
+          skippedSourceFolderTitles: ['Login Redirect Favorites'],
           steps: ['api:favorite:list'],
           missingTargets: [],
           message: 'old favorites scanned'
@@ -907,7 +908,8 @@ describe('App runtime integration', () => {
         ],
         insights: expect.objectContaining({
           totalVideos: 1
-        })
+        }),
+        skippedSourceFolderTitles: ['Login Redirect Favorites']
       })
     )
     expect(generateDeepSeek).not.toHaveBeenCalled()

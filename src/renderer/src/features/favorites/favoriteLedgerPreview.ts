@@ -64,9 +64,10 @@ export function createFavoriteLedgerPreview(args: {
   ledgers: FavoriteLedger[]
   sourceFolders: FavoriteSourceFolder[]
   targetMembership: Record<string, number[]>
+  skippedSourceFolderTitles?: string[]
   aiSuggestions?: FavoriteLedgerAiSuggestion[]
 }): FavoriteLedgerPreview {
-  const skippedSourceFolderTitles: string[] = []
+  const skippedSourceFolderTitles = args.skippedSourceFolderTitles ?? []
   const items: FavoriteLedgerPreviewItem[] = []
   const insights = createFavoriteLedgerInsights({
     sourceFolders: args.sourceFolders,

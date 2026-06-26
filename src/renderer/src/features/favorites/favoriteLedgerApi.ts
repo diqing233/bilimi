@@ -329,6 +329,7 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
             .map(String)
         );
         const sourceFolders = [];
+        const skippedSourceFolderTitles = [];
         const targetMembership = {};
         steps.push('api:favorite:list');
 
@@ -417,7 +418,14 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
           }
 
           const folderIdString = String(folderId);
-          const videos = await readFolderVideos(folderIdString);
+          let videos = [];
+          try {
+            videos = await readFolderVideos(folderIdString);
+          } catch {
+            skippedSourceFolderTitles.push(String(folder?.title ?? folderIdString));
+            steps.push('api:favorite:scan-source-failed:' + folderIdString);
+            continue;
+          }
 
           if (targetFolderIds.has(folderIdString)) {
             targetMembership[folderIdString] = videos.map((video) => video.aid);
@@ -435,15 +443,20 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
         return {
           ok: true,
           sourceFolders,
+          skippedSourceFolderTitles,
           targetMembership,
           steps,
           missingTargets: [],
-          message: 'old favorites scanned'
+          message:
+            skippedSourceFolderTitles.length === 0
+              ? 'old favorites scanned'
+              : 'old favorites scanned; skipped ' + skippedSourceFolderTitles.length + ' folder' + (skippedSourceFolderTitles.length === 1 ? '' : 's') + ': ' + skippedSourceFolderTitles.slice(0, 3).join(', ')
         };
       } catch (error) {
         return {
           ok: false,
           sourceFolders: [],
+          skippedSourceFolderTitles: [],
           targetMembership: {},
           steps,
           missingTargets: ['favorite-ledger-api'],

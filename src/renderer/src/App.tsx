@@ -580,6 +580,7 @@ export default function App() {
     ) as AssistantAutomationResult & {
       sourceFolders?: FavoriteSourceFolder[]
       targetMembership?: Record<string, number[]>
+      skippedSourceFolderTitles?: string[]
     }
 
     if (!scanResult.ok || !Array.isArray(scanResult.sourceFolders) || !scanResult.targetMembership) {
@@ -594,7 +595,8 @@ export default function App() {
     const preview = createFavoriteLedgerPreview({
       ledgers: preferences.favoriteLedgers,
       sourceFolders: scanResult.sourceFolders,
-      targetMembership: scanResult.targetMembership
+      targetMembership: scanResult.targetMembership,
+      skippedSourceFolderTitles: scanResult.skippedSourceFolderTitles
     })
 
     if (!options.enhanceWithDeepSeek) {
