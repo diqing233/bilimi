@@ -1608,7 +1608,7 @@ export function FavoriteLedgerPanel({
                                 setOldFavoriteTargetGroupSelected(group, event.currentTarget.checked)
                               }
                             />
-                            <span>
+                            <span className="favorite-ledger-panel__preview-heading">
                               <strong>{group.displayName}</strong>
                               <small>{group.entries.length} 条适合</small>
                             </span>
@@ -1629,7 +1629,9 @@ export function FavoriteLedgerPanel({
                                   onChange={() => toggleOldFavoriteTarget(item.aid, group.ledgerId)}
                                 />
                                 <span>
-                                  <strong>{item.title}</strong>
+                                  <span className="favorite-ledger-panel__preview-video-title">
+                                    {item.title}
+                                  </span>
                                   <small>
                                     来源 {item.sourceFolderTitle}
                                     {target.alreadyInTarget ? ' · 已在目标' : ''}

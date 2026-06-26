@@ -1328,6 +1328,8 @@ describe('FavoriteLedgerPanel', () => {
     expect(authorTrack).toHaveAttribute('aria-label', 'Bilimi·影视飓风追更 视频')
     expect(movieTrack?.children).toHaveLength(3)
     expect(authorTrack?.children).toHaveLength(3)
+    expect(movieGroup.querySelector('.favorite-ledger-panel__preview-heading')).toBeInTheDocument()
+    expect(movieTrack?.querySelector('.favorite-ledger-panel__preview-video-title')).toBeInTheDocument()
     expect(within(movieGroup).getByLabelText('全选 Bilimi·影视动漫')).toBeChecked()
     expect(within(authorGroup).getByLabelText('全选 Bilimi·影视飓风追更')).toBeChecked()
     expect(within(movieGroup).getByText('影视飓风相机评测')).toBeInTheDocument()

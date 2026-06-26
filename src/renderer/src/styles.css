@@ -2558,6 +2558,16 @@ body[data-floating-window="true"],
   gap: 8px;
   align-items: start;
 }
+.favorite-ledger-panel__preview-heading {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.favorite-ledger-panel__preview-heading small {
+  margin-top: 0;
+  white-space: nowrap;
+}
 .favorite-ledger-panel__preview-videos {
   grid-column: 1 / -1;
   display: grid;
@@ -2572,6 +2582,14 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__preview-videos article {
   min-width: 0;
   scroll-snap-align: start;
+}
+.favorite-ledger-panel__preview-video-title {
+  display: block;
+  min-width: 0;
+  color: var(--porcelain-deep);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
 }
 .favorite-ledger-panel__old-favorite-progress {
   display: grid;
