@@ -2732,6 +2732,24 @@ body[data-floating-window="true"],
   font-size: 12px;
   line-height: 1.45;
 }
+.assistant-settings__deepseek-divider {
+  border-top: 1px dashed rgba(31, 99, 181, 0.24);
+}
+.assistant-settings__deepseek-switches {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.assistant-settings__deepseek-switches label {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  min-height: 0;
+  gap: 8px;
+}
+.assistant-settings__deepseek-switches input[type="checkbox"] {
+  margin-top: 2px;
+}
 .assistant-settings__group--deepseek input[type="text"],
 .assistant-settings__group--deepseek input[type="password"],
 .assistant-settings__group--deepseek input[type="url"] {

@@ -1040,30 +1040,34 @@ export function FloatingAssistantApp({
               <p className="assistant-settings__deepseek-help">
                 开启后可使用批阅的拟奏短评、札记中的 DeepSeek 总结、宠物对话功能。
               </p>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={preferences.deepseekOldFavoriteAssistanceEnabled}
-                  onChange={(event) =>
-                    updateDeepSeekPreference({
-                      deepseekOldFavoriteAssistanceEnabled: event.currentTarget.checked
-                    })
-                  }
-                />
-                <span>用 DeepSeek 辅助整理旧藏</span>
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={preferences.deepseekAutoSummaryEnabled}
-                  onChange={(event) =>
-                    updateDeepSeekPreference({
-                      deepseekAutoSummaryEnabled: event.currentTarget.checked
-                    })
-                  }
-                />
-                <span>转写完成后自动生成 DeepSeek 总结</span>
-              </label>
+              <div className="assistant-settings__deepseek-divider" aria-hidden="true" />
+              <div className="assistant-settings__deepseek-switches">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={preferences.deepseekOldFavoriteAssistanceEnabled}
+                    onChange={(event) =>
+                      updateDeepSeekPreference({
+                        deepseekOldFavoriteAssistanceEnabled: event.currentTarget.checked
+                      })
+                    }
+                  />
+                  <span>用 DeepSeek 辅助整理旧藏</span>
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={preferences.deepseekAutoSummaryEnabled}
+                    onChange={(event) =>
+                      updateDeepSeekPreference({
+                        deepseekAutoSummaryEnabled: event.currentTarget.checked
+                      })
+                    }
+                  />
+                  <span>转写完成后自动生成 DeepSeek 总结</span>
+                </label>
+              </div>
+              <div className="assistant-settings__deepseek-divider" aria-hidden="true" />
               <label>
                 <span>DeepSeek API 密钥</span>
                 <input

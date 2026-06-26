@@ -294,6 +294,9 @@ describe('renderer porcelain theme styles', () => {
 
   it('styles the DeepSeek assistant settings group and actions', () => {
     expect(normalizedStyles).toContain('.assistant-settings__group--deepseek')
+    expectStyleSnippet('.assistant-settings__deepseek-divider { border-top: 1px dashed rgba(31, 99, 181, 0.24);')
+    expectStyleSnippet('.assistant-settings__deepseek-switches { display: grid; gap: 8px; justify-items: start;')
+    expectStyleSnippet('.assistant-settings__deepseek-switches label { display: inline-grid; grid-template-columns: auto minmax(0, 1fr);')
     expect(normalizedStyles).toContain('.assistant-settings__actions')
     expect(normalizedStyles).toContain(
       '.assistant-settings__group--deepseek .assistant-settings__actions'
