@@ -338,4 +338,69 @@ describe('createFavoriteLedgerPreview', () => {
     )
     expect(preview.items[0].targets?.some((target) => target.ledgerId === 'inbox')).toBe(false)
   })
+
+  it('keeps high-frequency game tag candidates alongside the broad game target', () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
+      if (ledger.id === 'game') {
+        return { ...ledger, bilibiliFolderId: '9002' }
+      }
+      if (ledger.id === 'inbox') {
+        return { ...ledger, bilibiliFolderId: '9008' }
+      }
+      return ledger
+    })
+    const preview = createFavoriteLedgerPreview({
+      ledgers,
+      sourceFolders: [
+        {
+          id: '1',
+          title: '默认收藏夹',
+          videos: Array.from({ length: 10 }, (_, index) => ({
+            aid: 600 + index,
+            title: `角色配队 ${index + 1}`,
+            tags: ['原神']
+          }))
+        }
+      ],
+      targetMembership: {}
+    })
+
+    expect(preview.insights?.topTags[0]).toEqual({ name: '原神', count: 10 })
+    expect(preview.insights?.candidateLedgers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'tag-cluster',
+          sourceName: '原神',
+          displayName: 'Bilimi·原神',
+          keywords: ['原神'],
+          count: 10
+        })
+      ])
+    )
+    expect(preview.items[0]).toMatchObject({
+      targetLedgerId: 'game',
+      targetFolderId: '9002',
+      selected: true,
+      candidateTargets: expect.arrayContaining([
+        expect.objectContaining({
+          candidateKey: 'tag-cluster:原神',
+          ledgerId: 'custom-tag-cluster-原神',
+          displayName: 'Bilimi·原神',
+          keywords: ['原神']
+        })
+      ])
+    })
+    expect(preview.items[0].targets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ledgerId: 'game', folderId: '9002', selected: true }),
+        expect.objectContaining({
+          ledgerId: 'custom-tag-cluster-原神',
+          displayName: 'Bilimi·原神',
+          selectedCandidateTarget: true,
+          selected: true
+        })
+      ])
+    )
+    expect(preview.items[0].targets?.some((target) => target.ledgerId === 'inbox')).toBe(false)
+  })
 })
