@@ -195,7 +195,7 @@ describe('createFavoriteLedgerInsights', () => {
     )
   })
 
-  it('keeps high-frequency tag candidates scoped to the top tag only', () => {
+  it('creates candidates for multiple high-frequency tags', () => {
     const insights = createFavoriteLedgerInsights({
       sourceFolders: [
         {
@@ -220,6 +220,13 @@ describe('createFavoriteLedgerInsights', () => {
           displayName: 'Bilimi·原神',
           keywords: ['原神'],
           count: 4
+        }),
+        expect.objectContaining({
+          kind: 'tag-cluster',
+          sourceName: '攻略',
+          displayName: 'Bilimi·攻略',
+          keywords: ['攻略'],
+          count: 3
         })
       ])
     )

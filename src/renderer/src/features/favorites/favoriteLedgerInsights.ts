@@ -171,7 +171,7 @@ function confidence(count: number, totalVideos: number): FavoriteLedgerCandidate
   return count >= 4 || count / Math.max(totalVideos, 1) >= 0.5 ? 'high' : 'medium'
 }
 
-function buildTagCluster(videos: FavoriteSourceVideo[], totalVideos: number): FavoriteLedgerCandidate | null {
+function buildTagClusters(videos: FavoriteSourceVideo[], totalVideos: number): FavoriteLedgerCandidate[] {
   const tagCounts = new Map<string, CountedName>()
 
   for (const video of videos) {
@@ -180,31 +180,31 @@ function buildTagCluster(videos: FavoriteSourceVideo[], totalVideos: number): Fa
     }
   }
 
-  const topTag = [...tagCounts.values()].sort((left, right) => {
+  const sortedTags = [...tagCounts.values()].sort((left, right) => {
     if (right.count !== left.count) {
       return right.count - left.count
     }
 
     return left.firstSeen - right.firstSeen
-  })[0]
-  if (!topTag) {
-    return null
-  }
+  })
+  const candidateTags = sortedTags.filter((tag, index) => index === 0 || tag.count >= 2).slice(0, 6)
 
-  const keyword = cleanKeyword(topTag.name)
-  const displaySuffix = topTag.name
-  const keywords = keyword ? [keyword] : []
+  return candidateTags.map((tag) => {
+    const keyword = cleanKeyword(tag.name)
+    const displaySuffix = tag.name
+    const keywords = keyword ? [keyword] : []
 
-  return {
-    kind: 'tag-cluster',
-    sourceName: topTag.name,
-    displayName: `Bilimi·${displaySuffix}`,
-    keywords,
-    count: topTag.count,
-    confidence: confidence(topTag.count, totalVideos),
-    reason: `高频标签“${topTag.name}”出现 ${topTag.count} 次，适合单独成册。`,
-    aiEnhanced: false
-  }
+    return {
+      kind: 'tag-cluster',
+      sourceName: tag.name,
+      displayName: `Bilimi·${displaySuffix}`,
+      keywords,
+      count: tag.count,
+      confidence: confidence(tag.count, totalVideos),
+      reason: `高频标签“${tag.name}”出现 ${tag.count} 次，适合单独成册。`,
+      aiEnhanced: false
+    }
+  })
 }
 
 function buildSeriesCandidates(
@@ -336,9 +336,9 @@ export function createFavoriteLedgerInsights(args: {
     })
     .map(({ name, count }) => ({ name, count }))
   const titleSeries = sortedSignals(titleSeriesCounts)
-  const tagCluster = buildTagCluster(videos, totalVideos)
+  const tagClusters = buildTagClusters(videos, totalVideos)
   const candidates = [
-    ...(tagCluster ? [tagCluster] : []),
+    ...tagClusters,
     ...buildSeriesCandidates(titleSeries, totalVideos),
     ...buildCategoryCandidates(topCategories, totalVideos),
     ...buildAuthorCandidates(topAuthors, totalVideos)
