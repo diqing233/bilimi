@@ -1594,7 +1594,7 @@ export function FavoriteLedgerPanel({
                     return (
                       <section
                         key={group.ledgerId}
-                        className="favorite-ledger-panel__preview-group"
+                        className="favorite-ledger-panel__preview-row"
                         role="group"
                         aria-label={`${group.displayName} ${group.entries.length} 条`}
                       >
@@ -1614,27 +1614,29 @@ export function FavoriteLedgerPanel({
                             </span>
                           </label>
                         </header>
-                        {group.entries.map(({ item, target, selected }) => (
-                          <article key={`${group.ledgerId}-${item.sourceFolderTitle}-${item.aid}`}>
-                            <label>
-                              <input
-                                type="checkbox"
-                                aria-label={`整理 ${item.title} 到 ${group.displayName}`}
-                                checked={selected}
-                                disabled={target.alreadyInTarget}
-                                onChange={() => toggleOldFavoriteTarget(item.aid, group.ledgerId)}
-                              />
-                              <span>
-                                <strong>{item.title}</strong>
-                                <small>
-                                  来源 {item.sourceFolderTitle}
-                                  {target.alreadyInTarget ? ' · 已在目标' : ''}
-                                  {item.reviewRequired ? ' · 需要复核' : ''}
-                                </small>
-                              </span>
-                            </label>
-                          </article>
-                        ))}
+                        <div className="favorite-ledger-panel__preview-videos">
+                          {group.entries.map(({ item, target, selected }) => (
+                            <article key={`${group.ledgerId}-${item.sourceFolderTitle}-${item.aid}`}>
+                              <label>
+                                <input
+                                  type="checkbox"
+                                  aria-label={`整理 ${item.title} 到 ${group.displayName}`}
+                                  checked={selected}
+                                  disabled={target.alreadyInTarget}
+                                  onChange={() => toggleOldFavoriteTarget(item.aid, group.ledgerId)}
+                                />
+                                <span>
+                                  <strong>{item.title}</strong>
+                                  <small>
+                                    来源 {item.sourceFolderTitle}
+                                    {target.alreadyInTarget ? ' · 已在目标' : ''}
+                                    {item.reviewRequired ? ' · 需要复核' : ''}
+                                  </small>
+                                </span>
+                              </label>
+                            </article>
+                          ))}
+                        </div>
                       </section>
                     )
                   })}

@@ -1320,6 +1320,10 @@ describe('FavoriteLedgerPanel', () => {
 
     const movieGroup = screen.getByRole('group', { name: 'Bilimi·影视动漫 3 条' })
     const authorGroup = screen.getByRole('group', { name: 'Bilimi·影视飓风追更 3 条' })
+    expect(movieGroup).toHaveClass('favorite-ledger-panel__preview-row')
+    expect(authorGroup).toHaveClass('favorite-ledger-panel__preview-row')
+    expect(movieGroup.querySelector('.favorite-ledger-panel__preview-videos')?.children).toHaveLength(3)
+    expect(authorGroup.querySelector('.favorite-ledger-panel__preview-videos')?.children).toHaveLength(3)
     expect(within(movieGroup).getByLabelText('全选 Bilimi·影视动漫')).toBeChecked()
     expect(within(authorGroup).getByLabelText('全选 Bilimi·影视飓风追更')).toBeChecked()
     expect(within(movieGroup).getByText('影视飓风相机评测')).toBeInTheDocument()
