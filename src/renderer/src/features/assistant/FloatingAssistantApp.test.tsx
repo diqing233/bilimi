@@ -260,7 +260,7 @@ describe('FloatingAssistantApp', () => {
     expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'done')).toBe(true)
   })
 
-  it('suggests a better unsynced default ledger while collecting to inbox', async () => {
+  it('shows the broad default ledger suggested by explicit page signals', async () => {
     const preferences = createPreferences()
     const runAssistantAction = vi.fn().mockResolvedValue(createResult('动作已完成。'))
     installDesktopApi({
@@ -271,7 +271,7 @@ describe('FloatingAssistantApp', () => {
           videoContentContext: {
             title: '大阪地铁自动扶梯现场音乐',
             pageText: '演奏 音乐 现场',
-            tags: ['旅游', '生活记录', 'Klook旅行体验师', '出国', '真实', 'Klook客服旅行']
+            tags: ['音乐现场']
           },
           videoTitle: '大阪地铁自动扶梯现场音乐'
         })
@@ -280,7 +280,7 @@ describe('FloatingAssistantApp', () => {
 
     render(<FloatingAssistantApp />)
 
-    expect(await screen.findByText('标签更像旅游出行，先放到待分类，备册后再归档。')).toBeInTheDocument()
+    expect(await screen.findByText('音乐舞台')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /藏.*归入内库/ }))
 
     await waitFor(() =>

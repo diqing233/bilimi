@@ -99,8 +99,8 @@ describe('assistant state', () => {
           displayName: 'Bilimi·光影留真'
         }),
         expect.objectContaining({
-          id: 'animation',
-          displayName: 'Bilimi·动画'
+          id: 'movie-tv',
+          displayName: 'Bilimi·影视动漫'
         })
       ])
     )

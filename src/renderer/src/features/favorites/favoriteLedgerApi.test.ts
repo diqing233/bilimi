@@ -40,10 +40,10 @@ describe('favorite ledger API scripts', () => {
     expect(result.ok).toBe(true)
     expect(result.missingLedgerIds).toEqual(
       ledgers
-        .filter((ledger) => ledger.id !== 'animation' && ledger.enabled)
+        .filter((ledger) => ledger.id !== 'knowledge' && ledger.enabled)
         .map((ledger) => ledger.id)
     )
-    expect(result.ledgers.find((ledger) => ledger.id === 'animation')?.bilibiliFolderId).toBe('1')
+    expect(result.ledgers.find((ledger) => ledger.id === 'knowledge')?.bilibiliFolderId).toBe('1')
   })
 
   it('creates only missing enabled ledgers', async () => {
@@ -336,13 +336,13 @@ describe('favorite ledger API scripts', () => {
 
     const deleteRequests = requests.filter((request) => request.url.includes('/folder/del'))
     expect(result.ok).toBe(true)
-    expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:delete:animation'])
+    expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:delete:knowledge'])
     expect(deleteRequests).toHaveLength(1)
     expect(new URLSearchParams(deleteRequests[0].body).get('media_ids')).toBe('9001')
-    const disabledLedger = result.ledgers.find((ledger) => ledger.id === 'animation')
+    const disabledLedger = result.ledgers.find((ledger) => ledger.id === 'knowledge')
     expect(disabledLedger).toEqual(
       expect.objectContaining({
-        id: 'animation',
+        id: 'knowledge',
         enabled: false
       })
     )
@@ -395,7 +395,7 @@ describe('favorite ledger API scripts', () => {
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(['api:ledger:list'])
     expect(requests.some((request) => request.url.includes('/folder/del'))).toBe(false)
-    expect(result.ledgers.find((ledger) => ledger.id === 'animation')?.bilibiliFolderId).toBe('9001')
+    expect(result.ledgers.find((ledger) => ledger.id === 'knowledge')?.bilibiliFolderId).toBe('9001')
   })
 
   it('appends old favorites without passing delete media ids', async () => {

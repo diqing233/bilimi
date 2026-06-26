@@ -13,11 +13,9 @@ export type VideoContentContext = {
 const RISK_KEYWORDS = ['带货', '广告', '软广', '恰饭', '推广', '避雷', '割韭菜', '骗局', '夸大', '引流', '标题党']
 
 const DEFAULT_LEDGER_KEYWORD_SUPPLEMENTS: Record<string, string[]> = {
-  kichiku: ['鬼畜'],
-  sports: ['运动'],
-  food: ['探店'],
-  vlog: ['vlog'],
-  'tech-digital': ['软件教程', '工具', '效率']
+  knowledge: ['软件教程', '效率'],
+  'life-interest': ['探店', 'vlog'],
+  entertainment: ['鬼畜']
 }
 
 function normalize(value = '') {

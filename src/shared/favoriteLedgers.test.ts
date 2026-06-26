@@ -13,81 +13,40 @@ describe('favorite ledger model', () => {
   it('defines Bilibili-style default ledgers with stable ids', () => {
     expect(createDefaultFavoriteLedgers().map((ledger) => [ledger.id, ledger.displayName])).toEqual(
       expect.arrayContaining([
-        ['animation', 'Bilimi·动画'],
-        ['kichiku', 'Bilimi·鬼畜'],
-        ['dance', 'Bilimi·舞蹈'],
-        ['entertainment', 'Bilimi·娱乐'],
-        ['tech-digital', 'Bilimi·科技数码'],
-        ['food', 'Bilimi·美食'],
-        ['game', 'Bilimi·游戏'],
-        ['music', 'Bilimi·音乐'],
-        ['movie-tv', 'Bilimi·影视'],
-        ['knowledge', 'Bilimi·知识'],
-        ['ai', 'Bilimi·人工智能'],
-        ['anime', 'Bilimi·番剧'],
-        ['acg', 'Bilimi·二次元'],
+        ['knowledge', 'Bilimi·知识学习'],
+        ['game', 'Bilimi·游戏专区'],
+        ['movie-tv', 'Bilimi·影视动漫'],
+        ['creative-aesthetic', 'Bilimi·创意美学'],
+        ['life-interest', 'Bilimi·生活日常'],
+        ['music', 'Bilimi·音乐舞台'],
+        ['entertainment', 'Bilimi·搞笑杂谈'],
         ['inbox', 'Bilimi·待分类']
       ])
     )
-    expect(createDefaultFavoriteLedgers()).toHaveLength(35)
+    expect(createDefaultFavoriteLedgers()).toHaveLength(8)
   })
 
-  it('orders reset defaults like the ledger panel reference and only enables checked defaults', () => {
+  it('orders reset defaults as broad initial ledgers and enables all of them', () => {
     const ledgers = createDefaultFavoriteLedgers()
 
     expect(ledgers.map((ledger) => ledger.displayName)).toEqual([
-      'Bilimi·动画',
-      'Bilimi·游戏',
-      'Bilimi·鬼畜',
-      'Bilimi·音乐',
-      'Bilimi·舞蹈',
-      'Bilimi·影视',
-      'Bilimi·娱乐',
-      'Bilimi·知识',
-      'Bilimi·科技数码',
-      'Bilimi·资讯',
-      'Bilimi·美食',
-      'Bilimi·待分类',
-      'Bilimi·体育运动',
-      'Bilimi·时尚美妆',
-      'Bilimi·动物',
-      'Bilimi·人工智能',
-      'Bilimi·小剧场',
-      'Bilimi·汽车',
-      'Bilimi·家装房产',
-      'Bilimi·旅游出行',
-      'Bilimi·情感',
-      'Bilimi·超高清',
-      'Bilimi·vlog',
-      'Bilimi·户外潮流',
-      'Bilimi·三农',
-      'Bilimi·生活兴趣',
-      'Bilimi·视频播客',
-      'Bilimi·绘画',
-      'Bilimi·健身',
-      'Bilimi·亲子',
-      'Bilimi·生活经验',
-      'Bilimi·番剧',
-      'Bilimi·二次元',
-      'Bilimi·健康',
-      'Bilimi·公益'
+      'Bilimi·知识学习',
+      'Bilimi·游戏专区',
+      'Bilimi·影视动漫',
+      'Bilimi·创意美学',
+      'Bilimi·生活日常',
+      'Bilimi·音乐舞台',
+      'Bilimi·搞笑杂谈',
+      'Bilimi·待分类'
     ])
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·动画')
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·鬼畜')
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·科技数码')
     expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·手工')
     expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·纪录片')
-    expect(ledgers.filter((ledger) => ledger.enabled).map((ledger) => ledger.id)).toEqual([
-      'animation',
-      'game',
-      'kichiku',
-      'music',
-      'dance',
-      'movie-tv',
-      'entertainment',
-      'knowledge',
-      'tech-digital',
-      'news',
-      'food',
-      'inbox'
-    ])
+    expect(ledgers.filter((ledger) => ledger.enabled).map((ledger) => ledger.id)).toEqual(
+      ledgers.map((ledger) => ledger.id)
+    )
   })
 
   it('preserves custom ledgers and fills missing default ledgers', () => {
@@ -110,7 +69,7 @@ describe('favorite ledger model', () => {
       }
     ])
 
-    expect(ledgers).toHaveLength(36)
+    expect(ledgers).toHaveLength(9)
     expect(ledgers.find((ledger) => ledger.id === 'knowledge')).toEqual({
       id: 'knowledge',
       displayName: 'Bilimi·开卷有益',
@@ -127,6 +86,22 @@ describe('favorite ledger model', () => {
 
   it('retires removed default ledgers from saved preferences', () => {
     const ledgers = normalizeFavoriteLedgers([
+      {
+        id: 'tech-digital',
+        displayName: 'Bilimi·科技数码',
+        keywords: ['科技'],
+        enabled: true,
+        priority: 90,
+        isDefault: true
+      },
+      {
+        id: 'kichiku',
+        displayName: 'Bilimi·鬼畜',
+        keywords: ['鬼畜'],
+        enabled: true,
+        priority: 30,
+        isDefault: true
+      },
       {
         id: 'handmade',
         displayName: 'Bilimi·手工',
@@ -145,15 +120,21 @@ describe('favorite ledger model', () => {
       }
     ])
 
+    expect(ledgers.map((ledger) => ledger.id)).not.toContain('tech-digital')
+    expect(ledgers.map((ledger) => ledger.id)).not.toContain('kichiku')
     expect(ledgers.map((ledger) => ledger.id)).not.toContain('handmade')
     expect(ledgers.map((ledger) => ledger.id)).not.toContain('documentary')
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·动画')
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·鬼畜')
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·科技数码')
     expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·手工')
     expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·纪录片')
+    expect(ledgers.find((ledger) => ledger.id === 'movie-tv')?.displayName).toBe('Bilimi·影视动漫')
   })
 
   it('recognizes only Bilimi-prefixed ledger names as managed', () => {
     expect(BILIMI_LEDGER_PREFIX).toBe('Bilimi·')
-    expect(isBilimiManagedLedgerName('Bilimi·动画')).toBe(true)
+    expect(isBilimiManagedLedgerName('Bilimi·知识学习')).toBe(true)
     expect(isBilimiManagedLedgerName('默认收藏夹')).toBe(false)
     expect(isBilimiManagedLedgerName('我的 Bilimi 灵感')).toBe(false)
   })
@@ -175,8 +156,8 @@ describe('favorite ledger model', () => {
     const ledgers = [
       {
         id: 'knowledge',
-        displayName: 'Bilimi·知识',
-        keywords: ['知识'],
+        displayName: 'Bilimi·知识学习',
+        keywords: ['知识', '学习'],
         enabled: true,
         priority: 10,
         isDefault: true
@@ -196,7 +177,7 @@ describe('favorite ledger model', () => {
       'custom-photo': ledgers[1]
     })
     expect(favoriteLedgerNamesById(ledgers)).toEqual({
-      knowledge: 'Bilimi·知识',
+      knowledge: 'Bilimi·知识学习',
       'custom-photo': 'Bilimi·光影留真'
     })
   })

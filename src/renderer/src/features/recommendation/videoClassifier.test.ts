@@ -9,12 +9,18 @@ describe('classifyVideoContent', () => {
     expect(classifyVideoContent({ title: '三分钟讲清机器学习科普教程' }, ledgers).ledgerId).toBe(
       'knowledge'
     )
-    expect(classifyVideoContent({ title: '爆笑整活鬼畜合集' }, ledgers).ledgerId).toBe('kichiku')
-    expect(classifyVideoContent({ title: '第十二集剧情反转名场面' }, ledgers).ledgerId).toBe('inbox')
+    expect(classifyVideoContent({ title: '爆笑整活鬼畜合集' }, ledgers).ledgerId).toBe(
+      'entertainment'
+    )
+    expect(classifyVideoContent({ title: '第十二集剧情反转名场面' }, ledgers).ledgerId).toBe(
+      'movie-tv'
+    )
     expect(classifyVideoContent({ title: '电竞赛事操作技巧复盘' }, ledgers).ledgerId).toBe('game')
-    expect(classifyVideoContent({ title: '周末探店美食 Vlog' }, ledgers).ledgerId).toBe('food')
+    expect(classifyVideoContent({ title: '周末探店美食 Vlog' }, ledgers).ledgerId).toBe(
+      'life-interest'
+    )
     expect(classifyVideoContent({ title: '效率软件与数码工具测评' }, ledgers).ledgerId).toBe(
-      'tech-digital'
+      'knowledge'
     )
     expect(classifyVideoContent({ title: '现场翻唱舞台演奏' }, ledgers).ledgerId).toBe('music')
   })
@@ -22,21 +28,22 @@ describe('classifyVideoContent', () => {
   it('classifies extra topic signals missing from default ledger keywords', () => {
     const ledgers = createDefaultFavoriteLedgers()
 
-    expect(classifyVideoContent({ title: '鬼畜合集' }, ledgers).ledgerId).toBe('kichiku')
-    expect(classifyVideoContent({ title: '运动技巧' }, ledgers).ledgerId).toBe('inbox')
-    expect(classifyVideoContent({ title: '探店 Vlog' }, ledgers).ledgerId).toBe('food')
-    expect(classifyVideoContent({ title: '软件教程' }, ledgers).ledgerId).toBe('tech-digital')
+    expect(classifyVideoContent({ title: '鬼畜合集' }, ledgers).ledgerId).toBe('entertainment')
+    expect(classifyVideoContent({ title: '运动技巧' }, ledgers).ledgerId).toBe('life-interest')
+    expect(classifyVideoContent({ title: '探店 Vlog' }, ledgers).ledgerId).toBe('life-interest')
+    expect(classifyVideoContent({ title: '软件教程' }, ledgers).ledgerId).toBe('knowledge')
   })
 
-  it('classifies visible but unchecked defaults after users enable them', () => {
-    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
-      ledger.id === 'short-drama' || ledger.id === 'sports' ? { ...ledger, enabled: true } : ledger
-    )
+  it('uses broad initial defaults instead of sending common topics to inbox', () => {
+    const ledgers = createDefaultFavoriteLedgers()
 
     expect(classifyVideoContent({ title: '第十二集剧情反转名场面' }, ledgers).ledgerId).toBe(
-      'short-drama'
+      'movie-tv'
     )
-    expect(classifyVideoContent({ title: '运动技巧' }, ledgers).ledgerId).toBe('sports')
+    expect(classifyVideoContent({ title: '运动技巧' }, ledgers).ledgerId).toBe('life-interest')
+    expect(classifyVideoContent({ title: '新番二次元同人解析' }, ledgers).ledgerId).toBe(
+      'movie-tv'
+    )
   })
 
   it('uses old favorite category names as local non-AI classification signals', () => {
@@ -45,18 +52,16 @@ describe('classifyVideoContent', () => {
     expect(
       classifyVideoContent({ title: '年度旗舰横评', tags: [], category: '科技数码' }, ledgers)
         .ledgerId
-    ).toBe('tech-digital')
+    ).toBe('knowledge')
     expect(classifyVideoContent({ title: '东京周末路线', tags: [], category: '出行' }, ledgers)).toMatchObject({
       ledgerId: 'inbox',
-      reviewRequired: true,
-      suggestedLedgerId: 'travel',
-      suggestedDisplayName: 'Bilimi·旅游出行'
+      reviewRequired: false,
+      displayName: 'Bilimi·待分类'
     })
     expect(classifyVideoContent({ title: '露营装备清单', tags: [], category: '户外' }, ledgers)).toMatchObject({
       ledgerId: 'inbox',
-      reviewRequired: true,
-      suggestedLedgerId: 'outdoor',
-      suggestedDisplayName: 'Bilimi·户外潮流'
+      reviewRequired: false,
+      displayName: 'Bilimi·待分类'
     })
   })
 
@@ -109,12 +114,10 @@ describe('classifyVideoContent', () => {
         ledgers
       )
     ).toMatchObject({
-      ledgerId: 'inbox',
-      displayName: 'Bilimi·待分类',
-      reviewRequired: true,
-      suggestedLedgerId: 'travel',
-      suggestedDisplayName: 'Bilimi·旅游出行',
-      matchedKeywords: expect.arrayContaining(['旅游', '旅行'])
+      ledgerId: 'music',
+      displayName: 'Bilimi·音乐舞台',
+      reviewRequired: false,
+      matchedKeywords: expect.arrayContaining(['演奏', '音乐', '音乐现场'])
     })
   })
 
@@ -147,7 +150,7 @@ describe('classifyVideoContent', () => {
 
   it('skips disabled ledgers and falls back to inbox when no category is clear', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
-      ledger.id === 'tech-digital' ? { ...ledger, enabled: false } : ledger
+      ledger.id === 'knowledge' ? { ...ledger, enabled: false } : ledger
     )
 
     expect(classifyVideoContent({ title: '效率软件工具' }, ledgers).ledgerId).toBe('inbox')

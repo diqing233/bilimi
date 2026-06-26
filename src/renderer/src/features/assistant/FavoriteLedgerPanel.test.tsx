@@ -58,7 +58,7 @@ describe('FavoriteLedgerPanel', () => {
     const { container } = render(<FavoriteLedgerPanel {...props} />)
 
     expect(screen.getByRole('heading', { name: '掌库' })).toHaveClass('sr-only')
-    expect(screen.getByText('尚缺 Bilimi·游戏。')).toBeInTheDocument()
+    expect(screen.getByText('尚缺 Bilimi·游戏专区。')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '备册' }))
 
@@ -70,10 +70,10 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(onSaveLedgers).toHaveBeenCalledWith(
       expect.arrayContaining([
-        expect.objectContaining({ displayName: 'Bilimi·动画', enabled: true }),
-        expect.objectContaining({ displayName: 'Bilimi·游戏', enabled: true }),
-        expect.objectContaining({ displayName: 'Bilimi·知识', enabled: true }),
-        expect.objectContaining({ displayName: 'Bilimi·体育运动', enabled: false })
+        expect.objectContaining({ displayName: 'Bilimi·影视动漫', enabled: true }),
+        expect.objectContaining({ displayName: 'Bilimi·游戏专区', enabled: true }),
+        expect.objectContaining({ displayName: 'Bilimi·知识学习', enabled: true }),
+        expect.objectContaining({ displayName: 'Bilimi·生活日常', enabled: true })
       ]),
       { deleteDisabled: false }
     )
@@ -109,12 +109,12 @@ describe('FavoriteLedgerPanel', () => {
       expect(onSaveLedgers).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({
-            displayName: 'Bilimi·动画',
+            displayName: 'Bilimi·影视动漫',
             enabled: true,
             isDefault: true
           }),
           expect.objectContaining({
-            displayName: 'Bilimi·知识',
+            displayName: 'Bilimi·知识学习',
             enabled: true,
             isDefault: true
           })
@@ -143,8 +143,8 @@ describe('FavoriteLedgerPanel', () => {
 
     const headerActions = ledgerRegion.querySelector('.favorite-ledger-panel__category-actions')!
     expect(within(headerActions as HTMLElement).getByRole('button', { name: '重置' })).toBeInTheDocument()
-    expect(within(headerActions as HTMLElement).getByRole('button', { name: '全选' })).toBeInTheDocument()
-    expect(within(headerActions as HTMLElement).queryByRole('button', { name: '取消全选' })).not.toBeInTheDocument()
+    expect(within(headerActions as HTMLElement).getByRole('button', { name: '取消全选' })).toBeInTheDocument()
+    expect(within(headerActions as HTMLElement).queryByRole('button', { name: '全选' })).not.toBeInTheDocument()
     expect(within(headerActions as HTMLElement).queryByRole('button', { name: '展开' })).not.toBeInTheDocument()
     expect(within(headerActions as HTMLElement).queryByRole('button', { name: '新建收藏夹' })).not.toBeInTheDocument()
     expect(within(headerActions as HTMLElement).getByRole('button', { name: '同步' })).toBeInTheDocument()
@@ -157,41 +157,29 @@ describe('FavoriteLedgerPanel', () => {
       ledgerRegion.querySelector('.favorite-ledger-panel__chips')?.children ?? []
     ).map((item) => within(item as HTMLElement).getAllByRole('button')[0].textContent)
     expect(visibleLedgerNames).toEqual([
-      '动画',
-      '游戏',
-      '鬼畜',
-      '音乐',
-      '舞蹈',
-      '影视',
-      '娱乐',
-      '知识',
-      '科技数码',
-      '资讯',
-      '美食',
-      '待分类',
-      '体育运动',
-      '时尚美妆',
-      '动物'
+      '知识学习',
+      '游戏专区',
+      '影视动漫',
+      '创意美学',
+      '生活日常',
+      '音乐舞台',
+      '搞笑杂谈',
+      '待分类'
     ])
-    expect(within(ledgerRegion).queryByRole('button', { name: '人工智能' })).not.toBeInTheDocument()
-    expect(within(ledgerRegion).queryByRole('button', { name: 'vlog' })).not.toBeInTheDocument()
-    expect(ledgerRegion.querySelector('.favorite-ledger-panel__chips')?.children).toHaveLength(15)
+    expect(within(ledgerRegion).queryByRole('button', { name: '鬼畜' })).not.toBeInTheDocument()
+    expect(within(ledgerRegion).queryByRole('button', { name: '旅游出行' })).not.toBeInTheDocument()
+    expect(ledgerRegion.querySelector('.favorite-ledger-panel__chips')?.children).toHaveLength(8)
     const listToggle = ledgerRegion.querySelector('.favorite-ledger-panel__list-toggle')!
     const creationControls = within(listToggle as HTMLElement).getAllByRole('button')
-    expect(creationControls.map((button) => button.textContent)).toEqual(['新建收藏夹', '展开'])
-    expect(within(listToggle as HTMLElement).getByRole('button', { name: '展开' })).toBeInTheDocument()
-
-    fireEvent.click(within(listToggle as HTMLElement).getByRole('button', { name: '展开' }))
-
-    expect(within(ledgerRegion).getByRole('button', { name: 'vlog' })).toBeInTheDocument()
+    expect(creationControls.map((button) => button.textContent)).toEqual(['新建收藏夹'])
+    expect(within(listToggle as HTMLElement).queryByRole('button', { name: '展开' })).not.toBeInTheDocument()
     expect(within(listToggle as HTMLElement).getByRole('button', { name: '新建收藏夹' })).toBeInTheDocument()
-    expect(within(listToggle as HTMLElement).getByRole('button', { name: '折叠' })).toBeInTheDocument()
   })
 
   it('selects and clears every ledger before sync from the header actions', async () => {
     const onSaveLedgers = vi.fn()
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
-      ledger.id === 'kichiku' || ledger.id === 'knowledge' ? { ...ledger, enabled: false } : ledger
+      ledger.id === 'movie-tv' || ledger.id === 'knowledge' ? { ...ledger, enabled: false } : ledger
     )
 
     render(
@@ -215,7 +203,7 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() =>
       expect(onSaveLedgers).toHaveBeenLastCalledWith(
         expect.arrayContaining([
-          expect.objectContaining({ id: 'kichiku', enabled: true }),
+          expect.objectContaining({ id: 'movie-tv', enabled: true }),
           expect.objectContaining({ id: 'knowledge', enabled: true })
         ])
       )
@@ -228,8 +216,7 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() =>
       expect(onSaveLedgers).toHaveBeenLastCalledWith(
         expect.arrayContaining([
-          expect.objectContaining({ id: 'animation', enabled: false }),
-          expect.objectContaining({ id: 'kichiku', enabled: false }),
+          expect.objectContaining({ id: 'movie-tv', enabled: false }),
           expect.objectContaining({ id: 'knowledge', enabled: false })
         ])
       )
@@ -251,10 +238,10 @@ describe('FavoriteLedgerPanel', () => {
     expect(container.querySelector('.favorite-ledger-panel__editor-placeholder')).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
+    fireEvent.click(screen.getByRole('button', { name: '影视动漫' }))
 
     expect(screen.getByRole('region', { name: '当前收藏夹' })).toBeInTheDocument()
-    expect(screen.getByText('正在编辑：Bilimi·鬼畜')).toBeInTheDocument()
+    expect(screen.getByText('正在编辑：Bilimi·影视动漫')).toBeInTheDocument()
   })
 
   it('frames the ledger title and setup actions together in the topbar', () => {
@@ -313,9 +300,9 @@ describe('FavoriteLedgerPanel', () => {
   it('selects a ledger without changing whether it syncs', async () => {
     const onSaveLedgers = vi.fn()
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
-      ledger.id === 'kichiku' ? { ...ledger, enabled: false } : ledger
+      ledger.id === 'movie-tv' ? { ...ledger, enabled: false } : ledger
     )
-    const targetLedger = ledgers.find((ledger) => ledger.id === 'kichiku')!
+    const targetLedger = ledgers.find((ledger) => ledger.id === 'movie-tv')!
     const targetLabel = targetLedger.displayName.replace(/^Bilimi.?/, '')
 
     render(
@@ -344,7 +331,7 @@ describe('FavoriteLedgerPanel', () => {
       expect(onSaveLedgers).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({
-            id: 'kichiku',
+            id: 'movie-tv',
             enabled: false
           })
         ])
@@ -355,9 +342,9 @@ describe('FavoriteLedgerPanel', () => {
   it('adds a disabled ledger to sync without asking for confirmation', async () => {
     const onSaveLedgers = vi.fn()
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
-      ledger.id === 'kichiku' ? { ...ledger, enabled: false } : ledger
+      ledger.id === 'movie-tv' ? { ...ledger, enabled: false } : ledger
     )
-    const targetLedger = ledgers.find((ledger) => ledger.id === 'kichiku')!
+    const targetLedger = ledgers.find((ledger) => ledger.id === 'movie-tv')!
     const targetLabel = targetLedger.displayName.replace(/^Bilimi.?/, '')
 
     render(
@@ -389,7 +376,7 @@ describe('FavoriteLedgerPanel', () => {
       expect(onSaveLedgers).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({
-            id: 'kichiku',
+            id: 'movie-tv',
             enabled: true
           })
         ])
@@ -412,9 +399,7 @@ describe('FavoriteLedgerPanel', () => {
     )
 
     const chips = screen.getByRole('region', { name: '收藏夹' })
-    fireEvent.click(within(chips).getByRole('button', { name: '展开' }))
-
-    expect(chips.querySelector('.favorite-ledger-panel__add-shortcut')).not.toBeInTheDocument()
+        expect(chips.querySelector('.favorite-ledger-panel__add-shortcut')).not.toBeInTheDocument()
     expect(within(chips).getByRole('button', { name: '新建收藏夹' })).toBeInTheDocument()
     expect(screen.queryByRole('group', { name: '新立册目' })).not.toBeInTheDocument()
 
@@ -468,10 +453,9 @@ describe('FavoriteLedgerPanel', () => {
     )
 
     const chips = screen.getByRole('region', { name: '收藏夹' })
-    fireEvent.click(within(chips).getByRole('button', { name: '展开' }))
-    const chipGrid = chips.querySelector('.favorite-ledger-panel__chips')!
-    const musicItem = within(chips).getByRole('button', { name: '音乐' }).closest('.favorite-ledger-panel__chip-item')!
-    const knowledgeItem = within(chips).getByRole('button', { name: '知识' }).closest('.favorite-ledger-panel__chip-item')!
+        const chipGrid = chips.querySelector('.favorite-ledger-panel__chips')!
+    const musicItem = within(chips).getByRole('button', { name: '音乐舞台' }).closest('.favorite-ledger-panel__chip-item')!
+    const knowledgeItem = within(chips).getByRole('button', { name: '知识学习' }).closest('.favorite-ledger-panel__chip-item')!
 
     fireEvent.dragStart(musicItem, { dataTransfer: { effectAllowed: '', setData: vi.fn() } })
     fireEvent.dragOver(knowledgeItem, { dataTransfer: { dropEffect: '' } })
@@ -488,12 +472,9 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
     const savedLedgers = onSaveLedgers.mock.calls[0][0]
     const savedLedgerIds = savedLedgers.map((ledger) => ledger.id)
-    expect(savedLedgerIds.indexOf('music')).toBe(savedLedgerIds.indexOf('knowledge') + 1)
-    expect(savedLedgers.find((ledger) => ledger.id === 'movie-tv')!.priority).toBeLessThan(
+    expect(savedLedgerIds.indexOf('music')).toBeLessThan(savedLedgerIds.indexOf('knowledge'))
+    expect(savedLedgers.find((ledger) => ledger.id === 'music')!.priority).toBeLessThan(
       savedLedgers.find((ledger) => ledger.id === 'knowledge')!.priority
-    )
-    expect(savedLedgers.find((ledger) => ledger.id === 'knowledge')!.priority).toBeLessThan(
-      savedLedgers.find((ledger) => ledger.id === 'music')!.priority
     )
     expect(await screen.findByRole('status')).toHaveTextContent('掌库已同步。')
   })
@@ -511,10 +492,9 @@ describe('FavoriteLedgerPanel', () => {
     )
 
     const chips = screen.getByRole('region', { name: '收藏夹' })
-    fireEvent.click(within(chips).getByRole('button', { name: '展开' }))
-    const chipGrid = chips.querySelector('.favorite-ledger-panel__chips')!
-    const musicItem = within(chips).getByRole('button', { name: '音乐' }).closest('.favorite-ledger-panel__chip-item')!
-    const knowledgeItem = within(chips).getByRole('button', { name: '知识' }).closest('.favorite-ledger-panel__chip-item')!
+        const chipGrid = chips.querySelector('.favorite-ledger-panel__chips')!
+    const musicItem = within(chips).getByRole('button', { name: '音乐舞台' }).closest('.favorite-ledger-panel__chip-item')!
+    const knowledgeItem = within(chips).getByRole('button', { name: '知识学习' }).closest('.favorite-ledger-panel__chip-item')!
     const orderBeforeDrag = Array.from(chipGrid.children).map(
       (item) => item.querySelector('button')?.textContent ?? ''
     )
@@ -546,9 +526,8 @@ describe('FavoriteLedgerPanel', () => {
     )
 
     const chips = screen.getByRole('region', { name: '收藏夹' })
-    fireEvent.click(within(chips).getByRole('button', { name: '展开' }))
-    const musicItem = within(chips).getByRole('button', { name: '音乐' }).closest('.favorite-ledger-panel__chip-item')!
-    const gameItem = within(chips).getByRole('button', { name: '游戏' }).closest('.favorite-ledger-panel__chip-item')!
+        const musicItem = within(chips).getByRole('button', { name: '音乐舞台' }).closest('.favorite-ledger-panel__chip-item')!
+    const gameItem = within(chips).getByRole('button', { name: '游戏专区' }).closest('.favorite-ledger-panel__chip-item')!
 
     fireEvent.dragStart(musicItem, { dataTransfer: { effectAllowed: '', setData: vi.fn() } })
     fireEvent.dragOver(gameItem, { dataTransfer: { dropEffect: '' } })
@@ -558,17 +537,17 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
     const savedLedgerIds = onSaveLedgers.mock.calls[0][0].map((ledger) => ledger.id)
     expect(savedLedgerIds.indexOf('music')).toBe(savedLedgerIds.indexOf('game') - 1)
-    expect(savedLedgerIds.indexOf('animation')).toBeLessThan(savedLedgerIds.indexOf('music'))
-    expect(savedLedgerIds.indexOf('game')).toBeLessThan(savedLedgerIds.indexOf('kichiku'))
+    expect(savedLedgerIds.indexOf('music')).toBeLessThan(savedLedgerIds.indexOf('movie-tv'))
+    expect(savedLedgerIds.indexOf('game')).toBeLessThan(savedLedgerIds.indexOf('movie-tv'))
   })
 
   it('resets the ledger draft to unchecked defaults before saving', async () => {
     const onSaveLedgers = vi.fn()
     const ledgers = createDefaultFavoriteLedgers().map((ledger, index) =>
-      ledger.id === 'animation'
+      ledger.id === 'movie-tv'
         ? {
             ...ledger,
-            displayName: 'Bilimi·动画改名',
+            displayName: 'Bilimi·影视动漫改名',
             enabled: false,
             priority: 999
           }
@@ -596,13 +575,13 @@ describe('FavoriteLedgerPanel', () => {
       expect(onSaveLedgers).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({
-            id: 'animation',
-            displayName: 'Bilimi·动画',
+            id: 'movie-tv',
+            displayName: 'Bilimi·影视动漫',
             enabled: false,
-            priority: 10
+            priority: 30
           }),
           expect.objectContaining({
-            id: 'animal',
+            id: 'inbox',
             enabled: false
           })
         ])
@@ -627,9 +606,9 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.queryByText('Bilimi·见闻增广')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '暂歇' })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
+    fireEvent.click(screen.getByRole('button', { name: '影视动漫' }))
 
-    expect(screen.getByText('正在编辑：Bilimi·鬼畜')).toBeInTheDocument()
+    expect(screen.getByText('正在编辑：Bilimi·影视动漫')).toBeInTheDocument()
     const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
     fireEvent.change(editor.getByLabelText('册名'), {
       target: { value: 'Bilimi·音MAD' }
@@ -648,7 +627,7 @@ describe('FavoriteLedgerPanel', () => {
       expect(onSaveLedgers).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({
-            id: 'kichiku',
+            id: 'movie-tv',
             displayName: 'Bilimi·音MAD',
             keywords: ['音MAD', '鬼畜', '调音', '人力']
           })
@@ -669,13 +648,13 @@ describe('FavoriteLedgerPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
-    expect(screen.getByText('正在编辑：Bilimi·鬼畜')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '影视动漫' }))
+    expect(screen.getByText('正在编辑：Bilimi·影视动漫')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '影视' }))
+    fireEvent.click(screen.getByRole('button', { name: '知识学习' }))
 
     expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
-    expect(screen.queryByText('正在编辑：Bilimi·影视')).not.toBeInTheDocument()
+    expect(screen.queryByText('正在编辑：Bilimi·影视动漫')).not.toBeInTheDocument()
   })
 
   it('collapses an unmodified editor when clicking outside the editor', () => {
@@ -690,8 +669,8 @@ describe('FavoriteLedgerPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
-    expect(screen.getByText('正在编辑：Bilimi·鬼畜')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '影视动漫' }))
+    expect(screen.getByText('正在编辑：Bilimi·影视动漫')).toBeInTheDocument()
 
     fireEvent.click(
       screen.getByText(safetyNote)
@@ -712,12 +691,12 @@ describe('FavoriteLedgerPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
+    fireEvent.click(screen.getByRole('button', { name: '影视动漫' }))
     const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
     fireEvent.change(editor.getByLabelText('册名'), {
       target: { value: '音MAD' }
     })
-    fireEvent.click(screen.getByRole('button', { name: '影视' }))
+    fireEvent.click(screen.getByRole('button', { name: '知识学习' }))
 
     expect(screen.getByText('正在编辑：Bilimi·音MAD')).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('当前收藏夹有未保存修改，请先保存。')
@@ -735,7 +714,7 @@ describe('FavoriteLedgerPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
+    fireEvent.click(screen.getByRole('button', { name: '影视动漫' }))
     const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
     fireEvent.change(editor.getByLabelText('册名'), {
       target: { value: '音MAD' }
@@ -781,8 +760,7 @@ describe('FavoriteLedgerPanel', () => {
     )
 
     const chips = screen.getByRole('region', { name: '收藏夹' })
-    fireEvent.click(within(chips).getByRole('button', { name: '展开' }))
-    fireEvent.click(screen.getByRole('button', { name: '摄影' }))
+        fireEvent.click(screen.getByRole('button', { name: '摄影' }))
 
     const editorTitle = screen.getByText('正在编辑：Bilimi·摄影').closest('.favorite-ledger-panel__editor-title')!
     const titleButtons = within(editorTitle as HTMLElement).getAllByRole('button')
@@ -809,12 +787,12 @@ describe('FavoriteLedgerPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
+    fireEvent.click(screen.getByRole('button', { name: '影视动漫' }))
     const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
 
     expect(editor.getByText('Bilimi·')).toBeInTheDocument()
     const nameInput = editor.getByLabelText('册名')
-    expect(nameInput).toHaveValue('鬼畜')
+    expect(nameInput).toHaveValue('影视动漫')
 
     fireEvent.change(nameInput, {
       target: { value: '音MAD' }
@@ -825,7 +803,7 @@ describe('FavoriteLedgerPanel', () => {
       expect(onSaveLedgers).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({
-            id: 'kichiku',
+            id: 'movie-tv',
             displayName: 'Bilimi·音MAD'
           })
         ])
@@ -845,7 +823,7 @@ describe('FavoriteLedgerPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
+    fireEvent.click(screen.getByRole('button', { name: '影视动漫' }))
 
     expect(
       screen.getByText('建议优先填写 B 站标签里的词；标签命中权重最高，标题、分区、简介等信息会辅助判断。')
@@ -885,8 +863,7 @@ describe('FavoriteLedgerPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '展开' }))
-    fireEvent.click(screen.getByRole('button', { name: '光影留真' }))
+        fireEvent.click(screen.getByRole('button', { name: '光影留真' }))
     fireEvent.click(screen.getByRole('button', { name: '删除 Bilimi·光影留真' }))
 
     expect(onSaveLedgers).not.toHaveBeenCalled()
@@ -1059,7 +1036,7 @@ describe('FavoriteLedgerPanel', () => {
     )
     expect(onSaveLedgers).toHaveBeenCalledWith(
       expect.arrayContaining([
-        expect.objectContaining({ displayName: 'Bilimi·动画', enabled: true }),
+        expect.objectContaining({ displayName: 'Bilimi·影视动漫', enabled: true }),
         expect.objectContaining({
           displayName: 'Bilimi路AI效率工坊',
           keywords: ['AI', '效率', '工具'],
@@ -1133,7 +1110,7 @@ describe('FavoriteLedgerPanel', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'knowledge',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·知识',
+          targetDisplayName: 'Bilimi·知识学习',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -1142,9 +1119,9 @@ describe('FavoriteLedgerPanel', () => {
           aid: 102,
           title: '爆笑鬼畜合集',
           sourceFolderTitle: '默认收藏夹',
-          targetLedgerId: 'kichiku',
+          targetLedgerId: 'movie-tv',
           targetFolderId: '9002',
-          targetDisplayName: 'Bilimi·鬼畜',
+          targetDisplayName: 'Bilimi·影视动漫',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -1176,8 +1153,8 @@ describe('FavoriteLedgerPanel', () => {
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     expect(screen.getByText('机器学习科普教程')).toBeInTheDocument()
-    expect(screen.getByRole('group', { name: 'Bilimi·知识 1 条' })).toBeInTheDocument()
-    fireEvent.click(screen.getByLabelText('整理 爆笑鬼畜合集 到 Bilimi·鬼畜'))
+    expect(screen.getByRole('group', { name: 'Bilimi·知识学习 1 条' })).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('整理 爆笑鬼畜合集 到 Bilimi·影视动漫'))
     expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
@@ -1204,7 +1181,7 @@ describe('FavoriteLedgerPanel', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'movie-tv',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·影视',
+          targetDisplayName: 'Bilimi·影视动漫',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true,
@@ -1212,7 +1189,7 @@ describe('FavoriteLedgerPanel', () => {
             {
               ledgerId: 'movie-tv',
               folderId: '9001',
-              displayName: 'Bilimi·影视',
+              displayName: 'Bilimi·影视动漫',
               keywords: ['影视'],
               alreadyInTarget: false,
               selected: true
@@ -1243,7 +1220,7 @@ describe('FavoriteLedgerPanel', () => {
           sourceFolderTitle: 'Bilimi·待分类',
           targetLedgerId: 'movie-tv',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·影视',
+          targetDisplayName: 'Bilimi·影视动漫',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true,
@@ -1251,7 +1228,7 @@ describe('FavoriteLedgerPanel', () => {
             {
               ledgerId: 'movie-tv',
               folderId: '9001',
-              displayName: 'Bilimi·影视',
+              displayName: 'Bilimi·影视动漫',
               keywords: ['影视'],
               alreadyInTarget: false,
               selected: true
@@ -1282,7 +1259,7 @@ describe('FavoriteLedgerPanel', () => {
           sourceFolderTitle: 'Bilimi·影视飓风追更',
           targetLedgerId: 'movie-tv',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·影视',
+          targetDisplayName: 'Bilimi·影视动漫',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true,
@@ -1290,7 +1267,7 @@ describe('FavoriteLedgerPanel', () => {
             {
               ledgerId: 'movie-tv',
               folderId: '9001',
-              displayName: 'Bilimi·影视',
+              displayName: 'Bilimi·影视动漫',
               keywords: ['影视'],
               alreadyInTarget: false,
               selected: true
@@ -1372,17 +1349,17 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
     expect(screen.getByLabelText('Bilimi·影视飓风追更')).toBeChecked()
-    expect(screen.getByLabelText('Bilimi·影视')).toBeChecked()
+    expect(screen.getByLabelText('Bilimi·影视动漫')).toBeChecked()
     expect(screen.getByLabelText('Bilimi·影视飓风追更').closest('article')).toHaveTextContent('3 条旧藏')
     expect(screen.getByLabelText('Bilimi·影视飓风追更').closest('article')).toHaveTextContent('固定 UP')
-    expect(screen.getByLabelText('Bilimi·影视').closest('tr')).toHaveTextContent('3')
+    expect(screen.getByLabelText('Bilimi·影视动漫').closest('tr')).toHaveTextContent('3')
     expect(screen.queryByText('初始收藏夹')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
 
-    const movieGroup = screen.getByRole('group', { name: 'Bilimi·影视 3 条' })
+    const movieGroup = screen.getByRole('group', { name: 'Bilimi·影视动漫 3 条' })
     const authorGroup = screen.getByRole('group', { name: 'Bilimi·影视飓风追更 3 条' })
-    expect(within(movieGroup).getByLabelText('全选 Bilimi·影视')).toBeChecked()
+    expect(within(movieGroup).getByLabelText('全选 Bilimi·影视动漫')).toBeChecked()
     expect(within(authorGroup).getByLabelText('全选 Bilimi·影视飓风追更')).toBeChecked()
     expect(within(movieGroup).getByText('影视飓风相机评测')).toBeInTheDocument()
     expect(within(authorGroup).getByText('影视飓风剪辑教程')).toBeInTheDocument()
@@ -1406,7 +1383,7 @@ describe('FavoriteLedgerPanel', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'movie-tv',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·影视',
+          targetDisplayName: 'Bilimi·影视动漫',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true,
@@ -1414,7 +1391,7 @@ describe('FavoriteLedgerPanel', () => {
             {
               ledgerId: 'movie-tv',
               folderId: '9001',
-              displayName: 'Bilimi·影视',
+              displayName: 'Bilimi·影视动漫',
               keywords: ['影视'],
               alreadyInTarget: false,
               selected: true
@@ -1495,7 +1472,7 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
-    fireEvent.click(screen.getByLabelText('全选 Bilimi·影视'))
+    fireEvent.click(screen.getByLabelText('全选 Bilimi·影视动漫'))
     fireEvent.click(screen.getByLabelText('全选 Bilimi·影视飓风追更'))
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
     fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
@@ -1531,7 +1508,7 @@ describe('FavoriteLedgerPanel', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'knowledge',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·知识',
+          targetDisplayName: 'Bilimi·知识学习',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -1540,9 +1517,9 @@ describe('FavoriteLedgerPanel', () => {
           aid: 202,
           title: '东京旅行攻略',
           sourceFolderTitle: '旅行收藏',
-          targetLedgerId: 'travel',
+          targetLedgerId: 'life-interest',
           targetFolderId: '9002',
-          targetDisplayName: 'Bilimi·旅游出行',
+          targetDisplayName: 'Bilimi·生活日常',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -1688,7 +1665,7 @@ describe('FavoriteLedgerPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '动画' }))
+    fireEvent.click(screen.getByRole('button', { name: '影视动漫' }))
     fireEvent.click(screen.getByRole('button', { name: '同步' }))
 
     expect(await screen.findByRole('status')).toHaveTextContent('同步未完成：账号同步超时')
@@ -1980,19 +1957,19 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '备册' }))
 
     const ledgerRegion = screen.getByRole('region', { name: '收藏夹' })
-    const knowledgeTopButton = within(ledgerRegion).getByRole('button', { name: '知识' })
+    const knowledgeTopButton = within(ledgerRegion).getByRole('button', { name: '知识学习' })
     expect(await screen.findByRole('status')).toHaveTextContent(
       '小咪备册已完成，主人可以再增加自己想要的收藏夹，点击同步即可'
     )
     expect(knowledgeTopButton).toHaveAttribute('aria-pressed', 'true')
-    expect(within(ledgerRegion).getByRole('button', { name: '体育运动' })).toHaveAttribute(
+    expect(within(ledgerRegion).getByRole('button', { name: '生活日常' })).toHaveAttribute(
       'aria-pressed',
-      'false'
+      'true'
     )
     expect(onSaveLedgers).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({ id: 'knowledge', enabled: true }),
-        expect.objectContaining({ id: 'sports', enabled: false })
+        expect.objectContaining({ id: 'life-interest', enabled: true })
       ]),
       { deleteDisabled: false }
     )
@@ -2012,7 +1989,7 @@ describe('FavoriteLedgerPanel', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'knowledge',
           targetFolderId: '',
-          targetDisplayName: 'Bilimi·知识',
+          targetDisplayName: 'Bilimi·知识学习',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: false
@@ -2023,7 +2000,7 @@ describe('FavoriteLedgerPanel', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'knowledge',
           targetFolderId: '',
-          targetDisplayName: 'Bilimi·知识',
+          targetDisplayName: 'Bilimi·知识学习',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: false
@@ -2057,18 +2034,18 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
 
     const ledgerRegion = screen.getByRole('region', { name: '收藏夹' })
-    const knowledgeTopButton = within(ledgerRegion).getByRole('button', { name: '知识' })
+    const knowledgeTopButton = within(ledgerRegion).getByRole('button', { name: '知识学习' })
     expect(knowledgeTopButton).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByLabelText('Bilimi·知识').closest('tr')).toHaveTextContent('2')
+    expect(screen.getByLabelText('Bilimi·知识学习').closest('tr')).toHaveTextContent('2')
 
-    fireEvent.click(screen.getByLabelText('Bilimi·知识'))
+    fireEvent.click(screen.getByLabelText('Bilimi·知识学习'))
 
     expect(knowledgeTopButton).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('shows preset Bilimi ledgers as selectable recommendations while organizing old favorites', async () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
-      ledger.id === 'travel' ? { ...ledger, enabled: false } : ledger
+      ledger.id === 'life-interest' ? { ...ledger, enabled: false } : ledger
     )
     const onScanOldFavorites = vi.fn().mockResolvedValue({
       items: [
@@ -2076,9 +2053,9 @@ describe('FavoriteLedgerPanel', () => {
           aid: 101,
           title: '东京旅行攻略',
           sourceFolderTitle: '默认收藏夹',
-          targetLedgerId: 'travel',
+          targetLedgerId: 'life-interest',
           targetFolderId: '9002',
-          targetDisplayName: 'Bilimi·旅游出行',
+          targetDisplayName: 'Bilimi·生活日常',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -2112,11 +2089,11 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
 
     const ledgerRegion = screen.getByRole('region', { name: '收藏夹' })
-    const travelTopButton = within(ledgerRegion).getByRole('button', { name: '旅游出行' })
+    const travelTopButton = within(ledgerRegion).getByRole('button', { name: '生活日常' })
     expect(travelTopButton).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByLabelText('Bilimi·旅游出行')).toBeInTheDocument()
+    expect(screen.getByLabelText('Bilimi·生活日常')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByLabelText('Bilimi·旅游出行'))
+    fireEvent.click(screen.getByLabelText('Bilimi·生活日常'))
 
     expect(travelTopButton).toHaveAttribute('aria-pressed', 'false')
   })
@@ -2128,9 +2105,9 @@ describe('FavoriteLedgerPanel', () => {
           aid: 101,
           title: '动画分镜教程',
           sourceFolderTitle: '默认收藏夹',
-          targetLedgerId: 'animation',
+          targetLedgerId: 'movie-tv',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·动画',
+          targetDisplayName: 'Bilimi·影视动漫',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -2139,9 +2116,9 @@ describe('FavoriteLedgerPanel', () => {
           aid: 102,
           title: '番剧演出解析',
           sourceFolderTitle: '默认收藏夹',
-          targetLedgerId: 'animation',
+          targetLedgerId: 'movie-tv',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·动画',
+          targetDisplayName: 'Bilimi·影视动漫',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -2174,9 +2151,9 @@ describe('FavoriteLedgerPanel', () => {
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
 
-    const animationRecommendation = screen.getByLabelText('Bilimi·动画').closest('article')!
+    const animationRecommendation = screen.getByLabelText('Bilimi·影视动漫').closest('article')!
 
-    expect(screen.getByLabelText('Bilimi·动画').closest('tr')).toHaveTextContent('2')
+    expect(screen.getByLabelText('Bilimi·影视动漫').closest('tr')).toHaveTextContent('2')
     expect(animationRecommendation).not.toBeInTheDocument()
   })
 
@@ -2198,7 +2175,7 @@ describe('FavoriteLedgerPanel', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'knowledge',
           targetFolderId: '',
-          targetDisplayName: 'Bilimi·知识',
+          targetDisplayName: 'Bilimi·知识学习',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: false
@@ -2209,7 +2186,7 @@ describe('FavoriteLedgerPanel', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'movie-tv',
           targetFolderId: '',
-          targetDisplayName: 'Bilimi·影视',
+          targetDisplayName: 'Bilimi·影视动漫',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: false
@@ -2220,7 +2197,7 @@ describe('FavoriteLedgerPanel', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'game',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·游戏',
+          targetDisplayName: 'Bilimi·游戏专区',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -2264,16 +2241,16 @@ describe('FavoriteLedgerPanel', () => {
     expect(rows[0]).toHaveTextContent('已备册收藏')
     expect(rows[0]).toHaveTextContent('符合视频数量')
 
-    const knowledgeRow = within(categoryTable).getByLabelText('Bilimi·知识').closest('tr')!
-    const movieRow = within(categoryTable).getByLabelText('Bilimi·影视').closest('tr')!
-    const gameRow = within(categoryTable).getByText('游戏').closest('tr')!
-    expect(within(categoryTable).getByLabelText('Bilimi·知识')).toBeChecked()
-    expect(within(categoryTable).getByLabelText('Bilimi·影视')).toBeChecked()
+    const knowledgeRow = within(categoryTable).getByLabelText('Bilimi·知识学习').closest('tr')!
+    const movieRow = within(categoryTable).getByLabelText('Bilimi·影视动漫').closest('tr')!
+    const gameRow = within(categoryTable).getByText('游戏专区').closest('tr')!
+    expect(within(categoryTable).getByLabelText('Bilimi·知识学习')).toBeChecked()
+    expect(within(categoryTable).getByLabelText('Bilimi·影视动漫')).toBeChecked()
     expect(knowledgeRow.children[0]).toHaveTextContent('知识')
     expect(knowledgeRow.children[1]).toHaveTextContent('1')
     expect(movieRow.children[0]).toHaveTextContent('影视')
     expect(movieRow.children[1]).toHaveTextContent('1')
-    expect(gameRow.children[2]).toHaveTextContent('游戏')
+    expect(gameRow.children[2]).toHaveTextContent('游戏专区')
     expect(gameRow.children[3]).toHaveTextContent('1')
   })
 
@@ -2289,7 +2266,7 @@ describe('FavoriteLedgerPanel', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'knowledge',
           targetFolderId: '',
-          targetDisplayName: 'Bilimi·知识',
+          targetDisplayName: 'Bilimi·知识学习',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: false
@@ -2350,9 +2327,9 @@ describe('FavoriteLedgerPanel', () => {
           aid: 101,
           title: '动画分镜教程',
           sourceFolderTitle: '默认收藏夹',
-          targetLedgerId: 'animation',
+          targetLedgerId: 'movie-tv',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·动画',
+          targetDisplayName: 'Bilimi·影视动漫',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -2385,14 +2362,14 @@ describe('FavoriteLedgerPanel', () => {
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
 
-    expect(screen.getByLabelText('Bilimi·动画')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Bilimi·体育运动')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Bilimi·影视动漫')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Bilimi·生活日常')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '显示其他收藏夹' })).not.toBeInTheDocument()
   })
 
   it('recommends every matched generated and ledger target by default in compact candidate buttons', async () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
-      if (ledger.id === 'sports') {
+      if (ledger.id === 'life-interest') {
         return { ...ledger, enabled: false }
       }
       if (ledger.id === 'inbox') {
@@ -2406,17 +2383,17 @@ describe('FavoriteLedgerPanel', () => {
           aid: 101,
           title: '篮球训练教程',
           sourceFolderTitle: '默认收藏夹',
-          targetLedgerId: 'sports',
+          targetLedgerId: 'life-interest',
           targetFolderId: '',
-          targetDisplayName: 'Bilimi·体育运动',
+          targetDisplayName: 'Bilimi·生活日常',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: false,
           targets: [
             {
-              ledgerId: 'sports',
+              ledgerId: 'life-interest',
               folderId: '',
-              displayName: 'Bilimi·体育运动',
+              displayName: 'Bilimi·生活日常',
               keywords: ['体育', '篮球'],
               alreadyInTarget: false,
               selected: true
@@ -2482,13 +2459,13 @@ describe('FavoriteLedgerPanel', () => {
 
     const candidates = screen.getByRole('region', { name: '专属收藏夹候选' })
     expect(within(candidates).getByLabelText('Bilimi·篮球教练追更')).toBeChecked()
-    expect(within(candidates).getByLabelText('Bilimi·体育运动')).toBeChecked()
+    expect(within(candidates).getByLabelText('Bilimi·生活日常')).toBeChecked()
     expect(within(candidates).queryByLabelText('Bilimi·时尚美妆')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '显示其他收藏夹' })).not.toBeInTheDocument()
     expect(within(candidates).getByLabelText('Bilimi·篮球教练追更').closest('article')).toHaveTextContent(
       '1 条旧藏'
     )
-    expect(within(candidates).getByLabelText('Bilimi·体育运动').closest('tr')).toHaveTextContent('1')
+    expect(within(candidates).getByLabelText('Bilimi·生活日常').closest('tr')).toHaveTextContent('1')
   })
 
   it('keeps the old favorite guide instead of rescanning when the ledger panel is reopened', async () => {
@@ -2498,9 +2475,9 @@ describe('FavoriteLedgerPanel', () => {
           aid: 101,
           title: '动画分镜教程',
           sourceFolderTitle: '默认收藏夹',
-          targetLedgerId: 'animation',
+          targetLedgerId: 'movie-tv',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·动画',
+          targetDisplayName: 'Bilimi·影视动漫',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -2539,7 +2516,7 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(onScanOldFavorites).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step')
-    expect(screen.getByRole('group', { name: 'Bilimi·动画 1 条' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Bilimi·影视动漫 1 条' })).toBeInTheDocument()
   })
 
   it('marks AI-enhanced ledger suggestions when DeepSeek improves the local candidates', async () => {
@@ -2708,7 +2685,7 @@ describe('FavoriteLedgerPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '鬼畜' }))
+    fireEvent.click(screen.getByRole('button', { name: '影视动漫' }))
 
     expect(
       screen.getByText('建议优先填写 B 站标签里的词；标签命中权重最高，标题、分区、简介等信息会辅助判断。')

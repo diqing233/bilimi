@@ -43,7 +43,7 @@ const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
   story: '小剧场',
   play: '游戏',
   life: '生活',
-  craft: '科技数码',
+  craft: '知识学习',
   suspicious: '待确认'
 }
 

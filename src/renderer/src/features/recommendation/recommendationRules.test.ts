@@ -5,7 +5,7 @@ describe('describeRecommendation', () => {
   it('describes default and custom favorite ledgers', () => {
     expect(describeRecommendation('knowledge')).toEqual({
       badge: '可阅',
-      summary: '适合归到知识，方便之后复看。'
+      summary: '适合归到知识学习，教程、科普和科技数码内容放这里。'
     })
     expect(describeRecommendation('inbox')).toEqual({
       badge: '待分拣',

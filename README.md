@@ -35,7 +35,7 @@ The floating entry uses the same assistant workspace as the sidebar. It can run 
 
 ## Favorite Ledgers
 
-The `掌库` tab manages Bilimi-prefixed Bilibili favorite folders. Recommended category folders are defined in `src/shared/favoriteLedgers.ts` and use stable IDs such as `animation`, `kichiku`, `tech-digital`, `anime`, `acg`, and `inbox`.
+The `掌库` tab manages Bilimi-prefixed Bilibili favorite folders. Recommended category folders are defined in `src/shared/favoriteLedgers.ts` and use eight broad stable IDs: `knowledge`, `game`, `movie-tv`, `creative-aesthetic`, `life-interest`, `music`, `entertainment`, and `inbox`.
 
 In the recommended category grid, clicking a category name only selects it for editing. The adjacent `+` or `✓` button directly adds or removes that folder from sync without a confirmation dialog. A dashed `+` shortcut appears after the recommended category folders and focuses the new custom-ledger form.
 

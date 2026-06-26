@@ -413,9 +413,16 @@ describe('App runtime integration', () => {
 
   it('collects to inbox when an unsynced default ledger is only a stronger suggestion', async () => {
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
-    const { requestRuntime } = renderAppWithRuntimeBridge({
+    const preferences = createAppPreferences({
+      favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) =>
+        ledger.id === 'music' ? { ...ledger, enabled: false } : ledger
+      )
+    })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
       savePreferences
     })
+    notifyPreferencesChanged(preferences)
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
@@ -424,7 +431,7 @@ describe('App runtime integration', () => {
         return {
           title: '大阪地铁自动扶梯现场音乐',
           pageText: '演奏 音乐 现场',
-          tags: ['旅游', '生活记录', 'Klook旅行体验师', '出国', '真实', 'Klook客服旅行']
+          tags: ['音乐现场']
         }
       }
 

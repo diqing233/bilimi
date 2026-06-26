@@ -133,7 +133,11 @@ describe('createFavoriteLedgerPreview', () => {
 
   it('records generated candidate targets for inbox old favorites', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
-      ledger.id === 'inbox' ? { ...ledger, bilibiliFolderId: '9008' } : ledger
+      ledger.id === 'creative-aesthetic'
+        ? { ...ledger, bilibiliFolderId: '9004' }
+        : ledger.id === 'inbox'
+          ? { ...ledger, bilibiliFolderId: '9008' }
+          : ledger
     )
     const preview = createFavoriteLedgerPreview({
       ledgers,
@@ -152,7 +156,8 @@ describe('createFavoriteLedgerPreview', () => {
     })
 
     expect(preview.items[0]).toMatchObject({
-      targetLedgerId: 'inbox',
+      targetLedgerId: 'creative-aesthetic',
+      targetFolderId: '9004',
       candidateTargets: [
         expect.objectContaining({
           candidateKey: 'tag-cluster:摄影',
@@ -218,7 +223,7 @@ describe('createFavoriteLedgerPreview', () => {
 
   it('marks items already in the target ledger as skipped', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
-      ledger.id === 'entertainment' ? { ...ledger, bilibiliFolderId: '9002' } : ledger
+      ledger.id === 'entertainment' ? { ...ledger, bilibiliFolderId: '9007' } : ledger
     )
     const preview = createFavoriteLedgerPreview({
       ledgers,
@@ -230,7 +235,7 @@ describe('createFavoriteLedgerPreview', () => {
         }
       ],
       targetMembership: {
-        '9002': [201]
+        '9007': [201]
       }
     })
 
@@ -286,9 +291,9 @@ describe('createFavoriteLedgerPreview', () => {
     })
   })
 
-  it('uses suggested disabled default ledgers as old-favorite targets instead of inbox fallback', () => {
+  it('uses broad default ledgers as old-favorite targets instead of inbox fallback', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
-      if (ledger.id === 'travel') {
+      if (ledger.id === 'music') {
         return { ...ledger, bilibiliFolderId: '9010' }
       }
       if (ledger.id === 'inbox') {
@@ -316,17 +321,17 @@ describe('createFavoriteLedgerPreview', () => {
     })
 
     expect(preview.items[0]).toMatchObject({
-      targetLedgerId: 'inbox',
-      targetFolderId: '9008',
-      reviewRequired: true,
-      selected: false
+      targetLedgerId: 'music',
+      targetFolderId: '9010',
+      reviewRequired: false,
+      selected: true
     })
     expect(preview.items[0].targets).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          ledgerId: 'travel',
+          ledgerId: 'music',
           folderId: '9010',
-          displayName: 'Bilimi·旅游出行',
+          displayName: 'Bilimi·音乐舞台',
           selected: true
         })
       ])

@@ -5,33 +5,33 @@ import type {
 } from '@shared/types'
 
 const MAP: Partial<Record<RecommendationKind, RecommendationLabel>> = {
-  kichiku: {
+  entertainment: {
     badge: '可赏',
-    summary: '适合归到鬼畜，偏娱乐向。'
+    summary: '适合归到搞笑杂谈，整活、吐槽和轻松内容放这里。'
   },
   knowledge: {
     badge: '可阅',
-    summary: '适合归到知识，方便之后复看。'
-  },
-  'short-drama': {
-    badge: '请陛下过目',
-    summary: '适合归到小剧场，按剧情内容整理。'
+    summary: '适合归到知识学习，教程、科普和科技数码内容放这里。'
   },
   game: {
     badge: '可赏',
-    summary: '适合归到游戏，方便按玩法或攻略复看。'
+    summary: '适合归到游戏专区，攻略、实况和赛事内容放这里。'
   },
-  food: {
+  'movie-tv': {
     badge: '可藏',
-    summary: '适合归到美食，探店和做饭内容放这里。'
+    summary: '适合归到影视动漫，番剧、电影、剧集和动画内容放这里。'
   },
-  'tech-digital': {
+  'creative-aesthetic': {
     badge: '可藏',
-    summary: '适合归到科技数码，软件和工具内容放这里。'
+    summary: '适合归到创意美学，绘画、摄影、穿搭和手作内容放这里。'
+  },
+  'life-interest': {
+    badge: '可藏',
+    summary: '适合归到生活日常，美食、健身、家居和生活技巧放这里。'
   },
   music: {
     badge: '可赏',
-    summary: '适合归到音乐，演奏、翻唱和现场内容放这里。'
+    summary: '适合归到音乐舞台，歌曲、演奏、翻唱和舞蹈内容放这里。'
   },
   inbox: {
     badge: '待分拣',
