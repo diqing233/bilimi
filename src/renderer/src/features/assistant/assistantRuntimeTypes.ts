@@ -41,7 +41,7 @@ export type AssistantRuntimeRequest =
   | { id: string; type: 'ensure-ledgers' }
   | { id: string; type: 'save-ledgers'; ledgers: FavoriteLedger[]; options?: FavoriteLedgerSaveOptions }
   | { id: string; type: 'open-bilibili-favorites' }
-  | { id: string; type: 'scan-old-favorites' }
+  | { id: string; type: 'scan-old-favorites'; enhanceWithDeepSeek?: boolean }
   | { id: string; type: 'execute-old-favorite-plan'; items: FavoriteLedgerPreviewItem[] }
 
 export type AssistantRuntimeResponsePayload =

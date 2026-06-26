@@ -1028,12 +1028,11 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
 
-    expect(screen.getByText('Bilimi路AI效率工坊')).toBeInTheDocument()
     const candidateSection = screen.getByRole('region', { name: '专属收藏夹候选' })
-    const firstCandidateCard = candidateSection.querySelector('article')!
-    expect(firstCandidateCard).toHaveTextContent('Bilimi路AI效率工坊')
+    expect(within(candidateSection).getByText('暂无专属 UP 追更候选。')).toBeInTheDocument()
+    const firstCandidateCard = screen.getByLabelText('Bilimi路AI效率工坊').closest('article')!
+    expect(firstCandidateCard).toHaveTextContent('AI效率工坊')
     expect(firstCandidateCard).toHaveTextContent('1 条适合')
-    expect(firstCandidateCard).not.toHaveTextContent('AI、效率、工具')
     expect(screen.getByLabelText('Bilimi路AI效率工坊')).toBeChecked()
 
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
@@ -1374,7 +1373,8 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
     expect(screen.getByLabelText('Bilimi·影视飓风追更')).toBeChecked()
     expect(screen.getByLabelText('Bilimi·影视')).toBeChecked()
-    expect(screen.getByLabelText('Bilimi·影视飓风追更').closest('article')).toHaveTextContent('3 条适合')
+    expect(screen.getByLabelText('Bilimi·影视飓风追更').closest('article')).toHaveTextContent('3 条旧藏')
+    expect(screen.getByLabelText('Bilimi·影视飓风追更').closest('article')).toHaveTextContent('固定 UP')
     expect(screen.getByLabelText('Bilimi·影视').closest('article')).toHaveTextContent('3 条适合')
     expect(screen.queryByText('初始收藏夹')).not.toBeInTheDocument()
 
@@ -1817,7 +1817,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('默认收藏夹 6')).toBeInTheDocument()
     expect(screen.getByText('Bilimi·待分类 2')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
-    expect(screen.getByText('Bilimi·AI工具')).toBeInTheDocument()
+    expect(screen.getAllByText('AI工具').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByLabelText('Bilimi·AI工具')).toBeChecked()
 
     fireEvent.click(screen.getByRole('button', { name: '同步' }))
@@ -2298,7 +2298,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(within(candidates).queryByLabelText('Bilimi·时尚美妆')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '显示其他收藏夹' })).not.toBeInTheDocument()
     expect(within(candidates).getByLabelText('Bilimi·篮球教练追更').closest('article')).toHaveTextContent(
-      '1 条适合'
+      '1 条旧藏'
     )
     expect(within(candidates).getByLabelText('Bilimi·体育运动').closest('article')).toHaveTextContent(
       '1 条适合'
@@ -2416,9 +2416,98 @@ describe('FavoriteLedgerPanel', () => {
 
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
-    expect(await screen.findByText('Bilimi·AI效率工坊')).toBeInTheDocument()
     expect(screen.getByLabelText('Bilimi·AI效率工坊')).toBeChecked()
     expect(screen.getByLabelText('Bilimi·AI效率工坊').closest('article')).toHaveTextContent('1 条适合')
+  })
+
+  it('runs DeepSeek old favorite assistance only after the scan overview action', async () => {
+    const plainPreview: FavoriteLedgerPreview = {
+      items: [
+        {
+          aid: 101,
+          title: 'AI 效率工具实战',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'inbox',
+          targetFolderId: '9008',
+          targetDisplayName: 'Bilimi·待分类',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        }
+      ],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 1,
+        topAuthors: [],
+        topTags: [{ name: 'AI', count: 1 }],
+        topCategories: [],
+        sourceFolders: [{ name: '默认收藏夹', count: 1 }],
+        titleSeries: [],
+        candidateLedgers: []
+      }
+    }
+    const enhancedPreview: FavoriteLedgerPreview = {
+      ...plainPreview,
+      items: [
+        {
+          ...plainPreview.items[0],
+          candidateTargets: [
+            {
+              candidateKey: 'tag-cluster:AI',
+              ledgerId: 'custom-tag-cluster-AI',
+              displayName: 'Bilimi·AI效率工坊',
+              keywords: ['AI', '效率', '工具']
+            }
+          ]
+        }
+      ],
+      insights: {
+        ...plainPreview.insights!,
+        candidateLedgers: [
+          {
+            kind: 'tag-cluster',
+            sourceName: 'AI',
+            displayName: 'Bilimi·AI效率工坊',
+            keywords: ['AI', '效率', '工具'],
+            count: 1,
+            confidence: 'medium',
+            reason: 'DeepSeek 补判后建议建册。',
+            aiEnhanced: true
+          }
+        ]
+      }
+    }
+    const onScanOldFavorites = vi
+      .fn()
+      .mockResolvedValueOnce(plainPreview)
+      .mockResolvedValueOnce(enhancedPreview)
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={vi.fn()}
+        deepSeekOldFavoriteAssistanceEnabled
+        deepSeekReady
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    expect(onScanOldFavorites).toHaveBeenCalledWith({ enhanceWithDeepSeek: false })
+    expect(screen.getByRole('button', { name: '智能补判待分类' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '智能补判待分类' }))
+
+    await waitFor(() =>
+      expect(onScanOldFavorites).toHaveBeenLastCalledWith({ enhanceWithDeepSeek: true })
+    )
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    expect(await screen.findByLabelText('Bilimi·AI效率工坊')).toBeChecked()
   })
 
   it('recommends using Bilibili tags as ledger keywords', () => {

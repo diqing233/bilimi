@@ -465,6 +465,7 @@ export default function App() {
     return Boolean(
       preferences.deepseekEnabled &&
         preferences.deepseekApiKeyStored &&
+        preferences.deepseekOldFavoriteAssistanceEnabled &&
         window.bilimiDesktop?.generateDeepSeek &&
         preview.insights?.candidateLedgers.length
     )
@@ -573,7 +574,7 @@ export default function App() {
     return result
   }
 
-  async function scanOldFavorites(): Promise<FavoriteLedgerPreview> {
+  async function scanOldFavorites(options: { enhanceWithDeepSeek?: boolean } = {}): Promise<FavoriteLedgerPreview> {
     const scanResult = await runScript(
       buildScanOldFavoritesScript(preferences.favoriteLedgers)
     ) as AssistantAutomationResult & {
@@ -596,11 +597,11 @@ export default function App() {
       targetMembership: scanResult.targetMembership
     })
 
-    return enhanceFavoriteLedgerPreview(
-      preview,
-      scanResult.sourceFolders,
-      scanResult.targetMembership
-    )
+    if (!options.enhanceWithDeepSeek) {
+      return preview
+    }
+
+    return enhanceFavoriteLedgerPreview(preview, scanResult.sourceFolders, scanResult.targetMembership)
   }
 
   async function executeOldFavoritePlan(
@@ -840,7 +841,7 @@ export default function App() {
         case 'open-bilibili-favorites':
           return openBilibiliFavorites()
         case 'scan-old-favorites':
-          return scanOldFavorites()
+          return scanOldFavorites({ enhanceWithDeepSeek: request.enhanceWithDeepSeek })
         case 'execute-old-favorite-plan':
           return executeOldFavoritePlan(request.items)
         default:

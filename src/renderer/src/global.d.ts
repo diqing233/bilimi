@@ -73,7 +73,7 @@ type BilimiDesktopApi = {
     action: AssistantAction,
     options?: FloatingAssistantActionOptions
   ) => Promise<void>
-  scanOldFavorites?: () => Promise<FavoriteLedgerPreview>
+  scanOldFavorites?: (options?: { enhanceWithDeepSeek?: boolean }) => Promise<FavoriteLedgerPreview>
   saveFavoriteLedgers?: (
     ledgers: FavoriteLedger[],
     options?: FavoriteLedgerSaveOptions

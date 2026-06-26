@@ -484,6 +484,7 @@ export function FloatingAssistantApp({
       ...preferences,
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
+      deepseekOldFavoriteAssistanceEnabled: false,
       deepseekModel: DEFAULT_DEEPSEEK_MODEL,
       deepseekBaseUrl: DEFAULT_DEEPSEEK_BASE_URL
     }
@@ -847,15 +848,27 @@ export function FloatingAssistantApp({
     return result
   }
 
-  async function scanOldFavorites(): Promise<FavoriteLedgerPreview> {
-    tellPet('progress', '小咪正在扫描旧收藏夹。')
+  async function scanOldFavorites(
+    options: { enhanceWithDeepSeek?: boolean } = {}
+  ): Promise<FavoriteLedgerPreview> {
+    tellPet(
+      'progress',
+      options.enhanceWithDeepSeek ? '小咪正在用 DeepSeek 补判待分类旧藏。' : '小咪正在扫描旧收藏夹。'
+    )
     const preview =
-      (await window.bilimiDesktop?.scanOldFavorites?.()) ?? {
+      (await window.bilimiDesktop?.scanOldFavorites?.(options)) ?? {
         items: [],
         skippedSourceFolderTitles: []
       }
 
-    tellPet('success', preview.items.length > 0 ? '旧藏扫描好了，小咪列出可归册项目。' : '旧藏扫描好了，暂时没有需要归册的项目。')
+    tellPet(
+      'success',
+      options.enhanceWithDeepSeek
+        ? 'DeepSeek 补判好了，小咪已刷新推荐收藏夹。'
+        : preview.items.length > 0
+          ? '旧藏扫描好了，小咪列出可归册项目。'
+          : '旧藏扫描好了，暂时没有需要归册的项目。'
+    )
     return preview
   }
 
@@ -908,6 +921,8 @@ export function FloatingAssistantApp({
             onOpenFavoritePage={openFavoritePage}
             onScanOldFavorites={scanOldFavorites}
             onExecuteOldFavoritePlan={executeOldFavoritePlan}
+            deepSeekOldFavoriteAssistanceEnabled={preferences.deepseekOldFavoriteAssistanceEnabled}
+            deepSeekReady={preferences.deepseekEnabled && preferences.deepseekApiKeyStored}
           />
         ) : activeView === 'settings' ? (
           <section className="assistant-settings" aria-label="助手设置">
@@ -1024,6 +1039,18 @@ export function FloatingAssistantApp({
               <p className="assistant-settings__deepseek-help">
                 开启后可使用批阅的拟奏短评、札记中的 DeepSeek 总结、宠物对话功能。
               </p>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={preferences.deepseekOldFavoriteAssistanceEnabled}
+                  onChange={(event) =>
+                    updateDeepSeekPreference({
+                      deepseekOldFavoriteAssistanceEnabled: event.currentTarget.checked
+                    })
+                  }
+                />
+                <span>用 DeepSeek 辅助整理旧藏</span>
+              </label>
               <label>
                 <span>DeepSeek API 密钥</span>
                 <input

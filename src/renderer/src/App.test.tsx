@@ -916,10 +916,11 @@ describe('App runtime integration', () => {
     )
   })
 
-  it('enhances old favorite ledger candidates with DeepSeek when enabled', async () => {
+  it('keeps old favorite scans local until DeepSeek enhancement is requested', async () => {
     const preferences = createAppPreferences({
       deepseekEnabled: true,
-      deepseekApiKeyStored: true
+      deepseekApiKeyStored: true,
+      deepseekOldFavoriteAssistanceEnabled: true
     })
     const generateDeepSeek = vi.fn().mockResolvedValue({
       kind: 'favorite-ledger-insights',
@@ -990,6 +991,27 @@ describe('App runtime integration', () => {
 
     const preview = await requestRuntime({ id: 'scan-ai-1', type: 'scan-old-favorites' })
 
+    expect(generateDeepSeek).not.toHaveBeenCalled()
+    expect(preview).toEqual(
+      expect.objectContaining({
+        insights: expect.objectContaining({
+          candidateLedgers: expect.arrayContaining([
+            expect.objectContaining({
+              sourceName: 'AI',
+              displayName: 'Bilimi·AI工具',
+              aiEnhanced: false
+            })
+          ])
+        })
+      })
+    )
+
+    const enhancedPreview = await requestRuntime({
+      id: 'scan-ai-2',
+      type: 'scan-old-favorites',
+      enhanceWithDeepSeek: true
+    })
+
     expect(generateDeepSeek).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'favorite-ledger-insights',
@@ -1002,7 +1024,7 @@ describe('App runtime integration', () => {
         ])
       })
     )
-    expect(preview).toEqual(
+    expect(enhancedPreview).toEqual(
       expect.objectContaining({
         insights: expect.objectContaining({
           candidateLedgers: expect.arrayContaining([

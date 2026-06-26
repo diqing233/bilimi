@@ -75,6 +75,7 @@ export function createInitialAssistantPreferences(
     },
     deepseekEnabled: Boolean(persisted?.deepseekEnabled),
     deepseekApiKeyStored: Boolean(persisted?.deepseekApiKeyStored),
+    deepseekOldFavoriteAssistanceEnabled: Boolean(persisted?.deepseekOldFavoriteAssistanceEnabled),
     deepseekModel: normalizeDeepSeekModel(persisted?.deepseekModel),
     deepseekBaseUrl: normalizeDeepSeekBaseUrl(persisted?.deepseekBaseUrl)
   }
