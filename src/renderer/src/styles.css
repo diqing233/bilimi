@@ -2738,6 +2738,20 @@ body[data-floating-window="true"],
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
+.assistant-settings__hover-shortcuts-copy {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 3px;
+  color: var(--porcelain-text);
+}
+.assistant-settings__hover-shortcuts-copy strong {
+  font-size: 14px;
+}
+.assistant-settings__hover-shortcuts-copy small {
+  color: var(--porcelain-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .assistant-settings__pet-divider {
   height: 1px;
   border-top: 1px dashed rgba(31, 99, 181, 0.24);

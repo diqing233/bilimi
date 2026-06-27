@@ -540,7 +540,11 @@ describe('FloatingAssistantApp', () => {
 
     expect(screen.getByText('宠物设置')).toBeInTheDocument()
     expect(screen.queryByText('宠物样式')).not.toBeInTheDocument()
-    const shortcutGroup = screen.getByRole('group', { name: '悬浮快捷按钮' })
+    expect(screen.getByText('宠物快捷操作')).toBeInTheDocument()
+    expect(
+      screen.getByText('选择常用操作，数字表示显示顺序；点击可启用或停用快捷项，可不选，最多4个。')
+    ).toBeInTheDocument()
+    const shortcutGroup = screen.getByRole('group', { name: '宠物快捷操作' })
     expect(within(shortcutGroup).queryByRole('checkbox')).not.toBeInTheDocument()
     expect(within(shortcutGroup).getByRole('button', { name: '赏 轻赏此条 第 1 位' })).toHaveTextContent('1')
     expect(within(shortcutGroup).getByRole('button', { name: '赐 投币厚赏 第 2 位' })).toHaveTextContent('2')
@@ -576,7 +580,7 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
 
-    const shortcutGroup = screen.getByRole('group', { name: '悬浮快捷按钮' })
+    const shortcutGroup = screen.getByRole('group', { name: '宠物快捷操作' })
     fireEvent.click(within(shortcutGroup).getByRole('button', { name: '转 转写音频 第 4 位' }))
     fireEvent.click(within(shortcutGroup).getByRole('button', { name: '表 拟奏短评 第 3 位' }))
     fireEvent.click(within(shortcutGroup).getByRole('button', { name: '赐 投币厚赏 第 2 位' }))

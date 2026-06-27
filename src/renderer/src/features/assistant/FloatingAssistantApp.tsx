@@ -1001,8 +1001,14 @@ export function FloatingAssistantApp({
               <div
                 className="assistant-settings__hover-shortcuts"
                 role="group"
-                aria-label="悬浮快捷按钮"
+                aria-label="宠物快捷操作"
               >
+                <div className="assistant-settings__hover-shortcuts-copy">
+                  <strong>宠物快捷操作</strong>
+                  <small>
+                    选择常用操作，数字表示显示顺序；点击可启用或停用快捷项，可不选，最多4个。
+                  </small>
+                </div>
                 {PET_HOVER_SHORTCUTS.map((shortcut) => {
                   const selectedIndex = selectedPetHoverShortcuts.indexOf(shortcut.id)
                   const selected = selectedIndex >= 0
