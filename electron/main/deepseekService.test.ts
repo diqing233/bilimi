@@ -48,6 +48,20 @@ function createNote(): VideoNote {
   }
 }
 
+function createLongTranscriptNote(): VideoNote {
+  return {
+    ...createNote(),
+    transcript: Array.from({ length: 36 }, (_, index) => ({
+      start: index * 10,
+      end: index * 10 + 8,
+      text:
+        index === 35
+          ? 'final transcript detail about the closing argument and concrete takeaway'
+          : `transcript segment ${index + 1} with useful context`
+    }))
+  }
+}
+
 describe('DeepSeek main service', () => {
   it('rejects missing keys as not configured', async () => {
     await expect(
@@ -147,8 +161,61 @@ describe('DeepSeek main service', () => {
     expect(systemMessage).toContain('中文')
     expect(systemMessage).toContain('更丰富')
     expect(systemMessage).toContain('更精细')
-    expect(systemMessage).toContain('4 到 5 条')
+    expect(systemMessage).toContain('6 到 8 条')
+    expect(systemMessage).toContain('尽量信息不失真')
+    expect(systemMessage).toContain('重要细节')
     expect(systemMessage).not.toContain('compact one-image video note poster')
+  })
+
+  it('sends broad transcript context so DeepSeek can summarize without dropping late details', async () => {
+    const fetchImpl = createJsonFetch(
+      JSON.stringify({
+        title: 'Long lecture',
+        subtitle: 'A faithful study summary',
+        keyPoints: [
+          'point 1 includes enough reasoning and context for review',
+          'point 2 includes enough reasoning and context for review',
+          'point 3 includes enough reasoning and context for review',
+          'point 4 includes enough reasoning and context for review',
+          'point 5 includes enough reasoning and context for review',
+          'point 6 includes enough reasoning and context for review',
+          'point 7 includes enough reasoning and context for review',
+          'point 8 includes enough reasoning and context for review'
+        ],
+        keywords: ['lecture'],
+        prompt: 'study card'
+      })
+    )
+
+    await expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: { kind: 'note-poster', note: createLongTranscriptNote() },
+        fetchImpl
+      })
+    ).resolves.toMatchObject({
+      kind: 'note-poster',
+      poster: {
+        keyPoints: [
+          'point 1 includes enough reasoning and context for review',
+          'point 2 includes enough reasoning and context for review',
+          'point 3 includes enough reasoning and context for review',
+          'point 4 includes enough reasoning and context for review',
+          'point 5 includes enough reasoning and context for review',
+          'point 6 includes enough reasoning and context for review',
+          'point 7 includes enough reasoning and context for review',
+          'point 8 includes enough reasoning and context for review'
+        ]
+      }
+    })
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
+      messages: Array<{ role: string; content: string }>
+    }
+    const userMessage = body.messages.find((message) => message.role === 'user')?.content ?? ''
+
+    expect(userMessage).toContain('transcript segment 1 with useful context')
+    expect(userMessage).toContain('final transcript detail about the closing argument')
   })
 
   it('parses favorite ledger insight suggestions without replacing deterministic scanning', async () => {

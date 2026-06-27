@@ -47,6 +47,49 @@ function trimTo(value: string, maxLength: number): string {
   return trimmed.length > maxLength ? trimmed.slice(0, maxLength).trim() : trimmed
 }
 
+function trimJsonPayload<T>(items: T[], maxLength: number): T[] {
+  const selected: T[] = []
+  let usedLength = 2
+
+  for (const item of items) {
+    const serialized = JSON.stringify(item)
+    const nextLength = usedLength + serialized.length + (selected.length > 0 ? 1 : 0)
+    if (nextLength > maxLength) {
+      break
+    }
+
+    selected.push(item)
+    usedLength = nextLength
+  }
+
+  return selected
+}
+
+function selectTranscriptForSummary(note: VideoNote): VideoNote['transcript'] {
+  const transcript = note.transcript.filter((segment) => Boolean(segment.text.trim()))
+  if (transcript.length <= 30) {
+    return transcript
+  }
+
+  const head = trimJsonPayload(transcript, 18000)
+  if (head.length === transcript.length) {
+    return head
+  }
+
+  const tail = trimJsonPayload([...transcript].reverse(), 6000).reverse()
+  const selected = [...head, ...tail].filter(
+    (segment, index, segments) =>
+      segments.findIndex(
+        (candidate) =>
+          candidate.start === segment.start &&
+          candidate.end === segment.end &&
+          candidate.text === segment.text
+      ) === index
+  )
+
+  return selected
+}
+
 function coerceStringArray(value: unknown, limit: number): string[] {
   return Array.isArray(value)
     ? value
@@ -120,7 +163,7 @@ function summarizeNote(note: VideoNote): string {
   return JSON.stringify({
     source: note.source,
     overview: note.overview,
-    transcript: note.transcript.slice(0, 30),
+    transcript: selectTranscriptForSummary(note),
     chapters: note.chapters.slice(0, 12),
     annotations: note.annotations.slice(0, 12),
     userMemo: note.userMemo
@@ -154,7 +197,7 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
       {
         role: 'system',
         content:
-          '你是 DeepSeek 视频札记总结助手。请基于用户提供的视频标题、简介、文稿、章节、批注和备注，生成中文 DeepSeek 总结。总结要比普通摘要更丰富、更精细：title 用一句话点出主题，subtitle 用 25 到 45 个中文字符说明核心脉络，keyPoints 输出 4 到 5 条可复习的具体要点，每条包含结论、原因或应用场景，不要只写短标签；keywords 输出 4 到 8 个关键词；prompt 写一句适合生成学习卡片的视觉提示。不要编造材料外的信息。Return JSON only: {"title":"","subtitle":"","keyPoints":[],"keywords":[],"prompt":""}.'
+          '你是 DeepSeek 视频札记总结助手。请基于用户提供的视频标题、简介、完整可用文稿、章节、批注和备注，生成中文 DeepSeek 总结。目标是真正的复习型总结，要比普通摘要更丰富、更精细，并尽量信息不失真：title 用一句话点出主题，subtitle 用 25 到 60 个中文字符说明核心脉络，keyPoints 输出 6 到 8 条可复习的具体要点，每条 40 到 100 个中文字符，覆盖核心结论、推导原因、重要细节、例子、方法步骤、应用场景或限制条件；不要只写短标签，不要为了简短省略材料里的关键事实。keywords 输出 4 到 8 个关键词；prompt 写一句适合生成学习卡片的视觉提示。不要编造材料外的信息。Return JSON only: {"title":"","subtitle":"","keyPoints":[],"keywords":[],"prompt":""}.'
       },
       {
         role: 'user',
@@ -223,7 +266,7 @@ function parseResult(
     const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
     const subtitle = typeof parsed.subtitle === 'string' ? parsed.subtitle.trim() : ''
     const prompt = typeof parsed.prompt === 'string' ? parsed.prompt.trim() : ''
-    const keyPoints = coerceStringArray(parsed.keyPoints, 5)
+    const keyPoints = coerceStringArray(parsed.keyPoints, 8)
     const keywords = coerceStringArray(parsed.keywords, 8)
 
     if (!title || !subtitle || keyPoints.length === 0) {
