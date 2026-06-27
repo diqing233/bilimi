@@ -330,6 +330,7 @@ export type VideoAudioTranscriptionQueueItem = VideoAudioTranscriptionRequest & 
   progress?: VideoAudioTranscriptionProgress
   errorMessage?: string
   archiveNoteId?: string
+  draftNote?: VideoNote
 }
 
 export type VideoAudioTranscriptionQueueSnapshot = {

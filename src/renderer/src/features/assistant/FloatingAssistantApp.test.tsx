@@ -1038,6 +1038,66 @@ describe('FloatingAssistantApp', () => {
     expect(screen.queryByText('Transcribing segment 1/2.')).not.toBeInTheDocument()
   })
 
+  it('shows the recognized transcript while DeepSeek summary is still running', async () => {
+    let queueChanged:
+      | Parameters<NonNullable<Window['bilimiDesktop']['onVideoAudioTranscriptionQueueChanged']>>[0]
+      | undefined
+    const enqueueCurrentVideoAudioTranscription = vi.fn().mockResolvedValue({
+      activeItemId: 'bvid:BV1note',
+      items: [
+        {
+          id: 'bvid:BV1note',
+          url: 'https://www.bilibili.com/video/BV1note',
+          title: '机器学习入门教程',
+          bvid: 'BV1note',
+          status: 'running',
+          createdAt: '2026-06-25T00:00:00.000Z',
+          updatedAt: '2026-06-25T00:00:00.000Z'
+        }
+      ]
+    })
+    const note = createVideoNote()
+    installDesktopApi({
+      enqueueCurrentVideoAudioTranscription,
+      onVideoAudioTranscriptionQueueChanged: vi.fn((callback) => {
+        queueChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+    await waitFor(() => expect(enqueueCurrentVideoAudioTranscription).toHaveBeenCalledOnce())
+
+    act(() => {
+      queueChanged?.({
+        activeItemId: 'bvid:BV1note',
+        items: [
+          {
+            id: 'bvid:BV1note',
+            url: 'https://www.bilibili.com/video/BV1note',
+            title: '机器学习入门教程',
+            bvid: 'BV1note',
+            status: 'running',
+            createdAt: '2026-06-25T00:00:00.000Z',
+            updatedAt: '2026-06-25T00:00:30.000Z',
+            progress: { step: 'summarizing-deepseek', message: 'Generating DeepSeek summary.' },
+            draftNote: note
+          }
+        ]
+      })
+    })
+
+    expect(await screen.findByText('机器学习需要数据和模型。')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+    expect(screen.getByText('正在生成 DeepSeek 总结')).toBeInTheDocument()
+  })
+
   it('archives generated audio notes and opens the global archive panel', async () => {
     const note = createVideoNote()
     const archive: VideoNoteArchiveEntry = {

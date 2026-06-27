@@ -350,6 +350,14 @@ export function FloatingAssistantApp({
       transcriptionQueueRef.current = snapshot
       setTranscriptionQueue(snapshot)
 
+      const activeDraftNote = snapshot.items.find(
+        (item) => item.status === 'running' && item.draftNote
+      )?.draftNote
+      if (activeDraftNote) {
+        setVideoNote(activeDraftNote)
+        setActiveView('notes')
+      }
+
       if (hadRunning && !hasRunning && snapshot.items.some((item) => item.status === 'completed')) {
         void syncCompletedQueuedVideoNote(snapshot)
       }

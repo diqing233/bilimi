@@ -99,6 +99,11 @@ function coerceStringArray(value: unknown, limit: number): string[] {
     : []
 }
 
+function isUsefulNoteKeyPoint(value: string): boolean {
+  const normalized = value.replace(/\s+/g, '')
+  return normalized.length >= 24
+}
+
 function coerceFavoriteLedgerSuggestions(value: unknown): FavoriteLedgerAiSuggestion[] {
   if (!Array.isArray(value)) {
     return []
@@ -279,7 +284,14 @@ function parseResult(
     const auditChecklistText =
       typeof parsed.auditChecklistText === 'string' ? parsed.auditChecklistText.trim() : ''
 
-    if (!title || !subtitle || keyPoints.length === 0) {
+    if (
+      !title ||
+      !subtitle ||
+      keyPoints.length < 2 ||
+      !polishedTranscriptText ||
+      !auditChecklistText ||
+      !keyPoints.every(isUsefulNoteKeyPoint)
+    ) {
       throw new DeepSeekServiceError('invalid-output', 'DeepSeek did not return a usable poster.')
     }
 

@@ -173,6 +173,14 @@ describe('video transcription queue', () => {
     expect(snapshots.map((snapshot) => snapshot.items[0]?.progress?.step)).toContain(
       'summarizing-deepseek'
     )
+    const summarizingSnapshot = snapshots.find(
+      (snapshot) => snapshot.items[0]?.progress?.step === 'summarizing-deepseek'
+    )
+    expect(summarizingSnapshot?.items[0]?.draftNote).toMatchObject({
+      id: 'bvid:BV1queue',
+      transcript: createTranscript('summary transcript'),
+      transcriptSource: 'audio'
+    })
     expect(snapshots.at(-1)?.items[0]).toMatchObject({
       status: 'completed',
       progress: { step: 'queue-completed' }

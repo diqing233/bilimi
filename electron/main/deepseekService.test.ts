@@ -108,7 +108,10 @@ describe('DeepSeek main service', () => {
       JSON.stringify({
         title: 'Learning Types',
         subtitle: 'Compact note',
-        keyPoints: ['one', 'two'],
+        keyPoints: [
+          '类型系统先定义数据结构和约束，再帮助开发者在编译阶段发现错误。',
+          '示例代码说明泛型可以保留输入输出关系，减少运行时类型判断。'
+        ],
         keywords: ['ts'],
         prompt: 'clean poster',
         polishedTranscriptText: '## 精修文稿\n\n完整文稿正文。',
@@ -127,7 +130,10 @@ describe('DeepSeek main service', () => {
       poster: {
         title: 'Learning Types',
         subtitle: 'Compact note',
-        keyPoints: ['one', 'two'],
+        keyPoints: [
+          '类型系统先定义数据结构和约束，再帮助开发者在编译阶段发现错误。',
+          '示例代码说明泛型可以保留输入输出关系，减少运行时类型判断。'
+        ],
         keywords: ['ts'],
         prompt: 'clean poster',
         polishedTranscriptText: '## 精修文稿\n\n完整文稿正文。',
@@ -229,6 +235,45 @@ describe('DeepSeek main service', () => {
 
     expect(userMessage).toContain('transcript segment 1 with useful context')
     expect(userMessage).toContain('final transcript detail about the closing argument')
+  })
+
+  it('rejects shallow note summaries that omit polished transcript or useful detail', async () => {
+    await expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: { kind: 'note-poster', note: createNote() },
+        fetchImpl: createJsonFetch(
+          JSON.stringify({
+            title: '世界树很大',
+            subtitle: '注意看前面这棵很高大的树',
+            keyPoints: ['注意看前面这棵树', '我现在的位置在城堡', '注意看前面这棵树'],
+            keywords: ['好了', '世界树'],
+            prompt: ''
+          })
+        )
+      })
+    ).rejects.toMatchObject({ code: 'invalid-output' })
+
+    await expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: { kind: 'note-poster', note: createNote() },
+        fetchImpl: createJsonFetch(
+          JSON.stringify({
+            title: '世界树很大',
+            subtitle: '注意看前面这棵很高大的树',
+            keyPoints: [
+              '这一条稍微长一点但仍然没有提供足够的信息密度',
+              '另一条也只是重复画面描述，没有整理出有效内容'
+            ],
+            keywords: ['世界树'],
+            prompt: '',
+            polishedTranscriptText: '注意看前面这棵很高大的树。',
+            auditChecklistText: '- 画面：世界树'
+          })
+        )
+      })
+    ).rejects.toMatchObject({ code: 'invalid-output' })
   })
 
   it('parses favorite ledger insight suggestions without replacing deterministic scanning', async () => {
