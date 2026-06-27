@@ -157,6 +157,24 @@ export function createFloatingHostBounds({
   }
 }
 
+export function createInitialFloatingSealVisualBounds({
+  workArea,
+  visualSize,
+  rightMargin
+}: {
+  workArea: Bounds
+  visualSize: Size
+  rightMargin: number
+}): Bounds {
+  return {
+    width: visualSize.width,
+    height: visualSize.height,
+    x: workArea.x + workArea.width - visualSize.width - rightMargin,
+    // Keep the pet anchored from the bottom so taller hosts expand upward.
+    y: workArea.y + Math.round(workArea.height * 0.84) - visualSize.height
+  }
+}
+
 export function createFloatingVisualBounds({
   hostBounds,
   padding

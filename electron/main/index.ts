@@ -41,6 +41,7 @@ import { keepMainWindowTitle } from './windowTitleGuard'
 import {
   createFloatingAssistantBounds,
   createFloatingHostBounds,
+  createInitialFloatingSealVisualBounds,
   createFloatingMenuBounds,
   createFloatingSealDragPosition,
   createFloatingVisualBounds
@@ -81,7 +82,7 @@ const FLOATING_SEAL_HOST_PADDING = {
   bottom: FLOATING_SEAL_SHADOW_PADDING,
   left: FLOATING_SEAL_SHADOW_PADDING
 }
-const FLOATING_SEAL_MARGIN = 24
+const FLOATING_SEAL_MARGIN = 12
 const FLOATING_SEAL_QUERY = { window: 'floating-seal' }
 const FLOATING_MENU_VISUAL_SIZE = { width: 184, height: 248 }
 const FLOATING_MENU_SHADOW_PADDING = 28
@@ -138,13 +139,11 @@ function loadRendererWindow(win: BrowserWindow, query: Record<string, string> = 
 
 function getFloatingSealBounds() {
   const { workArea } = screen.getPrimaryDisplay()
-  const visualBounds = {
-    width: FLOATING_SEAL_VISUAL_SIZE.width,
-    height: FLOATING_SEAL_VISUAL_SIZE.height,
-    x: workArea.x + workArea.width - FLOATING_SEAL_VISUAL_SIZE.width - FLOATING_SEAL_MARGIN,
-    // 锚定宠物底部位置，使活动区加高时向上扩展、宠物保持原位。
-    y: workArea.y + Math.round(workArea.height * 0.84) - FLOATING_SEAL_VISUAL_SIZE.height
-  }
+  const visualBounds = createInitialFloatingSealVisualBounds({
+    workArea,
+    visualSize: FLOATING_SEAL_VISUAL_SIZE,
+    rightMargin: FLOATING_SEAL_MARGIN
+  })
 
   return createFloatingHostBounds({
     visualBounds,

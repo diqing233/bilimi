@@ -3,6 +3,7 @@ import {
   createAssistantPanelPosition,
   createFloatingAssistantBounds,
   createFloatingHostBounds,
+  createInitialFloatingSealVisualBounds,
   createFloatingVisualBounds,
   createFloatingMenuBounds,
   createFixedFloatingSealBounds,
@@ -54,6 +55,16 @@ describe('floating seal geometry', () => {
 })
 
 describe('floating menu geometry', () => {
+  it('places the initial floating pet visual slightly closer to the right edge', () => {
+    expect(
+      createInitialFloatingSealVisualBounds({
+        workArea: { x: 0, y: 0, width: 1920, height: 1040 },
+        visualSize: { width: 280, height: 352 },
+        rightMargin: 12
+      })
+    ).toEqual({ x: 1628, y: 522, width: 280, height: 352 })
+  })
+
   it('restores an oversized floating pet host to the fixed activity area', () => {
     expect(
       createFixedFloatingSealBounds({
