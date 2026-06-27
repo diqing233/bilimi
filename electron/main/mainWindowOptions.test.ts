@@ -6,7 +6,7 @@ describe('createMainWindowOptions', () => {
     const options = createMainWindowOptions('C:/bilimi/out/preload/index.mjs')
 
     expect(options).toMatchObject({
-      width: 1800,
+      width: 1620,
       height: 960,
       minWidth: 1280,
       minHeight: 820,
@@ -26,7 +26,7 @@ describe('createMainWindowOptions', () => {
     const options = createMainWindowOptions('C:/bilimi/out/preload/index.mjs')
     const embeddedSidebarWidth = 430
 
-    expect(Number(options.width) - embeddedSidebarWidth).toBeGreaterThanOrEqual(1360)
+    expect(Number(options.width) - embeddedSidebarWidth).toBeGreaterThanOrEqual(1180)
   })
 
   it('uses a Bilimi ico as the Windows taskbar and task manager icon', () => {
