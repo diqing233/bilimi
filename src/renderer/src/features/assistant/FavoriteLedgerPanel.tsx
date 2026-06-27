@@ -30,6 +30,10 @@ type OldFavoriteExecutionResult = AssistantAutomationResult & {
   paused?: boolean
 }
 
+const OLD_FAVORITE_APPEND_DELAY_MS = { min: 2500, max: 6000 }
+const OLD_FAVORITE_COOLDOWN_DELAY_MS = { min: 30000, max: 90000 }
+const OLD_FAVORITE_COOLDOWN_EVERY = 15
+
 function splitKeywords(value: string) {
   return value
     .split(/[\s,，、/]+/)
@@ -388,16 +392,6 @@ function buildOldFavoriteTargetGroups(
   return Array.from(groups.values())
 }
 
-function selectedOldFavoriteItemBatches(items: FavoriteLedgerPreviewItem[]) {
-  const batches = new Map<number, FavoriteLedgerPreviewItem[]>()
-  for (const item of items) {
-    const batch = batches.get(item.aid) ?? []
-    batch.push(item)
-    batches.set(item.aid, batch)
-  }
-  return Array.from(batches.values())
-}
-
 function buildSelectedOldFavoritePlanItems(args: {
   items: FavoriteLedgerPreviewItem[]
   selectedTargetKeys: Set<string>
@@ -432,6 +426,30 @@ function buildSelectedOldFavoritePlanItems(args: {
   }
 
   return planItems
+}
+
+function randomDelayMs(range: { min: number; max: number }) {
+  const min = Math.max(0, range.min)
+  const max = Math.max(min, range.max)
+  return Math.round(min + Math.random() * (max - min))
+}
+
+function wait(delayMs: number) {
+  return new Promise((resolve) => setTimeout(resolve, delayMs))
+}
+
+async function paceOldFavoriteExecution(completedCount: number, hasNextItem: boolean) {
+  if (!hasNextItem || completedCount <= 0) {
+    return
+  }
+
+  const shouldCooldown = completedCount % OLD_FAVORITE_COOLDOWN_EVERY === 0
+  const delayMs = randomDelayMs(shouldCooldown ? OLD_FAVORITE_COOLDOWN_DELAY_MS : OLD_FAVORITE_APPEND_DELAY_MS)
+  if (delayMs <= 0 || process.env.NODE_ENV === 'test') {
+    return
+  }
+
+  await wait(delayMs)
 }
 
 export function FavoriteLedgerPanel({
@@ -1085,16 +1103,16 @@ export function FavoriteLedgerPanel({
         return
       }
 
-      const itemBatches = selectedOldFavoriteItemBatches(selectedItems)
-      setOldFavoriteExecutionProgress({ completed: 0, total: itemBatches.length })
+      setOldFavoriteExecutionProgress({ completed: 0, total: selectedItems.length })
       const results: OldFavoriteExecutionResult[] = []
-      for (const [index, itemBatch] of itemBatches.entries()) {
-        const result = (await onExecuteOldFavoritePlan(itemBatch)) as OldFavoriteExecutionResult
+      for (const [index, item] of selectedItems.entries()) {
+        const result = (await onExecuteOldFavoritePlan([item])) as OldFavoriteExecutionResult
         results.push(result)
-        setOldFavoriteExecutionProgress({ completed: index + 1, total: itemBatches.length })
+        setOldFavoriteExecutionProgress({ completed: index + 1, total: selectedItems.length })
         if (result.paused) {
           break
         }
+        await paceOldFavoriteExecution(index + 1, index < selectedItems.length - 1)
       }
       const failedCount = results.filter((result) => result.ok === false).length
       const lastMessage = results.at(-1)?.message
@@ -1103,7 +1121,7 @@ export function FavoriteLedgerPanel({
         paused
           ? `整理旧藏已暂停：${lastMessage ?? 'Bilibili 正在保护账号，请稍后再继续。'}`
           : failedCount > 0
-          ? `整理旧藏完成：${itemBatches.length - failedCount} 条成功，${failedCount} 条失败。${lastMessage ?? ''}`
+          ? `整理旧藏完成：${results.length - failedCount} 条成功，${failedCount} 条失败。${lastMessage ?? ''}`
           : lastMessage ?? '旧藏已归册。'
       )
     } catch (error) {

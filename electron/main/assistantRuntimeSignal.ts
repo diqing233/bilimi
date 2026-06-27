@@ -99,7 +99,11 @@ export function requestAssistantRuntimeWhenReady<TPayload>({
 }
 
 export function createAssistantRuntimeTimeoutMs(request: AssistantRuntimeRequestInput): number {
-  if (request.type === 'generate-video-note-from-audio' || request.type === 'scan-old-favorites') {
+  if (
+    request.type === 'generate-video-note-from-audio' ||
+    request.type === 'scan-old-favorites' ||
+    request.type === 'execute-old-favorite-plan'
+  ) {
     return LONG_RUNTIME_REQUEST_TIMEOUT_MS
   }
 

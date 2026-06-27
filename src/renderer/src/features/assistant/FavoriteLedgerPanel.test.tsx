@@ -1013,25 +1013,22 @@ describe('FavoriteLedgerPanel', () => {
         })
       ])
     )
-    await waitFor(() =>
-      expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({
-            aid: 101,
-            targetLedgerId: 'knowledge',
-            targetFolderId: '9001',
-            targetDisplayName: 'Bilimi路知识'
-          }),
-          expect.objectContaining({
-            aid: 101,
-            targetLedgerId: 'custom-tag-cluster-AI',
-            targetFolderId: '',
-            targetDisplayName: 'Bilimi路AI效率工坊',
-            selectedCandidateTarget: true
-          })
-        ])
-      )
-    )
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(2))
+    expect(onExecuteOldFavoritePlan).toHaveBeenNthCalledWith(1, [
+      expect.objectContaining({
+        aid: 101,
+        targetLedgerId: 'knowledge',
+        targetFolderId: '9001'
+      })
+    ])
+    expect(onExecuteOldFavoritePlan).toHaveBeenNthCalledWith(2, [
+      expect.objectContaining({
+        aid: 101,
+        targetLedgerId: 'custom-tag-cluster-AI',
+        targetFolderId: '',
+        selectedCandidateTarget: true
+      })
+    ])
   })
 
   it('shows the full old favorite title on hover while preview titles can be truncated', async () => {
@@ -1239,6 +1236,128 @@ describe('FavoriteLedgerPanel', () => {
       )
     )
     expect(container.querySelector('.favorite-ledger-panel__status')).toHaveTextContent('Bilibili')
+  })
+
+  it('updates old favorite progress after each selected archive task', async () => {
+    const preview = {
+      items: [
+        {
+          aid: 101,
+          title: 'old favorite with two targets',
+          sourceFolderTitle: 'Default Favorites',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi Knowledge',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          targets: [
+            {
+              ledgerId: 'knowledge',
+              folderId: '9001',
+              displayName: 'Bilimi Knowledge',
+              keywords: ['knowledge'],
+              alreadyInTarget: false,
+              selected: true
+            },
+            {
+              ledgerId: 'movie-tv',
+              folderId: '9002',
+              displayName: 'Bilimi Movie',
+              keywords: ['movie'],
+              alreadyInTarget: false,
+              selected: true
+            }
+          ]
+        }
+      ],
+      skippedSourceFolderTitles: []
+    }
+    const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
+    let resolveFirst: ((value: { ok: boolean; steps: string[]; missingTargets: string[]; message: string }) => void) | undefined
+    const firstCall = new Promise<{ ok: boolean; steps: string[]; missingTargets: string[]; message: string }>(
+      (resolve) => {
+        resolveFirst = resolve
+      }
+    )
+    let resolveSecond: ((value: { ok: boolean; steps: string[]; missingTargets: string[]; message: string }) => void) | undefined
+    const secondCall = new Promise<{ ok: boolean; steps: string[]; missingTargets: string[]; message: string }>(
+      (resolve) => {
+        resolveSecond = resolve
+      }
+    )
+    const onExecuteOldFavoritePlan = vi
+      .fn()
+      .mockReturnValueOnce(firstCall)
+      .mockReturnValueOnce(secondCall)
+
+    const { container } = render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={onExecuteOldFavoritePlan}
+      />
+    )
+
+    fireEvent.click(container.querySelectorAll('.favorite-ledger-panel__toolbar button')[1])
+    await waitFor(() => expect(container.querySelector('.favorite-ledger-panel__old-favorites-guide')).toBeInTheDocument())
+    fireEvent.click(container.querySelectorAll('.favorite-ledger-panel__guide-steps button')[2])
+    fireEvent.click(container.querySelectorAll('.favorite-ledger-panel__guide-steps button')[3])
+    fireEvent.click(container.querySelector('.favorite-ledger-panel__confirm button')!)
+
+    await waitFor(() =>
+      expect(container.querySelector('.favorite-ledger-panel__old-favorite-progress progress')).toHaveAttribute(
+        'value',
+        '0'
+      )
+    )
+    expect(container.querySelector('.favorite-ledger-panel__old-favorite-progress progress')).toHaveAttribute(
+      'max',
+      '2'
+    )
+    expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(1)
+    expect(onExecuteOldFavoritePlan).toHaveBeenNthCalledWith(1, [
+      expect.objectContaining({ targetLedgerId: 'knowledge' })
+    ])
+
+    await act(async () => {
+      resolveFirst?.({
+        ok: true,
+        steps: ['api:ledger:append:101'],
+        missingTargets: [],
+        message: 'done'
+      })
+      await firstCall
+    })
+
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(2))
+    expect(container.querySelector('.favorite-ledger-panel__old-favorite-progress progress')).toHaveAttribute(
+      'value',
+      '1'
+    )
+    expect(onExecuteOldFavoritePlan).toHaveBeenNthCalledWith(2, [
+      expect.objectContaining({ targetLedgerId: 'movie-tv' })
+    ])
+
+    await act(async () => {
+      resolveSecond?.({
+        ok: true,
+        steps: ['api:ledger:append:101'],
+        missingTargets: [],
+        message: 'done'
+      })
+      await secondCall
+    })
+
+    await waitFor(() =>
+      expect(container.querySelector('.favorite-ledger-panel__old-favorite-progress progress')).toHaveAttribute(
+        'value',
+        '2'
+      )
+    )
   })
 
   it('defaults recommended old favorite ledgers on and previews videos grouped by ledger', async () => {

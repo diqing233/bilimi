@@ -53,6 +53,9 @@ describe('requestAssistantRuntimeWhenReady', () => {
       30 * 60 * 1000
     )
     expect(createAssistantRuntimeTimeoutMs({ type: 'scan-old-favorites' })).toBe(30 * 60 * 1000)
+    expect(createAssistantRuntimeTimeoutMs({ type: 'execute-old-favorite-plan', items: [] })).toBe(
+      30 * 60 * 1000
+    )
     expect(createAssistantRuntimeTimeoutMs({ type: 'snapshot' })).toBe(8000)
   })
 
