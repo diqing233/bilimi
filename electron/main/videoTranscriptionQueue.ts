@@ -120,8 +120,30 @@ export function createVideoTranscriptionQueue({
       })
       const completedAt = now()
       const note = createNoteFromQueueItem(runningItem, result.transcript, completedAt)
-      const summaryText =
-        runningItem.summarizeWithDeepSeek && summarizeNote ? await summarizeNote(note) : ''
+      updateItem(runningItem.id, (item) => ({
+        ...item,
+        progress: { step: 'generating-note', message: 'Generating note from transcript.' },
+        updatedAt: now()
+      }))
+      publish()
+
+      let summaryText = ''
+      if (runningItem.summarizeWithDeepSeek && summarizeNote) {
+        updateItem(runningItem.id, (item) => ({
+          ...item,
+          progress: { step: 'summarizing-deepseek', message: 'Generating DeepSeek summary.' },
+          updatedAt: now()
+        }))
+        publish()
+        summaryText = await summarizeNote(note)
+      }
+
+      updateItem(runningItem.id, (item) => ({
+        ...item,
+        progress: { step: 'saving-archive', message: 'Saving note to archive.' },
+        updatedAt: now()
+      }))
+      publish()
 
       saveArchiveVersion(note, summaryText)
       updateItem(runningItem.id, (item) => ({
@@ -130,7 +152,7 @@ export function createVideoTranscriptionQueue({
         completedAt,
         updatedAt: completedAt,
         archiveNoteId: note.id,
-        progress: { step: 'generating-note', message: 'Saved note to archive.' },
+        progress: { step: 'queue-completed', message: 'Queued transcription completed.' },
         errorMessage: undefined
       }))
     } catch (error) {

@@ -149,6 +149,36 @@ describe('video transcription queue', () => {
     )
   })
 
+  it('publishes progress through DeepSeek summary and queue completion stages', async () => {
+    const transcribe = vi.fn().mockResolvedValue({
+      transcript: createTranscript('summary transcript'),
+      transcriptSource: 'audio'
+    })
+    const summarizeNote = vi.fn().mockResolvedValue('DeepSeek summary text')
+    const snapshots: VideoAudioTranscriptionQueueSnapshot[] = []
+    const queue = createVideoTranscriptionQueue({
+      loadItems: createStore().load,
+      saveItems: vi.fn(),
+      transcribe,
+      summarizeNote,
+      saveArchiveVersion: vi.fn(),
+      now: () => '2026-06-25T00:00:00.000Z',
+      onSnapshot: (snapshot) => snapshots.push(snapshot)
+    })
+
+    queue.enqueue(createRequest({ summarizeWithDeepSeek: true }))
+    await flushMicrotasks()
+    await flushMicrotasks()
+
+    expect(snapshots.map((snapshot) => snapshot.items[0]?.progress?.step)).toContain(
+      'summarizing-deepseek'
+    )
+    expect(snapshots.at(-1)?.items[0]).toMatchObject({
+      status: 'completed',
+      progress: { step: 'queue-completed' }
+    })
+  })
+
   it('saves queued notes without summary text when auto summary is not requested', async () => {
     const transcribe = vi.fn().mockResolvedValue({
       transcript: createTranscript('plain transcript'),

@@ -1566,7 +1566,7 @@ body[data-floating-window="true"],
   padding: 6px;
 }
 .video-notes__queue li > div:first-child,
-.video-notes__queue-progress,
+.video-notes__queue-progress > div,
 .video-notes__queue-actions {
   display: flex;
   align-items: center;
@@ -1582,6 +1582,15 @@ body[data-floating-window="true"],
   color: var(--porcelain-muted);
   font-size: 12px;
   font-weight: 700;
+}
+.video-notes__queue-progress {
+  display: grid;
+  gap: 5px;
+}
+.video-notes__queue-progress progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--porcelain-primary);
 }
 .video-notes__queue p {
   margin: 0;

@@ -283,6 +283,9 @@ export type VideoAudioTranscriptionProgressStep =
   | 'transcribing-segment'
   | 'merging-transcript'
   | 'generating-note'
+  | 'summarizing-deepseek'
+  | 'saving-archive'
+  | 'queue-completed'
 
 export type VideoAudioTranscriptionProgress = {
   step: VideoAudioTranscriptionProgressStep

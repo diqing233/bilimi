@@ -888,7 +888,7 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() => expect(enqueueCurrentVideoAudioTranscription).toHaveBeenCalledOnce())
     expect(generateVideoNoteFromAudio).not.toHaveBeenCalled()
     expect(screen.getAllByText('正在转写第 1 / 2 段').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('50%').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('49%').length).toBeGreaterThan(0)
     expect(screen.queryByText('Transcribing segment 1/2.')).not.toBeInTheDocument()
   })
 

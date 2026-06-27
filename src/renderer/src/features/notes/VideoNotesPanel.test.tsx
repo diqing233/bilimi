@@ -219,8 +219,8 @@ describe('VideoNotesPanel', () => {
       }
     })
     expect(screen.getByText('正在转写第 1 / 2 段')).toBeInTheDocument()
-    expect(screen.getByText('50%')).toBeInTheDocument()
-    expect(screen.getByLabelText('音频转写进度')).toHaveAttribute('value', '50')
+    expect(screen.getByText('49%')).toBeInTheDocument()
+    expect(screen.getByLabelText('转写音频到文稿生成整体进度')).toHaveAttribute('value', '49')
     expect(screen.queryByText('Transcribing segment 1/2.')).not.toBeInTheDocument()
   })
 

@@ -54,7 +54,10 @@ const progressFallbackByStep: Record<VideoAudioTranscriptionProgress['step'], nu
   'preparing-segments': 30,
   'transcribing-segment': 50,
   'merging-transcript': 88,
-  'generating-note': 96
+  'generating-note': 96,
+  'summarizing-deepseek': 96,
+  'saving-archive': 98,
+  'queue-completed': 100
 }
 
 const progressLabelByStep: Record<VideoAudioTranscriptionProgress['step'], string> = {
@@ -63,7 +66,16 @@ const progressLabelByStep: Record<VideoAudioTranscriptionProgress['step'], strin
   'preparing-segments': '正在切分音频',
   'transcribing-segment': '正在转写音频',
   'merging-transcript': '正在合并文稿',
-  'generating-note': '正在生成札记'
+  'generating-note': '正在生成文稿',
+  'summarizing-deepseek': '正在生成 DeepSeek 总结',
+  'saving-archive': '正在保存到档案库',
+  'queue-completed': '排队已完成'
+}
+
+type FormattedProgress = {
+  label: string
+  percent: number
+  ariaLabel: string
 }
 
 function createPosterCacheKey(note: VideoNote): string {
@@ -78,7 +90,30 @@ function formatTimestamp(seconds: number | null): string {
   return minutes.toString().padStart(2, '0') + ':' + remainder.toString().padStart(2, '0')
 }
 
-function formatProgress(progress: VideoAudioTranscriptionProgress): { label: string; percent: number } {
+function clampPercent(value: number): number {
+  return Math.min(100, Math.max(0, Math.round(value)))
+}
+
+function interpolatePercent(start: number, end: number, index: number, count: number): number {
+  if (count <= 0) return start
+  const completedShare = Math.min(1, Math.max(0, index / count))
+  return clampPercent(start + (end - start) * completedShare)
+}
+
+function formatProgress(
+  progress: VideoAudioTranscriptionProgress,
+  summarizeWithDeepSeek = false
+): FormattedProgress {
+  const ariaLabel = summarizeWithDeepSeek ? '转写音频到 DeepSeek 总结整体进度' : '转写音频到文稿生成整体进度'
+
+  if (progress.step === 'queue-completed') {
+    return {
+      label: summarizeWithDeepSeek ? 'DeepSeek 总结已完成' : '文稿已生成',
+      percent: 100,
+      ariaLabel
+    }
+  }
+
   if (
     progress.step === 'transcribing-segment' &&
     typeof progress.segmentIndex === 'number' &&
@@ -87,10 +122,34 @@ function formatProgress(progress: VideoAudioTranscriptionProgress): { label: str
   ) {
     return {
       label: '正在转写第 ' + progress.segmentIndex + ' / ' + progress.segmentCount + ' 段',
-      percent: Math.min(100, Math.max(0, Math.round((progress.segmentIndex / progress.segmentCount) * 100)))
+      percent: summarizeWithDeepSeek
+        ? interpolatePercent(30, 78, progress.segmentIndex, progress.segmentCount)
+        : interpolatePercent(30, 68, progress.segmentIndex, progress.segmentCount),
+      ariaLabel
     }
   }
-  return { label: progressLabelByStep[progress.step], percent: progressFallbackByStep[progress.step] }
+
+  if (progress.step === 'merging-transcript') {
+    return {
+      label: progressLabelByStep[progress.step],
+      percent: summarizeWithDeepSeek ? 82 : 76,
+      ariaLabel
+    }
+  }
+
+  if (progress.step === 'generating-note') {
+    return {
+      label: progressLabelByStep[progress.step],
+      percent: summarizeWithDeepSeek ? 88 : 94,
+      ariaLabel
+    }
+  }
+
+  return {
+    label: progressLabelByStep[progress.step],
+    percent: progressFallbackByStep[progress.step],
+    ariaLabel
+  }
 }
 
 function createTimedTranscriptText(segments: TranscriptSegment[]): string {
@@ -135,6 +194,14 @@ export function VideoNotesPanel({
       ) ?? null,
     [transcriptionQueue]
   )
+  const latestCompletedQueueItem = useMemo(
+    () =>
+      transcriptionQueue?.items
+        .filter((item) => item.status === 'completed')
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null,
+    [transcriptionQueue]
+  )
+  const visibleQueueItem = activeQueueItem ?? latestCompletedQueueItem
   const queuedItemCount = useMemo(
     () => transcriptionQueue?.items.filter((item) => item.status === 'pending').length ?? 0,
     [transcriptionQueue]
@@ -276,33 +343,38 @@ export function VideoNotesPanel({
           <strong>{progress.label}</strong>
           <span>{progress.percent}%</span>
         </div>
-        <progress max={100} value={progress.percent} aria-label="音频转写进度" />
+        <progress max={100} value={progress.percent} aria-label={progress.ariaLabel} />
       </div>
     )
   }
 
   function renderQueueItemProgress(item: VideoAudioTranscriptionQueueItem): React.JSX.Element | null {
     if (!item.progress) return null
-    const progress = formatProgress(item.progress)
+    const progress = formatProgress(item.progress, Boolean(item.summarizeWithDeepSeek))
 
     return (
-      <div className="video-notes__queue-progress">
-        <span>{progress.label}</span>
-        <span>{progress.percent}%</span>
+      <div className="video-notes__queue-progress" role="status" aria-live="polite">
+        <div>
+          <span>{progress.label}</span>
+          <span>{progress.percent}%</span>
+        </div>
+        <progress max={100} value={progress.percent} aria-label={progress.ariaLabel} />
       </div>
     )
   }
 
   function renderTranscriptionQueue(): React.JSX.Element | null {
-    if (!activeQueueItem) return null
+    if (!visibleQueueItem) return null
+    const statusLabel =
+      visibleQueueItem.status === 'completed' ? '排队已完成' : '正在转写'
 
     return (
       <section className="video-notes__queue" aria-label="转写状态">
         <div className="video-notes__panel-header">
-          <strong>正在转写：{activeQueueItem.title}</strong>
+          <strong>{statusLabel}：{visibleQueueItem.title}</strong>
           <span>排队中：{queuedItemCount} 个</span>
         </div>
-        {renderQueueItemProgress(activeQueueItem)}
+        {renderQueueItemProgress(visibleQueueItem)}
       </section>
     )
   }
