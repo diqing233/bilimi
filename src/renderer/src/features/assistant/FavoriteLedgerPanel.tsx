@@ -575,20 +575,15 @@ export function FavoriteLedgerPanel({
       return
     }
 
-    if (missingLedgerIds.length > 0) {
-      await saveLedgers({
-        includeSelectedCandidates: false,
-        includeDefaultLedgers: true,
-        pendingMessage: '正在备齐整理旧藏需要的册目...',
-        saveOptions: { deleteDisabled: false },
-        onSuccess: async () => {
-          await scanOldFavorites()
-        }
-      })
-      return
-    }
-
-    await scanOldFavorites()
+    await saveLedgers({
+      includeSelectedCandidates: false,
+      includeDefaultLedgers: true,
+      pendingMessage: '正在同步整理旧藏需要的主收藏...',
+      saveOptions: { deleteDisabled: false },
+      onSuccess: async () => {
+        await scanOldFavorites()
+      }
+    })
   }
 
   function addBlankLedger() {

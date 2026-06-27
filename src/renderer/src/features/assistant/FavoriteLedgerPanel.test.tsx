@@ -998,8 +998,8 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
     fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
 
-    await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
-    expect(onSaveLedgers.mock.invocationCallOrder[0]).toBeLessThan(
+    await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledTimes(2))
+    expect(onSaveLedgers.mock.invocationCallOrder[1]).toBeLessThan(
       onExecuteOldFavoritePlan.mock.invocationCallOrder[0]
     )
     expect(onSaveLedgers).toHaveBeenCalledWith(
@@ -1915,7 +1915,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
 
-    await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
+    await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledTimes(2))
     await waitFor(() =>
       expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([
         expect.objectContaining({
@@ -1975,6 +1975,15 @@ describe('FavoriteLedgerPanel', () => {
   })
 
   it('shows a status message while old favorites are scanning', async () => {
+    let resolveSave:
+      | ((value: { ok: boolean; steps: string[]; missingTargets: string[]; message: string }) => void)
+      | undefined
+    const savePromise = new Promise<{ ok: boolean; steps: string[]; missingTargets: string[]; message: string }>(
+      (resolve) => {
+        resolveSave = resolve
+      }
+    )
+    const onSaveLedgers = vi.fn().mockReturnValue(savePromise)
     let resolveScan: (preview: FavoriteLedgerPreview) => void = () => {}
     const onScanOldFavorites = vi.fn(
       () =>
@@ -1988,13 +1997,25 @@ describe('FavoriteLedgerPanel', () => {
         ledgers={createDefaultFavoriteLedgers()}
         missingLedgerIds={[]}
         onEnsureLedgers={vi.fn()}
-        onSaveLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
         onScanOldFavorites={onScanOldFavorites}
         onExecuteOldFavoritePlan={vi.fn()}
       />
     )
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    expect(screen.getByRole('status')).toHaveTextContent('正在同步整理旧藏需要的主收藏...')
+    expect(onScanOldFavorites).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolveSave?.({
+        ok: true,
+        steps: ['api:ledger:list'],
+        missingTargets: [],
+        message: 'favorite ledgers saved'
+      })
+    })
 
     expect(screen.getByRole('status')).toHaveTextContent('正在扫描旧藏，请稍候。')
 
@@ -2100,6 +2121,50 @@ describe('FavoriteLedgerPanel', () => {
       expect(onScanOldFavorites).toHaveBeenCalledWith(
         expect.objectContaining({ enhanceWithDeepSeek: false, multiArchiveMode: 'off' })
       )
+    )
+  })
+
+  it('syncs the eight default ledgers before organizing even when none are marked missing', async () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger, index) => ({
+      ...ledger,
+      bilibiliFolderId: String(9001 + index)
+    }))
+    const onSaveLedgers = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['api:ledger:list'],
+      missingTargets: [],
+      message: 'favorite ledgers saved'
+    })
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [],
+      skippedSourceFolderTitles: []
+    })
+
+    const { container } = render(
+      <FavoriteLedgerPanel
+        ledgers={ledgers}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(container.querySelectorAll('.favorite-ledger-panel__toolbar button')[1])
+
+    await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
+    await waitFor(() => expect(onScanOldFavorites).toHaveBeenCalledOnce())
+    expect(onSaveLedgers.mock.invocationCallOrder[0]).toBeLessThan(
+      onScanOldFavorites.mock.invocationCallOrder[0]
+    )
+    expect(onSaveLedgers).toHaveBeenCalledWith(
+      expect.arrayContaining(
+        createDefaultFavoriteLedgers().map((ledger) =>
+          expect.objectContaining({ id: ledger.id, enabled: true, isDefault: true })
+        )
+      ),
+      { deleteDisabled: false }
     )
   })
 
