@@ -45,7 +45,6 @@ export type AssistantRuntimeRequest =
   | {
       id: string
       type: 'scan-old-favorites'
-      enhanceWithDeepSeek?: boolean
       multiArchiveMode?: FavoriteArchiveMultiMode
     }
   | { id: string; type: 'execute-old-favorite-plan'; items: FavoriteLedgerPreviewItem[] }

@@ -41,7 +41,6 @@ function createAppPreferences(
     favoriteArchiveMultiMode: 'off',
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
-    deepseekOldFavoriteAssistanceEnabled: false,
     deepseekAutoSummaryEnabled: false,
     deepseekModel: 'deepseek-v4-flash',
     deepseekBaseUrl: 'https://api.deepseek.com',
@@ -1002,24 +1001,12 @@ describe('App runtime integration', () => {
     )
   })
 
-  it('keeps old favorite scans local until DeepSeek enhancement is requested', async () => {
+  it('keeps old favorite scans local when DeepSeek is enabled', async () => {
     const preferences = createAppPreferences({
       deepseekEnabled: true,
-      deepseekApiKeyStored: true,
-      deepseekOldFavoriteAssistanceEnabled: true
+      deepseekApiKeyStored: true
     })
-    const generateDeepSeek = vi.fn().mockResolvedValue({
-      kind: 'favorite-ledger-insights',
-      suggestions: [
-        {
-          sourceKind: 'tag-cluster',
-          sourceName: 'AI',
-          displayName: 'Bilimi·AI效率工坊',
-          keywords: ['AI', '效率', '工具'],
-          reason: 'AI、效率、工具共现明显，适合合并成一个工作流册目。'
-        }
-      ]
-    })
+    const generateDeepSeek = vi.fn()
     const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
       generateDeepSeek
     })
@@ -1084,40 +1071,26 @@ describe('App runtime integration', () => {
           candidateLedgers: expect.arrayContaining([
             expect.objectContaining({
               sourceName: 'AI',
-              displayName: 'Bilimi·AI',
-              aiEnhanced: false
+              displayName: 'Bilimi·AI'
             })
           ])
         })
       })
     )
 
-    const enhancedPreview = await requestRuntime({
+    const secondPreview = await requestRuntime({
       id: 'scan-ai-2',
-      type: 'scan-old-favorites',
-      enhanceWithDeepSeek: true
+      type: 'scan-old-favorites'
     })
 
-    expect(generateDeepSeek).toHaveBeenCalledWith(
-      expect.objectContaining({
-        kind: 'favorite-ledger-insights',
-        totalVideos: 3,
-        candidates: expect.arrayContaining([
-          expect.objectContaining({
-            sourceName: 'AI',
-            displayName: 'Bilimi·AI'
-          })
-        ])
-      })
-    )
-    expect(enhancedPreview).toEqual(
+    expect(generateDeepSeek).not.toHaveBeenCalled()
+    expect(secondPreview).toEqual(
       expect.objectContaining({
         insights: expect.objectContaining({
           candidateLedgers: expect.arrayContaining([
             expect.objectContaining({
               sourceName: 'AI',
-              displayName: 'Bilimi·AI效率工坊',
-              aiEnhanced: true
+              displayName: 'Bilimi·AI'
             })
           ])
         })

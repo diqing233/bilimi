@@ -37,7 +37,6 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     favoriteArchiveMultiMode: 'off',
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
-    deepseekOldFavoriteAssistanceEnabled: false,
     deepseekAutoSummaryEnabled: false,
     deepseekModel: 'deepseek-v4-flash',
     deepseekBaseUrl: 'https://api.deepseek.com',
@@ -380,7 +379,6 @@ describe('PalaceMaidPetApp', () => {
         favoriteArchiveMultiMode: 'off',
         deepseekEnabled: false,
         deepseekApiKeyStored: false,
-        deepseekOldFavoriteAssistanceEnabled: false,
         deepseekAutoSummaryEnabled: false,
         deepseekModel: 'deepseek-v4-flash',
         deepseekBaseUrl: 'https://api.deepseek.com'
@@ -421,7 +419,6 @@ describe('PalaceMaidPetApp', () => {
         favoriteArchiveMultiMode: 'off',
         deepseekEnabled: false,
         deepseekApiKeyStored: false,
-        deepseekOldFavoriteAssistanceEnabled: false,
         deepseekAutoSummaryEnabled: false,
         deepseekModel: 'deepseek-v4-flash',
         deepseekBaseUrl: 'https://api.deepseek.com'

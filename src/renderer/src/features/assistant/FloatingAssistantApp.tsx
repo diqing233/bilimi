@@ -498,7 +498,6 @@ export function FloatingAssistantApp({
       ...preferences,
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
-      deepseekOldFavoriteAssistanceEnabled: false,
       deepseekAutoSummaryEnabled: false,
       deepseekModel: DEFAULT_DEEPSEEK_MODEL,
       deepseekBaseUrl: DEFAULT_DEEPSEEK_BASE_URL
@@ -883,14 +882,10 @@ export function FloatingAssistantApp({
 
   async function scanOldFavorites(
     options: {
-      enhanceWithDeepSeek?: boolean
       multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']
     } = {}
   ): Promise<FavoriteLedgerPreview> {
-    tellPet(
-      'progress',
-      options.enhanceWithDeepSeek ? '小咪正在用 DeepSeek 补判待分类旧藏。' : '小咪正在扫描旧收藏夹。'
-    )
+    tellPet('progress', '小咪正在扫描旧收藏夹。')
     const preview =
       (await window.bilimiDesktop?.scanOldFavorites?.(options)) ?? {
         items: [],
@@ -899,11 +894,9 @@ export function FloatingAssistantApp({
 
     tellPet(
       'success',
-      options.enhanceWithDeepSeek
-        ? 'DeepSeek 补判好了，小咪已刷新推荐收藏夹。'
-        : preview.items.length > 0
-          ? '旧藏扫描好了，小咪列出可归册项目。'
-          : '旧藏扫描好了，暂时没有需要归册的项目。'
+      preview.items.length > 0
+        ? '旧藏扫描好了，小咪列出可归册项目。'
+        : '旧藏扫描好了，暂时没有需要归册的项目。'
     )
     return preview
   }
@@ -964,8 +957,6 @@ export function FloatingAssistantApp({
             onExecuteOldFavoritePlan={executeOldFavoritePlan}
             onOldFavoriteExecutionStateChange={handleOldFavoriteExecutionStateChange}
             favoriteArchiveMultiMode={preferences.favoriteArchiveMultiMode}
-            deepSeekOldFavoriteAssistanceEnabled={preferences.deepseekOldFavoriteAssistanceEnabled}
-            deepSeekReady={preferences.deepseekEnabled && preferences.deepseekApiKeyStored}
           />
         </div>
 
@@ -1115,23 +1106,7 @@ export function FloatingAssistantApp({
               <p className="assistant-settings__deepseek-help">
                 开启后可使用批阅的拟奏短评、札记中的 DeepSeek 总结、宠物对话功能。
               </p>
-              <div className="assistant-settings__deepseek-divider" aria-hidden="true" />
               <div className="assistant-settings__deepseek-switches">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={preferences.deepseekOldFavoriteAssistanceEnabled}
-                    onChange={(event) =>
-                      updateDeepSeekPreference(
-                        {
-                          deepseekOldFavoriteAssistanceEnabled: event.currentTarget.checked
-                        },
-                        { persist: true }
-                      )
-                    }
-                  />
-                  <span>用 DeepSeek 辅助整理旧藏</span>
-                </label>
                 <label>
                   <input
                     type="checkbox"
@@ -1148,7 +1123,6 @@ export function FloatingAssistantApp({
                   <span>转写完成后自动生成 DeepSeek 总结</span>
                 </label>
               </div>
-              <div className="assistant-settings__deepseek-divider" aria-hidden="true" />
               <label>
                 <span>DeepSeek API 密钥</span>
                 <input

@@ -25,7 +25,6 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     favoriteArchiveMultiMode: 'off',
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
-    deepseekOldFavoriteAssistanceEnabled: false,
     deepseekAutoSummaryEnabled: false,
     deepseekModel: 'deepseek-v4-flash',
     deepseekBaseUrl: 'https://api.deepseek.com',
@@ -658,7 +657,7 @@ describe('FloatingAssistantApp', () => {
 
     const enabled = screen.getByRole('checkbox', { name: '启用 DeepSeek' })
     fireEvent.click(enabled)
-    fireEvent.click(screen.getByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' }))
+    expect(screen.queryByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' }))
     fireEvent.change(screen.getByLabelText('DeepSeek API 密钥'), {
       target: { value: 'sk-test' }
@@ -678,7 +677,6 @@ describe('FloatingAssistantApp', () => {
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
           deepseekEnabled: true,
-          deepseekOldFavoriteAssistanceEnabled: true,
           deepseekAutoSummaryEnabled: true,
           deepseekModel: 'deepseek-chat',
           deepseekBaseUrl: 'https://api.deepseek.local'
@@ -697,7 +695,6 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() => expect(clearDeepSeekApiKey).toHaveBeenCalledOnce())
     await waitFor(() => {
       expect(screen.getByRole('checkbox', { name: '启用 DeepSeek' })).not.toBeChecked()
-      expect(screen.getByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' })).not.toBeChecked()
       expect(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' })).not.toBeChecked()
     })
     expect(screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥').value).toBe('')
@@ -710,7 +707,6 @@ describe('FloatingAssistantApp', () => {
         expect.objectContaining({
           deepseekEnabled: false,
           deepseekApiKeyStored: false,
-          deepseekOldFavoriteAssistanceEnabled: false,
           deepseekAutoSummaryEnabled: false,
           deepseekModel: 'deepseek-v4-flash',
           deepseekBaseUrl: 'https://api.deepseek.com'
@@ -720,7 +716,7 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('DeepSeek 设置已重置。')
   })
 
-  it('persists DeepSeek organizing toggles as soon as they change', async () => {
+  it('persists the DeepSeek auto-summary toggle as soon as it changes', async () => {
     const { savePreferences } = installDesktopApi()
 
     render(<FloatingAssistantApp />)
@@ -728,35 +724,23 @@ describe('FloatingAssistantApp', () => {
     await screen.findAllByRole('tab')
     fireEvent.click(screen.getAllByRole('tab')[3])
 
-    fireEvent.click(screen.getByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' }))
-
-    await waitFor(() =>
-      expect(savePreferences).toHaveBeenCalledWith(
-        expect.objectContaining({
-          deepseekOldFavoriteAssistanceEnabled: true,
-          deepseekAutoSummaryEnabled: false
-        })
-      )
-    )
-
+    expect(screen.queryByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' }))
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
-          deepseekOldFavoriteAssistanceEnabled: true,
           deepseekAutoSummaryEnabled: true
         })
       )
     )
   })
 
-  it('restores saved DeepSeek organizing toggles from the assistant snapshot', async () => {
+  it('restores the saved DeepSeek auto-summary toggle from the assistant snapshot', async () => {
     installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
           preferences: createPreferences({
-            deepseekOldFavoriteAssistanceEnabled: true,
             deepseekAutoSummaryEnabled: true
           })
         })
@@ -768,7 +752,7 @@ describe('FloatingAssistantApp', () => {
     await screen.findAllByRole('tab')
     fireEvent.click(screen.getAllByRole('tab')[3])
 
-    expect(screen.getByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' })).toBeChecked()
+    expect(screen.queryByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' })).not.toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' })).toBeChecked()
   })
 

@@ -1,4 +1,4 @@
-﻿import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { AssistantOverlay } from './AssistantOverlay'
 
@@ -216,7 +216,6 @@ describe('AssistantOverlay', () => {
           favoriteArchiveMultiMode: 'off',
           deepseekEnabled: false,
           deepseekApiKeyStored: false,
-          deepseekOldFavoriteAssistanceEnabled: false,
           deepseekAutoSummaryEnabled: false,
           deepseekModel: 'deepseek-v4-flash',
           deepseekBaseUrl: 'https://api.deepseek.com',
@@ -320,7 +319,6 @@ describe('AssistantOverlay', () => {
           favoriteArchiveMultiMode: 'off',
           deepseekEnabled: false,
           deepseekApiKeyStored: false,
-          deepseekOldFavoriteAssistanceEnabled: false,
           deepseekAutoSummaryEnabled: false,
           deepseekModel: 'deepseek-v4-flash',
           deepseekBaseUrl: 'https://api.deepseek.com',
@@ -429,7 +427,6 @@ describe('AssistantOverlay', () => {
           favoriteArchiveMultiMode: 'off',
           deepseekEnabled: false,
           deepseekApiKeyStored: false,
-          deepseekOldFavoriteAssistanceEnabled: false,
           deepseekAutoSummaryEnabled: false,
           deepseekModel: 'deepseek-v4-flash',
           deepseekBaseUrl: 'https://api.deepseek.com',

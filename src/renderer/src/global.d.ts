@@ -74,7 +74,6 @@ type BilimiDesktopApi = {
     options?: FloatingAssistantActionOptions
   ) => Promise<void>
   scanOldFavorites?: (options?: {
-    enhanceWithDeepSeek?: boolean
     multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']
   }) => Promise<FavoriteLedgerPreview>
   saveFavoriteLedgers?: (

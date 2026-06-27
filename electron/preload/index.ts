@@ -212,7 +212,6 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('floating-assistant:save-ledgers', ledgers, options),
   openBilibiliFavorites: () => ipcRenderer.invoke('floating-assistant:open-bilibili-favorites'),
   scanOldFavorites: (options?: {
-    enhanceWithDeepSeek?: boolean
     multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']
   }) => ipcRenderer.invoke('floating-assistant:scan-old-favorites', options),
   executeOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) =>

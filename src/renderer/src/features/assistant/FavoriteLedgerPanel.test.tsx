@@ -1,4 +1,4 @@
-import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
+﻿import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
@@ -925,7 +925,6 @@ describe('FavoriteLedgerPanel', () => {
             count: 2,
             confidence: 'medium' as const,
             reason: 'DeepSeek 认为 AI 与效率工具可以合并成一个工作流收藏夹。',
-            aiEnhanced: true
           }
         ]
       }
@@ -1578,7 +1577,6 @@ describe('FavoriteLedgerPanel', () => {
             count: 2,
             confidence: 'high' as const,
             reason: '旧藏推荐：2 条旧藏适合归入此收藏夹。',
-            aiEnhanced: true
           }
         ]
       }
@@ -1716,7 +1714,6 @@ describe('FavoriteLedgerPanel', () => {
             count: 2,
             confidence: 'high' as const,
             reason: '旧藏推荐：2 条旧藏适合归入此收藏夹。',
-            aiEnhanced: true
           }
         ]
       }
@@ -1874,7 +1871,6 @@ describe('FavoriteLedgerPanel', () => {
             count: 1,
             confidence: 'medium' as const,
             reason: '高频标签 AI 适合单独成册。',
-            aiEnhanced: false
           }
         ]
       }
@@ -2119,7 +2115,7 @@ describe('FavoriteLedgerPanel', () => {
 
     await waitFor(() =>
       expect(onScanOldFavorites).toHaveBeenCalledWith(
-        expect.objectContaining({ enhanceWithDeepSeek: false, multiArchiveMode: 'off' })
+        expect.objectContaining({ multiArchiveMode: 'off' })
       )
     )
   })
@@ -2223,7 +2219,6 @@ describe('FavoriteLedgerPanel', () => {
             count: 4,
             confidence: 'high',
             reason: '高频标签“AI”出现 4 次，适合单独成册。',
-            aiEnhanced: false
           }
         ]
       }
@@ -2318,7 +2313,6 @@ describe('FavoriteLedgerPanel', () => {
             count: 1,
             confidence: 'medium',
             reason: '摄影相关旧藏适合单独成册。',
-            aiEnhanced: false
           }
         ]
       }
@@ -2376,7 +2370,6 @@ describe('FavoriteLedgerPanel', () => {
             count: 4,
             confidence: 'high',
             reason: '高频标签“AI”出现 4 次，适合单独成册。',
-            aiEnhanced: false
           }
         ]
       }
@@ -2727,8 +2720,6 @@ describe('FavoriteLedgerPanel', () => {
         onSaveLedgers={vi.fn()}
         onScanOldFavorites={onScanOldFavorites}
         onExecuteOldFavoritePlan={vi.fn()}
-        deepSeekOldFavoriteAssistanceEnabled
-        deepSeekReady
       />
     )
 
@@ -2858,7 +2849,6 @@ describe('FavoriteLedgerPanel', () => {
             count: 1,
             confidence: 'medium' as const,
             reason: '高频标签“原神”出现 1 次，适合单独成册。',
-            aiEnhanced: false
           }
         ]
       }
@@ -2948,7 +2938,6 @@ describe('FavoriteLedgerPanel', () => {
           count: 2,
           confidence: 'medium' as const,
           reason: `高频标签“${tagName}”出现 ${tagCount(tagName)} 次，适合单独成册。`,
-          aiEnhanced: false
         }))
       }
     })
@@ -3040,71 +3029,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByRole('group', { name: 'Bilimi·影视动漫 1 条' })).toBeInTheDocument()
   })
 
-  it('marks AI-enhanced ledger suggestions when DeepSeek improves the local candidates', async () => {
-    const onScanOldFavorites = vi.fn().mockResolvedValue({
-      items: [
-        {
-          aid: 101,
-          title: 'AI 效率工具实战',
-          sourceFolderTitle: '默认收藏夹',
-          targetLedgerId: 'inbox',
-          targetFolderId: '',
-          targetDisplayName: 'Bilimi·待分类',
-          reviewRequired: false,
-          alreadyInTarget: false,
-          selected: true,
-          candidateTargets: [
-            {
-              candidateKey: 'tag-cluster:AI',
-              ledgerId: 'custom-tag-cluster-AI',
-              displayName: 'Bilimi·AI效率工坊',
-              keywords: ['AI', '效率', '工具']
-            }
-          ]
-        }
-      ],
-      skippedSourceFolderTitles: [],
-      insights: {
-        totalVideos: 4,
-        topAuthors: [],
-        topTags: [{ name: 'AI', count: 4 }],
-        topCategories: [],
-        titleSeries: [],
-        candidateLedgers: [
-          {
-            kind: 'tag-cluster',
-            sourceName: 'AI',
-            displayName: 'Bilimi·AI效率工坊',
-            keywords: ['AI', '效率', '工具'],
-            count: 4,
-            confidence: 'high',
-            reason: 'AI、效率、工具共现明显，适合合并成一个工作流册目。',
-            aiEnhanced: true
-          }
-        ]
-      }
-    })
-
-    render(
-      <FavoriteLedgerPanel
-        ledgers={createDefaultFavoriteLedgers()}
-        missingLedgerIds={[]}
-        onEnsureLedgers={vi.fn()}
-        onSaveLedgers={vi.fn()}
-        onScanOldFavorites={onScanOldFavorites}
-        onExecuteOldFavoritePlan={vi.fn()}
-      />
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
-
-    await screen.findByRole('region', { name: '整理旧藏向导' })
-    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
-    expect(screen.getByLabelText('Bilimi·AI效率工坊')).not.toBeChecked()
-    expect(screen.getByLabelText('Bilimi·AI效率工坊').closest('article')).toHaveTextContent('1 条适合')
-  })
-
-  it('runs DeepSeek old favorite assistance only after the scan overview action', async () => {
+  it('does not offer DeepSeek old favorite assistance from the scan overview', async () => {
     const plainPreview: FavoriteLedgerPreview = {
       items: [
         {
@@ -3130,41 +3055,7 @@ describe('FavoriteLedgerPanel', () => {
         candidateLedgers: []
       }
     }
-    const enhancedPreview: FavoriteLedgerPreview = {
-      ...plainPreview,
-      items: [
-        {
-          ...plainPreview.items[0],
-          candidateTargets: [
-            {
-              candidateKey: 'tag-cluster:AI',
-              ledgerId: 'custom-tag-cluster-AI',
-              displayName: 'Bilimi·AI效率工坊',
-              keywords: ['AI', '效率', '工具']
-            }
-          ]
-        }
-      ],
-      insights: {
-        ...plainPreview.insights!,
-        candidateLedgers: [
-          {
-            kind: 'tag-cluster',
-            sourceName: 'AI',
-            displayName: 'Bilimi·AI效率工坊',
-            keywords: ['AI', '效率', '工具'],
-            count: 1,
-            confidence: 'medium',
-            reason: 'DeepSeek 补判后建议建册。',
-            aiEnhanced: true
-          }
-        ]
-      }
-    }
-    const onScanOldFavorites = vi
-      .fn()
-      .mockResolvedValueOnce(plainPreview)
-      .mockResolvedValueOnce(enhancedPreview)
+    const onScanOldFavorites = vi.fn().mockResolvedValueOnce(plainPreview)
 
     render(
       <FavoriteLedgerPanel
@@ -3174,8 +3065,6 @@ describe('FavoriteLedgerPanel', () => {
         onSaveLedgers={vi.fn()}
         onScanOldFavorites={onScanOldFavorites}
         onExecuteOldFavoritePlan={vi.fn()}
-        deepSeekOldFavoriteAssistanceEnabled
-        deepSeekReady
       />
     )
 
@@ -3183,19 +3072,10 @@ describe('FavoriteLedgerPanel', () => {
 
     await screen.findByRole('region', { name: '整理旧藏向导' })
     expect(onScanOldFavorites).toHaveBeenCalledWith(
-      expect.objectContaining({ enhanceWithDeepSeek: false })
+      expect.not.objectContaining({ enhanceWithDeepSeek: expect.anything() })
     )
-    expect(screen.getByRole('button', { name: '智能补判旧藏' })).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: '智能补判旧藏' }))
-
-    await waitFor(() =>
-      expect(onScanOldFavorites).toHaveBeenLastCalledWith(
-        expect.objectContaining({ enhanceWithDeepSeek: true })
-      )
-    )
-    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
-    expect(await screen.findByLabelText('Bilimi·AI效率工坊')).not.toBeChecked()
+    expect(screen.queryByRole('button', { name: '智能补判旧藏' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/DeepSeek/)).not.toBeInTheDocument()
   })
 
   it('recommends using Bilibili tags as ledger keywords', () => {

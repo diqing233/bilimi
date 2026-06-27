@@ -504,54 +504,6 @@ export default function App() {
     return (await isBilibiliLoggedIn()) ? null : LOGIN_REQUIRED_RESULT
   }
 
-  function canEnhanceFavoriteLedgerInsights(preview: FavoriteLedgerPreview) {
-    return Boolean(
-      preferences.deepseekEnabled &&
-        preferences.deepseekApiKeyStored &&
-        preferences.deepseekOldFavoriteAssistanceEnabled &&
-        window.bilimiDesktop?.generateDeepSeek &&
-        preview.insights?.candidateLedgers.length
-    )
-  }
-
-  async function enhanceFavoriteLedgerPreview(
-    preview: FavoriteLedgerPreview,
-    sourceFolders: FavoriteSourceFolder[],
-    targetMembership: Record<string, number[]>,
-    multiArchiveMode: AssistantPreferences['favoriteArchiveMultiMode']
-  ): Promise<FavoriteLedgerPreview> {
-    if (!canEnhanceFavoriteLedgerInsights(preview) || !preview.insights) {
-      return preview
-    }
-
-    const request: DeepSeekGenerateRequest = {
-      kind: 'favorite-ledger-insights',
-      totalVideos: preview.insights.totalVideos,
-      topAuthors: preview.insights.topAuthors,
-      topTags: preview.insights.topTags,
-      topCategories: preview.insights.topCategories,
-      titleSeries: preview.insights.titleSeries,
-      candidates: preview.insights.candidateLedgers
-    }
-
-    try {
-      const result = await window.bilimiDesktop?.generateDeepSeek?.(request)
-      if (!result || result.kind !== 'favorite-ledger-insights') {
-        return preview
-      }
-
-      return createFavoriteLedgerPreview({
-        ledgers: preferences.favoriteLedgers,
-        sourceFolders,
-        targetMembership,
-        aiSuggestions: result.suggestions,
-        multiArchiveMode
-      })
-    } catch {
-      return preview
-    }
-  }
-
   async function readFavoriteLedgerStatus(): Promise<FavoriteLedgerStatus> {
     const status = await runScript(
       buildFavoriteLedgerStatusScript(preferences.favoriteLedgers)
@@ -630,7 +582,7 @@ export default function App() {
   }
 
   async function scanOldFavorites(
-    options: { enhanceWithDeepSeek?: boolean; multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode'] } = {}
+    options: { multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode'] } = {}
   ): Promise<FavoriteLedgerPreview> {
     const loginFailure = await requireBilibiliLogin()
     if (loginFailure) {
@@ -667,16 +619,7 @@ export default function App() {
       multiArchiveMode: options.multiArchiveMode ?? preferences.favoriteArchiveMultiMode
     })
 
-    if (!options.enhanceWithDeepSeek) {
-      return preview
-    }
-
-    return enhanceFavoriteLedgerPreview(
-      preview,
-      scanResult.sourceFolders,
-      scanResult.targetMembership,
-      options.multiArchiveMode ?? preferences.favoriteArchiveMultiMode
-    )
+    return preview
   }
 
   async function executeOldFavoritePlan(
@@ -957,7 +900,6 @@ export default function App() {
           return openBilibiliFavorites()
         case 'scan-old-favorites':
           return scanOldFavorites({
-            enhanceWithDeepSeek: request.enhanceWithDeepSeek,
             multiArchiveMode: request.multiArchiveMode
           })
         case 'execute-old-favorite-plan':

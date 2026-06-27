@@ -120,7 +120,6 @@ describe('createFavoriteLedgerInsights', () => {
         keywords: ['AI'],
         count: 4,
         confidence: 'high',
-        aiEnhanced: false,
         reason: expect.stringContaining('高频标签')
       }),
       expect.objectContaining({
@@ -266,42 +265,4 @@ describe('createFavoriteLedgerInsights', () => {
     )
   })
 
-  it('applies AI enhancements only to matching deterministic candidates', () => {
-    const insights = createFavoriteLedgerInsights({
-      sourceFolders: createSourceFolders(),
-      existingLedgerNames: [],
-      aiSuggestions: [
-        {
-          sourceKind: 'tag-cluster',
-          sourceName: 'AI',
-          displayName: 'Bilimi·AI效率工坊',
-          keywords: ['AI', '效率', '自动化'],
-          reason: 'AI、效率、工具共现明显，适合合并成一个工作流册目。'
-        },
-        {
-          sourceKind: 'author',
-          sourceName: '不存在的UP',
-          displayName: 'Bilimi·无效建议',
-          keywords: ['无效'],
-          reason: '不应凭空增加。'
-        }
-      ]
-    })
-
-    expect(insights.candidateLedgers[0]).toMatchObject({
-      kind: 'tag-cluster',
-      sourceName: 'AI',
-      displayName: 'Bilimi·AI效率工坊',
-      keywords: ['AI', '效率', '自动化'],
-      reason: 'AI、效率、工具共现明显，适合合并成一个工作流册目。',
-      aiEnhanced: true
-    })
-    expect(insights.candidateLedgers).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          displayName: 'Bilimi·无效建议'
-        })
-      ])
-    )
-  })
 })

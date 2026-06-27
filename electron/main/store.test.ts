@@ -70,9 +70,6 @@ function createFakeStore(
     deepseekEnabled: initial.deepseekEnabled ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekEnabled,
     deepseekApiKeyStored:
       initial.deepseekApiKeyStored ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekApiKeyStored,
-    deepseekOldFavoriteAssistanceEnabled:
-      initial.deepseekOldFavoriteAssistanceEnabled ??
-      DEFAULT_ASSISTANT_PREFERENCES.deepseekOldFavoriteAssistanceEnabled,
     deepseekAutoSummaryEnabled:
       initial.deepseekAutoSummaryEnabled ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekAutoSummaryEnabled,
     deepseekModel: initial.deepseekModel ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
@@ -158,7 +155,6 @@ describe('assistant preference store helpers', () => {
       },
       deepseekEnabled: true,
       deepseekApiKeyStored: false,
-      deepseekOldFavoriteAssistanceEnabled: true,
       deepseekAutoSummaryEnabled: false,
       deepseekModel: 'deepseek-reasoner',
       deepseekBaseUrl: 'https://deepseek.example'
@@ -177,7 +173,6 @@ describe('assistant preference store helpers', () => {
         suspicious: 1
       },
       deepseekEnabled: true,
-      deepseekOldFavoriteAssistanceEnabled: true,
       deepseekModel: 'deepseek-reasoner',
       deepseekBaseUrl: 'https://deepseek.example'
     })
@@ -191,7 +186,6 @@ describe('assistant preference store helpers', () => {
     const saved = saveAssistantPreferences(store, {
       ...DEFAULT_ASSISTANT_PREFERENCES,
       deepseekEnabled: true,
-      deepseekOldFavoriteAssistanceEnabled: true,
       deepseekAutoSummaryEnabled: true,
       deepseekModel: 'deepseek-chat',
       deepseekBaseUrl: 'https://api.deepseek.local'
@@ -200,7 +194,6 @@ describe('assistant preference store helpers', () => {
     expect(saved).toMatchObject({
       deepseekEnabled: true,
       deepseekApiKeyStored: false,
-      deepseekOldFavoriteAssistanceEnabled: true,
       deepseekAutoSummaryEnabled: true,
       deepseekModel: 'deepseek-chat',
       deepseekBaseUrl: 'https://api.deepseek.local'

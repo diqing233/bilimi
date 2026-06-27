@@ -13,14 +13,6 @@ export type FavoriteLedgerCandidateKind = 'author' | 'tag-cluster' | 'category' 
 
 export type FavoriteLedgerCandidateConfidence = 'high' | 'medium'
 
-export type FavoriteLedgerAiSuggestion = {
-  sourceKind: FavoriteLedgerCandidateKind
-  sourceName: string
-  displayName: string
-  keywords: string[]
-  reason: string
-}
-
 export type FavoriteLedgerCandidate = {
   kind: FavoriteLedgerCandidateKind
   sourceName: string
@@ -29,7 +21,6 @@ export type FavoriteLedgerCandidate = {
   count: number
   confidence: FavoriteLedgerCandidateConfidence
   reason: string
-  aiEnhanced: boolean
 }
 
 export type FavoriteLedgerInsights = {
@@ -201,8 +192,7 @@ function buildTagClusters(videos: FavoriteSourceVideo[], totalVideos: number): F
       keywords,
       count: tag.count,
       confidence: confidence(tag.count, totalVideos),
-      reason: `高频标签“${tag.name}”出现 ${tag.count} 次，适合单独成册。`,
-      aiEnhanced: false
+      reason: `高频标签“${tag.name}”出现 ${tag.count} 次，适合单独成册。`
     }
   })
 }
@@ -221,8 +211,7 @@ function buildSeriesCandidates(
       keywords: [series.name],
       count: series.count,
       confidence: confidence(series.count, totalVideos),
-      reason: `标题系列“${series.name}”出现 ${series.count} 次，适合追更或成套回看。`,
-      aiEnhanced: false
+      reason: `标题系列“${series.name}”出现 ${series.count} 次，适合追更或成套回看。`
     }))
 }
 
@@ -240,8 +229,7 @@ function buildAuthorCandidates(
       keywords: [author.name],
       count: author.count,
       confidence: confidence(author.count, totalVideos),
-      reason: `固定 UP“${author.name}”已有 ${author.count} 条收藏，适合持续追更。`,
-      aiEnhanced: false
+      reason: `固定 UP“${author.name}”已有 ${author.count} 条收藏，适合持续追更。`
     }))
 }
 
@@ -259,43 +247,13 @@ function buildCategoryCandidates(
       keywords: [category.name],
       count: category.count,
       confidence: confidence(category.count, totalVideos),
-      reason: `分区“${category.name}”占比较高，可作为粗粒度归档入口。`,
-      aiEnhanced: false
+      reason: `分区“${category.name}”占比较高，可作为粗粒度归档入口。`
     }))
-}
-
-function applyAiSuggestions(
-  candidates: FavoriteLedgerCandidate[],
-  aiSuggestions: FavoriteLedgerAiSuggestion[]
-): FavoriteLedgerCandidate[] {
-  const suggestionsByKey = new Map(
-    aiSuggestions.map((suggestion) => [
-      candidateKey(suggestion.sourceKind, suggestion.sourceName),
-      suggestion
-    ])
-  )
-
-  return candidates.map((candidate) => {
-    const suggestion = suggestionsByKey.get(candidateKey(candidate.kind, candidate.sourceName))
-    if (!suggestion) {
-      return candidate
-    }
-
-    return {
-      ...candidate,
-      displayName: cleanText(suggestion.displayName) || candidate.displayName,
-      keywords:
-        suggestion.keywords.map(cleanKeyword).filter(Boolean).slice(0, 6) || candidate.keywords,
-      reason: cleanText(suggestion.reason) || candidate.reason,
-      aiEnhanced: true
-    }
-  })
 }
 
 export function createFavoriteLedgerInsights(args: {
   sourceFolders: FavoriteSourceFolder[]
   existingLedgerNames: string[]
-  aiSuggestions?: FavoriteLedgerAiSuggestion[]
 }): FavoriteLedgerInsights {
   const videos = flattenVideos(args.sourceFolders)
   const totalVideos = videos.length
@@ -351,6 +309,6 @@ export function createFavoriteLedgerInsights(args: {
     topCategories,
     sourceFolders,
     titleSeries,
-    candidateLedgers: applyAiSuggestions(candidates, args.aiSuggestions ?? [])
+    candidateLedgers: candidates
   }
 }

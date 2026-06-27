@@ -26,14 +26,11 @@ type FavoriteLedgerPanelProps = {
   ) => Promise<AssistantAutomationResult> | void
   onOpenFavoritePage?: () => Promise<AssistantAutomationResult> | void
   onScanOldFavorites: (options?: {
-    enhanceWithDeepSeek?: boolean
     multiArchiveMode?: FavoriteArchiveMultiMode
   }) => Promise<FavoriteLedgerPreview>
   onExecuteOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
   onOldFavoriteExecutionStateChange?: (state: 'running' | 'finished') => void
   favoriteArchiveMultiMode?: FavoriteArchiveMultiMode
-  deepSeekOldFavoriteAssistanceEnabled?: boolean
-  deepSeekReady?: boolean
 }
 
 type OldFavoriteExecutionResult = AssistantAutomationResult & {
@@ -470,9 +467,7 @@ export function FavoriteLedgerPanel({
   onScanOldFavorites,
   onExecuteOldFavoritePlan,
   onOldFavoriteExecutionStateChange,
-  favoriteArchiveMultiMode = 'off',
-  deepSeekOldFavoriteAssistanceEnabled = false,
-  deepSeekReady = false
+  favoriteArchiveMultiMode = 'off'
 }: FavoriteLedgerPanelProps) {
   const [draftLedgers, setDraftLedgers] = useState<FavoriteLedger[]>(ledgers)
   const [activeLedgerId, setActiveLedgerId] = useState<string | null>(null)
@@ -501,7 +496,6 @@ export function FavoriteLedgerPanel({
   const [ledgerListExpanded, setLedgerListExpanded] = useState(false)
   const [oldFavoriteStep, setOldFavoriteStep] = useState<OldFavoriteGuideStep>('scan')
   const [oldFavoriteGuideMode, setOldFavoriteGuideMode] = useState<OldFavoriteGuideMode>('organize')
-  const [oldFavoriteDeepSeekEnhanced, setOldFavoriteDeepSeekEnhanced] = useState(false)
   const [tagCandidatesExpanded, setTagCandidatesExpanded] = useState(false)
   const ledgerNamesById = useMemo(
     () => Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName])),
@@ -983,16 +977,14 @@ export function FavoriteLedgerPanel({
   }
 
   async function scanOldFavorites(
-    mode: 'setup' | 'organize' = 'organize',
-    options: { enhanceWithDeepSeek?: boolean } = {}
+    mode: 'setup' | 'organize' = 'organize'
   ) {
     setBusy(true)
     setSaveStatus(null)
     setOldFavoriteExecutionProgress(null)
-    setStatus(options.enhanceWithDeepSeek ? '正在用 DeepSeek 补判旧藏，请稍候。' : '正在扫描旧藏，请稍候。')
+    setStatus('正在扫描旧藏，请稍候。')
     try {
       const nextPreview = await onScanOldFavorites({
-        enhanceWithDeepSeek: Boolean(options.enhanceWithDeepSeek),
         multiArchiveMode: favoriteArchiveMultiMode
       })
       if (nextPreview.ok === false) {
@@ -1004,7 +996,6 @@ export function FavoriteLedgerPanel({
       setPreview(nextPreview)
       setOldFavoriteStep('scan')
       setOldFavoriteGuideMode(mode)
-      setOldFavoriteDeepSeekEnhanced(Boolean(options.enhanceWithDeepSeek))
       setTagCandidatesExpanded(false)
       setLedgerListExpanded(true)
       const nextCandidateKeys = recommendedCandidateKeysForPreview(nextPreview)
@@ -1053,9 +1044,7 @@ export function FavoriteLedgerPanel({
         new Set(nextPreview.items.map((item) => item.sourceFolderTitle))
       )
       setStatus(
-        options.enhanceWithDeepSeek
-          ? `DeepSeek 已补判 ${nextPreview.items.length} 条旧藏，可查看推荐收藏夹。`
-          : mode === 'setup'
+        mode === 'setup'
           ? `已扫描 ${nextPreview.insights?.totalVideos ?? nextPreview.items.length} 条旧藏，可勾选库房后同步。`
           : `已扫描 ${nextPreview.items.length} 条旧藏，可勾选后整理。`
       )
@@ -1065,10 +1054,6 @@ export function FavoriteLedgerPanel({
     } finally {
       setBusy(false)
     }
-  }
-
-  async function enhanceOldFavoritesWithDeepSeek() {
-    await scanOldFavorites(oldFavoriteGuideMode, { enhanceWithDeepSeek: true })
   }
 
   function toggleOldFavorite(aid: number) {
@@ -1304,8 +1289,7 @@ export function FavoriteLedgerPanel({
   function oldFavoriteCandidateDetailText(candidate: FavoriteLedgerCandidate) {
     const count = oldFavoriteCandidateCounts.get(candidateKey(candidate)) ?? candidate.count
     const sourceLabel = candidate.kind === 'author' ? '固定 UP' : candidate.kind === 'series' ? '标题系列' : '主题聚类'
-    const aiLabel = candidate.aiEnhanced ? ' · DeepSeek 补判' : ''
-    return `${count} 条旧藏 · ${sourceLabel}${aiLabel} · ${candidate.reason}`
+    return `${count} 条旧藏 · ${sourceLabel} · ${candidate.reason}`
   }
 
   function oldFavoriteCandidateRecommendationText(candidate: FavoriteLedgerCandidate) {
@@ -1592,28 +1576,6 @@ export function FavoriteLedgerPanel({
                         </div>
                       ) : null}
                     </div>
-                  </div>
-                  <div className="favorite-ledger-panel__deepseek-assist">
-                    {deepSeekReady && deepSeekOldFavoriteAssistanceEnabled ? (
-                      <>
-                        <span>
-                          {oldFavoriteDeepSeekEnhanced
-                            ? 'DeepSeek 已补判，可查看推荐收藏夹。'
-                            : '候选不够准时，可让 DeepSeek 继续补判。'}
-                        </span>
-                        <button
-                          type="button"
-                          disabled={busy || oldFavoriteDeepSeekEnhanced}
-                          onClick={() => void enhanceOldFavoritesWithDeepSeek()}
-                        >
-                          智能补判旧藏
-                        </button>
-                      </>
-                    ) : deepSeekReady ? (
-                      <span>在设置中开启“用 DeepSeek 辅助整理旧藏”后，可继续补判旧藏。</span>
-                    ) : (
-                      <span>配置并启用 DeepSeek 后，可继续补判旧藏。</span>
-                    )}
                   </div>
                 </>
               ) : null}

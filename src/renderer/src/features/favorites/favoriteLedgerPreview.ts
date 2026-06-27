@@ -1,7 +1,6 @@
 import type { FavoriteLedger } from '@shared/types'
 import {
   createFavoriteLedgerInsights,
-  type FavoriteLedgerAiSuggestion,
   type FavoriteLedgerCandidate,
   type FavoriteLedgerInsights
 } from './favoriteLedgerInsights'
@@ -70,15 +69,13 @@ export function createFavoriteLedgerPreview(args: {
   sourceFolders: FavoriteSourceFolder[]
   targetMembership: Record<string, number[]>
   skippedSourceFolderTitles?: string[]
-  aiSuggestions?: FavoriteLedgerAiSuggestion[]
   multiArchiveMode?: FavoriteArchiveMultiMode
 }): FavoriteLedgerPreview {
   const skippedSourceFolderTitles = args.skippedSourceFolderTitles ?? []
   const items: FavoriteLedgerPreviewItem[] = []
   const insights = createFavoriteLedgerInsights({
     sourceFolders: args.sourceFolders,
-    existingLedgerNames: args.ledgers.map((ledger) => ledger.displayName),
-    aiSuggestions: args.aiSuggestions
+    existingLedgerNames: args.ledgers.map((ledger) => ledger.displayName)
   })
 
   for (const folder of args.sourceFolders) {

@@ -131,6 +131,9 @@ describe('assistant state', () => {
       deepseekModel: 'deepseek-v4-flash',
       deepseekBaseUrl: 'https://api.deepseek.com'
     })
+    expect(createInitialAssistantPreferences()).not.toHaveProperty(
+      'deepseekOldFavoriteAssistanceEnabled'
+    )
   })
 
   it('normalizes invalid persisted DeepSeek preference values', () => {
