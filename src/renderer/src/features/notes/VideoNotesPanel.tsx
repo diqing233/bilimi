@@ -464,18 +464,9 @@ export function VideoNotesPanel({
             ) : null}
           </section>
         ) : note ? (
-          <section aria-label="DeepSeek 总结">
-            {note.overview.shortSummary.map((summary) => (
-              <p key={summary}>{summary}</p>
-            ))}
-            {note.overview.keywords.length > 0 ? (
-              <ul className="video-notes__keywords" aria-label="关键词">
-                {note.overview.keywords.map((keyword) => (
-                  <li key={keyword}>{keyword}</li>
-                ))}
-              </ul>
-            ) : null}
-          </section>
+          <p className="video-notes__summary-empty">
+            请点击生成总结，让 DeepSeek 基于文稿生成精准总结。
+          </p>
         ) : (
           <p className="video-notes__summary-empty">请先转写音频，再生成 DeepSeek 总结。</p>
         )}

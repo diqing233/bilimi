@@ -265,6 +265,17 @@ describe('VideoNotesPanel', () => {
     )
   })
 
+  it('does not show local draft overview as a DeepSeek summary before generation', () => {
+    renderPanel({ deepSeekEnabled: true, onGeneratePoster: vi.fn() })
+
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+
+    expect(screen.getByRole('button', { name: '生成总结' })).toBeInTheDocument()
+    expect(screen.queryByText('三分钟讲清机器学习的基本思路。')).not.toBeInTheDocument()
+    expect(screen.queryByText('训练数据决定模型上限。')).not.toBeInTheDocument()
+    expect(screen.getByText('请点击生成总结，让 DeepSeek 基于文稿生成精准总结。')).toBeInTheDocument()
+  })
+
   it('reuses the generated DeepSeek summary when the summary tab is reopened', async () => {
     const poster: NotePosterSummary = {
       title: 'Learning Machine Models',
