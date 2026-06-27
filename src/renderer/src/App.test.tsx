@@ -38,8 +38,11 @@ function createAppPreferences(
     petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
     hidePetDuringVideoFullscreen: false,
     bilibiliOperationMode: 'api-assisted',
+    favoriteArchiveMultiMode: 'off',
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
+    deepseekOldFavoriteAssistanceEnabled: false,
+    deepseekAutoSummaryEnabled: false,
     deepseekModel: 'deepseek-v4-flash',
     deepseekBaseUrl: 'https://api.deepseek.com',
     ...overrides

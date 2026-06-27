@@ -3039,13 +3039,17 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
 
     await screen.findByRole('region', { name: '整理旧藏向导' })
-    expect(onScanOldFavorites).toHaveBeenCalledWith({ enhanceWithDeepSeek: false })
+    expect(onScanOldFavorites).toHaveBeenCalledWith(
+      expect.objectContaining({ enhanceWithDeepSeek: false })
+    )
     expect(screen.getByRole('button', { name: '智能补判旧藏' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '智能补判旧藏' }))
 
     await waitFor(() =>
-      expect(onScanOldFavorites).toHaveBeenLastCalledWith({ enhanceWithDeepSeek: true })
+      expect(onScanOldFavorites).toHaveBeenLastCalledWith(
+        expect.objectContaining({ enhanceWithDeepSeek: true })
+      )
     )
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
     expect(await screen.findByLabelText('Bilimi·AI效率工坊')).not.toBeChecked()

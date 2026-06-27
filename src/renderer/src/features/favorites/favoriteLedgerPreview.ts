@@ -6,6 +6,11 @@ import {
   type FavoriteLedgerInsights
 } from './favoriteLedgerInsights'
 import { classifyVideoContent, type VideoContentContext } from '../recommendation/videoClassifier'
+import {
+  planFavoriteArchiveTargets,
+  type FavoriteArchiveTarget
+} from '../recommendation/archivePlanning'
+import type { FavoriteArchiveMultiMode } from '@shared/types'
 
 export type FavoriteSourceVideo = VideoContentContext & {
   aid: number
@@ -66,6 +71,7 @@ export function createFavoriteLedgerPreview(args: {
   targetMembership: Record<string, number[]>
   skippedSourceFolderTitles?: string[]
   aiSuggestions?: FavoriteLedgerAiSuggestion[]
+  multiArchiveMode?: FavoriteArchiveMultiMode
 }): FavoriteLedgerPreview {
   const skippedSourceFolderTitles = args.skippedSourceFolderTitles ?? []
   const items: FavoriteLedgerPreviewItem[] = []
@@ -78,7 +84,15 @@ export function createFavoriteLedgerPreview(args: {
   for (const folder of args.sourceFolders) {
     for (const video of folder.videos) {
       const classification = classifyVideoContent(video, args.ledgers)
-      const targetLedger = args.ledgers.find((ledger) => ledger.id === classification.ledgerId)
+      const archiveTargets = planFavoriteArchiveTargets({
+        context: video,
+        ledgers: args.ledgers,
+        multiArchiveMode: args.multiArchiveMode ?? 'off'
+      })
+      const primaryArchiveTarget = archiveTargets[0]
+      const targetLedger = args.ledgers.find(
+        (ledger) => ledger.id === (primaryArchiveTarget?.ledgerId ?? classification.ledgerId)
+      )
       const targetFolderId = targetLedger?.bilibiliFolderId ?? ''
       const alreadyInTarget = targetFolderId
         ? (args.targetMembership[targetFolderId] ?? []).includes(video.aid)
@@ -93,7 +107,8 @@ export function createFavoriteLedgerPreview(args: {
         primaryDisplayName: targetLedger?.displayName ?? classification.displayName,
         suggestedLedgerId: classification.suggestedLedgerId,
         reviewRequired: classification.reviewRequired,
-        candidateTargets
+        candidateTargets,
+        archiveTargets
       })
 
       items.push({
@@ -128,6 +143,7 @@ function previewTargetsForVideo(args: {
   suggestedLedgerId?: string
   reviewRequired: boolean
   candidateTargets: FavoriteLedgerPreviewCandidateTarget[]
+  archiveTargets: FavoriteArchiveTarget[]
 }): FavoriteLedgerPreviewTarget[] {
   const targets: FavoriteLedgerPreviewTarget[] = []
   const targetLedgerIds = new Set<string>()
@@ -141,25 +157,15 @@ function previewTargetsForVideo(args: {
     targets.push(target)
   }
 
-  for (const ledger of args.ledgers) {
-    if (ledger.id === 'inbox') {
-      continue
-    }
-
-    const isPrimary = ledger.id === args.primaryLedgerId
-    const matchesKeywords = !isPrimary && ledgerMatchesVideo(ledger, args.video)
-    if (!isPrimary && !matchesKeywords) {
-      continue
-    }
-
-    const folderId = ledger.bilibiliFolderId ?? ''
+  for (const archiveTarget of args.archiveTargets) {
+    const folderId = archiveTarget.folderId
     const alreadyInTarget = folderId ? (args.targetMembership[folderId] ?? []).includes(args.video.aid) : false
     const selected = Boolean(folderId) && !alreadyInTarget && !args.reviewRequired
     pushTarget({
-      ledgerId: ledger.id,
+      ledgerId: archiveTarget.ledgerId,
       folderId,
-      displayName: ledger.displayName,
-      keywords: ledger.keywords,
+      displayName: archiveTarget.displayName,
+      keywords: archiveTarget.keywords,
       alreadyInTarget,
       selected
     })
@@ -188,7 +194,7 @@ function previewTargetsForVideo(args: {
       displayName: target.displayName,
       keywords: target.keywords,
       alreadyInTarget: false,
-      selected: !args.reviewRequired,
+      selected: false,
       selectedCandidateTarget: true,
       candidateKey: target.candidateKey
     })

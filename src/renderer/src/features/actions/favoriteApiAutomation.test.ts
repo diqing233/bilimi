@@ -123,6 +123,57 @@ describe('buildFavoriteApiFallbackScript', () => {
     expect(requests[1].body).toContain('add_media_ids=91000001')
   })
 
+  it('adds the current video to multiple planned Bilimi folders in one API deal request', async () => {
+    installBilibiliPageState()
+
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'game'
+        ? { ...ledger, bilibiliFolderId: '91000002' }
+        : ledger.id === 'movie-tv'
+          ? { ...ledger, bilibiliFolderId: '91000001' }
+          : ledger
+    )
+    const requests: Array<{ body?: string; method?: string; url: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        requests.push({
+          body: init?.body?.toString(),
+          method: init?.method,
+          url
+        })
+
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({
+            code: 0,
+            data: {
+              list: [
+                { id: 91000001, title: 'Bilimi·影视动漫' },
+                { id: 91000002, title: 'Bilimi·游戏专区' }
+              ]
+            },
+            message: 'OK'
+          })
+        }
+
+        if (url.includes('/x/v3/fav/resource/deal')) {
+          return Response.json({ code: 0, data: {}, message: 'OK' })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(
+      buildFavoriteApiFallbackScript(ledgers, 'movie-tv', ['movie-tv', 'game'])
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(['api:favorite:list', 'api:favorite:add'])
+    expect(requests[1].body).toContain('add_media_ids=91000001%2C91000002')
+    expect(requests[1].body).toContain('del_media_ids=')
+  })
+
   it('marks the Bilibili toolbar favorite button active after API favorite succeeds', async () => {
     installBilibiliPageState()
     document.body.innerHTML = `

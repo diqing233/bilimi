@@ -64,6 +64,8 @@ function createFakeStore(
       DEFAULT_ASSISTANT_PREFERENCES.hidePetDuringVideoFullscreen,
     bilibiliOperationMode:
       initial.bilibiliOperationMode ?? DEFAULT_ASSISTANT_PREFERENCES.bilibiliOperationMode,
+    favoriteArchiveMultiMode:
+      initial.favoriteArchiveMultiMode ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteArchiveMultiMode,
     preferenceCounts: initial.preferenceCounts ?? { ...DEFAULT_ASSISTANT_PREFERENCES.preferenceCounts },
     deepseekEnabled: initial.deepseekEnabled ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekEnabled,
     deepseekApiKeyStored:
@@ -146,6 +148,7 @@ describe('assistant preference store helpers', () => {
       favoriteLedgers: DEFAULT_ASSISTANT_PREFERENCES.favoriteLedgers,
       ledgerPromptDismissed: false,
       bilibiliOperationMode: 'page-visual',
+      favoriteArchiveMultiMode: 'two',
       petStyle: 'classic',
       petHoverShortcuts: ['favorite', 'library', 'prepare-ledgers', 'organize-old-favorites'],
       hidePetDuringVideoFullscreen: true,
@@ -156,6 +159,7 @@ describe('assistant preference store helpers', () => {
       deepseekEnabled: true,
       deepseekApiKeyStored: false,
       deepseekOldFavoriteAssistanceEnabled: true,
+      deepseekAutoSummaryEnabled: false,
       deepseekModel: 'deepseek-reasoner',
       deepseekBaseUrl: 'https://deepseek.example'
     })
@@ -164,6 +168,7 @@ describe('assistant preference store helpers', () => {
       favoritesFolderName: 'Archive',
       ledgerPromptDismissed: false,
       bilibiliOperationMode: 'page-visual',
+      favoriteArchiveMultiMode: 'two',
       petStyle: 'classic',
       petHoverShortcuts: ['favorite', 'library', 'prepare-ledgers', 'organize-old-favorites'],
       hidePetDuringVideoFullscreen: true,

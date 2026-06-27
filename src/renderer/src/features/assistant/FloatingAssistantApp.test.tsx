@@ -22,6 +22,7 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
     hidePetDuringVideoFullscreen: false,
     bilibiliOperationMode: 'api-assisted',
+    favoriteArchiveMultiMode: 'off',
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
     deepseekOldFavoriteAssistanceEnabled: false,

@@ -124,6 +124,7 @@ describe('assistant state', () => {
   it('creates disabled DeepSeek preferences by default', () => {
     expect(createInitialAssistantPreferences()).toMatchObject({
       bilibiliOperationMode: 'api-assisted',
+      favoriteArchiveMultiMode: 'off',
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
       deepseekAutoSummaryEnabled: false,
@@ -163,6 +164,20 @@ describe('assistant state', () => {
       })
     ).toMatchObject({
       bilibiliOperationMode: 'page-visual'
+    })
+  })
+
+  it('normalizes the favorite archive multi mode preference', () => {
+    expect(createInitialAssistantPreferences({ favoriteArchiveMultiMode: 'two' })).toMatchObject({
+      favoriteArchiveMultiMode: 'two'
+    })
+    expect(createInitialAssistantPreferences({ favoriteArchiveMultiMode: 'three' })).toMatchObject({
+      favoriteArchiveMultiMode: 'three'
+    })
+    expect(
+      createInitialAssistantPreferences({ favoriteArchiveMultiMode: 'many' as never })
+    ).toMatchObject({
+      favoriteArchiveMultiMode: 'off'
     })
   })
 })

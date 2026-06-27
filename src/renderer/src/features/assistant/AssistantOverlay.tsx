@@ -23,6 +23,7 @@ import { MemorialPanel } from './MemorialPanel'
 import { SealButton } from './SealButton'
 import { BILIMI_LEDGER_PREFIX } from '@shared/favoriteLedgers'
 import { classifyVideoContent, type VideoContentContext } from '../recommendation/videoClassifier'
+import { planFavoriteArchiveTargets } from '../recommendation/archivePlanning'
 import { normalizeExtractedVideoNoteResult } from '../notes/videoNoteExtractor'
 import { createLocalVideoNoteDraft } from '../notes/videoNoteSummarizer'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
@@ -369,19 +370,19 @@ export function AssistantOverlay({
     }
   }, [dragState])
 
-  async function readRecommendationKindFromPage() {
+  async function readVideoContextFromPage() {
     try {
       const nextContext = await readVideoContentContext?.()
 
       if (nextContext) {
         setLatestVideoContentContext(nextContext)
-        return classifyVideoContent(nextContext, preferences.favoriteLedgers).ledgerId
+        return nextContext
       }
     } catch {
-      return currentKind
+      return resolvedVideoContentContext
     }
 
-    return currentKind
+    return resolvedVideoContentContext
   }
 
   async function persistFeedback(action: AssistantAction, kind: RecommendationKind) {
@@ -472,9 +473,15 @@ export function AssistantOverlay({
     })
 
     try {
-      const actionRecommendationKind = readVideoContentContext
-        ? await readRecommendationKindFromPage()
-        : currentKind
+      const actionVideoContentContext = readVideoContentContext
+        ? await readVideoContextFromPage()
+        : resolvedVideoContentContext
+      const archiveTargets = planFavoriteArchiveTargets({
+        context: actionVideoContentContext,
+        ledgers: preferences.favoriteLedgers,
+        multiArchiveMode: preferences.favoriteArchiveMultiMode
+      })
+      const actionRecommendationKind = archiveTargets[0]?.ledgerId ?? currentKind
       const result = await executeAssistantAction({
         action,
         favoritesFolderName: resolvedFavoritesFolderName,
@@ -484,7 +491,8 @@ export function AssistantOverlay({
         coinCount: options?.coinCount,
         commentDraft: options?.commentDraft,
         favoriteLedgers: preferences.favoriteLedgers,
-        targetLedgerId: actionRecommendationKind
+        targetLedgerId: actionRecommendationKind,
+        targetLedgerIds: archiveTargets.map((target) => target.ledgerId)
       })
 
       if (result.ok && action !== '阅') {
@@ -657,6 +665,7 @@ export function AssistantOverlay({
               }}
               onScanOldFavorites={scanOldFavorites}
               onExecuteOldFavoritePlan={executeOldFavoritePlan}
+              favoriteArchiveMultiMode={preferences.favoriteArchiveMultiMode}
             />
           ) : null}
           {coinPromptOpen ? (

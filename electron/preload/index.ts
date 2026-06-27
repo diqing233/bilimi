@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AssistantPreferences } from '../main/store'
 import type {
   AssistantAction,
+  AssistantPreferences,
   DeepSeekConnectionTestResult,
   DeepSeekGenerateRequest,
   DeepSeekGenerateResult,
@@ -211,7 +211,10 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   saveFavoriteLedgers: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) =>
     ipcRenderer.invoke('floating-assistant:save-ledgers', ledgers, options),
   openBilibiliFavorites: () => ipcRenderer.invoke('floating-assistant:open-bilibili-favorites'),
-  scanOldFavorites: () => ipcRenderer.invoke('floating-assistant:scan-old-favorites'),
+  scanOldFavorites: (options?: {
+    enhanceWithDeepSeek?: boolean
+    multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']
+  }) => ipcRenderer.invoke('floating-assistant:scan-old-favorites', options),
   executeOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) =>
     ipcRenderer.invoke('floating-assistant:execute-old-favorite-plan', items),
   savePreferences: (preferences: AssistantPreferences) =>

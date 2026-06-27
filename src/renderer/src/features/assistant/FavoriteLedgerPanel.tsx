@@ -1,5 +1,10 @@
 import { BILIMI_LEDGER_PREFIX, createDefaultFavoriteLedgers, isBilimiManagedLedgerName } from '@shared/favoriteLedgers'
-import type { AssistantAutomationResult, FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
+import type {
+  AssistantAutomationResult,
+  FavoriteArchiveMultiMode,
+  FavoriteLedger,
+  FavoriteLedgerSaveOptions
+} from '@shared/types'
 import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react'
 import type { FavoriteLedgerCandidate } from '../favorites/favoriteLedgerInsights'
 import type {
@@ -20,9 +25,13 @@ type FavoriteLedgerPanelProps = {
     options?: FavoriteLedgerSaveOptions
   ) => Promise<AssistantAutomationResult> | void
   onOpenFavoritePage?: () => Promise<AssistantAutomationResult> | void
-  onScanOldFavorites: (options?: { enhanceWithDeepSeek?: boolean }) => Promise<FavoriteLedgerPreview>
+  onScanOldFavorites: (options?: {
+    enhanceWithDeepSeek?: boolean
+    multiArchiveMode?: FavoriteArchiveMultiMode
+  }) => Promise<FavoriteLedgerPreview>
   onExecuteOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
   onOldFavoriteExecutionStateChange?: (state: 'running' | 'finished') => void
+  favoriteArchiveMultiMode?: FavoriteArchiveMultiMode
   deepSeekOldFavoriteAssistanceEnabled?: boolean
   deepSeekReady?: boolean
 }
@@ -461,6 +470,7 @@ export function FavoriteLedgerPanel({
   onScanOldFavorites,
   onExecuteOldFavoritePlan,
   onOldFavoriteExecutionStateChange,
+  favoriteArchiveMultiMode = 'off',
   deepSeekOldFavoriteAssistanceEnabled = false,
   deepSeekReady = false
 }: FavoriteLedgerPanelProps) {
@@ -979,7 +989,8 @@ export function FavoriteLedgerPanel({
     setStatus(options.enhanceWithDeepSeek ? '正在用 DeepSeek 补判旧藏，请稍候。' : '正在扫描旧藏，请稍候。')
     try {
       const nextPreview = await onScanOldFavorites({
-        enhanceWithDeepSeek: Boolean(options.enhanceWithDeepSeek)
+        enhanceWithDeepSeek: Boolean(options.enhanceWithDeepSeek),
+        multiArchiveMode: favoriteArchiveMultiMode
       })
       if (nextPreview.ok === false) {
         setPreview(null)

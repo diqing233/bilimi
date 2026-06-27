@@ -34,8 +34,11 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
     hidePetDuringVideoFullscreen: false,
     bilibiliOperationMode: 'api-assisted',
+    favoriteArchiveMultiMode: 'off',
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
+    deepseekOldFavoriteAssistanceEnabled: false,
+    deepseekAutoSummaryEnabled: false,
     deepseekModel: 'deepseek-v4-flash',
     deepseekBaseUrl: 'https://api.deepseek.com',
     ...overrides
@@ -374,8 +377,11 @@ describe('PalaceMaidPetApp', () => {
         petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
         hidePetDuringVideoFullscreen: false,
         bilibiliOperationMode: 'api-assisted',
+        favoriteArchiveMultiMode: 'off',
         deepseekEnabled: false,
         deepseekApiKeyStored: false,
+        deepseekOldFavoriteAssistanceEnabled: false,
+        deepseekAutoSummaryEnabled: false,
         deepseekModel: 'deepseek-v4-flash',
         deepseekBaseUrl: 'https://api.deepseek.com'
       })
@@ -412,8 +418,11 @@ describe('PalaceMaidPetApp', () => {
         petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
         hidePetDuringVideoFullscreen: false,
         bilibiliOperationMode: 'api-assisted',
+        favoriteArchiveMultiMode: 'off',
         deepseekEnabled: false,
         deepseekApiKeyStored: false,
+        deepseekOldFavoriteAssistanceEnabled: false,
+        deepseekAutoSummaryEnabled: false,
         deepseekModel: 'deepseek-v4-flash',
         deepseekBaseUrl: 'https://api.deepseek.com'
       })

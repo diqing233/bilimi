@@ -41,6 +41,14 @@ In the recommended category grid, clicking a category name only selects it for e
 
 `整理旧藏` scans existing non-Bilimi favorite folders, shows a preview, and appends only checked items into Bilimi folders after `确认整理`. It does not move, delete, or unfavorite items from the user's original folders.
 
+Bilimi archive planning is shared by old-favorite organization and new review actions. The eight recommended category folders are mutually exclusive: one video can enter at most one of those default folders. User-created Bilimi topic folders take priority when their keywords match. The settings panel provides a `Bilimi 多归档策略` option:
+
+- `关闭`: save to the strongest Bilimi target only.
+- `最多 2 个`: save to one matching topic folder plus one default category when both exist.
+- `最多 3 个`: save to up to two matching topic folders plus one default category.
+
+Original Bilibili favorite folders never count toward this limit and are never moved or cleaned up by Bilimi.
+
 ## Assistant Actions
 
 `批阅` actions run in the active Bilibili webview. Likes, coins, favorites, and comments first use page automation through the embedded page context. Favorite actions then have two modes:
@@ -50,11 +58,15 @@ In the recommended category grid, clicking a category name only selects it for e
 
 In `仅页面点击` mode, logs that only contain steps such as `favorite:open`, `favorite:folder`, `favorite`, and `visual:favorite:*` did not use the favorite API.
 
+When API confirmation is enabled, favorite confirmation can append the current video to every planned Bilimi target in one safe `resource/deal` request with `del_media_ids` left empty. In page-click-only mode, Bilimi keeps the page/visual flow focused on the primary target.
+
 For the `表` action, DeepSeek-enabled sessions generate three video-aware funny comments directly from the current video title, author, description, tags, and local classification. There is no required comment-direction prompt in the active flow. If DeepSeek is disabled or returns an unusable result, Bilimi falls back to three local 小咪 comments that still include the UP name and video title when available. Bilimi never publishes a comment until the user explicitly selects one candidate.
 
 ## DeepSeek Assistant Features
 
 Assistant settings include a DeepSeek group for the AI-backed features used by review comments, video note summaries, and 小咪 pet chat. The API key is saved through the Electron main process and is not exposed to renderer state; normal preferences only store whether a key is present, whether DeepSeek is enabled, the model, and the base URL.
+
+DeepSeek old-favorite assistance is limited to generating and improving topic-folder candidates. It can suggest names, keywords, and reasons, but final archive targets still come from local Bilimi archive planning rules.
 
 The DeepSeek settings surface uses Chinese labels and provides `保存 DeepSeek`, `测试 DeepSeek`, and `重置 DeepSeek` actions in one row. Test feedback is localized to Chinese, and reset clears the key draft, disables DeepSeek, and restores the default model `deepseek-v4-flash` plus base URL `https://api.deepseek.com`.
 

@@ -15,6 +15,7 @@ import {
 import { normalizeVideoNotes, upsertVideoNote } from '../../src/shared/videoNotes'
 import type {
   DeepSeekKeyStatus,
+  FavoriteArchiveMultiMode,
   FavoriteLedger,
   VideoAudioTranscriptionQueueItem,
   VideoNote,
@@ -29,6 +30,7 @@ export type AssistantPreferences = {
   petHoverShortcuts: PetHoverShortcutId[]
   hidePetDuringVideoFullscreen: boolean
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
+  favoriteArchiveMultiMode: FavoriteArchiveMultiMode
   preferenceCounts: Record<string, number>
   deepseekEnabled: boolean
   deepseekApiKeyStored: boolean
@@ -58,6 +60,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   petHoverShortcuts: DEFAULT_PET_HOVER_SHORTCUTS,
   hidePetDuringVideoFullscreen: false,
   bilibiliOperationMode: 'api-assisted',
+  favoriteArchiveMultiMode: 'off',
   preferenceCounts: {},
   deepseekEnabled: false,
   deepseekApiKeyStored: false,
@@ -92,6 +95,7 @@ export function loadAssistantPreferences(
 ): AssistantPreferences {
   const petStyle = store.get('petStyle')
   const bilibiliOperationMode = store.get('bilibiliOperationMode')
+  const favoriteArchiveMultiMode = store.get('favoriteArchiveMultiMode')
   const deepseekApiKey = store.get('deepseekApiKey') ?? ''
 
   return {
@@ -103,6 +107,10 @@ export function loadAssistantPreferences(
     hidePetDuringVideoFullscreen: Boolean(store.get('hidePetDuringVideoFullscreen')),
     bilibiliOperationMode:
       bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted',
+    favoriteArchiveMultiMode:
+      favoriteArchiveMultiMode === 'two' || favoriteArchiveMultiMode === 'three'
+        ? favoriteArchiveMultiMode
+        : 'off',
     preferenceCounts: store.get('preferenceCounts') ?? {},
     deepseekEnabled: Boolean(store.get('deepseekEnabled')),
     deepseekApiKeyStored: Boolean(String(deepseekApiKey).trim()),
@@ -126,6 +134,12 @@ export function saveAssistantPreferences(
   store.set(
     'bilibiliOperationMode',
     preferences.bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted'
+  )
+  store.set(
+    'favoriteArchiveMultiMode',
+    preferences.favoriteArchiveMultiMode === 'two' || preferences.favoriteArchiveMultiMode === 'three'
+      ? preferences.favoriteArchiveMultiMode
+      : 'off'
   )
   store.set('preferenceCounts', preferences.preferenceCounts ?? {})
   store.set('deepseekEnabled', Boolean(preferences.deepseekEnabled))

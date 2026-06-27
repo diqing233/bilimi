@@ -2,6 +2,7 @@ import type {
   AssistantAction,
   AssistantAutomationResult,
   AssistantPreferences,
+  FavoriteArchiveMultiMode,
   FavoriteLedger,
   FavoriteLedgerSaveOptions,
   FavoriteLedgerStatus,
@@ -41,7 +42,12 @@ export type AssistantRuntimeRequest =
   | { id: string; type: 'ensure-ledgers' }
   | { id: string; type: 'save-ledgers'; ledgers: FavoriteLedger[]; options?: FavoriteLedgerSaveOptions }
   | { id: string; type: 'open-bilibili-favorites' }
-  | { id: string; type: 'scan-old-favorites'; enhanceWithDeepSeek?: boolean }
+  | {
+      id: string
+      type: 'scan-old-favorites'
+      enhanceWithDeepSeek?: boolean
+      multiArchiveMode?: FavoriteArchiveMultiMode
+    }
   | { id: string; type: 'execute-old-favorite-plan'; items: FavoriteLedgerPreviewItem[] }
 
 export type AssistantRuntimeResponsePayload =

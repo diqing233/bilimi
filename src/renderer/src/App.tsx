@@ -21,6 +21,7 @@ import {
   classifyVideoContent,
   type VideoContentContext
 } from './features/recommendation/videoClassifier'
+import { planFavoriteArchiveTargets } from './features/recommendation/archivePlanning'
 import { createInitialAssistantPreferences } from './features/state/assistantState'
 import {
   buildVideoNoteExtractionScript,
@@ -516,7 +517,8 @@ export default function App() {
   async function enhanceFavoriteLedgerPreview(
     preview: FavoriteLedgerPreview,
     sourceFolders: FavoriteSourceFolder[],
-    targetMembership: Record<string, number[]>
+    targetMembership: Record<string, number[]>,
+    multiArchiveMode: AssistantPreferences['favoriteArchiveMultiMode']
   ): Promise<FavoriteLedgerPreview> {
     if (!canEnhanceFavoriteLedgerInsights(preview) || !preview.insights) {
       return preview
@@ -542,7 +544,8 @@ export default function App() {
         ledgers: preferences.favoriteLedgers,
         sourceFolders,
         targetMembership,
-        aiSuggestions: result.suggestions
+        aiSuggestions: result.suggestions,
+        multiArchiveMode
       })
     } catch {
       return preview
@@ -626,7 +629,9 @@ export default function App() {
     return result
   }
 
-  async function scanOldFavorites(options: { enhanceWithDeepSeek?: boolean } = {}): Promise<FavoriteLedgerPreview> {
+  async function scanOldFavorites(
+    options: { enhanceWithDeepSeek?: boolean; multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode'] } = {}
+  ): Promise<FavoriteLedgerPreview> {
     const loginFailure = await requireBilibiliLogin()
     if (loginFailure) {
       return {
@@ -658,14 +663,20 @@ export default function App() {
       ledgers: preferences.favoriteLedgers,
       sourceFolders: scanResult.sourceFolders,
       targetMembership: scanResult.targetMembership,
-      skippedSourceFolderTitles: scanResult.skippedSourceFolderTitles
+      skippedSourceFolderTitles: scanResult.skippedSourceFolderTitles,
+      multiArchiveMode: options.multiArchiveMode ?? preferences.favoriteArchiveMultiMode
     })
 
     if (!options.enhanceWithDeepSeek) {
       return preview
     }
 
-    return enhanceFavoriteLedgerPreview(preview, scanResult.sourceFolders, scanResult.targetMembership)
+    return enhanceFavoriteLedgerPreview(
+      preview,
+      scanResult.sourceFolders,
+      scanResult.targetMembership,
+      options.multiArchiveMode ?? preferences.favoriteArchiveMultiMode
+    )
   }
 
   async function executeOldFavoritePlan(
@@ -789,10 +800,14 @@ export default function App() {
     }
 
     const videoContentContext = await readVideoContentContext()
-    const targetLedgerId = classifyVideoContent(
-      videoContentContext,
-      preferences.favoriteLedgers
-    ).ledgerId
+    const archiveTargets = planFavoriteArchiveTargets({
+      context: videoContentContext,
+      ledgers: preferences.favoriteLedgers,
+      multiArchiveMode: preferences.favoriteArchiveMultiMode
+    })
+    const targetLedgerId =
+      archiveTargets[0]?.ledgerId ??
+      classifyVideoContent(videoContentContext, preferences.favoriteLedgers).ledgerId
     const result = await executeAssistantAction({
       action,
       favoritesFolderName: preferences.favoritesFolderName,
@@ -802,7 +817,8 @@ export default function App() {
       coinCount: options?.coinCount,
       commentDraft: options?.commentDraft,
       favoriteLedgers: preferences.favoriteLedgers,
-      targetLedgerId
+      targetLedgerId,
+      targetLedgerIds: archiveTargets.map((target) => target.ledgerId)
     })
 
     if (result.ok && action !== '阅') {
@@ -938,7 +954,10 @@ export default function App() {
         case 'open-bilibili-favorites':
           return openBilibiliFavorites()
         case 'scan-old-favorites':
-          return scanOldFavorites({ enhanceWithDeepSeek: request.enhanceWithDeepSeek })
+          return scanOldFavorites({
+            enhanceWithDeepSeek: request.enhanceWithDeepSeek,
+            multiArchiveMode: request.multiArchiveMode
+          })
         case 'execute-old-favorite-plan':
           return executeOldFavoritePlan(request.items)
         default:

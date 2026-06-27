@@ -18,6 +18,7 @@ type ExecuteAssistantActionArgs = {
   commentDraft?: string
   favoriteLedgers: FavoriteLedger[]
   targetLedgerId: string
+  targetLedgerIds?: string[]
 }
 
 const DOM_SCRIPT_TIMEOUT_MS = 15_000
@@ -77,7 +78,11 @@ async function runFavoriteApiFallback(
   args: ExecuteAssistantActionArgs,
   domResult: AssistantAutomationResult
 ): Promise<AssistantAutomationResult> {
-  const script = buildFavoriteApiFallbackScript(args.favoriteLedgers, args.targetLedgerId)
+  const script = buildFavoriteApiFallbackScript(
+    args.favoriteLedgers,
+    args.targetLedgerId,
+    args.targetLedgerIds
+  )
   const apiResult = await runScriptWithTimeout(args.runScript, script)
   const unresolvedNonFavoriteTargets = nonFavoriteMissingTargets(domResult)
   const missingTargets = apiResult.ok

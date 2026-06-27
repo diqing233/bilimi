@@ -41,6 +41,8 @@ export type FavoriteLedgerSaveOptions = {
   deleteDisabled?: boolean
 }
 
+export type FavoriteArchiveMultiMode = 'off' | 'two' | 'three'
+
 export type FavoriteLedgerClassification = {
   ledgerId: FavoriteLedgerId
   displayName: string
@@ -71,6 +73,7 @@ export type AssistantPreferences = {
   petHoverShortcuts: PetHoverShortcutId[]
   hidePetDuringVideoFullscreen: boolean
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
+  favoriteArchiveMultiMode: FavoriteArchiveMultiMode
   preferenceCounts: Record<string, number>
   deepseekEnabled: boolean
   deepseekApiKeyStored: boolean

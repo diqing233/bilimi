@@ -39,6 +39,36 @@ describe('executeAssistantAction', () => {
     )
   })
 
+  it('passes multiple planned Bilimi archive targets to the API confirmation layer', async () => {
+    const runScript = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['favorite:open', 'favorite:folder', 'favorite'],
+        missingTargets: [],
+        message: '收藏已入库。'
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['api:favorite:list', 'api:favorite:add'],
+        missingTargets: [],
+        message: '已用 B 站接口归入 Bilimi 收藏夹。'
+      })
+
+    const result = await executeAssistantAction({
+      action: '藏',
+      runScript,
+      favoritesFolderName: 'Bilimi 内库',
+      favoriteLedgers,
+      targetLedgerId: 'movie-tv',
+      targetLedgerIds: ['movie-tv', 'game']
+    })
+
+    expect(runScript).toHaveBeenCalledTimes(2)
+    expect(runScript.mock.calls[1][0]).toContain('"targetLedgerIds":["movie-tv","game"]')
+    expect(result.ok).toBe(true)
+  })
+
   it('runs 点赞 + 收藏 for 赏', async () => {
     const runScript = vi
       .fn()

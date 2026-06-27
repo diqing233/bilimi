@@ -856,7 +856,10 @@ export function FloatingAssistantApp({
   }
 
   async function scanOldFavorites(
-    options: { enhanceWithDeepSeek?: boolean } = {}
+    options: {
+      enhanceWithDeepSeek?: boolean
+      multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']
+    } = {}
   ): Promise<FavoriteLedgerPreview> {
     tellPet(
       'progress',
@@ -934,6 +937,7 @@ export function FloatingAssistantApp({
             onScanOldFavorites={scanOldFavorites}
             onExecuteOldFavoritePlan={executeOldFavoritePlan}
             onOldFavoriteExecutionStateChange={handleOldFavoriteExecutionStateChange}
+            favoriteArchiveMultiMode={preferences.favoriteArchiveMultiMode}
             deepSeekOldFavoriteAssistanceEnabled={preferences.deepseekOldFavoriteAssistanceEnabled}
             deepSeekReady={preferences.deepseekEnabled && preferences.deepseekApiKeyStored}
           />
@@ -1017,6 +1021,52 @@ export function FloatingAssistantApp({
                   关闭宠物
                 </button>
               </div>
+            </fieldset>
+            <fieldset className="assistant-settings__group assistant-settings__group--archive">
+              <legend>Bilimi 多归档策略</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="favorite-archive-multi-mode"
+                  checked={preferences.favoriteArchiveMultiMode === 'off'}
+                  onChange={() =>
+                    void persistPreferences({
+                      ...preferences,
+                      favoriteArchiveMultiMode: 'off'
+                    })
+                  }
+                />
+                <span>关闭</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="favorite-archive-multi-mode"
+                  checked={preferences.favoriteArchiveMultiMode === 'two'}
+                  onChange={() =>
+                    void persistPreferences({
+                      ...preferences,
+                      favoriteArchiveMultiMode: 'two'
+                    })
+                  }
+                />
+                <span>最多 2 个</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="favorite-archive-multi-mode"
+                  checked={preferences.favoriteArchiveMultiMode === 'three'}
+                  onChange={() =>
+                    void persistPreferences({
+                      ...preferences,
+                      favoriteArchiveMultiMode: 'three'
+                    })
+                  }
+                />
+                <span>最多 3 个</span>
+              </label>
+              <p>旧收藏夹不计数，8 大默认分类始终只选一个；自建专题命中时优先归入专题。</p>
             </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--deepseek">
               <legend>DeepSeek</legend>

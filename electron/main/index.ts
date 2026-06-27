@@ -744,8 +744,8 @@ function registerAssistantPreferenceHandlers() {
       type: 'open-bilibili-favorites'
     })
   )
-  ipcMain.handle('floating-assistant:scan-old-favorites', () =>
-    requestMainAssistantRuntime<FavoriteLedgerPreview>({ type: 'scan-old-favorites' })
+  ipcMain.handle('floating-assistant:scan-old-favorites', (_event, options = {}) =>
+    requestMainAssistantRuntime<FavoriteLedgerPreview>({ type: 'scan-old-favorites', ...options })
   )
   ipcMain.handle(
     'floating-assistant:execute-old-favorite-plan',

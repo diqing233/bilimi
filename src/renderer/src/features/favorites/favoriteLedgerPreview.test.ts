@@ -169,7 +169,7 @@ describe('createFavoriteLedgerPreview', () => {
     expect(preview.items[0].candidateTargets).toHaveLength(1)
   })
 
-  it('records multiple recommended targets for one video while keeping inbox as fallback only', () => {
+  it('records secondary recommended targets without selecting them by default', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
       if (ledger.id === 'movie-tv') {
         return { ...ledger, bilibiliFolderId: '9001' }
@@ -214,7 +214,7 @@ describe('createFavoriteLedgerPreview', () => {
           ledgerId: 'custom-author-影视飓风',
           displayName: 'Bilimi·影视飓风追更',
           selectedCandidateTarget: true,
-          selected: true
+          selected: false
         })
       ])
     )
@@ -339,7 +339,7 @@ describe('createFavoriteLedgerPreview', () => {
     expect(preview.items[0].targets?.some((target) => target.ledgerId === 'inbox')).toBe(false)
   })
 
-  it('keeps high-frequency game tag candidates alongside the broad game target', () => {
+  it('keeps high-frequency game tag candidates unselected alongside the broad game target', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
       if (ledger.id === 'game') {
         return { ...ledger, bilibiliFolderId: '9002' }
@@ -397,10 +397,48 @@ describe('createFavoriteLedgerPreview', () => {
           ledgerId: 'custom-tag-cluster-原神',
           displayName: 'Bilimi·原神',
           selectedCandidateTarget: true,
-          selected: true
+          selected: false
         })
       ])
     )
     expect(preview.items[0].targets?.some((target) => target.ledgerId === 'inbox')).toBe(false)
+  })
+  it('selects one custom topic plus one broad default category when two archives are allowed', () => {
+    const ledgers = [
+      ...createDefaultFavoriteLedgers().map((ledger) =>
+        ledger.id === 'game' ? { ...ledger, bilibiliFolderId: '9002' } : ledger
+      ),
+      {
+        id: 'custom-genshin',
+        displayName: 'Bilimi-Genshin',
+        keywords: ['genshin'],
+        enabled: true,
+        priority: -20,
+        bilibiliFolderId: '9101',
+        isDefault: false
+      }
+    ]
+    const preview = createFavoriteLedgerPreview({
+      ledgers,
+      multiArchiveMode: 'two',
+      sourceFolders: [
+        {
+          id: '1',
+          title: 'default favorites',
+          videos: [{ aid: 701, title: 'genshin team guide', tags: ['genshin'] }]
+        }
+      ],
+      targetMembership: {}
+    })
+
+    expect(preview.items[0]).toMatchObject({
+      targetLedgerId: 'custom-genshin',
+      targetFolderId: '9101',
+      selected: true
+    })
+    expect(preview.items[0].targets).toEqual([
+      expect.objectContaining({ ledgerId: 'custom-genshin', folderId: '9101', selected: true }),
+      expect.objectContaining({ ledgerId: 'game', folderId: '9002', selected: true })
+    ])
   })
 })

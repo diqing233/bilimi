@@ -1,6 +1,11 @@
 import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '@shared/favoriteLedgers'
 import { normalizePetHoverShortcuts } from '@shared/petHoverShortcuts'
-import type { AssistantAction, AssistantPreferences, RecommendationKind } from '@shared/types'
+import type {
+  AssistantAction,
+  AssistantPreferences,
+  FavoriteArchiveMultiMode,
+  RecommendationKind
+} from '@shared/types'
 
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash'
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
@@ -30,6 +35,10 @@ export function normalizeBilibiliOperationMode(
   value: unknown
 ): AssistantPreferences['bilibiliOperationMode'] {
   return value === 'page-visual' ? 'page-visual' : 'api-assisted'
+}
+
+export function normalizeFavoriteArchiveMultiMode(value: unknown): FavoriteArchiveMultiMode {
+  return value === 'two' || value === 'three' ? value : 'off'
 }
 
 function normalizeDeepSeekModel(value: unknown): string {
@@ -69,6 +78,7 @@ export function createInitialAssistantPreferences(
     petHoverShortcuts: normalizePetHoverShortcuts(persisted?.petHoverShortcuts),
     hidePetDuringVideoFullscreen: Boolean(persisted?.hidePetDuringVideoFullscreen),
     bilibiliOperationMode: normalizeBilibiliOperationMode(persisted?.bilibiliOperationMode),
+    favoriteArchiveMultiMode: normalizeFavoriteArchiveMultiMode(persisted?.favoriteArchiveMultiMode),
     preferenceCounts: {
       ...createEmptyPreferenceCounts(),
       ...persisted?.preferenceCounts

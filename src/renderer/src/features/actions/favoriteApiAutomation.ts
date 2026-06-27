@@ -2,11 +2,13 @@ import type { FavoriteLedger } from '@shared/types'
 
 export function buildFavoriteApiFallbackScript(
   favoriteLedgers: FavoriteLedger[],
-  targetLedgerId: string
+  targetLedgerId: string,
+  targetLedgerIds: string[] = [targetLedgerId]
 ): string {
   const payload = JSON.stringify({
     favoriteLedgers,
-    targetLedgerId
+    targetLedgerId,
+    targetLedgerIds
   })
 
   return `
@@ -167,9 +169,16 @@ export function buildFavoriteApiFallbackScript(
           return fail('favorite-api-aid', '未能读取当前视频 aid，无法调用收藏接口。');
         }
 
-        const targetLedger = payload.favoriteLedgers.find(
-          (ledger) => ledger.id === payload.targetLedgerId
-        );
+        const targetLedgerIds = Array.from(new Set(
+          (Array.isArray(payload.targetLedgerIds) && payload.targetLedgerIds.length > 0
+            ? payload.targetLedgerIds
+            : [payload.targetLedgerId]
+          ).filter(Boolean)
+        ));
+        const targetLedgers = targetLedgerIds
+          .map((ledgerId) => payload.favoriteLedgers.find((ledger) => ledger.id === ledgerId))
+          .filter(Boolean);
+        const targetLedger = targetLedgers[0];
         const targetFolderName = targetLedger?.displayName;
 
         if (!targetFolderName) {
@@ -184,36 +193,46 @@ export function buildFavoriteApiFallbackScript(
         steps.push('api:favorite:list');
 
         const folders = Array.isArray(listData?.list) ? listData.list : [];
-        let targetFolder = folders.find((folder) => folder?.title === targetFolderName);
+        const ensureTargetFolder = async (ledger) => {
+          let targetFolder = folders.find((folder) => folder?.title === ledger.displayName);
 
-        if (!targetFolder) {
-          const createBody = new URLSearchParams({
-            csrf,
-            privacy: '0',
-            title: targetFolderName
-          });
-          const createData = await requestJson(
-            'https://api.bilibili.com/x/v3/fav/folder/add',
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
-              },
-              body: createBody
-            }
-          );
-          targetFolder = createData;
-          steps.push('api:favorite:create-folder');
+          if (!targetFolder) {
+            const createBody = new URLSearchParams({
+              csrf,
+              privacy: '0',
+              title: ledger.displayName
+            });
+            const createData = await requestJson(
+              'https://api.bilibili.com/x/v3/fav/folder/add',
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: createBody
+              }
+            );
+            targetFolder = createData;
+            folders.push(targetFolder);
+            steps.push('api:favorite:create-folder');
+          }
+
+          return targetFolder?.id || targetFolder?.fid || '';
+        };
+        const folderIds = [];
+        for (const ledger of targetLedgers) {
+          const folderId = await ensureTargetFolder(ledger);
+          if (folderId) {
+            folderIds.push(String(folderId));
+          }
         }
 
-        const folderId = targetFolder?.id || targetFolder?.fid;
-
-        if (!folderId) {
+        if (folderIds.length === 0) {
           return fail('favorite-api-folder-id', 'B 站收藏接口未返回 Bilimi 收藏夹 ID。');
         }
 
         const dealBody = new URLSearchParams({
-          add_media_ids: String(folderId),
+          add_media_ids: folderIds.join(','),
           csrf,
           del_media_ids: '',
           from_spmid: '',
