@@ -302,6 +302,7 @@ export type VideoAudioTranscriptionProgress = {
 export type VideoAudioTranscriptionRequest = {
   url: string
   title: string
+  author?: string
   bvid?: string
   aid?: number | string
   cid?: number | string

@@ -884,6 +884,7 @@ export default function App() {
     const result = await window.bilimiDesktop.transcribeCurrentVideoAudio({
       url: extraction.source.url,
       title: extraction.source.title,
+      author: extraction.source.author,
       bvid: extraction.source.bvid
     })
 
@@ -916,6 +917,7 @@ export default function App() {
     return window.bilimiDesktop.enqueueVideoAudioTranscription({
       url: extraction.source.url,
       title: extraction.source.title,
+      author: extraction.source.author,
       bvid: extraction.source.bvid,
       summarizeWithDeepSeek: Boolean(options?.summarizeWithDeepSeek)
     })

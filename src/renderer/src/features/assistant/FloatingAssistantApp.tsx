@@ -1246,6 +1246,7 @@ export function FloatingAssistantApp({
             deepSeekAutoSummaryEnabled={preferences.deepseekAutoSummaryEnabled}
             videoCategory={videoCategory}
             videoTitle={resolvedVideoTitle}
+            videoAuthor={resolvedVideoAuthor}
             onAction={handleAction}
             onClose={closeAssistant}
             closeLabel={isSidebarMode ? '收起侧栏' : '合折'}

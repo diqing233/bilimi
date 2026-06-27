@@ -115,6 +115,34 @@ describe('video transcription queue', () => {
     expect(snapshots.at(-1)?.activeItemId).toBeUndefined()
   })
 
+  it('keeps the request author on queued archive notes', async () => {
+    const transcribe = vi.fn().mockResolvedValue({
+      transcript: createTranscript('author transcript'),
+      transcriptSource: 'audio'
+    })
+    const saveArchiveVersion = vi.fn()
+    const queue = createVideoTranscriptionQueue({
+      loadItems: createStore().load,
+      saveItems: vi.fn(),
+      transcribe,
+      saveArchiveVersion,
+      now: () => '2026-06-25T00:00:00.000Z'
+    })
+
+    queue.enqueue(createRequest({ author: '李老师讲AI' }))
+    await flushMicrotasks()
+    await flushMicrotasks()
+
+    expect(saveArchiveVersion).toHaveBeenCalledWith(
+      expect.objectContaining<Partial<VideoNote>>({
+        source: expect.objectContaining({
+          author: '李老师讲AI'
+        })
+      }),
+      ''
+    )
+  })
+
   it('generates and saves DeepSeek summary text only for jobs that request auto summary', async () => {
     const transcribe = vi.fn().mockResolvedValue({
       transcript: createTranscript('summary transcript'),

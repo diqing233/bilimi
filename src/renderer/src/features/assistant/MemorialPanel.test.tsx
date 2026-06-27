@@ -113,4 +113,26 @@ describe('MemorialPanel', () => {
       'memorial-panel__recommendation-summary'
     )
   })
+
+  it('passes the current video author into the notes panel', () => {
+    render(
+      <MemorialPanel
+        recommendation={inboxRecommendation}
+        commentDrafts={['先留一评。']}
+        videoCategory="待分拣"
+        videoTitle="测试稿件"
+        videoAuthor="李老师讲AI"
+        onAction={vi.fn()}
+        onClose={vi.fn()}
+        onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
+        onTranscribeVideoAudio={vi.fn().mockResolvedValue(null)}
+        onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
+        videoNote={null}
+        videoNoteLoading={false}
+        initialTab="notes"
+      />
+    )
+
+    expect(screen.getByText('UP').nextElementSibling).toHaveTextContent('李老师讲AI')
+  })
 })

@@ -1038,6 +1038,28 @@ describe('FloatingAssistantApp', () => {
     expect(screen.queryByText('Transcribing segment 1/2.')).not.toBeInTheDocument()
   })
 
+  it('shows the current UP owner in the notes source panel before transcription', async () => {
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          videoContentContext: {
+            title: 'Machine Learning Intro',
+            author: 'AI Teacher',
+            pageText: 'Introductory learning notes.'
+          },
+          videoTitle: 'Machine Learning Intro'
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    const tabs = await screen.findAllByRole('tab')
+    fireEvent.click(tabs[1])
+
+    expect(screen.getByText('UP').nextElementSibling).toHaveTextContent('AI Teacher')
+  })
+
   it('shows the recognized transcript while DeepSeek summary is still running', async () => {
     let queueChanged:
       | Parameters<NonNullable<Window['bilimiDesktop']['onVideoAudioTranscriptionQueueChanged']>>[0]

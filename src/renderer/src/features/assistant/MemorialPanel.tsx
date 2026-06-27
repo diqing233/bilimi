@@ -27,6 +27,7 @@ type MemorialPanelProps = {
   deepSeekAutoSummaryEnabled?: boolean
   videoCategory?: string
   videoTitle: string
+  videoAuthor?: string
   onAction: (action: AssistantAction) => void
   onClose: () => void
   onGenerateVideoNote: () => Promise<VideoNote | null>
@@ -110,6 +111,7 @@ export function MemorialPanel({
   deepSeekAutoSummaryEnabled = false,
   videoCategory = '解闷小品',
   videoTitle,
+  videoAuthor,
   onAction,
   onClose,
   onGenerateVideoNote,
@@ -203,6 +205,7 @@ export function MemorialPanel({
           <VideoNotesPanel
             note={videoNote}
             currentVideoTitle={videoTitle}
+            currentVideoAuthor={videoAuthor}
             isLoading={videoNoteLoading}
             onGenerate={onGenerateVideoNote}
             onTranscribeAudio={onTranscribeVideoAudio}

@@ -224,6 +224,17 @@ describe('VideoNotesPanel', () => {
     expect(screen.queryByText('Transcribing segment 1/2.')).not.toBeInTheDocument()
   })
 
+  it('uses the current video author before a transcription note exists', () => {
+    renderPanel({
+      note: null,
+      currentVideoTitle: '当前视频',
+      currentVideoAuthor: '李老师讲AI',
+      onTranscribeAudio: vi.fn()
+    })
+
+    expect(screen.getByText('UP').nextElementSibling).toHaveTextContent('李老师讲AI')
+  })
+
   it('prompts users to enable DeepSeek when opening DeepSeek summary while disabled', () => {
     const onGeneratePoster = vi.fn()
     renderPanel({ deepSeekEnabled: false, onGeneratePoster })
@@ -255,6 +266,7 @@ describe('VideoNotesPanel', () => {
     expect(onArchivePosterSummary).toHaveBeenCalledWith(sampleNote, poster)
     expect(await screen.findByRole('button', { name: '重新总结' })).toBeInTheDocument()
     const summaryRegion = await screen.findByRole('region', { name: 'DeepSeek 总结' })
+    expect(summaryRegion).toHaveClass('video-notes__summary-result')
     expect(summaryRegion).toHaveTextContent('Learning Machine Models')
     expect(screen.getByText('Data quality matters')).toBeInTheDocument()
     expect(screen.getByText('精修文稿')).toBeInTheDocument()

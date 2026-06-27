@@ -212,11 +212,14 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain('.video-notes__primary-title')
     expectStyleSnippet('.assistant-action-button { min-height: 62px; display: grid; grid-template-columns: 58px minmax(0, 1fr);')
     expect(normalizedStyles).toContain(
-      '.video-notes__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(0, 1fr));\n  gap: 4px;'
+      '.video-notes__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));\n  gap: 4px;'
     )
     expect(normalizedStyles).toContain(
       '.video-notes__result-tabs button {\n  display: grid;\n  gap: 2px;\n  min-height: 50px;'
     )
+    expectStyleSnippet('.video-notes__source dd { min-width: 0; overflow-wrap: anywhere;')
+    expectStyleSnippet('.video-notes__summary-result { display: grid; gap: 8px; min-width: 0;')
+    expectStyleSnippet('.video-notes__summary-section pre { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;')
     expect(normalizedStyles).toContain('.video-notes__plain-text {\n  max-height: 160px;')
     expect(normalizedStyles).toContain('.video-notes textarea {\n  min-height: 60px;')
     expect(normalizedStyles).toContain(

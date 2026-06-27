@@ -46,6 +46,7 @@ function createNoteFromQueueItem(
     now,
     source: {
       title: item.title,
+      author: item.author,
       bvid: item.bvid,
       url: item.url,
       tags: []

@@ -23,6 +23,7 @@ type VideoNotesGenerateOptions = {
 type VideoNotesPanelProps = {
   note: VideoNote | null
   currentVideoTitle?: string
+  currentVideoAuthor?: string
   isLoading: boolean
   onGenerate: () => Promise<VideoNote | null>
   onSave: (note: VideoNote) => Promise<void>
@@ -162,6 +163,7 @@ function createTimedTranscriptText(segments: TranscriptSegment[]): string {
 export function VideoNotesPanel({
   note,
   currentVideoTitle = '当前视频',
+  currentVideoAuthor,
   isLoading,
   onGenerate,
   onTranscribeAudio,
@@ -210,6 +212,8 @@ export function VideoNotesPanel({
   const notePosterKey = note ? createPosterCacheKey(note) : ''
   const activePosterSummary =
     posterSummary && posterSummary.noteKey === notePosterKey ? posterSummary.summary : null
+  const sourceAuthor =
+    note?.source.author?.trim() || currentVideoAuthor?.trim() || '待转写后补齐'
   const plainTranscript = useMemo(() => (note ? createPlainTranscriptText(note) : ''), [note])
   const timedTranscript = useMemo(() => (note ? createTimedTranscriptText(note.transcript) : ''), [note])
   const summaryText = useMemo(
@@ -435,10 +439,10 @@ export function VideoNotesPanel({
         ) : posterGenerating ? (
           <p role="status">DeepSeek 正在生成总结...</p>
         ) : activePosterSummary ? (
-          <section aria-label="DeepSeek 总结">
+          <section className="video-notes__summary-result" aria-label="DeepSeek 总结">
             <h4>{activePosterSummary.title}</h4>
-            <p>{activePosterSummary.subtitle}</p>
-            <ul>
+            <p className="video-notes__summary-subtitle">{activePosterSummary.subtitle}</p>
+            <ul className="video-notes__summary-points">
               {activePosterSummary.keyPoints.map((point) => (
                 <li key={point}>{point}</li>
               ))}
@@ -487,7 +491,7 @@ export function VideoNotesPanel({
         <h3>{note?.source.title ?? currentVideoTitle}</h3>
         <dl>
           <dt>UP</dt>
-          <dd>{note?.source.author ?? '待转写后补齐'}</dd>
+          <dd>{sourceAuthor}</dd>
           <dt>BV</dt>
           <dd>{note?.source.bvid ?? '待识别'}</dd>
           <dt>链接</dt>
