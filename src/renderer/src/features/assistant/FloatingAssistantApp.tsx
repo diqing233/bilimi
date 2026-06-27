@@ -904,7 +904,7 @@ export function FloatingAssistantApp({
           ))}
         </div>
 
-        {activeView === 'ledger' ? (
+        <div className="floating-assistant-view" hidden={activeView !== 'ledger'}>
           <FavoriteLedgerPanel
             ledgers={preferences.favoriteLedgers}
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? []}
@@ -916,7 +916,9 @@ export function FloatingAssistantApp({
             deepSeekOldFavoriteAssistanceEnabled={preferences.deepseekOldFavoriteAssistanceEnabled}
             deepSeekReady={preferences.deepseekEnabled && preferences.deepseekApiKeyStored}
           />
-        ) : activeView === 'settings' ? (
+        </div>
+
+        {activeView === 'ledger' ? null : activeView === 'settings' ? (
           <section className="assistant-settings" aria-label="助手设置">
             <header>
               <h2>设置</h2>

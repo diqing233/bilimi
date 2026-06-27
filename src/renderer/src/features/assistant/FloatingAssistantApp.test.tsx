@@ -10,6 +10,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { describe, expect, it, vi } from 'vitest'
 import { FloatingAssistantApp } from './FloatingAssistantApp'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
+import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
 
 function createPreferences(overrides: Partial<AssistantPreferences> = {}): AssistantPreferences {
   return {
@@ -701,6 +702,61 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(
       'DeepSeek 测试功能未加载，请重启应用后再试。'
     )
+  })
+
+  it('keeps old favorite scanning alive after leaving and returning to ledger', async () => {
+    let resolveScan: (preview: FavoriteLedgerPreview) => void = () => undefined
+    const scanRequest = new Promise<FavoriteLedgerPreview>((resolve) => {
+      resolveScan = resolve
+    })
+    const scanOldFavorites = vi.fn(() => scanRequest)
+    installDesktopApi({ scanOldFavorites })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '掌库' }))
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('正在扫描旧藏，请稍候。')
+    fireEvent.click(screen.getByRole('tab', { name: '批阅' }))
+    expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
+
+    await act(async () => {
+      resolveScan({
+        items: [
+          {
+            aid: 101,
+            title: '动画分镜教程',
+            sourceFolderTitle: '默认收藏夹',
+            targetLedgerId: 'movie-tv',
+            targetFolderId: '9001',
+            targetDisplayName: 'Bilimi·影视动漫',
+            reviewRequired: false,
+            alreadyInTarget: false,
+            selected: true
+          }
+        ],
+        skippedSourceFolderTitles: [],
+        insights: {
+          totalVideos: 1,
+          topAuthors: [],
+          topTags: [{ name: '动画', count: 1 }],
+          topCategories: [{ name: '动画', count: 1 }],
+          sourceFolders: [{ name: '默认收藏夹', count: 1 }],
+          titleSeries: [],
+          candidateLedgers: []
+        }
+      })
+      await scanRequest
+    })
+
+    fireEvent.click(screen.getByRole('tab', { name: '掌库' }))
+
+    expect(scanOldFavorites).toHaveBeenCalledTimes(1)
+    expect(await screen.findByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    expect(screen.getByText('动画分镜教程')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('已扫描 1 条旧藏，可勾选后整理。')
   })
 
   it('refreshes the displayed video when the main window reports a snapshot change', async () => {
