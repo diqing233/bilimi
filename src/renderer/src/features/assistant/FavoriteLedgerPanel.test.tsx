@@ -1132,6 +1132,74 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([preview.items[0]]))
   })
 
+  it('stops old favorite batches when Bilibili protection pauses execution', async () => {
+    const preview = {
+      items: [
+        {
+          aid: 101,
+          title: 'old favorite one',
+          sourceFolderTitle: 'Default Favorites',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi Knowledge',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        },
+        {
+          aid: 102,
+          title: 'old favorite two',
+          sourceFolderTitle: 'Default Favorites',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi Knowledge',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        }
+      ],
+      skippedSourceFolderTitles: []
+    }
+    const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
+    const onExecuteOldFavoritePlan = vi.fn().mockResolvedValue({
+      ok: false,
+      steps: ['api:ledger:protection-paused:101'],
+      missingTargets: ['favorite-ledger-protection'],
+      message:
+        'Bilibili may be protecting your account from high-frequency favorite changes. Old favorite organization is paused; wait a while, then continue with the remaining items.',
+      paused: true,
+      completedCount: 0,
+      failedCount: 1,
+      remainingCount: 1
+    })
+
+    const { container } = render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={onExecuteOldFavoritePlan}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(container.querySelector('.favorite-ledger-panel__status')).toHaveTextContent(
+        '整理旧藏已暂停'
+      )
+    )
+    expect(container.querySelector('.favorite-ledger-panel__status')).toHaveTextContent('Bilibili')
+  })
+
   it('defaults recommended old favorite ledgers on and previews videos grouped by ledger', async () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
       if (ledger.id === 'movie-tv') {

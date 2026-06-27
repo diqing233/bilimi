@@ -26,6 +26,10 @@ type FavoriteLedgerPanelProps = {
   deepSeekReady?: boolean
 }
 
+type OldFavoriteExecutionResult = AssistantAutomationResult & {
+  paused?: boolean
+}
+
 function splitKeywords(value: string) {
   return value
     .split(/[\s,，、/]+/)
@@ -1083,16 +1087,22 @@ export function FavoriteLedgerPanel({
 
       const itemBatches = selectedOldFavoriteItemBatches(selectedItems)
       setOldFavoriteExecutionProgress({ completed: 0, total: itemBatches.length })
-      const results: AssistantAutomationResult[] = []
+      const results: OldFavoriteExecutionResult[] = []
       for (const [index, itemBatch] of itemBatches.entries()) {
-        const result = await onExecuteOldFavoritePlan(itemBatch)
+        const result = (await onExecuteOldFavoritePlan(itemBatch)) as OldFavoriteExecutionResult
         results.push(result)
         setOldFavoriteExecutionProgress({ completed: index + 1, total: itemBatches.length })
+        if (result.paused) {
+          break
+        }
       }
       const failedCount = results.filter((result) => result.ok === false).length
       const lastMessage = results.at(-1)?.message
+      const paused = results.some((result) => result.paused)
       setStatus(
-        failedCount > 0
+        paused
+          ? `整理旧藏已暂停：${lastMessage ?? 'Bilibili 正在保护账号，请稍后再继续。'}`
+          : failedCount > 0
           ? `整理旧藏完成：${itemBatches.length - failedCount} 条成功，${failedCount} 条失败。${lastMessage ?? ''}`
           : lastMessage ?? '旧藏已归册。'
       )

@@ -456,6 +456,133 @@ describe('favorite ledger API scripts', () => {
     expect(body.get('statistics')).toBeTruthy()
   })
 
+  it('paces repeated old favorite appends to avoid Bilibili protection', async () => {
+    installCookies()
+    const delays: number[] = []
+    const originalSetTimeout = window.setTimeout
+    vi.stubGlobal('setTimeout', ((callback: TimerHandler, delay?: number) => {
+      delays.push(Number(delay ?? 0))
+      if (typeof callback === 'function') {
+        callback()
+      }
+      return 0
+    }) as typeof setTimeout)
+    const requests: Array<{ body?: string; url: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        requests.push({ body: init?.body?.toString(), url })
+
+        if (url.includes('/x/v3/fav/resource/deal')) {
+          return Response.json({ code: 0, data: {} })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(
+      buildExecuteFavoriteLedgerPlanScript(
+        [
+          {
+            aid: 123,
+            title: 'old favorite one',
+            sourceFolderTitle: 'Default Favorites',
+            targetLedgerId: 'knowledge',
+            targetFolderId: '9001',
+            targetDisplayName: 'Bilimi Knowledge',
+            reviewRequired: false,
+            alreadyInTarget: false,
+            selected: true
+          },
+          {
+            aid: 456,
+            title: 'old favorite two',
+            sourceFolderTitle: 'Default Favorites',
+            targetLedgerId: 'knowledge',
+            targetFolderId: '9001',
+            targetDisplayName: 'Bilimi Knowledge',
+            reviewRequired: false,
+            alreadyInTarget: false,
+            selected: true
+          }
+        ],
+        {
+          appendDelayMs: { min: 2500, max: 2500 },
+          cooldownEvery: 99,
+          cooldownDelayMs: { min: 30000, max: 30000 }
+        }
+      )
+    )
+
+    vi.stubGlobal('setTimeout', originalSetTimeout)
+
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual([
+      'api:ledger:append:123',
+      'api:ledger:pace:2500',
+      'api:ledger:append:456'
+    ])
+    expect(delays).toEqual([2500])
+    expect(requests.filter((request) => request.url.includes('/x/v3/fav/resource/deal'))).toHaveLength(2)
+  })
+
+  it('pauses old favorite execution when Bilibili protection is detected', async () => {
+    installCookies()
+    const requests: Array<{ body?: string; url: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        requests.push({ body: init?.body?.toString(), url })
+
+        if (url.includes('/x/v3/fav/resource/deal')) {
+          return Response.json({ code: -509, message: 'request too fast', data: {} })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(
+      buildExecuteFavoriteLedgerPlanScript([
+        {
+          aid: 123,
+          title: 'old favorite one',
+          sourceFolderTitle: 'Default Favorites',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi Knowledge',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        },
+        {
+          aid: 456,
+          title: 'old favorite two',
+          sourceFolderTitle: 'Default Favorites',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi Knowledge',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        }
+      ])
+    )
+
+    expect(result).toMatchObject({
+      ok: false,
+      steps: ['api:ledger:protection-paused:123'],
+      missingTargets: ['favorite-ledger-protection'],
+      paused: true,
+      completedCount: 0,
+      failedCount: 1,
+      remainingCount: 1
+    })
+    expect(result.message).toContain('paused')
+    expect(requests.filter((request) => request.url.includes('/x/v3/fav/resource/deal'))).toHaveLength(1)
+  })
+
   it('asks the user to sync when confirming old favorites without a target folder id', async () => {
     installCookies()
     vi.stubGlobal(

@@ -13,6 +13,18 @@ export type FavoriteLedgerPreviewItem = {
   selectedCandidateTarget?: boolean
 }
 
+export type FavoriteLedgerExecutionPacingOptions = {
+  appendDelayMs?: {
+    max: number
+    min: number
+  }
+  cooldownDelayMs?: {
+    max: number
+    min: number
+  }
+  cooldownEvery?: number
+}
+
 function scriptPayload(value: unknown): string {
   return JSON.stringify(value).replace(/</g, '\\u003c')
 }
@@ -497,8 +509,18 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
   `
 }
 
-export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPreviewItem[]): string {
-  const payload = scriptPayload({ items })
+export function buildExecuteFavoriteLedgerPlanScript(
+  items: FavoriteLedgerPreviewItem[],
+  pacingOptions: FavoriteLedgerExecutionPacingOptions = {}
+): string {
+  const payload = scriptPayload({
+    items,
+    pacing: {
+      appendDelayMs: pacingOptions.appendDelayMs ?? { min: 2500, max: 6000 },
+      cooldownDelayMs: pacingOptions.cooldownDelayMs ?? { min: 30000, max: 90000 },
+      cooldownEvery: pacingOptions.cooldownEvery ?? 15
+    }
+  })
 
   return `
     (async () => {
@@ -507,8 +529,18 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
       const steps = [];
       const missingTargets = [];
       const appendFailures = [];
+      const completedItems = [];
       let syncRequired = false;
       const syncRequiredMessage = '掌库和 B 站收藏夹不一致，请先同步掌库后再确认执行。';
+      const protectionMessage = 'Bilibili may be protecting your account from high-frequency favorite changes. Old favorite organization is paused; wait a while, then continue with the remaining items.';
+      const wait = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs));
+      const randomDelay = (range) => {
+        const min = Math.max(0, Number(range?.min ?? 0));
+        const max = Math.max(min, Number(range?.max ?? min));
+        return Math.round(min + Math.random() * (max - min));
+      };
+      const isProtectionFailure = (message) =>
+        /-509|request too fast|too many|rate|frequency|frequent|captcha|verify|protection|risk/i.test(String(message || ''));
 
       try {
         const { csrf } = readCredentials();
@@ -527,6 +559,20 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
           }
           return true;
         });
+        const protectionPausedResult = (item, index, message) => {
+          appendFailures.push({ aid: item.aid, title: item.title, message });
+          steps.push('api:ledger:protection-paused:' + item.aid);
+          return {
+            ok: false,
+            steps,
+            missingTargets: ['favorite-ledger-protection'],
+            message: protectionMessage,
+            paused: true,
+            completedCount: completedItems.length,
+            failedCount: appendFailures.length,
+            remainingCount: executableItems.length - index - 1
+          };
+        };
 
         const appendItem = async (item, targetFolderId) => {
           const body = new URLSearchParams();
@@ -562,8 +608,24 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
           const folderId = findFolderId(folder);
           return folderId ? String(folderId) : '';
         };
+        const paceBeforeNextItem = async (completedCount, hasNextItem) => {
+          if (!hasNextItem || completedCount <= 0) {
+            return;
+          }
 
-        for (const item of executableItems) {
+          const cooldownEvery = Math.max(1, Number(payload.pacing.cooldownEvery || 1));
+          const shouldCooldown = completedCount % cooldownEvery === 0;
+          const delayMs = randomDelay(shouldCooldown ? payload.pacing.cooldownDelayMs : payload.pacing.appendDelayMs);
+          if (delayMs <= 0) {
+            return;
+          }
+
+          steps.push((shouldCooldown ? 'api:ledger:cooldown:' : 'api:ledger:pace:') + delayMs);
+          await wait(delayMs);
+        };
+
+        for (let index = 0; index < executableItems.length; index += 1) {
+          const item = executableItems[index];
           try {
             let targetFolderId = item.targetFolderId;
             if (!targetFolderId && item.selectedCandidateTarget) {
@@ -578,8 +640,14 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
               throw new Error(syncRequiredMessage);
             }
             await appendItem(item, targetFolderId);
+            completedItems.push(item);
             steps.push('api:ledger:append:' + item.aid);
           } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
+            if (isProtectionFailure(errorMessage)) {
+              return protectionPausedResult(item, index, errorMessage);
+            }
+
             try {
               const refreshedFolderId = await refreshTargetFolderId(item.targetDisplayName);
               if (!refreshedFolderId || refreshedFolderId === String(item.targetFolderId)) {
@@ -591,17 +659,24 @@ export function buildExecuteFavoriteLedgerPlanScript(items: FavoriteLedgerPrevie
 
               steps.push('api:ledger:append-retry:' + item.aid);
               await appendItem(item, refreshedFolderId);
+              completedItems.push(item);
               steps.push('api:ledger:append:' + item.aid);
-            } catch {
-              const message = error instanceof Error ? error.message : String(error || 'unknown error');
-              appendFailures.push({ aid: item.aid, title: item.title, message });
+            } catch (retryError) {
+              const retryMessage = retryError instanceof Error ? retryError.message : String(retryError || '');
+              if (isProtectionFailure(retryMessage)) {
+                return protectionPausedResult(item, index, retryMessage);
+              }
+
+              appendFailures.push({ aid: item.aid, title: item.title, message: errorMessage });
               missingTargets.push('favorite-ledger-append:' + item.aid);
               steps.push('api:ledger:append-failed:' + item.aid);
             }
           }
+
+          await paceBeforeNextItem(completedItems.length, index < executableItems.length - 1);
         }
 
-        const appendCount = steps.filter((step) => step.startsWith('api:ledger:append:')).length;
+        const appendCount = completedItems.length;
         if (appendFailures.length > 0) {
           const isHtmlLoginFailure = (message) =>
             /returned HTML instead of JSON|log in to Bilibili/i.test(String(message || ''));
