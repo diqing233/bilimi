@@ -50,6 +50,23 @@ function candidateKey(candidate: FavoriteLedgerCandidate) {
   return `${candidate.kind}:${candidate.sourceName}`
 }
 
+function sortFavoriteLedgerCandidatesByCount(
+  candidates: FavoriteLedgerCandidate[],
+  counts: Map<string, number>
+) {
+  return candidates
+    .map((candidate, index) => ({ candidate, index }))
+    .sort((left, right) => {
+      const leftCount = counts.get(candidateKey(left.candidate)) ?? left.candidate.count
+      const rightCount = counts.get(candidateKey(right.candidate)) ?? right.candidate.count
+      if (leftCount !== rightCount) {
+        return rightCount - leftCount
+      }
+      return left.index - right.index
+    })
+    .map(({ candidate }) => candidate)
+}
+
 function mergeDefaultLedgers(ledgers: FavoriteLedger[], enabled?: boolean) {
   const ledgerById = new Map(ledgers.map((ledger) => [ledger.id, ledger]))
   const mergedDefaults = createDefaultFavoriteLedgers().map((ledger) => ({
@@ -181,37 +198,8 @@ function candidateToFavoriteLedger(candidate: FavoriteLedgerCandidate, priority:
 }
 
 function recommendedCandidateKeysForPreview(preview: FavoriteLedgerPreview) {
-  const counts = new Map<string, number>()
-  for (const item of preview.items) {
-    for (const target of item.candidateTargets ?? []) {
-      counts.set(target.candidateKey, (counts.get(target.candidateKey) ?? 0) + 1)
-    }
-  }
-
-  const keys = new Set<string>()
-  for (const candidate of preview.insights?.candidateLedgers ?? []) {
-    const count = counts.get(candidateKey(candidate)) ?? candidate.count
-    if (shouldAutoSelectCandidate(candidate, count, preview.insights?.totalVideos ?? preview.items.length)) {
-      keys.add(candidateKey(candidate))
-    }
-  }
-  return keys
-}
-
-function shouldAutoSelectCandidate(
-  candidate: FavoriteLedgerCandidate,
-  matchedCount: number,
-  totalVideos: number
-) {
-  if (matchedCount <= 0) {
-    return false
-  }
-
-  if (candidate.aiEnhanced || candidate.kind !== 'tag-cluster') {
-    return true
-  }
-
-  return matchedCount >= 3 || matchedCount / Math.max(totalVideos, 1) >= 0.08
+  void preview
+  return new Set<string>()
 }
 
 function mergeCandidateLedgers(
@@ -779,6 +767,12 @@ export function FavoriteLedgerPanel({
     })
   }
 
+  function setCandidateGroupSelected(candidates: FavoriteLedgerCandidate[], selected: boolean) {
+    for (const candidate of candidates) {
+      setCandidateSelected(candidate, selected)
+    }
+  }
+
   function candidateToLedger(candidate: FavoriteLedgerCandidate, priority: number): FavoriteLedger {
     return {
       id: candidateLedgerId(candidate),
@@ -1185,15 +1179,21 @@ export function FavoriteLedgerPanel({
   )
   const oldFavoriteFollowUpCandidates = useMemo(
     () =>
-      preview?.insights?.candidateLedgers.filter(
-        (candidate) => candidate.kind === 'author' || candidate.kind === 'series'
-      ) ?? [],
-    [preview]
+      sortFavoriteLedgerCandidatesByCount(
+        preview?.insights?.candidateLedgers.filter(
+          (candidate) => candidate.kind === 'author' || candidate.kind === 'series'
+        ) ?? [],
+        oldFavoriteCandidateCounts
+      ),
+    [oldFavoriteCandidateCounts, preview]
   )
   const oldFavoriteTagCandidates = useMemo(
     () =>
-      preview?.insights?.candidateLedgers.filter((candidate) => candidate.kind === 'tag-cluster') ?? [],
-    [preview]
+      sortFavoriteLedgerCandidatesByCount(
+        preview?.insights?.candidateLedgers.filter((candidate) => candidate.kind === 'tag-cluster') ?? [],
+        oldFavoriteCandidateCounts
+      ),
+    [oldFavoriteCandidateCounts, preview]
   )
   const visibleOldFavoriteTagCandidates = useMemo(
     () =>
@@ -1205,6 +1205,12 @@ export function FavoriteLedgerPanel({
   )
   const canExpandOldFavoriteTagCandidates =
     !tagCandidatesExpanded && oldFavoriteTagCandidates.length > COLLAPSED_TAG_CANDIDATE_COUNT
+  const allFollowUpCandidatesSelected =
+    oldFavoriteFollowUpCandidates.length > 0 &&
+    oldFavoriteFollowUpCandidates.every((candidate) => selectedCandidateKeys.has(candidateKey(candidate)))
+  const allTagCandidatesSelected =
+    oldFavoriteTagCandidates.length > 0 &&
+    oldFavoriteTagCandidates.every((candidate) => selectedCandidateKeys.has(candidateKey(candidate)))
 
   function oldFavoriteCandidateDetailText(candidate: FavoriteLedgerCandidate) {
     const count = oldFavoriteCandidateCounts.get(candidateKey(candidate)) ?? candidate.count
@@ -1541,7 +1547,21 @@ export function FavoriteLedgerPanel({
               <h4>推荐收藏夹</h4>
               <p>确认执行后，会把已勾选候选同步到 B 站收藏夹里。</p>
               <div className="favorite-ledger-panel__candidate-section">
-                <h5>专属 UP 追更</h5>
+                <div className="favorite-ledger-panel__candidate-section-heading">
+                  <h5>专属 UP 追更</h5>
+                  <label>
+                    <input
+                      type="checkbox"
+                      aria-label="全选 专属 UP 追更"
+                      checked={allFollowUpCandidatesSelected}
+                      disabled={!oldFavoriteFollowUpCandidates.length}
+                      onChange={(event) =>
+                        setCandidateGroupSelected(oldFavoriteFollowUpCandidates, event.currentTarget.checked)
+                      }
+                    />
+                    <span>全选</span>
+                  </label>
+                </div>
                 <div className="favorite-ledger-panel__candidate-list">
                 {oldFavoriteFollowUpCandidates.length ? (
                   oldFavoriteFollowUpCandidates.map((candidate) => {
@@ -1574,7 +1594,21 @@ export function FavoriteLedgerPanel({
                 </div>
               </div>
               <div className="favorite-ledger-panel__candidate-section">
-                <h5>高频标签收藏夹</h5>
+                <div className="favorite-ledger-panel__candidate-section-heading">
+                  <h5>高频标签收藏夹</h5>
+                  <label>
+                    <input
+                      type="checkbox"
+                      aria-label="全选 高频标签收藏夹"
+                      checked={allTagCandidatesSelected}
+                      disabled={!oldFavoriteTagCandidates.length}
+                      onChange={(event) =>
+                        setCandidateGroupSelected(oldFavoriteTagCandidates, event.currentTarget.checked)
+                      }
+                    />
+                    <span>全选</span>
+                  </label>
+                </div>
                 <div className="favorite-ledger-panel__candidate-list">
                 {visibleOldFavoriteTagCandidates.map((candidate) => {
                     const key = candidateKey(candidate)
@@ -1644,7 +1678,10 @@ export function FavoriteLedgerPanel({
                                 setOldFavoriteTargetGroupSelected(group, event.currentTarget.checked)
                               }
                             />
-                            <span className="favorite-ledger-panel__preview-heading">
+                            <span
+                              className="favorite-ledger-panel__preview-heading"
+                              title={group.displayName}
+                            >
                               <strong>{group.displayName}</strong>
                               <small>{group.entries.length} 条适合</small>
                             </span>
@@ -1656,25 +1693,22 @@ export function FavoriteLedgerPanel({
                         >
                           {group.entries.map(({ item, target, selected }) => (
                             <article key={`${group.ledgerId}-${item.sourceFolderTitle}-${item.aid}`}>
-                              <label>
-                                <input
-                                  type="checkbox"
-                                  aria-label={`整理 ${item.title} 到 ${group.displayName}`}
-                                  checked={selected}
-                                  disabled={target.alreadyInTarget}
-                                  onChange={() => toggleOldFavoriteTarget(item.aid, group.ledgerId)}
-                                />
-                                <span>
-                                  <span className="favorite-ledger-panel__preview-video-title">
-                                    {item.title}
-                                  </span>
-                                  <small>
-                                    来源 {item.sourceFolderTitle}
-                                    {target.alreadyInTarget ? ' · 已在目标' : ''}
-                                    {item.reviewRequired ? ' · 需要复核' : ''}
-                                  </small>
+                              <button
+                                type="button"
+                                className="favorite-ledger-panel__preview-video"
+                                aria-pressed={selected}
+                                disabled={target.alreadyInTarget}
+                                onClick={() => toggleOldFavoriteTarget(item.aid, group.ledgerId)}
+                              >
+                                <span className="favorite-ledger-panel__preview-video-title">
+                                  {item.title}
                                 </span>
-                              </label>
+                                <small>
+                                  来源 {item.sourceFolderTitle}
+                                  {target.alreadyInTarget ? ' · 已在目标' : ''}
+                                  {item.reviewRequired ? ' · 需要复核' : ''}
+                                </small>
+                              </button>
                             </article>
                           ))}
                         </div>
