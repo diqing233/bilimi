@@ -1048,8 +1048,7 @@ export function FloatingAssistantApp({
             </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--archive">
               <legend>Bilimi 收藏策略</legend>
-              <p>说明：设置一个待分类视频最多可同时保存在几个 Bilimi 收藏夹。</p>
-              <p>旧收藏夹不会移动、删除，也不计入数量。</p>
+              <p>说明：设置一个待分类视频最多可同时保存在几个 Bilimi 收藏夹。用户原收藏夹不会移动、删除，也不计入数量。</p>
               <label>
                 <input
                   type="radio"
