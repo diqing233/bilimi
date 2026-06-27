@@ -26,6 +26,13 @@ describe('favorite ledger model', () => {
     expect(createDefaultFavoriteLedgers()).toHaveLength(8)
   })
 
+  it('keeps broad game defaults free of specific game titles', () => {
+    const gameLedger = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'game')
+
+    expect(gameLedger?.keywords).not.toContain('\u539f\u795e')
+    expect(gameLedger?.keywords).not.toContain('genshin')
+  })
+
   it('orders reset defaults as broad initial ledgers and enables all of them', () => {
     const ledgers = createDefaultFavoriteLedgers()
 

@@ -358,7 +358,7 @@ describe('createFavoriteLedgerPreview', () => {
           videos: Array.from({ length: 10 }, (_, index) => ({
             aid: 600 + index,
             title: `角色配队 ${index + 1}`,
-            tags: ['原神']
+            tags: ['原神', '攻略']
           }))
         }
       ],
