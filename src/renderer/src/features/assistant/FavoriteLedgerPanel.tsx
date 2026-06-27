@@ -1710,7 +1710,10 @@ export function FavoriteLedgerPanel({
                                 disabled={target.alreadyInTarget}
                                 onClick={() => toggleOldFavoriteTarget(item.aid, group.ledgerId)}
                               >
-                                <span className="favorite-ledger-panel__preview-video-title">
+                                <span
+                                  className="favorite-ledger-panel__preview-video-title"
+                                  title={item.title}
+                                >
                                   {item.title}
                                 </span>
                                 <small>

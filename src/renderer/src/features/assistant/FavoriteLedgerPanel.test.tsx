@@ -1034,6 +1034,47 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
+  it('shows the full old favorite title on hover while preview titles can be truncated', async () => {
+    const longTitle =
+      '【原神】枫丹七分熟！居鸟哥欣赏至冬新角色，他还是那么爱男角色'
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 101,
+          title: longTitle,
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'game',
+          targetFolderId: '9002',
+          targetDisplayName: 'Bilimi·游戏专区',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        }
+      ],
+      skippedSourceFolderTitles: []
+    })
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+
+    const title = screen
+      .getByText(longTitle)
+      .closest('.favorite-ledger-panel__preview-video-title')
+    expect(title).toHaveAttribute('title', longTitle)
+  })
+
   it('runs one setup scan before organizing old favorites when ledgers are missing', async () => {
     const onScanOldFavorites = vi.fn().mockResolvedValue({
       items: [],
