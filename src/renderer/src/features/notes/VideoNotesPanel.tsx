@@ -349,8 +349,16 @@ export function VideoNotesPanel({
   }
 
   function renderQueueItemProgress(item: VideoAudioTranscriptionQueueItem): React.JSX.Element | null {
-    if (!item.progress) return null
-    const progress = formatProgress(item.progress, Boolean(item.summarizeWithDeepSeek))
+    const itemProgress =
+      item.status === 'completed'
+        ? ({
+            step: 'queue-completed',
+            message: item.progress?.message ?? 'Queued transcription completed.'
+          } satisfies VideoAudioTranscriptionProgress)
+        : item.progress
+
+    if (!itemProgress) return null
+    const progress = formatProgress(itemProgress, Boolean(item.summarizeWithDeepSeek))
 
     return (
       <div className="video-notes__queue-progress" role="status" aria-live="polite">

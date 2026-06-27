@@ -159,4 +159,32 @@ describe('VideoNotesPanel transcription queue', () => {
     expect(screen.getByText('DeepSeek 总结已完成')).toBeInTheDocument()
     expect(screen.getByText('100%')).toBeInTheDocument()
   })
+
+  it('normalizes stale progress on completed queue items after restart', () => {
+    const queue: VideoAudioTranscriptionQueueSnapshot = {
+      items: [
+        {
+          id: 'bvid:BV2note',
+          url: 'https://www.bilibili.com/video/BV2note',
+          title: 'Completed video',
+          bvid: 'BV2note',
+          status: 'completed',
+          createdAt: '2026-06-25T00:01:00.000Z',
+          updatedAt: '2026-06-25T00:04:00.000Z',
+          completedAt: '2026-06-25T00:04:00.000Z',
+          progress: {
+            step: 'generating-note',
+            message: 'Generating note from transcript.'
+          }
+        }
+      ]
+    }
+
+    renderQueuePanel(queue)
+
+    const status = screen.getByText(/Completed video/).closest('section')
+    expect(status).toBeInTheDocument()
+    expect(screen.getByText('100%')).toBeInTheDocument()
+    expect(screen.queryByText('94%')).not.toBeInTheDocument()
+  })
 })
