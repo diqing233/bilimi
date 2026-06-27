@@ -1072,7 +1072,13 @@ describe('FavoriteLedgerPanel', () => {
     expect(title).toHaveAttribute('title', longTitle)
   })
 
-  it('runs one setup scan before organizing old favorites when ledgers are missing', async () => {
+  it('syncs missing ledgers before organizing old favorites', async () => {
+    const onSaveLedgers = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: [],
+      missingTargets: [],
+      message: 'favorite ledgers saved'
+    })
     const onScanOldFavorites = vi.fn().mockResolvedValue({
       items: [],
       skippedSourceFolderTitles: [],
@@ -1092,7 +1098,7 @@ describe('FavoriteLedgerPanel', () => {
         ledgers={createDefaultFavoriteLedgers().slice(0, 2)}
         missingLedgerIds={['knowledge']}
         onEnsureLedgers={vi.fn()}
-        onSaveLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
         onScanOldFavorites={onScanOldFavorites}
         onExecuteOldFavoritePlan={vi.fn()}
       />
@@ -1100,11 +1106,15 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
 
+    await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
     await waitFor(() => expect(onScanOldFavorites).toHaveBeenCalledOnce())
-    expect(await screen.findByRole('region', { name: '备册向导' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '备册' })).toBeInTheDocument()
+    expect(onSaveLedgers.mock.invocationCallOrder[0]).toBeLessThan(
+      onScanOldFavorites.mock.invocationCallOrder[0]
+    )
+    expect(await screen.findByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '整理旧藏' })).toBeInTheDocument()
     expect(screen.queryByText('是否根据旧藏生成你的专属库房？')).not.toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('已扫描 3 条旧藏，可勾选库房后同步。')
+    expect(screen.getByRole('status')).toHaveTextContent('可勾选后整理')
   })
 
   it('scans old favorites and executes only checked append operations', async () => {
@@ -2025,6 +2035,74 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.queryByText('旧藏预览')).not.toBeInTheDocument()
   })
 
+  it('syncs missing default ledgers before directly organizing old favorites', async () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'inbox' ? { ...ledger, bilibiliFolderId: undefined } : ledger
+    )
+    let resolveSave:
+      | ((value: { ok: boolean; steps: string[]; missingTargets: string[]; message: string }) => void)
+      | undefined
+    const savePromise = new Promise<{ ok: boolean; steps: string[]; missingTargets: string[]; message: string }>(
+      (resolve) => {
+        resolveSave = resolve
+      }
+    )
+    const onSaveLedgers = vi.fn().mockReturnValue(savePromise)
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 601,
+          title: 'old favorite needing inbox',
+          sourceFolderTitle: 'Default Favorites',
+          targetLedgerId: 'inbox',
+          targetFolderId: '9008',
+          targetDisplayName: 'Bilimi Inbox',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        }
+      ],
+      skippedSourceFolderTitles: []
+    })
+
+    const { container } = render(
+      <FavoriteLedgerPanel
+        ledgers={ledgers}
+        missingLedgerIds={['inbox']}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(container.querySelectorAll('.favorite-ledger-panel__toolbar button')[1])
+
+    await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
+    expect(onScanOldFavorites).not.toHaveBeenCalled()
+    expect(onSaveLedgers).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'inbox', enabled: true, isDefault: true })
+      ]),
+      { deleteDisabled: false }
+    )
+
+    await act(async () => {
+      resolveSave?.({
+        ok: true,
+        steps: ['api:ledger:list', 'api:ledger:create:inbox'],
+        missingTargets: [],
+        message: 'favorite ledgers saved'
+      })
+    })
+
+    await waitFor(() =>
+      expect(onScanOldFavorites).toHaveBeenCalledWith(
+        expect.objectContaining({ enhanceWithDeepSeek: false, multiArchiveMode: 'off' })
+      )
+    )
+  })
+
   it('shows old favorite insights and lets users add suggested ledgers without AI', async () => {
     const onSaveLedgers = vi.fn().mockResolvedValue({
       ok: true,
@@ -2326,7 +2404,7 @@ describe('FavoriteLedgerPanel', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
-    await screen.findByRole('region', { name: '备册向导' })
+    await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
 
     const ledgerRegion = screen.getByRole('region', { name: '收藏夹' })

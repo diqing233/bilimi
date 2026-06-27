@@ -576,7 +576,15 @@ export function FavoriteLedgerPanel({
     }
 
     if (missingLedgerIds.length > 0) {
-      await scanOldFavorites('setup')
+      await saveLedgers({
+        includeSelectedCandidates: false,
+        includeDefaultLedgers: true,
+        pendingMessage: '正在备齐整理旧藏需要的册目...',
+        saveOptions: { deleteDisabled: false },
+        onSuccess: async () => {
+          await scanOldFavorites()
+        }
+      })
       return
     }
 
