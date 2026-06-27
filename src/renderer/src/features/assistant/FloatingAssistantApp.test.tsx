@@ -222,6 +222,27 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByText('三分钟讲清机器学习科普教程')).toBeInTheDocument()
   })
 
+  it('shows clear Bilimi collection strategy copy in settings', async () => {
+    installDesktopApi()
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+
+    expect(screen.getByText('Bilimi 收藏策略')).toBeInTheDocument()
+    expect(screen.getByText('说明：设置一个待分类视频最多可同时保存在几个 Bilimi 收藏夹。')).toBeInTheDocument()
+    expect(screen.getByText('旧收藏夹不会移动、删除，也不计入数量。')).toBeInTheDocument()
+    expect(
+      screen.getByText('最多存入 1 个 Bilimi 收藏夹，优先存入生成和自定义创建的收藏夹')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('最多存入 2 个 Bilimi 收藏夹，同一个视频可以存入一个默认分类和一个其他匹配的 Bilimi 收藏夹')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('最多存入 3 个 Bilimi 收藏夹，同一个视频可以存入一个默认分类和两个其他匹配的 Bilimi 收藏夹')
+    ).toBeInTheDocument()
+  })
+
   it('asks for coin count inside the floating assistant before running 赐', async () => {
     const { runAssistantAction } = installDesktopApi()
 
@@ -672,9 +693,11 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '重置 DeepSeek' }))
 
     await waitFor(() => expect(clearDeepSeekApiKey).toHaveBeenCalledOnce())
-    expect(screen.getByRole('checkbox', { name: '启用 DeepSeek' })).not.toBeChecked()
-    expect(screen.getByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' })).not.toBeChecked()
-    expect(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' })).not.toBeChecked()
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: '启用 DeepSeek' })).not.toBeChecked()
+      expect(screen.getByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' })).not.toBeChecked()
+      expect(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' })).not.toBeChecked()
+    })
     expect(screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥').value).toBe('')
     expect(screen.getByLabelText<HTMLInputElement>('DeepSeek 模型').value).toBe('deepseek-v4-flash')
     expect(screen.getByLabelText<HTMLInputElement>('DeepSeek 服务地址').value).toBe(

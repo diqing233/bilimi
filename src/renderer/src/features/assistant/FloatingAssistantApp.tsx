@@ -1047,7 +1047,9 @@ export function FloatingAssistantApp({
               </div>
             </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--archive">
-              <legend>Bilimi 多归档策略</legend>
+              <legend>Bilimi 收藏策略</legend>
+              <p>说明：设置一个待分类视频最多可同时保存在几个 Bilimi 收藏夹。</p>
+              <p>旧收藏夹不会移动、删除，也不计入数量。</p>
               <label>
                 <input
                   type="radio"
@@ -1060,7 +1062,7 @@ export function FloatingAssistantApp({
                     })
                   }
                 />
-                <span>关闭</span>
+                <span>最多存入 1 个 Bilimi 收藏夹，优先存入生成和自定义创建的收藏夹</span>
               </label>
               <label>
                 <input
@@ -1074,7 +1076,7 @@ export function FloatingAssistantApp({
                     })
                   }
                 />
-                <span>最多 2 个</span>
+                <span>最多存入 2 个 Bilimi 收藏夹，同一个视频可以存入一个默认分类和一个其他匹配的 Bilimi 收藏夹</span>
               </label>
               <label>
                 <input
@@ -1088,9 +1090,8 @@ export function FloatingAssistantApp({
                     })
                   }
                 />
-                <span>最多 3 个</span>
+                <span>最多存入 3 个 Bilimi 收藏夹，同一个视频可以存入一个默认分类和两个其他匹配的 Bilimi 收藏夹</span>
               </label>
-              <p>旧收藏夹不计数，8 大默认分类始终只选一个；自建专题命中时优先归入专题。</p>
             </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--deepseek">
               <legend>DeepSeek</legend>

@@ -41,13 +41,11 @@ In the recommended category grid, clicking a category name only selects it for e
 
 `整理旧藏` scans existing non-Bilimi favorite folders, shows a preview, and appends only checked items into Bilimi folders after `确认整理`. It does not move, delete, or unfavorite items from the user's original folders.
 
-Bilimi archive planning is shared by old-favorite organization and new review actions. The eight recommended category folders are mutually exclusive: one video can enter at most one of those default folders. User-created Bilimi topic folders take priority when their keywords match. The settings panel provides a `Bilimi 多归档策略` option:
+Bilimi archive planning is shared by old-favorite organization and new review actions. The eight recommended category folders are mutually exclusive: one video can enter at most one of those default folders. User-created Bilimi topic folders take priority when their keywords match. The settings panel provides a `Bilimi 收藏策略` option. It controls how many Bilimi favorite folders a pending video can be saved into at the same time; original Bilibili favorite folders are never moved, deleted, or counted toward this limit:
 
-- `关闭`: save to the strongest Bilimi target only.
-- `最多 2 个`: save to one matching topic folder plus one default category when both exist.
-- `最多 3 个`: save to up to two matching topic folders plus one default category.
-
-Original Bilibili favorite folders never count toward this limit and are never moved or cleaned up by Bilimi.
+- `最多存入 1 个 Bilimi 收藏夹`: save to the strongest generated or custom Bilimi target only.
+- `最多存入 2 个 Bilimi 收藏夹`: save to one default category plus one other matching Bilimi favorite folder.
+- `最多存入 3 个 Bilimi 收藏夹`: save to one default category plus two other matching Bilimi favorite folders.
 
 ## Assistant Actions
 
