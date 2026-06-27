@@ -57,6 +57,12 @@ const HOME_TAB_ID = 'home'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
 const BILIBILI_VIDEO_URL_PATTERN = /bilibili\.com\/video\/([^/?#]+)/i
 export const VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS = 900
+const LOGIN_REQUIRED_RESULT: AssistantAutomationResult = {
+  ok: false,
+  steps: ['auth:check'],
+  missingTargets: ['bilibili-login'],
+  message: '请先登录 Bilibili 后再操作。'
+}
 
 function createTabTitle(url: string): string {
   try {
@@ -461,6 +467,42 @@ export default function App() {
     return currentActiveWebview.executeJavaScript(script) as Promise<AssistantAutomationResult>
   }
 
+  async function isBilibiliLoggedIn(): Promise<boolean> {
+    const currentActiveWebview = getCurrentActiveWebview()
+
+    if (!currentActiveWebview?.executeJavaScript) {
+      return false
+    }
+
+    try {
+      const loginState = await currentActiveWebview.executeJavaScript(
+        `(() => {
+          const cookie = String(document.cookie || '')
+          const hasUserId = /(?:^|;\\s*)DedeUserID=\\d+/.test(cookie)
+          const hasCsrf = /(?:^|;\\s*)bili_jct=[^;]+/.test(cookie)
+          return { hasUserId, hasCsrf }
+        })()`,
+        true
+      )
+
+      if (loginState && typeof loginState === 'object') {
+        if ('hasUserId' in loginState || 'hasCsrf' in loginState) {
+          return Boolean(loginState.hasUserId && loginState.hasCsrf)
+        }
+
+        return true
+      }
+
+      return Boolean(String(loginState ?? '').trim())
+    } catch {
+      return false
+    }
+  }
+
+  async function requireBilibiliLogin(): Promise<AssistantAutomationResult | null> {
+    return (await isBilibiliLoggedIn()) ? null : LOGIN_REQUIRED_RESULT
+  }
+
   function canEnhanceFavoriteLedgerInsights(preview: FavoriteLedgerPreview) {
     return Boolean(
       preferences.deepseekEnabled &&
@@ -532,6 +574,11 @@ export default function App() {
   }
 
   async function ensureFavoriteLedgers(): Promise<AssistantAutomationResult> {
+    const loginFailure = await requireBilibiliLogin()
+    if (loginFailure) {
+      return loginFailure
+    }
+
     const result = await runScript(
       buildEnsureFavoriteLedgersScript(preferences.favoriteLedgers)
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
@@ -552,6 +599,11 @@ export default function App() {
     nextLedgers: FavoriteLedger[],
     options?: FavoriteLedgerSaveOptions
   ): Promise<AssistantAutomationResult> {
+    const loginFailure = await requireBilibiliLogin()
+    if (loginFailure) {
+      return loginFailure
+    }
+
     const result = await runScript(
       buildSaveFavoriteLedgersScript(nextLedgers, preferences.favoriteLedgers, options)
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
@@ -575,6 +627,16 @@ export default function App() {
   }
 
   async function scanOldFavorites(options: { enhanceWithDeepSeek?: boolean } = {}): Promise<FavoriteLedgerPreview> {
+    const loginFailure = await requireBilibiliLogin()
+    if (loginFailure) {
+      return {
+        ok: false,
+        message: loginFailure.message,
+        items: [],
+        skippedSourceFolderTitles: []
+      }
+    }
+
     const scanResult = await runScript(
       buildScanOldFavoritesScript(preferences.favoriteLedgers)
     ) as AssistantAutomationResult & {
@@ -609,6 +671,11 @@ export default function App() {
   async function executeOldFavoritePlan(
     items: FavoriteLedgerPreviewItem[]
   ): Promise<AssistantAutomationResult> {
+    const loginFailure = await requireBilibiliLogin()
+    if (loginFailure) {
+      return loginFailure
+    }
+
     return runScript(buildExecuteFavoriteLedgerPlanScript(items))
   }
 
@@ -622,6 +689,11 @@ export default function App() {
         missingTargets: ['webview'],
         message: '浏览框台尚未备妥，无法打开 B 站收藏夹。'
       }
+    }
+
+    const loginFailure = await requireBilibiliLogin()
+    if (loginFailure) {
+      return loginFailure
     }
 
     try {
@@ -711,6 +783,11 @@ export default function App() {
       pageClickOnly?: boolean
     }
   ): Promise<AssistantAutomationResult> {
+    const loginFailure = await requireBilibiliLogin()
+    if (loginFailure) {
+      return loginFailure
+    }
+
     const videoContentContext = await readVideoContentContext()
     const targetLedgerId = classifyVideoContent(
       videoContentContext,
@@ -773,6 +850,15 @@ export default function App() {
   }
 
   async function generateRuntimeVideoNoteFromAudio(): Promise<VideoNote | null> {
+    const loginFailure = await requireBilibiliLogin()
+    if (loginFailure) {
+      window.bilimiDesktop?.setAssistantPetHint?.({
+        tone: 'error',
+        message: loginFailure.message
+      })
+      return null
+    }
+
     const extraction = await readVideoNoteSource()
 
     if (!extraction?.source.url || !window.bilimiDesktop?.transcribeCurrentVideoAudio) {
@@ -796,6 +882,15 @@ export default function App() {
   async function enqueueRuntimeVideoAudioTranscription(options?: {
     summarizeWithDeepSeek?: boolean
   }): Promise<VideoAudioTranscriptionQueueSnapshot | null> {
+    const loginFailure = await requireBilibiliLogin()
+    if (loginFailure) {
+      window.bilimiDesktop?.setAssistantPetHint?.({
+        tone: 'error',
+        message: loginFailure.message
+      })
+      return null
+    }
+
     const extraction = await readVideoNoteSource()
 
     if (!extraction?.source.url || !window.bilimiDesktop?.enqueueVideoAudioTranscription) {

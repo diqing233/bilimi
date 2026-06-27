@@ -1194,6 +1194,10 @@ body[data-floating-window="true"],
   border-left: none;
   grid-template-columns: 0;
 }
+.assistant-sidebar__workspace {
+  min-width: 0;
+  min-height: 0;
+}
 .assistant-sidebar__collapse-button {
   position: absolute;
   top: 12px;

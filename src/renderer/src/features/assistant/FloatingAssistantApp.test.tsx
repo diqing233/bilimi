@@ -970,7 +970,7 @@ describe('FloatingAssistantApp', () => {
     expect(closeFloatingAssistant).toHaveBeenCalledOnce()
     expect(setAssistantPetHint).toHaveBeenCalledWith({
       tone: 'sleepy',
-      message: expect.stringMatching(/先收起来|等你回来|待会儿见|回来再叫我/)
+      message: '主人先专心享受，有需要随时呼唤小咪'
     })
   })
 

@@ -11,10 +11,10 @@ export const PET_WELCOME_HOME_LINES = [
 ]
 
 export const PET_COLLAPSE_FAREWELL_LINES = [
-  '那小咪先收起来啦，等你回来。',
-  '主人去忙吧，小咪待会儿见。',
-  '小咪先安静一下，主人回来再叫我。'
+  '主人先专心享受，有需要随时呼唤小咪'
 ]
+
+export const PET_EXPAND_GREETING_LINE = '主人想要做些什么呢~'
 
 export const PET_VIDEO_OPENING_LINES = [
   '小咪好期待呀，这个视频会不会很有意思～',

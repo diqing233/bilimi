@@ -16,7 +16,23 @@ function installDesktopApi() {
       onAssistantSnapshotChanged: vi.fn(),
       requestAssistantSnapshot: vi.fn().mockResolvedValue(undefined),
       savePreferences: vi.fn(),
-      setAssistantPetHint: vi.fn()
+      setAssistantPetHint: vi.fn(),
+      loadVideoAudioTranscriptionQueue: vi.fn().mockResolvedValue({
+        activeItemId: 'bvid:BV1note',
+        items: [
+          {
+            id: 'bvid:BV1note',
+            url: 'https://www.bilibili.com/video/BV1note',
+            title: '机器学习入门教程',
+            bvid: 'BV1note',
+            status: 'running',
+            createdAt: '2026-06-25T00:00:00.000Z',
+            updatedAt: '2026-06-25T00:00:00.000Z'
+          }
+        ]
+      }),
+      onVideoAudioTranscriptionQueueChanged: vi.fn(() => vi.fn()),
+      loadVideoNoteArchives: vi.fn().mockResolvedValue([])
     }
   })
 
@@ -103,6 +119,41 @@ describe('AssistantSidebar', () => {
     )
   })
 
+  it('keeps the notes workspace mounted while the sidebar is collapsed', async () => {
+    installDesktopApi()
+
+    render(<AssistantSidebar />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
+    expect(await screen.findByRole('region', { name: '转写状态' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '折叠侧边栏' }))
+
+    expect(screen.getByRole('tab', { name: '札记', hidden: true })).not.toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: '展开侧边栏' }))
+
+    expect(await screen.findByRole('tab', { name: '札记' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+    expect(screen.getByRole('region', { name: '转写状态' })).toBeInTheDocument()
+  })
+
+  it('lets XiaoMi ask what to do when the sidebar expands', async () => {
+    const api = installDesktopApi()
+
+    render(<AssistantSidebar />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '折叠侧边栏' }))
+    fireEvent.click(screen.getByRole('button', { name: '展开侧边栏' }))
+
+    expect(api.setAssistantPetHint).toHaveBeenLastCalledWith({
+      tone: 'hint',
+      message: '主人想要做些什么呢~'
+    })
+  })
+
   it('gets anxious when the sidebar stays collapsed for a while', async () => {
     vi.useFakeTimers()
     const api = installDesktopApi()
@@ -110,6 +161,7 @@ describe('AssistantSidebar', () => {
     try {
       render(<AssistantSidebar />)
 
+      await act(async () => undefined)
       fireEvent.click(screen.getByRole('button', { name: '折叠侧边栏' }))
 
       act(() => {
@@ -125,16 +177,17 @@ describe('AssistantSidebar', () => {
     }
   })
 
-  it('says goodbye when the sidebar is collapsed', () => {
+  it('says goodbye when the sidebar is collapsed', async () => {
     const api = installDesktopApi()
 
     render(<AssistantSidebar />)
 
+    await act(async () => undefined)
     fireEvent.click(screen.getByRole('button', { name: '折叠侧边栏' }))
 
     expect(api.setAssistantPetHint).toHaveBeenCalledWith({
       tone: 'sleepy',
-      message: expect.stringMatching(/先收起来|等你回来|待会儿见|回来再叫我/)
+      message: '主人先专心享受，有需要随时呼唤小咪'
     })
   })
 })

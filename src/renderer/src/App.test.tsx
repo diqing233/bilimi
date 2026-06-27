@@ -411,6 +411,44 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('asks the user to log in before running Bilibili page actions', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes('document.cookie')) {
+        return ''
+      }
+
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          title: '三分钟讲清机器学习科普教程',
+          pageText: '从原理到入门路线，适合学习收藏。'
+        }
+      }
+
+      throw new Error('Bilibili operation should not run while logged out')
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    const result = await requestRuntime({
+      id: 'run-logged-out',
+      type: 'run-action',
+      action: '藏'
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      steps: ['auth:check'],
+      missingTargets: ['bilibili-login'],
+      message: '请先登录 Bilibili 后再操作。'
+    })
+    expect(executeJavaScript).not.toHaveBeenCalledWith(
+      expect.stringContaining('/x/v3/fav/resource/deal')
+    )
+  })
+
   it('collects to inbox when an unsynced default ledger is only a stronger suggestion', async () => {
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
     const preferences = createAppPreferences({
@@ -670,6 +708,42 @@ describe('App runtime integration', () => {
         summarizeWithDeepSeek: true
       })
     )
+  })
+
+  it('asks the user to log in before enqueuing audio transcription', async () => {
+    const { desktopApi, requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes('document.cookie')) {
+          return ''
+        }
+
+        return {
+          title: 'Queued audio demo',
+          bvid: 'BV1queue',
+          url: 'https://www.bilibili.com/video/BV1queue',
+          tags: [],
+          transcript: []
+        }
+      })
+    })
+    desktopApi.enqueueVideoAudioTranscription = vi.fn().mockResolvedValue({ items: [] })
+
+    const result = await requestRuntime({
+      id: 'queue-audio-logged-out',
+      type: 'enqueue-current-video-audio',
+      summarizeWithDeepSeek: true
+    })
+
+    expect(result).toBeNull()
+    expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith({
+      tone: 'error',
+      message: '请先登录 Bilibili 后再操作。'
+    })
+    expect(desktopApi.enqueueVideoAudioTranscription).not.toHaveBeenCalled()
   })
 
   it('keeps pasted transcript generation local without audio transcription', async () => {
@@ -1134,5 +1208,27 @@ describe('App runtime integration', () => {
       'src',
       'https://space.bilibili.com/12345/favlist'
     )
+  })
+
+  it('asks the user to log in before opening Bilibili favorites', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async () => '')
+    Object.assign(webview, { executeJavaScript })
+
+    const result = await requestRuntime({
+      id: 'open-favorites-logged-out',
+      type: 'open-bilibili-favorites'
+    } as AssistantRuntimeRequest)
+
+    expect(result).toEqual({
+      ok: false,
+      steps: ['auth:check'],
+      missingTargets: ['bilibili-login'],
+      message: '请先登录 Bilibili 后再操作。'
+    })
+    expect(document.querySelectorAll('webview')).toHaveLength(1)
   })
 })
