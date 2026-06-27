@@ -688,6 +688,58 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('DeepSeek 设置已重置。')
   })
 
+  it('persists DeepSeek organizing toggles as soon as they change', async () => {
+    const { savePreferences } = installDesktopApi()
+
+    render(<FloatingAssistantApp />)
+
+    await screen.findAllByRole('tab')
+    fireEvent.click(screen.getAllByRole('tab')[3])
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deepseekOldFavoriteAssistanceEnabled: true,
+          deepseekAutoSummaryEnabled: false
+        })
+      )
+    )
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deepseekOldFavoriteAssistanceEnabled: true,
+          deepseekAutoSummaryEnabled: true
+        })
+      )
+    )
+  })
+
+  it('restores saved DeepSeek organizing toggles from the assistant snapshot', async () => {
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekOldFavoriteAssistanceEnabled: true,
+            deepseekAutoSummaryEnabled: true
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await screen.findAllByRole('tab')
+    fireEvent.click(screen.getAllByRole('tab')[3])
+
+    expect(screen.getByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' })).toBeChecked()
+  })
+
   it('explains when the DeepSeek test bridge is not available', async () => {
     installDesktopApi({
       testDeepSeekConnection: undefined

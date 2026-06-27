@@ -225,6 +225,7 @@ export function FloatingAssistantApp({
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences()
   )
+  const preferencesRef = useRef(preferences)
   const [favoriteLedgerStatus, setFavoriteLedgerStatus] = useState<FavoriteLedgerStatus | null>(null)
   const [uncontrolledActiveTab, setUncontrolledActiveTab] =
     useState<AssistantWorkspaceTab>('review')
@@ -310,6 +311,10 @@ export function FloatingAssistantApp({
   }, [activeTab])
 
   useEffect(() => {
+    preferencesRef.current = preferences
+  }, [preferences])
+
+  useEffect(() => {
     mounted.current = true
 
     void loadSnapshot()
@@ -379,11 +384,14 @@ export function FloatingAssistantApp({
   const selectedPetHoverShortcuts = normalizePetHoverShortcuts(preferences.petHoverShortcuts)
 
   async function persistPreferences(nextPreferences: AssistantPreferences) {
+    preferencesRef.current = nextPreferences
     setPreferences(nextPreferences)
 
     if (window.bilimiDesktop?.savePreferences) {
       const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
-      setPreferences(createInitialAssistantPreferences(saved))
+      const savedPreferences = createInitialAssistantPreferences(saved)
+      preferencesRef.current = savedPreferences
+      setPreferences(savedPreferences)
     }
   }
 
@@ -435,11 +443,18 @@ export function FloatingAssistantApp({
     window.bilimiDesktop?.closeAssistantPet?.()
   }
 
-  function updateDeepSeekPreference(patch: Partial<AssistantPreferences>) {
+  function updateDeepSeekPreference(patch: Partial<AssistantPreferences>, options: { persist?: boolean } = {}) {
     setPreferences((current) => ({
       ...current,
       ...patch
     }))
+
+    if (options.persist) {
+      void persistPreferences({
+        ...preferencesRef.current,
+        ...patch
+      })
+    }
   }
 
   async function saveDeepSeekSettings() {
@@ -1025,9 +1040,12 @@ export function FloatingAssistantApp({
                     type="checkbox"
                     checked={preferences.deepseekOldFavoriteAssistanceEnabled}
                     onChange={(event) =>
-                      updateDeepSeekPreference({
-                        deepseekOldFavoriteAssistanceEnabled: event.currentTarget.checked
-                      })
+                      updateDeepSeekPreference(
+                        {
+                          deepseekOldFavoriteAssistanceEnabled: event.currentTarget.checked
+                        },
+                        { persist: true }
+                      )
                     }
                   />
                   <span>用 DeepSeek 辅助整理旧藏</span>
@@ -1037,9 +1055,12 @@ export function FloatingAssistantApp({
                     type="checkbox"
                     checked={preferences.deepseekAutoSummaryEnabled}
                     onChange={(event) =>
-                      updateDeepSeekPreference({
-                        deepseekAutoSummaryEnabled: event.currentTarget.checked
-                      })
+                      updateDeepSeekPreference(
+                        {
+                          deepseekAutoSummaryEnabled: event.currentTarget.checked
+                        },
+                        { persist: true }
+                      )
                     }
                   />
                   <span>转写完成后自动生成 DeepSeek 总结</span>

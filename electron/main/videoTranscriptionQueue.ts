@@ -62,6 +62,24 @@ function snapshotFromItems(items: VideoAudioTranscriptionQueueItem[]): VideoAudi
   }
 }
 
+function restoreUnfinishedItems(
+  items: VideoAudioTranscriptionQueueItem[],
+  getRestoredAt: () => string
+): VideoAudioTranscriptionQueueItem[] {
+  return items.map((item) =>
+    item.status === 'running'
+      ? {
+          ...item,
+          status: 'pending',
+          updatedAt: getRestoredAt(),
+          startedAt: undefined,
+          progress: undefined,
+          errorMessage: undefined
+        }
+      : item
+  )
+}
+
 export function createVideoTranscriptionQueue({
   loadItems,
   saveItems,
@@ -71,7 +89,7 @@ export function createVideoTranscriptionQueue({
   now = () => new Date().toISOString(),
   onSnapshot
 }: QueueDeps): VideoTranscriptionQueue {
-  let items = loadItems()
+  let items = restoreUnfinishedItems(loadItems(), now)
   let processing = false
 
   function publish(): VideoAudioTranscriptionQueueSnapshot {
@@ -229,6 +247,13 @@ export function createVideoTranscriptionQueue({
     const snapshot = publish()
     void processNext()
     return snapshot
+  }
+
+  if (items.some((item) => item.status === 'pending')) {
+    publish()
+    queueMicrotask(() => {
+      void processNext()
+    })
   }
 
   return {

@@ -179,6 +179,77 @@ describe('video transcription queue', () => {
     })
   })
 
+  it('resumes unfinished persisted jobs after a restart', async () => {
+    const restartedAt = '2026-06-25T00:00:10.000Z'
+    const store = createStore([
+      {
+        ...createRequest(),
+        id: 'bvid:BV1queue',
+        status: 'running',
+        createdAt: '2026-06-25T00:00:00.000Z',
+        startedAt: '2026-06-25T00:00:01.000Z',
+        updatedAt: '2026-06-25T00:00:05.000Z',
+        progress: { step: 'transcribing-segment', message: 'Transcribing segment.' }
+      },
+      {
+        ...createRequest({
+          url: 'https://www.bilibili.com/video/BV2queue',
+          title: 'Second video',
+          bvid: 'BV2queue'
+        }),
+        id: 'bvid:BV2queue',
+        status: 'pending',
+        createdAt: '2026-06-25T00:00:06.000Z',
+        updatedAt: '2026-06-25T00:00:06.000Z'
+      }
+    ])
+    const second = createDeferred<{ transcript: TranscriptSegment[]; transcriptSource: 'audio' }>()
+    const transcribe = vi
+      .fn()
+      .mockResolvedValueOnce({
+        transcript: createTranscript('resumed transcript'),
+        transcriptSource: 'audio'
+      })
+      .mockReturnValueOnce(second.promise)
+    const saveArchiveVersion = vi.fn()
+
+    const queue = createVideoTranscriptionQueue({
+      loadItems: store.load,
+      saveItems: store.save,
+      transcribe,
+      saveArchiveVersion,
+      now: () => restartedAt
+    })
+
+    expect(queue.getSnapshot().items[0]).toMatchObject({
+      id: 'bvid:BV1queue',
+      status: 'pending',
+      updatedAt: restartedAt,
+      progress: undefined,
+      errorMessage: undefined
+    })
+
+    await flushMicrotasks()
+    await flushMicrotasks()
+
+    expect(transcribe).toHaveBeenCalledWith(expect.objectContaining({ id: 'bvid:BV1queue' }), expect.any(Function))
+    expect(saveArchiveVersion).toHaveBeenCalledWith(
+      expect.objectContaining<Partial<VideoNote>>({
+        id: 'bvid:BV1queue',
+        transcript: createTranscript('resumed transcript')
+      }),
+      ''
+    )
+    expect(queue.getSnapshot().items[0]).toMatchObject({
+      status: 'completed',
+      progress: { step: 'queue-completed' }
+    })
+    expect(queue.getSnapshot().items[1].status).toBe('running')
+
+    second.resolve({ transcript: createTranscript('second transcript'), transcriptSource: 'audio' })
+    await flushMicrotasks()
+  })
+
   it('saves queued notes without summary text when auto summary is not requested', async () => {
     const transcribe = vi.fn().mockResolvedValue({
       transcript: createTranscript('plain transcript'),
