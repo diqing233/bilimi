@@ -395,7 +395,7 @@ describe('video audio transcription queue store helpers', () => {
     expect(loadVideoAudioTranscriptionQueue(store)).toEqual([])
   })
 
-  it('saves queue items and normalizes interrupted running jobs as failed on load', () => {
+  it('saves queue items, drops completed history, and normalizes interrupted running jobs on load', () => {
     const runningItem: VideoAudioTranscriptionQueueItem = {
       id: 'bvid:BV1queue',
       url: 'https://www.bilibili.com/video/BV1queue',
@@ -415,11 +415,25 @@ describe('video audio transcription queue store helpers', () => {
       createdAt: '2026-06-25T00:02:00.000Z',
       updatedAt: '2026-06-25T00:02:00.000Z'
     }
+    const completedItem: VideoAudioTranscriptionQueueItem = {
+      id: 'bvid:BV3queue',
+      url: 'https://www.bilibili.com/video/BV3queue',
+      title: 'Completed queue video',
+      bvid: 'BV3queue',
+      status: 'completed',
+      createdAt: '2026-06-25T00:03:00.000Z',
+      updatedAt: '2026-06-25T00:04:00.000Z',
+      completedAt: '2026-06-25T00:04:00.000Z'
+    }
     const store = createFakeStore()
 
-    saveVideoAudioTranscriptionQueue(store, [runningItem, pendingItem])
+    saveVideoAudioTranscriptionQueue(store, [runningItem, pendingItem, completedItem])
 
-    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual([runningItem, pendingItem])
+    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual([
+      runningItem,
+      pendingItem,
+      completedItem
+    ])
     expect(loadVideoAudioTranscriptionQueue(store)).toEqual([
       {
         ...runningItem,

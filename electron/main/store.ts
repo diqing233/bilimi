@@ -273,15 +273,17 @@ export function updateVideoNoteArchiveVersion(
 export function loadVideoAudioTranscriptionQueue(
   store: AssistantStoreLike = getDesktopStore()
 ): VideoAudioTranscriptionQueueItem[] {
-  return (store.get('videoAudioTranscriptionQueue') ?? []).map((item) =>
-    item.status === 'running'
-      ? {
-          ...item,
-          status: 'failed',
-          errorMessage: 'Bilimi was closed before this transcription finished.'
-        }
-      : item
-  )
+  return (store.get('videoAudioTranscriptionQueue') ?? [])
+    .filter((item) => item.status !== 'completed')
+    .map((item) =>
+      item.status === 'running'
+        ? {
+            ...item,
+            status: 'failed',
+            errorMessage: 'Bilimi was closed before this transcription finished.'
+          }
+        : item
+    )
 }
 
 export function saveVideoAudioTranscriptionQueue(
