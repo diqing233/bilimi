@@ -168,15 +168,29 @@ export function deleteVideoNoteArchiveVersion(
 }
 
 export function createNotePosterText(poster: NotePosterSummary): string {
+  const polishedTranscriptText = poster.polishedTranscriptText?.trim()
+  const auditChecklistText = poster.auditChecklistText?.trim()
+
   return [
-    poster.title,
+    '## 精准总结',
+    '',
+    poster.title ? `### ${poster.title}` : '',
     poster.subtitle,
     '',
     ...poster.keyPoints.map((point) => '- ' + point),
-    poster.keywords.length > 0 ? '关键词：' + poster.keywords.join('、') : ''
+    poster.keywords.length > 0 ? '关键词：' + poster.keywords.join('、') : '',
+    polishedTranscriptText
+      ? ['', '## 精修文稿', '', polishedTranscriptText.replace(/^#+\s*精修文稿\s*/u, '').trim()]
+      : '',
+    auditChecklistText
+      ? ['', '## 内容核对清单', '', auditChecklistText.replace(/^#+\s*内容核对清单\s*/u, '').trim()]
+      : ''
   ]
-    .filter(Boolean)
+    .flat()
+    .filter((line) => line !== undefined && line !== null)
     .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 export function updateVideoNoteArchiveVersion(

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { VideoNote, VideoNoteArchiveEntry } from './types'
 import {
   appendVideoNoteArchiveVersion,
+  createNotePosterText,
   createPlainTranscriptText,
   createSummaryText,
   deleteVideoNoteArchiveEntry,
@@ -89,6 +90,27 @@ describe('video note archive helpers', () => {
     )
 
     expect(archives[0].versions[0].summaryText).toBe('DeepSeek summary text')
+  })
+
+  it('formats DeepSeek output with summary first and polished transcript below', () => {
+    const text = createNotePosterText({
+      title: '机器学习入门',
+      subtitle: '整体主旨：用数据和模型解释机器学习。',
+      keyPoints: ['核心内容：训练数据影响模型表现。'],
+      keywords: ['机器学习', '训练数据'],
+      prompt: '',
+      polishedTranscriptText: '## 精修文稿\n\n先介绍机器学习的基本概念。',
+      auditChecklistText: '- 数据：训练数据\n- 结论：数据质量影响模型'
+    })
+
+    expect(text).toContain('## 精准总结')
+    expect(text).toContain('机器学习入门')
+    expect(text).toContain('- 核心内容：训练数据影响模型表现。')
+    expect(text).toContain('## 精修文稿')
+    expect(text).toContain('先介绍机器学习的基本概念。')
+    expect(text).toContain('## 内容核对清单')
+    expect(text).toContain('- 数据：训练数据')
+    expect(text.indexOf('## 精准总结')).toBeLessThan(text.indexOf('## 精修文稿'))
   })
 
   it('searches title, author, bvid, transcript and summary text', () => {

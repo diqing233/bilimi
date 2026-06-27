@@ -450,6 +450,18 @@ export function VideoNotesPanel({
                 ))}
               </ul>
             ) : null}
+            {activePosterSummary.polishedTranscriptText?.trim() ? (
+              <article className="video-notes__summary-section">
+                <h4>精修文稿</h4>
+                <pre>{activePosterSummary.polishedTranscriptText.replace(/^#+\s*精修文稿\s*/u, '').trim()}</pre>
+              </article>
+            ) : null}
+            {activePosterSummary.auditChecklistText?.trim() ? (
+              <article className="video-notes__summary-section">
+                <h4>内容核对清单</h4>
+                <pre>{activePosterSummary.auditChecklistText.replace(/^#+\s*内容核对清单\s*/u, '').trim()}</pre>
+              </article>
+            ) : null}
           </section>
         ) : note ? (
           <section aria-label="DeepSeek 总结">

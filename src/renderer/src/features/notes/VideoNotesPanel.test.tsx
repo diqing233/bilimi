@@ -238,7 +238,9 @@ describe('VideoNotesPanel', () => {
       subtitle: 'Compact study poster',
       keyPoints: ['Data quality matters', 'Models need examples'],
       keywords: ['AI', 'notes'],
-      prompt: 'clean poster'
+      prompt: 'clean poster',
+      polishedTranscriptText: '## 精修文稿\n\n先介绍机器学习的基本概念。',
+      auditChecklistText: '- 数据：训练数据\n- 结论：数据质量影响模型'
     }
     const onGeneratePoster = vi.fn().mockResolvedValue(poster)
     const onArchivePosterSummary = vi.fn().mockResolvedValue(undefined)
@@ -252,8 +254,15 @@ describe('VideoNotesPanel', () => {
     await waitFor(() => expect(onGeneratePoster).toHaveBeenCalledWith(sampleNote))
     expect(onArchivePosterSummary).toHaveBeenCalledWith(sampleNote, poster)
     expect(await screen.findByRole('button', { name: '重新总结' })).toBeInTheDocument()
-    expect(await screen.findByRole('region', { name: 'DeepSeek 总结' })).toHaveTextContent('Learning Machine Models')
+    const summaryRegion = await screen.findByRole('region', { name: 'DeepSeek 总结' })
+    expect(summaryRegion).toHaveTextContent('Learning Machine Models')
     expect(screen.getByText('Data quality matters')).toBeInTheDocument()
+    expect(screen.getByText('精修文稿')).toBeInTheDocument()
+    expect(screen.getByText('先介绍机器学习的基本概念。')).toBeInTheDocument()
+    expect(screen.getByText('内容核对清单')).toBeInTheDocument()
+    expect(summaryRegion.textContent?.indexOf('Learning Machine Models')).toBeLessThan(
+      summaryRegion.textContent?.indexOf('精修文稿') ?? -1
+    )
   })
 
   it('reuses the generated DeepSeek summary when the summary tab is reopened', async () => {
@@ -262,7 +271,9 @@ describe('VideoNotesPanel', () => {
       subtitle: 'Compact study poster',
       keyPoints: ['Data quality matters'],
       keywords: ['AI'],
-      prompt: 'clean poster'
+      prompt: 'clean poster',
+      polishedTranscriptText: '## 精修文稿\n\n先介绍机器学习。',
+      auditChecklistText: '- 观点：数据重要'
     }
     const onGeneratePoster = vi.fn().mockResolvedValue(poster)
     renderPanel({ deepSeekEnabled: true, onGeneratePoster })

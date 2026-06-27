@@ -103,14 +103,16 @@ describe('DeepSeek main service', () => {
     )
   })
 
-  it('parses note poster JSON into a summary', async () => {
+  it('parses note poster JSON into a summary with polished transcript and checklist', async () => {
     const fetchImpl = createJsonFetch(
       JSON.stringify({
         title: 'Learning Types',
         subtitle: 'Compact note',
         keyPoints: ['one', 'two'],
         keywords: ['ts'],
-        prompt: 'clean poster'
+        prompt: 'clean poster',
+        polishedTranscriptText: '## 精修文稿\n\n完整文稿正文。',
+        auditChecklistText: '- 人物：讲者\n- 观点：类型系统'
       })
     )
 
@@ -127,12 +129,14 @@ describe('DeepSeek main service', () => {
         subtitle: 'Compact note',
         keyPoints: ['one', 'two'],
         keywords: ['ts'],
-        prompt: 'clean poster'
+        prompt: 'clean poster',
+        polishedTranscriptText: '## 精修文稿\n\n完整文稿正文。',
+        auditChecklistText: '- 人物：讲者\n- 观点：类型系统'
       }
     })
   })
 
-  it('asks DeepSeek for a richer Chinese note summary instead of a compact poster', async () => {
+  it('asks DeepSeek to polish the transcript before creating a faithful Chinese summary', async () => {
     const fetchImpl = createJsonFetch(
       JSON.stringify({
         title: '机器学习入门',
@@ -142,7 +146,9 @@ describe('DeepSeek main service', () => {
           '重点强调训练数据质量会直接影响模型表现和泛化上限。'
         ],
         keywords: ['机器学习', '训练数据'],
-        prompt: '适合复习的 DeepSeek 结构化总结'
+        prompt: '适合复习的 DeepSeek 结构化总结',
+        polishedTranscriptText: '## 精修文稿\n\n完整保留文稿。',
+        auditChecklistText: '- 数据：训练数据\n- 结论：模型表现受数据影响'
       })
     )
 
@@ -159,11 +165,14 @@ describe('DeepSeek main service', () => {
 
     expect(systemMessage).toContain('DeepSeek 视频札记总结')
     expect(systemMessage).toContain('中文')
-    expect(systemMessage).toContain('更丰富')
-    expect(systemMessage).toContain('更精细')
-    expect(systemMessage).toContain('6 到 8 条')
+    expect(systemMessage).toContain('第一阶段')
+    expect(systemMessage).toContain('精修文稿')
+    expect(systemMessage).toContain('第二阶段')
+    expect(systemMessage).toContain('精准总结')
     expect(systemMessage).toContain('尽量信息不失真')
-    expect(systemMessage).toContain('重要细节')
+    expect(systemMessage).toContain('内容核对清单')
+    expect(systemMessage).toContain('polishedTranscriptText')
+    expect(systemMessage).toContain('auditChecklistText')
     expect(systemMessage).not.toContain('compact one-image video note poster')
   })
 
@@ -183,7 +192,9 @@ describe('DeepSeek main service', () => {
           'point 8 includes enough reasoning and context for review'
         ],
         keywords: ['lecture'],
-        prompt: 'study card'
+        prompt: 'study card',
+        polishedTranscriptText: '## Polished transcript\n\nFull transcript text.',
+        auditChecklistText: '- detail: closing argument'
       })
     )
 
@@ -205,7 +216,9 @@ describe('DeepSeek main service', () => {
           'point 6 includes enough reasoning and context for review',
           'point 7 includes enough reasoning and context for review',
           'point 8 includes enough reasoning and context for review'
-        ]
+        ],
+        polishedTranscriptText: '## Polished transcript\n\nFull transcript text.',
+        auditChecklistText: '- detail: closing argument'
       }
     })
 

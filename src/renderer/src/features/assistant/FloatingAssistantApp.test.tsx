@@ -102,7 +102,9 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
             subtitle: 'Compact study poster',
             keyPoints: ['Data quality matters'],
             keywords: ['AI'],
-            prompt: 'clean poster'
+            prompt: 'clean poster',
+            polishedTranscriptText: '## 精修文稿\n\n机器学习需要数据和模型。',
+            auditChecklistText: '- 数据：数据和模型\n- 结论：数据质量重要'
           }
         }
       : {

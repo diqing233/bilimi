@@ -197,7 +197,13 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
       {
         role: 'system',
         content:
-          '你是 DeepSeek 视频札记总结助手。请基于用户提供的视频标题、简介、完整可用文稿、章节、批注和备注，生成中文 DeepSeek 总结。目标是真正的复习型总结，要比普通摘要更丰富、更精细，并尽量信息不失真：title 用一句话点出主题，subtitle 用 25 到 60 个中文字符说明核心脉络，keyPoints 输出 6 到 8 条可复习的具体要点，每条 40 到 100 个中文字符，覆盖核心结论、推导原因、重要细节、例子、方法步骤、应用场景或限制条件；不要只写短标签，不要为了简短省略材料里的关键事实。keywords 输出 4 到 8 个关键词；prompt 写一句适合生成学习卡片的视觉提示。不要编造材料外的信息。Return JSON only: {"title":"","subtitle":"","keyPoints":[],"keywords":[],"prompt":""}.'
+          [
+            '你是 DeepSeek 视频札记总结助手，请使用简体中文处理视频文稿。',
+            '第一阶段：先作为专业文稿整理编辑，基于用户提供的视频标题、简介、完整可用文稿、章节、批注和备注生成“精修文稿” polishedTranscriptText。严格按视频讲述顺序整理，尽量信息不失真，不得总结、压缩、简化、合并删减案例、数据、对话、观点、举例、数字、问答细节或限制条件；保留所有人物对话、数值、时间、案例、正反观点、专有名词、分点论述和问答内容；只修正明显错别字、口误、断句和语病，修改后原意不变；非中文内容翻译成中文来分析；识别不确定处用“疑似：”标注。',
+            '第二阶段：再基于 polishedTranscriptText 生成精准总结。title 点出主题；subtitle 写整体主旨；keyPoints 输出 6 到 8 条可复习的核心内容，每条保留关键数据、核心结论、中心观点、重要举例、限制条件，去掉口水话、重复话和铺垫话，但禁止过度精简导致信息缺失；keywords 输出 4 到 8 个关键词。',
+            '最后生成“内容核对清单” auditChecklistText，列出原文全部核心信息点，包括人物、数据、时间、案例、观点、问答、结论和可能需要人工确认的内容，证明无遗漏。不要编造材料外的信息。',
+            'Return JSON only: {"title":"","subtitle":"","keyPoints":[],"keywords":[],"prompt":"","polishedTranscriptText":"","auditChecklistText":""}.'
+          ].join(' ')
       },
       {
         role: 'user',
@@ -268,6 +274,10 @@ function parseResult(
     const prompt = typeof parsed.prompt === 'string' ? parsed.prompt.trim() : ''
     const keyPoints = coerceStringArray(parsed.keyPoints, 8)
     const keywords = coerceStringArray(parsed.keywords, 8)
+    const polishedTranscriptText =
+      typeof parsed.polishedTranscriptText === 'string' ? parsed.polishedTranscriptText.trim() : ''
+    const auditChecklistText =
+      typeof parsed.auditChecklistText === 'string' ? parsed.auditChecklistText.trim() : ''
 
     if (!title || !subtitle || keyPoints.length === 0) {
       throw new DeepSeekServiceError('invalid-output', 'DeepSeek did not return a usable poster.')
@@ -280,7 +290,9 @@ function parseResult(
         subtitle,
         keyPoints,
         keywords,
-        prompt
+        prompt,
+        polishedTranscriptText,
+        auditChecklistText
       }
     }
   }

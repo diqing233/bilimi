@@ -212,6 +212,8 @@ export type NotePosterSummary = {
   keyPoints: string[]
   keywords: string[]
   prompt: string
+  polishedTranscriptText?: string
+  auditChecklistText?: string
 }
 
 export type DeepSeekGenerateRequest =
