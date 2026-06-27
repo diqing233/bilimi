@@ -1075,6 +1075,11 @@ describe('FloatingAssistantApp', () => {
       })
     })
     await waitFor(() => expect(loadVideoNoteArchives).toHaveBeenCalledTimes(2))
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+    expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).toHaveTextContent(
+      '机器学习需要数据和模型。'
+    )
+
     fireEvent.click(screen.getByRole('button', { name: '档案库' }))
 
     expect(await screen.findByRole('region', { name: '全局档案库' })).toBeInTheDocument()

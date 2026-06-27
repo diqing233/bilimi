@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { VideoAudioTranscriptionQueueSnapshot, VideoNote } from '@shared/types'
 import { VideoNotesPanel } from './VideoNotesPanel'
@@ -45,6 +45,20 @@ function renderQueuePanel(queue: VideoAudioTranscriptionQueueSnapshot) {
   return {
     onEnqueueTranscription
   }
+}
+
+function renderQueuePanelWithNote(queue: VideoAudioTranscriptionQueueSnapshot) {
+  render(
+    <VideoNotesPanel
+      note={sampleNote}
+      isLoading={false}
+      onGenerate={vi.fn()}
+      onSave={vi.fn()}
+      onTranscribeAudio={vi.fn()}
+      onEnqueueTranscription={vi.fn().mockResolvedValue(queue)}
+      transcriptionQueue={queue}
+    />
+  )
 }
 
 describe('VideoNotesPanel transcription queue', () => {
@@ -158,6 +172,38 @@ describe('VideoNotesPanel transcription queue', () => {
     expect(status).toHaveTextContent('排队已完成：Completed video')
     expect(screen.getByText('DeepSeek 总结已完成')).toBeInTheDocument()
     expect(screen.getByText('100%')).toBeInTheDocument()
+  })
+
+  it('keeps transcript tabs usable when the queue is idle after completion', () => {
+    const queue: VideoAudioTranscriptionQueueSnapshot = {
+      items: [
+        {
+          id: 'bvid:BV2note',
+          url: 'https://www.bilibili.com/video/BV2note',
+          title: 'Completed video',
+          bvid: 'BV2note',
+          status: 'completed',
+          createdAt: '2026-06-25T00:01:00.000Z',
+          updatedAt: '2026-06-25T00:04:00.000Z',
+          completedAt: '2026-06-25T00:04:00.000Z'
+        }
+      ]
+    }
+
+    renderQueuePanelWithNote(queue)
+
+    expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent(
+      '排队已完成：Completed video'
+    )
+    expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /带时间线文稿/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /DeepSeek 总结/ })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+
+    expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).toHaveTextContent(
+      'Transcript text.'
+    )
   })
 
   it('normalizes stale progress on completed queue items after restart', () => {

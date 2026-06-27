@@ -351,7 +351,7 @@ export function FloatingAssistantApp({
       setTranscriptionQueue(snapshot)
 
       if (hadRunning && !hasRunning && snapshot.items.some((item) => item.status === 'completed')) {
-        void loadVideoNoteArchives({ silent: true })
+        void syncCompletedQueuedVideoNote(snapshot)
       }
     })
   }, [])
@@ -767,6 +767,24 @@ export function FloatingAssistantApp({
     }
 
     return archives
+  }
+
+  async function syncCompletedQueuedVideoNote(snapshot: VideoAudioTranscriptionQueueSnapshot) {
+    const completedItem = snapshot.items
+      .filter((item) => item.status === 'completed' && item.archiveNoteId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
+    const archives = await loadVideoNoteArchives({ silent: true })
+
+    if (!completedItem?.archiveNoteId) return
+
+    const archive = archives.find((entry) => entry.id === completedItem.archiveNoteId)
+    const latestVersion = archive?.versions
+      .slice()
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
+
+    if (latestVersion) {
+      setVideoNote(latestVersion.note)
+    }
   }
 
   async function deleteVideoNoteArchiveEntry(archiveId: string) {
