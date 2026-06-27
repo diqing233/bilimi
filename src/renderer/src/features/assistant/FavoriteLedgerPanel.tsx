@@ -22,6 +22,7 @@ type FavoriteLedgerPanelProps = {
   onOpenFavoritePage?: () => Promise<AssistantAutomationResult> | void
   onScanOldFavorites: (options?: { enhanceWithDeepSeek?: boolean }) => Promise<FavoriteLedgerPreview>
   onExecuteOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
+  onOldFavoriteExecutionStateChange?: (state: 'running' | 'finished') => void
   deepSeekOldFavoriteAssistanceEnabled?: boolean
   deepSeekReady?: boolean
 }
@@ -459,6 +460,7 @@ export function FavoriteLedgerPanel({
   onOpenFavoritePage,
   onScanOldFavorites,
   onExecuteOldFavoritePlan,
+  onOldFavoriteExecutionStateChange,
   deepSeekOldFavoriteAssistanceEnabled = false,
   deepSeekReady = false
 }: FavoriteLedgerPanelProps) {
@@ -479,6 +481,8 @@ export function FavoriteLedgerPanel({
     total: number
   } | null>(null)
   const [oldFavoriteExecuting, setOldFavoriteExecuting] = useState(false)
+  const [oldFavoriteExecutionAwaitingAcknowledgement, setOldFavoriteExecutionAwaitingAcknowledgement] =
+    useState(false)
   const [status, setStatus] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -518,7 +522,44 @@ export function FavoriteLedgerPanel({
     finishLedgerDrag()
   }, [ledgers])
 
+  function oldFavoriteOrganizationLocked() {
+    return oldFavoriteExecuting || oldFavoriteExecutionAwaitingAcknowledgement
+  }
+
+  function showOldFavoriteOrganizationPendingMessage() {
+    setStatus('正在整理中，请耐心等待。')
+  }
+
+  function acknowledgeOldFavoriteExecution() {
+    setOldFavoriteExecutionAwaitingAcknowledgement(false)
+    setOldFavoriteExecutionProgress(null)
+    setStatus(null)
+  }
+
+  async function backUpLedgersFromToolbar() {
+    if (oldFavoriteOrganizationLocked()) {
+      showOldFavoriteOrganizationPendingMessage()
+      return
+    }
+
+    await saveLedgers({
+      includeSelectedCandidates: false,
+      pendingMessage: '正在备册...',
+      successMessage: BACKUP_COMPLETE_MESSAGE,
+      includeDefaultLedgers: true,
+      saveOptions: { deleteDisabled: false },
+      onSuccess: async () => {
+        await onOpenFavoritePage?.()
+      }
+    })
+  }
+
   async function startOrganizingOldFavorites() {
+    if (oldFavoriteOrganizationLocked()) {
+      showOldFavoriteOrganizationPendingMessage()
+      return
+    }
+
     if (preview && oldFavoriteGuideMode === 'organize') {
       setLedgerListExpanded(true)
       return
@@ -1086,8 +1127,11 @@ export function FavoriteLedgerPanel({
     }
 
     setOldFavoriteExecuting(true)
+    setOldFavoriteExecutionAwaitingAcknowledgement(false)
     setOldFavoriteExecutionProgress(null)
     setSaveStatus(null)
+    setStatus('正在整理中，请耐心等待。')
+    onOldFavoriteExecutionStateChange?.('running')
     try {
       const nextLedgers = buildLedgersToSave()
       const saveResult = await onSaveLedgers(nextLedgers)
@@ -1115,17 +1159,20 @@ export function FavoriteLedgerPanel({
         await paceOldFavoriteExecution(index + 1, index < selectedItems.length - 1)
       }
       const failedCount = results.filter((result) => result.ok === false).length
-      const lastMessage = results.at(-1)?.message
       const paused = results.some((result) => result.paused)
       setStatus(
         paused
-          ? `整理旧藏已暂停：${lastMessage ?? 'Bilibili 正在保护账号，请稍后再继续。'}`
+          ? '本次整理已暂停，请稍后再继续。'
           : failedCount > 0
-          ? `整理旧藏完成：${results.length - failedCount} 条成功，${failedCount} 条失败。${lastMessage ?? ''}`
-          : lastMessage ?? '旧藏已归册。'
+          ? `本次整理已结束，${results.length - failedCount} 条成功，${failedCount} 条失败。`
+          : '本次整理已结束。'
       )
+      setOldFavoriteExecutionAwaitingAcknowledgement(true)
+      onOldFavoriteExecutionStateChange?.('finished')
     } catch (error) {
       setStatus(`整理旧藏未完成：${errorMessage(error)}`)
+      setOldFavoriteExecutionAwaitingAcknowledgement(true)
+      onOldFavoriteExecutionStateChange?.('finished')
     } finally {
       setOldFavoriteExecuting(false)
     }
@@ -1295,18 +1342,7 @@ export function FavoriteLedgerPanel({
             type="button"
             aria-label="备册"
             disabled={busy}
-            onClick={() =>
-              void saveLedgers({
-                includeSelectedCandidates: false,
-                pendingMessage: '正在备册...',
-                successMessage: BACKUP_COMPLETE_MESSAGE,
-                includeDefaultLedgers: true,
-                saveOptions: { deleteDisabled: false },
-                onSuccess: async () => {
-                  await onOpenFavoritePage?.()
-                }
-              })
-            }
+            onClick={() => void backUpLedgersFromToolbar()}
             icon={clickedPetUrl}
             iconAlt="小咪备册"
             badge="备"
@@ -1790,10 +1826,21 @@ export function FavoriteLedgerPanel({
                   ) : null}
                   <button
                     type="button"
-                    disabled={oldFavoriteExecuting || selectedOldFavoritePlanItems.length === 0}
-                    onClick={() => void executeOldFavoritePlan()}
+                    disabled={
+                      (oldFavoriteExecuting || selectedOldFavoritePlanItems.length === 0) &&
+                      !oldFavoriteExecutionAwaitingAcknowledgement
+                    }
+                    onClick={() =>
+                      oldFavoriteExecutionAwaitingAcknowledgement
+                        ? acknowledgeOldFavoriteExecution()
+                        : void executeOldFavoritePlan()
+                    }
                   >
-                    {oldFavoriteExecuting ? '整理中' : '确认整理'}
+                    {oldFavoriteExecutionAwaitingAcknowledgement
+                      ? '好的'
+                      : oldFavoriteExecuting
+                      ? '整理中'
+                      : '确认整理'}
                   </button>
                 </>
               )}

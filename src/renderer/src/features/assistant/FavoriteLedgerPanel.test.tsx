@@ -1232,10 +1232,10 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(1))
     await waitFor(() =>
       expect(container.querySelector('.favorite-ledger-panel__status')).toHaveTextContent(
-        '整理旧藏已暂停'
+        '本次整理已暂停'
       )
     )
-    expect(container.querySelector('.favorite-ledger-panel__status')).toHaveTextContent('Bilibili')
+    expect(screen.getByRole('button', { name: '好的' })).toBeInTheDocument()
   })
 
   it('updates old favorite progress after each selected archive task', async () => {
@@ -1358,6 +1358,63 @@ describe('FavoriteLedgerPanel', () => {
         '2'
       )
     )
+  })
+
+  it('keeps old favorite organization locked until the completion acknowledgement', async () => {
+    const preview = {
+      items: [
+        {
+          aid: 101,
+          title: 'old favorite one',
+          sourceFolderTitle: 'Default Favorites',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'Bilimi Knowledge',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true
+        }
+      ],
+      skippedSourceFolderTitles: []
+    }
+    const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
+    const onExecuteOldFavoritePlan = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['api:ledger:append:101'],
+      missingTargets: [],
+      message: 'done'
+    })
+
+    const { container } = render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={onScanOldFavorites}
+        onExecuteOldFavoritePlan={onExecuteOldFavoritePlan}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce())
+    await waitFor(() => expect(screen.getByRole('button', { name: '好的' })).toBeInTheDocument())
+    expect(container.querySelector('.favorite-ledger-panel__status')).toHaveTextContent('本次整理已结束')
+
+    fireEvent.click(screen.getByRole('button', { name: '备册' }))
+    expect(container.querySelector('.favorite-ledger-panel__status')).toHaveTextContent('正在整理中，请耐心等待')
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    expect(container.querySelector('.favorite-ledger-panel__status')).toHaveTextContent('正在整理中，请耐心等待')
+    expect(onScanOldFavorites).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: '好的' }))
+    expect(screen.getByRole('button', { name: '确认整理' })).toBeInTheDocument()
   })
 
   it('defaults recommended old favorite ledgers on and previews videos grouped by ledger', async () => {

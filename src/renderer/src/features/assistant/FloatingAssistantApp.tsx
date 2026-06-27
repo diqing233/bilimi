@@ -867,13 +867,18 @@ export function FloatingAssistantApp({
   async function executeOldFavoritePlan(
     items: FavoriteLedgerPreviewItem[]
   ): Promise<AssistantAutomationResult> {
-    tellPet('progress', '小咪正在按计划归整旧藏。')
     const result =
       (await window.bilimiDesktop?.executeOldFavoritePlan?.(items)) ??
       createDefaultResult('旧藏已归册。')
 
-    tellPet(result.ok ? 'success' : 'error', result.message)
     return result
+  }
+
+  function handleOldFavoriteExecutionStateChange(state: 'running' | 'finished') {
+    tellPet(
+      state === 'running' ? 'progress' : 'success',
+      state === 'running' ? '旧藏整理中，请耐心等待。' : '本次整理已结束。'
+    )
   }
 
   function closeAssistant() {
@@ -913,6 +918,7 @@ export function FloatingAssistantApp({
             onOpenFavoritePage={openFavoritePage}
             onScanOldFavorites={scanOldFavorites}
             onExecuteOldFavoritePlan={executeOldFavoritePlan}
+            onOldFavoriteExecutionStateChange={handleOldFavoriteExecutionStateChange}
             deepSeekOldFavoriteAssistanceEnabled={preferences.deepseekOldFavoriteAssistanceEnabled}
             deepSeekReady={preferences.deepseekEnabled && preferences.deepseekApiKeyStored}
           />

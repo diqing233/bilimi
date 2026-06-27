@@ -759,6 +759,68 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByRole('status')).toHaveTextContent('已扫描 1 条旧藏，可勾选后整理。')
   })
 
+  it('keeps old favorite pet hints quiet between organization start and finish', async () => {
+    const setAssistantPetHint = vi.fn()
+    const executeOldFavoritePlan = vi
+      .fn()
+      .mockResolvedValueOnce(createResult('first item done'))
+      .mockResolvedValueOnce(createResult('second item done'))
+    installDesktopApi({
+      executeOldFavoritePlan,
+      scanOldFavorites: vi.fn().mockResolvedValue({
+        items: [
+          {
+            aid: 101,
+            title: 'old favorite with two targets',
+            sourceFolderTitle: 'Default Favorites',
+            targetLedgerId: 'knowledge',
+            targetFolderId: '9001',
+            targetDisplayName: 'Bilimi Knowledge',
+            reviewRequired: false,
+            alreadyInTarget: false,
+            selected: true,
+            targets: [
+              {
+                ledgerId: 'knowledge',
+                folderId: '9001',
+                displayName: 'Bilimi Knowledge',
+                keywords: ['knowledge'],
+                alreadyInTarget: false,
+                selected: true
+              },
+              {
+                ledgerId: 'movie-tv',
+                folderId: '9002',
+                displayName: 'Bilimi Movie',
+                keywords: ['movie'],
+                alreadyInTarget: false,
+                selected: true
+              }
+            ]
+          }
+        ],
+        skippedSourceFolderTitles: []
+      }),
+      setAssistantPetHint
+    })
+
+    const { container } = render(<FloatingAssistantApp />)
+
+    await screen.findAllByRole('tab')
+    fireEvent.click(screen.getAllByRole('tab')[2])
+    fireEvent.click(container.querySelectorAll('.favorite-ledger-panel__toolbar button')[1])
+    await waitFor(() => expect(container.querySelector('.favorite-ledger-panel__old-favorites-guide')).toBeInTheDocument())
+    fireEvent.click(container.querySelectorAll('.favorite-ledger-panel__guide-steps button')[2])
+    fireEvent.click(container.querySelectorAll('.favorite-ledger-panel__guide-steps button')[3])
+    fireEvent.click(container.querySelector('.favorite-ledger-panel__confirm button')!)
+
+    await waitFor(() => expect(executeOldFavoritePlan).toHaveBeenCalledTimes(2))
+    expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'working')).toBe(true)
+    expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'happy')).toBe(true)
+    expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.message.includes('first item done'))).toBe(false)
+    expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.message.includes('second item done'))).toBe(false)
+  })
+
   it('refreshes the displayed video when the main window reports a snapshot change', async () => {
     let snapshotChanged: (() => void) | undefined
     const requestAssistantSnapshot = vi
