@@ -617,6 +617,51 @@ export function buildAutomationScript(
         return looksLikeComment && !looksLikeDanmaku;
       };
 
+      const isVisibleVideoActionBar = () => {
+        const selectors = [
+          '.video-toolbar',
+          '.video-toolbar-left',
+          '.toolbar-left',
+          '.video-actions',
+          '.ops',
+          '[class*="toolbar"][class*="left"]',
+          '[class*="video"][class*="toolbar"]'
+        ].join(',');
+        const candidates = Array.from(document.querySelectorAll(selectors));
+
+        return candidates.some((node) => {
+          if (!isVisibleCandidate(node)) {
+            return false;
+          }
+
+          const rect = node.getBoundingClientRect?.();
+          const viewportHeight = window.innerHeight || 800;
+          const viewportWidth = window.innerWidth || 1200;
+          if (rect) {
+            const sitsInMainColumn = rect.left < viewportWidth * 0.72;
+            const sitsNearUpperScreen = rect.bottom >= 0 && rect.top <= viewportHeight * 0.45;
+            if (!sitsInMainColumn || !sitsNearUpperScreen) {
+              return false;
+            }
+          }
+
+          const actionNodes = Array.from(
+            node.querySelectorAll?.(
+              '.video-like,.like,.video-coin,.coin,.video-fav,.fav,.favorite,.collect,.video-share,.share,[class*="like"],[class*="coin"],[class*="fav"],[class*="collect"],[class*="share"],button,[role="button"]'
+            ) || []
+          );
+          const actionText = normalize([nodeSearchText(node), ...actionNodes.map(nodeSearchText)].join(' ')).toLowerCase();
+          const actionHits = [
+            actionText.includes(normalize('点赞')) || actionText.includes('like'),
+            actionText.includes(normalize('投币')) || actionText.includes('coin'),
+            actionText.includes(normalize('收藏')) || actionText.includes('favorite') || actionText.includes('fav') || actionText.includes('collect'),
+            actionText.includes(normalize('分享')) || actionText.includes('share')
+          ].filter(Boolean).length;
+
+          return actionHits >= 2;
+        });
+      };
+
       const queryCommentRoot = () => {
         const selectors = [
           '#comment',
@@ -770,7 +815,8 @@ export function buildAutomationScript(
         Boolean(commentRoot && (queryCommentField(commentRoot) || queryCommentActivator(commentRoot)));
 
       const scrollPageTowardComments = async () => {
-        const delta = Math.max(window.innerHeight || 800, 800);
+        const actionBarVisible = isVisibleVideoActionBar();
+        const delta = actionBarVisible ? 180 : Math.max(window.innerHeight || 800, 800);
         const scrollTargets = [document.scrollingElement, document.documentElement, document.body]
           .filter(Boolean)
           .filter((target, index, targets) => targets.indexOf(target) === index);
@@ -790,7 +836,12 @@ export function buildAutomationScript(
         }
         window.dispatchEvent?.(new Event('scroll'));
         window.dispatchEvent?.(new WheelEvent('wheel', { bubbles: true, deltaY: delta }));
-        steps.push('comment:page-scroll');
+        if (actionBarVisible) {
+          steps.push('comment:action-bar-visible');
+          steps.push('comment:nearby-scroll');
+        } else {
+          steps.push('comment:page-scroll');
+        }
         steps.push('comment:reveal');
         await wait(250);
       };

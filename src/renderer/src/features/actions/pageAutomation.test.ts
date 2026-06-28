@@ -1285,6 +1285,96 @@ describe('buildAutomationScript', () => {
     )
   })
 
+  it('uses the visible video action bar as a near-comment landmark before scrolling further', async () => {
+    document.body.innerHTML = `
+      <section class="comment-teaser">comment area loading soon</section>
+      <section class="video-toolbar-left">
+        <button class="video-like" aria-label="like">like</button>
+        <button class="video-coin" aria-label="coin">coin</button>
+        <button class="video-fav" aria-label="favorite">favorite</button>
+        <button class="video-share" aria-label="share">share</button>
+      </section>
+    `
+    const toolbar = document.querySelector('.video-toolbar-left') as HTMLElement
+    toolbar.getBoundingClientRect = vi.fn(
+      () =>
+        ({
+          top: 220,
+          bottom: 280,
+          left: 40,
+          right: 760,
+          width: 720,
+          height: 60
+        }) as DOMRect
+    )
+    const scrollTarget = document.documentElement
+    scrollTarget.scrollTop = 0
+    let commentMounted = false
+    const mountCommentArea = () => {
+      if (commentMounted || scrollTarget.scrollTop < 120) {
+        return
+      }
+
+      commentMounted = true
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        `
+          <section id="comment">
+            <h2>\u8bc4\u8bba 3027</h2>
+            <div class="reply-box">
+              <div class="reply-box-placeholder">comment near action bar</div>
+            </div>
+          </section>
+        `
+      )
+      const replyBox = document.querySelector('.reply-box') as HTMLElement
+      let activated = false
+      replyBox.addEventListener('click', () => {
+        if (activated) {
+          return
+        }
+
+        activated = true
+        replyBox.innerHTML = `
+          <textarea class="reply-textarea" placeholder="comment near action bar"></textarea>
+          <button class="reply-send">\u53d1\u5e03</button>
+        `
+      })
+    }
+    window.addEventListener('wheel', mountCommentArea)
+    window.addEventListener('scroll', mountCommentArea)
+
+    let commentPublished = false
+    document.body.addEventListener('click', (event) => {
+      if ((event.target as HTMLElement).classList.contains('reply-send')) {
+        commentPublished = true
+      }
+    })
+
+    const result = await window.eval(
+      buildAutomationScript(
+        '\u8868',
+        'Bilimi \u5185\u5e93',
+        undefined,
+        'stop near the action bar before commenting.',
+        favoriteLedgers,
+        'movie-tv',
+        { submitComment: true }
+      )
+    )
+
+    expect(scrollTarget.scrollTop).toBeGreaterThanOrEqual(120)
+    expect(scrollTarget.scrollTop).toBeLessThan(800)
+    expect(commentPublished).toBe(true)
+    expect((document.querySelector('.reply-textarea') as HTMLTextAreaElement).value).toBe(
+      'stop near the action bar before commenting.'
+    )
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(
+      expect.arrayContaining(['comment:action-bar-visible', 'comment:nearby-scroll', 'comment:activate'])
+    )
+  })
+
   it('clicks the inactive Bilibili comment box before filling and publishing', async () => {
     document.body.innerHTML = `
       <section id="comment">
