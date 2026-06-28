@@ -56,6 +56,13 @@ describe('requestAssistantRuntimeWhenReady', () => {
     expect(createAssistantRuntimeTimeoutMs({ type: 'execute-old-favorite-plan', items: [] })).toBe(
       30 * 60 * 1000
     )
+    expect(
+      createAssistantRuntimeTimeoutMs({
+        type: 'run-action',
+        action: '表',
+        options: { submitComment: true }
+      })
+    ).toBe(60 * 1000)
     expect(createAssistantRuntimeTimeoutMs({ type: 'snapshot' })).toBe(8000)
   })
 
@@ -175,6 +182,33 @@ describe('requestAssistantRuntimeWhenReady', () => {
       await vi.advanceTimersByTimeAsync(8000)
 
       bus.emitResponse({ id: 'req-6', ok: true, payload: { ok: true } })
+
+      await expect(promise).resolves.toEqual({ ok: true })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps assistant actions alive past the quick request timeout', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { target } = createRuntimeTarget(false)
+      const bus = createResponseBus()
+      const promise = requestAssistantRuntimeWhenReady<{ ok: boolean }>({
+        createRequestId: () => 'req-7',
+        request: {
+          type: 'run-action',
+          action: '表',
+          options: { submitComment: true }
+        },
+        responseBus: bus,
+        target
+      })
+
+      await vi.advanceTimersByTimeAsync(8000)
+
+      bus.emitResponse({ id: 'req-7', ok: true, payload: { ok: true } })
 
       await expect(promise).resolves.toEqual({ ok: true })
     } finally {

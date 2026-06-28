@@ -26,6 +26,7 @@ type AssistantRuntimeResponseBus = {
 type AssistantRuntimeRequestInput = Omit<AssistantRuntimeRequest, 'id'>
 
 const QUICK_RUNTIME_REQUEST_TIMEOUT_MS = 8000
+const ACTION_RUNTIME_REQUEST_TIMEOUT_MS = 60 * 1000
 const LONG_RUNTIME_REQUEST_TIMEOUT_MS = 30 * 60 * 1000
 
 export type AssistantRuntimeResponse =
@@ -99,6 +100,10 @@ export function requestAssistantRuntimeWhenReady<TPayload>({
 }
 
 export function createAssistantRuntimeTimeoutMs(request: AssistantRuntimeRequestInput): number {
+  if (request.type === 'run-action') {
+    return ACTION_RUNTIME_REQUEST_TIMEOUT_MS
+  }
+
   if (
     request.type === 'generate-video-note-from-audio' ||
     request.type === 'scan-old-favorites' ||
