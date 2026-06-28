@@ -110,6 +110,7 @@ body,
   --porcelain-muted: #54749b;
   --porcelain-error: #9b3642;
   --porcelain-success: #2f7f6d;
+  --porcelain-warn: #8f4a5a;
 }
 body {
   overflow: hidden;
@@ -2465,7 +2466,7 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__guide-metrics article {
   display: grid;
-  grid-template-rows: 30px 22px;
+  grid-template-rows: 36px 26px;
   align-items: start;
   gap: 2px;
   min-width: 0;
@@ -2474,7 +2475,7 @@ body[data-floating-window="true"],
   padding: 7px;
 }
 .favorite-ledger-panel__guide-metrics span {
-  min-height: 30px;
+  min-height: 36px;
   display: flex;
   align-items: flex-start;
   color: var(--porcelain-muted);
@@ -2483,10 +2484,17 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__guide-metrics strong {
   align-self: start;
+  padding-top: 3px;
   font-variant-numeric: tabular-nums;
   color: var(--porcelain-deep);
   font-size: 18px;
   line-height: 1;
+}
+.favorite-ledger-panel__scan-warning {
+  margin: 0;
+  color: var(--porcelain-warn);
+  font-size: 12px;
+  line-height: 1.45;
 }
 .favorite-ledger-panel__candidates {
   display: grid;

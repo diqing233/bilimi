@@ -352,6 +352,14 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
         let fallbackSourceFolder = null;
         const skippedSourceFolderTitles = [];
         const targetMembership = {};
+        const scanDiagnostics = {
+          tagDetailRequests: 0,
+          tagDetailFailures: 0,
+          taggedVideos: 0,
+          untaggedVideos: 0
+        };
+        const tagDetailCache = new Map();
+        let lastTagDetailRequestAt = 0;
         steps.push('api:favorite:list');
 
         const buildResourceUrl = (folderId, page) => {
@@ -368,6 +376,14 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           const url = new URL('https://api.bilibili.com/x/tag/archive/tags');
           url.searchParams.set('aid', String(aid));
           return url.toString();
+        };
+        const wait = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs));
+        const paceTagDetailRequest = async () => {
+          const elapsed = Date.now() - lastTagDetailRequestAt;
+          if (lastTagDetailRequestAt > 0 && elapsed < 120) {
+            await wait(120 - elapsed);
+          }
+          lastTagDetailRequestAt = Date.now();
         };
         const readFolderVideos = async (folderId) => {
           const videos = [];
@@ -387,7 +403,13 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
             return readTagList(rawTags);
           };
           const fetchDetailTags = async (aid) => {
+            if (tagDetailCache.has(aid)) {
+              return tagDetailCache.get(aid);
+            }
+
+            scanDiagnostics.tagDetailRequests += 1;
             try {
+              await paceTagDetailRequest();
               const response = await fetch(buildTagUrl(aid), { credentials: 'include' });
               const json = await ensureApiOk(response, 'video tag list for ' + aid);
               const rawTags = Array.isArray(json.data)
@@ -395,8 +417,12 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
                 : Array.isArray(json.data?.tags)
                   ? json.data.tags
                   : [];
-              return readTagList(rawTags);
+              const tags = readTagList(rawTags);
+              tagDetailCache.set(aid, tags);
+              return tags;
             } catch {
+              scanDiagnostics.tagDetailFailures += 1;
+              tagDetailCache.set(aid, []);
               return [];
             }
           };
@@ -444,12 +470,18 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
               }
 
               const tags = readTags(media);
+              const resolvedTags = tags.length > 0 ? tags : await fetchDetailTags(aid);
+              if (resolvedTags.length > 0) {
+                scanDiagnostics.taggedVideos += 1;
+              } else {
+                scanDiagnostics.untaggedVideos += 1;
+              }
               pageVideos.push({
                 aid,
                 title: String(media?.title ?? ''),
                 description: String(media?.intro ?? ''),
                 author: readAuthor(media),
-                tags: tags.length > 0 ? tags : await fetchDetailTags(aid),
+                tags: resolvedTags,
                 category: readCategory(media)
               });
             }
@@ -512,6 +544,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           sourceFolders,
           skippedSourceFolderTitles,
           targetMembership,
+          scanDiagnostics,
           steps,
           missingTargets: [],
           message:

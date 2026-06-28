@@ -640,6 +640,7 @@ export default function App() {
       sourceFolders?: FavoriteSourceFolder[]
       targetMembership?: Record<string, number[]>
       skippedSourceFolderTitles?: string[]
+      scanDiagnostics?: FavoriteLedgerPreview['scanDiagnostics']
     }
 
     if (!scanResult.ok || !Array.isArray(scanResult.sourceFolders) || !scanResult.targetMembership) {
@@ -656,6 +657,7 @@ export default function App() {
       sourceFolders: scanResult.sourceFolders,
       targetMembership: scanResult.targetMembership,
       skippedSourceFolderTitles: scanResult.skippedSourceFolderTitles,
+      scanDiagnostics: scanResult.scanDiagnostics,
       multiArchiveMode: options.multiArchiveMode ?? preferences.favoriteArchiveMultiMode
     })
 

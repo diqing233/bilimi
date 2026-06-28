@@ -2726,6 +2726,12 @@ describe('FavoriteLedgerPanel', () => {
         }
       ],
       skippedSourceFolderTitles: [],
+      scanDiagnostics: {
+        tagDetailRequests: 6,
+        tagDetailFailures: 4,
+        taggedVideos: 2,
+        untaggedVideos: 4
+      },
       insights: {
         totalVideos: 6,
         topAuthors: [{ name: '效率研究所', count: 4, share: 4 / 6 }],
@@ -2768,6 +2774,7 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(await screen.findByText('基础数据')).toBeInTheDocument()
     expect(screen.getByText('共扫描 6 条旧藏，生成 1 个候选收藏夹')).toBeInTheDocument()
+    expect(screen.getByText('标签补取失败 4 条，高频标签候选可能偏少；稍后重扫会更准。')).toBeInTheDocument()
     expect(screen.getByText('待分类')).toBeInTheDocument()
     expect(screen.queryByText('高频标签候选')).not.toBeInTheDocument()
     expect(screen.queryByText('4 条适合')).not.toBeInTheDocument()

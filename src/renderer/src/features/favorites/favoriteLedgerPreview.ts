@@ -23,6 +23,13 @@ export type FavoriteSourceFolder = {
   videos: FavoriteSourceVideo[]
 }
 
+export type FavoriteLedgerScanDiagnostics = {
+  tagDetailRequests: number
+  tagDetailFailures: number
+  taggedVideos: number
+  untaggedVideos: number
+}
+
 export type FavoriteLedgerPreviewItem = {
   aid: number
   title: string
@@ -66,6 +73,7 @@ export type FavoriteLedgerPreview = {
   message?: string
   items: FavoriteLedgerPreviewItem[]
   skippedSourceFolderTitles: string[]
+  scanDiagnostics?: FavoriteLedgerScanDiagnostics
   insights?: FavoriteLedgerInsights
 }
 
@@ -74,6 +82,7 @@ export function createFavoriteLedgerPreview(args: {
   sourceFolders: FavoriteSourceFolder[]
   targetMembership: Record<string, number[]>
   skippedSourceFolderTitles?: string[]
+  scanDiagnostics?: FavoriteLedgerScanDiagnostics
   multiArchiveMode?: FavoriteArchiveMultiMode
 }): FavoriteLedgerPreview {
   const skippedSourceFolderTitles = args.skippedSourceFolderTitles ?? []
@@ -149,6 +158,7 @@ export function createFavoriteLedgerPreview(args: {
   return {
     items,
     skippedSourceFolderTitles,
+    scanDiagnostics: args.scanDiagnostics,
     insights
   }
 }

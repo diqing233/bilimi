@@ -1126,6 +1126,66 @@ describe('favorite ledger API scripts', () => {
     expect(requests.some((url) => url.includes('/x/tag/archive/tags') && url.includes('aid=123'))).toBe(true)
   })
 
+  it('reports tag detail failures so scans do not silently lose high-frequency tags', async () => {
+    installCookies()
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1)
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({
+            code: 0,
+            data: {
+              list: [{ id: 101, title: 'Default Favorites' }]
+            }
+          })
+        }
+
+        if (url.includes('/x/v3/fav/resource/list')) {
+          return Response.json({
+            code: 0,
+            data: {
+              medias: [
+                {
+                  id: 123,
+                  title: 'Tag limited video',
+                  intro: '',
+                  upper: { name: 'Limited UP' },
+                  type: 2
+                }
+              ],
+              has_more: false
+            }
+          })
+        }
+
+        if (url.includes('/x/tag/archive/tags') && url.includes('aid=123')) {
+          return new Response('<!DOCTYPE html><html><body>risk control</body></html>', {
+            headers: { 'content-type': 'text/html;charset=utf-8' },
+            status: 200
+          })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+
+    expect(result.ok).toBe(true)
+    expect(result.sourceFolders[0].videos[0]).toMatchObject({
+      aid: 123,
+      tags: []
+    })
+    expect(result.scanDiagnostics).toMatchObject({
+      tagDetailRequests: 1,
+      tagDetailFailures: 1,
+      taggedVideos: 0,
+      untaggedVideos: 1
+    })
+  })
+
   it('refreshes one old favorite video with latest tags and target membership without appending favorites', async () => {
     installCookies()
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>

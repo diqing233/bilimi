@@ -1485,6 +1485,7 @@ export function FavoriteLedgerPanel({
   const alreadyInTargetOldFavoriteCount =
     selectableOldFavoriteItems.filter((item) => item.alreadyInTarget).length ?? 0
   const skippedSourceFolderCount = preview?.skippedSourceFolderTitles.length ?? 0
+  const tagDetailFailureCount = preview?.scanDiagnostics?.tagDetailFailures ?? 0
   const oldFavoriteCandidateCounts = useMemo(() => {
     const counts = new Map<string, number>()
     for (const item of selectableOldFavoriteItems) {
@@ -1819,6 +1820,11 @@ export function FavoriteLedgerPanel({
               {preview.insights ? (
                 <>
                   <p>共扫描 {preview.insights.totalVideos} 条旧藏，生成 {preview.insights.candidateLedgers.length} 个候选收藏夹</p>
+                  {tagDetailFailureCount > 0 ? (
+                    <p className="favorite-ledger-panel__scan-warning">
+                      标签补取失败 {tagDetailFailureCount} 条，高频标签候选可能偏少；稍后重扫会更准。
+                    </p>
+                  ) : null}
                   <div className="favorite-ledger-panel__insight-columns">
                     <div>
                       <strong>扫描收藏夹</strong>
