@@ -1,5 +1,79 @@
 import type { AssistantAction, FavoriteLedger } from '@shared/types'
 
+export function buildDanmakuSubmitConfirmationScript(commentDraft = ''): string {
+  const payload = JSON.stringify({ commentDraft })
+
+  return `
+    (async () => {
+      const __bilimiDanmakuSubmitConfirmation = true;
+      void __bilimiDanmakuSubmitConfirmation;
+      const payload = ${payload};
+      const wait = (delay) => new Promise((resolve) => setTimeout(resolve, delay));
+      const normalize = (value) => (value || '').replace(/\\s+/g, '').trim();
+      const readEditableText = (element) => {
+        if (!element) {
+          return '';
+        }
+
+        if ('value' in element) {
+          return element.value || '';
+        }
+
+        return element.textContent || element.innerText || '';
+      };
+      const isLikelyHidden = (node) => {
+        const style = window.getComputedStyle?.(node);
+        return style?.display === 'none' || style?.visibility === 'hidden';
+      };
+      const isVisibleInput = (node) => {
+        if (!node || isLikelyHidden(node)) {
+          return false;
+        }
+
+        const rect = node.getBoundingClientRect?.();
+        return !rect || rect.width > 0 || rect.height > 0;
+      };
+      const queryDanmakuField = () => {
+        const selectors = [
+          '.bpx-player-dm-input',
+          '.bilibili-player-video-danmaku-input',
+          '[class*="dm-input"]',
+          '[class*="danmaku"][class*="input"]',
+          '.bpx-player-sending-area input[type="text"]',
+          '.bpx-player-sending-area textarea',
+          '.bpx-player-sending-area [contenteditable="true"]'
+        ].join(',');
+
+        return Array.from(document.querySelectorAll(selectors)).find(isVisibleInput) || null;
+      };
+      const draftStillPresent = () => {
+        const field = queryDanmakuField();
+        return Boolean(field && normalize(readEditableText(field)).includes(normalize(payload.commentDraft)));
+      };
+
+      for (let index = 0; index < 12; index += 1) {
+        if (!draftStillPresent()) {
+          return {
+            ok: true,
+            steps: ['danmaku:submit'],
+            missingTargets: [],
+            message: '弹幕已发送。'
+          };
+        }
+
+        await wait(100);
+      }
+
+      return {
+        ok: false,
+        steps: [],
+        missingTargets: ['danmaku-submit-confirm'],
+        message: '尚有 danmaku-submit-confirm 未能寻见。'
+      };
+    })()
+  `
+}
+
 export function buildAutomationScript(
   action: AssistantAction,
   favoritesFolderName: string,

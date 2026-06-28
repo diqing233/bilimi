@@ -333,6 +333,39 @@ describe('executeAssistantAction', () => {
     })
   })
 
+  it('uses trusted keyboard input when page danmaku submission cannot be confirmed', async () => {
+    const runScript = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      steps: ['danmaku:focus', 'danmaku:fill'],
+      missingTargets: ['danmaku-submit-confirm'],
+      message: '尚有 danmaku-submit-confirm 未能寻见。'
+    })
+    const runTrustedDanmakuSubmitFallback = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['danmaku:trusted-enter', 'danmaku:submit'],
+      missingTargets: [],
+      message: '弹幕已发送。'
+    })
+
+    const result = await executeAssistantAction({
+      action: '表',
+      runScript,
+      runTrustedDanmakuSubmitFallback,
+      favoritesFolderName: 'Bilimi 内库',
+      favoriteLedgers,
+      targetLedgerId: 'movie-tv',
+      commentDraft: 'trusted enter fallback',
+      submitComment: true
+    })
+
+    expect(runTrustedDanmakuSubmitFallback).toHaveBeenCalledWith('trusted enter fallback')
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(
+      expect.arrayContaining(['danmaku:focus', 'danmaku:fill', 'danmaku:trusted-enter', 'danmaku:submit'])
+    )
+    expect(result.missingTargets).toEqual([])
+  })
+
   it('times out hung page scripts and uses the visual favorite fallback', async () => {
     vi.useFakeTimers()
 

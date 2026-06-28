@@ -513,6 +513,83 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('uses trusted Enter input to finish danmaku submission when the page script cannot confirm it', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+      sendInputEvent?: (event: Record<string, unknown>) => void
+    }
+    const sentEvents: Record<string, unknown>[] = []
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes('document.cookie')) {
+        return 'DedeUserID=42; bili_jct=csrf'
+      }
+
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          title: 'danmaku fallback video',
+          pageText: 'testing trusted Enter fallback'
+        }
+      }
+
+      if (script.includes('__bilimiDanmakuSubmitConfirmation')) {
+        return {
+          ok: true,
+          steps: ['danmaku:submit'],
+          missingTargets: [],
+          message: '弹幕已发送。'
+        }
+      }
+
+      return {
+        ok: false,
+        steps: ['danmaku:focus', 'danmaku:fill'],
+        missingTargets: ['danmaku-submit-confirm'],
+        message: '尚有 danmaku-submit-confirm 未能寻见。'
+      }
+    })
+    Object.assign(webview, {
+      executeJavaScript,
+      sendInputEvent: vi.fn((event: Record<string, unknown>) => {
+        sentEvents.push(event)
+      })
+    })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1danmaku'
+          }
+        })
+      )
+    })
+
+    const result = await requestRuntime({
+      id: 'run-danmaku-trusted-enter',
+      type: 'run-action',
+      action: '表',
+      options: {
+        commentDraft: 'trusted danmaku fallback',
+        submitComment: true
+      }
+    })
+
+    expect(sentEvents).toEqual([
+      { keyCode: 'Enter', type: 'keyDown' },
+      { keyCode: 'Enter', type: 'keyUp' }
+    ])
+    expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('__bilimiDanmakuSubmitConfirmation')
+    )
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        steps: expect.arrayContaining(['danmaku:focus', 'danmaku:fill', 'danmaku:trusted-enter', 'danmaku:submit'])
+      })
+    )
+  })
+
   it('collects to inbox when an unsynced default ledger is only a stronger suggestion', async () => {
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
     const preferences = createAppPreferences({

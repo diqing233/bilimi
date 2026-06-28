@@ -16,6 +16,7 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { runVisualFavoriteFallback } from './features/actions/visualFavoriteFallback'
 import { executeAssistantAction } from './features/actions/actionExecutor'
+import { buildDanmakuSubmitConfirmationScript } from './features/actions/pageAutomation'
 import { BiliWebview } from './features/browser/BiliWebview'
 import {
   buildVideoContentContextScript,
@@ -742,6 +743,34 @@ export default function App() {
     return runVisualFavoriteFallback(currentActiveWebview, context, options)
   }
 
+  async function runTrustedDanmakuSubmitFallback(
+    commentDraft: string
+  ): Promise<AssistantAutomationResult> {
+    const currentActiveWebview = getCurrentActiveWebview()
+
+    if (!currentActiveWebview?.sendInputEvent || !currentActiveWebview?.executeJavaScript) {
+      return {
+        ok: false,
+        steps: [],
+        missingTargets: ['trusted-danmaku-input'],
+        message: '浏览框尚未准备好真实键盘输入。'
+      }
+    }
+
+    currentActiveWebview.sendInputEvent({ keyCode: 'Enter', type: 'keyDown' })
+    currentActiveWebview.sendInputEvent({ keyCode: 'Enter', type: 'keyUp' })
+    await new Promise((resolve) => setTimeout(resolve, 120))
+
+    const confirmation = (await currentActiveWebview.executeJavaScript(
+      buildDanmakuSubmitConfirmationScript(commentDraft)
+    )) as AssistantAutomationResult
+
+    return {
+      ...confirmation,
+      steps: ['danmaku:trusted-enter', ...confirmation.steps]
+    }
+  }
+
   async function saveVideoNote(note: VideoNote): Promise<void> {
     await window.bilimiDesktop?.saveVideoNote?.(note)
   }
@@ -797,6 +826,7 @@ export default function App() {
       favoritesFolderName: preferences.favoritesFolderName,
       runScript,
       runVisualFallback,
+      runTrustedDanmakuSubmitFallback,
       favoriteApiFallbackEnabled: options?.pageClickOnly !== true,
       coinCount: options?.coinCount ?? (action === '赐' ? preferences.defaultCoinCount : undefined),
       commentDraft: options?.commentDraft,

@@ -13,6 +13,7 @@ type ExecuteAssistantActionArgs = {
   favoritesFolderName: string
   runScript: (script: string) => Promise<AssistantAutomationResult>
   runVisualFallback?: VisualAutomationFallback
+  runTrustedDanmakuSubmitFallback?: (commentDraft: string) => Promise<AssistantAutomationResult>
   favoriteApiFallbackEnabled?: boolean
   coinCount?: 1 | 2
   commentDraft?: string
@@ -46,6 +47,43 @@ function favoriteMissingTargets(result: AssistantAutomationResult) {
 
 function nonFavoriteMissingTargets(result: AssistantAutomationResult) {
   return result.missingTargets.filter((target) => !target.includes('favorite'))
+}
+
+function shouldUseTrustedDanmakuSubmit(
+  args: ExecuteAssistantActionArgs,
+  result: AssistantAutomationResult
+) {
+  return (
+    args.action === '表' &&
+    args.submitComment === true &&
+    Boolean(args.commentDraft?.trim()) &&
+    Boolean(args.runTrustedDanmakuSubmitFallback) &&
+    result.missingTargets.includes('danmaku-submit-confirm')
+  )
+}
+
+async function runTrustedDanmakuSubmit(
+  args: ExecuteAssistantActionArgs,
+  domResult: AssistantAutomationResult
+): Promise<AssistantAutomationResult> {
+  const fallbackResult = await args.runTrustedDanmakuSubmitFallback?.(args.commentDraft ?? '')
+  if (!fallbackResult) {
+    return domResult
+  }
+
+  const remainingDomMissingTargets = domResult.missingTargets.filter(
+    (target) => target !== 'danmaku-submit-confirm'
+  )
+  const missingTargets = fallbackResult.ok
+    ? remainingDomMissingTargets
+    : [...remainingDomMissingTargets, ...fallbackResult.missingTargets]
+
+  return {
+    ok: fallbackResult.ok && missingTargets.length === 0,
+    steps: [...domResult.steps, ...fallbackResult.steps],
+    missingTargets,
+    message: fallbackResult.message
+  }
 }
 
 async function runScriptWithTimeout(
@@ -136,6 +174,10 @@ export async function executeAssistantAction(args: ExecuteAssistantActionArgs) {
     { submitComment: args.submitComment }
   )
   const domResult = await runScriptWithTimeout(args.runScript, script)
+
+  if (shouldUseTrustedDanmakuSubmit(args, domResult)) {
+    return runTrustedDanmakuSubmit(args, domResult)
+  }
 
   if (!shouldUseFavoriteApi(domResult, args.action)) {
     return domResult
