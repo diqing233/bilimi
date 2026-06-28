@@ -1378,7 +1378,7 @@ export function FloatingAssistantApp({
               setAiCommentDrafts([])
               void runAction('表', {
                 commentDraft,
-                submitComment: preferences.commentSubmitMode === 'auto'
+                submitComment: true
               })
             }}
             onCancel={() => {

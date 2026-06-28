@@ -660,7 +660,7 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
-  it('passes manual comment mode when 表 is configured to only fill the draft', async () => {
+  it('still publishes the selected draft from 拟奏短评 when 表 is configured to manual fill', async () => {
     const preferences = createPreferences({ commentSubmitMode: 'manual' })
     const { runAssistantAction } = installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(createSnapshot({ preferences }))
@@ -675,7 +675,7 @@ describe('FloatingAssistantApp', () => {
       expect(runAssistantAction).toHaveBeenCalledWith(
         '表',
         expect.objectContaining({
-          submitComment: false
+          submitComment: true
         })
       )
     )

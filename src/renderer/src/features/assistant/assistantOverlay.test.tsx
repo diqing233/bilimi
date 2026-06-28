@@ -552,6 +552,53 @@ describe('AssistantOverlay', () => {
     expect(onRecordFeedback).toHaveBeenCalledWith('inbox', '表')
   })
 
+  it('publishes the chosen memorial-style comment even when manual comment mode is stored', async () => {
+    const runScript = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['comment:fill', 'comment:submit'],
+      missingTargets: [],
+      message: '拟表已递。'
+    })
+
+    render(
+      <AssistantOverlay
+        runScript={runScript}
+        favoritesFolderName="Bilimi 内库"
+        storedPreferences={{
+          favoritesFolderName: 'Bilimi 内库',
+          favoriteLedgers: [],
+          ledgerPromptDismissed: true,
+          petStyle: 'big-head',
+          petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
+          hidePetDuringVideoFullscreen: false,
+          bilibiliOperationMode: 'page',
+          favoriteArchiveMultiMode: 'off',
+          commentSubmitMode: 'manual',
+          deepseekEnabled: false,
+          deepseekApiKeyStored: false,
+          deepseekAutoSummaryEnabled: false,
+          deepseekModel: 'deepseek-v4-flash',
+          deepseekBaseUrl: 'https://api.deepseek.com',
+          preferenceCounts: {}
+        }}
+        videoContentContext={{
+          title: '早八生存实录',
+          author: '早八观察员'
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    fireEvent.click(getActionButton('表'))
+
+    const draft =
+      '小咪替我家主人来夸早八观察员的《早八生存实录》：看得很入戏，像不小心点开了快乐开关。UP主请再接再厉，更新更多精彩视频！'
+    fireEvent.click(screen.getByRole('button', { name: draft }))
+
+    await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
+    expect(runScript.mock.calls[0][0]).toContain('"submitComment":true')
+  })
+
   it('prompts first-time users to ask 掌库 when enabled ledgers are missing', async () => {
     const readFavoriteLedgerStatus = vi.fn().mockResolvedValue({
       ok: true,

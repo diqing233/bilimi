@@ -688,7 +688,7 @@ export function AssistantOverlay({
               drafts={commentDrafts}
               onSelect={(draft) => {
                 setCommentChooserOpen(false)
-                void runAction('表', { commentDraft: draft })
+                void runAction('表', { commentDraft: draft, submitComment: true })
               }}
               onCancel={() => setCommentChooserOpen(false)}
             />
