@@ -1519,7 +1519,7 @@ export function FavoriteLedgerPanel({
   }
 
   function oldFavoriteCandidateRecommendationText(candidate: FavoriteLedgerCandidate) {
-    const count = oldFavoriteCandidateCounts.get(candidateKey(candidate)) ?? 0
+    const count = oldFavoriteCandidateCounts.get(candidateKey(candidate)) ?? candidate.count
     return count > 0 ? `${count} 条适合` : '按扫描结果生成'
   }
 
@@ -1775,6 +1775,10 @@ export function FavoriteLedgerPanel({
                   <strong>{reviewRequiredOldFavoriteCount}</strong>
                 </article>
                 <article>
+                  <span>待分类</span>
+                  <strong>{previewScopedPendingItems.length}</strong>
+                </article>
+                <article>
                   <span>已存在</span>
                   <strong>{alreadyInTargetOldFavoriteCount}</strong>
                 </article>
@@ -1786,6 +1790,19 @@ export function FavoriteLedgerPanel({
               {preview.insights ? (
                 <>
                   <p>共扫描 {preview.insights.totalVideos} 条旧藏，生成 {preview.insights.candidateLedgers.length} 个候选收藏夹</p>
+                  {oldFavoriteTagCandidates.length > 0 ? (
+                    <div className="favorite-ledger-panel__scan-candidates">
+                      <strong>高频标签候选</strong>
+                      <ul>
+                        {oldFavoriteTagCandidates.slice(0, 6).map((candidate) => (
+                          <li key={`${candidate.kind}-${candidate.sourceName}`}>
+                            <span>{favoriteLedgerDisplayShortName(candidate.displayName)}</span>
+                            <small>{oldFavoriteCandidateRecommendationText(candidate)}</small>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                   <div className="favorite-ledger-panel__insight-columns">
                     <div>
                       <strong>扫描收藏夹</strong>

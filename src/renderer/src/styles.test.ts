@@ -283,10 +283,11 @@ describe('renderer porcelain theme styles', () => {
       '.favorite-ledger-panel__guide-steps button { min-width: 0; height: 36px; min-height: 36px; padding: 0 8px; font-size: 12px; line-height: 1.2; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'
     )
     expectStyleSnippet('.favorite-ledger-panel__guide-steps button[aria-current="step"] { border-color: rgba(31, 99, 181, 0.5);')
-    expectStyleSnippet('.favorite-ledger-panel__guide-metrics { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));')
+    expectStyleSnippet('.favorite-ledger-panel__guide-metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics article { display: grid; grid-template-rows: 30px 22px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics span { min-height: 30px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics strong { align-self: start; font-variant-numeric: tabular-nums;')
+    expectStyleSnippet('.favorite-ledger-panel__scan-candidates ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));')
     expectStyleSnippet('.favorite-ledger-panel__candidate-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));')
     expectStyleSnippet('.favorite-ledger-panel__candidates article, .favorite-ledger-panel__confirm { border: 1px solid rgba(31, 99, 181, 0.18);')
     expectStyleSnippet('.favorite-ledger-panel__candidates article { min-width: 0; min-height: 42px; padding: 6px 7px;')
