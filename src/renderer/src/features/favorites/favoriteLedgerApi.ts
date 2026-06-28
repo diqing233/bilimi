@@ -516,9 +516,9 @@ export function buildExecuteFavoriteLedgerPlanScript(
   const payload = scriptPayload({
     items,
     pacing: {
-      appendDelayMs: pacingOptions.appendDelayMs ?? { min: 2500, max: 6000 },
-      cooldownDelayMs: pacingOptions.cooldownDelayMs ?? { min: 30000, max: 90000 },
-      cooldownEvery: pacingOptions.cooldownEvery ?? 15
+      appendDelayMs: pacingOptions.appendDelayMs ?? { min: 1200, max: 3000 },
+      cooldownDelayMs: pacingOptions.cooldownDelayMs ?? { min: 15000, max: 45000 },
+      cooldownEvery: pacingOptions.cooldownEvery ?? 25
     }
   })
 

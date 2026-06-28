@@ -924,6 +924,7 @@ export function FloatingAssistantApp({
         items: [],
         skippedSourceFolderTitles: []
       }
+    await loadPendingFavoriteQueue()
 
     tellPet(
       'success',

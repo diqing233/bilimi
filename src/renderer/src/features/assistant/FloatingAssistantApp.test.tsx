@@ -3,6 +3,7 @@ import type {
   AssistantAutomationResult,
   AssistantPreferences,
   FavoriteLedgerStatus,
+  PendingFavoriteQueueItem,
   VideoNote,
   VideoNoteArchiveEntry
 } from '@shared/types'
@@ -89,6 +90,25 @@ function createVideoNote(): VideoNote {
   }
 }
 
+function createPendingQueueItem(
+  overrides: Partial<PendingFavoriteQueueItem> = {}
+): PendingFavoriteQueueItem {
+  return {
+    aid: 242,
+    title: '待分类旧藏',
+    source: 'old-favorite-scan',
+    sourceFolderTitle: '默认收藏夹',
+    originalTargetLedgerId: 'inbox',
+    suggestedLedgerIds: [],
+    candidateLedgerNames: [],
+    reason: '没有明确命中',
+    createdAt: '2026-06-28T00:00:00.000Z',
+    updatedAt: '2026-06-28T00:00:00.000Z',
+    status: 'pending',
+    ...overrides
+  }
+}
+
 function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const requestAssistantSnapshot = vi.fn().mockResolvedValue(createSnapshot())
   const runAssistantAction = vi.fn().mockResolvedValue(createResult('动作已完成。'))
@@ -117,6 +137,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const saveVideoNoteArchiveVersion = vi.fn().mockResolvedValue([])
   const loadVideoNoteArchives = vi.fn().mockResolvedValue([])
   const loadVideoAudioTranscriptionQueue = vi.fn().mockResolvedValue({ items: [] })
+  const loadPendingFavoriteQueue = vi.fn().mockResolvedValue([])
   const enqueueCurrentVideoAudioTranscription = vi.fn().mockResolvedValue({
     activeItemId: 'bvid:BV1note',
     items: [
@@ -180,6 +201,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     saveVideoNoteArchiveVersion,
     loadVideoNoteArchives,
     loadVideoAudioTranscriptionQueue,
+    loadPendingFavoriteQueue,
     enqueueCurrentVideoAudioTranscription,
     onVideoAudioTranscriptionQueueChanged,
     deleteVideoNoteArchiveEntry,
@@ -220,7 +242,7 @@ describe('FloatingAssistantApp', () => {
     expect(screen.queryByRole('button', { name: /阅.*本条已阅/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /打开掌库/ })).not.toBeInTheDocument()
     expect(screen.queryByText(/若欲代拟奏表/)).not.toBeInTheDocument()
-    expect(screen.getByText('三分钟讲清机器学习科普教程')).toBeInTheDocument()
+    expect(await screen.findByText('三分钟讲清机器学习科普教程')).toBeInTheDocument()
   })
 
   it('shows clear Bilimi collection strategy copy in settings', async () => {
@@ -927,6 +949,45 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     expect(screen.getByText('动画分镜教程')).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('已扫描 1 条旧藏，可勾选后整理。')
+  })
+
+  it('refreshes the pending classification queue after scanning old favorites', async () => {
+    const loadPendingFavoriteQueue = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([createPendingQueueItem()])
+    const scanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 242,
+          title: '待分类旧藏',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'inbox',
+          targetFolderId: '',
+          targetDisplayName: 'Bilimi·暂存',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: false
+        }
+      ],
+      skippedSourceFolderTitles: []
+    })
+
+    installDesktopApi({ loadPendingFavoriteQueue, scanOldFavorites })
+
+    const { container } = render(<FloatingAssistantApp />)
+
+    await screen.findAllByRole('tab')
+    fireEvent.click(screen.getAllByRole('tab')[2])
+    expect(screen.queryByRole('region', { name: '待分类队列' })).not.toBeInTheDocument()
+
+    fireEvent.click(container.querySelectorAll('.favorite-ledger-panel__toolbar button')[1])
+
+    await waitFor(() => expect(scanOldFavorites).toHaveBeenCalledOnce())
+    await waitFor(() => expect(loadPendingFavoriteQueue).toHaveBeenCalledTimes(2))
+    expect(await screen.findByRole('region', { name: '待分类队列' })).toBeInTheDocument()
+    expect(screen.getByText('待分类队列 1 条')).toBeInTheDocument()
+    expect(screen.getByText('待分类旧藏')).toBeInTheDocument()
   })
 
   it('keeps old favorite pet hints quiet between organization start and finish', async () => {

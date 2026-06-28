@@ -45,9 +45,9 @@ type OldFavoriteExecutionResult = AssistantAutomationResult & {
   paused?: boolean
 }
 
-const OLD_FAVORITE_APPEND_DELAY_MS = { min: 2500, max: 6000 }
-const OLD_FAVORITE_COOLDOWN_DELAY_MS = { min: 30000, max: 90000 }
-const OLD_FAVORITE_COOLDOWN_EVERY = 15
+const OLD_FAVORITE_APPEND_DELAY_MS = { min: 1200, max: 3000 }
+const OLD_FAVORITE_COOLDOWN_DELAY_MS = { min: 15000, max: 45000 }
+const OLD_FAVORITE_COOLDOWN_EVERY = 25
 
 function splitKeywords(value: string) {
   return value
