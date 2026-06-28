@@ -665,6 +665,14 @@ export function buildAutomationScript(
       const querySubmitButton = (root = queryCommentRoot()) =>
         closestClickable(byTextWithin(root, commentSubmitSelectors, ['发布', '提交', '发送']));
 
+      const revealCommentRoot = async (commentRoot) => {
+        commentRoot.scrollIntoView?.({ block: 'center' });
+        commentRoot.dispatchEvent?.(new Event('scroll', { bubbles: true }));
+        window.dispatchEvent?.(new Event('scroll'));
+        window.dispatchEvent?.(new WheelEvent('wheel', { bubbles: true, deltaY: 800 }));
+        await wait(120);
+      };
+
       const readEditableText = (element) => {
         if (!element) {
           return '';
@@ -692,6 +700,7 @@ export function buildAutomationScript(
 
       const fillComment = async () => {
         const commentRoot = queryCommentRoot();
+        await revealCommentRoot(commentRoot);
         const commentField = await waitForElement(() => queryCommentField(commentRoot), 'comment');
 
         if (!commentField) {

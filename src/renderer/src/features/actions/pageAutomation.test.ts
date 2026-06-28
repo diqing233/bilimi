@@ -1015,6 +1015,60 @@ describe('buildAutomationScript', () => {
     expect(result.steps).toEqual(expect.arrayContaining(['comment:fill', 'comment:submit']))
   })
 
+  it('scrolls the lower comment area into view before waiting for a lazily mounted editor', async () => {
+    document.body.innerHTML = `
+      <section class="bpx-player-sending-area">
+        <input class="bpx-player-dm-input" type="text" placeholder="发个友善的弹幕见证当下" />
+        <button class="bpx-player-dm-btn">发送</button>
+      </section>
+      <section id="comment">
+        <h2>评论 2196</h2>
+      </section>
+    `
+    const commentRoot = document.querySelector('#comment') as HTMLElement
+    let scrolledToComment = false
+    commentRoot.scrollIntoView = vi.fn(() => {
+      scrolledToComment = true
+      if (!document.querySelector('.reply-box')) {
+        commentRoot.insertAdjacentHTML(
+          'beforeend',
+          `
+            <div class="reply-box">
+              <textarea class="reply-textarea" placeholder="只是一 直在等你而已，才不是想被评论呢～"></textarea>
+              <button class="reply-send">发布</button>
+            </div>
+          `
+        )
+      }
+    })
+    let commentPublished = false
+    commentRoot.addEventListener('click', (event) => {
+      if ((event.target as HTMLElement).classList.contains('reply-send')) {
+        commentPublished = true
+      }
+    })
+
+    const result = await window.eval(
+      buildAutomationScript(
+        '表',
+        'Bilimi 内库',
+        undefined,
+        '滚到评论区后再填这条。',
+        favoriteLedgers,
+        'movie-tv',
+        { submitComment: true }
+      )
+    )
+
+    expect(scrolledToComment).toBe(true)
+    expect((document.querySelector('.reply-textarea') as HTMLTextAreaElement).value).toBe(
+      '滚到评论区后再填这条。'
+    )
+    expect(commentPublished).toBe(true)
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(expect.arrayContaining(['comment:fill', 'comment:submit']))
+  })
+
   it('uses editable insertion for Bilibili contenteditable comment boxes', async () => {
     document.body.innerHTML = `
       <section class="reply-box">
