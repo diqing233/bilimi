@@ -1029,7 +1029,7 @@ export default function App() {
           ))}
         </div>
       </div>
-      <AssistantSidebar />
+      <AssistantSidebar onOpenInTab={openInternalTab} />
     </div>
   )
 }

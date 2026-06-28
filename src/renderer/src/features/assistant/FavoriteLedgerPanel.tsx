@@ -30,6 +30,7 @@ type FavoriteLedgerPanelProps = {
   }) => Promise<FavoriteLedgerPreview>
   onExecuteOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
   onOldFavoriteExecutionStateChange?: (state: 'running' | 'finished') => void
+  onOpenOldFavoriteVideo?: (url: string) => void
   favoriteArchiveMultiMode?: FavoriteArchiveMultiMode
 }
 
@@ -63,6 +64,10 @@ function alreadyHasLedger(ledgers: FavoriteLedger[], displayName: string) {
 
 function candidateKey(candidate: FavoriteLedgerCandidate) {
   return `${candidate.kind}:${candidate.sourceName}`
+}
+
+function isFavoriteLedgerCandidateKind(value: string): value is FavoriteLedgerCandidate['kind'] {
+  return value === 'author' || value === 'tag-cluster' || value === 'category' || value === 'series'
 }
 
 function sortFavoriteLedgerCandidatesByCount(
@@ -293,8 +298,7 @@ function targetsForOldFavoriteItem(item: FavoriteLedgerPreviewItem): FavoriteLed
 }
 
 function candidateTargetToPreviewTarget(
-  target: NonNullable<FavoriteLedgerPreviewItem['candidateTargets']>[number],
-  reviewRequired: boolean
+  target: NonNullable<FavoriteLedgerPreviewItem['candidateTargets']>[number]
 ): FavoriteLedgerPreviewTarget {
   return {
     ledgerId: target.ledgerId,
@@ -302,7 +306,7 @@ function candidateTargetToPreviewTarget(
     displayName: target.displayName,
     keywords: target.keywords,
     alreadyInTarget: false,
-    selected: !reviewRequired,
+    selected: true,
     selectedCandidateTarget: true,
     candidateKey: target.candidateKey
   }
@@ -319,15 +323,24 @@ function itemWithSelectedCandidateTargets(
     return item
   }
 
-  const nextTargets = targetsForOldFavoriteItem(item).filter((target) => {
-    if (target.ledgerId === 'inbox') {
-      return false
-    }
-    if (!target.selectedCandidateTarget || !target.candidateKey) {
-      return true
-    }
-    return selectedCandidateKeys.has(target.candidateKey)
-  })
+  const nextTargets = targetsForOldFavoriteItem(item)
+    .filter((target) => {
+      if (target.ledgerId === 'inbox') {
+        return false
+      }
+      if (!target.selectedCandidateTarget || !target.candidateKey) {
+        return true
+      }
+      return selectedCandidateKeys.has(target.candidateKey)
+    })
+    .map((target) =>
+      target.selectedCandidateTarget && target.candidateKey && selectedCandidateKeys.has(target.candidateKey)
+        ? {
+            ...target,
+            selected: true
+          }
+        : target
+    )
   const targetIds = new Set(nextTargets.map((target) => target.ledgerId))
 
   for (const candidateTarget of selectedCandidateTargets) {
@@ -335,7 +348,7 @@ function itemWithSelectedCandidateTargets(
       continue
     }
     targetIds.add(candidateTarget.ledgerId)
-    nextTargets.push(candidateTargetToPreviewTarget(candidateTarget, item.reviewRequired))
+    nextTargets.push(candidateTargetToPreviewTarget(candidateTarget))
   }
 
   return {
@@ -499,6 +512,7 @@ export function FavoriteLedgerPanel({
   onScanOldFavorites,
   onExecuteOldFavoritePlan,
   onOldFavoriteExecutionStateChange,
+  onOpenOldFavoriteVideo,
   favoriteArchiveMultiMode = 'off'
 }: FavoriteLedgerPanelProps) {
   const [draftLedgers, setDraftLedgers] = useState<FavoriteLedger[]>(ledgers)
@@ -1152,6 +1166,83 @@ export function FavoriteLedgerPanel({
     })
   }
 
+  function oldFavoriteVideoUrl(item: FavoriteLedgerPreviewItem) {
+    return `https://www.bilibili.com/video/av${item.aid}`
+  }
+
+  function openOldFavoriteVideo(item: FavoriteLedgerPreviewItem) {
+    onOpenOldFavoriteVideo?.(oldFavoriteVideoUrl(item))
+  }
+
+  function stageOldFavorite(item: FavoriteLedgerPreviewItem) {
+    setSelectedOldFavoriteTargetKeys((current) => {
+      const next = new Set(current)
+      next.add(oldFavoriteTargetKey(item.aid, 'inbox'))
+      return next
+    })
+    setSelectedOldFavoriteAids((current) => {
+      const next = new Set(current)
+      next.add(item.aid)
+      return next
+    })
+  }
+
+  function candidateForOldFavoriteTarget(target: {
+    candidateKey?: string
+    displayName: string
+    keywords: string[]
+  }): FavoriteLedgerCandidate | null {
+    if (!target.candidateKey) {
+      return null
+    }
+
+    const existingCandidate = preview?.insights?.candidateLedgers.find(
+      (candidate) => candidateKey(candidate) === target.candidateKey
+    )
+    if (existingCandidate) {
+      return existingCandidate
+    }
+
+    const separatorIndex = target.candidateKey.indexOf(':')
+    const rawKind = separatorIndex >= 0 ? target.candidateKey.slice(0, separatorIndex) : ''
+    const sourceName = separatorIndex >= 0 ? target.candidateKey.slice(separatorIndex + 1).trim() : ''
+    if (!isFavoriteLedgerCandidateKind(rawKind) || !sourceName) {
+      return null
+    }
+
+    return {
+      kind: rawKind,
+      sourceName,
+      displayName: target.displayName,
+      keywords: target.keywords,
+      count: oldFavoriteCandidateCounts.get(target.candidateKey) ?? 1,
+      confidence: 'medium',
+      reason: '进一步判断建议。'
+    }
+  }
+
+  function rejudgeOldFavorite(item: FavoriteLedgerPreviewItem) {
+    const existingTarget = targetsForOldFavoriteItem(item).find(
+      (target) => target.ledgerId !== 'inbox' && !target.alreadyInTarget && !target.selectedCandidateTarget
+    )
+
+    if (existingTarget) {
+      toggleOldFavoriteTarget(item.aid, existingTarget.ledgerId)
+      return
+    }
+
+    const candidateTarget =
+      targetsForOldFavoriteItem(item).find(
+        (target) => target.selectedCandidateTarget && target.candidateKey && !target.alreadyInTarget
+      ) ?? item.candidateTargets?.[0]
+    const candidate = candidateTarget ? candidateForOldFavoriteTarget(candidateTarget) : null
+    if (!candidate) {
+      return
+    }
+
+    setCandidateSelected(candidate, true)
+  }
+
   async function executeOldFavoritePlan() {
     if (!preview) {
       return
@@ -1761,6 +1852,29 @@ export function FavoriteLedgerPanel({
                               <small>
                                 来源 {item.sourceFolderTitle} · {pendingReasonText(item)}
                               </small>
+                              <div className="favorite-ledger-panel__pending-actions" aria-label={`${item.title} 操作`}>
+                                <button
+                                  type="button"
+                                  aria-label={`手动分类 ${item.title}`}
+                                  onClick={() => openOldFavoriteVideo(item)}
+                                >
+                                  手动分类
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label={`存入暂存 ${item.title}`}
+                                  onClick={() => stageOldFavorite(item)}
+                                >
+                                  存入暂存
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label={`进一步判断 ${item.title}`}
+                                  onClick={() => rejudgeOldFavorite(item)}
+                                >
+                                  进一步判断
+                                </button>
+                              </div>
                             </div>
                           </article>
                         ))}

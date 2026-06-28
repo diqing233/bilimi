@@ -118,6 +118,209 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByRole('group', { name: 'Bilimi·学吧你就 1 条' })).toBeInTheDocument()
   })
 
+  it('opens a pending old favorite for manual classification without removing it from the round', async () => {
+    const onOpenOldFavoriteVideo = vi.fn()
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 242,
+          title: '手动分类旧藏',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'inbox',
+          targetFolderId: '9008',
+          targetDisplayName: 'Bilimi·暂存',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: false
+        }
+      ],
+      skippedSourceFolderTitles: []
+    })
+
+    renderPanel({ onScanOldFavorites, onOpenOldFavoriteVideo })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+
+    fireEvent.click(screen.getByRole('button', { name: '手动分类 手动分类旧藏' }))
+
+    expect(onOpenOldFavoriteVideo).toHaveBeenCalledWith('https://www.bilibili.com/video/av242')
+    expect(screen.getByRole('group', { name: '待分类 1 条' })).toBeInTheDocument()
+    expect(screen.getByText('手动分类旧藏')).toBeInTheDocument()
+  })
+
+  it('adds a pending old favorite to staging for this round when requested', async () => {
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 243,
+          title: '暂存旧藏',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'inbox',
+          targetFolderId: '9008',
+          targetDisplayName: 'Bilimi·暂存',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: false,
+          targets: [
+            {
+              ledgerId: 'inbox',
+              folderId: '9008',
+              displayName: 'Bilimi·暂存',
+              keywords: [],
+              alreadyInTarget: false,
+              selected: false
+            }
+          ]
+        }
+      ],
+      skippedSourceFolderTitles: []
+    })
+
+    renderPanel({ onScanOldFavorites })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '存入暂存 暂存旧藏' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+
+    expect(screen.getByText('已选择 1 条归档任务')).toBeInTheDocument()
+  })
+
+  it('moves a pending old favorite into a candidate target group after further judgment', async () => {
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 244,
+          title: '原神旧藏',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'inbox',
+          targetFolderId: '',
+          targetDisplayName: 'Bilimi·暂存',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: false,
+          candidateTargets: [
+            {
+              candidateKey: 'tag-cluster:原神',
+              ledgerId: 'custom-tag-cluster-原神',
+              displayName: 'Bilimi·原神',
+              keywords: ['原神']
+            }
+          ]
+        }
+      ],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 1,
+        topAuthors: [],
+        topTags: [{ name: '原神', count: 1 }],
+        topCategories: [],
+        sourceFolders: [{ name: '默认收藏夹', count: 1 }],
+        titleSeries: [],
+        candidateLedgers: [
+          {
+            kind: 'tag-cluster' as const,
+            sourceName: '原神',
+            displayName: 'Bilimi·原神',
+            keywords: ['原神'],
+            count: 1,
+            confidence: 'medium' as const,
+            reason: '原神标签适合单独成册。'
+          }
+        ]
+      }
+    })
+
+    renderPanel({ onScanOldFavorites })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '进一步判断 原神旧藏' }))
+
+    expect(screen.queryByRole('group', { name: '待分类 1 条' })).not.toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Bilimi·原神 1 条' })).toBeInTheDocument()
+  })
+
+  it('selects an existing candidate target when further judgment uses preview targets', async () => {
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 245,
+          title: 'UP 主旧藏',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'inbox',
+          targetFolderId: '9008',
+          targetDisplayName: 'Bilimi·暂存',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: false,
+          candidateTargets: [
+            {
+              candidateKey: 'author:老番茄',
+              ledgerId: 'custom-author-老番茄',
+              displayName: 'Bilimi·老番茄',
+              keywords: ['老番茄']
+            }
+          ],
+          targets: [
+            {
+              ledgerId: 'inbox',
+              folderId: '9008',
+              displayName: 'Bilimi·暂存',
+              keywords: [],
+              alreadyInTarget: false,
+              selected: false
+            },
+            {
+              ledgerId: 'custom-author-老番茄',
+              folderId: '',
+              displayName: 'Bilimi·老番茄',
+              keywords: ['老番茄'],
+              alreadyInTarget: false,
+              selected: false,
+              selectedCandidateTarget: true,
+              candidateKey: 'author:老番茄'
+            }
+          ]
+        }
+      ],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 1,
+        topAuthors: [{ name: '老番茄', count: 1, share: 1 }],
+        topTags: [],
+        topCategories: [],
+        sourceFolders: [{ name: '默认收藏夹', count: 1 }],
+        titleSeries: [],
+        candidateLedgers: [
+          {
+            kind: 'author' as const,
+            sourceName: '老番茄',
+            displayName: 'Bilimi·老番茄',
+            keywords: ['老番茄'],
+            count: 1,
+            confidence: 'medium' as const,
+            reason: '固定 UP 适合追更。'
+          }
+        ]
+      }
+    })
+
+    renderPanel({ onScanOldFavorites })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '进一步判断 UP 主旧藏' }))
+
+    expect(screen.queryByRole('group', { name: '待分类 1 条' })).not.toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Bilimi·老番茄 1 条' })).toBeInTheDocument()
+  })
+
   it('backs up ledgers directly from 备册 without the old setup prompt', async () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
       ledger.id === 'knowledge' ? { ...ledger, enabled: false } : ledger

@@ -74,6 +74,7 @@ type FloatingAssistantAppProps = {
   activeTab?: AssistantWorkspaceTab
   onActiveTabChange?: (tab: AssistantWorkspaceTab) => void
   onRequestCollapse?: () => void
+  onOpenInTab?: (url: string) => void
 }
 
 type ActionFeedback = {
@@ -219,7 +220,8 @@ export function FloatingAssistantApp({
   mode = 'floating',
   activeTab: controlledActiveTab,
   onActiveTabChange,
-  onRequestCollapse
+  onRequestCollapse,
+  onOpenInTab
 }: FloatingAssistantAppProps = {}) {
   const [snapshot, setSnapshot] = useState<AssistantSnapshot | null>(null)
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
@@ -969,6 +971,7 @@ export function FloatingAssistantApp({
             onScanOldFavorites={scanOldFavorites}
             onExecuteOldFavoritePlan={executeOldFavoritePlan}
             onOldFavoriteExecutionStateChange={handleOldFavoriteExecutionStateChange}
+            onOpenOldFavoriteVideo={onOpenInTab}
             favoriteArchiveMultiMode={preferences.favoriteArchiveMultiMode}
           />
         </div>
