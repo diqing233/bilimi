@@ -3,7 +3,6 @@ import type {
   AssistantAutomationResult,
   AssistantPreferences,
   FavoriteLedgerStatus,
-  PendingFavoriteQueueItem,
   VideoNote,
   VideoNoteArchiveEntry
 } from '@shared/types'
@@ -90,25 +89,6 @@ function createVideoNote(): VideoNote {
   }
 }
 
-function createPendingQueueItem(
-  overrides: Partial<PendingFavoriteQueueItem> = {}
-): PendingFavoriteQueueItem {
-  return {
-    aid: 242,
-    title: '待分类旧藏',
-    source: 'old-favorite-scan',
-    sourceFolderTitle: '默认收藏夹',
-    originalTargetLedgerId: 'inbox',
-    suggestedLedgerIds: [],
-    candidateLedgerNames: [],
-    reason: '没有明确命中',
-    createdAt: '2026-06-28T00:00:00.000Z',
-    updatedAt: '2026-06-28T00:00:00.000Z',
-    status: 'pending',
-    ...overrides
-  }
-}
-
 function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const requestAssistantSnapshot = vi.fn().mockResolvedValue(createSnapshot())
   const runAssistantAction = vi.fn().mockResolvedValue(createResult('动作已完成。'))
@@ -137,8 +117,6 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const saveVideoNoteArchiveVersion = vi.fn().mockResolvedValue([])
   const loadVideoNoteArchives = vi.fn().mockResolvedValue([])
   const loadVideoAudioTranscriptionQueue = vi.fn().mockResolvedValue({ items: [] })
-  const loadPendingFavoriteQueue = vi.fn().mockResolvedValue([])
-  const clearPendingFavoriteQueue = vi.fn().mockResolvedValue([])
   const enqueueCurrentVideoAudioTranscription = vi.fn().mockResolvedValue({
     activeItemId: 'bvid:BV1note',
     items: [
@@ -202,8 +180,6 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     saveVideoNoteArchiveVersion,
     loadVideoNoteArchives,
     loadVideoAudioTranscriptionQueue,
-    loadPendingFavoriteQueue,
-    clearPendingFavoriteQueue,
     enqueueCurrentVideoAudioTranscription,
     onVideoAudioTranscriptionQueueChanged,
     deleteVideoNoteArchiveEntry,
@@ -953,11 +929,7 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByRole('status')).toHaveTextContent('已扫描 1 条旧藏，可勾选后整理。')
   })
 
-  it('refreshes the pending classification queue after scanning old favorites', async () => {
-    const loadPendingFavoriteQueue = vi
-      .fn()
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([createPendingQueueItem()])
+  it('shows preview-scoped pending classification after scanning old favorites', async () => {
     const scanOldFavorites = vi.fn().mockResolvedValue({
       items: [
         {
@@ -975,7 +947,7 @@ describe('FloatingAssistantApp', () => {
       skippedSourceFolderTitles: []
     })
 
-    installDesktopApi({ loadPendingFavoriteQueue, scanOldFavorites })
+    installDesktopApi({ scanOldFavorites })
 
     const { container } = render(<FloatingAssistantApp />)
 
@@ -986,28 +958,9 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(container.querySelectorAll('.favorite-ledger-panel__toolbar button')[1])
 
     await waitFor(() => expect(scanOldFavorites).toHaveBeenCalledOnce())
-    await waitFor(() => expect(loadPendingFavoriteQueue).toHaveBeenCalledTimes(2))
-    expect(await screen.findByRole('region', { name: '待分类队列' })).toBeInTheDocument()
-    expect(screen.getByText('待分类队列 1 条')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    expect(await screen.findByRole('group', { name: '待分类 1 条' })).toBeInTheDocument()
     expect(screen.getByText('待分类旧藏')).toBeInTheDocument()
-  })
-
-  it('clears the pending classification queue through the desktop bridge', async () => {
-    const loadPendingFavoriteQueue = vi.fn().mockResolvedValue([createPendingQueueItem()])
-    const clearPendingFavoriteQueue = vi.fn().mockResolvedValue([])
-
-    installDesktopApi({ loadPendingFavoriteQueue, clearPendingFavoriteQueue })
-
-    const { container } = render(<FloatingAssistantApp />)
-
-    await screen.findAllByRole('tab')
-    fireEvent.click(screen.getAllByRole('tab')[2])
-
-    expect(await screen.findByRole('region', { name: '待分类队列' })).toBeInTheDocument()
-
-    fireEvent.click(container.querySelector('.favorite-ledger-panel__pending-queue button')!)
-
-    await waitFor(() => expect(clearPendingFavoriteQueue).toHaveBeenCalledOnce())
     expect(screen.queryByRole('region', { name: '待分类队列' })).not.toBeInTheDocument()
   })
 

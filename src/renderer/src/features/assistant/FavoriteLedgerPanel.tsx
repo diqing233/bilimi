@@ -1,12 +1,9 @@
 import { BILIMI_LEDGER_PREFIX, createDefaultFavoriteLedgers, isBilimiManagedLedgerName } from '@shared/favoriteLedgers'
-import { createPendingFavoriteQueueSummary } from '@shared/pendingFavoriteQueue'
 import type {
   AssistantAutomationResult,
   FavoriteArchiveMultiMode,
   FavoriteLedger,
-  FavoriteLedgerSaveOptions,
-  PendingFavoriteQueueItem,
-  PendingFavoriteQueueStatus
+  FavoriteLedgerSaveOptions
 } from '@shared/types'
 import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react'
 import type { FavoriteLedgerCandidate } from '../favorites/favoriteLedgerInsights'
@@ -34,12 +31,6 @@ type FavoriteLedgerPanelProps = {
   onExecuteOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
   onOldFavoriteExecutionStateChange?: (state: 'running' | 'finished') => void
   favoriteArchiveMultiMode?: FavoriteArchiveMultiMode
-  pendingQueueItems?: PendingFavoriteQueueItem[]
-  onClearPendingQueue?: () => Promise<PendingFavoriteQueueItem[]> | void
-  onUpdatePendingQueueItemStatus?: (
-    aid: number,
-    status: PendingFavoriteQueueStatus
-  ) => Promise<PendingFavoriteQueueItem[]> | void
 }
 
 type OldFavoriteExecutionResult = AssistantAutomationResult & {
@@ -371,6 +362,38 @@ function selectedTargetKeysForPreview(
   return keys
 }
 
+function isPreviewScopedPendingItem(item: FavoriteLedgerPreviewItem) {
+  if (item.alreadyInTarget) {
+    return false
+  }
+
+  const targets = targetsForOldFavoriteItem(item)
+  const hasSelectedExecutableTarget = targets.some(
+    (target) => target.selected && target.ledgerId !== 'inbox' && !target.alreadyInTarget
+  )
+
+  if (hasSelectedExecutableTarget) {
+    return false
+  }
+
+  return (
+    item.targetLedgerId === 'inbox' ||
+    item.reviewRequired ||
+    targets.length === 0 ||
+    targets.every((target) => !target.selected || target.ledgerId === 'inbox')
+  )
+}
+
+function pendingReasonText(item: FavoriteLedgerPreviewItem) {
+  if (item.reviewRequired) {
+    return '需要复核'
+  }
+  if (item.targetLedgerId === 'inbox') {
+    return '暂无明确归档目标'
+  }
+  return '需要进一步判断'
+}
+
 function buildOldFavoriteTargetGroups(
   items: FavoriteLedgerPreviewItem[],
   selectedCandidateKeys: Set<string>,
@@ -476,10 +499,7 @@ export function FavoriteLedgerPanel({
   onScanOldFavorites,
   onExecuteOldFavoritePlan,
   onOldFavoriteExecutionStateChange,
-  favoriteArchiveMultiMode = 'off',
-  pendingQueueItems = [],
-  onClearPendingQueue,
-  onUpdatePendingQueueItemStatus
+  favoriteArchiveMultiMode = 'off'
 }: FavoriteLedgerPanelProps) {
   const [draftLedgers, setDraftLedgers] = useState<FavoriteLedger[]>(ledgers)
   const [activeLedgerId, setActiveLedgerId] = useState<string | null>(null)
@@ -493,7 +513,6 @@ export function FavoriteLedgerPanel({
   const [selectedOldFavoriteTargetKeys, setSelectedOldFavoriteTargetKeys] = useState<Set<string>>(new Set())
   const [selectedOldFavoriteSourceFolderTitles, setSelectedOldFavoriteSourceFolderTitles] =
     useState<Set<string>>(new Set())
-  const [locallyClearedPendingQueue, setLocallyClearedPendingQueue] = useState(false)
   const [oldFavoriteExecutionProgress, setOldFavoriteExecutionProgress] = useState<{
     completed: number
     total: number
@@ -1229,6 +1248,14 @@ export function FavoriteLedgerPanel({
       }),
     [selectableOldFavoriteItems, selectedOldFavoriteTargetKeys, selectedCandidateKeys]
   )
+  const previewScopedPendingItems = useMemo(
+    () => selectableOldFavoriteItems.filter(isPreviewScopedPendingItem),
+    [selectableOldFavoriteItems]
+  )
+  const archivePreviewItems = useMemo(
+    () => selectableOldFavoriteItems.filter((item) => !isPreviewScopedPendingItem(item)),
+    [selectableOldFavoriteItems]
+  )
   const missingOldFavoriteTargetNames = Array.from(
     new Set(
       selectedOldFavoritePlanItems
@@ -1261,8 +1288,8 @@ export function FavoriteLedgerPanel({
     return counts
   }, [selectableOldFavoriteItems])
   const oldFavoriteTargetGroups = useMemo(
-    () => buildOldFavoriteTargetGroups(selectableOldFavoriteItems, selectedCandidateKeys, selectedOldFavoriteTargetKeys),
-    [selectableOldFavoriteItems, selectedCandidateKeys, selectedOldFavoriteTargetKeys]
+    () => buildOldFavoriteTargetGroups(archivePreviewItems, selectedCandidateKeys, selectedOldFavoriteTargetKeys),
+    [archivePreviewItems, selectedCandidateKeys, selectedOldFavoriteTargetKeys]
   )
   const oldFavoriteFollowUpCandidates = useMemo(
     () =>
@@ -1298,32 +1325,6 @@ export function FavoriteLedgerPanel({
   const allTagCandidatesSelected =
     oldFavoriteTagCandidates.length > 0 &&
     oldFavoriteTagCandidates.every((candidate) => selectedCandidateKeys.has(candidateKey(candidate)))
-  useEffect(() => {
-    if (pendingQueueItems.some((item) => item.status === 'pending')) {
-      setLocallyClearedPendingQueue(false)
-    }
-  }, [pendingQueueItems])
-  const visiblePendingQueueItems = useMemo(
-    () =>
-      locallyClearedPendingQueue
-        ? []
-        : pendingQueueItems.filter((item) => item.status === 'pending'),
-    [locallyClearedPendingQueue, pendingQueueItems]
-  )
-  const pendingQueueSummary = useMemo(
-    () => createPendingFavoriteQueueSummary(visiblePendingQueueItems),
-    [visiblePendingQueueItems]
-  )
-
-  async function clearPendingQueue() {
-    const nextItems = await onClearPendingQueue?.()
-    const hasPendingItems = nextItems?.some((item) => item.status === 'pending') ?? false
-
-    if (!hasPendingItems) {
-      setLocallyClearedPendingQueue(true)
-    }
-  }
-
   function oldFavoriteCandidateDetailText(candidate: FavoriteLedgerCandidate) {
     const count = oldFavoriteCandidateCounts.get(candidateKey(candidate)) ?? candidate.count
     const sourceLabel = candidate.kind === 'author' ? '固定 UP' : candidate.kind === 'series' ? '标题系列' : '主题聚类'
@@ -1409,44 +1410,6 @@ export function FavoriteLedgerPanel({
         <p className="favorite-ledger-panel__status" role="status">
           {status ?? saveStatus}
         </p>
-      ) : null}
-
-      {visiblePendingQueueItems.length > 0 ? (
-        <section className="favorite-ledger-panel__pending-queue" aria-label="待分类队列">
-          <header>
-            <div>
-              <strong>待分类队列 {pendingQueueSummary.totalPending} 条</strong>
-              <small>不用重新扫描旧藏，可以从这里继续整理。</small>
-            </div>
-            <button
-              type="button"
-              aria-label="清空待分类队列"
-              onClick={() => void clearPendingQueue()}
-            >
-              清空
-            </button>
-          </header>
-          <div className="favorite-ledger-panel__pending-metrics">
-            <span>可归入已有册目 {pendingQueueSummary.suggestedExistingCount} 条</span>
-            <span>建议新建专题 {pendingQueueSummary.suggestedCandidateLedgerCount} 个</span>
-            <span>仍需暂存 {pendingQueueSummary.stagingCount} 条</span>
-          </div>
-          <div className="favorite-ledger-panel__pending-list">
-            {visiblePendingQueueItems.slice(0, 5).map((item) => (
-              <article key={item.aid}>
-                <span title={item.title}>{item.title}</span>
-                <small>{item.sourceFolderTitle ? `来源 ${item.sourceFolderTitle}` : item.reason}</small>
-                <button
-                  type="button"
-                  aria-label={`完成 ${item.title}`}
-                  onClick={() => void onUpdatePendingQueueItemStatus?.(item.aid, 'archived')}
-                >
-                  完成
-                </button>
-              </article>
-            ))}
-          </div>
-        </section>
       ) : null}
 
       <div className="favorite-ledger-panel__workspace">
@@ -1771,8 +1734,39 @@ export function FavoriteLedgerPanel({
                     <strong>{ledger.displayName}</strong>
                   </article>
                 ))
-              ) : oldFavoriteTargetGroups.length > 0 ? (
+              ) : previewScopedPendingItems.length > 0 || oldFavoriteTargetGroups.length > 0 ? (
                 <div className="favorite-ledger-panel__preview-groups">
+                  {previewScopedPendingItems.length > 0 ? (
+                    <section
+                      className="favorite-ledger-panel__preview-row favorite-ledger-panel__preview-row--pending"
+                      role="group"
+                      aria-label={`待分类 ${previewScopedPendingItems.length} 条`}
+                    >
+                      <header>
+                        <span className="favorite-ledger-panel__preview-heading">
+                          <strong>待分类</strong>
+                          <small>{previewScopedPendingItems.length} 条需要处理</small>
+                        </span>
+                      </header>
+                      <div className="favorite-ledger-panel__preview-videos" aria-label="待分类视频">
+                        {previewScopedPendingItems.map((item) => (
+                          <article key={`pending-${item.sourceFolderTitle}-${item.aid}`}>
+                            <div className="favorite-ledger-panel__preview-video favorite-ledger-panel__preview-video--pending">
+                              <span
+                                className="favorite-ledger-panel__preview-video-title"
+                                title={item.title}
+                              >
+                                {item.title}
+                              </span>
+                              <small>
+                                来源 {item.sourceFolderTitle} · {pendingReasonText(item)}
+                              </small>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
                   {oldFavoriteTargetGroups.map((group) => {
                     const selectedCount = group.entries.filter((entry) => entry.selected).length
                     const allSelected = group.entries.length > 0 && selectedCount === group.entries.length
