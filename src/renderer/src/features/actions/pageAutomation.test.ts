@@ -1069,6 +1069,73 @@ describe('buildAutomationScript', () => {
     expect(result.steps).toEqual(expect.arrayContaining(['comment:fill', 'comment:submit']))
   })
 
+  it('waits for the network-loaded Bilibili comment area after scrolling before filling', async () => {
+    document.body.innerHTML = `
+      <section class="bpx-player-sending-area">
+        <input class="bpx-player-dm-input" type="text" placeholder="发个友善的弹幕见证当下" />
+        <button class="bpx-player-dm-btn">发送</button>
+      </section>
+      <main class="video-page">评论区还在加载中</main>
+    `
+    let commentMounted = false
+    const mountCommentArea = () => {
+      if (commentMounted) {
+        return
+      }
+
+      commentMounted = true
+      window.setTimeout(() => {
+        document.body.insertAdjacentHTML(
+          'beforeend',
+          `
+            <section id="comment">
+              <h2>评论 233</h2>
+              <div class="reply-box">
+                <textarea class="reply-textarea" placeholder="天青色等烟雨，评论区在等你"></textarea>
+                <button class="reply-send">发布</button>
+              </div>
+            </section>
+          `
+        )
+      }, 250)
+    }
+    window.addEventListener('wheel', mountCommentArea)
+    window.addEventListener('scroll', mountCommentArea)
+
+    let danmakuSent = false
+    document.querySelector('.bpx-player-dm-btn')?.addEventListener('click', () => {
+      danmakuSent = true
+    })
+    let commentPublished = false
+    document.body.addEventListener('click', (event) => {
+      if ((event.target as HTMLElement).classList.contains('reply-send')) {
+        commentPublished = true
+      }
+    })
+
+    const result = await window.eval(
+      buildAutomationScript(
+        '表',
+        'Bilimi 内库',
+        undefined,
+        '等评论区加载完再填这条。',
+        favoriteLedgers,
+        'movie-tv',
+        { submitComment: true }
+      )
+    )
+
+    expect(danmakuSent).toBe(false)
+    expect(commentPublished).toBe(true)
+    expect((document.querySelector('.reply-textarea') as HTMLTextAreaElement).value).toBe(
+      '等评论区加载完再填这条。'
+    )
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(
+      expect.arrayContaining(['comment:wait-root', 'comment:root', 'comment:reveal', 'comment:fill', 'comment:submit'])
+    )
+  })
+
   it('clicks the inactive Bilibili comment box before filling and publishing', async () => {
     document.body.innerHTML = `
       <section id="comment">

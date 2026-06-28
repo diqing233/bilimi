@@ -631,10 +631,47 @@ export function buildAutomationScript(
           }
         }
 
-        return document.body;
+        const standaloneField = Array.from(
+          document.querySelectorAll('textarea,[contenteditable="true"],input[type="text"]')
+        ).find((node) => {
+          if (!isVisibleInput(node)) {
+            return false;
+          }
+
+          const text = [
+            node.getAttribute?.('aria-label'),
+            node.getAttribute?.('placeholder'),
+            node.getAttribute?.('data-placeholder'),
+            node.getAttribute?.('class'),
+            node.textContent
+          ].filter(Boolean).join(' ');
+          const normalizedText = normalize(text).toLowerCase();
+          const looksLikeComment =
+            normalizedText.includes(normalize('评论')) ||
+            normalizedText.includes(normalize('回复')) ||
+            normalizedText.includes('comment') ||
+            normalizedText.includes('reply');
+          const looksLikeDanmaku =
+            normalizedText.includes(normalize('弹幕')) ||
+            normalizedText.includes('danmaku') ||
+            normalizedText.includes('dm-input') ||
+            normalizedText.includes('bpx-player');
+
+          return looksLikeComment && !looksLikeDanmaku;
+        });
+
+        if (standaloneField) {
+          return standaloneField.closest?.('#comment,#commentapp,.comment-container,.comment-box,.reply-box,.bb-comment,.bili-comment,form,section,div') || standaloneField.parentElement || document.body;
+        }
+
+        return null;
       };
 
       const queryCommentField = (root = queryCommentRoot()) => {
+        if (!root) {
+          return null;
+        }
+
         const selectors = [
           '.reply-box-textarea[contenteditable="true"]',
           '.reply-box textarea',
@@ -666,6 +703,10 @@ export function buildAutomationScript(
         closestClickable(byTextWithin(root, commentSubmitSelectors, ['发布', '提交', '发送']));
 
       const queryCommentActivator = (root = queryCommentRoot()) => {
+        if (!root) {
+          return null;
+        }
+
         const selectors = [
           '.reply-box',
           '.comment-box',
@@ -690,12 +731,45 @@ export function buildAutomationScript(
       };
 
       const revealCommentRoot = async (commentRoot) => {
-        commentRoot.scrollIntoView?.({ block: 'center' });
-        commentRoot.dispatchEvent?.(new Event('scroll', { bubbles: true }));
+        if (commentRoot) {
+          commentRoot.scrollIntoView?.({ block: 'center' });
+          commentRoot.dispatchEvent?.(new Event('scroll', { bubbles: true }));
+        } else {
+          const scrollTarget = document.scrollingElement || document.documentElement || document.body;
+          if (scrollTarget && 'scrollTop' in scrollTarget) {
+            scrollTarget.scrollTop += Math.max(window.innerHeight || 800, 800);
+          }
+          document.documentElement?.dispatchEvent?.(new Event('scroll', { bubbles: true }));
+          document.body?.dispatchEvent?.(new Event('scroll', { bubbles: true }));
+        }
+
         window.dispatchEvent?.(new Event('scroll'));
         window.dispatchEvent?.(new WheelEvent('wheel', { bubbles: true, deltaY: 800 }));
         steps.push('comment:reveal');
         await wait(120);
+      };
+
+      const waitForCommentRoot = async () => {
+        let commentRoot = queryCommentRoot();
+        if (commentRoot) {
+          steps.push('comment:root');
+          return commentRoot;
+        }
+
+        steps.push('comment:wait-root');
+        for (let index = 0; index < 20; index += 1) {
+          await revealCommentRoot(commentRoot);
+          commentRoot = queryCommentRoot();
+          if (commentRoot) {
+            steps.push('comment:root');
+            return commentRoot;
+          }
+
+          await wait(150);
+        }
+
+        missingTargets.push('comment-root');
+        return null;
       };
 
       const readEditableText = (element) => {
@@ -724,8 +798,11 @@ export function buildAutomationScript(
       };
 
       const fillComment = async () => {
-        const commentRoot = queryCommentRoot();
-        steps.push('comment:root');
+        const commentRoot = await waitForCommentRoot();
+        if (!commentRoot) {
+          return false;
+        }
+
         await revealCommentRoot(commentRoot);
         let commentField = queryCommentField(commentRoot);
 
