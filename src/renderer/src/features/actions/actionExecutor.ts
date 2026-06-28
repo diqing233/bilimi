@@ -63,6 +63,15 @@ function shouldUseTrustedDanmakuSubmit(
   )
 }
 
+function shouldUseDirectTrustedDanmakuSubmit(args: ExecuteAssistantActionArgs) {
+  return (
+    args.action === '表' &&
+    args.submitComment === true &&
+    Boolean(args.commentDraft?.trim()) &&
+    Boolean(args.runTrustedDanmakuSubmitFallback)
+  )
+}
+
 async function runTrustedDanmakuSubmit(
   args: ExecuteAssistantActionArgs,
   domResult: AssistantAutomationResult
@@ -163,6 +172,13 @@ function skipFavoriteApiFallback(
 export async function executeAssistantAction(args: ExecuteAssistantActionArgs) {
   if (args.action === '阅') {
     return { ok: true, steps: [], missingTargets: [], message: '此折已阅。' }
+  }
+
+  if (shouldUseDirectTrustedDanmakuSubmit(args)) {
+    const result = await args.runTrustedDanmakuSubmitFallback?.(args.commentDraft ?? '')
+    if (result) {
+      return result
+    }
   }
 
   const script = buildAutomationScript(

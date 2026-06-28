@@ -333,16 +333,11 @@ describe('executeAssistantAction', () => {
     })
   })
 
-  it('uses trusted keyboard input when page danmaku submission cannot be confirmed', async () => {
-    const runScript = vi.fn().mockResolvedValueOnce({
-      ok: false,
-      steps: ['danmaku:focus', 'danmaku:fill'],
-      missingTargets: ['danmaku-submit-confirm'],
-      message: '尚有 danmaku-submit-confirm 未能寻见。'
-    })
+  it('uses the trusted visible danmaku bar path before page automation for auto publish', async () => {
+    const runScript = vi.fn()
     const runTrustedDanmakuSubmitFallback = vi.fn().mockResolvedValue({
       ok: true,
-      steps: ['danmaku:trusted-enter', 'danmaku:submit'],
+      steps: ['danmaku:switch:on', 'danmaku:trusted-paste', 'danmaku:trusted-click-send', 'danmaku:submit'],
       missingTargets: [],
       message: '弹幕已发送。'
     })
@@ -358,24 +353,25 @@ describe('executeAssistantAction', () => {
       submitComment: true
     })
 
+    expect(runScript).not.toHaveBeenCalled()
     expect(runTrustedDanmakuSubmitFallback).toHaveBeenCalledWith('trusted enter fallback')
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
-      expect.arrayContaining(['danmaku:focus', 'danmaku:fill', 'danmaku:trusted-enter', 'danmaku:submit'])
+      expect.arrayContaining([
+        'danmaku:switch:on',
+        'danmaku:trusted-paste',
+        'danmaku:trusted-click-send',
+        'danmaku:submit'
+      ])
     )
     expect(result.missingTargets).toEqual([])
   })
 
-  it('uses trusted keyboard input when the page script cannot find a danmaku field', async () => {
-    const runScript = vi.fn().mockResolvedValueOnce({
-      ok: false,
-      steps: ['danmaku:shortcut:d', 'danmaku:compose-enter'],
-      missingTargets: ['danmaku-field'],
-      message: '尚有 danmaku-field 未能寻见。'
-    })
+  it('does not run page automation when auto danmaku has a trusted visible-bar fallback', async () => {
+    const runScript = vi.fn()
     const runTrustedDanmakuSubmitFallback = vi.fn().mockResolvedValue({
       ok: true,
-      steps: ['danmaku:trusted-toggle', 'danmaku:trusted-compose', 'danmaku:trusted-enter', 'danmaku:submit'],
+      steps: ['danmaku:switch:ready', 'danmaku:focus', 'danmaku:trusted-paste', 'danmaku:submit'],
       missingTargets: [],
       message: '弹幕已发送。'
     })
@@ -391,15 +387,14 @@ describe('executeAssistantAction', () => {
       submitComment: true
     })
 
+    expect(runScript).not.toHaveBeenCalled()
     expect(runTrustedDanmakuSubmitFallback).toHaveBeenCalledWith('keyboard danmaku fallback')
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
       expect.arrayContaining([
-        'danmaku:shortcut:d',
-        'danmaku:compose-enter',
-        'danmaku:trusted-toggle',
-        'danmaku:trusted-compose',
-        'danmaku:trusted-enter',
+        'danmaku:switch:ready',
+        'danmaku:focus',
+        'danmaku:trusted-paste',
         'danmaku:submit'
       ])
     )

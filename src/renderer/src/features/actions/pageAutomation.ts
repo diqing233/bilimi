@@ -5,6 +5,13 @@ export function buildDanmakuFieldFocusScript(): string {
     (() => {
       const __bilimiDanmakuFieldFocus = true;
       void __bilimiDanmakuFieldFocus;
+      const result = {
+        ok: false,
+        steps: [],
+        missingTargets: [],
+        message: '',
+        sendButtonPoint: null
+      };
       const isLikelyHidden = (node) => {
         const style = window.getComputedStyle?.(node);
         return style?.display === 'none' || style?.visibility === 'hidden';
@@ -16,6 +23,18 @@ export function buildDanmakuFieldFocusScript(): string {
 
         const rect = node.getBoundingClientRect?.();
         return !rect || rect.width > 0 || rect.height > 0;
+      };
+      const normalized = (value) => String(value || '').replace(/\\s+/g, '').toLowerCase();
+      const visibleCenter = (node) => {
+        const rect = node?.getBoundingClientRect?.();
+        if (!rect || rect.width <= 0 || rect.height <= 0) {
+          return null;
+        }
+
+        return {
+          x: Math.round(rect.left + rect.width / 2),
+          y: Math.round(rect.top + rect.height / 2)
+        };
       };
       const selectors = [
         '.bpx-player-dm-input',
@@ -29,13 +48,84 @@ export function buildDanmakuFieldFocusScript(): string {
       const field = Array.from(document.querySelectorAll(selectors)).find(isVisibleInput);
 
       if (!field) {
-        return false;
+        result.missingTargets.push('danmaku-focus');
+        result.message = '尚有 danmaku-focus 未能寻见。';
+        return result;
       }
 
-      field.scrollIntoView?.({ block: 'center' });
+      const sendingArea =
+        field.closest?.('.bpx-player-sending-area,.bilibili-player-video-sendbar') ||
+        field.parentElement?.closest?.('[class*="danmaku"],[class*="bpx-player"]') ||
+        field.parentElement ||
+        document;
+      const switchSelectors = [
+        '.bpx-player-dm-switch',
+        '.bpx-player-dm-switch-btn',
+        '.bilibili-player-video-danmaku-switch',
+        '[class*="dm-switch"]',
+        '[class*="danmaku"][class*="switch"]',
+        '[aria-label*="弹幕"]',
+        '[title*="弹幕"]'
+      ].join(',');
+      const switchButton = Array.from(sendingArea.querySelectorAll?.(switchSelectors) || [])
+        .filter((node) => node !== field)
+        .find(isVisibleInput);
+      const switchStateText = (node) =>
+        String(
+          [
+            node?.getAttribute?.('aria-label'),
+            node?.getAttribute?.('title'),
+            node?.getAttribute?.('class'),
+            node?.textContent
+          ].join(' ')
+        ).toLowerCase();
+      const isClearlyOff = (node) => {
+        if (node?.getAttribute?.('aria-checked') === 'false') {
+          return true;
+        }
+
+        if (node?.getAttribute?.('aria-pressed') === 'false') {
+          return true;
+        }
+
+        const text = switchStateText(node);
+        if (!text) {
+          return false;
+        }
+
+        if (text.includes('开启弹幕') || text.includes('打开弹幕')) {
+          return true;
+        }
+
+        return /(^|[-_\\s])(off|close|closed|disabled|disable)([-_\\s]|$)/.test(text);
+      };
+
+      if (switchButton && isClearlyOff(switchButton)) {
+        switchButton.click?.();
+        result.steps.push('danmaku:switch:on');
+      } else {
+        result.steps.push('danmaku:switch:ready');
+      }
+
       field.click?.();
       field.focus?.();
-      return document.activeElement === field || field.matches?.(':focus') || true;
+      result.steps.push('danmaku:focus');
+
+      const sendSelectors = [
+        '.bpx-player-dm-btn',
+        '.bilibili-player-video-danmaku-send',
+        '.bilibili-player-video-btn-send',
+        '[class*="dm-btn"]',
+        '[class*="danmaku"][class*="send"]',
+        'button'
+      ].join(',');
+      const sendButton = Array.from(sendingArea.querySelectorAll?.(sendSelectors) || [])
+        .filter((node) => node !== field && node !== switchButton)
+        .find((node) => isVisibleInput(node) && visibleCenter(node));
+      result.sendButtonPoint = visibleCenter(sendButton);
+      result.ok = true;
+      result.message = '弹幕栏已聚焦。';
+      return result;
     })()
   `
 }

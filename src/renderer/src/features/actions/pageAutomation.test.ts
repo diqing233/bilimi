@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
-import { buildAutomationScript } from './pageAutomation'
+import { buildAutomationScript, buildDanmakuFieldFocusScript } from './pageAutomation'
 
 describe('buildAutomationScript', () => {
   const favoriteLedgers = createDefaultFavoriteLedgers()
@@ -1054,4 +1054,52 @@ describe('buildAutomationScript', () => {
     expect(result.missingTargets).toContain('danmaku-field')
   })
 
+})
+
+describe('buildDanmakuFieldFocusScript', () => {
+  it('focuses the visible danmaku bar without scrolling and opens a clearly disabled switch', async () => {
+    document.body.innerHTML = `
+      <section class="bpx-player-sending-area">
+        <button class="bpx-player-dm-switch off" aria-pressed="false" title="开启弹幕">弹</button>
+        <input class="bpx-player-dm-input" type="text" />
+        <button class="bpx-player-dm-btn">发送</button>
+      </section>
+    `
+    const switchButton = document.querySelector('.bpx-player-dm-switch') as HTMLButtonElement
+    const input = document.querySelector('.bpx-player-dm-input') as HTMLInputElement
+    const sendButton = document.querySelector('.bpx-player-dm-btn') as HTMLButtonElement
+    let switchClicked = false
+
+    switchButton.addEventListener('click', () => {
+      switchClicked = true
+    })
+    Object.defineProperty(switchButton, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 10, top: 10, width: 24, height: 24 })
+    })
+    Object.defineProperty(input, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 50, top: 10, width: 160, height: 28 })
+    })
+    Object.defineProperty(input, 'scrollIntoView', {
+      configurable: true,
+      value: vi.fn()
+    })
+    Object.defineProperty(sendButton, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 220, top: 10, width: 80, height: 28 })
+    })
+
+    const result = await window.eval(buildDanmakuFieldFocusScript())
+
+    expect(switchClicked).toBe(true)
+    expect(input.scrollIntoView).not.toHaveBeenCalled()
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        steps: expect.arrayContaining(['danmaku:switch:on', 'danmaku:focus']),
+        sendButtonPoint: { x: 260, y: 24 }
+      })
+    )
+  })
 })

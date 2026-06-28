@@ -760,6 +760,10 @@ export default function App() {
       }
     }
 
+    type DanmakuFocusResult = AssistantAutomationResult & {
+      sendButtonPoint?: { x: number; y: number }
+    }
+
     const wait = (delay: number) => new Promise((resolve) => setTimeout(resolve, delay))
     currentActiveWebview.focus?.()
 
@@ -774,18 +778,53 @@ export default function App() {
       currentActiveWebview.sendInputEvent?.(keyUp)
     }
 
-    sendKey('d')
-    await wait(120)
-    sendKey('Enter')
-    await wait(120)
+    const clickAt = (point: { x: number; y: number }) => {
+      currentActiveWebview.sendInputEvent?.({ type: 'mouseMove', x: point.x, y: point.y })
+      currentActiveWebview.sendInputEvent?.({
+        button: 'left',
+        clickCount: 1,
+        type: 'mouseDown',
+        x: point.x,
+        y: point.y
+      })
+      currentActiveWebview.sendInputEvent?.({
+        button: 'left',
+        clickCount: 1,
+        type: 'mouseUp',
+        x: point.x,
+        y: point.y
+      })
+    }
 
-    const focusReady = await currentActiveWebview.executeJavaScript(buildDanmakuFieldFocusScript())
-    if (!focusReady) {
+    const focusResult = (await currentActiveWebview.executeJavaScript(
+      buildDanmakuFieldFocusScript()
+    )) as DanmakuFocusResult | boolean
+    const prepared =
+      typeof focusResult === 'boolean'
+        ? ({
+            ok: focusResult,
+            steps: focusResult ? ['danmaku:focus'] : [],
+            missingTargets: focusResult ? [] : ['danmaku-focus'],
+            message: focusResult ? '弹幕栏已聚焦。' : '尚有 danmaku-focus 未能寻见。'
+          } satisfies DanmakuFocusResult)
+        : focusResult
+
+    if (!prepared?.ok) {
+      return {
+        ...prepared,
+        ok: false,
+        steps: prepared?.steps ?? [],
+        missingTargets: prepared?.missingTargets?.length ? prepared.missingTargets : ['danmaku-focus'],
+        message: prepared?.message ?? '尚有 danmaku-focus 未能寻见。'
+      }
+    }
+
+    if (!navigator.clipboard?.writeText) {
       return {
         ok: false,
-        steps: ['danmaku:trusted-toggle', 'danmaku:trusted-compose'],
-        missingTargets: ['danmaku-focus'],
-        message: '尚有 danmaku-focus 未能寻见。'
+        steps: prepared.steps,
+        missingTargets: ['trusted-danmaku-clipboard'],
+        message: '尚有 trusted-danmaku-clipboard 未能寻见。'
       }
     }
 
@@ -793,24 +832,39 @@ export default function App() {
     sendKey('a', ['control'])
     sendKey('Backspace')
     await wait(60)
-    for (const char of commentDraft) {
-      currentActiveWebview.sendInputEvent({ keyCode: char, type: 'char' })
-    }
+    await navigator.clipboard.writeText(commentDraft)
+    currentActiveWebview.focus?.()
+    sendKey('v', ['control'])
     await wait(80)
-    sendKey('Enter')
+    const submitSteps: string[] = []
+    if (prepared.sendButtonPoint) {
+      clickAt(prepared.sendButtonPoint)
+      submitSteps.push('danmaku:trusted-click-send')
+    } else {
+      sendKey('Enter')
+      submitSteps.push('danmaku:trusted-enter')
+    }
     await wait(120)
 
-    const confirmation = (await currentActiveWebview.executeJavaScript(
+    let confirmation = (await currentActiveWebview.executeJavaScript(
       buildDanmakuSubmitConfirmationScript(commentDraft)
     )) as AssistantAutomationResult
+
+    if (!confirmation.ok && prepared.sendButtonPoint) {
+      sendKey('Enter')
+      submitSteps.push('danmaku:trusted-enter')
+      await wait(120)
+      confirmation = (await currentActiveWebview.executeJavaScript(
+        buildDanmakuSubmitConfirmationScript(commentDraft)
+      )) as AssistantAutomationResult
+    }
 
     return {
       ...confirmation,
       steps: [
-        'danmaku:trusted-toggle',
-        'danmaku:trusted-compose',
-        'danmaku:trusted-type',
-        'danmaku:trusted-enter',
+        ...prepared.steps,
+        'danmaku:trusted-paste',
+        ...submitSteps,
         ...confirmation.steps
       ]
     }

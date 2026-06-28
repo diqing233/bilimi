@@ -513,13 +513,18 @@ describe('App runtime integration', () => {
     )
   })
 
-  it('retypes danmaku with trusted input before submitting when the page script cannot confirm it', async () => {
+  it('pastes danmaku through the visible player bar before submitting', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
       sendInputEvent?: (event: Record<string, unknown>) => void
     }
     const sentEvents: Record<string, unknown>[] = []
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText }
+    })
     const executeJavaScript = vi.fn(async (script: string) => {
       if (script.includes('document.cookie')) {
         return 'DedeUserID=42; bili_jct=csrf'
@@ -529,6 +534,16 @@ describe('App runtime integration', () => {
         return {
           title: 'danmaku fallback video',
           pageText: 'testing trusted input fallback'
+        }
+      }
+
+      if (script.includes('__bilimiDanmakuFieldFocus')) {
+        return {
+          ok: true,
+          steps: ['danmaku:switch:on', 'danmaku:focus'],
+          missingTargets: [],
+          message: '弹幕栏已聚焦。',
+          sendButtonPoint: { x: 620, y: 452 }
         }
       }
 
@@ -543,9 +558,9 @@ describe('App runtime integration', () => {
 
       return {
         ok: false,
-        steps: ['danmaku:focus', 'danmaku:fill'],
-        missingTargets: ['danmaku-submit-confirm'],
-        message: '尚有 danmaku-submit-confirm 未能寻见。'
+        steps: [],
+        missingTargets: ['unexpected-page-script'],
+        message: '不应先运行页面自动化脚本。'
       }
     })
     Object.assign(webview, {
@@ -575,22 +590,17 @@ describe('App runtime integration', () => {
       }
     })
 
+    expect(writeText).toHaveBeenCalledWith('typed')
     expect(sentEvents).toEqual([
-      { keyCode: 'd', type: 'keyDown' },
-      { keyCode: 'd', type: 'keyUp' },
-      { keyCode: 'Enter', type: 'keyDown' },
-      { keyCode: 'Enter', type: 'keyUp' },
       { keyCode: 'a', modifiers: ['control'], type: 'keyDown' },
       { keyCode: 'a', modifiers: ['control'], type: 'keyUp' },
       { keyCode: 'Backspace', type: 'keyDown' },
       { keyCode: 'Backspace', type: 'keyUp' },
-      { keyCode: 't', type: 'char' },
-      { keyCode: 'y', type: 'char' },
-      { keyCode: 'p', type: 'char' },
-      { keyCode: 'e', type: 'char' },
-      { keyCode: 'd', type: 'char' },
-      { keyCode: 'Enter', type: 'keyDown' },
-      { keyCode: 'Enter', type: 'keyUp' }
+      { keyCode: 'v', modifiers: ['control'], type: 'keyDown' },
+      { keyCode: 'v', modifiers: ['control'], type: 'keyUp' },
+      { type: 'mouseMove', x: 620, y: 452 },
+      { button: 'left', clickCount: 1, type: 'mouseDown', x: 620, y: 452 },
+      { button: 'left', clickCount: 1, type: 'mouseUp', x: 620, y: 452 }
     ])
     expect(executeJavaScript).toHaveBeenCalledWith(
       expect.stringContaining('__bilimiDanmakuSubmitConfirmation')
@@ -599,10 +609,10 @@ describe('App runtime integration', () => {
       expect.objectContaining({
         ok: true,
         steps: expect.arrayContaining([
+          'danmaku:switch:on',
           'danmaku:focus',
-          'danmaku:fill',
-          'danmaku:trusted-type',
-          'danmaku:trusted-enter',
+          'danmaku:trusted-paste',
+          'danmaku:trusted-click-send',
           'danmaku:submit'
         ])
       })
