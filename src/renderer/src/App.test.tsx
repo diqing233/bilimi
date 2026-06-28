@@ -1182,7 +1182,7 @@ describe('App runtime integration', () => {
     )
   })
 
-  it('persists unresolved old favorite items to the pending queue without appending them to staging', async () => {
+  it('does not persist unresolved old favorite items to the pending queue', async () => {
     const upsertPendingFavoriteQueueItems = vi.fn().mockResolvedValue([])
     const { requestRuntime } = renderAppWithRuntimeBridge({ upsertPendingFavoriteQueueItems })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
@@ -1219,16 +1219,7 @@ describe('App runtime integration', () => {
         items: [expect.objectContaining({ targetLedgerId: 'inbox', selected: false })]
       })
     )
-    expect(upsertPendingFavoriteQueueItems).toHaveBeenCalledWith([
-      expect.objectContaining({
-        aid: 1001,
-        title: '难判断旧藏',
-        source: 'old-favorite-scan',
-        sourceFolderTitle: '默认收藏夹',
-        originalTargetLedgerId: 'inbox',
-        status: 'pending'
-      })
-    ])
+    expect(upsertPendingFavoriteQueueItems).not.toHaveBeenCalled()
   })
 
   it('keeps old favorite scans local when DeepSeek is enabled', async () => {
