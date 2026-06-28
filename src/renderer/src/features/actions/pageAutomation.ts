@@ -766,17 +766,44 @@ export function buildAutomationScript(
         return true;
       };
 
+      const isReadyCommentRoot = (commentRoot) =>
+        Boolean(commentRoot && (queryCommentField(commentRoot) || queryCommentActivator(commentRoot)));
+
+      const scrollPageTowardComments = async () => {
+        const delta = Math.max(window.innerHeight || 800, 800);
+        const scrollTargets = [document.scrollingElement, document.documentElement, document.body]
+          .filter(Boolean)
+          .filter((target, index, targets) => targets.indexOf(target) === index);
+
+        scrollTargets.forEach((target) => {
+          if (target && 'scrollTop' in target) {
+            target.scrollTop += delta;
+          }
+          target?.dispatchEvent?.(new Event('scroll', { bubbles: true }));
+        });
+        if (!String(navigator.userAgent || '').toLowerCase().includes('jsdom')) {
+          try {
+            window.scrollBy?.(0, delta);
+          } catch {
+            // Some embedded pages expose scrollBy but disallow programmatic window scrolling.
+          }
+        }
+        window.dispatchEvent?.(new Event('scroll'));
+        window.dispatchEvent?.(new WheelEvent('wheel', { bubbles: true, deltaY: delta }));
+        steps.push('comment:page-scroll');
+        steps.push('comment:reveal');
+        await wait(250);
+      };
+
       const revealCommentRoot = async (commentRoot) => {
-        if (commentRoot) {
+        if (isReadyCommentRoot(commentRoot)) {
           commentRoot.scrollIntoView?.({ block: 'center' });
           commentRoot.dispatchEvent?.(new Event('scroll', { bubbles: true }));
         } else {
-          const scrollTarget = document.scrollingElement || document.documentElement || document.body;
-          if (scrollTarget && 'scrollTop' in scrollTarget) {
-            scrollTarget.scrollTop += Math.max(window.innerHeight || 800, 800);
-          }
-          document.documentElement?.dispatchEvent?.(new Event('scroll', { bubbles: true }));
-          document.body?.dispatchEvent?.(new Event('scroll', { bubbles: true }));
+          commentRoot?.scrollIntoView?.({ block: 'center' });
+          commentRoot?.dispatchEvent?.(new Event('scroll', { bubbles: true }));
+          await scrollPageTowardComments();
+          return;
         }
 
         window.dispatchEvent?.(new Event('scroll'));
@@ -787,16 +814,21 @@ export function buildAutomationScript(
 
       const waitForCommentRoot = async () => {
         let commentRoot = queryCommentRoot();
-        if (commentRoot) {
+        if (isReadyCommentRoot(commentRoot)) {
           steps.push('comment:root');
           return commentRoot;
         }
 
-        steps.push('comment:wait-root');
+        steps.push(commentRoot ? 'comment:wait-ready' : 'comment:wait-root');
+        let loggedWeakRoot = false;
         for (let index = 0; index < 20; index += 1) {
+          if (commentRoot && !loggedWeakRoot) {
+            steps.push('comment:weak-root');
+            loggedWeakRoot = true;
+          }
           await revealCommentRoot(commentRoot);
           commentRoot = queryCommentRoot();
-          if (commentRoot) {
+          if (isReadyCommentRoot(commentRoot)) {
             steps.push('comment:root');
             return commentRoot;
           }

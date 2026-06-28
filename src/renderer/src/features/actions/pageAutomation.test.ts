@@ -1205,6 +1205,86 @@ describe('buildAutomationScript', () => {
     )
   })
 
+  it('keeps page-scrolling past a weak comment root until the visible comment box appears', async () => {
+    document.body.innerHTML = `
+      <section class="comment-teaser">comment area loading soon</section>
+      <section class="bpx-player-sending-area">
+        <input class="bpx-player-dm-input" type="text" placeholder="send a danmaku" />
+        <button class="bpx-player-dm-btn">send</button>
+      </section>
+    `
+    const scrollTarget = document.documentElement
+    scrollTarget.scrollTop = 0
+    let commentMounted = false
+    const mountCommentArea = () => {
+      if (commentMounted || scrollTarget.scrollTop < 800) {
+        return
+      }
+
+      commentMounted = true
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        `
+          <section id="comment">
+            <h2>\u8bc4\u8bba 183</h2>
+            <div class="reply-box">
+              <div class="reply-box-placeholder">comment box placeholder</div>
+            </div>
+          </section>
+        `
+      )
+      const replyBox = document.querySelector('.reply-box') as HTMLElement
+      let activated = false
+      replyBox.addEventListener('click', () => {
+        if (activated) {
+          return
+        }
+
+        activated = true
+        replyBox.innerHTML = `
+          <textarea class="reply-textarea" placeholder="comment box placeholder"></textarea>
+          <button class="reply-send">\u53d1\u5e03</button>
+        `
+      })
+    }
+    window.addEventListener('wheel', mountCommentArea)
+    window.addEventListener('scroll', mountCommentArea)
+
+    let danmakuSent = false
+    document.querySelector('.bpx-player-dm-btn')?.addEventListener('click', () => {
+      danmakuSent = true
+    })
+    let commentPublished = false
+    document.body.addEventListener('click', (event) => {
+      if ((event.target as HTMLElement).classList.contains('reply-send')) {
+        commentPublished = true
+      }
+    })
+
+    const result = await window.eval(
+      buildAutomationScript(
+        '\u8868',
+        'Bilimi \u5185\u5e93',
+        undefined,
+        'keep scrolling to the real comment box.',
+        favoriteLedgers,
+        'movie-tv',
+        { submitComment: true }
+      )
+    )
+
+    expect(scrollTarget.scrollTop).toBeGreaterThanOrEqual(800)
+    expect(danmakuSent).toBe(false)
+    expect(commentPublished).toBe(true)
+    expect((document.querySelector('.reply-textarea') as HTMLTextAreaElement).value).toBe(
+      'keep scrolling to the real comment box.'
+    )
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(
+      expect.arrayContaining(['comment:wait-ready', 'comment:page-scroll', 'comment:root', 'comment:activate'])
+    )
+  })
+
   it('clicks the inactive Bilibili comment box before filling and publishing', async () => {
     document.body.innerHTML = `
       <section id="comment">
