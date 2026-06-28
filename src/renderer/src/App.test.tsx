@@ -612,6 +612,9 @@ describe('App runtime integration', () => {
     })
 
     expect(writeText).toHaveBeenCalledWith('typed')
+    expect(writeText.mock.invocationCallOrder[0]).toBeLessThan(
+      (webview.sendInputEvent as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0]
+    )
     expect(sentEvents).toEqual([
       { type: 'mouseMove', x: 300, y: 220 },
       { button: 'left', clickCount: 1, type: 'mouseDown', x: 300, y: 220 },
@@ -644,6 +647,69 @@ describe('App runtime integration', () => {
         ])
       })
     )
+  })
+
+  it('returns a structured danmaku clipboard error instead of throwing through the runtime bridge', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+      sendInputEvent?: (event: Record<string, unknown>) => void
+    }
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error('Document is not focused.')) }
+    })
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes('document.cookie')) {
+        return 'DedeUserID=42; bili_jct=csrf'
+      }
+
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          title: 'danmaku clipboard failure video',
+          pageText: 'testing clipboard failure handling'
+        }
+      }
+
+      return {
+        ok: false,
+        steps: [],
+        missingTargets: ['unexpected-page-script'],
+        message: 'Clipboard failure should stop before page automation.'
+      }
+    })
+    Object.assign(webview, {
+      executeJavaScript,
+      sendInputEvent: vi.fn()
+    })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1clipboard'
+          }
+        })
+      )
+    })
+
+    await expect(
+      requestRuntime({
+        id: 'run-danmaku-clipboard-error',
+        type: 'run-action',
+        action: '表',
+        options: {
+          commentDraft: 'typed',
+          submitComment: true
+        }
+      })
+    ).resolves.toEqual(
+      expect.objectContaining({
+        ok: false,
+        missingTargets: ['trusted-danmaku-clipboard']
+      })
+    )
+    expect(webview.sendInputEvent).not.toHaveBeenCalled()
   })
 
   it('turns danmaku on with d before opening the composer when the player reports it off', async () => {

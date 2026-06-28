@@ -982,6 +982,26 @@ export default function App() {
       })
     }
 
+    if (!navigator.clipboard?.writeText) {
+      return {
+        ok: false,
+        steps: [],
+        missingTargets: ['trusted-danmaku-clipboard'],
+        message: '尚有 trusted-danmaku-clipboard 未能寻见。'
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(commentDraft)
+    } catch {
+      return {
+        ok: false,
+        steps: [],
+        missingTargets: ['trusted-danmaku-clipboard'],
+        message: '弹幕文案写入剪贴板失败，请重新点击表再试。'
+      }
+    }
+
     const activationSteps: string[] = []
     try {
       const activation = (await currentActiveWebview.executeJavaScript(
@@ -1037,20 +1057,10 @@ export default function App() {
       }
     }
 
-    if (!navigator.clipboard?.writeText) {
-      return {
-        ok: false,
-        steps: prepared.steps,
-        missingTargets: ['trusted-danmaku-clipboard'],
-        message: '尚有 trusted-danmaku-clipboard 未能寻见。'
-      }
-    }
-
     await wait(80)
     sendKey('a', ['control'])
     sendKey('Backspace')
     await wait(60)
-    await navigator.clipboard.writeText(commentDraft)
     currentActiveWebview.focus?.()
     sendKey('v', ['control'])
     await wait(80)
