@@ -20,7 +20,7 @@ describe('favorite ledger model', () => {
         ['life-interest', 'Bilimi·生活日常'],
         ['music', 'Bilimi·音乐舞台'],
         ['entertainment', 'Bilimi·搞笑杂谈'],
-        ['inbox', 'Bilimi·待分类']
+        ['inbox', 'Bilimi·暂存']
       ])
     )
     expect(createDefaultFavoriteLedgers()).toHaveLength(8)
@@ -44,7 +44,7 @@ describe('favorite ledger model', () => {
       'Bilimi·生活日常',
       'Bilimi·音乐舞台',
       'Bilimi·搞笑杂谈',
-      'Bilimi·待分类'
+      'Bilimi·暂存'
     ])
     expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·动画')
     expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·鬼畜')
@@ -88,6 +88,22 @@ describe('favorite ledger model', () => {
     expect(ledgers.find((ledger) => ledger.id === 'custom-photo')?.displayName).toBe(
       'Bilimi·光影留真'
     )
+    expect(ledgers.find((ledger) => ledger.id === 'inbox')?.displayName).toBe('Bilimi·暂存')
+  })
+
+  it('keeps a saved legacy pending-classification inbox ledger as inbox', () => {
+    const ledgers = normalizeFavoriteLedgers([
+      {
+        id: 'inbox',
+        displayName: 'Bilimi·待分类',
+        keywords: ['稍后', '待看'],
+        enabled: true,
+        priority: 80,
+        isDefault: true
+      }
+    ])
+
+    expect(ledgers.filter((ledger) => ledger.id === 'inbox')).toHaveLength(1)
     expect(ledgers.find((ledger) => ledger.id === 'inbox')?.displayName).toBe('Bilimi·待分类')
   })
 

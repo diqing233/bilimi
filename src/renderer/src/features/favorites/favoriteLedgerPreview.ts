@@ -94,7 +94,11 @@ export function createFavoriteLedgerPreview(args: {
       const alreadyInTarget = targetFolderId
         ? (args.targetMembership[targetFolderId] ?? []).includes(video.aid)
         : false
-      const selected = Boolean(targetFolderId) && !alreadyInTarget && !classification.reviewRequired
+      const selected =
+        Boolean(targetFolderId) &&
+        targetLedger?.id !== 'inbox' &&
+        !alreadyInTarget &&
+        !classification.reviewRequired
       const candidateTargets = candidateTargetsForVideo(video, insights.candidateLedgers)
       const targets = previewTargetsForVideo({
         video,
@@ -157,7 +161,11 @@ function previewTargetsForVideo(args: {
   for (const archiveTarget of args.archiveTargets) {
     const folderId = archiveTarget.folderId
     const alreadyInTarget = folderId ? (args.targetMembership[folderId] ?? []).includes(args.video.aid) : false
-    const selected = Boolean(folderId) && !alreadyInTarget && !args.reviewRequired
+    const selected =
+      Boolean(folderId) &&
+      archiveTarget.ledgerId !== 'inbox' &&
+      !alreadyInTarget &&
+      !args.reviewRequired
     pushTarget({
       ledgerId: archiveTarget.ledgerId,
       folderId,
@@ -208,7 +216,7 @@ function previewTargetsForVideo(args: {
         displayName: inboxLedger.displayName,
         keywords: inboxLedger.keywords,
         alreadyInTarget,
-        selected: Boolean(folderId) && !alreadyInTarget,
+        selected: false
       })
     }
   }

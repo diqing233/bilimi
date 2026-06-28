@@ -585,6 +585,105 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('adds successful new favorite inbox fallback to the pending queue', async () => {
+    const upsertPendingFavoriteQueueItems = vi.fn().mockResolvedValue([])
+    const { requestRuntime } = renderAppWithRuntimeBridge({ upsertPendingFavoriteQueueItems })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+          return {
+            aid: 3001,
+            title: '没有分类线索的新收藏',
+            pageText: '随手收藏，稍后再看',
+            tags: []
+          }
+        }
+
+        if (script.includes('/x/v3/fav/resource/deal')) {
+          return {
+            ok: true,
+            steps: ['api:favorite:list', 'api:favorite:add'],
+            missingTargets: [],
+            message: '已用 B 站接口归入 Bilimi 收藏夹。'
+          }
+        }
+
+        return {
+          ok: true,
+          steps: ['favorite:open', 'favorite:folder', 'favorite'],
+          missingTargets: [],
+          message: '已按内容归入内库。'
+        }
+      })
+    })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1pending'
+          }
+        })
+      )
+    })
+
+    await requestRuntime({ id: 'run-inbox-pending', type: 'run-action', action: '藏' })
+
+    expect(upsertPendingFavoriteQueueItems).toHaveBeenCalledWith([
+      expect.objectContaining({
+        aid: 3001,
+        title: '没有分类线索的新收藏',
+        source: 'new-favorite',
+        originalTargetLedgerId: 'inbox',
+        status: 'pending'
+      })
+    ])
+  })
+
+  it('does not add a queue item when inbox favorite fallback fails', async () => {
+    const upsertPendingFavoriteQueueItems = vi.fn().mockResolvedValue([])
+    const { requestRuntime } = renderAppWithRuntimeBridge({ upsertPendingFavoriteQueueItems })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+          return {
+            aid: 3002,
+            title: '暂存失败的新收藏',
+            pageText: '随手收藏，稍后再看',
+            tags: []
+          }
+        }
+
+        return {
+          ok: false,
+          steps: ['api:favorite:list'],
+          missingTargets: ['favorite-inbox'],
+          message: '暂存收藏失败。'
+        }
+      })
+    })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1pendingfail'
+          }
+        })
+      )
+    })
+
+    await requestRuntime({ id: 'run-inbox-failed', type: 'run-action', action: '藏' })
+
+    expect(upsertPendingFavoriteQueueItems).not.toHaveBeenCalled()
+  })
+
   it('keeps successful 赐 page-click-only actions on the page automation path', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
@@ -1081,6 +1180,55 @@ describe('App runtime integration', () => {
     expect(executeJavaScript).toHaveBeenCalledWith(
       expect.stringContaining(OLD_FAVORITE_SCAN_SCRIPT_MARKER)
     )
+  })
+
+  it('persists unresolved old favorite items to the pending queue without appending them to staging', async () => {
+    const upsertPendingFavoriteQueueItems = vi.fn().mockResolvedValue([])
+    const { requestRuntime } = renderAppWithRuntimeBridge({ upsertPendingFavoriteQueueItems })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes(OLD_FAVORITE_SCAN_SCRIPT_MARKER)) {
+          return {
+            ok: true,
+            sourceFolders: [
+              {
+                id: '101',
+                title: '默认收藏夹',
+                videos: [{ aid: 1001, title: '难判断旧藏', description: '没有明显分类线索' }]
+              }
+            ],
+            targetMembership: {},
+            skippedSourceFolderTitles: [],
+            steps: ['api:favorite:list'],
+            missingTargets: [],
+            message: 'old favorites scanned'
+          }
+        }
+
+        return emptyLedgerStatus()
+      })
+    })
+
+    const preview = await requestRuntime({ id: 'scan-pending-1', type: 'scan-old-favorites' })
+
+    expect(preview).toEqual(
+      expect.objectContaining({
+        items: [expect.objectContaining({ targetLedgerId: 'inbox', selected: false })]
+      })
+    )
+    expect(upsertPendingFavoriteQueueItems).toHaveBeenCalledWith([
+      expect.objectContaining({
+        aid: 1001,
+        title: '难判断旧藏',
+        source: 'old-favorite-scan',
+        sourceFolderTitle: '默认收藏夹',
+        originalTargetLedgerId: 'inbox',
+        status: 'pending'
+      })
+    ])
   })
 
   it('keeps old favorite scans local when DeepSeek is enabled', async () => {

@@ -56,12 +56,12 @@ describe('classifyVideoContent', () => {
     expect(classifyVideoContent({ title: '东京周末路线', tags: [], category: '出行' }, ledgers)).toMatchObject({
       ledgerId: 'inbox',
       reviewRequired: false,
-      displayName: 'Bilimi·待分类'
+      displayName: 'Bilimi·暂存'
     })
     expect(classifyVideoContent({ title: '露营装备清单', tags: [], category: '户外' }, ledgers)).toMatchObject({
       ledgerId: 'inbox',
       reviewRequired: false,
-      displayName: 'Bilimi·待分类'
+      displayName: 'Bilimi·暂存'
     })
   })
 
@@ -165,7 +165,7 @@ describe('classifyVideoContent', () => {
 
     expect(result).toMatchObject({
       ledgerId: 'inbox',
-      displayName: 'Bilimi·待分类',
+      displayName: 'Bilimi·暂存',
       reviewRequired: true
     })
     expect(result.matchedKeywords).toEqual(expect.arrayContaining(['带货', '软广', '避雷']))

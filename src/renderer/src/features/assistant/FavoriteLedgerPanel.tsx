@@ -1,9 +1,12 @@
 import { BILIMI_LEDGER_PREFIX, createDefaultFavoriteLedgers, isBilimiManagedLedgerName } from '@shared/favoriteLedgers'
+import { createPendingFavoriteQueueSummary } from '@shared/pendingFavoriteQueue'
 import type {
   AssistantAutomationResult,
   FavoriteArchiveMultiMode,
   FavoriteLedger,
-  FavoriteLedgerSaveOptions
+  FavoriteLedgerSaveOptions,
+  PendingFavoriteQueueItem,
+  PendingFavoriteQueueStatus
 } from '@shared/types'
 import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react'
 import type { FavoriteLedgerCandidate } from '../favorites/favoriteLedgerInsights'
@@ -31,6 +34,11 @@ type FavoriteLedgerPanelProps = {
   onExecuteOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
   onOldFavoriteExecutionStateChange?: (state: 'running' | 'finished') => void
   favoriteArchiveMultiMode?: FavoriteArchiveMultiMode
+  pendingQueueItems?: PendingFavoriteQueueItem[]
+  onUpdatePendingQueueItemStatus?: (
+    aid: number,
+    status: PendingFavoriteQueueStatus
+  ) => Promise<PendingFavoriteQueueItem[]> | void
 }
 
 type OldFavoriteExecutionResult = AssistantAutomationResult & {
@@ -467,7 +475,9 @@ export function FavoriteLedgerPanel({
   onScanOldFavorites,
   onExecuteOldFavoritePlan,
   onOldFavoriteExecutionStateChange,
-  favoriteArchiveMultiMode = 'off'
+  favoriteArchiveMultiMode = 'off',
+  pendingQueueItems = [],
+  onUpdatePendingQueueItemStatus
 }: FavoriteLedgerPanelProps) {
   const [draftLedgers, setDraftLedgers] = useState<FavoriteLedger[]>(ledgers)
   const [activeLedgerId, setActiveLedgerId] = useState<string | null>(null)
@@ -1285,6 +1295,14 @@ export function FavoriteLedgerPanel({
   const allTagCandidatesSelected =
     oldFavoriteTagCandidates.length > 0 &&
     oldFavoriteTagCandidates.every((candidate) => selectedCandidateKeys.has(candidateKey(candidate)))
+  const visiblePendingQueueItems = useMemo(
+    () => pendingQueueItems.filter((item) => item.status === 'pending'),
+    [pendingQueueItems]
+  )
+  const pendingQueueSummary = useMemo(
+    () => createPendingFavoriteQueueSummary(visiblePendingQueueItems),
+    [visiblePendingQueueItems]
+  )
 
   function oldFavoriteCandidateDetailText(candidate: FavoriteLedgerCandidate) {
     const count = oldFavoriteCandidateCounts.get(candidateKey(candidate)) ?? candidate.count
@@ -1371,6 +1389,35 @@ export function FavoriteLedgerPanel({
         <p className="favorite-ledger-panel__status" role="status">
           {status ?? saveStatus}
         </p>
+      ) : null}
+
+      {visiblePendingQueueItems.length > 0 ? (
+        <section className="favorite-ledger-panel__pending-queue" aria-label="待分类队列">
+          <header>
+            <strong>待分类队列 {pendingQueueSummary.totalPending} 条</strong>
+            <small>不用重新扫描旧藏，可以从这里继续整理。</small>
+          </header>
+          <div className="favorite-ledger-panel__pending-metrics">
+            <span>可归入已有册目 {pendingQueueSummary.suggestedExistingCount} 条</span>
+            <span>建议新建专题 {pendingQueueSummary.suggestedCandidateLedgerCount} 个</span>
+            <span>仍需暂存 {pendingQueueSummary.stagingCount} 条</span>
+          </div>
+          <div className="favorite-ledger-panel__pending-list">
+            {visiblePendingQueueItems.slice(0, 5).map((item) => (
+              <article key={item.aid}>
+                <span title={item.title}>{item.title}</span>
+                <small>{item.sourceFolderTitle ? `来源 ${item.sourceFolderTitle}` : item.reason}</small>
+                <button
+                  type="button"
+                  aria-label={`完成 ${item.title}`}
+                  onClick={() => void onUpdatePendingQueueItemStatus?.(item.aid, 'archived')}
+                >
+                  完成
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
       ) : null}
 
       <div className="favorite-ledger-panel__workspace">

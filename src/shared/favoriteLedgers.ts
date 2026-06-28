@@ -73,7 +73,7 @@ const DEFAULT_FAVORITE_LEDGER_DEFINITIONS = [
   ],
   ['music', '音乐舞台', ['歌曲', 'MV', '翻唱', '乐器', '演奏', '演唱会', '纯音乐', '舞蹈', '音乐', '舞台', '音乐现场']],
   ['entertainment', '搞笑杂谈', ['整活', '脱口秀', '吐槽', '短视频', '趣味科普', '萌宠', '搞笑', '杂谈', '鬼畜', '娱乐', '聊天']],
-  ['inbox', '待分类', ['稍后', '待看', '暂存', '收藏']]
+  ['inbox', '暂存', ['稍后', '待看', '暂存', '收藏', '待分类']]
 ] as const
 
 const DEFAULT_ENABLED_LEDGER_IDS = new Set([

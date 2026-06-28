@@ -37,6 +37,10 @@ The floating entry uses the same assistant workspace as the sidebar. It can run 
 
 The `掌库` tab manages Bilimi-prefixed Bilibili favorite folders. Recommended category folders are defined in `src/shared/favoriteLedgers.ts` and use eight broad stable IDs: `knowledge`, `game`, `movie-tv`, `creative-aesthetic`, `life-interest`, `music`, `entertainment`, and `inbox`.
 
+The stable `inbox` ledger is named `Bilimi·暂存`. It is a real Bilibili favorite folder used as a safe landing place for new favorites that cannot be classified confidently.
+
+Old-favorite organization keeps unresolved items in Bilimi's local `待分类队列` instead of appending them to `Bilimi·暂存`. The queue is shown in `掌库` and remains available after reopening the assistant, so users can continue sorting unresolved items without rescanning old favorites.
+
 In the recommended category grid, clicking a category name only selects it for editing. The adjacent `+` or `✓` button directly adds or removes that folder from sync without a confirmation dialog. A dashed `+` shortcut appears after the recommended category folders and focuses the new custom-ledger form.
 
 `整理旧藏` scans existing non-Bilimi favorite folders, shows a preview, and appends only checked items into Bilimi folders after `确认整理`. It does not move, delete, or unfavorite items from the user's original folders.

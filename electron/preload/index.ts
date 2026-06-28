@@ -8,6 +8,8 @@ import type {
   DeepSeekKeyStatus,
   FavoriteLedger,
   FavoriteLedgerSaveOptions,
+  PendingFavoriteQueueItem,
+  PendingFavoriteQueueStatus,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionQueueSnapshot,
   VideoAudioTranscriptionRequest,
@@ -32,6 +34,12 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   closeFloatingAssistant: () => ipcRenderer.send('floating-assistant:close'),
   closeFloatingMenu: () => ipcRenderer.send('floating-menu:close'),
   loadPreferences: () => ipcRenderer.invoke('assistant:load-preferences') as Promise<AssistantPreferences>,
+  loadPendingFavoriteQueue: () =>
+    ipcRenderer.invoke('pending-favorite-queue:load') as Promise<PendingFavoriteQueueItem[]>,
+  upsertPendingFavoriteQueueItems: (items: PendingFavoriteQueueItem[]) =>
+    ipcRenderer.invoke('pending-favorite-queue:upsert', items) as Promise<PendingFavoriteQueueItem[]>,
+  updatePendingFavoriteQueueItemStatus: (aid: number, status: PendingFavoriteQueueStatus) =>
+    ipcRenderer.invoke('pending-favorite-queue:update-status', aid, status) as Promise<PendingFavoriteQueueItem[]>,
   loadVideoNotes: () => ipcRenderer.invoke('video-notes:load') as Promise<VideoNote[]>,
   loadVideoNoteArchives: () =>
     ipcRenderer.invoke('video-note-archives:load') as Promise<VideoNoteArchiveEntry[]>,

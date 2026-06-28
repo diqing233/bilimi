@@ -75,6 +75,29 @@ describe('createFavoriteLedgerPreview', () => {
     })
   })
 
+  it('keeps old favorite inbox fallback unselected for local pending queue handling', () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'inbox' ? { ...ledger, bilibiliFolderId: '9008' } : ledger
+    )
+
+    const preview = createFavoriteLedgerPreview({
+      ledgers,
+      sourceFolders: [
+        {
+          id: 'source-1',
+          title: '默认收藏夹',
+          videos: [{ aid: 1, title: '很难判断的视频', tags: [] }]
+        }
+      ],
+      targetMembership: {},
+      multiArchiveMode: 'off'
+    })
+
+    expect(preview.items[0].targetLedgerId).toBe('inbox')
+    expect(preview.items[0].selected).toBe(false)
+    expect(preview.items[0].targets?.find((target) => target.ledgerId === 'inbox')?.selected).toBe(false)
+  })
+
   it('attaches old-favorite insights for candidate ledger creation', () => {
     const preview = createFavoriteLedgerPreview({
       ledgers: createDefaultFavoriteLedgers(),
