@@ -985,6 +985,63 @@ export function buildAutomationScript(
         return false;
       };
 
+      const isDraftStillInField = (field) =>
+        normalize(readEditableText(field)).includes(normalize(payload.commentDraft));
+
+      const waitForDanmakuSubmitConfirmation = async (danmakuField) => {
+        for (let index = 0; index < 8; index += 1) {
+          if (!isDraftStillInField(danmakuField)) {
+            return true;
+          }
+
+          await wait(80);
+        }
+
+        return false;
+      };
+
+      const dispatchEnterKey = (element) => {
+        ['keydown', 'keypress', 'keyup'].forEach((eventName) => {
+          element.dispatchEvent(
+            new KeyboardEvent(eventName, {
+              key: 'Enter',
+              code: 'Enter',
+              keyCode: 13,
+              which: 13,
+              bubbles: true,
+              cancelable: true
+            })
+          );
+        });
+      };
+
+      const submitDanmaku = async (danmaku) => {
+        const submitButton = await waitForElement(
+          () => queryDanmakuSubmitButton(danmaku.field),
+          'danmaku-submit'
+        );
+        if (!submitButton) {
+          return false;
+        }
+
+        submitButton.click?.();
+        await wait(80);
+
+        if (!(await waitForDanmakuSubmitConfirmation(danmaku.field))) {
+          danmaku.field.focus?.();
+          dispatchEnterKey(danmaku.field);
+          await wait(80);
+        }
+
+        if (!(await waitForDanmakuSubmitConfirmation(danmaku.field))) {
+          missingTargets.push('danmaku-submit-confirm');
+          return false;
+        }
+
+        steps.push('danmaku:submit');
+        return true;
+      };
+
       const fillDanmaku = async () => {
         const danmakuField = queryDanmakuField();
         if (!danmakuField) {
@@ -1128,7 +1185,7 @@ export function buildAutomationScript(
       if (payload.action === '表') {
         const danmaku = await fillDanmaku();
         if (danmaku && payload.submitComment) {
-          click(await waitForElement(() => queryDanmakuSubmitButton(danmaku.field), 'danmaku-submit'), 'danmaku:submit');
+          await submitDanmaku(danmaku);
         } else if (danmaku) {
           steps.push('danmaku:awaiting-submit');
         } else {

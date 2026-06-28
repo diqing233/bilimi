@@ -927,6 +927,7 @@ describe('buildAutomationScript', () => {
     let commentPublished = false
     document.querySelector('.bpx-player-dm-btn')?.addEventListener('click', () => {
       danmakuSent = true
+      danmakuInput.value = ''
     })
     document.querySelector('.reply-send')?.addEventListener('click', () => {
       commentPublished = true
@@ -944,10 +945,54 @@ describe('buildAutomationScript', () => {
       )
     )
 
-    expect(danmakuInput.value).toBe('try the danmaku path first.')
+    expect(danmakuInput.value).toBe('')
     expect(commentInput.value).toBe('')
     expect(danmakuSent).toBe(true)
     expect(commentPublished).toBe(false)
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(expect.arrayContaining(['danmaku:fill', 'danmaku:submit']))
+  })
+
+  it('uses Enter to submit danmaku when the button click does not clear the player input', async () => {
+    document.body.innerHTML = `
+      <section class="bpx-player-sending-area">
+        <input class="bpx-player-dm-input" type="text" placeholder="send a friendly danmaku" />
+        <button class="bpx-player-dm-btn">send</button>
+      </section>
+      <section id="comment">
+        <textarea class="reply-textarea" placeholder="comment here"></textarea>
+        <button class="reply-send">publish</button>
+      </section>
+    `
+    const danmakuInput = document.querySelector('.bpx-player-dm-input') as HTMLInputElement
+    let buttonClicked = false
+    let enterSubmitted = false
+    document.querySelector('.bpx-player-dm-btn')?.addEventListener('click', () => {
+      buttonClicked = true
+    })
+    danmakuInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        enterSubmitted = true
+        danmakuInput.value = ''
+        danmakuInput.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+    })
+
+    const result = await window.eval(
+      buildAutomationScript(
+        '\u8868',
+        'Bilimi \u5185\u5e93',
+        undefined,
+        'submit with enter fallback.',
+        favoriteLedgers,
+        'movie-tv',
+        { submitComment: true }
+      )
+    )
+
+    expect(buttonClicked).toBe(true)
+    expect(enterSubmitted).toBe(true)
+    expect(danmakuInput.value).toBe('')
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(expect.arrayContaining(['danmaku:fill', 'danmaku:submit']))
   })
@@ -1035,6 +1080,7 @@ describe('buildAutomationScript', () => {
     let commentPublished = false
     document.querySelector('.bpx-player-dm-btn')?.addEventListener('click', () => {
       danmakuSent = true
+      ;(document.querySelector('.bpx-player-dm-input') as HTMLInputElement).value = ''
     })
     document.querySelector('.reply-send')?.addEventListener('click', () => {
       commentPublished = true
