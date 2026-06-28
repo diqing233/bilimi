@@ -68,9 +68,9 @@ describe('classifyVideoContent', () => {
   it('classifies expanded broad-topic signals into the seven default themes', () => {
     const ledgers = createDefaultFavoriteLedgers()
 
-    expect(classifyVideoContent({ title: 'Michael Jackson 高燃混剪' }, ledgers)).toMatchObject({
+    expect(classifyVideoContent({ title: '现场音乐高燃混剪' }, ledgers)).toMatchObject({
       ledgerId: 'music',
-      matchedKeywords: expect.arrayContaining(['Michael Jackson'])
+      matchedKeywords: expect.arrayContaining(['现场音乐'])
     })
     expect(classifyVideoContent({ title: 'React 前端项目实战' }, ledgers).ledgerId).toBe(
       'knowledge'

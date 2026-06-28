@@ -33,6 +33,14 @@ describe('favorite ledger model', () => {
     expect(gameLedger?.keywords).not.toContain('genshin')
   })
 
+  it('keeps broad music defaults free of specific performer names', () => {
+    const musicLedger = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'music')
+
+    expect(musicLedger?.keywords).not.toContain('Michael Jackson')
+    expect(musicLedger?.keywords).not.toContain('迈克尔杰克逊')
+    expect(musicLedger?.keywords).not.toContain('MJ')
+  })
+
   it('orders reset defaults as broad initial ledgers and enables all of them', () => {
     const ledgers = createDefaultFavoriteLedgers()
 
