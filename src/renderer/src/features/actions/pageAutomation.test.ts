@@ -1114,7 +1114,16 @@ describe('buildAutomationScript', () => {
     )
     expect(commentPublished).toBe(true)
     expect(result.ok).toBe(true)
-    expect(result.steps).toEqual(expect.arrayContaining(['comment:activate', 'comment:fill', 'comment:submit']))
+    expect(result.steps).toEqual(
+      expect.arrayContaining([
+        'comment:root',
+        'comment:reveal',
+        'comment:activate',
+        'comment:focus',
+        'comment:fill',
+        'comment:submit'
+      ])
+    )
   })
 
   it('uses editable insertion for Bilibili contenteditable comment boxes', async () => {

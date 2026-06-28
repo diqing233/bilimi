@@ -694,6 +694,7 @@ export function buildAutomationScript(
         commentRoot.dispatchEvent?.(new Event('scroll', { bubbles: true }));
         window.dispatchEvent?.(new Event('scroll'));
         window.dispatchEvent?.(new WheelEvent('wheel', { bubbles: true, deltaY: 800 }));
+        steps.push('comment:reveal');
         await wait(120);
       };
 
@@ -724,6 +725,7 @@ export function buildAutomationScript(
 
       const fillComment = async () => {
         const commentRoot = queryCommentRoot();
+        steps.push('comment:root');
         await revealCommentRoot(commentRoot);
         let commentField = queryCommentField(commentRoot);
 
@@ -740,6 +742,10 @@ export function buildAutomationScript(
           missingTargets.push('comment-draft');
           return false;
         }
+
+        commentField.click?.();
+        commentField.focus?.();
+        steps.push('comment:focus');
 
         if (!typeText(commentField, payload.commentDraft)) {
           return false;
