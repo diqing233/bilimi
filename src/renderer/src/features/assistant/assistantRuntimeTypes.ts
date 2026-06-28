@@ -17,6 +17,7 @@ export type AssistantSnapshot = {
   favoriteLedgerStatus: FavoriteLedgerStatus | null
   videoContentContext: VideoContentContext
   videoTitle: string
+  activeTabUrl?: string
 }
 
 export type FloatingAssistantActionOptions = {

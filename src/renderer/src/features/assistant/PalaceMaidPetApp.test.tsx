@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantPetHint, AssistantPetState } from './petState'
 import type { AssistantPreferences } from '@shared/types'
+import type { AssistantSnapshot } from './assistantRuntimeTypes'
 
 vi.mock('./LayeredPetRenderer', () => ({
   LayeredPetRenderer: ({
@@ -44,6 +45,19 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
   }
 }
 
+function createSnapshot(overrides: Partial<AssistantSnapshot> = {}): AssistantSnapshot {
+  return {
+    preferences: createPreferences(),
+    favoriteLedgerStatus: null,
+    videoContentContext: {
+      title: '测试视频'
+    },
+    videoTitle: '测试视频',
+    activeTabUrl: 'https://www.bilibili.com/video/BV1test',
+    ...overrides
+  }
+}
+
 function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const api = {
     version: '0.1.0',
@@ -53,6 +67,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     restoreMainWindowFromPet: vi.fn().mockResolvedValue(undefined),
     savePreferences: vi.fn(),
     loadPreferences: vi.fn(),
+    requestAssistantSnapshot: vi.fn().mockResolvedValue(createSnapshot()),
     generateDeepSeek: vi.fn().mockResolvedValue({
       kind: 'pet-chat',
       message: 'This page looks worth watching.'
@@ -538,6 +553,48 @@ describe('PalaceMaidPetApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '赏' }))
 
     await waitFor(() => expect(api.runFloatingMenuAction).toHaveBeenCalledWith('赏'))
+    expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
+  })
+
+  it('shows 暂无视频 instead of running a video hover action when no video is open', async () => {
+    const api = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          videoTitle: '首页',
+          videoContentContext: {},
+          activeTabUrl: 'https://www.bilibili.com/'
+        })
+      ),
+      runFloatingMenuAction: vi.fn().mockResolvedValue(undefined)
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
+    fireEvent.click(screen.getByRole('button', { name: '赏' }))
+
+    expect(await screen.findByText('暂无视频')).toBeInTheDocument()
+    expect(api.runFloatingMenuAction).not.toHaveBeenCalled()
+    expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
+  })
+
+  it('shows 暂无视频 instead of opening transcription when no video is open', async () => {
+    const api = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          videoTitle: '首页',
+          videoContentContext: {},
+          activeTabUrl: 'https://www.bilibili.com/'
+        })
+      )
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
+    fireEvent.click(screen.getByRole('button', { name: '转' }))
+
+    expect(await screen.findByText('暂无视频')).toBeInTheDocument()
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
 

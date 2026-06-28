@@ -23,6 +23,10 @@ describe('CommentChooser', () => {
     expect(screen.getByRole('button', { name: /这个视频真不错/ })).toHaveClass(
       'assistant-dialog__comment-choice'
     )
+    expect(screen.queryByRole('button', { name: '朕再想想' })).not.toBeInTheDocument()
+    const buttons = screen.getAllByRole('button')
+    expect(buttons[0]).toHaveTextContent('我再想想')
+    expect(buttons[1]).toHaveTextContent('小咪替我家主人夸一句：这个视频真不错。')
 
     fireEvent.click(screen.getByRole('button', { name: /这个视频真不错/ }))
     fireEvent.click(screen.getByRole('button', { name: /我家主人已经点头/ }))

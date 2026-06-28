@@ -145,7 +145,8 @@ function createFallbackSnapshot(): AssistantSnapshot {
     preferences,
     favoriteLedgerStatus: null,
     videoContentContext: { title: CURRENT_TITLE },
-    videoTitle: CURRENT_TITLE
+    videoTitle: CURRENT_TITLE,
+    activeTabUrl: ''
   }
 }
 

@@ -722,6 +722,7 @@ export default function App() {
       preferences,
       favoriteLedgerStatus,
       videoContentContext,
+      activeTabUrl: activeTabSnapshot?.url,
       videoTitle:
         normalizeActiveTabVideoTitle(activeTabSnapshot) ??
         videoContentContext.title ??

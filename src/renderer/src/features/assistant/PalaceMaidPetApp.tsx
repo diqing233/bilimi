@@ -20,6 +20,7 @@ const PET_SIZE_MAX_PX = 164
 const PET_SIZE_DEFAULT_PX = 148
 const DEEPSEEK_CHAT_DISABLED_MESSAGE =
   '主人，想要跟小咪交流的话去设置开启DeepSeek支持吧'
+const BILIBILI_VIDEO_URL_PATTERN = /bilibili\.com\/video\/[^/?#]+/i
 
 type DragState = {
   startClientX: number
@@ -334,10 +335,28 @@ export function PalaceMaidPetApp() {
     void window.bilimiDesktop?.restoreMainWindowFromPet?.()
   }
 
-  function runHoverShortcut(shortcut: PetHoverShortcut) {
+  async function hasCurrentVideo() {
+    try {
+      const snapshot = await window.bilimiDesktop?.requestAssistantSnapshot?.()
+      return Boolean(snapshot?.activeTabUrl && BILIBILI_VIDEO_URL_PATTERN.test(snapshot.activeTabUrl))
+    } catch {
+      return false
+    }
+  }
+
+  function requiresCurrentVideo(shortcut: PetHoverShortcut) {
+    return shortcut.intent === 'video-action' || shortcut.id === 'transcribe'
+  }
+
+  async function runHoverShortcut(shortcut: PetHoverShortcut) {
     dragState.current = null
     setPressed(false)
     setClosePromptVisible(false)
+
+    if (requiresCurrentVideo(shortcut) && !(await hasCurrentVideo())) {
+      showLocalPetHint('hint', '暂无视频')
+      return
+    }
 
     if (shortcut.intent === 'video-action' && shortcut.action && shortcut.action !== '赐') {
       showLocalPetHint('working', `主人，小咪这就去办「${shortcut.label}」。`)
@@ -506,7 +525,7 @@ export function PalaceMaidPetApp() {
             onClick={(event) => {
               event.preventDefault()
               event.stopPropagation()
-              runHoverShortcut(shortcut)
+              void runHoverShortcut(shortcut)
             }}
             onPointerDown={(event) => {
               event.stopPropagation()

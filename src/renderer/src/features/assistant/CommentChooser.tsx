@@ -25,6 +25,7 @@ export function CommentChooser({ drafts, onSelect, onCancel }: CommentChooserPro
       aria-label="小咪推荐评论"
     >
       <p>小咪拟好三条，主人点一条就发送。</p>
+      <button type="button" disabled={submitted} onClick={onCancel}>我再想想</button>
       <div className="assistant-dialog__comment-list">
         {drafts.map((draft) => (
           <button
@@ -38,7 +39,6 @@ export function CommentChooser({ drafts, onSelect, onCancel }: CommentChooserPro
           </button>
         ))}
       </div>
-      <button type="button" disabled={submitted} onClick={onCancel}>朕再想想</button>
     </div>
   )
 }
