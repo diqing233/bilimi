@@ -41,7 +41,6 @@ import {
 } from './features/favorites/favoriteLedgerApi'
 import {
   createFavoriteLedgerPreview,
-  type FavoriteLedgerPreview,
   type FavoriteLedgerPreviewItem,
   type FavoriteSourceFolder
 } from './features/favorites/favoriteLedgerPreview'
@@ -108,29 +107,6 @@ function readBilibiliVideoKey(url: string): string | undefined {
 
 function isBilibiliVideoUrl(url?: string): boolean {
   return Boolean(url && BILIBILI_VIDEO_URL_PATTERN.test(url))
-}
-
-function pendingQueueItemsFromOldFavoritePreview(
-  preview: FavoriteLedgerPreview,
-  now = new Date().toISOString()
-): PendingFavoriteQueueItem[] {
-  return preview.items
-    .filter((item) => item.targetLedgerId === 'inbox' || item.targets?.every((target) => !target.selected))
-    .map((item) => ({
-      aid: item.aid,
-      title: item.title,
-      source: 'old-favorite-scan',
-      sourceFolderTitle: item.sourceFolderTitle,
-      originalTargetLedgerId: item.targetLedgerId,
-      suggestedLedgerIds: (item.targets ?? [])
-        .filter((target) => target.ledgerId !== 'inbox' && !target.selectedCandidateTarget)
-        .map((target) => target.ledgerId),
-      candidateLedgerNames: (item.candidateTargets ?? []).map((target) => target.displayName),
-      reason: item.reviewRequired ? '需要复核后再归档' : '没有明确命中可直接归档的册目',
-      createdAt: now,
-      updatedAt: now,
-      status: 'pending'
-    }))
 }
 
 function pendingQueueItemFromCurrentVideo(
@@ -677,11 +653,6 @@ export default function App() {
       skippedSourceFolderTitles: scanResult.skippedSourceFolderTitles,
       multiArchiveMode: options.multiArchiveMode ?? preferences.favoriteArchiveMultiMode
     })
-    const queueItems = pendingQueueItemsFromOldFavoritePreview(preview)
-
-    if (queueItems.length > 0) {
-      await window.bilimiDesktop?.upsertPendingFavoriteQueueItems?.(queueItems)
-    }
 
     return preview
   }
@@ -1058,7 +1029,7 @@ export default function App() {
           ))}
         </div>
       </div>
-      <AssistantSidebar />
+      <AssistantSidebar onOpenInTab={openInternalTab} />
     </div>
   )
 }

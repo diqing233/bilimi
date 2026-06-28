@@ -39,7 +39,7 @@ The `掌库` tab manages Bilimi-prefixed Bilibili favorite folders. Recommended 
 
 The stable `inbox` ledger is named `Bilimi·暂存`. It is a real Bilibili favorite folder used as a safe landing place for new favorites that cannot be classified confidently.
 
-Old-favorite organization keeps unresolved items in Bilimi's local `待分类队列` instead of appending them to `Bilimi·暂存`. The queue is shown in `掌库` and remains available after reopening the assistant, so users can continue sorting unresolved items without rescanning old favorites.
+Old-favorite organization shows unresolved videos in a top `待分类` section inside the current `归档预览`. Pending items are scoped to that scan round: users can open the video for manual sorting, explicitly add it to `Bilimi·暂存`, or run another judgment pass; anything still pending is discarded when the round ends.
 
 In the recommended category grid, clicking a category name only selects it for editing. The adjacent `+` or `✓` button directly adds or removes that folder from sync without a confirmation dialog. A dashed `+` shortcut appears after the recommended category folders and focuses the new custom-ledger form.
 

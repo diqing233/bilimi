@@ -10,7 +10,11 @@ import {
 type AssistantSidebarTab = 'review' | 'notes' | 'ledger' | 'settings'
 const COLLAPSED_NUDGE_DELAY_MS = 60_000
 
-export function AssistantSidebar() {
+type AssistantSidebarProps = {
+  onOpenInTab?: (url: string) => void
+}
+
+export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
   const [collapsed, setCollapsed] = useState(false)
   const [activeTab, setActiveTab] = useState<AssistantSidebarTab>('review')
 
@@ -87,6 +91,7 @@ export function AssistantSidebar() {
           activeTab={activeTab}
           onActiveTabChange={setActiveTab}
           onRequestCollapse={collapseSidebar}
+          onOpenInTab={onOpenInTab}
         />
       </div>
     </aside>

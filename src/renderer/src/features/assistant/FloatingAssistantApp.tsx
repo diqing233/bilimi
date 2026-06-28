@@ -5,8 +5,6 @@ import type {
   FavoriteLedgerSaveOptions,
   FavoriteLedgerStatus,
   NotePosterSummary,
-  PendingFavoriteQueueItem,
-  PendingFavoriteQueueStatus,
   RecommendationKind,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionQueueSnapshot,
@@ -76,6 +74,7 @@ type FloatingAssistantAppProps = {
   activeTab?: AssistantWorkspaceTab
   onActiveTabChange?: (tab: AssistantWorkspaceTab) => void
   onRequestCollapse?: () => void
+  onOpenInTab?: (url: string) => void
 }
 
 type ActionFeedback = {
@@ -221,7 +220,8 @@ export function FloatingAssistantApp({
   mode = 'floating',
   activeTab: controlledActiveTab,
   onActiveTabChange,
-  onRequestCollapse
+  onRequestCollapse,
+  onOpenInTab
 }: FloatingAssistantAppProps = {}) {
   const [snapshot, setSnapshot] = useState<AssistantSnapshot | null>(null)
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
@@ -229,7 +229,6 @@ export function FloatingAssistantApp({
   )
   const preferencesRef = useRef(preferences)
   const [favoriteLedgerStatus, setFavoriteLedgerStatus] = useState<FavoriteLedgerStatus | null>(null)
-  const [pendingQueueItems, setPendingQueueItems] = useState<PendingFavoriteQueueItem[]>([])
   const [uncontrolledActiveTab, setUncontrolledActiveTab] =
     useState<AssistantWorkspaceTab>('review')
   const [commentChooserOpen, setCommentChooserOpen] = useState(false)
@@ -333,7 +332,6 @@ export function FloatingAssistantApp({
     void loadSnapshot()
     void loadVideoNoteArchives({ silent: true })
     void loadVideoAudioTranscriptionQueue()
-    void loadPendingFavoriteQueue()
 
     return () => {
       mounted.current = false
@@ -722,28 +720,6 @@ export function FloatingAssistantApp({
     return snapshot
   }
 
-  async function loadPendingFavoriteQueue() {
-    const items = (await window.bilimiDesktop?.loadPendingFavoriteQueue?.()) ?? []
-    setPendingQueueItems(items)
-    return items
-  }
-
-  async function clearPendingFavoriteQueue() {
-    const items = (await window.bilimiDesktop?.clearPendingFavoriteQueue?.()) ?? []
-    setPendingQueueItems(items)
-    return items
-  }
-
-  async function updatePendingQueueItemStatus(
-    aid: number,
-    status: PendingFavoriteQueueStatus
-  ) {
-    const nextItems =
-      (await window.bilimiDesktop?.updatePendingFavoriteQueueItemStatus?.(aid, status)) ?? []
-    setPendingQueueItems(nextItems)
-    return nextItems
-  }
-
   async function enqueueVideoAudioTranscription(options?: { summarizeWithDeepSeek?: boolean }) {
     if (!window.bilimiDesktop?.enqueueCurrentVideoAudioTranscription) {
       tellPet('error', '请先打开一个可转写的视频。')
@@ -930,7 +906,6 @@ export function FloatingAssistantApp({
         items: [],
         skippedSourceFolderTitles: []
       }
-    await loadPendingFavoriteQueue()
 
     tellPet(
       'success',
@@ -996,10 +971,8 @@ export function FloatingAssistantApp({
             onScanOldFavorites={scanOldFavorites}
             onExecuteOldFavoritePlan={executeOldFavoritePlan}
             onOldFavoriteExecutionStateChange={handleOldFavoriteExecutionStateChange}
+            onOpenOldFavoriteVideo={onOpenInTab}
             favoriteArchiveMultiMode={preferences.favoriteArchiveMultiMode}
-            pendingQueueItems={pendingQueueItems}
-            onClearPendingQueue={clearPendingFavoriteQueue}
-            onUpdatePendingQueueItemStatus={updatePendingQueueItemStatus}
           />
         </div>
 
