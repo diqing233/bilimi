@@ -598,6 +598,62 @@ export function buildAutomationScript(
       const queryFavoriteConfirm = () =>
         byText('button,[role="button"],.fav-submit,.submit', ['完成', '确定', '确认', '保存']);
 
+      const queryDanmakuField = () => {
+        const selectors = [
+          '.bpx-player-dm-input',
+          '.bilibili-player-video-danmaku-input',
+          '[class*="dm-input"]',
+          '[class*="danmaku"][class*="input"]',
+          '.bpx-player-sending-area input[type="text"]',
+          '.bpx-player-sending-area textarea',
+          '.bpx-player-sending-area [contenteditable="true"]'
+        ].join(',');
+        const nodes = Array.from(document.querySelectorAll(selectors));
+
+        return nodes.find((node) => {
+          if (!isVisibleInput(node)) {
+            return false;
+          }
+
+          const text = [
+            node.getAttribute?.('aria-label'),
+            node.getAttribute?.('placeholder'),
+            node.getAttribute?.('class'),
+            node.closest?.('.bpx-player-sending-area,[class*="danmaku"],[class*="bpx-player"]')?.getAttribute?.('class')
+          ].filter(Boolean).join(' ');
+          const normalizedText = normalize(text).toLowerCase();
+
+          return (
+            normalizedText.includes(normalize('弹幕')) ||
+            normalizedText.includes('danmaku') ||
+            normalizedText.includes('dm-input') ||
+            normalizedText.includes('bpx-player')
+          );
+        }) || null;
+      };
+
+      const queryDanmakuSubmitButton = (field = queryDanmakuField()) => {
+        const root =
+          field?.closest?.('.bpx-player-sending-area,.bilibili-player-video-sendbar') ||
+          field?.parentElement?.closest?.('.bpx-player-sending-area,.bilibili-player-video-sendbar,[class*="danmaku"],[class*="bpx-player"]') ||
+          document.body;
+        const directSelectors = [
+          '.bpx-player-dm-btn',
+          '.bilibili-player-video-danmaku-send',
+          '.bilibili-player-video-btn-send',
+          '[class*="dm"][class*="btn"]',
+          '[class*="danmaku"][class*="send"]'
+        ].join(',');
+        const selectors = [
+          '[class*="send"]',
+          'button',
+          '[role="button"]'
+        ].join(',');
+        const directMatch = Array.from(root.querySelectorAll?.(directSelectors) || []).find(isVisibleCandidate);
+
+        return closestClickable(directMatch || byTextWithin(root, selectors, ['发送', 'send']));
+      };
+
       const commentRootContainerSelectors =
         '#comment,#commentapp,.comment-container,.comment-box,.reply-box,.bb-comment,.bili-comment,form,section,div';
 
@@ -916,6 +972,52 @@ export function buildAutomationScript(
         return false;
       };
 
+      const waitForDanmakuText = async (danmakuField) => {
+        for (let index = 0; index < 8; index += 1) {
+          if (normalize(readEditableText(danmakuField)).includes(normalize(payload.commentDraft))) {
+            return true;
+          }
+
+          await wait(50);
+        }
+
+        missingTargets.push('danmaku-fill');
+        return false;
+      };
+
+      const fillDanmaku = async () => {
+        const danmakuField = queryDanmakuField();
+        if (!danmakuField) {
+          return null;
+        }
+
+        if (!payload.commentDraft) {
+          missingTargets.push('comment-draft');
+          return false;
+        }
+
+        danmakuField.click?.();
+        danmakuField.focus?.();
+        steps.push('danmaku:focus');
+
+        if (!typeText(danmakuField, payload.commentDraft)) {
+          return false;
+        }
+
+        if (!(await waitForDanmakuText(danmakuField))) {
+          return false;
+        }
+
+        steps.push('danmaku:fill');
+        return {
+          field: danmakuField,
+          root:
+            danmakuField.closest?.('.bpx-player-sending-area,.bilibili-player-video-sendbar') ||
+            danmakuField.parentElement?.closest?.('.bpx-player-sending-area,.bilibili-player-video-sendbar,[class*="danmaku"],[class*="bpx-player"]') ||
+            document.body
+        };
+      };
+
       const fillComment = async () => {
         const commentRoot = await waitForCommentRoot();
         if (!commentRoot) {
@@ -1024,11 +1126,18 @@ export function buildAutomationScript(
       }
 
       if (payload.action === '表') {
-        const filled = await fillComment();
-        if (filled && payload.submitComment) {
-          click(await waitForElement(() => querySubmitButton(filled.root), 'comment-submit'), 'comment:submit');
-        } else if (filled) {
-          steps.push('comment:awaiting-submit');
+        const danmaku = await fillDanmaku();
+        if (danmaku && payload.submitComment) {
+          click(await waitForElement(() => queryDanmakuSubmitButton(danmaku.field), 'danmaku-submit'), 'danmaku:submit');
+        } else if (danmaku) {
+          steps.push('danmaku:awaiting-submit');
+        } else {
+          const filled = await fillComment();
+          if (filled && payload.submitComment) {
+            click(await waitForElement(() => querySubmitButton(filled.root), 'comment-submit'), 'comment:submit');
+          } else if (filled) {
+            steps.push('comment:awaiting-submit');
+          }
         }
       }
 

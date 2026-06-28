@@ -910,6 +910,48 @@ describe('buildAutomationScript', () => {
     expect(result.message).toContain('评论已填好')
   })
 
+  it('fills and submits the player danmaku input for 表 when it is visible', async () => {
+    document.body.innerHTML = `
+      <section class="bpx-player-sending-area">
+        <input class="bpx-player-dm-input" type="text" placeholder="send a friendly danmaku" />
+        <button class="bpx-player-dm-btn"></button>
+      </section>
+      <section id="comment">
+        <textarea class="reply-textarea" placeholder="comment here"></textarea>
+        <button class="reply-send">publish</button>
+      </section>
+    `
+    const danmakuInput = document.querySelector('.bpx-player-dm-input') as HTMLInputElement
+    const commentInput = document.querySelector('.reply-textarea') as HTMLTextAreaElement
+    let danmakuSent = false
+    let commentPublished = false
+    document.querySelector('.bpx-player-dm-btn')?.addEventListener('click', () => {
+      danmakuSent = true
+    })
+    document.querySelector('.reply-send')?.addEventListener('click', () => {
+      commentPublished = true
+    })
+
+    const result = await window.eval(
+      buildAutomationScript(
+        '\u8868',
+        'Bilimi \u5185\u5e93',
+        undefined,
+        'try the danmaku path first.',
+        favoriteLedgers,
+        'movie-tv',
+        { submitComment: true }
+      )
+    )
+
+    expect(danmakuInput.value).toBe('try the danmaku path first.')
+    expect(commentInput.value).toBe('')
+    expect(danmakuSent).toBe(true)
+    expect(commentPublished).toBe(false)
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(expect.arrayContaining(['danmaku:fill', 'danmaku:submit']))
+  })
+
   it('fills the visible Bilibili comment box instead of an earlier hidden textarea', async () => {
     document.body.innerHTML = `
       <textarea class="offscreen-draft" style="display: none"></textarea>
@@ -940,27 +982,27 @@ describe('buildAutomationScript', () => {
     expect(result.steps).toContain('comment:fill')
   })
 
-  it('fills the lower comment area instead of the player danmaku input', async () => {
+  it('fills the player danmaku input instead of the lower comment area when configured for manual publish', async () => {
     document.body.innerHTML = `
       <section class="bpx-player-sending-area">
-        <input class="bpx-player-dm-input" type="text" placeholder="发个友善的弹幕见证当下" />
-        <button class="bpx-player-dm-btn">发送</button>
+        <input class="bpx-player-dm-input" type="text" placeholder="send a friendly danmaku" />
+        <button class="bpx-player-dm-btn">send</button>
       </section>
       <section id="comment">
         <div class="reply-box">
-          <textarea class="reply-textarea" placeholder="只是一 直在等你而已，才不是想被评论呢～"></textarea>
-          <button class="reply-send">发布</button>
+          <textarea class="reply-textarea" placeholder="comment here"></textarea>
+          <button class="reply-send">publish</button>
         </div>
       </section>
     `
     const danmakuInput = document.querySelector('.bpx-player-dm-input') as HTMLInputElement
     const commentTextarea = document.querySelector('.reply-textarea') as HTMLTextAreaElement
 
-    const draft = '这条应该进入截图里圈出的评论区。'
+    const draft = 'manual danmaku draft.'
     const result = await window.eval(
       buildAutomationScript(
-        '表',
-        'Bilimi 内库',
+        '\u8868',
+        'Bilimi \u5185\u5e93',
         undefined,
         draft,
         favoriteLedgers,
@@ -969,22 +1011,23 @@ describe('buildAutomationScript', () => {
       )
     )
 
-    expect(danmakuInput.value).toBe('')
-    expect(commentTextarea.value).toBe(draft)
+    expect(danmakuInput.value).toBe(draft)
+    expect(commentTextarea.value).toBe('')
     expect(result.ok).toBe(true)
-    expect(result.steps).toContain('comment:fill')
+    expect(result.steps).toContain('danmaku:fill')
+    expect(result.steps).toContain('danmaku:awaiting-submit')
   })
 
-  it('publishes from the lower comment area instead of clicking the danmaku send button', async () => {
+  it('publishes from the player danmaku input instead of the lower comment area', async () => {
     document.body.innerHTML = `
       <section class="bpx-player-sending-area">
-        <input class="bpx-player-dm-input" type="text" placeholder="发个友善的弹幕见证当下" />
-        <button class="bpx-player-dm-btn">发送</button>
+        <input class="bpx-player-dm-input" type="text" placeholder="send a friendly danmaku" />
+        <button class="bpx-player-dm-btn">send</button>
       </section>
       <section id="comment">
         <div class="reply-box">
-          <textarea class="reply-textarea" placeholder="只是一 直在等你而已，才不是想被评论呢～"></textarea>
-          <button class="reply-send">发布</button>
+          <textarea class="reply-textarea" placeholder="comment here"></textarea>
+          <button class="reply-send">publish</button>
         </div>
       </section>
     `
@@ -999,30 +1042,26 @@ describe('buildAutomationScript', () => {
 
     const result = await window.eval(
       buildAutomationScript(
-        '表',
-        'Bilimi 内库',
+        '\u8868',
+        'Bilimi \u5185\u5e93',
         undefined,
-        '自动发布也只能点评论区发布。',
+        'auto publish as danmaku.',
         favoriteLedgers,
         'movie-tv',
         { submitComment: true }
       )
     )
 
-    expect(danmakuSent).toBe(false)
-    expect(commentPublished).toBe(true)
+    expect(danmakuSent).toBe(true)
+    expect(commentPublished).toBe(false)
     expect(result.ok).toBe(true)
-    expect(result.steps).toEqual(expect.arrayContaining(['comment:fill', 'comment:submit']))
+    expect(result.steps).toEqual(expect.arrayContaining(['danmaku:fill', 'danmaku:submit']))
   })
 
-  it('scrolls the lower comment area into view before waiting for a lazily mounted editor', async () => {
+  it('falls back to scrolling the lower comment area when no danmaku input is visible', async () => {
     document.body.innerHTML = `
-      <section class="bpx-player-sending-area">
-        <input class="bpx-player-dm-input" type="text" placeholder="发个友善的弹幕见证当下" />
-        <button class="bpx-player-dm-btn">发送</button>
-      </section>
       <section id="comment">
-        <h2>评论 2196</h2>
+        <h2>\u8bc4\u8bba 2196</h2>
       </section>
     `
     const commentRoot = document.querySelector('#comment') as HTMLElement
@@ -1034,8 +1073,8 @@ describe('buildAutomationScript', () => {
           'beforeend',
           `
             <div class="reply-box">
-              <textarea class="reply-textarea" placeholder="只是一 直在等你而已，才不是想被评论呢～"></textarea>
-              <button class="reply-send">发布</button>
+              <textarea class="reply-textarea" placeholder="comment here"></textarea>
+              <button class="reply-send">\u53d1\u5e03</button>
             </div>
           `
         )
@@ -1050,10 +1089,10 @@ describe('buildAutomationScript', () => {
 
     const result = await window.eval(
       buildAutomationScript(
-        '表',
-        'Bilimi 内库',
+        '\u8868',
+        'Bilimi \u5185\u5e93',
         undefined,
-        '滚到评论区后再填这条。',
+        'fallback to the comment box.',
         favoriteLedgers,
         'movie-tv',
         { submitComment: true }
@@ -1062,20 +1101,16 @@ describe('buildAutomationScript', () => {
 
     expect(scrolledToComment).toBe(true)
     expect((document.querySelector('.reply-textarea') as HTMLTextAreaElement).value).toBe(
-      '滚到评论区后再填这条。'
+      'fallback to the comment box.'
     )
     expect(commentPublished).toBe(true)
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(expect.arrayContaining(['comment:fill', 'comment:submit']))
   })
 
-  it('waits for the network-loaded Bilibili comment area after scrolling before filling', async () => {
+  it('waits for the network-loaded Bilibili comment area after scrolling when no danmaku input is visible', async () => {
     document.body.innerHTML = `
-      <section class="bpx-player-sending-area">
-        <input class="bpx-player-dm-input" type="text" placeholder="发个友善的弹幕见证当下" />
-        <button class="bpx-player-dm-btn">发送</button>
-      </section>
-      <main class="video-page">评论区还在加载中</main>
+      <main class="video-page">comment area is still loading</main>
     `
     let commentMounted = false
     const mountCommentArea = () => {
@@ -1089,10 +1124,10 @@ describe('buildAutomationScript', () => {
           'beforeend',
           `
             <section id="comment">
-              <h2>评论 233</h2>
+              <h2>\u8bc4\u8bba 233</h2>
               <div class="reply-box">
-                <textarea class="reply-textarea" placeholder="天青色等烟雨，评论区在等你"></textarea>
-                <button class="reply-send">发布</button>
+                <textarea class="reply-textarea" placeholder="comment here"></textarea>
+                <button class="reply-send">\u53d1\u5e03</button>
               </div>
             </section>
           `
@@ -1102,10 +1137,6 @@ describe('buildAutomationScript', () => {
     window.addEventListener('wheel', mountCommentArea)
     window.addEventListener('scroll', mountCommentArea)
 
-    let danmakuSent = false
-    document.querySelector('.bpx-player-dm-btn')?.addEventListener('click', () => {
-      danmakuSent = true
-    })
     let commentPublished = false
     document.body.addEventListener('click', (event) => {
       if ((event.target as HTMLElement).classList.contains('reply-send')) {
@@ -1115,20 +1146,19 @@ describe('buildAutomationScript', () => {
 
     const result = await window.eval(
       buildAutomationScript(
-        '表',
-        'Bilimi 内库',
+        '\u8868',
+        'Bilimi \u5185\u5e93',
         undefined,
-        '等评论区加载完再填这条。',
+        'wait for comment fallback.',
         favoriteLedgers,
         'movie-tv',
         { submitComment: true }
       )
     )
 
-    expect(danmakuSent).toBe(false)
     expect(commentPublished).toBe(true)
     expect((document.querySelector('.reply-textarea') as HTMLTextAreaElement).value).toBe(
-      '等评论区加载完再填这条。'
+      'wait for comment fallback.'
     )
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
@@ -1136,9 +1166,9 @@ describe('buildAutomationScript', () => {
     )
   })
 
-  it('recognizes a visible generic placeholder comment box after lazy loading', async () => {
+  it('recognizes a visible generic placeholder comment box after lazy loading when no danmaku input is visible', async () => {
     document.body.innerHTML = `
-      <main class="video-page">评论列表已出现，底部评论框稍后加载</main>
+      <main class="video-page">comment list is visible and the bottom comment box loads later</main>
     `
     let commentMounted = false
     const mountCommentArea = () => {
@@ -1153,7 +1183,7 @@ describe('buildAutomationScript', () => {
           `
             <section class="interaction-floor">
               <div class="input-shell">
-                <div class="input-placeholder">你渴望拥有力量吗？评论让力量更强...</div>
+                <div class="input-placeholder">comment box placeholder</div>
               </div>
             </section>
           `
@@ -1167,8 +1197,8 @@ describe('buildAutomationScript', () => {
 
           activated = true
           shell.innerHTML = `
-            <textarea class="real-editor" placeholder="评论让力量更强"></textarea>
-            <button class="real-send">发布</button>
+            <textarea class="real-editor" placeholder="comment box placeholder"></textarea>
+            <button class="real-send">\u53d1\u5e03</button>
           `
         })
       }, 250)
@@ -1185,10 +1215,10 @@ describe('buildAutomationScript', () => {
 
     const result = await window.eval(
       buildAutomationScript(
-        '表',
-        'Bilimi 内库',
+        '\u8868',
+        'Bilimi \u5185\u5e93',
         undefined,
-        '识别底部占位评论框。',
+        'recognize the placeholder comment box.',
         favoriteLedgers,
         'movie-tv',
         { submitComment: true }
@@ -1197,7 +1227,7 @@ describe('buildAutomationScript', () => {
 
     expect(commentPublished).toBe(true)
     expect((document.querySelector('.real-editor') as HTMLTextAreaElement).value).toBe(
-      '识别底部占位评论框。'
+      'recognize the placeholder comment box.'
     )
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
@@ -1205,13 +1235,9 @@ describe('buildAutomationScript', () => {
     )
   })
 
-  it('keeps page-scrolling past a weak comment root until the visible comment box appears', async () => {
+  it('keeps page-scrolling past a weak comment root until the visible comment box appears when no danmaku input is visible', async () => {
     document.body.innerHTML = `
       <section class="comment-teaser">comment area loading soon</section>
-      <section class="bpx-player-sending-area">
-        <input class="bpx-player-dm-input" type="text" placeholder="send a danmaku" />
-        <button class="bpx-player-dm-btn">send</button>
-      </section>
     `
     const scrollTarget = document.documentElement
     scrollTarget.scrollTop = 0
@@ -1250,10 +1276,6 @@ describe('buildAutomationScript', () => {
     window.addEventListener('wheel', mountCommentArea)
     window.addEventListener('scroll', mountCommentArea)
 
-    let danmakuSent = false
-    document.querySelector('.bpx-player-dm-btn')?.addEventListener('click', () => {
-      danmakuSent = true
-    })
     let commentPublished = false
     document.body.addEventListener('click', (event) => {
       if ((event.target as HTMLElement).classList.contains('reply-send')) {
@@ -1274,7 +1296,6 @@ describe('buildAutomationScript', () => {
     )
 
     expect(scrollTarget.scrollTop).toBeGreaterThanOrEqual(800)
-    expect(danmakuSent).toBe(false)
     expect(commentPublished).toBe(true)
     expect((document.querySelector('.reply-textarea') as HTMLTextAreaElement).value).toBe(
       'keep scrolling to the real comment box.'
