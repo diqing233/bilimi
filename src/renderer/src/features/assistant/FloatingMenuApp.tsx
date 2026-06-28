@@ -19,6 +19,12 @@ export function FloatingMenuApp() {
     setRunningAction(action)
 
     try {
+      if (action === '表') {
+        await window.bilimiDesktop?.toggleFloatingAssistant?.()
+        window.bilimiDesktop?.closeFloatingMenu?.()
+        return
+      }
+
       if (options) {
         await window.bilimiDesktop?.runFloatingMenuAction?.(action, options)
       } else {

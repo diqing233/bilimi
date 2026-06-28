@@ -33,6 +33,7 @@ import { installFixedFloatingSealBoundsGuard } from './floatingSealBoundsGuard'
 import { setFloatingSealMouseTransparency } from './floatingSealMouseTransparency'
 import { installFloatingSealWhiteStripFix } from './floatingSealWhiteStripFix'
 import { createFloatingSealWindowOptions } from './floatingSealWindowOptions'
+import { toggleFloatingAssistantFromSeal } from './floatingMenuToggleFlow'
 import {
   configureFloatingMenuWindow,
   createFloatingMenuWindowOptions
@@ -689,7 +690,11 @@ function registerAssistantPreferenceHandlers() {
     closeFloatingAssistantWindow()
   })
   ipcMain.handle('floating-assistant:toggle', () => {
-    restoreMainWindowForPet()
+    mainWindow = toggleFloatingAssistantFromSeal({
+      createMainWindow,
+      mainWindow,
+      toggleFloatingAssistant: () => floatingAssistantController.toggle()
+    })
   })
   ipcMain.handle('floating-assistant:snapshot', () =>
     requestMainAssistantRuntime<AssistantSnapshot>({ type: 'snapshot' })

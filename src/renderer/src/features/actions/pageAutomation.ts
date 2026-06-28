@@ -256,28 +256,22 @@ export function buildAutomationScript(
           ['确定', '确认', '投币']
         );
 
-      const querySubmitButton = () =>
-        closestClickable(
-          byText(
-            [
-              'button',
-              '[role="button"]',
-              '[type="submit"]',
-              '.comment-submit',
-              '.comment-send',
-              '.reply-send',
-              '.send-btn',
-              '.submit',
-              '[class*="comment"][class*="submit"]',
-              '[class*="comment"][class*="send"]',
-              '[class*="reply"][class*="submit"]',
-              '[class*="reply"][class*="send"]',
-              '[class*="submit"]',
-              '[class*="send"]'
-            ].join(','),
-            ['发布', '发送', '提交']
-          )
-        );
+      const commentSubmitSelectors = [
+        'button',
+        '[role="button"]',
+        '[type="submit"]',
+        '.comment-submit',
+        '.comment-send',
+        '.reply-send',
+        '.send-btn',
+        '.submit',
+        '[class*="comment"][class*="submit"]',
+        '[class*="comment"][class*="send"]',
+        '[class*="reply"][class*="submit"]',
+        '[class*="reply"][class*="send"]',
+        '[class*="submit"]',
+        '[class*="send"]'
+      ].join(',');
 
       const queryFavoriteFolder = () =>
         byText(
@@ -604,7 +598,43 @@ export function buildAutomationScript(
       const queryFavoriteConfirm = () =>
         byText('button,[role="button"],.fav-submit,.submit', ['完成', '确定', '确认', '保存']);
 
-      const queryCommentField = () => {
+      const queryCommentRoot = () => {
+        const selectors = [
+          '#comment',
+          '#commentapp',
+          '.comment-container',
+          '.comment-box',
+          '.reply-box',
+          '.bb-comment',
+          '.bili-comment',
+          '[class*="comment"]',
+          '[class*="reply"]'
+        ];
+
+        for (const selector of selectors) {
+          const root = Array.from(document.querySelectorAll(selector)).find((node) => {
+            if (!isVisibleCandidate(node)) {
+              return false;
+            }
+
+            const text = nodeSearchText(node);
+            return (
+              normalize(text).includes(normalize('评论')) ||
+              normalize(text).includes(normalize('发布')) ||
+              normalize(text).includes(normalize('回复')) ||
+              Boolean(node.querySelector?.('.reply-box,.reply-box-textarea,.comment-box-textarea,textarea,[contenteditable="true"]'))
+            );
+          });
+
+          if (root) {
+            return root;
+          }
+        }
+
+        return document.body;
+      };
+
+      const queryCommentField = (root = queryCommentRoot()) => {
         const selectors = [
           '.reply-box-textarea[contenteditable="true"]',
           '.reply-box textarea',
@@ -623,7 +653,7 @@ export function buildAutomationScript(
         ];
 
         for (const selector of selectors) {
-          const field = Array.from(document.querySelectorAll(selector)).find(isVisibleInput);
+          const field = Array.from(root.querySelectorAll?.(selector) || []).find(isVisibleInput);
           if (field) {
             return field;
           }
@@ -631,6 +661,9 @@ export function buildAutomationScript(
 
         return null;
       };
+
+      const querySubmitButton = (root = queryCommentRoot()) =>
+        closestClickable(byTextWithin(root, commentSubmitSelectors, ['发布', '提交', '发送']));
 
       const readEditableText = (element) => {
         if (!element) {
@@ -658,7 +691,8 @@ export function buildAutomationScript(
       };
 
       const fillComment = async () => {
-        const commentField = await waitForElement(queryCommentField, 'comment');
+        const commentRoot = queryCommentRoot();
+        const commentField = await waitForElement(() => queryCommentField(commentRoot), 'comment');
 
         if (!commentField) {
           return false;
@@ -680,7 +714,7 @@ export function buildAutomationScript(
         steps.push('comment:fill');
         commentField.scrollIntoView?.({ block: 'center' });
         commentField.focus?.();
-        return true;
+        return { field: commentField, root: commentRoot };
       };
 
       const favoriteCurrentVideo = async () => {
@@ -752,7 +786,7 @@ export function buildAutomationScript(
       if (payload.action === '表') {
         const filled = await fillComment();
         if (filled && payload.submitComment) {
-          click(await waitForElement(querySubmitButton, 'comment-submit'), 'comment:submit');
+          click(await waitForElement(() => querySubmitButton(filled.root), 'comment-submit'), 'comment:submit');
         } else if (filled) {
           steps.push('comment:awaiting-submit');
         }

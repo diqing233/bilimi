@@ -61,6 +61,30 @@ describe('FloatingMenuApp', () => {
     await waitFor(() => expect(runFloatingMenuAction).toHaveBeenCalledWith('赐'))
   })
 
+  it('opens the full assistant for 表 so the user can choose a comment draft', async () => {
+    const runFloatingMenuAction = vi.fn().mockResolvedValue(undefined)
+    const toggleFloatingAssistant = vi.fn().mockResolvedValue(undefined)
+    const closeFloatingMenu = vi.fn()
+
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        version: '0.1.0',
+        closeFloatingMenu,
+        toggleFloatingAssistant,
+        runFloatingMenuAction
+      }
+    })
+
+    render(<FloatingMenuApp />)
+
+    fireEvent.click(screen.getByRole('menuitem', { name: '评' }))
+
+    await waitFor(() => expect(toggleFloatingAssistant).toHaveBeenCalledOnce())
+    expect(closeFloatingMenu).toHaveBeenCalledOnce()
+    expect(runFloatingMenuAction).not.toHaveBeenCalledWith('表')
+  })
+
   it('closes the menu from the close button', () => {
     const closeFloatingMenu = vi.fn()
 

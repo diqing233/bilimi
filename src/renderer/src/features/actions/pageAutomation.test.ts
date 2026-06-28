@@ -940,6 +940,81 @@ describe('buildAutomationScript', () => {
     expect(result.steps).toContain('comment:fill')
   })
 
+  it('fills the lower comment area instead of the player danmaku input', async () => {
+    document.body.innerHTML = `
+      <section class="bpx-player-sending-area">
+        <input class="bpx-player-dm-input" type="text" placeholder="发个友善的弹幕见证当下" />
+        <button class="bpx-player-dm-btn">发送</button>
+      </section>
+      <section id="comment">
+        <div class="reply-box">
+          <textarea class="reply-textarea" placeholder="只是一 直在等你而已，才不是想被评论呢～"></textarea>
+          <button class="reply-send">发布</button>
+        </div>
+      </section>
+    `
+    const danmakuInput = document.querySelector('.bpx-player-dm-input') as HTMLInputElement
+    const commentTextarea = document.querySelector('.reply-textarea') as HTMLTextAreaElement
+
+    const draft = '这条应该进入截图里圈出的评论区。'
+    const result = await window.eval(
+      buildAutomationScript(
+        '表',
+        'Bilimi 内库',
+        undefined,
+        draft,
+        favoriteLedgers,
+        'movie-tv',
+        { submitComment: false }
+      )
+    )
+
+    expect(danmakuInput.value).toBe('')
+    expect(commentTextarea.value).toBe(draft)
+    expect(result.ok).toBe(true)
+    expect(result.steps).toContain('comment:fill')
+  })
+
+  it('publishes from the lower comment area instead of clicking the danmaku send button', async () => {
+    document.body.innerHTML = `
+      <section class="bpx-player-sending-area">
+        <input class="bpx-player-dm-input" type="text" placeholder="发个友善的弹幕见证当下" />
+        <button class="bpx-player-dm-btn">发送</button>
+      </section>
+      <section id="comment">
+        <div class="reply-box">
+          <textarea class="reply-textarea" placeholder="只是一 直在等你而已，才不是想被评论呢～"></textarea>
+          <button class="reply-send">发布</button>
+        </div>
+      </section>
+    `
+    let danmakuSent = false
+    let commentPublished = false
+    document.querySelector('.bpx-player-dm-btn')?.addEventListener('click', () => {
+      danmakuSent = true
+    })
+    document.querySelector('.reply-send')?.addEventListener('click', () => {
+      commentPublished = true
+    })
+
+    const result = await window.eval(
+      buildAutomationScript(
+        '表',
+        'Bilimi 内库',
+        undefined,
+        '自动发布也只能点评论区发布。',
+        favoriteLedgers,
+        'movie-tv',
+        { submitComment: true }
+      )
+    )
+
+    expect(danmakuSent).toBe(false)
+    expect(commentPublished).toBe(true)
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(expect.arrayContaining(['comment:fill', 'comment:submit']))
+  })
+
   it('uses editable insertion for Bilibili contenteditable comment boxes', async () => {
     document.body.innerHTML = `
       <section class="reply-box">

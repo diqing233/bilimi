@@ -556,6 +556,23 @@ describe('PalaceMaidPetApp', () => {
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
 
+  it('opens the full assistant for 表 hover shortcut so the user can choose a comment draft', async () => {
+    const toggleFloatingAssistant = vi.fn().mockResolvedValue(undefined)
+    const api = installDesktopApi({
+      toggleFloatingAssistant,
+      runFloatingMenuAction: vi.fn().mockResolvedValue(undefined)
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
+    fireEvent.click(screen.getByRole('button', { name: '表' }))
+
+    await waitFor(() => expect(api.toggleFloatingAssistant).toHaveBeenCalledOnce())
+    expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
+    expect(api.runFloatingMenuAction).not.toHaveBeenCalledWith('表')
+  })
+
   it('shows 暂无视频 instead of running a video hover action when no video is open', async () => {
     const api = installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
