@@ -114,6 +114,160 @@ function isBilibiliVideoUrl(url?: string): boolean {
   return Boolean(url && BILIBILI_VIDEO_URL_PATTERN.test(url))
 }
 
+type TrustedPlayerActivationResult = AssistantAutomationResult & {
+  clickPoint?: { x: number; y: number } | null
+  danmakuEnabled?: boolean | null
+  paused?: boolean | null
+}
+
+function buildTrustedPlayerActivationScript(): string {
+  return `
+    (() => {
+      const __bilimiTrustedPlayerActivation = true;
+      void __bilimiTrustedPlayerActivation;
+      const result = {
+        ok: false,
+        steps: [],
+        missingTargets: [],
+        message: '',
+        clickPoint: null,
+        danmakuEnabled: null,
+        paused: null
+      };
+      const isLikelyHidden = (node) => {
+        const style = window.getComputedStyle?.(node);
+        return style?.display === 'none' || style?.visibility === 'hidden' || style?.opacity === '0';
+      };
+      const hasVisibleRect = (node) => {
+        if (!node || isLikelyHidden(node)) {
+          return false;
+        }
+
+        const rect = node.getBoundingClientRect?.();
+        return Boolean(rect && rect.width > 20 && rect.height > 20);
+      };
+      const centerOf = (node) => {
+        const rect = node?.getBoundingClientRect?.();
+        if (!rect || rect.width <= 0 || rect.height <= 0) {
+          return null;
+        }
+
+        return {
+          x: Math.round(rect.left + rect.width / 2),
+          y: Math.round(rect.top + rect.height / 2)
+        };
+      };
+      const textOf = (node) =>
+        String([
+          node?.getAttribute?.('aria-label'),
+          node?.getAttribute?.('aria-checked'),
+          node?.getAttribute?.('aria-pressed'),
+          node?.getAttribute?.('title'),
+          node?.getAttribute?.('class'),
+          node?.textContent
+        ].filter(Boolean).join(' ')).replace(/\\s+/g, '').toLowerCase();
+      const isClearlyDanmakuOff = (node) => {
+        const text = textOf(node);
+
+        return (
+          node?.getAttribute?.('aria-checked') === 'false' ||
+          node?.getAttribute?.('aria-pressed') === 'false' ||
+          text.includes('开启弹幕') ||
+          text.includes('打开弹幕') ||
+          text.includes('danmakuoff') ||
+          text.includes('dmoff') ||
+          /(^|[-_\\s])(off|close|closed|disabled|disable)([-_\\s]|$)/.test(text)
+        );
+      };
+      const video = Array.from(document.querySelectorAll('video')).find(hasVisibleRect) || null;
+      const player =
+        video?.closest?.('.bpx-player-container,.bpx-player,.bilibili-player,#bilibili-player,[class*="player"]') ||
+        Array.from(document.querySelectorAll('.bpx-player-container,.bpx-player,.bilibili-player,#bilibili-player,[class*="player"]')).find(hasVisibleRect) ||
+        video;
+      const clickPoint = centerOf(video) || centerOf(player);
+
+      if (!clickPoint) {
+        result.missingTargets.push('player-click-target');
+        result.message = '尚有 player-click-target 未能寻见。';
+        return result;
+      }
+
+      const switchSelectors = [
+        '.bpx-player-dm-switch',
+        '.bpx-player-dm-switch-btn',
+        '.bilibili-player-video-danmaku-switch',
+        '[class*="dm-switch"]',
+        '[class*="danmaku"][class*="switch"]',
+        '[aria-label*="弹幕"]',
+        '[title*="弹幕"]'
+      ].join(',');
+      const switchButton = Array.from(document.querySelectorAll(switchSelectors)).find((node) => {
+        if (node === video || !node || isLikelyHidden(node)) {
+          return false;
+        }
+
+        const rect = node.getBoundingClientRect?.();
+        return !rect || rect.width > 0 || rect.height > 0 || Boolean(textOf(node));
+      }) || null;
+
+      result.clickPoint = clickPoint;
+      result.danmakuEnabled = switchButton ? !isClearlyDanmakuOff(switchButton) : null;
+      result.paused = typeof video?.paused === 'boolean' ? video.paused : null;
+      result.steps.push('player:locate');
+      result.ok = true;
+      result.message = '播放器已定位。';
+      return result;
+    })()
+  `
+}
+
+function buildRestorePlayerPlaybackStateScript(paused?: boolean | null): string {
+  const payload = JSON.stringify({ paused })
+
+  return `
+    (() => {
+      const __bilimiRestorePlayerPlaybackState = true;
+      void __bilimiRestorePlayerPlaybackState;
+      const payload = ${payload};
+      const video = document.querySelector('video');
+
+      if (!video || typeof payload.paused !== 'boolean') {
+        return {
+          ok: true,
+          steps: ['player:playback:unchecked'],
+          missingTargets: [],
+          message: '播放状态无需恢复。'
+        };
+      }
+
+      if (Boolean(video.paused) === payload.paused) {
+        return {
+          ok: true,
+          steps: ['player:playback:stable'],
+          missingTargets: [],
+          message: '播放状态未改变。'
+        };
+      }
+
+      if (payload.paused) {
+        video.pause?.();
+      } else {
+        const playResult = video.play?.();
+        if (playResult?.catch) {
+          playResult.catch(() => undefined);
+        }
+      }
+
+      return {
+        ok: true,
+        steps: ['player:playback:restore'],
+        missingTargets: [],
+        message: '播放状态已恢复。'
+      };
+    })()
+  `
+}
+
 function pendingQueueItemFromCurrentVideo(
   context: VideoContentContext,
   targetLedgerId: string,
@@ -828,6 +982,38 @@ export default function App() {
       })
     }
 
+    const activationSteps: string[] = []
+    try {
+      const activation = (await currentActiveWebview.executeJavaScript(
+        buildTrustedPlayerActivationScript(),
+        true
+      )) as TrustedPlayerActivationResult
+
+      if (activation?.ok && activation.clickPoint) {
+        activationSteps.push(...activation.steps, 'player:activate-click')
+        clickAt(activation.clickPoint)
+        await wait(120)
+
+        const playbackRestore = (await currentActiveWebview.executeJavaScript(
+          buildRestorePlayerPlaybackStateScript(activation.paused),
+          true
+        )) as AssistantAutomationResult
+        activationSteps.push(...(playbackRestore?.steps ?? []))
+
+        if (activation.danmakuEnabled === false) {
+          sendKey('d')
+          activationSteps.push('danmaku:shortcut:d')
+          await wait(120)
+        }
+
+        sendKey('Enter')
+        activationSteps.push('danmaku:shortcut:enter')
+        await wait(120)
+      }
+    } catch {
+      activationSteps.push('player:activate:skipped')
+    }
+
     const focusResult = (await currentActiveWebview.executeJavaScript(
       buildDanmakuFieldFocusScript()
     )) as DanmakuFocusResult | boolean
@@ -894,6 +1080,7 @@ export default function App() {
     return {
       ...confirmation,
       steps: [
+        ...activationSteps,
         ...prepared.steps,
         'danmaku:trusted-paste',
         ...submitSteps,

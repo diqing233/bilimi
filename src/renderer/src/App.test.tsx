@@ -537,6 +537,27 @@ describe('App runtime integration', () => {
         }
       }
 
+      if (script.includes('__bilimiTrustedPlayerActivation')) {
+        return {
+          ok: true,
+          steps: ['player:locate'],
+          missingTargets: [],
+          message: '播放器已定位。',
+          clickPoint: { x: 300, y: 220 },
+          danmakuEnabled: true,
+          paused: false
+        }
+      }
+
+      if (script.includes('__bilimiRestorePlayerPlaybackState')) {
+        return {
+          ok: true,
+          steps: ['player:playback:stable'],
+          missingTargets: [],
+          message: '播放状态未改变。'
+        }
+      }
+
       if (script.includes('__bilimiDanmakuFieldFocus')) {
         return {
           ok: true,
@@ -592,6 +613,11 @@ describe('App runtime integration', () => {
 
     expect(writeText).toHaveBeenCalledWith('typed')
     expect(sentEvents).toEqual([
+      { type: 'mouseMove', x: 300, y: 220 },
+      { button: 'left', clickCount: 1, type: 'mouseDown', x: 300, y: 220 },
+      { button: 'left', clickCount: 1, type: 'mouseUp', x: 300, y: 220 },
+      { keyCode: 'Enter', type: 'keyDown' },
+      { keyCode: 'Enter', type: 'keyUp' },
       { keyCode: 'a', modifiers: ['control'], type: 'keyDown' },
       { keyCode: 'a', modifiers: ['control'], type: 'keyUp' },
       { keyCode: 'Backspace', type: 'keyDown' },
@@ -602,6 +628,7 @@ describe('App runtime integration', () => {
       { button: 'left', clickCount: 1, type: 'mouseDown', x: 620, y: 452 },
       { button: 'left', clickCount: 1, type: 'mouseUp', x: 620, y: 452 }
     ])
+    expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'd' }))
     expect(executeJavaScript).toHaveBeenCalledWith(
       expect.stringContaining('__bilimiDanmakuSubmitConfirmation')
     )
@@ -617,6 +644,114 @@ describe('App runtime integration', () => {
         ])
       })
     )
+  })
+
+  it('turns danmaku on with d before opening the composer when the player reports it off', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+      sendInputEvent?: (event: Record<string, unknown>) => void
+    }
+    const sentEvents: Record<string, unknown>[] = []
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) }
+    })
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes('document.cookie')) {
+        return 'DedeUserID=42; bili_jct=csrf'
+      }
+
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          title: 'danmaku off video',
+          pageText: 'testing conditional d shortcut'
+        }
+      }
+
+      if (script.includes('__bilimiTrustedPlayerActivation')) {
+        return {
+          ok: true,
+          steps: ['player:locate'],
+          missingTargets: [],
+          message: '播放器已定位。',
+          clickPoint: { x: 320, y: 240 },
+          danmakuEnabled: false,
+          paused: false
+        }
+      }
+
+      if (script.includes('__bilimiRestorePlayerPlaybackState')) {
+        return {
+          ok: true,
+          steps: ['player:playback:stable'],
+          missingTargets: [],
+          message: '播放状态未改变。'
+        }
+      }
+
+      if (script.includes('__bilimiDanmakuFieldFocus')) {
+        return {
+          ok: true,
+          steps: ['danmaku:focus'],
+          missingTargets: [],
+          message: '弹幕栏已聚焦。',
+          sendButtonPoint: { x: 620, y: 452 }
+        }
+      }
+
+      if (script.includes('__bilimiDanmakuSubmitConfirmation')) {
+        return {
+          ok: true,
+          steps: ['danmaku:submit'],
+          missingTargets: [],
+          message: '弹幕已发送。'
+        }
+      }
+
+      return {
+        ok: false,
+        steps: [],
+        missingTargets: ['unexpected-page-script'],
+        message: '不应先运行页面自动化脚本。'
+      }
+    })
+    Object.assign(webview, {
+      executeJavaScript,
+      sendInputEvent: vi.fn((event: Record<string, unknown>) => {
+        sentEvents.push(event)
+      })
+    })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1danmakuoff'
+          }
+        })
+      )
+    })
+
+    await requestRuntime({
+      id: 'run-danmaku-off-trusted-input',
+      type: 'run-action',
+      action: '表',
+      options: {
+        commentDraft: 'typed',
+        submitComment: true
+      }
+    })
+
+    expect(sentEvents.slice(0, 7)).toEqual([
+      { type: 'mouseMove', x: 320, y: 240 },
+      { button: 'left', clickCount: 1, type: 'mouseDown', x: 320, y: 240 },
+      { button: 'left', clickCount: 1, type: 'mouseUp', x: 320, y: 240 },
+      { keyCode: 'd', type: 'keyDown' },
+      { keyCode: 'd', type: 'keyUp' },
+      { keyCode: 'Enter', type: 'keyDown' },
+      { keyCode: 'Enter', type: 'keyUp' }
+    ])
   })
 
   it('collects to inbox when an unsynced default ledger is only a stronger suggestion', async () => {
