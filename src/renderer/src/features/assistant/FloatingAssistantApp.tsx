@@ -5,6 +5,8 @@ import type {
   FavoriteLedgerSaveOptions,
   FavoriteLedgerStatus,
   NotePosterSummary,
+  PendingFavoriteQueueItem,
+  PendingFavoriteQueueStatus,
   RecommendationKind,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionQueueSnapshot,
@@ -227,6 +229,7 @@ export function FloatingAssistantApp({
   )
   const preferencesRef = useRef(preferences)
   const [favoriteLedgerStatus, setFavoriteLedgerStatus] = useState<FavoriteLedgerStatus | null>(null)
+  const [pendingQueueItems, setPendingQueueItems] = useState<PendingFavoriteQueueItem[]>([])
   const [uncontrolledActiveTab, setUncontrolledActiveTab] =
     useState<AssistantWorkspaceTab>('review')
   const [commentChooserOpen, setCommentChooserOpen] = useState(false)
@@ -330,6 +333,7 @@ export function FloatingAssistantApp({
     void loadSnapshot()
     void loadVideoNoteArchives({ silent: true })
     void loadVideoAudioTranscriptionQueue()
+    void loadPendingFavoriteQueue()
 
     return () => {
       mounted.current = false
@@ -718,6 +722,22 @@ export function FloatingAssistantApp({
     return snapshot
   }
 
+  async function loadPendingFavoriteQueue() {
+    const items = (await window.bilimiDesktop?.loadPendingFavoriteQueue?.()) ?? []
+    setPendingQueueItems(items)
+    return items
+  }
+
+  async function updatePendingQueueItemStatus(
+    aid: number,
+    status: PendingFavoriteQueueStatus
+  ) {
+    const nextItems =
+      (await window.bilimiDesktop?.updatePendingFavoriteQueueItemStatus?.(aid, status)) ?? []
+    setPendingQueueItems(nextItems)
+    return nextItems
+  }
+
   async function enqueueVideoAudioTranscription(options?: { summarizeWithDeepSeek?: boolean }) {
     if (!window.bilimiDesktop?.enqueueCurrentVideoAudioTranscription) {
       tellPet('error', '请先打开一个可转写的视频。')
@@ -970,6 +990,8 @@ export function FloatingAssistantApp({
             onExecuteOldFavoritePlan={executeOldFavoritePlan}
             onOldFavoriteExecutionStateChange={handleOldFavoriteExecutionStateChange}
             favoriteArchiveMultiMode={preferences.favoriteArchiveMultiMode}
+            pendingQueueItems={pendingQueueItems}
+            onUpdatePendingQueueItemStatus={updatePendingQueueItemStatus}
           />
         </div>
 

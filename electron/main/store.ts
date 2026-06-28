@@ -13,11 +13,18 @@ import {
   updateVideoNoteArchiveVersion as replaceVideoNoteArchiveVersion
 } from '../../src/shared/videoNoteArchive'
 import { normalizeVideoNotes, upsertVideoNote } from '../../src/shared/videoNotes'
+import {
+  normalizePendingFavoriteQueue,
+  upsertPendingFavoriteQueueItems as mergePendingFavoriteQueueItems,
+  updatePendingFavoriteQueueItemStatus as setPendingFavoriteQueueItemStatus
+} from '../../src/shared/pendingFavoriteQueue'
 import type {
   CommentSubmitMode,
   DeepSeekKeyStatus,
   FavoriteArchiveMultiMode,
   FavoriteLedger,
+  PendingFavoriteQueueItem,
+  PendingFavoriteQueueStatus,
   VideoAudioTranscriptionQueueItem,
   VideoNote,
   VideoNoteArchiveEntry
@@ -46,6 +53,7 @@ export type DesktopStoreState = AssistantPreferences & {
   deepseekApiKey: string
   videoNotes: VideoNote[]
   videoNoteArchives: VideoNoteArchiveEntry[]
+  pendingFavoriteQueue: PendingFavoriteQueueItem[]
   videoAudioTranscriptionQueue: VideoAudioTranscriptionQueueItem[]
 }
 
@@ -78,6 +86,7 @@ export const DEFAULT_DESKTOP_STORE_STATE: DesktopStoreState = {
   deepseekApiKey: '',
   videoNotes: [],
   videoNoteArchives: [],
+  pendingFavoriteQueue: [],
   videoAudioTranscriptionQueue: []
 }
 
@@ -272,6 +281,44 @@ export function updateVideoNoteArchiveVersion(
   store.set('videoNoteArchives', archives)
 
   return archives
+}
+
+export function loadPendingFavoriteQueue(
+  store: AssistantStoreLike = getDesktopStore()
+): PendingFavoriteQueueItem[] {
+  return normalizePendingFavoriteQueue(store.get('pendingFavoriteQueue') ?? [])
+}
+
+export function savePendingFavoriteQueue(
+  store: AssistantStoreLike = getDesktopStore(),
+  items: PendingFavoriteQueueItem[]
+): PendingFavoriteQueueItem[] {
+  store.set('pendingFavoriteQueue', items)
+
+  return loadPendingFavoriteQueue(store)
+}
+
+export function upsertPendingFavoriteQueueItems(
+  store: AssistantStoreLike = getDesktopStore(),
+  items: PendingFavoriteQueueItem[],
+  now = new Date().toISOString()
+): PendingFavoriteQueueItem[] {
+  const nextItems = mergePendingFavoriteQueueItems(loadPendingFavoriteQueue(store), items, now)
+  store.set('pendingFavoriteQueue', nextItems)
+
+  return loadPendingFavoriteQueue(store)
+}
+
+export function updatePendingFavoriteQueueItemStatus(
+  store: AssistantStoreLike = getDesktopStore(),
+  aid: number,
+  status: PendingFavoriteQueueStatus,
+  now = new Date().toISOString()
+): PendingFavoriteQueueItem[] {
+  const nextItems = setPendingFavoriteQueueItemStatus(loadPendingFavoriteQueue(store), aid, status, now)
+  store.set('pendingFavoriteQueue', nextItems)
+
+  return loadPendingFavoriteQueue(store)
 }
 
 export function loadVideoAudioTranscriptionQueue(

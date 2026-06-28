@@ -44,6 +44,31 @@ export type FavoriteLedgerSaveOptions = {
 export type FavoriteArchiveMultiMode = 'off' | 'two' | 'three'
 export type CommentSubmitMode = 'manual' | 'auto'
 
+export type PendingFavoriteQueueSource = 'old-favorite-scan' | 'new-favorite'
+
+export type PendingFavoriteQueueStatus = 'pending' | 'archived' | 'dismissed'
+
+export type PendingFavoriteQueueItem = {
+  aid: number
+  title: string
+  source: PendingFavoriteQueueSource
+  sourceFolderTitle?: string
+  originalTargetLedgerId?: FavoriteLedgerId
+  suggestedLedgerIds: FavoriteLedgerId[]
+  candidateLedgerNames: string[]
+  reason: string
+  createdAt: string
+  updatedAt: string
+  status: PendingFavoriteQueueStatus
+}
+
+export type PendingFavoriteQueueSummary = {
+  totalPending: number
+  suggestedExistingCount: number
+  suggestedCandidateLedgerCount: number
+  stagingCount: number
+}
+
 export type FavoriteLedgerClassification = {
   ledgerId: FavoriteLedgerId
   displayName: string

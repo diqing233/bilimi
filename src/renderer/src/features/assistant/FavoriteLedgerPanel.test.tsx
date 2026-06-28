@@ -1,12 +1,78 @@
 ﻿import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import type { PendingFavoriteQueueItem } from '@shared/types'
 import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
 import { FavoriteLedgerPanel } from './FavoriteLedgerPanel'
 
 describe('FavoriteLedgerPanel', () => {
   const safetyNote =
     '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
+
+  function pendingQueueFixture(
+    overrides: Partial<PendingFavoriteQueueItem> = {}
+  ): PendingFavoriteQueueItem {
+    return {
+      aid: 1,
+      title: '待分拣视频',
+      source: 'old-favorite-scan',
+      sourceFolderTitle: '默认收藏夹',
+      originalTargetLedgerId: 'inbox',
+      suggestedLedgerIds: [],
+      candidateLedgerNames: [],
+      reason: '没有明确命中',
+      createdAt: '2026-06-28T00:00:00.000Z',
+      updatedAt: '2026-06-28T00:00:00.000Z',
+      status: 'pending',
+      ...overrides
+    }
+  }
+
+  function renderPanel(overrides: Partial<Parameters<typeof FavoriteLedgerPanel>[0]> = {}) {
+    return render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+        {...overrides}
+      />
+    )
+  }
+
+  it('shows pending classification queue without scanning old favorites again', () => {
+    const onScanOldFavorites = vi.fn()
+
+    renderPanel({
+      onScanOldFavorites,
+      pendingQueueItems: [
+        pendingQueueFixture({
+          suggestedLedgerIds: ['knowledge']
+        })
+      ]
+    })
+
+    expect(screen.getByRole('region', { name: '待分类队列' })).toBeInTheDocument()
+    expect(screen.getByText('待分类队列 1 条')).toBeInTheDocument()
+    expect(screen.getByText('可归入已有册目 1 条')).toBeInTheDocument()
+    expect(screen.getByText('待分拣视频')).toBeInTheDocument()
+    expect(onScanOldFavorites).not.toHaveBeenCalled()
+  })
+
+  it('archives a pending queue item from the queue view', async () => {
+    const onUpdatePendingQueueItemStatus = vi.fn().mockResolvedValue([])
+
+    renderPanel({
+      pendingQueueItems: [pendingQueueFixture({ aid: 1 })],
+      onUpdatePendingQueueItemStatus
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '完成 待分拣视频' }))
+
+    await waitFor(() => expect(onUpdatePendingQueueItemStatus).toHaveBeenCalledWith(1, 'archived'))
+  })
 
   it('backs up ledgers directly from 备册 without the old setup prompt', async () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
@@ -164,7 +230,7 @@ describe('FavoriteLedgerPanel', () => {
       '生活日常',
       '音乐舞台',
       '搞笑杂谈',
-      '待分类'
+      '暂存'
     ])
     expect(within(ledgerRegion).queryByRole('button', { name: '鬼畜' })).not.toBeInTheDocument()
     expect(within(ledgerRegion).queryByRole('button', { name: '旅游出行' })).not.toBeInTheDocument()

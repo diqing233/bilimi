@@ -13,12 +13,17 @@ import {
   saveDeepSeekApiKey,
   saveVideoNote,
   saveAssistantPreferences,
+  loadPendingFavoriteQueue,
+  savePendingFavoriteQueue,
+  upsertPendingFavoriteQueueItems,
+  updatePendingFavoriteQueueItemStatus,
   loadVideoAudioTranscriptionQueue,
   saveVideoAudioTranscriptionQueue,
   type DesktopStoreState,
   type AssistantStoreLike
 } from './store'
 import type {
+  PendingFavoriteQueueItem,
   VideoAudioTranscriptionQueueItem,
   VideoNote,
   VideoNoteArchiveEntry
@@ -80,6 +85,7 @@ function createFakeStore(
     deepseekApiKey: initial.deepseekApiKey ?? '',
     videoNotes: initial.videoNotes ?? [],
     videoNoteArchives: initial.videoNoteArchives ?? [],
+    pendingFavoriteQueue: initial.pendingFavoriteQueue ?? [],
     videoAudioTranscriptionQueue: initial.videoAudioTranscriptionQueue ?? []
   }
 
@@ -250,6 +256,51 @@ describe('assistant preference store helpers', () => {
     const store = createFakeStore({ deepseekApiKey: 'sk-test' })
 
     expect(loadAssistantPreferences(store).deepseekApiKeyStored).toBe(true)
+  })
+})
+
+describe('pending favorite queue store helpers', () => {
+  const pendingQueueItem: PendingFavoriteQueueItem = {
+    aid: 202,
+    title: '待分类旧藏',
+    source: 'old-favorite-scan',
+    sourceFolderTitle: '默认收藏夹',
+    originalTargetLedgerId: 'inbox',
+    suggestedLedgerIds: [],
+    candidateLedgerNames: ['Bilimi·摄影'],
+    reason: '高频标签建议新建',
+    createdAt: '2026-06-28T00:00:00.000Z',
+    updatedAt: '2026-06-28T00:00:00.000Z',
+    status: 'pending'
+  }
+
+  it('loads an empty pending queue by default', () => {
+    const store = createFakeStore()
+
+    expect(loadPendingFavoriteQueue(store)).toEqual([])
+  })
+
+  it('saves, upserts, and updates pending queue items', () => {
+    const store = createFakeStore()
+
+    expect(savePendingFavoriteQueue(store, [pendingQueueItem])).toEqual([pendingQueueItem])
+    expect(
+      upsertPendingFavoriteQueueItems(
+        store,
+        [{ ...pendingQueueItem, title: '更新标题', suggestedLedgerIds: ['knowledge'] }],
+        '2026-06-28T01:00:00.000Z'
+      )
+    ).toEqual([
+      {
+        ...pendingQueueItem,
+        title: '更新标题',
+        suggestedLedgerIds: ['knowledge'],
+        updatedAt: '2026-06-28T01:00:00.000Z'
+      }
+    ])
+    expect(
+      updatePendingFavoriteQueueItemStatus(store, 202, 'archived', '2026-06-28T02:00:00.000Z')
+    ).toEqual([])
   })
 })
 

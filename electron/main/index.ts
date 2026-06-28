@@ -8,10 +8,13 @@ import {
   loadDeepSeekApiKey,
   loadDeepSeekApiKeyStatus,
   loadAssistantPreferences,
+  loadPendingFavoriteQueue,
   loadVideoAudioTranscriptionQueue,
   loadVideoNoteArchives,
   loadVideoNotes,
   saveDeepSeekApiKey,
+  upsertPendingFavoriteQueueItems,
+  updatePendingFavoriteQueueItemStatus,
   saveVideoAudioTranscriptionQueue,
   saveVideoNoteArchiveVersion,
   updateVideoNoteArchiveVersion,
@@ -60,6 +63,8 @@ import type {
   DeepSeekGenerateRequest,
   FavoriteLedger,
   FavoriteLedgerSaveOptions,
+  PendingFavoriteQueueItem,
+  PendingFavoriteQueueStatus,
   VideoAudioTranscriptionQueueSnapshot,
   VideoAudioTranscriptionRequest,
   VideoNote
@@ -549,6 +554,15 @@ function registerAssistantPreferenceHandlers() {
     sendAssistantPreferencesChanged(saved)
     return saved
   })
+  ipcMain.handle('pending-favorite-queue:load', () => loadPendingFavoriteQueue(getDesktopStore()))
+  ipcMain.handle('pending-favorite-queue:upsert', (_event, items: PendingFavoriteQueueItem[]) =>
+    upsertPendingFavoriteQueueItems(getDesktopStore(), items)
+  )
+  ipcMain.handle(
+    'pending-favorite-queue:update-status',
+    (_event, aid: number, status: PendingFavoriteQueueStatus) =>
+      updatePendingFavoriteQueueItemStatus(getDesktopStore(), aid, status)
+  )
   ipcMain.handle('deepseek:key-status', () => loadDeepSeekApiKeyStatus(getDesktopStore()))
   ipcMain.handle('deepseek:save-key', (_event, apiKey: string) => {
     const status = saveDeepSeekApiKey(getDesktopStore(), apiKey)

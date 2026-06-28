@@ -9,6 +9,8 @@ import type {
   FavoriteLedger,
   FavoriteLedgerSaveOptions,
   FavoriteLedgerStatus,
+  PendingFavoriteQueueItem,
+  PendingFavoriteQueueStatus,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionQueueSnapshot,
   VideoAudioTranscriptionRequest,
@@ -40,6 +42,7 @@ type BilimiDesktopApi = {
     summarizeWithDeepSeek?: boolean
   }) => Promise<VideoAudioTranscriptionQueueSnapshot | null>
   getCurrentVideoTime?: () => Promise<number>
+  loadPendingFavoriteQueue?: () => Promise<PendingFavoriteQueueItem[]>
   loadPreferences: () => Promise<AssistantPreferences>
   loadVideoNotes?: () => Promise<VideoNote[]>
   loadVideoNoteArchives?: () => Promise<VideoNoteArchiveEntry[]>
@@ -76,6 +79,13 @@ type BilimiDesktopApi = {
   scanOldFavorites?: (options?: {
     multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']
   }) => Promise<FavoriteLedgerPreview>
+  upsertPendingFavoriteQueueItems?: (
+    items: PendingFavoriteQueueItem[]
+  ) => Promise<PendingFavoriteQueueItem[]>
+  updatePendingFavoriteQueueItemStatus?: (
+    aid: number,
+    status: PendingFavoriteQueueStatus
+  ) => Promise<PendingFavoriteQueueItem[]>
   saveFavoriteLedgers?: (
     ledgers: FavoriteLedger[],
     options?: FavoriteLedgerSaveOptions
