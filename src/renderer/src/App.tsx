@@ -41,6 +41,7 @@ import {
   buildExecuteFavoriteLedgerPlanScript,
   buildFavoriteLedgerStatusScript,
   buildSaveFavoriteLedgersScript,
+  buildScanOldFavoriteVideoScript,
   buildScanOldFavoritesScript
 } from './features/favorites/favoriteLedgerApi'
 import {
@@ -661,6 +662,35 @@ export default function App() {
     return preview
   }
 
+  async function rejudgeOldFavorite(item: FavoriteLedgerPreviewItem): Promise<FavoriteLedgerPreviewItem> {
+    const loginFailure = await requireBilibiliLogin()
+    if (loginFailure) {
+      return item
+    }
+
+    const scanResult = await runScript(
+      buildScanOldFavoriteVideoScript(preferences.favoriteLedgers, item.aid)
+    ) as AssistantAutomationResult & {
+      sourceFolders?: FavoriteSourceFolder[]
+      targetMembership?: Record<string, number[]>
+      skippedSourceFolderTitles?: string[]
+    }
+
+    if (!scanResult.ok || !Array.isArray(scanResult.sourceFolders) || !scanResult.targetMembership) {
+      return item
+    }
+
+    const preview = createFavoriteLedgerPreview({
+      ledgers: preferences.favoriteLedgers,
+      sourceFolders: scanResult.sourceFolders,
+      targetMembership: scanResult.targetMembership,
+      skippedSourceFolderTitles: scanResult.skippedSourceFolderTitles,
+      multiArchiveMode: preferences.favoriteArchiveMultiMode
+    })
+
+    return preview.items.find((candidate) => candidate.aid === item.aid) ?? item
+  }
+
   async function executeOldFavoritePlan(
     items: FavoriteLedgerPreviewItem[]
   ): Promise<AssistantAutomationResult> {
@@ -1083,6 +1113,8 @@ export default function App() {
           return scanOldFavorites({
             multiArchiveMode: request.multiArchiveMode
           })
+        case 'rejudge-old-favorite':
+          return rejudgeOldFavorite(request.item)
         case 'execute-old-favorite-plan':
           return executeOldFavoritePlan(request.items)
         default:
@@ -1099,6 +1131,7 @@ export default function App() {
     readCurrentVideoTime,
     readVideoContentContext,
     readVideoNoteSource,
+    rejudgeOldFavorite,
     runAssistantRuntimeAction,
     saveFavoriteLedgers,
     saveVideoNote,

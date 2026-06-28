@@ -107,6 +107,7 @@ export function createAssistantRuntimeTimeoutMs(request: AssistantRuntimeRequest
   if (
     request.type === 'generate-video-note-from-audio' ||
     request.type === 'scan-old-favorites' ||
+    request.type === 'rejudge-old-favorite' ||
     request.type === 'execute-old-favorite-plan'
   ) {
     return LONG_RUNTIME_REQUEST_TIMEOUT_MS

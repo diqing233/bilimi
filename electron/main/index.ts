@@ -767,6 +767,12 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle('floating-assistant:scan-old-favorites', (_event, options = {}) =>
     requestMainAssistantRuntime<FavoriteLedgerPreview>({ type: 'scan-old-favorites', ...options })
   )
+  ipcMain.handle('floating-assistant:rejudge-old-favorite', (_event, item: FavoriteLedgerPreviewItem) =>
+    requestMainAssistantRuntime<FavoriteLedgerPreviewItem>({
+      type: 'rejudge-old-favorite',
+      item
+    })
+  )
   ipcMain.handle(
     'floating-assistant:execute-old-favorite-plan',
     (_event, items: FavoriteLedgerPreviewItem[]) =>

@@ -310,7 +310,15 @@ export function buildSaveFavoriteLedgersScript(
 }
 
 export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
-  const payload = scriptPayload({ ledgers })
+  return buildOldFavoriteScanScript({ ledgers })
+}
+
+export function buildScanOldFavoriteVideoScript(ledgers: FavoriteLedger[], aid: number): string {
+  return buildOldFavoriteScanScript({ ledgers, aid })
+}
+
+function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: number }): string {
+  const payload = scriptPayload({ ledgers: args.ledgers, aid: args.aid ?? null })
 
   return `
     (async () => {
@@ -341,6 +349,7 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
             .map(String)
         );
         const sourceFolders = [];
+        let fallbackSourceFolder = null;
         const skippedSourceFolderTitles = [];
         const targetMembership = {};
         steps.push('api:favorite:list');
@@ -430,6 +439,9 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
               if (!Number.isFinite(aid) || aid <= 0) {
                 continue;
               }
+              if (payload.aid && aid !== Number(payload.aid)) {
+                continue;
+              }
 
               const tags = readTags(media);
               pageVideos.push({
@@ -471,15 +483,28 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
 
           if (targetFolderIds.has(folderIdString)) {
             targetMembership[folderIdString] = videos.map((video) => video.aid);
-            steps.push('api:favorite:scan-target:' + folderIdString);
+            steps.push((payload.aid ? 'api:favorite:scan-video-target:' : 'api:favorite:scan-target:') + folderIdString);
           }
 
-          sourceFolders.push({
+          const sourceFolder = {
             id: folderIdString,
             title: String(folder?.title ?? ''),
             videos
-          });
-          steps.push('api:favorite:scan-source:' + folderIdString);
+          };
+
+          if (!payload.aid) {
+            sourceFolders.push(sourceFolder);
+            steps.push('api:favorite:scan-source:' + folderIdString);
+          } else if (videos.length > 0 && !targetFolderIds.has(folderIdString)) {
+            sourceFolders.push(sourceFolder);
+            steps.push('api:favorite:scan-video-source:' + folderIdString);
+          } else if (videos.length > 0 && !fallbackSourceFolder) {
+            fallbackSourceFolder = sourceFolder;
+          }
+        }
+
+        if (payload.aid && sourceFolders.length === 0 && fallbackSourceFolder) {
+          sourceFolders.push(fallbackSourceFolder);
         }
 
         return {
@@ -491,7 +516,7 @@ export function buildScanOldFavoritesScript(ledgers: FavoriteLedger[]): string {
           missingTargets: [],
           message:
             skippedSourceFolderTitles.length === 0
-              ? 'old favorites scanned'
+              ? (payload.aid ? 'old favorite video refreshed' : 'old favorites scanned')
               : 'old favorites scanned; skipped ' + skippedSourceFolderTitles.length + ' folder' + (skippedSourceFolderTitles.length === 1 ? '' : 's') + ': ' + skippedSourceFolderTitles.slice(0, 3).join(', ')
         };
       } catch (error) {

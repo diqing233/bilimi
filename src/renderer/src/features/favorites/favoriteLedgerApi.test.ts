@@ -5,6 +5,7 @@ import {
   buildExecuteFavoriteLedgerPlanScript,
   buildFavoriteLedgerStatusScript,
   buildSaveFavoriteLedgersScript,
+  buildScanOldFavoriteVideoScript,
   buildScanOldFavoritesScript
 } from './favoriteLedgerApi'
 
@@ -1123,6 +1124,99 @@ describe('favorite ledger API scripts', () => {
       tags: ['原神', '攻略']
     })
     expect(requests.some((url) => url.includes('/x/tag/archive/tags') && url.includes('aid=123'))).toBe(true)
+  })
+
+  it('refreshes one old favorite video with latest tags and target membership without appending favorites', async () => {
+    installCookies()
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'game' ? { ...ledger, bilibiliFolderId: '9002' } : ledger
+    )
+    const requests: Array<{ body?: string; url: string }> = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        requests.push({ body: init?.body?.toString(), url })
+
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({
+            code: 0,
+            data: {
+              list: [
+                { id: 101, title: 'Default Favorites' },
+                { id: 9002, title: 'Bilimi·游戏专区' }
+              ]
+            }
+          })
+        }
+
+        if (url.includes('media_id=101')) {
+          return Response.json({
+            code: 0,
+            data: {
+              medias: [
+                {
+                  id: 250,
+                  title: '用户刚补了标签',
+                  intro: '新补标签后应该进游戏区',
+                  upper: { name: '游戏 UP' },
+                  type: 2
+                }
+              ],
+              has_more: false
+            }
+          })
+        }
+
+        if (url.includes('media_id=9002')) {
+          return Response.json({
+            code: 0,
+            data: {
+              medias: [{ id: 250, title: '用户刚补了标签', type: 2 }],
+              has_more: false
+            }
+          })
+        }
+
+        if (url.includes('/x/tag/archive/tags') && url.includes('aid=250')) {
+          return Response.json({
+            code: 0,
+            data: [{ name: '原神' }, { tag_name: '攻略' }]
+          })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(buildScanOldFavoriteVideoScript(ledgers, 250))
+
+    expect(result.ok).toBe(true)
+    expect(result.sourceFolders).toEqual([
+      {
+        id: '101',
+        title: 'Default Favorites',
+        videos: [
+          {
+            aid: 250,
+            title: '用户刚补了标签',
+            description: '新补标签后应该进游戏区',
+            author: '游戏 UP',
+            tags: ['原神', '攻略'],
+            category: ''
+          }
+        ]
+      }
+    ])
+    expect(result.targetMembership).toEqual({ '9002': [250] })
+    expect(result.steps).toEqual(
+      expect.arrayContaining([
+        'api:favorite:list',
+        'api:favorite:scan-video-source:101',
+        'api:favorite:scan-video-target:9002'
+      ])
+    )
+    expect(requests.some((request) => request.url.includes('/x/v3/fav/resource/deal'))).toBe(false)
   })
 
   it('scans Bilimi ledgers as both target membership folders and old favorite sources', async () => {

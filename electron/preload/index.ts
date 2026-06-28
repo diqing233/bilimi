@@ -224,6 +224,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   scanOldFavorites: (options?: {
     multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']
   }) => ipcRenderer.invoke('floating-assistant:scan-old-favorites', options),
+  rejudgeOldFavorite: (item: FavoriteLedgerPreviewItem) =>
+    ipcRenderer.invoke('floating-assistant:rejudge-old-favorite', item) as Promise<FavoriteLedgerPreviewItem>,
   executeOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) =>
     ipcRenderer.invoke('floating-assistant:execute-old-favorite-plan', items),
   savePreferences: (preferences: AssistantPreferences) =>

@@ -26,6 +26,11 @@ export type FavoriteSourceFolder = {
 export type FavoriteLedgerPreviewItem = {
   aid: number
   title: string
+  author?: string
+  description?: string
+  tags?: string[]
+  pageText?: string
+  category?: string
   sourceFolderTitle: string
   targetLedgerId: string
   targetFolderId: string
@@ -123,6 +128,11 @@ export function createFavoriteLedgerPreview(args: {
       items.push({
         aid: video.aid,
         title: video.title,
+        author: video.author,
+        description: video.description,
+        tags: video.tags,
+        pageText: video.pageText,
+        category: video.category,
         sourceFolderTitle: folder.title,
         targetLedgerId: classification.ledgerId,
         targetFolderId,

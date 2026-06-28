@@ -32,6 +32,7 @@ type FavoriteLedgerPanelProps = {
   onExecuteOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
   onOldFavoriteExecutionStateChange?: (state: 'running' | 'finished') => void
   onOpenOldFavoriteVideo?: (url: string) => void
+  onRejudgeOldFavorite?: (item: FavoriteLedgerPreviewItem) => Promise<FavoriteLedgerPreviewItem>
   favoriteArchiveMultiMode?: FavoriteArchiveMultiMode
 }
 
@@ -538,6 +539,7 @@ export function FavoriteLedgerPanel({
   onExecuteOldFavoritePlan,
   onOldFavoriteExecutionStateChange,
   onOpenOldFavoriteVideo,
+  onRejudgeOldFavorite,
   favoriteArchiveMultiMode = 'off'
 }: FavoriteLedgerPanelProps) {
   const [draftLedgers, setDraftLedgers] = useState<FavoriteLedger[]>(ledgers)
@@ -1272,7 +1274,34 @@ export function FavoriteLedgerPanel({
     }
   }
 
-  function rejudgeOldFavorite(item: FavoriteLedgerPreviewItem) {
+  async function rejudgeOldFavorite(item: FavoriteLedgerPreviewItem) {
+    if (onRejudgeOldFavorite) {
+      const refreshedItem = await onRejudgeOldFavorite(item)
+      setPreview((current) => {
+        if (!current) {
+          return current
+        }
+
+        return {
+          ...current,
+          items: current.items.map((candidate) =>
+            candidate.aid === item.aid ? refreshedItem : candidate
+          )
+        }
+      })
+      setSelectedOldFavoriteTargetKeys((current) => {
+        const next = new Set(current)
+        for (const target of targetsForOldFavoriteItem(item)) {
+          next.delete(oldFavoriteTargetKey(item.aid, target.ledgerId))
+        }
+        for (const target of targetsForOldFavoriteItem(refreshedItem)) {
+          next.delete(oldFavoriteTargetKey(refreshedItem.aid, target.ledgerId))
+        }
+        return next
+      })
+      return
+    }
+
     const retriedTarget = retryJudgmentTargetForOldFavoriteItem(item, draftLedgers)
     if (retriedTarget) {
       setPreview((current) => {
@@ -1981,7 +2010,7 @@ export function FavoriteLedgerPanel({
                                 <button
                                   type="button"
                                   aria-label={`再次判断 ${item.title}`}
-                                  onClick={() => rejudgeOldFavorite(item)}
+                                  onClick={() => void rejudgeOldFavorite(item)}
                                 >
                                   再次判断
                                 </button>

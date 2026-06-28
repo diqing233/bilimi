@@ -336,6 +336,75 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('已选择 1 条归档任务')).toBeInTheDocument()
   })
 
+  it('refreshes a pending old favorite before rejudging without staging the matched target', async () => {
+    const onRejudgeOldFavorite = vi.fn().mockResolvedValue({
+      aid: 250,
+      title: '用户刚补了标签',
+      sourceFolderTitle: '默认收藏夹',
+      targetLedgerId: 'game',
+      targetFolderId: '9002',
+      targetDisplayName: 'Bilimi·游戏专区',
+      reviewRequired: false,
+      alreadyInTarget: false,
+      selected: false,
+      tags: ['原神'],
+      targets: [
+        {
+          ledgerId: 'game',
+          folderId: '9002',
+          displayName: 'Bilimi·游戏专区',
+          keywords: ['原神'],
+          alreadyInTarget: false,
+          selected: true
+        }
+      ]
+    })
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'game' ? { ...ledger, bilibiliFolderId: '9002', keywords: ['原神'] } : ledger
+    )
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 250,
+          title: '用户刚补了标签',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'inbox',
+          targetFolderId: '9008',
+          targetDisplayName: 'Bilimi·暂存',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: false,
+          tags: [],
+          targets: [
+            {
+              ledgerId: 'inbox',
+              folderId: '9008',
+              displayName: 'Bilimi·暂存',
+              keywords: [],
+              alreadyInTarget: false,
+              selected: false
+            }
+          ]
+        }
+      ],
+      skippedSourceFolderTitles: []
+    })
+
+    renderPanel({ ledgers, onScanOldFavorites, onRejudgeOldFavorite })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '再次判断 用户刚补了标签' }))
+
+    await waitFor(() => expect(onRejudgeOldFavorite).toHaveBeenCalledWith(expect.objectContaining({ aid: 250 })))
+    expect(screen.queryByRole('group', { name: '未匹配到合适分类 1 条' })).not.toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Bilimi·游戏专区 1 条' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    expect(screen.getByText('已选择 0 条归档任务')).toBeInTheDocument()
+  })
+
   it('moves a pending old favorite into a candidate target group after further judgment', async () => {
     const onScanOldFavorites = vi.fn().mockResolvedValue({
       items: [

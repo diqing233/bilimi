@@ -926,6 +926,13 @@ export function FloatingAssistantApp({
     return result
   }
 
+  async function rejudgeOldFavorite(item: FavoriteLedgerPreviewItem): Promise<FavoriteLedgerPreviewItem> {
+    tellPet('progress', '小咪正在根据最新改动重新判断。')
+    const refreshedItem = (await window.bilimiDesktop?.rejudgeOldFavorite?.(item)) ?? item
+    tellPet('success', '已经按最新信息判断一次。')
+    return refreshedItem
+  }
+
   function handleOldFavoriteExecutionStateChange(state: 'running' | 'finished') {
     tellPet(
       state === 'running' ? 'progress' : 'success',
@@ -972,6 +979,7 @@ export function FloatingAssistantApp({
             onExecuteOldFavoritePlan={executeOldFavoritePlan}
             onOldFavoriteExecutionStateChange={handleOldFavoriteExecutionStateChange}
             onOpenOldFavoriteVideo={onOpenInTab}
+            onRejudgeOldFavorite={rejudgeOldFavorite}
             favoriteArchiveMultiMode={preferences.favoriteArchiveMultiMode}
           />
         </div>

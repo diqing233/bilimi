@@ -53,6 +53,22 @@ describe('requestAssistantRuntimeWhenReady', () => {
       30 * 60 * 1000
     )
     expect(createAssistantRuntimeTimeoutMs({ type: 'scan-old-favorites' })).toBe(30 * 60 * 1000)
+    expect(
+      createAssistantRuntimeTimeoutMs({
+        type: 'rejudge-old-favorite',
+        item: {
+          aid: 250,
+          title: '待重判旧藏',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'inbox',
+          targetFolderId: '9008',
+          targetDisplayName: 'Bilimi·暂存',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: false
+        }
+      })
+    ).toBe(30 * 60 * 1000)
     expect(createAssistantRuntimeTimeoutMs({ type: 'execute-old-favorite-plan', items: [] })).toBe(
       30 * 60 * 1000
     )

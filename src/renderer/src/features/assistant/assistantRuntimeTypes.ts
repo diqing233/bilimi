@@ -49,6 +49,7 @@ export type AssistantRuntimeRequest =
       type: 'scan-old-favorites'
       multiArchiveMode?: FavoriteArchiveMultiMode
     }
+  | { id: string; type: 'rejudge-old-favorite'; item: FavoriteLedgerPreviewItem }
   | { id: string; type: 'execute-old-favorite-plan'; items: FavoriteLedgerPreviewItem[] }
 
 export type AssistantRuntimeResponsePayload =
@@ -56,6 +57,7 @@ export type AssistantRuntimeResponsePayload =
   | AssistantAutomationResult
   | FavoriteLedgerStatus
   | FavoriteLedgerPreview
+  | FavoriteLedgerPreviewItem
   | VideoAudioTranscriptionQueueSnapshot
   | VideoNote
   | VideoNote[]

@@ -1288,6 +1288,83 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('rejudges one old favorite from fresh Bilibili scan data', async () => {
+    const preferences = createAppPreferences({
+      favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) => {
+        if (ledger.id === 'game') {
+          return { ...ledger, bilibiliFolderId: '9002', keywords: ['原神'] }
+        }
+        if (ledger.id === 'inbox') {
+          return { ...ledger, bilibiliFolderId: '9008' }
+        }
+        return ledger
+      })
+    })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge()
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes(OLD_FAVORITE_SCAN_SCRIPT_MARKER) && script.includes('"aid":250')) {
+        return {
+          ok: true,
+          sourceFolders: [
+            {
+              id: '101',
+              title: '默认收藏夹',
+              videos: [
+                {
+                  aid: 250,
+                  title: '用户刚补了标签',
+                  description: '新补标签后应该进游戏区',
+                  tags: ['原神']
+                }
+              ]
+            }
+          ],
+          targetMembership: {
+            '9002': []
+          },
+          skippedSourceFolderTitles: [],
+          steps: ['api:favorite:scan-video-source:101'],
+          missingTargets: [],
+          message: 'old favorite video refreshed'
+        }
+      }
+
+      return emptyLedgerStatus()
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    const item = await requestRuntime({
+      id: 'rejudge-1',
+      type: 'rejudge-old-favorite',
+      item: {
+        aid: 250,
+        title: '用户刚补了标签',
+        sourceFolderTitle: '默认收藏夹',
+        targetLedgerId: 'inbox',
+        targetFolderId: '9008',
+        targetDisplayName: 'Bilimi·暂存',
+        reviewRequired: false,
+        alreadyInTarget: false,
+        selected: false
+      }
+    })
+
+    expect(item).toEqual(
+      expect.objectContaining({
+        aid: 250,
+        targetLedgerId: 'game',
+        targetFolderId: '9002',
+        selected: true,
+        tags: ['原神']
+      })
+    )
+    expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('"aid":250'))
+  })
+
   it('does not persist unresolved old favorite items to the pending queue', async () => {
     const upsertPendingFavoriteQueueItems = vi.fn().mockResolvedValue([])
     const { requestRuntime } = renderAppWithRuntimeBridge({ upsertPendingFavoriteQueueItems })
