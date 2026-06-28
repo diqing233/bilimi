@@ -247,6 +247,7 @@ export function FloatingAssistantApp({
   const [deepSeekApiKeyDraft, setDeepSeekApiKeyDraft] = useState('')
   const [deepSeekStatusMessage, setDeepSeekStatusMessage] = useState('')
   const mounted = useRef(false)
+  const lastPreferenceSaveAt = useRef(0)
   const transcriptionQueueRef = useRef<VideoAudioTranscriptionQueueSnapshot>({ items: [] })
   const activeTab = controlledActiveTab ?? uncontrolledActiveTab
   const [activeView, setActiveView] = useState<AssistantWorkspaceView>(activeTab)
@@ -281,7 +282,17 @@ export function FloatingAssistantApp({
       }
 
       setSnapshot(nextSnapshot)
-      setPreferences(createInitialAssistantPreferences(nextSnapshot.preferences))
+      const snapshotPreferences = createInitialAssistantPreferences(nextSnapshot.preferences)
+      const snapshotArrivedSoonAfterSave = Date.now() - lastPreferenceSaveAt.current < 2000
+      setPreferences((currentPreferences) =>
+        snapshotArrivedSoonAfterSave
+          ? {
+              ...snapshotPreferences,
+              defaultCoinCount: currentPreferences.defaultCoinCount,
+              commentSubmitMode: currentPreferences.commentSubmitMode
+            }
+          : snapshotPreferences
+      )
       setFavoriteLedgerStatus(nextSnapshot.favoriteLedgerStatus)
 
       if (resetVideoNote) {
@@ -398,6 +409,8 @@ export function FloatingAssistantApp({
       const savedPreferences = createInitialAssistantPreferences(saved)
       preferencesRef.current = savedPreferences
       setPreferences(savedPreferences)
+      lastPreferenceSaveAt.current = Date.now()
+      window.bilimiDesktop.notifyAssistantSnapshotChanged?.()
     }
   }
 

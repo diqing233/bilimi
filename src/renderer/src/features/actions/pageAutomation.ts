@@ -43,7 +43,9 @@ export function buildAutomationScript(
         }
 
         if ('value' in element) {
-          element.value = value;
+          const prototype = Object.getPrototypeOf(element);
+          const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+          valueSetter ? valueSetter.call(element, value) : (element.value = value);
           element.dispatchEvent(new Event('input', { bubbles: true }));
           element.dispatchEvent(new Event('change', { bubbles: true }));
         } else {
@@ -65,6 +67,28 @@ export function buildAutomationScript(
       const isLikelyHidden = (node) => {
         const style = window.getComputedStyle?.(node);
         return style?.display === 'none' || style?.visibility === 'hidden';
+      };
+      const isVisibleInput = (node) => {
+        if (!node || isLikelyHidden(node)) {
+          return false;
+        }
+
+        if (node.disabled || node.readOnly) {
+          return false;
+        }
+
+        const rect = node.getBoundingClientRect?.();
+        const hasSearchText = Boolean(
+          normalize(
+            [
+              node.getAttribute?.('aria-label'),
+              node.getAttribute?.('placeholder'),
+              node.getAttribute?.('class'),
+              node.textContent
+            ].filter(Boolean).join(' ')
+          )
+        );
+        return !rect || rect.width > 0 || rect.height > 0 || hasSearchText;
       };
       const closestClickable = (node) =>
         node?.closest?.('button,[role="button"],a,[tabindex],.video-toolbar-left-item,.video-like,.video-coin,.video-fav,.toolbar-left-item,.toolbar-right-item,.ops span') || node;
@@ -562,10 +586,30 @@ export function buildAutomationScript(
       const queryFavoriteConfirm = () =>
         byText('button,[role="button"],.fav-submit,.submit', ['完成', '确定', '确认', '保存']);
 
-      const queryCommentField = () =>
-        document.querySelector('textarea') ||
-        document.querySelector('[contenteditable="true"]') ||
-        document.querySelector('input[type="text"]');
+      const queryCommentField = () => {
+        const selectors = [
+          '.reply-box textarea',
+          '.reply-box [contenteditable="true"]',
+          '.comment-box textarea',
+          '.comment-box [contenteditable="true"]',
+          '[class*="reply"] textarea',
+          '[class*="reply"] [contenteditable="true"]',
+          '[class*="comment"] textarea',
+          '[class*="comment"] [contenteditable="true"]',
+          'textarea',
+          '[contenteditable="true"]',
+          'input[type="text"]'
+        ];
+
+        for (const selector of selectors) {
+          const field = Array.from(document.querySelectorAll(selector)).find(isVisibleInput);
+          if (field) {
+            return field;
+          }
+        }
+
+        return null;
+      };
 
       const fillComment = async () => {
         const commentField = await waitForElement(queryCommentField, 'comment');
@@ -579,13 +623,8 @@ export function buildAutomationScript(
           return false;
         }
 
-        if ('value' in commentField) {
-          commentField.value = payload.commentDraft;
-          commentField.dispatchEvent(new Event('input', { bubbles: true }));
-          commentField.dispatchEvent(new Event('change', { bubbles: true }));
-        } else {
-          commentField.textContent = payload.commentDraft;
-          commentField.dispatchEvent(new InputEvent('input', { bubbles: true, data: payload.commentDraft }));
+        if (!typeText(commentField, payload.commentDraft)) {
+          return false;
         }
 
         steps.push('comment:fill');

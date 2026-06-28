@@ -910,6 +910,36 @@ describe('buildAutomationScript', () => {
     expect(result.message).toContain('评论已填好')
   })
 
+  it('fills the visible Bilibili comment box instead of an earlier hidden textarea', async () => {
+    document.body.innerHTML = `
+      <textarea class="offscreen-draft" style="display: none"></textarea>
+      <section class="reply-box">
+        <textarea class="reply-textarea" placeholder="下面我简单喵两句"></textarea>
+        <div class="reply-send primary">发布</div>
+      </section>
+    `
+    const hiddenTextarea = document.querySelector('.offscreen-draft') as HTMLTextAreaElement
+    const visibleTextarea = document.querySelector('.reply-textarea') as HTMLTextAreaElement
+
+    const draft = '这条应该进入可见评论框。'
+    const result = await window.eval(
+      buildAutomationScript(
+        '表',
+        'Bilimi 内库',
+        undefined,
+        draft,
+        favoriteLedgers,
+        'movie-tv',
+        { submitComment: false }
+      )
+    )
+
+    expect(hiddenTextarea.value).toBe('')
+    expect(visibleTextarea.value).toBe(draft)
+    expect(result.ok).toBe(true)
+    expect(result.steps).toContain('comment:fill')
+  })
+
   it('finds the Bilibili reply send control when 表 is configured for one-click publish', async () => {
     document.body.innerHTML = `
       <section class="reply-box">

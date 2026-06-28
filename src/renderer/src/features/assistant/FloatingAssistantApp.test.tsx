@@ -586,6 +586,38 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
+  it('keeps locally saved review action settings when a stale snapshot arrives after video changes', async () => {
+    let snapshotChanged: (() => void) | undefined
+    const requestAssistantSnapshot = vi
+      .fn()
+      .mockResolvedValue(createSnapshot({ preferences: createPreferences({ defaultCoinCount: 1 }) }))
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => ({
+      ...preferences,
+      defaultCoinCount: 2
+    }))
+    installDesktopApi({
+      requestAssistantSnapshot,
+      savePreferences,
+      onAssistantSnapshotChanged: vi.fn((callback) => {
+        snapshotChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('radio', { name: '赐默认投 2 币' }))
+
+    await waitFor(() => expect(screen.getByRole('radio', { name: '赐默认投 2 币' })).toBeChecked())
+
+    await act(async () => {
+      snapshotChanged?.()
+    })
+
+    expect(await screen.findByRole('radio', { name: '赐默认投 2 币' })).toBeChecked()
+  })
+
   it('passes manual comment mode by default when 表 sends the selected draft', async () => {
     const { runAssistantAction } = installDesktopApi()
 
