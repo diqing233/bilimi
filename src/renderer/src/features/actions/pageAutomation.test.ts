@@ -1136,6 +1136,75 @@ describe('buildAutomationScript', () => {
     )
   })
 
+  it('recognizes a visible generic placeholder comment box after lazy loading', async () => {
+    document.body.innerHTML = `
+      <main class="video-page">评论列表已出现，底部评论框稍后加载</main>
+    `
+    let commentMounted = false
+    const mountCommentArea = () => {
+      if (commentMounted) {
+        return
+      }
+
+      commentMounted = true
+      window.setTimeout(() => {
+        document.body.insertAdjacentHTML(
+          'beforeend',
+          `
+            <section class="interaction-floor">
+              <div class="input-shell">
+                <div class="input-placeholder">你渴望拥有力量吗？评论让力量更强...</div>
+              </div>
+            </section>
+          `
+        )
+        const shell = document.querySelector('.input-shell') as HTMLElement
+        let activated = false
+        shell.addEventListener('click', () => {
+          if (activated) {
+            return
+          }
+
+          activated = true
+          shell.innerHTML = `
+            <textarea class="real-editor" placeholder="评论让力量更强"></textarea>
+            <button class="real-send">发布</button>
+          `
+        })
+      }, 250)
+    }
+    window.addEventListener('wheel', mountCommentArea)
+    window.addEventListener('scroll', mountCommentArea)
+
+    let commentPublished = false
+    document.body.addEventListener('click', (event) => {
+      if ((event.target as HTMLElement).classList.contains('real-send')) {
+        commentPublished = true
+      }
+    })
+
+    const result = await window.eval(
+      buildAutomationScript(
+        '表',
+        'Bilimi 内库',
+        undefined,
+        '识别底部占位评论框。',
+        favoriteLedgers,
+        'movie-tv',
+        { submitComment: true }
+      )
+    )
+
+    expect(commentPublished).toBe(true)
+    expect((document.querySelector('.real-editor') as HTMLTextAreaElement).value).toBe(
+      '识别底部占位评论框。'
+    )
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(
+      expect.arrayContaining(['comment:wait-root', 'comment:root', 'comment:activate', 'comment:fill', 'comment:submit'])
+    )
+  })
+
   it('clicks the inactive Bilibili comment box before filling and publishing', async () => {
     document.body.innerHTML = `
       <section id="comment">

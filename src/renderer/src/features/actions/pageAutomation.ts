@@ -598,6 +598,25 @@ export function buildAutomationScript(
       const queryFavoriteConfirm = () =>
         byText('button,[role="button"],.fav-submit,.submit', ['完成', '确定', '确认', '保存']);
 
+      const commentRootContainerSelectors =
+        '#comment,#commentapp,.comment-container,.comment-box,.reply-box,.bb-comment,.bili-comment,form,section,div';
+
+      const isLikelyCommentText = (text) => {
+        const normalizedText = normalize(text).toLowerCase();
+        const looksLikeComment =
+          normalizedText.includes(normalize('评论')) ||
+          normalizedText.includes(normalize('回复')) ||
+          normalizedText.includes('comment') ||
+          normalizedText.includes('reply');
+        const looksLikeDanmaku =
+          normalizedText.includes(normalize('弹幕')) ||
+          normalizedText.includes('danmaku') ||
+          normalizedText.includes('dm-input') ||
+          normalizedText.includes('bpx-player');
+
+        return looksLikeComment && !looksLikeDanmaku;
+      };
+
       const queryCommentRoot = () => {
         const selectors = [
           '#comment',
@@ -645,23 +664,37 @@ export function buildAutomationScript(
             node.getAttribute?.('class'),
             node.textContent
           ].filter(Boolean).join(' ');
-          const normalizedText = normalize(text).toLowerCase();
-          const looksLikeComment =
-            normalizedText.includes(normalize('评论')) ||
-            normalizedText.includes(normalize('回复')) ||
-            normalizedText.includes('comment') ||
-            normalizedText.includes('reply');
-          const looksLikeDanmaku =
-            normalizedText.includes(normalize('弹幕')) ||
-            normalizedText.includes('danmaku') ||
-            normalizedText.includes('dm-input') ||
-            normalizedText.includes('bpx-player');
 
-          return looksLikeComment && !looksLikeDanmaku;
+          return isLikelyCommentText(text);
         });
 
         if (standaloneField) {
-          return standaloneField.closest?.('#comment,#commentapp,.comment-container,.comment-box,.reply-box,.bb-comment,.bili-comment,form,section,div') || standaloneField.parentElement || document.body;
+          return standaloneField.closest?.(commentRootContainerSelectors) || standaloneField.parentElement || document.body;
+        }
+
+        const standaloneActivator = Array.from(document.querySelectorAll('div,section,form')).find((node) => {
+          if (!isVisibleCandidate(node)) {
+            return false;
+          }
+
+          if (node.querySelector?.('textarea,[contenteditable="true"],input[type="text"]')) {
+            return false;
+          }
+
+          const ownText = [
+            node.getAttribute?.('aria-label'),
+            node.getAttribute?.('title'),
+            node.getAttribute?.('data-placeholder'),
+            node.getAttribute?.('placeholder'),
+            node.getAttribute?.('class'),
+            node.textContent
+          ].filter(Boolean).join(' ');
+
+          return isLikelyCommentText(ownText);
+        });
+
+        if (standaloneActivator) {
+          return standaloneActivator.closest?.(commentRootContainerSelectors) || standaloneActivator;
         }
 
         return null;
@@ -712,11 +745,14 @@ export function buildAutomationScript(
           '.comment-box',
           '.reply-box-placeholder',
           '.comment-box-placeholder',
+          '[class*="input"][class*="placeholder"]',
+          '[class*="placeholder"]',
+          '[class*="input"][class*="shell"]',
           '[class*="reply"][class*="box"]',
           '[class*="comment"][class*="box"]'
         ].join(',');
         const nodes = Array.from(root.querySelectorAll?.(selectors) || []);
-        return nodes.find((node) => isVisibleCandidate(node)) || null;
+        return nodes.find((node) => isVisibleCandidate(node) && isLikelyCommentText(nodeSearchText(node))) || null;
       };
 
       const activateCommentBox = async (commentRoot) => {
