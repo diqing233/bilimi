@@ -36,6 +36,74 @@ export function buildDanmakuFieldFocusScript(): string {
           y: Math.round(rect.top + rect.height / 2)
         };
       };
+      const stateText = (node) =>
+        normalized(
+          [
+            node?.getAttribute?.('aria-label'),
+            node?.getAttribute?.('title'),
+            node?.getAttribute?.('class'),
+            node?.getAttribute?.('data-screen'),
+            node?.getAttribute?.('data-mode'),
+            node?.getAttribute?.('data-state'),
+            node?.textContent
+          ].join(' ')
+        );
+      const isExpandExitControl = (node) => {
+        if (node?.getAttribute?.('aria-pressed') === 'true' || node?.getAttribute?.('aria-checked') === 'true') {
+          return true;
+        }
+
+        const text = stateText(node);
+        return (
+          text.includes('退出宽屏') ||
+          text.includes('退出网页全屏') ||
+          text.includes('退出放大') ||
+          text.includes('缩小') ||
+          /(^|[-_\\s])(active|entered|on|selected)([-_\\s]|$)/.test(text)
+        );
+      };
+      const isExpandedPlayerRoot = (node) => {
+        const text = stateText(node);
+        return /(^|[-_\\s])(wide|widescreen|webscreen|theater|expanded)([-_\\s]|$)/.test(text);
+      };
+      const queryPlayerExpandButton = () => {
+        const selectors = [
+          '.bpx-player-ctrl-wide',
+          '.bpx-player-ctrl-web',
+          '.bilibili-player-video-btn-widescreen',
+          '.bilibili-player-video-btn-web-fullscreen',
+          '[aria-label*="宽屏"]',
+          '[title*="宽屏"]',
+          '[aria-label*="网页全屏"]',
+          '[title*="网页全屏"]',
+          '[aria-label*="放大"]',
+          '[title*="放大"]'
+        ].join(',');
+
+        return Array.from(document.querySelectorAll(selectors)).find(isVisibleInput) || null;
+      };
+      const ensurePlayerExpanded = () => {
+        const expandButton = queryPlayerExpandButton();
+        const playerRoots = [
+          document.body,
+          document.documentElement,
+          ...Array.from(
+            document.querySelectorAll(
+              '.bpx-player-container,.bpx-player,.bilibili-player,#bilibili-player,[class*="player"]'
+            )
+          )
+        ];
+
+        if (playerRoots.some(isExpandedPlayerRoot) || (expandButton && isExpandExitControl(expandButton))) {
+          result.steps.push('danmaku:player:expanded');
+          return;
+        }
+
+        if (expandButton) {
+          expandButton.click?.();
+          result.steps.push('danmaku:player:expand');
+        }
+      };
       const selectors = [
         '.bpx-player-dm-input',
         '.bilibili-player-video-danmaku-input',
@@ -52,6 +120,8 @@ export function buildDanmakuFieldFocusScript(): string {
         result.message = '尚有 danmaku-focus 未能寻见。';
         return result;
       }
+
+      ensurePlayerExpanded();
 
       const sendingArea =
         field.closest?.('.bpx-player-sending-area,.bilibili-player-video-sendbar') ||

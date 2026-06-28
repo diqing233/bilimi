@@ -1057,6 +1057,84 @@ describe('buildAutomationScript', () => {
 })
 
 describe('buildDanmakuFieldFocusScript', () => {
+  it('expands the player before focusing the danmaku bar when it is not already enlarged', async () => {
+    document.body.innerHTML = `
+      <div class="bpx-player-container">
+        <button class="bpx-player-ctrl-wide" title="宽屏模式">宽屏</button>
+        <section class="bpx-player-sending-area">
+          <button class="bpx-player-dm-switch" aria-pressed="true" title="关闭弹幕">弹</button>
+          <input class="bpx-player-dm-input" type="text" />
+          <button class="bpx-player-dm-btn">发送</button>
+        </section>
+      </div>
+    `
+    const expandButton = document.querySelector('.bpx-player-ctrl-wide') as HTMLButtonElement
+    const input = document.querySelector('.bpx-player-dm-input') as HTMLInputElement
+    const sendButton = document.querySelector('.bpx-player-dm-btn') as HTMLButtonElement
+    let expandClicked = false
+
+    expandButton.addEventListener('click', () => {
+      expandClicked = true
+    })
+    Object.defineProperty(expandButton, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 310, top: 10, width: 32, height: 28 })
+    })
+    Object.defineProperty(input, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 50, top: 10, width: 160, height: 28 })
+    })
+    Object.defineProperty(sendButton, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 220, top: 10, width: 80, height: 28 })
+    })
+
+    const result = await window.eval(buildDanmakuFieldFocusScript())
+
+    expect(expandClicked).toBe(true)
+    expect(result.steps).toEqual(expect.arrayContaining(['danmaku:player:expand', 'danmaku:focus']))
+  })
+
+  it('does not shrink the player when the enlarge control is already in exit mode', async () => {
+    document.body.innerHTML = `
+      <div class="bpx-player-container">
+        <button class="bpx-player-ctrl-wide active" aria-pressed="true" title="退出宽屏">退出宽屏</button>
+        <section class="bpx-player-sending-area">
+          <button class="bpx-player-dm-switch" aria-pressed="true" title="关闭弹幕">弹</button>
+          <input class="bpx-player-dm-input" type="text" />
+          <button class="bpx-player-dm-btn">发送</button>
+        </section>
+      </div>
+    `
+    const expandButton = document.querySelector('.bpx-player-ctrl-wide') as HTMLButtonElement
+    const input = document.querySelector('.bpx-player-dm-input') as HTMLInputElement
+    const sendButton = document.querySelector('.bpx-player-dm-btn') as HTMLButtonElement
+    let expandClicked = false
+
+    expandButton.addEventListener('click', () => {
+      expandClicked = true
+    })
+    Object.defineProperty(expandButton, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 310, top: 10, width: 32, height: 28 })
+    })
+    Object.defineProperty(input, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 50, top: 10, width: 160, height: 28 })
+    })
+    Object.defineProperty(sendButton, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({ left: 220, top: 10, width: 80, height: 28 })
+    })
+
+    const result = await window.eval(buildDanmakuFieldFocusScript())
+
+    expect(expandClicked).toBe(false)
+    expect(result.steps).toEqual(
+      expect.arrayContaining(['danmaku:player:expanded', 'danmaku:focus'])
+    )
+  })
+
   it('focuses the visible danmaku bar without scrolling and opens a clearly disabled switch', async () => {
     document.body.innerHTML = `
       <section class="bpx-player-sending-area">
