@@ -105,7 +105,9 @@ export type AssistantPreferences = {
   preferenceCounts: Record<string, number>
   deepseekEnabled: boolean
   deepseekApiKeyStored: boolean
+  deepseekCommentEnabled: boolean
   deepseekAutoSummaryEnabled: boolean
+  deepseekPetChatEnabled: boolean
   deepseekModel: string
   deepseekBaseUrl: string
 }

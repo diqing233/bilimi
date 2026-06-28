@@ -24,6 +24,7 @@ type MemorialPanelProps = {
   recommendation: RecommendationLabel
   commentDrafts: string[]
   deepSeekEnabled?: boolean
+  deepSeekCommentEnabled?: boolean
   deepSeekAutoSummaryEnabled?: boolean
   videoCategory?: string
   videoTitle: string
@@ -141,6 +142,7 @@ export function MemorialPanel({
   recommendation,
   commentDrafts,
   deepSeekEnabled = false,
+  deepSeekCommentEnabled = deepSeekEnabled,
   deepSeekAutoSummaryEnabled = false,
   videoCategory = '解闷小品',
   videoTitle,
@@ -209,7 +211,7 @@ export function MemorialPanel({
                 <p className="memorial-panel__recommendation-summary">{recommendation.hint}</p>
               ) : null}
               <p className="memorial-panel__deepseek-status">
-                {deepSeekEnabled
+                {deepSeekEnabled && deepSeekCommentEnabled
                   ? 'DeepSeek 已开启，表会生成三条有趣视频评论。'
                   : 'DeepSeek 未开启，表会推荐三条默认评论。'}
               </p>

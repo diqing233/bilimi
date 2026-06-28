@@ -27,7 +27,9 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     commentSubmitMode: 'auto',
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
+    deepseekCommentEnabled: false,
     deepseekAutoSummaryEnabled: false,
+    deepseekPetChatEnabled: false,
     deepseekModel: 'deepseek-v4-flash',
     deepseekBaseUrl: 'https://api.deepseek.com',
     ...overrides
@@ -372,7 +374,8 @@ describe('FloatingAssistantApp', () => {
   it('generates AI comment drafts directly when DeepSeek is enabled', async () => {
     const preferences = createPreferences({
       deepseekEnabled: true,
-      deepseekApiKeyStored: true
+      deepseekApiKeyStored: true,
+      deepseekCommentEnabled: true
     })
     const { generateDeepSeek, runAssistantAction } = installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(createSnapshot({ preferences }))
@@ -413,7 +416,8 @@ describe('FloatingAssistantApp', () => {
   it('falls back to 小咪 comments when DeepSeek comment generation is unusable', async () => {
     const preferences = createPreferences({
       deepseekEnabled: true,
-      deepseekApiKeyStored: true
+      deepseekApiKeyStored: true,
+      deepseekCommentEnabled: true
     })
     const { generateDeepSeek, runAssistantAction } = installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(createSnapshot({ preferences })),
@@ -439,6 +443,39 @@ describe('FloatingAssistantApp', () => {
         '表',
         expect.objectContaining({
           commentDraft: expect.stringContaining('李老师讲AI'),
+          pageClickOnly: false
+        })
+      )
+    )
+  })
+
+  it('uses local comments when DeepSeek comments are disabled separately', async () => {
+    const preferences = createPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekCommentEnabled: false
+    })
+    const { generateDeepSeek, runAssistantAction } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(createSnapshot({ preferences }))
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await screen.findByText('三分钟讲清机器学习科普教程')
+    fireEvent.click(await screen.findByRole('button', { name: /表.*拟奏短评/ }))
+
+    expect(generateDeepSeek).not.toHaveBeenCalled()
+    expect(await screen.findByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
+    const choices = screen.getAllByRole('button', { name: /三分钟讲清机器学习科普教程/ })
+    expect(choices).toHaveLength(3)
+
+    fireEvent.click(choices[0])
+
+    await waitFor(() =>
+      expect(runAssistantAction).toHaveBeenCalledWith(
+        '表',
+        expect.objectContaining({
+          commentDraft: expect.stringContaining('三分钟讲清机器学习科普教程'),
           pageClickOnly: false
         })
       )
@@ -760,7 +797,9 @@ describe('FloatingAssistantApp', () => {
     const enabled = screen.getByRole('checkbox', { name: '启用 DeepSeek' })
     fireEvent.click(enabled)
     expect(screen.queryByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek 生成趣味评论' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek 宠物对话功能' }))
     fireEvent.change(screen.getByLabelText('DeepSeek API 密钥'), {
       target: { value: 'sk-test' }
     })
@@ -779,7 +818,9 @@ describe('FloatingAssistantApp', () => {
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
           deepseekEnabled: true,
+          deepseekCommentEnabled: true,
           deepseekAutoSummaryEnabled: true,
+          deepseekPetChatEnabled: true,
           deepseekModel: 'deepseek-chat',
           deepseekBaseUrl: 'https://api.deepseek.local'
         })
@@ -797,7 +838,9 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() => expect(clearDeepSeekApiKey).toHaveBeenCalledOnce())
     await waitFor(() => {
       expect(screen.getByRole('checkbox', { name: '启用 DeepSeek' })).not.toBeChecked()
+      expect(screen.getByRole('checkbox', { name: '启用 DeepSeek 生成趣味评论' })).not.toBeChecked()
       expect(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' })).not.toBeChecked()
+      expect(screen.getByRole('checkbox', { name: '启用 DeepSeek 宠物对话功能' })).not.toBeChecked()
     })
     expect(screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥').value).toBe('')
     expect(screen.getByLabelText<HTMLInputElement>('DeepSeek 模型').value).toBe('deepseek-v4-flash')
@@ -809,7 +852,9 @@ describe('FloatingAssistantApp', () => {
         expect.objectContaining({
           deepseekEnabled: false,
           deepseekApiKeyStored: false,
+          deepseekCommentEnabled: false,
           deepseekAutoSummaryEnabled: false,
+          deepseekPetChatEnabled: false,
           deepseekModel: 'deepseek-v4-flash',
           deepseekBaseUrl: 'https://api.deepseek.com'
         })

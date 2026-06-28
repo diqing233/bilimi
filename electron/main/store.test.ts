@@ -79,8 +79,12 @@ function createFakeStore(
     deepseekEnabled: initial.deepseekEnabled ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekEnabled,
     deepseekApiKeyStored:
       initial.deepseekApiKeyStored ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekApiKeyStored,
+    deepseekCommentEnabled:
+      initial.deepseekCommentEnabled ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekCommentEnabled,
     deepseekAutoSummaryEnabled:
       initial.deepseekAutoSummaryEnabled ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekAutoSummaryEnabled,
+    deepseekPetChatEnabled:
+      initial.deepseekPetChatEnabled ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekPetChatEnabled,
     deepseekModel: initial.deepseekModel ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
     deepseekBaseUrl: initial.deepseekBaseUrl ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl,
     deepseekApiKey: initial.deepseekApiKey ?? '',
@@ -94,6 +98,9 @@ function createFakeStore(
     snapshot,
     get(key) {
       return snapshot[key]
+    },
+    has(key) {
+      return Object.prototype.hasOwnProperty.call(snapshot, key)
     },
     set(key, value) {
       Object.assign(snapshot, { [key]: value })
@@ -167,7 +174,9 @@ describe('assistant preference store helpers', () => {
       },
       deepseekEnabled: true,
       deepseekApiKeyStored: false,
+      deepseekCommentEnabled: true,
       deepseekAutoSummaryEnabled: false,
+      deepseekPetChatEnabled: true,
       deepseekModel: 'deepseek-reasoner',
       deepseekBaseUrl: 'https://deepseek.example'
     })
@@ -187,6 +196,8 @@ describe('assistant preference store helpers', () => {
         suspicious: 1
       },
       deepseekEnabled: true,
+      deepseekCommentEnabled: true,
+      deepseekPetChatEnabled: true,
       deepseekModel: 'deepseek-reasoner',
       deepseekBaseUrl: 'https://deepseek.example'
     })
@@ -200,7 +211,9 @@ describe('assistant preference store helpers', () => {
     const saved = saveAssistantPreferences(store, {
       ...DEFAULT_ASSISTANT_PREFERENCES,
       deepseekEnabled: true,
+      deepseekCommentEnabled: true,
       deepseekAutoSummaryEnabled: true,
+      deepseekPetChatEnabled: false,
       deepseekModel: 'deepseek-chat',
       deepseekBaseUrl: 'https://api.deepseek.local'
     })
@@ -208,11 +221,39 @@ describe('assistant preference store helpers', () => {
     expect(saved).toMatchObject({
       deepseekEnabled: true,
       deepseekApiKeyStored: false,
+      deepseekCommentEnabled: true,
       deepseekAutoSummaryEnabled: true,
+      deepseekPetChatEnabled: false,
       deepseekModel: 'deepseek-chat',
       deepseekBaseUrl: 'https://api.deepseek.local'
     })
     expect(store.snapshot.deepseekApiKey).toBe('')
+  })
+
+  it('loads DeepSeek feature toggles with legacy inheritance', () => {
+    const legacyStore = createFakeStore({
+      deepseekEnabled: true
+    })
+    delete (legacyStore.snapshot as Partial<DesktopStoreState>).deepseekCommentEnabled
+    delete (legacyStore.snapshot as Partial<DesktopStoreState>).deepseekPetChatEnabled
+
+    expect(loadAssistantPreferences(legacyStore)).toMatchObject({
+      deepseekEnabled: true,
+      deepseekCommentEnabled: true,
+      deepseekPetChatEnabled: true
+    })
+
+    const explicitStore = createFakeStore({
+      deepseekEnabled: true,
+      deepseekCommentEnabled: false,
+      deepseekPetChatEnabled: true
+    })
+
+    expect(loadAssistantPreferences(explicitStore)).toMatchObject({
+      deepseekEnabled: true,
+      deepseekCommentEnabled: false,
+      deepseekPetChatEnabled: true
+    })
   })
 
   it('normalizes persisted pet hover shortcuts to four valid entries', () => {

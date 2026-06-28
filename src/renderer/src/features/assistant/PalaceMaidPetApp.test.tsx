@@ -38,7 +38,9 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     favoriteArchiveMultiMode: 'off',
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
+    deepseekCommentEnabled: false,
     deepseekAutoSummaryEnabled: false,
+    deepseekPetChatEnabled: false,
     deepseekModel: 'deepseek-v4-flash',
     deepseekBaseUrl: 'https://api.deepseek.com',
     ...overrides
@@ -144,7 +146,8 @@ describe('PalaceMaidPetApp', () => {
       loadPreferences: vi.fn().mockResolvedValue(
         createPreferences({
           deepseekEnabled: true,
-          deepseekApiKeyStored: true
+          deepseekApiKeyStored: true,
+          deepseekPetChatEnabled: true
         })
       )
     })
@@ -180,7 +183,8 @@ describe('PalaceMaidPetApp', () => {
       loadPreferences: vi.fn().mockResolvedValue(
         createPreferences({
           deepseekEnabled: true,
-          deepseekApiKeyStored: true
+          deepseekApiKeyStored: true,
+          deepseekPetChatEnabled: true
         })
       )
     })
@@ -223,7 +227,8 @@ describe('PalaceMaidPetApp', () => {
       loadPreferences: vi.fn().mockResolvedValue(
         createPreferences({
           deepseekEnabled: true,
-          deepseekApiKeyStored: true
+          deepseekApiKeyStored: true,
+          deepseekPetChatEnabled: true
         })
       )
     })
@@ -312,7 +317,8 @@ describe('PalaceMaidPetApp', () => {
       loadPreferences: vi.fn().mockResolvedValue(
         createPreferences({
           deepseekEnabled: true,
-          deepseekApiKeyStored: true
+          deepseekApiKeyStored: true,
+          deepseekPetChatEnabled: true
         })
       )
     })
@@ -357,12 +363,35 @@ describe('PalaceMaidPetApp', () => {
     expect(api.generateDeepSeek).not.toHaveBeenCalled()
   })
 
+  it('does not call DeepSeek when only pet chat is disabled', async () => {
+    const api = installDesktopApi({
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          deepseekEnabled: true,
+          deepseekApiKeyStored: true,
+          deepseekPetChatEnabled: false
+        })
+      )
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.click(screen.getByRole('button', { name: '打开小咪对话' }))
+
+    expect(
+      await screen.findByText('主人，想要跟小咪交流的话去设置开启DeepSeek宠物对话功能吧')
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText('和小咪说话')).not.toBeInTheDocument()
+    expect(api.generateDeepSeek).not.toHaveBeenCalled()
+  })
+
   it('shows an alert when 小咪 chat fails', async () => {
     installDesktopApi({
       loadPreferences: vi.fn().mockResolvedValue(
         createPreferences({
           deepseekEnabled: true,
-          deepseekApiKeyStored: true
+          deepseekApiKeyStored: true,
+          deepseekPetChatEnabled: true
         })
       ),
       generateDeepSeek: vi.fn().mockRejectedValue(new Error('DeepSeek failed.'))
@@ -394,7 +423,9 @@ describe('PalaceMaidPetApp', () => {
         favoriteArchiveMultiMode: 'off',
         deepseekEnabled: false,
         deepseekApiKeyStored: false,
+        deepseekCommentEnabled: false,
         deepseekAutoSummaryEnabled: false,
+        deepseekPetChatEnabled: false,
         deepseekModel: 'deepseek-v4-flash',
         deepseekBaseUrl: 'https://api.deepseek.com'
       })
@@ -434,7 +465,9 @@ describe('PalaceMaidPetApp', () => {
         favoriteArchiveMultiMode: 'off',
         deepseekEnabled: false,
         deepseekApiKeyStored: false,
+        deepseekCommentEnabled: false,
         deepseekAutoSummaryEnabled: false,
+        deepseekPetChatEnabled: false,
         deepseekModel: 'deepseek-v4-flash',
         deepseekBaseUrl: 'https://api.deepseek.com'
       })

@@ -20,6 +20,8 @@ const PET_SIZE_MAX_PX = 164
 const PET_SIZE_DEFAULT_PX = 148
 const DEEPSEEK_CHAT_DISABLED_MESSAGE =
   '主人，想要跟小咪交流的话去设置开启DeepSeek支持吧'
+const DEEPSEEK_PET_CHAT_DISABLED_MESSAGE =
+  '主人，想要跟小咪交流的话去设置开启DeepSeek宠物对话功能吧'
 const BILIBILI_VIDEO_URL_PATTERN = /bilibili\.com\/video\/[^/?#]+/i
 
 type DragState = {
@@ -60,7 +62,10 @@ export function PalaceMaidPetApp() {
   const visiblePetState = petHint?.tone ?? petState
   const stateView = createPetStateView(visiblePetState)
   const bubbleMessage = petHint?.message ?? stateView.bubble
-  const deepSeekChatEnabled = preferences.deepseekEnabled && preferences.deepseekApiKeyStored
+  const deepSeekChatEnabled =
+    preferences.deepseekEnabled &&
+    preferences.deepseekApiKeyStored &&
+    preferences.deepseekPetChatEnabled
   const hoverShortcuts = resolvePetHoverShortcuts(preferences.petHoverShortcuts)
 
   function showLocalPetHint(tone: AssistantPetHint['tone'], message: string) {
@@ -615,7 +620,9 @@ export function PalaceMaidPetApp() {
               </>
             ) : (
               <span className="palace-maid-pet__chat-disabled" role="status">
-                {DEEPSEEK_CHAT_DISABLED_MESSAGE}
+                {preferences.deepseekEnabled && preferences.deepseekApiKeyStored
+                  ? DEEPSEEK_PET_CHAT_DISABLED_MESSAGE
+                  : DEEPSEEK_CHAT_DISABLED_MESSAGE}
               </span>
             )}
           </form>

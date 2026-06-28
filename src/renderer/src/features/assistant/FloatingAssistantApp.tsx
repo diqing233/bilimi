@@ -511,7 +511,9 @@ export function FloatingAssistantApp({
       ...preferences,
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
+      deepseekCommentEnabled: false,
       deepseekAutoSummaryEnabled: false,
+      deepseekPetChatEnabled: false,
       deepseekModel: DEFAULT_DEEPSEEK_MODEL,
       deepseekBaseUrl: DEFAULT_DEEPSEEK_BASE_URL
     }
@@ -640,7 +642,7 @@ export function FloatingAssistantApp({
     if (action === '表') {
       setAiCommentDrafts([])
       setCommentIntentError('')
-      if (!preferences.deepseekEnabled) {
+      if (!preferences.deepseekEnabled || !preferences.deepseekCommentEnabled) {
         tellPet('success', 'DeepSeek 没开也没关系，小咪先给你本地短评候选。')
         setCommentChooserOpen(true)
         return
@@ -1194,6 +1196,21 @@ export function FloatingAssistantApp({
                 <label>
                   <input
                     type="checkbox"
+                    checked={preferences.deepseekCommentEnabled}
+                    onChange={(event) =>
+                      updateDeepSeekPreference(
+                        {
+                          deepseekCommentEnabled: event.currentTarget.checked
+                        },
+                        { persist: true }
+                      )
+                    }
+                  />
+                  <span>启用 DeepSeek 生成趣味评论</span>
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
                     checked={preferences.deepseekAutoSummaryEnabled}
                     onChange={(event) =>
                       updateDeepSeekPreference(
@@ -1205,6 +1222,21 @@ export function FloatingAssistantApp({
                     }
                   />
                   <span>转写完成后自动生成 DeepSeek 总结</span>
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={preferences.deepseekPetChatEnabled}
+                    onChange={(event) =>
+                      updateDeepSeekPreference(
+                        {
+                          deepseekPetChatEnabled: event.currentTarget.checked
+                        },
+                        { persist: true }
+                      )
+                    }
+                  />
+                  <span>启用 DeepSeek 宠物对话功能</span>
                 </label>
               </div>
               <label>
@@ -1301,6 +1333,7 @@ export function FloatingAssistantApp({
             recommendation={recommendation}
             commentDrafts={commentDrafts}
             deepSeekEnabled={preferences.deepseekEnabled}
+            deepSeekCommentEnabled={preferences.deepseekCommentEnabled}
             deepSeekAutoSummaryEnabled={preferences.deepseekAutoSummaryEnabled}
             videoCategory={videoCategory}
             videoTitle={resolvedVideoTitle}

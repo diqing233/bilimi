@@ -44,7 +44,9 @@ export type AssistantPreferences = {
   preferenceCounts: Record<string, number>
   deepseekEnabled: boolean
   deepseekApiKeyStored: boolean
+  deepseekCommentEnabled: boolean
   deepseekAutoSummaryEnabled: boolean
+  deepseekPetChatEnabled: boolean
   deepseekModel: string
   deepseekBaseUrl: string
 }
@@ -59,6 +61,7 @@ export type DesktopStoreState = AssistantPreferences & {
 
 export type AssistantStoreLike = {
   get<Key extends keyof DesktopStoreState>(key: Key): DesktopStoreState[Key]
+  has?<Key extends keyof DesktopStoreState>(key: Key): boolean
   set<Key extends keyof DesktopStoreState>(key: Key, value: DesktopStoreState[Key]): void
 }
 
@@ -76,7 +79,9 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   preferenceCounts: {},
   deepseekEnabled: false,
   deepseekApiKeyStored: false,
+  deepseekCommentEnabled: false,
   deepseekAutoSummaryEnabled: false,
+  deepseekPetChatEnabled: false,
   deepseekModel: 'deepseek-v4-flash',
   deepseekBaseUrl: 'https://api.deepseek.com'
 }
@@ -91,6 +96,14 @@ export const DEFAULT_DESKTOP_STORE_STATE: DesktopStoreState = {
 }
 
 let desktopStore: Store<DesktopStoreState> | undefined
+
+function loadDeepSeekFeatureToggle(
+  store: AssistantStoreLike,
+  key: 'deepseekCommentEnabled' | 'deepseekPetChatEnabled',
+  legacyEnabled: boolean
+): boolean {
+  return store.has?.(key) === false ? legacyEnabled : Boolean(store.get(key))
+}
 
 export function getDesktopStore(): Store<DesktopStoreState> {
   if (!desktopStore) {
@@ -130,7 +143,17 @@ export function loadAssistantPreferences(
     preferenceCounts: store.get('preferenceCounts') ?? {},
     deepseekEnabled: Boolean(store.get('deepseekEnabled')),
     deepseekApiKeyStored: Boolean(String(deepseekApiKey).trim()),
+    deepseekCommentEnabled: loadDeepSeekFeatureToggle(
+      store,
+      'deepseekCommentEnabled',
+      Boolean(store.get('deepseekEnabled'))
+    ),
     deepseekAutoSummaryEnabled: Boolean(store.get('deepseekAutoSummaryEnabled')),
+    deepseekPetChatEnabled: loadDeepSeekFeatureToggle(
+      store,
+      'deepseekPetChatEnabled',
+      Boolean(store.get('deepseekEnabled'))
+    ),
     deepseekModel: store.get('deepseekModel') || DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
     deepseekBaseUrl: store.get('deepseekBaseUrl') || DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl
   }
@@ -161,7 +184,9 @@ export function saveAssistantPreferences(
   store.set('preferenceCounts', preferences.preferenceCounts ?? {})
   store.set('deepseekEnabled', Boolean(preferences.deepseekEnabled))
   store.set('deepseekApiKeyStored', loadDeepSeekApiKeyStatus(store).configured)
+  store.set('deepseekCommentEnabled', Boolean(preferences.deepseekCommentEnabled))
   store.set('deepseekAutoSummaryEnabled', Boolean(preferences.deepseekAutoSummaryEnabled))
+  store.set('deepseekPetChatEnabled', Boolean(preferences.deepseekPetChatEnabled))
   store.set(
     'deepseekModel',
     preferences.deepseekModel || DEFAULT_ASSISTANT_PREFERENCES.deepseekModel

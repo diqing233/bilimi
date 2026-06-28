@@ -69,6 +69,10 @@ function normalizeDeepSeekBaseUrl(value: unknown): string {
   }
 }
 
+function normalizeDeepSeekFeatureToggle(value: unknown, legacyEnabled: unknown): boolean {
+  return typeof value === 'boolean' ? value : Boolean(legacyEnabled)
+}
+
 export function createInitialAssistantState(): AssistantState {
   return {
     lastAction: null,
@@ -96,7 +100,15 @@ export function createInitialAssistantPreferences(
     },
     deepseekEnabled: Boolean(persisted?.deepseekEnabled),
     deepseekApiKeyStored: Boolean(persisted?.deepseekApiKeyStored),
+    deepseekCommentEnabled: normalizeDeepSeekFeatureToggle(
+      persisted?.deepseekCommentEnabled,
+      persisted?.deepseekEnabled
+    ),
     deepseekAutoSummaryEnabled: Boolean(persisted?.deepseekAutoSummaryEnabled),
+    deepseekPetChatEnabled: normalizeDeepSeekFeatureToggle(
+      persisted?.deepseekPetChatEnabled,
+      persisted?.deepseekEnabled
+    ),
     deepseekModel: normalizeDeepSeekModel(persisted?.deepseekModel),
     deepseekBaseUrl: normalizeDeepSeekBaseUrl(persisted?.deepseekBaseUrl)
   }

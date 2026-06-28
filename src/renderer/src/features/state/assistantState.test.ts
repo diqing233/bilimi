@@ -129,13 +129,41 @@ describe('assistant state', () => {
       commentSubmitMode: 'auto',
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
+      deepseekCommentEnabled: false,
       deepseekAutoSummaryEnabled: false,
+      deepseekPetChatEnabled: false,
       deepseekModel: 'deepseek-v4-flash',
       deepseekBaseUrl: 'https://api.deepseek.com'
     })
     expect(createInitialAssistantPreferences()).not.toHaveProperty(
       'deepseekOldFavoriteAssistanceEnabled'
     )
+  })
+
+  it('keeps new DeepSeek feature switches off by default while inheriting legacy enabled settings', () => {
+    expect(createInitialAssistantPreferences()).toMatchObject({
+      deepseekEnabled: false,
+      deepseekCommentEnabled: false,
+      deepseekPetChatEnabled: false
+    })
+
+    expect(createInitialAssistantPreferences({ deepseekEnabled: true })).toMatchObject({
+      deepseekEnabled: true,
+      deepseekCommentEnabled: true,
+      deepseekPetChatEnabled: true
+    })
+
+    expect(
+      createInitialAssistantPreferences({
+        deepseekEnabled: true,
+        deepseekCommentEnabled: false,
+        deepseekPetChatEnabled: true
+      })
+    ).toMatchObject({
+      deepseekEnabled: true,
+      deepseekCommentEnabled: false,
+      deepseekPetChatEnabled: true
+    })
   })
 
   it('normalizes invalid persisted DeepSeek preference values', () => {
