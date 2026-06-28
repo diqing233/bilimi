@@ -763,16 +763,6 @@ export default function App() {
     const wait = (delay: number) => new Promise((resolve) => setTimeout(resolve, delay))
     currentActiveWebview.focus?.()
 
-    const focusReady = await currentActiveWebview.executeJavaScript(buildDanmakuFieldFocusScript())
-    if (!focusReady) {
-      return {
-        ok: false,
-        steps: [],
-        missingTargets: ['danmaku-focus'],
-        message: '尚有 danmaku-focus 未能寻见。'
-      }
-    }
-
     const sendKey = (keyCode: string, modifiers?: string[]) => {
       const keyDown = modifiers
         ? { keyCode, modifiers, type: 'keyDown' }
@@ -782,6 +772,21 @@ export default function App() {
         : { keyCode, type: 'keyUp' }
       currentActiveWebview.sendInputEvent?.(keyDown)
       currentActiveWebview.sendInputEvent?.(keyUp)
+    }
+
+    sendKey('d')
+    await wait(120)
+    sendKey('Enter')
+    await wait(120)
+
+    const focusReady = await currentActiveWebview.executeJavaScript(buildDanmakuFieldFocusScript())
+    if (!focusReady) {
+      return {
+        ok: false,
+        steps: ['danmaku:trusted-toggle', 'danmaku:trusted-compose'],
+        missingTargets: ['danmaku-focus'],
+        message: '尚有 danmaku-focus 未能寻见。'
+      }
     }
 
     await wait(80)
@@ -801,7 +806,13 @@ export default function App() {
 
     return {
       ...confirmation,
-      steps: ['danmaku:trusted-type', 'danmaku:trusted-enter', ...confirmation.steps]
+      steps: [
+        'danmaku:trusted-toggle',
+        'danmaku:trusted-compose',
+        'danmaku:trusted-type',
+        'danmaku:trusted-enter',
+        ...confirmation.steps
+      ]
     }
   }
 

@@ -24,6 +24,7 @@ type ExecuteAssistantActionArgs = {
 }
 
 const DOM_SCRIPT_TIMEOUT_MS = 15_000
+const TRUSTED_DANMAKU_TARGETS = ['danmaku-field', 'danmaku-fill', 'danmaku-focus', 'danmaku-submit-confirm']
 
 function usesFavorite(action: AssistantAction): boolean {
   return action === '赏' || action === '赐' || action === '藏'
@@ -58,7 +59,7 @@ function shouldUseTrustedDanmakuSubmit(
     args.submitComment === true &&
     Boolean(args.commentDraft?.trim()) &&
     Boolean(args.runTrustedDanmakuSubmitFallback) &&
-    result.missingTargets.includes('danmaku-submit-confirm')
+    result.missingTargets.some((target) => TRUSTED_DANMAKU_TARGETS.includes(target))
   )
 }
 
@@ -72,7 +73,7 @@ async function runTrustedDanmakuSubmit(
   }
 
   const remainingDomMissingTargets = domResult.missingTargets.filter(
-    (target) => target !== 'danmaku-submit-confirm'
+    (target) => !TRUSTED_DANMAKU_TARGETS.includes(target)
   )
   const missingTargets = fallbackResult.ok
     ? remainingDomMissingTargets

@@ -576,6 +576,10 @@ describe('App runtime integration', () => {
     })
 
     expect(sentEvents).toEqual([
+      { keyCode: 'd', type: 'keyDown' },
+      { keyCode: 'd', type: 'keyUp' },
+      { keyCode: 'Enter', type: 'keyDown' },
+      { keyCode: 'Enter', type: 'keyUp' },
       { keyCode: 'a', modifiers: ['control'], type: 'keyDown' },
       { keyCode: 'a', modifiers: ['control'], type: 'keyUp' },
       { keyCode: 'Backspace', type: 'keyDown' },

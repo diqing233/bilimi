@@ -1129,21 +1129,48 @@ export function buildAutomationScript(
         });
       };
 
-      const submitDanmaku = async (danmaku) => {
-        const submitButton = await waitForElement(
-          () => queryDanmakuSubmitButton(danmaku.field),
-          'danmaku-submit'
-        );
-        if (!submitButton) {
-          return false;
-        }
+      const dispatchShortcutKey = (key, code, keyCode) => {
+        const target = document.activeElement && document.activeElement !== document.body
+          ? document.activeElement
+          : document.body || document.documentElement;
+        ['keydown', 'keypress', 'keyup'].forEach((eventName) => {
+          target?.dispatchEvent?.(
+            new KeyboardEvent(eventName, {
+              key,
+              code,
+              keyCode,
+              which: keyCode,
+              bubbles: true,
+              cancelable: true
+            })
+          );
+        });
+      };
 
-        submitButton.click?.();
+      const openDanmakuComposer = async () => {
+        dispatchShortcutKey('d', 'KeyD', 68);
+        steps.push('danmaku:shortcut:d');
+        await wait(120);
+        dispatchShortcutKey('Enter', 'Enter', 13);
+        steps.push('danmaku:compose-enter');
+        await wait(120);
+      };
+
+      const submitDanmaku = async (danmaku) => {
+        danmaku.field.focus?.();
+        dispatchEnterKey(danmaku.field);
         await wait(80);
 
         if (!(await waitForDanmakuSubmitConfirmation(danmaku.field))) {
-          danmaku.field.focus?.();
-          dispatchEnterKey(danmaku.field);
+          const submitButton = await waitForElement(
+            () => queryDanmakuSubmitButton(danmaku.field),
+            'danmaku-submit'
+          );
+          if (!submitButton) {
+            return false;
+          }
+
+          submitButton.click?.();
           await wait(80);
         }
 
@@ -1157,13 +1184,16 @@ export function buildAutomationScript(
       };
 
       const fillDanmaku = async () => {
-        const danmakuField = queryDanmakuField();
-        if (!danmakuField) {
-          return null;
-        }
-
         if (!payload.commentDraft) {
           missingTargets.push('comment-draft');
+          return false;
+        }
+
+        await openDanmakuComposer();
+
+        const danmakuField = queryDanmakuField();
+        if (!danmakuField) {
+          missingTargets.push('danmaku-field');
           return false;
         }
 
@@ -1302,13 +1332,6 @@ export function buildAutomationScript(
           await submitDanmaku(danmaku);
         } else if (danmaku) {
           steps.push('danmaku:awaiting-submit');
-        } else {
-          const filled = await fillComment();
-          if (filled && payload.submitComment) {
-            click(await waitForElement(() => querySubmitButton(filled.root), 'comment-submit'), 'comment:submit');
-          } else if (filled) {
-            steps.push('comment:awaiting-submit');
-          }
         }
       }
 
@@ -1318,7 +1341,7 @@ export function buildAutomationScript(
         steps,
         missingTargets,
         message: success && payload.action === '表' && !payload.submitComment
-          ? '评论已填好，请主人确认后点击发布。'
+          ? '弹幕已填好，请主人确认后按 Enter 发送。'
           : success ? '奏折批阅已成。' : '尚有 ' + missingTargets.join('、') + ' 未能寻见。'
       };
     })();

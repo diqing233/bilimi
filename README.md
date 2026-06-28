@@ -53,7 +53,7 @@ Bilimi archive planning is shared by old-favorite organization and new review ac
 
 ## Assistant Actions
 
-`批阅` actions run in the active Bilibili webview. Likes, coins, favorites, and comments first use page automation through the embedded page context. Favorite actions then have two modes:
+`批阅` actions run in the active Bilibili webview. Likes, coins, favorites, and danmaku sends first use page automation through the embedded page context. Favorite actions then have two modes:
 
 - Default mode may use the Bilibili favorite API as a confirmation or fallback layer. API usage is visible in automation steps such as `api:favorite:list`, `api:favorite:add`, or `api:favorite:create-folder`.
 - `仅页面点击` disables the favorite API path. If page automation succeeds, Bilimi returns that result directly. If page automation fails because a favorite target is missing, Bilimi opens the favorite dialog with the Bilibili `e` shortcut and finishes through visual text recognition plus webview input events.
@@ -62,7 +62,7 @@ In `仅页面点击` mode, logs that only contain steps such as `favorite:open`,
 
 When API confirmation is enabled, favorite confirmation can append the current video to every planned Bilimi target in one safe `resource/deal` request with `del_media_ids` left empty. In page-click-only mode, Bilimi keeps the page/visual flow focused on the primary target.
 
-For the `表` action, DeepSeek-enabled sessions generate three video-aware funny comments directly from the current video title, author, description, tags, and local classification. There is no required comment-direction prompt in the active flow. If DeepSeek is disabled or returns an unusable result, Bilimi falls back to three local 小咪 comments that still include the UP name and video title when available. Bilimi never publishes a comment until the user explicitly selects one candidate.
+For the `表` action, DeepSeek-enabled sessions generate three video-aware short drafts directly from the current video title, author, description, tags, and local classification. After the user selects one candidate, Bilimi sends it as player danmaku: toggle danmaku with `d`, press `Enter` to open input, insert the selected draft, then press `Enter` to send. It no longer falls back to the lower comment area.
 
 ## DeepSeek Assistant Features
 
