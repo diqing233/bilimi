@@ -287,7 +287,7 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics article { display: grid; grid-template-rows: 30px 22px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics span { min-height: 30px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics strong { align-self: start; font-variant-numeric: tabular-nums;')
-    expectStyleSnippet('.favorite-ledger-panel__scan-candidates ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));')
+    expect(normalizedStyles).not.toContain('favorite-ledger-panel__scan-candidates')
     expectStyleSnippet('.favorite-ledger-panel__candidate-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));')
     expectStyleSnippet('.favorite-ledger-panel__candidates article, .favorite-ledger-panel__confirm { border: 1px solid rgba(31, 99, 181, 0.18);')
     expectStyleSnippet('.favorite-ledger-panel__candidates article { min-width: 0; min-height: 42px; padding: 6px 7px;')

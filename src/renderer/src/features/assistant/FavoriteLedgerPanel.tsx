@@ -1790,19 +1790,6 @@ export function FavoriteLedgerPanel({
               {preview.insights ? (
                 <>
                   <p>共扫描 {preview.insights.totalVideos} 条旧藏，生成 {preview.insights.candidateLedgers.length} 个候选收藏夹</p>
-                  {oldFavoriteTagCandidates.length > 0 ? (
-                    <div className="favorite-ledger-panel__scan-candidates">
-                      <strong>高频标签候选</strong>
-                      <ul>
-                        {oldFavoriteTagCandidates.slice(0, 6).map((candidate) => (
-                          <li key={`${candidate.kind}-${candidate.sourceName}`}>
-                            <span>{favoriteLedgerDisplayShortName(candidate.displayName)}</span>
-                            <small>{oldFavoriteCandidateRecommendationText(candidate)}</small>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
                   <div className="favorite-ledger-panel__insight-columns">
                     <div>
                       <strong>扫描收藏夹</strong>
