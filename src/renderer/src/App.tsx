@@ -16,7 +16,10 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { runVisualFavoriteFallback } from './features/actions/visualFavoriteFallback'
 import { executeAssistantAction } from './features/actions/actionExecutor'
-import { buildDanmakuSubmitConfirmationScript } from './features/actions/pageAutomation'
+import {
+  buildDanmakuFieldFocusScript,
+  buildDanmakuSubmitConfirmationScript
+} from './features/actions/pageAutomation'
 import { BiliWebview } from './features/browser/BiliWebview'
 import {
   buildVideoContentContextScript,
@@ -757,9 +760,40 @@ export default function App() {
       }
     }
 
-    currentActiveWebview.sendInputEvent({ keyCode: 'Enter', type: 'keyDown' })
-    currentActiveWebview.sendInputEvent({ keyCode: 'Enter', type: 'keyUp' })
-    await new Promise((resolve) => setTimeout(resolve, 120))
+    const wait = (delay: number) => new Promise((resolve) => setTimeout(resolve, delay))
+    currentActiveWebview.focus?.()
+
+    const focusReady = await currentActiveWebview.executeJavaScript(buildDanmakuFieldFocusScript())
+    if (!focusReady) {
+      return {
+        ok: false,
+        steps: [],
+        missingTargets: ['danmaku-focus'],
+        message: '尚有 danmaku-focus 未能寻见。'
+      }
+    }
+
+    const sendKey = (keyCode: string, modifiers?: string[]) => {
+      const keyDown = modifiers
+        ? { keyCode, modifiers, type: 'keyDown' }
+        : { keyCode, type: 'keyDown' }
+      const keyUp = modifiers
+        ? { keyCode, modifiers, type: 'keyUp' }
+        : { keyCode, type: 'keyUp' }
+      currentActiveWebview.sendInputEvent?.(keyDown)
+      currentActiveWebview.sendInputEvent?.(keyUp)
+    }
+
+    await wait(80)
+    sendKey('a', ['control'])
+    sendKey('Backspace')
+    await wait(60)
+    for (const char of commentDraft) {
+      currentActiveWebview.sendInputEvent({ keyCode: char, type: 'char' })
+    }
+    await wait(80)
+    sendKey('Enter')
+    await wait(120)
 
     const confirmation = (await currentActiveWebview.executeJavaScript(
       buildDanmakuSubmitConfirmationScript(commentDraft)
@@ -767,7 +801,7 @@ export default function App() {
 
     return {
       ...confirmation,
-      steps: ['danmaku:trusted-enter', ...confirmation.steps]
+      steps: ['danmaku:trusted-type', 'danmaku:trusted-enter', ...confirmation.steps]
     }
   }
 

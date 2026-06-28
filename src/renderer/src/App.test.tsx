@@ -513,7 +513,7 @@ describe('App runtime integration', () => {
     )
   })
 
-  it('uses trusted Enter input to finish danmaku submission when the page script cannot confirm it', async () => {
+  it('retypes danmaku with trusted input before submitting when the page script cannot confirm it', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
@@ -528,7 +528,7 @@ describe('App runtime integration', () => {
       if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
         return {
           title: 'danmaku fallback video',
-          pageText: 'testing trusted Enter fallback'
+          pageText: 'testing trusted input fallback'
         }
       }
 
@@ -566,16 +566,25 @@ describe('App runtime integration', () => {
     })
 
     const result = await requestRuntime({
-      id: 'run-danmaku-trusted-enter',
+      id: 'run-danmaku-trusted-input',
       type: 'run-action',
       action: '表',
       options: {
-        commentDraft: 'trusted danmaku fallback',
+        commentDraft: 'typed',
         submitComment: true
       }
     })
 
     expect(sentEvents).toEqual([
+      { keyCode: 'a', modifiers: ['control'], type: 'keyDown' },
+      { keyCode: 'a', modifiers: ['control'], type: 'keyUp' },
+      { keyCode: 'Backspace', type: 'keyDown' },
+      { keyCode: 'Backspace', type: 'keyUp' },
+      { keyCode: 't', type: 'char' },
+      { keyCode: 'y', type: 'char' },
+      { keyCode: 'p', type: 'char' },
+      { keyCode: 'e', type: 'char' },
+      { keyCode: 'd', type: 'char' },
       { keyCode: 'Enter', type: 'keyDown' },
       { keyCode: 'Enter', type: 'keyUp' }
     ])
@@ -585,7 +594,13 @@ describe('App runtime integration', () => {
     expect(result).toEqual(
       expect.objectContaining({
         ok: true,
-        steps: expect.arrayContaining(['danmaku:focus', 'danmaku:fill', 'danmaku:trusted-enter', 'danmaku:submit'])
+        steps: expect.arrayContaining([
+          'danmaku:focus',
+          'danmaku:fill',
+          'danmaku:trusted-type',
+          'danmaku:trusted-enter',
+          'danmaku:submit'
+        ])
       })
     )
   })

@@ -1,5 +1,45 @@
 import type { AssistantAction, FavoriteLedger } from '@shared/types'
 
+export function buildDanmakuFieldFocusScript(): string {
+  return `
+    (() => {
+      const __bilimiDanmakuFieldFocus = true;
+      void __bilimiDanmakuFieldFocus;
+      const isLikelyHidden = (node) => {
+        const style = window.getComputedStyle?.(node);
+        return style?.display === 'none' || style?.visibility === 'hidden';
+      };
+      const isVisibleInput = (node) => {
+        if (!node || isLikelyHidden(node)) {
+          return false;
+        }
+
+        const rect = node.getBoundingClientRect?.();
+        return !rect || rect.width > 0 || rect.height > 0;
+      };
+      const selectors = [
+        '.bpx-player-dm-input',
+        '.bilibili-player-video-danmaku-input',
+        '[class*="dm-input"]',
+        '[class*="danmaku"][class*="input"]',
+        '.bpx-player-sending-area input[type="text"]',
+        '.bpx-player-sending-area textarea',
+        '.bpx-player-sending-area [contenteditable="true"]'
+      ].join(',');
+      const field = Array.from(document.querySelectorAll(selectors)).find(isVisibleInput);
+
+      if (!field) {
+        return false;
+      }
+
+      field.scrollIntoView?.({ block: 'center' });
+      field.click?.();
+      field.focus?.();
+      return document.activeElement === field || field.matches?.(':focus') || true;
+    })()
+  `
+}
+
 export function buildDanmakuSubmitConfirmationScript(commentDraft = ''): string {
   const payload = JSON.stringify({ commentDraft })
 
