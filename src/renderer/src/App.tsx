@@ -58,6 +58,12 @@ const HOME_TAB_ID = 'home'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
 const BILIBILI_VIDEO_URL_PATTERN = /bilibili\.com\/video\/([^/?#]+)/i
 export const VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS = 900
+const NO_CURRENT_VIDEO_RESULT: AssistantAutomationResult = {
+  ok: false,
+  steps: [],
+  missingTargets: ['current-video'],
+  message: '暂无视频，请先打开一个视频。'
+}
 const LOGIN_REQUIRED_RESULT: AssistantAutomationResult = {
   ok: false,
   steps: ['auth:check'],
@@ -97,6 +103,10 @@ function normalizeActiveTabVideoTitle(tab?: BrowserTabModel): string | undefined
 
 function readBilibiliVideoKey(url: string): string | undefined {
   return url.match(BILIBILI_VIDEO_URL_PATTERN)?.[1]
+}
+
+function isBilibiliVideoUrl(url?: string): boolean {
+  return Boolean(url && BILIBILI_VIDEO_URL_PATTERN.test(url))
 }
 
 export default function App() {
@@ -738,6 +748,10 @@ export default function App() {
       pageClickOnly?: boolean
     }
   ): Promise<AssistantAutomationResult> {
+    if (!isBilibiliVideoUrl(getActiveTabSnapshot()?.url)) {
+      return NO_CURRENT_VIDEO_RESULT
+    }
+
     const loginFailure = await requireBilibiliLogin()
     if (loginFailure) {
       return loginFailure

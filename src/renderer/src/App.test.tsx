@@ -380,6 +380,16 @@ describe('App runtime integration', () => {
       })
     })
 
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1action'
+          }
+        })
+      )
+    })
+
     const result = await requestRuntime({
       id: 'run-1',
       type: 'run-action',
@@ -434,6 +444,16 @@ describe('App runtime integration', () => {
     })
     Object.assign(webview, { executeJavaScript })
 
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1login'
+          }
+        })
+      )
+    })
+
     const result = await requestRuntime({
       id: 'run-logged-out',
       type: 'run-action',
@@ -448,6 +468,48 @@ describe('App runtime integration', () => {
     })
     expect(executeJavaScript).not.toHaveBeenCalledWith(
       expect.stringContaining('/x/v3/fav/resource/deal')
+    )
+  })
+
+  it('returns a Chinese no-video message before running page actions outside a video page', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes('document.cookie')) {
+        return 'SESSDATA=ready'
+      }
+
+      throw new Error('Bilibili operation should not run without a current video')
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/'
+          }
+        })
+      )
+    })
+
+    const result = await requestRuntime({
+      id: 'run-no-video',
+      type: 'run-action',
+      action: '赏'
+    })
+
+    expect(result).toEqual({
+      ok: false,
+      steps: [],
+      missingTargets: ['current-video'],
+      message: '暂无视频，请先打开一个视频。'
+    })
+    expect(executeJavaScript).not.toHaveBeenCalledWith(
+      expect.stringContaining(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER),
+      true
     )
   })
 
@@ -483,6 +545,16 @@ describe('App runtime integration', () => {
       }
     })
     Object.assign(webview, { executeJavaScript })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1suggested'
+          }
+        })
+      )
+    })
 
     const result = await requestRuntime({
       id: 'run-suggested-default',
@@ -574,6 +646,16 @@ describe('App runtime integration', () => {
       sendInputEvent: vi.fn((event: Record<string, unknown>) => {
         sentEvents.push(event)
       })
+    })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1gift'
+          }
+        })
+      )
     })
 
     const result = await requestRuntime({

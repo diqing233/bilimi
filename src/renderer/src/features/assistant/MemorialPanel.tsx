@@ -104,6 +104,39 @@ const ACTIONS: Array<{
   }
 ]
 
+const MISSING_TARGET_LABELS: Record<string, string> = {
+  like: '点赞按钮',
+  favorite: '收藏按钮',
+  'favorite-open': '收藏入口',
+  'favorite:open': '收藏入口',
+  'favorite-folder': '目标收藏夹',
+  'favorite:folder': '目标收藏夹',
+  'favorite-create-button': '新建收藏夹按钮',
+  'favorite-api-required': '收藏分组确认',
+  coin: '投币按钮',
+  'coin-open': '投币入口',
+  'coin:open': '投币入口',
+  'coin-confirm': '投币确认按钮',
+  'coin:confirm': '投币确认按钮',
+  comment: '评论框',
+  'comment-box': '评论框',
+  'comment-submit': '评论发送按钮',
+  'current-video': '当前视频',
+  webview: '浏览窗口',
+  'bilibili-login': 'Bilibili 登录状态'
+}
+
+function localizeMissingTarget(target: string) {
+  return MISSING_TARGET_LABELS[target] ?? target
+}
+
+function localizeFeedbackMessage(message: string) {
+  return Object.entries(MISSING_TARGET_LABELS).reduce(
+    (localized, [target, label]) => localized.replaceAll(target, label),
+    message
+  )
+}
+
 export function MemorialPanel({
   recommendation,
   commentDrafts,
@@ -227,7 +260,7 @@ export function MemorialPanel({
             role={feedbackRole}
             aria-live="polite"
           >
-            <p>{feedback.message}</p>
+            <p>{localizeFeedbackMessage(feedback.message)}</p>
             {feedback.steps.length > 0 ? (
               <details open className="memorial-panel__log">
                 <summary>执行日志</summary>
@@ -239,7 +272,7 @@ export function MemorialPanel({
               </details>
             ) : null}
             {feedback.missingTargets.length > 0 ? (
-              <small>未得：{feedback.missingTargets.join('、')}</small>
+              <small>未得：{feedback.missingTargets.map(localizeMissingTarget).join('、')}</small>
             ) : null}
           </div>
         ) : null}

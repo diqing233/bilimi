@@ -114,6 +114,32 @@ describe('MemorialPanel', () => {
     )
   })
 
+  it('localizes missing automation targets in feedback', () => {
+    render(
+      <MemorialPanel
+        recommendation={inboxRecommendation}
+        commentDrafts={['先留一评。']}
+        videoCategory="待分拣"
+        videoTitle="测试稿件"
+        onAction={vi.fn()}
+        onClose={vi.fn()}
+        onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
+        onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
+        videoNote={null}
+        videoNoteLoading={false}
+        feedback={{
+          tone: 'error',
+          message: '尚有 like 未能寻见。',
+          steps: [],
+          missingTargets: ['like']
+        }}
+      />
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent('未得：点赞按钮')
+    expect(screen.queryByText('未得：like')).not.toBeInTheDocument()
+  })
+
   it('passes the current video author into the notes panel', () => {
     render(
       <MemorialPanel
