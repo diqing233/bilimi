@@ -91,9 +91,16 @@ export function createFavoriteLedgerPreview(args: {
         (ledger) => ledger.id === (primaryArchiveTarget?.ledgerId ?? classification.ledgerId)
       )
       const targetFolderId = targetLedger?.bilibiliFolderId ?? ''
-      const alreadyInTarget = targetFolderId
+      const alreadyInSpecificTarget = targetFolderId
         ? (args.targetMembership[targetFolderId] ?? []).includes(video.aid)
         : false
+      const alreadyInManagedLedger = isAlreadyInManagedLedger({
+        aid: video.aid,
+        ledgers: args.ledgers,
+        targetMembership: args.targetMembership
+      })
+      const alreadyInTarget =
+        alreadyInSpecificTarget || (targetLedger?.id === 'inbox' && alreadyInManagedLedger)
       const selected =
         Boolean(targetFolderId) &&
         targetLedger?.id !== 'inbox' &&
@@ -109,7 +116,8 @@ export function createFavoriteLedgerPreview(args: {
         suggestedLedgerId: classification.suggestedLedgerId,
         reviewRequired: classification.reviewRequired,
         candidateTargets,
-        archiveTargets
+        archiveTargets,
+        alreadyInManagedLedger
       })
 
       items.push({
@@ -145,6 +153,7 @@ function previewTargetsForVideo(args: {
   reviewRequired: boolean
   candidateTargets: FavoriteLedgerPreviewCandidateTarget[]
   archiveTargets: FavoriteArchiveTarget[]
+  alreadyInManagedLedger: boolean
 }): FavoriteLedgerPreviewTarget[] {
   const targets: FavoriteLedgerPreviewTarget[] = []
   const targetLedgerIds = new Set<string>()
@@ -159,6 +168,10 @@ function previewTargetsForVideo(args: {
   }
 
   for (const archiveTarget of args.archiveTargets) {
+    if (args.alreadyInManagedLedger && archiveTarget.ledgerId === 'inbox') {
+      continue
+    }
+
     const folderId = archiveTarget.folderId
     const alreadyInTarget = folderId ? (args.targetMembership[folderId] ?? []).includes(args.video.aid) : false
     const selected =
@@ -205,7 +218,7 @@ function previewTargetsForVideo(args: {
     })
   }
 
-  if (targets.length === 0 || targets.every((target) => !target.selected)) {
+  if (!args.alreadyInManagedLedger && (targets.length === 0 || targets.every((target) => !target.selected))) {
     const inboxLedger = args.ledgers.find((ledger) => ledger.id === 'inbox')
     if (inboxLedger) {
       const folderId = inboxLedger.bilibiliFolderId ?? ''
@@ -222,6 +235,16 @@ function previewTargetsForVideo(args: {
   }
 
   return targets
+}
+
+function isAlreadyInManagedLedger(args: {
+  aid: number
+  ledgers: FavoriteLedger[]
+  targetMembership: Record<string, number[]>
+}) {
+  return args.ledgers
+    .filter((ledger) => ledger.id !== 'inbox' && ledger.bilibiliFolderId)
+    .some((ledger) => (args.targetMembership[ledger.bilibiliFolderId ?? ''] ?? []).includes(args.aid))
 }
 
 function ledgerMatchesVideo(ledger: FavoriteLedger, video: FavoriteSourceVideo) {

@@ -189,6 +189,45 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('已选择 1 条归档任务')).toBeInTheDocument()
   })
 
+  it('hides further judgment for pending old favorites without a usable target', async () => {
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 246,
+          title: '无法补判旧藏',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'inbox',
+          targetFolderId: '9008',
+          targetDisplayName: 'Bilimi·暂存',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: false,
+          targets: [
+            {
+              ledgerId: 'inbox',
+              folderId: '9008',
+              displayName: 'Bilimi·暂存',
+              keywords: [],
+              alreadyInTarget: false,
+              selected: false
+            }
+          ]
+        }
+      ],
+      skippedSourceFolderTitles: []
+    })
+
+    renderPanel({ onScanOldFavorites })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+
+    expect(screen.getByRole('button', { name: '手动分类 无法补判旧藏' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '存入暂存 无法补判旧藏' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '进一步判断 无法补判旧藏' })).not.toBeInTheDocument()
+  })
+
   it('moves a pending old favorite into a candidate target group after further judgment', async () => {
     const onScanOldFavorites = vi.fn().mockResolvedValue({
       items: [

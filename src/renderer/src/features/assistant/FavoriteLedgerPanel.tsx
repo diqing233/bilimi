@@ -407,6 +407,21 @@ function pendingReasonText(item: FavoriteLedgerPreviewItem) {
   return '需要进一步判断'
 }
 
+function canRejudgeOldFavorite(item: FavoriteLedgerPreviewItem) {
+  if (
+    targetsForOldFavoriteItem(item).some(
+      (target) =>
+        target.ledgerId !== 'inbox' &&
+        !target.alreadyInTarget &&
+        (!target.selectedCandidateTarget || Boolean(target.candidateKey))
+    )
+  ) {
+    return true
+  }
+
+  return Boolean(item.candidateTargets?.some((target) => target.candidateKey))
+}
+
 function buildOldFavoriteTargetGroups(
   items: FavoriteLedgerPreviewItem[],
   selectedCandidateKeys: Set<string>,
@@ -1867,13 +1882,15 @@ export function FavoriteLedgerPanel({
                                 >
                                   存入暂存
                                 </button>
-                                <button
-                                  type="button"
-                                  aria-label={`进一步判断 ${item.title}`}
-                                  onClick={() => rejudgeOldFavorite(item)}
-                                >
-                                  进一步判断
-                                </button>
+                                {canRejudgeOldFavorite(item) ? (
+                                  <button
+                                    type="button"
+                                    aria-label={`进一步判断 ${item.title}`}
+                                    onClick={() => rejudgeOldFavorite(item)}
+                                  >
+                                    进一步判断
+                                  </button>
+                                ) : null}
                               </div>
                             </div>
                           </article>

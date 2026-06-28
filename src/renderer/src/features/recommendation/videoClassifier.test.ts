@@ -54,15 +54,42 @@ describe('classifyVideoContent', () => {
         .ledgerId
     ).toBe('knowledge')
     expect(classifyVideoContent({ title: '东京周末路线', tags: [], category: '出行' }, ledgers)).toMatchObject({
-      ledgerId: 'inbox',
+      ledgerId: 'life-interest',
       reviewRequired: false,
-      displayName: 'Bilimi·暂存'
+      displayName: 'Bilimi·生活日常'
     })
     expect(classifyVideoContent({ title: '露营装备清单', tags: [], category: '户外' }, ledgers)).toMatchObject({
-      ledgerId: 'inbox',
+      ledgerId: 'life-interest',
       reviewRequired: false,
-      displayName: 'Bilimi·暂存'
+      displayName: 'Bilimi·生活日常'
     })
+  })
+
+  it('classifies expanded broad-topic signals into the seven default themes', () => {
+    const ledgers = createDefaultFavoriteLedgers()
+
+    expect(classifyVideoContent({ title: 'Michael Jackson 高燃混剪' }, ledgers)).toMatchObject({
+      ledgerId: 'music',
+      matchedKeywords: expect.arrayContaining(['Michael Jackson'])
+    })
+    expect(classifyVideoContent({ title: 'React 前端项目实战' }, ledgers).ledgerId).toBe(
+      'knowledge'
+    )
+    expect(classifyVideoContent({ title: '单机游戏 Boss 速通路线' }, ledgers).ledgerId).toBe(
+      'game'
+    )
+    expect(classifyVideoContent({ title: '纪录片幕后剪辑解析' }, ledgers).ledgerId).toBe(
+      'movie-tv'
+    )
+    expect(classifyVideoContent({ title: '板绘构图与配色教程' }, ledgers).ledgerId).toBe(
+      'creative-aesthetic'
+    )
+    expect(classifyVideoContent({ title: '新能源车试驾体验' }, ledgers).ledgerId).toBe(
+      'life-interest'
+    )
+    expect(classifyVideoContent({ title: '综艺爆笑 reaction' }, ledgers).ledgerId).toBe(
+      'entertainment'
+    )
   })
 
   it('scores tags higher than title and page text when classification signals conflict', () => {

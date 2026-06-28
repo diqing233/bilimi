@@ -75,6 +75,43 @@ describe('createFavoriteLedgerPreview', () => {
     })
   })
 
+  it('does not send videos already in any Bilimi ledger to the inbox fallback', () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
+      if (ledger.id === 'music') {
+        return { ...ledger, bilibiliFolderId: '9010' }
+      }
+      if (ledger.id === 'inbox') {
+        return { ...ledger, bilibiliFolderId: '9008' }
+      }
+      return ledger
+    })
+    const musicFolder = ledgers.find((ledger) => ledger.id === 'music')!.displayName
+
+    const preview = createFavoriteLedgerPreview({
+      ledgers,
+      sourceFolders: [
+        {
+          id: '9010',
+          title: musicFolder,
+          videos: [{ aid: 901, title: '暂时无法判断的旧藏', tags: [] }]
+        }
+      ],
+      targetMembership: {
+        '9010': [901]
+      },
+      multiArchiveMode: 'off'
+    })
+
+    expect(preview.items[0]).toMatchObject({
+      aid: 901,
+      sourceFolderTitle: musicFolder,
+      targetLedgerId: 'inbox',
+      alreadyInTarget: true,
+      selected: false
+    })
+    expect(preview.items[0].targets?.some((target) => target.ledgerId === 'inbox')).toBe(false)
+  })
+
   it('keeps old favorite inbox fallback unselected for local pending queue handling', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
       ledger.id === 'inbox' ? { ...ledger, bilibiliFolderId: '9008' } : ledger
