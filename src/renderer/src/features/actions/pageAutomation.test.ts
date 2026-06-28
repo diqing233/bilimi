@@ -1,12 +1,53 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
-import { buildAutomationScript, buildDanmakuFieldFocusScript } from './pageAutomation'
+import {
+  buildAutomationScript,
+  buildDanmakuDraftPresenceScript,
+  buildDanmakuFieldFocusScript
+} from './pageAutomation'
 
 describe('buildAutomationScript', () => {
   const favoriteLedgers = createDefaultFavoriteLedgers()
   const enabledLedgerNames = favoriteLedgers
     .filter((ledger) => ledger.enabled)
     .map((ledger) => ledger.displayName)
+
+  it('checks whether the danmaku draft is actually present before submit confirmation', () => {
+    document.body.innerHTML = `
+      <section class="bpx-player-sending-area">
+        <input class="bpx-player-dm-input" type="text" value="typed draft" />
+      </section>
+    `
+    const input = document.querySelector('.bpx-player-dm-input') as HTMLInputElement
+    input.getBoundingClientRect = () =>
+      ({
+        bottom: 20,
+        height: 20,
+        left: 0,
+        right: 160,
+        top: 0,
+        width: 160,
+        x: 0,
+        y: 0,
+        toJSON: () => ({})
+      }) as DOMRect
+
+    expect(window.eval(buildDanmakuDraftPresenceScript('typed draft'))).toEqual(
+      expect.objectContaining({
+        ok: true,
+        steps: ['danmaku:paste-confirm']
+      })
+    )
+
+    input.value = ''
+
+    expect(window.eval(buildDanmakuDraftPresenceScript('typed draft'))).toEqual(
+      expect.objectContaining({
+        ok: false,
+        missingTargets: ['danmaku-paste-confirm']
+      })
+    )
+  })
 
   it('creates/selects the category folder and favorites without liking for 藏', async () => {
     document.body.innerHTML = `
@@ -1049,7 +1090,8 @@ describe('buildAutomationScript', () => {
     expect(commentPublished).toBe(false)
     expect((document.querySelector('.reply-textarea') as HTMLTextAreaElement).value).toBe('')
     expect(result.ok).toBe(false)
-    expect(result.steps).toEqual(expect.arrayContaining(['danmaku:shortcut:d', 'danmaku:compose-enter']))
+    expect(result.steps).toEqual(expect.arrayContaining(['danmaku:compose-enter']))
+    expect(result.steps).not.toContain('danmaku:shortcut:d')
     expect(result.steps).not.toEqual(expect.arrayContaining(['comment:fill', 'comment:submit']))
     expect(result.missingTargets).toContain('danmaku-field')
   })

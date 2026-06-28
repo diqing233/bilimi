@@ -537,6 +537,15 @@ describe('App runtime integration', () => {
         }
       }
 
+      if (script.includes('__bilimiDanmakuDraftPresence')) {
+        return {
+          ok: true,
+          steps: ['danmaku:paste-confirm'],
+          missingTargets: [],
+          message: '弹幕文案已写入。'
+        }
+      }
+
       if (script.includes('__bilimiTrustedPlayerActivation')) {
         return {
           ok: true,
@@ -627,11 +636,11 @@ describe('App runtime integration', () => {
       { keyCode: 'Backspace', type: 'keyUp' },
       { keyCode: 'v', modifiers: ['control'], type: 'keyDown' },
       { keyCode: 'v', modifiers: ['control'], type: 'keyUp' },
-      { type: 'mouseMove', x: 620, y: 452 },
-      { button: 'left', clickCount: 1, type: 'mouseDown', x: 620, y: 452 },
-      { button: 'left', clickCount: 1, type: 'mouseUp', x: 620, y: 452 }
+      { keyCode: 'Enter', type: 'keyDown' },
+      { keyCode: 'Enter', type: 'keyUp' }
     ])
     expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'd' }))
+    expect(sentEvents).not.toContainEqual(expect.objectContaining({ button: 'left', x: 620, y: 452 }))
     expect(executeJavaScript).toHaveBeenCalledWith(
       expect.stringContaining('__bilimiDanmakuSubmitConfirmation')
     )
@@ -642,7 +651,8 @@ describe('App runtime integration', () => {
           'danmaku:switch:on',
           'danmaku:focus',
           'danmaku:trusted-paste',
-          'danmaku:trusted-click-send',
+          'danmaku:paste-confirm',
+          'danmaku:trusted-enter',
           'danmaku:submit'
         ])
       })
@@ -668,6 +678,15 @@ describe('App runtime integration', () => {
         return {
           title: 'danmaku clipboard failure video',
           pageText: 'testing clipboard failure handling'
+        }
+      }
+
+      if (script.includes('__bilimiDanmakuDraftPresence')) {
+        return {
+          ok: true,
+          steps: ['danmaku:paste-confirm'],
+          missingTargets: [],
+          message: '弹幕文案已写入。'
         }
       }
 
@@ -712,7 +731,7 @@ describe('App runtime integration', () => {
     expect(webview.sendInputEvent).not.toHaveBeenCalled()
   })
 
-  it('turns danmaku on with d before opening the composer when the player reports it off', async () => {
+  it('does not report danmaku success when the draft was not pasted into the focused input', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
@@ -730,8 +749,136 @@ describe('App runtime integration', () => {
 
       if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
         return {
+          title: 'danmaku paste failure video',
+          pageText: 'testing paste verification'
+        }
+      }
+
+      if (script.includes('__bilimiTrustedPlayerActivation')) {
+        return {
+          ok: true,
+          steps: ['player:locate'],
+          missingTargets: [],
+          message: '播放器已定位。',
+          clickPoint: { x: 300, y: 220 },
+          danmakuEnabled: true,
+          paused: false
+        }
+      }
+
+      if (script.includes('__bilimiRestorePlayerPlaybackState')) {
+        return {
+          ok: true,
+          steps: ['player:playback:stable'],
+          missingTargets: [],
+          message: '播放状态未改变。'
+        }
+      }
+
+      if (script.includes('__bilimiDanmakuFieldFocus')) {
+        return {
+          ok: true,
+          steps: ['danmaku:focus'],
+          missingTargets: [],
+          message: '弹幕栏已聚焦。'
+        }
+      }
+
+      if (script.includes('__bilimiDanmakuDraftPresence')) {
+        return {
+          ok: false,
+          steps: [],
+          missingTargets: ['danmaku-paste-confirm'],
+          message: '弹幕文案没有写入输入框。'
+        }
+      }
+
+      if (script.includes('__bilimiDanmakuSubmitConfirmation')) {
+        return {
+          ok: true,
+          steps: ['danmaku:submit'],
+          missingTargets: [],
+          message: '不应确认发送。'
+        }
+      }
+
+      return {
+        ok: false,
+        steps: [],
+        missingTargets: ['unexpected-page-script'],
+        message: 'Unexpected script.'
+      }
+    })
+    Object.assign(webview, {
+      executeJavaScript,
+      sendInputEvent: vi.fn((event: Record<string, unknown>) => {
+        sentEvents.push(event)
+      })
+    })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1pastefail'
+          }
+        })
+      )
+    })
+
+    const result = await requestRuntime({
+      id: 'run-danmaku-paste-failed',
+      type: 'run-action',
+      action: '表',
+      options: {
+        commentDraft: 'typed',
+        submitComment: true
+      }
+    })
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: false,
+        missingTargets: ['danmaku-paste-confirm']
+      })
+    )
+    expect(sentEvents.slice(-2)).not.toEqual([
+      { keyCode: 'Enter', type: 'keyDown' },
+      { keyCode: 'Enter', type: 'keyUp' }
+    ])
+  })
+
+  it('opens the composer without pressing d even when the player reports danmaku off', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+      paste?: () => void
+      sendInputEvent?: (event: Record<string, unknown>) => void
+    }
+    const sentEvents: Record<string, unknown>[] = []
+    const paste = vi.fn()
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) }
+    })
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes('document.cookie')) {
+        return 'DedeUserID=42; bili_jct=csrf'
+      }
+
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
           title: 'danmaku off video',
           pageText: 'testing conditional d shortcut'
+        }
+      }
+
+      if (script.includes('__bilimiDanmakuDraftPresence')) {
+        return {
+          ok: true,
+          steps: ['danmaku:paste-confirm'],
+          missingTargets: [],
+          message: '弹幕文案已写入。'
         }
       }
 
@@ -784,6 +931,7 @@ describe('App runtime integration', () => {
     })
     Object.assign(webview, {
       executeJavaScript,
+      paste,
       sendInputEvent: vi.fn((event: Record<string, unknown>) => {
         sentEvents.push(event)
       })
@@ -809,15 +957,15 @@ describe('App runtime integration', () => {
       }
     })
 
-    expect(sentEvents.slice(0, 7)).toEqual([
+    expect(sentEvents.slice(0, 5)).toEqual([
       { type: 'mouseMove', x: 320, y: 240 },
       { button: 'left', clickCount: 1, type: 'mouseDown', x: 320, y: 240 },
       { button: 'left', clickCount: 1, type: 'mouseUp', x: 320, y: 240 },
-      { keyCode: 'd', type: 'keyDown' },
-      { keyCode: 'd', type: 'keyUp' },
       { keyCode: 'Enter', type: 'keyDown' },
       { keyCode: 'Enter', type: 'keyUp' }
     ])
+    expect(paste).toHaveBeenCalledTimes(1)
+    expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'd' }))
   })
 
   it('collects to inbox when an unsynced default ledger is only a stronger suggestion', async () => {

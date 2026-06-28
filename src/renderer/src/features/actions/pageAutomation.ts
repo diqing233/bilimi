@@ -274,6 +274,67 @@ export function buildDanmakuSubmitConfirmationScript(commentDraft = ''): string 
   `
 }
 
+export function buildDanmakuDraftPresenceScript(commentDraft = ''): string {
+  const payload = JSON.stringify({ commentDraft })
+
+  return `
+    (() => {
+      const __bilimiDanmakuDraftPresence = true;
+      void __bilimiDanmakuDraftPresence;
+      const payload = ${payload};
+      const normalize = (value) => (value || '').replace(/\\s+/g, '').trim();
+      const readEditableText = (element) => {
+        if (!element) {
+          return '';
+        }
+
+        if ('value' in element) {
+          return element.value || '';
+        }
+
+        return element.textContent || element.innerText || '';
+      };
+      const isLikelyHidden = (node) => {
+        const style = window.getComputedStyle?.(node);
+        return style?.display === 'none' || style?.visibility === 'hidden';
+      };
+      const isVisibleInput = (node) => {
+        if (!node || isLikelyHidden(node)) {
+          return false;
+        }
+
+        const rect = node.getBoundingClientRect?.();
+        return !rect || rect.width > 0 || rect.height > 0;
+      };
+      const selectors = [
+        '.bpx-player-dm-input',
+        '.bilibili-player-video-danmaku-input',
+        '[class*="dm-input"]',
+        '[class*="danmaku"][class*="input"]',
+        '.bpx-player-sending-area input[type="text"]',
+        '.bpx-player-sending-area textarea',
+        '.bpx-player-sending-area [contenteditable="true"]'
+      ].join(',');
+      const field = Array.from(document.querySelectorAll(selectors)).find(isVisibleInput) || null;
+      const hasDraft = Boolean(field && normalize(readEditableText(field)).includes(normalize(payload.commentDraft)));
+
+      return hasDraft
+        ? {
+            ok: true,
+            steps: ['danmaku:paste-confirm'],
+            missingTargets: [],
+            message: '弹幕文案已写入。'
+          }
+        : {
+            ok: false,
+            steps: [],
+            missingTargets: ['danmaku-paste-confirm'],
+            message: '弹幕文案没有写入输入框。'
+          };
+    })()
+  `
+}
+
 export function buildAutomationScript(
   action: AssistantAction,
   favoritesFolderName: string,
@@ -1308,9 +1369,6 @@ export function buildAutomationScript(
       };
 
       const openDanmakuComposer = async () => {
-        dispatchShortcutKey('d', 'KeyD', 68);
-        steps.push('danmaku:shortcut:d');
-        await wait(120);
         dispatchShortcutKey('Enter', 'Enter', 13);
         steps.push('danmaku:compose-enter');
         await wait(120);

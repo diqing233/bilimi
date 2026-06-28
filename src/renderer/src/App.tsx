@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { runVisualFavoriteFallback } from './features/actions/visualFavoriteFallback'
 import { executeAssistantAction } from './features/actions/actionExecutor'
 import {
+  buildDanmakuDraftPresenceScript,
   buildDanmakuFieldFocusScript,
   buildDanmakuSubmitConfirmationScript
 } from './features/actions/pageAutomation'
@@ -1020,12 +1021,6 @@ export default function App() {
         )) as AssistantAutomationResult
         activationSteps.push(...(playbackRestore?.steps ?? []))
 
-        if (activation.danmakuEnabled === false) {
-          sendKey('d')
-          activationSteps.push('danmaku:shortcut:d')
-          await wait(120)
-        }
-
         sendKey('Enter')
         activationSteps.push('danmaku:shortcut:enter')
         await wait(120)
@@ -1062,37 +1057,45 @@ export default function App() {
     sendKey('Backspace')
     await wait(60)
     currentActiveWebview.focus?.()
-    sendKey('v', ['control'])
-    await wait(80)
-    const submitSteps: string[] = []
-    if (prepared.sendButtonPoint) {
-      clickAt(prepared.sendButtonPoint)
-      submitSteps.push('danmaku:trusted-click-send')
+    if (currentActiveWebview.paste) {
+      currentActiveWebview.paste()
     } else {
-      sendKey('Enter')
-      submitSteps.push('danmaku:trusted-enter')
+      sendKey('v', ['control'])
     }
+    await wait(120)
+
+    const pasteConfirmation = (await currentActiveWebview.executeJavaScript(
+      buildDanmakuDraftPresenceScript(commentDraft),
+      true
+    )) as AssistantAutomationResult
+    const pasteSteps = ['danmaku:trusted-paste', ...pasteConfirmation.steps]
+
+    if (!pasteConfirmation.ok) {
+      return {
+        ...pasteConfirmation,
+        ok: false,
+        steps: [...activationSteps, ...prepared.steps, ...pasteSteps],
+        missingTargets: pasteConfirmation.missingTargets.length
+          ? pasteConfirmation.missingTargets
+          : ['danmaku-paste-confirm'],
+        message: pasteConfirmation.message || '弹幕文案没有写入输入框。'
+      }
+    }
+
+    const submitSteps = ['danmaku:trusted-enter']
+    sendKey('Enter')
     await wait(120)
 
     let confirmation = (await currentActiveWebview.executeJavaScript(
       buildDanmakuSubmitConfirmationScript(commentDraft)
     )) as AssistantAutomationResult
 
-    if (!confirmation.ok && prepared.sendButtonPoint) {
-      sendKey('Enter')
-      submitSteps.push('danmaku:trusted-enter')
-      await wait(120)
-      confirmation = (await currentActiveWebview.executeJavaScript(
-        buildDanmakuSubmitConfirmationScript(commentDraft)
-      )) as AssistantAutomationResult
-    }
-
     return {
       ...confirmation,
       steps: [
         ...activationSteps,
         ...prepared.steps,
-        'danmaku:trusted-paste',
+        ...pasteSteps,
         ...submitSteps,
         ...confirmation.steps
       ]
