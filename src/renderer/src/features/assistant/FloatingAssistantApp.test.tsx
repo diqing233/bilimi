@@ -959,7 +959,7 @@ describe('FloatingAssistantApp', () => {
 
     await waitFor(() => expect(scanOldFavorites).toHaveBeenCalledOnce())
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
-    expect(await screen.findByRole('group', { name: '待分类 1 条' })).toBeInTheDocument()
+    expect(await screen.findByRole('group', { name: '未匹配到合适分类 1 条' })).toBeInTheDocument()
     expect(screen.getByText('待分类旧藏')).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '待分类队列' })).not.toBeInTheDocument()
   })

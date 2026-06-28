@@ -12,6 +12,7 @@ import type {
   FavoriteLedgerPreviewItem,
   FavoriteLedgerPreviewTarget
 } from '../favorites/favoriteLedgerPreview'
+import { classifyVideoContent } from '../recommendation/videoClassifier'
 import { AssistantActionButton } from './AssistantActionButton'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
@@ -407,19 +408,28 @@ function pendingReasonText(item: FavoriteLedgerPreviewItem) {
   return '需要进一步判断'
 }
 
-function canRejudgeOldFavorite(item: FavoriteLedgerPreviewItem) {
-  if (
-    targetsForOldFavoriteItem(item).some(
-      (target) =>
-        target.ledgerId !== 'inbox' &&
-        !target.alreadyInTarget &&
-        (!target.selectedCandidateTarget || Boolean(target.candidateKey))
-    )
-  ) {
-    return true
+function retryJudgmentTargetForOldFavoriteItem(
+  item: FavoriteLedgerPreviewItem,
+  ledgers: FavoriteLedger[]
+): FavoriteLedgerPreviewTarget | null {
+  const classification = classifyVideoContent({ title: item.title }, ledgers)
+  if (classification.ledgerId === 'inbox') {
+    return null
   }
 
-  return Boolean(item.candidateTargets?.some((target) => target.candidateKey))
+  const ledger = ledgers.find((candidate) => candidate.id === classification.ledgerId)
+  if (!ledger?.enabled) {
+    return null
+  }
+
+  return {
+    ledgerId: ledger.id,
+    folderId: ledger.bilibiliFolderId ?? '',
+    displayName: ledger.displayName,
+    keywords: ledger.keywords,
+    alreadyInTarget: false,
+    selected: true
+  }
 }
 
 function buildOldFavoriteTargetGroups(
@@ -1202,6 +1212,32 @@ export function FavoriteLedgerPanel({
     })
   }
 
+  function setPreviewScopedPendingItemsStaged(selected: boolean) {
+    setSelectedOldFavoriteTargetKeys((current) => {
+      const next = new Set(current)
+      for (const item of previewScopedPendingItems) {
+        const key = oldFavoriteTargetKey(item.aid, 'inbox')
+        if (selected) {
+          next.add(key)
+        } else {
+          next.delete(key)
+        }
+      }
+      return next
+    })
+    setSelectedOldFavoriteAids((current) => {
+      const next = new Set(current)
+      for (const item of previewScopedPendingItems) {
+        if (selected) {
+          next.add(item.aid)
+        } else {
+          next.delete(item.aid)
+        }
+      }
+      return next
+    })
+  }
+
   function candidateForOldFavoriteTarget(target: {
     candidateKey?: string
     displayName: string
@@ -1237,6 +1273,46 @@ export function FavoriteLedgerPanel({
   }
 
   function rejudgeOldFavorite(item: FavoriteLedgerPreviewItem) {
+    const retriedTarget = retryJudgmentTargetForOldFavoriteItem(item, draftLedgers)
+    if (retriedTarget) {
+      setPreview((current) => {
+        if (!current) {
+          return current
+        }
+
+        return {
+          ...current,
+          items: current.items.map((candidate) => {
+            if (candidate.aid !== item.aid) {
+              return candidate
+            }
+
+            const nextTargets = targetsForOldFavoriteItem(candidate).filter(
+              (target) => target.ledgerId !== 'inbox' && target.ledgerId !== retriedTarget.ledgerId
+            )
+            nextTargets.push(retriedTarget)
+
+            return {
+              ...candidate,
+              targetLedgerId: retriedTarget.ledgerId,
+              targetFolderId: retriedTarget.folderId,
+              targetDisplayName: retriedTarget.displayName,
+              reviewRequired: false,
+              selected: true,
+              targets: nextTargets
+            }
+          })
+        }
+      })
+      setSelectedOldFavoriteTargetKeys((current) => {
+        const next = new Set(current)
+        next.delete(oldFavoriteTargetKey(item.aid, 'inbox'))
+        next.add(oldFavoriteTargetKey(item.aid, retriedTarget.ledgerId))
+        return next
+      })
+      return
+    }
+
     const existingTarget = targetsForOldFavoriteItem(item).find(
       (target) => target.ledgerId !== 'inbox' && !target.alreadyInTarget && !target.selectedCandidateTarget
     )
@@ -1397,6 +1473,11 @@ export function FavoriteLedgerPanel({
     () => buildOldFavoriteTargetGroups(archivePreviewItems, selectedCandidateKeys, selectedOldFavoriteTargetKeys),
     [archivePreviewItems, selectedCandidateKeys, selectedOldFavoriteTargetKeys]
   )
+  const allPreviewScopedPendingItemsStaged =
+    previewScopedPendingItems.length > 0 &&
+    previewScopedPendingItems.every((item) =>
+      selectedOldFavoriteTargetKeys.has(oldFavoriteTargetKey(item.aid, 'inbox'))
+    )
   const oldFavoriteFollowUpCandidates = useMemo(
     () =>
       sortFavoriteLedgerCandidatesByCount(
@@ -1846,15 +1927,26 @@ export function FavoriteLedgerPanel({
                     <section
                       className="favorite-ledger-panel__preview-row favorite-ledger-panel__preview-row--pending"
                       role="group"
-                      aria-label={`待分类 ${previewScopedPendingItems.length} 条`}
+                      aria-label={`未匹配到合适分类 ${previewScopedPendingItems.length} 条`}
                     >
                       <header>
                         <span className="favorite-ledger-panel__preview-heading">
-                          <strong>待分类</strong>
+                          <strong>未匹配到合适分类</strong>
                           <small>{previewScopedPendingItems.length} 条需要处理</small>
                         </span>
+                        <label>
+                          <input
+                            type="checkbox"
+                            aria-label="全部存入暂存"
+                            checked={allPreviewScopedPendingItemsStaged}
+                            onChange={(event) =>
+                              setPreviewScopedPendingItemsStaged(event.currentTarget.checked)
+                            }
+                          />
+                          <span>全部存入暂存</span>
+                        </label>
                       </header>
-                      <div className="favorite-ledger-panel__preview-videos" aria-label="待分类视频">
+                      <div className="favorite-ledger-panel__preview-videos" aria-label="未匹配到合适分类视频">
                         {previewScopedPendingItems.map((item) => (
                           <article key={`pending-${item.sourceFolderTitle}-${item.aid}`}>
                             <div className="favorite-ledger-panel__preview-video favorite-ledger-panel__preview-video--pending">
@@ -1882,15 +1974,13 @@ export function FavoriteLedgerPanel({
                                 >
                                   存入暂存
                                 </button>
-                                {canRejudgeOldFavorite(item) ? (
-                                  <button
-                                    type="button"
-                                    aria-label={`进一步判断 ${item.title}`}
-                                    onClick={() => rejudgeOldFavorite(item)}
-                                  >
-                                    进一步判断
-                                  </button>
-                                ) : null}
+                                <button
+                                  type="button"
+                                  aria-label={`再次判断 ${item.title}`}
+                                  onClick={() => rejudgeOldFavorite(item)}
+                                >
+                                  再次判断
+                                </button>
                               </div>
                             </div>
                           </article>
