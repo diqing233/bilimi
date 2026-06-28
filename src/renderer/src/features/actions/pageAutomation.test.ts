@@ -940,6 +940,89 @@ describe('buildAutomationScript', () => {
     expect(result.steps).toContain('comment:fill')
   })
 
+  it('uses editable insertion for Bilibili contenteditable comment boxes', async () => {
+    document.body.innerHTML = `
+      <section class="reply-box">
+        <div class="reply-box-textarea" contenteditable="true" data-placeholder="勇敢滴少年啊快去创造热评~"></div>
+        <div class="reply-send primary">发布</div>
+      </section>
+    `
+    const editor = document.querySelector('.reply-box-textarea') as HTMLDivElement
+    const insertedText: string[] = []
+    const originalExecCommand = document.execCommand
+    document.execCommand = ((command: string, _showUi?: boolean, value?: string) => {
+      if (command === 'insertText' && value) {
+        insertedText.push(value)
+        editor.textContent = value
+        editor.dispatchEvent(new InputEvent('input', { bubbles: true, data: value }))
+        return true
+      }
+
+      return false
+    }) as typeof document.execCommand
+
+    try {
+      const draft = '这条应该通过插入文本进入编辑器。'
+      const result = await window.eval(
+        buildAutomationScript(
+          '表',
+          'Bilimi 内库',
+          undefined,
+          draft,
+          favoriteLedgers,
+          'movie-tv',
+          { submitComment: false }
+        )
+      )
+
+      expect(insertedText).toEqual([draft])
+      expect(editor.textContent).toBe(draft)
+      expect(result.ok).toBe(true)
+      expect(result.steps).toContain('comment:fill')
+    } finally {
+      document.execCommand = originalExecCommand
+    }
+  })
+
+  it('does not submit 表 when the visible comment editor rejects the draft text', async () => {
+    document.body.innerHTML = `
+      <section class="reply-box">
+        <div class="reply-box-textarea" contenteditable="true" data-placeholder="勇敢滴少年啊快去创造热评~"></div>
+        <div class="reply-send primary">发布</div>
+      </section>
+    `
+    let submitted = false
+    const editor = document.querySelector('.reply-box-textarea') as HTMLDivElement
+    const originalExecCommand = document.execCommand
+    document.execCommand = (() => true) as typeof document.execCommand
+    document.querySelector('.reply-send')?.addEventListener('click', () => {
+      submitted = true
+    })
+
+    try {
+      const result = await window.eval(
+        buildAutomationScript(
+          '表',
+          'Bilimi 内库',
+          undefined,
+          '页面拒绝接收这条评论。',
+          favoriteLedgers,
+          'movie-tv',
+          { submitComment: true }
+        )
+      )
+
+      expect(editor.textContent).toBe('')
+      expect(submitted).toBe(false)
+      expect(result.ok).toBe(false)
+      expect(result.steps).not.toContain('comment:fill')
+      expect(result.steps).not.toContain('comment:submit')
+      expect(result.missingTargets).toContain('comment-fill')
+    } finally {
+      document.execCommand = originalExecCommand
+    }
+  })
+
   it('finds the Bilibili reply send control when 表 is configured for one-click publish', async () => {
     document.body.innerHTML = `
       <section class="reply-box">

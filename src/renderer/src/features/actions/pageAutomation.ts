@@ -42,15 +42,33 @@ export function buildAutomationScript(
           return false;
         }
 
+        element.scrollIntoView?.({ block: 'center' });
+        element.click?.();
+        element.focus?.();
+
         if ('value' in element) {
           const prototype = Object.getPrototypeOf(element);
           const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+          element.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, data: value, inputType: 'insertText' }));
           valueSetter ? valueSetter.call(element, value) : (element.value = value);
           element.dispatchEvent(new Event('input', { bubbles: true }));
           element.dispatchEvent(new Event('change', { bubbles: true }));
         } else {
-          element.textContent = value;
-          element.dispatchEvent(new InputEvent('input', { bubbles: true, data: value }));
+          const selection = window.getSelection?.();
+          if (selection && document.createRange) {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            range.collapse(false);
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
+
+          const inserted = document.execCommand?.('insertText', false, value);
+          if (!inserted) {
+            element.textContent = value;
+            element.dispatchEvent(new InputEvent('input', { bubbles: true, data: value, inputType: 'insertText' }));
+          }
+          element.dispatchEvent(new Event('change', { bubbles: true }));
         }
 
         return true;
@@ -588,14 +606,17 @@ export function buildAutomationScript(
 
       const queryCommentField = () => {
         const selectors = [
+          '.reply-box-textarea[contenteditable="true"]',
           '.reply-box textarea',
           '.reply-box [contenteditable="true"]',
+          '.comment-box-textarea[contenteditable="true"]',
           '.comment-box textarea',
           '.comment-box [contenteditable="true"]',
           '[class*="reply"] textarea',
           '[class*="reply"] [contenteditable="true"]',
           '[class*="comment"] textarea',
           '[class*="comment"] [contenteditable="true"]',
+          '[data-placeholder][contenteditable="true"]',
           'textarea',
           '[contenteditable="true"]',
           'input[type="text"]'
@@ -611,6 +632,31 @@ export function buildAutomationScript(
         return null;
       };
 
+      const readEditableText = (element) => {
+        if (!element) {
+          return '';
+        }
+
+        if ('value' in element) {
+          return element.value || '';
+        }
+
+        return element.textContent || element.innerText || '';
+      };
+
+      const waitForCommentText = async (commentField) => {
+        for (let index = 0; index < 8; index += 1) {
+          if (normalize(readEditableText(commentField)).includes(normalize(payload.commentDraft))) {
+            return true;
+          }
+
+          await wait(50);
+        }
+
+        missingTargets.push('comment-fill');
+        return false;
+      };
+
       const fillComment = async () => {
         const commentField = await waitForElement(queryCommentField, 'comment');
 
@@ -624,6 +670,10 @@ export function buildAutomationScript(
         }
 
         if (!typeText(commentField, payload.commentDraft)) {
+          return false;
+        }
+
+        if (!(await waitForCommentText(commentField))) {
           return false;
         }
 
