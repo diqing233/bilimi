@@ -455,7 +455,10 @@ export function AssistantOverlay({
     await saveVideoNote?.(note)
   }
 
-  async function runAction(action: AssistantAction, options?: { coinCount?: 1 | 2; commentDraft?: string }) {
+  async function runAction(
+    action: AssistantAction,
+    options?: { coinCount?: 1 | 2; commentDraft?: string; submitComment?: boolean }
+  ) {
     if (runningAction) {
       return
     }
@@ -488,8 +491,11 @@ export function AssistantOverlay({
         runScript,
         runVisualFallback,
         favoriteApiFallbackEnabled: preferences.bilibiliOperationMode !== 'page-visual',
-        coinCount: options?.coinCount,
+        coinCount: options?.coinCount ?? (action === '赐' ? preferences.defaultCoinCount : undefined),
         commentDraft: options?.commentDraft,
+        submitComment:
+          options?.submitComment ??
+          (action === '表' ? preferences.commentSubmitMode === 'auto' : undefined),
         favoriteLedgers: preferences.favoriteLedgers,
         targetLedgerId: actionRecommendationKind,
         targetLedgerIds: archiveTargets.map((target) => target.ledgerId)

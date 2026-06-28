@@ -23,6 +23,7 @@ export type AssistantSnapshot = {
 export type FloatingAssistantActionOptions = {
   coinCount?: 1 | 2
   commentDraft?: string
+  submitComment?: boolean
   pageClickOnly?: boolean
 }
 

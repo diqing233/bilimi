@@ -42,7 +42,7 @@ describe('FloatingMenuApp', () => {
     await waitFor(() => expect(runFloatingMenuAction).toHaveBeenCalledWith('藏'))
   })
 
-  it('asks for coin count before dispatching 赐 from the system menu', async () => {
+  it('dispatches 赐 directly from the system menu', async () => {
     const runFloatingMenuAction = vi.fn().mockResolvedValue(undefined)
 
     Object.defineProperty(window, 'bilimiDesktop', {
@@ -58,16 +58,7 @@ describe('FloatingMenuApp', () => {
 
     fireEvent.click(screen.getByRole('menuitem', { name: '赐' }))
 
-    expect(screen.getByText('陛下意欲赐几枚铜钱？')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: '赐两枚' }))
-
-    await waitFor(() =>
-      expect(runFloatingMenuAction).toHaveBeenCalledWith(
-        '赐',
-        expect.objectContaining({ coinCount: 2 })
-      )
-    )
+    await waitFor(() => expect(runFloatingMenuAction).toHaveBeenCalledWith('赐'))
   })
 
   it('closes the menu from the close button', () => {

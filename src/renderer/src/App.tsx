@@ -745,6 +745,7 @@ export default function App() {
     options?: {
       coinCount?: 1 | 2
       commentDraft?: string
+      submitComment?: boolean
       pageClickOnly?: boolean
     }
   ): Promise<AssistantAutomationResult> {
@@ -772,8 +773,11 @@ export default function App() {
       runScript,
       runVisualFallback,
       favoriteApiFallbackEnabled: options?.pageClickOnly !== true,
-      coinCount: options?.coinCount,
+      coinCount: options?.coinCount ?? (action === '赐' ? preferences.defaultCoinCount : undefined),
       commentDraft: options?.commentDraft,
+      submitComment:
+        options?.submitComment ??
+        (action === '表' ? preferences.commentSubmitMode === 'auto' : undefined),
       favoriteLedgers: preferences.favoriteLedgers,
       targetLedgerId,
       targetLedgerIds: archiveTargets.map((target) => target.ledgerId)

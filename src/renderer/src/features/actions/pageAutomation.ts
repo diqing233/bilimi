@@ -6,7 +6,8 @@ export function buildAutomationScript(
   coinCount?: 1 | 2,
   commentDraft?: string,
   favoriteLedgers: FavoriteLedger[] = [],
-  targetLedgerId = ''
+  targetLedgerId = '',
+  options: { submitComment?: boolean } = {}
 ): string {
   const payload = JSON.stringify({
     action,
@@ -14,7 +15,8 @@ export function buildAutomationScript(
     coinCount,
     commentDraft,
     favoriteLedgers,
-    targetLedgerId
+    targetLedgerId,
+    submitComment: options.submitComment ?? true
   })
 
   return `
@@ -213,7 +215,27 @@ export function buildAutomationScript(
         );
 
       const querySubmitButton = () =>
-        byText('button,[role="button"],.comment-submit,.submit', ['发布', '发送', '提交']);
+        closestClickable(
+          byText(
+            [
+              'button',
+              '[role="button"]',
+              '[type="submit"]',
+              '.comment-submit',
+              '.comment-send',
+              '.reply-send',
+              '.send-btn',
+              '.submit',
+              '[class*="comment"][class*="submit"]',
+              '[class*="comment"][class*="send"]',
+              '[class*="reply"][class*="submit"]',
+              '[class*="reply"][class*="send"]',
+              '[class*="submit"]',
+              '[class*="send"]'
+            ].join(','),
+            ['发布', '发送', '提交']
+          )
+        );
 
       const queryFavoriteFolder = () =>
         byText(
@@ -567,6 +589,8 @@ export function buildAutomationScript(
         }
 
         steps.push('comment:fill');
+        commentField.scrollIntoView?.({ block: 'center' });
+        commentField.focus?.();
         return true;
       };
 
@@ -638,8 +662,10 @@ export function buildAutomationScript(
 
       if (payload.action === '表') {
         const filled = await fillComment();
-        if (filled) {
+        if (filled && payload.submitComment) {
           click(await waitForElement(querySubmitButton, 'comment-submit'), 'comment:submit');
+        } else if (filled) {
+          steps.push('comment:awaiting-submit');
         }
       }
 
@@ -648,7 +674,9 @@ export function buildAutomationScript(
         ok: success,
         steps,
         missingTargets,
-        message: success ? '奏折批阅已成。' : '尚有 ' + missingTargets.join('、') + ' 未能寻见。'
+        message: success && payload.action === '表' && !payload.submitComment
+          ? '评论已填好，请主人确认后点击发布。'
+          : success ? '奏折批阅已成。' : '尚有 ' + missingTargets.join('、') + ' 未能寻见。'
       };
     })();
   `

@@ -26,7 +26,6 @@ import {
   createInitialAssistantPreferences,
   recordAssistantPreferenceFeedback
 } from '../state/assistantState'
-import { CoinPrompt } from './CoinPrompt'
 import { CommentChooser } from './CommentChooser'
 import { CommentIntentDialog } from './CommentIntentDialog'
 import { FavoriteLedgerPanel } from './FavoriteLedgerPanel'
@@ -230,7 +229,6 @@ export function FloatingAssistantApp({
   const [favoriteLedgerStatus, setFavoriteLedgerStatus] = useState<FavoriteLedgerStatus | null>(null)
   const [uncontrolledActiveTab, setUncontrolledActiveTab] =
     useState<AssistantWorkspaceTab>('review')
-  const [coinPromptOpen, setCoinPromptOpen] = useState(false)
   const [commentChooserOpen, setCommentChooserOpen] = useState(false)
   const [commentIntentOpen, setCommentIntentOpen] = useState(false)
   const [commentIntentBusy, setCommentIntentBusy] = useState(false)
@@ -386,7 +384,6 @@ export function FloatingAssistantApp({
     VIDEO_CATEGORY_LABELS[currentKind] || stripBilimiPrefix(currentClassification.displayName) || currentKind
   const actionsLocked =
     runningAction !== null ||
-    coinPromptOpen ||
     commentChooserOpen ||
     commentIntentOpen ||
     commentIntentBusy
@@ -558,7 +555,10 @@ export function FloatingAssistantApp({
     }
   }
 
-  async function runAction(action: AssistantAction, options?: { coinCount?: 1 | 2; commentDraft?: string }) {
+  async function runAction(
+    action: AssistantAction,
+    options?: { coinCount?: 1 | 2; commentDraft?: string; submitComment?: boolean }
+  ) {
     if (runningAction) {
       return
     }
@@ -618,8 +618,7 @@ export function FloatingAssistantApp({
     setFeedback(null)
 
     if (action === '赐') {
-      tellPet('success', '主人，先选要投几枚硬币，小咪等你确认。')
-      setCoinPromptOpen(true)
+      void runAction('赐', { coinCount: preferences.defaultCoinCount })
       return
     }
 
@@ -1092,6 +1091,66 @@ export function FloatingAssistantApp({
                 <span>最多存入 3 个 Bilimi 收藏夹，同一个视频可以存入一个默认分类和两个其他匹配的 Bilimi 收藏夹</span>
               </label>
             </fieldset>
+            <fieldset className="assistant-settings__group assistant-settings__group--review-actions">
+              <legend>批阅动作设置</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="default-coin-count"
+                  checked={preferences.defaultCoinCount === 1}
+                  onChange={() =>
+                    void persistPreferences({
+                      ...preferences,
+                      defaultCoinCount: 1
+                    })
+                  }
+                />
+                <span>赐默认投 1 币</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="default-coin-count"
+                  checked={preferences.defaultCoinCount === 2}
+                  onChange={() =>
+                    void persistPreferences({
+                      ...preferences,
+                      defaultCoinCount: 2
+                    })
+                  }
+                />
+                <span>赐默认投 2 币</span>
+              </label>
+              <div className="assistant-settings__pet-divider" aria-hidden="true" />
+              <label>
+                <input
+                  type="radio"
+                  name="comment-submit-mode"
+                  checked={preferences.commentSubmitMode === 'manual'}
+                  onChange={() =>
+                    void persistPreferences({
+                      ...preferences,
+                      commentSubmitMode: 'manual'
+                    })
+                  }
+                />
+                <span>表只填评论，不一键发送</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="comment-submit-mode"
+                  checked={preferences.commentSubmitMode === 'auto'}
+                  onChange={() =>
+                    void persistPreferences({
+                      ...preferences,
+                      commentSubmitMode: 'auto'
+                    })
+                  }
+                />
+                <span>表一键发送</span>
+              </label>
+            </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--deepseek">
               <legend>DeepSeek</legend>
               <label>
@@ -1255,16 +1314,6 @@ export function FloatingAssistantApp({
           />
         )}
 
-        {coinPromptOpen ? (
-          <CoinPrompt
-            onChoose={(coinCount) => {
-              setCoinPromptOpen(false)
-              void runAction('赐', { coinCount })
-            }}
-            onCancel={() => setCoinPromptOpen(false)}
-          />
-        ) : null}
-
         {commentIntentOpen ? (
           <CommentIntentDialog
             busy={commentIntentBusy}
@@ -1284,7 +1333,10 @@ export function FloatingAssistantApp({
             onSelect={(commentDraft) => {
               setCommentChooserOpen(false)
               setAiCommentDrafts([])
-              void runAction('表', { commentDraft })
+              void runAction('表', {
+                commentDraft,
+                submitComment: preferences.commentSubmitMode === 'auto'
+              })
             }}
             onCancel={() => {
               setCommentChooserOpen(false)

@@ -42,6 +42,7 @@ export type FavoriteLedgerSaveOptions = {
 }
 
 export type FavoriteArchiveMultiMode = 'off' | 'two' | 'three'
+export type CommentSubmitMode = 'manual' | 'auto'
 
 export type FavoriteLedgerClassification = {
   ledgerId: FavoriteLedgerId
@@ -74,6 +75,8 @@ export type AssistantPreferences = {
   hidePetDuringVideoFullscreen: boolean
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode
+  defaultCoinCount: 1 | 2
+  commentSubmitMode: CommentSubmitMode
   preferenceCounts: Record<string, number>
   deepseekEnabled: boolean
   deepseekApiKeyStored: boolean

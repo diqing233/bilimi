@@ -874,4 +874,69 @@ describe('buildAutomationScript', () => {
     expect(result.steps).toEqual(expect.arrayContaining(['comment:fill', 'comment:submit']))
     expect(result.missingTargets).toEqual([])
   })
+
+  it('fills the comment box without submitting when 表 is configured for manual publish', async () => {
+    document.body.innerHTML = `
+      <section class="reply-box">
+        <textarea placeholder="发一条友善的评论"></textarea>
+        <div class="reply-send primary">发布</div>
+      </section>
+    `
+    let submitted = false
+    const textarea = document.querySelector('textarea') as HTMLTextAreaElement
+    document.querySelector('.reply-send')?.addEventListener('click', () => {
+      submitted = true
+    })
+
+    const draft = '小咪先把评论放好，主人确认后再发。'
+    const result = await window.eval(
+      buildAutomationScript(
+        '表',
+        'Bilimi 内库',
+        undefined,
+        draft,
+        favoriteLedgers,
+        'movie-tv',
+        { submitComment: false }
+      )
+    )
+
+    expect(textarea.value).toBe(draft)
+    expect(submitted).toBe(false)
+    expect(result.ok).toBe(true)
+    expect(result.steps).toContain('comment:fill')
+    expect(result.steps).not.toContain('comment:submit')
+    expect(result.missingTargets).toEqual([])
+    expect(result.message).toContain('评论已填好')
+  })
+
+  it('finds the Bilibili reply send control when 表 is configured for one-click publish', async () => {
+    document.body.innerHTML = `
+      <section class="reply-box">
+        <textarea placeholder="发一条友善的评论"></textarea>
+        <div class="reply-send primary"><span>发布</span></div>
+      </section>
+    `
+    let submitted = false
+    document.querySelector('.reply-send')?.addEventListener('click', () => {
+      submitted = true
+    })
+
+    const result = await window.eval(
+      buildAutomationScript(
+        '表',
+        'Bilimi 内库',
+        undefined,
+        '自动发送这条评论。',
+        favoriteLedgers,
+        'movie-tv',
+        { submitComment: true }
+      )
+    )
+
+    expect(result.ok).toBe(true)
+    expect(submitted).toBe(true)
+    expect(result.steps).toEqual(expect.arrayContaining(['comment:fill', 'comment:submit']))
+    expect(result.missingTargets).toEqual([])
+  })
 })

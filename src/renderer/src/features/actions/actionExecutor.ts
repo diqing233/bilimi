@@ -16,6 +16,7 @@ type ExecuteAssistantActionArgs = {
   favoriteApiFallbackEnabled?: boolean
   coinCount?: 1 | 2
   commentDraft?: string
+  submitComment?: boolean
   favoriteLedgers: FavoriteLedger[]
   targetLedgerId: string
   targetLedgerIds?: string[]
@@ -131,7 +132,8 @@ export async function executeAssistantAction(args: ExecuteAssistantActionArgs) {
     args.coinCount,
     args.commentDraft,
     args.favoriteLedgers,
-    args.targetLedgerId
+    args.targetLedgerId,
+    { submitComment: args.submitComment }
   )
   const domResult = await runScriptWithTimeout(args.runScript, script)
 

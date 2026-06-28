@@ -23,6 +23,8 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     hidePetDuringVideoFullscreen: false,
     bilibiliOperationMode: 'api-assisted',
     favoriteArchiveMultiMode: 'off',
+    defaultCoinCount: 1,
+    commentSubmitMode: 'manual',
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
     deepseekAutoSummaryEnabled: false,
@@ -244,26 +246,23 @@ describe('FloatingAssistantApp', () => {
     ).toBeInTheDocument()
   })
 
-  it('asks for coin count inside the floating assistant before running 赐', async () => {
+  it('uses the configured coin count inside the floating assistant when running 赐', async () => {
     const { runAssistantAction } = installDesktopApi()
 
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('button', { name: /赐.*投币厚赏/ }))
 
-    expect(screen.getByText('陛下意欲赐几枚铜钱？')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: '赐两枚' }))
-
     await waitFor(() =>
       expect(runAssistantAction).toHaveBeenCalledWith(
         '赐',
         expect.objectContaining({
-          coinCount: 2,
+          coinCount: 1,
           pageClickOnly: false
         })
       )
     )
+    expect(screen.queryByText('陛下意欲赐几枚铜钱？')).not.toBeInTheDocument()
   })
 
   it('uses key-moment emotional tones while running review actions', async () => {
@@ -553,6 +552,77 @@ describe('FloatingAssistantApp', () => {
     )
     expect(wakeAssistantPet).toHaveBeenCalledOnce()
     expect(closeAssistantPet).toHaveBeenCalledOnce()
+  })
+
+  it('saves review action behavior settings', async () => {
+    const { savePreferences } = installDesktopApi()
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+
+    expect(screen.getByRole('group', { name: '批阅动作设置' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: '赐默认投 1 币' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: '表只填评论，不一键发送' })).toBeChecked()
+
+    fireEvent.click(screen.getByRole('radio', { name: '赐默认投 2 币' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          defaultCoinCount: 2
+        })
+      )
+    )
+
+    fireEvent.click(screen.getByRole('radio', { name: '表一键发送' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          commentSubmitMode: 'auto'
+        })
+      )
+    )
+  })
+
+  it('passes manual comment mode by default when 表 sends the selected draft', async () => {
+    const { runAssistantAction } = installDesktopApi()
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /表.*拟奏短评/ }))
+    fireEvent.click(screen.getAllByRole('button', { name: /三分钟讲清机器学习科普教程/ })[0])
+
+    await waitFor(() =>
+      expect(runAssistantAction).toHaveBeenCalledWith(
+        '表',
+        expect.objectContaining({
+          submitComment: false
+        })
+      )
+    )
+  })
+
+  it('passes one-click comment mode when 表 is configured to auto submit', async () => {
+    const preferences = createPreferences({ commentSubmitMode: 'auto' })
+    const { runAssistantAction } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(createSnapshot({ preferences }))
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /表.*拟奏短评/ }))
+    fireEvent.click(screen.getAllByRole('button', { name: /三分钟讲清机器学习科普教程/ })[0])
+
+    await waitFor(() =>
+      expect(runAssistantAction).toHaveBeenCalledWith(
+        '表',
+        expect.objectContaining({
+          submitComment: true
+        })
+      )
+    )
   })
 
   it('lets settings choose up to four pet hover shortcuts', async () => {

@@ -14,6 +14,7 @@ import {
 } from '../../src/shared/videoNoteArchive'
 import { normalizeVideoNotes, upsertVideoNote } from '../../src/shared/videoNotes'
 import type {
+  CommentSubmitMode,
   DeepSeekKeyStatus,
   FavoriteArchiveMultiMode,
   FavoriteLedger,
@@ -31,6 +32,8 @@ export type AssistantPreferences = {
   hidePetDuringVideoFullscreen: boolean
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode
+  defaultCoinCount: 1 | 2
+  commentSubmitMode: CommentSubmitMode
   preferenceCounts: Record<string, number>
   deepseekEnabled: boolean
   deepseekApiKeyStored: boolean
@@ -60,6 +63,8 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   hidePetDuringVideoFullscreen: false,
   bilibiliOperationMode: 'api-assisted',
   favoriteArchiveMultiMode: 'off',
+  defaultCoinCount: 1,
+  commentSubmitMode: 'manual',
   preferenceCounts: {},
   deepseekEnabled: false,
   deepseekApiKeyStored: false,
@@ -94,6 +99,8 @@ export function loadAssistantPreferences(
   const petStyle = store.get('petStyle')
   const bilibiliOperationMode = store.get('bilibiliOperationMode')
   const favoriteArchiveMultiMode = store.get('favoriteArchiveMultiMode')
+  const defaultCoinCount = store.get('defaultCoinCount')
+  const commentSubmitMode = store.get('commentSubmitMode')
   const deepseekApiKey = store.get('deepseekApiKey') ?? ''
 
   return {
@@ -109,6 +116,8 @@ export function loadAssistantPreferences(
       favoriteArchiveMultiMode === 'two' || favoriteArchiveMultiMode === 'three'
         ? favoriteArchiveMultiMode
         : 'off',
+    defaultCoinCount: defaultCoinCount === 2 ? 2 : 1,
+    commentSubmitMode: commentSubmitMode === 'auto' ? 'auto' : 'manual',
     preferenceCounts: store.get('preferenceCounts') ?? {},
     deepseekEnabled: Boolean(store.get('deepseekEnabled')),
     deepseekApiKeyStored: Boolean(String(deepseekApiKey).trim()),
@@ -138,6 +147,8 @@ export function saveAssistantPreferences(
       ? preferences.favoriteArchiveMultiMode
       : 'off'
   )
+  store.set('defaultCoinCount', preferences.defaultCoinCount === 2 ? 2 : 1)
+  store.set('commentSubmitMode', preferences.commentSubmitMode === 'auto' ? 'auto' : 'manual')
   store.set('preferenceCounts', preferences.preferenceCounts ?? {})
   store.set('deepseekEnabled', Boolean(preferences.deepseekEnabled))
   store.set('deepseekApiKeyStored', loadDeepSeekApiKeyStatus(store).configured)

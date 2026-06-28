@@ -66,6 +66,9 @@ function createFakeStore(
       initial.bilibiliOperationMode ?? DEFAULT_ASSISTANT_PREFERENCES.bilibiliOperationMode,
     favoriteArchiveMultiMode:
       initial.favoriteArchiveMultiMode ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteArchiveMultiMode,
+    defaultCoinCount: initial.defaultCoinCount ?? DEFAULT_ASSISTANT_PREFERENCES.defaultCoinCount,
+    commentSubmitMode:
+      initial.commentSubmitMode ?? DEFAULT_ASSISTANT_PREFERENCES.commentSubmitMode,
     preferenceCounts: initial.preferenceCounts ?? { ...DEFAULT_ASSISTANT_PREFERENCES.preferenceCounts },
     deepseekEnabled: initial.deepseekEnabled ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekEnabled,
     deepseekApiKeyStored:
@@ -146,6 +149,8 @@ describe('assistant preference store helpers', () => {
       ledgerPromptDismissed: false,
       bilibiliOperationMode: 'page-visual',
       favoriteArchiveMultiMode: 'two',
+      defaultCoinCount: 2,
+      commentSubmitMode: 'auto',
       petStyle: 'classic',
       petHoverShortcuts: ['favorite', 'library', 'prepare-ledgers', 'organize-old-favorites'],
       hidePetDuringVideoFullscreen: true,
@@ -165,6 +170,8 @@ describe('assistant preference store helpers', () => {
       ledgerPromptDismissed: false,
       bilibiliOperationMode: 'page-visual',
       favoriteArchiveMultiMode: 'two',
+      defaultCoinCount: 2,
+      commentSubmitMode: 'auto',
       petStyle: 'classic',
       petHoverShortcuts: ['favorite', 'library', 'prepare-ledgers', 'organize-old-favorites'],
       hidePetDuringVideoFullscreen: true,

@@ -125,6 +125,8 @@ describe('assistant state', () => {
     expect(createInitialAssistantPreferences()).toMatchObject({
       bilibiliOperationMode: 'api-assisted',
       favoriteArchiveMultiMode: 'off',
+      defaultCoinCount: 1,
+      commentSubmitMode: 'manual',
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
       deepseekAutoSummaryEnabled: false,
@@ -149,6 +151,27 @@ describe('assistant state', () => {
       deepseekAutoSummaryEnabled: true,
       deepseekModel: 'deepseek-v4-flash',
       deepseekBaseUrl: 'https://api.deepseek.com'
+    })
+  })
+
+  it('normalizes persisted action behavior preferences', () => {
+    expect(
+      createInitialAssistantPreferences({
+        defaultCoinCount: 2,
+        commentSubmitMode: 'auto'
+      })
+    ).toMatchObject({
+      defaultCoinCount: 2,
+      commentSubmitMode: 'auto'
+    })
+    expect(
+      createInitialAssistantPreferences({
+        defaultCoinCount: 3 as never,
+        commentSubmitMode: 'surprise' as never
+      })
+    ).toMatchObject({
+      defaultCoinCount: 1,
+      commentSubmitMode: 'manual'
     })
   })
 

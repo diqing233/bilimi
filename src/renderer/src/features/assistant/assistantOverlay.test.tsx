@@ -393,7 +393,7 @@ describe('AssistantOverlay', () => {
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
     fireEvent.click(getActionButton('赏'))
 
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('尚有 favorite 未能寻见。'))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('尚有 收藏按钮 未能寻见。'))
     expect(screen.getByLabelText('案头奏折')).toBeInTheDocument()
   })
 

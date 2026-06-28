@@ -1,6 +1,5 @@
 import type { AssistantAction } from '@shared/types'
 import { useState } from 'react'
-import { CoinPrompt } from './CoinPrompt'
 
 const FLOATING_MENU_ACTIONS: Array<{ action: AssistantAction; label: string; hint: string }> = [
   { action: '赏', label: '赞', hint: '轻赏此条' },
@@ -11,7 +10,6 @@ const FLOATING_MENU_ACTIONS: Array<{ action: AssistantAction; label: string; hin
 
 export function FloatingMenuApp() {
   const [runningAction, setRunningAction] = useState<AssistantAction | null>(null)
-  const [coinPromptOpen, setCoinPromptOpen] = useState(false)
 
   async function runAction(action: AssistantAction, options?: { coinCount?: 1 | 2 }) {
     if (runningAction) {
@@ -36,50 +34,35 @@ export function FloatingMenuApp() {
       return
     }
 
-    if (action === '赐') {
-      setCoinPromptOpen(true)
-      return
-    }
-
     void runAction(action)
   }
 
   return (
     <main className="floating-menu-shell" aria-label="Bilimi 悬浮菜单">
-      {coinPromptOpen ? (
-        <CoinPrompt
-          onChoose={(coinCount) => {
-            setCoinPromptOpen(false)
-            void runAction('赐', { coinCount })
-          }}
-          onCancel={() => setCoinPromptOpen(false)}
-        />
-      ) : (
-        <div className="floating-menu" role="menu" aria-label="Bilimi 悬浮动作">
-          {FLOATING_MENU_ACTIONS.map((item) => (
-            <button
-              key={item.action}
-              type="button"
-              role="menuitem"
-              aria-label={item.label}
-              className="floating-menu__action"
-              disabled={runningAction !== null}
-              onClick={() => handleAction(item.action)}
-            >
-              <strong>{item.label}</strong>
-              <span>{item.hint}</span>
-            </button>
-          ))}
+      <div className="floating-menu" role="menu" aria-label="Bilimi 悬浮动作">
+        {FLOATING_MENU_ACTIONS.map((item) => (
           <button
+            key={item.action}
             type="button"
-            className="floating-menu__close"
-            aria-label="收起悬浮菜单"
-            onClick={() => window.bilimiDesktop?.closeFloatingMenu?.()}
+            role="menuitem"
+            aria-label={item.label}
+            className="floating-menu__action"
+            disabled={runningAction !== null}
+            onClick={() => handleAction(item.action)}
           >
-            收
+            <strong>{item.label}</strong>
+            <span>{item.hint}</span>
           </button>
-        </div>
-      )}
+        ))}
+        <button
+          type="button"
+          className="floating-menu__close"
+          aria-label="收起悬浮菜单"
+          onClick={() => window.bilimiDesktop?.closeFloatingMenu?.()}
+        >
+          收
+        </button>
+      </div>
     </main>
   )
 }

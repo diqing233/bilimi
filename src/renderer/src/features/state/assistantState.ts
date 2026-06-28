@@ -3,6 +3,7 @@ import { normalizePetHoverShortcuts } from '@shared/petHoverShortcuts'
 import type {
   AssistantAction,
   AssistantPreferences,
+  CommentSubmitMode,
   FavoriteArchiveMultiMode,
   RecommendationKind
 } from '@shared/types'
@@ -39,6 +40,14 @@ export function normalizeBilibiliOperationMode(
 
 export function normalizeFavoriteArchiveMultiMode(value: unknown): FavoriteArchiveMultiMode {
   return value === 'two' || value === 'three' ? value : 'off'
+}
+
+export function normalizeDefaultCoinCount(value: unknown): 1 | 2 {
+  return value === 2 ? 2 : 1
+}
+
+export function normalizeCommentSubmitMode(value: unknown): CommentSubmitMode {
+  return value === 'auto' ? 'auto' : 'manual'
 }
 
 function normalizeDeepSeekModel(value: unknown): string {
@@ -79,6 +88,8 @@ export function createInitialAssistantPreferences(
     hidePetDuringVideoFullscreen: Boolean(persisted?.hidePetDuringVideoFullscreen),
     bilibiliOperationMode: normalizeBilibiliOperationMode(persisted?.bilibiliOperationMode),
     favoriteArchiveMultiMode: normalizeFavoriteArchiveMultiMode(persisted?.favoriteArchiveMultiMode),
+    defaultCoinCount: normalizeDefaultCoinCount(persisted?.defaultCoinCount),
+    commentSubmitMode: normalizeCommentSubmitMode(persisted?.commentSubmitMode),
     preferenceCounts: {
       ...createEmptyPreferenceCounts(),
       ...persisted?.preferenceCounts
