@@ -74,6 +74,20 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(onUpdatePendingQueueItemStatus).toHaveBeenCalledWith(1, 'archived'))
   })
 
+  it('clears the pending classification queue and hides it from the ledger panel', async () => {
+    const onClearPendingQueue = vi.fn().mockResolvedValue([])
+
+    renderPanel({
+      pendingQueueItems: [pendingQueueFixture({ aid: 1 })],
+      onClearPendingQueue
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '清空待分类队列' }))
+
+    await waitFor(() => expect(onClearPendingQueue).toHaveBeenCalledOnce())
+    expect(screen.queryByRole('region', { name: '待分类队列' })).not.toBeInTheDocument()
+  })
+
   it('backs up ledgers directly from 备册 without the old setup prompt', async () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
       ledger.id === 'knowledge' ? { ...ledger, enabled: false } : ledger

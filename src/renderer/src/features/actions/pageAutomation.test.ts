@@ -1069,6 +1069,54 @@ describe('buildAutomationScript', () => {
     expect(result.steps).toEqual(expect.arrayContaining(['comment:fill', 'comment:submit']))
   })
 
+  it('clicks the inactive Bilibili comment box before filling and publishing', async () => {
+    document.body.innerHTML = `
+      <section id="comment">
+        <h2>评论 233</h2>
+        <div class="reply-box">
+          <div class="reply-box-placeholder">新的风暴已经出现，你的妙评何时再现</div>
+        </div>
+      </section>
+    `
+    const replyBox = document.querySelector('.reply-box') as HTMLElement
+    let activated = false
+    let commentPublished = false
+    replyBox.addEventListener('click', () => {
+      if (activated) {
+        return
+      }
+
+      activated = true
+      replyBox.innerHTML = `
+        <textarea class="reply-textarea" placeholder="新的风暴已经出现，你的妙评何时再现"></textarea>
+        <button class="reply-send">发布</button>
+      `
+      replyBox.querySelector('.reply-send')?.addEventListener('click', () => {
+        commentPublished = true
+      })
+    })
+
+    const result = await window.eval(
+      buildAutomationScript(
+        '表',
+        'Bilimi 内库',
+        undefined,
+        '点击评论框后才能发布这条。',
+        favoriteLedgers,
+        'movie-tv',
+        { submitComment: true }
+      )
+    )
+
+    expect(activated).toBe(true)
+    expect((document.querySelector('.reply-textarea') as HTMLTextAreaElement).value).toBe(
+      '点击评论框后才能发布这条。'
+    )
+    expect(commentPublished).toBe(true)
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(expect.arrayContaining(['comment:activate', 'comment:fill', 'comment:submit']))
+  })
+
   it('uses editable insertion for Bilibili contenteditable comment boxes', async () => {
     document.body.innerHTML = `
       <section class="reply-box">

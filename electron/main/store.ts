@@ -298,6 +298,14 @@ export function savePendingFavoriteQueue(
   return loadPendingFavoriteQueue(store)
 }
 
+export function clearPendingFavoriteQueue(
+  store: AssistantStoreLike = getDesktopStore()
+): PendingFavoriteQueueItem[] {
+  store.set('pendingFavoriteQueue', [])
+
+  return loadPendingFavoriteQueue(store)
+}
+
 export function upsertPendingFavoriteQueueItems(
   store: AssistantStoreLike = getDesktopStore(),
   items: PendingFavoriteQueueItem[],

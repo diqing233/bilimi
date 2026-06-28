@@ -35,6 +35,7 @@ type FavoriteLedgerPanelProps = {
   onOldFavoriteExecutionStateChange?: (state: 'running' | 'finished') => void
   favoriteArchiveMultiMode?: FavoriteArchiveMultiMode
   pendingQueueItems?: PendingFavoriteQueueItem[]
+  onClearPendingQueue?: () => Promise<PendingFavoriteQueueItem[]> | void
   onUpdatePendingQueueItemStatus?: (
     aid: number,
     status: PendingFavoriteQueueStatus
@@ -477,6 +478,7 @@ export function FavoriteLedgerPanel({
   onOldFavoriteExecutionStateChange,
   favoriteArchiveMultiMode = 'off',
   pendingQueueItems = [],
+  onClearPendingQueue,
   onUpdatePendingQueueItemStatus
 }: FavoriteLedgerPanelProps) {
   const [draftLedgers, setDraftLedgers] = useState<FavoriteLedger[]>(ledgers)
@@ -491,6 +493,7 @@ export function FavoriteLedgerPanel({
   const [selectedOldFavoriteTargetKeys, setSelectedOldFavoriteTargetKeys] = useState<Set<string>>(new Set())
   const [selectedOldFavoriteSourceFolderTitles, setSelectedOldFavoriteSourceFolderTitles] =
     useState<Set<string>>(new Set())
+  const [locallyClearedPendingQueue, setLocallyClearedPendingQueue] = useState(false)
   const [oldFavoriteExecutionProgress, setOldFavoriteExecutionProgress] = useState<{
     completed: number
     total: number
@@ -1295,14 +1298,31 @@ export function FavoriteLedgerPanel({
   const allTagCandidatesSelected =
     oldFavoriteTagCandidates.length > 0 &&
     oldFavoriteTagCandidates.every((candidate) => selectedCandidateKeys.has(candidateKey(candidate)))
+  useEffect(() => {
+    if (pendingQueueItems.some((item) => item.status === 'pending')) {
+      setLocallyClearedPendingQueue(false)
+    }
+  }, [pendingQueueItems])
   const visiblePendingQueueItems = useMemo(
-    () => pendingQueueItems.filter((item) => item.status === 'pending'),
-    [pendingQueueItems]
+    () =>
+      locallyClearedPendingQueue
+        ? []
+        : pendingQueueItems.filter((item) => item.status === 'pending'),
+    [locallyClearedPendingQueue, pendingQueueItems]
   )
   const pendingQueueSummary = useMemo(
     () => createPendingFavoriteQueueSummary(visiblePendingQueueItems),
     [visiblePendingQueueItems]
   )
+
+  async function clearPendingQueue() {
+    const nextItems = await onClearPendingQueue?.()
+    const hasPendingItems = nextItems?.some((item) => item.status === 'pending') ?? false
+
+    if (!hasPendingItems) {
+      setLocallyClearedPendingQueue(true)
+    }
+  }
 
   function oldFavoriteCandidateDetailText(candidate: FavoriteLedgerCandidate) {
     const count = oldFavoriteCandidateCounts.get(candidateKey(candidate)) ?? candidate.count
@@ -1394,8 +1414,17 @@ export function FavoriteLedgerPanel({
       {visiblePendingQueueItems.length > 0 ? (
         <section className="favorite-ledger-panel__pending-queue" aria-label="待分类队列">
           <header>
-            <strong>待分类队列 {pendingQueueSummary.totalPending} 条</strong>
-            <small>不用重新扫描旧藏，可以从这里继续整理。</small>
+            <div>
+              <strong>待分类队列 {pendingQueueSummary.totalPending} 条</strong>
+              <small>不用重新扫描旧藏，可以从这里继续整理。</small>
+            </div>
+            <button
+              type="button"
+              aria-label="清空待分类队列"
+              onClick={() => void clearPendingQueue()}
+            >
+              清空
+            </button>
           </header>
           <div className="favorite-ledger-panel__pending-metrics">
             <span>可归入已有册目 {pendingQueueSummary.suggestedExistingCount} 条</span>

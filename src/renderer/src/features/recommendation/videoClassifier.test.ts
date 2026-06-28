@@ -178,4 +178,11 @@ describe('classifyVideoContent', () => {
     expect(script).toContain('videoData.owner?.name')
     expect(script).toContain('.up-name')
   })
+
+  it('extracts aid for pending queue entries', () => {
+    const script = buildVideoContentContextScript()
+
+    expect(script).toContain('aid:')
+    expect(script).toContain('videoData.aid')
+  })
 })

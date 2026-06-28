@@ -15,6 +15,7 @@ import {
   saveAssistantPreferences,
   loadPendingFavoriteQueue,
   savePendingFavoriteQueue,
+  clearPendingFavoriteQueue,
   upsertPendingFavoriteQueueItems,
   updatePendingFavoriteQueueItemStatus,
   loadVideoAudioTranscriptionQueue,
@@ -301,6 +302,16 @@ describe('pending favorite queue store helpers', () => {
     expect(
       updatePendingFavoriteQueueItemStatus(store, 202, 'archived', '2026-06-28T02:00:00.000Z')
     ).toEqual([])
+  })
+
+  it('clears all pending queue items at once', () => {
+    const store = createFakeStore({
+      pendingFavoriteQueue: [pendingQueueItem]
+    })
+
+    expect(clearPendingFavoriteQueue(store)).toEqual([])
+    expect(loadPendingFavoriteQueue(store)).toEqual([])
+    expect(store.snapshot.pendingFavoriteQueue).toEqual([])
   })
 })
 

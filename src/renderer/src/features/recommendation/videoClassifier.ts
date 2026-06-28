@@ -2,6 +2,7 @@ import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import type { FavoriteLedger, FavoriteLedgerClassification } from '@shared/types'
 
 export type VideoContentContext = {
+  aid?: number
   title?: string
   author?: string
   description?: string
@@ -202,6 +203,7 @@ export function buildVideoContentContextScript(): string {
           .join(' ');
       const initialState = window.__INITIAL_STATE__ || {};
       const videoData = initialState.videoData || initialState.videoInfo || {};
+      const aid = Number(videoData.aid || initialState.aid || 0);
 
       const tags = Array.from(
         document.querySelectorAll('.tag-link,.tag,.video-tag,[class*="tag"] a,[class*="tag"] span')
@@ -211,6 +213,7 @@ export function buildVideoContentContextScript(): string {
         .slice(0, 20);
 
       return {
+        aid: Number.isFinite(aid) && aid > 0 ? aid : undefined,
         title: document.querySelector('h1')?.textContent || document.title || '',
         author: document.querySelector('.up-name,.username,[class*="up-name"]')?.textContent || videoData.owner?.name || '',
         description: readMeta('description') || readText(['.desc-info-text', '.video-desc', '[class*="desc"]']),

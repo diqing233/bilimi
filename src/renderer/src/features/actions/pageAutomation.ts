@@ -665,6 +665,30 @@ export function buildAutomationScript(
       const querySubmitButton = (root = queryCommentRoot()) =>
         closestClickable(byTextWithin(root, commentSubmitSelectors, ['发布', '提交', '发送']));
 
+      const queryCommentActivator = (root = queryCommentRoot()) => {
+        const selectors = [
+          '.reply-box',
+          '.comment-box',
+          '.reply-box-placeholder',
+          '.comment-box-placeholder',
+          '[class*="reply"][class*="box"]',
+          '[class*="comment"][class*="box"]'
+        ].join(',');
+        const nodes = Array.from(root.querySelectorAll?.(selectors) || []);
+        return nodes.find((node) => isVisibleCandidate(node)) || null;
+      };
+
+      const activateCommentBox = async (commentRoot) => {
+        const activator = queryCommentActivator(commentRoot);
+        if (!activator) {
+          return false;
+        }
+
+        click(closestClickable(activator), 'comment:activate');
+        await wait(120);
+        return true;
+      };
+
       const revealCommentRoot = async (commentRoot) => {
         commentRoot.scrollIntoView?.({ block: 'center' });
         commentRoot.dispatchEvent?.(new Event('scroll', { bubbles: true }));
@@ -701,7 +725,12 @@ export function buildAutomationScript(
       const fillComment = async () => {
         const commentRoot = queryCommentRoot();
         await revealCommentRoot(commentRoot);
-        const commentField = await waitForElement(() => queryCommentField(commentRoot), 'comment');
+        let commentField = queryCommentField(commentRoot);
+
+        if (!commentField) {
+          await activateCommentBox(commentRoot);
+          commentField = await waitForElement(() => queryCommentField(commentRoot), 'comment');
+        }
 
         if (!commentField) {
           return false;

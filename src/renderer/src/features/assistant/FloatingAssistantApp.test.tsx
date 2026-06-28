@@ -138,6 +138,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const loadVideoNoteArchives = vi.fn().mockResolvedValue([])
   const loadVideoAudioTranscriptionQueue = vi.fn().mockResolvedValue({ items: [] })
   const loadPendingFavoriteQueue = vi.fn().mockResolvedValue([])
+  const clearPendingFavoriteQueue = vi.fn().mockResolvedValue([])
   const enqueueCurrentVideoAudioTranscription = vi.fn().mockResolvedValue({
     activeItemId: 'bvid:BV1note',
     items: [
@@ -202,6 +203,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     loadVideoNoteArchives,
     loadVideoAudioTranscriptionQueue,
     loadPendingFavoriteQueue,
+    clearPendingFavoriteQueue,
     enqueueCurrentVideoAudioTranscription,
     onVideoAudioTranscriptionQueueChanged,
     deleteVideoNoteArchiveEntry,
@@ -988,6 +990,25 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByRole('region', { name: '待分类队列' })).toBeInTheDocument()
     expect(screen.getByText('待分类队列 1 条')).toBeInTheDocument()
     expect(screen.getByText('待分类旧藏')).toBeInTheDocument()
+  })
+
+  it('clears the pending classification queue through the desktop bridge', async () => {
+    const loadPendingFavoriteQueue = vi.fn().mockResolvedValue([createPendingQueueItem()])
+    const clearPendingFavoriteQueue = vi.fn().mockResolvedValue([])
+
+    installDesktopApi({ loadPendingFavoriteQueue, clearPendingFavoriteQueue })
+
+    const { container } = render(<FloatingAssistantApp />)
+
+    await screen.findAllByRole('tab')
+    fireEvent.click(screen.getAllByRole('tab')[2])
+
+    expect(await screen.findByRole('region', { name: '待分类队列' })).toBeInTheDocument()
+
+    fireEvent.click(container.querySelector('.favorite-ledger-panel__pending-queue button')!)
+
+    await waitFor(() => expect(clearPendingFavoriteQueue).toHaveBeenCalledOnce())
+    expect(screen.queryByRole('region', { name: '待分类队列' })).not.toBeInTheDocument()
   })
 
   it('keeps old favorite pet hints quiet between organization start and finish', async () => {

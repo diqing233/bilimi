@@ -36,6 +36,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   loadPreferences: () => ipcRenderer.invoke('assistant:load-preferences') as Promise<AssistantPreferences>,
   loadPendingFavoriteQueue: () =>
     ipcRenderer.invoke('pending-favorite-queue:load') as Promise<PendingFavoriteQueueItem[]>,
+  clearPendingFavoriteQueue: () =>
+    ipcRenderer.invoke('pending-favorite-queue:clear') as Promise<PendingFavoriteQueueItem[]>,
   upsertPendingFavoriteQueueItems: (items: PendingFavoriteQueueItem[]) =>
     ipcRenderer.invoke('pending-favorite-queue:upsert', items) as Promise<PendingFavoriteQueueItem[]>,
   updatePendingFavoriteQueueItemStatus: (aid: number, status: PendingFavoriteQueueStatus) =>

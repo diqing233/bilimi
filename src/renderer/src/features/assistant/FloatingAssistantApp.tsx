@@ -728,6 +728,12 @@ export function FloatingAssistantApp({
     return items
   }
 
+  async function clearPendingFavoriteQueue() {
+    const items = (await window.bilimiDesktop?.clearPendingFavoriteQueue?.()) ?? []
+    setPendingQueueItems(items)
+    return items
+  }
+
   async function updatePendingQueueItemStatus(
     aid: number,
     status: PendingFavoriteQueueStatus
@@ -992,6 +998,7 @@ export function FloatingAssistantApp({
             onOldFavoriteExecutionStateChange={handleOldFavoriteExecutionStateChange}
             favoriteArchiveMultiMode={preferences.favoriteArchiveMultiMode}
             pendingQueueItems={pendingQueueItems}
+            onClearPendingQueue={clearPendingFavoriteQueue}
             onUpdatePendingQueueItemStatus={updatePendingQueueItemStatus}
           />
         </div>

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   getDesktopStore,
+  clearPendingFavoriteQueue,
   clearDeepSeekApiKey,
   loadDeepSeekApiKey,
   loadDeepSeekApiKeyStatus,
@@ -555,6 +556,7 @@ function registerAssistantPreferenceHandlers() {
     return saved
   })
   ipcMain.handle('pending-favorite-queue:load', () => loadPendingFavoriteQueue(getDesktopStore()))
+  ipcMain.handle('pending-favorite-queue:clear', () => clearPendingFavoriteQueue(getDesktopStore()))
   ipcMain.handle('pending-favorite-queue:upsert', (_event, items: PendingFavoriteQueueItem[]) =>
     upsertPendingFavoriteQueueItems(getDesktopStore(), items)
   )

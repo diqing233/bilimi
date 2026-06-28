@@ -43,6 +43,7 @@ type BilimiDesktopApi = {
   }) => Promise<VideoAudioTranscriptionQueueSnapshot | null>
   getCurrentVideoTime?: () => Promise<number>
   loadPendingFavoriteQueue?: () => Promise<PendingFavoriteQueueItem[]>
+  clearPendingFavoriteQueue?: () => Promise<PendingFavoriteQueueItem[]>
   loadPreferences: () => Promise<AssistantPreferences>
   loadVideoNotes?: () => Promise<VideoNote[]>
   loadVideoNoteArchives?: () => Promise<VideoNoteArchiveEntry[]>

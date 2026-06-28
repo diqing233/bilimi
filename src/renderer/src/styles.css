@@ -2272,13 +2272,24 @@ body[data-floating-window="true"],
   padding: 8px 0;
 }
 .favorite-ledger-panel__pending-queue header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.favorite-ledger-panel__pending-queue header > div {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 2px;
 }
 .favorite-ledger-panel__pending-queue strong {
   color: var(--porcelain-deep);
   font-size: 14px;
+}
+.favorite-ledger-panel__pending-queue header button {
+  min-height: 28px;
+  padding: 4px 8px;
+  white-space: nowrap;
 }
 .favorite-ledger-panel__pending-queue small,
 .favorite-ledger-panel__pending-metrics span {
