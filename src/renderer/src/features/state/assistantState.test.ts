@@ -126,7 +126,7 @@ describe('assistant state', () => {
       bilibiliOperationMode: 'api-assisted',
       favoriteArchiveMultiMode: 'off',
       defaultCoinCount: 1,
-      commentSubmitMode: 'manual',
+      commentSubmitMode: 'auto',
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
       deepseekAutoSummaryEnabled: false,
@@ -171,7 +171,7 @@ describe('assistant state', () => {
       })
     ).toMatchObject({
       defaultCoinCount: 1,
-      commentSubmitMode: 'manual'
+      commentSubmitMode: 'auto'
     })
   })
 

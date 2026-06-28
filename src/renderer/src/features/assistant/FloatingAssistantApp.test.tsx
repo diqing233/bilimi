@@ -25,7 +25,7 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     bilibiliOperationMode: 'api-assisted',
     favoriteArchiveMultiMode: 'off',
     defaultCoinCount: 1,
-    commentSubmitMode: 'manual',
+    commentSubmitMode: 'auto',
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
     deepseekAutoSummaryEnabled: false,
@@ -585,7 +585,7 @@ describe('FloatingAssistantApp', () => {
 
     expect(screen.getByRole('group', { name: '批阅动作设置' })).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: '赐默认投 1 币' })).toBeChecked()
-    expect(screen.getByRole('radio', { name: '表只填评论，不一键发送' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: '表一键发送' })).toBeChecked()
 
     fireEvent.click(screen.getByRole('radio', { name: '赐默认投 2 币' }))
 
@@ -597,12 +597,12 @@ describe('FloatingAssistantApp', () => {
       )
     )
 
-    fireEvent.click(screen.getByRole('radio', { name: '表一键发送' }))
+    fireEvent.click(screen.getByRole('radio', { name: '表只填评论，不一键发送' }))
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
-          commentSubmitMode: 'auto'
+          commentSubmitMode: 'manual'
         })
       )
     )
@@ -640,7 +640,7 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByRole('radio', { name: '赐默认投 2 币' })).toBeChecked()
   })
 
-  it('passes manual comment mode by default when 表 sends the selected draft', async () => {
+  it('passes one-click comment mode by default when 表 sends the selected draft', async () => {
     const { runAssistantAction } = installDesktopApi()
 
     render(<FloatingAssistantApp />)
@@ -652,14 +652,14 @@ describe('FloatingAssistantApp', () => {
       expect(runAssistantAction).toHaveBeenCalledWith(
         '表',
         expect.objectContaining({
-          submitComment: false
+          submitComment: true
         })
       )
     )
   })
 
-  it('passes one-click comment mode when 表 is configured to auto submit', async () => {
-    const preferences = createPreferences({ commentSubmitMode: 'auto' })
+  it('passes manual comment mode when 表 is configured to only fill the draft', async () => {
+    const preferences = createPreferences({ commentSubmitMode: 'manual' })
     const { runAssistantAction } = installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(createSnapshot({ preferences }))
     })
@@ -673,7 +673,7 @@ describe('FloatingAssistantApp', () => {
       expect(runAssistantAction).toHaveBeenCalledWith(
         '表',
         expect.objectContaining({
-          submitComment: true
+          submitComment: false
         })
       )
     )

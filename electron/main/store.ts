@@ -72,7 +72,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   bilibiliOperationMode: 'api-assisted',
   favoriteArchiveMultiMode: 'off',
   defaultCoinCount: 1,
-  commentSubmitMode: 'manual',
+  commentSubmitMode: 'auto',
   preferenceCounts: {},
   deepseekEnabled: false,
   deepseekApiKeyStored: false,
@@ -126,7 +126,7 @@ export function loadAssistantPreferences(
         ? favoriteArchiveMultiMode
         : 'off',
     defaultCoinCount: defaultCoinCount === 2 ? 2 : 1,
-    commentSubmitMode: commentSubmitMode === 'auto' ? 'auto' : 'manual',
+    commentSubmitMode: commentSubmitMode === 'manual' ? 'manual' : 'auto',
     preferenceCounts: store.get('preferenceCounts') ?? {},
     deepseekEnabled: Boolean(store.get('deepseekEnabled')),
     deepseekApiKeyStored: Boolean(String(deepseekApiKey).trim()),
