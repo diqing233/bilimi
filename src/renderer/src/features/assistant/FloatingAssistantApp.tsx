@@ -281,6 +281,7 @@ export function FloatingAssistantApp({
   const transcriptionQueueRef = useRef<VideoAudioTranscriptionQueueSnapshot>({ items: [] })
   const activeTab = controlledActiveTab ?? uncontrolledActiveTab
   const [activeView, setActiveView] = useState<AssistantWorkspaceView>(activeTab)
+  const [organizeOldFavoritesRequestSignal, setOrganizeOldFavoritesRequestSignal] = useState(0)
   const isSidebarMode = mode === 'sidebar'
 
   function tellPet(tone: PetFeedbackTone, message: string) {
@@ -779,6 +780,7 @@ export function FloatingAssistantApp({
 
       if (payload.organizeOldFavorites) {
         tellPet('progress', '小咪切到掌库啦，旧藏整理从这里开始。')
+        setOrganizeOldFavoritesRequestSignal((signal) => signal + 1)
       }
 
       if (payload.action) {
@@ -1117,6 +1119,7 @@ export function FloatingAssistantApp({
             onOpenOldFavoriteVideo={onOpenInTab}
             onRejudgeOldFavorite={rejudgeOldFavorite}
             favoriteArchiveMultiMode={preferences.favoriteArchiveMultiMode}
+            organizeOldFavoritesRequestSignal={organizeOldFavoritesRequestSignal}
           />
         </div>
 

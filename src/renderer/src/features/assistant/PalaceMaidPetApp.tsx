@@ -353,6 +353,14 @@ export function PalaceMaidPetApp() {
     return shortcut.intent === 'video-action' || shortcut.id === 'transcribe'
   }
 
+  function letsFloatingAssistantHandleCurrentVideoCheck(shortcut: PetHoverShortcut) {
+    return (
+      shortcut.intent === 'video-action' &&
+      shortcut.action === '表' &&
+      preferences.commentSubmitMode !== 'random'
+    )
+  }
+
   async function runShortcutWithPetResult(
     workingMessage: string,
     action: () => Promise<{ ok?: boolean; message?: string } | null | undefined>,
@@ -377,7 +385,11 @@ export function PalaceMaidPetApp() {
     setPressed(false)
     setClosePromptVisible(false)
 
-    if (requiresCurrentVideo(shortcut) && !(await hasCurrentVideo())) {
+    if (
+      requiresCurrentVideo(shortcut) &&
+      !letsFloatingAssistantHandleCurrentVideoCheck(shortcut) &&
+      !(await hasCurrentVideo())
+    ) {
       showLocalPetHint('hint', '暂无视频')
       return
     }

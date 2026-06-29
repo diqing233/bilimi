@@ -34,6 +34,7 @@ type FavoriteLedgerPanelProps = {
   onOpenOldFavoriteVideo?: (url: string) => void
   onRejudgeOldFavorite?: (item: FavoriteLedgerPreviewItem) => Promise<FavoriteLedgerPreviewItem>
   favoriteArchiveMultiMode?: FavoriteArchiveMultiMode
+  organizeOldFavoritesRequestSignal?: number
 }
 
 type OldFavoriteExecutionResult = AssistantAutomationResult & {
@@ -540,7 +541,8 @@ export function FavoriteLedgerPanel({
   onOldFavoriteExecutionStateChange,
   onOpenOldFavoriteVideo,
   onRejudgeOldFavorite,
-  favoriteArchiveMultiMode = 'off'
+  favoriteArchiveMultiMode = 'off',
+  organizeOldFavoritesRequestSignal = 0
 }: FavoriteLedgerPanelProps) {
   const [draftLedgers, setDraftLedgers] = useState<FavoriteLedger[]>(ledgers)
   const [activeLedgerId, setActiveLedgerId] = useState<string | null>(null)
@@ -652,6 +654,14 @@ export function FavoriteLedgerPanel({
       }
     })
   }
+
+  useEffect(() => {
+    if (organizeOldFavoritesRequestSignal <= 0) {
+      return
+    }
+
+    void startOrganizingOldFavorites()
+  }, [organizeOldFavoritesRequestSignal])
 
   function addBlankLedger() {
     const nextLedger = {

@@ -280,6 +280,35 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getAllByText('机器学习入门教程').length).toBeGreaterThan(0)
   })
 
+  it('starts old favorite organization when a pet workspace request asks for 整', async () => {
+    let openWorkspace: Parameters<
+      NonNullable<Window['bilimiDesktop']['onOpenFloatingAssistantWorkspace']>
+    >[0] | undefined
+    const scanOldFavorites = vi.fn().mockResolvedValue({
+      items: [],
+      skippedSourceFolderTitles: []
+    } satisfies FavoriteLedgerPreview)
+    installDesktopApi({
+      scanOldFavorites,
+      onOpenFloatingAssistantWorkspace: vi.fn((callback) => {
+        openWorkspace = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
+
+    act(() => {
+      openWorkspace?.({ tab: 'ledger', organizeOldFavorites: true })
+    })
+
+    expect(screen.getByRole('tab', { name: '掌库' })).toHaveAttribute('aria-selected', 'true')
+    await waitFor(() => expect(scanOldFavorites).toHaveBeenCalledOnce())
+    expect(screen.getByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+  })
+
   it('keeps the floating assistant fold button available across workspace tabs', async () => {
     const api = installDesktopApi()
 

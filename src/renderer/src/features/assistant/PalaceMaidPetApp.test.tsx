@@ -652,6 +652,44 @@ describe('PalaceMaidPetApp', () => {
     expect(api.runFloatingMenuAction).not.toHaveBeenCalledWith('表')
   })
 
+  it('opens the floating comment chooser in choose mode and lets it handle a missing video', async () => {
+    const api = installDesktopApi({
+      openFloatingAssistantWorkspace: vi.fn().mockResolvedValue(undefined),
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          videoTitle: '首页',
+          videoContentContext: {},
+          activeTabUrl: 'https://www.bilibili.com/',
+          preferences: createPreferences({
+            commentSubmitMode: 'choose',
+            petHoverShortcuts: ['comment']
+          })
+        })
+      ),
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          commentSubmitMode: 'choose',
+          petHoverShortcuts: ['comment']
+        })
+      ),
+      runFloatingMenuAction: vi.fn().mockResolvedValue(undefined)
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
+    fireEvent.click(await screen.findByRole('button', { name: '表' }))
+
+    await waitFor(() =>
+      expect(api.openFloatingAssistantWorkspace).toHaveBeenCalledWith({
+        action: '表',
+        tab: 'review'
+      })
+    )
+    expect(api.runFloatingMenuAction).not.toHaveBeenCalled()
+    expect(screen.queryByText('暂无视频')).not.toBeInTheDocument()
+  })
+
   it('sends 表 directly from the pet shortcut when random danmaku mode is enabled', async () => {
     const randomCommentPreferences = createPreferences({
       commentSubmitMode: 'random',
