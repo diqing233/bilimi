@@ -12,11 +12,28 @@ const COLLAPSED_NUDGE_DELAY_MS = 60_000
 
 type AssistantSidebarProps = {
   onOpenInTab?: (url: string) => void
+  collapsed?: boolean
+  onCollapsedChange?: (collapsed: boolean) => void
+  showCollapseButton?: boolean
 }
 
-export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
-  const [collapsed, setCollapsed] = useState(false)
+export function AssistantSidebar({
+  collapsed: collapsedProp,
+  onCollapsedChange,
+  onOpenInTab,
+  showCollapseButton = true
+}: AssistantSidebarProps = {}) {
+  const [uncontrolledCollapsed, setUncontrolledCollapsed] = useState(false)
   const [activeTab, setActiveTab] = useState<AssistantSidebarTab>('review')
+  const collapsed = collapsedProp ?? uncontrolledCollapsed
+
+  function setCollapsed(nextCollapsed: boolean) {
+    if (collapsedProp === undefined) {
+      setUncontrolledCollapsed(nextCollapsed)
+    }
+
+    onCollapsedChange?.(nextCollapsed)
+  }
 
   function collapseSidebar() {
     window.bilimiDesktop?.setAssistantPetHint?.({
@@ -69,28 +86,30 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
       aria-label="Bilimi 侧边栏"
       data-collapsed={collapsed ? 'true' : 'false'}
     >
-      <button
-        type="button"
-        className="assistant-sidebar__collapse-button"
-        aria-label={collapsed ? '展开侧边栏' : '折叠侧边栏'}
-        onClick={() => {
-          if (collapsed) {
-            expandSidebar()
-            return
-          }
+      {showCollapseButton ? (
+        <button
+          type="button"
+          className="assistant-sidebar__collapse-button"
+          aria-label={collapsed ? '展开侧边栏' : '折叠侧边栏'}
+          onClick={() => {
+            if (collapsed) {
+              expandSidebar()
+              return
+            }
 
-          collapseSidebar()
-        }}
-      >
-        <img
-          className="assistant-sidebar__collapse-pet"
-          src={idlePetUrl}
-          alt={collapsed ? '小咪展开侧栏' : '小咪收起侧栏'}
-        />
-        <span className="assistant-sidebar__collapse-label" aria-hidden="true">
-          {collapsed ? '展开' : '折叠'}
-        </span>
-      </button>
+            collapseSidebar()
+          }}
+        >
+          <img
+            className="assistant-sidebar__collapse-pet"
+            src={idlePetUrl}
+            alt={collapsed ? '小咪展开侧栏' : '小咪收起侧栏'}
+          />
+          <span className="assistant-sidebar__collapse-label" aria-hidden="true">
+            {collapsed ? '展开' : '折叠'}
+          </span>
+        </button>
+      ) : null}
       <div className="assistant-sidebar__workspace" hidden={collapsed}>
         <FloatingAssistantApp
           mode="sidebar"

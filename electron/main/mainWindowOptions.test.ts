@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createMainWindowOptions, getMainWindowIconPath } from './mainWindowOptions'
 
 describe('createMainWindowOptions', () => {
-  it('creates a wide project browser window with native window controls', () => {
+  it('creates a wide project browser window with a custom titlebar overlay', () => {
     const options = createMainWindowOptions('C:/bilimi/out/preload/index.mjs')
 
     expect(options).toMatchObject({
@@ -14,6 +14,12 @@ describe('createMainWindowOptions', () => {
       title: 'Bilimi',
       show: true,
       frame: true,
+      titleBarStyle: 'hidden',
+      titleBarOverlay: {
+        color: '#071a33',
+        symbolColor: '#dceeff',
+        height: 42
+      },
       autoHideMenuBar: true,
       skipTaskbar: false
     })

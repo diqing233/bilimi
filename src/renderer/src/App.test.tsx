@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import type { AssistantPreferences } from '@shared/types'
 import { describe, expect, it, vi } from 'vitest'
@@ -138,6 +138,48 @@ describe('App runtime integration', () => {
     expect(screen.getByRole('tab', { name: '首页' })).toHaveAttribute('aria-selected', 'true')
     expect(document.querySelector('.app-shell')).toHaveAttribute('data-tabs-visible', 'true')
     expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
+  })
+
+  it('renders browser controls in the custom titlebar instead of the sidebar edge', async () => {
+    renderAppWithRuntimeBridge()
+
+    expect(document.querySelector('.browser-titlebar')).toBeInTheDocument()
+    expect(document.querySelector('.browser-titlebar__refresh')).toBeInTheDocument()
+    expect(document.querySelector('.browser-titlebar__sidebar-toggle')).toBeInTheDocument()
+    expect(document.querySelector('.assistant-sidebar__collapse-button')).not.toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
+  })
+
+  it('refreshes only the active browser tab from the titlebar control', async () => {
+    renderAppWithRuntimeBridge()
+
+    const homeWebview = document.getElementById('bilimi-webview') as HTMLElement & {
+      reload?: () => void
+    }
+    const reloadHome = vi.fn()
+    Object.assign(homeWebview, { reload: reloadHome })
+
+    act(() => {
+      homeWebview.dispatchEvent(
+        new CustomEvent('new-window', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1refresh'
+          }
+        })
+      )
+    })
+
+    await screen.findByRole('tab', { name: /BV1refresh/ })
+    const activeWebview = document.querySelector('webview[data-active="true"]') as HTMLElement & {
+      reload?: () => void
+    }
+    const reloadActive = vi.fn()
+    Object.assign(activeWebview, { reload: reloadActive })
+
+    fireEvent.click(document.querySelector('.browser-titlebar__refresh') as HTMLElement)
+
+    expect(reloadActive).toHaveBeenCalledTimes(1)
+    expect(reloadHome).not.toHaveBeenCalled()
   })
 
   it('returns a floating assistant snapshot from the active webview', async () => {
