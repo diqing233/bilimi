@@ -570,7 +570,7 @@ describe('App runtime integration', () => {
       if (script.includes('__bilimiDanmakuFieldFocus')) {
         return {
           ok: true,
-          steps: ['danmaku:switch:on', 'danmaku:focus'],
+          steps: ['danmaku:focus'],
           missingTargets: [],
           message: '弹幕栏已聚焦。',
           sendButtonPoint: { x: 620, y: 452 }
@@ -648,7 +648,6 @@ describe('App runtime integration', () => {
       expect.objectContaining({
         ok: true,
         steps: expect.arrayContaining([
-          'danmaku:switch:on',
           'danmaku:focus',
           'danmaku:trusted-paste',
           'danmaku:paste-confirm',
@@ -657,6 +656,8 @@ describe('App runtime integration', () => {
         ])
       })
     )
+    expect(result.steps).not.toEqual(expect.arrayContaining(['danmaku:switch:on']))
+    expect(result.steps).not.toEqual(expect.arrayContaining(['danmaku:switch:ready']))
   })
 
   it('returns a structured danmaku clipboard error instead of throwing through the runtime bridge', async () => {
@@ -964,7 +965,13 @@ describe('App runtime integration', () => {
       { keyCode: 'Enter', type: 'keyDown' },
       { keyCode: 'Enter', type: 'keyUp' }
     ])
-    expect(paste).toHaveBeenCalledTimes(1)
+    expect(sentEvents).toEqual(
+      expect.arrayContaining([
+        { keyCode: 'v', modifiers: ['control'], type: 'keyDown' },
+        { keyCode: 'v', modifiers: ['control'], type: 'keyUp' }
+      ])
+    )
+    expect(paste).not.toHaveBeenCalled()
     expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'd' }))
   })
 

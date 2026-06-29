@@ -1177,7 +1177,7 @@ describe('buildDanmakuFieldFocusScript', () => {
     )
   })
 
-  it('focuses the visible danmaku bar without scrolling and opens a clearly disabled switch', async () => {
+  it('focuses the visible danmaku bar without scrolling or operating the danmaku switch', async () => {
     document.body.innerHTML = `
       <section class="bpx-player-sending-area">
         <button class="bpx-player-dm-switch off" aria-pressed="false" title="开启弹幕">弹</button>
@@ -1212,14 +1212,16 @@ describe('buildDanmakuFieldFocusScript', () => {
 
     const result = await window.eval(buildDanmakuFieldFocusScript())
 
-    expect(switchClicked).toBe(true)
+    expect(switchClicked).toBe(false)
     expect(input.scrollIntoView).not.toHaveBeenCalled()
     expect(result).toEqual(
       expect.objectContaining({
         ok: true,
-        steps: expect.arrayContaining(['danmaku:switch:on', 'danmaku:focus']),
+        steps: expect.arrayContaining(['danmaku:focus']),
         sendButtonPoint: { x: 260, y: 24 }
       })
     )
+    expect(result.steps).not.toEqual(expect.arrayContaining(['danmaku:switch:on']))
+    expect(result.steps).not.toEqual(expect.arrayContaining(['danmaku:switch:ready']))
   })
 })

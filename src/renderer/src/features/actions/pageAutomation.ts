@@ -140,42 +140,6 @@ export function buildDanmakuFieldFocusScript(): string {
       const switchButton = Array.from(sendingArea.querySelectorAll?.(switchSelectors) || [])
         .filter((node) => node !== field)
         .find(isVisibleInput);
-      const switchStateText = (node) =>
-        String(
-          [
-            node?.getAttribute?.('aria-label'),
-            node?.getAttribute?.('title'),
-            node?.getAttribute?.('class'),
-            node?.textContent
-          ].join(' ')
-        ).toLowerCase();
-      const isClearlyOff = (node) => {
-        if (node?.getAttribute?.('aria-checked') === 'false') {
-          return true;
-        }
-
-        if (node?.getAttribute?.('aria-pressed') === 'false') {
-          return true;
-        }
-
-        const text = switchStateText(node);
-        if (!text) {
-          return false;
-        }
-
-        if (text.includes('开启弹幕') || text.includes('打开弹幕')) {
-          return true;
-        }
-
-        return /(^|[-_\\s])(off|close|closed|disabled|disable)([-_\\s]|$)/.test(text);
-      };
-
-      if (switchButton && isClearlyOff(switchButton)) {
-        switchButton.click?.();
-        result.steps.push('danmaku:switch:on');
-      } else {
-        result.steps.push('danmaku:switch:ready');
-      }
 
       field.click?.();
       field.focus?.();

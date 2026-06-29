@@ -1057,11 +1057,7 @@ export default function App() {
     sendKey('Backspace')
     await wait(60)
     currentActiveWebview.focus?.()
-    if (currentActiveWebview.paste) {
-      currentActiveWebview.paste()
-    } else {
-      sendKey('v', ['control'])
-    }
+    sendKey('v', ['control'])
     await wait(120)
 
     const pasteConfirmation = (await currentActiveWebview.executeJavaScript(
