@@ -632,15 +632,21 @@ describe('App runtime integration', () => {
       { keyCode: 'v', modifiers: ['control'], type: 'keyDown' },
       { keyCode: 'v', modifiers: ['control'], type: 'keyUp' },
       { keyCode: 'Enter', type: 'keyDown' },
-      { keyCode: 'Enter', type: 'keyUp' },
-      { keyCode: 'Space', type: 'keyDown' },
-      { keyCode: 'Space', type: 'keyUp' }
+      { keyCode: 'Enter', type: 'keyUp' }
     ])
     expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'd' }))
     expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'a' }))
     expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'Backspace' }))
+    expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'Space' }))
     expect(sentEvents).not.toContainEqual(expect.objectContaining({ button: 'left', x: 620, y: 452 }))
     const executedScripts = executeJavaScript.mock.calls.map(([script]) => String(script))
+    const playbackRestoreCallIndexes = executedScripts
+      .map((script, index) => (script.includes('__bilimiRestorePlayerPlaybackState') ? index : -1))
+      .filter((index) => index >= 0)
+    expect(playbackRestoreCallIndexes).toHaveLength(2)
+    expect(executeJavaScript.mock.invocationCallOrder[playbackRestoreCallIndexes[1]]).toBeGreaterThan(
+      (webview.sendInputEvent as ReturnType<typeof vi.fn>).mock.invocationCallOrder[8]
+    )
     expect(executedScripts.some((script) => script.includes('__bilimiDanmakuFieldFocus'))).toBe(false)
     expect(executedScripts.some((script) => script.includes('__bilimiDanmakuDraftPresence'))).toBe(false)
     expect(executedScripts.some((script) => script.includes('__bilimiDanmakuSubmitConfirmation'))).toBe(false)
@@ -650,10 +656,11 @@ describe('App runtime integration', () => {
         steps: expect.arrayContaining([
           'danmaku:trusted-paste',
           'danmaku:trusted-enter',
-          'danmaku:trusted-space'
+          'player:playback:stable'
         ])
       })
     )
+    expect((result.steps ?? []).filter((step) => step === 'player:playback:stable')).toHaveLength(2)
   })
 
   it('returns a structured danmaku clipboard error instead of throwing through the runtime bridge', async () => {

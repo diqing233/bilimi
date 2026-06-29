@@ -953,6 +953,7 @@ export default function App() {
     }
 
     const activationSteps: string[] = []
+    let playbackPausedBeforeActivation: boolean | null = null
     try {
       const activation = (await currentActiveWebview.executeJavaScript(
         buildTrustedPlayerActivationScript(),
@@ -960,6 +961,7 @@ export default function App() {
       )) as TrustedPlayerActivationResult
 
       if (activation?.ok && activation.clickPoint) {
+        playbackPausedBeforeActivation = activation.paused
         activationSteps.push(...activation.steps, 'player:activate-click')
         clickAt(activation.clickPoint)
         await wait(120)
@@ -987,10 +989,17 @@ export default function App() {
     const submitSteps = ['danmaku:trusted-enter']
     sendKey('Enter')
     await wait(120)
-    currentActiveWebview.focus?.()
-    sendKey('Space')
-    submitSteps.push('danmaku:trusted-space')
-    await wait(80)
+    if (playbackPausedBeforeActivation !== null) {
+      try {
+        const playbackRestore = (await currentActiveWebview.executeJavaScript(
+          buildRestorePlayerPlaybackStateScript(playbackPausedBeforeActivation),
+          true
+        )) as AssistantAutomationResult
+        submitSteps.push(...(playbackRestore?.steps ?? []))
+      } catch {
+        submitSteps.push('player:playback:restore-after-submit-skipped')
+      }
+    }
 
     return {
       ok: true,
