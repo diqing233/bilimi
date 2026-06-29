@@ -42,6 +42,7 @@ type BilimiDesktopApi = {
   enqueueCurrentVideoAudioTranscription?: (options?: {
     summarizeWithDeepSeek?: boolean
   }) => Promise<VideoAudioTranscriptionQueueSnapshot | null>
+  writeClipboardText?: (text: string) => Promise<void>
   getCurrentVideoTime?: () => Promise<number>
   loadPendingFavoriteQueue?: () => Promise<PendingFavoriteQueueItem[]>
   clearPendingFavoriteQueue?: () => Promise<PendingFavoriteQueueItem[]>

@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   closeAssistantPet: () => ipcRenderer.send('assistant-pet:close'),
   closeFloatingAssistant: () => ipcRenderer.send('floating-assistant:close'),
   closeFloatingMenu: () => ipcRenderer.send('floating-menu:close'),
+  writeClipboardText: (text: string) =>
+    ipcRenderer.invoke('clipboard:write-text', text) as Promise<void>,
   loadPreferences: () => ipcRenderer.invoke('assistant:load-preferences') as Promise<AssistantPreferences>,
   loadPendingFavoriteQueue: () =>
     ipcRenderer.invoke('pending-favorite-queue:load') as Promise<PendingFavoriteQueueItem[]>,

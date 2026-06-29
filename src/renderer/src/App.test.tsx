@@ -828,7 +828,93 @@ describe('App runtime integration', () => {
     expect(webview.sendInputEvent).not.toHaveBeenCalled()
   })
 
+  it('falls back to the desktop clipboard when the Web Clipboard API is not focused', async () => {
+    const writeClipboardText = vi.fn().mockResolvedValue(undefined)
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      writeClipboardText
+    })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+      sendInputEvent?: (event: Record<string, unknown>) => void
+    }
+    const writeText = vi.fn().mockRejectedValue(new Error('Document is not focused.'))
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText }
+    })
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes('document.cookie')) {
+        return 'DedeUserID=42; bili_jct=csrf'
+      }
 
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          title: 'clipboard fallback video',
+          pageText: 'testing clipboard fallback'
+        }
+      }
+
+      if (script.includes('__bilimiTrustedPlayerActivation')) {
+        return {
+          ok: true,
+          steps: ['player:locate'],
+          missingTargets: [],
+          message: '播放器已定位。',
+          clickPoint: { x: 300, y: 220 },
+          paused: false
+        }
+      }
+
+      if (script.includes('__bilimiRestorePlayerPlaybackState')) {
+        return {
+          ok: true,
+          steps: ['player:playback:stable'],
+          missingTargets: [],
+          message: '播放状态未改变。'
+        }
+      }
+
+      return {
+        ok: false,
+        steps: [],
+        missingTargets: ['unexpected-page-script'],
+        message: '桌面剪贴板兜底不应进入普通页面脚本。'
+      }
+    })
+    Object.assign(webview, {
+      executeJavaScript,
+      sendInputEvent: vi.fn()
+    })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1desktopclipboard'
+          }
+        })
+      )
+    })
+
+    const result = await requestRuntime({
+      id: 'run-danmaku-desktop-clipboard',
+      type: 'run-action',
+      action: '表',
+      options: {
+        commentDraft: 'typed',
+        submitComment: true
+      }
+    })
+
+    expect(writeText).toHaveBeenCalledWith('typed')
+    expect(writeClipboardText).toHaveBeenCalledWith('typed')
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        steps: expect.arrayContaining(['danmaku:trusted-paste', 'danmaku:trusted-enter'])
+      })
+    )
+  })
 
   it('opens the composer without pressing d even when the player reports danmaku off', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()

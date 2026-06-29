@@ -938,18 +938,29 @@ export default function App() {
       })
     }
 
-    if (!navigator.clipboard?.writeText) {
-      return {
-        ok: false,
-        steps: [],
-        missingTargets: ['trusted-danmaku-clipboard'],
-        message: '尚有 trusted-danmaku-clipboard 未能寻见。'
+    const writeDanmakuDraftToClipboard = async () => {
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(commentDraft)
+          return true
+        } catch {
+          // Electron's Web Clipboard API can reject when the window is not focused.
+        }
       }
+
+      if (window.bilimiDesktop?.writeClipboardText) {
+        try {
+          await window.bilimiDesktop.writeClipboardText(commentDraft)
+          return true
+        } catch {
+          return false
+        }
+      }
+
+      return false
     }
 
-    try {
-      await navigator.clipboard.writeText(commentDraft)
-    } catch {
+    if (!(await writeDanmakuDraftToClipboard())) {
       return {
         ok: false,
         steps: [],

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen, session } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, screen, session } from 'electron'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -569,6 +569,9 @@ function getVideoTranscriptionQueue() {
 
 function registerAssistantPreferenceHandlers() {
   ipcMain.handle('assistant:load-preferences', () => loadAssistantPreferences())
+  ipcMain.handle('clipboard:write-text', (_event, text: string) => {
+    clipboard.writeText(text)
+  })
   ipcMain.handle('assistant:save-preferences', (_event, preferences: AssistantPreferences) => {
     const saved = saveAssistantPreferences(getDesktopStore(), preferences)
     sendAssistantPreferencesChanged(saved)
