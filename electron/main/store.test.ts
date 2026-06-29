@@ -57,7 +57,7 @@ function createStoreNote(id = 'bvid:BV1store'): VideoNote {
 
 function createFakeStore(
   initial: Partial<DesktopStoreState> = {}
-): AssistantStoreLike & { snapshot: DesktopStoreState } {
+): AssistantStoreLike & { setCalls: unknown[]; snapshot: DesktopStoreState } {
   const snapshot: DesktopStoreState = {
     favoritesFolderName: initial.favoritesFolderName ?? DEFAULT_ASSISTANT_PREFERENCES.favoritesFolderName,
     favoriteLedgers: initial.favoriteLedgers ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteLedgers,
@@ -93,8 +93,10 @@ function createFakeStore(
     pendingFavoriteQueue: initial.pendingFavoriteQueue ?? [],
     videoAudioTranscriptionQueue: initial.videoAudioTranscriptionQueue ?? []
   }
+  const setCalls: unknown[] = []
 
   return {
+    setCalls,
     snapshot,
     get(key) {
       return snapshot[key]
@@ -103,6 +105,12 @@ function createFakeStore(
       return Object.prototype.hasOwnProperty.call(snapshot, key)
     },
     set(key, value) {
+      setCalls.push(key)
+      if (typeof key === 'object') {
+        Object.assign(snapshot, key)
+        return
+      }
+
       Object.assign(snapshot, { [key]: value })
     }
   }
@@ -203,6 +211,22 @@ describe('assistant preference store helpers', () => {
     })
     expect(store.snapshot).toMatchObject(saved)
     expect(store.snapshot.videoNotes).toEqual([])
+  })
+
+  it('writes assistant preferences to the store in a single batch', () => {
+    const store = createFakeStore()
+
+    saveAssistantPreferences(store, {
+      ...DEFAULT_ASSISTANT_PREFERENCES,
+      defaultCoinCount: 2,
+      commentSubmitMode: 'choose'
+    })
+
+    expect(store.setCalls).toHaveLength(1)
+    expect(store.setCalls[0]).toMatchObject({
+      defaultCoinCount: 2,
+      commentSubmitMode: 'choose'
+    })
   })
 
   it('persists DeepSeek settings and keeps the key out of assistant preferences', () => {

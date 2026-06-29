@@ -62,6 +62,7 @@ export type DesktopStoreState = AssistantPreferences & {
 export type AssistantStoreLike = {
   get<Key extends keyof DesktopStoreState>(key: Key): DesktopStoreState[Key]
   has?<Key extends keyof DesktopStoreState>(key: Key): boolean
+  set(values: Partial<DesktopStoreState>): void
   set<Key extends keyof DesktopStoreState>(key: Key, value: DesktopStoreState[Key]): void
 }
 
@@ -163,38 +164,30 @@ export function saveAssistantPreferences(
   store: AssistantStoreLike = getDesktopStore(),
   preferences: AssistantPreferences = DEFAULT_ASSISTANT_PREFERENCES
 ): AssistantPreferences {
-  store.set('favoritesFolderName', preferences.favoritesFolderName)
-  store.set('favoriteLedgers', normalizeFavoriteLedgers(preferences.favoriteLedgers))
-  store.set('ledgerPromptDismissed', Boolean(preferences.ledgerPromptDismissed))
-  store.set('petStyle', preferences.petStyle === 'classic' ? 'classic' : 'big-head')
-  store.set('petHoverShortcuts', normalizePetHoverShortcuts(preferences.petHoverShortcuts))
-  store.set('hidePetDuringVideoFullscreen', Boolean(preferences.hidePetDuringVideoFullscreen))
-  store.set(
-    'bilibiliOperationMode',
-    preferences.bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted'
-  )
-  store.set(
-    'favoriteArchiveMultiMode',
-    preferences.favoriteArchiveMultiMode === 'two' || preferences.favoriteArchiveMultiMode === 'three'
-      ? preferences.favoriteArchiveMultiMode
-      : 'off'
-  )
-  store.set('defaultCoinCount', preferences.defaultCoinCount === 2 ? 2 : 1)
-  store.set('commentSubmitMode', preferences.commentSubmitMode === 'random' ? 'random' : 'choose')
-  store.set('preferenceCounts', preferences.preferenceCounts ?? {})
-  store.set('deepseekEnabled', Boolean(preferences.deepseekEnabled))
-  store.set('deepseekApiKeyStored', loadDeepSeekApiKeyStatus(store).configured)
-  store.set('deepseekCommentEnabled', Boolean(preferences.deepseekCommentEnabled))
-  store.set('deepseekAutoSummaryEnabled', Boolean(preferences.deepseekAutoSummaryEnabled))
-  store.set('deepseekPetChatEnabled', Boolean(preferences.deepseekPetChatEnabled))
-  store.set(
-    'deepseekModel',
-    preferences.deepseekModel || DEFAULT_ASSISTANT_PREFERENCES.deepseekModel
-  )
-  store.set(
-    'deepseekBaseUrl',
-    preferences.deepseekBaseUrl || DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl
-  )
+  store.set({
+    favoritesFolderName: preferences.favoritesFolderName,
+    favoriteLedgers: normalizeFavoriteLedgers(preferences.favoriteLedgers),
+    ledgerPromptDismissed: Boolean(preferences.ledgerPromptDismissed),
+    petStyle: preferences.petStyle === 'classic' ? 'classic' : 'big-head',
+    petHoverShortcuts: normalizePetHoverShortcuts(preferences.petHoverShortcuts),
+    hidePetDuringVideoFullscreen: Boolean(preferences.hidePetDuringVideoFullscreen),
+    bilibiliOperationMode:
+      preferences.bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted',
+    favoriteArchiveMultiMode:
+      preferences.favoriteArchiveMultiMode === 'two' || preferences.favoriteArchiveMultiMode === 'three'
+        ? preferences.favoriteArchiveMultiMode
+        : 'off',
+    defaultCoinCount: preferences.defaultCoinCount === 2 ? 2 : 1,
+    commentSubmitMode: preferences.commentSubmitMode === 'random' ? 'random' : 'choose',
+    preferenceCounts: preferences.preferenceCounts ?? {},
+    deepseekEnabled: Boolean(preferences.deepseekEnabled),
+    deepseekApiKeyStored: loadDeepSeekApiKeyStatus(store).configured,
+    deepseekCommentEnabled: Boolean(preferences.deepseekCommentEnabled),
+    deepseekAutoSummaryEnabled: Boolean(preferences.deepseekAutoSummaryEnabled),
+    deepseekPetChatEnabled: Boolean(preferences.deepseekPetChatEnabled),
+    deepseekModel: preferences.deepseekModel || DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
+    deepseekBaseUrl: preferences.deepseekBaseUrl || DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl
+  })
 
   return loadAssistantPreferences(store)
 }

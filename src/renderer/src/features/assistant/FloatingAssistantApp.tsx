@@ -443,7 +443,6 @@ export function FloatingAssistantApp({
       preferencesRef.current = savedPreferences
       setPreferences(savedPreferences)
       lastPreferenceSaveAt.current = Date.now()
-      window.bilimiDesktop.notifyAssistantSnapshotChanged?.()
     }
   }
 

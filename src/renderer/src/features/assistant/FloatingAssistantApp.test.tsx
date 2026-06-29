@@ -690,6 +690,27 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
+  it('does not refresh the assistant snapshot after saving review action settings', async () => {
+    const notifyAssistantSnapshotChanged = vi.fn()
+    const { savePreferences } = installDesktopApi({
+      notifyAssistantSnapshotChanged
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('radio', { name: '默认投 2 枚硬币' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          defaultCoinCount: 2
+        })
+      )
+    )
+    expect(notifyAssistantSnapshotChanged).not.toHaveBeenCalled()
+  })
+
   it('keeps locally saved review action settings when a stale snapshot arrives after video changes', async () => {
     let snapshotChanged: (() => void) | undefined
     const requestAssistantSnapshot = vi
