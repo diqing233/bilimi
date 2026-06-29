@@ -5,7 +5,7 @@ export const MAIN_WINDOW_CLOSE_FAREWELL_DELAY_MS = 900
 type MainWindowControlTarget = {
   close: () => void
   on: (
-    eventName: 'minimize' | 'maximize' | 'unmaximize' | 'close',
+    eventName: 'minimize' | 'restore' | 'maximize' | 'unmaximize' | 'close',
     handler: (...args: unknown[]) => void
   ) => void
 }
@@ -20,6 +20,12 @@ const MINIMIZE_LINES = [
   '那小咪先收起来啦，等你回来。',
   '主人去忙吧，小咪待会儿见。',
   '小咪先安静一下，主人回来再叫我。'
+]
+
+const MINIMIZED_RESTORE_LINES = [
+  '欢迎回来，主人。小咪一直在等你。',
+  '主人回来啦，小咪刚刚差点就要跑去找你了。',
+  '小咪在这里，欢迎回家。'
 ]
 
 const MAXIMIZE_LINES = [
@@ -55,6 +61,13 @@ export function installMainWindowControlReactions({
     sendPetHint({
       tone: 'sleepy',
       message: pickLine(MINIMIZE_LINES)
+    })
+  })
+
+  window.on('restore', () => {
+    sendPetHint({
+      tone: 'shy',
+      message: pickLine(MINIMIZED_RESTORE_LINES)
     })
   })
 

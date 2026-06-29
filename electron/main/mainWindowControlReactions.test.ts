@@ -5,7 +5,7 @@ import {
 } from './mainWindowControlReactions'
 import type { AssistantPetHint } from '../../src/renderer/src/features/assistant/petState'
 
-type WindowEventName = 'minimize' | 'maximize' | 'unmaximize' | 'close'
+type WindowEventName = 'minimize' | 'restore' | 'maximize' | 'unmaximize' | 'close'
 
 function createTestWindow() {
   const handlers = new Map<WindowEventName, Array<(...args: unknown[]) => void>>()
@@ -41,6 +41,29 @@ describe('installMainWindowControlReactions', () => {
       expect(sendPetHint).toHaveBeenCalledWith({
         tone: 'sleepy',
         message: '那小咪先收起来啦，等你回来。'
+      })
+    } finally {
+      random.mockRestore()
+    }
+  })
+
+  it('welcomes the owner back when the taskbar restores a minimized window', () => {
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
+    const window = createTestWindow()
+    const sendPetHint = vi.fn()
+
+    try {
+      installMainWindowControlReactions({
+        closeAssistantPet: vi.fn(),
+        sendPetHint,
+        window
+      })
+
+      window.emit('restore')
+
+      expect(sendPetHint).toHaveBeenCalledWith({
+        tone: 'shy',
+        message: '欢迎回来，主人。小咪一直在等你。'
       })
     } finally {
       random.mockRestore()
