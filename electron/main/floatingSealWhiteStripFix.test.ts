@@ -161,6 +161,22 @@ describe('installFloatingSealWhiteStripFix', () => {
     expect(harness.scheduled).toHaveLength(0)
     expect(harness.target.setPosition).toHaveBeenLastCalledWith(120, 240)
   })
+
+  it('exposes an explicit recomposite trigger for taskbar-driven main window activation', () => {
+    const harness = createHarness({ x: 120, y: 240, width: 336, height: 380 })
+
+    harness.dispose.recomposite()
+    harness.flushAll()
+
+    expect(harness.target.setPosition.mock.calls).toEqual([
+      [121, 240],
+      [120, 240],
+      [121, 240],
+      [120, 240],
+      [121, 240],
+      [120, 240]
+    ])
+  })
 })
 
 describe('installFloatingWindowWhiteStripFix', () => {

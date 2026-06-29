@@ -32,6 +32,10 @@ type WhiteStripFixOptions = RecompositeShape & {
   cancel?: (timer: unknown) => void
 }
 
+export type FloatingWindowWhiteStripFixController = (() => void) & {
+  recomposite: () => void
+}
+
 type FloatingWindowWhiteStripFixOptions = WhiteStripFixOptions & {
   platform?: NodeJS.Platform
 }
@@ -77,7 +81,7 @@ export function createRecompositeSteps(shape: RecompositeShape = {}): Recomposit
 export function installFloatingSealWhiteStripFix(
   target: WhiteStripFixTarget,
   options: WhiteStripFixOptions = {}
-): () => void {
+): FloatingWindowWhiteStripFixController {
   const schedule = options.schedule ?? ((callback, delayMs) => setTimeout(callback, delayMs))
   const cancel = options.cancel ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>))
 
@@ -124,13 +128,16 @@ export function installFloatingSealWhiteStripFix(
   target.on('blur', recomposite)
   target.on('focus', settle)
 
-  return settle
+  const dispose = settle as FloatingWindowWhiteStripFixController
+  dispose.recomposite = recomposite
+
+  return dispose
 }
 
 export function installFloatingWindowWhiteStripFix(
   target: WhiteStripFixTarget,
   options: FloatingWindowWhiteStripFixOptions = {}
-): (() => void) | null {
+): FloatingWindowWhiteStripFixController | null {
   const platform = options.platform ?? process.platform
 
   if (platform !== 'win32') {

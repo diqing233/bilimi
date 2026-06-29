@@ -5,17 +5,7 @@ type Bounds = {
   height: number
 }
 
-type FloatingMenuWindow = {
-  on: (event: 'closed', callback: () => void) => void
-  removeMenu: () => void
-  setAlwaysOnTop: (flag: boolean, level?: 'floating') => void
-  setVisibleOnAllWorkspaces: (
-    visible: boolean,
-    options?: { visibleOnFullScreen: boolean }
-  ) => void
-}
-
-export function createFloatingMenuWindowOptions({
+export function createFloatingAssistantWindowOptions({
   bounds,
   preload
 }: {
@@ -26,6 +16,8 @@ export function createFloatingMenuWindowOptions({
     ...bounds,
     title: '',
     frame: false,
+    show: false,
+    paintWhenInitiallyHidden: false,
     transparent: true,
     titleBarStyle: 'hidden',
     titleBarOverlay: false,
@@ -34,8 +26,8 @@ export function createFloatingMenuWindowOptions({
     movable: false,
     minimizable: false,
     maximizable: false,
-    alwaysOnTop: true,
     autoHideMenuBar: true,
+    alwaysOnTop: true,
     skipTaskbar: true,
     backgroundColor: '#00000000',
     hasShadow: false,
@@ -47,14 +39,4 @@ export function createFloatingMenuWindowOptions({
       backgroundThrottling: false
     }
   }
-}
-
-export function configureFloatingMenuWindow(
-  menu: FloatingMenuWindow,
-  onClosed: () => void
-) {
-  menu.setAlwaysOnTop(true, 'floating')
-  menu.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  menu.removeMenu()
-  menu.on('closed', onClosed)
 }

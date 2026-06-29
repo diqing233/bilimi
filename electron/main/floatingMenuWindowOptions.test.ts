@@ -24,6 +24,11 @@ describe('floating menu window options', () => {
       height: 248,
       transparent: true,
       frame: false,
+      titleBarStyle: 'hidden',
+      titleBarOverlay: false,
+      thickFrame: false,
+      roundedCorners: false,
+      hasShadow: false,
       skipTaskbar: true
     })
   })
