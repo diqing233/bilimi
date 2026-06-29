@@ -126,7 +126,7 @@ describe('assistant state', () => {
       bilibiliOperationMode: 'api-assisted',
       favoriteArchiveMultiMode: 'off',
       defaultCoinCount: 1,
-      commentSubmitMode: 'choose',
+      commentSubmitMode: 'random',
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
       deepseekCommentEnabled: false,

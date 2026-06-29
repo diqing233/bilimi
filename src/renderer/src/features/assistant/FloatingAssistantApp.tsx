@@ -696,12 +696,12 @@ export function FloatingAssistantApp({
     if (action === '表') {
       if (!hasCurrentVideo) {
         setFeedback({
-          tone: 'progress',
+          tone: 'error',
           message: '未打开视频',
           steps: [],
-          missingTargets: []
+          missingTargets: ['current-video']
         })
-        tellPet('surprised', '未打开视频，小咪等主人打开视频页再拟短评。')
+        tellPet('error', '未打开视频，小咪等主人打开视频页再拟短评。')
         return
       }
 
@@ -1377,7 +1377,7 @@ export function FloatingAssistantApp({
                     aria-label="复制推荐模型"
                     onClick={() => void copyDeepSeekRecommendation('deepseek-v4-pro', '推荐模型')}
                   >
-                    <span className="assistant-settings__copy-icon" aria-hidden="true" />
+                    复制
                   </button>
                 </p>
                 <p className="assistant-settings__copy-row">
@@ -1393,7 +1393,7 @@ export function FloatingAssistantApp({
                       )
                     }
                   >
-                    <span className="assistant-settings__copy-icon" aria-hidden="true" />
+                    复制
                   </button>
                 </p>
               </aside>

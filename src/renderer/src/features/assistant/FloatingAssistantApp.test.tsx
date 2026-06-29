@@ -828,7 +828,7 @@ describe('FloatingAssistantApp', () => {
     expect(generateDeepSeek).not.toHaveBeenCalled()
     expect(runAssistantAction).not.toHaveBeenCalled()
     expect(screen.queryByText('小咪拟好三条，主人点一条就发送。')).not.toBeInTheDocument()
-    expect(await screen.findByRole('status')).toHaveTextContent('未打开视频')
+    expect(await screen.findByRole('alert')).toHaveTextContent('未打开视频')
   })
 
   it('saves the 表 comment send strategy from settings', async () => {
@@ -950,12 +950,12 @@ describe('FloatingAssistantApp', () => {
       screen.getByText('开启后可使用批阅的拟奏短评、札记中的 DeepSeek 总结、宠物对话功能。')
     ).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '复制推荐模型' }))
-    expect(screen.getByRole('button', { name: '复制推荐模型' }).querySelector('.assistant-settings__copy-icon')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '复制推荐模型' })).toHaveTextContent('复制')
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('deepseek-v4-pro'))
     expect(await screen.findByRole('status')).toHaveTextContent('已复制推荐模型。')
 
     fireEvent.click(screen.getByRole('button', { name: '复制服务器地址' }))
-    expect(screen.getByRole('button', { name: '复制服务器地址' }).querySelector('.assistant-settings__copy-icon')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '复制服务器地址' })).toHaveTextContent('复制')
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://api.yunshulink.com/v1'))
     expect(await screen.findByRole('status')).toHaveTextContent('已复制服务器地址。')
 

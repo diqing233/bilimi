@@ -54,6 +54,7 @@ import type {
 } from './features/assistant/assistantRuntimeTypes'
 import { AssistantSidebar } from './features/assistant/AssistantSidebar'
 import { PET_VIDEO_OPENING_LINES, pickPetLine } from './features/assistant/petInteractionLines'
+import { composeMemorialComments } from './features/comments/commentComposer'
 
 const HOME_TAB_ID = 'home'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
@@ -108,6 +109,11 @@ function readBilibiliVideoKey(url: string): string | undefined {
 
 function isBilibiliVideoUrl(url?: string): boolean {
   return Boolean(url && BILIBILI_VIDEO_URL_PATTERN.test(url))
+}
+
+function pickRandomCommentDraft(drafts: string[]) {
+  const index = Math.min(drafts.length - 1, Math.floor(Math.random() * drafts.length))
+  return drafts[index] ?? ''
 }
 
 type TrustedPlayerActivationResult = AssistantAutomationResult & {
@@ -1059,6 +1065,20 @@ export default function App() {
     const targetLedgerId =
       archiveTargets[0]?.ledgerId ??
       classifyVideoContent(videoContentContext, preferences.favoriteLedgers).ledgerId
+    const commentDraft =
+      action === '表' &&
+      (options?.submitComment ?? preferences.commentSubmitMode === 'random') &&
+      !options?.commentDraft?.trim()
+        ? pickRandomCommentDraft(
+            composeMemorialComments(
+              targetLedgerId,
+              normalizeActiveTabVideoTitle(getActiveTabSnapshot()) ??
+                videoContentContext.title ??
+                '早八生存实录',
+              videoContentContext.author
+            )
+          )
+        : options?.commentDraft
     const result = await executeAssistantAction({
       action,
       favoritesFolderName: preferences.favoritesFolderName,
@@ -1067,7 +1087,7 @@ export default function App() {
       runTrustedDanmakuSubmitFallback,
       favoriteApiFallbackEnabled: options?.pageClickOnly !== true,
       coinCount: options?.coinCount ?? (action === '赐' ? preferences.defaultCoinCount : undefined),
-      commentDraft: options?.commentDraft,
+      commentDraft,
       submitComment:
         options?.submitComment ??
         (action === '表' ? preferences.commentSubmitMode === 'random' : undefined),

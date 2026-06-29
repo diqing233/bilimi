@@ -47,7 +47,11 @@ export function normalizeDefaultCoinCount(value: unknown): 1 | 2 {
 }
 
 export function normalizeCommentSubmitMode(value: unknown): CommentSubmitMode {
-  return value === 'random' ? 'random' : 'choose'
+  if (value === undefined || value === 'random') {
+    return 'random'
+  }
+
+  return 'choose'
 }
 
 function normalizeDeepSeekModel(value: unknown): string {

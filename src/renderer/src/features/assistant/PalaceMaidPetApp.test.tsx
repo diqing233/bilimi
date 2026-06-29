@@ -36,6 +36,7 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     hidePetDuringVideoFullscreen: false,
     bilibiliOperationMode: 'api-assisted',
     favoriteArchiveMultiMode: 'off',
+    commentSubmitMode: 'random',
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
     deepseekCommentEnabled: false,
@@ -622,12 +623,14 @@ describe('PalaceMaidPetApp', () => {
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
           preferences: createPreferences({
+            commentSubmitMode: 'choose',
             petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe']
           })
         })
       ),
       loadPreferences: vi.fn().mockResolvedValue(
         createPreferences({
+          commentSubmitMode: 'choose',
           petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe']
         })
       ),
@@ -647,6 +650,37 @@ describe('PalaceMaidPetApp', () => {
     )
     expect(api.openAssistant).not.toHaveBeenCalled()
     expect(api.runFloatingMenuAction).not.toHaveBeenCalledWith('表')
+  })
+
+  it('sends 表 directly from the pet shortcut when random danmaku mode is enabled', async () => {
+    const randomCommentPreferences = createPreferences({
+      commentSubmitMode: 'random',
+      petHoverShortcuts: ['comment']
+    })
+    const api = installDesktopApi({
+      openFloatingAssistantWorkspace: vi.fn().mockResolvedValue(undefined),
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: randomCommentPreferences
+        })
+      ),
+      loadPreferences: vi.fn().mockResolvedValue(randomCommentPreferences),
+      runFloatingMenuAction: vi.fn().mockResolvedValue({
+        ok: true,
+        steps: ['danmaku:trusted-enter'],
+        missingTargets: [],
+        message: '弹幕已发送，没有看到请检查弹幕开关是否开启'
+      })
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
+    fireEvent.click(await screen.findByRole('button', { name: '表' }))
+
+    await waitFor(() => expect(api.runFloatingMenuAction).toHaveBeenCalledWith('表'))
+    expect(api.openFloatingAssistantWorkspace).not.toHaveBeenCalled()
+    expect(screen.getByText('弹幕已发送，没有看到请检查弹幕开关是否开启')).toBeInTheDocument()
   })
 
   it('starts transcription directly from the 转 hover shortcut and only reports through 小咪', async () => {

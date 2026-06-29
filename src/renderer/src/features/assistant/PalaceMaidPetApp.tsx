@@ -425,6 +425,15 @@ export function PalaceMaidPetApp() {
     }
 
     if (shortcut.intent === 'video-action' && shortcut.action === '表') {
+      if (preferences.commentSubmitMode === 'random') {
+        void runShortcutWithPetResult(
+          '主人，小咪随机拟一条弹幕直接发送。',
+          () => window.bilimiDesktop?.runFloatingMenuAction?.('表'),
+          '弹幕已发送，没有看到请检查弹幕开关是否开启'
+        )
+        return
+      }
+
       showLocalPetHint('hint', '主人，小咪打开短评三选一小窗口啦。')
       void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({
         action: '表',

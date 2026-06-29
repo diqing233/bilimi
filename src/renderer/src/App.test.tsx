@@ -39,9 +39,13 @@ function createAppPreferences(
     hidePetDuringVideoFullscreen: false,
     bilibiliOperationMode: 'api-assisted',
     favoriteArchiveMultiMode: 'off',
+    defaultCoinCount: 1,
+    commentSubmitMode: 'random',
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
+    deepseekCommentEnabled: false,
     deepseekAutoSummaryEnabled: false,
+    deepseekPetChatEnabled: false,
     deepseekModel: 'deepseek-v4-flash',
     deepseekBaseUrl: 'https://api.deepseek.com',
     ...overrides
@@ -661,6 +665,95 @@ describe('App runtime integration', () => {
       })
     )
     expect((result.steps ?? []).filter((step) => step === 'player:playback:stable')).toHaveLength(2)
+  })
+
+  it('generates a random local danmaku draft for direct 表 runtime actions', async () => {
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+      sendInputEvent?: (event: Record<string, unknown>) => void
+    }
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText }
+    })
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes('document.cookie')) {
+        return 'DedeUserID=42; bili_jct=csrf'
+      }
+
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          title: '三分钟讲清机器学习科普教程',
+          author: '李老师',
+          pageText: '从原理到入门路线，适合学习收藏。'
+        }
+      }
+
+      if (script.includes('__bilimiTrustedPlayerActivation')) {
+        return {
+          ok: true,
+          steps: ['player:locate'],
+          missingTargets: [],
+          message: '播放器已定位。',
+          clickPoint: { x: 300, y: 220 },
+          paused: false
+        }
+      }
+
+      if (script.includes('__bilimiRestorePlayerPlaybackState')) {
+        return {
+          ok: true,
+          steps: ['player:playback:stable'],
+          missingTargets: [],
+          message: '播放状态未改变。'
+        }
+      }
+
+      return {
+        ok: false,
+        steps: [],
+        missingTargets: ['unexpected-page-script'],
+        message: '随机弹幕直发不应进入普通页面脚本。'
+      }
+    })
+    Object.assign(webview, {
+      executeJavaScript,
+      sendInputEvent: vi.fn()
+    })
+
+    try {
+      notifyPreferencesChanged(createAppPreferences({ commentSubmitMode: 'random' }))
+      act(() => {
+        webview.dispatchEvent(
+          new CustomEvent('did-navigate-in-page', {
+            detail: {
+              url: 'https://www.bilibili.com/video/BV1random'
+            }
+          })
+        )
+      })
+
+      const result = await requestRuntime({
+        id: 'run-random-danmaku',
+        type: 'run-action',
+        action: '表'
+      })
+
+      expect(writeText).toHaveBeenCalledWith(
+        expect.stringContaining('三分钟讲清机器学习科普教程')
+      )
+      expect(result).toEqual(
+        expect.objectContaining({
+          ok: true,
+          steps: expect.arrayContaining(['danmaku:trusted-paste', 'danmaku:trusted-enter'])
+        })
+      )
+    } finally {
+      random.mockRestore()
+    }
   })
 
   it('returns a structured danmaku clipboard error instead of throwing through the runtime bridge', async () => {

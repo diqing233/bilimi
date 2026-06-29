@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { AssistantOverlay } from './AssistantOverlay'
+import { createInitialAssistantPreferences } from '../state/assistantState'
 
 const ACTION_BUTTON_NAMES = {
   赏: /赏.*轻赏此条/,
@@ -482,6 +483,7 @@ describe('AssistantOverlay', () => {
           title: '早八生存实录',
           author: '早八观察员'
         }}
+        storedPreferences={createInitialAssistantPreferences({ commentSubmitMode: 'choose' })}
         runScript={runScript}
       />
     )
@@ -539,6 +541,7 @@ describe('AssistantOverlay', () => {
         runScript={runScript}
         favoritesFolderName="Bilimi 内库"
         onRecordFeedback={onRecordFeedback}
+        storedPreferences={createInitialAssistantPreferences({ commentSubmitMode: 'choose' })}
         videoContentContext={{
           title: '早八生存实录',
           author: '早八观察员'

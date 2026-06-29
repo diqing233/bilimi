@@ -38,8 +38,16 @@ export function CommentChooser({ drafts, onSelect, onCancel }: CommentChooserPro
       return
     }
 
-    await navigator.clipboard?.writeText?.(draft)
-    setCopyStatus(`已复制第 ${index + 1} 条评论。`)
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error('Clipboard unavailable.')
+      }
+
+      await navigator.clipboard.writeText(draft)
+      setCopyStatus(`已复制第 ${index + 1} 条评论。`)
+    } catch {
+      setCopyStatus(`第 ${index + 1} 条评论复制失败，请手动复制。`)
+    }
   }
 
   return (
