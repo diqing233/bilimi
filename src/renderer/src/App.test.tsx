@@ -632,7 +632,9 @@ describe('App runtime integration', () => {
       { keyCode: 'v', modifiers: ['control'], type: 'keyDown' },
       { keyCode: 'v', modifiers: ['control'], type: 'keyUp' },
       { keyCode: 'Enter', type: 'keyDown' },
-      { keyCode: 'Enter', type: 'keyUp' }
+      { keyCode: 'Enter', type: 'keyUp' },
+      { keyCode: 'Space', type: 'keyDown' },
+      { keyCode: 'Space', type: 'keyUp' }
     ])
     expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'd' }))
     expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'a' }))
@@ -647,7 +649,8 @@ describe('App runtime integration', () => {
         ok: true,
         steps: expect.arrayContaining([
           'danmaku:trusted-paste',
-          'danmaku:trusted-enter'
+          'danmaku:trusted-enter',
+          'danmaku:trusted-space'
         ])
       })
     )

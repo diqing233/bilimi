@@ -987,6 +987,10 @@ export default function App() {
     const submitSteps = ['danmaku:trusted-enter']
     sendKey('Enter')
     await wait(120)
+    currentActiveWebview.focus?.()
+    sendKey('Space')
+    submitSteps.push('danmaku:trusted-space')
+    await wait(80)
 
     return {
       ok: true,
