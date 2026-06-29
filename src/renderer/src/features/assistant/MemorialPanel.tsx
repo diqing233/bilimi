@@ -75,7 +75,7 @@ const ACTIONS: Array<{
   {
     action: '赏',
     label: '轻赏此条',
-    description: '点赞并归入当前 Bilimi 分册',
+    description: '一键点赞并自动归类，存入Bilimi收藏',
     testId: 'review-action-like',
     icon: clickedPetUrl,
     iconAlt: '小咪轻赏'
@@ -83,7 +83,7 @@ const ACTIONS: Array<{
   {
     action: '藏',
     label: '归入内库',
-    description: '只收藏到 Bilimi 分册',
+    description: '一键归类并收藏，仅收藏',
     testId: 'review-action-favorite',
     icon: idlePetUrl,
     iconAlt: '小咪归库'
@@ -91,7 +91,7 @@ const ACTIONS: Array<{
   {
     action: '赐',
     label: '投币厚赏',
-    description: '一键三连，点赞投币收藏，投币数量可以在设置中调整',
+    description: '一键三连，投币数量可以在设置中调整',
     testId: 'review-action-coin',
     icon: workingPetUrl,
     iconAlt: '小咪厚赏'
@@ -99,7 +99,7 @@ const ACTIONS: Array<{
   {
     action: '表',
     label: '拟奏短评',
-    description: '一键弹幕，设置调整三选一发送，还是随机一条直接发送',
+    description: '一键弹幕，设置中可调整为三选一发送',
     testId: 'review-action-comment',
     icon: hintPetUrl,
     iconAlt: '小咪短评'
