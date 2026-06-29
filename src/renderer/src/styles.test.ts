@@ -329,11 +329,12 @@ describe('renderer porcelain theme styles', () => {
 
   it('keeps sidebar review comment suggestions readable inside the workspace', () => {
     expectStyleSnippet('.memorial-panel__deepseek-status {')
-    expectStyleSnippet('.assistant-dialog--comment-chooser { max-height: min(74vh, 560px);')
-    expectStyleSnippet('.assistant-dialog__comment-list { display: grid; gap: 8px; max-height: min(48vh, 360px); overflow: auto;')
+    expectStyleSnippet('.assistant-dialog--comment-chooser { max-height: min(52vh, 360px); padding: 12px;')
+    expectStyleSnippet('.assistant-dialog__comment-list { display: grid; gap: 8px; max-height: min(34vh, 220px); overflow: auto;')
     expectStyleSnippet('.assistant-dialog__comment-choice { width: 100%; line-height: 1.55; white-space: normal; overflow-wrap: anywhere;')
-    expectStyleSnippet('.assistant-sidebar-workspace .assistant-dialog--comment-chooser { position: absolute; top: 58px; right: 12px; bottom: 12px; left: 12px;')
-    expectStyleSnippet('grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden;')
-    expectStyleSnippet('.assistant-sidebar-workspace .assistant-dialog__comment-list { min-height: 0; max-height: none; overflow: auto;')
+    expectStyleSnippet('.assistant-dialog__comment-actions { display: flex; justify-content: flex-end;')
+    expectStyleSnippet('.assistant-dialog__comment-cancel { flex: 0 0 auto;')
+    expectStyleSnippet('.assistant-sidebar-workspace .assistant-dialog--comment-chooser { position: absolute; right: 12px; bottom: 12px; left: 12px;')
+    expectStyleSnippet('width: auto; box-sizing: border-box; max-height: min(52vh, 360px);')
   })
 })

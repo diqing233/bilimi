@@ -269,6 +269,8 @@ export function FloatingAssistantApp({
 
   function setActiveTab(tab: AssistantWorkspaceTab) {
     setFeedback(null)
+    setCommentChooserOpen(false)
+    setAiCommentDrafts([])
     setActiveView(tab)
     tellPet('success', TAB_HINTS[tab])
 
@@ -405,7 +407,6 @@ export function FloatingAssistantApp({
     VIDEO_CATEGORY_LABELS[currentKind] || stripBilimiPrefix(currentClassification.displayName) || currentKind
   const actionsLocked =
     runningAction !== null ||
-    commentChooserOpen ||
     commentIntentOpen ||
     commentIntentBusy
   const selectedPetHoverShortcuts = normalizePetHoverShortcuts(preferences.petHoverShortcuts)
@@ -656,6 +657,11 @@ export function FloatingAssistantApp({
   function handleAction(action: AssistantAction) {
     if (actionsLocked) {
       return
+    }
+
+    if (commentChooserOpen) {
+      setCommentChooserOpen(false)
+      setAiCommentDrafts([])
     }
 
     setFeedback(null)

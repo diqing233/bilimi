@@ -467,7 +467,14 @@ describe('AssistantOverlay', () => {
     expect(screen.getByRole('button', { name: '赐两枚' })).toBeEnabled()
   })
 
-  it('keeps action buttons locked before a comment draft is submitted', () => {
+  it('cancels comment choices before running a different review action', async () => {
+    const runScript = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['favorite:done'],
+      missingTargets: [],
+      message: '已归入内库。'
+    })
+
     render(
       <AssistantOverlay
         favoritesFolderName="Bilimi 内库"
@@ -475,18 +482,20 @@ describe('AssistantOverlay', () => {
           title: '早八生存实录',
           author: '早八观察员'
         }}
+        runScript={runScript}
       />
     )
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
     fireEvent.click(getActionButton('表'))
 
-    expect(getActionButton('赏')).toBeDisabled()
-    expect(getActionButton('藏')).toBeDisabled()
-    expect(getActionButton('赐')).toBeDisabled()
-    expect(getActionButton('表')).toBeDisabled()
     expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
     expect(screen.getAllByRole('button').some((button) => button.textContent?.includes('早八观察员'))).toBe(true)
+
+    fireEvent.click(getActionButton('藏'))
+
+    expect(screen.queryByText('小咪拟好三条，主人点一条就发送。')).not.toBeInTheDocument()
+    await waitFor(() => expect(runScript).toHaveBeenCalled())
   })
 
   it('prevents duplicate coin choice submissions', async () => {

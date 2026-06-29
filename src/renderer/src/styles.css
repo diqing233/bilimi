@@ -8,12 +8,13 @@
   white-space: normal;
 }
 .assistant-dialog--comment-chooser {
-  max-height: min(74vh, 560px);
+  max-height: min(52vh, 360px);
+  padding: 12px;
 }
 .assistant-dialog__comment-list {
   display: grid;
   gap: 8px;
-  max-height: min(48vh, 360px);
+  max-height: min(34vh, 220px);
   overflow: auto;
 }
 .assistant-dialog__comment-choice {
@@ -21,6 +22,13 @@
   line-height: 1.55;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+.assistant-dialog__comment-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.assistant-dialog__comment-cancel {
+  flex: 0 0 auto;
 }
 .assistant-sidebar-workspace .floating-assistant-tabs button {
   grid-template-columns: 24px minmax(0, auto);
@@ -40,22 +48,13 @@
 }
 .assistant-sidebar-workspace .assistant-dialog--comment-chooser {
   position: absolute;
-  top: 58px;
   right: 12px;
   bottom: 12px;
   left: 12px;
   width: auto;
   box-sizing: border-box;
-  max-height: none;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  overflow: hidden;
+  max-height: min(52vh, 360px);
   z-index: 2;
-}
-.assistant-sidebar-workspace .assistant-dialog__comment-list {
-  min-height: 0;
-  max-height: none;
-  overflow: auto;
 }
 
 .palace-maid-pet__quick-actions {

@@ -674,6 +674,27 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
+  it('cancels open comment choices before running a different review action', async () => {
+    const { runAssistantAction } = installDesktopApi()
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /表.*拟奏短评/ }))
+    expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /藏.*归入内库/ }))
+
+    expect(screen.queryByText('小咪拟好三条，主人点一条就发送。')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(runAssistantAction).toHaveBeenCalledWith(
+        '藏',
+        expect.objectContaining({
+          pageClickOnly: false
+        })
+      )
+    )
+  })
+
   it('randomly sends one draft directly when 表 is configured to random mode', async () => {
     const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.6)
     const preferences = createPreferences({ commentSubmitMode: 'random' })

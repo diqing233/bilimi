@@ -215,7 +215,7 @@ export function AssistantOverlay({
     open && !panelMinimized
       ? clampOverlayPositionForSize(overlayPosition, expandedOverlaySize)
       : overlayPosition
-  const actionsLocked = runningAction !== null || coinPromptOpen || commentChooserOpen || ledgerPanelOpen
+  const actionsLocked = runningAction !== null || coinPromptOpen || ledgerPanelOpen
 
   function moveSealTo(clientX: number, clientY: number, pointerId: number) {
     const currentDragState = dragStateRef.current
@@ -536,6 +536,10 @@ export function AssistantOverlay({
   function handleAction(action: AssistantAction) {
     if (actionsLocked) {
       return
+    }
+
+    if (commentChooserOpen) {
+      setCommentChooserOpen(false)
     }
 
     setFeedback(null)
