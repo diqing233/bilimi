@@ -82,6 +82,20 @@ type FloatingAssistantAppProps = {
   onOpenInTab?: (url: string) => void
 }
 
+function findArchivedSummaryTextForNote(
+  archives: VideoNoteArchiveEntry[],
+  note: VideoNote | null
+): string {
+  if (!note) return ''
+
+  const matchingVersion = archives
+    .flatMap((archive) => archive.versions)
+    .filter((version) => version.note.id === note.id && version.note.updatedAt === note.updatedAt)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
+
+  return matchingVersion?.summaryText.trim() ?? ''
+}
+
 type ActionFeedback = {
   tone: 'progress' | 'success' | 'error'
   message: string
@@ -403,6 +417,10 @@ export function FloatingAssistantApp({
     [currentKind, resolvedVideoAuthor, resolvedVideoTitle]
   )
   const activeCommentDrafts = aiCommentDrafts.length > 0 ? aiCommentDrafts : commentDrafts
+  const videoNoteArchivedSummaryText = useMemo(
+    () => findArchivedSummaryTextForNote(videoNoteArchives, videoNote),
+    [videoNote, videoNoteArchives]
+  )
   const videoCategory =
     VIDEO_CATEGORY_LABELS[currentKind] || stripBilimiPrefix(currentClassification.displayName) || currentKind
   const actionsLocked =
@@ -1388,6 +1406,7 @@ export function FloatingAssistantApp({
             onSaveVideoNote={saveVideoNote}
             onChangeVideoNote={handleChangeVideoNote}
             videoNote={videoNote}
+            videoNoteArchivedSummaryText={videoNoteArchivedSummaryText}
             videoNoteLoading={videoNoteLoading}
             transcriptionProgress={transcriptionProgress}
             transcriptionQueue={transcriptionQueue}

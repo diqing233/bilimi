@@ -288,6 +288,32 @@ describe('VideoNotesPanel', () => {
     expect(screen.getByText('请点击生成总结，让 DeepSeek 基于文稿生成精准总结。')).toBeInTheDocument()
   })
 
+  it('shows an archived DeepSeek summary without requiring a new generation', () => {
+    const archivedSummaryText = [
+      '## 精准总结',
+      '',
+      '### Archived Machine Models',
+      'Data quality matters for model training.',
+      '',
+      '## 精修文稿',
+      '',
+      'Archived polished transcript.',
+      '',
+      '## 内容核对清单',
+      '',
+      '- Data point checked.'
+    ].join('\n')
+    renderPanel({ deepSeekEnabled: true, archivedSummaryText, onGeneratePoster: vi.fn() })
+
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek/ }))
+
+    expect(screen.getByRole('region', { name: /DeepSeek/ })).toHaveTextContent(
+      'Archived Machine Models'
+    )
+    expect(screen.getByText(/Archived polished transcript/)).toBeInTheDocument()
+    expect(screen.queryByText('请点击生成总结，让 DeepSeek 基于文稿生成精准总结。')).not.toBeInTheDocument()
+  })
+
   it('reuses the generated DeepSeek summary when the summary tab is reopened', async () => {
     const poster: NotePosterSummary = {
       title: 'Learning Machine Models',

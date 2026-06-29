@@ -46,6 +46,7 @@ type MemorialPanelProps = {
   onChangeVideoNote?: (note: VideoNote) => void
   onOpenVideoNoteArchive?: () => void
   videoNote: VideoNote | null
+  videoNoteArchivedSummaryText?: string
   videoNoteLoading: boolean
   transcriptionProgress?: VideoAudioTranscriptionProgress | null
   transcriptionQueue?: VideoAudioTranscriptionQueueSnapshot
@@ -160,6 +161,7 @@ export function MemorialPanel({
   onChangeVideoNote,
   onOpenVideoNoteArchive,
   videoNote,
+  videoNoteArchivedSummaryText = '',
   videoNoteLoading,
   transcriptionProgress,
   transcriptionQueue,
@@ -250,6 +252,7 @@ export function MemorialPanel({
             onSave={onSaveVideoNote}
             onChange={onChangeVideoNote}
             onOpenArchive={onOpenVideoNoteArchive}
+            archivedSummaryText={videoNoteArchivedSummaryText}
             deepSeekEnabled={deepSeekEnabled}
             deepSeekAutoSummaryEnabled={deepSeekAutoSummaryEnabled}
             transcriptionProgress={transcriptionProgress}

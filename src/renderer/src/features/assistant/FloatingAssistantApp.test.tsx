@@ -1345,7 +1345,16 @@ describe('FloatingAssistantApp', () => {
           id: `${note.id}:version:${note.updatedAt}`,
           note,
           plainTranscript: '机器学习需要数据和模型。',
-          summaryText: '## 速览\n\n- 机器学习需要数据和模型。',
+          summaryText: [
+            '## 精准总结',
+            '',
+            '### 队列自动总结',
+            '机器学习需要数据和模型。',
+            '',
+            '## 精修文稿',
+            '',
+            '自动总结后的精修文稿。'
+          ].join('\n'),
           createdAt: note.updatedAt
         }
       ],
@@ -1373,6 +1382,14 @@ describe('FloatingAssistantApp', () => {
     installDesktopApi({
       enqueueCurrentVideoAudioTranscription,
       loadVideoNoteArchives,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true,
+            deepseekAutoSummaryEnabled: true
+          })
+        })
+      ),
       onVideoAudioTranscriptionQueueChanged: vi.fn((callback) => {
         queueChanged = callback
         return vi.fn()
@@ -1407,6 +1424,9 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).toHaveTextContent(
       '机器学习需要数据和模型。'
     )
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek/ }))
+    expect(screen.getByRole('region', { name: /DeepSeek/ })).toHaveTextContent('队列自动总结')
+    expect(screen.getByText(/自动总结后的精修文稿/)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '档案库' }))
 

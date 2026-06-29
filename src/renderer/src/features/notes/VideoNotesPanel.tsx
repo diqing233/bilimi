@@ -8,11 +8,11 @@ import type {
   VideoNote
 } from '@shared/types'
 import {
+  createNotePosterCopyParts,
   createNotePosterSummaryText,
   createNotePosterText,
   createPlainTranscriptText,
-  createPolishedTranscriptText,
-  createSummaryText
+  createPolishedTranscriptText
 } from '@shared/videoNoteArchive'
 import { AssistantActionButton } from '../assistant/AssistantActionButton'
 import { CopySplitButton } from './CopySplitButton'
@@ -38,6 +38,7 @@ type VideoNotesPanelProps = {
   onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
   onArchivePosterSummary?: (note: VideoNote, poster: NotePosterSummary) => Promise<void>
   onOpenArchive?: () => void
+  archivedSummaryText?: string
   deepSeekEnabled?: boolean
   deepSeekAutoSummaryEnabled?: boolean
   transcriptionProgress?: VideoAudioTranscriptionProgress | null
@@ -174,6 +175,7 @@ export function VideoNotesPanel({
   onGeneratePoster,
   onArchivePosterSummary,
   onOpenArchive,
+  archivedSummaryText = '',
   deepSeekEnabled = false,
   deepSeekAutoSummaryEnabled = false,
   transcriptionProgress = null,
@@ -215,6 +217,12 @@ export function VideoNotesPanel({
   const notePosterKey = note ? createPosterCacheKey(note) : ''
   const activePosterSummary =
     posterSummary && posterSummary.noteKey === notePosterKey ? posterSummary.summary : null
+  const activeArchivedSummaryText = activePosterSummary ? '' : archivedSummaryText.trim()
+  const archivedCopyParts = useMemo(
+    () => createNotePosterCopyParts(activeArchivedSummaryText),
+    [activeArchivedSummaryText]
+  )
+  const hasDeepSeekSummary = Boolean(activePosterSummary || activeArchivedSummaryText)
   const sourceAuthor =
     note?.source.author?.trim() || currentVideoAuthor?.trim() || '待转写后补齐'
   const plainTranscript = useMemo(() => (note ? createPlainTranscriptText(note) : ''), [note])
@@ -223,10 +231,8 @@ export function VideoNotesPanel({
     () =>
       activePosterSummary
         ? createNotePosterText(activePosterSummary)
-        : note
-          ? createSummaryText(note)
-          : '',
-    [activePosterSummary, note]
+        : activeArchivedSummaryText,
+    [activeArchivedSummaryText, activePosterSummary]
   )
 
   async function handleGenerate(): Promise<void> {
@@ -417,10 +423,14 @@ export function VideoNotesPanel({
 
   function renderSummaryPanel(): React.JSX.Element {
     const summaryCopy = summaryText || '暂无 DeepSeek 总结。'
-    const summaryActionLabel = activePosterSummary ? '重新总结' : '生成总结'
+    const summaryActionLabel = hasDeepSeekSummary ? '重新总结' : '生成总结'
     const summaryActionDisabled = !deepSeekEnabled || !note || posterGenerating
-    const polishedCopy = activePosterSummary ? createPolishedTranscriptText(activePosterSummary) : ''
-    const summaryOnlyCopy = activePosterSummary ? createNotePosterSummaryText(activePosterSummary) : ''
+    const polishedCopy = activePosterSummary
+      ? createPolishedTranscriptText(activePosterSummary)
+      : archivedCopyParts.polishedTranscriptText
+    const summaryOnlyCopy = activePosterSummary
+      ? createNotePosterSummaryText(activePosterSummary)
+      : archivedCopyParts.summaryText
     return (
       <div role="tabpanel" id="video-notes-summary" aria-labelledby="video-notes-tab-summary">
         <div className="video-notes__panel-header">
@@ -440,7 +450,7 @@ export function VideoNotesPanel({
               menuLabel="更多复制"
               text={summaryCopy}
               message="全文已复制"
-              disabled={!activePosterSummary}
+              disabled={!hasDeepSeekSummary}
               onCopy={copyText}
               options={[
                 {
@@ -461,9 +471,7 @@ export function VideoNotesPanel({
             />
           </div>
         </div>
-        {!deepSeekEnabled ? (
-          <p className="video-notes__summary-empty">请先到设置启用 DeepSeek 后再生成总结。</p>
-        ) : posterGenerating ? (
+        {posterGenerating ? (
           <p role="status">DeepSeek 正在生成总结...</p>
         ) : activePosterSummary ? (
           <section className="video-notes__summary-result" aria-label="DeepSeek 总结">
@@ -494,6 +502,12 @@ export function VideoNotesPanel({
               </article>
             ) : null}
           </section>
+        ) : activeArchivedSummaryText ? (
+          <section className="video-notes__summary-result" aria-label="DeepSeek 总结">
+            <pre>{activeArchivedSummaryText}</pre>
+          </section>
+        ) : !deepSeekEnabled ? (
+          <p className="video-notes__summary-empty">请先到设置启用 DeepSeek 后再生成总结。</p>
         ) : note ? (
           <p className="video-notes__summary-empty">
             请点击生成总结，让 DeepSeek 基于文稿生成精准总结。
