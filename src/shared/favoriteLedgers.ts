@@ -157,6 +157,8 @@ const DEFAULT_FAVORITE_LEDGER_DEFINITIONS = [
       '烹饪',
       '收纳',
       '日常',
+      '祝福',
+      '生活记录',
       '探店',
       'vlog',
       '出行',

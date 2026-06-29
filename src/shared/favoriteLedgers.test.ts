@@ -49,6 +49,12 @@ describe('favorite ledger model', () => {
     )
   })
 
+  it('classifies blessing and everyday record videos as life content', () => {
+    const lifeLedger = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'life-interest')
+
+    expect(lifeLedger?.keywords).toEqual(expect.arrayContaining(['祝福', '生活记录']))
+  })
+
   it('orders reset defaults as broad initial ledgers and enables all of them', () => {
     const ledgers = createDefaultFavoriteLedgers()
 
