@@ -1181,7 +1181,7 @@ describe('buildDanmakuFieldFocusScript', () => {
     document.body.innerHTML = `
       <section class="bpx-player-sending-area">
         <button class="bpx-player-dm-switch off" aria-pressed="false" title="开启弹幕">弹</button>
-        <input class="bpx-player-dm-input" type="text" />
+        <input class="bpx-player-dm-input" type="text" value="old draft" />
         <button class="bpx-player-dm-btn">发送</button>
       </section>
     `
@@ -1213,6 +1213,7 @@ describe('buildDanmakuFieldFocusScript', () => {
     const result = await window.eval(buildDanmakuFieldFocusScript())
 
     expect(switchClicked).toBe(false)
+    expect(input.value).toBe('')
     expect(input.scrollIntoView).not.toHaveBeenCalled()
     expect(result).toEqual(
       expect.objectContaining({

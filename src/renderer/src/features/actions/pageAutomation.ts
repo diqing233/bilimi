@@ -140,9 +140,32 @@ export function buildDanmakuFieldFocusScript(): string {
       const switchButton = Array.from(sendingArea.querySelectorAll?.(switchSelectors) || [])
         .filter((node) => node !== field)
         .find(isVisibleInput);
+      const clearEditableText = (element) => {
+        if (!element) {
+          return;
+        }
+
+        if ('value' in element) {
+          const prototype =
+            element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+          const valueSetter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+          if (valueSetter) {
+            valueSetter.call(element, '');
+          } else {
+            element.value = '';
+          }
+          element.setSelectionRange?.(0, 0);
+        } else {
+          element.textContent = '';
+        }
+
+        element.dispatchEvent?.(new Event('input', { bubbles: true }));
+        element.dispatchEvent?.(new Event('change', { bubbles: true }));
+      };
 
       field.click?.();
       field.focus?.();
+      clearEditableText(field);
       result.steps.push('danmaku:focus');
 
       const sendSelectors = [

@@ -1020,10 +1020,6 @@ export default function App() {
           true
         )) as AssistantAutomationResult
         activationSteps.push(...(playbackRestore?.steps ?? []))
-
-        sendKey('Enter')
-        activationSteps.push('danmaku:shortcut:enter')
-        await wait(120)
       }
     } catch {
       activationSteps.push('player:activate:skipped')
@@ -1053,9 +1049,6 @@ export default function App() {
     }
 
     await wait(80)
-    sendKey('a', ['control'])
-    sendKey('Backspace')
-    await wait(60)
     currentActiveWebview.focus?.()
     sendKey('v', ['control'])
     await wait(120)

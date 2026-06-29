@@ -628,18 +628,14 @@ describe('App runtime integration', () => {
       { type: 'mouseMove', x: 300, y: 220 },
       { button: 'left', clickCount: 1, type: 'mouseDown', x: 300, y: 220 },
       { button: 'left', clickCount: 1, type: 'mouseUp', x: 300, y: 220 },
-      { keyCode: 'Enter', type: 'keyDown' },
-      { keyCode: 'Enter', type: 'keyUp' },
-      { keyCode: 'a', modifiers: ['control'], type: 'keyDown' },
-      { keyCode: 'a', modifiers: ['control'], type: 'keyUp' },
-      { keyCode: 'Backspace', type: 'keyDown' },
-      { keyCode: 'Backspace', type: 'keyUp' },
       { keyCode: 'v', modifiers: ['control'], type: 'keyDown' },
       { keyCode: 'v', modifiers: ['control'], type: 'keyUp' },
       { keyCode: 'Enter', type: 'keyDown' },
       { keyCode: 'Enter', type: 'keyUp' }
     ])
     expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'd' }))
+    expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'a' }))
+    expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'Backspace' }))
     expect(sentEvents).not.toContainEqual(expect.objectContaining({ button: 'left', x: 620, y: 452 }))
     expect(executeJavaScript).toHaveBeenCalledWith(
       expect.stringContaining('__bilimiDanmakuSubmitConfirmation')
@@ -958,12 +954,10 @@ describe('App runtime integration', () => {
       }
     })
 
-    expect(sentEvents.slice(0, 5)).toEqual([
+    expect(sentEvents.slice(0, 3)).toEqual([
       { type: 'mouseMove', x: 320, y: 240 },
       { button: 'left', clickCount: 1, type: 'mouseDown', x: 320, y: 240 },
-      { button: 'left', clickCount: 1, type: 'mouseUp', x: 320, y: 240 },
-      { keyCode: 'Enter', type: 'keyDown' },
-      { keyCode: 'Enter', type: 'keyUp' }
+      { button: 'left', clickCount: 1, type: 'mouseUp', x: 320, y: 240 }
     ])
     expect(sentEvents).toEqual(
       expect.arrayContaining([
@@ -973,6 +967,8 @@ describe('App runtime integration', () => {
     )
     expect(paste).not.toHaveBeenCalled()
     expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'd' }))
+    expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'a' }))
+    expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'Backspace' }))
   })
 
   it('collects to inbox when an unsynced default ledger is only a stronger suggestion', async () => {
