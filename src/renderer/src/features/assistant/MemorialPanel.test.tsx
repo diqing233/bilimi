@@ -58,16 +58,16 @@ describe('MemorialPanel', () => {
       'assistant-action-button__label'
     )
     expect(screen.getByText('轻赏此条')).toHaveClass('assistant-action-button__label')
-    expect(screen.getByText('一键点赞并自动归类，存入Bilimi收藏')).toHaveClass(
+    expect(screen.getByText('一键点赞，并归类收藏到 Bilimi')).toHaveClass(
       'assistant-action-button__description'
     )
-    expect(screen.getByText('一键归类并收藏，仅收藏')).toHaveClass(
+    expect(screen.getByText('一键归类收藏，不点赞不投币')).toHaveClass(
       'assistant-action-button__description'
     )
-    expect(screen.getByText('一键三连，投币数量可以在设置中调整')).toHaveClass(
+    expect(screen.getByText('一键三连，投币数量可在设置中调整')).toHaveClass(
       'assistant-action-button__description'
     )
-    expect(screen.getByText('一键弹幕，设置中可调整为三选一发送')).toHaveClass(
+    expect(screen.getByText('一键弹幕，发送方式可在设置中调整')).toHaveClass(
       'assistant-action-button__description'
     )
   })
