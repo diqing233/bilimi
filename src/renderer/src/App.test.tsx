@@ -513,7 +513,7 @@ describe('App runtime integration', () => {
     )
   })
 
-  it('pastes danmaku through the visible player bar before submitting', async () => {
+  it('opens danmaku composer with Enter before pasting through the visible player bar', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
@@ -628,6 +628,8 @@ describe('App runtime integration', () => {
       { type: 'mouseMove', x: 300, y: 220 },
       { button: 'left', clickCount: 1, type: 'mouseDown', x: 300, y: 220 },
       { button: 'left', clickCount: 1, type: 'mouseUp', x: 300, y: 220 },
+      { keyCode: 'Enter', type: 'keyDown' },
+      { keyCode: 'Enter', type: 'keyUp' },
       { keyCode: 'v', modifiers: ['control'], type: 'keyDown' },
       { keyCode: 'v', modifiers: ['control'], type: 'keyUp' },
       { keyCode: 'Enter', type: 'keyDown' },

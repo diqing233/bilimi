@@ -62,7 +62,7 @@ In `仅页面点击` mode, logs that only contain steps such as `favorite:open`,
 
 When API confirmation is enabled, favorite confirmation can append the current video to every planned Bilimi target in one safe `resource/deal` request with `del_media_ids` left empty. In page-click-only mode, Bilimi keeps the page/visual flow focused on the primary target.
 
-For the `表` action, DeepSeek-enabled sessions generate three video-aware short drafts directly from the current video title, author, description, tags, and local classification. After the user selects one candidate, Bilimi sends it as player danmaku: toggle danmaku with `d`, press `Enter` to open input, insert the selected draft, then press `Enter` to send. It no longer falls back to the lower comment area.
+For the `表` action, DeepSeek-enabled sessions generate three video-aware short drafts directly from the current video title, author, description, tags, and local classification. After the user selects one candidate, Bilimi copies the draft, clicks the player to give Bilibili shortcut focus, presses `Enter` to open the danmaku input, pastes the selected draft, then presses `Enter` to send. It no longer falls back to the lower comment area.
 
 ## DeepSeek Assistant Features
 

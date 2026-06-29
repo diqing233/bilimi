@@ -1025,6 +1025,11 @@ export default function App() {
       activationSteps.push('player:activate:skipped')
     }
 
+    currentActiveWebview.focus?.()
+    sendKey('Enter')
+    activationSteps.push('danmaku:trusted-enter-open')
+    await wait(160)
+
     const focusResult = (await currentActiveWebview.executeJavaScript(
       buildDanmakuFieldFocusScript()
     )) as DanmakuFocusResult | boolean
@@ -1042,7 +1047,7 @@ export default function App() {
       return {
         ...prepared,
         ok: false,
-        steps: prepared?.steps ?? [],
+        steps: [...activationSteps, ...(prepared?.steps ?? [])],
         missingTargets: prepared?.missingTargets?.length ? prepared.missingTargets : ['danmaku-focus'],
         message: prepared?.message ?? '尚有 danmaku-focus 未能寻见。'
       }
