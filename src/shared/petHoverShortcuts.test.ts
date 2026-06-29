@@ -6,8 +6,9 @@ import {
 } from './petHoverShortcuts'
 
 describe('pet hover shortcuts', () => {
-  it('defaults to the four immediate video actions', () => {
+  it('defaults to quick video actions plus the full assistant shortcut', () => {
     expect(normalizePetHoverShortcuts(undefined)).toEqual(DEFAULT_PET_HOVER_SHORTCUTS)
+    expect(DEFAULT_PET_HOVER_SHORTCUTS).toEqual(['like', 'coin', 'assistant', 'transcribe'])
     expect(DEFAULT_PET_HOVER_SHORTCUTS).toHaveLength(PET_HOVER_SHORTCUT_LIMIT)
   })
 

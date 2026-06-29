@@ -32,7 +32,7 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     ledgerPromptDismissed: true,
     preferenceCounts: {},
     petStyle: 'big-head',
-    petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
+    petHoverShortcuts: ['like', 'coin', 'assistant', 'transcribe'],
     hidePetDuringVideoFullscreen: false,
     bilibiliOperationMode: 'api-assisted',
     favoriteArchiveMultiMode: 'off',
@@ -580,7 +580,7 @@ describe('PalaceMaidPetApp', () => {
     expect(screen.getAllByTestId('pet-hover-shortcut')).toHaveLength(4)
     expect(screen.getByRole('button', { name: '赏' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '赐' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '表' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '咪' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '转' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '赏' }))
@@ -589,7 +589,7 @@ describe('PalaceMaidPetApp', () => {
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
 
-  it('opens the full assistant for 表 hover shortcut so the user can choose a comment draft', async () => {
+  it('opens the full assistant from the 咪 hover shortcut', async () => {
     const toggleFloatingAssistant = vi.fn().mockResolvedValue(undefined)
     const api = installDesktopApi({
       toggleFloatingAssistant,
@@ -599,10 +599,40 @@ describe('PalaceMaidPetApp', () => {
     render(<PalaceMaidPetApp />)
 
     fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
-    fireEvent.click(screen.getByRole('button', { name: '表' }))
+    fireEvent.click(screen.getByRole('button', { name: '咪' }))
 
     await waitFor(() => expect(api.toggleFloatingAssistant).toHaveBeenCalledOnce())
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
+    expect(api.runFloatingMenuAction).not.toHaveBeenCalledWith('表')
+  })
+
+  it('opens the main assistant sidebar for 表 instead of the floating assistant window', async () => {
+    const toggleFloatingAssistant = vi.fn().mockResolvedValue(undefined)
+    const api = installDesktopApi({
+      openAssistant: vi.fn().mockResolvedValue(undefined),
+      toggleFloatingAssistant,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe']
+          })
+        })
+      ),
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe']
+        })
+      ),
+      runFloatingMenuAction: vi.fn().mockResolvedValue(undefined)
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
+    fireEvent.click(await screen.findByRole('button', { name: '表' }))
+
+    await waitFor(() => expect(api.openAssistant).toHaveBeenCalledOnce())
+    expect(api.toggleFloatingAssistant).not.toHaveBeenCalled()
     expect(api.runFloatingMenuAction).not.toHaveBeenCalledWith('表')
   })
 

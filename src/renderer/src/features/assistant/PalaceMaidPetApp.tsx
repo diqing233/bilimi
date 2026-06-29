@@ -363,9 +363,15 @@ export function PalaceMaidPetApp() {
       return
     }
 
-    if (shortcut.intent === 'video-action' && shortcut.action === '表') {
-      showLocalPetHint('hint', '主人，请在 Bilimi 里选一条短评再发布。')
+    if (shortcut.id === 'assistant') {
+      showLocalPetHint('hint', '主人，小咪把完整面板打开啦。')
       void window.bilimiDesktop?.toggleFloatingAssistant?.()
+      return
+    }
+
+    if (shortcut.intent === 'video-action' && shortcut.action === '表') {
+      showLocalPetHint('hint', '主人，请在 Bilimi 侧栏里选一条短评再发布。')
+      void window.bilimiDesktop?.openAssistant?.()
       return
     }
 

@@ -7,6 +7,7 @@ export type PetHoverShortcutId =
   | 'favorite'
   | 'coin'
   | 'comment'
+  | 'assistant'
   | 'transcribe'
   | 'library'
   | 'prepare-ledgers'
@@ -25,6 +26,7 @@ export const PET_HOVER_SHORTCUTS: PetHoverShortcut[] = [
   { id: 'favorite', label: '藏', title: '归入内库', action: '藏', intent: 'video-action' },
   { id: 'coin', label: '赐', title: '投币厚赏', action: '赐', intent: 'video-action' },
   { id: 'comment', label: '表', title: '拟奏短评', action: '表', intent: 'video-action' },
+  { id: 'assistant', label: '咪', title: '打开小咪', intent: 'workspace' },
   { id: 'transcribe', label: '转', title: '转写音频', intent: 'workspace' },
   { id: 'library', label: '库', title: '打开掌库', intent: 'workspace' },
   { id: 'prepare-ledgers', label: '备', title: '备齐册目', intent: 'workspace' },
@@ -34,7 +36,7 @@ export const PET_HOVER_SHORTCUTS: PetHoverShortcut[] = [
 export const DEFAULT_PET_HOVER_SHORTCUTS: PetHoverShortcutId[] = [
   'like',
   'coin',
-  'comment',
+  'assistant',
   'transcribe'
 ]
 

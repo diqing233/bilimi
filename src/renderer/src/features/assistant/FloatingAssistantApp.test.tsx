@@ -19,7 +19,7 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     ledgerPromptDismissed: true,
     preferenceCounts: {},
     petStyle: 'big-head',
-    petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
+    petHoverShortcuts: ['like', 'coin', 'assistant', 'transcribe'],
     hidePetDuringVideoFullscreen: false,
     bilibiliOperationMode: 'api-assisted',
     favoriteArchiveMultiMode: 'off',
@@ -711,7 +711,7 @@ describe('FloatingAssistantApp', () => {
     expect(within(shortcutGroup).queryByRole('checkbox')).not.toBeInTheDocument()
     expect(within(shortcutGroup).getByRole('button', { name: '赏 轻赏此条 第 1 位' })).toHaveTextContent('1')
     expect(within(shortcutGroup).getByRole('button', { name: '赐 投币厚赏 第 2 位' })).toHaveTextContent('2')
-    expect(within(shortcutGroup).getByRole('button', { name: '表 拟奏短评 第 3 位' })).toHaveTextContent('3')
+    expect(within(shortcutGroup).getByRole('button', { name: '咪 打开小咪 第 3 位' })).toHaveTextContent('3')
     expect(within(shortcutGroup).getByRole('button', { name: '转 转写音频 第 4 位' })).toHaveTextContent('4')
     expect(within(shortcutGroup).getByRole('button', { name: '藏 归入内库' })).toBeDisabled()
 
@@ -720,7 +720,7 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
-          petHoverShortcuts: ['like', 'coin', 'comment']
+          petHoverShortcuts: ['like', 'coin', 'assistant']
         })
       )
     )
@@ -730,7 +730,7 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
-          petHoverShortcuts: ['like', 'coin', 'comment', 'favorite']
+          petHoverShortcuts: ['like', 'coin', 'assistant', 'favorite']
         })
       )
     )
@@ -745,7 +745,7 @@ describe('FloatingAssistantApp', () => {
 
     const shortcutGroup = screen.getByRole('group', { name: '宠物快捷操作' })
     fireEvent.click(within(shortcutGroup).getByRole('button', { name: '转 转写音频 第 4 位' }))
-    fireEvent.click(within(shortcutGroup).getByRole('button', { name: '表 拟奏短评 第 3 位' }))
+    fireEvent.click(within(shortcutGroup).getByRole('button', { name: '咪 打开小咪 第 3 位' }))
     fireEvent.click(within(shortcutGroup).getByRole('button', { name: '赐 投币厚赏 第 2 位' }))
     fireEvent.click(within(shortcutGroup).getByRole('button', { name: '赏 轻赏此条 第 1 位' }))
 
