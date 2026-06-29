@@ -72,7 +72,7 @@ DeepSeek old-favorite assistance is limited to generating and improving topic-fo
 
 The DeepSeek settings surface uses Chinese labels and provides `保存 DeepSeek`, `测试 DeepSeek`, and `重置 DeepSeek` actions in one row. Test feedback is localized to Chinese, and reset clears the key draft, disables DeepSeek, and restores the default model `deepseek-v4-flash` plus base URL `https://api.deepseek.com`.
 
-The settings also include a 致谢 block for [云枢智元](https://yunshulink.com/) with the visible URL `https://yunshulink.com/`. It describes 大模型 Token 中转 pricing, then lists `deepseek-v4-pro` and `https://api.yunshulink.com/v1`, each with a small inline copy icon button.
+The settings also include a 致谢 block with the copy `大模型 Token 中转，低至官方价 2 折起` and the official link `官网：https://yunshulink.com/`. It lists `deepseek-v4-pro` and `https://api.yunshulink.com/v1`, each with a small rounded copy icon button.
 
 ## Desktop Pet
 

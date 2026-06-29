@@ -937,13 +937,12 @@ describe('FloatingAssistantApp', () => {
     await screen.findAllByRole('tab')
     fireEvent.click(screen.getAllByRole('tab')[3])
 
-    expect(screen.getByRole('link', { name: '云枢智元' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: '官网：https://yunshulink.com/' })).toHaveAttribute(
       'href',
       'https://yunshulink.com/'
     )
     expect(screen.getByText('致谢')).toBeInTheDocument()
     expect(screen.getByText('大模型 Token 中转，低至官方价 2 折起')).toBeInTheDocument()
-    expect(screen.getByText('https://yunshulink.com/')).toBeInTheDocument()
     expect(screen.getByText(/令牌分组请选择 deepseek（限时特价）/)).toBeInTheDocument()
     expect(screen.getByText('推荐模型：deepseek-v4-pro')).toBeInTheDocument()
     expect(screen.getByText('服务器地址：https://api.yunshulink.com/v1')).toBeInTheDocument()

@@ -3072,11 +3072,6 @@ body[data-floating-window="true"],
 .assistant-settings__deepseek-recommendation a {
   color: var(--porcelain-accent);
   font-weight: 700;
-  margin-right: 8px;
-}
-.assistant-settings__relay-url {
-  margin-right: 8px;
-  color: rgba(17, 58, 104, 0.78);
   overflow-wrap: anywhere;
 }
 .assistant-settings__copy-row {
@@ -3089,46 +3084,48 @@ body[data-floating-window="true"],
 .assistant-settings__copy-button {
   display: inline-grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
-  min-height: 16px;
-  margin-left: 3px;
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+  margin-left: 5px;
   padding: 0;
   border-color: transparent;
-  background: transparent;
-  color: var(--porcelain-accent);
-  vertical-align: -3px;
+  border-radius: 7px;
+  background: rgba(232, 235, 238, 0.95);
+  color: rgba(74, 80, 87, 0.92);
+  vertical-align: -6px;
   box-shadow: none;
 }
 .assistant-settings__copy-button:hover,
 .assistant-settings__copy-button:focus-visible {
-  border-color: rgba(31, 99, 181, 0.28);
-  background: rgba(247, 251, 255, 0.66);
-  box-shadow: none;
+  border-color: rgba(121, 131, 141, 0.24);
+  background: rgba(218, 223, 228, 0.98);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.48);
 }
 .assistant-settings__copy-icon {
   position: relative;
   display: block;
-  width: 9px;
-  height: 9px;
+  width: 13px;
+  height: 13px;
 }
 .assistant-settings__copy-icon::before,
 .assistant-settings__copy-icon::after {
   content: "";
   position: absolute;
-  width: 6px;
-  height: 7px;
-  border: 1.2px solid currentColor;
-  background: rgba(247, 251, 255, 0.95);
+  width: 8px;
+  height: 9px;
+  border: 1.4px solid currentColor;
+  border-radius: 2px;
+  background: rgba(232, 235, 238, 0.95);
 }
 .assistant-settings__copy-icon::before {
   top: 0;
-  left: 2px;
-  opacity: 0.58;
+  left: 1px;
+  opacity: 0.82;
 }
 .assistant-settings__copy-icon::after {
-  right: 2px;
-  bottom: 0;
+  right: 1px;
+  bottom: 1px;
 }
 .assistant-dialog {
   width: min(420px, calc(100vw - 48px));
