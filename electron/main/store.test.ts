@@ -229,6 +229,26 @@ describe('assistant preference store helpers', () => {
     })
   })
 
+  it('normalizes invalid preference values during a batched save', () => {
+    const store = createFakeStore()
+
+    const saved = saveAssistantPreferences(store, {
+      ...DEFAULT_ASSISTANT_PREFERENCES,
+      petStyle: 'invalid' as never,
+      defaultCoinCount: 9 as never,
+      commentSubmitMode: 'manual' as never,
+      favoriteArchiveMultiMode: 'many' as never
+    })
+
+    expect(saved).toMatchObject({
+      commentSubmitMode: 'choose',
+      defaultCoinCount: 1,
+      favoriteArchiveMultiMode: 'off',
+      petStyle: 'big-head'
+    })
+    expect(store.setCalls).toHaveLength(1)
+  })
+
   it('persists DeepSeek settings and keeps the key out of assistant preferences', () => {
     const store = createFakeStore()
 
