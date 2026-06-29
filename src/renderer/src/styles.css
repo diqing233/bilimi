@@ -2887,9 +2887,6 @@ body[data-floating-window="true"],
   gap: 3px;
   color: var(--porcelain-text);
 }
-.assistant-settings__hover-shortcuts-copy strong {
-  font-size: 14px;
-}
 .assistant-settings__hover-shortcuts-copy small {
   color: var(--porcelain-muted);
   font-size: 12px;

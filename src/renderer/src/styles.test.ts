@@ -328,6 +328,13 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('width: 18px;')
   })
 
+  it('keeps the pet shortcut heading the same font size as pet settings', () => {
+    expect(normalizedStyles).toContain('.assistant-settings__group legend {\n  color: var(--porcelain-text);')
+    expect(normalizedStyles).not.toContain(
+      '.assistant-settings__hover-shortcuts-copy strong {\n  font-size: 14px;'
+    )
+  })
+
   it('keeps sidebar review comment suggestions readable inside the workspace', () => {
     expectStyleSnippet('.memorial-panel__deepseek-status {')
     expectStyleSnippet('.assistant-dialog--comment-chooser { max-height: min(52vh, 360px); padding: 12px;')
