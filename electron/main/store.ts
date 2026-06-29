@@ -75,7 +75,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   bilibiliOperationMode: 'api-assisted',
   favoriteArchiveMultiMode: 'off',
   defaultCoinCount: 1,
-  commentSubmitMode: 'auto',
+  commentSubmitMode: 'choose',
   preferenceCounts: {},
   deepseekEnabled: false,
   deepseekApiKeyStored: false,
@@ -139,7 +139,7 @@ export function loadAssistantPreferences(
         ? favoriteArchiveMultiMode
         : 'off',
     defaultCoinCount: defaultCoinCount === 2 ? 2 : 1,
-    commentSubmitMode: commentSubmitMode === 'manual' ? 'manual' : 'auto',
+    commentSubmitMode: commentSubmitMode === 'random' ? 'random' : 'choose',
     preferenceCounts: store.get('preferenceCounts') ?? {},
     deepseekEnabled: Boolean(store.get('deepseekEnabled')),
     deepseekApiKeyStored: Boolean(String(deepseekApiKey).trim()),
@@ -180,7 +180,7 @@ export function saveAssistantPreferences(
       : 'off'
   )
   store.set('defaultCoinCount', preferences.defaultCoinCount === 2 ? 2 : 1)
-  store.set('commentSubmitMode', preferences.commentSubmitMode === 'auto' ? 'auto' : 'manual')
+  store.set('commentSubmitMode', preferences.commentSubmitMode === 'random' ? 'random' : 'choose')
   store.set('preferenceCounts', preferences.preferenceCounts ?? {})
   store.set('deepseekEnabled', Boolean(preferences.deepseekEnabled))
   store.set('deepseekApiKeyStored', loadDeepSeekApiKeyStatus(store).configured)
