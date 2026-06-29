@@ -236,6 +236,47 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
   })
 
+  it('waits for the current video snapshot before running a pet 表 workspace request', async () => {
+    let openWorkspace: Parameters<
+      NonNullable<Window['bilimiDesktop']['onOpenFloatingAssistantWorkspace']>
+    >[0] | undefined
+    let resolveSnapshot!: (snapshot: AssistantSnapshot) => void
+    const requestAssistantSnapshot = vi.fn(
+      () =>
+        new Promise<AssistantSnapshot>((resolve) => {
+          resolveSnapshot = resolve
+        })
+    )
+    installDesktopApi({
+      requestAssistantSnapshot,
+      onOpenFloatingAssistantWorkspace: vi.fn((callback) => {
+        openWorkspace = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await waitFor(() => expect(openWorkspace).toBeDefined())
+
+    act(() => {
+      openWorkspace?.({ tab: 'review', action: '表' })
+    })
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 5))
+    })
+
+    expect(screen.queryByText('未打开视频')).not.toBeInTheDocument()
+
+    await act(async () => {
+      resolveSnapshot(
+        createSnapshot({ preferences: createPreferences({ commentSubmitMode: 'choose' }) })
+      )
+    })
+
+    expect(await screen.findByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
+  })
+
   it('opens the note archive when a pet workspace request asks for 库', async () => {
     let openWorkspace: Parameters<
       NonNullable<Window['bilimiDesktop']['onOpenFloatingAssistantWorkspace']>
