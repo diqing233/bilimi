@@ -1712,6 +1712,14 @@ body[data-floating-window="true"],
   font-size: 15px;
   line-height: 1.35;
 }
+.video-notes__summary-result pre {
+  max-width: 100%;
+  overflow-x: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  margin: 0;
+}
 .video-notes__summary-subtitle {
   color: var(--porcelain-muted);
   line-height: 1.55;

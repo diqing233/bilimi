@@ -219,6 +219,7 @@ describe('renderer porcelain theme styles', () => {
     )
     expectStyleSnippet('.video-notes__source dd { min-width: 0; overflow-wrap: anywhere;')
     expectStyleSnippet('.video-notes__summary-result { display: grid; gap: 8px; min-width: 0;')
+    expectStyleSnippet('.video-notes__summary-result pre { max-width: 100%; overflow-x: hidden; white-space: pre-wrap; overflow-wrap: anywhere;')
     expectStyleSnippet('.video-notes__summary-section pre { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;')
     expect(normalizedStyles).toContain('.video-notes__plain-text {\n  max-height: 160px;')
     expect(normalizedStyles).toContain('.video-notes textarea {\n  min-height: 60px;')
