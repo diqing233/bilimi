@@ -1659,6 +1659,16 @@ body[data-floating-window="true"],
   gap: 6px;
   margin-left: auto;
 }
+.video-notes__copy-select {
+  flex: 0 0 auto;
+  max-width: 112px;
+  border-radius: 6px;
+  padding: 5px 8px;
+  border: 1px solid rgba(31, 99, 181, 0.22);
+  background: rgba(255, 254, 253, 0.92);
+  color: var(--porcelain-deep);
+  font: inherit;
+}
 .video-notes__summary-generate {
   font-weight: 700;
 }

@@ -66,6 +66,10 @@ export function createSummaryText(note: VideoNote): string {
   ].join('\n')
 }
 
+export function createPolishedTranscriptText(poster: NotePosterSummary): string {
+  return poster.polishedTranscriptText?.replace(/^#+\s*精修文稿\s*/u, '').trim() ?? ''
+}
+
 function normalizeArchiveVersion(version: VideoNoteArchiveVersion): VideoNoteArchiveVersion {
   const note = normalizeVideoNote(version.note)
 
@@ -167,10 +171,7 @@ export function deleteVideoNoteArchiveVersion(
     .filter((archive) => archive.versions.length > 0)
 }
 
-export function createNotePosterText(poster: NotePosterSummary): string {
-  const polishedTranscriptText = poster.polishedTranscriptText?.trim()
-  const auditChecklistText = poster.auditChecklistText?.trim()
-
+export function createNotePosterSummaryText(poster: NotePosterSummary): string {
   return [
     '## 精准总结',
     '',
@@ -178,10 +179,21 @@ export function createNotePosterText(poster: NotePosterSummary): string {
     poster.subtitle,
     '',
     ...poster.keyPoints.map((point) => '- ' + point),
-    poster.keywords.length > 0 ? '关键词：' + poster.keywords.join('、') : '',
-    polishedTranscriptText
-      ? ['', '## 精修文稿', '', polishedTranscriptText.replace(/^#+\s*精修文稿\s*/u, '').trim()]
-      : '',
+    poster.keywords.length > 0 ? '关键词：' + poster.keywords.join('、') : ''
+  ]
+    .filter((line) => line !== undefined && line !== null)
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+export function createNotePosterText(poster: NotePosterSummary): string {
+  const polishedTranscriptText = createPolishedTranscriptText(poster)
+  const auditChecklistText = poster.auditChecklistText?.trim()
+
+  return [
+    createNotePosterSummaryText(poster),
+    polishedTranscriptText ? ['', '## 精修文稿', '', polishedTranscriptText] : '',
     auditChecklistText
       ? ['', '## 内容核对清单', '', auditChecklistText.replace(/^#+\s*内容核对清单\s*/u, '').trim()]
       : ''

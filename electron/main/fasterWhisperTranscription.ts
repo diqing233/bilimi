@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import OpenCC from 'opencc-js'
 import type { TranscriptSegment } from '../../src/shared/types'
 import { runProcess as defaultRunProcess, type RunProcess } from './audioDownload'
 
@@ -38,9 +39,14 @@ type PythonCandidate = {
 const DEFAULT_MODEL = 'small'
 const DEFAULT_DEVICE = 'cpu'
 const DEFAULT_COMPUTE_TYPE = 'int8'
+const traditionalToSimplified = OpenCC.Converter({ from: 't', to: 'cn' })
 
 function cleanText(value = ''): string {
   return value.replace(/\s+/g, ' ').trim()
+}
+
+function normalizeChineseTranscriptText(value = ''): string {
+  return traditionalToSimplified(cleanText(value))
 }
 
 function normalizePath(path: string): string {
@@ -101,7 +107,7 @@ export function mapFasterWhisperOutputToSegments(
     .map((segment) => ({
       start: typeof segment.start === 'number' ? segment.start + offsetSeconds : null,
       end: typeof segment.end === 'number' ? segment.end + offsetSeconds : null,
-      text: cleanText(segment.text)
+      text: normalizeChineseTranscriptText(segment.text)
     }))
     .filter((segment) => segment.text.length > 0)
 }

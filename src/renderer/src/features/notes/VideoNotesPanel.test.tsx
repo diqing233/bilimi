@@ -313,6 +313,44 @@ describe('VideoNotesPanel', () => {
     expect(screen.getByText('Learning Machine Models')).toBeInTheDocument()
   })
 
+  it('copies polished transcript and summary separately from the DeepSeek copy menu', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const poster: NotePosterSummary = {
+      title: '机器学习入门',
+      subtitle: '整体主旨：用数据和模型解释机器学习。',
+      keyPoints: ['核心内容：训练数据影响模型表现。'],
+      keywords: ['机器学习', '训练数据'],
+      prompt: 'clean poster',
+      polishedTranscriptText: '## 精修文稿\n\n先介绍机器学习的基本概念。',
+      auditChecklistText: '- 数据：训练数据'
+    }
+    const onGeneratePoster = vi.fn().mockResolvedValue(poster)
+    renderPanel({ deepSeekEnabled: true, onGeneratePoster })
+
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+    fireEvent.click(screen.getByRole('button', { name: '生成总结' }))
+    expect(await screen.findByText('机器学习入门')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('更多复制'), { target: { value: 'polished' } })
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('先介绍机器学习的基本概念。'))
+
+    fireEvent.change(screen.getByLabelText('更多复制'), { target: { value: 'summary' } })
+    await waitFor(() =>
+      expect(writeText).toHaveBeenLastCalledWith(
+        [
+          '## 精准总结',
+          '',
+          '### 机器学习入门',
+          '整体主旨：用数据和模型解释机器学习。',
+          '',
+          '- 核心内容：训练数据影响模型表现。',
+          '关键词：机器学习、训练数据'
+        ].join('\n')
+      )
+    )
+  })
+
   it('does not start audio transcription from DeepSeek summary when no note exists', async () => {
     const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
     const onGeneratePoster = vi.fn()

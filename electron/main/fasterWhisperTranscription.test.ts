@@ -25,6 +25,29 @@ describe('fasterWhisperTranscription', () => {
     ])
   })
 
+  it('normalizes traditional Chinese transcript text to simplified Chinese', () => {
+    expect(
+      mapFasterWhisperOutputToSegments(
+        {
+          segments: [
+            {
+              start: 12,
+              end: 17,
+              text: '但由於各種各樣的單個，一群人是在7月23號才全部到齊的。'
+            }
+          ]
+        },
+        0
+      )
+    ).toEqual([
+      {
+        start: 12,
+        end: 17,
+        text: '但由于各种各样的单个，一群人是在7月23号才全部到齐的。'
+      }
+    ])
+  })
+
   it('builds Python script arguments for a local audio segment', () => {
     expect(
       buildFasterWhisperArgs({
