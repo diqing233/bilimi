@@ -2102,6 +2102,11 @@ body[data-floating-window="true"],
     "SimSun",
     serif;
 }
+.video-note-archive__result-panel .video-notes__plain-text,
+.video-note-archive__result-panel pre {
+  max-height: none;
+  overflow: visible;
+}
 .video-note-archive__dialog {
   position: fixed;
   inset: auto 18px 18px 18px;

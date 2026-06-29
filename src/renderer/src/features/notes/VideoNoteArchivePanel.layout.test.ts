@@ -32,4 +32,10 @@ describe('VideoNoteArchivePanel layout styles', () => {
     expect(styles).toContain('white-space: pre-wrap;')
     expect(styles).toContain('overflow-wrap: anywhere;')
   })
+
+  it('lets every archive result tab use the detail pane scrollbar', () => {
+    expect(styles).toContain(
+      '.video-note-archive__result-panel .video-notes__plain-text,\n.video-note-archive__result-panel pre {\n  max-height: none;\n  overflow: visible;'
+    )
+  })
 })
