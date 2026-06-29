@@ -28,7 +28,7 @@ export const PET_HOVER_SHORTCUTS: PetHoverShortcut[] = [
   { id: 'comment', label: '表', title: '拟奏短评', action: '表', intent: 'video-action' },
   { id: 'assistant', label: '咪', title: '打开小咪', intent: 'workspace' },
   { id: 'transcribe', label: '转', title: '转写音频', intent: 'workspace' },
-  { id: 'library', label: '库', title: '打开掌库', intent: 'workspace' },
+  { id: 'library', label: '库', title: '打开档案库', intent: 'workspace' },
   { id: 'prepare-ledgers', label: '备', title: '备齐册目', intent: 'workspace' },
   { id: 'organize-old-favorites', label: '整', title: '整理旧藏', intent: 'workspace' }
 ]

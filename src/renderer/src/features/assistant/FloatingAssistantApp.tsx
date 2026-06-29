@@ -282,11 +282,11 @@ export function FloatingAssistantApp({
     })
   }
 
-  function setActiveTab(tab: AssistantWorkspaceTab) {
+  function setActiveTab(tab: AssistantWorkspaceTab, options?: { view?: AssistantWorkspaceView }) {
     setFeedback(null)
     setCommentChooserOpen(false)
     setAiCommentDrafts([])
-    setActiveView(tab)
+    setActiveView(options?.view ?? tab)
     tellPet('success', TAB_HINTS[tab])
 
     if (controlledActiveTab === undefined) {
@@ -344,8 +344,10 @@ export function FloatingAssistantApp({
   }, [])
 
   useEffect(() => {
-    setActiveView(activeTab)
-  }, [activeTab])
+    if (controlledActiveTab !== undefined) {
+      setActiveView(controlledActiveTab)
+    }
+  }, [controlledActiveTab])
 
   useEffect(() => {
     preferencesRef.current = preferences
@@ -721,7 +723,12 @@ export function FloatingAssistantApp({
 
   useEffect(() => {
     return window.bilimiDesktop?.onOpenFloatingAssistantWorkspace?.((payload) => {
-      setActiveTab(payload.tab)
+      if (payload.openNoteArchive) {
+        void loadVideoNoteArchives()
+        setActiveTab(payload.tab, { view: 'noteArchive' })
+      } else {
+        setActiveTab(payload.tab)
+      }
 
       if (payload.organizeOldFavorites) {
         tellPet('progress', '小咪切到掌库啦，旧藏整理从这里开始。')

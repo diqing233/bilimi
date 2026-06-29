@@ -389,8 +389,11 @@ export function PalaceMaidPetApp() {
     }
 
     if (shortcut.id === 'library') {
-      showLocalPetHint('hint', '主人，小咪切到掌库啦。')
-      void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'ledger' })
+      showLocalPetHint('hint', '主人，小咪打开档案库啦。')
+      void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({
+        tab: 'notes',
+        openNoteArchive: true
+      })
       return
     }
 

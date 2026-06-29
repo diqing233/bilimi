@@ -236,6 +236,50 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
   })
 
+  it('opens the note archive when a pet workspace request asks for 库', async () => {
+    let openWorkspace: Parameters<
+      NonNullable<Window['bilimiDesktop']['onOpenFloatingAssistantWorkspace']>
+    >[0] | undefined
+    const note = createVideoNote()
+    const loadVideoNoteArchives = vi.fn().mockResolvedValue([
+      {
+        id: note.id,
+        source: note.source,
+        versions: [
+          {
+            id: `${note.id}:v1`,
+            note,
+            plainTranscript: '机器学习需要数据和模型。',
+            timedTranscript: '00:00 机器学习需要数据和模型。',
+            summaryText: '机器学习入门',
+            createdAt: note.updatedAt
+          }
+        ],
+        createdAt: note.createdAt,
+        updatedAt: note.updatedAt
+      }
+    ])
+    installDesktopApi({
+      loadVideoNoteArchives,
+      onOpenFloatingAssistantWorkspace: vi.fn((callback) => {
+        openWorkspace = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
+
+    act(() => {
+      openWorkspace?.({ tab: 'notes', openNoteArchive: true })
+    })
+
+    expect(await screen.findByRole('region', { name: '全局档案库' })).toBeInTheDocument()
+    expect(loadVideoNoteArchives).toHaveBeenCalled()
+    expect(screen.getAllByText('机器学习入门教程').length).toBeGreaterThan(0)
+  })
+
   it('keeps the floating assistant fold button available across workspace tabs', async () => {
     const api = installDesktopApi()
 

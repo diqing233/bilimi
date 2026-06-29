@@ -721,7 +721,7 @@ describe('PalaceMaidPetApp', () => {
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
 
-  it('opens the floating assistant workspace for 库 and 整 shortcuts', async () => {
+  it('opens the note archive for 库 and the ledger for 整 shortcuts', async () => {
     const api = installDesktopApi({
       openFloatingAssistantWorkspace: vi.fn().mockResolvedValue(undefined),
       loadPreferences: vi.fn().mockResolvedValue(
@@ -738,7 +738,10 @@ describe('PalaceMaidPetApp', () => {
     fireEvent.click(await screen.findByRole('button', { name: '整' }))
 
     await waitFor(() =>
-      expect(api.openFloatingAssistantWorkspace).toHaveBeenNthCalledWith(1, { tab: 'ledger' })
+      expect(api.openFloatingAssistantWorkspace).toHaveBeenNthCalledWith(1, {
+        tab: 'notes',
+        openNoteArchive: true
+      })
     )
     expect(api.openFloatingAssistantWorkspace).toHaveBeenNthCalledWith(2, {
       tab: 'ledger',
