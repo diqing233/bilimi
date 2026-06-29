@@ -178,6 +178,7 @@ export function AssistantOverlay({
   const [panelMinimized, setPanelMinimized] = useState(false)
   const [runningAction, setRunningAction] = useState<AssistantAction | null>(null)
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null)
+  const overlayRef = useRef<HTMLDivElement | null>(null)
   const [latestVideoContentContext, setLatestVideoContentContext] = useState<
     VideoContentContext | undefined
   >(videoContentContext)
@@ -216,6 +217,14 @@ export function AssistantOverlay({
       ? clampOverlayPositionForSize(overlayPosition, expandedOverlaySize)
       : overlayPosition
   const actionsLocked = runningAction !== null || coinPromptOpen || ledgerPanelOpen
+
+  function collapsePanel() {
+    setPanelMinimized(false)
+    setOpen(false)
+    setCoinPromptOpen(false)
+    setCommentChooserOpen(false)
+    setLedgerPanelOpen(false)
+  }
 
   function moveSealTo(clientX: number, clientY: number, pointerId: number) {
     const currentDragState = dragStateRef.current
@@ -374,6 +383,29 @@ export function AssistantOverlay({
       window.removeEventListener('pointercancel', handlePointerUp)
     }
   }, [dragState])
+
+  useEffect(() => {
+    if (!open || panelMinimized) {
+      return
+    }
+
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      const overlayElement = overlayRef.current
+      const target = event.target
+
+      if (!overlayElement || !(target instanceof Node) || overlayElement.contains(target)) {
+        return
+      }
+
+      collapsePanel()
+    }
+
+    document.addEventListener('pointerdown', handleOutsidePointerDown)
+
+    return () => {
+      document.removeEventListener('pointerdown', handleOutsidePointerDown)
+    }
+  }, [open, panelMinimized])
 
   async function readVideoContextFromPage() {
     try {
@@ -623,6 +655,7 @@ export function AssistantOverlay({
 
   return (
     <div
+      ref={overlayRef}
       className={`assistant-overlay${panelMinimized ? ' assistant-overlay--minimized' : ''}${dragState?.moved ? ' assistant-overlay--dragging' : ''}`}
       style={{
         left: `${visibleOverlayPosition.left}px`,
@@ -649,10 +682,7 @@ export function AssistantOverlay({
               videoCategory={videoCategory}
               videoTitle={resolvedVideoTitle}
               onAction={handleAction}
-              onClose={() => {
-                setPanelMinimized(false)
-                setOpen(false)
-              }}
+              onClose={collapsePanel}
               onGenerateVideoNote={generateVideoNote}
               onSaveVideoNote={persistVideoNote}
               onChangeVideoNote={setVideoNote}

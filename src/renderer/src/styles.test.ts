@@ -171,7 +171,14 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain(
       '.memorial-panel__paper {\n  border: 1px solid rgba(31, 99, 181, 0.3);'
     )
-    expect(normalizedStyles).toContain('padding: 8px;\n  max-height: calc(100vh - 16px);')
+    expect(normalizedStyles).toContain('padding: 8px 8px 46px;\n  max-height: calc(100vh - 16px);')
+    expectStyleSnippet(
+      '.memorial-panel__paper { border: 1px solid rgba(31, 99, 181, 0.3); position: relative;'
+    )
+    expectStyleSnippet('.memorial-panel__paper { padding: 8px 8px 46px;')
+    expectStyleSnippet(
+      '.memorial-panel__close { position: absolute; right: 8px; bottom: 8px;'
+    )
     expect(normalizedStyles).toContain('display: grid;\n  gap: 8px;')
     expect(normalizedStyles).toContain('.memorial-panel__actions {\n  display: grid;\n  grid-template-columns: 1fr;')
     expect(normalizedStyles).toContain('.assistant-action-button {\n  min-height: 62px;')

@@ -137,6 +137,28 @@ describe('AssistantOverlay', () => {
     expect(screen.queryByRole('button', { name: /打开掌库/ })).not.toBeInTheDocument()
   })
 
+  it('collapses the open memorial panel when clicking outside it', () => {
+    render(<AssistantOverlay />)
+
+    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+
+    expect(screen.getByLabelText('案头奏折')).toBeInTheDocument()
+
+    fireEvent.pointerDown(document.body)
+
+    expect(screen.queryByLabelText('案头奏折')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '开折批阅' })).toBeInTheDocument()
+  })
+
+  it('keeps the memorial panel open when clicking inside it', () => {
+    render(<AssistantOverlay />)
+
+    fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+    fireEvent.pointerDown(screen.getByLabelText('案头奏折'))
+
+    expect(screen.getByLabelText('案头奏折')).toBeInTheDocument()
+  })
+
   it('runs an externally requested assistant action through the existing action path', async () => {
     const runScript = vi.fn().mockResolvedValue({
       ok: true,
