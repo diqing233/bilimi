@@ -324,8 +324,17 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.assistant-settings__actions button:active')
     expect(normalizedStyles).toContain('.assistant-settings__actions button:focus-visible')
     expect(normalizedStyles).toContain('.assistant-settings__deepseek-recommendation')
-    expect(normalizedStyles).toContain('.assistant-settings__copy-button')
-    expect(normalizedStyles).toContain('width: 18px;')
+    expectStyleSnippet(
+      '.assistant-settings__copy-row { display: flex; align-items: center; gap: 6px;'
+    )
+    expectStyleSnippet(
+      '.assistant-settings__copy-button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center;'
+    )
+    expectStyleSnippet(
+      '.assistant-settings__copy-button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; min-width: 40px; height: 24px;'
+    )
+    expect(normalizedStyles).toContain('border-color: rgba(31, 99, 181, 0.3);')
+    expect(normalizedStyles).toContain('background: var(--porcelain-surface);')
   })
 
   it('keeps the pet shortcut heading the same font size as pet settings', () => {

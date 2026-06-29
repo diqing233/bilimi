@@ -3075,35 +3075,39 @@ body[data-floating-window="true"],
   overflow-wrap: anywhere;
 }
 .assistant-settings__copy-row {
-  display: block;
-  overflow-wrap: anywhere;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-wrap: normal;
 }
 .assistant-settings__copy-row span {
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .assistant-settings__copy-button {
-  display: inline-grid;
-  place-items: center;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
   min-width: 40px;
-  height: 22px;
-  min-height: 22px;
-  margin-left: 5px;
+  height: 24px;
+  min-height: 24px;
+  margin-left: 0;
   padding: 0 8px;
-  border-color: transparent;
-  border-radius: 7px;
-  background: rgba(232, 235, 238, 0.95);
-  color: rgba(74, 80, 87, 0.92);
+  border-color: rgba(31, 99, 181, 0.3);
+  border-radius: 6px;
+  background: var(--porcelain-surface);
+  color: var(--porcelain-text);
   font-size: 12px;
   font-weight: 700;
   line-height: 1;
-  vertical-align: -6px;
   box-shadow: none;
 }
 .assistant-settings__copy-button:hover,
 .assistant-settings__copy-button:focus-visible {
-  border-color: rgba(121, 131, 141, 0.24);
-  background: rgba(218, 223, 228, 0.98);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.48);
+  border-color: rgba(31, 99, 181, 0.48);
+  background: rgba(220, 238, 255, 0.92);
+  box-shadow: 0 1px 3px rgba(7, 26, 51, 0.1);
 }
 .assistant-dialog {
   width: min(420px, calc(100vw - 48px));
