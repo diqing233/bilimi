@@ -195,6 +195,13 @@ describe('FavoriteLedgerPanel', () => {
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     fireEvent.click(screen.getByRole('button', { name: '存入暂存 暂存旧藏' }))
+
+    const stagingGroup = screen.getByRole('group', { name: 'Bilimi·暂存 1 条' })
+    expect(within(stagingGroup).getByRole('button', { name: /暂存旧藏/ })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
 
     expect(screen.getByText('已选择 1 条归档任务')).toBeInTheDocument()
@@ -255,6 +262,17 @@ describe('FavoriteLedgerPanel', () => {
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '全部存入暂存' }))
+
+    const stagingGroup = screen.getByRole('group', { name: 'Bilimi·暂存 2 条' })
+    expect(within(stagingGroup).getByRole('button', { name: /暂存旧藏一/ })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    expect(within(stagingGroup).getByRole('button', { name: /暂存旧藏二/ })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
 
     expect(screen.getByText('已选择 2 条归档任务')).toBeInTheDocument()

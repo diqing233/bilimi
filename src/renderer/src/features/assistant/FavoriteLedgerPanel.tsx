@@ -400,6 +400,27 @@ function isPreviewScopedPendingItem(item: FavoriteLedgerPreviewItem) {
   )
 }
 
+function inboxTargetForOldFavoriteItem(item: FavoriteLedgerPreviewItem) {
+  return targetsForOldFavoriteItem(item).find((target) => target.ledgerId === 'inbox') ?? null
+}
+
+function stagedPendingOldFavoriteItem(item: FavoriteLedgerPreviewItem): FavoriteLedgerPreviewItem {
+  const inboxTarget = inboxTargetForOldFavoriteItem(item)
+  if (!inboxTarget) {
+    return item
+  }
+
+  return {
+    ...item,
+    targets: [{ ...inboxTarget, selected: true }],
+    targetLedgerId: inboxTarget.ledgerId,
+    targetFolderId: inboxTarget.folderId,
+    targetDisplayName: inboxTarget.displayName,
+    selected: true,
+    reviewRequired: false
+  }
+}
+
 function pendingReasonText(item: FavoriteLedgerPreviewItem) {
   if (item.reviewRequired) {
     return '需要复核'
@@ -1474,8 +1495,13 @@ export function FavoriteLedgerPanel({
     [selectableOldFavoriteItems]
   )
   const archivePreviewItems = useMemo(
-    () => selectableOldFavoriteItems.filter((item) => !isPreviewScopedPendingItem(item)),
-    [selectableOldFavoriteItems]
+    () => [
+      ...selectableOldFavoriteItems.filter((item) => !isPreviewScopedPendingItem(item)),
+      ...previewScopedPendingItems
+        .filter((item) => selectedOldFavoriteTargetKeys.has(oldFavoriteTargetKey(item.aid, 'inbox')))
+        .map(stagedPendingOldFavoriteItem)
+    ],
+    [previewScopedPendingItems, selectableOldFavoriteItems, selectedOldFavoriteTargetKeys]
   )
   const missingOldFavoriteTargetNames = Array.from(
     new Set(
