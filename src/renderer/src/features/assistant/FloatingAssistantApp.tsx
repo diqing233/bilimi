@@ -1361,7 +1361,7 @@ export function FloatingAssistantApp({
                 </button>
               </div>
               <aside className="assistant-settings__deepseek-recommendation">
-                <strong>致谢</strong>
+                <strong>致谢 云枢智元</strong>
                 <p>大模型 Token 中转，低至官方价 2 折起</p>
                 <p>
                   <a href="https://yunshulink.com/" target="_blank" rel="noreferrer">
