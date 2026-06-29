@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type MouseEvent as ReactMouseEvent
+} from 'react'
 import { resolvePetHoverShortcuts, type PetHoverShortcut } from '@shared/petHoverShortcuts'
 import { LayeredPetRenderer } from './LayeredPetRenderer'
 import {
@@ -380,10 +387,25 @@ export function PalaceMaidPetApp() {
     }
   }
 
-  async function runHoverShortcut(shortcut: PetHoverShortcut) {
+  function createWorkspaceAnchor(event?: ReactMouseEvent<HTMLButtonElement>) {
+    if (!event || (!event.screenX && !event.screenY)) {
+      return undefined
+    }
+
+    return {
+      screenX: Math.round(event.screenX),
+      screenY: Math.round(event.screenY)
+    }
+  }
+
+  async function runHoverShortcut(
+    shortcut: PetHoverShortcut,
+    event?: ReactMouseEvent<HTMLButtonElement>
+  ) {
     dragState.current = null
     setPressed(false)
     setClosePromptVisible(false)
+    const anchor = createWorkspaceAnchor(event)
 
     if (
       requiresCurrentVideo(shortcut) &&
@@ -396,7 +418,7 @@ export function PalaceMaidPetApp() {
 
     if (shortcut.id === 'assistant') {
       showLocalPetHint('hint', '主人，小咪把小窗口打开啦。')
-      void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'review' })
+      void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'review', anchor })
       return
     }
 
@@ -404,6 +426,7 @@ export function PalaceMaidPetApp() {
       showLocalPetHint('hint', '主人，小咪打开档案库啦。')
       void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({
         tab: 'notes',
+        anchor,
         openNoteArchive: true
       })
       return
@@ -413,6 +436,7 @@ export function PalaceMaidPetApp() {
       showLocalPetHint('hint', '主人，小咪切到掌库啦，旧藏整理从这里开始。')
       void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({
         tab: 'ledger',
+        anchor,
         organizeOldFavorites: true
       })
       return
@@ -452,6 +476,7 @@ export function PalaceMaidPetApp() {
       showLocalPetHint('hint', '主人，小咪打开短评三选一小窗口啦。')
       void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({
         action: '表',
+        anchor,
         tab: 'review'
       })
       return
@@ -626,7 +651,7 @@ export function PalaceMaidPetApp() {
             onClick={(event) => {
               event.preventDefault()
               event.stopPropagation()
-              void runHoverShortcut(shortcut)
+              void runHoverShortcut(shortcut, event)
             }}
             onPointerDown={(event) => {
               event.stopPropagation()

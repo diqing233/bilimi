@@ -325,6 +325,32 @@ describe('FloatingAssistantApp', () => {
     expect(api.closeFloatingAssistant).toHaveBeenCalledOnce()
   })
 
+  it('closes the floating assistant when clicking blank workspace area', async () => {
+    const api = installDesktopApi()
+    const { container } = render(<FloatingAssistantApp />)
+
+    expect(await screen.findByRole('button', { name: '合折' })).toBeInTheDocument()
+
+    const workspace = container.querySelector('.floating-assistant-workspace')
+    expect(workspace).toBeInstanceOf(HTMLElement)
+
+    fireEvent.pointerDown(workspace as HTMLElement)
+
+    expect(api.closeFloatingAssistant).toHaveBeenCalledOnce()
+  })
+
+  it('closes the floating assistant when the floating window loses focus', async () => {
+    const api = installDesktopApi()
+
+    render(<FloatingAssistantApp />)
+
+    expect(await screen.findByRole('button', { name: '合折' })).toBeInTheDocument()
+
+    fireEvent(window, new Event('blur'))
+
+    expect(api.closeFloatingAssistant).toHaveBeenCalledOnce()
+  })
+
   it('renders the complete floating assistant tabs from a snapshot', async () => {
     installDesktopApi()
 

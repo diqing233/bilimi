@@ -7,10 +7,17 @@ type FloatingWindow = {
   show?: () => void
 }
 
+type FloatingMenuControllerOptions<TWindow extends FloatingWindow> = {
+  prepareWindow?: (windowToPrepare: TWindow) => void
+}
+
 export class FloatingMenuController<TWindow extends FloatingWindow> {
   private currentWindow: TWindow | null = null
 
-  constructor(private readonly createWindow: () => TWindow) {}
+  constructor(
+    private readonly createWindow: () => TWindow,
+    private readonly options: FloatingMenuControllerOptions<TWindow> = {}
+  ) {}
 
   getWindow() {
     return this.currentWindow
@@ -74,6 +81,8 @@ export class FloatingMenuController<TWindow extends FloatingWindow> {
   }
 
   private showCurrentWindow(windowToShow: TWindow) {
+    this.options.prepareWindow?.(windowToShow)
+
     if (windowToShow.isVisible?.() === false) {
       windowToShow.show?.()
     }

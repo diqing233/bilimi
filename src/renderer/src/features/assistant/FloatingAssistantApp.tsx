@@ -18,7 +18,7 @@ import {
   type PetHoverShortcutId
 } from '@shared/petHoverShortcuts'
 import { createNotePosterText } from '@shared/videoNoteArchive'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { composeMemorialComments } from '../comments/commentComposer'
 import { classifyVideoContent } from '../recommendation/videoClassifier'
 import { describeVideoClassificationRecommendation } from '../recommendation/recommendationRules'
@@ -1088,8 +1088,33 @@ export function FloatingAssistantApp({
     window.bilimiDesktop?.closeFloatingAssistant?.()
   }
 
+  useEffect(() => {
+    if (isSidebarMode) {
+      return
+    }
+
+    const closeOnBlur = () => closeAssistant()
+
+    window.addEventListener('blur', closeOnBlur)
+
+    return () => {
+      window.removeEventListener('blur', closeOnBlur)
+    }
+  }, [isSidebarMode])
+
+  function closeAssistantFromBlankWorkspace(event: PointerEvent<HTMLElement>) {
+    if (isSidebarMode || event.target !== event.currentTarget) {
+      return
+    }
+
+    closeAssistant()
+  }
+
   const workspace = (
-    <section className={isSidebarMode ? 'assistant-sidebar-workspace' : 'floating-assistant-workspace'}>
+    <section
+      className={isSidebarMode ? 'assistant-sidebar-workspace' : 'floating-assistant-workspace'}
+      onPointerDown={closeAssistantFromBlankWorkspace}
+    >
         <div className="floating-assistant-tabs" role="tablist" aria-label="助手功能">
           {WORKSPACE_TABS.map((tab) => (
             <button

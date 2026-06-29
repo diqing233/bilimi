@@ -93,6 +93,9 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain(
       '.floating-assistant-tabs button[data-icon-only="true"]'
     )
+    expectStyleSnippet(
+      '.floating-assistant-workspace__fold { position: absolute; right: 0; bottom: 0;'
+    )
     expect(normalizedStyles).toContain(
       '.assistant-sidebar-workspace .floating-assistant-tabs {\n  display: grid;\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 6px;\n  padding-left: 0;'
     )

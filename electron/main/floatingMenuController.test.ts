@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { FloatingMenuController } from './floatingMenuController'
 
 function createTestWindow(destroyed = false) {
@@ -65,6 +65,19 @@ describe('FloatingMenuController', () => {
     expect(createdWindow.showCount).toBe(1)
     expect(createdWindow.focusCount).toBe(1)
     expect(controller.getWindow()).toBe(createdWindow)
+  })
+
+  it('prepares an existing hidden window before showing it again', () => {
+    const createdWindow = createTestWindow()
+    const prepareWindow = vi.fn()
+    const controller = new FloatingMenuController(() => createdWindow, { prepareWindow })
+
+    controller.open()
+    createdWindow.visible = false
+    controller.open()
+
+    expect(prepareWindow).toHaveBeenCalledWith(createdWindow)
+    expect(createdWindow.showCount).toBe(1)
   })
 
   it('hides an existing floating window without destroying its renderer state', () => {

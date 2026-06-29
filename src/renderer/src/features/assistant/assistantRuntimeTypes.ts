@@ -32,6 +32,7 @@ export type FloatingAssistantWorkspaceTab = 'review' | 'notes' | 'ledger' | 'set
 export type FloatingAssistantWorkspaceRequest = {
   tab: FloatingAssistantWorkspaceTab
   action?: AssistantAction
+  anchor?: { screenX: number; screenY: number }
   openNoteArchive?: boolean
   organizeOldFavorites?: boolean
 }

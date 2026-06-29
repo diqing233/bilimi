@@ -616,6 +616,27 @@ describe('PalaceMaidPetApp', () => {
     expect(api.runFloatingMenuAction).not.toHaveBeenCalledWith('表')
   })
 
+  it('anchors the floating assistant workspace to the clicked pet hover shortcut', async () => {
+    const api = installDesktopApi({
+      openFloatingAssistantWorkspace: vi.fn().mockResolvedValue(undefined)
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
+    fireEvent.click(screen.getByRole('button', { name: '咪' }), {
+      screenX: 720,
+      screenY: 460
+    })
+
+    await waitFor(() =>
+      expect(api.openFloatingAssistantWorkspace).toHaveBeenCalledWith({
+        tab: 'review',
+        anchor: { screenX: 720, screenY: 460 }
+      })
+    )
+  })
+
   it('opens the floating comment chooser for 表 without expanding the main sidebar', async () => {
     const api = installDesktopApi({
       openAssistant: vi.fn().mockResolvedValue(undefined),

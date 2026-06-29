@@ -178,19 +178,34 @@ function getFloatingMenuBounds() {
   })
 }
 
-function getFloatingAssistantBounds() {
-  const sealHostBounds = floatingSealWindow?.getBounds() ?? getFloatingSealBounds()
+function getFloatingAssistantBounds(anchor?: FloatingAssistantWorkspaceRequest['anchor']) {
+  const sealHostBounds = anchor
+    ? { x: anchor.screenX, y: anchor.screenY, width: 0, height: 0 }
+    : floatingSealWindow?.getBounds() ?? getFloatingSealBounds()
   const display = screen.getDisplayMatching(sealHostBounds)
-  const sealVisualBounds = createFloatingVisualBounds({
-    hostBounds: sealHostBounds,
-    padding: FLOATING_SEAL_HOST_PADDING
-  })
+  const sealVisualBounds = anchor
+    ? sealHostBounds
+    : createFloatingVisualBounds({
+        hostBounds: sealHostBounds,
+        padding: FLOATING_SEAL_HOST_PADDING
+      })
 
   return createFloatingAssistantBounds({
     sealBounds: sealVisualBounds,
     workspaceSize: FLOATING_ASSISTANT_SIZE,
     workArea: display.workArea
   })
+}
+
+function positionFloatingAssistantWindow(
+  assistant: BrowserWindow,
+  anchor?: FloatingAssistantWorkspaceRequest['anchor']
+) {
+  if (assistant.isDestroyed()) {
+    return
+  }
+
+  assistant.setBounds(getFloatingAssistantBounds(anchor))
 }
 
 function createFloatingSealWindow() {
@@ -311,7 +326,9 @@ function createFloatingAssistantWindow() {
   return assistant
 }
 
-const floatingAssistantController = new FloatingMenuController(createFloatingAssistantWindow)
+const floatingAssistantController = new FloatingMenuController(createFloatingAssistantWindow, {
+  prepareWindow: positionFloatingAssistantWindow
+})
 
 function sendFloatingAssistantWorkspaceWhenReady(
   target: BrowserWindow,
@@ -738,6 +755,7 @@ function registerAssistantPreferenceHandlers() {
     'floating-assistant:open-workspace',
     (_event, payload: FloatingAssistantWorkspaceRequest) => {
       const assistant = floatingAssistantController.open()
+      positionFloatingAssistantWindow(assistant, payload.anchor)
       sendFloatingAssistantWorkspaceWhenReady(assistant, payload)
 
       if (mainWindow && !mainWindow.isDestroyed()) {
