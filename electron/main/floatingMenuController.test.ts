@@ -5,12 +5,30 @@ function createTestWindow(destroyed = false) {
   return {
     closeCount: 0,
     destroyed,
+    focusCount: 0,
+    hideCount: 0,
+    showCount: 0,
+    visible: true,
     close() {
       this.closeCount += 1
       this.destroyed = true
     },
+    focus() {
+      this.focusCount += 1
+    },
+    hide() {
+      this.hideCount += 1
+      this.visible = false
+    },
     isDestroyed() {
       return this.destroyed
+    },
+    isVisible() {
+      return this.visible
+    },
+    show() {
+      this.showCount += 1
+      this.visible = true
     }
   }
 }
@@ -24,15 +42,16 @@ describe('FloatingMenuController', () => {
     expect(controller.getWindow()).toBe(createdWindow)
   })
 
-  it('closes the existing menu window when toggled from open state', () => {
+  it('hides the existing floating window when toggled from open state', () => {
     const createdWindow = createTestWindow()
     const controller = new FloatingMenuController(() => createdWindow)
 
     controller.toggle()
 
     expect(controller.toggle()).toBeNull()
-    expect(createdWindow.closeCount).toBe(1)
-    expect(controller.getWindow()).toBeNull()
+    expect(createdWindow.hideCount).toBe(1)
+    expect(createdWindow.closeCount).toBe(0)
+    expect(controller.getWindow()).toBe(createdWindow)
   })
 
   it('opens an existing window without toggling it closed', () => {
@@ -40,9 +59,28 @@ describe('FloatingMenuController', () => {
     const controller = new FloatingMenuController(() => createdWindow)
 
     expect(controller.open()).toBe(createdWindow)
+    createdWindow.visible = false
     expect(controller.open()).toBe(createdWindow)
     expect(createdWindow.closeCount).toBe(0)
+    expect(createdWindow.showCount).toBe(1)
+    expect(createdWindow.focusCount).toBe(1)
     expect(controller.getWindow()).toBe(createdWindow)
+  })
+
+  it('hides an existing floating window without destroying its renderer state', () => {
+    const createdWindow = createTestWindow()
+    const controller = new FloatingMenuController(() => createdWindow)
+
+    controller.open()
+    controller.hide()
+
+    expect(createdWindow.hideCount).toBe(1)
+    expect(createdWindow.closeCount).toBe(0)
+    expect(controller.getWindow()).toBe(createdWindow)
+
+    expect(controller.open()).toBe(createdWindow)
+    expect(createdWindow.showCount).toBe(1)
+    expect(createdWindow.focusCount).toBe(1)
   })
 
   it('clears a destroyed menu reference without closing it again', () => {

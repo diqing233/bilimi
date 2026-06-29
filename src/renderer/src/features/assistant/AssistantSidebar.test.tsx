@@ -4,6 +4,9 @@ import { AssistantSidebar } from './AssistantSidebar'
 
 function installDesktopApi() {
   let openAssistantCallback: (() => void) | undefined
+  const openWorkspaceCallbacks: Array<
+    Parameters<NonNullable<Window['bilimiDesktop']['onOpenFloatingAssistantWorkspace']>>[0]
+  > = []
   Object.defineProperty(window, 'bilimiDesktop', {
     configurable: true,
     value: {
@@ -11,6 +14,10 @@ function installDesktopApi() {
       loadPreferences: vi.fn(),
       onOpenAssistant: vi.fn((callback) => {
         openAssistantCallback = callback
+        return vi.fn()
+      }),
+      onOpenFloatingAssistantWorkspace: vi.fn((callback) => {
+        openWorkspaceCallbacks.push(callback)
         return vi.fn()
       }),
       onAssistantSnapshotChanged: vi.fn(),
@@ -38,6 +45,17 @@ function installDesktopApi() {
 
   return {
     openAssistant: () => openAssistantCallback?.(),
+    openWorkspace: (
+      payload: Parameters<
+        NonNullable<Window['bilimiDesktop']['onOpenFloatingAssistantWorkspace']>
+      >[0] extends (payload: infer Payload) => void
+        ? Payload
+        : never
+    ) => {
+      for (const callback of openWorkspaceCallbacks) {
+        callback(payload)
+      }
+    },
     setAssistantPetHint: window.bilimiDesktop.setAssistantPetHint as ReturnType<typeof vi.fn>
   }
 }
@@ -113,6 +131,32 @@ describe('AssistantSidebar', () => {
     })
 
     expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })).toHaveAttribute(
+      'data-collapsed',
+      'false'
+    )
+  })
+
+  it('expands and syncs to a pet workspace request while collapsed', async () => {
+    const api = installDesktopApi()
+
+    render(<AssistantSidebar />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '折叠侧边栏' }))
+
+    expect(screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })).toHaveAttribute(
+      'data-collapsed',
+      'true'
+    )
+
+    act(() => {
+      api.openWorkspace({ tab: 'ledger', organizeOldFavorites: true })
+    })
+
+    expect(await screen.findByRole('tab', { name: '掌库' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
     expect(screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })).toHaveAttribute(
       'data-collapsed',
       'false'

@@ -356,7 +356,7 @@ function closeFloatingMenuWindow() {
 }
 
 function closeFloatingAssistantWindow() {
-  floatingAssistantController.close()
+  floatingAssistantController.hide()
 }
 
 function closeAssistantPetWindow() {
@@ -739,6 +739,10 @@ function registerAssistantPreferenceHandlers() {
     (_event, payload: FloatingAssistantWorkspaceRequest) => {
       const assistant = floatingAssistantController.open()
       sendFloatingAssistantWorkspaceWhenReady(assistant, payload)
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        sendFloatingAssistantWorkspaceWhenReady(mainWindow, payload)
+      }
     }
   )
   ipcMain.handle('floating-assistant:snapshot', () =>

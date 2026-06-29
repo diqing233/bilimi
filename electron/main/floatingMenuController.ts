@@ -1,6 +1,10 @@
 type FloatingWindow = {
   close: () => void
+  focus?: () => void
+  hide?: () => void
   isDestroyed: () => boolean
+  isVisible?: () => boolean
+  show?: () => void
 }
 
 export class FloatingMenuController<TWindow extends FloatingWindow> {
@@ -23,8 +27,34 @@ export class FloatingMenuController<TWindow extends FloatingWindow> {
     windowToClose.close()
   }
 
+  hide() {
+    const windowToHide = this.currentWindow
+
+    if (!windowToHide || windowToHide.isDestroyed()) {
+      this.currentWindow = null
+      return
+    }
+
+    if (windowToHide.hide) {
+      windowToHide.hide()
+      return
+    }
+
+    this.close()
+  }
+
   toggle() {
     if (this.currentWindow && !this.currentWindow.isDestroyed()) {
+      if (this.currentWindow.isVisible?.() === false) {
+        this.showCurrentWindow(this.currentWindow)
+        return this.currentWindow
+      }
+
+      if (this.currentWindow.hide) {
+        this.currentWindow.hide()
+        return null
+      }
+
       this.close()
       return null
     }
@@ -35,11 +65,20 @@ export class FloatingMenuController<TWindow extends FloatingWindow> {
 
   open() {
     if (this.currentWindow && !this.currentWindow.isDestroyed()) {
+      this.showCurrentWindow(this.currentWindow)
       return this.currentWindow
     }
 
     this.currentWindow = this.createWindow()
     return this.currentWindow
+  }
+
+  private showCurrentWindow(windowToShow: TWindow) {
+    if (windowToShow.isVisible?.() === false) {
+      windowToShow.show?.()
+    }
+
+    windowToShow.focus?.()
   }
 
   clearIfCurrent(windowToClear: TWindow) {
