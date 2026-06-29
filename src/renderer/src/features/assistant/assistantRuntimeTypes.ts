@@ -27,6 +27,14 @@ export type FloatingAssistantActionOptions = {
   pageClickOnly?: boolean
 }
 
+export type FloatingAssistantWorkspaceTab = 'review' | 'notes' | 'ledger' | 'settings'
+
+export type FloatingAssistantWorkspaceRequest = {
+  tab: FloatingAssistantWorkspaceTab
+  action?: AssistantAction
+  organizeOldFavorites?: boolean
+}
+
 export type AssistantRuntimeRequest =
   | { id: string; type: 'snapshot' }
   | {

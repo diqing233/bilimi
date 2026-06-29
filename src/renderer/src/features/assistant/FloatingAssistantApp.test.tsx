@@ -24,7 +24,7 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     bilibiliOperationMode: 'api-assisted',
     favoriteArchiveMultiMode: 'off',
     defaultCoinCount: 1,
-    commentSubmitMode: 'choose',
+    commentSubmitMode: 'random',
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
     deepseekCommentEnabled: false,
@@ -53,6 +53,7 @@ function createSnapshot(overrides: Partial<AssistantSnapshot> = {}): AssistantSn
       pageText: '从原理到入门路线，适合学习收藏。'
     },
     videoTitle: '三分钟讲清机器学习科普教程',
+    activeTabUrl: 'https://www.bilibili.com/video/BV1note',
     ...overrides
   }
 }
@@ -202,6 +203,55 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
 }
 
 describe('FloatingAssistantApp', () => {
+  it('responds to pet workspace requests inside the floating assistant window', async () => {
+    let openWorkspace: Parameters<
+      NonNullable<Window['bilimiDesktop']['onOpenFloatingAssistantWorkspace']>
+    >[0] | undefined
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({ preferences: createPreferences({ commentSubmitMode: 'choose' }) })
+      ),
+      onOpenFloatingAssistantWorkspace: vi.fn((callback) => {
+        openWorkspace = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
+
+    act(() => {
+      openWorkspace?.({ tab: 'ledger' })
+    })
+
+    expect(screen.getByRole('tab', { name: '掌库' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('dialog', { name: '掌库' })).toBeInTheDocument()
+
+    act(() => {
+      openWorkspace?.({ tab: 'review', action: '表' })
+    })
+
+    expect(screen.getByRole('tab', { name: '批阅' })).toHaveAttribute('aria-selected', 'true')
+    expect(await screen.findByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
+  })
+
+  it('keeps the floating assistant fold button available across workspace tabs', async () => {
+    const api = installDesktopApi()
+
+    render(<FloatingAssistantApp />)
+
+    expect(await screen.findByRole('button', { name: '合折' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: '掌库' }))
+    expect(screen.getByRole('button', { name: '合折' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '合折' }))
+
+    expect(api.closeFloatingAssistant).toHaveBeenCalledOnce()
+  })
+
   it('renders the complete floating assistant tabs from a snapshot', async () => {
     installDesktopApi()
 
@@ -344,7 +394,11 @@ describe('FloatingAssistantApp', () => {
   })
 
   it('uses default 小咪 comments directly when DeepSeek is disabled', async () => {
-    const { generateDeepSeek, runAssistantAction } = installDesktopApi()
+    const { generateDeepSeek, runAssistantAction } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({ preferences: createPreferences({ commentSubmitMode: 'choose' }) })
+      )
+    })
 
     render(<FloatingAssistantApp />)
 
@@ -375,7 +429,8 @@ describe('FloatingAssistantApp', () => {
     const preferences = createPreferences({
       deepseekEnabled: true,
       deepseekApiKeyStored: true,
-      deepseekCommentEnabled: true
+      deepseekCommentEnabled: true,
+      commentSubmitMode: 'choose'
     })
     const { generateDeepSeek, runAssistantAction } = installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(createSnapshot({ preferences }))
@@ -417,7 +472,8 @@ describe('FloatingAssistantApp', () => {
     const preferences = createPreferences({
       deepseekEnabled: true,
       deepseekApiKeyStored: true,
-      deepseekCommentEnabled: true
+      deepseekCommentEnabled: true,
+      commentSubmitMode: 'choose'
     })
     const { generateDeepSeek, runAssistantAction } = installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(createSnapshot({ preferences })),
@@ -453,7 +509,8 @@ describe('FloatingAssistantApp', () => {
     const preferences = createPreferences({
       deepseekEnabled: true,
       deepseekApiKeyStored: true,
-      deepseekCommentEnabled: false
+      deepseekCommentEnabled: false,
+      commentSubmitMode: 'choose'
     })
     const { generateDeepSeek, runAssistantAction } = installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(createSnapshot({ preferences }))
@@ -599,10 +656,14 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
 
     expect(screen.getByRole('group', { name: '批阅动作设置' })).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: '赐默认投 1 币' })).toBeChecked()
-    expect(screen.getByRole('radio', { name: '表三选一后发送' })).toBeChecked()
+    expect(
+      screen.getByRole('radio', {
+        name: '赐：一键三连 默认投 1 枚硬币（再点一次可补投 1 枚）'
+      })
+    ).toBeChecked()
+    expect(screen.getByRole('radio', { name: '表：发送弹幕 随机生成一条并直接发送' })).toBeChecked()
 
-    fireEvent.click(screen.getByRole('radio', { name: '赐默认投 2 币' }))
+    fireEvent.click(screen.getByRole('radio', { name: '赐：一键三连 默认投 2 枚硬币' }))
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
@@ -612,12 +673,16 @@ describe('FloatingAssistantApp', () => {
       )
     )
 
-    fireEvent.click(screen.getByRole('radio', { name: '表随机一条直接发送' }))
+    fireEvent.click(
+      screen.getByRole('radio', {
+        name: '表：发送弹幕 生成 3 条候选，选择后发送（也可以复制后发评论）'
+      })
+    )
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
-          commentSubmitMode: 'random'
+          commentSubmitMode: 'choose'
         })
       )
     )
@@ -644,19 +709,25 @@ describe('FloatingAssistantApp', () => {
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
-    fireEvent.click(screen.getByRole('radio', { name: '赐默认投 2 币' }))
+    fireEvent.click(screen.getByRole('radio', { name: '赐：一键三连 默认投 2 枚硬币' }))
 
-    await waitFor(() => expect(screen.getByRole('radio', { name: '赐默认投 2 币' })).toBeChecked())
+    await waitFor(() =>
+      expect(screen.getByRole('radio', { name: '赐：一键三连 默认投 2 枚硬币' })).toBeChecked()
+    )
 
     await act(async () => {
       snapshotChanged?.()
     })
 
-    expect(await screen.findByRole('radio', { name: '赐默认投 2 币' })).toBeChecked()
+    expect(await screen.findByRole('radio', { name: '赐：一键三连 默认投 2 枚硬币' })).toBeChecked()
   })
 
-  it('opens three comment choices by default before 表 sends the selected draft', async () => {
-    const { runAssistantAction } = installDesktopApi()
+  it('opens three comment choices before 表 sends the selected draft in choose mode', async () => {
+    const { runAssistantAction } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({ preferences: createPreferences({ commentSubmitMode: 'choose' }) })
+      )
+    })
 
     render(<FloatingAssistantApp />)
 
@@ -675,7 +746,11 @@ describe('FloatingAssistantApp', () => {
   })
 
   it('cancels open comment choices before running a different review action', async () => {
-    const { runAssistantAction } = installDesktopApi()
+    const { runAssistantAction } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({ preferences: createPreferences({ commentSubmitMode: 'choose' }) })
+      )
+    })
 
     render(<FloatingAssistantApp />)
 
@@ -724,13 +799,49 @@ describe('FloatingAssistantApp', () => {
     }
   })
 
+  it('does not generate or send 表 comments when no video is open', async () => {
+    const preferences = createPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekCommentEnabled: true,
+      commentSubmitMode: 'random'
+    })
+    const { generateDeepSeek, runAssistantAction } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences,
+          videoTitle: '首页',
+          videoContentContext: {
+            title: '首页',
+            pageText: '推荐、番剧、直播和游戏中心'
+          },
+          activeTabUrl: 'https://www.bilibili.com/'
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    expect(await screen.findByText('首页')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: /表.*拟奏短评/ }))
+
+    expect(generateDeepSeek).not.toHaveBeenCalled()
+    expect(runAssistantAction).not.toHaveBeenCalled()
+    expect(screen.queryByText('小咪拟好三条，主人点一条就发送。')).not.toBeInTheDocument()
+    expect(await screen.findByRole('status')).toHaveTextContent('未打开视频')
+  })
+
   it('saves the 表 comment send strategy from settings', async () => {
-    const { savePreferences } = installDesktopApi()
+    const { savePreferences } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({ preferences: createPreferences({ commentSubmitMode: 'choose' }) })
+      )
+    })
 
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
-    fireEvent.click(screen.getByRole('radio', { name: '表随机一条直接发送' }))
+    fireEvent.click(screen.getByRole('radio', { name: '表：发送弹幕 随机生成一条并直接发送' }))
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
@@ -739,8 +850,12 @@ describe('FloatingAssistantApp', () => {
         })
       )
     )
-    expect(screen.getByRole('radio', { name: '表随机一条直接发送' })).toBeChecked()
-    expect(screen.getByRole('radio', { name: '表三选一后发送' })).not.toBeChecked()
+    expect(screen.getByRole('radio', { name: '表：发送弹幕 随机生成一条并直接发送' })).toBeChecked()
+    expect(
+      screen.getByRole('radio', {
+        name: '表：发送弹幕 生成 3 条候选，选择后发送（也可以复制后发评论）'
+      })
+    ).not.toBeChecked()
   })
 
   it('lets settings choose up to four pet hover shortcuts', async () => {

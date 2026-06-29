@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AssistantAction,
+  AssistantAutomationResult,
   AssistantPreferences,
   DeepSeekConnectionTestResult,
   DeepSeekGenerateRequest,
@@ -20,7 +21,8 @@ import type {
 import type {
   AssistantRuntimeRequest,
   AssistantRuntimeResponsePayload,
-  FloatingAssistantActionOptions
+  FloatingAssistantActionOptions,
+  FloatingAssistantWorkspaceRequest
 } from '../../src/renderer/src/features/assistant/assistantRuntimeTypes'
 import type {
   AssistantPetHint,
@@ -105,6 +107,20 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
       ipcRenderer.removeListener('assistant:open', listener)
     }
   },
+  onOpenFloatingAssistantWorkspace: (
+    callback: (payload: FloatingAssistantWorkspaceRequest) => void
+  ) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      payload: FloatingAssistantWorkspaceRequest
+    ) => callback(payload)
+
+    ipcRenderer.on('floating-assistant:open-workspace', listener)
+
+    return () => {
+      ipcRenderer.removeListener('floating-assistant:open-workspace', listener)
+    }
+  },
   onOpenInTab: (callback: (url: string) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, url: string) => callback(url)
 
@@ -168,7 +184,9 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   runAssistantAction: (action: AssistantAction, options?: FloatingAssistantActionOptions) =>
     ipcRenderer.invoke('floating-assistant:run-action', action, options),
   runFloatingMenuAction: (action: AssistantAction, options?: FloatingAssistantActionOptions) =>
-    ipcRenderer.invoke('floating-menu:run-action', action, options) as Promise<void>,
+    ipcRenderer.invoke('floating-menu:run-action', action, options) as Promise<AssistantAutomationResult>,
+  openFloatingAssistantWorkspace: (payload: FloatingAssistantWorkspaceRequest) =>
+    ipcRenderer.invoke('floating-assistant:open-workspace', payload) as Promise<void>,
   generateVideoNote: (manualTranscript?: string) =>
     ipcRenderer.invoke('floating-assistant:generate-video-note', manualTranscript),
   generateVideoNoteFromAudio: () =>

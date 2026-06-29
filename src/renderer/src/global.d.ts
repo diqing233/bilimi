@@ -22,7 +22,8 @@ import type {
   AssistantRuntimeRequest,
   AssistantRuntimeResponsePayload,
   AssistantSnapshot,
-  FloatingAssistantActionOptions
+  FloatingAssistantActionOptions,
+  FloatingAssistantWorkspaceRequest
 } from './features/assistant/assistantRuntimeTypes'
 import type { AssistantPetHint, AssistantPetState } from './features/assistant/petState'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from './features/favorites/favoriteLedgerPreview'
@@ -57,6 +58,9 @@ type BilimiDesktopApi = {
   onAssistantSnapshotChanged?: (callback: () => void) => () => void
   openAssistant?: () => Promise<void>
   onOpenAssistant?: (callback: (payload?: AssistantOpenPayload) => void) => () => void
+  onOpenFloatingAssistantWorkspace?: (
+    callback: (payload: FloatingAssistantWorkspaceRequest) => void
+  ) => () => void
   onOpenInTab?: (callback: (url: string) => void) => () => void
   openBilibiliFavorites?: () => Promise<AssistantAutomationResult>
   rejudgeOldFavorite?: (item: FavoriteLedgerPreviewItem) => Promise<FavoriteLedgerPreviewItem>
@@ -77,6 +81,9 @@ type BilimiDesktopApi = {
   runFloatingMenuAction?: (
     action: AssistantAction,
     options?: FloatingAssistantActionOptions
+  ) => Promise<AssistantAutomationResult>
+  openFloatingAssistantWorkspace?: (
+    payload: FloatingAssistantWorkspaceRequest
   ) => Promise<void>
   scanOldFavorites?: (options?: {
     multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']

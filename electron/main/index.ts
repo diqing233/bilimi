@@ -73,7 +73,8 @@ import type {
 import type {
   AssistantRuntimeRequest,
   AssistantSnapshot,
-  FloatingAssistantActionOptions
+  FloatingAssistantActionOptions,
+  FloatingAssistantWorkspaceRequest
 } from '../../src/renderer/src/features/assistant/assistantRuntimeTypes'
 import type {
   AssistantPetHint,
@@ -311,6 +312,24 @@ function createFloatingAssistantWindow() {
 }
 
 const floatingAssistantController = new FloatingMenuController(createFloatingAssistantWindow)
+
+function sendFloatingAssistantWorkspaceWhenReady(
+  target: BrowserWindow,
+  payload: FloatingAssistantWorkspaceRequest
+) {
+  const sendWorkspaceSignal = () => {
+    if (!target.isDestroyed()) {
+      target.webContents.send('floating-assistant:open-workspace', payload)
+    }
+  }
+
+  if (target.webContents.isLoading()) {
+    target.webContents.once('did-finish-load', sendWorkspaceSignal)
+    return
+  }
+
+  sendWorkspaceSignal()
+}
 
 const floatingSealDragController = new FloatingSealDragController({
   getCursorPoint: () => screen.getCursorScreenPoint(),
@@ -712,6 +731,13 @@ function registerAssistantPreferenceHandlers() {
       toggleFloatingAssistant: () => floatingAssistantController.toggle()
     })
   })
+  ipcMain.handle(
+    'floating-assistant:open-workspace',
+    (_event, payload: FloatingAssistantWorkspaceRequest) => {
+      const assistant = floatingAssistantController.open()
+      sendFloatingAssistantWorkspaceWhenReady(assistant, payload)
+    }
+  )
   ipcMain.handle('floating-assistant:snapshot', () =>
     requestMainAssistantRuntime<AssistantSnapshot>({ type: 'snapshot' })
   )

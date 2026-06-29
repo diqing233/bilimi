@@ -42,6 +42,7 @@ import { PET_COLLAPSE_FAREWELL_LINES, pickPetLine } from './petInteractionLines'
 
 const CURRENT_TITLE = '早八生存实录'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
+const BILIBILI_VIDEO_URL_PATTERN = /bilibili\.com\/video\/[^/?#]+/i
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash'
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
 const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
@@ -403,6 +404,9 @@ export function FloatingAssistantApp({
   const resolvedSnapshot = snapshot ?? createFallbackSnapshot()
   const resolvedVideoTitle = normalizeTitle(resolvedSnapshot.videoTitle)
   const resolvedVideoAuthor = resolvedSnapshot.videoContentContext.author?.trim()
+  const hasCurrentVideo = Boolean(
+    resolvedSnapshot.activeTabUrl && BILIBILI_VIDEO_URL_PATTERN.test(resolvedSnapshot.activeTabUrl)
+  )
   const currentClassification = useMemo(
     () => classifyVideoContent(resolvedSnapshot.videoContentContext, preferences.favoriteLedgers),
     [preferences.favoriteLedgers, resolvedSnapshot.videoContentContext]
@@ -690,6 +694,17 @@ export function FloatingAssistantApp({
     }
 
     if (action === '表') {
+      if (!hasCurrentVideo) {
+        setFeedback({
+          tone: 'progress',
+          message: '未打开视频',
+          steps: [],
+          missingTargets: []
+        })
+        tellPet('surprised', '未打开视频，小咪等主人打开视频页再拟短评。')
+        return
+      }
+
       setAiCommentDrafts([])
       setCommentIntentError('')
       if (!preferences.deepseekEnabled || !preferences.deepseekCommentEnabled) {
@@ -704,6 +719,22 @@ export function FloatingAssistantApp({
 
     void runAction(action)
   }
+
+  useEffect(() => {
+    return window.bilimiDesktop?.onOpenFloatingAssistantWorkspace?.((payload) => {
+      setActiveTab(payload.tab)
+
+      if (payload.organizeOldFavorites) {
+        tellPet('progress', '小咪切到掌库啦，旧藏整理从这里开始。')
+      }
+
+      if (payload.action) {
+        window.setTimeout(() => {
+          handleAction(payload.action!)
+        }, 0)
+      }
+    })
+  })
 
   async function generateVideoNote(manualTranscript?: string) {
     setVideoNoteLoading(true)
@@ -1181,7 +1212,7 @@ export function FloatingAssistantApp({
                     })
                   }
                 />
-                <span>赐默认投 1 币</span>
+                <span>赐：一键三连 默认投 1 枚硬币（再点一次可补投 1 枚）</span>
               </label>
               <label>
                 <input
@@ -1195,7 +1226,7 @@ export function FloatingAssistantApp({
                     })
                   }
                 />
-                <span>赐默认投 2 币</span>
+                <span>赐：一键三连 默认投 2 枚硬币</span>
               </label>
               <div className="assistant-settings__pet-divider" aria-hidden="true" />
               <label>
@@ -1210,7 +1241,7 @@ export function FloatingAssistantApp({
                     })
                   }
                 />
-                <span>表三选一后发送</span>
+                <span>表：发送弹幕 生成 3 条候选，选择后发送（也可以复制后发评论）</span>
               </label>
               <label>
                 <input
@@ -1224,7 +1255,7 @@ export function FloatingAssistantApp({
                     })
                   }
                 />
-                <span>表随机一条直接发送</span>
+                <span>表：发送弹幕 随机生成一条并直接发送</span>
               </label>
             </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--deepseek">
@@ -1391,7 +1422,7 @@ export function FloatingAssistantApp({
             onAction={handleAction}
             onClose={closeAssistant}
             closeLabel={isSidebarMode ? '收起侧栏' : '合折'}
-            showCloseButton={!isSidebarMode}
+            showCloseButton={false}
             onGenerateVideoNote={generateVideoNote}
             onTranscribeVideoAudio={generateVideoNoteFromAudio}
             onEnqueueVideoAudioTranscription={enqueueVideoAudioTranscription}
@@ -1421,6 +1452,16 @@ export function FloatingAssistantApp({
             showTabs={false}
           />
         )}
+
+        {!isSidebarMode ? (
+          <button
+            className="floating-assistant-workspace__fold"
+            type="button"
+            onClick={closeAssistant}
+          >
+            合折
+          </button>
+        ) : null}
 
         {commentIntentOpen ? (
           <CommentIntentDialog

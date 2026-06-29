@@ -33,6 +33,15 @@ export class FloatingMenuController<TWindow extends FloatingWindow> {
     return this.currentWindow
   }
 
+  open() {
+    if (this.currentWindow && !this.currentWindow.isDestroyed()) {
+      return this.currentWindow
+    }
+
+    this.currentWindow = this.createWindow()
+    return this.currentWindow
+  }
+
   clearIfCurrent(windowToClear: TWindow) {
     if (this.currentWindow === windowToClear) {
       this.currentWindow = null

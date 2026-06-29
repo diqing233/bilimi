@@ -74,6 +74,13 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
       kind: 'pet-chat',
       message: 'This page looks worth watching.'
     }),
+    enqueueCurrentVideoAudioTranscription: vi.fn().mockResolvedValue({ items: [] }),
+    ensureFavoriteLedgers: vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['ledger:ensure'],
+      missingTargets: [],
+      message: '册目已备齐。'
+    }),
     closeAssistantPet: vi.fn(),
     resizeFloatingSealByStep: vi.fn(),
     startFloatingSealDrag: vi.fn(),
@@ -589,10 +596,10 @@ describe('PalaceMaidPetApp', () => {
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
 
-  it('opens the full assistant from the 咪 hover shortcut', async () => {
-    const toggleFloatingAssistant = vi.fn().mockResolvedValue(undefined)
+  it('opens the floating assistant workspace from the 咪 hover shortcut', async () => {
+    const openFloatingAssistantWorkspace = vi.fn().mockResolvedValue(undefined)
     const api = installDesktopApi({
-      toggleFloatingAssistant,
+      openFloatingAssistantWorkspace,
       runFloatingMenuAction: vi.fn().mockResolvedValue(undefined)
     })
 
@@ -601,16 +608,17 @@ describe('PalaceMaidPetApp', () => {
     fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
     fireEvent.click(screen.getByRole('button', { name: '咪' }))
 
-    await waitFor(() => expect(api.toggleFloatingAssistant).toHaveBeenCalledOnce())
+    await waitFor(() =>
+      expect(api.openFloatingAssistantWorkspace).toHaveBeenCalledWith({ tab: 'review' })
+    )
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
     expect(api.runFloatingMenuAction).not.toHaveBeenCalledWith('表')
   })
 
-  it('opens the main assistant sidebar for 表 instead of the floating assistant window', async () => {
-    const toggleFloatingAssistant = vi.fn().mockResolvedValue(undefined)
+  it('opens the floating comment chooser for 表 without expanding the main sidebar', async () => {
     const api = installDesktopApi({
       openAssistant: vi.fn().mockResolvedValue(undefined),
-      toggleFloatingAssistant,
+      openFloatingAssistantWorkspace: vi.fn().mockResolvedValue(undefined),
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
           preferences: createPreferences({
@@ -631,9 +639,77 @@ describe('PalaceMaidPetApp', () => {
     fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
     fireEvent.click(await screen.findByRole('button', { name: '表' }))
 
-    await waitFor(() => expect(api.openAssistant).toHaveBeenCalledOnce())
-    expect(api.toggleFloatingAssistant).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(api.openFloatingAssistantWorkspace).toHaveBeenCalledWith({
+        action: '表',
+        tab: 'review'
+      })
+    )
+    expect(api.openAssistant).not.toHaveBeenCalled()
     expect(api.runFloatingMenuAction).not.toHaveBeenCalledWith('表')
+  })
+
+  it('starts transcription directly from the 转 hover shortcut and only reports through 小咪', async () => {
+    const api = installDesktopApi({
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          petHoverShortcuts: ['transcribe']
+        })
+      )
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
+    fireEvent.click(await screen.findByRole('button', { name: '转' }))
+
+    await waitFor(() => expect(api.enqueueCurrentVideoAudioTranscription).toHaveBeenCalledOnce())
+    expect(screen.getByText('已加入转写队列，小咪会按顺序处理。')).toBeInTheDocument()
+    expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
+  })
+
+  it('prepares ledgers directly from the 备 hover shortcut without opening another page', async () => {
+    const api = installDesktopApi({
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          petHoverShortcuts: ['prepare-ledgers']
+        })
+      )
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
+    fireEvent.click(await screen.findByRole('button', { name: '备' }))
+
+    await waitFor(() => expect(api.ensureFavoriteLedgers).toHaveBeenCalledOnce())
+    expect(screen.getByText('册目已备齐。')).toBeInTheDocument()
+    expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
+  })
+
+  it('opens the floating assistant workspace for 库 and 整 shortcuts', async () => {
+    const api = installDesktopApi({
+      openFloatingAssistantWorkspace: vi.fn().mockResolvedValue(undefined),
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          petHoverShortcuts: ['library', 'organize-old-favorites']
+        })
+      )
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
+    fireEvent.click(await screen.findByRole('button', { name: '库' }))
+    fireEvent.click(await screen.findByRole('button', { name: '整' }))
+
+    await waitFor(() =>
+      expect(api.openFloatingAssistantWorkspace).toHaveBeenNthCalledWith(1, { tab: 'ledger' })
+    )
+    expect(api.openFloatingAssistantWorkspace).toHaveBeenNthCalledWith(2, {
+      tab: 'ledger',
+      organizeOldFavorites: true
+    })
   })
 
   it('shows 暂无视频 instead of running a video hover action when no video is open', async () => {

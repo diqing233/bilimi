@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { CommentChooser } from './CommentChooser'
 
@@ -23,6 +23,9 @@ describe('CommentChooser', () => {
     expect(screen.getByRole('button', { name: /这个视频真不错/ })).toHaveClass(
       'assistant-dialog__comment-choice'
     )
+    expect(screen.getByRole('button', { name: '复制第 1 条评论' })).toHaveClass(
+      'assistant-dialog__comment-copy'
+    )
     expect(screen.queryByRole('button', { name: '朕再想想' })).not.toBeInTheDocument()
     expect(screen.getByRole('group', { name: '评论候选' })).toHaveClass(
       'assistant-dialog__comment-list'
@@ -30,17 +33,39 @@ describe('CommentChooser', () => {
     expect(screen.getByRole('group', { name: '评论操作' })).toHaveClass(
       'assistant-dialog__comment-actions'
     )
-    const buttons = screen.getAllByRole('button')
-    expect(buttons[0]).toHaveTextContent('小咪替我家主人夸一句：这个视频真不错。')
-    expect(buttons[1]).toHaveTextContent('我家主人已经点头，小咪负责盖章。')
-    expect(buttons[2]).toHaveTextContent('UP主继续再接再厉，小咪蹲更新。')
-    expect(buttons[3]).toHaveTextContent('我再想想')
+    const choices = screen.getAllByRole('button', { name: /小咪|我家主人|UP主/ })
+    expect(choices[0]).toHaveTextContent('小咪替我家主人夸一句：这个视频真不错。')
+    expect(choices[1]).toHaveTextContent('我家主人已经点头，小咪负责盖章。')
+    expect(choices[2]).toHaveTextContent('UP主继续再接再厉，小咪蹲更新。')
+    expect(screen.getByRole('button', { name: '我再想想' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /这个视频真不错/ }))
     fireEvent.click(screen.getByRole('button', { name: /我家主人已经点头/ }))
 
     expect(onSelect).toHaveBeenCalledTimes(1)
     expect(onSelect).toHaveBeenCalledWith('小咪替我家主人夸一句：这个视频真不错。')
+  })
+
+  it('copies an individual comment draft without sending it', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText }
+    })
+    const onSelect = vi.fn()
+    render(
+      <CommentChooser
+        drafts={['第一条弹幕评论', '第二条弹幕评论', '第三条弹幕评论']}
+        onSelect={onSelect}
+        onCancel={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '复制第 2 条评论' }))
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('第二条弹幕评论'))
+    expect(onSelect).not.toHaveBeenCalled()
+    expect(screen.getByRole('status')).toHaveTextContent('已复制第 2 条评论。')
   })
 
   it('cancels from Escape before a draft is selected', () => {

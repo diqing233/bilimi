@@ -35,6 +35,16 @@ describe('FloatingMenuController', () => {
     expect(controller.getWindow()).toBeNull()
   })
 
+  it('opens an existing window without toggling it closed', () => {
+    const createdWindow = createTestWindow()
+    const controller = new FloatingMenuController(() => createdWindow)
+
+    expect(controller.open()).toBe(createdWindow)
+    expect(controller.open()).toBe(createdWindow)
+    expect(createdWindow.closeCount).toBe(0)
+    expect(controller.getWindow()).toBe(createdWindow)
+  })
+
   it('clears a destroyed menu reference without closing it again', () => {
     const destroyedWindow = createTestWindow(true)
     const controller = new FloatingMenuController(() => destroyedWindow)

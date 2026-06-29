@@ -353,6 +353,25 @@ export function PalaceMaidPetApp() {
     return shortcut.intent === 'video-action' || shortcut.id === 'transcribe'
   }
 
+  async function runShortcutWithPetResult(
+    workingMessage: string,
+    action: () => Promise<{ ok?: boolean; message?: string } | null | undefined>,
+    fallbackMessage: string
+  ) {
+    showLocalPetHint('working', workingMessage)
+
+    try {
+      const result = await action()
+      const message = result?.message?.trim() || fallbackMessage
+      showLocalPetHint(result?.ok === false ? 'error' : 'hint', message)
+    } catch (error) {
+      showLocalPetHint(
+        'error',
+        error instanceof Error ? error.message : '小咪执行快捷操作时遇到问题。'
+      )
+    }
+  }
+
   async function runHoverShortcut(shortcut: PetHoverShortcut) {
     dragState.current = null
     setPressed(false)
@@ -364,25 +383,66 @@ export function PalaceMaidPetApp() {
     }
 
     if (shortcut.id === 'assistant') {
-      showLocalPetHint('hint', '主人，小咪把完整面板打开啦。')
-      void window.bilimiDesktop?.toggleFloatingAssistant?.()
+      showLocalPetHint('hint', '主人，小咪把小窗口打开啦。')
+      void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'review' })
+      return
+    }
+
+    if (shortcut.id === 'library') {
+      showLocalPetHint('hint', '主人，小咪切到掌库啦。')
+      void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'ledger' })
+      return
+    }
+
+    if (shortcut.id === 'organize-old-favorites') {
+      showLocalPetHint('hint', '主人，小咪切到掌库啦，旧藏整理从这里开始。')
+      void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({
+        tab: 'ledger',
+        organizeOldFavorites: true
+      })
+      return
+    }
+
+    if (shortcut.id === 'transcribe') {
+      void runShortcutWithPetResult(
+        '小咪已经把转写加入队列，主人不用打开别的页面。',
+        async () => {
+          const queue = await window.bilimiDesktop?.enqueueCurrentVideoAudioTranscription?.()
+          return queue ? { ok: true, message: '已加入转写队列，小咪会按顺序处理。' } : null
+        },
+        '已加入转写队列，小咪会按顺序处理。'
+      )
+      return
+    }
+
+    if (shortcut.id === 'prepare-ledgers') {
+      void runShortcutWithPetResult(
+        '主人，小咪正在备齐 Bilimi 册目。',
+        () => window.bilimiDesktop?.ensureFavoriteLedgers?.(),
+        '册目已备齐。'
+      )
       return
     }
 
     if (shortcut.intent === 'video-action' && shortcut.action === '表') {
-      showLocalPetHint('hint', '主人，请在 Bilimi 侧栏里选一条短评再发布。')
-      void window.bilimiDesktop?.openAssistant?.()
+      showLocalPetHint('hint', '主人，小咪打开短评三选一小窗口啦。')
+      void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({
+        action: '表',
+        tab: 'review'
+      })
       return
     }
 
-    if (shortcut.intent === 'video-action' && shortcut.action && shortcut.action !== '赐') {
-      showLocalPetHint('working', `主人，小咪这就去办「${shortcut.label}」。`)
-      void window.bilimiDesktop?.runFloatingMenuAction?.(shortcut.action)
+    if (shortcut.intent === 'video-action' && shortcut.action) {
+      void runShortcutWithPetResult(
+        `主人，小咪这就去办「${shortcut.label}」。`,
+        () => window.bilimiDesktop?.runFloatingMenuAction?.(shortcut.action),
+        `「${shortcut.label}」已经处理好了。`
+      )
       return
     }
 
-    showLocalPetHint('hint', `主人，请在 Bilimi 里继续处理「${shortcut.title}」。`)
-    void window.bilimiDesktop?.restoreMainWindowFromPet?.()
+    showLocalPetHint('hint', `主人，小咪暂时还不会直接处理「${shortcut.title}」。`)
   }
 
   function showClosePrompt() {
