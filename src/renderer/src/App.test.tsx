@@ -581,7 +581,7 @@ describe('App runtime integration', () => {
           ok: true,
           steps: ['danmaku:submit'],
           missingTargets: [],
-          message: '弹幕已发送。'
+          message: '弹幕已发送，没有看到请检查弹幕开关是否开启'
         }
       }
 
@@ -796,7 +796,7 @@ describe('App runtime integration', () => {
           ok: true,
           steps: ['danmaku:submit'],
           missingTargets: [],
-          message: '弹幕已发送。'
+          message: '弹幕已发送，没有看到请检查弹幕开关是否开启'
         }
       }
 

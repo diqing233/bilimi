@@ -48,6 +48,11 @@ const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
   suspicious: '待确认'
 }
 
+function pickRandomCommentDraft(drafts: string[]) {
+  const index = Math.min(drafts.length - 1, Math.floor(Math.random() * drafts.length))
+  return drafts[index] ?? ''
+}
+
 type AssistantOverlayProps = {
   favoritesFolderName?: string
   openSignal?: number
@@ -495,7 +500,7 @@ export function AssistantOverlay({
         commentDraft: options?.commentDraft,
         submitComment:
           options?.submitComment ??
-          (action === '表' ? preferences.commentSubmitMode === 'auto' : undefined),
+          (action === '表' ? preferences.commentSubmitMode === 'random' : undefined),
         favoriteLedgers: preferences.favoriteLedgers,
         targetLedgerId: actionRecommendationKind,
         targetLedgerIds: archiveTargets.map((target) => target.ledgerId)
@@ -541,6 +546,15 @@ export function AssistantOverlay({
     }
 
     if (action === '表') {
+      if (preferences.commentSubmitMode === 'random') {
+        const commentDraft = pickRandomCommentDraft(commentDrafts)
+
+        if (commentDraft) {
+          void runAction('表', { commentDraft, submitComment: true })
+        }
+        return
+      }
+
       setCommentChooserOpen(true)
       return
     }

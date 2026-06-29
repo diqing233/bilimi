@@ -42,7 +42,7 @@ export type FavoriteLedgerSaveOptions = {
 }
 
 export type FavoriteArchiveMultiMode = 'off' | 'two' | 'three'
-export type CommentSubmitMode = 'manual' | 'auto'
+export type CommentSubmitMode = 'choose' | 'random'
 
 export type PendingFavoriteQueueSource = 'old-favorite-scan' | 'new-favorite'
 

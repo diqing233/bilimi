@@ -61,6 +61,12 @@ describe('MemorialPanel', () => {
     expect(screen.getByText('点赞并归入当前 Bilimi 分册')).toHaveClass(
       'assistant-action-button__description'
     )
+    expect(screen.getByText('一键三连，点赞投币收藏，投币数量可以在设置中调整')).toHaveClass(
+      'assistant-action-button__description'
+    )
+    expect(screen.getByText('一键弹幕，设置调整三选一发送，还是随机一条直接发送')).toHaveClass(
+      'assistant-action-button__description'
+    )
   })
 
   it('shows whether DeepSeek will generate comments or use default suggestions', () => {

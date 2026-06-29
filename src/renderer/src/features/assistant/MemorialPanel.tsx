@@ -90,7 +90,7 @@ const ACTIONS: Array<{
   {
     action: '赐',
     label: '投币厚赏',
-    description: '点赞、收藏，并先询问投币数量',
+    description: '一键三连，点赞投币收藏，投币数量可以在设置中调整',
     testId: 'review-action-coin',
     icon: workingPetUrl,
     iconAlt: '小咪厚赏'
@@ -98,7 +98,7 @@ const ACTIONS: Array<{
   {
     action: '表',
     label: '拟奏短评',
-    description: '从三条候选评论中择一发送',
+    description: '一键弹幕，设置调整三选一发送，还是随机一条直接发送',
     testId: 'review-action-comment',
     icon: hintPetUrl,
     iconAlt: '小咪短评'

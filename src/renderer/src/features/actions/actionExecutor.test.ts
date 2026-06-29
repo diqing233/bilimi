@@ -333,13 +333,13 @@ describe('executeAssistantAction', () => {
     })
   })
 
-  it('uses the trusted visible danmaku bar path before page automation for auto publish', async () => {
+  it('uses the trusted visible danmaku bar path before page automation for direct publish', async () => {
     const runScript = vi.fn()
     const runTrustedDanmakuSubmitFallback = vi.fn().mockResolvedValue({
       ok: true,
       steps: ['player:activate-click', 'danmaku:trusted-enter-open', 'danmaku:trusted-paste', 'danmaku:trusted-enter'],
       missingTargets: [],
-      message: '弹幕已发送。'
+      message: '弹幕已发送，没有看到请检查弹幕开关是否开启'
     })
 
     const result = await executeAssistantAction({
@@ -366,13 +366,13 @@ describe('executeAssistantAction', () => {
     expect(result.missingTargets).toEqual([])
   })
 
-  it('does not run page automation when auto danmaku has a trusted visible-bar fallback', async () => {
+  it('does not run page automation when direct danmaku has a trusted visible-bar fallback', async () => {
     const runScript = vi.fn()
     const runTrustedDanmakuSubmitFallback = vi.fn().mockResolvedValue({
       ok: true,
       steps: ['danmaku:trusted-enter-open', 'danmaku:trusted-paste', 'danmaku:trusted-enter'],
       missingTargets: [],
-      message: '弹幕已发送。'
+      message: '弹幕已发送，没有看到请检查弹幕开关是否开启'
     })
 
     const result = await executeAssistantAction({

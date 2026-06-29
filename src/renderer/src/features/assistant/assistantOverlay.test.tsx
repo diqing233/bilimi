@@ -552,7 +552,7 @@ describe('AssistantOverlay', () => {
     expect(onRecordFeedback).toHaveBeenCalledWith('inbox', '表')
   })
 
-  it('publishes the chosen memorial-style comment even when manual comment mode is stored', async () => {
+  it('publishes the chosen memorial-style comment even when legacy manual comment mode is stored', async () => {
     const runScript = vi.fn().mockResolvedValue({
       ok: true,
       steps: ['comment:fill', 'comment:submit'],
@@ -573,7 +573,7 @@ describe('AssistantOverlay', () => {
           hidePetDuringVideoFullscreen: false,
           bilibiliOperationMode: 'page',
           favoriteArchiveMultiMode: 'off',
-          commentSubmitMode: 'manual',
+          commentSubmitMode: 'manual' as never,
           deepseekEnabled: false,
           deepseekApiKeyStored: false,
           deepseekAutoSummaryEnabled: false,
@@ -597,6 +597,59 @@ describe('AssistantOverlay', () => {
 
     await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
     expect(runScript.mock.calls[0][0]).toContain('"submitComment":true')
+  })
+
+  it('randomly publishes one memorial-style comment when random comment mode is stored', async () => {
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.4)
+    const runScript = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['comment:fill', 'comment:submit'],
+      missingTargets: [],
+      message: '拟表已递。'
+    })
+
+    try {
+      render(
+        <AssistantOverlay
+          runScript={runScript}
+          favoritesFolderName="Bilimi 内库"
+          storedPreferences={{
+            favoritesFolderName: 'Bilimi 内库',
+            favoriteLedgers: [],
+            ledgerPromptDismissed: true,
+            petStyle: 'big-head',
+            petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
+            hidePetDuringVideoFullscreen: false,
+            bilibiliOperationMode: 'page-visual',
+            favoriteArchiveMultiMode: 'off',
+            defaultCoinCount: 1,
+            commentSubmitMode: 'random',
+            deepseekEnabled: false,
+            deepseekApiKeyStored: false,
+            deepseekCommentEnabled: false,
+            deepseekAutoSummaryEnabled: false,
+            deepseekPetChatEnabled: false,
+            deepseekModel: 'deepseek-v4-flash',
+            deepseekBaseUrl: 'https://api.deepseek.com',
+            preferenceCounts: {}
+          }}
+          videoContentContext={{
+            title: '早八生存实录',
+            author: '早八观察员'
+          }}
+        />
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
+      fireEvent.click(getActionButton('表'))
+
+      await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
+      expect(screen.queryByText('小咪拟好三条，主人点一条就发送。')).not.toBeInTheDocument()
+      expect(runScript.mock.calls[0][0]).toContain('"submitComment":true')
+      expect(runScript.mock.calls[0][0]).toContain('早八生存实录')
+    } finally {
+      randomSpy.mockRestore()
+    }
   })
 
   it('prompts first-time users to ask 掌库 when enabled ledgers are missing', async () => {

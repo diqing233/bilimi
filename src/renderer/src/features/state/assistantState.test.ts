@@ -126,7 +126,7 @@ describe('assistant state', () => {
       bilibiliOperationMode: 'api-assisted',
       favoriteArchiveMultiMode: 'off',
       defaultCoinCount: 1,
-      commentSubmitMode: 'auto',
+      commentSubmitMode: 'choose',
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
       deepseekCommentEnabled: false,
@@ -186,11 +186,11 @@ describe('assistant state', () => {
     expect(
       createInitialAssistantPreferences({
         defaultCoinCount: 2,
-        commentSubmitMode: 'auto'
+        commentSubmitMode: 'random'
       })
     ).toMatchObject({
       defaultCoinCount: 2,
-      commentSubmitMode: 'auto'
+      commentSubmitMode: 'random'
     })
     expect(
       createInitialAssistantPreferences({
@@ -199,7 +199,13 @@ describe('assistant state', () => {
       })
     ).toMatchObject({
       defaultCoinCount: 1,
-      commentSubmitMode: 'auto'
+      commentSubmitMode: 'choose'
+    })
+    expect(createInitialAssistantPreferences({ commentSubmitMode: 'manual' as never })).toMatchObject({
+      commentSubmitMode: 'choose'
+    })
+    expect(createInitialAssistantPreferences({ commentSubmitMode: 'auto' as never })).toMatchObject({
+      commentSubmitMode: 'choose'
     })
   })
 

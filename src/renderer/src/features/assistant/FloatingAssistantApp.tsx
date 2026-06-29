@@ -54,6 +54,11 @@ const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
   suspicious: '待确认'
 }
 
+function pickRandomCommentDraft(drafts: string[]) {
+  const index = Math.min(drafts.length - 1, Math.floor(Math.random() * drafts.length))
+  return drafts[index] ?? ''
+}
+
 type AssistantWorkspaceTab = 'review' | 'notes' | 'ledger' | 'settings'
 type AssistantWorkspaceView = AssistantWorkspaceTab | 'noteArchive'
 
@@ -286,15 +291,17 @@ export function FloatingAssistantApp({
       setSnapshot(nextSnapshot)
       const snapshotPreferences = createInitialAssistantPreferences(nextSnapshot.preferences)
       const snapshotArrivedSoonAfterSave = Date.now() - lastPreferenceSaveAt.current < 2000
-      setPreferences((currentPreferences) =>
-        snapshotArrivedSoonAfterSave
+      setPreferences((currentPreferences) => {
+        const nextPreferences = snapshotArrivedSoonAfterSave
           ? {
               ...snapshotPreferences,
               defaultCoinCount: currentPreferences.defaultCoinCount,
               commentSubmitMode: currentPreferences.commentSubmitMode
             }
           : snapshotPreferences
-      )
+        preferencesRef.current = nextPreferences
+        return nextPreferences
+      })
       setFavoriteLedgerStatus(nextSnapshot.favoriteLedgerStatus)
 
       if (resetVideoNote) {
@@ -307,6 +314,7 @@ export function FloatingAssistantApp({
 
       const fallback = createFallbackSnapshot()
       setSnapshot(fallback)
+      preferencesRef.current = fallback.preferences
       setPreferences(fallback.preferences)
       setFavoriteLedgerStatus(fallback.favoriteLedgerStatus)
       setFeedback({
@@ -562,14 +570,32 @@ export function FloatingAssistantApp({
 
       setAiCommentDrafts(result.comments)
       setCommentIntentOpen(false)
-      setCommentChooserOpen(true)
+      submitOrChooseCommentDrafts(result.comments)
     } catch (error) {
       setAiCommentDrafts([])
       setCommentIntentOpen(false)
-      setCommentChooserOpen(true)
+      submitOrChooseCommentDrafts(commentDrafts)
     } finally {
       setCommentIntentBusy(false)
     }
+  }
+
+  function submitOrChooseCommentDrafts(drafts: string[]) {
+    if (preferencesRef.current.commentSubmitMode === 'random') {
+      const commentDraft = pickRandomCommentDraft(drafts)
+      setCommentChooserOpen(false)
+      setAiCommentDrafts([])
+
+      if (commentDraft) {
+        void runAction('表', {
+          commentDraft,
+          submitComment: true
+        })
+      }
+      return
+    }
+
+    setCommentChooserOpen(true)
   }
 
   async function runAction(
@@ -644,7 +670,7 @@ export function FloatingAssistantApp({
       setCommentIntentError('')
       if (!preferences.deepseekEnabled || !preferences.deepseekCommentEnabled) {
         tellPet('success', 'DeepSeek 没开也没关系，小咪先给你本地短评候选。')
-        setCommentChooserOpen(true)
+        submitOrChooseCommentDrafts(commentDrafts)
         return
       }
       tellPet('progress', ACTION_PROGRESS_HINTS[action])
@@ -1152,29 +1178,29 @@ export function FloatingAssistantApp({
                 <input
                   type="radio"
                   name="comment-submit-mode"
-                  checked={preferences.commentSubmitMode === 'manual'}
+                  checked={preferences.commentSubmitMode === 'choose'}
                   onChange={() =>
                     void persistPreferences({
                       ...preferences,
-                      commentSubmitMode: 'manual'
+                      commentSubmitMode: 'choose'
                     })
                   }
                 />
-                <span>表只填评论，不一键发送</span>
+                <span>表三选一后发送</span>
               </label>
               <label>
                 <input
                   type="radio"
                   name="comment-submit-mode"
-                  checked={preferences.commentSubmitMode === 'auto'}
+                  checked={preferences.commentSubmitMode === 'random'}
                   onChange={() =>
                     void persistPreferences({
                       ...preferences,
-                      commentSubmitMode: 'auto'
+                      commentSubmitMode: 'random'
                     })
                   }
                 />
-                <span>表一键发送</span>
+                <span>表随机一条直接发送</span>
               </label>
             </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--deepseek">

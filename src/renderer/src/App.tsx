@@ -992,7 +992,7 @@ export default function App() {
       ok: true,
       steps: [...activationSteps, ...pasteSteps, ...submitSteps],
       missingTargets: [],
-      message: '弹幕已按真实键盘路径送出。'
+      message: '弹幕已发送，没有看到请检查弹幕开关是否开启'
     }
   }
 
@@ -1057,7 +1057,7 @@ export default function App() {
       commentDraft: options?.commentDraft,
       submitComment:
         options?.submitComment ??
-        (action === '表' ? preferences.commentSubmitMode === 'auto' : undefined),
+        (action === '表' ? preferences.commentSubmitMode === 'random' : undefined),
       favoriteLedgers: preferences.favoriteLedgers,
       targetLedgerId,
       targetLedgerIds: archiveTargets.map((target) => target.ledgerId)
