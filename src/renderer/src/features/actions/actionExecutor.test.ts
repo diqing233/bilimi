@@ -337,7 +337,7 @@ describe('executeAssistantAction', () => {
     const runScript = vi.fn()
     const runTrustedDanmakuSubmitFallback = vi.fn().mockResolvedValue({
       ok: true,
-      steps: ['player:activate-click', 'danmaku:trusted-enter-open', 'danmaku:trusted-paste', 'danmaku:submit'],
+      steps: ['player:activate-click', 'danmaku:trusted-enter-open', 'danmaku:trusted-paste', 'danmaku:trusted-enter'],
       missingTargets: [],
       message: '弹幕已发送。'
     })
@@ -360,7 +360,7 @@ describe('executeAssistantAction', () => {
       expect.arrayContaining([
         'danmaku:trusted-enter-open',
         'danmaku:trusted-paste',
-        'danmaku:submit'
+        'danmaku:trusted-enter'
       ])
     )
     expect(result.missingTargets).toEqual([])
@@ -370,7 +370,7 @@ describe('executeAssistantAction', () => {
     const runScript = vi.fn()
     const runTrustedDanmakuSubmitFallback = vi.fn().mockResolvedValue({
       ok: true,
-      steps: ['danmaku:trusted-enter-open', 'danmaku:focus', 'danmaku:trusted-paste', 'danmaku:submit'],
+      steps: ['danmaku:trusted-enter-open', 'danmaku:trusted-paste', 'danmaku:trusted-enter'],
       missingTargets: [],
       message: '弹幕已发送。'
     })
@@ -392,9 +392,8 @@ describe('executeAssistantAction', () => {
     expect(result.steps).toEqual(
       expect.arrayContaining([
         'danmaku:trusted-enter-open',
-        'danmaku:focus',
         'danmaku:trusted-paste',
-        'danmaku:submit'
+        'danmaku:trusted-enter'
       ])
     )
     expect(result.missingTargets).toEqual([])

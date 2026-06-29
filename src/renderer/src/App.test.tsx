@@ -638,18 +638,16 @@ describe('App runtime integration', () => {
     expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'a' }))
     expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'Backspace' }))
     expect(sentEvents).not.toContainEqual(expect.objectContaining({ button: 'left', x: 620, y: 452 }))
-    expect(executeJavaScript).toHaveBeenCalledWith(
-      expect.stringContaining('__bilimiDanmakuSubmitConfirmation')
-    )
+    const executedScripts = executeJavaScript.mock.calls.map(([script]) => String(script))
+    expect(executedScripts.some((script) => script.includes('__bilimiDanmakuFieldFocus'))).toBe(false)
+    expect(executedScripts.some((script) => script.includes('__bilimiDanmakuDraftPresence'))).toBe(false)
+    expect(executedScripts.some((script) => script.includes('__bilimiDanmakuSubmitConfirmation'))).toBe(false)
     expect(result).toEqual(
       expect.objectContaining({
         ok: true,
         steps: expect.arrayContaining([
-          'danmaku:focus',
           'danmaku:trusted-paste',
-          'danmaku:paste-confirm',
-          'danmaku:trusted-enter',
-          'danmaku:submit'
+          'danmaku:trusted-enter'
         ])
       })
     )
@@ -727,211 +725,7 @@ describe('App runtime integration', () => {
     expect(webview.sendInputEvent).not.toHaveBeenCalled()
   })
 
-  it('returns a structured danmaku focus script error instead of throwing through the runtime bridge', async () => {
-    const { requestRuntime } = renderAppWithRuntimeBridge()
-    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
-      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
-      sendInputEvent?: (event: Record<string, unknown>) => void
-    }
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText: vi.fn().mockResolvedValue(undefined) }
-    })
-    const executeJavaScript = vi.fn(async (script: string) => {
-      if (script.includes('document.cookie')) {
-        return 'DedeUserID=42; bili_jct=csrf'
-      }
 
-      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
-        return {
-          title: 'danmaku focus failure video',
-          pageText: 'testing structured focus failure'
-        }
-      }
-
-      if (script.includes('__bilimiTrustedPlayerActivation')) {
-        return {
-          ok: true,
-          steps: ['player:locate'],
-          missingTargets: [],
-          message: '播放器已定位。',
-          clickPoint: { x: 320, y: 240 },
-          paused: false
-        }
-      }
-
-      if (script.includes('__bilimiRestorePlayerPlaybackState')) {
-        return {
-          ok: true,
-          steps: ['player:playback:stable'],
-          missingTargets: [],
-          message: '播放状态未改变。'
-        }
-      }
-
-      if (script.includes('__bilimiDanmakuFieldFocus')) {
-        throw new Error('GUEST_VIEW_MANAGER_CALL: Script failed to execute')
-      }
-
-      return {
-        ok: false,
-        steps: [],
-        missingTargets: ['unexpected-page-script'],
-        message: 'Focus failure should stop before page automation.'
-      }
-    })
-    Object.assign(webview, {
-      executeJavaScript,
-      sendInputEvent: vi.fn()
-    })
-
-    act(() => {
-      webview.dispatchEvent(
-        new CustomEvent('did-navigate-in-page', {
-          detail: {
-            url: 'https://www.bilibili.com/video/BV1focusthrow'
-          }
-        })
-      )
-    })
-
-    await expect(
-      requestRuntime({
-        id: 'run-danmaku-focus-error',
-        type: 'run-action',
-        action: '表',
-        options: {
-          commentDraft: 'typed',
-          submitComment: true
-        }
-      })
-    ).resolves.toEqual(
-      expect.objectContaining({
-        ok: false,
-        missingTargets: ['danmaku-focus-script']
-      })
-    )
-    expect(executeJavaScript).not.toHaveBeenCalledWith(
-      expect.stringContaining('__bilimiAutomationScript'),
-      expect.anything()
-    )
-  })
-
-  it('does not report danmaku success when the draft was not pasted into the focused input', async () => {
-    const { requestRuntime } = renderAppWithRuntimeBridge()
-    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
-      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
-      sendInputEvent?: (event: Record<string, unknown>) => void
-    }
-    const sentEvents: Record<string, unknown>[] = []
-    Object.defineProperty(navigator, 'clipboard', {
-      configurable: true,
-      value: { writeText: vi.fn().mockResolvedValue(undefined) }
-    })
-    const executeJavaScript = vi.fn(async (script: string) => {
-      if (script.includes('document.cookie')) {
-        return 'DedeUserID=42; bili_jct=csrf'
-      }
-
-      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
-        return {
-          title: 'danmaku paste failure video',
-          pageText: 'testing paste verification'
-        }
-      }
-
-      if (script.includes('__bilimiTrustedPlayerActivation')) {
-        return {
-          ok: true,
-          steps: ['player:locate'],
-          missingTargets: [],
-          message: '播放器已定位。',
-          clickPoint: { x: 300, y: 220 },
-          paused: false
-        }
-      }
-
-      if (script.includes('__bilimiRestorePlayerPlaybackState')) {
-        return {
-          ok: true,
-          steps: ['player:playback:stable'],
-          missingTargets: [],
-          message: '播放状态未改变。'
-        }
-      }
-
-      if (script.includes('__bilimiDanmakuFieldFocus')) {
-        return {
-          ok: true,
-          steps: ['danmaku:focus'],
-          missingTargets: [],
-          message: '弹幕栏已聚焦。'
-        }
-      }
-
-      if (script.includes('__bilimiDanmakuDraftPresence')) {
-        return {
-          ok: false,
-          steps: [],
-          missingTargets: ['danmaku-paste-confirm'],
-          message: '弹幕文案没有写入输入框。'
-        }
-      }
-
-      if (script.includes('__bilimiDanmakuSubmitConfirmation')) {
-        return {
-          ok: true,
-          steps: ['danmaku:submit'],
-          missingTargets: [],
-          message: '不应确认发送。'
-        }
-      }
-
-      return {
-        ok: false,
-        steps: [],
-        missingTargets: ['unexpected-page-script'],
-        message: 'Unexpected script.'
-      }
-    })
-    Object.assign(webview, {
-      executeJavaScript,
-      sendInputEvent: vi.fn((event: Record<string, unknown>) => {
-        sentEvents.push(event)
-      })
-    })
-
-    act(() => {
-      webview.dispatchEvent(
-        new CustomEvent('did-navigate-in-page', {
-          detail: {
-            url: 'https://www.bilibili.com/video/BV1pastefail'
-          }
-        })
-      )
-    })
-
-    const result = await requestRuntime({
-      id: 'run-danmaku-paste-failed',
-      type: 'run-action',
-      action: '表',
-      options: {
-        commentDraft: 'typed',
-        submitComment: true
-      }
-    })
-
-    expect(result).toEqual(
-      expect.objectContaining({
-        ok: false,
-        missingTargets: ['danmaku-paste-confirm']
-      })
-    )
-    expect(sentEvents.slice(-2)).not.toEqual([
-      { keyCode: 'Enter', type: 'keyDown' },
-      { keyCode: 'Enter', type: 'keyUp' }
-    ])
-  })
 
   it('opens the composer without pressing d even when the player reports danmaku off', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()

@@ -24,7 +24,7 @@ type ExecuteAssistantActionArgs = {
 }
 
 const DOM_SCRIPT_TIMEOUT_MS = 15_000
-const TRUSTED_DANMAKU_TARGETS = ['danmaku-field', 'danmaku-fill', 'danmaku-focus', 'danmaku-submit-confirm']
+const TRUSTED_DANMAKU_TARGETS = ['danmaku-field', 'danmaku-fill', 'danmaku-focus']
 
 function usesFavorite(action: AssistantAction): boolean {
   return action === '赏' || action === '赐' || action === '藏'

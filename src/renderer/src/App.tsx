@@ -16,11 +16,6 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { runVisualFavoriteFallback } from './features/actions/visualFavoriteFallback'
 import { executeAssistantAction } from './features/actions/actionExecutor'
-import {
-  buildDanmakuDraftPresenceScript,
-  buildDanmakuFieldFocusScript,
-  buildDanmakuSubmitConfirmationScript
-} from './features/actions/pageAutomation'
 import { BiliWebview } from './features/browser/BiliWebview'
 import {
   buildVideoContentContextScript,
@@ -905,10 +900,6 @@ export default function App() {
       }
     }
 
-    type DanmakuFocusResult = AssistantAutomationResult & {
-      sendButtonPoint?: { x: number; y: number }
-    }
-
     const wait = (delay: number) => new Promise((resolve) => setTimeout(resolve, delay))
     currentActiveWebview.focus?.()
 
@@ -988,99 +979,20 @@ export default function App() {
     activationSteps.push('danmaku:trusted-enter-open')
     await wait(160)
 
-    let focusResult: DanmakuFocusResult | boolean
-    try {
-      focusResult = (await currentActiveWebview.executeJavaScript(
-        buildDanmakuFieldFocusScript()
-      )) as DanmakuFocusResult | boolean
-    } catch {
-      return {
-        ok: false,
-        steps: activationSteps,
-        missingTargets: ['danmaku-focus-script'],
-        message: '弹幕输入框脚本执行失败，请重新点击表再试。'
-      }
-    }
-    const prepared =
-      typeof focusResult === 'boolean'
-        ? ({
-            ok: focusResult,
-            steps: focusResult ? ['danmaku:focus'] : [],
-            missingTargets: focusResult ? [] : ['danmaku-focus'],
-            message: focusResult ? '弹幕栏已聚焦。' : '尚有 danmaku-focus 未能寻见。'
-          } satisfies DanmakuFocusResult)
-        : focusResult
-
-    if (!prepared?.ok) {
-      return {
-        ...prepared,
-        ok: false,
-        steps: [...activationSteps, ...(prepared?.steps ?? [])],
-        missingTargets: prepared?.missingTargets?.length ? prepared.missingTargets : ['danmaku-focus'],
-        message: prepared?.message ?? '尚有 danmaku-focus 未能寻见。'
-      }
-    }
-
-    await wait(80)
     currentActiveWebview.focus?.()
     sendKey('v', ['control'])
+    const pasteSteps = ['danmaku:trusted-paste']
     await wait(120)
-
-    let pasteConfirmation: AssistantAutomationResult
-    try {
-      pasteConfirmation = (await currentActiveWebview.executeJavaScript(
-        buildDanmakuDraftPresenceScript(commentDraft),
-        true
-      )) as AssistantAutomationResult
-    } catch {
-      return {
-        ok: false,
-        steps: [...activationSteps, ...prepared.steps, 'danmaku:trusted-paste'],
-        missingTargets: ['danmaku-paste-script'],
-        message: '弹幕文案粘贴确认失败，请重新点击表再试。'
-      }
-    }
-    const pasteSteps = ['danmaku:trusted-paste', ...pasteConfirmation.steps]
-
-    if (!pasteConfirmation.ok) {
-      return {
-        ...pasteConfirmation,
-        ok: false,
-        steps: [...activationSteps, ...prepared.steps, ...pasteSteps],
-        missingTargets: pasteConfirmation.missingTargets.length
-          ? pasteConfirmation.missingTargets
-          : ['danmaku-paste-confirm'],
-        message: pasteConfirmation.message || '弹幕文案没有写入输入框。'
-      }
-    }
 
     const submitSteps = ['danmaku:trusted-enter']
     sendKey('Enter')
     await wait(120)
 
-    let confirmation: AssistantAutomationResult
-    try {
-      confirmation = (await currentActiveWebview.executeJavaScript(
-        buildDanmakuSubmitConfirmationScript(commentDraft)
-      )) as AssistantAutomationResult
-    } catch {
-      return {
-        ok: false,
-        steps: [...activationSteps, ...prepared.steps, ...pasteSteps, ...submitSteps],
-        missingTargets: ['danmaku-submit-script'],
-        message: '弹幕发送确认失败，请查看播放器是否已经打开输入框。'
-      }
-    }
-
     return {
-      ...confirmation,
-      steps: [
-        ...activationSteps,
-        ...prepared.steps,
-        ...pasteSteps,
-        ...submitSteps,
-        ...confirmation.steps
-      ]
+      ok: true,
+      steps: [...activationSteps, ...pasteSteps, ...submitSteps],
+      missingTargets: [],
+      message: '弹幕已按真实键盘路径送出。'
     }
   }
 

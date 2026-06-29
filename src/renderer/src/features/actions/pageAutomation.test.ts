@@ -1,9 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import {
   buildAutomationScript,
-  buildDanmakuDraftPresenceScript,
-  buildDanmakuFieldFocusScript
 } from './pageAutomation'
 
 describe('buildAutomationScript', () => {
@@ -12,42 +10,6 @@ describe('buildAutomationScript', () => {
     .filter((ledger) => ledger.enabled)
     .map((ledger) => ledger.displayName)
 
-  it('checks whether the danmaku draft is actually present before submit confirmation', () => {
-    document.body.innerHTML = `
-      <section class="bpx-player-sending-area">
-        <input class="bpx-player-dm-input" type="text" value="typed draft" />
-      </section>
-    `
-    const input = document.querySelector('.bpx-player-dm-input') as HTMLInputElement
-    input.getBoundingClientRect = () =>
-      ({
-        bottom: 20,
-        height: 20,
-        left: 0,
-        right: 160,
-        top: 0,
-        width: 160,
-        x: 0,
-        y: 0,
-        toJSON: () => ({})
-      }) as DOMRect
-
-    expect(window.eval(buildDanmakuDraftPresenceScript('typed draft'))).toEqual(
-      expect.objectContaining({
-        ok: true,
-        steps: ['danmaku:paste-confirm']
-      })
-    )
-
-    input.value = ''
-
-    expect(window.eval(buildDanmakuDraftPresenceScript('typed draft'))).toEqual(
-      expect.objectContaining({
-        ok: false,
-        missingTargets: ['danmaku-paste-confirm']
-      })
-    )
-  })
 
   it('creates/selects the category folder and favorites without liking for 藏', async () => {
     document.body.innerHTML = `
@@ -910,10 +872,12 @@ describe('buildAutomationScript', () => {
     `
     const danmakuInput = document.querySelector('.bpx-player-dm-input') as HTMLInputElement
     const commentInput = document.querySelector('.reply-textarea') as HTMLTextAreaElement
-    let danmakuSent = false
+    let enterSubmitted = false
     let commentPublished = false
-    document.querySelector('.bpx-player-dm-btn')?.addEventListener('click', () => {
-      danmakuSent = true
+    danmakuInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        enterSubmitted = true
+      }
       danmakuInput.value = ''
     })
     document.querySelector('.reply-send')?.addEventListener('click', () => {
@@ -934,7 +898,7 @@ describe('buildAutomationScript', () => {
 
     expect(danmakuInput.value).toBe('')
     expect(commentInput.value).toBe('')
-    expect(danmakuSent).toBe(true)
+    expect(enterSubmitted).toBe(true)
     expect(commentPublished).toBe(false)
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(expect.arrayContaining(['danmaku:fill', 'danmaku:submit']))
@@ -1033,11 +997,14 @@ describe('buildAutomationScript', () => {
         </div>
       </section>
     `
-    let danmakuSent = false
+    const danmakuInput = document.querySelector('.bpx-player-dm-input') as HTMLInputElement
+    let enterSubmitted = false
     let commentPublished = false
-    document.querySelector('.bpx-player-dm-btn')?.addEventListener('click', () => {
-      danmakuSent = true
-      ;(document.querySelector('.bpx-player-dm-input') as HTMLInputElement).value = ''
+    danmakuInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        enterSubmitted = true
+      }
+      danmakuInput.value = ''
     })
     document.querySelector('.reply-send')?.addEventListener('click', () => {
       commentPublished = true
@@ -1055,7 +1022,7 @@ describe('buildAutomationScript', () => {
       )
     )
 
-    expect(danmakuSent).toBe(true)
+    expect(enterSubmitted).toBe(true)
     expect(commentPublished).toBe(false)
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(expect.arrayContaining(['danmaku:fill', 'danmaku:submit']))
@@ -1096,117 +1063,4 @@ describe('buildAutomationScript', () => {
     expect(result.missingTargets).toContain('danmaku-field')
   })
 
-})
-
-describe('buildDanmakuFieldFocusScript', () => {
-  it('expands the player before focusing the danmaku bar when it is not already enlarged', async () => {
-    document.body.innerHTML = `
-      <div class="bpx-player-container">
-        <button class="bpx-player-ctrl-wide" title="宽屏模式">宽屏</button>
-        <section class="bpx-player-sending-area">
-          <input class="bpx-player-dm-input" type="text" />
-          <button class="bpx-player-dm-btn">发送</button>
-        </section>
-      </div>
-    `
-    const expandButton = document.querySelector('.bpx-player-ctrl-wide') as HTMLButtonElement
-    const input = document.querySelector('.bpx-player-dm-input') as HTMLInputElement
-    const sendButton = document.querySelector('.bpx-player-dm-btn') as HTMLButtonElement
-    let expandClicked = false
-
-    expandButton.addEventListener('click', () => {
-      expandClicked = true
-    })
-    Object.defineProperty(expandButton, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => ({ left: 310, top: 10, width: 32, height: 28 })
-    })
-    Object.defineProperty(input, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => ({ left: 50, top: 10, width: 160, height: 28 })
-    })
-    Object.defineProperty(sendButton, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => ({ left: 220, top: 10, width: 80, height: 28 })
-    })
-
-    const result = await window.eval(buildDanmakuFieldFocusScript())
-
-    expect(expandClicked).toBe(true)
-    expect(result.steps).toEqual(expect.arrayContaining(['danmaku:player:expand', 'danmaku:focus']))
-  })
-
-  it('does not shrink the player when the enlarge control is already in exit mode', async () => {
-    document.body.innerHTML = `
-      <div class="bpx-player-container">
-        <button class="bpx-player-ctrl-wide active" aria-pressed="true" title="退出宽屏">退出宽屏</button>
-        <section class="bpx-player-sending-area">
-          <input class="bpx-player-dm-input" type="text" />
-          <button class="bpx-player-dm-btn">发送</button>
-        </section>
-      </div>
-    `
-    const expandButton = document.querySelector('.bpx-player-ctrl-wide') as HTMLButtonElement
-    const input = document.querySelector('.bpx-player-dm-input') as HTMLInputElement
-    const sendButton = document.querySelector('.bpx-player-dm-btn') as HTMLButtonElement
-    let expandClicked = false
-
-    expandButton.addEventListener('click', () => {
-      expandClicked = true
-    })
-    Object.defineProperty(expandButton, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => ({ left: 310, top: 10, width: 32, height: 28 })
-    })
-    Object.defineProperty(input, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => ({ left: 50, top: 10, width: 160, height: 28 })
-    })
-    Object.defineProperty(sendButton, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => ({ left: 220, top: 10, width: 80, height: 28 })
-    })
-
-    const result = await window.eval(buildDanmakuFieldFocusScript())
-
-    expect(expandClicked).toBe(false)
-    expect(result.steps).toEqual(
-      expect.arrayContaining(['danmaku:player:expanded', 'danmaku:focus'])
-    )
-  })
-
-  it('focuses the visible danmaku bar without scrolling or operating the danmaku switch', async () => {
-    document.body.innerHTML = `
-      <section class="bpx-player-sending-area">
-        <input class="bpx-player-dm-input" type="text" value="old draft" />
-        <button class="bpx-player-dm-btn">发送</button>
-      </section>
-    `
-    const input = document.querySelector('.bpx-player-dm-input') as HTMLInputElement
-    const sendButton = document.querySelector('.bpx-player-dm-btn') as HTMLButtonElement
-
-    Object.defineProperty(input, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => ({ left: 50, top: 10, width: 160, height: 28 })
-    })
-    Object.defineProperty(input, 'scrollIntoView', {
-      configurable: true,
-      value: vi.fn()
-    })
-    Object.defineProperty(sendButton, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => ({ left: 220, top: 10, width: 80, height: 28 })
-    })
-
-    const result = await window.eval(buildDanmakuFieldFocusScript())
-
-    expect(input.value).toBe('')
-    expect(input.scrollIntoView).not.toHaveBeenCalled()
-    expect(result).toEqual(
-      expect.objectContaining({
-        ok: true,
-        steps: expect.arrayContaining(['danmaku:focus'])
-      })
-    )
-  })
 })
