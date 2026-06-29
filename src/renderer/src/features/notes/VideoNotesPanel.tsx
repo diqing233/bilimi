@@ -522,7 +522,7 @@ export function VideoNotesPanel({
   const primaryActionLabel = onTranscribeAudio ? '转写音频' : generateFailed ? '重新整理' : '整理札记'
   const primaryActionBusyLabel = onTranscribeAudio ? '转写中...' : '整理中...'
   const primaryActionDescription = onTranscribeAudio
-    ? '下载音频并生成文稿自动保存在档案库里'
+    ? '一键转写视频音频，生成文稿自动保存在档案库'
     : '整理当前视频文稿'
 
   return (
@@ -561,7 +561,7 @@ export function VideoNotesPanel({
           iconAlt="小咪档案库"
           badge="库"
           label="档案库"
-          description="可查看或备注已保存视频文稿"
+          description="打开档案库，可查看或备注视频文稿"
         />
       </section>
 

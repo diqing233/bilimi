@@ -53,10 +53,10 @@ describe('VideoNotesPanel', () => {
     expect(screen.queryByText('转写完成后保存到全局档案库。')).not.toBeInTheDocument()
     expect(screen.queryByText('生成与归档')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '转写音频' })).toHaveTextContent(
-      '下载音频并生成文稿自动保存在档案库里'
+      '一键转写视频音频，生成文稿自动保存在档案库'
     )
     expect(screen.getByRole('button', { name: '档案库' })).toHaveTextContent(
-      '可查看或备注已保存视频文稿'
+      '打开档案库，可查看或备注视频文稿'
     )
     expect(
       Array.from(container.querySelectorAll('.assistant-action-button__icon strong')).map(

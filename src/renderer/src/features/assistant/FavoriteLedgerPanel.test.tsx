@@ -34,6 +34,17 @@ describe('FavoriteLedgerPanel', () => {
     expect(onScanOldFavorites).not.toHaveBeenCalled()
   })
 
+  it('shows clear toolbar descriptions for preparing and organizing ledgers', () => {
+    renderPanel()
+
+    expect(screen.getByRole('button', { name: '备册' })).toHaveTextContent(
+      '一键生成 Bilimi 收藏夹，用于归类收藏和整理'
+    )
+    expect(screen.getByRole('button', { name: '整理旧藏' })).toHaveTextContent(
+      '扫描旧藏，确认后整理到 Bilimi收藏夹里'
+    )
+  })
+
   it('shows only unresolved old favorites in a top pending section in archive preview', async () => {
     const onScanOldFavorites = vi.fn().mockResolvedValue({
       items: [

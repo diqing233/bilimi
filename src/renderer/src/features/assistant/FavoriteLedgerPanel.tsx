@@ -1601,7 +1601,7 @@ export function FavoriteLedgerPanel({
             iconAlt="小咪备册"
             badge="备"
             label="备册"
-            description="生成专属 Bilimi 收藏夹，以便批阅和归类"
+            description="一键生成 Bilimi 收藏夹，用于归类收藏和整理"
           />
           <AssistantActionButton
             type="button"
@@ -1612,7 +1612,7 @@ export function FavoriteLedgerPanel({
             iconAlt="小咪整理旧藏"
             badge="整"
             label="整理旧藏"
-            description="扫描并整理旧收藏，放进 Bilimi 收藏里"
+            description="扫描旧藏，确认后整理到 Bilimi收藏夹里"
           />
         </div>
       </div>
