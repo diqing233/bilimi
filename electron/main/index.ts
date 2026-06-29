@@ -45,10 +45,7 @@ import {
   configureFloatingMenuWindow,
   createFloatingMenuWindowOptions
 } from './floatingMenuWindowOptions'
-import {
-  configureFloatingAssistantWindow,
-  createFloatingAssistantWindowOptions
-} from './floatingAssistantWindowOptions'
+import { createFloatingAssistantWindowOptions } from './floatingAssistantWindowOptions'
 import { keepMainWindowTitle } from './windowTitleGuard'
 import {
   createFloatingAssistantBounds,
@@ -305,8 +302,11 @@ function createFloatingAssistantWindow() {
     })
   )
 
+  assistant.setAlwaysOnTop(true, 'floating')
+  assistant.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  assistant.removeMenu()
   floatingAssistantWhiteStripFix = installFloatingWindowWhiteStripFix(assistant)
-  configureFloatingAssistantWindow(assistant, () => {
+  assistant.on('closed', () => {
     floatingAssistantWhiteStripFix?.()
     floatingAssistantWhiteStripFix = null
     floatingAssistantController.clearIfCurrent(assistant)

@@ -5,20 +5,6 @@ type Bounds = {
   height: number
 }
 
-type FloatingAssistantWindow = {
-  on: (event: 'closed', callback: () => void) => void
-  removeMenu: () => void
-  setAlwaysOnTop: (flag: boolean, level?: 'floating') => void
-  setVisibleOnAllWorkspaces: (
-    visible: boolean,
-    options?: { visibleOnFullScreen: boolean }
-  ) => void
-  show: () => void
-  webContents: {
-    once: (event: 'did-finish-load', callback: () => void) => void
-  }
-}
-
 export function createFloatingAssistantWindowOptions({
   bounds,
   preload
@@ -53,17 +39,4 @@ export function createFloatingAssistantWindowOptions({
       backgroundThrottling: false
     }
   }
-}
-
-export function configureFloatingAssistantWindow(
-  assistant: FloatingAssistantWindow,
-  onClosed: () => void
-) {
-  assistant.setAlwaysOnTop(true, 'floating')
-  assistant.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  assistant.removeMenu()
-  assistant.on('closed', onClosed)
-  assistant.webContents.once('did-finish-load', () => {
-    assistant.show()
-  })
 }
