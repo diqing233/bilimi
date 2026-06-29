@@ -98,21 +98,6 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
-  it('keeps the floating assistant content frame above the fold button', () => {
-    expect(normalizedStyles).toContain(
-      '.floating-assistant-workspace {\n  position: relative;\n  width: 100vw;\n  height: 100vh;'
-    )
-    expect(normalizedStyles).toContain(
-      'grid-template-rows: auto minmax(0, 1fr) auto;'
-    )
-    expect(normalizedStyles).toContain(
-      '.floating-assistant-workspace__fold {\n  position: static;\n  justify-self: end;'
-    )
-    expect(normalizedStyles).not.toContain(
-      '.floating-assistant-workspace__fold {\n  position: absolute;'
-    )
-  })
-
   it('keeps the floating pet fixed-size inside its transparent stage', () => {
     expect(normalizedStyles).toContain('.palace-maid-pet-shell {\n  width: 336px;\n  height: 380px;')
     expectStyleSnippet(

@@ -260,7 +260,6 @@ export function FloatingAssistantApp({
   const [commentIntentBusy, setCommentIntentBusy] = useState(false)
   const [commentIntentError, setCommentIntentError] = useState('')
   const [aiCommentDrafts, setAiCommentDrafts] = useState<string[]>([])
-  const [pendingWorkspaceAction, setPendingWorkspaceAction] = useState<AssistantAction | null>(null)
   const [runningAction, setRunningAction] = useState<AssistantAction | null>(null)
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null)
   const [videoNote, setVideoNote] = useState<VideoNote | null>(null)
@@ -416,16 +415,6 @@ export function FloatingAssistantApp({
       }
     })
   }, [])
-
-  useEffect(() => {
-    if (!pendingWorkspaceAction || !snapshot) {
-      return
-    }
-
-    const action = pendingWorkspaceAction
-    setPendingWorkspaceAction(null)
-    handleAction(action)
-  })
 
   const resolvedSnapshot = snapshot ?? createFallbackSnapshot()
   const resolvedVideoTitle = normalizeTitle(resolvedSnapshot.videoTitle)
@@ -793,7 +782,9 @@ export function FloatingAssistantApp({
       }
 
       if (payload.action) {
-        setPendingWorkspaceAction(payload.action)
+        window.setTimeout(() => {
+          handleAction(payload.action!)
+        }, 0)
       }
     })
   })
