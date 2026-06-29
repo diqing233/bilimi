@@ -97,6 +97,48 @@ describe('BiliWebview', () => {
     expect(onHtmlFullscreenChange).toHaveBeenNthCalledWith(2, 'home', false)
   })
 
+  it('nudges the guest video page to repaint after host size changes', async () => {
+    const originalResizeObserver = globalThis.ResizeObserver
+    const observedElements: Element[] = []
+    let resizeCallback: ResizeObserverCallback | undefined
+    class ResizeObserverMock implements ResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback
+      }
+
+      observe = vi.fn((target: Element) => {
+        observedElements.push(target)
+      })
+
+      unobserve = vi.fn()
+      disconnect = vi.fn()
+    }
+    globalThis.ResizeObserver = ResizeObserverMock
+
+    try {
+      render(<BiliWebview active tabId="home" url="https://www.bilibili.com" />)
+
+      const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+      const executeJavaScript = vi.fn().mockResolvedValue(true)
+      Object.assign(webview, { executeJavaScript })
+
+      expect(observedElements).toContain(webview)
+
+      act(() => {
+        resizeCallback?.([], {} as ResizeObserver)
+      })
+
+      await vi.waitFor(() =>
+        expect(executeJavaScript).toHaveBeenCalledWith(
+          expect.stringContaining('__bilimiRepaintVideoAfterHostResize'),
+          true
+        )
+      )
+    } finally {
+      globalThis.ResizeObserver = originalResizeObserver
+    }
+  })
+
   it('does not drive the webview src from later location updates', () => {
     const { rerender } = render(
       <BiliWebview active tabId="home" url="https://www.bilibili.com/video/BV1initial" />

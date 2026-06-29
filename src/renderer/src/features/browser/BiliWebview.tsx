@@ -4,6 +4,7 @@ import { buildOpenLinksInAppScript } from './linkCaptureScript'
 
 const OPEN_IN_TAB_TITLE_PREFIX = '__BILIMI_OPEN_IN_TAB__:'
 const PET_HINT_TITLE_PREFIX = '__BILIMI_PET_HINT__:'
+const VIDEO_REPAINT_AFTER_HOST_RESIZE_DELAY_MS = 80
 
 type BiliWebviewProps = {
   active: boolean
@@ -56,6 +57,42 @@ function readPetHintTitleSignal(title: string): string | undefined {
   } catch {
     return undefined
   }
+}
+
+function buildVideoRepaintAfterHostResizeScript(): string {
+  return `
+    (() => {
+      const __bilimiRepaintVideoAfterHostResize = true;
+      void __bilimiRepaintVideoAfterHostResize;
+      window.dispatchEvent(new Event('resize'));
+
+      const targets = [
+        ...document.querySelectorAll('video'),
+        ...document.querySelectorAll('.bpx-player-video-wrap,.bpx-player-container,.bpx-player-primary-area,.bilibili-player-video-wrap')
+      ];
+
+      for (const target of targets) {
+        const style = target.style;
+        if (!style) {
+          continue;
+        }
+
+        const previousTransform = style.transform;
+        const previousWillChange = style.willChange;
+        style.willChange = 'transform';
+        style.transform = previousTransform
+          ? previousTransform + ' translateZ(0)'
+          : 'translateZ(0)';
+        void target.getBoundingClientRect?.();
+        window.requestAnimationFrame(() => {
+          style.transform = previousTransform;
+          style.willChange = previousWillChange;
+        });
+      }
+
+      return true;
+    })()
+  `
 }
 
 export function BiliWebview({
@@ -161,6 +198,51 @@ export function BiliWebview({
       webview.removeEventListener('page-title-updated', handleTitleChange)
     }
   }, [onHtmlFullscreenChange, onLocationChange, onOpenInTab, onPageInteractionHint, onReady, onTitleChange, tabId])
+
+  useEffect(() => {
+    const webview = ref.current
+
+    if (!webview || !active) {
+      return
+    }
+
+    let repaintTimeout: number | undefined
+
+    const scheduleVideoRepaint = () => {
+      window.clearTimeout(repaintTimeout)
+      repaintTimeout = window.setTimeout(() => {
+        if (!webview.executeJavaScript || webview.getAttribute('data-active') !== 'true') {
+          return
+        }
+
+        void webview
+          .executeJavaScript(buildVideoRepaintAfterHostResizeScript(), true)
+          .catch(() => undefined)
+      }, VIDEO_REPAINT_AFTER_HOST_RESIZE_DELAY_MS)
+    }
+
+    scheduleVideoRepaint()
+
+    if (typeof ResizeObserver !== 'function') {
+      window.addEventListener('resize', scheduleVideoRepaint)
+
+      return () => {
+        window.clearTimeout(repaintTimeout)
+        window.removeEventListener('resize', scheduleVideoRepaint)
+      }
+    }
+
+    const observer = new ResizeObserver(scheduleVideoRepaint)
+    observer.observe(webview)
+    if (webview.parentElement) {
+      observer.observe(webview.parentElement)
+    }
+
+    return () => {
+      window.clearTimeout(repaintTimeout)
+      observer.disconnect()
+    }
+  }, [active])
 
   return (
     <webview
