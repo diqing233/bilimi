@@ -32,10 +32,6 @@ type WhiteStripFixOptions = RecompositeShape & {
   cancel?: (timer: unknown) => void
 }
 
-type FloatingWindowWhiteStripFixOptions = WhiteStripFixOptions & {
-  platform?: NodeJS.Platform
-}
-
 const DEFAULT_ATTEMPTS = 3
 const DEFAULT_START_DELAY_MS = 16
 const DEFAULT_ATTEMPT_GAP_MS = 80
@@ -125,17 +121,4 @@ export function installFloatingSealWhiteStripFix(
   target.on('focus', settle)
 
   return settle
-}
-
-export function installFloatingWindowWhiteStripFix(
-  target: WhiteStripFixTarget,
-  options: FloatingWindowWhiteStripFixOptions = {}
-): (() => void) | null {
-  const platform = options.platform ?? process.platform
-
-  if (platform !== 'win32') {
-    return null
-  }
-
-  return installFloatingSealWhiteStripFix(target, options)
 }
