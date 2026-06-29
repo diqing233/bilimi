@@ -35,7 +35,7 @@ import { installMainWindowControlReactions } from './mainWindowControlReactions'
 import { restoreMainWindowFromPet } from './mainWindowRestore'
 import { installFixedFloatingSealBoundsGuard } from './floatingSealBoundsGuard'
 import { setFloatingSealMouseTransparency } from './floatingSealMouseTransparency'
-import { installFloatingSealWhiteStripFix } from './floatingSealWhiteStripFix'
+import { installFloatingWindowWhiteStripFix } from './floatingSealWhiteStripFix'
 import { createFloatingSealWindowOptions } from './floatingSealWindowOptions'
 import { toggleFloatingAssistantFromSeal } from './floatingMenuToggleFlow'
 import {
@@ -205,8 +205,7 @@ function createFloatingSealWindow() {
   seal.removeMenu()
 
   // Windows 透明窗口失活时 DWM 会把原生帧渲染成白条，移动窗口可强制重新合成。
-  const disposeWhiteStripFix =
-    process.platform === 'win32' ? installFloatingSealWhiteStripFix(seal) : null
+  const disposeWhiteStripFix = installFloatingWindowWhiteStripFix(seal)
 
   seal.on('closed', () => {
     disposeWhiteStripFix?.()
@@ -266,8 +265,10 @@ function createFloatingMenuWindow() {
       preload: createPreloadScriptPath(__dirname)
     })
   )
+  const disposeWhiteStripFix = installFloatingWindowWhiteStripFix(menu)
 
   configureFloatingMenuWindow(menu, () => {
+    disposeWhiteStripFix?.()
     floatingMenuController.clearIfCurrent(menu)
   })
 
@@ -302,7 +303,9 @@ function createFloatingAssistantWindow() {
   assistant.setAlwaysOnTop(true, 'floating')
   assistant.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   assistant.removeMenu()
+  const disposeWhiteStripFix = installFloatingWindowWhiteStripFix(assistant)
   assistant.on('closed', () => {
+    disposeWhiteStripFix?.()
     floatingAssistantController.clearIfCurrent(assistant)
   })
 

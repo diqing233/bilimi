@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createNudgePositions,
   createRecompositeSteps,
+  installFloatingWindowWhiteStripFix,
   installFloatingSealWhiteStripFix
 } from './floatingSealWhiteStripFix'
 
@@ -159,5 +160,52 @@ describe('installFloatingSealWhiteStripFix', () => {
 
     expect(harness.scheduled).toHaveLength(0)
     expect(harness.target.setPosition).toHaveBeenLastCalledWith(120, 240)
+  })
+})
+
+describe('installFloatingWindowWhiteStripFix', () => {
+  it('installs the recomposition nudge for Windows transparent floating windows', () => {
+    const harness = createHarness({ x: 80, y: 160, width: 460, height: 680 })
+
+    harness.dispose()
+    harness.target.setPosition.mockClear()
+    harness.target.on.mockClear()
+    harness.listeners.clear()
+
+    const dispose = installFloatingWindowWhiteStripFix(harness.target, {
+      cancel: harness.cancel,
+      platform: 'win32',
+      schedule: harness.schedule
+    })
+
+    expect(dispose).toEqual(expect.any(Function))
+    expect(harness.target.on).toHaveBeenCalledWith('blur', expect.any(Function))
+    expect(harness.target.on).toHaveBeenCalledWith('focus', expect.any(Function))
+
+    harness.listeners.get('blur')?.()
+    harness.flushAll()
+
+    expect(harness.target.setPosition.mock.calls).toEqual([
+      [81, 160],
+      [80, 160],
+      [81, 160],
+      [80, 160],
+      [81, 160],
+      [80, 160]
+    ])
+  })
+
+  it('skips the native white-strip workaround outside Windows', () => {
+    const harness = createHarness()
+
+    harness.dispose()
+    harness.target.on.mockClear()
+
+    const dispose = installFloatingWindowWhiteStripFix(harness.target, {
+      platform: 'darwin'
+    })
+
+    expect(dispose).toBeNull()
+    expect(harness.target.on).not.toHaveBeenCalled()
   })
 })
