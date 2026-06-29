@@ -656,14 +656,16 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
 
     expect(screen.getByRole('group', { name: '批阅动作设置' })).toBeInTheDocument()
+    expect(screen.getByText('赐：一键三连')).toBeInTheDocument()
+    expect(screen.getByText('表：发送弹幕')).toBeInTheDocument()
     expect(
       screen.getByRole('radio', {
-        name: '赐：一键三连 默认投 1 枚硬币（再点一次可补投 1 枚）'
+        name: '默认投 1 枚硬币（再点一次可补投 1 枚）'
       })
     ).toBeChecked()
-    expect(screen.getByRole('radio', { name: '表：发送弹幕 随机生成一条并直接发送' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: '随机生成一条并直接发送' })).toBeChecked()
 
-    fireEvent.click(screen.getByRole('radio', { name: '赐：一键三连 默认投 2 枚硬币' }))
+    fireEvent.click(screen.getByRole('radio', { name: '默认投 2 枚硬币' }))
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
@@ -675,7 +677,7 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(
       screen.getByRole('radio', {
-        name: '表：发送弹幕 生成 3 条候选，选择后发送（也可以复制后发评论）'
+        name: '生成 3 条候选，选择后发送（也可以复制后发评论）'
       })
     )
 
@@ -709,17 +711,17 @@ describe('FloatingAssistantApp', () => {
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
-    fireEvent.click(screen.getByRole('radio', { name: '赐：一键三连 默认投 2 枚硬币' }))
+    fireEvent.click(screen.getByRole('radio', { name: '默认投 2 枚硬币' }))
 
     await waitFor(() =>
-      expect(screen.getByRole('radio', { name: '赐：一键三连 默认投 2 枚硬币' })).toBeChecked()
+      expect(screen.getByRole('radio', { name: '默认投 2 枚硬币' })).toBeChecked()
     )
 
     await act(async () => {
       snapshotChanged?.()
     })
 
-    expect(await screen.findByRole('radio', { name: '赐：一键三连 默认投 2 枚硬币' })).toBeChecked()
+    expect(await screen.findByRole('radio', { name: '默认投 2 枚硬币' })).toBeChecked()
   })
 
   it('opens three comment choices before 表 sends the selected draft in choose mode', async () => {
@@ -841,7 +843,7 @@ describe('FloatingAssistantApp', () => {
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
-    fireEvent.click(screen.getByRole('radio', { name: '表：发送弹幕 随机生成一条并直接发送' }))
+    fireEvent.click(screen.getByRole('radio', { name: '随机生成一条并直接发送' }))
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
@@ -850,10 +852,10 @@ describe('FloatingAssistantApp', () => {
         })
       )
     )
-    expect(screen.getByRole('radio', { name: '表：发送弹幕 随机生成一条并直接发送' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: '随机生成一条并直接发送' })).toBeChecked()
     expect(
       screen.getByRole('radio', {
-        name: '表：发送弹幕 生成 3 条候选，选择后发送（也可以复制后发评论）'
+        name: '生成 3 条候选，选择后发送（也可以复制后发评论）'
       })
     ).not.toBeChecked()
   })

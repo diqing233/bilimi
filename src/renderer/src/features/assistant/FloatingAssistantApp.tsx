@@ -1200,6 +1200,7 @@ export function FloatingAssistantApp({
             </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--review-actions">
               <legend>批阅动作设置</legend>
+              <strong className="assistant-settings__review-action-title">赐：一键三连</strong>
               <label>
                 <input
                   type="radio"
@@ -1212,7 +1213,7 @@ export function FloatingAssistantApp({
                     })
                   }
                 />
-                <span>赐：一键三连 默认投 1 枚硬币（再点一次可补投 1 枚）</span>
+                <span>默认投 1 枚硬币（再点一次可补投 1 枚）</span>
               </label>
               <label>
                 <input
@@ -1226,23 +1227,10 @@ export function FloatingAssistantApp({
                     })
                   }
                 />
-                <span>赐：一键三连 默认投 2 枚硬币</span>
+                <span>默认投 2 枚硬币</span>
               </label>
               <div className="assistant-settings__pet-divider" aria-hidden="true" />
-              <label>
-                <input
-                  type="radio"
-                  name="comment-submit-mode"
-                  checked={preferences.commentSubmitMode === 'choose'}
-                  onChange={() =>
-                    void persistPreferences({
-                      ...preferences,
-                      commentSubmitMode: 'choose'
-                    })
-                  }
-                />
-                <span>表：发送弹幕 生成 3 条候选，选择后发送（也可以复制后发评论）</span>
-              </label>
+              <strong className="assistant-settings__review-action-title">表：发送弹幕</strong>
               <label>
                 <input
                   type="radio"
@@ -1255,7 +1243,21 @@ export function FloatingAssistantApp({
                     })
                   }
                 />
-                <span>表：发送弹幕 随机生成一条并直接发送</span>
+                <span>随机生成一条并直接发送</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="comment-submit-mode"
+                  checked={preferences.commentSubmitMode === 'choose'}
+                  onChange={() =>
+                    void persistPreferences({
+                      ...preferences,
+                      commentSubmitMode: 'choose'
+                    })
+                  }
+                />
+                <span>生成 3 条候选，选择后发送（也可以复制后发评论）</span>
               </label>
             </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--deepseek">
