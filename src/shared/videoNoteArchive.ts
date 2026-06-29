@@ -70,6 +70,37 @@ export function createPolishedTranscriptText(poster: NotePosterSummary): string 
   return poster.polishedTranscriptText?.replace(/^#+\s*精修文稿\s*/u, '').trim() ?? ''
 }
 
+export type NotePosterCopyParts = {
+  summaryText: string
+  polishedTranscriptText: string
+}
+
+function textBeforeHeading(value: string, heading: string): string {
+  const index = value.search(new RegExp(`^##\\s+${heading}\\s*$`, 'mu'))
+  return index >= 0 ? value.slice(0, index).trim() : value.trim()
+}
+
+function textBetweenHeadings(value: string, startHeading: string, endHeading: string): string {
+  const startMatch = new RegExp(`^##\\s+${startHeading}\\s*$`, 'mu').exec(value)
+
+  if (!startMatch) {
+    return ''
+  }
+
+  const start = startMatch.index + startMatch[0].length
+  const rest = value.slice(start)
+  const endIndex = rest.search(new RegExp(`^##\\s+${endHeading}\\s*$`, 'mu'))
+
+  return (endIndex >= 0 ? rest.slice(0, endIndex) : rest).trim()
+}
+
+export function createNotePosterCopyParts(summaryText: string): NotePosterCopyParts {
+  return {
+    summaryText: textBeforeHeading(textBeforeHeading(summaryText, '精修文稿'), '内容核对清单'),
+    polishedTranscriptText: textBetweenHeadings(summaryText, '精修文稿', '内容核对清单')
+  }
+}
+
 function normalizeArchiveVersion(version: VideoNoteArchiveVersion): VideoNoteArchiveVersion {
   const note = normalizeVideoNote(version.note)
 

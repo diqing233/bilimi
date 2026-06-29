@@ -1,4 +1,4 @@
-import { useMemo, useState, type ChangeEvent } from 'react'
+import { useMemo, useState } from 'react'
 import type {
   NotePosterSummary,
   TranscriptSegment,
@@ -15,6 +15,7 @@ import {
   createSummaryText
 } from '@shared/videoNoteArchive'
 import { AssistantActionButton } from '../assistant/AssistantActionButton'
+import { CopySplitButton } from './CopySplitButton'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
 
@@ -340,23 +341,6 @@ export function VideoNotesPanel({
     }
   }
 
-  async function handleDeepSeekCopyMenuChange(
-    event: ChangeEvent<HTMLSelectElement>
-  ): Promise<void> {
-    const action = event.currentTarget.value
-
-    if (!activePosterSummary || !action) return
-
-    if (action === 'polished') {
-      await copyText(createPolishedTranscriptText(activePosterSummary), '精修文稿已复制')
-      return
-    }
-
-    if (action === 'summary') {
-      await copyText(createNotePosterSummaryText(activePosterSummary), '总结已复制')
-    }
-  }
-
   function renderProgress(): React.JSX.Element | null {
     if (!transcriptionProgress) return null
     const progress = formatProgress(transcriptionProgress)
@@ -436,6 +420,7 @@ export function VideoNotesPanel({
     const summaryActionLabel = activePosterSummary ? '重新总结' : '生成总结'
     const summaryActionDisabled = !deepSeekEnabled || !note || posterGenerating
     const polishedCopy = activePosterSummary ? createPolishedTranscriptText(activePosterSummary) : ''
+    const summaryOnlyCopy = activePosterSummary ? createNotePosterSummaryText(activePosterSummary) : ''
     return (
       <div role="tabpanel" id="video-notes-summary" aria-labelledby="video-notes-tab-summary">
         <div className="video-notes__panel-header">
@@ -449,22 +434,31 @@ export function VideoNotesPanel({
             >
               {posterGenerating ? '生成中...' : summaryActionLabel}
             </button>
-            <button type="button" onClick={() => void copyText(summaryCopy, '全文已复制')}>
-              复制全文
-            </button>
-            <select
-              aria-label="更多复制"
-              className="video-notes__copy-select"
+            <CopySplitButton
+              groupLabel="DeepSeek 复制"
+              buttonLabel="复制全文"
+              menuLabel="更多复制"
+              text={summaryCopy}
+              message="全文已复制"
               disabled={!activePosterSummary}
-              value=""
-              onChange={(event) => void handleDeepSeekCopyMenuChange(event)}
-            >
-              <option value="">更多复制</option>
-              <option value="polished" disabled={!polishedCopy}>
-                复制精修文
-              </option>
-              <option value="summary">复制总结</option>
-            </select>
+              onCopy={copyText}
+              options={[
+                {
+                  id: 'polished',
+                  label: '复制精修文',
+                  text: polishedCopy,
+                  message: '精修文稿已复制',
+                  disabled: !polishedCopy
+                },
+                {
+                  id: 'summary',
+                  label: '复制总结',
+                  text: summaryOnlyCopy,
+                  message: '总结已复制',
+                  disabled: !summaryOnlyCopy
+                }
+              ]}
+            />
           </div>
         </div>
         {!deepSeekEnabled ? (

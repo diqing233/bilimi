@@ -199,8 +199,69 @@ describe('VideoNoteArchivePanel', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'DeepSeek 总结' }))
     expect(screen.getByText('暂无 DeepSeek 总结。')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '复制' }))
+    fireEvent.click(screen.getByRole('button', { name: '复制全文' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(''))
+  })
+
+  it('uses an attached triangle menu for DeepSeek summary copies in the archive', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText }
+    })
+    const summaryText = [
+      '## 精准总结',
+      '',
+      '### 机器学习入门',
+      '整体主旨：用数据和模型解释机器学习。',
+      '',
+      '- 核心内容：训练数据影响模型表现。',
+      '关键词：机器学习、训练数据',
+      '',
+      '## 精修文稿',
+      '',
+      '先介绍机器学习的基本概念。',
+      '',
+      '## 内容核对清单',
+      '',
+      '- 数据：训练数据'
+    ].join('\n')
+    const archives = appendVideoNoteArchiveVersion(
+      [],
+      createNote(),
+      '2026-06-17T00:00:00.000Z',
+      summaryText
+    )
+
+    renderArchivePanel({ archives })
+
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('tab', { name: 'DeepSeek 总结' }))
+
+    const splitButton = screen.getByRole('group', { name: '档案 DeepSeek 复制' })
+    fireEvent.click(within(splitButton).getByRole('button', { name: '复制全文' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(summaryText))
+    expect(within(splitButton).getByRole('button', { name: '更多复制' })).toHaveTextContent('▾')
+
+    fireEvent.click(within(splitButton).getByRole('button', { name: '更多复制' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '复制精修文' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('先介绍机器学习的基本概念。'))
+
+    fireEvent.click(within(splitButton).getByRole('button', { name: '更多复制' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '复制总结' }))
+    await waitFor(() =>
+      expect(writeText).toHaveBeenLastCalledWith(
+        [
+          '## 精准总结',
+          '',
+          '### 机器学习入门',
+          '整体主旨：用数据和模型解释机器学习。',
+          '',
+          '- 核心内容：训练数据影响模型表现。',
+          '关键词：机器学习、训练数据'
+        ].join('\n')
+      )
+    )
   })
 
   it('saves archive memo and starred state while keeping them filterable', async () => {

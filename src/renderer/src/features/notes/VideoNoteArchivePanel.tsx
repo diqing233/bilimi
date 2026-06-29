@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { VideoNote, VideoNoteArchiveEntry, VideoNoteArchiveVersion } from '@shared/types'
-import { createPlainTranscriptText, searchVideoNoteArchives } from '@shared/videoNoteArchive'
+import {
+  createNotePosterCopyParts,
+  createPlainTranscriptText,
+  searchVideoNoteArchives
+} from '@shared/videoNoteArchive'
+import { CopySplitButton } from './CopySplitButton'
 
 type VideoNoteArchivePanelProps = {
   archives: VideoNoteArchiveEntry[]
@@ -213,6 +218,8 @@ export function VideoNoteArchivePanel({
       summary: 'DeepSeek 总结'
     }
     const copyTextValue = copyTextByTab[activeResultTab]
+    const deepSeekCopyParts =
+      activeResultTab === 'summary' ? createNotePosterCopyParts(version.summaryText) : null
 
     return (
       <section
@@ -223,9 +230,36 @@ export function VideoNoteArchivePanel({
       >
         <div className="video-notes__panel-header">
           <strong>{titleByTab[activeResultTab]}</strong>
-          <button type="button" onClick={() => void copyText(copyTextValue, '全文已复制')}>
-            复制
-          </button>
+          {activeResultTab === 'summary' ? (
+            <CopySplitButton
+              groupLabel="档案 DeepSeek 复制"
+              buttonLabel="复制全文"
+              menuLabel="更多复制"
+              text={copyTextValue}
+              message="全文已复制"
+              onCopy={copyText}
+              options={[
+                {
+                  id: 'polished',
+                  label: '复制精修文',
+                  text: deepSeekCopyParts?.polishedTranscriptText ?? '',
+                  message: '精修文稿已复制',
+                  disabled: !deepSeekCopyParts?.polishedTranscriptText
+                },
+                {
+                  id: 'summary',
+                  label: '复制总结',
+                  text: deepSeekCopyParts?.summaryText ?? '',
+                  message: '总结已复制',
+                  disabled: !deepSeekCopyParts?.summaryText
+                }
+              ]}
+            />
+          ) : (
+            <button type="button" onClick={() => void copyText(copyTextValue, '全文已复制')}>
+              复制
+            </button>
+          )}
         </div>
         {activeResultTab === 'timed' ? (
           <ol aria-label="带时间线文稿">

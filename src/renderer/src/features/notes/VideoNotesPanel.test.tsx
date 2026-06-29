@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { NotePosterSummary, VideoAudioTranscriptionQueueSnapshot, VideoNote } from '@shared/types'
 import { VideoNotesPanel } from './VideoNotesPanel'
@@ -313,7 +313,7 @@ describe('VideoNotesPanel', () => {
     expect(screen.getByText('Learning Machine Models')).toBeInTheDocument()
   })
 
-  it('copies polished transcript and summary separately from the DeepSeek copy menu', async () => {
+  it('uses an attached triangle menu to copy polished transcript and summary separately', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
     const poster: NotePosterSummary = {
@@ -332,10 +332,17 @@ describe('VideoNotesPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '生成总结' }))
     expect(await screen.findByText('机器学习入门')).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('更多复制'), { target: { value: 'polished' } })
+    const splitButton = screen.getByRole('group', { name: 'DeepSeek 复制' })
+    expect(within(splitButton).getByRole('button', { name: '复制全文' })).toBeInTheDocument()
+    expect(within(splitButton).queryByRole('combobox', { name: '更多复制' })).not.toBeInTheDocument()
+    expect(within(splitButton).getByRole('button', { name: '更多复制' })).toHaveTextContent('▾')
+
+    fireEvent.click(within(splitButton).getByRole('button', { name: '更多复制' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '复制精修文' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('先介绍机器学习的基本概念。'))
 
-    fireEvent.change(screen.getByLabelText('更多复制'), { target: { value: 'summary' } })
+    fireEvent.click(within(splitButton).getByRole('button', { name: '更多复制' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '复制总结' }))
     await waitFor(() =>
       expect(writeText).toHaveBeenLastCalledWith(
         [
