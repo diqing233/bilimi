@@ -41,6 +41,14 @@ describe('favorite ledger model', () => {
     expect(musicLedger?.keywords).not.toContain('MJ')
   })
 
+  it('classifies human geography and border city videos as knowledge content', () => {
+    const knowledgeLedger = createDefaultFavoriteLedgers().find((ledger) => ledger.id === 'knowledge')
+
+    expect(knowledgeLedger?.keywords).toEqual(
+      expect.arrayContaining(['人文', '地理', '城市', '社会观察', '边境'])
+    )
+  })
+
   it('orders reset defaults as broad initial ledgers and enables all of them', () => {
     const ledgers = createDefaultFavoriteLedgers()
 
