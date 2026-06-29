@@ -1361,12 +1361,13 @@ export function FloatingAssistantApp({
                 </button>
               </div>
               <aside className="assistant-settings__deepseek-recommendation">
-                <strong>中转站推荐</strong>
+                <strong>致谢</strong>
                 <p>
                   <a href="https://yunshulink.com/" target="_blank" rel="noreferrer">
                     云枢智元
                   </a>
-                  <span>大模型token，官网两折起</span>
+                  <span className="assistant-settings__relay-url">https://yunshulink.com/</span>
+                  <span>大模型 Token 中转，低至官方价 2 折起</span>
                 </p>
                 <p>API 密钥：创建令牌后，令牌分组请选择 deepseek（限时特价），复制密钥到这里使用。</p>
                 <p className="assistant-settings__copy-row">

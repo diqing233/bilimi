@@ -3077,36 +3077,51 @@ body[data-floating-window="true"],
   font-weight: 700;
   margin-right: 8px;
 }
+.assistant-settings__relay-url {
+  margin-right: 8px;
+  color: rgba(17, 58, 104, 0.78);
+  overflow-wrap: anywhere;
+}
 .assistant-settings__copy-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  display: block;
+  overflow-wrap: anywhere;
 }
 .assistant-settings__copy-row span {
   min-width: 0;
 }
 .assistant-settings__copy-button {
-  flex: 0 0 auto;
   display: inline-grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
-  min-height: 18px;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  margin-left: 3px;
   padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--porcelain-accent);
+  vertical-align: -3px;
+  box-shadow: none;
+}
+.assistant-settings__copy-button:hover,
+.assistant-settings__copy-button:focus-visible {
+  border-color: rgba(31, 99, 181, 0.28);
+  background: rgba(247, 251, 255, 0.66);
+  box-shadow: none;
 }
 .assistant-settings__copy-icon {
   position: relative;
   display: block;
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
 }
 .assistant-settings__copy-icon::before,
 .assistant-settings__copy-icon::after {
   content: "";
   position: absolute;
-  width: 7px;
-  height: 8px;
-  border: 1.25px solid currentColor;
+  width: 6px;
+  height: 7px;
+  border: 1.2px solid currentColor;
   background: rgba(247, 251, 255, 0.95);
 }
 .assistant-settings__copy-icon::before {
