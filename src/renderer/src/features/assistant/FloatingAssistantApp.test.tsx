@@ -734,6 +734,54 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
+  it('updates review action settings before the background save resolves', async () => {
+    let resolveSave!: (preferences: AssistantPreferences) => void
+    const savePreferences = vi.fn(
+      (preferences: AssistantPreferences) =>
+        new Promise<AssistantPreferences>((resolve) => {
+          resolveSave = resolve
+        })
+    )
+    installDesktopApi({ savePreferences })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('radio', { name: '默认投 2 枚硬币' }))
+
+    expect(screen.getByRole('radio', { name: '默认投 2 枚硬币' })).toBeChecked()
+    expect(savePreferences).not.toHaveBeenCalled()
+
+    await waitFor(() => expect(savePreferences).toHaveBeenCalledOnce())
+    await act(async () => {
+      resolveSave(createPreferences({ defaultCoinCount: 2 }))
+    })
+  })
+
+  it('keeps rapid settings clicks merged against the latest local preferences', async () => {
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    installDesktopApi({ savePreferences })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('radio', { name: '默认投 2 枚硬币' }))
+    fireEvent.click(
+      screen.getByRole('radio', {
+        name: '生成 3 条候选，选择后发送（也可以复制后发评论）'
+      })
+    )
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          commentSubmitMode: 'choose',
+          defaultCoinCount: 2
+        })
+      )
+    )
+  })
+
   it('does not refresh the assistant snapshot after saving review action settings', async () => {
     const notifyAssistantSnapshotChanged = vi.fn()
     const { savePreferences } = installDesktopApi({

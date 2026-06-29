@@ -26,6 +26,10 @@ import {
   createInitialAssistantPreferences,
   recordAssistantPreferenceFeedback
 } from '../state/assistantState'
+import {
+  createPreferenceSaveScheduler,
+  type PreferenceSaveScheduler
+} from '../state/preferenceSaveScheduler'
 import { CommentChooser } from './CommentChooser'
 import { CommentIntentDialog } from './CommentIntentDialog'
 import { FavoriteLedgerPanel } from './FavoriteLedgerPanel'
@@ -269,7 +273,11 @@ export function FloatingAssistantApp({
   const [deepSeekApiKeyDraft, setDeepSeekApiKeyDraft] = useState('')
   const [deepSeekStatusMessage, setDeepSeekStatusMessage] = useState('')
   const mounted = useRef(false)
+  const lastPreferenceChangeAt = useRef(0)
   const lastPreferenceSaveAt = useRef(0)
+  const preferenceSaveSchedulerRef = useRef<PreferenceSaveScheduler<AssistantPreferences> | null>(
+    null
+  )
   const transcriptionQueueRef = useRef<VideoAudioTranscriptionQueueSnapshot>({ items: [] })
   const activeTab = controlledActiveTab ?? uncontrolledActiveTab
   const [activeView, setActiveView] = useState<AssistantWorkspaceView>(activeTab)
@@ -307,9 +315,13 @@ export function FloatingAssistantApp({
 
       setSnapshot(nextSnapshot)
       const snapshotPreferences = createInitialAssistantPreferences(nextSnapshot.preferences)
-      const snapshotArrivedSoonAfterSave = Date.now() - lastPreferenceSaveAt.current < 2000
+      const lastLocalPreferenceChangeAt = Math.max(
+        lastPreferenceChangeAt.current,
+        lastPreferenceSaveAt.current
+      )
+      const snapshotArrivedSoonAfterLocalChange = Date.now() - lastLocalPreferenceChangeAt < 2000
       setPreferences((currentPreferences) => {
-        const nextPreferences = snapshotArrivedSoonAfterSave
+        const nextPreferences = snapshotArrivedSoonAfterLocalChange
           ? {
               ...snapshotPreferences,
               defaultCoinCount: currentPreferences.defaultCoinCount,
@@ -361,6 +373,7 @@ export function FloatingAssistantApp({
     void loadVideoAudioTranscriptionQueue()
 
     return () => {
+      void preferenceSaveSchedulerRef.current?.flush()
       mounted.current = false
     }
   }, [loadSnapshot])
@@ -435,25 +448,64 @@ export function FloatingAssistantApp({
     commentIntentBusy
   const selectedPetHoverShortcuts = normalizePetHoverShortcuts(preferences.petHoverShortcuts)
 
-  async function persistPreferences(nextPreferences: AssistantPreferences) {
+  function applyPreferenceSnapshot(nextPreferences: AssistantPreferences) {
+    lastPreferenceChangeAt.current = Date.now()
     preferencesRef.current = nextPreferences
     setPreferences(nextPreferences)
+  }
 
-    if (window.bilimiDesktop?.savePreferences) {
-      const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
-      const savedPreferences = createInitialAssistantPreferences(saved)
-      preferencesRef.current = savedPreferences
-      setPreferences(savedPreferences)
-      lastPreferenceSaveAt.current = Date.now()
+  function getPreferenceSaveScheduler() {
+    if (!preferenceSaveSchedulerRef.current) {
+      preferenceSaveSchedulerRef.current = createPreferenceSaveScheduler<AssistantPreferences>({
+        delayMs: 250,
+        save: async (nextPreferences) => {
+          if (!window.bilimiDesktop?.savePreferences) {
+            return nextPreferences
+          }
+
+          const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
+          const savedPreferences = createInitialAssistantPreferences(saved)
+          preferencesRef.current = savedPreferences
+
+          if (mounted.current) {
+            setPreferences(savedPreferences)
+          }
+
+          lastPreferenceSaveAt.current = Date.now()
+          return savedPreferences
+        }
+      })
     }
+
+    return preferenceSaveSchedulerRef.current
+  }
+
+  function persistPreferencePatch(patch: Partial<AssistantPreferences>) {
+    const nextPreferences = createInitialAssistantPreferences({
+      ...preferencesRef.current,
+      ...patch
+    })
+    applyPreferenceSnapshot(nextPreferences)
+    getPreferenceSaveScheduler().schedule(nextPreferences)
+  }
+
+  async function persistPreferences(nextPreferences: AssistantPreferences) {
+    const normalizedPreferences = createInitialAssistantPreferences(nextPreferences)
+    applyPreferenceSnapshot(normalizedPreferences)
+    getPreferenceSaveScheduler().schedule(normalizedPreferences)
+    const savedPreferences = await getPreferenceSaveScheduler().flush()
+
+    if (savedPreferences) {
+      applyPreferenceSnapshot(savedPreferences)
+      return savedPreferences
+    }
+
+    return normalizedPreferences
   }
 
   function choosePetStyle(petStyle: AssistantPreferences['petStyle']) {
     tellPet('success', petStyle === 'big-head' ? '小咪换回萌版大头啦～' : '小咪换成Q版小人啦～')
-    void persistPreferences({
-      ...preferences,
-      petStyle
-    })
+    persistPreferencePatch({ petStyle })
   }
 
   function toggleVideoFullscreenPetVisibility(hidePetDuringVideoFullscreen: boolean) {
@@ -463,10 +515,7 @@ export function FloatingAssistantApp({
         ? '全屏看视频时，小咪会先让出画面。'
         : '小咪会常驻陪主人看视频啦。'
     )
-    void persistPreferences({
-      ...preferences,
-      hidePetDuringVideoFullscreen
-    })
+    persistPreferencePatch({ hidePetDuringVideoFullscreen })
   }
 
   function togglePetHoverShortcut(shortcutId: PetHoverShortcutId, selected: boolean) {
@@ -480,8 +529,7 @@ export function FloatingAssistantApp({
       ? [...currentShortcuts, shortcutId]
       : currentShortcuts.filter((id) => id !== shortcutId)
 
-    void persistPreferences({
-      ...preferences,
+    persistPreferencePatch({
       petHoverShortcuts: normalizePetHoverShortcuts(nextShortcuts)
     })
   }
@@ -497,16 +545,15 @@ export function FloatingAssistantApp({
   }
 
   function updateDeepSeekPreference(patch: Partial<AssistantPreferences>, options: { persist?: boolean } = {}) {
-    setPreferences((current) => ({
-      ...current,
+    const nextPreferences = createInitialAssistantPreferences({
+      ...preferencesRef.current,
       ...patch
-    }))
+    })
+
+    applyPreferenceSnapshot(nextPreferences)
 
     if (options.persist) {
-      void persistPreferences({
-        ...preferencesRef.current,
-        ...patch
-      })
+      getPreferenceSaveScheduler().schedule(nextPreferences)
     }
   }
 
@@ -519,7 +566,7 @@ export function FloatingAssistantApp({
       await window.bilimiDesktop?.saveDeepSeekApiKey?.(keyDraft)
     }
 
-    await persistPreferences(preferences)
+    await persistPreferences(preferencesRef.current)
     tellPet('success', 'DeepSeek 设置保存好啦。')
   }
 
@@ -540,7 +587,7 @@ export function FloatingAssistantApp({
 
   async function resetDeepSeekSettings() {
     const nextPreferences = {
-      ...preferences,
+      ...preferencesRef.current,
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
       deepseekCommentEnabled: false,
@@ -569,7 +616,7 @@ export function FloatingAssistantApp({
   }
 
   async function persistFeedback(action: AssistantAction, kind: RecommendationKind) {
-    const nextPreferences = recordAssistantPreferenceFeedback(preferences, kind, action)
+    const nextPreferences = recordAssistantPreferenceFeedback(preferencesRef.current, kind, action)
     await persistPreferences(nextPreferences)
   }
 
@@ -965,7 +1012,7 @@ export function FloatingAssistantApp({
       setPreferences(createInitialAssistantPreferences(nextSnapshot.preferences))
     } else {
       await persistPreferences({
-        ...preferences,
+        ...preferencesRef.current,
         favoriteLedgers
       })
     }
@@ -1167,10 +1214,7 @@ export function FloatingAssistantApp({
                   name="favorite-archive-multi-mode"
                   checked={preferences.favoriteArchiveMultiMode === 'off'}
                   onChange={() =>
-                    void persistPreferences({
-                      ...preferences,
-                      favoriteArchiveMultiMode: 'off'
-                    })
+                    persistPreferencePatch({ favoriteArchiveMultiMode: 'off' })
                   }
                 />
                 <span>最多存入 1 个 Bilimi 收藏夹，优先存入生成和自定义创建的收藏夹</span>
@@ -1181,10 +1225,7 @@ export function FloatingAssistantApp({
                   name="favorite-archive-multi-mode"
                   checked={preferences.favoriteArchiveMultiMode === 'two'}
                   onChange={() =>
-                    void persistPreferences({
-                      ...preferences,
-                      favoriteArchiveMultiMode: 'two'
-                    })
+                    persistPreferencePatch({ favoriteArchiveMultiMode: 'two' })
                   }
                 />
                 <span>最多存入 2 个 Bilimi 收藏夹，同一个视频可以存入一个默认分类和一个其他匹配的 Bilimi 收藏夹</span>
@@ -1195,10 +1236,7 @@ export function FloatingAssistantApp({
                   name="favorite-archive-multi-mode"
                   checked={preferences.favoriteArchiveMultiMode === 'three'}
                   onChange={() =>
-                    void persistPreferences({
-                      ...preferences,
-                      favoriteArchiveMultiMode: 'three'
-                    })
+                    persistPreferencePatch({ favoriteArchiveMultiMode: 'three' })
                   }
                 />
                 <span>最多存入 3 个 Bilimi 收藏夹，同一个视频可以存入一个默认分类和两个其他匹配的 Bilimi 收藏夹</span>
@@ -1213,10 +1251,7 @@ export function FloatingAssistantApp({
                   name="default-coin-count"
                   checked={preferences.defaultCoinCount === 1}
                   onChange={() =>
-                    void persistPreferences({
-                      ...preferences,
-                      defaultCoinCount: 1
-                    })
+                    persistPreferencePatch({ defaultCoinCount: 1 })
                   }
                 />
                 <span>默认投 1 枚硬币（再点一次可补投 1 枚）</span>
@@ -1227,10 +1262,7 @@ export function FloatingAssistantApp({
                   name="default-coin-count"
                   checked={preferences.defaultCoinCount === 2}
                   onChange={() =>
-                    void persistPreferences({
-                      ...preferences,
-                      defaultCoinCount: 2
-                    })
+                    persistPreferencePatch({ defaultCoinCount: 2 })
                   }
                 />
                 <span>默认投 2 枚硬币</span>
@@ -1243,10 +1275,7 @@ export function FloatingAssistantApp({
                   name="comment-submit-mode"
                   checked={preferences.commentSubmitMode === 'random'}
                   onChange={() =>
-                    void persistPreferences({
-                      ...preferences,
-                      commentSubmitMode: 'random'
-                    })
+                    persistPreferencePatch({ commentSubmitMode: 'random' })
                   }
                 />
                 <span>随机生成一条并直接发送</span>
@@ -1257,10 +1286,7 @@ export function FloatingAssistantApp({
                   name="comment-submit-mode"
                   checked={preferences.commentSubmitMode === 'choose'}
                   onChange={() =>
-                    void persistPreferences({
-                      ...preferences,
-                      commentSubmitMode: 'choose'
-                    })
+                    persistPreferencePatch({ commentSubmitMode: 'choose' })
                   }
                 />
                 <span>生成 3 条候选，选择后发送（也可以复制后发评论）</span>
