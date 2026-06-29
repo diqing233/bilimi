@@ -117,7 +117,6 @@ function isBilibiliVideoUrl(url?: string): boolean {
 
 type TrustedPlayerActivationResult = AssistantAutomationResult & {
   clickPoint?: { x: number; y: number } | null
-  danmakuEnabled?: boolean | null
   paused?: boolean | null
 }
 
@@ -132,7 +131,6 @@ function buildTrustedPlayerActivationScript(): string {
         missingTargets: [],
         message: '',
         clickPoint: null,
-        danmakuEnabled: null,
         paused: null
       };
       const isLikelyHidden = (node) => {
@@ -158,28 +156,6 @@ function buildTrustedPlayerActivationScript(): string {
           y: Math.round(rect.top + rect.height / 2)
         };
       };
-      const textOf = (node) =>
-        String([
-          node?.getAttribute?.('aria-label'),
-          node?.getAttribute?.('aria-checked'),
-          node?.getAttribute?.('aria-pressed'),
-          node?.getAttribute?.('title'),
-          node?.getAttribute?.('class'),
-          node?.textContent
-        ].filter(Boolean).join(' ')).replace(/\\s+/g, '').toLowerCase();
-      const isClearlyDanmakuOff = (node) => {
-        const text = textOf(node);
-
-        return (
-          node?.getAttribute?.('aria-checked') === 'false' ||
-          node?.getAttribute?.('aria-pressed') === 'false' ||
-          text.includes('开启弹幕') ||
-          text.includes('打开弹幕') ||
-          text.includes('danmakuoff') ||
-          text.includes('dmoff') ||
-          /(^|[-_\\s])(off|close|closed|disabled|disable)([-_\\s]|$)/.test(text)
-        );
-      };
       const video = Array.from(document.querySelectorAll('video')).find(hasVisibleRect) || null;
       const player =
         video?.closest?.('.bpx-player-container,.bpx-player,.bilibili-player,#bilibili-player,[class*="player"]') ||
@@ -193,26 +169,8 @@ function buildTrustedPlayerActivationScript(): string {
         return result;
       }
 
-      const switchSelectors = [
-        '.bpx-player-dm-switch',
-        '.bpx-player-dm-switch-btn',
-        '.bilibili-player-video-danmaku-switch',
-        '[class*="dm-switch"]',
-        '[class*="danmaku"][class*="switch"]',
-        '[aria-label*="弹幕"]',
-        '[title*="弹幕"]'
-      ].join(',');
-      const switchButton = Array.from(document.querySelectorAll(switchSelectors)).find((node) => {
-        if (node === video || !node || isLikelyHidden(node)) {
-          return false;
-        }
-
-        const rect = node.getBoundingClientRect?.();
-        return !rect || rect.width > 0 || rect.height > 0 || Boolean(textOf(node));
-      }) || null;
 
       result.clickPoint = clickPoint;
-      result.danmakuEnabled = switchButton ? !isClearlyDanmakuOff(switchButton) : null;
       result.paused = typeof video?.paused === 'boolean' ? video.paused : null;
       result.steps.push('player:locate');
       result.ok = true;
@@ -1030,9 +988,19 @@ export default function App() {
     activationSteps.push('danmaku:trusted-enter-open')
     await wait(160)
 
-    const focusResult = (await currentActiveWebview.executeJavaScript(
-      buildDanmakuFieldFocusScript()
-    )) as DanmakuFocusResult | boolean
+    let focusResult: DanmakuFocusResult | boolean
+    try {
+      focusResult = (await currentActiveWebview.executeJavaScript(
+        buildDanmakuFieldFocusScript()
+      )) as DanmakuFocusResult | boolean
+    } catch {
+      return {
+        ok: false,
+        steps: activationSteps,
+        missingTargets: ['danmaku-focus-script'],
+        message: '弹幕输入框脚本执行失败，请重新点击表再试。'
+      }
+    }
     const prepared =
       typeof focusResult === 'boolean'
         ? ({
@@ -1058,10 +1026,20 @@ export default function App() {
     sendKey('v', ['control'])
     await wait(120)
 
-    const pasteConfirmation = (await currentActiveWebview.executeJavaScript(
-      buildDanmakuDraftPresenceScript(commentDraft),
-      true
-    )) as AssistantAutomationResult
+    let pasteConfirmation: AssistantAutomationResult
+    try {
+      pasteConfirmation = (await currentActiveWebview.executeJavaScript(
+        buildDanmakuDraftPresenceScript(commentDraft),
+        true
+      )) as AssistantAutomationResult
+    } catch {
+      return {
+        ok: false,
+        steps: [...activationSteps, ...prepared.steps, 'danmaku:trusted-paste'],
+        missingTargets: ['danmaku-paste-script'],
+        message: '弹幕文案粘贴确认失败，请重新点击表再试。'
+      }
+    }
     const pasteSteps = ['danmaku:trusted-paste', ...pasteConfirmation.steps]
 
     if (!pasteConfirmation.ok) {
@@ -1080,9 +1058,19 @@ export default function App() {
     sendKey('Enter')
     await wait(120)
 
-    let confirmation = (await currentActiveWebview.executeJavaScript(
-      buildDanmakuSubmitConfirmationScript(commentDraft)
-    )) as AssistantAutomationResult
+    let confirmation: AssistantAutomationResult
+    try {
+      confirmation = (await currentActiveWebview.executeJavaScript(
+        buildDanmakuSubmitConfirmationScript(commentDraft)
+      )) as AssistantAutomationResult
+    } catch {
+      return {
+        ok: false,
+        steps: [...activationSteps, ...prepared.steps, ...pasteSteps, ...submitSteps],
+        missingTargets: ['danmaku-submit-script'],
+        message: '弹幕发送确认失败，请查看播放器是否已经打开输入框。'
+      }
+    }
 
     return {
       ...confirmation,

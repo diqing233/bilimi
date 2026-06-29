@@ -128,18 +128,6 @@ export function buildDanmakuFieldFocusScript(): string {
         field.parentElement?.closest?.('[class*="danmaku"],[class*="bpx-player"]') ||
         field.parentElement ||
         document;
-      const switchSelectors = [
-        '.bpx-player-dm-switch',
-        '.bpx-player-dm-switch-btn',
-        '.bilibili-player-video-danmaku-switch',
-        '[class*="dm-switch"]',
-        '[class*="danmaku"][class*="switch"]',
-        '[aria-label*="弹幕"]',
-        '[title*="弹幕"]'
-      ].join(',');
-      const switchButton = Array.from(sendingArea.querySelectorAll?.(switchSelectors) || [])
-        .filter((node) => node !== field)
-        .find(isVisibleInput);
       const clearEditableText = (element) => {
         if (!element) {
           return;
@@ -168,18 +156,6 @@ export function buildDanmakuFieldFocusScript(): string {
       clearEditableText(field);
       result.steps.push('danmaku:focus');
 
-      const sendSelectors = [
-        '.bpx-player-dm-btn',
-        '.bilibili-player-video-danmaku-send',
-        '.bilibili-player-video-btn-send',
-        '[class*="dm-btn"]',
-        '[class*="danmaku"][class*="send"]',
-        'button'
-      ].join(',');
-      const sendButton = Array.from(sendingArea.querySelectorAll?.(sendSelectors) || [])
-        .filter((node) => node !== field && node !== switchButton)
-        .find((node) => isVisibleInput(node) && visibleCenter(node));
-      result.sendButtonPoint = visibleCenter(sendButton);
       result.ok = true;
       result.message = '弹幕栏已聚焦。';
       return result;

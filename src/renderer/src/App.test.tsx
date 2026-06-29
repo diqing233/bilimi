@@ -553,7 +553,6 @@ describe('App runtime integration', () => {
           missingTargets: [],
           message: '播放器已定位。',
           clickPoint: { x: 300, y: 220 },
-          danmakuEnabled: true,
           paused: false
         }
       }
@@ -654,8 +653,6 @@ describe('App runtime integration', () => {
         ])
       })
     )
-    expect(result.steps).not.toEqual(expect.arrayContaining(['danmaku:switch:on']))
-    expect(result.steps).not.toEqual(expect.arrayContaining(['danmaku:switch:ready']))
   })
 
   it('returns a structured danmaku clipboard error instead of throwing through the runtime bridge', async () => {
@@ -730,6 +727,96 @@ describe('App runtime integration', () => {
     expect(webview.sendInputEvent).not.toHaveBeenCalled()
   })
 
+  it('returns a structured danmaku focus script error instead of throwing through the runtime bridge', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+      sendInputEvent?: (event: Record<string, unknown>) => void
+    }
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockResolvedValue(undefined) }
+    })
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes('document.cookie')) {
+        return 'DedeUserID=42; bili_jct=csrf'
+      }
+
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          title: 'danmaku focus failure video',
+          pageText: 'testing structured focus failure'
+        }
+      }
+
+      if (script.includes('__bilimiTrustedPlayerActivation')) {
+        return {
+          ok: true,
+          steps: ['player:locate'],
+          missingTargets: [],
+          message: '播放器已定位。',
+          clickPoint: { x: 320, y: 240 },
+          paused: false
+        }
+      }
+
+      if (script.includes('__bilimiRestorePlayerPlaybackState')) {
+        return {
+          ok: true,
+          steps: ['player:playback:stable'],
+          missingTargets: [],
+          message: '播放状态未改变。'
+        }
+      }
+
+      if (script.includes('__bilimiDanmakuFieldFocus')) {
+        throw new Error('GUEST_VIEW_MANAGER_CALL: Script failed to execute')
+      }
+
+      return {
+        ok: false,
+        steps: [],
+        missingTargets: ['unexpected-page-script'],
+        message: 'Focus failure should stop before page automation.'
+      }
+    })
+    Object.assign(webview, {
+      executeJavaScript,
+      sendInputEvent: vi.fn()
+    })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1focusthrow'
+          }
+        })
+      )
+    })
+
+    await expect(
+      requestRuntime({
+        id: 'run-danmaku-focus-error',
+        type: 'run-action',
+        action: '表',
+        options: {
+          commentDraft: 'typed',
+          submitComment: true
+        }
+      })
+    ).resolves.toEqual(
+      expect.objectContaining({
+        ok: false,
+        missingTargets: ['danmaku-focus-script']
+      })
+    )
+    expect(executeJavaScript).not.toHaveBeenCalledWith(
+      expect.stringContaining('__bilimiAutomationScript'),
+      expect.anything()
+    )
+  })
+
   it('does not report danmaku success when the draft was not pasted into the focused input', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
@@ -760,7 +847,6 @@ describe('App runtime integration', () => {
           missingTargets: [],
           message: '播放器已定位。',
           clickPoint: { x: 300, y: 220 },
-          danmakuEnabled: true,
           paused: false
         }
       }
@@ -888,7 +974,6 @@ describe('App runtime integration', () => {
           missingTargets: [],
           message: '播放器已定位。',
           clickPoint: { x: 320, y: 240 },
-          danmakuEnabled: false,
           paused: false
         }
       }

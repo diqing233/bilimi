@@ -1104,7 +1104,6 @@ describe('buildDanmakuFieldFocusScript', () => {
       <div class="bpx-player-container">
         <button class="bpx-player-ctrl-wide" title="宽屏模式">宽屏</button>
         <section class="bpx-player-sending-area">
-          <button class="bpx-player-dm-switch" aria-pressed="true" title="关闭弹幕">弹</button>
           <input class="bpx-player-dm-input" type="text" />
           <button class="bpx-player-dm-btn">发送</button>
         </section>
@@ -1142,7 +1141,6 @@ describe('buildDanmakuFieldFocusScript', () => {
       <div class="bpx-player-container">
         <button class="bpx-player-ctrl-wide active" aria-pressed="true" title="退出宽屏">退出宽屏</button>
         <section class="bpx-player-sending-area">
-          <button class="bpx-player-dm-switch" aria-pressed="true" title="关闭弹幕">弹</button>
           <input class="bpx-player-dm-input" type="text" />
           <button class="bpx-player-dm-btn">发送</button>
         </section>
@@ -1180,23 +1178,13 @@ describe('buildDanmakuFieldFocusScript', () => {
   it('focuses the visible danmaku bar without scrolling or operating the danmaku switch', async () => {
     document.body.innerHTML = `
       <section class="bpx-player-sending-area">
-        <button class="bpx-player-dm-switch off" aria-pressed="false" title="开启弹幕">弹</button>
         <input class="bpx-player-dm-input" type="text" value="old draft" />
         <button class="bpx-player-dm-btn">发送</button>
       </section>
     `
-    const switchButton = document.querySelector('.bpx-player-dm-switch') as HTMLButtonElement
     const input = document.querySelector('.bpx-player-dm-input') as HTMLInputElement
     const sendButton = document.querySelector('.bpx-player-dm-btn') as HTMLButtonElement
-    let switchClicked = false
 
-    switchButton.addEventListener('click', () => {
-      switchClicked = true
-    })
-    Object.defineProperty(switchButton, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => ({ left: 10, top: 10, width: 24, height: 24 })
-    })
     Object.defineProperty(input, 'getBoundingClientRect', {
       configurable: true,
       value: () => ({ left: 50, top: 10, width: 160, height: 28 })
@@ -1212,17 +1200,13 @@ describe('buildDanmakuFieldFocusScript', () => {
 
     const result = await window.eval(buildDanmakuFieldFocusScript())
 
-    expect(switchClicked).toBe(false)
     expect(input.value).toBe('')
     expect(input.scrollIntoView).not.toHaveBeenCalled()
     expect(result).toEqual(
       expect.objectContaining({
         ok: true,
-        steps: expect.arrayContaining(['danmaku:focus']),
-        sendButtonPoint: { x: 260, y: 24 }
+        steps: expect.arrayContaining(['danmaku:focus'])
       })
     )
-    expect(result.steps).not.toEqual(expect.arrayContaining(['danmaku:switch:on']))
-    expect(result.steps).not.toEqual(expect.arrayContaining(['danmaku:switch:ready']))
   })
 })
