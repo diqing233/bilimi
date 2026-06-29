@@ -35,17 +35,13 @@ import { installMainWindowControlReactions } from './mainWindowControlReactions'
 import { restoreMainWindowFromPet } from './mainWindowRestore'
 import { installFixedFloatingSealBoundsGuard } from './floatingSealBoundsGuard'
 import { setFloatingSealMouseTransparency } from './floatingSealMouseTransparency'
-import {
-  installFloatingWindowWhiteStripFix,
-  type FloatingWindowWhiteStripFixController
-} from './floatingSealWhiteStripFix'
+import { installFloatingWindowWhiteStripFix } from './floatingSealWhiteStripFix'
 import { createFloatingSealWindowOptions } from './floatingSealWindowOptions'
 import { toggleFloatingAssistantFromSeal } from './floatingMenuToggleFlow'
 import {
   configureFloatingMenuWindow,
   createFloatingMenuWindowOptions
 } from './floatingMenuWindowOptions'
-import { createFloatingAssistantWindowOptions } from './floatingAssistantWindowOptions'
 import { keepMainWindowTitle } from './windowTitleGuard'
 import {
   createFloatingAssistantBounds,
@@ -105,9 +101,6 @@ const FLOATING_ASSISTANT_QUERY = { window: 'floating-assistant' }
 let mainWindow: BrowserWindow | null = null
 let floatingSealWindow: BrowserWindow | null = null
 let enforceFloatingSealWindowBounds: (() => void) | null = null
-let floatingSealWhiteStripFix: FloatingWindowWhiteStripFixController | null = null
-let floatingMenuWhiteStripFix: FloatingWindowWhiteStripFixController | null = null
-let floatingAssistantWhiteStripFix: FloatingWindowWhiteStripFixController | null = null
 let assistantPetState: AssistantPetState = 'idle'
 
 function openUrlInRendererTab(win: BrowserWindow, url: string) {
@@ -200,12 +193,6 @@ function getFloatingAssistantBounds() {
   })
 }
 
-function recompositeFloatingWindows() {
-  floatingSealWhiteStripFix?.recomposite()
-  floatingMenuWhiteStripFix?.recomposite()
-  floatingAssistantWhiteStripFix?.recomposite()
-}
-
 function createFloatingSealWindow() {
   const seal = new BrowserWindow(
     createFloatingSealWindowOptions(getFloatingSealBounds(), createPreloadScriptPath(__dirname))
@@ -218,11 +205,10 @@ function createFloatingSealWindow() {
   seal.removeMenu()
 
   // Windows 透明窗口失活时 DWM 会把原生帧渲染成白条，移动窗口可强制重新合成。
-  floatingSealWhiteStripFix = installFloatingWindowWhiteStripFix(seal)
+  const disposeWhiteStripFix = installFloatingWindowWhiteStripFix(seal)
 
   seal.on('closed', () => {
-    floatingSealWhiteStripFix?.()
-    floatingSealWhiteStripFix = null
+    disposeWhiteStripFix?.()
     floatingSealWindow = null
     enforceFloatingSealWindowBounds = null
   })
@@ -279,11 +265,10 @@ function createFloatingMenuWindow() {
       preload: createPreloadScriptPath(__dirname)
     })
   )
-  floatingMenuWhiteStripFix = installFloatingWindowWhiteStripFix(menu)
+  const disposeWhiteStripFix = installFloatingWindowWhiteStripFix(menu)
 
   configureFloatingMenuWindow(menu, () => {
-    floatingMenuWhiteStripFix?.()
-    floatingMenuWhiteStripFix = null
+    disposeWhiteStripFix?.()
     floatingMenuController.clearIfCurrent(menu)
   })
 
@@ -295,20 +280,32 @@ function createFloatingMenuWindow() {
 const floatingMenuController = new FloatingMenuController(createFloatingMenuWindow)
 
 function createFloatingAssistantWindow() {
-  const assistant = new BrowserWindow(
-    createFloatingAssistantWindowOptions({
-      bounds: getFloatingAssistantBounds(),
-      preload: createPreloadScriptPath(__dirname)
-    })
-  )
+  const assistant = new BrowserWindow({
+    ...getFloatingAssistantBounds(),
+    title: '',
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    backgroundColor: '#00000000',
+    hasShadow: true,
+    webPreferences: {
+      preload: createPreloadScriptPath(__dirname),
+      contextIsolation: true,
+      sandbox: false
+    }
+  })
 
   assistant.setAlwaysOnTop(true, 'floating')
   assistant.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   assistant.removeMenu()
-  floatingAssistantWhiteStripFix = installFloatingWindowWhiteStripFix(assistant)
+  const disposeWhiteStripFix = installFloatingWindowWhiteStripFix(assistant)
   assistant.on('closed', () => {
-    floatingAssistantWhiteStripFix?.()
-    floatingAssistantWhiteStripFix = null
+    disposeWhiteStripFix?.()
     floatingAssistantController.clearIfCurrent(assistant)
   })
 
@@ -510,9 +507,6 @@ function createMainWindow() {
       mainWindow = null
     }
   })
-  win.on('focus', recompositeFloatingWindows)
-  win.on('show', recompositeFloatingWindows)
-  win.on('restore', recompositeFloatingWindows)
 
   loadRendererWindow(win)
 

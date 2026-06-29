@@ -27,24 +27,18 @@ export function createFloatingMenuWindowOptions({
     title: '',
     frame: false,
     transparent: true,
-    titleBarStyle: 'hidden',
-    titleBarOverlay: false,
-    thickFrame: false,
     resizable: false,
     movable: false,
     minimizable: false,
     maximizable: false,
     alwaysOnTop: true,
-    autoHideMenuBar: true,
     skipTaskbar: true,
     backgroundColor: '#00000000',
     hasShadow: false,
-    roundedCorners: false,
     webPreferences: {
       preload,
       contextIsolation: true,
-      sandbox: false,
-      backgroundThrottling: false
+      sandbox: false
     }
   }
 }
