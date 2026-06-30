@@ -9,14 +9,16 @@
 }
 .assistant-dialog--comment-chooser {
   position: relative;
+  box-sizing: border-box;
   max-height: min(52vh, 360px);
-  padding: 12px 12px 56px;
+  padding: 12px 12px 36px;
+  overflow: hidden;
 }
 .assistant-dialog__comment-list {
   display: grid;
   gap: 8px;
-  max-height: min(28vh, 176px);
-  margin-bottom: 18px;
+  max-height: min(36vh, 232px);
+  margin-bottom: 6px;
   overflow: auto;
 }
 .assistant-dialog__comment-row {
@@ -62,7 +64,7 @@
 .assistant-dialog__comment-actions {
   position: absolute;
   right: 20px;
-  bottom: 16px;
+  bottom: 8px;
   display: flex;
   justify-content: flex-end;
 }
