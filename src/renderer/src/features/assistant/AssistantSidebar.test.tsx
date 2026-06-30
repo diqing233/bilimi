@@ -76,35 +76,57 @@ describe('AssistantSidebar', () => {
     )
   })
 
+  it('renders Codex-like browser toolbar buttons for refresh and sidebar collapse', async () => {
+    installDesktopApi()
+    const onRefreshActiveTab = vi.fn()
+
+    render(<AssistantSidebar onRefreshActiveTab={onRefreshActiveTab} />)
+
+    const toolbar = screen.getByRole('toolbar', { name: '浏览器工具' })
+    const refreshButton = screen.getByRole('button', { name: '刷新当前页' })
+    const collapseButton = screen.getByRole('button', { name: '折叠侧边栏' })
+
+    expect(toolbar).toHaveClass('assistant-sidebar__browser-toolbar')
+    expect(refreshButton).toHaveClass('assistant-sidebar__tool-button')
+    expect(collapseButton).toHaveClass('assistant-sidebar__tool-button')
+    expect(collapseButton).toHaveAttribute('data-expanded', 'true')
+
+    fireEvent.click(refreshButton)
+
+    expect(onRefreshActiveTab).toHaveBeenCalledTimes(1)
+  })
+
   it('uses the viewport collapse control without rendering a rail column', async () => {
     installDesktopApi()
 
     render(<AssistantSidebar />)
 
     expect(screen.queryByRole('navigation', { name: '侧边栏收合控制' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '折叠侧边栏' })).toHaveClass(
+    const collapseButton = screen.getByRole('button', { name: '折叠侧边栏' })
+    expect(collapseButton).toHaveClass(
+      'assistant-sidebar__tool-button',
       'assistant-sidebar__collapse-button'
     )
-    expect(screen.getByText('折叠')).toHaveClass('assistant-sidebar__collapse-label')
-    expect(screen.getByRole('img', { name: '小咪收起侧栏' })).toHaveClass(
-      'assistant-sidebar__collapse-pet'
-    )
+    expect(collapseButton).toHaveAttribute('data-expanded', 'true')
+    expect(collapseButton.querySelector('.assistant-sidebar__sidebar-icon')).not.toBeNull()
+    expect(screen.queryByText('折叠')).not.toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: '小咪收起侧栏' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '打开批阅' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '打开札记' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '打开掌库' })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '折叠侧边栏' }))
+    fireEvent.click(collapseButton)
 
     expect(screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })).toHaveAttribute(
       'data-collapsed',
       'true'
     )
     expect(screen.queryByRole('tab', { name: '批阅' })).not.toBeInTheDocument()
-    expect(screen.getByRole('img', { name: '小咪展开侧栏' })).toHaveClass(
-      'assistant-sidebar__collapse-pet'
+    expect(screen.getByRole('button', { name: '展开侧边栏' })).toHaveAttribute(
+      'data-expanded',
+      'false'
     )
-
-    expect(screen.getByText('展开')).toHaveClass('assistant-sidebar__collapse-label')
+    expect(screen.queryByText('展开')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '展开侧边栏' }))
 

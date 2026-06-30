@@ -172,7 +172,7 @@ body[data-floating-window="true"],
   gap: 4px;
   align-items: center;
   overflow-x: auto;
-  padding: 5px 10px;
+  padding: 5px 112px 5px 10px;
   border-bottom: 1px solid rgba(7, 26, 51, 0.26);
   background: rgba(220, 238, 255, 0.94);
   scrollbar-width: thin;
@@ -1239,53 +1239,83 @@ body[data-floating-window="true"],
   min-width: 0;
   min-height: 0;
 }
-.assistant-sidebar__collapse-button {
+.assistant-sidebar__browser-toolbar {
   position: fixed;
   top: 6px;
   right: 150px;
   z-index: 40;
-  min-width: 66px;
-  min-height: 32px;
-  display: grid;
-  grid-template-columns: 24px auto;
+  display: flex;
   align-items: center;
-  justify-content: start;
-  gap: 4px;
+  gap: 6px;
+}
+.assistant-sidebar__tool-button {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
   border: 1px solid rgba(31, 99, 181, 0.24);
   border-radius: 6px;
   background: rgba(247, 251, 255, 0.88);
   color: var(--porcelain-deep);
   cursor: pointer;
-  font:
-    13px "Noto Serif SC",
-    "Songti SC",
-    "SimSun",
-    serif;
-  font-weight: 700;
-  line-height: 1;
-  padding: 2px 7px 2px 4px;
   box-shadow:
     0 2px 6px rgba(31, 99, 181, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
-.assistant-sidebar__collapse-pet {
-  width: 24px;
-  height: 24px;
-  object-fit: contain;
-  filter: drop-shadow(0 2px 3px rgba(31, 99, 181, 0.18));
-  pointer-events: none;
-  user-select: none;
-  -webkit-user-drag: none;
-}
-.assistant-sidebar__collapse-button:hover,
-.assistant-sidebar__collapse-button:focus-visible {
+.assistant-sidebar__tool-button:hover,
+.assistant-sidebar__tool-button:focus-visible {
   border-color: rgba(31, 99, 181, 0.46);
   background: var(--porcelain-white);
   color: var(--porcelain-primary);
+  outline: none;
 }
-.assistant-sidebar__collapse-label {
-  line-height: 1;
-  white-space: nowrap;
+.assistant-sidebar__tool-button:active {
+  transform: translateY(1px);
+}
+.assistant-sidebar__refresh-icon {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-left-color: transparent;
+  border-radius: 999px;
+  box-sizing: border-box;
+}
+.assistant-sidebar__refresh-icon::after {
+  content: "";
+  position: absolute;
+  right: -4px;
+  top: -2px;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid currentColor;
+  transform: rotate(-18deg);
+}
+.assistant-sidebar__sidebar-icon {
+  position: relative;
+  width: 16px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-radius: 3px;
+  box-sizing: border-box;
+}
+.assistant-sidebar__sidebar-icon::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  right: 4px;
+  width: 2px;
+  background: currentColor;
+  opacity: 0.76;
+}
+.assistant-sidebar__collapse-button[data-expanded="false"] .assistant-sidebar__sidebar-icon::after {
+  right: auto;
+  left: 4px;
 }
 .memorial-panel {
   width: min(420px, calc(100vw - 16px));

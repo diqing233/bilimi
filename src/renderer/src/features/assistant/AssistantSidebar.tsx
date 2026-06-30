@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import { FloatingAssistantApp } from './FloatingAssistantApp'
 import {
   PET_COLLAPSE_FAREWELL_LINES,
@@ -11,9 +10,10 @@ type AssistantSidebarTab = 'review' | 'notes' | 'ledger' | 'settings'
 
 type AssistantSidebarProps = {
   onOpenInTab?: (url: string) => void
+  onRefreshActiveTab?: () => void
 }
 
-export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
+export function AssistantSidebar({ onOpenInTab, onRefreshActiveTab }: AssistantSidebarProps = {}) {
   const [collapsed, setCollapsed] = useState(false)
   const [activeTab, setActiveTab] = useState<AssistantSidebarTab>('review')
 
@@ -51,28 +51,38 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
       aria-label="Bilimi 侧边栏"
       data-collapsed={collapsed ? 'true' : 'false'}
     >
-      <button
-        type="button"
-        className="assistant-sidebar__collapse-button"
-        aria-label={collapsed ? '展开侧边栏' : '折叠侧边栏'}
-        onClick={() => {
-          if (collapsed) {
-            expandSidebar()
-            return
-          }
-
-          collapseSidebar()
-        }}
+      <div
+        className="assistant-sidebar__browser-toolbar"
+        role="toolbar"
+        aria-label="浏览器工具"
       >
-        <img
-          className="assistant-sidebar__collapse-pet"
-          src={idlePetUrl}
-          alt={collapsed ? '小咪展开侧栏' : '小咪收起侧栏'}
-        />
-        <span className="assistant-sidebar__collapse-label" aria-hidden="true">
-          {collapsed ? '展开' : '折叠'}
-        </span>
-      </button>
+        <button
+          type="button"
+          className="assistant-sidebar__tool-button assistant-sidebar__refresh-button"
+          aria-label="刷新当前页"
+          title="刷新当前页"
+          onClick={() => onRefreshActiveTab?.()}
+        >
+          <span className="assistant-sidebar__refresh-icon" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="assistant-sidebar__tool-button assistant-sidebar__collapse-button"
+          aria-label={collapsed ? '展开侧边栏' : '折叠侧边栏'}
+          title={collapsed ? '展开侧边栏' : '折叠侧边栏'}
+          data-expanded={collapsed ? 'false' : 'true'}
+          onClick={() => {
+            if (collapsed) {
+              expandSidebar()
+              return
+            }
+
+            collapseSidebar()
+          }}
+        >
+          <span className="assistant-sidebar__sidebar-icon" aria-hidden="true" />
+        </button>
+      </div>
       <div className="assistant-sidebar__workspace" hidden={collapsed}>
         <FloatingAssistantApp
           mode="sidebar"
