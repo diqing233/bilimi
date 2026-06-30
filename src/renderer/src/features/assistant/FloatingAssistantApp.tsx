@@ -85,6 +85,7 @@ type FloatingAssistantAppProps = {
   onActiveTabChange?: (tab: AssistantWorkspaceTab) => void
   onRequestCollapse?: () => void
   onOpenInTab?: (url: string) => void
+  workspaceRequestsEnabled?: boolean
 }
 
 function findArchivedSummaryTextForNote(
@@ -182,6 +183,24 @@ function createFallbackSnapshot(): AssistantSnapshot {
   }
 }
 
+function didActiveVideoChange(
+  previousSnapshot: AssistantSnapshot | null,
+  nextSnapshot: AssistantSnapshot
+) {
+  if (!previousSnapshot) {
+    return false
+  }
+
+  const previousUrl = previousSnapshot.activeTabUrl?.trim() ?? ''
+  const nextUrl = nextSnapshot.activeTabUrl?.trim() ?? ''
+
+  if (previousUrl || nextUrl) {
+    return previousUrl !== nextUrl
+  }
+
+  return normalizeTitle(previousSnapshot.videoTitle) !== normalizeTitle(nextSnapshot.videoTitle)
+}
+
 function stripBilimiPrefix(displayName: string) {
   return displayName.replace(/^Bilimi[·\s-]*/, '').trim()
 }
@@ -265,9 +284,11 @@ export function FloatingAssistantApp({
   activeTab: controlledActiveTab,
   onActiveTabChange,
   onRequestCollapse,
-  onOpenInTab
+  onOpenInTab,
+  workspaceRequestsEnabled = true
 }: FloatingAssistantAppProps = {}) {
   const [snapshot, setSnapshot] = useState<AssistantSnapshot | null>(null)
+  const snapshotRef = useRef<AssistantSnapshot | null>(null)
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences()
   )
@@ -299,6 +320,7 @@ export function FloatingAssistantApp({
     null
   )
   const transcriptionQueueRef = useRef<VideoAudioTranscriptionQueueSnapshot>({ items: [] })
+  const workspaceRequestsEnabledRef = useRef(workspaceRequestsEnabled)
   const activeTab = controlledActiveTab ?? uncontrolledActiveTab
   const [activeView, setActiveView] = useState<AssistantWorkspaceView>(activeTab)
   const [organizeOldFavoritesRequestSignal, setOrganizeOldFavoritesRequestSignal] = useState(0)
@@ -313,8 +335,6 @@ export function FloatingAssistantApp({
 
   function setActiveTab(tab: AssistantWorkspaceTab, options?: { view?: AssistantWorkspaceView }) {
     setFeedback(null)
-    setCommentChooserOpen(false)
-    setAiCommentDrafts([])
     setActiveView(options?.view ?? tab)
     tellPet('success', TAB_HINTS[tab])
 
@@ -334,6 +354,12 @@ export function FloatingAssistantApp({
         return
       }
 
+      if (didActiveVideoChange(snapshotRef.current, nextSnapshot)) {
+        setCommentChooserOpen(false)
+        setAiCommentDrafts([])
+      }
+
+      snapshotRef.current = nextSnapshot
       setSnapshot(nextSnapshot)
       const snapshotPreferences = createInitialAssistantPreferences(nextSnapshot.preferences)
       const lastLocalPreferenceChangeAt = Math.max(
@@ -363,6 +389,7 @@ export function FloatingAssistantApp({
       }
 
       const fallback = createFallbackSnapshot()
+      snapshotRef.current = fallback
       setSnapshot(fallback)
       preferencesRef.current = fallback.preferences
       setPreferences(fallback.preferences)
@@ -385,6 +412,10 @@ export function FloatingAssistantApp({
   useEffect(() => {
     preferencesRef.current = preferences
   }, [preferences])
+
+  useEffect(() => {
+    workspaceRequestsEnabledRef.current = workspaceRequestsEnabled
+  }, [workspaceRequestsEnabled])
 
   useEffect(() => {
     mounted.current = true
@@ -750,11 +781,6 @@ export function FloatingAssistantApp({
       return
     }
 
-    if (commentChooserOpen) {
-      setCommentChooserOpen(false)
-      setAiCommentDrafts([])
-    }
-
     setFeedback(null)
 
     if (action === '赐') {
@@ -763,6 +789,7 @@ export function FloatingAssistantApp({
     }
 
     if (action === '表') {
+      setCommentChooserOpen(false)
       if (!hasCurrentVideo) {
         setFeedback({
           tone: 'error',
@@ -791,6 +818,10 @@ export function FloatingAssistantApp({
 
   useEffect(() => {
     return window.bilimiDesktop?.onOpenFloatingAssistantWorkspace?.((payload) => {
+      if (!workspaceRequestsEnabledRef.current) {
+        return
+      }
+
       if (payload.openNoteArchive) {
         void loadVideoNoteArchives()
         setActiveTab(payload.tab, { view: 'noteArchive' })
@@ -809,7 +840,7 @@ export function FloatingAssistantApp({
         }, 0)
       }
     })
-  })
+  }, [loadVideoNoteArchives, workspaceRequestsEnabled])
 
   async function generateVideoNote(manualTranscript?: string) {
     setVideoNoteLoading(true)

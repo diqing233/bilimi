@@ -957,7 +957,7 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
-  it('cancels open comment choices before running a different review action', async () => {
+  it('keeps open comment choices when running a different review action for the same video', async () => {
     const { runAssistantAction } = installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({ preferences: createPreferences({ commentSubmitMode: 'choose' }) })
@@ -971,7 +971,7 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /藏.*归入内库/ }))
 
-    expect(screen.queryByText('小咪拟好三条，主人点一条就发送。')).not.toBeInTheDocument()
+    expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
     await waitFor(() =>
       expect(runAssistantAction).toHaveBeenCalledWith(
         '藏',
@@ -980,6 +980,45 @@ describe('FloatingAssistantApp', () => {
         })
       )
     )
+  })
+
+  it('clears open comment choices when the active video changes', async () => {
+    let snapshotChanged: (() => void) | undefined
+    const requestAssistantSnapshot = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createSnapshot({ preferences: createPreferences({ commentSubmitMode: 'choose' }) })
+      )
+      .mockResolvedValueOnce(
+        createSnapshot({
+          preferences: createPreferences({ commentSubmitMode: 'choose' }),
+          videoContentContext: {
+            title: '新的机器学习视频',
+            author: '李老师讲AI',
+            pageText: '新视频内容'
+          },
+          videoTitle: '新的机器学习视频',
+          activeTabUrl: 'https://www.bilibili.com/video/BV2note'
+        })
+      )
+    installDesktopApi({
+      requestAssistantSnapshot,
+      onAssistantSnapshotChanged: vi.fn((callback) => {
+        snapshotChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /表.*拟奏短评/ }))
+    expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
+
+    await act(async () => {
+      snapshotChanged?.()
+    })
+
+    expect(screen.queryByText('小咪拟好三条，主人点一条就发送。')).not.toBeInTheDocument()
   })
 
   it('randomly sends one draft directly when 表 is configured to random mode', async () => {

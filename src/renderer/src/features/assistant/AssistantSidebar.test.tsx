@@ -137,10 +137,13 @@ describe('AssistantSidebar', () => {
     )
   })
 
-  it('expands and syncs to a pet workspace request while collapsed', async () => {
+  it('keeps the sidebar folded and preserves its previous tab for pet workspace requests', async () => {
     const api = installDesktopApi()
 
     render(<AssistantSidebar />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
+    expect(screen.getByRole('tab', { name: '札记' })).toHaveAttribute('aria-selected', 'true')
 
     fireEvent.click(await screen.findByRole('button', { name: '折叠侧边栏' }))
 
@@ -153,13 +156,16 @@ describe('AssistantSidebar', () => {
       api.openWorkspace({ tab: 'ledger', organizeOldFavorites: true })
     })
 
-    expect(await screen.findByRole('tab', { name: '掌库' })).toHaveAttribute(
-      'aria-selected',
-      'true'
-    )
     expect(screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })).toHaveAttribute(
       'data-collapsed',
-      'false'
+      'true'
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '展开侧边栏' }))
+
+    expect(await screen.findByRole('tab', { name: '札记' })).toHaveAttribute(
+      'aria-selected',
+      'true'
     )
   })
 

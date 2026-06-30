@@ -39,12 +39,6 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
     })
   }, [])
 
-  useEffect(() => {
-    return window.bilimiDesktop?.onOpenFloatingAssistantWorkspace?.(() => {
-      setCollapsed(false)
-    })
-  }, [])
-
   return (
     <aside
       className="assistant-sidebar"
@@ -80,6 +74,7 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
           onActiveTabChange={setActiveTab}
           onRequestCollapse={collapseSidebar}
           onOpenInTab={onOpenInTab}
+          workspaceRequestsEnabled={!collapsed}
         />
       </div>
     </aside>
