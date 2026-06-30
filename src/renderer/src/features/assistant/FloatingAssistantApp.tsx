@@ -148,11 +148,19 @@ const ACTION_SUCCESS_HINTS: Record<AssistantAction, string> = {
 }
 
 const ACTION_ERROR_HINTS: Record<AssistantAction, string> = {
-  赏: '主人，这次点赞归册没跑顺，小咪需要你看一眼提示。',
-  藏: '主人，收藏归册遇到问题了，小咪把原因放在面板里。',
-  赐: '主人，投币这一步卡住了，小咪把错误留给你看。',
-  表: '主人，短评流程没完成，小咪把问题同步出来了。',
-  阅: '主人，已阅登记失败了，小咪把细节放在提示里。'
+  赏: '点赞归册没完成，小咪这次没有拿到更具体的原因。',
+  藏: '收藏归册没完成，小咪这次没有拿到更具体的原因。',
+  赐: '投币没完成，小咪这次没有拿到更具体的原因。',
+  表: '短评流程没完成，小咪这次没有拿到更具体的原因。',
+  阅: '已阅登记没完成，小咪这次没有拿到更具体的原因。'
+}
+
+const ACTION_NO_VIDEO_ERROR_HINTS: Record<AssistantAction, string> = {
+  赏: '当前还没打开视频，小咪不能帮这条点喜欢。',
+  藏: '当前还没打开视频，小咪不能把这条归入 Bilimi。',
+  赐: '当前还没打开视频，小咪不能给这条投币。',
+  表: '当前还没打开视频，小咪不能帮这条拟短评。',
+  阅: '当前还没打开视频，小咪不能登记已阅。'
 }
 
 const TAB_HINTS: Record<AssistantWorkspaceTab, string> = {
@@ -202,6 +210,18 @@ function createPetHintMessage(message: string) {
   }
 
   return `主人，${trimmed}`
+}
+
+function createActionErrorHint(action: AssistantAction, result: AssistantAutomationResult) {
+  const message = result.message.trim()
+  const missingCurrentVideo = result.missingTargets.includes('current-video')
+  const messageSaysNoVideo = /未打开视频|暂无视频|打开一个视频|当前视频/.test(message)
+
+  if (missingCurrentVideo || messageSaysNoVideo) {
+    return ACTION_NO_VIDEO_ERROR_HINTS[action]
+  }
+
+  return message || ACTION_ERROR_HINTS[action]
 }
 
 function localizeDeepSeekStatusMessage(message: string): string {
@@ -707,7 +727,7 @@ export function FloatingAssistantApp({
       })
       tellPet(
         result.ok ? 'done' : 'error',
-        result.ok ? ACTION_SUCCESS_HINTS[action] : ACTION_ERROR_HINTS[action]
+        result.ok ? ACTION_SUCCESS_HINTS[action] : createActionErrorHint(action, result)
       )
       window.bilimiDesktop?.setAssistantPetState?.(result.ok ? 'done' : 'error')
     } catch (error) {

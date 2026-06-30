@@ -436,6 +436,44 @@ describe('FloatingAssistantApp', () => {
     expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'done')).toBe(true)
   })
 
+  it.each([
+    [/赏.*轻赏此条/, '主人，当前还没打开视频，小咪不能帮这条点喜欢。'],
+    [/藏.*归入内库/, '主人，当前还没打开视频，小咪不能把这条归入 Bilimi。'],
+    [/赐.*投币厚赏/, '主人，当前还没打开视频，小咪不能给这条投币。'],
+    [/表.*拟奏短评/, '主人，当前还没打开视频，小咪不能帮这条拟短评。']
+  ])('tells the concrete no-video reason through 小咪 for %s failures', async (buttonName, petHint) => {
+    const preferences = createPreferences({ commentSubmitMode: 'random' })
+    const setAssistantPetHint = vi.fn()
+    installDesktopApi({
+      setAssistantPetHint,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(createSnapshot({ preferences })),
+      runAssistantAction: vi.fn().mockResolvedValue({
+        ok: false,
+        steps: [],
+        missingTargets: ['current-video'],
+        message: '暂无视频，请先打开一个视频。'
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('button', { name: buttonName }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('暂无视频，请先打开一个视频。')
+    await waitFor(() =>
+      expect(
+        setAssistantPetHint.mock.calls.some(
+          ([hint]) => hint?.tone === 'error' && hint.message === petHint
+        )
+      ).toBe(true)
+    )
+    expect(
+      setAssistantPetHint.mock.calls.some(([hint]) =>
+        /看一眼提示|放在面板里|留给你看/.test(hint?.message ?? '')
+      )
+    ).toBe(false)
+  })
+
   it('shows the broad default ledger suggested by explicit page signals', async () => {
     const preferences = createPreferences()
     const runAssistantAction = vi.fn().mockResolvedValue(createResult('动作已完成。'))
