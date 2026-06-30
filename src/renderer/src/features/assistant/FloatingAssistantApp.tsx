@@ -1266,7 +1266,9 @@ export function FloatingAssistantApp({
             </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--archive">
               <legend>Bilimi 收藏策略</legend>
-              <p>说明：设置一个待分类视频最多可同时保存在几个 Bilimi 收藏夹。用户原收藏夹不会移动、删除，也不计入数量。</p>
+              <p>说明：设置一个待分类视频最多可同时保存在几个 Bilimi 收藏夹。</p>
+              <p>1. 用户原收藏夹不会移动、删除，也不计入数量。</p>
+              <p>2. 优先存入 Bilimi 中系统推荐生成和用户自定义创建的收藏夹。</p>
               <label>
                 <input
                   type="radio"
@@ -1276,7 +1278,7 @@ export function FloatingAssistantApp({
                     persistPreferencePatch({ favoriteArchiveMultiMode: 'off' })
                   }
                 />
-                <span>最多存入 1 个 Bilimi 收藏夹，优先存入生成和自定义创建的收藏夹</span>
+                <span>最多存入 1 个 Bilimi 收藏夹</span>
               </label>
               <label>
                 <input
@@ -1287,7 +1289,7 @@ export function FloatingAssistantApp({
                     persistPreferencePatch({ favoriteArchiveMultiMode: 'two' })
                   }
                 />
-                <span>最多存入 2 个 Bilimi 收藏夹，同一个视频可以存入一个默认分类和一个其他匹配的 Bilimi 收藏夹</span>
+                <span>最多存入 2 个 Bilimi 收藏夹</span>
               </label>
               <label>
                 <input
@@ -1298,7 +1300,7 @@ export function FloatingAssistantApp({
                     persistPreferencePatch({ favoriteArchiveMultiMode: 'three' })
                   }
                 />
-                <span>最多存入 3 个 Bilimi 收藏夹，同一个视频可以存入一个默认分类和两个其他匹配的 Bilimi 收藏夹</span>
+                <span>最多存入 3 个 Bilimi 收藏夹</span>
               </label>
             </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--review-actions">

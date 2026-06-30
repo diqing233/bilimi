@@ -3,27 +3,64 @@ import { describe, expect, it } from 'vitest'
 import { planFavoriteArchiveTargets } from './archivePlanning'
 
 describe('planFavoriteArchiveTargets', () => {
-  it('keeps default Bilimi ledgers mutually exclusive even when several default keywords match', () => {
+  it('allows multiple default Bilimi ledgers up to the configured archive limit', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
       ledger.id === 'game'
-        ? { ...ledger, bilibiliFolderId: 'game-folder' }
+        ? { ...ledger, keywords: ['game'], bilibiliFolderId: 'game-folder' }
         : ledger.id === 'music'
-          ? { ...ledger, bilibiliFolderId: 'music-folder' }
+          ? { ...ledger, keywords: ['music'], bilibiliFolderId: 'music-folder' }
           : ledger.id === 'movie-tv'
-            ? { ...ledger, bilibiliFolderId: 'movie-folder' }
+            ? { ...ledger, keywords: ['movie'], bilibiliFolderId: 'movie-folder' }
             : ledger
     )
 
     expect(
       planFavoriteArchiveTargets({
         context: {
-          title: 'genshin MV music',
-          tags: ['genshin', 'MV']
+          title: 'game music movie'
         },
         ledgers,
         multiArchiveMode: 'three'
       }).map((target) => target.ledgerId)
-    ).toEqual(['game'])
+    ).toEqual(['game', 'movie-tv', 'music'])
+  })
+
+  it('prioritizes generated and custom topics before matching default ledgers', () => {
+    const ledgers = [
+      ...createDefaultFavoriteLedgers().map((ledger) =>
+        ledger.id === 'game'
+          ? { ...ledger, keywords: ['game'], bilibiliFolderId: 'game-folder' }
+          : ledger.id === 'music'
+            ? { ...ledger, keywords: ['music'], bilibiliFolderId: 'music-folder' }
+            : ledger
+      ),
+      {
+        id: 'custom-genshin',
+        displayName: 'Bilimi·Genshin',
+        keywords: ['genshin'],
+        enabled: true,
+        priority: -30,
+        bilibiliFolderId: 'genshin-folder',
+        isDefault: false
+      },
+      {
+        id: 'custom-mihoyo',
+        displayName: 'Bilimi·Mihoyo',
+        keywords: ['mihoyo'],
+        enabled: true,
+        priority: -20,
+        bilibiliFolderId: 'mihoyo-folder',
+        isDefault: false
+      }
+    ]
+
+    expect(
+      planFavoriteArchiveTargets({
+        context: { title: 'genshin mihoyo game music' },
+        ledgers,
+        multiArchiveMode: 'three'
+      }).map((target) => target.ledgerId)
+    ).toEqual(['custom-genshin', 'custom-mihoyo', 'game'])
   })
 
   it('uses the strongest custom topic only when multi-archive is disabled', () => {
