@@ -60,15 +60,15 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('overflow: hidden;')
   })
 
-  it('uses a left boundary sidebar collapse control without reserving a rail column', () => {
+  it('anchors the sidebar collapse control near the window controls without reserving a rail column', () => {
     const sidebarStyles = styles.replace(/\r\n/g, '\n')
 
     expect(sidebarStyles).not.toContain('.assistant-sidebar__rail')
     expect(sidebarStyles).not.toContain('.assistant-sidebar {\n  width: 46px;')
     expect(sidebarStyles).toContain('grid-template-columns: minmax(0, 1fr);')
     expect(sidebarStyles).toContain('.assistant-sidebar[data-collapsed="true"] {\n  width: 0;')
-    expect(sidebarStyles).toContain('.assistant-sidebar__collapse-button {\n  position: absolute;\n  top: 12px;\n  left: -82px;')
-    expect(sidebarStyles).not.toContain('top: 5px;')
+    expect(sidebarStyles).toContain('.assistant-sidebar__collapse-button {\n  position: fixed;\n  top: 6px;\n  right: 150px;')
+    expect(sidebarStyles).not.toContain('left: -82px;')
     expect(sidebarStyles).toContain('min-width: 66px;\n  min-height: 32px;')
     expect(sidebarStyles).toContain('grid-template-columns: 24px auto;')
     expect(sidebarStyles).toContain('.assistant-sidebar-workspace .floating-assistant-tabs {')

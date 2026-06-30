@@ -33,6 +33,11 @@ export function createFloatingSealWindowOptions(
     backgroundColor: '#00000000',
     hasShadow: false,
     roundedCorners: false,
+    // Win11 DWM_SYSTEMBACKDROP_TYPE = DWMSBT_NONE：
+    // 显式禁用任何系统背景材质，避免 transparent+frameless 窗口失活时
+    // DWM 把隐藏的非客户区（标题栏几何）刷成不透明白条（Electron #39959 / #47946）。
+    // Win10 会忽略该字段，零副作用。
+    backgroundMaterial: 'none',
     webPreferences: {
       preload,
       contextIsolation: true,

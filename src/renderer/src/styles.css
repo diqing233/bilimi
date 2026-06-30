@@ -1240,10 +1240,10 @@ body[data-floating-window="true"],
   min-height: 0;
 }
 .assistant-sidebar__collapse-button {
-  position: absolute;
-  top: 12px;
-  left: -82px;
-  z-index: 3;
+  position: fixed;
+  top: 6px;
+  right: 150px;
+  z-index: 40;
   min-width: 66px;
   min-height: 32px;
   display: grid;
