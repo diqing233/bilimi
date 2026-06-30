@@ -76,7 +76,7 @@ describe('AssistantSidebar', () => {
     )
   })
 
-  it('uses the viewport collapse control without rendering a rail column', async () => {
+  it('uses the left boundary collapse control without rendering a rail column', async () => {
     installDesktopApi()
 
     render(<AssistantSidebar />)
@@ -208,13 +208,11 @@ describe('AssistantSidebar', () => {
       await act(async () => undefined)
       fireEvent.click(screen.getByRole('button', { name: '折叠侧边栏' }))
 
-      const callsAfterCollapse = api.setAssistantPetHint.mock.calls.length
-
       act(() => {
         vi.advanceTimersByTime(60_000)
       })
 
-      expect(api.setAssistantPetHint).toHaveBeenCalledTimes(callsAfterCollapse)
+      expect(api.setAssistantPetHint).toHaveBeenCalledTimes(1)
     } finally {
       vi.useRealTimers()
     }
