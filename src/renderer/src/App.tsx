@@ -540,6 +540,10 @@ export default function App() {
     )
   }
 
+  function refreshActiveTab() {
+    getCurrentActiveWebview()?.reload?.()
+  }
+
   async function readVideoContentContext(): Promise<VideoContentContext> {
     const currentActiveWebview = getCurrentActiveWebview()
     const activeTabSnapshot = getActiveTabSnapshot()
@@ -1282,35 +1286,49 @@ export default function App() {
   return (
     <div className="app-shell" data-tabs-visible="true">
       <div className="app-main">
-        <div className="browser-tabs" role="tablist" aria-label="网页标签">
-          {tabs.map((tab) => (
-            <div
-              key={tab.id}
-              className="browser-tabs__item"
-              data-selected={tab.id === activeTabId ? 'true' : 'false'}
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={tab.id === activeTabId}
-                className="browser-tabs__tab"
-                onClick={() => selectActiveTab(tab.id)}
+        <div className="browser-tabs">
+          <div className="browser-tabs__list" role="tablist" aria-label="网页标签">
+            {tabs.map((tab) => (
+              <div
+                key={tab.id}
+                className="browser-tabs__item"
+                data-selected={tab.id === activeTabId ? 'true' : 'false'}
               >
-                {tab.title}
-              </button>
-              {tab.id !== HOME_TAB_ID ? (
                 <button
                   type="button"
-                  className="browser-tabs__close"
-                  aria-label={`关闭 ${tab.title}`}
-                  title={`关闭 ${tab.title}`}
-                  onClick={() => closeInternalTab(tab.id)}
+                  role="tab"
+                  aria-selected={tab.id === activeTabId}
+                  className="browser-tabs__tab"
+                  onClick={() => selectActiveTab(tab.id)}
                 >
-                  ×
+                  {tab.title}
                 </button>
-              ) : null}
-            </div>
-          ))}
+                {tab.id !== HOME_TAB_ID ? (
+                  <button
+                    type="button"
+                    className="browser-tabs__close"
+                    aria-label={`关闭 ${tab.title}`}
+                    title={`关闭 ${tab.title}`}
+                    onClick={() => closeInternalTab(tab.id)}
+                  >
+                    ×
+                  </button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          <div className="browser-tabs__controls" aria-label="网页工具">
+            <button
+              type="button"
+              className="browser-tabs__refresh"
+              aria-label="刷新当前网页"
+              title="刷新当前网页"
+              onClick={refreshActiveTab}
+            >
+              <span aria-hidden="true">↻</span>
+            </button>
+            <span className="browser-tabs__collapse-slot" aria-hidden="true" />
+          </div>
         </div>
         <div className="browser-stack">
           {tabs.map((tab) => (
