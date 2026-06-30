@@ -540,19 +540,6 @@ export default function App() {
     )
   }
 
-  function refreshActiveTab() {
-    const currentActiveWebview = getCurrentActiveWebview()
-
-    if (currentActiveWebview?.reload) {
-      currentActiveWebview.reload()
-      return
-    }
-
-    if (currentActiveWebview?.executeJavaScript) {
-      void currentActiveWebview.executeJavaScript('window.location.reload()', true)
-    }
-  }
-
   async function readVideoContentContext(): Promise<VideoContentContext> {
     const currentActiveWebview = getCurrentActiveWebview()
     const activeTabSnapshot = getActiveTabSnapshot()
@@ -1344,7 +1331,7 @@ export default function App() {
           ))}
         </div>
       </div>
-      <AssistantSidebar onOpenInTab={openInternalTab} onRefreshActiveTab={refreshActiveTab} />
+      <AssistantSidebar onOpenInTab={openInternalTab} />
     </div>
   )
 }
