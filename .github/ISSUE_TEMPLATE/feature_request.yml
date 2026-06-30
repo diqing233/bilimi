@@ -1,0 +1,19 @@
+name: Feature request
+description: Suggest an improvement for bilimi
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow is hard or missing?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should bilimi do instead?
+    validations:
+      required: true
