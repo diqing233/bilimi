@@ -15,7 +15,8 @@
 .assistant-dialog__comment-list {
   display: grid;
   gap: 8px;
-  max-height: min(34vh, 220px);
+  max-height: min(28vh, 176px);
+  margin-bottom: 18px;
   overflow: auto;
 }
 .assistant-dialog__comment-row {
