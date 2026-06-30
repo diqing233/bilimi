@@ -8,7 +8,6 @@ import {
 } from './petInteractionLines'
 
 type AssistantSidebarTab = 'review' | 'notes' | 'ledger' | 'settings'
-const COLLAPSED_NUDGE_DELAY_MS = 60_000
 
 type AssistantSidebarProps = {
   onOpenInTab?: (url: string) => void
@@ -45,23 +44,6 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
       setCollapsed(false)
     })
   }, [])
-
-  useEffect(() => {
-    if (!collapsed) {
-      return
-    }
-
-    const timeout = window.setTimeout(() => {
-      window.bilimiDesktop?.setAssistantPetHint?.({
-        tone: 'hint',
-        message: '主人，小咪被折叠好久啦，回来点点我嘛。'
-      })
-    }, COLLAPSED_NUDGE_DELAY_MS)
-
-    return () => {
-      window.clearTimeout(timeout)
-    }
-  }, [collapsed])
 
   return (
     <aside

@@ -198,7 +198,7 @@ describe('AssistantSidebar', () => {
     })
   })
 
-  it('gets anxious when the sidebar stays collapsed for a while', async () => {
+  it('does not nudge when the sidebar stays collapsed for a while', async () => {
     vi.useFakeTimers()
     const api = installDesktopApi()
 
@@ -212,10 +212,7 @@ describe('AssistantSidebar', () => {
         vi.advanceTimersByTime(60_000)
       })
 
-      expect(api.setAssistantPetHint).toHaveBeenCalledWith({
-        tone: 'hint',
-        message: '主人，小咪被折叠好久啦，回来点点我嘛。'
-      })
+      expect(api.setAssistantPetHint).toHaveBeenCalledTimes(1)
     } finally {
       vi.useRealTimers()
     }
