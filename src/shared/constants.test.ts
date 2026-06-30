@@ -9,7 +9,7 @@ import {
 
 describe('shared constants', () => {
   it('keeps the core app constants stable', () => {
-    expect(APP_TITLE).toBe('Bilimi')
+    expect(APP_TITLE).toBe('bilimi')
     expect(BILIBILI_HOME_URL).toBe('https://www.bilibili.com')
     expect(BILIMI_SESSION_PARTITION).toBe('persist:bilimi')
     expect(BILIMI_FAVORITES_NAME).toBe('Bilimi 内库')

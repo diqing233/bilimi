@@ -3,7 +3,7 @@ import { APP_TITLE } from '../../src/shared/constants'
 
 export function getMainWindowIconPath(platform = process.platform): string {
   if (platform === 'win32') {
-    return resolve(__dirname, '../../electron/assets/bilimi.ico')
+    return resolve(__dirname, '../../build/icon.ico')
   }
 
   return resolve(

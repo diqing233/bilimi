@@ -5,7 +5,7 @@ type AppIdentityTarget = {
   setName: (name: string) => void
 }
 
-export const WINDOWS_APP_USER_MODEL_ID = 'com.bilimi.desktop'
+export const WINDOWS_APP_USER_MODEL_ID = 'cn.diqing.bilimi'
 
 export function configureAppIdentity(app: AppIdentityTarget) {
   app.setName(APP_TITLE)

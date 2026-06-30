@@ -582,7 +582,136 @@ Expected:
 
 ---
 
-### Task 7: GitHub Release Publication
+### Task 7: Whole-Repository Adversarial Release Review
+
+**Files:**
+- Review every tracked file that will be public
+- Review generated installer metadata under `C:\Users\diqing\bilimi\dist`
+- Review release documentation and GitHub metadata
+
+- [ ] **Step 1: Confirm exactly what would be public**
+
+Run:
+
+```powershell
+git status --short --branch
+git ls-files
+git ls-files --others --exclude-standard
+```
+
+Expected:
+- The working tree is clean except ignored generated artifacts.
+- Every tracked file is intended to be public.
+- No untracked public file is required for the release.
+
+- [ ] **Step 2: Run a broad secret and privacy scan**
+
+Run:
+
+```powershell
+rg -n --hidden --glob '!node_modules/**' --glob '!.git/**' --glob '!out/**' --glob '!dist/**' --glob '!build/**' "api[_-]?key|secret|token|cookie|authorization|DeepSeek|BILI|bili_jct|SESSDATA|DedeUserID|access[_-]?token|refresh[_-]?token|password|passwd|pwd|私钥|密钥|C:\\\\Users\\\\|AppData|localhost:[0-9]+|127\\.0\\.0\\.1:[0-9]+"
+```
+
+Expected:
+- No real secret, account credential, local user path, private endpoint, or local-only release assumption is exposed.
+- Test fixtures use fake values only.
+- Documentation tells users not to paste secrets into public issues.
+
+- [ ] **Step 3: Run an adversarial GitHub visitor review**
+
+Open these files as if you are a stranger deciding whether to trust the project:
+
+```powershell
+Get-Content C:\Users\diqing\bilimi\README.md
+Get-Content C:\Users\diqing\bilimi\LICENSE
+Get-Content C:\Users\diqing\bilimi\CHANGELOG.md
+Get-Content C:\Users\diqing\bilimi\SECURITY.md
+```
+
+Expected:
+- The app purpose is clear in the first screen of the README.
+- Install and build instructions are reproducible.
+- Risks around Bilibili automation, DeepSeek keys, cookies, unsigned installers, and account actions are stated honestly.
+- The license and security policy do not overpromise support.
+
+- [ ] **Step 4: Run an adversarial installer review**
+
+Inspect the generated release artifacts:
+
+```powershell
+Get-ChildItem C:\Users\diqing\bilimi\dist -Recurse | Select-Object FullName,Length,LastWriteTime
+Get-Item C:\Users\diqing\bilimi\dist\win-unpacked\bilimi.exe | Select-Object Name,Length,VersionInfo
+```
+
+Expected:
+- The installer is named with `bilimi` and version `0.1.0`.
+- The unpacked executable is `bilimi.exe`.
+- The executable and installer show the 小咪 avatar icon.
+- No debug-only file, source map leak, private cache, or unnecessary tool binary is present.
+
+- [ ] **Step 5: Run an adversarial Electron security review**
+
+Run:
+
+```powershell
+rg -n "nodeIntegration|contextIsolation|sandbox|webviewTag|preload|ipcRenderer|ipcMain|executeJavaScript|shell\\.openExternal|setPermissionRequestHandler|setWindowOpenHandler" C:\Users\diqing\bilimi\electron C:\Users\diqing\bilimi\src
+```
+
+Expected:
+- Any renderer API exposed through preload is explicit and narrow.
+- Any use of `executeJavaScript` is scoped to the embedded Bilibili workflow and does not pass user secrets to arbitrary pages.
+- External navigation and permission behavior are controlled.
+- Security trade-offs, such as `sandbox: false` or `webviewTag: true`, are intentional and documented if still present.
+
+- [ ] **Step 6: Run final automated checks**
+
+Run:
+
+```powershell
+npm audit --audit-level=high
+npm test
+npm run build
+npm run dist:win
+```
+
+Expected:
+- `npm audit --audit-level=high` reports `found 0 vulnerabilities`.
+- All tests pass.
+- Build passes.
+- Windows installer generation passes.
+
+- [ ] **Step 7: Record and fix all Critical or Important findings**
+
+For each finding, classify it:
+
+```text
+Critical: blocks public GitHub release.
+Important: must be fixed before tag and installer upload.
+Minor: can be documented or tracked after release.
+False positive: safe with written reasoning.
+```
+
+Expected:
+- No Critical or Important finding remains open.
+- Any Minor finding is listed in `CHANGELOG.md` or a GitHub issue before release.
+- Any false positive has a concrete technical reason.
+
+- [ ] **Step 8: Commit adversarial review fixes**
+
+Run only after review-related edits:
+
+```powershell
+git add C:\Users\diqing\bilimi
+git commit -m "chore: address adversarial release review"
+```
+
+Expected:
+- The commit includes only review fixes and documentation updates.
+- Generated installer files in `dist` are not committed.
+
+---
+
+### Task 8: GitHub Release Publication
 
 **Files:**
 - No source changes required if previous tasks are complete
@@ -657,6 +786,6 @@ Expected:
 
 ## Self-Review
 
-- Spec coverage: The plan covers repository hygiene, secret scanning, installer packaging, Electron safety review, public documentation, GitHub metadata, Windows QA, and release publication.
+- Spec coverage: The plan covers repository hygiene, secret scanning, installer packaging, Electron safety review, public documentation, GitHub metadata, Windows QA, whole-repository adversarial release review, and release publication.
 - Placeholder scan: The plan avoids unresolved placeholders and gives exact commands, files, and expected outcomes.
 - Type consistency: Script names are consistent: `build`, `dist`, and `dist:win`. Release version is consistently `0.1.0`.
