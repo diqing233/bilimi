@@ -269,7 +269,7 @@ body[data-floating-window="true"],
 }
 .browser-tabs__collapse-slot {
   width: 78px;
-  height: 32px;
+  height: 30px;
   pointer-events: none;
 }
 .browser-stack {
@@ -1285,11 +1285,11 @@ body[data-floating-window="true"],
 }
 .assistant-sidebar__collapse-button {
   position: absolute;
-  top: 12px;
+  top: 5px;
   left: -82px;
   z-index: 3;
   min-width: 66px;
-  min-height: 32px;
+  min-height: 30px;
   display: grid;
   grid-template-columns: 24px auto;
   align-items: center;
