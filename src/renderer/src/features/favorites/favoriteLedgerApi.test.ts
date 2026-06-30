@@ -12,7 +12,7 @@ import {
 function installCookies() {
   Object.defineProperty(document, 'cookie', {
     configurable: true,
-    value: 'bili_jct=csrf-token; DedeUserID=32922854'
+    value: 'bili_jct=csrf-token; DedeUserID=42'
   })
 }
 

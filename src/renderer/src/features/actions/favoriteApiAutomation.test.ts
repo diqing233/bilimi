@@ -5,7 +5,7 @@ import { buildFavoriteApiFallbackScript } from './favoriteApiAutomation'
 function installBilibiliPageState() {
   Object.defineProperty(document, 'cookie', {
     configurable: true,
-    value: 'bili_jct=csrf-token; DedeUserID=32922854'
+    value: 'bili_jct=csrf-token; DedeUserID=42'
   })
   Object.defineProperty(window, '__INITIAL_STATE__', {
     configurable: true,

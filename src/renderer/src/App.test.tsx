@@ -495,7 +495,7 @@ describe('App runtime integration', () => {
     }
     const executeJavaScript = vi.fn(async (script: string) => {
       if (script.includes('document.cookie')) {
-        return 'SESSDATA=ready'
+        return 'DedeUserID=42; bili_jct=csrf'
       }
 
       throw new Error('Bilibili operation should not run without a current video')
