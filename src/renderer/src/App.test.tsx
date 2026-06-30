@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import type { AssistantPreferences } from '@shared/types'
 import { describe, expect, it, vi } from 'vitest'
@@ -138,6 +138,19 @@ describe('App runtime integration', () => {
     expect(screen.getByRole('tab', { name: '首页' })).toHaveAttribute('aria-selected', 'true')
     expect(document.querySelector('.app-shell')).toHaveAttribute('data-tabs-visible', 'true')
     expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
+  })
+
+  it('refreshes the active browser webview from the fixed toolbar control', async () => {
+    renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      reload?: () => void
+    }
+    const reload = vi.fn()
+    Object.assign(webview, { reload })
+
+    fireEvent.click(screen.getByRole('button', { name: '刷新当前网页' }))
+
+    expect(reload).toHaveBeenCalledTimes(1)
   })
 
   it('returns a floating assistant snapshot from the active webview', async () => {

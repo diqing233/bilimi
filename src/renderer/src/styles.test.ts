@@ -60,6 +60,21 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('overflow: hidden;')
   })
 
+  it('keeps browser tabs scrolling left of fixed refresh and collapse controls', () => {
+    expect(normalizedStyles).toContain(
+      '.browser-tabs {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;'
+    )
+    expect(normalizedStyles).toContain(
+      '.browser-tabs__list {\n  min-width: 0;\n  display: flex;'
+    )
+    expect(normalizedStyles).toContain('overflow-x: auto;')
+    expect(normalizedStyles).toContain(
+      '.browser-tabs__controls {\n  display: grid;\n  grid-template-columns: 34px 78px;'
+    )
+    expect(normalizedStyles).toContain('border-left: 1px solid rgba(7, 26, 51, 0.24);')
+    expect(normalizedStyles).toContain('.browser-tabs__collapse-slot {\n  width: 78px;')
+  })
+
   it('uses a left boundary sidebar collapse control without reserving a rail column', () => {
     const sidebarStyles = styles.replace(/\r\n/g, '\n')
 

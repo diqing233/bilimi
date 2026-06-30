@@ -168,19 +168,40 @@ body[data-floating-window="true"],
   grid-template-rows: minmax(0, 1fr);
 }
 .browser-tabs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  padding: 5px 0 5px 10px;
+  border-bottom: 1px solid rgba(7, 26, 51, 0.26);
+  background: rgba(220, 238, 255, 0.94);
+}
+.browser-tabs__list {
+  min-width: 0;
   display: flex;
   gap: 4px;
   align-items: center;
   overflow-x: auto;
-  padding: 5px 10px;
-  border-bottom: 1px solid rgba(7, 26, 51, 0.26);
-  background: rgba(220, 238, 255, 0.94);
+  padding-right: 8px;
   scrollbar-width: thin;
+}
+.browser-tabs__controls {
+  display: grid;
+  grid-template-columns: 34px 78px;
+  gap: 8px;
+  align-items: center;
+  height: 100%;
+  padding: 0 0 0 8px;
+  border-left: 1px solid rgba(7, 26, 51, 0.24);
+  box-sizing: border-box;
 }
 .browser-tabs__item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+  flex: 0 0 auto;
+  width: clamp(112px, 16vw, 220px);
   min-width: 112px;
   max-width: 220px;
   height: 30px;
@@ -193,7 +214,8 @@ body[data-floating-window="true"],
   background: rgba(255, 254, 253, 0.92);
 }
 .browser-tabs__tab,
-.browser-tabs__close {
+.browser-tabs__close,
+.browser-tabs__refresh {
   border: none;
   background: transparent;
   color: rgba(24, 55, 95, 0.76);
@@ -227,6 +249,28 @@ body[data-floating-window="true"],
 .browser-tabs__close:hover {
   color: var(--porcelain-white);
   background: rgba(31, 99, 181, 0.12);
+}
+.browser-tabs__refresh {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid rgba(31, 99, 181, 0.18);
+  border-radius: 6px;
+  background: rgba(247, 251, 255, 0.76);
+  font-size: 17px;
+  line-height: 1;
+}
+.browser-tabs__refresh:hover,
+.browser-tabs__refresh:focus-visible {
+  color: var(--porcelain-deep);
+  background: rgba(255, 254, 253, 0.94);
+  border-color: rgba(31, 99, 181, 0.34);
+  outline: none;
+}
+.browser-tabs__collapse-slot {
+  width: 78px;
+  height: 32px;
+  pointer-events: none;
 }
 .browser-stack {
   position: relative;
