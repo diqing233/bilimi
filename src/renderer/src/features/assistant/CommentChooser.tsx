@@ -51,11 +51,7 @@ export function CommentChooser({ drafts, onSelect, onCancel }: CommentChooserPro
   }
 
   return (
-    <div
-      className="assistant-dialog assistant-dialog--comment-chooser"
-      role="dialog"
-      aria-label="小咪推荐评论"
-    >
+    <div className="assistant-dialog assistant-dialog--comment-chooser" role="dialog" aria-label="小咪推荐评论">
       <p>小咪拟好三条，主人点一条就发送。</p>
       <div className="assistant-dialog__comment-list" role="group" aria-label="评论候选">
         {drafts.map((draft, index) => (
@@ -80,7 +76,9 @@ export function CommentChooser({ drafts, onSelect, onCancel }: CommentChooserPro
           </div>
         ))}
       </div>
-      {copyStatus ? <p role="status">{copyStatus}</p> : null}
+      <p className="assistant-dialog__comment-status" role="status">
+        {copyStatus}
+      </p>
       <div className="assistant-dialog__comment-actions" role="group" aria-label="评论操作">
         <button
           type="button"

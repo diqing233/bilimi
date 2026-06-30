@@ -18,19 +18,44 @@
   overflow: auto;
 }
 .assistant-dialog__comment-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
-  align-items: stretch;
+  display: block;
+  border: 1px solid rgba(31, 99, 181, 0.22);
+  background: rgba(247, 251, 255, 0.62);
+  padding: 9px 10px;
 }
-.assistant-dialog__comment-choice {
-  width: 100%;
+.assistant-dialog .assistant-dialog__comment-choice {
+  display: inline;
+  width: auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--porcelain-text);
   line-height: 1.55;
+  padding: 0;
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.assistant-dialog__comment-copy {
-  flex: 0 0 auto;
+.assistant-dialog .assistant-dialog__comment-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  min-height: 22px;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  color: var(--porcelain-deep);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: baseline;
+}
+.assistant-dialog .assistant-dialog__comment-status {
+  margin: 0;
+  min-height: 20px;
+  color: var(--porcelain-muted);
+  font-size: 13px;
+  line-height: 1.45;
 }
 .assistant-dialog__comment-actions {
   display: flex;

@@ -68,14 +68,55 @@ describe('CommentChooser', () => {
     expect(screen.getByRole('status')).toHaveTextContent('已复制第 2 条评论。')
   })
 
+  it('keeps the copy status region mounted so the cancel action does not shift after copying', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText }
+    })
+    render(
+      <CommentChooser
+        drafts={['copyable draft one', 'copyable draft two', 'copyable draft three']}
+        onSelect={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    const status = screen.getByRole('status')
+    const actions = screen.getByRole('group', { name: '评论操作' })
+
+    expect(status).toHaveClass('assistant-dialog__comment-status')
+    expect(status.nextElementSibling).toBe(actions)
+
+    fireEvent.click(screen.getByRole('button', { name: '复制第 1 条评论' }))
+
+    await waitFor(() => expect(status).toHaveTextContent('已复制第 1 条评论。'))
+    expect(screen.getByRole('status')).toBe(status)
+    expect(status.nextElementSibling).toBe(actions)
+  })
+
+  it('places each copy control inline after its own comment text', () => {
+    render(
+      <CommentChooser
+        drafts={['copyable draft one', 'copyable draft two', 'copyable draft three']}
+        onSelect={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    const choice = screen.getByRole('button', { name: 'copyable draft two' })
+    const copy = screen.getByRole('button', { name: '复制第 2 条评论' })
+    const row = choice.closest('.assistant-dialog__comment-row')
+
+    expect(row).toContainElement(choice)
+    expect(row).toContainElement(copy)
+    expect(choice.compareDocumentPosition(copy) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('cancels from Escape before a draft is selected', () => {
     const onCancel = vi.fn()
     render(
-      <CommentChooser
-        drafts={['第一条', '第二条', '第三条']}
-        onSelect={vi.fn()}
-        onCancel={onCancel}
-      />
+      <CommentChooser drafts={['第一条', '第二条', '第三条']} onSelect={vi.fn()} onCancel={onCancel} />
     )
 
     fireEvent.keyDown(window, { key: 'Escape' })
