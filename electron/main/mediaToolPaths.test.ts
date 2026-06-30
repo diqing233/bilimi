@@ -7,15 +7,17 @@ describe('media tool paths', () => {
 
     expect(
       createMediaToolPaths({
-        appPath: 'C:/Users/diqing/bilimi',
+        appPath: 'C:/Projects/bilimi',
         isPackaged: false,
         platform: 'win32',
-        resourcesPath: 'C:/Users/diqing/bilimi/out',
+        resourcesPath: 'C:/Projects/bilimi/out',
         exists
       })
     ).toEqual({
-      ytdlpPath: 'C:/Users/diqing/bilimi/tools/win32/yt-dlp.exe',
-      ffmpegPath: 'C:/Users/diqing/bilimi/tools/win32/ffmpeg.exe'
+      ytdlpPath: 'C:/Projects/bilimi/tools/win32/yt-dlp.exe',
+      ffmpegPath: 'C:/Projects/bilimi/tools/win32/ffmpeg.exe',
+      whisperCliPath: 'C:/Projects/bilimi/tools/win32/whisper/whisper-cli.exe',
+      whisperModelPath: 'C:/Projects/bilimi/tools/win32/whisper/models/ggml-small.bin'
     })
   })
 
@@ -30,17 +32,19 @@ describe('media tool paths', () => {
       })
     ).toEqual({
       ytdlpPath: 'C:/Program Files/Bilimi/resources/tools/win32/yt-dlp.exe',
-      ffmpegPath: 'C:/Program Files/Bilimi/resources/tools/win32/ffmpeg.exe'
+      ffmpegPath: 'C:/Program Files/Bilimi/resources/tools/win32/ffmpeg.exe',
+      whisperCliPath: 'C:/Program Files/Bilimi/resources/tools/win32/whisper/whisper-cli.exe',
+      whisperModelPath: 'C:/Program Files/Bilimi/resources/tools/win32/whisper/models/ggml-small.bin'
     })
   })
 
   it('throws an actionable error when a tool is missing', () => {
     expect(() =>
       createMediaToolPaths({
-        appPath: 'C:/Users/diqing/bilimi',
+        appPath: 'C:/Projects/bilimi',
         isPackaged: false,
         platform: 'win32',
-        resourcesPath: 'C:/Users/diqing/bilimi/out',
+        resourcesPath: 'C:/Projects/bilimi/out',
         exists: () => false
       })
     ).toThrow('Bundled media tool is missing')
@@ -49,10 +53,10 @@ describe('media tool paths', () => {
   it('tells developers how to install missing media tools', () => {
     expect(() =>
       createMediaToolPaths({
-        appPath: 'C:/Users/diqing/bilimi',
+        appPath: 'C:/Projects/bilimi',
         isPackaged: false,
         platform: 'win32',
-        resourcesPath: 'C:/Users/diqing/bilimi/out',
+        resourcesPath: 'C:/Projects/bilimi/out',
         exists: () => false
       })
     ).toThrow('npm run setup:media-tools')
@@ -61,13 +65,25 @@ describe('media tool paths', () => {
   it('requires ffprobe beside ffmpeg because duration probing uses it', () => {
     expect(() =>
       createMediaToolPaths({
-        appPath: 'C:/Users/diqing/bilimi',
+        appPath: 'C:/Projects/bilimi',
         isPackaged: false,
         platform: 'win32',
-        resourcesPath: 'C:/Users/diqing/bilimi/out',
+        resourcesPath: 'C:/Projects/bilimi/out',
         exists: (path) => !path.endsWith('ffprobe.exe')
       })
     ).toThrow('ffprobe.exe')
+  })
+
+  it('requires bundled whisper.cpp runtime and model for offline transcription', () => {
+    expect(() =>
+      createMediaToolPaths({
+        appPath: 'C:/Projects/bilimi',
+        isPackaged: true,
+        platform: 'win32',
+        resourcesPath: 'C:/Program Files/Bilimi/resources',
+        exists: (path) => !path.endsWith('models/ggml-small.bin')
+      })
+    ).toThrow('ggml-small.bin')
   })
 
   it('uses the current Electron app paths in the default resolver', () => {

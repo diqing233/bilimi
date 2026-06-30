@@ -5,6 +5,8 @@ import { join } from 'node:path'
 export type MediaToolPaths = {
   ytdlpPath: string
   ffmpegPath: string
+  whisperCliPath: string
+  whisperModelPath: string
 }
 
 type MediaToolPathInput = {
@@ -23,6 +25,10 @@ function ffprobeName(platform: NodeJS.Platform): string {
   return platform === 'win32' ? 'ffprobe.exe' : 'ffprobe'
 }
 
+function whisperCliName(platform: NodeJS.Platform): string {
+  return platform === 'win32' ? 'whisper-cli.exe' : 'whisper-cli'
+}
+
 function normalizePath(path: string): string {
   return path.replace(/\\/g, '/')
 }
@@ -33,8 +39,10 @@ export function createMediaToolPaths(input: MediaToolPathInput): MediaToolPaths 
   const ytdlpPath = normalizePath(join(toolRoot, executableName('yt-dlp', input.platform)))
   const ffmpegPath = normalizePath(join(toolRoot, executableName('ffmpeg', input.platform)))
   const ffprobePath = normalizePath(join(toolRoot, ffprobeName(input.platform)))
+  const whisperCliPath = normalizePath(join(toolRoot, 'whisper', whisperCliName(input.platform)))
+  const whisperModelPath = normalizePath(join(toolRoot, 'whisper', 'models', 'ggml-small.bin'))
 
-  for (const path of [ytdlpPath, ffmpegPath, ffprobePath]) {
+  for (const path of [ytdlpPath, ffmpegPath, ffprobePath, whisperCliPath, whisperModelPath]) {
     if (!input.exists(path)) {
       const setupHint = input.isPackaged
         ? 'Reinstall Bilimi or rebuild the package with bundled media tools.'
@@ -44,7 +52,7 @@ export function createMediaToolPaths(input: MediaToolPathInput): MediaToolPaths 
     }
   }
 
-  return { ytdlpPath, ffmpegPath }
+  return { ytdlpPath, ffmpegPath, whisperCliPath, whisperModelPath }
 }
 
 export function resolveMediaToolPaths(): MediaToolPaths {

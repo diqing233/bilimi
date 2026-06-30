@@ -29,7 +29,7 @@ npm test
 npm run dist:win
 ```
 
-The installer is written to `dist/`. The packaged Windows app uses the 小咪 avatar as its icon and `bilimi` as the visible app name.
+The installer is written to `dist/`. The packaged Windows app uses the 小咪 avatar as its icon and `bilimi` as the visible app name. `npm run dist:win` also prepares the bundled Windows media and transcription runtime so end users do not need Node.js, Python, ffmpeg, yt-dlp, or command-line setup.
 
 ## Core Features
 
@@ -52,21 +52,23 @@ bilimi automates selected Bilibili page actions inside the desktop app. Bilibili
 
 DeepSeek support is optional. Users must configure their own API key before using DeepSeek-backed comment drafting, note summaries, or 小咪 chat. When DeepSeek is disabled or no key is configured, bilimi should keep local features available and show a clear disabled-state message.
 
-## Audio Transcription Prerequisites
+## Audio Transcription Runtime
 
-Local audio transcription requires Python and `faster-whisper`:
+Windows installers include the local audio transcription runtime:
 
-```bash
-python -m pip install faster-whisper
-```
+- `yt-dlp.exe`
+- `ffmpeg.exe`
+- `ffprobe.exe`
+- `whisper.cpp`
+- `ggml-small.bin`
 
-The app also needs `yt-dlp`, `ffmpeg`, and `ffprobe`. For Windows development checkouts, install local media tools with:
+For Windows development checkouts, install the same local tools with:
 
 ```bash
 npm run setup:media-tools
 ```
 
-Optionally set `BILIMI_PYTHON_PATH` when bilimi should use a specific Python executable.
+The setup script downloads pinned Windows x64 binaries and verifies the bundled transcription model checksum.
 
 ## Security
 

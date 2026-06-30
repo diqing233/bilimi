@@ -1,40 +1,68 @@
-import { createWriteStream } from 'node:fs'
-import { copyFile, mkdir, readdir, rm } from 'node:fs/promises'
+import { createReadStream, createWriteStream } from 'node:fs'
+import { copyFile, mkdir, readdir, rm, stat } from 'node:fs/promises'
 import { spawn } from 'node:child_process'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import { createHash } from 'node:crypto'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const projectRoot = join(__dirname, '..')
 const platform = process.platform
 const toolDir = join(projectRoot, 'tools', platform)
+const whisperDir = join(toolDir, 'whisper')
+const whisperModelDir = join(whisperDir, 'models')
 
 const downloads = {
   win32: [
     {
       name: 'yt-dlp.exe',
-      url: 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe',
+      url: 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.06.09/yt-dlp.exe',
       target: join(toolDir, 'yt-dlp.exe')
     },
     {
       name: 'ffmpeg and ffprobe',
-      url: 'https://github.com/BtbN/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip',
+      url: 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-06-30-13-34/ffmpeg-N-125365-g9a01c1cb6a-win64-gpl.zip',
       extract: [
         { pattern: /\/bin\/ffmpeg\.exe$/, target: join(toolDir, 'ffmpeg.exe') },
         { pattern: /\/bin\/ffprobe\.exe$/, target: join(toolDir, 'ffprobe.exe') }
       ]
+    },
+    {
+      name: 'whisper.cpp v1.9.1',
+      url: 'https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.1/whisper-bin-x64.zip',
+      extract: [
+        { pattern: /\/whisper-cli\.exe$/, target: join(whisperDir, 'whisper-cli.exe') },
+        { pattern: /\/(?:whisper|ggml(?:-.+)?|SDL2)\.dll$/, targetDir: whisperDir }
+      ]
+    },
+    {
+      name: 'ggml-small.bin',
+      url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin',
+      target: join(whisperModelDir, 'ggml-small.bin'),
+      sha1: '55356645c2b361a969dfd0ef2c5a50d530afd8d5'
     }
   ]
 }
 
-async function downloadFile({ name, url, target }) {
+async function downloadFile({ name, url, target, force = false }) {
+  if (!force && (await isReusableFile(target))) {
+    console.log(`Using existing ${name}.`)
+    return
+  }
+
   console.log(`Downloading ${name}...`)
+  await mkdir(dirname(target), { recursive: true })
   await downloadUrlToFile(url, target)
 }
 
 async function downloadAndExtract({ name, url, extract }) {
+  if (await isReusableExtract(extract)) {
+    console.log(`Using existing ${name}.`)
+    return
+  }
+
   console.log(`Downloading ${name}...`)
   const zipPath = join(toolDir, 'download.zip')
   const extractDir = join(toolDir, 'download')
@@ -46,19 +74,30 @@ async function downloadAndExtract({ name, url, extract }) {
   await expandArchive(zipPath, extractDir)
 
   const files = await listFiles(extractDir)
-  const pending = new Map(extract.map((entry) => [entry.pattern, entry]))
+  for (const entry of extract) {
+    if ('target' in entry) {
+      await mkdir(dirname(entry.target), { recursive: true })
+    } else {
+      await mkdir(entry.targetDir, { recursive: true })
+    }
+  }
+
+  const pending = new Map(extract.filter((entry) => 'target' in entry).map((entry) => [entry.pattern, entry]))
 
   for (const file of files) {
     const normalizedFile = file.replace(/\\/g, '/')
-    const match = [...pending.keys()].find((pattern) => pattern.test(normalizedFile))
+    const entry = extract.find((candidate) => candidate.pattern.test(normalizedFile))
 
-    if (!match) {
+    if (!entry) {
       continue
     }
 
-    const entry = pending.get(match)
-    pending.delete(match)
-    await copyFile(file, entry.target)
+    if ('target' in entry) {
+      pending.delete(entry.pattern)
+      await copyFile(file, entry.target)
+    } else {
+      await copyFile(file, join(entry.targetDir, basename(file)))
+    }
   }
 
   await rm(zipPath, { force: true })
@@ -66,6 +105,48 @@ async function downloadAndExtract({ name, url, extract }) {
 
   if (pending.size > 0) {
     throw new Error(`Failed to extract ${[...pending.values()].map((entry) => entry.target).join(', ')}`)
+  }
+}
+
+async function isReusableFile(path) {
+  try {
+    const stats = await stat(path)
+    return stats.isFile() && stats.size > 0
+  } catch {
+    return false
+  }
+}
+
+async function isReusableDirectory(path) {
+  try {
+    const entries = await readdir(path)
+    return entries.length > 0
+  } catch {
+    return false
+  }
+}
+
+async function isReusableExtract(extract) {
+  for (const entry of extract) {
+    if ('target' in entry) {
+      if (!(await isReusableFile(entry.target))) {
+        return false
+      }
+    } else if (!(await isReusableDirectory(entry.targetDir))) {
+      return false
+    }
+  }
+
+  return true
+}
+
+async function verifySha1(path, expectedSha1) {
+  const hash = createHash('sha1')
+  await pipeline(createReadStream(path), hash)
+  const actualSha1 = hash.digest('hex')
+
+  if (actualSha1 !== expectedSha1) {
+    throw new Error(`${path} SHA1 mismatch: expected ${expectedSha1}, got ${actualSha1}`)
   }
 }
 
@@ -195,7 +276,22 @@ async function main() {
     if ('extract' in item) {
       await downloadAndExtract(item)
     } else {
-      await downloadFile(item)
+      if (item.sha1) {
+        if (await isReusableFile(item.target)) {
+          try {
+            await verifySha1(item.target, item.sha1)
+            console.log(`Using existing ${item.name}.`)
+            continue
+          } catch {
+            await rm(item.target, { force: true })
+          }
+        }
+
+        await downloadFile({ ...item, force: true })
+        await verifySha1(item.target, item.sha1)
+      } else {
+        await downloadFile(item)
+      }
     }
   }
 
@@ -207,7 +303,8 @@ async function verifyInstalledTools() {
   const checks = [
     { command: join(toolDir, 'yt-dlp.exe'), args: ['--version'] },
     { command: join(toolDir, 'ffmpeg.exe'), args: ['-version'] },
-    { command: join(toolDir, 'ffprobe.exe'), args: ['-version'] }
+    { command: join(toolDir, 'ffprobe.exe'), args: ['-version'] },
+    { command: join(whisperDir, 'whisper-cli.exe'), args: ['--version'] }
   ]
 
   for (const check of checks) {
