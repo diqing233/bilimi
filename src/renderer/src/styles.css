@@ -8,8 +8,9 @@
   white-space: normal;
 }
 .assistant-dialog--comment-chooser {
+  position: relative;
   max-height: min(52vh, 360px);
-  padding: 12px;
+  padding: 12px 12px 56px;
 }
 .assistant-dialog__comment-list {
   display: grid;
@@ -58,6 +59,9 @@
   line-height: 1.45;
 }
 .assistant-dialog__comment-actions {
+  position: absolute;
+  right: 20px;
+  bottom: 16px;
   display: flex;
   justify-content: flex-end;
 }
