@@ -45,11 +45,11 @@ In the recommended category grid, clicking a category name only selects it for e
 
 `整理旧藏` scans existing non-Bilimi favorite folders, shows a preview, and appends only checked items into Bilimi folders after `确认整理`. It does not move, delete, or unfavorite items from the user's original folders.
 
-Bilimi archive planning is shared by old-favorite organization and new review actions. User-created and Bilimi-generated topic folders take priority when their keywords match. The eight recommended category folders are allowed to fill remaining target slots, but the total still follows the selected limit so default categories cannot grow without bounds. `Bilimi·暂存` remains a fallback for videos without a clear target. The settings panel provides a `Bilimi 收藏策略` option. It controls how many Bilimi favorite folders a pending video can be saved into at the same time; original Bilibili favorite folders are never moved, deleted, or counted toward this limit:
+Bilimi archive planning is shared by old-favorite organization and new review actions. User-created and Bilimi-generated topic folders take priority when their keywords match. The eight recommended category folders are allowed to fill remaining target slots, but the total still follows the selected limit so default categories cannot grow without bounds. `Bilimi·暂存` remains a fallback for videos without a clear target. The settings panel provides a `Bilimi 收藏策略` option. It controls how many suitable Bilimi favorite folders a pending video can be saved to at the same time; original Bilibili favorite folders are never moved, deleted, or counted toward this limit:
 
-- `最多同时存入 1 个 Bilimi 收藏夹`: save to the strongest matching Bilimi target.
-- `最多同时存入 2 个 Bilimi 收藏夹`: save to the two strongest matching Bilimi targets.
-- `最多同时存入 3 个 Bilimi 收藏夹`: save to the three strongest matching Bilimi targets.
+- `最多同时保存到 1 个 Bilimi 收藏夹`: save to the strongest matching Bilimi target.
+- `最多同时保存到 2 个 Bilimi 收藏夹`: save to the two strongest matching Bilimi targets.
+- `最多同时保存到 3 个 Bilimi 收藏夹`: save to the three strongest matching Bilimi targets.
 
 ## Assistant Actions
 

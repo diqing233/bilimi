@@ -383,21 +383,21 @@ describe('FloatingAssistantApp', () => {
 
     expect(screen.getByText('Bilimi 收藏策略')).toBeInTheDocument()
     expect(
-      screen.getByText('说明：设置一个待分类视频最多可同时保存在几个 Bilimi 收藏夹。')
+      screen.getByText('说明：设置一个待分类视频最多可同时保存到几个合适的 Bilimi 收藏夹。')
     ).toBeInTheDocument()
-    expect(screen.getByText('1. 用户原收藏夹不会移动、删除，也不计入数量。')).toBeInTheDocument()
+    expect(screen.getByText('1. 用户原收藏夹不会被移动或删除，也不计入数量。')).toBeInTheDocument()
     expect(
-      screen.getByText('2. 优先存入 Bilimi 中系统推荐生成和用户自定义创建的收藏夹。')
+      screen.getByText('2. 优先保存到 Bilimi 中系统推荐生成和用户自定义创建的收藏夹。')
     ).toBeInTheDocument()
     expect(screen.queryByText('旧收藏夹不会移动、删除，也不计入数量。')).not.toBeInTheDocument()
     expect(
-      screen.getByText('最多同时存入 1 个 Bilimi 收藏夹')
+      screen.getByText('最多同时保存到 1 个 Bilimi 收藏夹')
     ).toBeInTheDocument()
     expect(
-      screen.getByText('最多同时存入 2 个 Bilimi 收藏夹')
+      screen.getByText('最多同时保存到 2 个 Bilimi 收藏夹')
     ).toBeInTheDocument()
     expect(
-      screen.getByText('最多同时存入 3 个 Bilimi 收藏夹')
+      screen.getByText('最多同时保存到 3 个 Bilimi 收藏夹')
     ).toBeInTheDocument()
   })
 
