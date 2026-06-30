@@ -53,12 +53,7 @@ import type {
   AssistantSnapshot
 } from './features/assistant/assistantRuntimeTypes'
 import { AssistantSidebar } from './features/assistant/AssistantSidebar'
-import {
-  PET_COLLAPSE_FAREWELL_LINES,
-  PET_EXPAND_GREETING_LINE,
-  PET_VIDEO_OPENING_LINES,
-  pickPetLine
-} from './features/assistant/petInteractionLines'
+import { PET_VIDEO_OPENING_LINES, pickPetLine } from './features/assistant/petInteractionLines'
 import { composeMemorialComments } from './features/comments/commentComposer'
 
 const HOME_TAB_ID = 'home'
@@ -119,33 +114,6 @@ function isBilibiliVideoUrl(url?: string): boolean {
 function pickRandomCommentDraft(drafts: string[]) {
   const index = Math.min(drafts.length - 1, Math.floor(Math.random() * drafts.length))
   return drafts[index] ?? ''
-}
-
-function RefreshIcon() {
-  return (
-    <svg
-      className="browser-titlebar__icon"
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      focusable="false"
-    >
-      <path d="M17.7 6.3A7.8 7.8 0 0 0 4.4 11H2.5l2.8 3 2.8-3H6.2a6 6 0 1 1 1.7 4.2l-1.2 1.2a7.8 7.8 0 1 0 11-11z" />
-    </svg>
-  )
-}
-
-function SidebarTitlebarIcon() {
-  return (
-    <svg
-      className="browser-titlebar__icon"
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      focusable="false"
-    >
-      <rect x="4" y="5" width="16" height="14" rx="2" />
-      <path d="M10 5v14" />
-    </svg>
-  )
 }
 
 type TrustedPlayerActivationResult = AssistantAutomationResult & {
@@ -302,7 +270,6 @@ export default function App() {
   const lastPetVideoKey = useRef<string | undefined>(undefined)
   const petHiddenForVideoFullscreen = useRef(false)
   const videoFullscreenPetCloseTimer = useRef<number | null>(null)
-  const [assistantSidebarCollapsed, setAssistantSidebarCollapsed] = useState(false)
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences()
   )
@@ -571,35 +538,6 @@ export default function App() {
       webviewRefs.current[activeTabId] ??
       (document.querySelector('webview[data-active="true"]') as Electron.WebviewTag | null)
     )
-  }
-
-  function refreshActiveBrowserTab() {
-    getCurrentActiveWebview()?.reload?.()
-  }
-
-  function collapseAssistantSidebar() {
-    window.bilimiDesktop?.setAssistantPetHint?.({
-      tone: 'sleepy',
-      message: pickPetLine(PET_COLLAPSE_FAREWELL_LINES)
-    })
-    setAssistantSidebarCollapsed(true)
-  }
-
-  function expandAssistantSidebar() {
-    setAssistantSidebarCollapsed(false)
-    window.bilimiDesktop?.setAssistantPetHint?.({
-      tone: 'hint',
-      message: PET_EXPAND_GREETING_LINE
-    })
-  }
-
-  function toggleAssistantSidebar() {
-    if (assistantSidebarCollapsed) {
-      expandAssistantSidebar()
-      return
-    }
-
-    collapseAssistantSidebar()
   }
 
   async function readVideoContentContext(): Promise<VideoContentContext> {
@@ -1343,7 +1281,7 @@ export default function App() {
 
   return (
     <div className="app-shell" data-tabs-visible="true">
-      <div className="browser-titlebar">
+      <div className="app-main">
         <div className="browser-tabs" role="tablist" aria-label="网页标签">
           {tabs.map((tab) => (
             <div
@@ -1374,29 +1312,6 @@ export default function App() {
             </div>
           ))}
         </div>
-        <div className="browser-titlebar__controls" aria-label="浏览器控制">
-          <button
-            type="button"
-            className="browser-titlebar__button browser-titlebar__refresh"
-            aria-label="刷新当前页面"
-            title="刷新当前页面"
-            onClick={refreshActiveBrowserTab}
-          >
-            <RefreshIcon />
-          </button>
-          <button
-            type="button"
-            className="browser-titlebar__button browser-titlebar__sidebar-toggle"
-            aria-label={assistantSidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
-            title={assistantSidebarCollapsed ? '展开侧边栏' : '折叠侧边栏'}
-            aria-pressed={assistantSidebarCollapsed ? 'false' : 'true'}
-            onClick={toggleAssistantSidebar}
-          >
-            <SidebarTitlebarIcon />
-          </button>
-        </div>
-      </div>
-      <div className="app-main">
         <div className="browser-stack">
           {tabs.map((tab) => (
             <BiliWebview
@@ -1416,12 +1331,7 @@ export default function App() {
           ))}
         </div>
       </div>
-      <AssistantSidebar
-        collapsed={assistantSidebarCollapsed}
-        onCollapsedChange={setAssistantSidebarCollapsed}
-        onOpenInTab={openInternalTab}
-        showCollapseButton={false}
-      />
+      <AssistantSidebar onOpenInTab={openInternalTab} />
     </div>
   )
 }

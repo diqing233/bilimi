@@ -22,12 +22,6 @@ export function createMainWindowOptions(preload: string): Electron.BrowserWindow
     icon: getMainWindowIconPath(),
     show: true,
     frame: true,
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#071a33',
-      symbolColor: '#dceeff',
-      height: 42
-    },
     autoHideMenuBar: true,
     skipTaskbar: false,
     backgroundColor: '#1f140f',

@@ -155,7 +155,6 @@ body[data-floating-window="true"],
   height: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: 42px minmax(0, 1fr);
   background: var(--porcelain-edge);
   overflow: hidden;
 }
@@ -163,75 +162,20 @@ body[data-floating-window="true"],
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-column: 1;
-  grid-row: 2;
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: 42px minmax(0, 1fr);
 }
 .app-shell[data-tabs-visible="false"] .app-main {
   grid-template-rows: minmax(0, 1fr);
-}
-.browser-titlebar {
-  grid-column: 1 / -1;
-  grid-row: 1;
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: stretch;
-  gap: 6px;
-  padding: 5px 140px 5px 10px;
-  border-bottom: 1px solid rgba(7, 26, 51, 0.26);
-  background: rgba(220, 238, 255, 0.94);
-  -webkit-app-region: drag;
 }
 .browser-tabs {
   display: flex;
   gap: 4px;
   align-items: center;
-  min-width: 0;
   overflow-x: auto;
+  padding: 5px 10px;
+  border-bottom: 1px solid rgba(7, 26, 51, 0.26);
+  background: rgba(220, 238, 255, 0.94);
   scrollbar-width: thin;
-  -webkit-app-region: no-drag;
-}
-.browser-titlebar__controls {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  -webkit-app-region: no-drag;
-}
-.browser-titlebar__button {
-  width: 32px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: transparent;
-  color: rgba(24, 55, 95, 0.76);
-  cursor: pointer;
-}
-.browser-titlebar__button:hover,
-.browser-titlebar__button:focus-visible {
-  border-color: rgba(31, 99, 181, 0.2);
-  background: rgba(247, 251, 255, 0.68);
-  color: var(--porcelain-deep);
-  outline: none;
-}
-.browser-titlebar__button:active {
-  background: rgba(116, 199, 223, 0.24);
-}
-.browser-titlebar__icon {
-  width: 18px;
-  height: 18px;
-  display: block;
-  fill: currentColor;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.browser-titlebar__sidebar-toggle .browser-titlebar__icon {
-  fill: none;
 }
 .browser-tabs__item {
   display: grid;
@@ -1276,8 +1220,6 @@ body[data-floating-window="true"],
 }
 .assistant-sidebar {
   position: relative;
-  grid-column: 2;
-  grid-row: 2;
   width: 384px;
   min-width: 384px;
   height: 100%;
