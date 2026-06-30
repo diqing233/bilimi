@@ -1466,23 +1466,41 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByText('「三分钟讲清机器学习科普教程」已开始转写。')).toBeInTheDocument()
   })
 
-  it('keeps audio transcription quiet when no video is available', async () => {
+  it('shows a no-video alert and pet hint when audio transcription has no video', async () => {
     const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(null)
     const enqueueCurrentVideoAudioTranscription = vi.fn().mockResolvedValue(null)
     const setAssistantPetHint = vi.fn()
-    installDesktopApi({ generateVideoNoteFromAudio, enqueueCurrentVideoAudioTranscription, setAssistantPetHint })
+    installDesktopApi({
+      generateVideoNoteFromAudio,
+      enqueueCurrentVideoAudioTranscription,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          videoTitle: '首页',
+          videoContentContext: {
+            title: '首页',
+            pageText: '推荐、番剧、直播和游戏中心'
+          },
+          activeTabUrl: 'https://www.bilibili.com/'
+        })
+      ),
+      setAssistantPetHint
+    })
 
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
 
-    await waitFor(() => expect(enqueueCurrentVideoAudioTranscription).toHaveBeenCalledOnce())
+    expect(enqueueCurrentVideoAudioTranscription).not.toHaveBeenCalled()
     expect(generateVideoNoteFromAudio).not.toHaveBeenCalled()
-    expect(screen.queryByText(/打开视频/)).not.toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent('未打开视频')
     expect(
-      setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'error')
-    ).toBe(false)
+      setAssistantPetHint.mock.calls.some(
+        ([hint]) =>
+          hint?.tone === 'error' &&
+          hint.message === '主人，未打开视频，小咪等主人打开视频页再转写音频。'
+      )
+    ).toBe(true)
   })
 
   it('generates notes from audio and shows transcription progress', async () => {

@@ -864,6 +864,17 @@ export function FloatingAssistantApp({
       return null
     }
 
+    if (!hasCurrentVideo) {
+      setFeedback({
+        tone: 'error',
+        message: '未打开视频',
+        steps: [],
+        missingTargets: ['current-video']
+      })
+      tellPet('error', '未打开视频，小咪等主人打开视频页再转写音频。')
+      return null
+    }
+
     tellPet('progress', '已加入转写队列，小咪会按顺序处理。')
     const nextQueue = await window.bilimiDesktop.enqueueCurrentVideoAudioTranscription?.(options)
 
