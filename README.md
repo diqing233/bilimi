@@ -47,9 +47,9 @@ In the recommended category grid, clicking a category name only selects it for e
 
 Bilimi archive planning is shared by old-favorite organization and new review actions. User-created and Bilimi-generated topic folders take priority when their keywords match. The eight recommended category folders are allowed to fill remaining target slots, but the total still follows the selected limit so default categories cannot grow without bounds. `Bilimi·暂存` remains a fallback for videos without a clear target. The settings panel provides a `Bilimi 收藏策略` option. It controls how many Bilimi favorite folders a pending video can be saved into at the same time; original Bilibili favorite folders are never moved, deleted, or counted toward this limit:
 
-- `最多存入 1 个 Bilimi 收藏夹`: save to the strongest matching Bilimi target.
-- `最多存入 2 个 Bilimi 收藏夹`: save to the two strongest matching Bilimi targets.
-- `最多存入 3 个 Bilimi 收藏夹`: save to the three strongest matching Bilimi targets.
+- `最多同时存入 1 个 Bilimi 收藏夹`: save to the strongest matching Bilimi target.
+- `最多同时存入 2 个 Bilimi 收藏夹`: save to the two strongest matching Bilimi targets.
+- `最多同时存入 3 个 Bilimi 收藏夹`: save to the three strongest matching Bilimi targets.
 
 ## Assistant Actions
 

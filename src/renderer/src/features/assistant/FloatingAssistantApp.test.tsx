@@ -391,13 +391,13 @@ describe('FloatingAssistantApp', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText('旧收藏夹不会移动、删除，也不计入数量。')).not.toBeInTheDocument()
     expect(
-      screen.getByText('最多存入 1 个 Bilimi 收藏夹')
+      screen.getByText('最多同时存入 1 个 Bilimi 收藏夹')
     ).toBeInTheDocument()
     expect(
-      screen.getByText('最多存入 2 个 Bilimi 收藏夹')
+      screen.getByText('最多同时存入 2 个 Bilimi 收藏夹')
     ).toBeInTheDocument()
     expect(
-      screen.getByText('最多存入 3 个 Bilimi 收藏夹')
+      screen.getByText('最多同时存入 3 个 Bilimi 收藏夹')
     ).toBeInTheDocument()
   })
 

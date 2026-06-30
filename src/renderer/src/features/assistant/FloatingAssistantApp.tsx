@@ -1278,7 +1278,7 @@ export function FloatingAssistantApp({
                     persistPreferencePatch({ favoriteArchiveMultiMode: 'off' })
                   }
                 />
-                <span>最多存入 1 个 Bilimi 收藏夹</span>
+                <span>最多同时存入 1 个 Bilimi 收藏夹</span>
               </label>
               <label>
                 <input
@@ -1289,7 +1289,7 @@ export function FloatingAssistantApp({
                     persistPreferencePatch({ favoriteArchiveMultiMode: 'two' })
                   }
                 />
-                <span>最多存入 2 个 Bilimi 收藏夹</span>
+                <span>最多同时存入 2 个 Bilimi 收藏夹</span>
               </label>
               <label>
                 <input
@@ -1300,7 +1300,7 @@ export function FloatingAssistantApp({
                     persistPreferencePatch({ favoriteArchiveMultiMode: 'three' })
                   }
                 />
-                <span>最多存入 3 个 Bilimi 收藏夹</span>
+                <span>最多同时存入 3 个 Bilimi 收藏夹</span>
               </label>
             </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--review-actions">

@@ -2924,6 +2924,12 @@ body[data-floating-window="true"],
   gap: 8px;
   min-height: 32px;
 }
+.assistant-settings__group--archive {
+  gap: 6px;
+}
+.assistant-settings__group--archive p {
+  margin: 0;
+}
 .assistant-settings__hover-shortcuts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

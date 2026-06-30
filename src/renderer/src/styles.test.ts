@@ -362,6 +362,11 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('background: var(--porcelain-surface);')
   })
 
+  it('keeps archive strategy help text compact', () => {
+    expectStyleSnippet('.assistant-settings__group--archive { gap: 6px;')
+    expectStyleSnippet('.assistant-settings__group--archive p { margin: 0;')
+  })
+
   it('keeps the pet shortcut heading the same font size as pet settings', () => {
     expect(normalizedStyles).toContain('.assistant-settings__group legend {\n  color: var(--porcelain-text);')
     expect(normalizedStyles).not.toContain(
