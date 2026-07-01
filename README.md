@@ -1,60 +1,104 @@
 # bilimi
 
-bilimi is an Electron + React desktop app for browsing Bilibili with a local assistant sidebar and the 小咪 desktop companion. It helps classify videos into local favorite ledgers, run lightweight Bilibili page actions, and create timestamped video notes.
+bilimi 是一个面向 Bilibili 使用场景的 Windows 桌面应用。它基于 Electron + React 构建，把内置 B站浏览器、右侧助手工作区、收藏夹整理、视频笔记、本地音频转写和小咪桌面伴随入口放在同一个应用里。
 
-## Install
+当前公开版本是 `0.1.0`，Windows x64 用户可以直接下载安装包使用。
 
-Download the latest Windows installer from GitHub Releases and run:
+## 下载与安装
+
+前往 GitHub Release 下载最新版 Windows 安装包：
+
+[下载 bilimi 0.1.0](https://github.com/diqing233/bilimi/releases/download/v0.1.0/bilimi.Setup.0.1.0.exe)
+
+安装包名称：
 
 ```text
-bilimi Setup 0.1.0.exe
+bilimi.Setup.0.1.0.exe
 ```
 
-The current Windows installer is unsigned. Windows may show a warning before installation.
+安装后，应用名称显示为 `bilimi`，应用图标为小咪头像。
 
-## Development
+### 安装提示
 
-```bash
-npm install
-npm run dev
-npm test
-npm run build
-```
+当前安装包还没有代码签名，Windows 可能会显示“未知发布者”或 SmartScreen 风险提示。如果你确认安装包来自本仓库 Release 页面，可以在提示中选择“更多信息”后继续运行。
 
-## Package For Windows
+## 适合谁使用
 
-```bash
-npm install
-npm test
-npm run dist:win
-```
+bilimi 适合经常在 B站看视频、收藏视频、整理资料、做视频笔记，或者希望把视频内容沉淀为本地资料的人。
 
-The installer is written to `dist/`. The packaged Windows app uses the 小咪 avatar as its icon and `bilimi` as the visible app name. `npm run dist:win` also prepares the bundled Windows media and transcription runtime so end users do not need Node.js, Python, ffmpeg, yt-dlp, or command-line setup.
+它更像一个本地桌面助手，而不是替代 B站网页本身。你仍然在应用内登录并浏览 B站，bilimi 会在旁边提供整理、批阅、笔记和小咪入口。
 
-## Core Features
+## 主要功能
 
-- Embedded Bilibili browser with an assistant sidebar.
-- 小咪 desktop companion window for quick actions and assistant entry.
-- Bilibili favorite-ledger organization using Bilimi-prefixed folders.
-- Review actions for like, coin, favorite, and short comment drafts.
-- Video notes from pasted transcript text or local audio transcription.
-- Optional DeepSeek-backed comment, summary, and 小咪 chat features.
+### 内置 B站浏览器
 
-## Privacy And Credentials
+- 在桌面应用内打开 Bilibili。
+- 保留多标签浏览体验。
+- B站链接会尽量在应用内部打开，减少跳出到外部浏览器。
+- 右侧助手会跟随当前视频刷新上下文。
 
-bilimi stores local preferences on the user's machine. DeepSeek API keys are saved through the Electron main process and are not exposed as renderer state. Bilibili login state, cookies, CSRF tokens, account IDs, and API keys must never be committed to this repository or pasted into public issue reports.
+### 助手侧边栏
 
-## Automation Limits
+右侧助手工作区包含多个常用区域：
 
-bilimi automates selected Bilibili page actions inside the desktop app. Bilibili UI changes, login state, network failures, account restrictions, or browser permission changes can cause automation to fail. Users should review actions before relying on them for important account changes.
+- `批阅`：对当前视频执行点赞、投币、收藏、短评草稿等动作。
+- `札记`：为当前视频创建笔记、生成转写文本、保存视频资料。
+- `掌库`：管理 bilimi 使用的 B站收藏夹体系。
+- `设置`：配置小咪、DeepSeek、收藏策略和其他偏好。
 
-## DeepSeek Features
+### 小咪桌面伴随入口
 
-DeepSeek support is optional. Users must configure their own API key before using DeepSeek-backed comment drafting, note summaries, or 小咪 chat. When DeepSeek is disabled or no key is configured, bilimi should keep local features available and show a clear disabled-state message.
+bilimi 包含小咪桌面伴随窗口，用来提供更轻量的入口：
 
-## Audio Transcription Runtime
+- 点击小咪可唤起或聚焦主窗口。
+- 小咪可以显示状态反馈，例如工作中、提示、错误等。
+- 小咪快捷入口可以触发常用动作，例如批阅、打开助手、转写音频等。
+- 设置中可以控制小咪显示、样式和快捷入口。
 
-Windows installers include the local audio transcription runtime:
+### 收藏夹整理
+
+bilimi 会使用带有 `Bilimi` 前缀的收藏夹来组织视频资料，尽量不破坏用户原有收藏夹。
+
+主要能力：
+
+- 创建和同步推荐分类收藏夹。
+- 把视频按主题加入 bilimi 收藏体系。
+- 整理旧收藏时，先生成预览，再由用户确认。
+- 不会主动删除、移动或取消收藏用户原有收藏夹里的视频。
+- 对无法稳定判断分类的视频，可以放入暂存收藏夹。
+
+### 批阅动作
+
+在当前 B站视频页中，bilimi 可以辅助执行轻量页面动作：
+
+- 点赞
+- 投币
+- 收藏
+- 生成短评草稿
+- 发送弹幕或评论相关草稿
+
+这些动作依赖 B站页面状态、登录状态、账号权限和页面结构。执行重要账号操作前，建议用户自行确认页面结果。
+
+### 视频笔记
+
+视频笔记用于把当前视频沉淀为可复制、可归档的本地文本资料。
+
+支持来源：
+
+- 手动粘贴字幕或转写文本。
+- 从当前视频音频生成本地转写。
+- 结合当前视频标题、作者、链接、BV 号等信息生成笔记上下文。
+
+笔记可以用于：
+
+- 保存视频摘要。
+- 保存分段转写内容。
+- 复制笔记文本。
+- 后续结合 DeepSeek 生成更结构化的总结。
+
+### 本地音频转写
+
+Windows 安装包已经内置本地转写运行时：
 
 - `yt-dlp.exe`
 - `ffmpeg.exe`
@@ -62,18 +106,122 @@ Windows installers include the local audio transcription runtime:
 - `whisper.cpp`
 - `ggml-small.bin`
 
-For Windows development checkouts, install the same local tools with:
+普通用户不需要额外安装：
+
+- Node.js
+- Python
+- faster-whisper
+- ffmpeg
+- yt-dlp
+- 命令行工具
+
+用户只需要安装 bilimi，就可以使用本地音频转写能力。
+
+需要注意的是，音频下载依赖 B站页面、登录状态、网络和 `yt-dlp` 对 B站规则的支持。如果 B站页面或接口变化，音频下载功能可能需要后续更新。
+
+### DeepSeek 可选能力
+
+DeepSeek 是可选功能。用户需要自行提供 API key 后才能使用。
+
+启用后可用于：
+
+- 生成短评草稿。
+- 辅助视频笔记总结。
+- 与小咪进行简单对话。
+- 改善部分文本生成和归纳体验。
+
+如果没有配置 DeepSeek API key，bilimi 的本地浏览、收藏整理、手动笔记、本地转写等功能仍然可以使用。
+
+## 隐私与凭据
+
+bilimi 会把偏好设置保存在用户本机。
+
+重要说明：
+
+- DeepSeek API key 通过 Electron 主进程保存，不暴露为普通渲染层状态。
+- B站登录状态、cookie、CSRF token、账号 ID、API key 等敏感信息不应该提交到仓库。
+- 公开 issue 中不要粘贴账号凭据、cookie、API key 或完整本地路径。
+- 如果发现凭据泄露或账号安全问题，请按 `SECURITY.md` 中的方式私下反馈。
+
+## 自动化限制
+
+bilimi 的部分能力需要自动化 B站页面或调用 B站相关接口，因此无法承诺永远成功。
+
+可能导致失败的因素包括：
+
+- B站页面结构变化。
+- 用户未登录或登录状态过期。
+- 网络异常。
+- 账号权限限制。
+- B站风控或接口策略变化。
+- 当前视频不支持对应操作。
+- `yt-dlp` 暂时不支持新的 B站解析规则。
+
+设计目标是：某个外部依赖失败时，只影响对应功能，不影响应用整体启动和其他本地能力。
+
+## 开发
+
+安装依赖：
+
+```bash
+npm install
+```
+
+启动开发环境：
+
+```bash
+npm run dev
+```
+
+运行测试：
+
+```bash
+npm test
+```
+
+构建应用：
+
+```bash
+npm run build
+```
+
+## Windows 打包
+
+打包 Windows 安装器：
+
+```bash
+npm install
+npm test
+npm run dist:win
+```
+
+安装器会输出到：
+
+```text
+dist/
+```
+
+`npm run dist:win` 会自动准备 Windows x64 的媒体工具和本地转写运行时，并把它们打进安装包。
+
+开发环境也可以单独准备媒体工具：
 
 ```bash
 npm run setup:media-tools
 ```
 
-The setup script downloads pinned Windows x64 binaries and verifies the bundled transcription model checksum.
+该脚本会下载固定版本的 Windows x64 工具，并校验 `ggml-small.bin` 模型文件。
 
-## Security
+## 已知事项
 
-Please do not open public issues for secrets, credential leaks, or account-safety problems. See `SECURITY.md` for reporting guidance.
+- 当前 Windows 安装包未签名，可能触发 SmartScreen 提示。
+- 当前首发安装包体积较大，因为内置了本地转写运行时和模型。
+- DeepSeek 功能需要用户自己的 API key。
+- B站相关自动化可能随 B站页面或接口变化而失效。
 
-## License
+## 安全反馈
 
-Copyright is retained by the project owner. See `LICENSE`.
+安全问题请不要直接发公开 issue。请参考 [SECURITY.md](SECURITY.md) 中的说明反馈。
+
+## 许可证
+
+版权由项目所有者保留。详见 [LICENSE](LICENSE)。
