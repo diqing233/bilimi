@@ -6,10 +6,7 @@ export function getMainWindowIconPath(platform = process.platform): string {
     return resolve(__dirname, '../../build/icon.ico')
   }
 
-  return resolve(
-    __dirname,
-    '../../src/renderer/src/assets/pet/blue-white-maid/character/big-head/idle.png'
-  )
+  return resolve(__dirname, '../../electron/assets/bilimi-avatar.png')
 }
 
 export function createMainWindowOptions(preload: string): Electron.BrowserWindowConstructorOptions {

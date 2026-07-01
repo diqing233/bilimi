@@ -18,7 +18,7 @@ describe('createMainWindowOptions', () => {
       skipTaskbar: false
     })
     expect(String(options.icon)).toMatch(
-      /src[\\/]renderer[\\/]src[\\/]assets[\\/]pet[\\/]blue-white-maid[\\/]character[\\/]big-head[\\/]idle\.png$|build[\\/]icon\.ico$/
+      /electron[\\/]assets[\\/]bilimi-avatar\.png$|build[\\/]icon\.ico$/
     )
   })
 
@@ -33,5 +33,11 @@ describe('createMainWindowOptions', () => {
     const iconPath = getMainWindowIconPath('win32')
 
     expect(iconPath).toMatch(/build[\\/]icon\.ico$/)
+  })
+
+  it('uses the generated square avatar on non-Windows platforms', () => {
+    const iconPath = getMainWindowIconPath('linux')
+
+    expect(iconPath).toMatch(/electron[\\/]assets[\\/]bilimi-avatar\.png$/)
   })
 })

@@ -9,6 +9,7 @@
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
+    "generate:app-icon": "node scripts/generate-app-icon.mjs",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "setup:media-tools": "node scripts/setup-media-tools.mjs",
