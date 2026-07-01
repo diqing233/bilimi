@@ -52,6 +52,7 @@ import {
   createFloatingVisualBounds
 } from './floatingSealGeometry'
 import { createPreloadScriptPath } from './preloadPath'
+import { createRendererFilePath } from './rendererPath'
 import { transcribeCurrentVideoAudio } from './videoTranscriptionService'
 import { createVideoTranscriptionQueue } from './videoTranscriptionQueue'
 import { DeepSeekServiceError, generateDeepSeekResult } from './deepseekService'
@@ -139,7 +140,7 @@ function loadRendererWindow(win: BrowserWindow, query: Record<string, string> = 
     rendererUrl.search = search
     void win.loadURL(rendererUrl.toString())
   } else {
-    void win.loadFile(join(__dirname, '../../renderer/index.html'), {
+    void win.loadFile(createRendererFilePath(__dirname), {
       search
     })
   }
