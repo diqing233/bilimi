@@ -307,14 +307,27 @@ body[data-floating-window="true"],
 .browser-stack {
   position: relative;
   min-height: 0;
+  overflow: hidden;
   background: var(--porcelain-edge);
 }
 .browser-surface {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+.browser-surface[data-active="true"] {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
 }
 .browser-surface--hidden {
-  display: none;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
 }
 .assistant-overlay {
   position: absolute;

@@ -75,6 +75,14 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.browser-tabs__collapse-slot {\n  width: 78px;')
   })
 
+  it('keeps inactive browser webviews composited so switching tabs repaints correctly', () => {
+    expectStyleSnippet('.browser-stack { position: relative; min-height: 0;')
+    expectStyleSnippet('.browser-surface { position: absolute; inset: 0; width: 100%; height: 100%;')
+    expectStyleSnippet('.browser-surface[data-active="true"] { visibility: visible; opacity: 1; pointer-events: auto;')
+    expectStyleSnippet('.browser-surface--hidden { visibility: hidden; opacity: 0; pointer-events: none;')
+    expect(normalizedStyles).not.toContain('.browser-surface--hidden {\n  display: none;')
+  })
+
   it('uses a left boundary sidebar collapse control without reserving a rail column', () => {
     const sidebarStyles = styles.replace(/\r\n/g, '\n')
 
