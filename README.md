@@ -1,6 +1,16 @@
-# Bilimi
+# bilimi
 
-Bilimi is an Electron + React desktop app for browsing Bilibili with a local assistant sidebar. It helps classify videos into local ledgers, automate lightweight Bilibili actions, and create timestamped video notes.
+bilimi is an Electron + React desktop app for browsing Bilibili with a local assistant sidebar and the 小咪 desktop companion. It helps classify videos into local favorite ledgers, run lightweight Bilibili page actions, and create timestamped video notes.
+
+## Install
+
+Download the latest Windows installer from GitHub Releases and run:
+
+```text
+bilimi Setup 0.1.0.exe
+```
+
+The current Windows installer is unsigned. Windows may show a warning before installation.
 
 ## Development
 
@@ -11,114 +21,59 @@ npm test
 npm run build
 ```
 
-## Assistant Sidebar
-
-The main Bilimi window keeps native window controls but hides the default Electron application menu bar. It uses a two-column layout: the embedded Bilibili browser on the left and the Bilimi assistant sidebar on the right. The sidebar opens on `批阅` by default, with `札记`, `掌库`, and `设置` available as tabs inside the same workspace.
-
-The default main window width is sized for the embedded browser plus assistant sidebar: the initial window keeps at least 1360px of browser space beside the roughly 430px sidebar.
-
-The workspace tabs use 小咪 pet icons and keep each tab label horizontal. In sidebar mode the four tabs divide the available tab row evenly.
-
-Collapsing the sidebar removes the sidebar column instead of leaving a vertical rail. A small floating boundary button labeled `折叠` or `展开` stays on the browser/sidebar edge, keeps its left-boundary position, and is sized to fit inside the blue browser tab strip.
-
-Each browser tab keeps its own URL and page title. The assistant snapshot always follows the active tab, so switching videos refreshes the right-side `批阅` and `札记` context without allowing background tabs to overwrite the current workspace. Snapshot refresh signals are broadcast to both the in-window sidebar and the floating assistant window.
-
-The embedded Bilibili page captures Bilibili HTTPS links into Bilimi's internal browser tabs. Direct anchors and explicit video card shells may open a new in-app tab, but broad feed containers and native interactive controls such as buttons, inputs, and menu items remain owned by the Bilibili page so refresh controls do not become accidental tab-open triggers.
-
-When the floating desktop pet restores or focuses the main window, the sidebar also expands if it was collapsed.
-
-## Floating Surfaces
-
-Bilimi starts a transparent 小咪 desktop pet window beside the main app. The transparent host window stays at the fixed 336x380 stage size; resize controls adjust the character inside that stage rather than resizing the Electron window shell. Clicking the pet restores or focuses the main window, right-clicking it opens quick actions for `对话宠物` and `关闭宠物`, and hover controls can resize the pet character or reveal up to four user-selected round shortcut buttons in a left-side fan. Holding the left mouse button by itself does not resize or animate the pet; dragging only starts after pointer movement crosses the drag threshold, and a long stationary press suppresses the follow-up click restore. The pet window can also be woken or closed from assistant settings.
-
-The floating entry uses the same assistant workspace as the sidebar. It can run review actions, open video notes, manage favorite ledgers, and request the active main-window webview through the Electron bridge.
-
-## Favorite Ledgers
-
-The `掌库` tab manages Bilimi-prefixed Bilibili favorite folders. Recommended category folders are defined in `src/shared/favoriteLedgers.ts` and use eight broad stable IDs: `knowledge`, `game`, `movie-tv`, `creative-aesthetic`, `life-interest`, `music`, `entertainment`, and `inbox`.
-
-The stable `inbox` ledger is named `Bilimi·暂存`. It is a real Bilibili favorite folder used as a safe landing place for new favorites that cannot be classified confidently.
-
-Old-favorite organization shows unresolved videos in a top `待分类` section inside the current `归档预览`. Pending items are scoped to that scan round: users can open the video for manual sorting, explicitly add it to `Bilimi·暂存`, or run another judgment pass; anything still pending is discarded when the round ends.
-
-In the recommended category grid, clicking a category name only selects it for editing. The adjacent `+` or `✓` button directly adds or removes that folder from sync without a confirmation dialog. A dashed `+` shortcut appears after the recommended category folders and focuses the new custom-ledger form.
-
-`整理旧藏` scans existing non-Bilimi favorite folders, shows a preview, and appends only checked items into Bilimi folders after `确认整理`. It does not move, delete, or unfavorite items from the user's original folders.
-
-Bilimi archive planning is shared by old-favorite organization and new review actions. User-created and Bilimi-generated topic folders take priority when their keywords match. The eight recommended category folders are allowed to fill remaining target slots, but the total still follows the selected limit so default categories cannot grow without bounds. `Bilimi·暂存` remains a fallback for videos without a clear target. The settings panel provides a `Bilimi 收藏策略` option. It controls how many suitable Bilimi favorite folders a pending video can be saved to at the same time; original Bilibili favorite folders are never moved, deleted, or counted toward this limit:
-
-- `最多同时保存到 1 个 Bilimi 收藏夹`: save to the strongest matching Bilimi target.
-- `最多同时保存到 2 个 Bilimi 收藏夹`: save to the two strongest matching Bilimi targets.
-- `最多同时保存到 3 个 Bilimi 收藏夹`: save to the three strongest matching Bilimi targets.
-
-## Assistant Actions
-
-`批阅` actions run in the active Bilibili webview. Likes, coins, favorites, and danmaku sends first use page automation through the embedded page context. Favorite actions then have two modes:
-
-- Default mode may use the Bilibili favorite API as a confirmation or fallback layer. API usage is visible in automation steps such as `api:favorite:list`, `api:favorite:add`, or `api:favorite:create-folder`.
-- `仅页面点击` disables the favorite API path. If page automation succeeds, Bilimi returns that result directly. If page automation fails because a favorite target is missing, Bilimi opens the favorite dialog with the Bilibili `e` shortcut and finishes through visual text recognition plus webview input events.
-
-In `仅页面点击` mode, logs that only contain steps such as `favorite:open`, `favorite:folder`, `favorite`, and `visual:favorite:*` did not use the favorite API.
-
-When API confirmation is enabled, favorite confirmation can append the current video to every planned Bilimi target in one safe `resource/deal` request with `del_media_ids` left empty. In page-click-only mode, Bilimi keeps the page/visual flow focused on the primary target.
-
-For the `表` action, DeepSeek-enabled sessions generate three video-aware short drafts directly from the current video title, author, description, tags, and local classification. After the user selects one candidate, Bilimi copies the draft, clicks the player to give Bilibili shortcut focus, presses `Enter` to open the danmaku input, pastes the selected draft, then presses `Enter` to send. It no longer falls back to the lower comment area.
-
-## DeepSeek Assistant Features
-
-Assistant settings include a DeepSeek group for the AI-backed features used by review comments, video note summaries, and 小咪 pet chat. The API key is saved through the Electron main process and is not exposed to renderer state; normal preferences only store whether a key is present, whether DeepSeek is enabled, the model, and the base URL.
-
-DeepSeek old-favorite assistance is limited to generating and improving topic-folder candidates. It can suggest names, keywords, and reasons, but final archive targets still come from local Bilimi archive planning rules.
-
-The DeepSeek settings surface uses Chinese labels and provides `保存 DeepSeek`, `测试 DeepSeek`, and `重置 DeepSeek` actions in one row. Test feedback is localized to Chinese, and reset clears the key draft, disables DeepSeek, and restores the default model `deepseek-v4-flash` plus base URL `https://api.deepseek.com`.
-
-The settings also include a `致谢 云枢智元` block with the copy `大模型 Token 中转，低至官方价 2 折起` and the official link `官网：https://yunshulink.com/`. It lists `deepseek-v4-pro` and `https://api.yunshulink.com/v1`, each with a small porcelain-blue `复制` button aligned with the row text.
-
-## Desktop Pet
-
-Bilimi includes a small transparent Electron desktop pet window rendered by `PalaceMaidPetApp` and `LayeredPetRenderer`. The pet is a lightweight 2D blue-white porcelain chibi maid with transparent PNG character states plus small effect layers.
-
-The assistant persona is 小咪: `我是 bilimi，主人可以叫我小咪~`. The app icon, floating seal, sidebar collapse button, workspace tabs, and review actions reuse the blue-white maid pet assets for a consistent identity.
-
-Assistant settings expose two pet styles: `big-head` for the compact big-head Q-version sprites and `classic` for the clearer full-body reset sprites. Pet style and the pet hover shortcut list are persisted with the other assistant preferences and broadcast after saving so the main window, floating assistant, and desktop pet stay in sync without restarting. The default hover shortcuts are `赏`, `赐`, `咪`, and `转`; settings let the user choose from `赏藏赐表咪转库备整`, cap the visible list at four buttons, allow clearing all shortcuts, and show selected shortcuts with their current order number instead of a checkbox tick. The `咪` shortcut opens the full floating assistant window, while `表` keeps the short-review meaning and opens the main assistant sidebar when selected from the desktop pet.
-
-The pet supports `idle`, `hint`, `working`, and `error` status feedback, can be dragged, and restores or focuses the main Bilimi window when clicked. Dragging suppresses the follow-up click reaction. Right-clicking the pet shows compact pill quick actions for `对话宠物` and `关闭宠物`; the quick actions disappear when the pet window loses focus. `对话宠物` opens the top prompt bubble chat, and `关闭宠物` closes the pet window. Assistant settings also expose `唤醒宠物` and `关闭宠物` buttons for explicit pet window control.
-
-The top prompt bubble can expand into a short 小咪 chat form. Messages are kept in memory only for the active pet session and are sent through the same main-process DeepSeek bridge as review comments and note posters. If DeepSeek is not enabled or no key is stored, 小咪 shows `主人，想要跟小咪交流的话去设置开启DeepSeek支持吧` instead of sending a request.
-
-The pet is intentionally companion-only: it does not add platform trays, teapots, cups, or other props.
-
-## Video Notes
-
-The assistant can create notes from:
-
-- Current-video audio transcription with local `faster-whisper`.
-- Manually pasted transcript text.
-
-Video note generation reads the current Bilibili video metadata for title, BV ID, URL, and archive context, then downloads the current video audio and transcribes it locally. Manually pasted transcript text remains available as a fallback and does not download audio.
-
-When local audio transcription is available, the note page exposes `转写音频` and `档案库` as the primary actions. Without an existing note, the page still uses the flat A layout: current video details, generation/archive actions, disabled result entries, and a pasted-transcript fallback. Generated notes include plain transcript, timed transcript, and `DeepSeek 总结` result tabs. The summary tab shows the local note summary by default and can ask DeepSeek for a richer structured Chinese summary when DeepSeek is enabled. A generated DeepSeek summary is cached for the current note `id` and `updatedAt`, so reopening the tab reuses the existing result instead of generating again.
-
-Generated audio notes are also saved into the global video note archive. The archive stores one entry per video, merges by BV ID before falling back to URL, keeps every transcription as a version, and supports searching by title, author, BV ID, transcript, and summary. The archive panel provides dual-pane history browsing, version switching, copyable plain transcripts, copyable summaries, source opening, and deletion confirmation.
-
-The archive detail pane is intentionally wider than the video list pane. Long titles, transcript text, and summaries should wrap inside the visible detail pane without introducing horizontal scrolling.
-
-## Audio Transcription Prerequisites
-
-- Install Python and `faster-whisper` before running local transcription:
+## Package For Windows
 
 ```bash
-python -m pip install faster-whisper
+npm install
+npm test
+npm run dist:win
 ```
 
-- Optional: set `BILIMI_PYTHON_PATH` when Bilimi should use a specific Python executable.
-- Local transcription defaults to CPU with `int8` compute, so CUDA is not required.
-- Provide bundled media tools before running transcription. The app needs `yt-dlp`, `ffmpeg`, and `ffprobe`. See [tools/README.md](tools/README.md).
-  On Windows development checkouts, install them with:
+The installer is written to `dist/`. The packaged Windows app uses the 小咪 avatar as its icon and `bilimi` as the visible app name. `npm run dist:win` also prepares the bundled Windows media and transcription runtime so end users do not need Node.js, Python, ffmpeg, yt-dlp, or command-line setup.
+
+## Core Features
+
+- Embedded Bilibili browser with an assistant sidebar.
+- 小咪 desktop companion window for quick actions and assistant entry.
+- Bilibili favorite-ledger organization using Bilimi-prefixed folders.
+- Review actions for like, coin, favorite, and short comment drafts.
+- Video notes from pasted transcript text or local audio transcription.
+- Optional DeepSeek-backed comment, summary, and 小咪 chat features.
+
+## Privacy And Credentials
+
+bilimi stores local preferences on the user's machine. DeepSeek API keys are saved through the Electron main process and are not exposed as renderer state. Bilibili login state, cookies, CSRF tokens, account IDs, and API keys must never be committed to this repository or pasted into public issue reports.
+
+## Automation Limits
+
+bilimi automates selected Bilibili page actions inside the desktop app. Bilibili UI changes, login state, network failures, account restrictions, or browser permission changes can cause automation to fail. Users should review actions before relying on them for important account changes.
+
+## DeepSeek Features
+
+DeepSeek support is optional. Users must configure their own API key before using DeepSeek-backed comment drafting, note summaries, or 小咪 chat. When DeepSeek is disabled or no key is configured, bilimi should keep local features available and show a clear disabled-state message.
+
+## Audio Transcription Runtime
+
+Windows installers include the local audio transcription runtime:
+
+- `yt-dlp.exe`
+- `ffmpeg.exe`
+- `ffprobe.exe`
+- `whisper.cpp`
+- `ggml-small.bin`
+
+For Windows development checkouts, install the same local tools with:
 
 ```bash
 npm run setup:media-tools
 ```
 
-- Restart Bilimi after changing main-process code or installing local transcription prerequisites.
-- The app uses the current Bilibili session only for the user-started transcription job and removes temporary job files after completion or failure.
+The setup script downloads pinned Windows x64 binaries and verifies the bundled transcription model checksum.
+
+## Security
+
+Please do not open public issues for secrets, credential leaks, or account-safety problems. See `SECURITY.md` for reporting guidance.
+
+## License
+
+Copyright is retained by the project owner. See `LICENSE`.

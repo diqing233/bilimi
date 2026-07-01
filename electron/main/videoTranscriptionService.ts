@@ -11,7 +11,7 @@ import { downloadVideoAudio } from './audioDownload'
 import { segmentAudioForTranscription, type AudioSegment } from './audioSegmenter'
 import { exportBilibiliCookiesToFile } from './bilibiliCookieExport'
 import { resolveMediaToolPaths } from './mediaToolPaths'
-import { transcribeAudioSegmentWithFasterWhisper } from './fasterWhisperTranscription'
+import { transcribeAudioSegmentWithLocalWhisper } from './localWhisperTranscription'
 import { runProcess } from './audioDownload'
 
 type ServiceSessionLike = Pick<Session, 'cookies'>
@@ -25,7 +25,7 @@ type ServiceDeps = {
   exportCookies?: typeof exportBilibiliCookiesToFile
   downloadAudio?: typeof downloadVideoAudio
   segmentAudio?: typeof segmentAudioForTranscription
-  transcribeSegment?: typeof transcribeAudioSegmentWithFasterWhisper
+  transcribeSegment?: (input: { path: string; offsetSeconds: number }) => Promise<TranscriptSegment[]>
   getAudioDuration?: (path: string, ffmpegPath?: string) => Promise<number>
   cleanup?: (path: string) => Promise<void>
 }
@@ -79,13 +79,21 @@ export async function transcribeCurrentVideoAudio({
   exportCookies = exportBilibiliCookiesToFile,
   downloadAudio = downloadVideoAudio,
   segmentAudio = segmentAudioForTranscription,
-  transcribeSegment = transcribeAudioSegmentWithFasterWhisper,
+  transcribeSegment,
   getAudioDuration = getAudioDurationSeconds,
   cleanup = defaultCleanup
 }: ServiceDeps): Promise<VideoAudioTranscriptionResult> {
   try {
     emit(progress, { step: 'preparing-session', message: 'Preparing current login session.' })
     const tools = resolveTools()
+    const transcribeAudioSegment =
+      transcribeSegment ??
+      ((input: { path: string; offsetSeconds: number }) =>
+        transcribeAudioSegmentWithLocalWhisper({
+          ...input,
+          cliPath: tools.whisperCliPath,
+          modelPath: tools.whisperModelPath
+        }))
     const cookieExport = await exportCookies({ session, tempDir })
 
     emit(progress, { step: 'downloading-audio', message: 'Downloading audio.' })
@@ -116,7 +124,7 @@ export async function transcribeCurrentVideoAudio({
         segmentCount: segments.length
       })
       transcript.push(
-        ...(await transcribeSegment({
+        ...(await transcribeAudioSegment({
           path: segment.path,
           offsetSeconds: segment.offsetSeconds
         }))

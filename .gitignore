@@ -20,9 +20,13 @@ node_modules/
 
 # Build output
 dist/
-build/
+build/*
+!build/
+!build/icon.ico
+!build/icon.png
 .worktrees/
 .superpowers/
+docs/superpowers/
 out/
 
 # Downloaded local media tools
