@@ -9,6 +9,7 @@ import type {
   FavoriteLedger,
   FavoriteLedgerSaveOptions,
   FavoriteLedgerStatus,
+  StartupDiagnosticReport,
   PendingFavoriteQueueItem,
   PendingFavoriteQueueStatus,
   VideoAudioTranscriptionProgress,
@@ -50,6 +51,7 @@ type BilimiDesktopApi = {
   loadVideoNotes?: () => Promise<VideoNote[]>
   loadVideoNoteArchives?: () => Promise<VideoNoteArchiveEntry[]>
   loadDeepSeekApiKeyStatus?: () => Promise<DeepSeekKeyStatus>
+  runStartupDiagnostics?: () => Promise<StartupDiagnosticReport>
   moveFloatingSealBy?: (deltaX: number, deltaY: number) => Promise<void>
   moveFloatingSealTo?: (screenX: number, screenY: number) => void
   notifyAssistantSnapshotChanged?: () => void

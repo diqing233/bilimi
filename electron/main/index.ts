@@ -56,6 +56,8 @@ import { createRendererFilePath } from './rendererPath'
 import { transcribeCurrentVideoAudio } from './videoTranscriptionService'
 import { createVideoTranscriptionQueue } from './videoTranscriptionQueue'
 import { DeepSeekServiceError, generateDeepSeekResult } from './deepseekService'
+import { resolveMediaToolPaths } from './mediaToolPaths'
+import { runStartupDiagnostics } from './startupDiagnostics'
 import { BILIMI_SESSION_PARTITION } from '../../src/shared/constants'
 import { createNotePosterText } from '../../src/shared/videoNoteArchive'
 import { configureAppIdentity } from './appIdentity'
@@ -482,6 +484,31 @@ let videoTranscriptionQueue:
   | ReturnType<typeof createVideoTranscriptionQueue>
   | null = null
 
+async function testDeepSeekConnectionForPreferences(preferences: AssistantPreferences) {
+  try {
+    await generateDeepSeekResult({
+      config: {
+        enabled: preferences.deepseekEnabled,
+        apiKey: loadDeepSeekApiKey(getDesktopStore()),
+        model: preferences.deepseekModel,
+        baseUrl: preferences.deepseekBaseUrl
+      },
+      request: {
+        kind: 'pet-chat',
+        messages: [{ role: 'user', content: 'Reply with OK.' }]
+      }
+    })
+
+    return { ok: true, message: 'DeepSeek connection succeeded.' }
+  } catch (error) {
+    if (error instanceof DeepSeekServiceError) {
+      return { ok: false, message: error.message }
+    }
+
+    return { ok: false, message: 'DeepSeek connection failed.' }
+  }
+}
+
 function createAssistantRuntimeRequestId() {
   assistantRuntimeRequestIndex += 1
   return `assistant-runtime-${Date.now()}-${assistantRuntimeRequestIndex}`
@@ -595,6 +622,14 @@ function registerAssistantPreferenceHandlers() {
     sendAssistantPreferencesChanged(saved)
     return saved
   })
+  ipcMain.handle('startup:diagnose', () =>
+    runStartupDiagnostics({
+      resolveMediaToolPaths,
+      loadDeepSeekApiKeyStatus: () => loadDeepSeekApiKeyStatus(getDesktopStore()),
+      testDeepSeekConnection: () =>
+        testDeepSeekConnectionForPreferences(loadAssistantPreferences(getDesktopStore()))
+    })
+  )
   ipcMain.handle('pending-favorite-queue:load', () => loadPendingFavoriteQueue(getDesktopStore()))
   ipcMain.handle('pending-favorite-queue:clear', () => clearPendingFavoriteQueue(getDesktopStore()))
   ipcMain.handle('pending-favorite-queue:upsert', (_event, items: PendingFavoriteQueueItem[]) =>
@@ -629,32 +664,9 @@ function registerAssistantPreferenceHandlers() {
       request
     })
   })
-  ipcMain.handle('deepseek:test-connection', async () => {
-    const preferences = loadAssistantPreferences(getDesktopStore())
-
-    try {
-      await generateDeepSeekResult({
-        config: {
-          enabled: preferences.deepseekEnabled,
-          apiKey: loadDeepSeekApiKey(getDesktopStore()),
-          model: preferences.deepseekModel,
-          baseUrl: preferences.deepseekBaseUrl
-        },
-        request: {
-          kind: 'pet-chat',
-          messages: [{ role: 'user', content: 'Reply with OK.' }]
-        }
-      })
-
-      return { ok: true, message: 'DeepSeek 连接成功。' }
-    } catch (error) {
-      if (error instanceof DeepSeekServiceError) {
-        return { ok: false, message: error.message }
-      }
-
-      return { ok: false, message: 'DeepSeek 连接失败。' }
-    }
-  })
+  ipcMain.handle('deepseek:test-connection', async () =>
+    testDeepSeekConnectionForPreferences(loadAssistantPreferences(getDesktopStore()))
+  )
   ipcMain.handle('video-notes:load', () => loadVideoNotes(getDesktopStore()))
   ipcMain.handle('video-notes:save', (_event, note: VideoNote) =>
     saveVideoNote(getDesktopStore(), note)

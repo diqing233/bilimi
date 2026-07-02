@@ -310,6 +310,129 @@ body[data-floating-window="true"],
   overflow: hidden;
   background: var(--porcelain-edge);
 }
+.startup-permission {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 28px;
+  background:
+    linear-gradient(180deg, rgba(247, 251, 255, 0.94), rgba(220, 238, 255, 0.9)),
+    var(--porcelain-edge);
+  color: var(--porcelain-text);
+}
+.startup-permission__panel {
+  width: min(680px, 100%);
+  display: grid;
+  gap: 16px;
+  box-sizing: border-box;
+  border: 1px solid rgba(31, 99, 181, 0.24);
+  border-radius: 8px;
+  background: rgba(255, 254, 253, 0.94);
+  box-shadow: 0 20px 46px rgba(7, 26, 51, 0.14);
+  padding: 28px;
+}
+.startup-permission__panel--compact {
+  width: min(360px, 100%);
+}
+.startup-permission__eyebrow,
+.startup-permission h1,
+.startup-permission__lead,
+.startup-permission__error {
+  margin: 0;
+}
+.startup-permission__eyebrow {
+  color: var(--porcelain-accent);
+  font-weight: 700;
+}
+.startup-permission h1 {
+  font-size: 28px;
+  line-height: 1.2;
+}
+.startup-permission__lead {
+  color: var(--porcelain-muted);
+  line-height: 1.7;
+}
+.startup-permission__steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.startup-permission__steps span {
+  min-height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(31, 99, 181, 0.18);
+  border-radius: 6px;
+  background: rgba(220, 238, 255, 0.5);
+  font-size: 13px;
+  font-weight: 700;
+}
+.startup-diagnostics,
+.assistant-settings__diagnostics-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.startup-diagnostics li,
+.assistant-settings__diagnostics-list li {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(31, 99, 181, 0.18);
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: rgba(247, 251, 255, 0.82);
+}
+.startup-diagnostics li[data-status="ok"],
+.assistant-settings__diagnostics-list li[data-status="ok"] {
+  border-left-color: #27855f;
+}
+.startup-diagnostics li[data-status="warning"],
+.assistant-settings__diagnostics-list li[data-status="warning"] {
+  border-left-color: #b77b12;
+}
+.startup-diagnostics li[data-status="error"],
+.assistant-settings__diagnostics-list li[data-status="error"] {
+  border-left-color: #bd3d3d;
+}
+.startup-diagnostics span,
+.startup-diagnostics small,
+.assistant-settings__diagnostics-list span,
+.assistant-settings__diagnostics-list small {
+  color: var(--porcelain-muted);
+  line-height: 1.5;
+}
+.startup-permission__error {
+  color: #9b2f2f;
+  font-weight: 700;
+}
+.startup-permission__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.startup-permission__actions button {
+  min-height: 38px;
+  border: 1px solid rgba(31, 99, 181, 0.32);
+  border-radius: 6px;
+  background: var(--porcelain-deep);
+  color: var(--porcelain-surface);
+  font: inherit;
+  font-weight: 700;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.startup-permission__actions button + button {
+  background: var(--porcelain-surface);
+  color: var(--porcelain-text);
+}
+.startup-permission__actions button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
 .browser-surface {
   position: absolute;
   inset: 0;
@@ -2974,6 +3097,35 @@ body[data-floating-window="true"],
 }
 .assistant-settings__group--archive p {
   margin: 0;
+}
+.assistant-settings__diagnostics-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+.assistant-settings__diagnostics-head div {
+  display: grid;
+  gap: 3px;
+}
+.assistant-settings__diagnostics-head small {
+  color: var(--porcelain-muted);
+  line-height: 1.45;
+}
+.assistant-settings__diagnostics-head button {
+  min-height: 32px;
+  border: 1px solid rgba(31, 99, 181, 0.3);
+  border-radius: 6px;
+  background: var(--porcelain-surface);
+  color: var(--porcelain-text);
+  font: inherit;
+  font-weight: 700;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.assistant-settings__diagnostics-head button:disabled {
+  cursor: wait;
+  opacity: 0.64;
 }
 .assistant-settings__hover-shortcuts {
   display: grid;

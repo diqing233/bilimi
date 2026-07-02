@@ -6,6 +6,8 @@ import type {
   FavoriteLedgerStatus,
   NotePosterSummary,
   RecommendationKind,
+  StartupDiagnosticItem,
+  StartupDiagnosticReport,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionQueueSnapshot,
   VideoNote,
@@ -313,6 +315,10 @@ export function FloatingAssistantApp({
   })
   const [deepSeekApiKeyDraft, setDeepSeekApiKeyDraft] = useState('')
   const [deepSeekStatusMessage, setDeepSeekStatusMessage] = useState('')
+  const [settingsDiagnosticReport, setSettingsDiagnosticReport] =
+    useState<StartupDiagnosticReport | null>(null)
+  const [settingsDiagnosticRunning, setSettingsDiagnosticRunning] = useState(false)
+  const [settingsDiagnosticMessage, setSettingsDiagnosticMessage] = useState('')
   const mounted = useRef(false)
   const lastPreferenceChangeAt = useRef(0)
   const lastPreferenceSaveAt = useRef(0)
@@ -664,6 +670,57 @@ export function FloatingAssistantApp({
     } catch {
       setDeepSeekStatusMessage(`${label}复制失败，请手动复制。`)
       tellPet('error', `${label}复制失败，请主人手动复制。`)
+    }
+  }
+
+  function createCurrentPageDiagnosticItem(): StartupDiagnosticItem {
+    const activeUrl = resolvedSnapshot.activeTabUrl?.trim() ?? ''
+
+    if (/bilibili\.com/i.test(activeUrl)) {
+      return {
+        id: 'bilibili-page',
+        label: '当前 B 站页面',
+        status: 'ok',
+        message: hasCurrentVideo ? '当前已打开 B 站视频页面。' : '当前已打开 B 站页面。'
+      }
+    }
+
+    return {
+      id: 'bilibili-page',
+      label: '当前 B 站页面',
+      status: 'warning',
+      message: '当前没有打开 B 站页面。',
+      action: '需要点赞、收藏、投币、弹幕或转写时，请先打开 B 站视频页面并确认已登录。'
+    }
+  }
+
+  async function runSettingsDiagnostics() {
+    if (!window.bilimiDesktop?.runStartupDiagnostics) {
+      setSettingsDiagnosticMessage('诊断功能尚未加载，请重启应用后再试。')
+      tellPet('error', '诊断功能还没有加载好。')
+      return
+    }
+
+    setSettingsDiagnosticRunning(true)
+    setSettingsDiagnosticMessage('')
+    tellPet('progress', '正在运行 Bilimi 诊断。')
+
+    try {
+      const report = await window.bilimiDesktop.runStartupDiagnostics()
+      const nextReport = {
+        ...report,
+        items: [...report.items, createCurrentPageDiagnosticItem()]
+      }
+
+      setSettingsDiagnosticReport(nextReport)
+      setSettingsDiagnosticMessage(nextReport.ok ? '诊断完成。' : '诊断完成，有项目需要处理。')
+      tellPet(nextReport.ok ? 'success' : 'error', nextReport.ok ? '诊断完成。' : '诊断发现需要处理的项目。')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '诊断失败。'
+      setSettingsDiagnosticMessage(message)
+      tellPet('error', message)
+    } finally {
+      setSettingsDiagnosticRunning(false)
     }
   }
 
@@ -1215,6 +1272,34 @@ export function FloatingAssistantApp({
             <header>
               <h2>设置</h2>
             </header>
+            <fieldset className="assistant-settings__group assistant-settings__group--diagnostics">
+              <legend>诊断</legend>
+              <div className="assistant-settings__diagnostics-head">
+                <div>
+                  <strong>启动与功能诊断</strong>
+                  <small>检查 B 站网络、本地媒体工具、DeepSeek、存储和当前页面状态。</small>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void runSettingsDiagnostics()}
+                  disabled={settingsDiagnosticRunning}
+                >
+                  {settingsDiagnosticRunning ? '诊断中' : '运行诊断'}
+                </button>
+              </div>
+              {settingsDiagnosticReport ? (
+                <ul className="assistant-settings__diagnostics-list" aria-label="设置诊断结果">
+                  {settingsDiagnosticReport.items.map((item) => (
+                    <li key={item.id} data-status={item.status}>
+                      <strong>{item.label}</strong>
+                      <span>{item.message}</span>
+                      {item.action ? <small>{item.action}</small> : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {settingsDiagnosticMessage ? <p role="status">{settingsDiagnosticMessage}</p> : null}
+            </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--pet">
               <legend>宠物设置</legend>
               <label>

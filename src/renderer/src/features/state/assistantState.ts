@@ -114,7 +114,8 @@ export function createInitialAssistantPreferences(
       persisted?.deepseekEnabled
     ),
     deepseekModel: normalizeDeepSeekModel(persisted?.deepseekModel),
-    deepseekBaseUrl: normalizeDeepSeekBaseUrl(persisted?.deepseekBaseUrl)
+    deepseekBaseUrl: normalizeDeepSeekBaseUrl(persisted?.deepseekBaseUrl),
+    permissionOnboardingCompleted: Boolean(persisted?.permissionOnboardingCompleted)
   }
 }
 

@@ -110,6 +110,7 @@ export type AssistantPreferences = {
   deepseekPetChatEnabled: boolean
   deepseekModel: string
   deepseekBaseUrl: string
+  permissionOnboardingCompleted: boolean
 }
 
 export type AssistantAutomationResult = {
@@ -251,6 +252,22 @@ export type DeepSeekGenerateResult =
 export type DeepSeekKeyStatus = { configured: boolean }
 
 export type DeepSeekConnectionTestResult = { ok: boolean; message: string }
+
+export type StartupDiagnosticStatus = 'ok' | 'warning' | 'error'
+
+export type StartupDiagnosticItem = {
+  id: 'bilibili-network' | 'bilibili-page' | 'media-tools' | 'deepseek' | 'storage'
+  label: string
+  status: StartupDiagnosticStatus
+  message: string
+  action?: string
+}
+
+export type StartupDiagnosticReport = {
+  ok: boolean
+  checkedAt: string
+  items: StartupDiagnosticItem[]
+}
 
 export type VideoNoteArchiveVersion = {
   id: string

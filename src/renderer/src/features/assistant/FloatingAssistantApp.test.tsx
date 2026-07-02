@@ -32,6 +32,7 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     deepseekPetChatEnabled: false,
     deepseekModel: 'deepseek-v4-flash',
     deepseekBaseUrl: 'https://api.deepseek.com',
+    permissionOnboardingCompleted: true,
     ...overrides
   }
 }
@@ -143,6 +144,18 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     ok: true,
     message: 'DeepSeek connection succeeded.'
   })
+  const runStartupDiagnostics = vi.fn().mockResolvedValue({
+    ok: true,
+    checkedAt: '2026-07-03T00:00:00.000Z',
+    items: [
+      {
+        id: 'bilibili-network',
+        label: 'B 站网络',
+        status: 'ok',
+        message: '已能访问 B 站。'
+      }
+    ]
+  })
   const loadOpenAiApiKeyStatus = vi.fn().mockResolvedValue({ configured: true })
   const saveOpenAiApiKey = vi.fn().mockResolvedValue({ configured: true })
   const clearOpenAiApiKey = vi.fn().mockResolvedValue({ configured: false })
@@ -176,6 +189,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     onAssistantSnapshotChanged,
     requestAssistantSnapshot,
     runAssistantAction,
+    runStartupDiagnostics,
     saveOpenAiApiKey,
     saveFavoriteLedgers,
     savePreferences,
@@ -399,6 +413,39 @@ describe('FloatingAssistantApp', () => {
     expect(
       screen.getByText('最多同时保存到 3 个 Bilimi 收藏夹')
     ).toBeInTheDocument()
+  })
+
+  it('runs startup diagnostics from settings', async () => {
+    const runStartupDiagnostics = vi.fn().mockResolvedValue({
+      ok: true,
+      checkedAt: '2026-07-03T00:00:00.000Z',
+      items: [
+        {
+          id: 'bilibili-network',
+          label: 'B 站网络',
+          status: 'ok',
+          message: '已能访问 B 站。'
+        },
+        {
+          id: 'media-tools',
+          label: '本地媒体工具',
+          status: 'ok',
+          message: '媒体工具已就绪。'
+        }
+      ]
+    })
+    installDesktopApi({ runStartupDiagnostics })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '运行诊断' }))
+
+    await waitFor(() => expect(runStartupDiagnostics).toHaveBeenCalledOnce())
+    expect(await screen.findByRole('list', { name: '设置诊断结果' })).toBeInTheDocument()
+    expect(screen.getByText('B 站网络')).toBeInTheDocument()
+    expect(screen.getByText('当前 B 站页面')).toBeInTheDocument()
+    expect(await screen.findByRole('status')).toHaveTextContent('诊断完成。')
   })
 
   it('uses the configured coin count inside the floating assistant when running 赐', async () => {

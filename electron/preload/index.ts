@@ -9,6 +9,7 @@ import type {
   DeepSeekKeyStatus,
   FavoriteLedger,
   FavoriteLedgerSaveOptions,
+  StartupDiagnosticReport,
   PendingFavoriteQueueItem,
   PendingFavoriteQueueStatus,
   VideoAudioTranscriptionProgress,
@@ -51,6 +52,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('video-note-archives:load') as Promise<VideoNoteArchiveEntry[]>,
   loadDeepSeekApiKeyStatus: () =>
     ipcRenderer.invoke('deepseek:key-status') as Promise<DeepSeekKeyStatus>,
+  runStartupDiagnostics: () =>
+    ipcRenderer.invoke('startup:diagnose') as Promise<StartupDiagnosticReport>,
   finishFloatingSealDrag: () => ipcRenderer.send('floating-seal:finish-drag'),
   generateDeepSeek: (request: DeepSeekGenerateRequest) =>
     ipcRenderer.invoke('deepseek:generate', request) as Promise<DeepSeekGenerateResult>,

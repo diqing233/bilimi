@@ -87,6 +87,9 @@ function createFakeStore(
       initial.deepseekPetChatEnabled ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekPetChatEnabled,
     deepseekModel: initial.deepseekModel ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
     deepseekBaseUrl: initial.deepseekBaseUrl ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl,
+    permissionOnboardingCompleted:
+      initial.permissionOnboardingCompleted ??
+      DEFAULT_ASSISTANT_PREFERENCES.permissionOnboardingCompleted,
     deepseekApiKey: initial.deepseekApiKey ?? '',
     videoNotes: initial.videoNotes ?? [],
     videoNoteArchives: initial.videoNoteArchives ?? [],
@@ -134,6 +137,12 @@ describe('assistant preference store helpers', () => {
         knowledge: 1
       }
     })
+  })
+
+  it('defaults the first-start permission onboarding to incomplete', () => {
+    const store = createFakeStore()
+
+    expect(loadAssistantPreferences(store).permissionOnboardingCompleted).toBe(false)
   })
 
   it('loads favorite ledgers and first-open prompt state with preferences', () => {
@@ -186,7 +195,8 @@ describe('assistant preference store helpers', () => {
       deepseekAutoSummaryEnabled: false,
       deepseekPetChatEnabled: true,
       deepseekModel: 'deepseek-reasoner',
-      deepseekBaseUrl: 'https://deepseek.example'
+      deepseekBaseUrl: 'https://deepseek.example',
+      permissionOnboardingCompleted: true
     })
 
     expect(saved).toMatchObject({
@@ -207,7 +217,8 @@ describe('assistant preference store helpers', () => {
       deepseekCommentEnabled: true,
       deepseekPetChatEnabled: true,
       deepseekModel: 'deepseek-reasoner',
-      deepseekBaseUrl: 'https://deepseek.example'
+      deepseekBaseUrl: 'https://deepseek.example',
+      permissionOnboardingCompleted: true
     })
     expect(store.snapshot).toMatchObject(saved)
     expect(store.snapshot.videoNotes).toEqual([])

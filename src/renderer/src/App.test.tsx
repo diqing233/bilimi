@@ -48,6 +48,7 @@ function createAppPreferences(
     deepseekPetChatEnabled: false,
     deepseekModel: 'deepseek-v4-flash',
     deepseekBaseUrl: 'https://api.deepseek.com',
+    permissionOnboardingCompleted: true,
     ...overrides
   }
 }
@@ -120,6 +121,42 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
 }
 
 describe('App runtime integration', () => {
+  it('gates the first launch behind permission guidance and startup diagnostics', async () => {
+    const firstRunPreferences = createAppPreferences({ permissionOnboardingCompleted: false })
+    const runStartupDiagnostics = vi.fn().mockResolvedValue({
+      ok: true,
+      checkedAt: '2026-07-03T00:00:00.000Z',
+      items: [
+        {
+          id: 'bilibili-network',
+          label: 'B 站网络',
+          status: 'ok',
+          message: '已能访问 B 站。'
+        }
+      ]
+    })
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+
+    renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(firstRunPreferences),
+      runStartupDiagnostics,
+      savePreferences
+    })
+
+    expect(await screen.findByRole('heading', { name: '启动前权限检查' })).toBeInTheDocument()
+    expect(document.querySelector('webview')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '继续检测' }))
+
+    await waitFor(() => expect(runStartupDiagnostics).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({ permissionOnboardingCompleted: true })
+      )
+    )
+    expect(await screen.findByRole('tablist', { name: '网页标签' })).toBeInTheDocument()
+  })
+
   it('renders the browser shell with the in-window assistant sidebar', async () => {
     renderAppWithRuntimeBridge()
 

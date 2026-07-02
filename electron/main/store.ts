@@ -49,6 +49,7 @@ export type AssistantPreferences = {
   deepseekPetChatEnabled: boolean
   deepseekModel: string
   deepseekBaseUrl: string
+  permissionOnboardingCompleted: boolean
 }
 
 export type DesktopStoreState = AssistantPreferences & {
@@ -84,7 +85,8 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   deepseekAutoSummaryEnabled: false,
   deepseekPetChatEnabled: false,
   deepseekModel: 'deepseek-v4-flash',
-  deepseekBaseUrl: 'https://api.deepseek.com'
+  deepseekBaseUrl: 'https://api.deepseek.com',
+  permissionOnboardingCompleted: false
 }
 
 export const DEFAULT_DESKTOP_STORE_STATE: DesktopStoreState = {
@@ -156,7 +158,8 @@ export function loadAssistantPreferences(
       Boolean(store.get('deepseekEnabled'))
     ),
     deepseekModel: store.get('deepseekModel') || DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
-    deepseekBaseUrl: store.get('deepseekBaseUrl') || DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl
+    deepseekBaseUrl: store.get('deepseekBaseUrl') || DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl,
+    permissionOnboardingCompleted: Boolean(store.get('permissionOnboardingCompleted'))
   }
 }
 
@@ -186,7 +189,8 @@ export function saveAssistantPreferences(
     deepseekAutoSummaryEnabled: Boolean(preferences.deepseekAutoSummaryEnabled),
     deepseekPetChatEnabled: Boolean(preferences.deepseekPetChatEnabled),
     deepseekModel: preferences.deepseekModel || DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
-    deepseekBaseUrl: preferences.deepseekBaseUrl || DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl
+    deepseekBaseUrl: preferences.deepseekBaseUrl || DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl,
+    permissionOnboardingCompleted: Boolean(preferences.permissionOnboardingCompleted)
   })
 
   return loadAssistantPreferences(store)

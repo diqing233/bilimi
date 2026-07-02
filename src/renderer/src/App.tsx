@@ -9,6 +9,8 @@ import type {
   FavoriteLedgerSaveOptions,
   FavoriteLedgerStatus,
   PendingFavoriteQueueItem,
+  StartupDiagnosticItem,
+  StartupDiagnosticReport,
   VideoNote,
   VideoNoteExtractionResult,
   VideoAudioTranscriptionQueueSnapshot
@@ -60,6 +62,7 @@ const HOME_TAB_ID = 'home'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
 const BILIBILI_VIDEO_URL_PATTERN = /bilibili\.com\/video\/([^/?#]+)/i
 export const VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS = 900
+const IS_TEST_RUNTIME = import.meta.env.MODE === 'test'
 const NO_CURRENT_VIDEO_RESULT: AssistantAutomationResult = {
   ok: false,
   steps: [],
@@ -71,6 +74,80 @@ const LOGIN_REQUIRED_RESULT: AssistantAutomationResult = {
   steps: ['auth:check'],
   missingTargets: ['bilibili-login'],
   message: '请先登录 Bilibili 后再操作。'
+}
+
+type StartupPermissionGateProps = {
+  report: StartupDiagnosticReport | null
+  running: boolean
+  errorMessage: string
+  onRunDiagnostics: () => void
+  onContinueAnyway: () => void
+}
+
+function StartupPermissionGate({
+  report,
+  running,
+  errorMessage,
+  onRunDiagnostics,
+  onContinueAnyway
+}: StartupPermissionGateProps) {
+  const hasBlockingIssue = Boolean(report && !report.ok)
+
+  return (
+    <main className="startup-permission" aria-label="启动前权限检查">
+      <section className="startup-permission__panel">
+        <p className="startup-permission__eyebrow">Bilimi</p>
+        <h1>启动前权限检查</h1>
+        <p className="startup-permission__lead">
+          Windows 可能会询问是否允许 bilimi 访问网络。请点击允许，建议至少允许专用网络，
+          否则登录、B 站页面操作、音频转写和 AI 功能可能无法正常工作。
+        </p>
+        <div className="startup-permission__steps" aria-label="启动流程">
+          <span>权限说明</span>
+          <span>网络检测</span>
+          <span>进入应用</span>
+        </div>
+        {report ? (
+          <ul className="startup-diagnostics" aria-label="启动诊断结果">
+            {report.items.map((item) => (
+              <li key={item.id} data-status={item.status}>
+                <strong>{item.label}</strong>
+                <span>{item.message}</span>
+                {item.action ? <small>{item.action}</small> : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {errorMessage ? <p className="startup-permission__error">{errorMessage}</p> : null}
+        <div className="startup-permission__actions">
+          <button type="button" onClick={onRunDiagnostics} disabled={running}>
+            {running ? '检测中' : hasBlockingIssue ? '重试检测' : '继续检测'}
+          </button>
+          {hasBlockingIssue ? (
+            <button type="button" onClick={onContinueAnyway} disabled={running}>
+              仍然进入
+            </button>
+          ) : null}
+        </div>
+      </section>
+    </main>
+  )
+}
+
+function createUnavailableDiagnosticReport(message: string): StartupDiagnosticReport {
+  const item: StartupDiagnosticItem = {
+    id: 'bilibili-network',
+    label: '启动检测',
+    status: 'error',
+    message,
+    action: '请检查网络、代理 VPN、DNS 和 Windows 防火墙允许状态，然后重试。'
+  }
+
+  return {
+    ok: false,
+    checkedAt: new Date().toISOString(),
+    items: [item]
+  }
 }
 
 function createTabTitle(url: string): string {
@@ -271,8 +348,15 @@ export default function App() {
   const petHiddenForVideoFullscreen = useRef(false)
   const videoFullscreenPetCloseTimer = useRef<number | null>(null)
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
-    createInitialAssistantPreferences()
+    createInitialAssistantPreferences(
+      IS_TEST_RUNTIME ? { permissionOnboardingCompleted: true } : undefined
+    )
   )
+  const [preferencesLoaded, setPreferencesLoaded] = useState(IS_TEST_RUNTIME)
+  const [startupDiagnosticReport, setStartupDiagnosticReport] =
+    useState<StartupDiagnosticReport | null>(null)
+  const [startupDiagnosticRunning, setStartupDiagnosticRunning] = useState(false)
+  const [startupDiagnosticError, setStartupDiagnosticError] = useState('')
   const activeWebview = useMemo(() => webviews[activeTabId] ?? null, [activeTabId, webviews])
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0],
@@ -301,13 +385,35 @@ export default function App() {
 
     async function loadPreferences() {
       if (!window.bilimiDesktop?.loadPreferences) {
+        if (!cancelled) {
+          setPreferences(
+            createInitialAssistantPreferences({ permissionOnboardingCompleted: true })
+          )
+          setPreferencesLoaded(true)
+        }
         return
       }
 
-      const next = await window.bilimiDesktop.loadPreferences()
+      try {
+        const next = await window.bilimiDesktop.loadPreferences()
 
-      if (!cancelled && next) {
-        setPreferences(createInitialAssistantPreferences(next))
+        if (!cancelled) {
+          if (next) {
+            setPreferences(createInitialAssistantPreferences(next))
+          } else {
+            setPreferences(
+              createInitialAssistantPreferences({ permissionOnboardingCompleted: true })
+            )
+          }
+          setPreferencesLoaded(true)
+        }
+      } catch {
+        if (!cancelled) {
+          setPreferences(
+            createInitialAssistantPreferences({ permissionOnboardingCompleted: true })
+          )
+          setPreferencesLoaded(true)
+        }
       }
     }
 
@@ -323,6 +429,42 @@ export default function App() {
       setPreferences(createInitialAssistantPreferences(nextPreferences))
     })
   }, [])
+
+  async function completeStartupPermissionGate() {
+    const nextPreferences = createInitialAssistantPreferences({
+      ...preferences,
+      permissionOnboardingCompleted: true
+    })
+
+    setPreferences(nextPreferences)
+    if (window.bilimiDesktop?.savePreferences) {
+      const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
+      setPreferences(createInitialAssistantPreferences(saved))
+    }
+  }
+
+  async function runStartupPermissionDiagnostics() {
+    setStartupDiagnosticRunning(true)
+    setStartupDiagnosticError('')
+
+    try {
+      const report = window.bilimiDesktop?.runStartupDiagnostics
+        ? await window.bilimiDesktop.runStartupDiagnostics()
+        : createUnavailableDiagnosticReport('启动检测服务尚未加载。')
+
+      setStartupDiagnosticReport(report)
+
+      if (report.ok) {
+        await completeStartupPermissionGate()
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '启动检测失败。'
+      setStartupDiagnosticReport(createUnavailableDiagnosticReport(message))
+      setStartupDiagnosticError(message)
+    } finally {
+      setStartupDiagnosticRunning(false)
+    }
+  }
 
   const notifyAssistantSnapshotChanged = useCallback(() => {
     window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
@@ -1282,6 +1424,29 @@ export default function App() {
     scanOldFavorites,
     seekVideoTime
   ])
+
+  if (!preferencesLoaded) {
+    return (
+      <main className="startup-permission" aria-label="启动中">
+        <section className="startup-permission__panel startup-permission__panel--compact">
+          <p className="startup-permission__eyebrow">Bilimi</p>
+          <h1>启动中</h1>
+        </section>
+      </main>
+    )
+  }
+
+  if (!preferences.permissionOnboardingCompleted) {
+    return (
+      <StartupPermissionGate
+        report={startupDiagnosticReport}
+        running={startupDiagnosticRunning}
+        errorMessage={startupDiagnosticError}
+        onRunDiagnostics={() => void runStartupPermissionDiagnostics()}
+        onContinueAnyway={() => void completeStartupPermissionGate()}
+      />
+    )
+  }
 
   return (
     <div className="app-shell" data-tabs-visible="true">
