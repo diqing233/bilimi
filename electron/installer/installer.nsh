@@ -1,17 +1,69 @@
 !include FileFunc.nsh
+!include LogicLib.nsh
+!include nsDialogs.nsh
 
 !ifndef BUILD_UNINSTALLER
+Var bilimiInstallDirectoryDialog
+Var bilimiInstallDirectoryText
+
 !macro customInit
   Call bilimiEnsureInstallSubfolder
 !macroend
 
 !macro customPageAfterChangeDir
-  Page custom bilimiNormalizeInstallDirectory
+  Page custom bilimiDirectoryPageCreate bilimiDirectoryPageLeave
 !macroend
 
-Function bilimiNormalizeInstallDirectory
+Function bilimiDirectoryPageCreate
   Call bilimiEnsureInstallSubfolder
-  Abort
+
+  nsDialogs::Create 1018
+  Pop $bilimiInstallDirectoryDialog
+
+  ${If} $bilimiInstallDirectoryDialog == error
+    Abort
+  ${EndIf}
+
+  ${NSD_CreateLabel} 0 0 100% 34u "Setup 将安装 bilimi 在下列文件夹。要安装到不同文件夹，单击 [浏览(B)...] 并选择其他的文件夹。单击 [下一步(N)] 继续。"
+  Pop $R0
+
+  ${NSD_CreateGroupBox} 0 74u 100% 48u "目标文件夹"
+  Pop $R0
+
+  ${NSD_CreateText} 20u 92u 70% 13u "$INSTDIR"
+  Pop $bilimiInstallDirectoryText
+
+  ${NSD_CreateButton} 78% 90u 20% 16u "浏览(B)..."
+  Pop $R0
+  ${NSD_OnClick} $R0 bilimiBrowseInstallDirectory
+
+  nsDialogs::Show
+FunctionEnd
+
+Function bilimiDirectoryPageLeave
+  Call bilimiReadInstallDirectoryText
+  Call bilimiEnsureInstallSubfolder
+  Call bilimiSetInstallDirectoryText
+FunctionEnd
+
+Function bilimiBrowseInstallDirectory
+  nsDialogs::SelectFolderDialog "选择 bilimi 要安装的文件夹。" "$INSTDIR"
+  Pop $R0
+
+  ${If} $R0 != error
+  ${AndIf} $R0 != ""
+    StrCpy $INSTDIR "$R0"
+    Call bilimiEnsureInstallSubfolder
+    Call bilimiSetInstallDirectoryText
+  ${EndIf}
+FunctionEnd
+
+Function bilimiReadInstallDirectoryText
+  ${NSD_GetText} $bilimiInstallDirectoryText $INSTDIR
+FunctionEnd
+
+Function bilimiSetInstallDirectoryText
+  ${NSD_SetText} $bilimiInstallDirectoryText "$INSTDIR"
 FunctionEnd
 
 Function bilimiEnsureInstallSubfolder

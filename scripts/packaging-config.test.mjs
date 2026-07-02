@@ -9,7 +9,7 @@ describe('Windows installer packaging config', () => {
     expect(packageJson.author).toBe('diqing')
   })
 
-  it('builds an assisted NSIS installer with a user-selectable directory', () => {
+  it('builds an assisted NSIS installer with the custom user-selectable directory page', () => {
     expect(packageJson.scripts).toMatchObject({
       dist: 'npm ci && npm run build && electron-builder',
       'dist:win':
@@ -17,7 +17,7 @@ describe('Windows installer packaging config', () => {
     })
     expect(packageJson.build.nsis).toMatchObject({
       oneClick: false,
-      allowToChangeInstallationDirectory: true,
+      allowToChangeInstallationDirectory: false,
       include: 'electron/installer/installer.nsh'
     })
   })

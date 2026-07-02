@@ -19,11 +19,22 @@ describe('NSIS installer directory normalization', () => {
     expect(installerScript).toContain('!macroend')
   })
 
-  it('normalizes the chosen directory after the directory page and before installation', () => {
+  it('uses a custom directory page that displays the normalized target folder', () => {
     expect(installerScript).toContain('!macro customPageAfterChangeDir')
-    expect(installerScript).toContain('Page custom bilimiNormalizeInstallDirectory')
-    expect(installerScript).toContain('Function bilimiNormalizeInstallDirectory')
-    expect(installerScript).toContain('Abort')
+    expect(installerScript).toContain('Page custom bilimiDirectoryPageCreate bilimiDirectoryPageLeave')
+    expect(installerScript).toContain('Function bilimiDirectoryPageCreate')
+    expect(installerScript).toContain('Function bilimiDirectoryPageLeave')
+  })
+
+  it('loads dialog helpers without relying on MUI macros before MUI2 is included', () => {
+    expect(installerScript).toContain('!include nsDialogs.nsh')
+    expect(installerScript).not.toContain('MUI_HEADER_TEXT')
+  })
+
+  it('normalizes the directory input immediately after browsing for a parent folder', () => {
+    expect(installerScript).toContain('Function bilimiBrowseInstallDirectory')
+    expect(installerScript).toContain('nsDialogs::SelectFolderDialog')
+    expect(installerScript).toContain('Call bilimiSetInstallDirectoryText')
   })
 
   it('appends a bilimi subfolder for selected parent directories', () => {
