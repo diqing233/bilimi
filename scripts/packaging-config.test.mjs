@@ -11,9 +11,9 @@ describe('Windows installer packaging config', () => {
 
   it('builds an assisted NSIS installer with a user-selectable directory', () => {
     expect(packageJson.scripts).toMatchObject({
-      dist: 'npm run build && electron-builder',
+      dist: 'npm ci && npm run build && electron-builder',
       'dist:win':
-        'npm run build && npm run setup:electron && npm run setup:media-tools && set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/&& electron-builder --win nsis --publish never'
+        'npm ci && npm run build && npm run setup:electron && npm run setup:media-tools && set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/&& electron-builder --win nsis --publish never'
     })
     expect(packageJson.build.nsis).toMatchObject({
       oneClick: false,

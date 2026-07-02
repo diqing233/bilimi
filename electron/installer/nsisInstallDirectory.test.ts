@@ -24,6 +24,21 @@ describe('NSIS installer directory normalization', () => {
     expect(installerScript).toContain('StrCpy $INSTDIR "$INSTDIR\\bilimi"')
   })
 
+  it('appends bilimi to drive roots without adding a duplicate separator', () => {
+    expect(installerScript).toContain('Call bilimiAppendInstallSubfolder')
+    expect(installerScript).toContain('StrCmp $R1 3 maybeAppendToDriveRoot appendWithSeparator')
+    expect(installerScript).toContain('StrCpy $INSTDIR "$INSTDIRbilimi"')
+  })
+
+  it('trims trailing slashes before appending the bilimi subfolder', () => {
+    expect(installerScript).toContain('Call bilimiTrimTrailingInstallSeparators')
+  })
+
+  it('keeps drive roots valid when trimming trailing slashes', () => {
+    expect(installerScript).toContain('StrCmp $R1 3 maybeDriveRoot checkLastCharacter')
+    expect(installerScript).toContain('StrCmp $R2 ":" doneTrimming')
+  })
+
   it('does not append bilimi twice when the selected directory already ends with bilimi', () => {
     expect(installerScript).toContain('StrCmp "$R0" "bilimi" done')
     expect(installerScript).toContain('StrCmp "$R0" "Bilimi" done')
