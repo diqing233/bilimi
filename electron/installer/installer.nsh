@@ -1,6 +1,10 @@
 !include FileFunc.nsh
 
 !ifndef BUILD_UNINSTALLER
+!macro customInit
+  Call bilimiEnsureInstallSubfolder
+!macroend
+
 !macro customPageAfterChangeDir
   Page custom bilimiNormalizeInstallDirectory
 !macroend

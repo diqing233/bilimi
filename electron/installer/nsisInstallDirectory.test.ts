@@ -13,6 +13,12 @@ describe('NSIS installer directory normalization', () => {
     expect(installerScript).toContain('!endif')
   })
 
+  it('normalizes the default directory before the directory page is shown', () => {
+    expect(installerScript).toContain('!macro customInit')
+    expect(installerScript).toContain('Call bilimiEnsureInstallSubfolder')
+    expect(installerScript).toContain('!macroend')
+  })
+
   it('normalizes the chosen directory after the directory page and before installation', () => {
     expect(installerScript).toContain('!macro customPageAfterChangeDir')
     expect(installerScript).toContain('Page custom bilimiNormalizeInstallDirectory')
