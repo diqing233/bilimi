@@ -1627,6 +1627,7 @@ export function FloatingAssistantApp({
                   重置 DeepSeek
                 </button>
               </div>
+              {deepSeekStatusMessage ? <p role="status">{deepSeekStatusMessage}</p> : null}
               <aside className="assistant-settings__deepseek-recommendation">
                 <strong>致谢 云枢智元</strong>
                 <p>大模型 Token 中转，低至官方价 2 折起</p>
@@ -1664,7 +1665,6 @@ export function FloatingAssistantApp({
                   </button>
                 </p>
               </aside>
-              {deepSeekStatusMessage ? <p role="status">{deepSeekStatusMessage}</p> : null}
             </fieldset>
           </section>
         ) : activeView === 'noteArchive' ? (

@@ -942,6 +942,11 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.change(editor.getByLabelText('关键词'), { target: { value: '摄影 写真、镜头' } })
     fireEvent.click(editor.getByRole('button', { name: '保存' }))
 
+    expect(onSaveLedgers).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '加入同步 bilimi·摄影' }))
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+
     await waitFor(() =>
       expect(onSaveLedgers).toHaveBeenCalledWith(
         expect.arrayContaining([
@@ -987,6 +992,11 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.change(editor.getByLabelText('册名'), { target: { value: '我的追更' } })
     fireEvent.change(editor.getByLabelText('UP 名字'), { target: { value: '影视飓风、罗翔说刑法' } })
     fireEvent.click(editor.getByRole('button', { name: '保存' }))
+
+    expect(onSaveLedgers).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '加入同步 bilimi·我的追更' }))
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
 
     await waitFor(() =>
       expect(onSaveLedgers).toHaveBeenCalledWith(
@@ -1192,6 +1202,10 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('不同关键词用顿号或空格隔开，逗号、斜杠也能识别。')).toBeInTheDocument()
 
     fireEvent.click(editor.getByRole('button', { name: '保存' }))
+
+    expect(onSaveLedgers).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
 
     await waitFor(() =>
       expect(onSaveLedgers).toHaveBeenCalledWith(

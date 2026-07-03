@@ -77,6 +77,14 @@ function ledgerRuleType(ledger: Pick<FavoriteLedger, 'ruleType'>): FavoriteLedge
   return ledger.ruleType ?? 'keyword'
 }
 
+function ledgerEditorSnapshot(ledger: FavoriteLedger) {
+  return {
+    displayName: ledger.displayName,
+    keywords: ledger.keywords,
+    ruleType: ledgerRuleType(ledger)
+  }
+}
+
 function candidateRuleType(candidate: FavoriteLedgerCandidate): FavoriteLedgerRuleType {
   if (candidate.ruleType) {
     return candidate.ruleType
@@ -641,6 +649,8 @@ export function FavoriteLedgerPanel({
   const [draftLedgers, setDraftLedgers] = useState<FavoriteLedger[]>(ledgers)
   const [activeLedgerId, setActiveLedgerId] = useState<string | null>(null)
   const [activeLedgerIndex, setActiveLedgerIndex] = useState<number | null>(null)
+  const [activeLedgerSavedSnapshot, setActiveLedgerSavedSnapshot] =
+    useState<ReturnType<typeof ledgerEditorSnapshot> | null>(null)
   const [preview, setPreview] = useState<FavoriteLedgerPreview | null>(null)
   const [selectedDefaultLedgerIds, setSelectedDefaultLedgerIds] = useState<Set<string>>(
     () => new Set(ledgers.filter((ledger) => ledger.enabled && ledger.isDefault).map((ledger) => ledger.id))
@@ -683,9 +693,8 @@ export function FavoriteLedgerPanel({
       return false
     }
 
-    const originalLedger = ledgers.find((ledger) => ledger.id === activeLedger.id)
-    return JSON.stringify(activeLedger) !== JSON.stringify(originalLedger ?? null)
-  }, [activeLedger, ledgers])
+    return JSON.stringify(ledgerEditorSnapshot(activeLedger)) !== JSON.stringify(activeLedgerSavedSnapshot)
+  }, [activeLedger, activeLedgerSavedSnapshot])
   useEffect(() => {
     setDraftLedgers(ledgers)
     setSelectedDefaultLedgerIds(
@@ -693,6 +702,7 @@ export function FavoriteLedgerPanel({
     )
     setActiveLedgerId(null)
     setActiveLedgerIndex(null)
+    setActiveLedgerSavedSnapshot(null)
     finishLedgerDrag()
   }, [ledgers])
 
@@ -764,7 +774,7 @@ export function FavoriteLedgerPanel({
       displayName: BILIMI_LEDGER_PREFIX,
       keywords: [],
       ruleType: 'keyword' as const,
-      enabled: true,
+      enabled: false,
       priority: (draftLedgers.length + 1) * 10,
       isDefault: false
     }
@@ -773,6 +783,7 @@ export function FavoriteLedgerPanel({
     setDraftLedgers(nextLedgers)
     setActiveLedgerId(nextLedger.id)
     setActiveLedgerIndex(nextLedgers.length - 1)
+    setActiveLedgerSavedSnapshot(ledgerEditorSnapshot(nextLedger))
     setLedgerListExpanded(true)
     setSaveStatus(null)
   }
@@ -786,6 +797,7 @@ export function FavoriteLedgerPanel({
     setSelectedDefaultLedgerIds(new Set())
     setActiveLedgerId(null)
     setActiveLedgerIndex(null)
+    setActiveLedgerSavedSnapshot(null)
     setSelectedCandidateKeys(new Set())
     setLedgerListExpanded(false)
     setStatus(null)
@@ -804,6 +816,7 @@ export function FavoriteLedgerPanel({
       if (ledgerId === activeLedgerId) {
         setActiveLedgerId(null)
         setActiveLedgerIndex(null)
+        setActiveLedgerSavedSnapshot(null)
       }
       setSaveStatus(null)
       return nextLedgers
@@ -842,11 +855,13 @@ export function FavoriteLedgerPanel({
 
       setActiveLedgerId(null)
       setActiveLedgerIndex(null)
+      setActiveLedgerSavedSnapshot(null)
       return
     }
 
     setActiveLedgerId(ledger.id)
     setActiveLedgerIndex(ledgerIndex)
+    setActiveLedgerSavedSnapshot(ledgerEditorSnapshot(ledger))
     setSaveStatus(null)
   }
   function closeActiveLedgerEditor() {
@@ -861,6 +876,7 @@ export function FavoriteLedgerPanel({
 
     setActiveLedgerId(null)
     setActiveLedgerIndex(null)
+    setActiveLedgerSavedSnapshot(null)
   }
 
   function handlePanelClick(event: MouseEvent<HTMLElement>) {
@@ -916,6 +932,26 @@ export function FavoriteLedgerPanel({
       }
       return next
     })
+  }
+
+  function saveActiveLedgerDraft() {
+    if (!activeLedger || activeLedgerIndex === null) {
+      return
+    }
+
+    const nextLedger = {
+      ...activeLedger,
+      displayName: normalizeBilimiLedgerName(activeLedger.displayName)
+    }
+
+    setDraftLedgers((currentLedgers) =>
+      currentLedgers.map((ledger, index) =>
+        index === activeLedgerIndex && ledger.id === activeLedger.id ? nextLedger : ledger
+      )
+    )
+    setActiveLedgerSavedSnapshot(ledgerEditorSnapshot(nextLedger))
+    setStatus(null)
+    setSaveStatus('已保存到草稿，请勾选后点击同步。')
   }
 
   function setAllLedgersEnabled(enabled: boolean) {
@@ -1150,6 +1186,7 @@ export function FavoriteLedgerPanel({
       }
       setActiveLedgerId(null)
       setActiveLedgerIndex(null)
+      setActiveLedgerSavedSnapshot(null)
       if (result?.ok !== false) {
         await options.onSuccess?.()
       }
@@ -1493,6 +1530,7 @@ export function FavoriteLedgerPanel({
       setSaveStatus(saveStatusMessage(saveResult))
       setActiveLedgerId(null)
       setActiveLedgerIndex(null)
+      setActiveLedgerSavedSnapshot(null)
 
       const selectedItems = selectedOldFavoritePlanItems.filter(
         (item) => item.targetFolderId || item.selectedCandidateTarget
@@ -1823,7 +1861,7 @@ export function FavoriteLedgerPanel({
           <div className="favorite-ledger-panel__editor-title">
             <strong>正在编辑：{activeLedger.displayName}</strong>
             <div className="favorite-ledger-panel__editor-actions">
-              <button type="button" disabled={busy} onClick={() => void saveLedgers()}>
+              <button type="button" disabled={busy} onClick={saveActiveLedgerDraft}>
                 保存
               </button>
               {!activeLedger.isDefault ? (

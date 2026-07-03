@@ -825,12 +825,18 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(editor.getByRole('button', { name: '保存' }))
 
+    expect(saveFavoriteLedgers).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '加入同步 bilimi·Test' }))
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+
     await waitFor(() =>
       expect(saveFavoriteLedgers).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({
             displayName: 'bilimi·Test',
             keywords: ['test', 'video'],
+            enabled: true,
             isDefault: false
           })
         ])
@@ -1336,7 +1342,12 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '复制推荐模型' }))
     expect(screen.getByRole('button', { name: '复制推荐模型' })).toHaveTextContent('复制')
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('deepseek-v4-pro'))
-    expect(await screen.findByRole('status')).toHaveTextContent('已复制推荐模型。')
+    const copyStatus = await screen.findByRole('status')
+    expect(copyStatus).toHaveTextContent('已复制推荐模型。')
+    expect(
+      copyStatus.compareDocumentPosition(screen.getByText('致谢 云枢智元')) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: '复制服务器地址' }))
     expect(screen.getByRole('button', { name: '复制服务器地址' })).toHaveTextContent('复制')
