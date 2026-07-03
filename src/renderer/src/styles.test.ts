@@ -353,6 +353,9 @@ describe('renderer porcelain theme styles', () => {
   })
 
   it('styles the DeepSeek assistant settings group and actions', () => {
+    expectStyleSnippet('.assistant-settings > header { display: grid; grid-template-columns: minmax(0, 1fr) auto;')
+    expectStyleSnippet('.assistant-settings > header button { min-height: 30px;')
+    expectStyleSnippet('.assistant-settings__diagnostics-head { display: grid; grid-template-columns: minmax(0, 1fr) auto auto;')
     expect(normalizedStyles).toContain('.assistant-settings__group--deepseek')
     expectStyleSnippet('.assistant-settings__deepseek-switches { display: grid; gap: 8px; justify-items: start;')
     expectStyleSnippet('.assistant-settings__deepseek-switches label { display: inline-grid; grid-template-columns: auto minmax(0, 1fr);')

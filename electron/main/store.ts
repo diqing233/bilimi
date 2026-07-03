@@ -79,7 +79,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   bilibiliOperationMode: 'api-assisted',
   favoriteArchiveMultiMode: 'off',
   defaultCoinCount: 1,
-  commentSubmitMode: 'choose',
+  commentSubmitMode: 'random',
   preferenceCounts: {},
   deepseekEnabled: false,
   deepseekApiKeyStored: false,

@@ -448,6 +448,37 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('诊断完成。')
   })
 
+  it('can collapse and expand long settings diagnostics', async () => {
+    const runStartupDiagnostics = vi.fn().mockResolvedValue({
+      ok: true,
+      checkedAt: '2026-07-03T00:00:00.000Z',
+      items: [
+        {
+          id: 'bilibili-network',
+          label: 'B 站网络',
+          status: 'ok',
+          message: '已能访问 B 站。'
+        }
+      ]
+    })
+    installDesktopApi({ runStartupDiagnostics })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '运行诊断' }))
+
+    expect(await screen.findByRole('list', { name: '设置诊断结果' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '收起诊断' }))
+
+    expect(screen.queryByRole('list', { name: '设置诊断结果' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '展开诊断' }))
+
+    expect(await screen.findByRole('list', { name: '设置诊断结果' })).toBeInTheDocument()
+  })
+
   it('uses the configured coin count inside the floating assistant when running 赐', async () => {
     const { runAssistantAction } = installDesktopApi()
 
@@ -834,6 +865,61 @@ describe('FloatingAssistantApp', () => {
     )
     expect(wakeAssistantPet).toHaveBeenCalledOnce()
     expect(closeAssistantPet).toHaveBeenCalledOnce()
+  })
+
+  it('resets visible assistant settings from the settings header without clearing ledgers', async () => {
+    const ledgers = createDefaultFavoriteLedgers()
+    const customPreferences = createPreferences({
+      favoriteLedgers: ledgers,
+      petStyle: 'classic',
+      petHoverShortcuts: ['assistant', 'library'],
+      hidePetDuringVideoFullscreen: true,
+      favoriteArchiveMultiMode: 'three',
+      defaultCoinCount: 2,
+      commentSubmitMode: 'choose',
+      deepseekEnabled: true,
+      deepseekCommentEnabled: true,
+      deepseekAutoSummaryEnabled: true,
+      deepseekPetChatEnabled: true,
+      deepseekModel: 'deepseek-chat',
+      deepseekBaseUrl: 'https://api.deepseek.local',
+      assistantSidebarWidthPx: 420
+    })
+    const { savePreferences, clearDeepSeekApiKey } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: customPreferences
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '重置设置' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          favoriteLedgers: ledgers,
+          petStyle: 'big-head',
+          hidePetDuringVideoFullscreen: false,
+          favoriteArchiveMultiMode: 'off',
+          defaultCoinCount: 1,
+          commentSubmitMode: 'random',
+          deepseekEnabled: false,
+          deepseekCommentEnabled: false,
+          deepseekAutoSummaryEnabled: false,
+          deepseekPetChatEnabled: false,
+          deepseekModel: 'deepseek-v4-flash',
+          deepseekBaseUrl: 'https://api.deepseek.com',
+          assistantSidebarWidthPx: null
+        })
+      )
+    )
+    expect(clearDeepSeekApiKey).toHaveBeenCalledOnce()
+    expect(screen.getByRole('radio', { name: '萌版大头' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: '随机生成一条并直接发送' })).toBeChecked()
   })
 
   it('saves review action behavior settings', async () => {

@@ -319,6 +319,7 @@ export function FloatingAssistantApp({
     useState<StartupDiagnosticReport | null>(null)
   const [settingsDiagnosticRunning, setSettingsDiagnosticRunning] = useState(false)
   const [settingsDiagnosticMessage, setSettingsDiagnosticMessage] = useState('')
+  const [settingsDiagnosticsExpanded, setSettingsDiagnosticsExpanded] = useState(true)
   const mounted = useRef(false)
   const lastPreferenceChangeAt = useRef(0)
   const lastPreferenceSaveAt = useRef(0)
@@ -675,6 +676,33 @@ export function FloatingAssistantApp({
     tellPet('success', 'DeepSeek 设置已经重置，小咪回到本地提示模式啦。')
   }
 
+  async function resetAssistantSettings() {
+    const nextPreferences = createInitialAssistantPreferences({
+      ...preferencesRef.current,
+      petStyle: 'big-head',
+      petHoverShortcuts: undefined,
+      hidePetDuringVideoFullscreen: false,
+      favoriteArchiveMultiMode: 'off',
+      defaultCoinCount: 1,
+      commentSubmitMode: 'random',
+      deepseekEnabled: false,
+      deepseekApiKeyStored: false,
+      deepseekCommentEnabled: false,
+      deepseekAutoSummaryEnabled: false,
+      deepseekPetChatEnabled: false,
+      deepseekModel: DEFAULT_DEEPSEEK_MODEL,
+      deepseekBaseUrl: DEFAULT_DEEPSEEK_BASE_URL,
+      assistantSidebarWidthPx: null
+    })
+
+    setDeepSeekApiKeyDraft('')
+    await window.bilimiDesktop?.clearDeepSeekApiKey?.()
+    await persistPreferences(nextPreferences)
+    setDeepSeekStatusMessage('')
+    setSettingsDiagnosticMessage('')
+    tellPet('success', '设置已经恢复默认，小咪重新整理好啦。')
+  }
+
   async function copyDeepSeekRecommendation(value: string, label: string) {
     try {
       await navigator.clipboard.writeText(value)
@@ -726,6 +754,7 @@ export function FloatingAssistantApp({
       }
 
       setSettingsDiagnosticReport(nextReport)
+      setSettingsDiagnosticsExpanded(true)
       setSettingsDiagnosticMessage(nextReport.ok ? '诊断完成。' : '诊断完成，有项目需要处理。')
       tellPet(nextReport.ok ? 'success' : 'error', nextReport.ok ? '诊断完成。' : '诊断发现需要处理的项目。')
     } catch (error) {
@@ -1284,6 +1313,9 @@ export function FloatingAssistantApp({
           <section className="assistant-settings" aria-label="助手设置">
             <header>
               <h2>设置</h2>
+              <button type="button" onClick={() => void resetAssistantSettings()}>
+                重置设置
+              </button>
             </header>
             <fieldset className="assistant-settings__group assistant-settings__group--diagnostics">
               <legend>诊断</legend>
@@ -1299,8 +1331,18 @@ export function FloatingAssistantApp({
                 >
                   {settingsDiagnosticRunning ? '诊断中' : '运行诊断'}
                 </button>
+                {settingsDiagnosticReport ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSettingsDiagnosticsExpanded((currentExpanded) => !currentExpanded)
+                    }
+                  >
+                    {settingsDiagnosticsExpanded ? '收起诊断' : '展开诊断'}
+                  </button>
+                ) : null}
               </div>
-              {settingsDiagnosticReport ? (
+              {settingsDiagnosticReport && settingsDiagnosticsExpanded ? (
                 <ul className="assistant-settings__diagnostics-list" aria-label="设置诊断结果">
                   {settingsDiagnosticReport.items.map((item) => (
                     <li key={item.id} data-status={item.status}>

@@ -3085,6 +3085,23 @@ body[data-floating-window="true"],
   margin: 0;
   font-size: 18px;
 }
+.assistant-settings > header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+.assistant-settings > header button {
+  min-height: 30px;
+  border: 1px solid rgba(31, 99, 181, 0.3);
+  border-radius: 6px;
+  background: var(--porcelain-surface);
+  color: var(--porcelain-text);
+  font: inherit;
+  font-weight: 700;
+  padding: 5px 10px;
+  cursor: pointer;
+}
 .assistant-settings__group {
   display: grid;
   gap: 8px;
@@ -3112,7 +3129,7 @@ body[data-floating-window="true"],
 }
 .assistant-settings__diagnostics-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 10px;
   align-items: center;
 }
@@ -3135,7 +3152,8 @@ body[data-floating-window="true"],
   padding: 6px 10px;
   cursor: pointer;
 }
-.assistant-settings__diagnostics-head button:disabled {
+.assistant-settings__diagnostics-head button:disabled,
+.assistant-settings > header button:disabled {
   cursor: wait;
   opacity: 0.64;
 }

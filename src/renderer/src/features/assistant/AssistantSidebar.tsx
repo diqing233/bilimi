@@ -116,6 +116,12 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
         return
       }
 
+      if ((event.buttons & 1) !== 1) {
+        dragState.current = null
+        void persistSidebarWidth(latestSidebarWidthPx.current)
+        return
+      }
+
       const widthDelta = currentDrag.startClientX - event.clientX
       setSidebarWidthPx(
         clampAssistantSidebarWidthPx(currentDrag.startWidth + widthDelta, window.innerWidth)
@@ -134,6 +140,10 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
   }, [])
 
   function beginSidebarResize(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) {
+      return
+    }
+
     event.preventDefault()
     const startWidth =
       latestSidebarWidthPx.current ?? clampAssistantSidebarWidthPx(ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX, window.innerWidth)

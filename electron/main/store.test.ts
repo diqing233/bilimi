@@ -147,6 +147,12 @@ describe('assistant preference store helpers', () => {
     expect(loadAssistantPreferences(store).permissionOnboardingCompleted).toBe(false)
   })
 
+  it('defaults comment submission to random direct sending in persisted preferences', () => {
+    const store = createFakeStore()
+
+    expect(loadAssistantPreferences(store).commentSubmitMode).toBe('random')
+  })
+
   it('loads favorite ledgers and first-open prompt state with preferences', () => {
     const store = createFakeStore({
       favoriteLedgers: [
@@ -234,13 +240,13 @@ describe('assistant preference store helpers', () => {
     saveAssistantPreferences(store, {
       ...DEFAULT_ASSISTANT_PREFERENCES,
       defaultCoinCount: 2,
-      commentSubmitMode: 'choose'
+      commentSubmitMode: 'random'
     })
 
     expect(store.setCalls).toHaveLength(1)
     expect(store.setCalls[0]).toMatchObject({
       defaultCoinCount: 2,
-      commentSubmitMode: 'choose'
+      commentSubmitMode: 'random'
     })
   })
 

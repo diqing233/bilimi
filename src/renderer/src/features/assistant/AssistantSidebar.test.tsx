@@ -205,8 +205,8 @@ describe('AssistantSidebar', () => {
     await act(async () => undefined)
     expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '360px' })
 
-    fireEvent.pointerDown(resizeHandle, { clientX: 100, pointerId: 1 })
-    fireEvent.pointerMove(window, { clientX: 260, pointerId: 1 })
+    fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 100, pointerId: 1 })
+    fireEvent.pointerMove(window, { buttons: 1, clientX: 260, pointerId: 1 })
 
     expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '320px' })
 
@@ -227,6 +227,29 @@ describe('AssistantSidebar', () => {
       )
     )
     expect(ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX).toBe(384)
+  })
+
+  it('stops resizing when pointer moves after the left mouse button is released', async () => {
+    installDesktopApi({
+      preferences: createInitialAssistantPreferences({
+        assistantSidebarWidthPx: 360
+      })
+    })
+
+    render(<AssistantSidebar />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })
+    const resizeHandle = screen.getByRole('separator', { name: '调整侧边栏宽度' })
+
+    await act(async () => undefined)
+    fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 100, pointerId: 1 })
+    fireEvent.pointerMove(window, { buttons: 0, clientX: 240, pointerId: 1 })
+
+    expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '360px' })
+
+    fireEvent.pointerMove(window, { buttons: 0, clientX: 280, pointerId: 1 })
+
+    expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '360px' })
   })
 
   it('keeps the notes workspace mounted while the sidebar is collapsed', async () => {
