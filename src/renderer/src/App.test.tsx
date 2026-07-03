@@ -146,7 +146,11 @@ describe('App runtime integration', () => {
     expect(await screen.findByRole('heading', { name: '启动前权限检查' })).toBeInTheDocument()
     expect(document.querySelector('webview')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '继续检测' }))
+    expect(screen.queryByText('权限说明')).not.toBeInTheDocument()
+    expect(screen.queryByText('网络检测')).not.toBeInTheDocument()
+    expect(screen.queryByText('进入应用')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '开始检测' }))
 
     await waitFor(() => expect(runStartupDiagnostics).toHaveBeenCalledTimes(1))
     await waitFor(() =>

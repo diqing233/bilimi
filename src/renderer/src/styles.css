@@ -353,21 +353,6 @@ body[data-floating-window="true"],
   color: var(--porcelain-muted);
   line-height: 1.7;
 }
-.startup-permission__steps {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-.startup-permission__steps span {
-  min-height: 34px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(31, 99, 181, 0.18);
-  border-radius: 6px;
-  background: rgba(220, 238, 255, 0.5);
-  font-size: 13px;
-  font-weight: 700;
-}
 .startup-diagnostics,
 .assistant-settings__diagnostics-list {
   display: grid;
