@@ -572,6 +572,27 @@ describe('PalaceMaidPetApp', () => {
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
 
+  it('adds one extra smaller pet size step below the old minimum', () => {
+    installDesktopApi()
+
+    const { container } = render(<PalaceMaidPetApp />)
+
+    const pet = screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' })
+    const shell = container.querySelector('.palace-maid-pet-shell') as HTMLElement
+    fireEvent.pointerEnter(pet)
+
+    const shrinkButton = screen.getByRole('button', { name: '缩小小咪' })
+
+    fireEvent.click(shrinkButton)
+    expect(shell.style.getPropertyValue('--floating-pet-size')).toBe('132px')
+    fireEvent.click(shrinkButton)
+    expect(shell.style.getPropertyValue('--floating-pet-size')).toBe('116px')
+    fireEvent.click(shrinkButton)
+    expect(shell.style.getPropertyValue('--floating-pet-size')).toBe('100px')
+    fireEvent.click(shrinkButton)
+    expect(shell.style.getPropertyValue('--floating-pet-size')).toBe('100px')
+  })
+
   it('shows the configured hover shortcuts beside the pet and runs immediate video actions', async () => {
     const api = installDesktopApi({
       runFloatingMenuAction: vi.fn().mockResolvedValue(undefined)

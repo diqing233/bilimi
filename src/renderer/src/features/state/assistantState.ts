@@ -1,4 +1,5 @@
 import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '@shared/favoriteLedgers'
+import { normalizeAssistantSidebarWidthPx } from '@shared/assistantSidebarWidth'
 import { normalizePetHoverShortcuts } from '@shared/petHoverShortcuts'
 import type {
   AssistantAction,
@@ -118,7 +119,8 @@ export function createInitialAssistantPreferences(
     ),
     deepseekModel: normalizeDeepSeekModel(persisted?.deepseekModel),
     deepseekBaseUrl: normalizeDeepSeekBaseUrl(persisted?.deepseekBaseUrl),
-    permissionOnboardingCompleted: Boolean(persisted?.permissionOnboardingCompleted)
+    permissionOnboardingCompleted: Boolean(persisted?.permissionOnboardingCompleted),
+    assistantSidebarWidthPx: normalizeAssistantSidebarWidthPx(persisted?.assistantSidebarWidthPx)
   }
 }
 

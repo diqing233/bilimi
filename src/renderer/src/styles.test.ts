@@ -88,8 +88,16 @@ describe('renderer porcelain theme styles', () => {
 
     expect(sidebarStyles).not.toContain('.assistant-sidebar__rail')
     expect(sidebarStyles).not.toContain('.assistant-sidebar {\n  width: 46px;')
+    expect(sidebarStyles).toContain(
+      'width: var(--assistant-sidebar-width, clamp(320px, 24vw, 384px));'
+    )
+    expect(sidebarStyles).toContain(
+      'min-width: var(--assistant-sidebar-width, clamp(320px, 24vw, 384px));'
+    )
     expect(sidebarStyles).toContain('grid-template-columns: minmax(0, 1fr);')
     expect(sidebarStyles).toContain('.assistant-sidebar[data-collapsed="true"] {\n  width: 0;')
+    expect(sidebarStyles).toContain('.assistant-sidebar__resize-handle {')
+    expect(sidebarStyles).toContain('cursor: col-resize;')
     expect(sidebarStyles).toContain('.assistant-sidebar__collapse-button {\n  position: absolute;\n  top: 5px;\n  left: -82px;')
     expect(sidebarStyles).not.toContain('top: 12px;')
     expect(sidebarStyles).toContain('min-width: 66px;\n  min-height: 30px;')

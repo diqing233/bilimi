@@ -115,10 +115,28 @@ describe('assistant state', () => {
   it('hydrates the selected pet style with a big-head default', () => {
     expect(createInitialAssistantPreferences().petStyle).toBe('big-head')
     expect(createInitialAssistantPreferences().hidePetDuringVideoFullscreen).toBe(false)
+    expect(createInitialAssistantPreferences().assistantSidebarWidthPx).toBeNull()
     expect(createInitialAssistantPreferences({ petStyle: 'classic' }).petStyle).toBe('classic')
     expect(createInitialAssistantPreferences({ petStyle: 'unknown' as never }).petStyle).toBe(
       'big-head'
     )
+  })
+
+  it('normalizes the optional assistant sidebar width preference', () => {
+    expect(createInitialAssistantPreferences({ assistantSidebarWidthPx: 360 })).toMatchObject({
+      assistantSidebarWidthPx: 360
+    })
+    expect(createInitialAssistantPreferences({ assistantSidebarWidthPx: 260 })).toMatchObject({
+      assistantSidebarWidthPx: 320
+    })
+    expect(createInitialAssistantPreferences({ assistantSidebarWidthPx: 900 })).toMatchObject({
+      assistantSidebarWidthPx: 486
+    })
+    expect(
+      createInitialAssistantPreferences({ assistantSidebarWidthPx: Number.NaN })
+    ).toMatchObject({
+      assistantSidebarWidthPx: null
+    })
   })
 
   it('creates disabled DeepSeek preferences by default', () => {

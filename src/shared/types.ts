@@ -111,6 +111,7 @@ export type AssistantPreferences = {
   deepseekModel: string
   deepseekBaseUrl: string
   permissionOnboardingCompleted: boolean
+  assistantSidebarWidthPx: number | null
 }
 
 export type AssistantAutomationResult = {

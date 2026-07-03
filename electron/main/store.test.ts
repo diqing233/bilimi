@@ -90,6 +90,8 @@ function createFakeStore(
     permissionOnboardingCompleted:
       initial.permissionOnboardingCompleted ??
       DEFAULT_ASSISTANT_PREFERENCES.permissionOnboardingCompleted,
+    assistantSidebarWidthPx:
+      initial.assistantSidebarWidthPx ?? DEFAULT_ASSISTANT_PREFERENCES.assistantSidebarWidthPx,
     deepseekApiKey: initial.deepseekApiKey ?? '',
     videoNotes: initial.videoNotes ?? [],
     videoNoteArchives: initial.videoNoteArchives ?? [],
@@ -196,7 +198,8 @@ describe('assistant preference store helpers', () => {
       deepseekPetChatEnabled: true,
       deepseekModel: 'deepseek-reasoner',
       deepseekBaseUrl: 'https://deepseek.example',
-      permissionOnboardingCompleted: true
+      permissionOnboardingCompleted: true,
+      assistantSidebarWidthPx: 360
     })
 
     expect(saved).toMatchObject({
@@ -218,7 +221,8 @@ describe('assistant preference store helpers', () => {
       deepseekPetChatEnabled: true,
       deepseekModel: 'deepseek-reasoner',
       deepseekBaseUrl: 'https://deepseek.example',
-      permissionOnboardingCompleted: true
+      permissionOnboardingCompleted: true,
+      assistantSidebarWidthPx: 360
     })
     expect(store.snapshot).toMatchObject(saved)
     expect(store.snapshot.videoNotes).toEqual([])
@@ -248,14 +252,16 @@ describe('assistant preference store helpers', () => {
       petStyle: 'invalid' as never,
       defaultCoinCount: 9 as never,
       commentSubmitMode: 'manual' as never,
-      favoriteArchiveMultiMode: 'many' as never
+      favoriteArchiveMultiMode: 'many' as never,
+      assistantSidebarWidthPx: 999 as never
     })
 
     expect(saved).toMatchObject({
       commentSubmitMode: 'choose',
       defaultCoinCount: 1,
       favoriteArchiveMultiMode: 'off',
-      petStyle: 'big-head'
+      petStyle: 'big-head',
+      assistantSidebarWidthPx: 486
     })
     expect(store.setCalls).toHaveLength(1)
   })

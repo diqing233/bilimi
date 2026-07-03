@@ -1,9 +1,17 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { AssistantSidebar } from './AssistantSidebar'
+import {
+  AssistantSidebar,
+  ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX,
+  clampAssistantSidebarWidthPx
+} from './AssistantSidebar'
+import { createInitialAssistantPreferences } from '../state/assistantState'
 
-function installDesktopApi() {
+function installDesktopApi({
+  preferences = createInitialAssistantPreferences()
+}: { preferences?: ReturnType<typeof createInitialAssistantPreferences> } = {}) {
   let openAssistantCallback: (() => void) | undefined
+  let storedPreferences = preferences
   const openWorkspaceCallbacks: Array<
     Parameters<NonNullable<Window['bilimiDesktop']['onOpenFloatingAssistantWorkspace']>>[0]
   > = []
@@ -11,7 +19,7 @@ function installDesktopApi() {
     configurable: true,
     value: {
       version: '0.1.0',
-      loadPreferences: vi.fn(),
+      loadPreferences: vi.fn(async () => storedPreferences),
       onOpenAssistant: vi.fn((callback) => {
         openAssistantCallback = callback
         return vi.fn()
@@ -22,7 +30,10 @@ function installDesktopApi() {
       }),
       onAssistantSnapshotChanged: vi.fn(),
       requestAssistantSnapshot: vi.fn().mockResolvedValue(undefined),
-      savePreferences: vi.fn(),
+      savePreferences: vi.fn(async (nextPreferences) => {
+        storedPreferences = createInitialAssistantPreferences(nextPreferences)
+        return storedPreferences
+      }),
       setAssistantPetHint: vi.fn(),
       loadVideoAudioTranscriptionQueue: vi.fn().mockResolvedValue({
         activeItemId: 'bvid:BV1note',
@@ -56,9 +67,19 @@ function installDesktopApi() {
         callback(payload)
       }
     },
-    setAssistantPetHint: window.bilimiDesktop.setAssistantPetHint as ReturnType<typeof vi.fn>
+    setAssistantPetHint: window.bilimiDesktop.setAssistantPetHint as ReturnType<typeof vi.fn>,
+    savePreferences: window.bilimiDesktop.savePreferences as ReturnType<typeof vi.fn>
   }
 }
+
+describe('assistant sidebar width helpers', () => {
+  it('keeps resized widths within practical bounds for the current window', () => {
+    expect(clampAssistantSidebarWidthPx(260, 1280)).toBe(320)
+    expect(clampAssistantSidebarWidthPx(360, 1280)).toBe(360)
+    expect(clampAssistantSidebarWidthPx(900, 1280)).toBe(486)
+    expect(clampAssistantSidebarWidthPx(900, 1920)).toBe(486)
+  })
+})
 
 describe('AssistantSidebar', () => {
   it('opens by default with the 批阅 tab selected', async () => {
@@ -167,6 +188,45 @@ describe('AssistantSidebar', () => {
       'aria-selected',
       'true'
     )
+  })
+
+  it('loads, drags, persists, and resets a bounded sidebar width', async () => {
+    const api = installDesktopApi({
+      preferences: createInitialAssistantPreferences({
+        assistantSidebarWidthPx: 360
+      })
+    })
+
+    render(<AssistantSidebar />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })
+    const resizeHandle = screen.getByRole('separator', { name: '调整侧边栏宽度' })
+
+    await act(async () => undefined)
+    expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '360px' })
+
+    fireEvent.pointerDown(resizeHandle, { clientX: 100, pointerId: 1 })
+    fireEvent.pointerMove(window, { clientX: 260, pointerId: 1 })
+
+    expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '320px' })
+
+    await act(async () => {
+      fireEvent.pointerUp(window, { clientX: 260, pointerId: 1 })
+    })
+
+    expect(api.savePreferences).toHaveBeenLastCalledWith(
+      expect.objectContaining({ assistantSidebarWidthPx: 320 })
+    )
+
+    fireEvent.doubleClick(resizeHandle)
+
+    expect(sidebar.style.getPropertyValue('--assistant-sidebar-width')).toBe('')
+    await waitFor(() =>
+      expect(api.savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({ assistantSidebarWidthPx: null })
+      )
+    )
+    expect(ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX).toBe(384)
   })
 
   it('keeps the notes workspace mounted while the sidebar is collapsed', async () => {

@@ -1,4 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
+import {
+  ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX,
+  clampAssistantSidebarWidthPx
+} from '@shared/assistantSidebarWidth'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import { FloatingAssistantApp } from './FloatingAssistantApp'
 import {
@@ -13,9 +17,29 @@ type AssistantSidebarProps = {
   onOpenInTab?: (url: string) => void
 }
 
+export { ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX, clampAssistantSidebarWidthPx }
+
 export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
+  const dragState = useRef<{ startClientX: number; startWidth: number } | null>(null)
+  const latestSidebarWidthPx = useRef<number | null>(null)
   const [collapsed, setCollapsed] = useState(false)
   const [activeTab, setActiveTab] = useState<AssistantSidebarTab>('review')
+  const [sidebarWidthPx, setSidebarWidthPx] = useState<number | null>(null)
+
+  latestSidebarWidthPx.current = sidebarWidthPx
+
+  async function persistSidebarWidth(widthPx: number | null) {
+    const currentPreferences = await window.bilimiDesktop?.loadPreferences?.()
+
+    if (!currentPreferences || !window.bilimiDesktop?.savePreferences) {
+      return
+    }
+
+    await window.bilimiDesktop.savePreferences({
+      ...currentPreferences,
+      assistantSidebarWidthPx: widthPx
+    })
+  }
 
   function collapseSidebar() {
     window.bilimiDesktop?.setAssistantPetHint?.({
@@ -39,12 +63,114 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
     })
   }, [])
 
+  useEffect(() => {
+    let disposed = false
+
+    async function loadWidthPreference() {
+      const preferences = await window.bilimiDesktop?.loadPreferences?.()
+
+      if (!disposed && preferences?.assistantSidebarWidthPx) {
+        setSidebarWidthPx(clampAssistantSidebarWidthPx(preferences.assistantSidebarWidthPx, window.innerWidth))
+      }
+    }
+
+    void loadWidthPreference()
+
+    return () => {
+      disposed = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (sidebarWidthPx === null) {
+      return
+    }
+
+    function handleWindowResize() {
+      setSidebarWidthPx((currentWidth) =>
+        currentWidth === null ? null : clampAssistantSidebarWidthPx(currentWidth, window.innerWidth)
+      )
+    }
+
+    window.addEventListener('resize', handleWindowResize)
+
+    return () => {
+      window.removeEventListener('resize', handleWindowResize)
+    }
+  }, [sidebarWidthPx])
+
+  useEffect(() => {
+    function finishDrag() {
+      if (!dragState.current) {
+        return
+      }
+
+      dragState.current = null
+      void persistSidebarWidth(latestSidebarWidthPx.current)
+    }
+
+    function moveDrag(event: globalThis.PointerEvent) {
+      const currentDrag = dragState.current
+
+      if (!currentDrag) {
+        return
+      }
+
+      const widthDelta = currentDrag.startClientX - event.clientX
+      setSidebarWidthPx(
+        clampAssistantSidebarWidthPx(currentDrag.startWidth + widthDelta, window.innerWidth)
+      )
+    }
+
+    window.addEventListener('pointermove', moveDrag)
+    window.addEventListener('pointerup', finishDrag)
+    window.addEventListener('pointercancel', finishDrag)
+
+    return () => {
+      window.removeEventListener('pointermove', moveDrag)
+      window.removeEventListener('pointerup', finishDrag)
+      window.removeEventListener('pointercancel', finishDrag)
+    }
+  }, [])
+
+  function beginSidebarResize(event: PointerEvent<HTMLDivElement>) {
+    event.preventDefault()
+    const startWidth =
+      latestSidebarWidthPx.current ?? clampAssistantSidebarWidthPx(ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX, window.innerWidth)
+
+    dragState.current = {
+      startClientX: event.clientX,
+      startWidth
+    }
+    setSidebarWidthPx(startWidth)
+  }
+
+  const sidebarStyle =
+    sidebarWidthPx === null
+      ? undefined
+      : ({
+          '--assistant-sidebar-width': `${sidebarWidthPx}px`
+        } as CSSProperties)
+
   return (
     <aside
       className="assistant-sidebar"
       aria-label="Bilimi 侧边栏"
       data-collapsed={collapsed ? 'true' : 'false'}
+      style={sidebarStyle}
     >
+      <div
+        className="assistant-sidebar__resize-handle"
+        role="separator"
+        aria-label="调整侧边栏宽度"
+        aria-orientation="vertical"
+        onPointerDown={beginSidebarResize}
+        onDoubleClick={() => {
+          dragState.current = null
+          setSidebarWidthPx(null)
+          void persistSidebarWidth(null)
+        }}
+      />
       <button
         type="button"
         className="assistant-sidebar__collapse-button"
