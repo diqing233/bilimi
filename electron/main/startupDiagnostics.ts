@@ -14,6 +14,7 @@ type StartupDiagnosticsDependencies = {
   platform?: NodeJS.Platform
   execPath?: string
   queryWindowsFirewallRules?: (programPath: string) => Promise<WindowsFirewallRule[]>
+  queryWindowsFirewallRulesByDisplayName?: (displayName: string) => Promise<WindowsFirewallRule[]>
   resolveMediaToolPaths: () => MediaToolPaths
   loadDeepSeekApiKeyStatus: () => DeepSeekKeyStatus
   testDeepSeekConnection: () => Promise<DeepSeekConnectionTestResult>
@@ -63,6 +64,38 @@ function queryWindowsFirewallRules(programPath: string): Promise<WindowsFirewall
     execFile(
       'powershell.exe',
       ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script, programPath],
+      { windowsHide: true, timeout: 8000, maxBuffer: 1024 * 1024 },
+      (error, stdout) => {
+        if (error) {
+          reject(error)
+          return
+        }
+
+        const output = stdout.trim()
+        if (!output) {
+          resolve([])
+          return
+        }
+
+        const parsed = JSON.parse(output) as unknown
+        const rules = Array.isArray(parsed) ? parsed : [parsed]
+        resolve(rules.map(normalizeFirewallRule))
+      }
+    )
+  })
+}
+
+function queryWindowsFirewallRulesByDisplayName(displayName: string): Promise<WindowsFirewallRule[]> {
+  const script = [
+    '$displayName = $args[0]',
+    '$rules = Get-NetFirewallRule -DisplayName $displayName -ErrorAction SilentlyContinue | Select-Object DisplayName,Enabled,Direction,Action,Profile',
+    '$rules | ConvertTo-Json -Compress'
+  ].join('; ')
+
+  return new Promise((resolve, reject) => {
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script, displayName],
       { windowsHide: true, timeout: 8000, maxBuffer: 1024 * 1024 },
       (error, stdout) => {
         if (error) {
@@ -176,7 +209,8 @@ function createWindowsFirewallProgramCandidates(programPath: string): string[] {
 async function checkWindowsFirewall(
   platform: NodeJS.Platform,
   programPath: string,
-  queryRules: (programPath: string) => Promise<WindowsFirewallRule[]>
+  queryRules: (programPath: string) => Promise<WindowsFirewallRule[]>,
+  queryRulesByDisplayName: (displayName: string) => Promise<WindowsFirewallRule[]>
 ): Promise<StartupDiagnosticItem> {
   if (platform !== 'win32') {
     return createItem({
@@ -191,7 +225,9 @@ async function checkWindowsFirewall(
     const ruleGroups = await Promise.all(
       createWindowsFirewallProgramCandidates(programPath).map((candidate) => queryRules(candidate))
     )
-    const rules = ruleGroups.flat()
+    const pathRules = ruleGroups.flat()
+    const rules =
+      pathRules.length > 0 ? pathRules : await queryRulesByDisplayName('bilimi')
     return checkWindowsFirewallRuleStatus(rules)
   } catch (error) {
     return createItem({
@@ -322,7 +358,8 @@ export async function runStartupDiagnostics(
     checkWindowsFirewall(
       dependencies.platform ?? process.platform,
       dependencies.execPath ?? process.execPath,
-      dependencies.queryWindowsFirewallRules ?? queryWindowsFirewallRules
+      dependencies.queryWindowsFirewallRules ?? queryWindowsFirewallRules,
+      dependencies.queryWindowsFirewallRulesByDisplayName ?? queryWindowsFirewallRulesByDisplayName
     ),
     checkDeepSeek(dependencies.loadDeepSeekApiKeyStatus, dependencies.testDeepSeekConnection)
   ])

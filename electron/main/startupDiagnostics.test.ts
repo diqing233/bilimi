@@ -174,4 +174,41 @@ describe('runStartupDiagnostics', () => {
       })
     )
   })
+
+  it('falls back to display-name bilimi firewall rules when the current process path differs', async () => {
+    const queryWindowsFirewallRules = vi.fn().mockResolvedValue([])
+    const queryWindowsFirewallRulesByDisplayName = vi.fn().mockResolvedValue([
+      {
+        action: 'Allow',
+        direction: 'Inbound',
+        enabled: true,
+        profile: 'Private, Public'
+      }
+    ])
+
+    const report = await runStartupDiagnostics({
+      now: () => new Date('2026-07-03T00:00:00.000Z'),
+      fetch: vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+      resolveMediaToolPaths: vi.fn(() => ({
+        ytdlpPath: 'tools/yt-dlp.exe',
+        ffmpegPath: 'tools/ffmpeg.exe',
+        whisperCliPath: 'tools/whisper-cli.exe',
+        whisperModelPath: 'tools/ggml-small.bin'
+      })),
+      loadDeepSeekApiKeyStatus: vi.fn(() => ({ configured: false })),
+      testDeepSeekConnection: vi.fn(),
+      platform: 'win32',
+      execPath: 'C:\\Users\\diqing\\bilimi\\node_modules\\electron\\dist\\electron.exe',
+      queryWindowsFirewallRules,
+      queryWindowsFirewallRulesByDisplayName
+    })
+
+    expect(queryWindowsFirewallRulesByDisplayName).toHaveBeenCalledWith('bilimi')
+    expect(report.items).toContainEqual(
+      expect.objectContaining({
+        id: 'windows-firewall',
+        status: 'ok'
+      })
+    )
+  })
 })
