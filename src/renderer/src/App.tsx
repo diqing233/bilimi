@@ -100,8 +100,7 @@ function StartupPermissionGate({
         <h1>启动前权限检查</h1>
         <p className="startup-permission__lead">
           Windows 可能会询问是否允许 bilimi 访问网络。请点击允许，建议至少允许专用网络，
-          否则登录、B 站页面操作、音频转写和 AI 功能可能无法正常工作。开始检测会尝试访问网络，
-          如果系统弹出防火墙提示，请选择允许。
+          否则登录、B 站页面操作、音频转写和 AI 功能可能无法正常工作。
         </p>
         {report ? (
           <ul className="startup-diagnostics" aria-label="启动诊断结果">
@@ -117,7 +116,7 @@ function StartupPermissionGate({
         {errorMessage ? <p className="startup-permission__error">{errorMessage}</p> : null}
         <div className="startup-permission__actions">
           <button type="button" onClick={onRunDiagnostics} disabled={running}>
-            {running ? '检测中' : hasBlockingIssue ? '重试检测' : '开始检测'}
+            {running ? '检测中' : hasBlockingIssue ? '重试检测' : '打开 bilimi'}
           </button>
           {hasBlockingIssue ? (
             <button type="button" onClick={onContinueAnyway} disabled={running}>

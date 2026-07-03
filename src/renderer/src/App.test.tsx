@@ -149,8 +149,9 @@ describe('App runtime integration', () => {
     expect(screen.queryByText('权限说明')).not.toBeInTheDocument()
     expect(screen.queryByText('网络检测')).not.toBeInTheDocument()
     expect(screen.queryByText('进入应用')).not.toBeInTheDocument()
+    expect(screen.queryByText(/开始检测会尝试访问网络/)).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '开始检测' }))
+    fireEvent.click(screen.getByRole('button', { name: '打开 bilimi' }))
 
     await waitFor(() => expect(runStartupDiagnostics).toHaveBeenCalledTimes(1))
     await waitFor(() =>

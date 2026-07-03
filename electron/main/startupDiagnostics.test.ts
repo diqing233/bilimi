@@ -132,4 +132,46 @@ describe('runStartupDiagnostics', () => {
       })
     )
   })
+
+  it('checks nearby bilimi.exe firewall rules when the current process path has no rule', async () => {
+    const queryWindowsFirewallRules = vi.fn(async (programPath: string) =>
+      programPath === 'C:\\Program Files\\bilimi\\bilimi.exe'
+        ? [
+            {
+              action: 'Allow',
+              direction: 'Inbound',
+              enabled: true,
+              profile: 'Private'
+            }
+          ]
+        : []
+    )
+
+    const report = await runStartupDiagnostics({
+      now: () => new Date('2026-07-03T00:00:00.000Z'),
+      fetch: vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+      resolveMediaToolPaths: vi.fn(() => ({
+        ytdlpPath: 'tools/yt-dlp.exe',
+        ffmpegPath: 'tools/ffmpeg.exe',
+        whisperCliPath: 'tools/whisper-cli.exe',
+        whisperModelPath: 'tools/ggml-small.bin'
+      })),
+      loadDeepSeekApiKeyStatus: vi.fn(() => ({ configured: false })),
+      testDeepSeekConnection: vi.fn(),
+      platform: 'win32',
+      execPath: 'C:\\Program Files\\bilimi\\resources\\app.asar.unpacked\\helper.exe',
+      queryWindowsFirewallRules
+    })
+
+    expect(queryWindowsFirewallRules).toHaveBeenCalledWith(
+      'C:\\Program Files\\bilimi\\resources\\app.asar.unpacked\\helper.exe'
+    )
+    expect(queryWindowsFirewallRules).toHaveBeenCalledWith('C:\\Program Files\\bilimi\\bilimi.exe')
+    expect(report.items).toContainEqual(
+      expect.objectContaining({
+        id: 'windows-firewall',
+        status: 'ok'
+      })
+    )
+  })
 })

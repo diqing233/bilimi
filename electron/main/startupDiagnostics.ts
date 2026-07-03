@@ -6,6 +6,7 @@ import type {
 } from '../../src/shared/types'
 import type { MediaToolPaths } from './mediaToolPaths'
 import { execFile } from 'node:child_process'
+import path from 'node:path'
 
 type StartupDiagnosticsDependencies = {
   now?: () => Date
@@ -158,6 +159,20 @@ function checkWindowsFirewallRuleStatus(rules: WindowsFirewallRule[]): StartupDi
   })
 }
 
+function createWindowsFirewallProgramCandidates(programPath: string): string[] {
+  const candidates = new Set<string>()
+  const resolvedProgramPath = path.win32.resolve(programPath)
+  candidates.add(resolvedProgramPath)
+
+  let directory = path.win32.dirname(resolvedProgramPath)
+  while (directory && directory !== path.win32.dirname(directory)) {
+    candidates.add(path.win32.join(directory, 'bilimi.exe'))
+    directory = path.win32.dirname(directory)
+  }
+
+  return Array.from(candidates)
+}
+
 async function checkWindowsFirewall(
   platform: NodeJS.Platform,
   programPath: string,
@@ -173,7 +188,10 @@ async function checkWindowsFirewall(
   }
 
   try {
-    const rules = await queryRules(programPath)
+    const ruleGroups = await Promise.all(
+      createWindowsFirewallProgramCandidates(programPath).map((candidate) => queryRules(candidate))
+    )
+    const rules = ruleGroups.flat()
     return checkWindowsFirewallRuleStatus(rules)
   } catch (error) {
     return createItem({
