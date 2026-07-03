@@ -5,17 +5,150 @@ import type {
   StartupDiagnosticReport
 } from '../../src/shared/types'
 import type { MediaToolPaths } from './mediaToolPaths'
+import { execFile } from 'node:child_process'
 
 type StartupDiagnosticsDependencies = {
   now?: () => Date
   fetch?: typeof fetch
+  platform?: NodeJS.Platform
+  execPath?: string
+  queryWindowsFirewallRules?: (programPath: string) => Promise<WindowsFirewallRule[]>
   resolveMediaToolPaths: () => MediaToolPaths
   loadDeepSeekApiKeyStatus: () => DeepSeekKeyStatus
   testDeepSeekConnection: () => Promise<DeepSeekConnectionTestResult>
 }
 
+type WindowsFirewallRule = {
+  action?: string
+  direction?: string
+  enabled?: boolean | string
+  profile?: string
+}
+
 function createItem(item: StartupDiagnosticItem): StartupDiagnosticItem {
   return item
+}
+
+function normalizeFirewallRule(raw: unknown): WindowsFirewallRule {
+  const candidate = raw as Record<string, unknown>
+
+  return {
+    action: typeof candidate.Action === 'string' ? candidate.Action : String(candidate.action ?? ''),
+    direction:
+      typeof candidate.Direction === 'string' ? candidate.Direction : String(candidate.direction ?? ''),
+    enabled:
+      typeof candidate.Enabled === 'boolean' || typeof candidate.Enabled === 'string'
+        ? candidate.Enabled
+        : candidate.enabled as WindowsFirewallRule['enabled'],
+    profile: typeof candidate.Profile === 'string' ? candidate.Profile : String(candidate.profile ?? '')
+  }
+}
+
+function queryWindowsFirewallRules(programPath: string): Promise<WindowsFirewallRule[]> {
+  const script = [
+    '$program = [System.IO.Path]::GetFullPath($args[0])',
+    '$filters = Get-NetFirewallApplicationFilter -Program $program -ErrorAction SilentlyContinue',
+    '$rules = foreach ($filter in $filters) {',
+    '  Get-NetFirewallRule -AssociatedNetFirewallApplicationFilter $filter | Select-Object DisplayName,Enabled,Direction,Action,Profile',
+    '}',
+    '$rules | ConvertTo-Json -Compress'
+  ].join('; ')
+
+  return new Promise((resolve, reject) => {
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script, programPath],
+      { windowsHide: true, timeout: 8000, maxBuffer: 1024 * 1024 },
+      (error, stdout) => {
+        if (error) {
+          reject(error)
+          return
+        }
+
+        const output = stdout.trim()
+        if (!output) {
+          resolve([])
+          return
+        }
+
+        const parsed = JSON.parse(output) as unknown
+        const rules = Array.isArray(parsed) ? parsed : [parsed]
+        resolve(rules.map(normalizeFirewallRule))
+      }
+    )
+  })
+}
+
+function isEnabledFirewallRule(rule: WindowsFirewallRule): boolean {
+  return rule.enabled === true || String(rule.enabled).toLowerCase() === 'true'
+}
+
+function checkWindowsFirewallRuleStatus(rules: WindowsFirewallRule[]): StartupDiagnosticItem {
+  const enabledRules = rules.filter(isEnabledFirewallRule)
+  const blockedRules = enabledRules.filter((rule) => String(rule.action).toLowerCase() === 'block')
+  const allowedRules = enabledRules.filter((rule) => String(rule.action).toLowerCase() === 'allow')
+
+  if (blockedRules.length > 0) {
+    return createItem({
+      id: 'windows-firewall',
+      label: 'Windows 安全中心',
+      status: 'error',
+      message: 'Windows 防火墙规则正在阻止 bilimi 访问网络。',
+      action: '打开 Windows 安全中心，在“允许应用通过防火墙”里允许 bilimi，建议至少勾选专用网络。'
+    })
+  }
+
+  if (allowedRules.length > 0) {
+    const profiles = Array.from(
+      new Set(allowedRules.map((rule) => String(rule.profile || 'Any')).filter(Boolean))
+    )
+
+    return createItem({
+      id: 'windows-firewall',
+      label: 'Windows 安全中心',
+      status: 'ok',
+      message: `已找到 bilimi 的防火墙允许规则${profiles.length ? `（${profiles.join('、')}）` : '。'}`
+    })
+  }
+
+  return createItem({
+    id: 'windows-firewall',
+    label: 'Windows 安全中心',
+    status: 'warning',
+    message: '未找到 bilimi 的防火墙允许规则。',
+    action: '首次弹出 Windows 安全中心提示时请点击允许；若已经错过，请手动在“允许应用通过防火墙”里添加 bilimi。'
+  })
+}
+
+async function checkWindowsFirewall(
+  platform: NodeJS.Platform,
+  programPath: string,
+  queryRules: (programPath: string) => Promise<WindowsFirewallRule[]>
+): Promise<StartupDiagnosticItem> {
+  if (platform !== 'win32') {
+    return createItem({
+      id: 'windows-firewall',
+      label: 'Windows 安全中心',
+      status: 'ok',
+      message: '当前不是 Windows 环境，无需检查 Windows 安全中心权限。'
+    })
+  }
+
+  try {
+    const rules = await queryRules(programPath)
+    return checkWindowsFirewallRuleStatus(rules)
+  } catch (error) {
+    return createItem({
+      id: 'windows-firewall',
+      label: 'Windows 安全中心',
+      status: 'warning',
+      message:
+        error instanceof Error
+          ? `未能读取 Windows 防火墙规则：${error.message}`
+          : '未能读取 Windows 防火墙规则。',
+      action: '请打开 Windows 安全中心，确认 bilimi 已被允许通过防火墙。'
+    })
+  }
 }
 
 async function checkBilibiliNetwork(fetchImpl: typeof fetch): Promise<StartupDiagnosticItem> {
@@ -128,12 +261,18 @@ export async function runStartupDiagnostics(
   dependencies: StartupDiagnosticsDependencies
 ): Promise<StartupDiagnosticReport> {
   const fetchImpl = dependencies.fetch ?? fetch
-  const [bilibiliNetwork, deepseek] = await Promise.all([
+  const [bilibiliNetwork, windowsFirewall, deepseek] = await Promise.all([
     checkBilibiliNetwork(fetchImpl),
+    checkWindowsFirewall(
+      dependencies.platform ?? process.platform,
+      dependencies.execPath ?? process.execPath,
+      dependencies.queryWindowsFirewallRules ?? queryWindowsFirewallRules
+    ),
     checkDeepSeek(dependencies.loadDeepSeekApiKeyStatus, dependencies.testDeepSeekConnection)
   ])
   const items = [
     bilibiliNetwork,
+    windowsFirewall,
     checkMediaTools(dependencies.resolveMediaToolPaths),
     checkStorage(),
     deepseek

@@ -256,7 +256,13 @@ export type DeepSeekConnectionTestResult = { ok: boolean; message: string }
 export type StartupDiagnosticStatus = 'ok' | 'warning' | 'error'
 
 export type StartupDiagnosticItem = {
-  id: 'bilibili-network' | 'bilibili-page' | 'media-tools' | 'deepseek' | 'storage'
+  id:
+    | 'bilibili-network'
+    | 'bilibili-page'
+    | 'windows-firewall'
+    | 'media-tools'
+    | 'deepseek'
+    | 'storage'
   label: string
   status: StartupDiagnosticStatus
   message: string
