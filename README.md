@@ -196,6 +196,8 @@ npm test
 npm run dist:win
 ```
 
+打包或发布前，请先按 [打包前体验验收清单](docs/release-checklist.md) 验证开发版、生产预览版和真实安装包的关键路径。
+
 安装器会输出到：
 
 ```text
