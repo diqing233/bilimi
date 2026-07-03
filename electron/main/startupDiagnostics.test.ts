@@ -99,4 +99,37 @@ describe('runStartupDiagnostics', () => {
       })
     )
   })
+
+  it('recognizes Windows firewall rules returned with numeric enum values', async () => {
+    const report = await runStartupDiagnostics({
+      now: () => new Date('2026-07-03T00:00:00.000Z'),
+      fetch: vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+      resolveMediaToolPaths: vi.fn(() => ({
+        ytdlpPath: 'tools/yt-dlp.exe',
+        ffmpegPath: 'tools/ffmpeg.exe',
+        whisperCliPath: 'tools/whisper-cli.exe',
+        whisperModelPath: 'tools/ggml-small.bin'
+      })),
+      loadDeepSeekApiKeyStatus: vi.fn(() => ({ configured: false })),
+      testDeepSeekConnection: vi.fn(),
+      platform: 'win32',
+      execPath: 'D:\\bilimi\\bilimi.exe',
+      queryWindowsFirewallRules: vi.fn().mockResolvedValue([
+        {
+          action: 2,
+          direction: 1,
+          enabled: 1,
+          profile: 4
+        }
+      ])
+    })
+
+    expect(report.items).toContainEqual(
+      expect.objectContaining({
+        id: 'windows-firewall',
+        status: 'ok',
+        message: expect.stringContaining('Public')
+      })
+    )
+  })
 })

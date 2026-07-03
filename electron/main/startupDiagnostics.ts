@@ -19,10 +19,10 @@ type StartupDiagnosticsDependencies = {
 }
 
 type WindowsFirewallRule = {
-  action?: string
-  direction?: string
-  enabled?: boolean | string
-  profile?: string
+  action?: number | string
+  direction?: number | string
+  enabled?: boolean | number | string
+  profile?: number | string
 }
 
 function createItem(item: StartupDiagnosticItem): StartupDiagnosticItem {
@@ -31,16 +31,20 @@ function createItem(item: StartupDiagnosticItem): StartupDiagnosticItem {
 
 function normalizeFirewallRule(raw: unknown): WindowsFirewallRule {
   const candidate = raw as Record<string, unknown>
+  const normalizeRuleValue = (value: unknown): number | string | undefined =>
+    typeof value === 'number' || typeof value === 'string' ? value : undefined
 
   return {
-    action: typeof candidate.Action === 'string' ? candidate.Action : String(candidate.action ?? ''),
+    action: normalizeRuleValue(candidate.Action) ?? normalizeRuleValue(candidate.action) ?? '',
     direction:
-      typeof candidate.Direction === 'string' ? candidate.Direction : String(candidate.direction ?? ''),
+      normalizeRuleValue(candidate.Direction) ?? normalizeRuleValue(candidate.direction) ?? '',
     enabled:
-      typeof candidate.Enabled === 'boolean' || typeof candidate.Enabled === 'string'
+      typeof candidate.Enabled === 'boolean' ||
+      typeof candidate.Enabled === 'number' ||
+      typeof candidate.Enabled === 'string'
         ? candidate.Enabled
         : candidate.enabled as WindowsFirewallRule['enabled'],
-    profile: typeof candidate.Profile === 'string' ? candidate.Profile : String(candidate.profile ?? '')
+    profile: normalizeRuleValue(candidate.Profile) ?? normalizeRuleValue(candidate.profile) ?? ''
   }
 }
 
@@ -80,13 +84,47 @@ function queryWindowsFirewallRules(programPath: string): Promise<WindowsFirewall
 }
 
 function isEnabledFirewallRule(rule: WindowsFirewallRule): boolean {
-  return rule.enabled === true || String(rule.enabled).toLowerCase() === 'true'
+  const enabled = String(rule.enabled).toLowerCase()
+  return rule.enabled === true || rule.enabled === 1 || enabled === 'true' || enabled === '1'
+}
+
+function normalizeFirewallAction(action: WindowsFirewallRule['action']): string {
+  if (action === 2 || String(action).toLowerCase() === '2') {
+    return 'allow'
+  }
+
+  if (action === 4 || String(action).toLowerCase() === '4') {
+    return 'block'
+  }
+
+  return String(action).toLowerCase()
+}
+
+function normalizeFirewallProfile(profile: WindowsFirewallRule['profile']): string {
+  const profileValue = Number(profile)
+  const profileNames: Array<[number, string]> = [
+    [1, 'Domain'],
+    [2, 'Private'],
+    [4, 'Public']
+  ]
+
+  if (Number.isFinite(profileValue) && profileValue > 0) {
+    const names = profileNames
+      .filter(([value]) => (profileValue & value) === value)
+      .map(([, name]) => name)
+
+    if (names.length > 0) {
+      return names.join(',')
+    }
+  }
+
+  return String(profile || 'Any')
 }
 
 function checkWindowsFirewallRuleStatus(rules: WindowsFirewallRule[]): StartupDiagnosticItem {
   const enabledRules = rules.filter(isEnabledFirewallRule)
-  const blockedRules = enabledRules.filter((rule) => String(rule.action).toLowerCase() === 'block')
-  const allowedRules = enabledRules.filter((rule) => String(rule.action).toLowerCase() === 'allow')
+  const blockedRules = enabledRules.filter((rule) => normalizeFirewallAction(rule.action) === 'block')
+  const allowedRules = enabledRules.filter((rule) => normalizeFirewallAction(rule.action) === 'allow')
 
   if (blockedRules.length > 0) {
     return createItem({
@@ -100,7 +138,7 @@ function checkWindowsFirewallRuleStatus(rules: WindowsFirewallRule[]): StartupDi
 
   if (allowedRules.length > 0) {
     const profiles = Array.from(
-      new Set(allowedRules.map((rule) => String(rule.profile || 'Any')).filter(Boolean))
+      new Set(allowedRules.map((rule) => normalizeFirewallProfile(rule.profile)).filter(Boolean))
     )
 
     return createItem({
