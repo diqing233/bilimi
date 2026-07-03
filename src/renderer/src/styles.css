@@ -1456,6 +1456,13 @@ body[data-floating-window="true"],
 .assistant-sidebar__resize-handle:focus-visible::after {
   background: rgba(31, 99, 181, 0.36);
 }
+.assistant-sidebar__resize-shield {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  cursor: col-resize;
+  user-select: none;
+}
 .assistant-sidebar[data-collapsed="true"] .assistant-sidebar__resize-handle {
   pointer-events: none;
 }

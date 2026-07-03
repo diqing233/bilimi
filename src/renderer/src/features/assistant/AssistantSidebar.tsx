@@ -19,12 +19,20 @@ type AssistantSidebarProps = {
 
 export { ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX, clampAssistantSidebarWidthPx }
 
+type SidebarDragState = {
+  startClientX: number
+  startWidth: number
+  pointerId: number
+  target: HTMLDivElement | null
+}
+
 export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
-  const dragState = useRef<{ startClientX: number; startWidth: number } | null>(null)
+  const dragState = useRef<SidebarDragState | null>(null)
   const latestSidebarWidthPx = useRef<number | null>(null)
   const [collapsed, setCollapsed] = useState(false)
   const [activeTab, setActiveTab] = useState<AssistantSidebarTab>('review')
   const [sidebarWidthPx, setSidebarWidthPx] = useState<number | null>(null)
+  const [resizing, setResizing] = useState(false)
 
   latestSidebarWidthPx.current = sidebarWidthPx
 
@@ -101,11 +109,19 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
 
   useEffect(() => {
     function finishDrag() {
-      if (!dragState.current) {
+      const currentDrag = dragState.current
+
+      if (!currentDrag) {
         return
       }
 
       dragState.current = null
+      setResizing(false)
+      try {
+        currentDrag.target?.releasePointerCapture?.(currentDrag.pointerId)
+      } catch {
+        // Some runtimes throw if capture was already released.
+      }
       void persistSidebarWidth(latestSidebarWidthPx.current)
     }
 
@@ -118,6 +134,12 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
 
       if ((event.buttons & 1) !== 1) {
         dragState.current = null
+        setResizing(false)
+        try {
+          currentDrag.target?.releasePointerCapture?.(currentDrag.pointerId)
+        } catch {
+          // Some runtimes throw if capture was already released.
+        }
         void persistSidebarWidth(latestSidebarWidthPx.current)
         return
       }
@@ -150,9 +172,17 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
 
     dragState.current = {
       startClientX: event.clientX,
-      startWidth
+      startWidth,
+      pointerId: event.pointerId,
+      target: event.currentTarget
+    }
+    try {
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+    } catch {
+      // Pointer capture is a best-effort guard; the resize shield still protects webviews.
     }
     setSidebarWidthPx(startWidth)
+    setResizing(true)
   }
 
   const sidebarStyle =
@@ -181,6 +211,7 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
           void persistSidebarWidth(null)
         }}
       />
+      {resizing ? <div className="assistant-sidebar__resize-shield" aria-hidden="true" /> : null}
       <button
         type="button"
         className="assistant-sidebar__collapse-button"

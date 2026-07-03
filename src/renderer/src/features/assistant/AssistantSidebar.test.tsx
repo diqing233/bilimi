@@ -229,6 +229,37 @@ describe('AssistantSidebar', () => {
     expect(ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX).toBe(384)
   })
 
+  it('captures the pointer and shields webviews while resizing', async () => {
+    installDesktopApi({
+      preferences: createInitialAssistantPreferences({
+        assistantSidebarWidthPx: 360
+      })
+    })
+
+    render(<AssistantSidebar />)
+
+    const resizeHandle = screen.getByRole('separator', { name: '调整侧边栏宽度' })
+    const setPointerCapture = vi.fn()
+    const releasePointerCapture = vi.fn()
+    Object.assign(resizeHandle, {
+      setPointerCapture,
+      releasePointerCapture
+    })
+
+    await act(async () => undefined)
+    fireEvent.pointerDown(resizeHandle, { button: 0, buttons: 1, clientX: 100, pointerId: 7 })
+
+    expect(setPointerCapture).toHaveBeenCalledWith(7)
+    expect(document.querySelector('.assistant-sidebar__resize-shield')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.pointerUp(window, { clientX: 100, pointerId: 7 })
+    })
+
+    expect(releasePointerCapture).toHaveBeenCalledWith(7)
+    expect(document.querySelector('.assistant-sidebar__resize-shield')).not.toBeInTheDocument()
+  })
+
   it('stops resizing when pointer moves after the left mouse button is released', async () => {
     installDesktopApi({
       preferences: createInitialAssistantPreferences({
