@@ -108,7 +108,10 @@ export function createInitialAssistantPreferences(
       persisted?.deepseekCommentEnabled,
       persisted?.deepseekEnabled
     ),
-    deepseekAutoSummaryEnabled: Boolean(persisted?.deepseekAutoSummaryEnabled),
+    deepseekAutoSummaryEnabled: normalizeDeepSeekFeatureToggle(
+      persisted?.deepseekAutoSummaryEnabled,
+      persisted?.deepseekEnabled
+    ),
     deepseekPetChatEnabled: normalizeDeepSeekFeatureToggle(
       persisted?.deepseekPetChatEnabled,
       persisted?.deepseekEnabled

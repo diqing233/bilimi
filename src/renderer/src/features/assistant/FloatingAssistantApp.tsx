@@ -615,6 +615,19 @@ export function FloatingAssistantApp({
     }
   }
 
+  function toggleDeepSeekEnabled(enabled: boolean) {
+    updateDeepSeekPreference(
+      enabled
+        ? {
+            deepseekEnabled: true,
+            deepseekCommentEnabled: true,
+            deepseekAutoSummaryEnabled: true,
+            deepseekPetChatEnabled: true
+          }
+        : { deepseekEnabled: false }
+    )
+  }
+
   async function saveDeepSeekSettings() {
     const keyDraft = deepSeekApiKeyDraft.trim()
 
@@ -1476,7 +1489,7 @@ export function FloatingAssistantApp({
                   type="checkbox"
                   checked={preferences.deepseekEnabled}
                   onChange={(event) =>
-                    updateDeepSeekPreference({ deepseekEnabled: event.currentTarget.checked })
+                    toggleDeepSeekEnabled(event.currentTarget.checked)
                   }
                 />
                 <span>启用 DeepSeek</span>

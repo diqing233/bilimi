@@ -32,7 +32,7 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     ledgerPromptDismissed: true,
     preferenceCounts: {},
     petStyle: 'big-head',
-    petHoverShortcuts: ['like', 'coin', 'assistant', 'transcribe'],
+    petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
     hidePetDuringVideoFullscreen: false,
     bilibiliOperationMode: 'api-assisted',
     favoriteArchiveMultiMode: 'off',
@@ -588,7 +588,7 @@ describe('PalaceMaidPetApp', () => {
     expect(screen.getAllByTestId('pet-hover-shortcut')).toHaveLength(4)
     expect(screen.getByRole('button', { name: '赏' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '赐' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '咪' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '表' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '转' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '赏' }))
@@ -599,15 +599,24 @@ describe('PalaceMaidPetApp', () => {
 
   it('opens the floating assistant workspace from the 咪 hover shortcut', async () => {
     const openFloatingAssistantWorkspace = vi.fn().mockResolvedValue(undefined)
+    const assistantShortcutPreferences = createPreferences({
+      petHoverShortcuts: ['assistant']
+    })
     const api = installDesktopApi({
       openFloatingAssistantWorkspace,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: assistantShortcutPreferences
+        })
+      ),
+      loadPreferences: vi.fn().mockResolvedValue(assistantShortcutPreferences),
       runFloatingMenuAction: vi.fn().mockResolvedValue(undefined)
     })
 
     render(<PalaceMaidPetApp />)
 
     fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
-    fireEvent.click(screen.getByRole('button', { name: '咪' }))
+    fireEvent.click(await screen.findByRole('button', { name: '咪' }))
 
     await waitFor(() =>
       expect(api.openFloatingAssistantWorkspace).toHaveBeenCalledWith({ tab: 'review' })
@@ -617,14 +626,23 @@ describe('PalaceMaidPetApp', () => {
   })
 
   it('anchors the floating assistant workspace to the clicked pet hover shortcut', async () => {
+    const assistantShortcutPreferences = createPreferences({
+      petHoverShortcuts: ['assistant']
+    })
     const api = installDesktopApi({
-      openFloatingAssistantWorkspace: vi.fn().mockResolvedValue(undefined)
+      openFloatingAssistantWorkspace: vi.fn().mockResolvedValue(undefined),
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: assistantShortcutPreferences
+        })
+      ),
+      loadPreferences: vi.fn().mockResolvedValue(assistantShortcutPreferences)
     })
 
     render(<PalaceMaidPetApp />)
 
     fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 Bilimi，小咪在这里' }))
-    fireEvent.click(screen.getByRole('button', { name: '咪' }), {
+    fireEvent.click(await screen.findByRole('button', { name: '咪' }), {
       screenX: 720,
       screenY: 460
     })

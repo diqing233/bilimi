@@ -36,7 +36,7 @@ export const PET_HOVER_SHORTCUTS: PetHoverShortcut[] = [
 export const DEFAULT_PET_HOVER_SHORTCUTS: PetHoverShortcutId[] = [
   'like',
   'coin',
-  'assistant',
+  'comment',
   'transcribe'
 ]
 

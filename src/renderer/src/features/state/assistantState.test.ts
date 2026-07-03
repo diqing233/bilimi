@@ -150,6 +150,7 @@ describe('assistant state', () => {
     expect(createInitialAssistantPreferences({ deepseekEnabled: true })).toMatchObject({
       deepseekEnabled: true,
       deepseekCommentEnabled: true,
+      deepseekAutoSummaryEnabled: true,
       deepseekPetChatEnabled: true
     })
 

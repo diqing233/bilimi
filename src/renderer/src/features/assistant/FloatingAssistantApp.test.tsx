@@ -1260,9 +1260,9 @@ describe('FloatingAssistantApp', () => {
     const enabled = screen.getByRole('checkbox', { name: '启用 DeepSeek' })
     fireEvent.click(enabled)
     expect(screen.queryByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek 生成趣味评论' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek 宠物对话功能' }))
+    expect(screen.getByRole('checkbox', { name: '启用 DeepSeek 生成趣味评论' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '启用 DeepSeek 宠物对话功能' })).toBeChecked()
     fireEvent.change(screen.getByLabelText('DeepSeek API 密钥'), {
       target: { value: 'sk-test' }
     })
