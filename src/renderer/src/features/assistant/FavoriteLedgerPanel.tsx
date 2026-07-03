@@ -8,6 +8,7 @@ import type {
   AssistantAutomationResult,
   FavoriteArchiveMultiMode,
   FavoriteLedger,
+  FavoriteLedgerRuleType,
   FavoriteLedgerSaveOptions
 } from '@shared/types'
 import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react'
@@ -64,6 +65,59 @@ function customLedgerId(name: string) {
 
 function canDeleteLedger(ledger: FavoriteLedger) {
   return !ledger.isDefault && isBilimiManagedLedgerName(ledger.displayName)
+}
+
+const LEDGER_RULE_TYPE_OPTIONS: Array<{ value: FavoriteLedgerRuleType; label: string }> = [
+  { value: 'keyword', label: '关键词收藏夹' },
+  { value: 'author', label: '专属 UP 追更收藏夹' },
+  { value: 'tag', label: '标签收藏夹' }
+]
+
+function ledgerRuleType(ledger: Pick<FavoriteLedger, 'ruleType'>): FavoriteLedgerRuleType {
+  return ledger.ruleType ?? 'keyword'
+}
+
+function candidateRuleType(candidate: FavoriteLedgerCandidate): FavoriteLedgerRuleType {
+  if (candidate.ruleType) {
+    return candidate.ruleType
+  }
+  if (candidate.kind === 'author') {
+    return 'author'
+  }
+  if (candidate.kind === 'tag-cluster') {
+    return 'tag'
+  }
+  return 'keyword'
+}
+
+function ruleFieldLabel(ruleType: FavoriteLedgerRuleType) {
+  if (ruleType === 'author') {
+    return 'UP 名字'
+  }
+  if (ruleType === 'tag') {
+    return '标签'
+  }
+  return '关键词'
+}
+
+function rulePrimaryHint(ruleType: FavoriteLedgerRuleType) {
+  if (ruleType === 'author') {
+    return '填写一个或多个 UP 名，命中作者时会优先存入这个收藏夹。'
+  }
+  if (ruleType === 'tag') {
+    return '填写一个或多个 B 站标签，命中标签时会优先存入这个收藏夹。'
+  }
+  return '建议优先填写 B 站标签里的词；标签命中权重最高，标题、分区、简介等信息会辅助判断。'
+}
+
+function ruleSecondaryHint(ruleType: FavoriteLedgerRuleType) {
+  if (ruleType === 'author') {
+    return '不同 UP 名用顿号或空格隔开，逗号、斜杠也能识别。'
+  }
+  if (ruleType === 'tag') {
+    return '不同标签用顿号或空格隔开，逗号、斜杠也能识别。'
+  }
+  return '不同关键词用顿号或空格隔开，逗号、斜杠也能识别。'
 }
 
 function alreadyHasLedger(ledgers: FavoriteLedger[], displayName: string) {
@@ -220,6 +274,7 @@ function candidateToFavoriteLedger(candidate: FavoriteLedgerCandidate, priority:
     id: candidateLedgerIdFromCandidate(candidate),
     displayName: candidate.displayName,
     keywords: candidate.keywords,
+    ruleType: candidateRuleType(candidate),
     enabled: true,
     priority,
     isDefault: false
@@ -314,6 +369,7 @@ function candidateTargetToPreviewTarget(
     folderId: '',
     displayName: target.displayName,
     keywords: target.keywords,
+    ruleType: target.ruleType,
     alreadyInTarget: false,
     selected: true,
     selectedCandidateTarget: true,
@@ -441,7 +497,17 @@ function retryJudgmentTargetForOldFavoriteItem(
   item: FavoriteLedgerPreviewItem,
   ledgers: FavoriteLedger[]
 ): FavoriteLedgerPreviewTarget | null {
-  const classification = classifyVideoContent({ title: item.title }, ledgers)
+  const classification = classifyVideoContent(
+    {
+      title: item.title,
+      author: item.author,
+      description: item.description,
+      pageText: item.pageText,
+      category: item.category,
+      tags: item.tags
+    },
+    ledgers
+  )
   if (classification.ledgerId === 'inbox') {
     return null
   }
@@ -456,6 +522,7 @@ function retryJudgmentTargetForOldFavoriteItem(
     folderId: ledger.bilibiliFolderId ?? '',
     displayName: ledger.displayName,
     keywords: ledger.keywords,
+    ruleType: ledger.ruleType,
     alreadyInTarget: false,
     selected: true
   }
@@ -610,6 +677,7 @@ export function FavoriteLedgerPanel({
         : (draftLedgers[activeLedgerIndex] ?? null),
     [activeLedgerIndex, draftLedgers]
   )
+  const activeLedgerRuleType = activeLedger ? ledgerRuleType(activeLedger) : 'keyword'
   const activeLedgerHasUnsavedChanges = useMemo(() => {
     if (!activeLedger) {
       return false
@@ -695,6 +763,7 @@ export function FavoriteLedgerPanel({
       id: customLedgerId('new-ledger'),
       displayName: BILIMI_LEDGER_PREFIX,
       keywords: [],
+      ruleType: 'keyword' as const,
       enabled: true,
       priority: (draftLedgers.length + 1) * 10,
       isDefault: false
@@ -808,7 +877,7 @@ export function FavoriteLedgerPanel({
     closeActiveLedgerEditor()
   }
 
-  function updateActiveLedger(patch: Partial<Pick<FavoriteLedger, 'displayName' | 'keywords'>>) {
+  function updateActiveLedger(patch: Partial<Pick<FavoriteLedger, 'displayName' | 'keywords' | 'ruleType'>>) {
     if (!activeLedger) {
       return
     }
@@ -958,6 +1027,7 @@ export function FavoriteLedgerPanel({
       id: candidateLedgerId(candidate),
       displayName: candidate.displayName,
       keywords: candidate.keywords,
+      ruleType: candidateRuleType(candidate),
       enabled: true,
       priority,
       isDefault: false
@@ -1018,11 +1088,15 @@ export function FavoriteLedgerPanel({
         ledger.isDefault
           ? {
               ...ledger,
+              displayName: normalizeBilimiLedgerName(ledger.displayName),
               enabled: includeDefaultLedgers
                 ? (defaultEnabledById.get(ledger.id) ?? selectedDefaultLedgerIds.has(ledger.id))
                 : selectedDefaultLedgerIds.has(ledger.id)
             }
-          : ledger
+          : {
+              ...ledger,
+              displayName: normalizeBilimiLedgerName(ledger.displayName)
+            }
       )
     )
 
@@ -1281,6 +1355,7 @@ export function FavoriteLedgerPanel({
     candidateKey?: string
     displayName: string
     keywords: string[]
+    ruleType?: FavoriteLedgerRuleType
   }): FavoriteLedgerCandidate | null {
     if (!target.candidateKey) {
       return null
@@ -1305,6 +1380,7 @@ export function FavoriteLedgerPanel({
       sourceName,
       displayName: target.displayName,
       keywords: target.keywords,
+      ruleType: target.ruleType,
       count: oldFavoriteCandidateCounts.get(target.candidateKey) ?? 1,
       confidence: 'medium',
       reason: '进一步判断建议。'
@@ -1585,9 +1661,7 @@ export function FavoriteLedgerPanel({
     oldFavoriteTagCandidates.length > 0 &&
     oldFavoriteTagCandidates.every((candidate) => selectedCandidateKeys.has(candidateKey(candidate)))
   function oldFavoriteCandidateDetailText(candidate: FavoriteLedgerCandidate) {
-    const count = oldFavoriteCandidateCounts.get(candidateKey(candidate)) ?? candidate.count
-    const sourceLabel = candidate.kind === 'author' ? '固定 UP' : candidate.kind === 'series' ? '标题系列' : '主题聚类'
-    return `${count} 条旧藏 · ${sourceLabel} · ${candidate.reason}`
+    return oldFavoriteCandidateRecommendationText(candidate)
   }
 
   function oldFavoriteCandidateRecommendationText(candidate: FavoriteLedgerCandidate) {
@@ -1765,7 +1839,22 @@ export function FavoriteLedgerPanel({
             </div>
           </div>
         <label>
-          册名
+          <span className="favorite-ledger-panel__name-label">
+            <span>册名</span>
+            <select
+              aria-label="收藏夹种类"
+              value={activeLedgerRuleType}
+              onChange={(event) =>
+                updateActiveLedger({ ruleType: event.currentTarget.value as FavoriteLedgerRuleType })
+              }
+            >
+              {LEDGER_RULE_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </span>
           {isBilimiLedger(activeLedger) ? (
             <span className="favorite-ledger-panel__prefixed-input">
               <span className="favorite-ledger-panel__fixed-prefix" aria-hidden="true">
@@ -1786,7 +1875,7 @@ export function FavoriteLedgerPanel({
           )}
         </label>
           <label>
-            关键词
+            {ruleFieldLabel(activeLedgerRuleType)}
             <textarea
               value={activeLedger.keywords.join('、')}
               onChange={(event) =>
@@ -1795,10 +1884,10 @@ export function FavoriteLedgerPanel({
             />
           </label>
           <p className="favorite-ledger-panel__keyword-hint">
-            建议优先填写 B 站标签里的词；标签命中权重最高，标题、分区、简介等信息会辅助判断。
+            {rulePrimaryHint(activeLedgerRuleType)}
           </p>
           <p className="favorite-ledger-panel__keyword-hint">
-            不同关键词用顿号或空格隔开，逗号、斜杠也能识别。
+            {ruleSecondaryHint(activeLedgerRuleType)}
           </p>
           <div className="favorite-ledger-panel__keyword-actions">
           </div>

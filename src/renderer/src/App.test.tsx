@@ -2012,7 +2012,7 @@ describe('App runtime integration', () => {
     expect(executeJavaScript).toHaveBeenCalledWith(
       expect.stringContaining(LEDGER_SAVE_SCRIPT_MARKER)
     )
-    expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('Bilimi Custom'))
+    expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('bilimi·Custom'))
     expect(savePreferences).toHaveBeenCalledWith(
       expect.objectContaining({
         favoriteLedgers: expect.arrayContaining([

@@ -181,7 +181,7 @@ describe('favorite ledger API scripts', () => {
     expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:create:custom-bilimi'])
     expect(requests.filter((request) => request.url.includes('/folder/add'))).toHaveLength(1)
     expect(requests[1].body).toContain('csrf=csrf-token')
-    expect(requests[1].body).toContain('title=Bilimi+Custom')
+    expect(requests[1].body).toContain(`title=${encodeURIComponent('bilimi·Custom')}`)
     expect(result.ledgers.find((ledger) => ledger.id === 'custom-bilimi')?.bilibiliFolderId).toBe(
       '9002'
     )

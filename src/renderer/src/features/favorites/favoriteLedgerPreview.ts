@@ -9,7 +9,7 @@ import {
   planFavoriteArchiveTargets,
   type FavoriteArchiveTarget
 } from '../recommendation/archivePlanning'
-import type { FavoriteArchiveMultiMode } from '@shared/types'
+import type { FavoriteArchiveMultiMode, FavoriteLedger } from '@shared/types'
 
 export type FavoriteSourceVideo = VideoContentContext & {
   aid: number
@@ -55,6 +55,7 @@ export type FavoriteLedgerPreviewCandidateTarget = {
   ledgerId: string
   displayName: string
   keywords: string[]
+  ruleType?: FavoriteLedger['ruleType']
 }
 
 export type FavoriteLedgerPreviewTarget = {
@@ -62,6 +63,7 @@ export type FavoriteLedgerPreviewTarget = {
   folderId: string
   displayName: string
   keywords: string[]
+  ruleType?: FavoriteLedger['ruleType']
   alreadyInTarget: boolean
   selected: boolean
   selectedCandidateTarget?: boolean
@@ -204,6 +206,7 @@ function previewTargetsForVideo(args: {
       folderId,
       displayName: archiveTarget.displayName,
       keywords: archiveTarget.keywords,
+      ruleType: archiveTarget.ruleType,
       alreadyInTarget,
       selected
     })
@@ -219,6 +222,7 @@ function previewTargetsForVideo(args: {
         folderId,
         displayName: suggestedLedger.displayName,
         keywords: suggestedLedger.keywords,
+        ruleType: suggestedLedger.ruleType,
         alreadyInTarget,
         selected: Boolean(folderId) && !alreadyInTarget
       })
@@ -231,6 +235,7 @@ function previewTargetsForVideo(args: {
       folderId: '',
       displayName: target.displayName,
       keywords: target.keywords,
+      ruleType: target.ruleType,
       alreadyInTarget: false,
       selected: false,
       selectedCandidateTarget: true,
@@ -248,6 +253,7 @@ function previewTargetsForVideo(args: {
         folderId,
         displayName: inboxLedger.displayName,
         keywords: inboxLedger.keywords,
+        ruleType: inboxLedger.ruleType,
         alreadyInTarget,
         selected: false
       })
@@ -272,8 +278,7 @@ function ledgerMatchesVideo(ledger: FavoriteLedger, video: FavoriteSourceVideo) 
     return false
   }
 
-  const text = videoText(video)
-  return ledger.keywords.some((keyword) => text.includes(normalize(keyword)))
+  return ruleMatchesVideo(ledger.ruleType, ledger.keywords, video)
 }
 
 function candidateKey(candidate: FavoriteLedgerCandidate) {
@@ -305,19 +310,36 @@ function videoText(video: FavoriteSourceVideo) {
   )
 }
 
+function ruleMatchesVideo(
+  ruleType: FavoriteLedger['ruleType'],
+  keywords: string[],
+  video: FavoriteSourceVideo
+) {
+  const normalizedKeywords = keywords.map(normalize).filter(Boolean)
+  if (!normalizedKeywords.length) {
+    return false
+  }
+
+  if (ruleType === 'author') {
+    const author = normalize(video.author)
+    return normalizedKeywords.some((keyword) => author.includes(keyword))
+  }
+
+  if (ruleType === 'tag') {
+    const tags = normalize((video.tags ?? []).join(' '))
+    return normalizedKeywords.some((keyword) => tags.includes(keyword))
+  }
+
+  const text = videoText(video)
+  return normalizedKeywords.some((keyword) => text.includes(keyword))
+}
+
 function candidateTargetsForVideo(
   video: FavoriteSourceVideo,
   candidates: FavoriteLedgerCandidate[]
 ): FavoriteLedgerPreviewCandidateTarget[] {
-  const text = videoText(video)
-  if (!text) {
-    return []
-  }
-
   return candidates
-    .filter((candidate) =>
-      candidate.keywords.some((keyword) => text.includes(normalize(keyword)))
-    )
+    .filter((candidate) => ruleMatchesVideo(candidate.ruleType, candidate.keywords, video))
     .reduce<FavoriteLedgerPreviewCandidateTarget[]>((targets, candidate) => {
       if (targets.some((target) => target.displayName === candidate.displayName)) {
         return targets
@@ -327,7 +349,8 @@ function candidateTargetsForVideo(
         candidateKey: candidateKey(candidate),
         ledgerId: candidateLedgerId(candidate),
         displayName: candidate.displayName,
-        keywords: candidate.keywords
+        keywords: candidate.keywords,
+        ruleType: candidate.ruleType
       })
       return targets
     }, [])

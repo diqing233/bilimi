@@ -173,7 +173,7 @@ describe('assistant preference store helpers', () => {
       favoriteLedgers: expect.arrayContaining([
         expect.objectContaining({
           id: 'custom-photo',
-          displayName: 'Bilimi路鍏夊奖鐣欑湡'
+          displayName: 'bilimi·鍏夊奖鐣欑湡'
         })
       ])
     })

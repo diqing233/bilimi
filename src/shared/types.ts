@@ -26,11 +26,13 @@ export type DefaultFavoriteLedgerId =
 
 export type FavoriteLedgerId = string
 export type RecommendationKind = FavoriteLedgerId
+export type FavoriteLedgerRuleType = 'keyword' | 'author' | 'tag'
 
 export type FavoriteLedger = {
   id: FavoriteLedgerId
   displayName: string
   keywords: string[]
+  ruleType?: FavoriteLedgerRuleType
   enabled: boolean
   priority: number
   bilibiliFolderId?: string

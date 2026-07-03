@@ -1,3 +1,4 @@
+import { BILIMI_LEDGER_PREFIX, isBilimiManagedLedgerName, stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
 import type { FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
 
 export type FavoriteLedgerPreviewItem = {
@@ -27,6 +28,19 @@ export type FavoriteLedgerExecutionPacingOptions = {
 
 function scriptPayload(value: unknown): string {
   return JSON.stringify(value).replace(/</g, '\\u003c')
+}
+
+function normalizeLedgerDisplayName(displayName: string) {
+  return isBilimiManagedLedgerName(displayName)
+    ? `${BILIMI_LEDGER_PREFIX}${stripBilimiLedgerPrefix(displayName)}`
+    : displayName.trim()
+}
+
+function normalizeLedgerPayload(ledgers: FavoriteLedger[]) {
+  return ledgers.map((ledger) => ({
+    ...ledger,
+    displayName: normalizeLedgerDisplayName(ledger.displayName)
+  }))
 }
 
 function sharedScriptHelpers(): string {
@@ -92,7 +106,7 @@ function sharedScriptHelpers(): string {
 }
 
 export function buildFavoriteLedgerStatusScript(ledgers: FavoriteLedger[]): string {
-  const payload = scriptPayload({ ledgers })
+  const payload = scriptPayload({ ledgers: normalizeLedgerPayload(ledgers) })
 
   return `
     (async () => {
@@ -119,7 +133,7 @@ export function buildFavoriteLedgerStatusScript(ledgers: FavoriteLedger[]): stri
 }
 
 export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): string {
-  const payload = scriptPayload({ ledgers })
+  const payload = scriptPayload({ ledgers: normalizeLedgerPayload(ledgers) })
 
   return `
     (async () => {
@@ -180,7 +194,11 @@ export function buildSaveFavoriteLedgersScript(
   previousLedgers: FavoriteLedger[],
   options: FavoriteLedgerSaveOptions = {}
 ): string {
-  const payload = scriptPayload({ nextLedgers, options, previousLedgers })
+  const payload = scriptPayload({
+    nextLedgers: normalizeLedgerPayload(nextLedgers),
+    options,
+    previousLedgers: normalizeLedgerPayload(previousLedgers)
+  })
 
   return `
     (async () => {

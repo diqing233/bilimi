@@ -10,6 +10,7 @@ export type FavoriteArchiveTarget = {
   displayName: string
   folderId: string
   keywords: string[]
+  ruleType?: FavoriteLedger['ruleType']
   isDefault: boolean
 }
 
@@ -18,7 +19,13 @@ function normalize(value = '') {
 }
 
 function scoreLedger(context: VideoContentContext, ledger: FavoriteLedger) {
-  const fields = [
+  const ruleType = ledger.ruleType ?? 'keyword'
+  const fields =
+    ruleType === 'author'
+      ? [{ text: normalize(context.author), weight: 10 }]
+      : ruleType === 'tag'
+        ? [{ text: normalize((context.tags ?? []).join(' ')), weight: 10 }]
+        : [
     { text: normalize(context.title), weight: 2 },
     { text: normalize(context.author), weight: 1.5 },
     { text: normalize(context.description), weight: 1 },
@@ -50,6 +57,7 @@ function toTarget(ledger: FavoriteLedger): FavoriteArchiveTarget {
     displayName: ledger.displayName,
     folderId: ledger.bilibiliFolderId ?? '',
     keywords: ledger.keywords,
+    ruleType: ledger.ruleType,
     isDefault: ledger.isDefault
   }
 }
@@ -113,6 +121,12 @@ function sortScoredLedgers(
   left: { ledger: FavoriteLedger; matchedKeywords: string[]; score: number },
   right: { ledger: FavoriteLedger; matchedKeywords: string[]; score: number }
 ) {
+  const leftRuleType = left.ledger.ruleType ?? 'keyword'
+  const rightRuleType = right.ledger.ruleType ?? 'keyword'
+  if (leftRuleType !== rightRuleType) {
+    return leftRuleType === 'keyword' ? 1 : -1
+  }
+
   if (right.score !== left.score) {
     return right.score - left.score
   }

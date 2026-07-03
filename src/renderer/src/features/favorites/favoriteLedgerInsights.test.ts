@@ -117,6 +117,7 @@ describe('createFavoriteLedgerInsights', () => {
       expect.objectContaining({
         kind: 'tag-cluster',
         displayName: 'bilimi·AI',
+        ruleType: 'tag',
         keywords: ['AI'],
         count: 4,
         confidence: 'high',
@@ -138,6 +139,7 @@ describe('createFavoriteLedgerInsights', () => {
       expect.objectContaining({
         kind: 'author',
         displayName: 'bilimi·光影小课追更',
+        ruleType: 'author',
         keywords: ['光影小课'],
         count: 2,
         confidence: 'medium'
@@ -219,6 +221,7 @@ describe('createFavoriteLedgerInsights', () => {
           kind: 'tag-cluster',
           sourceName: '原神',
           displayName: 'bilimi·原神',
+          ruleType: 'tag',
           keywords: ['原神'],
           count: 4
         }),
@@ -226,6 +229,7 @@ describe('createFavoriteLedgerInsights', () => {
           kind: 'tag-cluster',
           sourceName: '攻略',
           displayName: 'bilimi·攻略',
+          ruleType: 'tag',
           keywords: ['攻略'],
           count: 3
         })

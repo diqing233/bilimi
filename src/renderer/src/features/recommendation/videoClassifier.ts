@@ -96,6 +96,37 @@ function ledgerKeywords(ledger: FavoriteLedger) {
   return [...ledger.keywords, ...(DEFAULT_LEDGER_KEYWORD_SUPPLEMENTS[ledger.id] ?? [])]
 }
 
+function ledgerRuleType(ledger: FavoriteLedger) {
+  return ledger.ruleType ?? 'keyword'
+}
+
+function scoreLedger(context: VideoContentContext, ledger: FavoriteLedger) {
+  const keywords = ledgerKeywords(ledger)
+
+  if (ledgerRuleType(ledger) === 'author') {
+    return {
+      explicitScore: 0,
+      ...scoreKeywordFields(keywords, [
+        { text: normalize(context.author), weight: FIELD_WEIGHTS.author + 8 }
+      ])
+    }
+  }
+
+  if (ledgerRuleType(ledger) === 'tag') {
+    return {
+      explicitScore: 0,
+      ...scoreKeywordFields(keywords, [
+        { text: normalize((context.tags ?? []).join(' ')), weight: FIELD_WEIGHTS.tags + 7 }
+      ])
+    }
+  }
+
+  return {
+    explicitScore: scoreExplicitContextKeywords(context, keywords).score,
+    ...scoreKeywords(context, keywords)
+  }
+}
+
 function inboxLedger(ledgers: FavoriteLedger[]) {
   return (
     ledgers.find((ledger) => ledger.id === 'inbox') ??
@@ -132,11 +163,9 @@ export function classifyVideoContent(
   const scored = ledgers
     .filter((ledger) => ledger.id !== 'inbox')
     .map((ledger) => {
-      const keywords = ledgerKeywords(ledger)
       return {
         ledger,
-        explicitScore: scoreExplicitContextKeywords(context, keywords).score,
-        ...scoreKeywords(context, keywords)
+        ...scoreLedger(context, ledger)
       }
     })
     .filter(
@@ -147,6 +176,10 @@ export function classifyVideoContent(
     .sort((left, right) => {
       if (left.ledger.isDefault !== right.ledger.isDefault) {
         return left.ledger.isDefault ? 1 : -1
+      }
+
+      if (ledgerRuleType(left.ledger) !== ledgerRuleType(right.ledger)) {
+        return ledgerRuleType(left.ledger) === 'keyword' ? 1 : -1
       }
 
       if (right.score !== left.score) {

@@ -3,7 +3,7 @@ import type { FavoriteLedger } from './types'
 
 export { BILIMI_LEDGER_PREFIX, BILIMI_LEGACY_LEDGER_PREFIX } from './constants'
 
-const BILIMI_LEDGER_PREFIX_PATTERN = /^bilimi[·\s-]*/i
+const BILIMI_LEDGER_PREFIX_PATTERN = /^bilimi[·\s\-路]*/i
 
 const DEFAULT_FAVORITE_LEDGER_DEFINITIONS = [
   [
@@ -319,9 +319,16 @@ const TOPIC_NAME_SUGGESTIONS: Record<string, string[]> = {
 
 const DEFAULT_TOPIC_NAME_SUGGESTIONS = ['精选收藏', '学习资料', '待整理']
 
+function normalizedManagedDisplayName(displayName: string): string {
+  return isBilimiManagedLedgerName(displayName)
+    ? `${BILIMI_LEDGER_PREFIX}${stripBilimiLedgerPrefix(displayName)}`
+    : displayName.trim()
+}
+
 function cloneLedger(ledger: FavoriteLedger): FavoriteLedger {
   return {
     ...ledger,
+    displayName: normalizedManagedDisplayName(ledger.displayName),
     keywords: [...ledger.keywords]
   }
 }

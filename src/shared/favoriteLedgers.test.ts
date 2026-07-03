@@ -186,6 +186,34 @@ describe('favorite ledger model', () => {
     expect(isBilimiManagedLedgerName('我的 bilimi 灵感')).toBe(false)
   })
 
+  it('normalizes legacy visible Bilimi prefixes to lowercase bilimi', () => {
+    const ledgers = normalizeFavoriteLedgers([
+      {
+        id: 'custom-legacy',
+        displayName: 'Bilimi·摄影追更',
+        keywords: ['摄影'],
+        enabled: true,
+        priority: 10,
+        isDefault: false
+      },
+      {
+        id: 'custom-space',
+        displayName: 'Bilimi 暂存',
+        keywords: ['暂存'],
+        enabled: true,
+        priority: 20,
+        isDefault: false
+      }
+    ])
+
+    expect(ledgers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'custom-legacy', displayName: 'bilimi·摄影追更' }),
+        expect.objectContaining({ id: 'custom-space', displayName: 'bilimi·暂存' })
+      ])
+    )
+  })
+
   it('recommends three plain names from a topic', () => {
     expect(suggestFavoriteLedgerNames('摄影')).toEqual([
       'bilimi·摄影',

@@ -175,6 +175,93 @@ describe('classifyVideoContent', () => {
     })
   })
 
+  it('prioritizes author follow-up ledgers by matching the video author', () => {
+    const ledgers = [
+      {
+        id: 'custom-keyword-photo',
+        displayName: 'bilimi·摄影关键词',
+        keywords: ['摄影'],
+        enabled: true,
+        priority: 10,
+        isDefault: false
+      },
+      {
+        id: 'custom-author-storm',
+        displayName: 'bilimi·影视追更',
+        keywords: ['影视飓风'],
+        enabled: true,
+        priority: 20,
+        isDefault: false,
+        ruleType: 'author'
+      },
+      ...createDefaultFavoriteLedgers()
+    ]
+
+    expect(
+      classifyVideoContent(
+        {
+          title: '摄影器材横评',
+          author: '影视飓风',
+          tags: ['摄影']
+        },
+        ledgers
+      )
+    ).toMatchObject({
+      ledgerId: 'custom-author-storm',
+      displayName: 'bilimi·影视追更',
+      matchedKeywords: ['影视飓风'],
+      reviewRequired: false
+    })
+  })
+
+  it('prioritizes tag ledgers by matching explicit Bilibili tags only', () => {
+    const ledgers = [
+      {
+        id: 'custom-keyword-genshin',
+        displayName: 'bilimi·原神关键词',
+        keywords: ['原神'],
+        enabled: true,
+        priority: 10,
+        isDefault: false
+      },
+      {
+        id: 'custom-tag-guide',
+        displayName: 'bilimi·攻略合集',
+        keywords: ['攻略'],
+        enabled: true,
+        priority: 20,
+        isDefault: false,
+        ruleType: 'tag'
+      },
+      ...createDefaultFavoriteLedgers()
+    ]
+
+    expect(
+      classifyVideoContent(
+        {
+          title: '原神深渊配队',
+          author: '游戏 UP',
+          tags: ['攻略']
+        },
+        ledgers
+      )
+    ).toMatchObject({
+      ledgerId: 'custom-tag-guide',
+      matchedKeywords: ['攻略']
+    })
+
+    expect(
+      classifyVideoContent(
+        {
+          title: '攻略作者聊原神',
+          author: '攻略作者',
+          tags: ['闲聊']
+        },
+        ledgers
+      ).ledgerId
+    ).not.toBe('custom-tag-guide')
+  })
+
   it('skips disabled ledgers and falls back to inbox when no category is clear', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
       ledger.id === 'knowledge' ? { ...ledger, enabled: false } : ledger

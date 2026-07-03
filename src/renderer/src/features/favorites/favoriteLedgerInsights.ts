@@ -4,6 +4,7 @@ import {
   isBilimiManagedLedgerName,
   stripBilimiLedgerPrefix
 } from '@shared/favoriteLedgers'
+import type { FavoriteLedgerRuleType } from '@shared/types'
 
 export type FavoriteLedgerInsightSignal = {
   name: string
@@ -23,6 +24,7 @@ export type FavoriteLedgerCandidate = {
   sourceName: string
   displayName: string
   keywords: string[]
+  ruleType?: FavoriteLedgerRuleType
   count: number
   confidence: FavoriteLedgerCandidateConfidence
   reason: string
@@ -202,6 +204,7 @@ function buildTagClusters(videos: FavoriteSourceVideo[], totalVideos: number): F
       sourceName: tag.name,
       displayName: `${BILIMI_LEDGER_PREFIX}${displaySuffix}`,
       keywords,
+      ruleType: 'tag',
       count: tag.count,
       confidence: confidence(tag.count, totalVideos),
       reason: `高频标签“${tag.name}”出现 ${tag.count} 次，适合单独成册。`
@@ -239,6 +242,7 @@ function buildAuthorCandidates(
       sourceName: author.name,
       displayName: `${BILIMI_LEDGER_PREFIX}${author.name}追更`,
       keywords: [author.name],
+      ruleType: 'author',
       count: author.count,
       confidence: confidence(author.count, totalVideos),
       reason: `固定 UP“${author.name}”已有 ${author.count} 条收藏，适合持续追更。`

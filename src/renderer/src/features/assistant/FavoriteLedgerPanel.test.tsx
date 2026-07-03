@@ -937,6 +937,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(newLedgerItemIndex).toBe(nextChipItems.length - 1)
     expect(within(chips).getByRole('button', { name: '新建收藏夹' })).toBeInTheDocument()
     const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
+    expect(editor.getByLabelText('收藏夹种类')).toHaveValue('keyword')
     fireEvent.change(editor.getByLabelText('册名'), { target: { value: '摄影' } })
     fireEvent.change(editor.getByLabelText('关键词'), { target: { value: '摄影 写真、镜头' } })
     fireEvent.click(editor.getByRole('button', { name: '保存' }))
@@ -947,6 +948,53 @@ describe('FavoriteLedgerPanel', () => {
           expect.objectContaining({
             displayName: 'bilimi·摄影',
             keywords: ['摄影', '写真', '镜头'],
+            enabled: true,
+            isDefault: false
+          })
+        ])
+      )
+    )
+  })
+
+  it('edits a new ledger as an author follow-up collection', async () => {
+    const onSaveLedgers = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: [],
+      missingTargets: [],
+      message: 'favorite ledgers saved'
+    })
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹' }))
+
+    const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
+    fireEvent.change(editor.getByLabelText('收藏夹种类'), { target: { value: 'author' } })
+    expect(editor.getByLabelText('UP 名字')).toBeInTheDocument()
+    expect(
+      screen.getByText('填写一个或多个 UP 名，命中作者时会优先存入这个收藏夹。')
+    ).toBeInTheDocument()
+
+    fireEvent.change(editor.getByLabelText('册名'), { target: { value: '我的追更' } })
+    fireEvent.change(editor.getByLabelText('UP 名字'), { target: { value: '影视飓风、罗翔说刑法' } })
+    fireEvent.click(editor.getByRole('button', { name: '保存' }))
+
+    await waitFor(() =>
+      expect(onSaveLedgers).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            displayName: 'bilimi·我的追更',
+            keywords: ['影视飓风', '罗翔说刑法'],
+            ruleType: 'author',
             enabled: true,
             isDefault: false
           })
@@ -1563,7 +1611,7 @@ describe('FavoriteLedgerPanel', () => {
       expect.arrayContaining([
         expect.objectContaining({ displayName: 'bilimi·影视动漫', enabled: true }),
         expect.objectContaining({
-          displayName: 'Bilimi路AI效率工坊',
+          displayName: 'bilimi·AI效率工坊',
           keywords: ['AI', '效率', '工具'],
           enabled: true,
           isDefault: false
@@ -2174,8 +2222,8 @@ describe('FavoriteLedgerPanel', () => {
     expect(authorCandidateCard).toHaveAttribute('title', '影视飓风追更')
     expect(authorCandidateCard).toHaveTextContent('影视飓风追更')
     expect(authorCandidateCard).not.toHaveTextContent('bilimi·影视飓风追更')
-    expect(authorCandidateCard).toHaveTextContent('3 条旧藏')
-    expect(authorCandidateCard).toHaveTextContent('固定 UP')
+    expect(authorCandidateCard).toHaveTextContent('3 条适合')
+    expect(authorCandidateCard).not.toHaveTextContent('固定 UP · 固定 UP')
     expect(screen.queryByText('初始收藏夹')).not.toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('全选 专属 UP 追更'))
     expect(screen.getByLabelText('bilimi·影视飓风追更')).toBeChecked()
