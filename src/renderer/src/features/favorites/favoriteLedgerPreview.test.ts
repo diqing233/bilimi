@@ -1,4 +1,4 @@
-import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
+﻿import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import { describe, expect, it } from 'vitest'
 import { createFavoriteLedgerPreview } from './favoriteLedgerPreview'
 
@@ -184,7 +184,7 @@ describe('createFavoriteLedgerPreview', () => {
       ],
       candidateLedgers: expect.arrayContaining([
         expect.objectContaining({
-          displayName: 'Bilimi·AI',
+          displayName: 'bilimi·AI',
         })
       ])
     })
@@ -221,7 +221,7 @@ describe('createFavoriteLedgerPreview', () => {
         expect.objectContaining({
           candidateKey: 'tag-cluster:摄影',
           ledgerId: 'custom-tag-cluster-摄影',
-          displayName: 'Bilimi·摄影'
+          displayName: 'bilimi·摄影'
         })
       ]
     })
@@ -271,7 +271,7 @@ describe('createFavoriteLedgerPreview', () => {
         expect.objectContaining({ ledgerId: 'movie-tv', folderId: '9001', selected: true }),
         expect.objectContaining({
           ledgerId: 'custom-author-影视飓风',
-          displayName: 'Bilimi·影视飓风追更',
+          displayName: 'bilimi·影视飓风追更',
           selectedCandidateTarget: true,
           selected: false
         })
@@ -390,7 +390,7 @@ describe('createFavoriteLedgerPreview', () => {
         expect.objectContaining({
           ledgerId: 'music',
           folderId: '9010',
-          displayName: 'Bilimi·音乐舞台',
+          displayName: 'bilimi·音乐舞台',
           selected: true
         })
       ])
@@ -430,7 +430,7 @@ describe('createFavoriteLedgerPreview', () => {
         expect.objectContaining({
           kind: 'tag-cluster',
           sourceName: '原神',
-          displayName: 'Bilimi·原神',
+          displayName: 'bilimi·原神',
           keywords: ['原神'],
           count: 10
         })
@@ -444,7 +444,7 @@ describe('createFavoriteLedgerPreview', () => {
         expect.objectContaining({
           candidateKey: 'tag-cluster:原神',
           ledgerId: 'custom-tag-cluster-原神',
-          displayName: 'Bilimi·原神',
+          displayName: 'bilimi·原神',
           keywords: ['原神']
         })
       ])
@@ -454,7 +454,7 @@ describe('createFavoriteLedgerPreview', () => {
         expect.objectContaining({ ledgerId: 'game', folderId: '9002', selected: true }),
         expect.objectContaining({
           ledgerId: 'custom-tag-cluster-原神',
-          displayName: 'Bilimi·原神',
+          displayName: 'bilimi·原神',
           selectedCandidateTarget: true,
           selected: false
         })

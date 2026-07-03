@@ -1,4 +1,5 @@
 import { app, BrowserWindow, clipboard, ipcMain, screen, session } from 'electron'
+import { spawn } from 'node:child_process'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -34,6 +35,7 @@ import { createMainWindowOptions } from './mainWindowOptions'
 import { installMainWindowControlReactions } from './mainWindowControlReactions'
 import { restoreMainWindowFromPet } from './mainWindowRestore'
 import { installFixedFloatingSealBoundsGuard } from './floatingSealBoundsGuard'
+import { installFloatingSealCaptionStrip } from './floatingSealCaptionStrip'
 import { setFloatingSealMouseTransparency } from './floatingSealMouseTransparency'
 import { installFloatingSealWhiteStripFix } from './floatingSealWhiteStripFix'
 import { createFloatingSealWindowOptions } from './floatingSealWindowOptions'
@@ -222,9 +224,31 @@ function createFloatingSealWindow() {
   setFloatingSealMouseTransparency(seal, true)
   seal.removeMenu()
 
-  // Windows 透明窗口失活时 DWM 会把原生帧渲染成白条，移动窗口可强制重新合成。
+  // Windows 透明窗口失活�?DWM 会把原生帧渲染成白条，移动窗口可强制重新合成�?
   const disposeWhiteStripFix =
     process.platform === 'win32' ? installFloatingSealWhiteStripFix(seal) : null
+
+  // 源头修：剥掉 WS_CAPTION，让 DWM 不进�?inactive frame 绘制路径，并�?
+  // DWMWA_NCRENDERING_POLICY 设为 DWMNCRP_DISABLED 作纵深防御�?
+  // 本窗口已无任何依赖标题栏的功能（resizable/hasShadow/min/max/thickFrame 全关），
+  // 剥它在功能上零损失。nudge 仍兜底直到确认稳定�?
+  if (process.platform === 'win32') {
+    installFloatingSealCaptionStrip(seal, {
+      // node:child_process spawn 的多重载在我们的窄接口下不直接命中，做一次显式擦除�?
+      spawn: spawn as unknown as NonNullable<
+        Parameters<typeof installFloatingSealCaptionStrip>[1]
+      >['spawn'],
+      // 暂时把日志接�?console，方便实测期确认 PS 调用真的在跑、有�?spawn 错误�?
+      // 稳定后再换回 noop�?
+      logger: (message, error) => {
+        if (error) {
+          console.warn('[floatingSeal]', message, error)
+        } else {
+          console.warn('[floatingSeal]', message)
+        }
+      }
+    })
+  }
 
   seal.on('closed', () => {
     disposeWhiteStripFix?.()

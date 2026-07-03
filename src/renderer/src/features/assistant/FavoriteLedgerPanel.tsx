@@ -1,4 +1,9 @@
-import { BILIMI_LEDGER_PREFIX, createDefaultFavoriteLedgers, isBilimiManagedLedgerName } from '@shared/favoriteLedgers'
+import {
+  BILIMI_LEDGER_PREFIX,
+  createDefaultFavoriteLedgers,
+  isBilimiManagedLedgerName,
+  stripBilimiLedgerPrefix
+} from '@shared/favoriteLedgers'
 import type {
   AssistantAutomationResult,
   FavoriteArchiveMultiMode,
@@ -58,11 +63,12 @@ function customLedgerId(name: string) {
 }
 
 function canDeleteLedger(ledger: FavoriteLedger) {
-  return !ledger.isDefault && ledger.displayName.startsWith(BILIMI_LEDGER_PREFIX)
+  return !ledger.isDefault && isBilimiManagedLedgerName(ledger.displayName)
 }
 
 function alreadyHasLedger(ledgers: FavoriteLedger[], displayName: string) {
-  return ledgers.some((ledger) => ledger.displayName === displayName)
+  const normalizedDisplayName = normalizeBilimiLedgerName(displayName)
+  return ledgers.some((ledger) => normalizeBilimiLedgerName(ledger.displayName) === normalizedDisplayName)
 }
 
 function candidateKey(candidate: FavoriteLedgerCandidate) {
@@ -111,16 +117,16 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error || '未知错误')
 }
 
-function stripBilimiLedgerPrefix(displayName: string) {
-  return displayName.replace(/^Bilimi[·\s-]*/, '').trim()
-}
-
 function isBilimiLedger(ledger: FavoriteLedger) {
-  return ledger.displayName.startsWith(BILIMI_LEDGER_PREFIX)
+  return isBilimiManagedLedgerName(ledger.displayName)
 }
 
 function prefixedBilimiLedgerName(name: string) {
   return `${BILIMI_LEDGER_PREFIX}${stripBilimiLedgerPrefix(name)}`
+}
+
+function normalizeBilimiLedgerName(name: string) {
+  return isBilimiManagedLedgerName(name) ? prefixedBilimiLedgerName(name) : name.trim()
 }
 
 function reorderLedgers(ledgers: FavoriteLedger[], draggedLedgerId: string, targetLedgerId: string) {
@@ -160,7 +166,7 @@ const EXPANDED_TAG_CANDIDATE_COUNT = 24
 const FAVORITE_LEDGER_SAFETY_NOTE =
   '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
 const LEDGER_SYNC_HINT =
-  '自定义你的bilimi收藏夹，点击收藏名字可以进行编辑，添加好后点击【同步】即可更新到b站；取消勾选再点击同步，也会删除对应的 Bilimi 收藏夹。'
+  '自定义你的bilimi收藏夹，点击收藏名字可以进行编辑，添加好后点击【同步】即可更新到b站；取消勾选再点击同步，也会删除对应的 bilimi 收藏夹。'
 const BACKUP_COMPLETE_MESSAGE =
   '小咪备册已完成，主人可以再增加自己想要的收藏夹，点击同步即可'
 type OldFavoriteGuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
@@ -1637,7 +1643,7 @@ export function FavoriteLedgerPanel({
             iconAlt="小咪备册"
             badge="备"
             label="备册"
-            description="一键生成 Bilimi 收藏夹，用于归类收藏和整理"
+            description="一键生成 bilimi 收藏夹，用于归类收藏和整理"
           />
           <AssistantActionButton
             type="button"
@@ -1648,7 +1654,7 @@ export function FavoriteLedgerPanel({
             iconAlt="小咪整理旧藏"
             badge="整"
             label="整理旧藏"
-            description="扫描旧藏，确认后整理到 Bilimi收藏夹里"
+            description="扫描旧藏，确认后整理到 bilimi 收藏夹里"
           />
         </div>
       </div>
@@ -1685,7 +1691,7 @@ export function FavoriteLedgerPanel({
         <div className="favorite-ledger-panel__chips">
           {ledgersToDisplay.map((ledger, ledgerIndex) => {
             const isLedgerEnabled = ledgerEnabled(ledger)
-            const ledgerLabel = ledger.displayName.replace(/^Bilimi[·\s-]*/, '')
+            const ledgerLabel = stripBilimiLedgerPrefix(ledger.displayName)
             const selectLedgerLabel = ledgerLabel || '新建收藏夹'
             return (
               <div
@@ -1872,7 +1878,7 @@ export function FavoriteLedgerPanel({
                       ) : null}
                       {oldFavoriteBilimiSourceFolders.length > 0 ? (
                         <div>
-                          <small>Bilimi 工作夹</small>
+                          <small>bilimi 工作夹</small>
                           <ul>{oldFavoriteBilimiSourceFolders.map(renderOldFavoriteSourceFolder)}</ul>
                         </div>
                       ) : null}
@@ -1908,9 +1914,10 @@ export function FavoriteLedgerPanel({
                   oldFavoriteFollowUpCandidates.map((candidate) => {
                   const key = candidateKey(candidate)
                   const isSelected = selectedCandidateKeys.has(key)
+                  const candidateLabel = favoriteLedgerDisplayShortName(candidate.displayName)
 
                   return (
-                    <article key={`${candidate.kind}-${candidate.sourceName}`}>
+                    <article key={`${candidate.kind}-${candidate.sourceName}`} title={candidateLabel}>
                       <label>
                         <input
                           type="checkbox"
@@ -1921,7 +1928,7 @@ export function FavoriteLedgerPanel({
                           onChange={() => undefined}
                         />
                         <span>
-                          <strong>{candidate.displayName}</strong>
+                          <strong title={candidateLabel}>{candidateLabel}</strong>
                           <small>{oldFavoriteCandidateDetailText(candidate)}</small>
                         </span>
                       </label>
@@ -1954,9 +1961,10 @@ export function FavoriteLedgerPanel({
                 {visibleOldFavoriteTagCandidates.map((candidate) => {
                     const key = candidateKey(candidate)
                     const isSelected = selectedCandidateKeys.has(key)
+                    const candidateLabel = favoriteLedgerDisplayShortName(candidate.displayName)
 
                     return (
-                      <article key={`${candidate.kind}-${candidate.sourceName}`}>
+                      <article key={`${candidate.kind}-${candidate.sourceName}`} title={candidateLabel}>
                         <label>
                           <input
                             type="checkbox"
@@ -1967,7 +1975,7 @@ export function FavoriteLedgerPanel({
                             onChange={() => undefined}
                           />
                           <span>
-                            <strong>{favoriteLedgerDisplayShortName(candidate.displayName)}</strong>
+                            <strong title={candidateLabel}>{candidateLabel}</strong>
                             <small>{oldFavoriteCandidateRecommendationText(candidate)}</small>
                           </span>
                         </label>
@@ -2149,7 +2157,7 @@ export function FavoriteLedgerPanel({
                       {oldFavoriteTargetWarning}
                     </p>
                   ) : null}
-                  <p>只会追加到 Bilimi 收藏夹，不会删除、移动或取消原收藏。</p>
+                  <p>只会追加到 bilimi 收藏夹，不会删除、移动或取消原收藏。</p>
                   {oldFavoriteExecutionProgress ? (
                     <div
                       className="favorite-ledger-panel__old-favorite-progress"

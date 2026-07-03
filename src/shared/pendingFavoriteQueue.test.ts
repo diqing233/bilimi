@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+﻿import { describe, expect, it } from 'vitest'
 import {
   archivePendingFavoriteQueueItem,
   createPendingFavoriteQueueSummary,
@@ -57,7 +57,7 @@ describe('pending favorite queue', () => {
     expect(
       createPendingFavoriteQueueSummary([
         item({ aid: 1, suggestedLedgerIds: ['knowledge'] }),
-        item({ aid: 2, candidateLedgerNames: ['Bilimi·摄影'] }),
+        item({ aid: 2, candidateLedgerNames: ['bilimi·摄影'] }),
         item({ aid: 3 })
       ])
     ).toEqual({

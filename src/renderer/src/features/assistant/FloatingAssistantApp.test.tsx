@@ -1,4 +1,4 @@
-import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
+﻿import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import type {
   AssistantAutomationResult,
   AssistantPreferences,
@@ -14,7 +14,7 @@ import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
 
 function createPreferences(overrides: Partial<AssistantPreferences> = {}): AssistantPreferences {
   return {
-    favoritesFolderName: 'Bilimi 内库',
+    favoritesFolderName: 'bilimi 内库',
     favoriteLedgers: createDefaultFavoriteLedgers(),
     ledgerPromptDismissed: true,
     preferenceCounts: {},
@@ -395,23 +395,23 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
 
-    expect(screen.getByText('Bilimi 收藏策略')).toBeInTheDocument()
+    expect(screen.getByText('bilimi 收藏策略')).toBeInTheDocument()
     expect(
-      screen.getByText('说明：设置一个待分类视频最多可同时保存到几个合适的 Bilimi 收藏夹。')
+      screen.getByText('说明：设置一个待分类视频最多可同时保存到几个合适的 bilimi 收藏夹。')
     ).toBeInTheDocument()
     expect(screen.getByText('1. 用户原收藏夹不会被移动或删除，也不计入数量。')).toBeInTheDocument()
     expect(
-      screen.getByText('2. 优先保存到 Bilimi 中系统推荐生成和用户自定义创建的收藏夹。')
+      screen.getByText('2. 优先保存到 bilimi 中系统推荐生成和用户自定义创建的收藏夹。')
     ).toBeInTheDocument()
     expect(screen.queryByText('旧收藏夹不会移动、删除，也不计入数量。')).not.toBeInTheDocument()
     expect(
-      screen.getByText('最多同时保存到 1 个 Bilimi 收藏夹')
+      screen.getByText('最多同时保存到 1 个 bilimi 收藏夹')
     ).toBeInTheDocument()
     expect(
-      screen.getByText('最多同时保存到 2 个 Bilimi 收藏夹')
+      screen.getByText('最多同时保存到 2 个 bilimi 收藏夹')
     ).toBeInTheDocument()
     expect(
-      screen.getByText('最多同时保存到 3 个 Bilimi 收藏夹')
+      screen.getByText('最多同时保存到 3 个 bilimi 收藏夹')
     ).toBeInTheDocument()
   })
 
@@ -520,7 +520,7 @@ describe('FloatingAssistantApp', () => {
 
   it.each([
     [/赏.*轻赏此条/, '主人，当前还没打开视频，小咪不能帮这条点喜欢。'],
-    [/藏.*归入内库/, '主人，当前还没打开视频，小咪不能把这条归入 Bilimi。'],
+    [/藏.*归入内库/, '主人，当前还没打开视频，小咪不能把这条归入 bilimi。'],
     [/赐.*投币厚赏/, '主人，当前还没打开视频，小咪不能给这条投币。'],
     [/表.*拟奏短评/, '主人，当前还没打开视频，小咪不能帮这条拟短评。']
   ])('tells the concrete no-video reason through 小咪 for %s failures', async (buttonName, petHint) => {
@@ -595,7 +595,7 @@ describe('FloatingAssistantApp', () => {
         ok: true,
         steps: ['like:already-liked'],
         missingTargets: [],
-        message: 'Saved to Bilimi.'
+        message: 'Saved to bilimi.'
       })
     })
 
@@ -603,12 +603,12 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByTestId('review-action-like'))
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Saved to Bilimi.')
+    expect(await screen.findByRole('status')).toHaveTextContent('Saved to bilimi.')
     expect(screen.getByText('like:already-liked')).toBeInTheDocument()
 
     fireEvent.click(screen.getAllByRole('tab')[1])
 
-    expect(screen.queryByText('Saved to Bilimi.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Saved to bilimi.')).not.toBeInTheDocument()
     expect(screen.queryByText('like:already-liked')).not.toBeInTheDocument()
   })
 
@@ -829,7 +829,7 @@ describe('FloatingAssistantApp', () => {
       expect(saveFavoriteLedgers).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({
-            displayName: 'Bilimi·Test',
+            displayName: 'bilimi·Test',
             keywords: ['test', 'video'],
             isDefault: false
           })
@@ -1494,7 +1494,7 @@ describe('FloatingAssistantApp', () => {
             sourceFolderTitle: '默认收藏夹',
             targetLedgerId: 'movie-tv',
             targetFolderId: '9001',
-            targetDisplayName: 'Bilimi·影视动漫',
+            targetDisplayName: 'bilimi·影视动漫',
             reviewRequired: false,
             alreadyInTarget: false,
             selected: true
@@ -1532,7 +1532,7 @@ describe('FloatingAssistantApp', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'inbox',
           targetFolderId: '',
-          targetDisplayName: 'Bilimi·暂存',
+          targetDisplayName: 'bilimi·暂存',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: false
@@ -2051,11 +2051,11 @@ describe('FloatingAssistantApp', () => {
     expect(setAssistantPetState).toHaveBeenLastCalledWith('done')
     expect(setAssistantPetHint).toHaveBeenNthCalledWith(1, {
       tone: 'cheer',
-      message: '主人，小咪正在把它收进合适的 Bilimi 分册～'
+      message: '主人，小咪正在把它收进合适的 bilimi 分册～'
     })
     expect(setAssistantPetHint).toHaveBeenLastCalledWith({
       tone: 'done',
-      message: '主人，收好啦，这支视频已经进 Bilimi 分册了。'
+      message: '主人，收好啦，这支视频已经进 bilimi 分册了。'
     })
   })
 })

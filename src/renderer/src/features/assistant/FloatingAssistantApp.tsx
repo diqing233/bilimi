@@ -20,6 +20,7 @@ import {
   type PetHoverShortcutId
 } from '@shared/petHoverShortcuts'
 import { createNotePosterText } from '@shared/videoNoteArchive'
+import { stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { composeMemorialComments } from '../comments/commentComposer'
 import { classifyVideoContent } from '../recommendation/videoClassifier'
@@ -136,7 +137,7 @@ const PET_FEEDBACK_TONES: Record<PetFeedbackTone, AssistantPetHint['tone']> = {
 
 const ACTION_PROGRESS_HINTS: Record<AssistantAction, string> = {
   赏: '主人，小咪正在帮这支视频点个喜欢～',
-  藏: '主人，小咪正在把它收进合适的 Bilimi 分册～',
+  藏: '主人，小咪正在把它收进合适的 bilimi 分册～',
   赐: '主人，小咪正在把硬币准备好～',
   表: '主人，小咪正在备好短评候选，等你拍板～',
   阅: '主人，小咪正在登记已阅～'
@@ -144,7 +145,7 @@ const ACTION_PROGRESS_HINTS: Record<AssistantAction, string> = {
 
 const ACTION_SUCCESS_HINTS: Record<AssistantAction, string> = {
   赏: '做好啦，喜欢和分册都替主人处理好了～',
-  藏: '收好啦，这支视频已经进 Bilimi 分册了。',
+  藏: '收好啦，这支视频已经进 bilimi 分册了。',
   赐: '投币完成啦，小咪给这份喜欢盖章了～',
   表: '短评已经送出啦，还是由主人选中的那句。',
   阅: '已阅登记完成，主人可以继续看下一支啦。'
@@ -160,7 +161,7 @@ const ACTION_ERROR_HINTS: Record<AssistantAction, string> = {
 
 const ACTION_NO_VIDEO_ERROR_HINTS: Record<AssistantAction, string> = {
   赏: '当前还没打开视频，小咪不能帮这条点喜欢。',
-  藏: '当前还没打开视频，小咪不能把这条归入 Bilimi。',
+  藏: '当前还没打开视频，小咪不能把这条归入 bilimi。',
   赐: '当前还没打开视频，小咪不能给这条投币。',
   表: '当前还没打开视频，小咪不能帮这条拟短评。',
   阅: '当前还没打开视频，小咪不能登记已阅。'
@@ -169,7 +170,7 @@ const ACTION_NO_VIDEO_ERROR_HINTS: Record<AssistantAction, string> = {
 const TAB_HINTS: Record<AssistantWorkspaceTab, string> = {
   review: '小咪切到批阅啦，当前视频的操作都在这里。',
   notes: '小咪切到札记啦，可以转写、整理和存档。',
-  ledger: '小咪切到掌库啦，Bilimi 分册在这里管理。',
+  ledger: '小咪切到掌库啦，bilimi 分册在这里管理。',
   settings: '小咪切到设置啦，宠物和 DeepSeek 都在这里调。'
 }
 
@@ -204,7 +205,7 @@ function didActiveVideoChange(
 }
 
 function stripBilimiPrefix(displayName: string) {
-  return displayName.replace(/^Bilimi[·\s-]*/, '').trim()
+  return stripBilimiLedgerPrefix(displayName)
 }
 
 function normalizeTitle(title: string) {
@@ -744,7 +745,7 @@ export function FloatingAssistantApp({
 
     setSettingsDiagnosticRunning(true)
     setSettingsDiagnosticMessage('')
-    tellPet('progress', '正在运行 Bilimi 诊断。')
+    tellPet('progress', '正在运行 bilimi 诊断。')
 
     try {
       const report = await window.bilimiDesktop.runStartupDiagnostics()
@@ -1144,7 +1145,7 @@ export function FloatingAssistantApp({
 
 
   async function ensureFavoriteLedgers() {
-    tellPet('progress', '小咪正在检查 Bilimi 分册是否齐全。')
+    tellPet('progress', '小咪正在检查 bilimi 分册是否齐全。')
     const result =
       (await window.bilimiDesktop?.ensureFavoriteLedgers?.()) ?? createDefaultResult('册目已备齐。')
     const nextSnapshot = await window.bilimiDesktop?.requestAssistantSnapshot?.()
@@ -1436,10 +1437,10 @@ export function FloatingAssistantApp({
               </div>
             </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--archive">
-              <legend>Bilimi 收藏策略</legend>
-              <p>说明：设置一个待分类视频最多可同时保存到几个合适的 Bilimi 收藏夹。</p>
+              <legend>bilimi 收藏策略</legend>
+              <p>说明：设置一个待分类视频最多可同时保存到几个合适的 bilimi 收藏夹。</p>
               <p>1. 用户原收藏夹不会被移动或删除，也不计入数量。</p>
-              <p>2. 优先保存到 Bilimi 中系统推荐生成和用户自定义创建的收藏夹。</p>
+              <p>2. 优先保存到 bilimi 中系统推荐生成和用户自定义创建的收藏夹。</p>
               <label>
                 <input
                   type="radio"
@@ -1449,7 +1450,7 @@ export function FloatingAssistantApp({
                     persistPreferencePatch({ favoriteArchiveMultiMode: 'off' })
                   }
                 />
-                <span>最多同时保存到 1 个 Bilimi 收藏夹</span>
+                <span>最多同时保存到 1 个 bilimi 收藏夹</span>
               </label>
               <label>
                 <input
@@ -1460,7 +1461,7 @@ export function FloatingAssistantApp({
                     persistPreferencePatch({ favoriteArchiveMultiMode: 'two' })
                   }
                 />
-                <span>最多同时保存到 2 个 Bilimi 收藏夹</span>
+                <span>最多同时保存到 2 个 bilimi 收藏夹</span>
               </label>
               <label>
                 <input
@@ -1471,7 +1472,7 @@ export function FloatingAssistantApp({
                     persistPreferencePatch({ favoriteArchiveMultiMode: 'three' })
                   }
                 />
-                <span>最多同时保存到 3 个 Bilimi 收藏夹</span>
+                <span>最多同时保存到 3 个 bilimi 收藏夹</span>
               </label>
             </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--review-actions">
@@ -1764,14 +1765,14 @@ export function FloatingAssistantApp({
 
   if (isSidebarMode) {
     return (
-      <div className="assistant-sidebar-embed" aria-label="Bilimi 应用侧栏">
+      <div className="assistant-sidebar-embed" aria-label="bilimi 应用侧栏">
         {workspace}
       </div>
     )
   }
 
   return (
-    <main className="floating-assistant-shell" aria-label="Bilimi 悬浮助手">
+    <main className="floating-assistant-shell" aria-label="bilimi 悬浮助手">
       {workspace}
     </main>
   )

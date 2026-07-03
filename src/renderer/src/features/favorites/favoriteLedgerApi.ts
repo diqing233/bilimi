@@ -241,7 +241,7 @@ export function buildSaveFavoriteLedgersScript(
 
         const folder = folderById.get(String(ledger.bilibiliFolderId));
         const remoteTitle = String(folder?.title ?? '');
-        return String(ledger.displayName || '').startsWith('Bilimi') || remoteTitle.startsWith('Bilimi');
+        return /^bilimi[·\\s-]?/i.test(String(ledger.displayName || '')) || /^bilimi[·\\s-]?/i.test(remoteTitle);
       };
       const canDeleteRemovedLedger = (ledger) => !ledger.isDefault && canDeleteManagedFolder(ledger);
       const shouldDeleteDisabled = payload.options?.deleteDisabled !== false;

@@ -45,8 +45,8 @@ export function createMediaToolPaths(input: MediaToolPathInput): MediaToolPaths 
   for (const path of [ytdlpPath, ffmpegPath, ffprobePath, whisperCliPath, whisperModelPath]) {
     if (!input.exists(path)) {
       const setupHint = input.isPackaged
-        ? 'Reinstall Bilimi or rebuild the package with bundled media tools.'
-        : 'Run npm run setup:media-tools from the project root, then restart Bilimi.'
+        ? 'Reinstall bilimi or rebuild the package with bundled media tools.'
+        : 'Run npm run setup:media-tools from the project root, then restart bilimi.'
 
       throw new Error(`Bundled media tool is missing: ${path}. ${setupHint}`)
     }

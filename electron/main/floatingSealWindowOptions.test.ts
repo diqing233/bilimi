@@ -35,6 +35,7 @@ describe('createFloatingSealWindowOptions', () => {
       backgroundColor: '#00000000',
       hasShadow: false,
       roundedCorners: false,
+      backgroundMaterial: 'none',
       webPreferences: {
         preload: 'C:/bilimi/out/preload/index.mjs',
         contextIsolation: true,

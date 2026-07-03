@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+﻿import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_ASSISTANT_PREFERENCES,
   loadVideoNotes,
@@ -376,7 +376,7 @@ describe('pending favorite queue store helpers', () => {
     sourceFolderTitle: '默认收藏夹',
     originalTargetLedgerId: 'inbox',
     suggestedLedgerIds: [],
-    candidateLedgerNames: ['Bilimi·摄影'],
+    candidateLedgerNames: ['bilimi·摄影'],
     reason: '高频标签建议新建',
     createdAt: '2026-06-28T00:00:00.000Z',
     updatedAt: '2026-06-28T00:00:00.000Z',
@@ -608,7 +608,7 @@ describe('video audio transcription queue store helpers', () => {
       {
         ...runningItem,
         status: 'failed',
-        errorMessage: 'Bilimi was closed before this transcription finished.'
+        errorMessage: 'bilimi was closed before this transcription finished.'
       },
       pendingItem
     ])

@@ -56,7 +56,7 @@ export function createPosterSvgDataUrl(summary: NotePosterSummary): string {
   </style>
   <rect class="bg" width="900" height="680"/>
   <rect class="panel" x="46" y="42" width="808" height="596" rx="18"/>
-  <text x="86" y="112" class="kicker">Bilimi One-Image Summary</text>
+  <text x="86" y="112" class="kicker">bilimi One-Image Summary</text>
   <text x="86" y="176" class="title">${escapeXml(normalized.title)}</text>
   <text x="86" y="216" class="subtitle">${escapeXml(normalized.subtitle)}</text>
   ${keyPoints}

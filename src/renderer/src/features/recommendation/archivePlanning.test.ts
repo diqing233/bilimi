@@ -1,4 +1,4 @@
-import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
+﻿import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import { describe, expect, it } from 'vitest'
 import { planFavoriteArchiveTargets } from './archivePlanning'
 
@@ -36,7 +36,7 @@ describe('planFavoriteArchiveTargets', () => {
       ),
       {
         id: 'custom-genshin',
-        displayName: 'Bilimi·Genshin',
+        displayName: 'bilimi·Genshin',
         keywords: ['genshin'],
         enabled: true,
         priority: -30,
@@ -45,7 +45,7 @@ describe('planFavoriteArchiveTargets', () => {
       },
       {
         id: 'custom-mihoyo',
-        displayName: 'Bilimi·Mihoyo',
+        displayName: 'bilimi·Mihoyo',
         keywords: ['mihoyo'],
         enabled: true,
         priority: -20,
@@ -68,7 +68,7 @@ describe('planFavoriteArchiveTargets', () => {
       ...createDefaultFavoriteLedgers(),
       {
         id: 'custom-genshin',
-        displayName: 'Bilimi·Genshin',
+        displayName: 'bilimi·Genshin',
         keywords: ['genshin'],
         enabled: true,
         priority: -20,
@@ -91,7 +91,7 @@ describe('planFavoriteArchiveTargets', () => {
       ...createDefaultFavoriteLedgers(),
       {
         id: 'custom-genshin',
-        displayName: 'Bilimi·Genshin',
+        displayName: 'bilimi·Genshin',
         keywords: ['genshin'],
         enabled: true,
         priority: -20,
@@ -114,7 +114,7 @@ describe('planFavoriteArchiveTargets', () => {
       ...createDefaultFavoriteLedgers(),
       {
         id: 'custom-genshin',
-        displayName: 'Bilimi·Genshin',
+        displayName: 'bilimi·Genshin',
         keywords: ['genshin'],
         enabled: true,
         priority: -30,
@@ -123,7 +123,7 @@ describe('planFavoriteArchiveTargets', () => {
       },
       {
         id: 'custom-mihoyo',
-        displayName: 'Bilimi·Mihoyo',
+        displayName: 'bilimi·Mihoyo',
         keywords: ['mihoyo'],
         enabled: true,
         priority: -20,
@@ -132,7 +132,7 @@ describe('planFavoriteArchiveTargets', () => {
       },
       {
         id: 'custom-music',
-        displayName: 'Bilimi·Game OST',
+        displayName: 'bilimi·Game OST',
         keywords: ['ost'],
         enabled: true,
         priority: -10,

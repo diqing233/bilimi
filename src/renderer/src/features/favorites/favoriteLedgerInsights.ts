@@ -1,4 +1,9 @@
 import type { FavoriteSourceFolder, FavoriteSourceVideo } from './favoriteLedgerPreview'
+import {
+  BILIMI_LEDGER_PREFIX,
+  isBilimiManagedLedgerName,
+  stripBilimiLedgerPrefix
+} from '@shared/favoriteLedgers'
 
 export type FavoriteLedgerInsightSignal = {
   name: string
@@ -155,7 +160,14 @@ function candidateKey(kind: FavoriteLedgerCandidateKind, sourceName: string): st
 }
 
 function hasExistingLedger(displayName: string, existingLedgerNames: string[]): boolean {
-  return existingLedgerNames.some((name) => name === displayName)
+  const normalizedDisplayName = normalizeManagedLedgerName(displayName)
+  return existingLedgerNames.some((name) => normalizeManagedLedgerName(name) === normalizedDisplayName)
+}
+
+function normalizeManagedLedgerName(displayName: string): string {
+  return isBilimiManagedLedgerName(displayName)
+    ? `${BILIMI_LEDGER_PREFIX}${stripBilimiLedgerPrefix(displayName)}`
+    : displayName.trim()
 }
 
 function confidence(count: number, totalVideos: number): FavoriteLedgerCandidateConfidence {
@@ -188,7 +200,7 @@ function buildTagClusters(videos: FavoriteSourceVideo[], totalVideos: number): F
     return {
       kind: 'tag-cluster',
       sourceName: tag.name,
-      displayName: `Bilimi·${displaySuffix}`,
+      displayName: `${BILIMI_LEDGER_PREFIX}${displaySuffix}`,
       keywords,
       count: tag.count,
       confidence: confidence(tag.count, totalVideos),
@@ -207,7 +219,7 @@ function buildSeriesCandidates(
     .map((series) => ({
       kind: 'series' as const,
       sourceName: series.name,
-      displayName: `Bilimi·${series.name}`,
+      displayName: `${BILIMI_LEDGER_PREFIX}${series.name}`,
       keywords: [series.name],
       count: series.count,
       confidence: confidence(series.count, totalVideos),
@@ -225,7 +237,7 @@ function buildAuthorCandidates(
     .map((author) => ({
       kind: 'author' as const,
       sourceName: author.name,
-      displayName: `Bilimi·${author.name}追更`,
+      displayName: `${BILIMI_LEDGER_PREFIX}${author.name}追更`,
       keywords: [author.name],
       count: author.count,
       confidence: confidence(author.count, totalVideos),
@@ -243,7 +255,7 @@ function buildCategoryCandidates(
     .map((category) => ({
       kind: 'category' as const,
       sourceName: category.name,
-      displayName: `Bilimi·${category.name}`,
+      displayName: `${BILIMI_LEDGER_PREFIX}${category.name}`,
       keywords: [category.name],
       count: category.count,
       confidence: confidence(category.count, totalVideos),

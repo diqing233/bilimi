@@ -182,7 +182,7 @@ export function buildFavoriteApiFallbackScript(
         const targetFolderName = targetLedger?.displayName;
 
         if (!targetFolderName) {
-          return fail('favorite-api-target-ledger', '未找到目标 Bilimi 收藏账本，无法调用收藏接口。');
+          return fail('favorite-api-target-ledger', '未找到目标 bilimi 收藏账本，无法调用收藏接口。');
         }
         const listUrl = new URL('https://api.bilibili.com/x/v3/fav/folder/created/list-all');
         listUrl.searchParams.set('up_mid', String(mid));
@@ -228,7 +228,7 @@ export function buildFavoriteApiFallbackScript(
         }
 
         if (folderIds.length === 0) {
-          return fail('favorite-api-folder-id', 'B 站收藏接口未返回 Bilimi 收藏夹 ID。');
+          return fail('favorite-api-folder-id', 'B 站收藏接口未返回 bilimi 收藏夹 ID。');
         }
 
         const dealBody = new URLSearchParams({
@@ -260,7 +260,7 @@ export function buildFavoriteApiFallbackScript(
           ok: true,
           steps,
           missingTargets: [],
-          message: '已用 B 站接口归入 Bilimi 收藏夹。'
+          message: '已用 B 站接口归入 bilimi 收藏夹。'
         };
       } catch (error) {
         return {

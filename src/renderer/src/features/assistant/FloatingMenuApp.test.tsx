@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+﻿import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { FloatingMenuApp } from './FloatingMenuApp'
 
@@ -15,7 +15,7 @@ describe('FloatingMenuApp', () => {
 
     render(<FloatingMenuApp />)
 
-    expect(screen.getByRole('menu', { name: 'Bilimi 悬浮动作' })).toBeInTheDocument()
+    expect(screen.getByRole('menu', { name: 'bilimi 悬浮动作' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: '赞' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: '藏' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: '赐' })).toBeInTheDocument()

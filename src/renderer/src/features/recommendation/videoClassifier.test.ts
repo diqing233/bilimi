@@ -1,4 +1,4 @@
-import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
+﻿import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import { describe, expect, it } from 'vitest'
 import { buildVideoContentContextScript, classifyVideoContent } from './videoClassifier'
 
@@ -56,12 +56,12 @@ describe('classifyVideoContent', () => {
     expect(classifyVideoContent({ title: '东京周末路线', tags: [], category: '出行' }, ledgers)).toMatchObject({
       ledgerId: 'life-interest',
       reviewRequired: false,
-      displayName: 'Bilimi·生活日常'
+      displayName: 'bilimi·生活日常'
     })
     expect(classifyVideoContent({ title: '露营装备清单', tags: [], category: '户外' }, ledgers)).toMatchObject({
       ledgerId: 'life-interest',
       reviewRequired: false,
-      displayName: 'Bilimi·生活日常'
+      displayName: 'bilimi·生活日常'
     })
   })
 
@@ -96,7 +96,7 @@ describe('classifyVideoContent', () => {
     const ledgers = [
       {
         id: 'custom-title-topic',
-        displayName: 'Bilimi·Title Topic',
+        displayName: 'bilimi·Title Topic',
         keywords: ['title-tech'],
         enabled: true,
         priority: -20,
@@ -104,7 +104,7 @@ describe('classifyVideoContent', () => {
       },
       {
         id: 'custom-tag-topic',
-        displayName: 'Bilimi·Tag Topic',
+        displayName: 'bilimi·Tag Topic',
         keywords: ['tag-food'],
         enabled: true,
         priority: -10,
@@ -142,7 +142,7 @@ describe('classifyVideoContent', () => {
       )
     ).toMatchObject({
       ledgerId: 'music',
-      displayName: 'Bilimi·音乐舞台',
+      displayName: 'bilimi·音乐舞台',
       reviewRequired: false,
       matchedKeywords: expect.arrayContaining(['演奏', '音乐', '音乐现场'])
     })
@@ -153,7 +153,7 @@ describe('classifyVideoContent', () => {
       ...createDefaultFavoriteLedgers(),
       {
         id: 'custom-photo',
-        displayName: 'Bilimi·光影留真',
+        displayName: 'bilimi·光影留真',
         keywords: ['摄影', '镜头'],
         enabled: true,
         priority: -10,
@@ -163,13 +163,13 @@ describe('classifyVideoContent', () => {
 
     expect(classifyVideoContent({ title: '摄影镜头构图教程' }, ledgers)).toMatchObject({
       ledgerId: 'custom-photo',
-      displayName: 'Bilimi·光影留真',
+      displayName: 'bilimi·光影留真',
       matchedKeywords: ['摄影', '镜头'],
       reviewRequired: false
     })
     expect(classifyVideoContent({ title: '摄影 软件教程 工具 数码' }, ledgers)).toMatchObject({
       ledgerId: 'custom-photo',
-      displayName: 'Bilimi·光影留真',
+      displayName: 'bilimi·光影留真',
       matchedKeywords: ['摄影'],
       reviewRequired: false
     })
@@ -192,7 +192,7 @@ describe('classifyVideoContent', () => {
 
     expect(result).toMatchObject({
       ledgerId: 'inbox',
-      displayName: 'Bilimi·暂存',
+      displayName: 'bilimi·暂存',
       reviewRequired: true
     })
     expect(result.matchedKeywords).toEqual(expect.arrayContaining(['带货', '软广', '避雷']))

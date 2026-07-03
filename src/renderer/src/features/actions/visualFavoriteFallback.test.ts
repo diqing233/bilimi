@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+﻿import { describe, expect, it, vi } from 'vitest'
 import { runVisualFavoriteFallback } from './visualFavoriteFallback'
 
 function createWebview(boxFrames: Array<Array<Record<string, unknown>>>) {
@@ -67,7 +67,7 @@ function createWebviewWithPostCreateScroll() {
     { text: '确定', x: 250, y: 620, width: 120, height: 40 }
   ]
   const afterPostCreateScroll = [
-    { text: 'Bilimi·影视动漫', x: 120, y: 470, width: 180, height: 32 },
+    { text: 'bilimi·影视动漫', x: 120, y: 470, width: 180, height: 32 },
     { text: '确定', x: 250, y: 620, width: 120, height: 40 }
   ]
 
@@ -264,11 +264,11 @@ function createWebviewWithOffscreenCreateEntry() {
 
 const context = {
   favoriteFolders: {
-    'movie-tv': 'Bilimi·影视动漫',
-    knowledge: 'Bilimi·知识学习',
-    entertainment: 'Bilimi·搞笑杂谈'
+    'movie-tv': 'bilimi·影视动漫',
+    knowledge: 'bilimi·知识学习',
+    entertainment: 'bilimi·搞笑杂谈'
   },
-  favoritesFolderName: 'Bilimi 内库',
+  favoritesFolderName: 'bilimi 内库',
   targetLedgerId: 'movie-tv'
 }
 
@@ -312,7 +312,7 @@ describe('runVisualFavoriteFallback', () => {
       [{ text: '收藏夹名称', x: 120, y: 260, width: 180, height: 36 }],
       [{ text: '创建', x: 240, y: 340, width: 80, height: 32 }],
       [
-        { text: 'Bilimi·影视动漫', x: 120, y: 470, width: 180, height: 32 },
+        { text: 'bilimi·影视动漫', x: 120, y: 470, width: 180, height: 32 },
         { text: '确定', x: 250, y: 620, width: 120, height: 40 }
       ]
     ])
@@ -342,7 +342,7 @@ describe('runVisualFavoriteFallback', () => {
       [{ text: '收藏夹名称', x: 120, y: 260, width: 180, height: 36 }],
       [{ text: '创建', x: 240, y: 340, width: 80, height: 32 }],
       [
-        { text: 'Bilimi·影视动漫', x: 120, y: 470, width: 180, height: 32 },
+        { text: 'bilimi·影视动漫', x: 120, y: 470, width: 180, height: 32 },
         { text: '确定', x: 250, y: 620, width: 120, height: 40 }
       ]
     ])
@@ -380,11 +380,11 @@ describe('runVisualFavoriteFallback', () => {
       [{ text: '收藏夹名称', x: 120, y: 260, width: 180, height: 36 }],
       [{ text: '创建', x: 240, y: 340, width: 80, height: 32 }],
       [
-        { text: 'Bilimi·影视动漫', x: 120, y: 470, width: 180, height: 32 },
+        { text: 'bilimi·影视动漫', x: 120, y: 470, width: 180, height: 32 },
         { text: '确定', x: 250, y: 620, width: 120, height: 40 }
       ],
       [
-        { text: 'Bilimi·影视动漫', x: 120, y: 470, width: 180, height: 32 },
+        { text: 'bilimi·影视动漫', x: 120, y: 470, width: 180, height: 32 },
         { text: '确定', x: 250, y: 620, width: 120, height: 40 }
       ]
     ])
@@ -441,7 +441,7 @@ describe('runVisualFavoriteFallback', () => {
       (event) => event.type === 'mouseDown' && event.x === 279 && event.y === 438
     )
     const firstCharIndex = sentEvents.findIndex(
-      (event) => event.type === 'char' && event.keyCode === 'B'
+      (event) => event.type === 'char' && event.keyCode === 'b'
     )
     const inlineCreateClickIndex = sentEvents.findIndex(
       (event) => event.type === 'mouseDown' && event.x === 496 && event.y === 438
@@ -454,7 +454,7 @@ describe('runVisualFavoriteFallback', () => {
     expect(result.steps).toEqual(
       expect.arrayContaining([
         'visual:favorite:create-open',
-        'visual:favorite:create-name:Bilimi·影视动漫',
+        'visual:favorite:create-name:bilimi·影视动漫',
         'visual:favorite:create',
         'visual:favorite:confirm'
       ])

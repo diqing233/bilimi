@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+﻿import { describe, expect, it } from 'vitest'
 import {
   BILIMI_LEDGER_PREFIX,
   createDefaultFavoriteLedgers,
@@ -13,14 +13,14 @@ describe('favorite ledger model', () => {
   it('defines Bilibili-style default ledgers with stable ids', () => {
     expect(createDefaultFavoriteLedgers().map((ledger) => [ledger.id, ledger.displayName])).toEqual(
       expect.arrayContaining([
-        ['knowledge', 'Bilimi·知识学习'],
-        ['game', 'Bilimi·游戏专区'],
-        ['movie-tv', 'Bilimi·影视动漫'],
-        ['creative-aesthetic', 'Bilimi·创意美学'],
-        ['life-interest', 'Bilimi·生活日常'],
-        ['music', 'Bilimi·音乐舞台'],
-        ['entertainment', 'Bilimi·搞笑杂谈'],
-        ['inbox', 'Bilimi·暂存']
+        ['knowledge', 'bilimi·知识学习'],
+        ['game', 'bilimi·游戏专区'],
+        ['movie-tv', 'bilimi·影视动漫'],
+        ['creative-aesthetic', 'bilimi·创意美学'],
+        ['life-interest', 'bilimi·生活日常'],
+        ['music', 'bilimi·音乐舞台'],
+        ['entertainment', 'bilimi·搞笑杂谈'],
+        ['inbox', 'bilimi·暂存']
       ])
     )
     expect(createDefaultFavoriteLedgers()).toHaveLength(8)
@@ -59,20 +59,20 @@ describe('favorite ledger model', () => {
     const ledgers = createDefaultFavoriteLedgers()
 
     expect(ledgers.map((ledger) => ledger.displayName)).toEqual([
-      'Bilimi·知识学习',
-      'Bilimi·游戏专区',
-      'Bilimi·影视动漫',
-      'Bilimi·创意美学',
-      'Bilimi·生活日常',
-      'Bilimi·音乐舞台',
-      'Bilimi·搞笑杂谈',
-      'Bilimi·暂存'
+      'bilimi·知识学习',
+      'bilimi·游戏专区',
+      'bilimi·影视动漫',
+      'bilimi·创意美学',
+      'bilimi·生活日常',
+      'bilimi·音乐舞台',
+      'bilimi·搞笑杂谈',
+      'bilimi·暂存'
     ])
-    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·动画')
-    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·鬼畜')
-    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·科技数码')
-    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·手工')
-    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·纪录片')
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('bilimi·动画')
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('bilimi·鬼畜')
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('bilimi·科技数码')
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('bilimi·手工')
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('bilimi·纪录片')
     expect(ledgers.filter((ledger) => ledger.enabled).map((ledger) => ledger.id)).toEqual(
       ledgers.map((ledger) => ledger.id)
     )
@@ -82,7 +82,7 @@ describe('favorite ledger model', () => {
     const ledgers = normalizeFavoriteLedgers([
       {
         id: 'knowledge',
-        displayName: 'Bilimi·开卷有益',
+        displayName: 'bilimi·开卷有益',
         keywords: ['开卷'],
         enabled: false,
         priority: 21,
@@ -90,7 +90,7 @@ describe('favorite ledger model', () => {
       },
       {
         id: 'custom-photo',
-        displayName: 'Bilimi·光影留真',
+        displayName: 'bilimi·光影留真',
         keywords: ['摄影', '镜头'],
         enabled: true,
         priority: 5,
@@ -101,23 +101,23 @@ describe('favorite ledger model', () => {
     expect(ledgers).toHaveLength(9)
     expect(ledgers.find((ledger) => ledger.id === 'knowledge')).toEqual({
       id: 'knowledge',
-      displayName: 'Bilimi·开卷有益',
+      displayName: 'bilimi·开卷有益',
       keywords: ['开卷'],
       enabled: false,
       priority: 21,
       isDefault: true
     })
     expect(ledgers.find((ledger) => ledger.id === 'custom-photo')?.displayName).toBe(
-      'Bilimi·光影留真'
+      'bilimi·光影留真'
     )
-    expect(ledgers.find((ledger) => ledger.id === 'inbox')?.displayName).toBe('Bilimi·暂存')
+    expect(ledgers.find((ledger) => ledger.id === 'inbox')?.displayName).toBe('bilimi·暂存')
   })
 
   it('keeps a saved legacy pending-classification inbox ledger as inbox', () => {
     const ledgers = normalizeFavoriteLedgers([
       {
         id: 'inbox',
-        displayName: 'Bilimi·待分类',
+        displayName: 'bilimi·待分类',
         keywords: ['稍后', '待看'],
         enabled: true,
         priority: 80,
@@ -126,7 +126,7 @@ describe('favorite ledger model', () => {
     ])
 
     expect(ledgers.filter((ledger) => ledger.id === 'inbox')).toHaveLength(1)
-    expect(ledgers.find((ledger) => ledger.id === 'inbox')?.displayName).toBe('Bilimi·待分类')
+    expect(ledgers.find((ledger) => ledger.id === 'inbox')?.displayName).toBe('bilimi·待分类')
   })
 
   it('retires removed default ledgers from saved preferences', () => {
@@ -169,31 +169,33 @@ describe('favorite ledger model', () => {
     expect(ledgers.map((ledger) => ledger.id)).not.toContain('kichiku')
     expect(ledgers.map((ledger) => ledger.id)).not.toContain('handmade')
     expect(ledgers.map((ledger) => ledger.id)).not.toContain('documentary')
-    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·动画')
-    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·鬼畜')
-    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·科技数码')
-    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·手工')
-    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('Bilimi·纪录片')
-    expect(ledgers.find((ledger) => ledger.id === 'movie-tv')?.displayName).toBe('Bilimi·影视动漫')
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('bilimi·动画')
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('bilimi·鬼畜')
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('bilimi·科技数码')
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('bilimi·手工')
+    expect(ledgers.map((ledger) => ledger.displayName)).not.toContain('bilimi·纪录片')
+    expect(ledgers.find((ledger) => ledger.id === 'movie-tv')?.displayName).toBe('bilimi·影视动漫')
   })
 
-  it('recognizes only Bilimi-prefixed ledger names as managed', () => {
-    expect(BILIMI_LEDGER_PREFIX).toBe('Bilimi·')
+  it('creates lowercase bilimi-prefixed ledgers while recognizing legacy uppercase names', () => {
+    expect(BILIMI_LEDGER_PREFIX).toBe('bilimi·')
+    expect(isBilimiManagedLedgerName('bilimi·知识学习')).toBe(true)
     expect(isBilimiManagedLedgerName('Bilimi·知识学习')).toBe(true)
     expect(isBilimiManagedLedgerName('默认收藏夹')).toBe(false)
     expect(isBilimiManagedLedgerName('我的 Bilimi 灵感')).toBe(false)
+    expect(isBilimiManagedLedgerName('我的 bilimi 灵感')).toBe(false)
   })
 
   it('recommends three plain names from a topic', () => {
     expect(suggestFavoriteLedgerNames('摄影')).toEqual([
-      'Bilimi·摄影',
-      'Bilimi·摄影教程',
-      'Bilimi·摄影灵感'
+      'bilimi·摄影',
+      'bilimi·摄影教程',
+      'bilimi·摄影灵感'
     ])
     expect(suggestFavoriteLedgerNames('编程')).toEqual([
-      'Bilimi·编程',
-      'Bilimi·编程教程',
-      'Bilimi·开发工具'
+      'bilimi·编程',
+      'bilimi·编程教程',
+      'bilimi·开发工具'
     ])
   })
 
@@ -201,7 +203,7 @@ describe('favorite ledger model', () => {
     const ledgers = [
       {
         id: 'knowledge',
-        displayName: 'Bilimi·知识学习',
+        displayName: 'bilimi·知识学习',
         keywords: ['知识', '学习'],
         enabled: true,
         priority: 10,
@@ -209,7 +211,7 @@ describe('favorite ledger model', () => {
       },
       {
         id: 'custom-photo',
-        displayName: 'Bilimi·光影留真',
+        displayName: 'bilimi·光影留真',
         keywords: ['摄影'],
         enabled: false,
         priority: 20,
@@ -222,8 +224,8 @@ describe('favorite ledger model', () => {
       'custom-photo': ledgers[1]
     })
     expect(favoriteLedgerNamesById(ledgers)).toEqual({
-      knowledge: 'Bilimi·知识学习',
-      'custom-photo': 'Bilimi·光影留真'
+      knowledge: 'bilimi·知识学习',
+      'custom-photo': 'bilimi·光影留真'
     })
   })
 })

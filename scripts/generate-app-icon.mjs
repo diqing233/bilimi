@@ -73,7 +73,7 @@ export function generateAppIcon() {
   if (result.status !== 0) {
     throw new Error(
       [
-        'Failed to generate Bilimi app icon.',
+        'Failed to generate bilimi app icon.',
         result.stdout.trim(),
         result.stderr.trim()
       ]

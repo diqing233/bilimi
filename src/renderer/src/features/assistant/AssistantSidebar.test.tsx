@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+﻿import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import {
   AssistantSidebar,
@@ -87,7 +87,7 @@ describe('AssistantSidebar', () => {
 
     render(<AssistantSidebar />)
 
-    expect(screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })).toHaveAttribute(
+    expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toHaveAttribute(
       'data-collapsed',
       'false'
     )
@@ -116,7 +116,7 @@ describe('AssistantSidebar', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '折叠侧边栏' }))
 
-    expect(screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })).toHaveAttribute(
+    expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toHaveAttribute(
       'data-collapsed',
       'true'
     )
@@ -142,7 +142,7 @@ describe('AssistantSidebar', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '折叠侧边栏' }))
 
-    expect(screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })).toHaveAttribute(
+    expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toHaveAttribute(
       'data-collapsed',
       'true'
     )
@@ -152,7 +152,7 @@ describe('AssistantSidebar', () => {
     })
 
     expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
-    expect(screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })).toHaveAttribute(
+    expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toHaveAttribute(
       'data-collapsed',
       'false'
     )
@@ -168,7 +168,7 @@ describe('AssistantSidebar', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '折叠侧边栏' }))
 
-    expect(screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })).toHaveAttribute(
+    expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toHaveAttribute(
       'data-collapsed',
       'true'
     )
@@ -177,7 +177,7 @@ describe('AssistantSidebar', () => {
       api.openWorkspace({ tab: 'ledger', organizeOldFavorites: true })
     })
 
-    expect(screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })).toHaveAttribute(
+    expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toHaveAttribute(
       'data-collapsed',
       'true'
     )
@@ -199,7 +199,7 @@ describe('AssistantSidebar', () => {
 
     render(<AssistantSidebar />)
 
-    const sidebar = screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })
+    const sidebar = screen.getByRole('complementary', { name: 'bilimi 侧边栏' })
     const resizeHandle = screen.getByRole('separator', { name: '调整侧边栏宽度' })
 
     await act(async () => undefined)
@@ -269,7 +269,7 @@ describe('AssistantSidebar', () => {
 
     render(<AssistantSidebar />)
 
-    const sidebar = screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })
+    const sidebar = screen.getByRole('complementary', { name: 'bilimi 侧边栏' })
     const resizeHandle = screen.getByRole('separator', { name: '调整侧边栏宽度' })
 
     await act(async () => undefined)

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+﻿import { describe, expect, it } from 'vitest'
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import {
   buildAutomationScript,
@@ -51,13 +51,13 @@ describe('buildAutomationScript', () => {
     })
 
     const result = await window.eval(
-      buildAutomationScript('藏', 'Bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
+      buildAutomationScript('藏', 'bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
     )
 
     expect(result.ok).toBe(true)
     expect(likeClicked).toBe(false)
     expect(createdFolders).toEqual(enabledLedgerNames)
-    expect(selectedFolder).toBe('Bilimi·影视动漫')
+    expect(selectedFolder).toBe('bilimi·影视动漫')
     expect(result.steps).toEqual(
       expect.arrayContaining(['favorite:open', 'favorite:create-defaults', 'favorite:folder', 'favorite'])
     )
@@ -67,12 +67,12 @@ describe('buildAutomationScript', () => {
     document.body.innerHTML = `
       <button aria-label="点赞">点赞</button>
       <button aria-label="收藏">收藏</button>
-      <button>Bilimi 内库</button>
+      <button>bilimi 内库</button>
       <button>完成</button>
     `
 
     const result = await window.eval(
-      buildAutomationScript('赏', 'Bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
+      buildAutomationScript('赏', 'bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
     )
 
     expect(result.ok).toBe(true)
@@ -87,7 +87,7 @@ describe('buildAutomationScript', () => {
       <button aria-label="点赞">点赞</button>
       <button aria-label="收藏">收藏</button>
       <button aria-label="投币">投币</button>
-      <button>Bilimi·影视动漫</button>
+      <button>bilimi·影视动漫</button>
       <button>完成</button>
     `
     let twoCoinSelected = false
@@ -115,7 +115,7 @@ describe('buildAutomationScript', () => {
     })
 
     const result = await window.eval(
-      buildAutomationScript('赐', 'Bilimi 内库', 2, undefined, favoriteLedgers, 'movie-tv')
+      buildAutomationScript('赐', 'bilimi 内库', 2, undefined, favoriteLedgers, 'movie-tv')
     )
 
     expect(result.ok).toBe(true)
@@ -132,7 +132,7 @@ describe('buildAutomationScript', () => {
       <button aria-label="点赞">点赞</button>
       <button aria-label="收藏">收藏</button>
       <button aria-label="投币">投币</button>
-      <button>Bilimi·影视动漫</button>
+      <button>bilimi·影视动漫</button>
       <button>完成</button>
     `
     let twoCoinSelected = false
@@ -167,7 +167,7 @@ describe('buildAutomationScript', () => {
     })
 
     const result = await window.eval(
-      buildAutomationScript('赐', 'Bilimi 内库', 2, undefined, favoriteLedgers, 'movie-tv')
+      buildAutomationScript('赐', 'bilimi 内库', 2, undefined, favoriteLedgers, 'movie-tv')
     )
 
     expect(result.ok).toBe(true)
@@ -208,7 +208,7 @@ describe('buildAutomationScript', () => {
     })
 
     const result = await window.eval(
-      buildAutomationScript('赐', 'Bilimi 内库', 2, undefined, favoriteLedgers, 'movie-tv')
+      buildAutomationScript('赐', 'bilimi 内库', 2, undefined, favoriteLedgers, 'movie-tv')
     )
 
     expect(favoriteCancelled).toBe(false)
@@ -224,7 +224,7 @@ describe('buildAutomationScript', () => {
     document.body.innerHTML = `
       <button class="video-like active" aria-label="已点赞">已点赞</button>
       <button aria-label="收藏">收藏</button>
-      <button>Bilimi·影视动漫</button>
+      <button>bilimi·影视动漫</button>
       <button>完成</button>
       <button aria-label="投币">投币</button>
     `
@@ -251,7 +251,7 @@ describe('buildAutomationScript', () => {
     })
 
     const result = await window.eval(
-      buildAutomationScript('赐', 'Bilimi 内库', 2, undefined, favoriteLedgers, 'movie-tv')
+      buildAutomationScript('赐', 'bilimi 内库', 2, undefined, favoriteLedgers, 'movie-tv')
     )
 
     expect(likeCancelled).toBe(false)
@@ -275,7 +275,7 @@ describe('buildAutomationScript', () => {
     })
 
     const result = await window.eval(
-      buildAutomationScript('赏', 'Bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
+      buildAutomationScript('赏', 'bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
     )
 
     expect(result.ok).toBe(false)
@@ -299,12 +299,12 @@ describe('buildAutomationScript', () => {
           <svg aria-hidden="true"></svg>
         </div>
       </div>
-      <button>Bilimi 内库</button>
+      <button>bilimi 内库</button>
       <button>完成</button>
     `
 
     const result = await window.eval(
-      buildAutomationScript('赏', 'Bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
+      buildAutomationScript('赏', 'bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
     )
 
     expect(result.ok).toBe(true)
@@ -325,7 +325,7 @@ describe('buildAutomationScript', () => {
         document.body.insertAdjacentHTML(
           'beforeend',
           `
-            <button>Bilimi 内库</button>
+            <button>bilimi 内库</button>
             <button>完成</button>
           `
         )
@@ -333,7 +333,7 @@ describe('buildAutomationScript', () => {
     })
 
     const result = await window.eval(
-      buildAutomationScript('赏', 'Bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
+      buildAutomationScript('赏', 'bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
     )
 
     expect(result.ok).toBe(true)
@@ -375,7 +375,7 @@ describe('buildAutomationScript', () => {
     })
 
     const result = await window.eval(
-      buildAutomationScript('赏', 'Bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
+      buildAutomationScript('赏', 'bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
     )
 
     expect(result.ok).toBe(true)
@@ -426,12 +426,12 @@ describe('buildAutomationScript', () => {
     })
 
     const result = await window.eval(
-      buildAutomationScript('赏', 'Bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
+      buildAutomationScript('赏', 'bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
     )
 
     expect(result.ok).toBe(true)
     expect(createdFolders).toEqual(enabledLedgerNames)
-    expect(selectedFolder).toBe('Bilimi·影视动漫')
+    expect(selectedFolder).toBe('bilimi·影视动漫')
   })
 
   it('does not confirm the favorite dialog when no Bilimi target folder is selected', async () => {
@@ -457,7 +457,7 @@ describe('buildAutomationScript', () => {
     })
 
     const result = await window.eval(
-      buildAutomationScript('藏', 'Bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
+      buildAutomationScript('藏', 'bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
     )
 
     expect(result.ok).toBe(false)
@@ -523,7 +523,7 @@ describe('buildAutomationScript', () => {
         'beforeend',
         `
           <div class="fav-dialog">
-            <button class="fav-item">Bilimi·影视动漫</button>
+            <button class="fav-item">bilimi·影视动漫</button>
             <button class="fav-create">新建收藏夹</button>
             <button class="fav-submit">完成</button>
           </div>
@@ -539,11 +539,11 @@ describe('buildAutomationScript', () => {
     })
 
     const result = await window.eval(
-      buildAutomationScript('赏', 'Bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
+      buildAutomationScript('赏', 'bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
     )
 
     expect(result.ok).toBe(true)
-    expect(selectedFolder).toBe('Bilimi·影视动漫')
+    expect(selectedFolder).toBe('bilimi·影视动漫')
     expect(createClicked).toBe(false)
     expect(result.steps).toEqual(expect.arrayContaining(['favorite:folder', 'favorite']))
   })
@@ -581,11 +581,11 @@ describe('buildAutomationScript', () => {
     })
 
     const result = await window.eval(
-      buildAutomationScript('赏', 'Bilimi 内库', undefined, undefined, favoriteLedgers, 'knowledge')
+      buildAutomationScript('赏', 'bilimi 内库', undefined, undefined, favoriteLedgers, 'knowledge')
     )
 
     expect(result.ok).toBe(true)
-    expect(createdFolders).toEqual(['Bilimi·知识学习'])
+    expect(createdFolders).toEqual(['bilimi·知识学习'])
     expect(result.steps).toEqual(
       expect.arrayContaining(['favorite:create-category', 'favorite:folder', 'favorite'])
     )
@@ -658,13 +658,13 @@ describe('buildAutomationScript', () => {
     })
 
     const result = await window.eval(
-      buildAutomationScript('赏', 'Bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
+      buildAutomationScript('赏', 'bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
     )
 
     expect(result.ok).toBe(true)
     expect(scrolledToBottom).toBe(true)
     expect(createdFolders).toEqual(enabledLedgerNames)
-    expect(selectedFolder).toContain('Bilimi·影视动漫')
+    expect(selectedFolder).toContain('bilimi·影视动漫')
   })
 
   it('waits for the folder form that appears after clicking bilibili create folder', async () => {
@@ -721,7 +721,7 @@ describe('buildAutomationScript', () => {
     })
 
     const result = await window.eval(
-      buildAutomationScript('赏', 'Bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
+      buildAutomationScript('赏', 'bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
     )
 
     expect(result.ok).toBe(true)
@@ -784,7 +784,7 @@ describe('buildAutomationScript', () => {
     })
 
     const result = await window.eval(
-      buildAutomationScript('赏', 'Bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
+      buildAutomationScript('赏', 'bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
     )
 
     expect(result.ok).toBe(true)
@@ -850,13 +850,13 @@ describe('buildAutomationScript', () => {
     })
 
     const result = await window.eval(
-      buildAutomationScript('赏', 'Bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
+      buildAutomationScript('赏', 'bilimi 内库', undefined, undefined, favoriteLedgers, 'movie-tv')
     )
 
     expect(result.ok).toBe(true)
     expect(nestedContainerScrolled).toBe(true)
     expect(createdFolders).toEqual(enabledLedgerNames)
-    expect(selectedFolder).toContain('Bilimi·影视动漫')
+    expect(selectedFolder).toContain('bilimi·影视动漫')
   })
 
   it('fills and submits the player danmaku input for 表 when it is visible', async () => {

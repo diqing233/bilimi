@@ -231,7 +231,7 @@ function checkMediaTools(resolveMediaToolPaths: () => MediaToolPaths): StartupDi
       label: '本地媒体工具',
       status: 'error',
       message: error instanceof Error ? error.message : '本地媒体工具缺失。',
-      action: '请重新安装 Bilimi；开发环境可运行 npm run setup:media-tools 后重启。'
+      action: '请重新安装 bilimi；开发环境可运行 npm run setup:media-tools 后重启。'
     })
   }
 }

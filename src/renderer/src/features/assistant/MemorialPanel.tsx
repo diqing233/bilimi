@@ -75,7 +75,7 @@ const ACTIONS: Array<{
   {
     action: '赏',
     label: '轻赏此条',
-    description: '一键点赞，并归类收藏到 Bilimi',
+    description: '一键点赞，并归类收藏到 bilimi',
     testId: 'review-action-like',
     icon: clickedPetUrl,
     iconAlt: '小咪轻赏'

@@ -3,6 +3,7 @@ import type {
   RecommendationKind,
   RecommendationLabel
 } from '@shared/types'
+import { stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
 
 const MAP: Partial<Record<RecommendationKind, RecommendationLabel>> = {
   entertainment: {
@@ -48,15 +49,11 @@ export function describeRecommendation(kind: RecommendationKind): Recommendation
   return MAP[kind] ?? CUSTOM_LEDGER_LABEL
 }
 
-function stripBilimiPrefix(displayName: string) {
-  return displayName.replace(/^Bilimi[·\s-]*/, '').trim()
-}
-
 export function describeVideoClassificationRecommendation(
   classification: FavoriteLedgerClassification
 ): RecommendationLabel {
   if (classification.ledgerId === 'inbox' && classification.suggestedDisplayName) {
-    const suggestedName = stripBilimiPrefix(classification.suggestedDisplayName)
+    const suggestedName = stripBilimiLedgerPrefix(classification.suggestedDisplayName)
 
     return {
       badge: '待分拣',

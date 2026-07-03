@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+﻿import { describe, expect, it } from 'vitest'
 import {
   APP_TITLE,
   BILIBILI_HOME_URL,
@@ -12,7 +12,7 @@ describe('shared constants', () => {
     expect(APP_TITLE).toBe('bilimi')
     expect(BILIBILI_HOME_URL).toBe('https://www.bilibili.com')
     expect(BILIMI_SESSION_PARTITION).toBe('persist:bilimi')
-    expect(BILIMI_FAVORITES_NAME).toBe('Bilimi 内库')
-    expect(BILIMI_LEDGER_PREFIX).toBe('Bilimi·')
+    expect(BILIMI_FAVORITES_NAME).toBe('bilimi 内库')
+    expect(BILIMI_LEDGER_PREFIX).toBe('bilimi·')
   })
 })

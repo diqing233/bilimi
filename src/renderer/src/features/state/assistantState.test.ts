@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+﻿import { describe, expect, it } from 'vitest'
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import {
   createInitialAssistantPreferences,
@@ -29,7 +29,7 @@ describe('assistant state', () => {
         favoriteLedgers: [
           {
             id: 'custom-photo',
-            displayName: 'Bilimi·光影留真',
+            displayName: 'bilimi·光影留真',
             keywords: ['摄影'],
             enabled: true,
             priority: 50,
@@ -80,7 +80,7 @@ describe('assistant state', () => {
         })),
         {
           id: 'custom-photo',
-          displayName: 'Bilimi·光影留真',
+          displayName: 'bilimi·光影留真',
           keywords: ['摄影'],
           enabled: true,
           priority: 50,
@@ -96,11 +96,11 @@ describe('assistant state', () => {
       expect.arrayContaining([
         expect.objectContaining({
           id: 'custom-photo',
-          displayName: 'Bilimi·光影留真'
+          displayName: 'bilimi·光影留真'
         }),
         expect.objectContaining({
           id: 'movie-tv',
-          displayName: 'Bilimi·影视动漫'
+          displayName: 'bilimi·影视动漫'
         })
       ])
     )
@@ -109,7 +109,7 @@ describe('assistant state', () => {
   it('increments persisted preference counts after a successful action', () => {
     const next = recordAssistantPreferenceFeedback(createInitialAssistantPreferences(), 'funny', LIKE_ACTION)
 
-    expect(next.favoritesFolderName).toBe('Bilimi 内库')
+    expect(next.favoritesFolderName).toBe('bilimi 内库')
     expect(next.preferenceCounts.funny).toBe(1)
   })
   it('hydrates the selected pet style with a big-head default', () => {

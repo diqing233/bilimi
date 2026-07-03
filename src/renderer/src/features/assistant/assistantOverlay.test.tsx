@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+﻿import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { AssistantOverlay } from './AssistantOverlay'
 import { createInitialAssistantPreferences } from '../state/assistantState'
@@ -192,7 +192,7 @@ describe('AssistantOverlay', () => {
     render(
       <AssistantOverlay
         runScript={runScript}
-        favoritesFolderName="Bilimi 内库"
+        favoritesFolderName="bilimi 内库"
         onRecordFeedback={onRecordFeedback}
       />
     )
@@ -227,9 +227,9 @@ describe('AssistantOverlay', () => {
     render(
       <AssistantOverlay
         runScript={runScript}
-        favoritesFolderName="Bilimi 内库"
+        favoritesFolderName="bilimi 内库"
         storedPreferences={{
-          favoritesFolderName: 'Bilimi 内库',
+          favoritesFolderName: 'bilimi 内库',
           favoriteLedgers: [],
           ledgerPromptDismissed: true,
           petStyle: 'big-head',
@@ -274,7 +274,7 @@ describe('AssistantOverlay', () => {
     render(
       <AssistantOverlay
         runScript={runScript}
-        favoritesFolderName="Bilimi 内库"
+        favoritesFolderName="bilimi 内库"
         onRecordFeedback={onRecordFeedback}
       />
     )
@@ -300,7 +300,7 @@ describe('AssistantOverlay', () => {
     render(
       <AssistantOverlay
         runScript={runScript}
-        favoritesFolderName="Bilimi 内库"
+        favoritesFolderName="bilimi 内库"
         onRecordFeedback={onRecordFeedback}
         videoContentContext={{
           title: '三分钟讲清机器学习科普教程',
@@ -330,10 +330,10 @@ describe('AssistantOverlay', () => {
     render(
       <AssistantOverlay
         runScript={runScript}
-        favoritesFolderName="Bilimi 内库"
+        favoritesFolderName="bilimi 内库"
         onRecordFeedback={onRecordFeedback}
         storedPreferences={{
-          favoritesFolderName: 'Bilimi 内库',
+          favoritesFolderName: 'bilimi 内库',
           ledgerPromptDismissed: false,
           petStyle: 'big-head',
           petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
@@ -349,7 +349,7 @@ describe('AssistantOverlay', () => {
           favoriteLedgers: [
             {
               id: 'watch-later',
-              displayName: 'Bilimi·暂存待阅',
+              displayName: 'bilimi·暂存待阅',
               keywords: ['稍后'],
               enabled: true,
               priority: 1,
@@ -386,7 +386,7 @@ describe('AssistantOverlay', () => {
     render(
       <AssistantOverlay
         runScript={runScript}
-        favoritesFolderName="Bilimi 内库"
+        favoritesFolderName="bilimi 内库"
       />
     )
 
@@ -409,7 +409,7 @@ describe('AssistantOverlay', () => {
     render(
       <AssistantOverlay
         runScript={runScript}
-        favoritesFolderName="Bilimi 内库"
+        favoritesFolderName="bilimi 内库"
       />
     )
 
@@ -438,9 +438,9 @@ describe('AssistantOverlay', () => {
       <AssistantOverlay
         runScript={runScript}
         runVisualFallback={runVisualFallback}
-        favoritesFolderName="Bilimi 内库"
+        favoritesFolderName="bilimi 内库"
         storedPreferences={{
-          favoritesFolderName: 'Bilimi 内库',
+          favoritesFolderName: 'bilimi 内库',
           favoriteLedgers: [],
           ledgerPromptDismissed: true,
           petStyle: 'big-head',
@@ -467,7 +467,7 @@ describe('AssistantOverlay', () => {
     expect(runScript).toHaveBeenCalledTimes(1)
     expect(runVisualFallback).toHaveBeenCalledWith(
       expect.objectContaining({
-        favoritesFolderName: 'Bilimi 内库'
+        favoritesFolderName: 'bilimi 内库'
       }),
       expect.objectContaining({ openWithShortcut: true })
     )
@@ -477,7 +477,7 @@ describe('AssistantOverlay', () => {
   })
 
   it('keeps action buttons locked before a coin action is submitted', () => {
-    render(<AssistantOverlay favoritesFolderName="Bilimi 内库" />)
+    render(<AssistantOverlay favoritesFolderName="bilimi 内库" />)
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
     fireEvent.click(getActionButton('赐'))
@@ -500,7 +500,7 @@ describe('AssistantOverlay', () => {
 
     render(
       <AssistantOverlay
-        favoritesFolderName="Bilimi 内库"
+        favoritesFolderName="bilimi 内库"
         videoContentContext={{
           title: '早八生存实录',
           author: '早八观察员'
@@ -536,7 +536,7 @@ describe('AssistantOverlay', () => {
     render(
       <AssistantOverlay
         runScript={runScript}
-        favoritesFolderName="Bilimi 内库"
+        favoritesFolderName="bilimi 内库"
       />
     )
 
@@ -561,7 +561,7 @@ describe('AssistantOverlay', () => {
     render(
       <AssistantOverlay
         runScript={runScript}
-        favoritesFolderName="Bilimi 内库"
+        favoritesFolderName="bilimi 内库"
         onRecordFeedback={onRecordFeedback}
         storedPreferences={createInitialAssistantPreferences({ commentSubmitMode: 'choose' })}
         videoContentContext={{
@@ -597,9 +597,9 @@ describe('AssistantOverlay', () => {
     render(
       <AssistantOverlay
         runScript={runScript}
-        favoritesFolderName="Bilimi 内库"
+        favoritesFolderName="bilimi 内库"
         storedPreferences={{
-          favoritesFolderName: 'Bilimi 内库',
+          favoritesFolderName: 'bilimi 内库',
           favoriteLedgers: [],
           ledgerPromptDismissed: true,
           petStyle: 'big-head',
@@ -646,9 +646,9 @@ describe('AssistantOverlay', () => {
       render(
         <AssistantOverlay
           runScript={runScript}
-          favoritesFolderName="Bilimi 内库"
+          favoritesFolderName="bilimi 内库"
           storedPreferences={{
-            favoritesFolderName: 'Bilimi 内库',
+            favoritesFolderName: 'bilimi 内库',
             favoriteLedgers: [],
             ledgerPromptDismissed: true,
             petStyle: 'big-head',
@@ -698,7 +698,7 @@ describe('AssistantOverlay', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
 
-    expect(await screen.findByText('Bilimi 专用册目尚未备齐，可请掌库先行备册。')).toBeInTheDocument()
+    expect(await screen.findByText('bilimi 专用册目尚未备齐，可请掌库先行备册。')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '请掌库' }))
 

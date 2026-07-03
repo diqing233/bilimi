@@ -195,7 +195,7 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
   return (
     <aside
       className="assistant-sidebar"
-      aria-label="Bilimi 侧边栏"
+      aria-label="bilimi 侧边栏"
       data-collapsed={collapsed ? 'true' : 'false'}
       style={sidebarStyle}
     >

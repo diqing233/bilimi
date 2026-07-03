@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+﻿import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { LayeredPetRenderer } from './LayeredPetRenderer'
 
@@ -70,7 +70,7 @@ describe('LayeredPetRenderer', () => {
 
     fireEvent.error(screen.getByTestId('layered-pet-character'))
 
-    expect(screen.getByText('Bilimi')).toBeInTheDocument()
+    expect(screen.getByText('bilimi')).toBeInTheDocument()
     expect(screen.getByTestId('layered-pet')).toHaveAttribute('data-asset-error', 'true')
   })
 })

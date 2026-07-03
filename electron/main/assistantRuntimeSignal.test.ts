@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+﻿import { describe, expect, it, vi } from 'vitest'
 import {
   createAssistantRuntimeTimeoutMs,
   requestAssistantRuntimeWhenReady
@@ -62,7 +62,7 @@ describe('requestAssistantRuntimeWhenReady', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'inbox',
           targetFolderId: '9008',
-          targetDisplayName: 'Bilimi·暂存',
+          targetDisplayName: 'bilimi·暂存',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: false

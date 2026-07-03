@@ -44,8 +44,8 @@ export function FloatingMenuApp() {
   }
 
   return (
-    <main className="floating-menu-shell" aria-label="Bilimi 悬浮菜单">
-      <div className="floating-menu" role="menu" aria-label="Bilimi 悬浮动作">
+    <main className="floating-menu-shell" aria-label="bilimi 悬浮菜单">
+      <div className="floating-menu" role="menu" aria-label="bilimi 悬浮动作">
         {FLOATING_MENU_ACTIONS.map((item) => (
           <button
             key={item.action}

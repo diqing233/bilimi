@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+﻿import { describe, expect, it, vi } from 'vitest'
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import { executeAssistantAction } from './actionExecutor'
 
@@ -18,13 +18,13 @@ describe('executeAssistantAction', () => {
         ok: true,
         steps: ['api:favorite:list', 'api:favorite:add'],
         missingTargets: [],
-        message: '已用 B 站接口归入 Bilimi 收藏夹。'
+        message: '已用 B 站接口归入 bilimi 收藏夹。'
       })
 
     const result = await executeAssistantAction({
       action: '藏',
       runScript,
-      favoritesFolderName: 'Bilimi 内库',
+      favoritesFolderName: 'bilimi 内库',
       favoriteLedgers,
       targetLedgerId: 'movie-tv'
     })
@@ -32,7 +32,7 @@ describe('executeAssistantAction', () => {
     expect(runScript).toHaveBeenCalledTimes(2)
     expect(runScript.mock.calls[0][0]).toContain('"action":"藏"')
     expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
-    expect(runScript.mock.calls[1][0]).toContain('Bilimi·影视动漫')
+    expect(runScript.mock.calls[1][0]).toContain('bilimi·影视动漫')
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
       expect.arrayContaining(['favorite:open', 'favorite', 'api:favorite:list', 'api:favorite:add'])
@@ -52,13 +52,13 @@ describe('executeAssistantAction', () => {
         ok: true,
         steps: ['api:favorite:list', 'api:favorite:add'],
         missingTargets: [],
-        message: '已用 B 站接口归入 Bilimi 收藏夹。'
+        message: '已用 B 站接口归入 bilimi 收藏夹。'
       })
 
     const result = await executeAssistantAction({
       action: '藏',
       runScript,
-      favoritesFolderName: 'Bilimi 内库',
+      favoritesFolderName: 'bilimi 内库',
       favoriteLedgers,
       targetLedgerId: 'movie-tv',
       targetLedgerIds: ['movie-tv', 'game']
@@ -82,20 +82,20 @@ describe('executeAssistantAction', () => {
         ok: true,
         steps: ['api:favorite:list', 'api:favorite:add'],
         missingTargets: [],
-        message: '已用 B 站接口归入 Bilimi 收藏夹。'
+        message: '已用 B 站接口归入 bilimi 收藏夹。'
       })
 
     const result = await executeAssistantAction({
       action: '赏',
       runScript,
-      favoritesFolderName: 'Bilimi 内库',
+      favoritesFolderName: 'bilimi 内库',
       favoriteLedgers,
       targetLedgerId: 'movie-tv'
     })
 
     expect(runScript).toHaveBeenCalledTimes(2)
     expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
-    expect(runScript.mock.calls[1][0]).toContain('Bilimi·影视动漫')
+    expect(runScript.mock.calls[1][0]).toContain('bilimi·影视动漫')
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
       expect.arrayContaining(['like', 'favorite', 'api:favorite:list', 'api:favorite:add'])
@@ -120,16 +120,16 @@ describe('executeAssistantAction', () => {
       action: '赏',
       runScript,
       runVisualFallback,
-      favoritesFolderName: 'Bilimi 内库',
+      favoritesFolderName: 'bilimi 内库',
       favoriteLedgers,
       targetLedgerId: 'movie-tv'
     })
 
     expect(runVisualFallback).toHaveBeenCalledWith({
-      favoritesFolderName: 'Bilimi 内库',
+      favoritesFolderName: 'bilimi 内库',
       targetLedgerId: 'movie-tv',
       favoriteFolders: expect.objectContaining({
-        'movie-tv': 'Bilimi·影视动漫'
+        'movie-tv': 'bilimi·影视动漫'
       })
     })
     expect(result.ok).toBe(true)
@@ -151,7 +151,7 @@ describe('executeAssistantAction', () => {
         ok: true,
         steps: ['api:favorite:list', 'api:favorite:create-folder', 'api:favorite:add'],
         missingTargets: [],
-        message: '已用 B 站接口归入 Bilimi 收藏夹。'
+        message: '已用 B 站接口归入 bilimi 收藏夹。'
       })
     const runVisualFallback = vi.fn()
 
@@ -159,14 +159,14 @@ describe('executeAssistantAction', () => {
       action: '藏',
       runScript,
       runVisualFallback,
-      favoritesFolderName: 'Bilimi 内库',
+      favoritesFolderName: 'bilimi 内库',
       favoriteLedgers,
       targetLedgerId: 'knowledge'
     })
 
     expect(runScript).toHaveBeenCalledTimes(2)
     expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
-    expect(runScript.mock.calls[1][0]).toContain('Bilimi·知识学习')
+    expect(runScript.mock.calls[1][0]).toContain('bilimi·知识学习')
     expect(runVisualFallback).not.toHaveBeenCalled()
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
@@ -187,7 +187,7 @@ describe('executeAssistantAction', () => {
         ok: true,
         steps: ['api:favorite:list', 'api:favorite:add'],
         missingTargets: [],
-        message: '已用 B 站接口归入 Bilimi 收藏夹。'
+        message: '已用 B 站接口归入 bilimi 收藏夹。'
       })
     const runVisualFallback = vi.fn()
 
@@ -195,7 +195,7 @@ describe('executeAssistantAction', () => {
       action: '赐',
       runScript,
       runVisualFallback,
-      favoritesFolderName: 'Bilimi 内库',
+      favoritesFolderName: 'bilimi 内库',
       favoriteLedgers,
       targetLedgerId: 'movie-tv',
       coinCount: 2
@@ -203,7 +203,7 @@ describe('executeAssistantAction', () => {
 
     expect(runScript).toHaveBeenCalledTimes(2)
     expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
-    expect(runScript.mock.calls[1][0]).toContain('Bilimi·影视动漫')
+    expect(runScript.mock.calls[1][0]).toContain('bilimi·影视动漫')
     expect(runVisualFallback).not.toHaveBeenCalled()
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
@@ -229,7 +229,7 @@ describe('executeAssistantAction', () => {
         ok: true,
         steps: ['api:favorite:list', 'api:favorite:add'],
         missingTargets: [],
-        message: '已用 B 站接口归入 Bilimi 收藏夹。'
+        message: '已用 B 站接口归入 bilimi 收藏夹。'
       })
     const runVisualFallback = vi.fn()
 
@@ -237,7 +237,7 @@ describe('executeAssistantAction', () => {
       action: '赐',
       runScript,
       runVisualFallback,
-      favoritesFolderName: 'Bilimi 内库',
+      favoritesFolderName: 'bilimi 内库',
       favoriteLedgers,
       targetLedgerId: 'movie-tv',
       coinCount: 2
@@ -245,7 +245,7 @@ describe('executeAssistantAction', () => {
 
     expect(runScript).toHaveBeenCalledTimes(2)
     expect(runScript.mock.calls[1][0]).toContain('/x/v3/fav/resource/deal')
-    expect(runScript.mock.calls[1][0]).toContain('Bilimi·影视动漫')
+    expect(runScript.mock.calls[1][0]).toContain('bilimi·影视动漫')
     expect(runVisualFallback).not.toHaveBeenCalled()
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(
@@ -266,7 +266,7 @@ describe('executeAssistantAction', () => {
         ok: true,
         steps: ['api:favorite:list', 'api:favorite:add'],
         missingTargets: [],
-        message: '已用 B 站接口归入 Bilimi 收藏夹。'
+        message: '已用 B 站接口归入 bilimi 收藏夹。'
       })
     const runVisualFallback = vi.fn().mockResolvedValue({
       ok: true,
@@ -279,7 +279,7 @@ describe('executeAssistantAction', () => {
       action: '藏',
       runScript,
       runVisualFallback,
-      favoritesFolderName: 'Bilimi 内库',
+      favoritesFolderName: 'bilimi 内库',
       favoriteLedgers,
       targetLedgerId: 'knowledge',
       favoriteApiFallbackEnabled: false
@@ -291,9 +291,9 @@ describe('executeAssistantAction', () => {
     expect(runVisualFallback).toHaveBeenCalledWith(
       {
         favoriteFolders: expect.objectContaining({
-          knowledge: 'Bilimi·知识学习'
+          knowledge: 'bilimi·知识学习'
         }),
-        favoritesFolderName: 'Bilimi 内库',
+        favoritesFolderName: 'bilimi 内库',
         targetLedgerId: 'knowledge'
       },
       expect.objectContaining({ openWithShortcut: true })
@@ -317,7 +317,7 @@ describe('executeAssistantAction', () => {
       action: '赏',
       runScript,
       runVisualFallback,
-      favoritesFolderName: 'Bilimi 内库',
+      favoritesFolderName: 'bilimi 内库',
       favoriteLedgers,
       targetLedgerId: 'movie-tv',
       favoriteApiFallbackEnabled: false
@@ -346,7 +346,7 @@ describe('executeAssistantAction', () => {
       action: '表',
       runScript,
       runTrustedDanmakuSubmitFallback,
-      favoritesFolderName: 'Bilimi 内库',
+      favoritesFolderName: 'bilimi 内库',
       favoriteLedgers,
       targetLedgerId: 'movie-tv',
       commentDraft: 'trusted enter fallback',
@@ -379,7 +379,7 @@ describe('executeAssistantAction', () => {
       action: '表',
       runScript,
       runTrustedDanmakuSubmitFallback,
-      favoritesFolderName: 'Bilimi 内库',
+      favoritesFolderName: 'bilimi 内库',
       favoriteLedgers,
       targetLedgerId: 'movie-tv',
       commentDraft: 'keyboard danmaku fallback',
@@ -420,7 +420,7 @@ describe('executeAssistantAction', () => {
         action: '藏',
         runScript,
         runVisualFallback,
-        favoritesFolderName: 'Bilimi 内库',
+        favoritesFolderName: 'bilimi 内库',
         favoriteLedgers,
         targetLedgerId: 'movie-tv'
       })

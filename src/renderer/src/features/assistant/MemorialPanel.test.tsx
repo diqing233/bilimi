@@ -1,4 +1,4 @@
-import type { RecommendationLabel } from '@shared/types'
+﻿import type { RecommendationLabel } from '@shared/types'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { MemorialPanel } from './MemorialPanel'
@@ -58,7 +58,7 @@ describe('MemorialPanel', () => {
       'assistant-action-button__label'
     )
     expect(screen.getByText('轻赏此条')).toHaveClass('assistant-action-button__label')
-    expect(screen.getByText('一键点赞，并归类收藏到 Bilimi')).toHaveClass(
+    expect(screen.getByText('一键点赞，并归类收藏到 bilimi')).toHaveClass(
       'assistant-action-button__description'
     )
     expect(screen.getByText('一键归类收藏，不点赞不投币')).toHaveClass(

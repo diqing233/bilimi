@@ -1,6 +1,6 @@
 # Bundled Media Tools
 
-Bilimi expects media tools to be present under a platform-specific directory:
+bilimi expects media tools to be present under a platform-specific directory:
 
 - Windows: `tools/win32/yt-dlp.exe`, `tools/win32/ffmpeg.exe`, `tools/win32/ffprobe.exe`, `tools/win32/whisper/whisper-cli.exe`, and `tools/win32/whisper/models/ggml-small.bin`
 - macOS: `tools/darwin/yt-dlp`, `tools/darwin/ffmpeg`, and `tools/darwin/ffprobe`

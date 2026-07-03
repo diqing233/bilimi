@@ -396,12 +396,14 @@ export function buildAutomationScript(
         const matcher = textMatchers(matchingFavoriteKeywords());
         return favoriteFolderNodes().find((node) => {
           const text = nodeSearchText(node);
-          return matcher(text) && normalize(text).includes(normalize('Bilimi'));
+          return matcher(text) && normalize(text).toLowerCase().includes(normalize('bilimi'));
         });
       };
 
       const queryAnyBilimiFavoriteFolder = () =>
-        favoriteFolderNodes().find((node) => normalize(nodeSearchText(node)).includes(normalize('Bilimi')));
+        favoriteFolderNodes().find((node) =>
+          normalize(nodeSearchText(node)).toLowerCase().includes(normalize('bilimi'))
+        );
 
       const queryCreateFavoriteButton = () => {
         const nodes = Array.from(

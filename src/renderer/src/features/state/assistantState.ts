@@ -89,7 +89,7 @@ export function createInitialAssistantPreferences(
   persisted?: Partial<AssistantPreferences>
 ): AssistantPreferences {
   return {
-    favoritesFolderName: persisted?.favoritesFolderName ?? 'Bilimi 内库',
+    favoritesFolderName: persisted?.favoritesFolderName ?? 'bilimi 内库',
     favoriteLedgers: normalizeFavoriteLedgers(persisted?.favoriteLedgers ?? createDefaultFavoriteLedgers()),
     ledgerPromptDismissed: Boolean(persisted?.ledgerPromptDismissed),
     petStyle: normalizePetStyle(persisted?.petStyle),

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+﻿import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import type { AssistantPreferences } from '@shared/types'
 import { describe, expect, it, vi } from 'vitest'
@@ -30,7 +30,7 @@ function createAppPreferences(
   overrides: Partial<AssistantPreferences> = {}
 ): AssistantPreferences {
   return {
-    favoritesFolderName: 'Bilimi 内库',
+    favoritesFolderName: 'bilimi 内库',
     favoriteLedgers: createDefaultFavoriteLedgers(),
     ledgerPromptDismissed: true,
     preferenceCounts: {},
@@ -158,7 +158,7 @@ describe('App runtime integration', () => {
     renderAppWithRuntimeBridge()
 
     expect(document.querySelector('.seal-button')).not.toBeInTheDocument()
-    expect(screen.getByRole('complementary', { name: 'Bilimi 侧边栏' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toBeInTheDocument()
     expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '札记' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '掌库' })).toBeInTheDocument()
@@ -381,7 +381,7 @@ describe('App runtime integration', () => {
       [{ text: '收藏夹名称', x: 120, y: 260, width: 180, height: 36 }],
       [{ text: '创建', x: 240, y: 340, width: 80, height: 32 }],
       [
-        { text: 'Bilimi·见闻增广', x: 120, y: 470, width: 180, height: 32 },
+        { text: 'bilimi·见闻增广', x: 120, y: 470, width: 180, height: 32 },
         { text: '确定', x: 250, y: 620, width: 120, height: 40 }
       ]
     ]
@@ -399,7 +399,7 @@ describe('App runtime integration', () => {
           ok: true,
           steps: ['api:favorite:list', 'api:favorite:add'],
           missingTargets: [],
-          message: '已用 B 站接口归入 Bilimi 收藏夹。'
+          message: '已用 B 站接口归入 bilimi 收藏夹。'
         }
       }
 
@@ -461,7 +461,7 @@ describe('App runtime integration', () => {
     )
     expect(
       executeJavaScript.mock.calls.some(([script]) =>
-        script.includes('/x/v3/fav/resource/deal') && script.includes('Bilimi·见闻增广')
+        script.includes('/x/v3/fav/resource/deal') && script.includes('bilimi·见闻增广')
       )
     ).toBe(false)
     expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'e', type: 'keyDown' }))
@@ -1182,7 +1182,7 @@ describe('App runtime integration', () => {
             ok: true,
             steps: ['api:favorite:list', 'api:favorite:add'],
             missingTargets: [],
-            message: '已用 B 站接口归入 Bilimi 收藏夹。'
+            message: '已用 B 站接口归入 bilimi 收藏夹。'
           }
         }
 
@@ -1272,7 +1272,7 @@ describe('App runtime integration', () => {
       [{ text: '收藏夹名称', x: 120, y: 260, width: 180, height: 36 }],
       [{ text: '创建', x: 240, y: 340, width: 80, height: 32 }],
       [
-        { text: 'Bilimi·见闻增广', x: 120, y: 470, width: 180, height: 32 },
+        { text: 'bilimi·见闻增广', x: 120, y: 470, width: 180, height: 32 },
         { text: '确定', x: 250, y: 620, width: 120, height: 40 }
       ]
     ]
@@ -1290,7 +1290,7 @@ describe('App runtime integration', () => {
           ok: true,
           steps: ['api:favorite:list', 'api:favorite:add'],
           missingTargets: [],
-          message: '已用 B 站接口归入 Bilimi 收藏夹。'
+          message: '已用 B 站接口归入 bilimi 收藏夹。'
         }
       }
 
@@ -1348,7 +1348,7 @@ describe('App runtime integration', () => {
     expect(executeJavaScript.mock.calls.some(([script]) => script.includes('"coinCount":2'))).toBe(true)
     expect(
       executeJavaScript.mock.calls.some(([script]) =>
-        script.includes('/x/v3/fav/resource/deal') && script.includes('Bilimi·见闻增广')
+        script.includes('/x/v3/fav/resource/deal') && script.includes('bilimi·见闻增广')
       )
     ).toBe(false)
     expect(sentEvents).not.toContainEqual(expect.objectContaining({ keyCode: 'e', type: 'keyDown' }))
@@ -1815,7 +1815,7 @@ describe('App runtime integration', () => {
         sourceFolderTitle: '默认收藏夹',
         targetLedgerId: 'inbox',
         targetFolderId: '9008',
-        targetDisplayName: 'Bilimi·暂存',
+        targetDisplayName: 'bilimi·暂存',
         reviewRequired: false,
         alreadyInTarget: false,
         selected: false
@@ -1944,7 +1944,7 @@ describe('App runtime integration', () => {
           candidateLedgers: expect.arrayContaining([
             expect.objectContaining({
               sourceName: 'AI',
-              displayName: 'Bilimi·AI'
+              displayName: 'bilimi·AI'
             })
           ])
         })
@@ -1963,7 +1963,7 @@ describe('App runtime integration', () => {
           candidateLedgers: expect.arrayContaining([
             expect.objectContaining({
               sourceName: 'AI',
-              displayName: 'Bilimi·AI'
+              displayName: 'bilimi·AI'
             })
           ])
         })

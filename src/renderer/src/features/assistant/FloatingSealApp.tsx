@@ -101,7 +101,7 @@ export function FloatingSealApp() {
   }
 
   return (
-    <main className="floating-seal-shell" aria-label="Bilimi 小咪入口">
+    <main className="floating-seal-shell" aria-label="bilimi 小咪入口">
       <button
         className="floating-seal-button"
         type="button"

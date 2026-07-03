@@ -1,5 +1,6 @@
 export const APP_TITLE = 'bilimi'
 export const BILIBILI_HOME_URL = 'https://www.bilibili.com'
 export const BILIMI_SESSION_PARTITION = 'persist:bilimi'
-export const BILIMI_FAVORITES_NAME = 'Bilimi 内库'
-export const BILIMI_LEDGER_PREFIX = 'Bilimi·'
+export const BILIMI_FAVORITES_NAME = 'bilimi 内库'
+export const BILIMI_LEDGER_PREFIX = 'bilimi·'
+export const BILIMI_LEGACY_LEDGER_PREFIX = 'Bilimi·'

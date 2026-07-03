@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+﻿import { describe, expect, it, vi } from 'vitest'
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import { buildFavoriteApiFallbackScript } from './favoriteApiAutomation'
 
@@ -48,7 +48,7 @@ describe('buildFavoriteApiFallbackScript', () => {
           code: 0,
           data: {
             id: 91000001,
-            title: 'Bilimi·知识学习'
+            title: 'bilimi·知识学习'
           },
           message: 'OK'
         })
@@ -73,7 +73,7 @@ describe('buildFavoriteApiFallbackScript', () => {
       'api:favorite:add'
     ])
     expect(requests[0].url).toContain('rid=2')
-    expect(requests[1].body).toContain(`title=${encodeURIComponent('Bilimi·知识学习')}`)
+    expect(requests[1].body).toContain(`title=${encodeURIComponent('bilimi·知识学习')}`)
     expect(requests[2].body).toContain('rid=2')
     expect(requests[2].body).toContain('add_media_ids=91000001')
     expect(requests[2].body).toContain('csrf=csrf-token')
@@ -97,7 +97,7 @@ describe('buildFavoriteApiFallbackScript', () => {
             code: 0,
             data: {
               list: [
-                { id: 91000001, title: 'Bilimi·影视动漫' },
+                { id: 91000001, title: 'bilimi·影视动漫' },
                 { id: 88459354, title: '默认收藏夹' }
               ]
             },
@@ -148,8 +148,8 @@ describe('buildFavoriteApiFallbackScript', () => {
             code: 0,
             data: {
               list: [
-                { id: 91000001, title: 'Bilimi·影视动漫' },
-                { id: 91000002, title: 'Bilimi·游戏专区' }
+                { id: 91000001, title: 'bilimi·影视动漫' },
+                { id: 91000002, title: 'bilimi·游戏专区' }
               ]
             },
             message: 'OK'
@@ -190,7 +190,7 @@ describe('buildFavoriteApiFallbackScript', () => {
           return Response.json({
             code: 0,
             data: {
-              list: [{ id: 91000001, title: 'Bilimi·影视动漫' }]
+              list: [{ id: 91000001, title: 'bilimi·影视动漫' }]
             },
             message: 'OK'
           })

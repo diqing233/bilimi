@@ -21,7 +21,7 @@ import { CommentChooser } from './CommentChooser'
 import { FavoriteLedgerPanel } from './FavoriteLedgerPanel'
 import { MemorialPanel } from './MemorialPanel'
 import { SealButton } from './SealButton'
-import { BILIMI_LEDGER_PREFIX } from '@shared/favoriteLedgers'
+import { stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
 import { classifyVideoContent, type VideoContentContext } from '../recommendation/videoClassifier'
 import { planFavoriteArchiveTargets } from '../recommendation/archivePlanning'
 import { normalizeExtractedVideoNoteResult } from '../notes/videoNoteExtractor'
@@ -112,7 +112,7 @@ type DragState = {
 }
 
 function stripBilimiPrefix(displayName: string) {
-  return displayName.replace(BILIMI_LEDGER_PREFIX, '').trim()
+  return stripBilimiLedgerPrefix(displayName)
 }
 
 function clampOverlayPositionForSize(
@@ -695,7 +695,7 @@ export function AssistantOverlay({
           )}
           {ledgerStatus && ledgerStatus.missingLedgerIds.length > 0 && !preferences.ledgerPromptDismissed ? (
             <div className="favorite-ledger-prompt" role="status">
-              <p>Bilimi 专用册目尚未备齐，可请掌库先行备册。</p>
+              <p>bilimi 专用册目尚未备齐，可请掌库先行备册。</p>
               <div className="favorite-ledger-prompt__actions">
                 <button type="button" onClick={() => dismissLedgerPrompt(true)}>
                   请掌库

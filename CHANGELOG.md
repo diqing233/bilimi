@@ -5,7 +5,7 @@
 - Initial public Windows release.
 - Added Electron desktop shell for Bilibili browsing.
 - Added local assistant sidebar and 小咪 desktop companion surfaces.
-- Added Bilimi-prefixed favorite-ledger organization workflows.
+- Added bilimi-prefixed favorite-ledger organization workflows.
 - Added optional DeepSeek-backed comment, note summary, and 小咪 chat features.
 - Added local audio transcription workflow for video notes.
 - Added 小咪 avatar application icon and `bilimi` visible app name.

@@ -613,7 +613,7 @@ export async function runVisualFavoriteFallback(
       ok: false,
       steps,
       missingTargets: ['target-ledger'],
-      message: '未找到目标 Bilimi 收藏册目，已停止屏幕兜底。'
+      message: '未找到目标 bilimi 收藏册目，已停止屏幕兜底。'
     }
   }
 
@@ -738,7 +738,7 @@ export async function runVisualFavoriteFallback(
       ok: false,
       steps,
       missingTargets: ['visual-target-folder'],
-      message: '屏幕兜底创建收藏夹后未识别到目标 Bilimi 收藏夹。'
+      message: '屏幕兜底创建收藏夹后未识别到目标 bilimi 收藏夹。'
     }
   }
 

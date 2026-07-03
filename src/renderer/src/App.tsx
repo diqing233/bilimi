@@ -82,7 +82,7 @@ function StartupPermissionGate({ onContinue }: StartupPermissionGateProps) {
   return (
     <main className="startup-permission" aria-label="启动前权限检查">
       <section className="startup-permission__panel">
-        <p className="startup-permission__eyebrow">Bilimi</p>
+        <p className="startup-permission__eyebrow">bilimi</p>
         <h1>启动前权限检查</h1>
         <p className="startup-permission__lead">
           Windows 可能会询问是否允许 bilimi 访问网络。请点击允许，建议至少允许专用网络，
@@ -1350,7 +1350,7 @@ export default function App() {
     return (
       <main className="startup-permission" aria-label="启动中">
         <section className="startup-permission__panel startup-permission__panel--compact">
-          <p className="startup-permission__eyebrow">Bilimi</p>
+          <p className="startup-permission__eyebrow">bilimi</p>
           <h1>启动中</h1>
         </section>
       </main>

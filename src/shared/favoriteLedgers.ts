@@ -1,7 +1,9 @@
 import { BILIMI_LEDGER_PREFIX } from './constants'
 import type { FavoriteLedger } from './types'
 
-export { BILIMI_LEDGER_PREFIX } from './constants'
+export { BILIMI_LEDGER_PREFIX, BILIMI_LEGACY_LEDGER_PREFIX } from './constants'
+
+const BILIMI_LEDGER_PREFIX_PATTERN = /^bilimi[·\s-]*/i
 
 const DEFAULT_FAVORITE_LEDGER_DEFINITIONS = [
   [
@@ -354,7 +356,11 @@ export function favoriteLedgerNamesById(ledgers: FavoriteLedger[]): Record<strin
 }
 
 export function isBilimiManagedLedgerName(name: string): boolean {
-  return name.startsWith(BILIMI_LEDGER_PREFIX)
+  return BILIMI_LEDGER_PREFIX_PATTERN.test(name.trim())
+}
+
+export function stripBilimiLedgerPrefix(name: string): string {
+  return name.replace(BILIMI_LEDGER_PREFIX_PATTERN, '').trim()
 }
 
 export function suggestFavoriteLedgerNames(topic: string): string[] {

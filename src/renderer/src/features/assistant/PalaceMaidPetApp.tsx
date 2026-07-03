@@ -456,7 +456,7 @@ export function PalaceMaidPetApp() {
 
     if (shortcut.id === 'prepare-ledgers') {
       void runShortcutWithPetResult(
-        '主人，小咪正在备齐 Bilimi 册目。',
+        '主人，小咪正在备齐 bilimi 册目。',
         () => window.bilimiDesktop?.ensureFavoriteLedgers?.(),
         '册目已备齐。'
       )
@@ -554,14 +554,14 @@ export function PalaceMaidPetApp() {
   return (
     <main
       className="palace-maid-pet-shell"
-      aria-label="Bilimi 小咪"
+      aria-label="bilimi 小咪"
       style={{ '--floating-pet-size': `${petSize}px` } as CSSProperties}
     >
       <button
         className="palace-maid-pet"
         type="button"
-        aria-label="打开 Bilimi，小咪在这里"
-        title="打开 Bilimi，小咪在这里"
+        aria-label="打开 bilimi，小咪在这里"
+        title="打开 bilimi，小咪在这里"
         data-pet-state={stateView.state}
         data-pressed={pressed ? 'true' : 'false'}
         onClick={(event) => {

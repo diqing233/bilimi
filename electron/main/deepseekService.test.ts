@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+﻿import { describe, expect, it, vi } from 'vitest'
 import { DeepSeekServiceError, generateDeepSeekResult, type DeepSeekConfig } from './deepseekService'
 import type { DeepSeekGenerateRequest, VideoNote } from '../../src/shared/types'
 
@@ -291,8 +291,8 @@ describe('DeepSeek main service', () => {
     ).resolves.toEqual({ kind: 'pet-chat', message: 'Thanks for sharing this page.' })
   })
 
-  it('teaches pet chat enough Bilimi product context to answer user questions', async () => {
-    const fetchImpl = createJsonFetch('Bilimi helps you review, collect, and summarize Bilibili videos.')
+  it('teaches pet chat enough bilimi product context to answer user questions', async () => {
+    const fetchImpl = createJsonFetch('bilimi helps you review, collect, and summarize Bilibili videos.')
 
     await generateDeepSeekResult({
       config: baseConfig,
@@ -308,7 +308,7 @@ describe('DeepSeek main service', () => {
     }
     const systemMessage = body.messages.find((message) => message.role === 'system')?.content ?? ''
 
-    expect(systemMessage).toContain('Bilimi')
+    expect(systemMessage).toContain('bilimi')
     expect(systemMessage).toContain('Bilibili')
     expect(systemMessage).toContain('批阅')
     expect(systemMessage).toContain('掌库')

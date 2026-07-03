@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+﻿import { describe, expect, it, vi } from 'vitest'
 import { createMediaToolPaths, resolveMediaToolPaths } from './mediaToolPaths'
 
 describe('media tool paths', () => {

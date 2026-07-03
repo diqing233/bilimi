@@ -1,4 +1,4 @@
-import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
+﻿import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import { describe, expect, it, vi } from 'vitest'
 import {
   buildEnsureFavoriteLedgersScript,
@@ -600,7 +600,7 @@ describe('favorite ledger API scripts', () => {
           title: '待分类旧藏',
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'inbox',
-          targetDisplayName: 'Bilimi·待分类',
+          targetDisplayName: 'bilimi·待分类',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -629,7 +629,7 @@ describe('favorite ledger API scripts', () => {
           return Response.json({
             code: 0,
             data: {
-              list: [{ id: 9010, title: 'Bilimi·摄影' }]
+              list: [{ id: 9010, title: 'bilimi·摄影' }]
             }
           })
         }
@@ -649,7 +649,7 @@ describe('favorite ledger API scripts', () => {
           title: '光影构图入门',
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'custom-tag-cluster-摄影',
-          targetDisplayName: 'Bilimi·摄影',
+          targetDisplayName: 'bilimi·摄影',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true,
@@ -690,7 +690,7 @@ describe('favorite ledger API scripts', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'knowledge',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·见闻增广',
+          targetDisplayName: 'bilimi·见闻增广',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -731,7 +731,7 @@ describe('favorite ledger API scripts', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'inbox',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·待分类',
+          targetDisplayName: 'bilimi·待分类',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -781,7 +781,7 @@ describe('favorite ledger API scripts', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'knowledge',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·知识',
+          targetDisplayName: 'bilimi·知识',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -792,7 +792,7 @@ describe('favorite ledger API scripts', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'knowledge',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·知识',
+          targetDisplayName: 'bilimi·知识',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -839,7 +839,7 @@ describe('favorite ledger API scripts', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'knowledge',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·知识',
+          targetDisplayName: 'bilimi·知识',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -850,7 +850,7 @@ describe('favorite ledger API scripts', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'knowledge',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·知识',
+          targetDisplayName: 'bilimi·知识',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -882,7 +882,7 @@ describe('favorite ledger API scripts', () => {
           return Response.json({
             code: 0,
             data: {
-              list: [{ id: 9009, title: 'Bilimi·知识' }]
+              list: [{ id: 9009, title: 'bilimi·知识' }]
             }
           })
         }
@@ -908,7 +908,7 @@ describe('favorite ledger API scripts', () => {
           sourceFolderTitle: '默认收藏夹',
           targetLedgerId: 'knowledge',
           targetFolderId: '9001',
-          targetDisplayName: 'Bilimi·知识',
+          targetDisplayName: 'bilimi·知识',
           reviewRequired: false,
           alreadyInTarget: false,
           selected: true
@@ -1204,7 +1204,7 @@ describe('favorite ledger API scripts', () => {
             data: {
               list: [
                 { id: 101, title: 'Default Favorites' },
-                { id: 9002, title: 'Bilimi·游戏专区' }
+                { id: 9002, title: 'bilimi·游戏专区' }
               ]
             }
           })
@@ -1300,8 +1300,8 @@ describe('favorite ledger API scripts', () => {
             data: {
               list: [
                 { id: 101, title: 'Default Favorites' },
-                { id: 9001, title: 'Bilimi·知识' },
-                { id: 9008, title: 'Bilimi·待分类' }
+                { id: 9001, title: 'bilimi·知识' },
+                { id: 9008, title: 'bilimi·待分类' }
               ]
             }
           })
@@ -1349,12 +1349,12 @@ describe('favorite ledger API scripts', () => {
         expect.objectContaining({ id: '101', title: 'Default Favorites' }),
         expect.objectContaining({
           id: '9001',
-          title: 'Bilimi·知识',
+          title: 'bilimi·知识',
           videos: [expect.objectContaining({ aid: 789, title: 'Knowledge archive tutorial' })]
         }),
         expect.objectContaining({
           id: '9008',
-          title: 'Bilimi·待分类',
+          title: 'bilimi·待分类',
           videos: [expect.objectContaining({ aid: 456, title: 'Inbox tutorial' })]
         })
       ])

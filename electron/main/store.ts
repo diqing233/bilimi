@@ -70,7 +70,7 @@ export type AssistantStoreLike = {
 }
 
 export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
-  favoritesFolderName: 'Bilimi 鍐呭簱',
+  favoritesFolderName: 'bilimi 内库',
   favoriteLedgers: createDefaultFavoriteLedgers(),
   ledgerPromptDismissed: false,
   petStyle: 'big-head',
@@ -366,7 +366,7 @@ export function loadVideoAudioTranscriptionQueue(
         ? {
             ...item,
             status: 'failed',
-            errorMessage: 'Bilimi was closed before this transcription finished.'
+            errorMessage: 'bilimi was closed before this transcription finished.'
           }
         : item
     )

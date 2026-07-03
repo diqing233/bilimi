@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+﻿import { describe, expect, it } from 'vitest'
 import { createFavoriteLedgerInsights } from './favoriteLedgerInsights'
 import type { FavoriteSourceFolder } from './favoriteLedgerPreview'
 
@@ -110,13 +110,13 @@ describe('createFavoriteLedgerInsights', () => {
   it('creates deterministic candidate ledgers from strong old-favorite signals', () => {
     const insights = createFavoriteLedgerInsights({
       sourceFolders: createSourceFolders(),
-      existingLedgerNames: ['Bilimi·效率研究所追更']
+      existingLedgerNames: ['bilimi·效率研究所追更']
     })
 
     expect(insights.candidateLedgers).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: 'tag-cluster',
-        displayName: 'Bilimi·AI',
+        displayName: 'bilimi·AI',
         keywords: ['AI'],
         count: 4,
         confidence: 'high',
@@ -124,20 +124,20 @@ describe('createFavoriteLedgerInsights', () => {
       }),
       expect.objectContaining({
         kind: 'series',
-        displayName: 'Bilimi·AI工具效率教程',
+        displayName: 'bilimi·AI工具效率教程',
         keywords: ['AI工具效率教程'],
         count: 4,
         confidence: 'high'
       }),
       expect.objectContaining({
         kind: 'category',
-        displayName: 'Bilimi·科技',
+        displayName: 'bilimi·科技',
         keywords: ['科技'],
         count: 4
       }),
       expect.objectContaining({
         kind: 'author',
-        displayName: 'Bilimi·光影小课追更',
+        displayName: 'bilimi·光影小课追更',
         keywords: ['光影小课'],
         count: 2,
         confidence: 'medium'
@@ -146,7 +146,7 @@ describe('createFavoriteLedgerInsights', () => {
     expect(insights.candidateLedgers).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          displayName: 'Bilimi·效率研究所追更'
+          displayName: 'bilimi·效率研究所追更'
         })
       ])
     )
@@ -182,7 +182,7 @@ describe('createFavoriteLedgerInsights', () => {
       expect.arrayContaining([
         expect.objectContaining({
           kind: 'category',
-          displayName: 'Bilimi·知识',
+          displayName: 'bilimi·知识',
           count: 1
         })
       ])
@@ -218,14 +218,14 @@ describe('createFavoriteLedgerInsights', () => {
         expect.objectContaining({
           kind: 'tag-cluster',
           sourceName: '原神',
-          displayName: 'Bilimi·原神',
+          displayName: 'bilimi·原神',
           keywords: ['原神'],
           count: 4
         }),
         expect.objectContaining({
           kind: 'tag-cluster',
           sourceName: '攻略',
-          displayName: 'Bilimi·攻略',
+          displayName: 'bilimi·攻略',
           keywords: ['攻略'],
           count: 3
         })

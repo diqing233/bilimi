@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+﻿import { describe, expect, it, vi } from 'vitest'
 import { APP_TITLE } from '../../src/shared/constants'
 import { keepMainWindowTitle } from './windowTitleGuard'
 

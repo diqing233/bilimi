@@ -95,7 +95,7 @@ export function LayeredPetRenderer({
           />
         )
       })}
-      {assetFailed ? <span className="layered-pet__fallback">Bilimi</span> : null}
+      {assetFailed ? <span className="layered-pet__fallback">bilimi</span> : null}
     </span>
   )
 }
