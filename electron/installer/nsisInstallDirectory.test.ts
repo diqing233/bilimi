@@ -61,3 +61,29 @@ describe('NSIS installer directory normalization', () => {
     expect(installerScript).toContain('StrCmp "$R0" "Bilimi" done')
   })
 })
+
+describe('NSIS uninstaller user data removal option', () => {
+  it('adds a pre-uninstall page with an unchecked user data removal choice', () => {
+    expect(installerScript).toContain('!macro customUnWelcomePage')
+    expect(installerScript).toContain('UninstPage custom un.bilimiUserDataPageCreate un.bilimiUserDataPageLeave')
+    expect(installerScript).toContain('Var bilimiDeleteUserData')
+    expect(installerScript).toContain('StrCpy $bilimiDeleteUserData "0"')
+    expect(installerScript).not.toContain('SendMessage $bilimiDeleteUserDataCheckbox ${BM_SETCHECK} ${BST_CHECKED} 0')
+  })
+
+  it('explains which user data will be removed before uninstalling', () => {
+    expect(installerScript).toContain('同时删除 bilimi 用户数据')
+    expect(installerScript).toContain('登录状态和浏览器会话')
+    expect(installerScript).toContain('bilimi 设置、启动权限引导状态')
+    expect(installerScript).toContain('视频笔记、本地缓存、诊断缓存')
+    expect(installerScript).toContain('已保存的 API Key 等本机配置')
+  })
+
+  it('removes the current user AppData folder only when the option is checked', () => {
+    expect(installerScript).toContain('${If} $bilimiDeleteUserData == "1"')
+    expect(installerScript).toContain('${If} $installMode == "all"')
+    expect(installerScript).toContain('SetShellVarContext current')
+    expect(installerScript).toContain('RMDir /r "$APPDATA\\bilimi"')
+    expect(installerScript).toContain('SetShellVarContext all')
+  })
+})

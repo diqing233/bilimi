@@ -133,3 +133,55 @@ doneTrimming:
   Pop $R0
 FunctionEnd
 !endif
+
+!ifdef BUILD_UNINSTALLER
+Var bilimiDeleteUserData
+Var bilimiDeleteUserDataCheckbox
+Var bilimiUserDataDialog
+
+!macro customUnWelcomePage
+  UninstPage custom un.bilimiUserDataPageCreate un.bilimiUserDataPageLeave
+!macroend
+
+!macro customUnInstall
+  ${If} $bilimiDeleteUserData == "1"
+    ${If} $installMode == "all"
+      SetShellVarContext current
+    ${EndIf}
+    DetailPrint "Removing bilimi user data from $APPDATA\bilimi"
+    RMDir /r "$APPDATA\bilimi"
+    ${If} $installMode == "all"
+      SetShellVarContext all
+    ${EndIf}
+  ${EndIf}
+!macroend
+
+Function un.bilimiUserDataPageCreate
+  StrCpy $bilimiDeleteUserData "0"
+
+  nsDialogs::Create 1018
+  Pop $bilimiUserDataDialog
+
+  ${If} $bilimiUserDataDialog == error
+    Abort
+  ${EndIf}
+
+  ${NSD_CreateLabel} 0 0 100% 24u "卸载 bilimi 时，可以选择是否同时删除保存在本机当前 Windows 用户下的数据。"
+  Pop $R0
+
+  ${NSD_CreateCheckbox} 0 34u 100% 12u "同时删除 bilimi 用户数据"
+  Pop $bilimiDeleteUserDataCheckbox
+
+  ${NSD_CreateLabel} 12u 54u 96% 58u "会删除：登录状态和浏览器会话、bilimi 设置、启动权限引导状态、B 站收藏夹/分类相关缓存、视频笔记、本地缓存、诊断缓存、已保存的 API Key 等本机配置。"
+  Pop $R0
+
+  ${NSD_CreateLabel} 12u 116u 96% 24u "不勾选则只卸载程序本体，之后重装会继续沿用原来的登录状态、设置和缓存。"
+  Pop $R0
+
+  nsDialogs::Show
+FunctionEnd
+
+Function un.bilimiUserDataPageLeave
+  ${NSD_GetState} $bilimiDeleteUserDataCheckbox $bilimiDeleteUserData
+FunctionEnd
+!endif
