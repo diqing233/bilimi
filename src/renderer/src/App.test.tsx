@@ -121,20 +121,9 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
 }
 
 describe('App runtime integration', () => {
-  it('gates the first launch behind permission guidance and startup diagnostics', async () => {
+  it('shows first-launch permission guidance without running diagnostics', async () => {
     const firstRunPreferences = createAppPreferences({ permissionOnboardingCompleted: false })
-    const runStartupDiagnostics = vi.fn().mockResolvedValue({
-      ok: true,
-      checkedAt: '2026-07-03T00:00:00.000Z',
-      items: [
-        {
-          id: 'bilibili-network',
-          label: 'B 站网络',
-          status: 'ok',
-          message: '已能访问 B 站。'
-        }
-      ]
-    })
+    const runStartupDiagnostics = vi.fn()
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
 
     renderAppWithRuntimeBridge({
@@ -146,14 +135,17 @@ describe('App runtime integration', () => {
     expect(await screen.findByRole('heading', { name: '启动前权限检查' })).toBeInTheDocument()
     expect(document.querySelector('webview')).not.toBeInTheDocument()
 
+    expect(screen.getByRole('button', { name: '打开 bilimi' })).not.toBeDisabled()
     expect(screen.queryByText('权限说明')).not.toBeInTheDocument()
     expect(screen.queryByText('网络检测')).not.toBeInTheDocument()
     expect(screen.queryByText('进入应用')).not.toBeInTheDocument()
+    expect(screen.queryByText('检测中')).not.toBeInTheDocument()
     expect(screen.queryByText(/开始检测会尝试访问网络/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: '启动诊断结果' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '打开 bilimi' }))
 
-    await waitFor(() => expect(runStartupDiagnostics).toHaveBeenCalledTimes(1))
+    expect(runStartupDiagnostics).not.toHaveBeenCalled()
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({ permissionOnboardingCompleted: true })

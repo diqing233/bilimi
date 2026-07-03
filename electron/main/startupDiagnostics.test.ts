@@ -3,6 +3,15 @@ import { runStartupDiagnostics } from './startupDiagnostics'
 
 describe('runStartupDiagnostics', () => {
   it('reports core startup checks with DeepSeek as optional when it is not configured', async () => {
+    const queryWindowsFirewallRules = vi.fn().mockResolvedValue([
+      {
+        action: 'Allow',
+        direction: 'Inbound',
+        enabled: true,
+        profile: 'Private'
+      }
+    ])
+
     const report = await runStartupDiagnostics({
       now: () => new Date('2026-07-03T00:00:00.000Z'),
       fetch: vi.fn().mockResolvedValue({ ok: true, status: 200 }),
@@ -16,16 +25,11 @@ describe('runStartupDiagnostics', () => {
       testDeepSeekConnection: vi.fn(),
       platform: 'win32',
       execPath: 'C:\\Program Files\\bilimi\\bilimi.exe',
-      queryWindowsFirewallRules: vi.fn().mockResolvedValue([
-        {
-          action: 'Allow',
-          direction: 'Inbound',
-          enabled: true,
-          profile: 'Private'
-        }
-      ])
+      queryWindowsFirewallRules
     })
 
+    expect(queryWindowsFirewallRules).toHaveBeenCalledTimes(1)
+    expect(queryWindowsFirewallRules).toHaveBeenCalledWith()
     expect(report).toEqual({
       ok: true,
       checkedAt: '2026-07-03T00:00:00.000Z',
@@ -66,7 +70,7 @@ describe('runStartupDiagnostics', () => {
     )
   })
 
-  it('marks Windows security center permission as an error when bilimi is blocked', async () => {
+  it('keeps Windows security center diagnosis compact when no allow rule is found', async () => {
     const report = await runStartupDiagnostics({
       now: () => new Date('2026-07-03T00:00:00.000Z'),
       fetch: vi.fn().mockResolvedValue({ ok: true, status: 200 }),
@@ -80,24 +84,18 @@ describe('runStartupDiagnostics', () => {
       testDeepSeekConnection: vi.fn(),
       platform: 'win32',
       execPath: 'C:\\Program Files\\bilimi\\bilimi.exe',
-      queryWindowsFirewallRules: vi.fn().mockResolvedValue([
-        {
-          action: 'Block',
-          direction: 'Inbound',
-          enabled: true,
-          profile: 'Public'
-        }
-      ])
+      queryWindowsFirewallRules: vi.fn().mockResolvedValue([])
     })
 
-    expect(report.ok).toBe(false)
+    expect(report.ok).toBe(true)
     expect(report.items).toContainEqual(
       expect.objectContaining({
         id: 'windows-firewall',
-        status: 'error',
-        message: expect.stringContaining('阻止')
+        status: 'warning',
+        message: '未找到 bilimi 的防火墙允许规则。'
       })
     )
+    expect(report.items.find((item) => item.id === 'windows-firewall')).not.toHaveProperty('action')
   })
 
   it('recognizes Windows firewall rules returned with numeric enum values', async () => {
@@ -133,19 +131,15 @@ describe('runStartupDiagnostics', () => {
     )
   })
 
-  it('checks nearby bilimi.exe firewall rules when the current process path has no rule', async () => {
-    const queryWindowsFirewallRules = vi.fn(async (programPath: string) =>
-      programPath === 'C:\\Program Files\\bilimi\\bilimi.exe'
-        ? [
-            {
-              action: 'Allow',
-              direction: 'Inbound',
-              enabled: true,
-              profile: 'Private'
-            }
-          ]
-        : []
-    )
+  it('does not scan nearby executable paths when checking Windows firewall rules', async () => {
+    const queryWindowsFirewallRules = vi.fn().mockResolvedValue([
+      {
+        action: 'Allow',
+        direction: 'Inbound',
+        enabled: true,
+        profile: 'Private'
+      }
+    ])
 
     const report = await runStartupDiagnostics({
       now: () => new Date('2026-07-03T00:00:00.000Z'),
@@ -163,10 +157,8 @@ describe('runStartupDiagnostics', () => {
       queryWindowsFirewallRules
     })
 
-    expect(queryWindowsFirewallRules).toHaveBeenCalledWith(
-      'C:\\Program Files\\bilimi\\resources\\app.asar.unpacked\\helper.exe'
-    )
-    expect(queryWindowsFirewallRules).toHaveBeenCalledWith('C:\\Program Files\\bilimi\\bilimi.exe')
+    expect(queryWindowsFirewallRules).toHaveBeenCalledTimes(1)
+    expect(queryWindowsFirewallRules).toHaveBeenCalledWith()
     expect(report.items).toContainEqual(
       expect.objectContaining({
         id: 'windows-firewall',
@@ -175,16 +167,8 @@ describe('runStartupDiagnostics', () => {
     )
   })
 
-  it('falls back to display-name bilimi firewall rules when the current process path differs', async () => {
+  it('checks bilimi display-name firewall rules directly when the current process path differs', async () => {
     const queryWindowsFirewallRules = vi.fn().mockResolvedValue([])
-    const queryWindowsFirewallRulesByDisplayName = vi.fn().mockResolvedValue([
-      {
-        action: 'Allow',
-        direction: 'Inbound',
-        enabled: true,
-        profile: 'Private, Public'
-      }
-    ])
 
     const report = await runStartupDiagnostics({
       now: () => new Date('2026-07-03T00:00:00.000Z'),
@@ -199,16 +183,11 @@ describe('runStartupDiagnostics', () => {
       testDeepSeekConnection: vi.fn(),
       platform: 'win32',
       execPath: 'C:\\Users\\diqing\\bilimi\\node_modules\\electron\\dist\\electron.exe',
-      queryWindowsFirewallRules,
-      queryWindowsFirewallRulesByDisplayName
+      queryWindowsFirewallRules
     })
 
-    expect(queryWindowsFirewallRulesByDisplayName).toHaveBeenCalledWith('bilimi')
-    expect(report.items).toContainEqual(
-      expect.objectContaining({
-        id: 'windows-firewall',
-        status: 'ok'
-      })
-    )
+    expect(queryWindowsFirewallRules).toHaveBeenCalledTimes(1)
+    expect(queryWindowsFirewallRules).toHaveBeenCalledWith()
+    expect(report.items).toContainEqual(expect.objectContaining({ id: 'windows-firewall' }))
   })
 })

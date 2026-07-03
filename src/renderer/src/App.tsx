@@ -9,8 +9,6 @@ import type {
   FavoriteLedgerSaveOptions,
   FavoriteLedgerStatus,
   PendingFavoriteQueueItem,
-  StartupDiagnosticItem,
-  StartupDiagnosticReport,
   VideoNote,
   VideoNoteExtractionResult,
   VideoAudioTranscriptionQueueSnapshot
@@ -77,22 +75,10 @@ const LOGIN_REQUIRED_RESULT: AssistantAutomationResult = {
 }
 
 type StartupPermissionGateProps = {
-  report: StartupDiagnosticReport | null
-  running: boolean
-  errorMessage: string
-  onRunDiagnostics: () => void
-  onContinueAnyway: () => void
+  onContinue: () => void
 }
 
-function StartupPermissionGate({
-  report,
-  running,
-  errorMessage,
-  onRunDiagnostics,
-  onContinueAnyway
-}: StartupPermissionGateProps) {
-  const hasBlockingIssue = Boolean(report && !report.ok)
-
+function StartupPermissionGate({ onContinue }: StartupPermissionGateProps) {
   return (
     <main className="startup-permission" aria-label="启动前权限检查">
       <section className="startup-permission__panel">
@@ -102,47 +88,14 @@ function StartupPermissionGate({
           Windows 可能会询问是否允许 bilimi 访问网络。请点击允许，建议至少允许专用网络，
           否则登录、B 站页面操作、音频转写和 AI 功能可能无法正常工作。
         </p>
-        {report ? (
-          <ul className="startup-diagnostics" aria-label="启动诊断结果">
-            {report.items.map((item) => (
-              <li key={item.id} data-status={item.status}>
-                <strong>{item.label}</strong>
-                <span>{item.message}</span>
-                {item.action ? <small>{item.action}</small> : null}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {errorMessage ? <p className="startup-permission__error">{errorMessage}</p> : null}
         <div className="startup-permission__actions">
-          <button type="button" onClick={onRunDiagnostics} disabled={running}>
-            {running ? '检测中' : hasBlockingIssue ? '重试检测' : '打开 bilimi'}
+          <button type="button" onClick={onContinue}>
+            打开 bilimi
           </button>
-          {hasBlockingIssue ? (
-            <button type="button" onClick={onContinueAnyway} disabled={running}>
-              仍然进入
-            </button>
-          ) : null}
         </div>
       </section>
     </main>
   )
-}
-
-function createUnavailableDiagnosticReport(message: string): StartupDiagnosticReport {
-  const item: StartupDiagnosticItem = {
-    id: 'bilibili-network',
-    label: '启动检测',
-    status: 'error',
-    message,
-    action: '请检查网络、代理 VPN、DNS 和 Windows 防火墙允许状态，然后重试。'
-  }
-
-  return {
-    ok: false,
-    checkedAt: new Date().toISOString(),
-    items: [item]
-  }
 }
 
 function createTabTitle(url: string): string {
@@ -348,10 +301,6 @@ export default function App() {
     )
   )
   const [preferencesLoaded, setPreferencesLoaded] = useState(IS_TEST_RUNTIME)
-  const [startupDiagnosticReport, setStartupDiagnosticReport] =
-    useState<StartupDiagnosticReport | null>(null)
-  const [startupDiagnosticRunning, setStartupDiagnosticRunning] = useState(false)
-  const [startupDiagnosticError, setStartupDiagnosticError] = useState('')
   const activeWebview = useMemo(() => webviews[activeTabId] ?? null, [activeTabId, webviews])
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0],
@@ -435,29 +384,6 @@ export default function App() {
     if (window.bilimiDesktop?.savePreferences) {
       const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
       setPreferences(createInitialAssistantPreferences(saved))
-    }
-  }
-
-  async function runStartupPermissionDiagnostics() {
-    setStartupDiagnosticRunning(true)
-    setStartupDiagnosticError('')
-
-    try {
-      const report = window.bilimiDesktop?.runStartupDiagnostics
-        ? await window.bilimiDesktop.runStartupDiagnostics()
-        : createUnavailableDiagnosticReport('启动检测服务尚未加载。')
-
-      setStartupDiagnosticReport(report)
-
-      if (report.ok) {
-        await completeStartupPermissionGate()
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '启动检测失败。'
-      setStartupDiagnosticReport(createUnavailableDiagnosticReport(message))
-      setStartupDiagnosticError(message)
-    } finally {
-      setStartupDiagnosticRunning(false)
     }
   }
 
@@ -1434,11 +1360,7 @@ export default function App() {
   if (!preferences.permissionOnboardingCompleted) {
     return (
       <StartupPermissionGate
-        report={startupDiagnosticReport}
-        running={startupDiagnosticRunning}
-        errorMessage={startupDiagnosticError}
-        onRunDiagnostics={() => void runStartupPermissionDiagnostics()}
-        onContinueAnyway={() => void completeStartupPermissionGate()}
+        onContinue={() => void completeStartupPermissionGate()}
       />
     )
   }
