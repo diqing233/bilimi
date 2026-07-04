@@ -1468,7 +1468,7 @@ describe('App runtime integration', () => {
     )
   })
 
-  it('asks the user to log in before enqueuing audio transcription', async () => {
+  it('enqueues audio transcription without requiring Bilibili login', async () => {
     const { desktopApi, requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string) => Promise<unknown>
@@ -1496,12 +1496,63 @@ describe('App runtime integration', () => {
       summarizeWithDeepSeek: true
     })
 
-    expect(result).toBeNull()
-    expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith({
-      tone: 'error',
-      message: '请先登录 Bilibili 后再操作。'
+    expect(result).toEqual({ items: [] })
+    expect(desktopApi.setAssistantPetHint).not.toHaveBeenCalled()
+    expect(desktopApi.enqueueVideoAudioTranscription).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://www.bilibili.com/video/BV1queue',
+        title: 'Queued audio demo',
+        bvid: 'BV1queue',
+        summarizeWithDeepSeek: true
+      })
+    )
+  })
+
+  it('generates a video note from audio without requiring Bilibili login', async () => {
+    const { desktopApi, requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes('document.cookie')) {
+          return ''
+        }
+
+        return {
+          title: 'Logged out audio demo',
+          bvid: 'BV1public',
+          url: 'https://www.bilibili.com/video/BV1public',
+          tags: [],
+          transcript: []
+        }
+      })
     })
-    expect(desktopApi.enqueueVideoAudioTranscription).not.toHaveBeenCalled()
+    desktopApi.transcribeCurrentVideoAudio = vi.fn().mockResolvedValue({
+      transcriptSource: 'audio',
+      transcript: [{ start: 0, end: 2, text: 'public audio transcript' }]
+    })
+
+    const note = await requestRuntime({
+      id: 'audio-note-logged-out',
+      type: 'generate-video-note-from-audio'
+    })
+
+    expect(desktopApi.setAssistantPetHint).not.toHaveBeenCalled()
+    expect(desktopApi.transcribeCurrentVideoAudio).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://www.bilibili.com/video/BV1public',
+        title: 'Logged out audio demo',
+        bvid: 'BV1public'
+      })
+    )
+    expect(note).toEqual(
+      expect.objectContaining({
+        id: 'bvid:BV1public',
+        transcriptSource: 'audio',
+        transcript: [{ start: 0, end: 2, text: 'public audio transcript' }]
+      })
+    )
   })
 
   it('keeps pasted transcript generation local without audio transcription', async () => {

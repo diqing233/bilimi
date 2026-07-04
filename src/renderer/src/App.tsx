@@ -1227,15 +1227,6 @@ export default function App() {
   }
 
   async function generateRuntimeVideoNoteFromAudio(): Promise<VideoNote | null> {
-    const loginFailure = await requireBilibiliLogin()
-    if (loginFailure) {
-      window.bilimiDesktop?.setAssistantPetHint?.({
-        tone: 'error',
-        message: loginFailure.message
-      })
-      return null
-    }
-
     const extraction = await readVideoNoteSource()
 
     if (!extraction?.source.url || !window.bilimiDesktop?.transcribeCurrentVideoAudio) {
@@ -1260,15 +1251,6 @@ export default function App() {
   async function enqueueRuntimeVideoAudioTranscription(options?: {
     summarizeWithDeepSeek?: boolean
   }): Promise<VideoAudioTranscriptionQueueSnapshot | null> {
-    const loginFailure = await requireBilibiliLogin()
-    if (loginFailure) {
-      window.bilimiDesktop?.setAssistantPetHint?.({
-        tone: 'error',
-        message: loginFailure.message
-      })
-      return null
-    }
-
     const extraction = await readVideoNoteSource()
 
     if (!extraction?.source.url || !window.bilimiDesktop?.enqueueVideoAudioTranscription) {
