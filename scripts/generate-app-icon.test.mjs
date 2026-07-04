@@ -15,10 +15,10 @@ describe('app icon generation inputs', () => {
   it('crops a square avatar from the upper portrait area', () => {
     expect(APP_ICON_CROP.width).toBe(APP_ICON_CROP.height)
     expect(APP_ICON_CROP).toMatchObject({
-      left: 213,
-      top: 210,
-      width: 660,
-      height: 660
+      left: 330,
+      top: 90,
+      width: 800,
+      height: 800
     })
   })
 
