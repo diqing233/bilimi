@@ -12,10 +12,10 @@ export const APP_BUILD_ICON_PNG = resolve(repoRoot, 'build/icon.png')
 export const APP_BUILD_ICON_ICO = resolve(repoRoot, 'build/icon.ico')
 
 export const APP_ICON_CROP = {
-  left: 330,
-  top: 90,
-  width: 800,
-  height: 800
+  left: 20,
+  top: 50,
+  width: 1120,
+  height: 1120
 }
 
 export const APP_ICON_AVATAR_SIZE = 512
