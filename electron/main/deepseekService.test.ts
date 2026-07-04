@@ -101,6 +101,14 @@ describe('DeepSeek main service', () => {
         headers: expect.objectContaining({ Authorization: 'Bearer sk-test' })
       })
     )
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
+      messages: Array<{ role: string; content: string }>
+    }
+    const systemMessage = body.messages.find((message) => message.role === 'system')?.content ?? ''
+
+    expect(systemMessage).toContain('Mention the video title or UP name only when it fits naturally')
+    expect(systemMessage).not.toContain('must mention the video title and the UP name')
   })
 
   it('parses note poster JSON into a summary with polished transcript and checklist', async () => {
