@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.1 - 2026-07-05
+
 - Fixed favorite-ledger editing so the editor `保存` action only saves the local draft; users must select the folder and click `同步` before Bilibili folders are updated.
 - Moved DeepSeek settings status messages above the 云枢智元 acknowledgement panel.
 
