@@ -380,7 +380,9 @@ export function FloatingAssistantApp({
           ? {
               ...snapshotPreferences,
               defaultCoinCount: currentPreferences.defaultCoinCount,
-              commentSubmitMode: currentPreferences.commentSubmitMode
+              commentSubmitMode: currentPreferences.commentSubmitMode,
+              videoAudioTranscriptionThreadLimit:
+                currentPreferences.videoAudioTranscriptionThreadLimit
             }
           : snapshotPreferences
         preferencesRef.current = nextPreferences
@@ -686,6 +688,7 @@ export function FloatingAssistantApp({
       favoriteArchiveMultiMode: 'off',
       defaultCoinCount: 1,
       commentSubmitMode: 'random',
+      videoAudioTranscriptionThreadLimit: 'unlimited',
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
       deepseekCommentEnabled: false,
@@ -1435,6 +1438,54 @@ export function FloatingAssistantApp({
                   关闭宠物
                 </button>
               </div>
+            </fieldset>
+            <fieldset className="assistant-settings__group assistant-settings__group--transcription">
+              <legend>本地转写性能</legend>
+              <p>控制 whisper.cpp 本地转写能使用多少 CPU 线程；限制越低，电脑越不容易卡，但转写会更慢。</p>
+              <label>
+                <input
+                  type="radio"
+                  name="video-audio-transcription-thread-limit"
+                  checked={preferences.videoAudioTranscriptionThreadLimit === 'unlimited'}
+                  onChange={() =>
+                    persistPreferencePatch({ videoAudioTranscriptionThreadLimit: 'unlimited' })
+                  }
+                />
+                <span>无限制（最快，占用最高）</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="video-audio-transcription-thread-limit"
+                  checked={preferences.videoAudioTranscriptionThreadLimit === 1}
+                  onChange={() =>
+                    persistPreferencePatch({ videoAudioTranscriptionThreadLimit: 1 })
+                  }
+                />
+                <span>限制为 1 线程（省电）</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="video-audio-transcription-thread-limit"
+                  checked={preferences.videoAudioTranscriptionThreadLimit === 2}
+                  onChange={() =>
+                    persistPreferencePatch({ videoAudioTranscriptionThreadLimit: 2 })
+                  }
+                />
+                <span>限制为 2 线程（平衡）</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="video-audio-transcription-thread-limit"
+                  checked={preferences.videoAudioTranscriptionThreadLimit === 4}
+                  onChange={() =>
+                    persistPreferencePatch({ videoAudioTranscriptionThreadLimit: 4 })
+                  }
+                />
+                <span>限制为 4 线程（较快）</span>
+              </label>
             </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--archive">
               <legend>bilimi 收藏策略</legend>

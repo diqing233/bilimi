@@ -26,6 +26,7 @@ import type {
   FavoriteLedger,
   PendingFavoriteQueueItem,
   PendingFavoriteQueueStatus,
+  VideoAudioTranscriptionThreadLimit,
   VideoAudioTranscriptionQueueItem,
   VideoNote,
   VideoNoteArchiveEntry
@@ -42,6 +43,7 @@ export type AssistantPreferences = {
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode
   defaultCoinCount: 1 | 2
   commentSubmitMode: CommentSubmitMode
+  videoAudioTranscriptionThreadLimit: VideoAudioTranscriptionThreadLimit
   preferenceCounts: Record<string, number>
   deepseekEnabled: boolean
   deepseekApiKeyStored: boolean
@@ -80,6 +82,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   favoriteArchiveMultiMode: 'off',
   defaultCoinCount: 1,
   commentSubmitMode: 'random',
+  videoAudioTranscriptionThreadLimit: 'unlimited',
   preferenceCounts: {},
   deepseekEnabled: false,
   deepseekApiKeyStored: false,
@@ -111,6 +114,12 @@ function loadDeepSeekFeatureToggle(
   return store.has?.(key) === false ? legacyEnabled : Boolean(store.get(key))
 }
 
+function normalizeVideoAudioTranscriptionThreadLimit(
+  value: unknown
+): VideoAudioTranscriptionThreadLimit {
+  return value === 1 || value === 2 || value === 4 ? value : 'unlimited'
+}
+
 export function getDesktopStore(): Store<DesktopStoreState> {
   if (!desktopStore) {
     desktopStore = new Store<DesktopStoreState>({
@@ -129,6 +138,7 @@ export function loadAssistantPreferences(
   const favoriteArchiveMultiMode = store.get('favoriteArchiveMultiMode')
   const defaultCoinCount = store.get('defaultCoinCount')
   const commentSubmitMode = store.get('commentSubmitMode')
+  const videoAudioTranscriptionThreadLimit = store.get('videoAudioTranscriptionThreadLimit')
   const deepseekApiKey = store.get('deepseekApiKey') ?? ''
 
   return {
@@ -146,6 +156,9 @@ export function loadAssistantPreferences(
         : 'off',
     defaultCoinCount: defaultCoinCount === 2 ? 2 : 1,
     commentSubmitMode: commentSubmitMode === 'random' ? 'random' : 'choose',
+    videoAudioTranscriptionThreadLimit: normalizeVideoAudioTranscriptionThreadLimit(
+      videoAudioTranscriptionThreadLimit
+    ),
     preferenceCounts: store.get('preferenceCounts') ?? {},
     deepseekEnabled: Boolean(store.get('deepseekEnabled')),
     deepseekApiKeyStored: Boolean(String(deepseekApiKey).trim()),
@@ -186,6 +199,9 @@ export function saveAssistantPreferences(
         : 'off',
     defaultCoinCount: preferences.defaultCoinCount === 2 ? 2 : 1,
     commentSubmitMode: preferences.commentSubmitMode === 'random' ? 'random' : 'choose',
+    videoAudioTranscriptionThreadLimit: normalizeVideoAudioTranscriptionThreadLimit(
+      preferences.videoAudioTranscriptionThreadLimit
+    ),
     preferenceCounts: preferences.preferenceCounts ?? {},
     deepseekEnabled: Boolean(preferences.deepseekEnabled),
     deepseekApiKeyStored: loadDeepSeekApiKeyStatus(store).configured,

@@ -45,6 +45,7 @@ export type FavoriteLedgerSaveOptions = {
 
 export type FavoriteArchiveMultiMode = 'off' | 'two' | 'three'
 export type CommentSubmitMode = 'choose' | 'random'
+export type VideoAudioTranscriptionThreadLimit = 'unlimited' | 1 | 2 | 4
 
 export type PendingFavoriteQueueSource = 'old-favorite-scan' | 'new-favorite'
 
@@ -104,6 +105,7 @@ export type AssistantPreferences = {
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode
   defaultCoinCount: 1 | 2
   commentSubmitMode: CommentSubmitMode
+  videoAudioTranscriptionThreadLimit: VideoAudioTranscriptionThreadLimit
   preferenceCounts: Record<string, number>
   deepseekEnabled: boolean
   deepseekApiKeyStored: boolean

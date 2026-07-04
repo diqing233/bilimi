@@ -12,7 +12,8 @@ describe('localWhisperTranscription', () => {
         cliPath: 'C:/app/resources/tools/win32/whisper/whisper-cli.exe',
         modelPath: 'C:/app/resources/tools/win32/whisper/models/ggml-small.bin',
         audioPath: 'C:/tmp/segment-000.wav',
-        outputPathWithoutExtension: 'C:/tmp/segment-000'
+        outputPathWithoutExtension: 'C:/tmp/segment-000',
+        availableThreads: 8
       })
     ).toEqual([
       '-m',
@@ -21,6 +22,47 @@ describe('localWhisperTranscription', () => {
       'C:/tmp/segment-000.wav',
       '-l',
       'auto',
+      '-t',
+      '8',
+      '-oj',
+      '-ojf',
+      '-of',
+      'C:/tmp/segment-000',
+      '-np'
+    ])
+  })
+
+  it('uses all available whisper.cpp threads when transcription is unlimited', () => {
+    expect(
+      buildLocalWhisperArgs({
+        cliPath: 'C:/app/resources/tools/win32/whisper/whisper-cli.exe',
+        modelPath: 'C:/app/resources/tools/win32/whisper/models/ggml-small.bin',
+        audioPath: 'C:/tmp/segment-000.wav',
+        outputPathWithoutExtension: 'C:/tmp/segment-000',
+        threadLimit: 'unlimited',
+        availableThreads: 12
+      })
+    ).toEqual(expect.arrayContaining(['-t', '12']))
+  })
+
+  it('passes the selected whisper.cpp thread limit', () => {
+    expect(
+      buildLocalWhisperArgs({
+        cliPath: 'C:/app/resources/tools/win32/whisper/whisper-cli.exe',
+        modelPath: 'C:/app/resources/tools/win32/whisper/models/ggml-small.bin',
+        audioPath: 'C:/tmp/segment-000.wav',
+        outputPathWithoutExtension: 'C:/tmp/segment-000',
+        threadLimit: 2
+      })
+    ).toEqual([
+      '-m',
+      'C:/app/resources/tools/win32/whisper/models/ggml-small.bin',
+      '-f',
+      'C:/tmp/segment-000.wav',
+      '-l',
+      'auto',
+      '-t',
+      '2',
       '-oj',
       '-ojf',
       '-of',
@@ -103,6 +145,8 @@ describe('localWhisperTranscription', () => {
       'C:/tmp/segment-000.wav',
       '-l',
       'auto',
+      '-t',
+      expect.stringMatching(/^\d+$/),
       '-oj',
       '-ojf',
       '-of',

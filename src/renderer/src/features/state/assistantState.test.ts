@@ -151,7 +151,8 @@ describe('assistant state', () => {
       deepseekAutoSummaryEnabled: false,
       deepseekPetChatEnabled: false,
       deepseekModel: 'deepseek-v4-flash',
-      deepseekBaseUrl: 'https://api.deepseek.com'
+      deepseekBaseUrl: 'https://api.deepseek.com',
+      videoAudioTranscriptionThreadLimit: 'unlimited'
     })
     expect(createInitialAssistantPreferences()).not.toHaveProperty(
       'deepseekOldFavoriteAssistanceEnabled'
@@ -191,13 +192,39 @@ describe('assistant state', () => {
         bilibiliOperationMode: 'unsupported' as never,
         deepseekAutoSummaryEnabled: true,
         deepseekModel: '',
-        deepseekBaseUrl: 'bad-url'
+        deepseekBaseUrl: 'bad-url',
+        videoAudioTranscriptionThreadLimit: 8 as never
       } as Partial<ReturnType<typeof createInitialAssistantPreferences>>)
     ).toMatchObject({
       bilibiliOperationMode: 'api-assisted',
       deepseekAutoSummaryEnabled: true,
       deepseekModel: 'deepseek-v4-flash',
-      deepseekBaseUrl: 'https://api.deepseek.com'
+      deepseekBaseUrl: 'https://api.deepseek.com',
+      videoAudioTranscriptionThreadLimit: 'unlimited'
+    })
+  })
+
+  it('normalizes the local audio transcription thread limit preference', () => {
+    expect(createInitialAssistantPreferences().videoAudioTranscriptionThreadLimit).toBe('unlimited')
+    expect(
+      createInitialAssistantPreferences({ videoAudioTranscriptionThreadLimit: 1 })
+    ).toMatchObject({
+      videoAudioTranscriptionThreadLimit: 1
+    })
+    expect(
+      createInitialAssistantPreferences({ videoAudioTranscriptionThreadLimit: 2 })
+    ).toMatchObject({
+      videoAudioTranscriptionThreadLimit: 2
+    })
+    expect(
+      createInitialAssistantPreferences({ videoAudioTranscriptionThreadLimit: 4 })
+    ).toMatchObject({
+      videoAudioTranscriptionThreadLimit: 4
+    })
+    expect(
+      createInitialAssistantPreferences({ videoAudioTranscriptionThreadLimit: 3 as never })
+    ).toMatchObject({
+      videoAudioTranscriptionThreadLimit: 'unlimited'
     })
   })
 

@@ -6,7 +6,8 @@ import type {
   AssistantPreferences,
   CommentSubmitMode,
   FavoriteArchiveMultiMode,
-  RecommendationKind
+  RecommendationKind,
+  VideoAudioTranscriptionThreadLimit
 } from '@shared/types'
 
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash'
@@ -55,6 +56,12 @@ export function normalizeCommentSubmitMode(value: unknown): CommentSubmitMode {
   return 'choose'
 }
 
+export function normalizeVideoAudioTranscriptionThreadLimit(
+  value: unknown
+): VideoAudioTranscriptionThreadLimit {
+  return value === 1 || value === 2 || value === 4 ? value : 'unlimited'
+}
+
 function normalizeDeepSeekModel(value: unknown): string {
   return typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_DEEPSEEK_MODEL
 }
@@ -99,6 +106,9 @@ export function createInitialAssistantPreferences(
     favoriteArchiveMultiMode: normalizeFavoriteArchiveMultiMode(persisted?.favoriteArchiveMultiMode),
     defaultCoinCount: normalizeDefaultCoinCount(persisted?.defaultCoinCount),
     commentSubmitMode: normalizeCommentSubmitMode(persisted?.commentSubmitMode),
+    videoAudioTranscriptionThreadLimit: normalizeVideoAudioTranscriptionThreadLimit(
+      persisted?.videoAudioTranscriptionThreadLimit
+    ),
     preferenceCounts: {
       ...createEmptyPreferenceCounts(),
       ...persisted?.preferenceCounts

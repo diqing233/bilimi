@@ -92,6 +92,9 @@ function createFakeStore(
       DEFAULT_ASSISTANT_PREFERENCES.permissionOnboardingCompleted,
     assistantSidebarWidthPx:
       initial.assistantSidebarWidthPx ?? DEFAULT_ASSISTANT_PREFERENCES.assistantSidebarWidthPx,
+    videoAudioTranscriptionThreadLimit:
+      initial.videoAudioTranscriptionThreadLimit ??
+      DEFAULT_ASSISTANT_PREFERENCES.videoAudioTranscriptionThreadLimit,
     deepseekApiKey: initial.deepseekApiKey ?? '',
     videoNotes: initial.videoNotes ?? [],
     videoNoteArchives: initial.videoNoteArchives ?? [],
@@ -205,7 +208,8 @@ describe('assistant preference store helpers', () => {
       deepseekModel: 'deepseek-reasoner',
       deepseekBaseUrl: 'https://deepseek.example',
       permissionOnboardingCompleted: true,
-      assistantSidebarWidthPx: 360
+      assistantSidebarWidthPx: 360,
+      videoAudioTranscriptionThreadLimit: 2
     })
 
     expect(saved).toMatchObject({
@@ -228,7 +232,8 @@ describe('assistant preference store helpers', () => {
       deepseekModel: 'deepseek-reasoner',
       deepseekBaseUrl: 'https://deepseek.example',
       permissionOnboardingCompleted: true,
-      assistantSidebarWidthPx: 360
+      assistantSidebarWidthPx: 360,
+      videoAudioTranscriptionThreadLimit: 2
     })
     expect(store.snapshot).toMatchObject(saved)
     expect(store.snapshot.videoNotes).toEqual([])
@@ -259,7 +264,8 @@ describe('assistant preference store helpers', () => {
       defaultCoinCount: 9 as never,
       commentSubmitMode: 'manual' as never,
       favoriteArchiveMultiMode: 'many' as never,
-      assistantSidebarWidthPx: 999 as never
+      assistantSidebarWidthPx: 999 as never,
+      videoAudioTranscriptionThreadLimit: 9 as never
     })
 
     expect(saved).toMatchObject({
@@ -267,7 +273,8 @@ describe('assistant preference store helpers', () => {
       defaultCoinCount: 1,
       favoriteArchiveMultiMode: 'off',
       petStyle: 'big-head',
-      assistantSidebarWidthPx: 486
+      assistantSidebarWidthPx: 486,
+      videoAudioTranscriptionThreadLimit: 'unlimited'
     })
     expect(store.setCalls).toHaveLength(1)
   })

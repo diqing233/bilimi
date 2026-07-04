@@ -33,6 +33,8 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     deepseekModel: 'deepseek-v4-flash',
     deepseekBaseUrl: 'https://api.deepseek.com',
     permissionOnboardingCompleted: true,
+    assistantSidebarWidthPx: null,
+    videoAudioTranscriptionThreadLimit: 'unlimited',
     ...overrides
   }
 }
@@ -889,7 +891,8 @@ describe('FloatingAssistantApp', () => {
       deepseekPetChatEnabled: true,
       deepseekModel: 'deepseek-chat',
       deepseekBaseUrl: 'https://api.deepseek.local',
-      assistantSidebarWidthPx: 420
+      assistantSidebarWidthPx: 420,
+      videoAudioTranscriptionThreadLimit: 2
     })
     const { savePreferences, clearDeepSeekApiKey } = installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
@@ -919,13 +922,36 @@ describe('FloatingAssistantApp', () => {
           deepseekPetChatEnabled: false,
           deepseekModel: 'deepseek-v4-flash',
           deepseekBaseUrl: 'https://api.deepseek.com',
-          assistantSidebarWidthPx: null
+          assistantSidebarWidthPx: null,
+          videoAudioTranscriptionThreadLimit: 'unlimited'
         })
       )
     )
     expect(clearDeepSeekApiKey).toHaveBeenCalledOnce()
     expect(screen.getByRole('radio', { name: '萌版大头' })).toBeChecked()
     expect(screen.getByRole('radio', { name: '随机生成一条并直接发送' })).toBeChecked()
+  })
+
+  it('saves the local audio transcription thread limit from settings', async () => {
+    const { savePreferences } = installDesktopApi()
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+
+    expect(screen.getByRole('group', { name: '本地转写性能' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: '无限制（最快，占用最高）' })).toBeChecked()
+
+    fireEvent.click(screen.getByRole('radio', { name: '限制为 2 线程（平衡）' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          videoAudioTranscriptionThreadLimit: 2
+        })
+      )
+    )
+    expect(screen.getByRole('radio', { name: '限制为 2 线程（平衡）' })).toBeChecked()
   })
 
   it('saves review action behavior settings', async () => {

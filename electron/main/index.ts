@@ -601,12 +601,14 @@ function getVideoTranscriptionQueue() {
       transcribe: async (request, progress) => {
         const tempDir = await mkdtemp(join(tmpdir(), 'bilimi-transcribe-'))
         const sourceSession = session.fromPartition(BILIMI_SESSION_PARTITION)
+        const preferences = loadAssistantPreferences(getDesktopStore())
 
         return transcribeCurrentVideoAudio({
           request,
           session: sourceSession,
           tempDir,
-          progress
+          progress,
+          threadLimit: preferences.videoAudioTranscriptionThreadLimit
         })
       },
       summarizeNote: async (note) => {
@@ -717,11 +719,13 @@ function registerAssistantPreferenceHandlers() {
     async (event, request: VideoAudioTranscriptionRequest) => {
       const tempDir = await mkdtemp(join(tmpdir(), 'bilimi-transcribe-'))
       const sourceSession = session.fromPartition(BILIMI_SESSION_PARTITION)
+      const preferences = loadAssistantPreferences(getDesktopStore())
 
       return transcribeCurrentVideoAudio({
         request,
         session: sourceSession,
         tempDir,
+        threadLimit: preferences.videoAudioTranscriptionThreadLimit,
         progress: (progress) => {
           event.sender.send('video-audio:transcription-progress', progress)
         }

@@ -3,6 +3,7 @@ import { rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type {
   TranscriptSegment,
+  VideoAudioTranscriptionThreadLimit,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionRequest,
   VideoAudioTranscriptionResult
@@ -25,9 +26,14 @@ type ServiceDeps = {
   exportCookies?: typeof exportBilibiliCookiesToFile
   downloadAudio?: typeof downloadVideoAudio
   segmentAudio?: typeof segmentAudioForTranscription
-  transcribeSegment?: (input: { path: string; offsetSeconds: number }) => Promise<TranscriptSegment[]>
+  transcribeSegment?: (input: {
+    path: string
+    offsetSeconds: number
+    threadLimit?: VideoAudioTranscriptionThreadLimit
+  }) => Promise<TranscriptSegment[]>
   getAudioDuration?: (path: string, ffmpegPath?: string) => Promise<number>
   cleanup?: (path: string) => Promise<void>
+  threadLimit?: VideoAudioTranscriptionThreadLimit
 }
 
 function normalizePath(path: string): string {
@@ -81,14 +87,19 @@ export async function transcribeCurrentVideoAudio({
   segmentAudio = segmentAudioForTranscription,
   transcribeSegment,
   getAudioDuration = getAudioDurationSeconds,
-  cleanup = defaultCleanup
+  cleanup = defaultCleanup,
+  threadLimit = 'unlimited'
 }: ServiceDeps): Promise<VideoAudioTranscriptionResult> {
   try {
     emit(progress, { step: 'preparing-session', message: 'Preparing current login session.' })
     const tools = resolveTools()
     const transcribeAudioSegment =
       transcribeSegment ??
-      ((input: { path: string; offsetSeconds: number }) =>
+      ((input: {
+        path: string
+        offsetSeconds: number
+        threadLimit?: VideoAudioTranscriptionThreadLimit
+      }) =>
         transcribeAudioSegmentWithLocalWhisper({
           ...input,
           cliPath: tools.whisperCliPath,
@@ -126,7 +137,8 @@ export async function transcribeCurrentVideoAudio({
       transcript.push(
         ...(await transcribeAudioSegment({
           path: segment.path,
-          offsetSeconds: segment.offsetSeconds
+          offsetSeconds: segment.offsetSeconds,
+          threadLimit
         }))
       )
     }

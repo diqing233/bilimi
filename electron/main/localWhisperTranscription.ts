@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises'
+import { availableParallelism } from 'node:os'
 import { extname } from 'node:path'
 import OpenCC from 'opencc-js'
-import type { TranscriptSegment } from '../../src/shared/types'
+import type { TranscriptSegment, VideoAudioTranscriptionThreadLimit } from '../../src/shared/types'
 import { runProcess as defaultRunProcess, type RunProcess } from './audioDownload'
 
 type LocalWhisperTimestamp = {
@@ -23,6 +24,8 @@ type LocalWhisperArgsInput = {
   modelPath: string
   audioPath: string
   outputPathWithoutExtension: string
+  threadLimit?: VideoAudioTranscriptionThreadLimit
+  availableThreads?: number
 }
 
 type TranscribeInput = {
@@ -30,6 +33,7 @@ type TranscribeInput = {
   offsetSeconds: number
   cliPath: string
   modelPath: string
+  threadLimit?: VideoAudioTranscriptionThreadLimit
   runProcess?: RunProcess
   readTextFile?: typeof readFile
 }
@@ -84,11 +88,20 @@ function readableLocalWhisperError(result: { stderr: string; stdout: string }): 
   return `本地转写组件运行失败：${detail}`
 }
 
+function normalizeAvailableThreads(value: number): number {
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : 1
+}
+
 export function buildLocalWhisperArgs({
   modelPath,
   audioPath,
-  outputPathWithoutExtension
+  outputPathWithoutExtension,
+  threadLimit = 'unlimited',
+  availableThreads = availableParallelism()
 }: LocalWhisperArgsInput): string[] {
+  const threadCount =
+    threadLimit === 'unlimited' ? normalizeAvailableThreads(availableThreads) : threadLimit
+
   return [
     '-m',
     modelPath,
@@ -96,6 +109,8 @@ export function buildLocalWhisperArgs({
     audioPath,
     '-l',
     'auto',
+    '-t',
+    String(threadCount),
     '-oj',
     '-ojf',
     '-of',
@@ -127,6 +142,7 @@ export async function transcribeAudioSegmentWithLocalWhisper({
   offsetSeconds,
   cliPath,
   modelPath,
+  threadLimit = 'unlimited',
   runProcess = defaultRunProcess,
   readTextFile = readFile
 }: TranscribeInput): Promise<TranscriptSegment[]> {
@@ -137,7 +153,8 @@ export async function transcribeAudioSegmentWithLocalWhisper({
       cliPath,
       modelPath,
       audioPath: path,
-      outputPathWithoutExtension: outputPath
+      outputPathWithoutExtension: outputPath,
+      threadLimit
     })
   )
 

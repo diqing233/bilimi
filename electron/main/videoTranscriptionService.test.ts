@@ -28,7 +28,8 @@ describe('video transcription service', () => {
         transcribeSegment,
         getAudioDuration: vi.fn().mockResolvedValue(900),
         cleanup,
-        progress
+        progress,
+        threadLimit: 2
       })
     ).resolves.toEqual({
       transcriptSource: 'audio',
@@ -44,10 +45,15 @@ describe('video transcription service', () => {
     expect(progress).toHaveBeenCalledWith(
       expect.objectContaining({ step: 'transcribing-segment', segmentIndex: 2, segmentCount: 2 })
     )
-    expect(Object.keys(transcribeSegment.mock.calls[0][0])).toEqual(['path', 'offsetSeconds'])
+    expect(Object.keys(transcribeSegment.mock.calls[0][0])).toEqual([
+      'path',
+      'offsetSeconds',
+      'threadLimit'
+    ])
     expect(transcribeSegment.mock.calls[0][0]).toEqual({
       path: 'C:/tmp/segment-000.mp3',
-      offsetSeconds: 0
+      offsetSeconds: 0,
+      threadLimit: 2
     })
     expect(cleanup).toHaveBeenCalledWith('C:/tmp/job')
   })
