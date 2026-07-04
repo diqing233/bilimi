@@ -5,6 +5,7 @@ import { buildOpenLinksInAppScript } from './linkCaptureScript'
 const OPEN_IN_TAB_TITLE_PREFIX = '__BILIMI_OPEN_IN_TAB__:'
 const PET_HINT_TITLE_PREFIX = '__BILIMI_PET_HINT__:'
 const VIDEO_REPAINT_AFTER_HOST_RESIZE_DELAY_MS = 80
+const DANMAKU_WAKE_AFTER_VIDEO_LOAD_DELAY_MS = 120
 
 type BiliWebviewProps = {
   active: boolean
@@ -59,6 +60,16 @@ function readPetHintTitleSignal(title: string): string | undefined {
   }
 }
 
+function isBilibiliVideoUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+
+    return /(^|\.)bilibili\.com$/i.test(parsed.hostname) && parsed.pathname.startsWith('/video/')
+  } catch {
+    return false
+  }
+}
+
 function buildVideoRepaintAfterHostResizeScript(): string {
   return `
     (() => {
@@ -95,6 +106,74 @@ function buildVideoRepaintAfterHostResizeScript(): string {
   `
 }
 
+function buildWakeBilibiliDanmakuAfterVideoLoadScript(): string {
+  return `
+    (() => {
+      const marker = '__bilimiWakeBilibiliDanmakuAfterVideoLoad';
+      void marker;
+
+      if (!/\\/video\\//i.test(window.location.pathname)) {
+        return false;
+      }
+
+      const existingTimers = Array.isArray(window[marker]) ? window[marker] : [];
+      for (const timer of existingTimers) {
+        window.clearTimeout(timer);
+      }
+
+      const wakeTargets = () => {
+        window.dispatchEvent(new Event('resize'));
+
+        const targets = [
+          ...document.querySelectorAll('video'),
+          ...document.querySelectorAll([
+            '.bpx-player-container',
+            '.bpx-player-primary-area',
+            '.bpx-player-video-area',
+            '.bpx-player-video-wrap',
+            '.bpx-player-video-perch',
+            '.bpx-player-row-dm-wrap',
+            '.bpx-player-dm-wrap',
+            '.bilibili-player',
+            '.bilibili-player-video-wrap',
+            '.bilibili-player-video-danmaku'
+          ].join(','))
+        ];
+
+        for (const target of targets) {
+          const style = target.style;
+          if (!style) {
+            continue;
+          }
+
+          const previousTransform = style.transform;
+          const previousWillChange = style.willChange;
+          style.willChange = 'transform';
+          style.transform = previousTransform
+            ? previousTransform + ' translateZ(0)'
+            : 'translateZ(0)';
+          void target.getBoundingClientRect?.();
+          window.requestAnimationFrame(() => {
+            style.transform = previousTransform;
+            style.willChange = previousWillChange;
+          });
+        }
+
+        return targets.length;
+      };
+
+      const delays = [0, 250, 800, 1600, 3200];
+      window[marker] = delays.map((delay) =>
+        window.setTimeout(() => {
+          window.requestAnimationFrame(wakeTargets);
+        }, delay)
+      );
+
+      return true;
+    })()
+  `
+}
+
 export function BiliWebview({
   active,
   tabId,
@@ -108,6 +187,7 @@ export function BiliWebview({
 }: BiliWebviewProps) {
   const ref = useRef<Electron.WebviewTag | null>(null)
   const initialUrl = useRef(url)
+  const latestUrl = useRef(url)
   const model = useMemo(() => createBrowserSurfaceModel(initialUrl.current), [])
 
   useEffect(() => {
@@ -127,6 +207,26 @@ export function BiliWebview({
       void webview.executeJavaScript(buildOpenLinksInAppScript(), true).catch(() => undefined)
     }
 
+    let danmakuWakeTimeout: number | undefined
+
+    const scheduleDanmakuWake = () => {
+      window.clearTimeout(danmakuWakeTimeout)
+
+      if (!webview.executeJavaScript || !isBilibiliVideoUrl(latestUrl.current)) {
+        return
+      }
+
+      danmakuWakeTimeout = window.setTimeout(() => {
+        if (!webview.executeJavaScript || !isBilibiliVideoUrl(latestUrl.current)) {
+          return
+        }
+
+        void webview
+          .executeJavaScript(buildWakeBilibiliDanmakuAfterVideoLoadScript(), true)
+          .catch(() => undefined)
+      }, DANMAKU_WAKE_AFTER_VIDEO_LOAD_DELAY_MS)
+    }
+
     const handleNewWindow = (event: Event) => {
       const urlToOpen = readEventUrl(event as WebviewUrlEvent)
 
@@ -142,7 +242,9 @@ export function BiliWebview({
       const nextUrl = readEventUrl(event as WebviewUrlEvent)
 
       if (nextUrl) {
+        latestUrl.current = nextUrl
         onLocationChange?.(tabId, nextUrl)
+        scheduleDanmakuWake()
       }
     }
 
@@ -181,6 +283,7 @@ export function BiliWebview({
     webview.addEventListener('new-window', handleNewWindow)
     webview.addEventListener('dom-ready', installLinkCapture)
     webview.addEventListener('did-finish-load', installLinkCapture)
+    webview.addEventListener('did-finish-load', scheduleDanmakuWake)
     webview.addEventListener('did-navigate', handleLocationChange)
     webview.addEventListener('did-navigate-in-page', handleLocationChange)
     webview.addEventListener('enter-html-full-screen', handleEnterHtmlFullscreen)
@@ -188,9 +291,11 @@ export function BiliWebview({
     webview.addEventListener('page-title-updated', handleTitleChange)
 
     return () => {
+      window.clearTimeout(danmakuWakeTimeout)
       webview.removeEventListener('new-window', handleNewWindow)
       webview.removeEventListener('dom-ready', installLinkCapture)
       webview.removeEventListener('did-finish-load', installLinkCapture)
+      webview.removeEventListener('did-finish-load', scheduleDanmakuWake)
       webview.removeEventListener('did-navigate', handleLocationChange)
       webview.removeEventListener('did-navigate-in-page', handleLocationChange)
       webview.removeEventListener('enter-html-full-screen', handleEnterHtmlFullscreen)

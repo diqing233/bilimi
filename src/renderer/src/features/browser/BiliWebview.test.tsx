@@ -139,6 +139,32 @@ describe('BiliWebview', () => {
     }
   })
 
+  it('wakes the bilibili danmaku layer after a video page finishes loading', async () => {
+    render(<BiliWebview active tabId="home" url="https://www.bilibili.com" />)
+
+    const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+    const executeJavaScript = vi.fn().mockResolvedValue(true)
+    Object.assign(webview, { executeJavaScript })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1danmaku'
+          }
+        })
+      )
+      webview.dispatchEvent(new Event('did-finish-load'))
+    })
+
+    await vi.waitFor(() =>
+      expect(executeJavaScript).toHaveBeenCalledWith(
+        expect.stringContaining('__bilimiWakeBilibiliDanmakuAfterVideoLoad'),
+        true
+      )
+    )
+  })
+
   it('does not drive the webview src from later location updates', () => {
     const { rerender } = render(
       <BiliWebview active tabId="home" url="https://www.bilibili.com/video/BV1initial" />
