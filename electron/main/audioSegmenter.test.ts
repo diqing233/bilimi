@@ -55,4 +55,26 @@ describe('audio segmenter', () => {
       { path: 'C:/tmp/segments/segment-001.mp3', offsetSeconds: 600 }
     ])
   })
+
+  it('includes ffmpeg diagnostics and input size when segmenting fails', async () => {
+    const runProcess = vi.fn().mockResolvedValue({
+      stdout: '',
+      stderr: 'Invalid data found when processing input',
+      exitCode: 183
+    })
+    const statFile = vi.fn().mockResolvedValue({ size: 16196844 })
+
+    await expect(
+      segmentAudioForTranscription({
+        ffmpegPath: 'C:/tools/ffmpeg.exe',
+        inputPath: 'C:/tmp/source.m4a',
+        outputDir: 'C:/tmp/segments',
+        durationSeconds: 900,
+        runProcess,
+        statFile
+      })
+    ).rejects.toThrow(
+      'Audio preparation failed: ffmpeg exited with 183. input=C:/tmp/source.m4a size=16196844. Invalid data found when processing input'
+    )
+  })
 })

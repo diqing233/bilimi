@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { stat } from 'node:fs/promises'
 
 export type ProcessResult = {
   stdout: string
@@ -74,13 +75,15 @@ export async function downloadVideoAudio({
   url,
   cookiePath,
   outputTemplate,
-  runProcess: run = runProcess
+  runProcess: run = runProcess,
+  statFile = stat
 }: {
   ytdlpPath: string
   url: string
   cookiePath: string
   outputTemplate: string
   runProcess?: RunProcess
+  statFile?: (path: string) => Promise<{ size: number }>
 }): Promise<{ audioPath: string }> {
   const result = await run(ytdlpPath, buildYtdlpAudioArgs({ url, cookiePath, outputTemplate }))
 
@@ -92,6 +95,18 @@ export async function downloadVideoAudio({
 
   if (!audioPath) {
     throw new Error('Audio download failed: yt-dlp did not report an output file.')
+  }
+
+  let audioStats: { size: number }
+  try {
+    audioStats = await statFile(audioPath)
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new Error(`Audio download output file is missing: ${audioPath}. ${detail}`)
+  }
+
+  if (audioStats.size <= 0) {
+    throw new Error(`Audio download produced an empty file: ${audioPath} size=${audioStats.size}`)
   }
 
   return { audioPath }

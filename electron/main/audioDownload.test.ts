@@ -66,6 +66,7 @@ describe('audio download', () => {
       stderr: '',
       exitCode: 0
     })
+    const statFile = vi.fn().mockResolvedValue({ size: 1024 })
 
     await expect(
       downloadVideoAudio({
@@ -73,9 +74,30 @@ describe('audio download', () => {
         url: 'https://www.bilibili.com/video/BV1demo',
         cookiePath: 'C:/tmp/cookies.txt',
         outputTemplate: 'C:/tmp/audio.%(ext)s',
-        runProcess
+        runProcess,
+        statFile
       })
     ).resolves.toEqual({ audioPath: 'C:/tmp/audio.m4a' })
+  })
+
+  it('reports an empty downloaded file with its path and size', async () => {
+    const runProcess = vi.fn().mockResolvedValue({
+      stdout: 'C:/tmp/audio.m4a\n',
+      stderr: '',
+      exitCode: 0
+    })
+    const statFile = vi.fn().mockResolvedValue({ size: 0 })
+
+    await expect(
+      downloadVideoAudio({
+        ytdlpPath: 'C:/tools/yt-dlp.exe',
+        url: 'https://www.bilibili.com/video/BV1demo',
+        cookiePath: 'C:/tmp/cookies.txt',
+        outputTemplate: 'C:/tmp/audio.%(ext)s',
+        runProcess,
+        statFile
+      })
+    ).rejects.toThrow('Audio download produced an empty file: C:/tmp/audio.m4a size=0')
   })
 
   it('sanitizes signed urls from failure messages', async () => {

@@ -1,4 +1,4 @@
-import { readdir } from 'node:fs/promises'
+import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { runProcess as defaultRunProcess, type RunProcess } from './audioDownload'
 
@@ -9,6 +9,23 @@ export type AudioSegment = {
 
 function normalizePath(path: string): string {
   return path.replace(/\\/g, '/')
+}
+
+function sanitizeProcessText(value: string): string {
+  return value.replace(/https?:\/\/\S+/g, '[redacted-url]').replace(/\s+/g, ' ').trim().slice(0, 500)
+}
+
+async function describeInputFile(
+  inputPath: string,
+  statFile: (path: string) => Promise<{ size: number }>
+): Promise<string> {
+  try {
+    const inputStats = await statFile(inputPath)
+    return `input=${inputPath} size=${inputStats.size}`
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    return `input=${inputPath} size=unknown statError=${sanitizeProcessText(detail)}`
+  }
 }
 
 export function createSegmentOffsets({
@@ -62,7 +79,8 @@ export async function segmentAudioForTranscription({
   segmentSeconds = 600,
   durationSeconds,
   runProcess = defaultRunProcess,
-  listFiles = readdir
+  listFiles = readdir,
+  statFile = stat
 }: {
   ffmpegPath: string
   inputPath: string
@@ -71,6 +89,7 @@ export async function segmentAudioForTranscription({
   durationSeconds: number
   runProcess?: RunProcess
   listFiles?: typeof readdir
+  statFile?: (path: string) => Promise<{ size: number }>
 }): Promise<AudioSegment[]> {
   const outputPattern = normalizePath(join(outputDir, 'segment-%03d.mp3'))
   const result = await runProcess(
@@ -79,7 +98,12 @@ export async function segmentAudioForTranscription({
   )
 
   if (result.exitCode !== 0) {
-    throw new Error('Audio preparation failed. The downloaded media format may be unsupported.')
+    const inputDescription = await describeInputFile(inputPath, statFile)
+    const processDetail = sanitizeProcessText(result.stderr || result.stdout) || 'No ffmpeg output.'
+
+    throw new Error(
+      `Audio preparation failed: ffmpeg exited with ${result.exitCode}. ${inputDescription}. ${processDetail}`
+    )
   }
 
   const files = (await listFiles(outputDir))
