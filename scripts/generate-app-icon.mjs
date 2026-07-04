@@ -8,12 +8,14 @@ const repoRoot = resolve(scriptDir, '..')
 export const APP_ICON_SOURCE = resolve(repoRoot, 'electron/assets/bilimi-icon-source.png')
 export const APP_ICON_AVATAR = resolve(repoRoot, 'electron/assets/bilimi-avatar.png')
 export const APP_ICON_ICO = resolve(repoRoot, 'electron/assets/bilimi.ico')
+export const APP_BUILD_ICON_PNG = resolve(repoRoot, 'build/icon.png')
+export const APP_BUILD_ICON_ICO = resolve(repoRoot, 'build/icon.ico')
 
 export const APP_ICON_CROP = {
-  left: 31,
-  top: 62,
-  width: 536,
-  height: 536
+  left: 213,
+  top: 210,
+  width: 660,
+  height: 660
 }
 
 export const APP_ICON_AVATAR_SIZE = 512
@@ -34,6 +36,8 @@ payload = json.loads(sys.argv[1])
 source_path = Path(payload["source"])
 avatar_path = Path(payload["avatar"])
 ico_path = Path(payload["ico"])
+build_png_path = Path(payload["buildPng"])
+build_ico_path = Path(payload["buildIco"])
 crop = payload["crop"]
 avatar_size = int(payload["avatarSize"])
 ico_sizes = [int(size) for size in payload["icoSizes"]]
@@ -48,11 +52,16 @@ box = (
 avatar = source.crop(box).resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
 
 avatar_path.parent.mkdir(parents=True, exist_ok=True)
+build_png_path.parent.mkdir(parents=True, exist_ok=True)
 avatar.save(avatar_path, format="PNG", optimize=True)
 avatar.save(ico_path, format="ICO", sizes=[(size, size) for size in ico_sizes])
+avatar.save(build_png_path, format="PNG", optimize=True)
+avatar.save(build_ico_path, format="ICO", sizes=[(size, size) for size in ico_sizes])
 
 print(f"wrote {avatar_path}")
 print(f"wrote {ico_path}")
+print(f"wrote {build_png_path}")
+print(f"wrote {build_ico_path}")
 `
 }
 
@@ -61,6 +70,8 @@ export function generateAppIcon() {
     source: APP_ICON_SOURCE,
     avatar: APP_ICON_AVATAR,
     ico: APP_ICON_ICO,
+    buildPng: APP_BUILD_ICON_PNG,
+    buildIco: APP_BUILD_ICON_ICO,
     crop: APP_ICON_CROP,
     avatarSize: APP_ICON_AVATAR_SIZE,
     icoSizes: APP_ICON_ICO_SIZES
