@@ -108,7 +108,30 @@ describe('DeepSeek main service', () => {
     const systemMessage = body.messages.find((message) => message.role === 'system')?.content ?? ''
 
     expect(systemMessage).toContain('Mention the video title or UP name only when it fits naturally')
+    expect(systemMessage).toContain('100 characters or fewer')
     expect(systemMessage).not.toContain('must mention the video title and the UP name')
+  })
+
+  it('rejects review comments longer than the sendable 100 character limit', async () => {
+    await expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: {
+          kind: 'review-comment',
+          intent: '',
+          title: 'Demo',
+          author: 'Ada',
+          description: 'About type systems',
+          tags: ['typescript'],
+          classification: 'knowledge'
+        },
+        fetchImpl: createJsonFetch(
+          JSON.stringify({
+            comments: ['short one', 'short two', 'x'.repeat(101)]
+          })
+        )
+      })
+    ).rejects.toMatchObject({ code: 'invalid-output' })
   })
 
   it('parses note poster JSON into a summary with polished transcript and checklist', async () => {

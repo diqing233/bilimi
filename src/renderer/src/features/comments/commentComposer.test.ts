@@ -25,4 +25,18 @@ describe('composeMemorialComments', () => {
       expect(draft).toContain('这位UP')
     }
   })
+  it('keeps local fallback comments within the 100 character send limit', () => {
+    const kinds = ['knowledge', 'funny', 'suspicious', 'life']
+    const longTitle = '很长的视频标题'.repeat(20)
+    const longAuthor = '很长的UP主名'.repeat(20)
+
+    for (const kind of kinds) {
+      const drafts = composeMemorialComments(kind, longTitle, longAuthor)
+
+      expect(drafts).toHaveLength(3)
+      for (const draft of drafts) {
+        expect(draft.length).toBeLessThanOrEqual(100)
+      }
+    }
+  })
 })

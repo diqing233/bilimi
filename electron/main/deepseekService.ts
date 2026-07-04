@@ -22,6 +22,8 @@ type DeepSeekChoiceResponse = {
   choices?: Array<{ message?: { content?: string } }>
 }
 
+const REVIEW_COMMENT_CHARACTER_LIMIT = 100
+
 const BILIMI_PET_CHAT_CONTEXT = [
   'You are 小咪, the warm desktop pet assistant inside bilimi. Reply naturally, briefly, and in the user language.',
   'bilimi is a desktop app for watching Bilibili in an internal browser while organizing videos.',
@@ -139,7 +141,7 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
       {
         role: 'system',
         content:
-          'You write concise, playful Bilibili review comment candidates in Chinese. Mention the video title or UP name only when it fits naturally; do not force either into every comment. Return JSON only: {"comments":["...","...","..."]}.'
+          'You write concise, playful Bilibili review comment candidates in Chinese. Each comment must be 100 characters or fewer. Mention the video title or UP name only when it fits naturally; do not force either into every comment. Return JSON only: {"comments":["...","...","..."]}.'
       },
       {
         role: 'user',
@@ -202,7 +204,10 @@ function parseResult(
   if (request.kind === 'review-comment') {
     const parsed = parseJsonContent(content) as { comments?: unknown }
     const comments = coerceStringArray(parsed.comments, 3)
-    if (comments.length !== 3) {
+    if (
+      comments.length !== 3 ||
+      comments.some((comment) => comment.length > REVIEW_COMMENT_CHARACTER_LIMIT)
+    ) {
       throw new DeepSeekServiceError('invalid-output', 'DeepSeek did not return three comments.')
     }
 
