@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
-import { stat } from 'node:fs/promises'
+import { readdir, stat } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 
 export type ProcessResult = {
   stdout: string
@@ -70,6 +71,141 @@ function sanitizeProcessText(value: string): string {
   return value.replace(/https?:\/\/\S+/g, '[redacted-url]').slice(0, 500)
 }
 
+const MEDIA_EXTENSIONS = new Set([
+  '.aac',
+  '.flac',
+  '.m4a',
+  '.mka',
+  '.mkv',
+  '.mov',
+  '.mp3',
+  '.mp4',
+  '.oga',
+  '.ogg',
+  '.opus',
+  '.wav',
+  '.webm'
+])
+
+function getExtension(path: string): string {
+  const fileName = basename(path).toLowerCase()
+  const dotIndex = fileName.lastIndexOf('.')
+
+  return dotIndex >= 0 ? fileName.slice(dotIndex) : ''
+}
+
+function isMediaFileName(fileName: string): boolean {
+  const lowerName = fileName.toLowerCase()
+
+  return !lowerName.endsWith('.part') && MEDIA_EXTENSIONS.has(getExtension(lowerName))
+}
+
+function getOutputSearchContext(outputTemplate: string, printedPath: string): { dir: string; sourcePrefix: string } {
+  const templateDir = dirname(outputTemplate)
+  const templateFileName = basename(outputTemplate)
+  const extTokenIndex = templateFileName.indexOf('%(ext)s')
+  const sourcePrefix =
+    extTokenIndex >= 0
+      ? templateFileName.slice(0, extTokenIndex)
+      : `${basename(printedPath).replace(/\.[^.]*$/, '')}.`
+
+  return {
+    dir: templateDir,
+    sourcePrefix
+  }
+}
+
+async function describeDirectoryFiles(dir: string): Promise<string> {
+  try {
+    const names = await readdir(dir)
+    if (names.length === 0) {
+      return '(empty)'
+    }
+
+    const entries = await Promise.all(
+      names.sort().map(async (name) => {
+        const path = join(dir, name)
+        try {
+          const stats = await stat(path)
+          return `${name} size=${stats.size}`
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error)
+          return `${name} statError=${detail}`
+        }
+      })
+    )
+
+    return entries.join(', ')
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    return `(failed to read directory: ${detail})`
+  }
+}
+
+async function findFallbackAudioPath({
+  dir,
+  sourcePrefix
+}: {
+  dir: string
+  sourcePrefix: string
+}): Promise<string | null> {
+  let names: string[]
+  try {
+    names = await readdir(dir)
+  } catch {
+    return null
+  }
+
+  const candidates = names
+    .filter(isMediaFileName)
+    .sort((a, b) => {
+      const aSource = a.startsWith(sourcePrefix)
+      const bSource = b.startsWith(sourcePrefix)
+      if (aSource !== bSource) return aSource ? -1 : 1
+
+      return a.localeCompare(b)
+    })
+
+  for (const name of candidates) {
+    const path = join(dir, name)
+    try {
+      const stats = await stat(path)
+      if (stats.size > 0) {
+        return path
+      }
+    } catch {
+      // Keep scanning; the diagnostic path below will describe unreadable entries.
+    }
+  }
+
+  return null
+}
+
+async function createMissingOutputErrorMessage({
+  printedPath,
+  outputTemplate,
+  result,
+  statDetail
+}: {
+  printedPath: string
+  outputTemplate: string
+  result: ProcessResult
+  statDetail: string
+}): Promise<string> {
+  const { dir } = getOutputSearchContext(outputTemplate, printedPath)
+  const files = await describeDirectoryFiles(dir)
+
+  return [
+    `Audio download output file is missing: ${printedPath}. ${statDetail}`,
+    `printedPath=${printedPath}`,
+    `outputTemplate=${outputTemplate}`,
+    `tempDir=${dir}`,
+    `files=[${files}]`,
+    `stdout=${sanitizeProcessText(result.stdout)}`,
+    `stderr=${sanitizeProcessText(result.stderr)}`
+  ].join(' ')
+}
+
 export async function downloadVideoAudio({
   ytdlpPath,
   url,
@@ -102,7 +238,20 @@ export async function downloadVideoAudio({
     audioStats = await statFile(audioPath)
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
-    throw new Error(`Audio download output file is missing: ${audioPath}. ${detail}`)
+    const searchContext = getOutputSearchContext(outputTemplate, audioPath)
+    const fallbackAudioPath = await findFallbackAudioPath(searchContext)
+    if (fallbackAudioPath) {
+      return { audioPath: fallbackAudioPath }
+    }
+
+    throw new Error(
+      await createMissingOutputErrorMessage({
+        printedPath: audioPath,
+        outputTemplate,
+        result,
+        statDetail: detail
+      })
+    )
   }
 
   if (audioStats.size <= 0) {

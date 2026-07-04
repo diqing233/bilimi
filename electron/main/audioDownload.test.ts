@@ -5,6 +5,9 @@ const spawn = vi.hoisted(() => vi.fn())
 vi.mock('node:child_process', () => ({ default: { spawn }, spawn }))
 
 import { EventEmitter } from 'node:events'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { buildYtdlpAudioArgs, downloadVideoAudio, runProcess } from './audioDownload'
 
 describe('audio download', () => {
@@ -78,6 +81,72 @@ describe('audio download', () => {
         statFile
       })
     ).resolves.toEqual({ audioPath: 'C:/tmp/audio.m4a' })
+  })
+
+  it('falls back to the actual non-empty source media file when printed filepath is missing', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'bilimi-audio-download-'))
+    const actualPath = join(tempDir, 'source.webm')
+    const printedPath = join(tempDir, 'source.m4a')
+    await writeFile(actualPath, 'downloaded audio')
+
+    try {
+      const runProcess = vi.fn().mockResolvedValue({
+        stdout: `${printedPath}\n`,
+        stderr: '[download] Destination: source.webm\n',
+        exitCode: 0
+      })
+
+      await expect(
+        downloadVideoAudio({
+          ytdlpPath: 'C:/tools/yt-dlp.exe',
+          url: 'https://www.bilibili.com/video/BV1demo',
+          cookiePath: join(tempDir, 'cookies.txt'),
+          outputTemplate: join(tempDir, 'source.%(ext)s'),
+          runProcess
+        })
+      ).resolves.toEqual({ audioPath: actualPath })
+    } finally {
+      await rm(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('reports directory entries and process output when no downloaded media file exists', async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), 'bilimi-audio-download-'))
+    const printedPath = join(tempDir, 'source.m4a')
+    await writeFile(join(tempDir, 'cookies.txt'), 'cookie data')
+    await writeFile(join(tempDir, 'source.webm.part'), '')
+
+    try {
+      const runProcess = vi.fn().mockResolvedValue({
+        stdout: `${printedPath}\n`,
+        stderr: '[download] failed after move\n',
+        exitCode: 0
+      })
+
+      let error: unknown
+      try {
+        await downloadVideoAudio({
+          ytdlpPath: 'C:/tools/yt-dlp.exe',
+          url: 'https://www.bilibili.com/video/BV1demo',
+          cookiePath: join(tempDir, 'cookies.txt'),
+          outputTemplate: join(tempDir, 'source.%(ext)s'),
+          runProcess
+        })
+      } catch (caughtError) {
+        error = caughtError
+      }
+
+      expect(error).toBeInstanceOf(Error)
+      const message = (error as Error).message
+
+      expect(message).toMatch(/Audio download output file is missing/)
+      expect(message).toMatch(/source\.webm\.part size=0/)
+      expect(message).toMatch(new RegExp(`printedPath=${printedPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+      expect(message).toMatch(/stdout=.*source\.m4a/)
+      expect(message).toMatch(/stderr=\[download\] failed after move/)
+    } finally {
+      await rm(tempDir, { recursive: true, force: true })
+    }
   })
 
   it('reports an empty downloaded file with its path and size', async () => {
