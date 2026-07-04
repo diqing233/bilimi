@@ -1112,7 +1112,7 @@ export default function App() {
       videoTitle:
         normalizeActiveTabVideoTitle(activeTabSnapshot) ??
         videoContentContext.title ??
-        '早八生存实录'
+        '等待视频加载'
     }
   }
 
@@ -1152,7 +1152,7 @@ export default function App() {
               targetLedgerId,
               normalizeActiveTabVideoTitle(getActiveTabSnapshot()) ??
                 videoContentContext.title ??
-                '早八生存实录',
+                '等待视频加载',
               videoContentContext.author
             )
           )
@@ -1213,7 +1213,7 @@ export default function App() {
       : extraction?.transcript ?? []
     const activeTabSnapshot = getActiveTabSnapshot()
     const source = extraction?.source ?? {
-      title: activeTabSnapshot?.title ?? '早八生存实录',
+      title: activeTabSnapshot?.title ?? '等待视频加载',
       tags: [],
       url: activeTabSnapshot?.url ?? 'about:blank'
     }

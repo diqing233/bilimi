@@ -390,6 +390,29 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByText('三分钟讲清机器学习科普教程')).toBeInTheDocument()
   })
 
+  it('uses a loading placeholder instead of a fake video title before the snapshot arrives', async () => {
+    let resolveSnapshot: (snapshot: AssistantSnapshot) => void = () => {}
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn(
+        () =>
+          new Promise<AssistantSnapshot>((resolve) => {
+            resolveSnapshot = resolve
+          })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await act(async () => {})
+
+    expect(screen.getByText('等待视频加载')).toBeInTheDocument()
+    expect(screen.queryByText('早八生存实录')).not.toBeInTheDocument()
+
+    await act(async () => {
+      resolveSnapshot(createSnapshot())
+    })
+  })
+
   it('shows clear Bilimi collection strategy copy in settings', async () => {
     installDesktopApi()
 
