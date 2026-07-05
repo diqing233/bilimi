@@ -32,6 +32,7 @@ import { sendAssistantOpenWhenReady } from './assistantOpenSignal'
 import { FloatingMenuController } from './floatingMenuController'
 import { FloatingSealDragController } from './floatingSealDragController'
 import { createMainWindowOptions } from './mainWindowOptions'
+import { restoreMainWindowDefaultLayoutSize } from './mainWindowLayout'
 import { installMainWindowControlReactions } from './mainWindowControlReactions'
 import { restoreMainWindowFromPet } from './mainWindowRestore'
 import { installFixedFloatingSealBoundsGuard } from './floatingSealBoundsGuard'
@@ -650,6 +651,12 @@ function registerAssistantPreferenceHandlers() {
     const saved = saveAssistantPreferences(getDesktopStore(), preferences)
     sendAssistantPreferencesChanged(saved)
     return saved
+  })
+  ipcMain.handle('layout:restore-default-size', () => {
+    const win = ensureMainWindowForAssistantRuntime()
+    const display = screen.getDisplayMatching(win.getBounds())
+
+    restoreMainWindowDefaultLayoutSize(win, display.workAreaSize)
   })
   ipcMain.handle('startup:diagnose', () =>
     runStartupDiagnostics({

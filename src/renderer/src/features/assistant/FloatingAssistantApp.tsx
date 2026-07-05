@@ -707,6 +707,18 @@ export function FloatingAssistantApp({
     tellPet('success', '设置已经恢复默认，小咪重新整理好啦。')
   }
 
+  async function restoreDefaultLayoutSize() {
+    const nextPreferences = createInitialAssistantPreferences({
+      ...preferencesRef.current,
+      assistantSidebarWidthPx: null
+    })
+
+    await persistPreferences(nextPreferences)
+    await window.bilimiDesktop?.restoreDefaultLayoutSize?.()
+    setSettingsDiagnosticMessage('布局大小已恢复默认。')
+    tellPet('success', '布局大小已经恢复默认啦。')
+  }
+
   async function copyDeepSeekRecommendation(value: string, label: string) {
     try {
       await navigator.clipboard.writeText(value)
@@ -1317,9 +1329,14 @@ export function FloatingAssistantApp({
           <section className="assistant-settings" aria-label="助手设置">
             <header>
               <h2>设置</h2>
-              <button type="button" onClick={() => void resetAssistantSettings()}>
-                重置设置
-              </button>
+              <div className="assistant-settings__header-actions">
+                <button type="button" onClick={() => void restoreDefaultLayoutSize()}>
+                  恢复默认布局
+                </button>
+                <button type="button" onClick={() => void resetAssistantSettings()}>
+                  重置设置
+                </button>
+              </div>
             </header>
             <fieldset className="assistant-settings__group assistant-settings__group--diagnostics">
               <legend>诊断</legend>

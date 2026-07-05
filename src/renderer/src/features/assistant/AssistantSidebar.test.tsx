@@ -18,6 +18,9 @@ function installDesktopApi({
   preferences = createInitialAssistantPreferences()
 }: { preferences?: ReturnType<typeof createInitialAssistantPreferences> } = {}) {
   let openAssistantCallback: (() => void) | undefined
+  let preferencesChangedCallback:
+    | ((preferences: ReturnType<typeof createInitialAssistantPreferences>) => void)
+    | undefined
   let storedPreferences = preferences
   const openWorkspaceCallbacks: Array<
     Parameters<NonNullable<Window['bilimiDesktop']['onOpenFloatingAssistantWorkspace']>>[0]
@@ -36,6 +39,10 @@ function installDesktopApi({
         return vi.fn()
       }),
       onAssistantSnapshotChanged: vi.fn(),
+      onAssistantPreferencesChanged: vi.fn((callback) => {
+        preferencesChangedCallback = callback
+        return vi.fn()
+      }),
       requestAssistantSnapshot: vi.fn().mockResolvedValue(undefined),
       savePreferences: vi.fn(async (nextPreferences) => {
         storedPreferences = createInitialAssistantPreferences(nextPreferences)
@@ -63,6 +70,11 @@ function installDesktopApi({
 
   return {
     openAssistant: () => openAssistantCallback?.(),
+    notifyPreferencesChanged: (
+      nextPreferences: ReturnType<typeof createInitialAssistantPreferences>
+    ) => {
+      preferencesChangedCallback?.(nextPreferences)
+    },
     openWorkspace: (
       payload: Parameters<
         NonNullable<Window['bilimiDesktop']['onOpenFloatingAssistantWorkspace']>
@@ -265,6 +277,27 @@ describe('AssistantSidebar', () => {
     await act(async () => undefined)
 
     expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '410px' })
+  })
+
+  it('returns to the stylesheet default width when preferences clear the saved layout width', async () => {
+    const api = installDesktopApi({
+      preferences: createInitialAssistantPreferences({
+        assistantSidebarWidthPx: 360
+      })
+    })
+
+    render(<AssistantSidebar />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'bilimi 侧边栏' })
+
+    await act(async () => undefined)
+    expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '360px' })
+
+    act(() => {
+      api.notifyPreferencesChanged(createInitialAssistantPreferences({ assistantSidebarWidthPx: null }))
+    })
+
+    expect(sidebar.style.getPropertyValue('--assistant-sidebar-width')).toBe('')
   })
 
   it('captures the pointer and shields webviews while resizing', async () => {

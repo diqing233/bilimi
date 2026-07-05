@@ -253,6 +253,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('floating-assistant:execute-old-favorite-plan', items),
   savePreferences: (preferences: AssistantPreferences) =>
     ipcRenderer.invoke('assistant:save-preferences', preferences) as Promise<AssistantPreferences>,
+  restoreDefaultLayoutSize: () =>
+    ipcRenderer.invoke('layout:restore-default-size') as Promise<void>,
   saveDeepSeekApiKey: (apiKey: string) =>
     ipcRenderer.invoke('deepseek:save-key', apiKey) as Promise<DeepSeekKeyStatus>,
   saveVideoNote: (note: VideoNote) =>

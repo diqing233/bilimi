@@ -91,6 +91,16 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
   }, [])
 
   useEffect(() => {
+    return window.bilimiDesktop?.onAssistantPreferencesChanged?.((preferences) => {
+      setSidebarWidthPx(
+        preferences.assistantSidebarWidthPx === null
+          ? null
+          : clampAssistantSidebarWidthPx(preferences.assistantSidebarWidthPx, window.innerWidth)
+      )
+    })
+  }, [])
+
+  useEffect(() => {
     if (sidebarWidthPx === null) {
       return
     }

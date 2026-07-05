@@ -170,6 +170,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
   const onAssistantSnapshotChanged = vi.fn()
   const executeOldFavoritePlan = vi.fn().mockResolvedValue(createResult('旧藏已归册。'))
   const savePreferences = vi.fn().mockImplementation(async (preferences: AssistantPreferences) => preferences)
+  const restoreDefaultLayoutSize = vi.fn().mockResolvedValue(undefined)
   const closeFloatingAssistant = vi.fn()
   const closeAssistantPet = vi.fn()
   const wakeAssistantPet = vi.fn().mockResolvedValue(undefined)
@@ -195,6 +196,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     saveOpenAiApiKey,
     saveFavoriteLedgers,
     savePreferences,
+    restoreDefaultLayoutSize,
     saveVideoNote,
     saveVideoNoteArchiveVersion,
     loadVideoNoteArchives,
@@ -953,6 +955,42 @@ describe('FloatingAssistantApp', () => {
     expect(clearDeepSeekApiKey).toHaveBeenCalledOnce()
     expect(screen.getByRole('radio', { name: '萌版大头' })).toBeChecked()
     expect(screen.getByRole('radio', { name: '随机生成一条并直接发送' })).toBeChecked()
+  })
+
+  it('restores the default layout size from the settings header without clearing settings', async () => {
+    const restoreDefaultLayoutSize = vi.fn().mockResolvedValue(undefined)
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            assistantSidebarWidthPx: 486,
+            deepseekEnabled: true,
+            favoriteArchiveMultiMode: 'three'
+          })
+        })
+      ),
+      restoreDefaultLayoutSize,
+      savePreferences
+    } as Partial<Window['bilimiDesktop']>)
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '恢复默认布局' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          assistantSidebarWidthPx: null,
+          deepseekEnabled: true,
+          favoriteArchiveMultiMode: 'three'
+        })
+      )
+    )
+    expect(restoreDefaultLayoutSize).toHaveBeenCalledOnce()
+    expect(await screen.findByRole('status')).toHaveTextContent('布局大小已恢复默认。')
   })
 
   it('saves the local audio transcription thread limit from settings', async () => {

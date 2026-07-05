@@ -3202,6 +3202,12 @@ body[data-floating-window="true"],
   align-items: center;
   gap: 10px;
 }
+.assistant-settings__header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .assistant-settings > header button {
   min-height: 30px;
   border: 1px solid rgba(31, 99, 181, 0.3);
