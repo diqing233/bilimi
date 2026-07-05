@@ -1869,7 +1869,11 @@ describe('App runtime integration', () => {
         targetDisplayName: 'bilimi·暂存',
         reviewRequired: false,
         alreadyInTarget: false,
-        selected: false
+        selected: false,
+        originalSuggestedLedgerIds: [],
+        currentTargetLedgerIds: [],
+        selectedTargetLedgerIds: [],
+        lowConfidence: false
       }
     })
 

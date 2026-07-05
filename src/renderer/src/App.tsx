@@ -42,6 +42,7 @@ import {
 } from './features/favorites/favoriteLedgerApi'
 import {
   createFavoriteLedgerPreview,
+  type FavoriteLedgerPreview,
   type FavoriteLedgerPreviewItem,
   type FavoriteSourceFolder
 } from './features/favorites/favoriteLedgerPreview'

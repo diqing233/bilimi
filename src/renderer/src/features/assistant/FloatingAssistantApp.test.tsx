@@ -1595,7 +1595,11 @@ describe('FloatingAssistantApp', () => {
             targetDisplayName: 'bilimi·影视动漫',
             reviewRequired: false,
             alreadyInTarget: false,
-            selected: true
+            selected: true,
+            originalSuggestedLedgerIds: ['movie-tv'],
+            currentTargetLedgerIds: ['movie-tv'],
+            selectedTargetLedgerIds: ['movie-tv'],
+            lowConfidence: false
           }
         ],
         skippedSourceFolderTitles: [],

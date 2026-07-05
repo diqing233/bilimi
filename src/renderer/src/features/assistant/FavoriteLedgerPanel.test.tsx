@@ -377,6 +377,10 @@ describe('FavoriteLedgerPanel', () => {
       alreadyInTarget: false,
       selected: false,
       tags: ['原神'],
+      originalSuggestedLedgerIds: ['game'],
+      currentTargetLedgerIds: [],
+      selectedTargetLedgerIds: [],
+      lowConfidence: false,
       targets: [
         {
           ledgerId: 'game',
@@ -2843,7 +2847,11 @@ describe('FavoriteLedgerPanel', () => {
           targetDisplayName: 'bilimi·待分类',
           reviewRequired: false,
           alreadyInTarget: false,
-          selected: true
+          selected: true,
+          originalSuggestedLedgerIds: ['inbox'],
+          currentTargetLedgerIds: [],
+          selectedTargetLedgerIds: [],
+          lowConfidence: false
         }
       ],
       skippedSourceFolderTitles: [],
@@ -3355,7 +3363,11 @@ describe('FavoriteLedgerPanel', () => {
           targetDisplayName: 'bilimi·待分类',
           reviewRequired: false,
           alreadyInTarget: false,
-          selected: true
+          selected: true,
+          originalSuggestedLedgerIds: ['inbox'],
+          currentTargetLedgerIds: [],
+          selectedTargetLedgerIds: [],
+          lowConfidence: false
         }
       ],
       skippedSourceFolderTitles: [],
@@ -3699,7 +3711,11 @@ describe('FavoriteLedgerPanel', () => {
           targetDisplayName: 'bilimi·待分类',
           reviewRequired: false,
           alreadyInTarget: false,
-          selected: true
+          selected: true,
+          originalSuggestedLedgerIds: ['inbox'],
+          currentTargetLedgerIds: [],
+          selectedTargetLedgerIds: [],
+          lowConfidence: false
         }
       ],
       skippedSourceFolderTitles: [],
