@@ -22,7 +22,14 @@ import {
 import type {
   CommentSubmitMode,
   DeepSeekKeyStatus,
+  FavoriteArchiveStrategy,
   FavoriteArchiveMultiMode,
+  FavoriteCorrectionFeedbackType,
+  FavoriteCorrectionRecord,
+  FavoriteCorrectionSource,
+  FavoriteKeywordSuggestion,
+  FavoriteKeywordSuggestionAction,
+  FavoriteKeywordSuggestionStatus,
   FavoriteLedger,
   PendingFavoriteQueueItem,
   PendingFavoriteQueueStatus,
@@ -41,6 +48,11 @@ export type AssistantPreferences = {
   hidePetDuringVideoFullscreen: boolean
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode
+  favoriteArchiveStrategy: FavoriteArchiveStrategy
+  favoriteCorrectionLearningEnabled: boolean
+  favoriteCorrectionLearningClassificationEnabled: boolean
+  favoriteCorrectionRecords: FavoriteCorrectionRecord[]
+  favoriteKeywordSuggestions: FavoriteKeywordSuggestion[]
   defaultCoinCount: 1 | 2
   commentSubmitMode: CommentSubmitMode
   videoAudioTranscriptionThreadLimit: VideoAudioTranscriptionThreadLimit
@@ -80,6 +92,11 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   hidePetDuringVideoFullscreen: false,
   bilibiliOperationMode: 'api-assisted',
   favoriteArchiveMultiMode: 'off',
+  favoriteArchiveStrategy: 'aggressive',
+  favoriteCorrectionLearningEnabled: true,
+  favoriteCorrectionLearningClassificationEnabled: true,
+  favoriteCorrectionRecords: [],
+  favoriteKeywordSuggestions: [],
   defaultCoinCount: 1,
   commentSubmitMode: 'random',
   videoAudioTranscriptionThreadLimit: 'unlimited',
@@ -120,6 +137,136 @@ function normalizeVideoAudioTranscriptionThreadLimit(
   return value === 1 || value === 2 || value === 4 ? value : 'unlimited'
 }
 
+function normalizeFavoriteArchiveStrategy(value: unknown): FavoriteArchiveStrategy {
+  return value === 'balanced' || value === 'conservative' ? value : 'aggressive'
+}
+
+const VALID_KEYWORD_SUGGESTION_ACTIONS = new Set<FavoriteKeywordSuggestionAction>([
+  'add-keyword',
+  'remove-keyword',
+  'downgrade-to-weak',
+  'replace-with-combination',
+  'add-entity-alias',
+  'add-concept-variant'
+])
+
+const VALID_KEYWORD_SUGGESTION_STATUSES = new Set<FavoriteKeywordSuggestionStatus>([
+  'pending',
+  'accepted',
+  'ignored',
+  'deleted'
+])
+
+const VALID_CORRECTION_SOURCES = new Set<FavoriteCorrectionSource>([
+  'user',
+  'deepseek',
+  'user-confirmed-deepseek'
+])
+
+const VALID_CORRECTION_FEEDBACK_TYPES = new Set<FavoriteCorrectionFeedbackType>([
+  'strong-correction',
+  'weak-negative'
+])
+
+const VALID_CORRECTION_SOURCE_SCENES = new Set<FavoriteCorrectionRecord['sourceScene']>([
+  'archive-preview',
+  'daily-favorite'
+])
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? Array.from(new Set(value.filter((item): item is string => typeof item === 'string' && item.trim())))
+    : []
+}
+
+function normalizeFavoriteLedgerIds(value: unknown): FavoriteLedger['id'][] {
+  return Array.isArray(value)
+    ? Array.from(
+        new Set(
+          value
+            .filter((ledgerId): ledgerId is string => typeof ledgerId === 'string' && ledgerId.trim().length > 0)
+            .map((ledgerId) => ledgerId.trim() as FavoriteLedger['id'])
+        )
+      )
+    : []
+}
+
+function normalizeFavoriteCorrectionRecords(records: unknown): FavoriteCorrectionRecord[] {
+  if (!Array.isArray(records)) {
+    return []
+  }
+
+  return records.flatMap((record) => {
+    if (
+      !isRecord(record) ||
+      typeof record.id !== 'string' ||
+      typeof record.aid !== 'number' ||
+      !Number.isFinite(record.aid) ||
+      typeof record.title !== 'string' ||
+      !Array.isArray(record.userLedgerIds) ||
+      !VALID_CORRECTION_SOURCES.has(record.source as FavoriteCorrectionSource) ||
+      !VALID_CORRECTION_FEEDBACK_TYPES.has(record.feedbackType as FavoriteCorrectionFeedbackType) ||
+      !VALID_CORRECTION_SOURCE_SCENES.has(record.sourceScene as FavoriteCorrectionRecord['sourceScene']) ||
+      typeof record.createdAt !== 'string'
+    ) {
+      return []
+    }
+
+    return [
+      {
+        id: record.id,
+        aid: record.aid,
+        title: record.title,
+        originalLedgerId:
+          typeof record.originalLedgerId === 'string' ? (record.originalLedgerId as FavoriteLedger['id']) : undefined,
+        userLedgerIds: normalizeFavoriteLedgerIds(record.userLedgerIds),
+        source: record.source as FavoriteCorrectionSource,
+        feedbackType: record.feedbackType as FavoriteCorrectionFeedbackType,
+        sourceScene: record.sourceScene as FavoriteCorrectionRecord['sourceScene'],
+        sourceFolderTitle:
+          typeof record.sourceFolderTitle === 'string' ? record.sourceFolderTitle : undefined,
+        author: typeof record.author === 'string' ? record.author : undefined,
+        tags: normalizeStringArray(record.tags),
+        matchedKeywords: normalizeStringArray(record.matchedKeywords),
+        score: typeof record.score === 'number' && Number.isFinite(record.score) ? record.score : undefined,
+        confidence:
+          record.confidence === 'high' || record.confidence === 'medium' || record.confidence === 'low'
+            ? record.confidence
+            : undefined,
+        scoreGap:
+          typeof record.scoreGap === 'number' && Number.isFinite(record.scoreGap)
+            ? record.scoreGap
+            : undefined,
+        createdAt: record.createdAt,
+        confirmedAt: typeof record.confirmedAt === 'string' ? record.confirmedAt : undefined
+      }
+    ]
+  })
+}
+
+function normalizeFavoriteKeywordSuggestions(value: unknown): FavoriteKeywordSuggestion[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return (value as FavoriteKeywordSuggestion[])
+    .filter(
+      (suggestion) =>
+        isRecord(suggestion) &&
+        typeof suggestion.id === 'string' &&
+        VALID_KEYWORD_SUGGESTION_ACTIONS.has(suggestion.action as FavoriteKeywordSuggestionAction) &&
+        VALID_KEYWORD_SUGGESTION_STATUSES.has(suggestion.status as FavoriteKeywordSuggestionStatus) &&
+        VALID_CORRECTION_SOURCES.has(suggestion.source as FavoriteCorrectionSource) &&
+        typeof suggestion.reason === 'string' &&
+        typeof suggestion.createdAt === 'string'
+    )
+    .map((suggestion) => ({ ...suggestion }) as FavoriteKeywordSuggestion)
+}
+
 export function getDesktopStore(): Store<DesktopStoreState> {
   if (!desktopStore) {
     desktopStore = new Store<DesktopStoreState>({
@@ -136,6 +283,7 @@ export function loadAssistantPreferences(
   const petStyle = store.get('petStyle')
   const bilibiliOperationMode = store.get('bilibiliOperationMode')
   const favoriteArchiveMultiMode = store.get('favoriteArchiveMultiMode')
+  const favoriteArchiveStrategy = store.get('favoriteArchiveStrategy')
   const defaultCoinCount = store.get('defaultCoinCount')
   const commentSubmitMode = store.get('commentSubmitMode')
   const videoAudioTranscriptionThreadLimit = store.get('videoAudioTranscriptionThreadLimit')
@@ -154,6 +302,17 @@ export function loadAssistantPreferences(
       favoriteArchiveMultiMode === 'two' || favoriteArchiveMultiMode === 'three'
         ? favoriteArchiveMultiMode
         : 'off',
+    favoriteArchiveStrategy: normalizeFavoriteArchiveStrategy(favoriteArchiveStrategy),
+    favoriteCorrectionLearningEnabled:
+      store.has?.('favoriteCorrectionLearningEnabled') === false
+        ? true
+        : Boolean(store.get('favoriteCorrectionLearningEnabled')),
+    favoriteCorrectionLearningClassificationEnabled:
+      store.has?.('favoriteCorrectionLearningClassificationEnabled') === false
+        ? true
+        : Boolean(store.get('favoriteCorrectionLearningClassificationEnabled')),
+    favoriteCorrectionRecords: normalizeFavoriteCorrectionRecords(store.get('favoriteCorrectionRecords')),
+    favoriteKeywordSuggestions: normalizeFavoriteKeywordSuggestions(store.get('favoriteKeywordSuggestions')),
     defaultCoinCount: defaultCoinCount === 2 ? 2 : 1,
     commentSubmitMode: commentSubmitMode === 'random' ? 'random' : 'choose',
     videoAudioTranscriptionThreadLimit: normalizeVideoAudioTranscriptionThreadLimit(
@@ -197,6 +356,13 @@ export function saveAssistantPreferences(
       preferences.favoriteArchiveMultiMode === 'two' || preferences.favoriteArchiveMultiMode === 'three'
         ? preferences.favoriteArchiveMultiMode
         : 'off',
+    favoriteArchiveStrategy: normalizeFavoriteArchiveStrategy(preferences.favoriteArchiveStrategy),
+    favoriteCorrectionLearningEnabled: Boolean(preferences.favoriteCorrectionLearningEnabled),
+    favoriteCorrectionLearningClassificationEnabled: Boolean(
+      preferences.favoriteCorrectionLearningClassificationEnabled
+    ),
+    favoriteCorrectionRecords: normalizeFavoriteCorrectionRecords(preferences.favoriteCorrectionRecords),
+    favoriteKeywordSuggestions: normalizeFavoriteKeywordSuggestions(preferences.favoriteKeywordSuggestions),
     defaultCoinCount: preferences.defaultCoinCount === 2 ? 2 : 1,
     commentSubmitMode: preferences.commentSubmitMode === 'random' ? 'random' : 'choose',
     videoAudioTranscriptionThreadLimit: normalizeVideoAudioTranscriptionThreadLimit(

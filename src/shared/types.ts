@@ -86,6 +86,49 @@ export type FavoriteArchiveStrategy = 'aggressive' | 'balanced' | 'conservative'
 
 export type ClassificationConfidenceLevel = 'high' | 'medium' | 'low'
 
+export type FavoriteCorrectionSource = 'user' | 'deepseek' | 'user-confirmed-deepseek'
+export type FavoriteCorrectionFeedbackType = 'strong-correction' | 'weak-negative'
+export type FavoriteKeywordSuggestionAction =
+  | 'add-keyword'
+  | 'remove-keyword'
+  | 'downgrade-to-weak'
+  | 'replace-with-combination'
+  | 'add-entity-alias'
+  | 'add-concept-variant'
+export type FavoriteKeywordSuggestionStatus = 'pending' | 'accepted' | 'ignored' | 'deleted'
+
+export type FavoriteCorrectionRecord = {
+  id: string
+  aid: number
+  title: string
+  originalLedgerId?: FavoriteLedgerId
+  userLedgerIds: FavoriteLedgerId[]
+  source: FavoriteCorrectionSource
+  feedbackType: FavoriteCorrectionFeedbackType
+  sourceScene: 'archive-preview' | 'daily-favorite'
+  sourceFolderTitle?: string
+  author?: string
+  tags: string[]
+  matchedKeywords: string[]
+  score?: number
+  confidence?: ClassificationConfidenceLevel
+  scoreGap?: number
+  createdAt: string
+  confirmedAt?: string
+}
+
+export type FavoriteKeywordSuggestion = {
+  id: string
+  action: FavoriteKeywordSuggestionAction
+  ledgerId?: FavoriteLedgerId
+  keyword?: string
+  replacement?: string
+  reason: string
+  source: FavoriteCorrectionSource
+  status: FavoriteKeywordSuggestionStatus
+  createdAt: string
+}
+
 export type FavoriteLedgerClassificationDiagnostic = {
   score: number
   runnerUpLedgerId?: FavoriteLedgerId
@@ -124,6 +167,11 @@ export type AssistantPreferences = {
   hidePetDuringVideoFullscreen: boolean
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode
+  favoriteArchiveStrategy: FavoriteArchiveStrategy
+  favoriteCorrectionLearningEnabled: boolean
+  favoriteCorrectionLearningClassificationEnabled: boolean
+  favoriteCorrectionRecords: FavoriteCorrectionRecord[]
+  favoriteKeywordSuggestions: FavoriteKeywordSuggestion[]
   defaultCoinCount: 1 | 2
   commentSubmitMode: CommentSubmitMode
   videoAudioTranscriptionThreadLimit: VideoAudioTranscriptionThreadLimit

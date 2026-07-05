@@ -286,4 +286,97 @@ describe('assistant state', () => {
       favoriteArchiveMultiMode: 'off'
     })
   })
+
+  it('hydrates correction learning preferences and defaults', () => {
+    expect(createInitialAssistantPreferences()).toMatchObject({
+      favoriteArchiveStrategy: 'aggressive',
+      favoriteCorrectionLearningEnabled: true,
+      favoriteCorrectionLearningClassificationEnabled: true,
+      favoriteCorrectionRecords: [],
+      favoriteKeywordSuggestions: []
+    })
+
+    expect(
+      createInitialAssistantPreferences({
+        favoriteArchiveStrategy: 'balanced',
+        favoriteCorrectionLearningEnabled: false,
+        favoriteCorrectionLearningClassificationEnabled: false,
+        favoriteCorrectionRecords: [
+          {
+            id: 'record-1',
+            aid: 1,
+            title: '东京旅行攻略',
+            originalLedgerId: 'game',
+            userLedgerIds: ['life-interest'],
+            source: 'user',
+            feedbackType: 'strong-correction',
+            sourceScene: 'archive-preview',
+            tags: ['旅行'],
+            matchedKeywords: [],
+            createdAt: '2026-07-05T00:00:00.000Z',
+            confirmedAt: '2026-07-05T00:01:00.000Z'
+          }
+        ],
+        favoriteKeywordSuggestions: [
+          {
+            id: 'suggestion-1',
+            action: 'add-keyword',
+            ledgerId: 'life-interest',
+            keyword: '旅行',
+            reason: '用户纠正',
+            source: 'user',
+            status: 'pending',
+            createdAt: '2026-07-05T00:00:00.000Z'
+          }
+        ]
+      })
+    ).toMatchObject({
+      favoriteArchiveStrategy: 'balanced',
+      favoriteCorrectionLearningEnabled: false,
+      favoriteCorrectionLearningClassificationEnabled: false,
+      favoriteCorrectionRecords: [
+        expect.objectContaining({
+          id: 'record-1',
+          userLedgerIds: ['life-interest']
+        })
+      ],
+      favoriteKeywordSuggestions: [
+        expect.objectContaining({
+          id: 'suggestion-1',
+          action: 'add-keyword'
+        })
+      ]
+    })
+
+    expect(
+      createInitialAssistantPreferences({
+        favoriteArchiveStrategy: 'reckless' as never,
+        favoriteCorrectionRecords: [
+          null,
+          {
+            id: 'trim-record',
+            aid: 1,
+            title: 'trim',
+            userLedgerIds: [123, ' ', 'game'],
+            source: 'user',
+            feedbackType: 'strong-correction',
+            sourceScene: 'archive-preview',
+            tags: [],
+            matchedKeywords: [],
+            createdAt: '2026-07-05T00:00:00.000Z',
+            confirmedAt: '2026-07-05T00:00:00.000Z'
+          }
+        ] as never,
+        favoriteKeywordSuggestions: [null, 'bad'] as never
+      })
+    ).toMatchObject({
+      favoriteArchiveStrategy: 'aggressive',
+      favoriteCorrectionRecords: [
+        expect.objectContaining({
+          userLedgerIds: ['game']
+        })
+      ],
+      favoriteKeywordSuggestions: []
+    })
+  })
 })

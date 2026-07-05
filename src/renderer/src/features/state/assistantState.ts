@@ -5,10 +5,13 @@ import type {
   AssistantAction,
   AssistantPreferences,
   CommentSubmitMode,
+  FavoriteArchiveStrategy,
+  FavoriteKeywordSuggestion,
   FavoriteArchiveMultiMode,
   RecommendationKind,
   VideoAudioTranscriptionThreadLimit
 } from '@shared/types'
+import { normalizeCorrectionRecords, normalizeKeywordSuggestions } from '../recommendation/correctionLearning'
 
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash'
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
@@ -42,6 +45,14 @@ export function normalizeBilibiliOperationMode(
 
 export function normalizeFavoriteArchiveMultiMode(value: unknown): FavoriteArchiveMultiMode {
   return value === 'two' || value === 'three' ? value : 'off'
+}
+
+export function normalizeFavoriteArchiveStrategy(value: unknown): FavoriteArchiveStrategy {
+  return value === 'balanced' || value === 'conservative' ? value : 'aggressive'
+}
+
+function normalizeFavoriteKeywordSuggestions(value: unknown): FavoriteKeywordSuggestion[] {
+  return normalizeKeywordSuggestions(value)
 }
 
 export function normalizeDefaultCoinCount(value: unknown): 1 | 2 {
@@ -104,6 +115,17 @@ export function createInitialAssistantPreferences(
     hidePetDuringVideoFullscreen: Boolean(persisted?.hidePetDuringVideoFullscreen),
     bilibiliOperationMode: normalizeBilibiliOperationMode(persisted?.bilibiliOperationMode),
     favoriteArchiveMultiMode: normalizeFavoriteArchiveMultiMode(persisted?.favoriteArchiveMultiMode),
+    favoriteArchiveStrategy: normalizeFavoriteArchiveStrategy(persisted?.favoriteArchiveStrategy),
+    favoriteCorrectionLearningEnabled:
+      typeof persisted?.favoriteCorrectionLearningEnabled === 'boolean'
+        ? persisted.favoriteCorrectionLearningEnabled
+        : true,
+    favoriteCorrectionLearningClassificationEnabled:
+      typeof persisted?.favoriteCorrectionLearningClassificationEnabled === 'boolean'
+        ? persisted.favoriteCorrectionLearningClassificationEnabled
+        : true,
+    favoriteCorrectionRecords: normalizeCorrectionRecords(persisted?.favoriteCorrectionRecords),
+    favoriteKeywordSuggestions: normalizeFavoriteKeywordSuggestions(persisted?.favoriteKeywordSuggestions),
     defaultCoinCount: normalizeDefaultCoinCount(persisted?.defaultCoinCount),
     commentSubmitMode: normalizeCommentSubmitMode(persisted?.commentSubmitMode),
     videoAudioTranscriptionThreadLimit: normalizeVideoAudioTranscriptionThreadLimit(

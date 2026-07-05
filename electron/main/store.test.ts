@@ -72,6 +72,18 @@ function createFakeStore(
       initial.bilibiliOperationMode ?? DEFAULT_ASSISTANT_PREFERENCES.bilibiliOperationMode,
     favoriteArchiveMultiMode:
       initial.favoriteArchiveMultiMode ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteArchiveMultiMode,
+    favoriteArchiveStrategy:
+      initial.favoriteArchiveStrategy ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteArchiveStrategy,
+    favoriteCorrectionLearningEnabled:
+      initial.favoriteCorrectionLearningEnabled ??
+      DEFAULT_ASSISTANT_PREFERENCES.favoriteCorrectionLearningEnabled,
+    favoriteCorrectionLearningClassificationEnabled:
+      initial.favoriteCorrectionLearningClassificationEnabled ??
+      DEFAULT_ASSISTANT_PREFERENCES.favoriteCorrectionLearningClassificationEnabled,
+    favoriteCorrectionRecords:
+      initial.favoriteCorrectionRecords ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteCorrectionRecords,
+    favoriteKeywordSuggestions:
+      initial.favoriteKeywordSuggestions ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteKeywordSuggestions,
     defaultCoinCount: initial.defaultCoinCount ?? DEFAULT_ASSISTANT_PREFERENCES.defaultCoinCount,
     commentSubmitMode:
       initial.commentSubmitMode ?? DEFAULT_ASSISTANT_PREFERENCES.commentSubmitMode,
@@ -156,6 +168,23 @@ describe('assistant preference store helpers', () => {
     expect(loadAssistantPreferences(store).commentSubmitMode).toBe('random')
   })
 
+  it('defaults correction learning preferences for legacy stores', () => {
+    const store = createFakeStore()
+    delete (store.snapshot as Partial<DesktopStoreState>).favoriteArchiveStrategy
+    delete (store.snapshot as Partial<DesktopStoreState>).favoriteCorrectionLearningEnabled
+    delete (store.snapshot as Partial<DesktopStoreState>).favoriteCorrectionLearningClassificationEnabled
+    delete (store.snapshot as Partial<DesktopStoreState>).favoriteCorrectionRecords
+    delete (store.snapshot as Partial<DesktopStoreState>).favoriteKeywordSuggestions
+
+    expect(loadAssistantPreferences(store)).toMatchObject({
+      favoriteArchiveStrategy: 'aggressive',
+      favoriteCorrectionLearningEnabled: true,
+      favoriteCorrectionLearningClassificationEnabled: true,
+      favoriteCorrectionRecords: [],
+      favoriteKeywordSuggestions: []
+    })
+  })
+
   it('loads favorite ledgers and first-open prompt state with preferences', () => {
     const store = createFakeStore({
       favoriteLedgers: [
@@ -191,6 +220,37 @@ describe('assistant preference store helpers', () => {
       ledgerPromptDismissed: false,
       bilibiliOperationMode: 'page-visual',
       favoriteArchiveMultiMode: 'two',
+      favoriteArchiveStrategy: 'balanced',
+      favoriteCorrectionLearningEnabled: false,
+      favoriteCorrectionLearningClassificationEnabled: false,
+      favoriteCorrectionRecords: [
+        {
+          id: 'record-1',
+          aid: 1,
+          title: '东京旅行攻略',
+          originalLedgerId: 'game',
+          userLedgerIds: ['life-interest'],
+          source: 'user',
+          feedbackType: 'strong-correction',
+          sourceScene: 'archive-preview',
+          tags: ['旅行'],
+          matchedKeywords: [],
+          createdAt: '2026-07-05T00:00:00.000Z',
+          confirmedAt: '2026-07-05T00:01:00.000Z'
+        }
+      ],
+      favoriteKeywordSuggestions: [
+        {
+          id: 'suggestion-1',
+          action: 'add-keyword',
+          ledgerId: 'life-interest',
+          keyword: '旅行',
+          reason: '用户纠正',
+          source: 'user',
+          status: 'pending',
+          createdAt: '2026-07-05T00:00:00.000Z'
+        }
+      ],
       defaultCoinCount: 2,
       commentSubmitMode: 'random',
       petStyle: 'classic',
@@ -217,6 +277,21 @@ describe('assistant preference store helpers', () => {
       ledgerPromptDismissed: false,
       bilibiliOperationMode: 'page-visual',
       favoriteArchiveMultiMode: 'two',
+      favoriteArchiveStrategy: 'balanced',
+      favoriteCorrectionLearningEnabled: false,
+      favoriteCorrectionLearningClassificationEnabled: false,
+      favoriteCorrectionRecords: [
+        expect.objectContaining({
+          id: 'record-1',
+          userLedgerIds: ['life-interest']
+        })
+      ],
+      favoriteKeywordSuggestions: [
+        expect.objectContaining({
+          id: 'suggestion-1',
+          action: 'add-keyword'
+        })
+      ],
       defaultCoinCount: 2,
       commentSubmitMode: 'random',
       petStyle: 'classic',
@@ -264,6 +339,24 @@ describe('assistant preference store helpers', () => {
       defaultCoinCount: 9 as never,
       commentSubmitMode: 'manual' as never,
       favoriteArchiveMultiMode: 'many' as never,
+      favoriteArchiveStrategy: 'reckless' as never,
+      favoriteCorrectionRecords: [
+        null,
+        {
+          id: 'trim-record',
+          aid: 1,
+          title: 'trim',
+          userLedgerIds: [123, ' ', 'game'],
+          source: 'user',
+          feedbackType: 'strong-correction',
+          sourceScene: 'archive-preview',
+          tags: [],
+          matchedKeywords: [],
+          createdAt: '2026-07-05T00:00:00.000Z',
+          confirmedAt: '2026-07-05T00:00:00.000Z'
+        }
+      ] as never,
+      favoriteKeywordSuggestions: [null, 'bad'] as never,
       assistantSidebarWidthPx: 999 as never,
       videoAudioTranscriptionThreadLimit: 9 as never
     })
@@ -272,6 +365,13 @@ describe('assistant preference store helpers', () => {
       commentSubmitMode: 'choose',
       defaultCoinCount: 1,
       favoriteArchiveMultiMode: 'off',
+      favoriteArchiveStrategy: 'aggressive',
+      favoriteCorrectionRecords: [
+        expect.objectContaining({
+          userLedgerIds: ['game']
+        })
+      ],
+      favoriteKeywordSuggestions: [],
       petStyle: 'big-head',
       assistantSidebarWidthPx: 486,
       videoAudioTranscriptionThreadLimit: 'unlimited'
