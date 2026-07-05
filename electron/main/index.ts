@@ -558,7 +558,10 @@ function requestMainAssistantRuntime<TPayload>(
 }
 
 function createMainWindow() {
-  const win = new BrowserWindow(createMainWindowOptions(createPreloadScriptPath(__dirname)))
+  const { workAreaSize } = screen.getPrimaryDisplay()
+  const win = new BrowserWindow(
+    createMainWindowOptions(createPreloadScriptPath(__dirname), workAreaSize)
+  )
 
   mainWindow = win
   keepMainWindowTitle(win)

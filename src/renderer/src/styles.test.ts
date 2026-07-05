@@ -58,6 +58,20 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.app-shell {\n  position: relative;\n  width: 100%;')
     expect(normalizedStyles).toContain('grid-template-columns: minmax(0, 1fr) auto;')
     expect(normalizedStyles).toContain('overflow: hidden;')
+    expect(normalizedStyles).not.toContain('.app-shell {\n  transform: scale(')
+  })
+
+  it('uses compact density rules for small logical windows without scaling the whole app', () => {
+    expect(normalizedStyles).toContain('@media (max-width: 1200px), (max-height: 760px)')
+    expectStyleSnippet(
+      '@media (max-width: 1200px), (max-height: 760px) { .app-main { grid-template-rows: 38px minmax(0, 1fr);'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace { gap: 8px; padding: 8px; font-size: 13px;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar { width: var(--assistant-sidebar-width, clamp(288px, 26vw, 320px));'
+    )
   })
 
   it('keeps browser tabs scrolling left of fixed refresh and collapse controls', () => {

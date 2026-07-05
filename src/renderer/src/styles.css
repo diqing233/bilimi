@@ -1518,6 +1518,94 @@ body[data-floating-window="true"],
   line-height: 1;
   white-space: nowrap;
 }
+@media (max-width: 1200px), (max-height: 760px) {
+  .app-main {
+    grid-template-rows: 38px minmax(0, 1fr);
+  }
+
+  .browser-tabs {
+    padding: 4px 0 4px 8px;
+  }
+
+  .browser-tabs__list {
+    gap: 3px;
+    padding-right: 6px;
+  }
+
+  .browser-tabs__controls {
+    grid-template-columns: 30px 70px;
+    gap: 6px;
+    padding-left: 6px;
+  }
+
+  .browser-tabs__item {
+    width: clamp(96px, 15vw, 180px);
+    min-width: 96px;
+    max-width: 180px;
+    height: 28px;
+  }
+
+  .browser-tabs__tab {
+    padding: 0 9px;
+    font-size: 12px;
+  }
+
+  .browser-tabs__close {
+    width: 24px;
+    height: 24px;
+  }
+
+  .browser-tabs__refresh {
+    width: 28px;
+    height: 28px;
+    font-size: 15px;
+  }
+
+  .browser-tabs__collapse-slot {
+    width: 70px;
+  }
+
+  .assistant-sidebar {
+    width: var(--assistant-sidebar-width, clamp(288px, 26vw, 320px));
+    min-width: var(--assistant-sidebar-width, clamp(288px, 26vw, 320px));
+  }
+
+  .assistant-sidebar-workspace {
+    gap: 8px;
+    padding: 8px;
+    font-size: 13px;
+  }
+
+  .assistant-sidebar-workspace .floating-assistant-tabs {
+    gap: 4px;
+  }
+
+  .assistant-sidebar-workspace .floating-assistant-tabs button {
+    min-height: 32px;
+    padding: 3px 4px;
+    font-size: 12px;
+  }
+
+  .assistant-sidebar__collapse-button {
+    left: -76px;
+    min-width: 60px;
+    min-height: 28px;
+    grid-template-columns: 22px auto;
+    font-size: 12px;
+  }
+
+  .assistant-sidebar__collapse-pet {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+@media (max-width: 1120px) {
+  .assistant-sidebar {
+    width: var(--assistant-sidebar-width, clamp(272px, 27vw, 288px));
+    min-width: var(--assistant-sidebar-width, clamp(272px, 27vw, 288px));
+  }
+}
 .memorial-panel {
   width: min(420px, calc(100vw - 16px));
   max-height: calc(100vh - 16px);

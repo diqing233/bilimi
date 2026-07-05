@@ -1,11 +1,18 @@
 ﻿import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   AssistantSidebar,
   ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX,
   clampAssistantSidebarWidthPx
 } from './AssistantSidebar'
 import { createInitialAssistantPreferences } from '../state/assistantState'
+
+function setWindowInnerWidth(width: number) {
+  Object.defineProperty(window, 'innerWidth', {
+    configurable: true,
+    value: width
+  })
+}
 
 function installDesktopApi({
   preferences = createInitialAssistantPreferences()
@@ -73,15 +80,29 @@ function installDesktopApi({
 }
 
 describe('assistant sidebar width helpers', () => {
+  beforeEach(() => {
+    setWindowInnerWidth(1366)
+  })
+
   it('keeps resized widths within practical bounds for the current window', () => {
     expect(clampAssistantSidebarWidthPx(260, 1280)).toBe(320)
     expect(clampAssistantSidebarWidthPx(360, 1280)).toBe(360)
     expect(clampAssistantSidebarWidthPx(900, 1280)).toBe(486)
     expect(clampAssistantSidebarWidthPx(900, 1920)).toBe(486)
   })
+
+  it('allows narrower sidebars on compact logical windows', () => {
+    expect(clampAssistantSidebarWidthPx(260, 1080)).toBe(272)
+    expect(clampAssistantSidebarWidthPx(260, 1180)).toBe(288)
+    expect(clampAssistantSidebarWidthPx(260, 1280)).toBe(320)
+  })
 })
 
 describe('AssistantSidebar', () => {
+  beforeEach(() => {
+    setWindowInnerWidth(1366)
+  })
+
   it('opens by default with the 批阅 tab selected', async () => {
     installDesktopApi()
 
@@ -227,6 +248,23 @@ describe('AssistantSidebar', () => {
       )
     )
     expect(ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX).toBe(384)
+  })
+
+  it('re-clamps saved sidebar width when the current window is compact', async () => {
+    setWindowInnerWidth(1080)
+    installDesktopApi({
+      preferences: createInitialAssistantPreferences({
+        assistantSidebarWidthPx: 486
+      })
+    })
+
+    render(<AssistantSidebar />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'bilimi 侧边栏' })
+
+    await act(async () => undefined)
+
+    expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '410px' })
   })
 
   it('captures the pointer and shields webviews while resizing', async () => {
