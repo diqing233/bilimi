@@ -176,7 +176,11 @@ function candidateLedgerId(candidate: FavoriteLedgerCandidate) {
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error || '未知错误')
+  const message = error instanceof Error ? error.message : String(error || '未知错误')
+  if (message.includes('已达到数量上限')) {
+    return '收藏夹数量已超过b站上限99个，小咪已经无法再生成更多收藏夹了，主人想继续使用建议适当删除几个哦'
+  }
+  return message
 }
 
 function isBilimiLedger(ledger: FavoriteLedger) {

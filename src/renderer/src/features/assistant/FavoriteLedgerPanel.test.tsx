@@ -2594,6 +2594,32 @@ describe('FavoriteLedgerPanel', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('同步未完成：账号同步超时')
   })
 
+  it('explains the Bilibili favorite folder limit in Chinese', async () => {
+    const onSaveLedgers = vi.fn().mockRejectedValue(
+      new Error(
+        "Error invoking remote method 'floating-assistant:save-ledgers': Error: BILI_MANAGER_CALL: Error: favorite ledger create failed: 已达到数量上限"
+      )
+    )
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '影视动漫' }))
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '同步未完成：收藏夹数量已超过b站上限99个，小咪已经无法再生成更多收藏夹了，主人想继续使用建议适当删除几个哦'
+    )
+  })
+
   it('shows a status message while old favorites are scanning', async () => {
     let resolveSave:
       | ((value: { ok: boolean; steps: string[]; missingTargets: string[]; message: string }) => void)
