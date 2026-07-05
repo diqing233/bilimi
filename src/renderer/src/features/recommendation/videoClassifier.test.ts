@@ -92,6 +92,88 @@ describe('classifyVideoContent', () => {
     )
   })
 
+  it('classifies concept variants without requiring exact keyword copies', () => {
+    const ledgers = createDefaultFavoriteLedgers()
+
+    expect(classifyVideoContent({ title: '科普小常识合集' }, ledgers).ledgerId).toBe('knowledge')
+    expect(classifyVideoContent({ title: '科普常识' }, ledgers).ledgerId).toBe('knowledge')
+    expect(classifyVideoContent({ title: '知识科普' }, ledgers).ledgerId).toBe('knowledge')
+    expect(classifyVideoContent({ title: '冷知识十连发' }, ledgers).ledgerId).toBe('knowledge')
+  })
+
+  it('uses context to disambiguate 攻略 and 剧情', () => {
+    const ledgers = createDefaultFavoriteLedgers()
+
+    expect(classifyVideoContent({ title: '东京旅行攻略' }, ledgers).ledgerId).toBe('life-interest')
+    expect(classifyVideoContent({ title: '装修避坑攻略' }, ledgers).ledgerId).toBe('life-interest')
+    expect(classifyVideoContent({ title: '原神攻略' }, ledgers).ledgerId).toBe('game')
+    expect(classifyVideoContent({ title: '星铁剧情解析' }, ledgers).ledgerId).toBe('game')
+    expect(classifyVideoContent({ title: '第十二集剧情反转' }, ledgers).ledgerId).toBe('movie-tv')
+    expect(classifyVideoContent({ title: '电影剧情解析' }, ledgers).ledgerId).toBe('movie-tv')
+  })
+
+  it('emits confidence diagnostics and low-confidence markers', () => {
+    const result = classifyVideoContent({ title: '攻略教程入门' }, createDefaultFavoriteLedgers())
+
+    expect(result.diagnostic).toMatchObject({
+      confidence: 'low',
+      lowConfidence: true,
+      weakSignals: expect.arrayContaining(['攻略', '教程', '入门'])
+    })
+  })
+
+  it('keeps weak terms low confidence even when repeated across fields', () => {
+    const result = classifyVideoContent(
+      {
+        title: '教程入门',
+        category: '教程',
+        tags: ['教程', '入门']
+      },
+      createDefaultFavoriteLedgers()
+    )
+
+    expect(result.diagnostic).toMatchObject({
+      confidence: 'low',
+      lowConfidence: true
+    })
+  })
+
+  it('does not classify consumer contexts as knowledge only because of 测评', () => {
+    const ledgers = createDefaultFavoriteLedgers()
+
+    expect(classifyVideoContent({ title: '护肤品测评避坑' }, ledgers).ledgerId).not.toBe('knowledge')
+    expect(classifyVideoContent({ title: '新能源车测评试驾' }, ledgers).ledgerId).not.toBe('knowledge')
+    expect(classifyVideoContent({ title: '效率软件与数码工具测评' }, ledgers).ledgerId).toBe(
+      'knowledge'
+    )
+  })
+
+  it('marks reverse-rule conflicts as low confidence diagnostics', () => {
+    const knowledgeOnly = createDefaultFavoriteLedgers().filter((ledger) =>
+      ['knowledge', 'inbox'].includes(ledger.id)
+    )
+    const result = classifyVideoContent(
+      { title: '效率软件数码工具护肤品测评教程入门' },
+      knowledgeOnly
+    )
+
+    expect(result.diagnostic).toMatchObject({
+      confidence: 'low',
+      lowConfidence: true,
+      negativeRules: expect.arrayContaining(['消费语境压低裸测评的知识解释'])
+    })
+  })
+
+  it('does not reinterpret game entity plot videos as movie content when the game ledger is disabled', () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'game' ? { ...ledger, enabled: false } : ledger
+    )
+
+    const result = classifyVideoContent({ title: '星铁剧情解析' }, ledgers)
+
+    expect(result.ledgerId).toBe('inbox')
+  })
+
   it('scores tags higher than title and page text when classification signals conflict', () => {
     const ledgers = [
       {

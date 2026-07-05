@@ -79,6 +79,27 @@ export type FavoriteLedgerClassification = {
   reviewRequired: boolean
   suggestedLedgerId?: FavoriteLedgerId
   suggestedDisplayName?: string
+  diagnostic?: FavoriteLedgerClassificationDiagnostic
+}
+
+export type FavoriteArchiveStrategy = 'aggressive' | 'balanced' | 'conservative'
+
+export type ClassificationConfidenceLevel = 'high' | 'medium' | 'low'
+
+export type FavoriteLedgerClassificationDiagnostic = {
+  score: number
+  runnerUpLedgerId?: FavoriteLedgerId
+  runnerUpScore?: number
+  scoreGap: number
+  confidence: ClassificationConfidenceLevel
+  lowConfidence: boolean
+  matchedKeywords: string[]
+  strongSignals: string[]
+  weakSignals: string[]
+  entityAliases: string[]
+  conceptClusters: string[]
+  positiveRules: string[]
+  negativeRules: string[]
 }
 
 export type FavoriteLedgerStatus = {

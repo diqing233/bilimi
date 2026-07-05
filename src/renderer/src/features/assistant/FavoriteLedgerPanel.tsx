@@ -528,6 +528,9 @@ function retryJudgmentTargetForOldFavoriteItem(
   if (!ledger?.enabled) {
     return null
   }
+  if (ledger.isDefault && item.candidateTargets?.length) {
+    return null
+  }
 
   return {
     ledgerId: ledger.id,
