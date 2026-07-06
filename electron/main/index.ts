@@ -713,8 +713,8 @@ function registerAssistantPreferenceHandlers() {
   )
   ipcMain.handle(
     'video-note-archives:update-version',
-    (_event, archiveId: string, versionId: string, note: VideoNote) =>
-      updateVideoNoteArchiveVersion(getDesktopStore(), archiveId, versionId, note)
+    (_event, archiveId: string, versionId: string, note: VideoNote, summaryText?: string) =>
+      updateVideoNoteArchiveVersion(getDesktopStore(), archiveId, versionId, note, summaryText)
   )
   ipcMain.handle('video-note-archives:delete-entry', (_event, archiveId: string) =>
     deleteVideoNoteArchiveEntry(getDesktopStore(), archiveId)

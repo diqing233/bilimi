@@ -380,7 +380,8 @@ describe('FloatingAssistantApp', () => {
         createSnapshot({
           preferences: createPreferences({
             deepseekEnabled: true,
-            deepseekApiKeyStored: true
+            deepseekApiKeyStored: true,
+            deepseekDailyClassificationEnabled: true
           })
         })
       )
@@ -493,6 +494,7 @@ describe('FloatingAssistantApp', () => {
           preferences: createPreferences({
             deepseekEnabled: true,
             deepseekApiKeyStored: true,
+            deepseekDailyClassificationEnabled: true,
             favoriteKeywordSuggestions: [
               {
                 id: 'existing-pending',
@@ -674,6 +676,68 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByRole('checkbox', { name: '纠错学习参与分类' })).toBeChecked()
   })
 
+  it('renders a settings jump menu and concise learning counts', async () => {
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            favoriteCorrectionRecords: [
+              {
+                id: 'c1',
+                aid: 1,
+                title: '东京旅行攻略',
+                author: '旅行UP',
+                tags: ['旅行'],
+                originalLedgerId: 'inbox',
+                userLedgerIds: ['life-interest'],
+                feedbackType: 'strong-correction',
+                source: 'user',
+                sourceScene: 'archive-preview',
+                sourceFolderTitle: '默认收藏夹',
+                matchedKeywords: ['攻略'],
+                score: 1,
+                confidence: 0.4,
+                createdAt: '2026-07-05T00:00:00.000Z'
+              }
+            ],
+            favoriteKeywordSuggestions: [
+              {
+                id: 's1',
+                action: 'add-keyword',
+                ledgerId: 'game',
+                keyword: '攻略',
+                reason: '用户多次改到游戏册。',
+                source: 'user',
+                status: 'pending',
+                createdAt: '2026-07-05T00:00:00.000Z'
+              }
+            ]
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+
+    expect(screen.getByRole('combobox', { name: '设置项' })).toHaveValue('diagnostics')
+    expect(await screen.findByText('纠错学习记录（1）')).toBeInTheDocument()
+    expect(screen.getByText('关键词建议（1）')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole('combobox', { name: '设置项' }), {
+      target: { value: 'transcription' }
+    })
+
+    expect(screen.getByRole('combobox', { name: '设置项' })).toHaveValue('transcription')
+    expect(screen.getByRole('group', { name: '视频音频转写速度' })).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        '控制本地 whisper.cpp / whisper-cli.exe 转写视频音频能使用多少 CPU 线程；限制越低，电脑越不容易卡，但转写会更慢。'
+      )
+    ).toBeInTheDocument()
+  })
+
   it('saves archive strategy and correction learning choices', async () => {
     const { savePreferences } = installDesktopApi()
 
@@ -712,14 +776,14 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
 
     const reviewToggle = screen.getByRole('checkbox', {
-      name: '启用 DeepSeek 辅助判断归类收藏夹'
+      name: '辅助整理'
     })
     expect(reviewToggle).not.toBeChecked()
 
     fireEvent.click(reviewToggle)
 
-    expect(screen.getByRole('radio', { name: '全部归类都辅助判断' })).toBeChecked()
-    expect(screen.getByRole('radio', { name: '仅低置信时辅助判断' })).toBeVisible()
+    expect(screen.getByRole('radio', { name: '全部归类' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: '仅不太稳' })).toBeVisible()
   })
 
   it('can review, delete, and clear correction records', async () => {
@@ -1731,7 +1795,7 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
 
-    expect(screen.getByRole('group', { name: '本地转写性能' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: '视频音频转写速度' })).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: '无限制（最快，占用最高）' })).toBeChecked()
 
     fireEvent.click(screen.getByRole('radio', { name: '限制为 2 线程（平衡）' }))
@@ -2073,7 +2137,7 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
 
-    expect(screen.getByText('宠物设置')).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: '宠物设置' })).toBeInTheDocument()
     expect(screen.queryByText('宠物样式')).not.toBeInTheDocument()
     expect(screen.getByText('宠物快捷操作')).toBeInTheDocument()
     expect(
@@ -2145,6 +2209,9 @@ describe('FloatingAssistantApp', () => {
     await screen.findAllByRole('tab')
     fireEvent.click(screen.getAllByRole('tab')[3])
 
+    const enabled = screen.getByRole('checkbox', { name: '启用 DeepSeek' })
+    fireEvent.click(enabled)
+
     expect(screen.getByRole('link', { name: '官网：https://yunshulink.com/' })).toHaveAttribute(
       'href',
       'https://yunshulink.com/'
@@ -2155,7 +2222,7 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByText('推荐模型：deepseek-v4-pro')).toBeInTheDocument()
     expect(screen.getByText('服务器地址：https://api.yunshulink.com/v1')).toBeInTheDocument()
     expect(
-      screen.getByText('开启后可使用批阅的拟奏短评、札记中的 DeepSeek 总结、宠物对话功能。')
+      screen.getByText('开启后可使用批阅短评、札记总结、宠物对话和辅助整理。关闭后相关功能入口会提示先开启。')
     ).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '复制推荐模型' }))
     expect(screen.getByRole('button', { name: '复制推荐模型' })).toHaveTextContent('复制')
@@ -2172,12 +2239,10 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://api.yunshulink.com/v1'))
     expect(await screen.findByRole('status')).toHaveTextContent('已复制服务器地址。')
 
-    const enabled = screen.getByRole('checkbox', { name: '启用 DeepSeek' })
-    fireEvent.click(enabled)
     expect(screen.queryByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' })).not.toBeInTheDocument()
-    expect(screen.getByRole('checkbox', { name: '启用 DeepSeek 生成趣味评论' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: '启用 DeepSeek 宠物对话功能' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '趣味评论' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '自动总结' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '宠物对话' })).toBeChecked()
     fireEvent.change(screen.getByLabelText('DeepSeek API 密钥'), {
       target: { value: 'sk-test' }
     })
@@ -2218,18 +2283,14 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() => expect(clearDeepSeekApiKey).toHaveBeenCalledOnce())
     await waitFor(() => {
       expect(screen.getByRole('checkbox', { name: '启用 DeepSeek' })).not.toBeChecked()
-      expect(screen.getByRole('checkbox', { name: '启用 DeepSeek 生成趣味评论' })).not.toBeChecked()
-      expect(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' })).not.toBeChecked()
-      expect(screen.getByRole('checkbox', { name: '启用 DeepSeek 宠物对话功能' })).not.toBeChecked()
-      expect(
-        screen.getByRole('checkbox', { name: '启用 DeepSeek 辅助判断归类收藏夹' })
-      ).not.toBeChecked()
+      expect(screen.queryByRole('checkbox', { name: '趣味评论' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('checkbox', { name: '自动总结' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('checkbox', { name: '宠物对话' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('checkbox', { name: '辅助整理' })).not.toBeInTheDocument()
     })
-    expect(screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥').value).toBe('')
-    expect(screen.getByLabelText<HTMLInputElement>('DeepSeek 模型').value).toBe('deepseek-v4-flash')
-    expect(screen.getByLabelText<HTMLInputElement>('DeepSeek 服务地址').value).toBe(
-      'https://api.deepseek.com'
-    )
+    expect(screen.queryByLabelText('DeepSeek API 密钥')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('DeepSeek 模型')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('DeepSeek 服务地址')).not.toBeInTheDocument()
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2249,7 +2310,16 @@ describe('FloatingAssistantApp', () => {
   })
 
   it('persists the DeepSeek auto-summary toggle as soon as it changes', async () => {
-    const { savePreferences } = installDesktopApi()
+    const { savePreferences } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true,
+            deepseekAutoSummaryEnabled: false
+          })
+        })
+      )
+    })
 
     render(<FloatingAssistantApp />)
 
@@ -2257,7 +2327,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getAllByRole('tab')[3])
 
     expect(screen.queryByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '自动总结' }))
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
@@ -2273,6 +2343,7 @@ describe('FloatingAssistantApp', () => {
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
           preferences: createPreferences({
+            deepseekEnabled: true,
             deepseekAutoSummaryEnabled: true
           })
         })
@@ -2285,7 +2356,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getAllByRole('tab')[3])
 
     expect(screen.queryByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' })).not.toBeInTheDocument()
-    expect(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '自动总结' })).toBeChecked()
   })
 
   it('explains when the DeepSeek test bridge is not available', async () => {
@@ -2297,6 +2368,7 @@ describe('FloatingAssistantApp', () => {
 
     await screen.findAllByRole('tab')
     fireEvent.click(screen.getAllByRole('tab')[3])
+    fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek' }))
     fireEvent.click(screen.getByRole('button', { name: '测试 DeepSeek' }))
 
     expect(await screen.findByRole('status')).toHaveTextContent(
@@ -2853,7 +2925,6 @@ describe('FloatingAssistantApp', () => {
       })
     })
     await waitFor(() => expect(loadVideoNoteArchives).toHaveBeenCalledTimes(2))
-    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
     expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).toHaveTextContent(
       '机器学习需要数据和模型。'
     )

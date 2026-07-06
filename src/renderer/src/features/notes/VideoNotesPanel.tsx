@@ -43,9 +43,11 @@ type VideoNotesPanelProps = {
   deepSeekAutoSummaryEnabled?: boolean
   transcriptionProgress?: VideoAudioTranscriptionProgress | null
   transcriptionQueue?: VideoAudioTranscriptionQueueSnapshot
+  activeResultTab?: VideoNotesResultTab | null
+  onActiveResultTabChange?: (tab: VideoNotesResultTab | null) => void
 }
 
-type VideoNotesResultTab = 'plain' | 'timed' | 'summary'
+export type VideoNotesResultTab = 'plain' | 'timed' | 'summary'
 
 const resultTabs: Array<{ id: VideoNotesResultTab; label: string; description: string }> = [
   { id: 'plain', label: '无时间线文稿', description: '纯文稿连续阅读，提供复制全文。' },
@@ -179,9 +181,12 @@ export function VideoNotesPanel({
   deepSeekEnabled = false,
   deepSeekAutoSummaryEnabled = false,
   transcriptionProgress = null,
-  transcriptionQueue
+  transcriptionQueue,
+  activeResultTab: controlledActiveResultTab,
+  onActiveResultTabChange
 }: VideoNotesPanelProps): React.JSX.Element {
-  const [activeResultTab, setActiveResultTab] = useState<VideoNotesResultTab | null>(null)
+  const [uncontrolledActiveResultTab, setUncontrolledActiveResultTab] =
+    useState<VideoNotesResultTab | null>(null)
   const [localGenerating, setLocalGenerating] = useState(false)
   const [transcribingAudio, setTranscribingAudio] = useState(false)
   const [generateFailed, setGenerateFailed] = useState(false)
@@ -214,6 +219,7 @@ export function VideoNotesPanel({
     [transcriptionQueue]
   )
   const generationBusy = isLoading || localGenerating || transcribingAudio
+  const activeResultTab = controlledActiveResultTab ?? uncontrolledActiveResultTab
   const notePosterKey = note ? createPosterCacheKey(note) : ''
   const activePosterSummary =
     posterSummary && posterSummary.noteKey === notePosterKey ? posterSummary.summary : null
@@ -234,6 +240,14 @@ export function VideoNotesPanel({
         : activeArchivedSummaryText,
     [activeArchivedSummaryText, activePosterSummary]
   )
+
+  function setResultTab(tab: VideoNotesResultTab | null): void {
+    if (controlledActiveResultTab === undefined) {
+      setUncontrolledActiveResultTab(tab)
+    }
+
+    onActiveResultTabChange?.(tab)
+  }
 
   async function handleGenerate(): Promise<void> {
     if (generationBusy) return
@@ -268,7 +282,7 @@ export function VideoNotesPanel({
 
   async function runTranscribeAudio(): Promise<VideoNote | null> {
     if (!onTranscribeAudio || generationBusy) return null
-    setActiveResultTab('plain')
+    setResultTab('plain')
     setTranscribingAudio(true)
     setStatusMessage('')
     setErrorMessage('')
@@ -290,7 +304,7 @@ export function VideoNotesPanel({
 
   async function handleEnqueueTranscription(): Promise<void> {
     if (!onEnqueueTranscription || generationBusy) return
-    setActiveResultTab('plain')
+    setResultTab('plain')
     setStatusMessage('')
     setErrorMessage('')
     try {
@@ -333,7 +347,7 @@ export function VideoNotesPanel({
   }
 
   function handleResultTabClick(tab: VideoNotesResultTab): void {
-    setActiveResultTab(tab)
+    setResultTab(activeResultTab === tab ? null : tab)
   }
 
   async function copyText(value: string, successMessage: string): Promise<void> {
@@ -357,6 +371,11 @@ export function VideoNotesPanel({
           <span>{progress.percent}%</span>
         </div>
         <progress max={100} value={progress.percent} aria-label={progress.ariaLabel} />
+        {transcriptionProgress.step === 'transcribing-segment' ? (
+          <small>
+            whisper.cpp 正在本地转写，CPU 占用升高是正常现象；可在设置里调整视频音频转写速度。
+          </small>
+        ) : null}
       </div>
     )
   }
@@ -380,6 +399,11 @@ export function VideoNotesPanel({
           <span>{progress.percent}%</span>
         </div>
         <progress max={100} value={progress.percent} aria-label={progress.ariaLabel} />
+        {itemProgress.step === 'transcribing-segment' ? (
+          <small>
+            whisper.cpp 正在本地转写，CPU 占用升高是正常现象；可在设置里调整视频音频转写速度。
+          </small>
+        ) : null}
       </div>
     )
   }

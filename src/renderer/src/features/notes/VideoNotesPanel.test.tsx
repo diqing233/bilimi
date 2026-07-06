@@ -111,6 +111,27 @@ describe('VideoNotesPanel', () => {
     )
   })
 
+  it('lets users collapse transcript result tabs and keeps the panel collapsed across rerenders', () => {
+    const { rerender } = renderPanel()
+
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+    expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+    expect(screen.queryByRole('tabpanel', { name: /无时间线文稿/ })).not.toBeInTheDocument()
+
+    rerender(
+      <VideoNotesPanel
+        note={sampleNote}
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+      />
+    )
+
+    expect(screen.queryByRole('tabpanel', { name: /无时间线文稿/ })).not.toBeInTheDocument()
+  })
+
   it('uses the primary transcription action to enqueue the first video when queue support is available', async () => {
     const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
     const onEnqueueTranscription = vi.fn().mockResolvedValue({
@@ -241,6 +262,28 @@ describe('VideoNotesPanel', () => {
     fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
     expect(screen.getAllByText('请先到设置启用 DeepSeek 后再生成总结。').length).toBeGreaterThan(0)
     expect(onGeneratePoster).not.toHaveBeenCalled()
+  })
+
+  it('enables DeepSeek summary generation immediately after DeepSeek is turned on', () => {
+    const onGeneratePoster = vi.fn()
+    const { rerender } = renderPanel({ deepSeekEnabled: false, onGeneratePoster })
+
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+    expect(screen.getByRole('button', { name: '生成总结' })).toBeDisabled()
+
+    rerender(
+      <VideoNotesPanel
+        note={sampleNote}
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+        deepSeekEnabled={true}
+        onGeneratePoster={onGeneratePoster}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: '生成总结' })).not.toBeDisabled()
+    expect(screen.getByText('请点击生成总结，让 DeepSeek 基于文稿生成精准总结。')).toBeInTheDocument()
   })
 
   it('generates DeepSeek summary from an explicit current-note action', async () => {

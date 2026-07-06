@@ -115,7 +115,9 @@ describe('renderer porcelain theme styles', () => {
     expect(sidebarStyles).toContain('.assistant-sidebar__resize-shield {\n  position: fixed;')
     expect(sidebarStyles).toContain('inset: 0;\n  z-index: 2;\n  cursor: col-resize;')
     expect(sidebarStyles).toContain('.assistant-sidebar__collapse-button {\n  position: absolute;\n  top: 5px;\n  left: -82px;')
-    expect(sidebarStyles).not.toContain('top: 12px;')
+    expect(sidebarStyles).not.toContain(
+      '.assistant-sidebar__collapse-button {\n  position: absolute;\n  top: 12px;'
+    )
     expect(sidebarStyles).toContain('min-width: 66px;\n  min-height: 30px;')
     expect(sidebarStyles).toContain('grid-template-columns: 24px auto;')
     expect(sidebarStyles).toContain('.assistant-sidebar-workspace .floating-assistant-tabs {')
@@ -367,8 +369,10 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__preview-videos { grid-column: 1 / -1; display: grid; grid-auto-columns: minmax(260px, calc(100% - 12px));')
     expectStyleSnippet('.favorite-ledger-panel__preview-videos article { min-width: 0; border: 1px solid rgba(31, 99, 181, 0.2);')
     expectStyleSnippet('.favorite-ledger-panel__preview-video { width: 100%; min-height: 0; display: grid; align-content: start;')
+    expectStyleSnippet('border: 1px solid transparent; background: var(--porcelain-white);')
+    expectStyleSnippet('.favorite-ledger-panel__preview-video[data-selected="true"] { border-color: rgba(31, 99, 181, 0.36); background: rgba(220, 238, 255, 0.68);')
     expectStyleSnippet('.favorite-ledger-panel__preview-video-meta { display: grid; gap: 3px; min-width: 0;')
-    expectStyleSnippet('.favorite-ledger-panel__preview-video-meta small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-video-meta small { min-width: 0; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;')
     expectStyleSnippet('.favorite-ledger-panel__preview-delta-row { display: grid; grid-template-columns: minmax(0, 1fr) auto;')
     expectStyleSnippet('.favorite-ledger-panel__preview-delta { min-width: 0; overflow: hidden; color: rgb(166, 46, 46);')
     expectStyleSnippet('.favorite-ledger-panel__preview-row--pending { background: transparent;')

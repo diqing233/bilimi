@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { VideoNote, VideoNoteArchiveEntry } from '@shared/types'
+import type { NotePosterSummary, VideoNote, VideoNoteArchiveEntry } from '@shared/types'
 import { appendVideoNoteArchiveVersion } from '@shared/videoNoteArchive'
 import { VideoNoteArchivePanel } from './VideoNoteArchivePanel'
 
@@ -74,6 +74,9 @@ function renderArchivePanel(overrides: Partial<React.ComponentProps<typeof Video
       onUpdateVersion={vi.fn()}
       onDeleteEntry={vi.fn()}
       onDeleteVersion={vi.fn()}
+      deepSeekEnabled={true}
+      onGeneratePoster={vi.fn()}
+      onArchivePosterSummary={vi.fn()}
       {...overrides}
     />
   )
@@ -165,6 +168,44 @@ describe('VideoNoteArchivePanel', () => {
     expect(screen.getByText(/先介绍机器学习的基本概念/)).toBeInTheDocument()
   })
 
+  it('collapses an open archive transcript tab when clicked again', () => {
+    renderArchivePanel()
+
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('tab', { name: '无时间线文稿' }))
+    expect(screen.getByText('第二版纯文稿。')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: '无时间线文稿' }))
+
+    expect(screen.queryByText('第二版纯文稿。')).not.toBeInTheDocument()
+  })
+
+  it('opens source from the underlined title and more menu, and deletes versions inline', async () => {
+    const onOpenSource = vi.fn()
+    const onDeleteVersion = vi.fn().mockResolvedValue(undefined)
+    renderArchivePanel({ onOpenSource, onDeleteVersion })
+
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('link', { name: '机器学习入门' }))
+    expect(onOpenSource).toHaveBeenCalledWith('https://www.bilibili.com/video/BV1note')
+
+    fireEvent.click(screen.getByRole('button', { name: '更多档案操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '打开视频来源' }))
+    expect(onOpenSource).toHaveBeenCalledTimes(2)
+
+    fireEvent.click(screen.getByRole('button', { name: '展开历史版本' }))
+    fireEvent.click(screen.getByRole('button', { name: /删除版本 v1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+
+    await waitFor(() =>
+      expect(onDeleteVersion).toHaveBeenCalledWith(
+        expect.any(String),
+        'bvid:BV1note:version:2026-06-17T00:00:00.000Z'
+      )
+    )
+    expect(screen.queryByRole('button', { name: '删除当前版本' })).not.toBeInTheDocument()
+  })
+
   it('opens the memo editor directly below the version controls', () => {
     renderArchivePanel()
 
@@ -174,13 +215,10 @@ describe('VideoNoteArchivePanel', () => {
     const detail = screen.getByRole('article', { name: /\u673a\u5668\u5b66\u4e60/ })
     const controls = detail.querySelector('.video-note-archive__version-controls')
     const editor = screen.getByLabelText('\u5907\u6ce8')
-    const actions = detail.querySelector('.video-note-archive__actions')
 
     expect(controls).not.toBeNull()
     expect(controls?.nextElementSibling).toBe(editor)
-    expect(editor.compareDocumentPosition(actions as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING
-    )
+    expect(detail.querySelector('.video-note-archive__actions')).toBeNull()
   })
 
   it('copies transcript and summary text', async () => {
@@ -262,6 +300,32 @@ describe('VideoNoteArchivePanel', () => {
         ].join('\n')
       )
     )
+  })
+
+  it('generates a DeepSeek summary for an archived transcript without retranscribing', async () => {
+    const poster: NotePosterSummary = {
+      title: '归档总结',
+      subtitle: '基于已有文稿生成',
+      keyPoints: ['不需要重新转写'],
+      keywords: ['档案'],
+      prompt: 'archive poster',
+      polishedTranscriptText: '## 精修文稿\n\n第二版纯文稿。',
+      auditChecklistText: '- 文稿：已读取'
+    }
+    const onGeneratePoster = vi.fn().mockResolvedValue(poster)
+    const onArchivePosterSummary = vi.fn().mockResolvedValue(undefined)
+
+    renderArchivePanel({ onGeneratePoster, onArchivePosterSummary })
+
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('tab', { name: 'DeepSeek 总结' }))
+    fireEvent.click(screen.getByRole('button', { name: '生成总结' }))
+
+    await waitFor(() => expect(onGeneratePoster).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'bvid:BV1note'
+    })))
+    expect(onArchivePosterSummary).toHaveBeenCalledWith(expect.any(Object), poster)
+    expect(await screen.findByText('归档总结')).toBeInTheDocument()
   })
 
   it('saves archive memo and starred state while keeping them filterable', async () => {
@@ -351,10 +415,11 @@ describe('VideoNoteArchivePanel', () => {
     renderArchivePanel({ onOpenSource, onDeleteEntry, onDeleteVersion })
 
     fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
-    fireEvent.click(screen.getByRole('button', { name: '打开来源' }))
+    fireEvent.click(screen.getByRole('link', { name: '机器学习入门' }))
     expect(onOpenSource).toHaveBeenCalledWith('https://www.bilibili.com/video/BV1note')
 
-    fireEvent.click(screen.getByRole('button', { name: '删除当前版本' }))
+    fireEvent.click(screen.getByRole('button', { name: '展开历史版本' }))
+    fireEvent.click(screen.getByRole('button', { name: /删除版本 v2/ }))
     const versionDialog = screen.getByRole('dialog', { name: '确认删除' })
     fireEvent.click(within(versionDialog).getByRole('button', { name: '确认删除' }))
     await waitFor(() =>
@@ -364,7 +429,8 @@ describe('VideoNoteArchivePanel', () => {
       )
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '删除视频档案' }))
+    fireEvent.click(screen.getByRole('button', { name: '更多档案操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除视频档案' }))
     const entryDialog = screen.getByRole('dialog', { name: '确认删除' })
     fireEvent.click(within(entryDialog).getByRole('button', { name: '确认删除' }))
     await waitFor(() => expect(onDeleteEntry).toHaveBeenCalledWith('bvid:BV1note'))

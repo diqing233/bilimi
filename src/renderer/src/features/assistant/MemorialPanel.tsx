@@ -1,5 +1,7 @@
 import type {
   AssistantAction,
+  AssistantPreferences,
+  CommentSubmitMode,
   RecommendationLabel,
   NotePosterSummary,
   VideoAudioTranscriptionProgress,
@@ -7,7 +9,7 @@ import type {
   VideoNote
 } from '@shared/types'
 import { useEffect, useState } from 'react'
-import { VideoNotesPanel } from '../notes/VideoNotesPanel'
+import { VideoNotesPanel, type VideoNotesResultTab } from '../notes/VideoNotesPanel'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
@@ -26,6 +28,11 @@ type MemorialPanelProps = {
   deepSeekEnabled?: boolean
   deepSeekCommentEnabled?: boolean
   deepSeekAutoSummaryEnabled?: boolean
+  defaultCoinCount?: 1 | 2
+  commentSubmitMode?: CommentSubmitMode
+  onPreferenceChange?: (patch: Partial<AssistantPreferences>) => void
+  videoNotesResultTab?: VideoNotesResultTab | null
+  onVideoNotesResultTabChange?: (tab: VideoNotesResultTab | null) => void
   videoCategory?: string
   videoTitle: string
   videoAuthor?: string
@@ -145,6 +152,11 @@ export function MemorialPanel({
   deepSeekEnabled = false,
   deepSeekCommentEnabled = deepSeekEnabled,
   deepSeekAutoSummaryEnabled = false,
+  defaultCoinCount = 1,
+  commentSubmitMode = 'choose',
+  onPreferenceChange,
+  videoNotesResultTab,
+  onVideoNotesResultTabChange,
   videoCategory = '解闷小品',
   videoTitle,
   videoAuthor,
@@ -219,23 +231,59 @@ export function MemorialPanel({
               </p>
             </aside>
             <div className="memorial-panel__actions" role="group" aria-label="批阅动作">
-              {ACTIONS.map(({ action, testId, label, description, icon, iconAlt }) => (
-                <AssistantActionButton
-                  key={action}
-                  type="button"
-                  data-testid={testId}
-                  disabled={actionsLocked}
-                  aria-label={`${action} ${label} ${description}`}
-                  aria-busy={runningAction === action}
-                  onClick={() => void onAction(action)}
-                  icon={icon}
-                  iconAlt={iconAlt}
-                  badge={action}
-                  label={label}
-                  description={description}
-                >
-                </AssistantActionButton>
-              ))}
+              {ACTIONS.map(({ action, testId, label, description, icon, iconAlt }) => {
+                const quickSetting =
+                  action === '赐' ? (
+                    <label className="memorial-panel__action-setting">
+                      <span>投币数量</span>
+                      <select
+                        value={defaultCoinCount}
+                        onChange={(event) =>
+                          onPreferenceChange?.({
+                            defaultCoinCount: Number(event.currentTarget.value) as 1 | 2
+                          })
+                        }
+                      >
+                        <option value={1}>1 枚</option>
+                        <option value={2}>2 枚</option>
+                      </select>
+                    </label>
+                  ) : action === '表' ? (
+                    <label className="memorial-panel__action-setting">
+                      <span>评论发送方式</span>
+                      <select
+                        value={commentSubmitMode}
+                        onChange={(event) =>
+                          onPreferenceChange?.({
+                            commentSubmitMode: event.currentTarget.value as CommentSubmitMode
+                          })
+                        }
+                      >
+                        <option value="random">随机生成一条并直接发送</option>
+                        <option value="choose">生成 3 条候选</option>
+                      </select>
+                    </label>
+                  ) : null
+
+                return (
+                  <div key={action} className="memorial-panel__action-card">
+                    <AssistantActionButton
+                      type="button"
+                      data-testid={testId}
+                      disabled={actionsLocked}
+                      aria-label={`${action} ${label} ${description}`}
+                      aria-busy={runningAction === action}
+                      onClick={() => void onAction(action)}
+                      icon={icon}
+                      iconAlt={iconAlt}
+                      badge={action}
+                      label={label}
+                      description={description}
+                    />
+                    {quickSetting}
+                  </div>
+                )
+              })}
             </div>
           </div>
         ) : (
@@ -257,6 +305,8 @@ export function MemorialPanel({
             deepSeekAutoSummaryEnabled={deepSeekAutoSummaryEnabled}
             transcriptionProgress={transcriptionProgress}
             transcriptionQueue={transcriptionQueue}
+            activeResultTab={videoNotesResultTab}
+            onActiveResultTabChange={onVideoNotesResultTabChange}
           />
         )}
         {feedback ? (

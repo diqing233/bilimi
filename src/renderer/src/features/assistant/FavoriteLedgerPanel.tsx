@@ -734,7 +734,7 @@ function oldFavoriteTagsText(item: FavoriteLedgerPreviewItem) {
 }
 
 function oldFavoriteVisibleTagsText(item: FavoriteLedgerPreviewItem) {
-  return (item.tags ?? []).filter(Boolean).slice(0, 3).join('、')
+  return oldFavoriteTagsText(item)
 }
 
 function deepSeekArchiveMultiLimit(mode: FavoriteArchiveMultiMode): 1 | 2 | 3 {
@@ -744,17 +744,21 @@ function deepSeekArchiveMultiLimit(mode: FavoriteArchiveMultiMode): 1 | 2 | 3 {
 }
 
 function lowConfidenceDetailText(item: FavoriteLedgerPreviewItem) {
-  if (!item.lowConfidence && !item.classificationDiagnostic?.lowConfidence) {
-    return null
-  }
-
   const diagnostic = item.classificationDiagnostic
   const details = [
-    diagnostic?.scoreGap !== undefined ? `分差 ${diagnostic.scoreGap.toFixed(2)}` : null,
+    diagnostic?.scoreGap !== undefined
+      ? `当前分类比第二候选高 ${diagnostic.scoreGap.toFixed(2)}`
+      : null,
     ...(diagnostic?.matchedSignals ?? [])
   ].filter(Boolean)
 
-  return details.length > 0 ? `低置信：${details.join('、')}` : '低置信：需要复核'
+  return details.length > 0 ? details.join('、') : '暂无更多细节'
+}
+
+function classificationConfidenceText(item: FavoriteLedgerPreviewItem) {
+  return item.lowConfidence || item.classificationDiagnostic?.lowConfidence
+    ? '分类把握：不太稳'
+    : '分类把握：比较稳'
 }
 
 function deepSeekArchiveProgressPercent(progress: DeepSeekArchiveProgress) {
@@ -2792,7 +2796,8 @@ export function FavoriteLedgerPanel({
   function renderOldFavoritePreviewMeta(item: FavoriteLedgerPreviewItem, target?: FavoriteLedgerPreviewTarget) {
     const allTagsText = oldFavoriteTagsText(item)
     const visibleTagsText = oldFavoriteVisibleTagsText(item)
-    const lowConfidenceText = lowConfidenceDetailText(item)
+    const confidenceTitle = lowConfidenceDetailText(item)
+    const confidenceText = classificationConfidenceText(item)
 
     return (
       <span className="favorite-ledger-panel__preview-video-meta">
@@ -2801,7 +2806,7 @@ export function FavoriteLedgerPanel({
         {visibleTagsText ? (
           <small title={allTagsText}>标签：{visibleTagsText}</small>
         ) : null}
-        {lowConfidenceText ? <small title={lowConfidenceText}>{lowConfidenceText}</small> : null}
+        <small title={confidenceTitle}>{confidenceText}</small>
         {target?.alreadyInTarget ? <small title="已在目标">已在目标</small> : null}
       </span>
     )
@@ -2812,32 +2817,16 @@ export function FavoriteLedgerPanel({
     areaLedgerId: string,
     target?: FavoriteLedgerPreviewTarget
   ) {
-    const selectLabel = areaLedgerId === 'unclassified' ? '存入收藏夹' : '调整分类'
+    const selectLabel = '调整分类'
     const targetDisplayName = archiveLedgerDisplayName(areaLedgerId)
     const hasSelectedTarget = areaLedgerId !== 'unclassified'
-    const selected = hasSelectedTarget && item.selectedTargetLedgerIds.includes(areaLedgerId)
     const modified = oldFavoriteArchiveWasModified(item)
     const deltaText = `已改：${originalArchiveSuggestionText(item)} -> ${targetDisplayName}`
 
     return (
       <div className="favorite-ledger-panel__preview-controls" onClick={(event) => event.stopPropagation()}>
-        <button
-          type="button"
-          className="favorite-ledger-panel__target-toggle"
-          data-selected={selected}
-          aria-pressed={selected}
-          disabled={!hasSelectedTarget || deepSeekArchiveRunning || Boolean(target?.alreadyInTarget)}
-          onClick={(event) => {
-            event.stopPropagation()
-            if (hasSelectedTarget) {
-              toggleOldFavoriteTarget(item, areaLedgerId)
-            }
-          }}
-        >
-          <span aria-hidden="true">{selected ? '✓' : ''}</span>
-          {hasSelectedTarget ? `存入 ${targetDisplayName}` : '待选择收藏夹'}
-        </button>
-        <label>
+        <label className="favorite-ledger-panel__position-control">
+          <span title={modified ? deltaText : targetDisplayName}>当前位置</span>
           <span className="sr-only">{selectLabel} {item.title}</span>
           <select
             aria-label={`${selectLabel} ${item.title}`}
@@ -2858,25 +2847,6 @@ export function FavoriteLedgerPanel({
             <option value="unclassified">未分类</option>
           </select>
         </label>
-        {modified ? (
-          <div className="favorite-ledger-panel__preview-delta-row">
-            <small className="favorite-ledger-panel__preview-delta" title={deltaText}>
-              {deltaText}
-            </small>
-            <button
-              type="button"
-              className="favorite-ledger-panel__preview-delta-action"
-              aria-label={`恢复原建议 ${item.title}`}
-              disabled={deepSeekArchiveRunning}
-              onClick={(event) => {
-                event.stopPropagation()
-                revertOldFavoriteArchiveSuggestion(item)
-              }}
-            >
-              恢复
-            </button>
-          </div>
-        ) : null}
       </div>
     )
   }
@@ -3336,7 +3306,10 @@ export function FavoriteLedgerPanel({
           {oldFavoriteStep === 'preview' ? (
             <div className="favorite-ledger-panel__preview">
               <div className="favorite-ledger-panel__preview-topbar">
-                <h4>归档预览</h4>
+                <div>
+                  <h4>归档预览</h4>
+                  <p>增删收藏夹或修改标签后，回到归档预览会自动更新</p>
+                </div>
               </div>
               {oldFavoriteGuideMode === 'organize' ? (
                 <>
@@ -3383,14 +3356,14 @@ export function FavoriteLedgerPanel({
                             setDeepSeekArchiveMode(event.currentTarget.value as DeepSeekArchiveMode)
                           }
                         >
-                          <option value="low-confidence-and-unclassified">低置信 + 待分类</option>
+                          <option value="low-confidence-and-unclassified">不太稳 + 待分类</option>
                           <option value="all">全部二次整理</option>
                           <option value="unclassified-only">仅整理待分类</option>
                         </select>
                       </label>
                       {deepSeekArchiveAvailable ? null : (
                         <small className="favorite-ledger-panel__deepseek-archive-disabled">
-                          未开启 DeepSeek
+                          请先到设置开启 DeepSeek 后再使用辅助整理。
                         </small>
                       )}
                       <p className="favorite-ledger-panel__deepseek-archive-hint">
@@ -3444,34 +3417,34 @@ export function FavoriteLedgerPanel({
                     <strong>{ledger.displayName}</strong>
                   </article>
                 ))
-              ) : previewScopedPendingItems.length > 0 || oldFavoriteTargetGroups.length > 0 ? (
+              ) : (
                 <div className="favorite-ledger-panel__preview-groups">
-                  {previewScopedPendingItems.length > 0 ? (
-                    <section
-                      className="favorite-ledger-panel__preview-row favorite-ledger-panel__preview-row--pending"
-                      role="group"
-                      aria-label={`未匹配到合适分类 ${previewScopedPendingItems.length} 条`}
-                    >
-                      <header>
-                        <span className="favorite-ledger-panel__preview-heading">
-                          <strong>未匹配到合适分类</strong>
-                          <small>{previewScopedPendingItems.length} 条需要处理</small>
-                        </span>
-                        <label>
-                          <input
-                            type="checkbox"
-                            aria-label="全部存入暂存"
-                            checked={allPreviewScopedPendingItemsStaged}
-                            disabled={deepSeekArchiveRunning}
-                            onChange={(event) =>
-                              setPreviewScopedPendingItemsStaged(event.currentTarget.checked)
-                            }
-                          />
-                          <span>全部存入暂存</span>
-                        </label>
-                      </header>
-                      <div className="favorite-ledger-panel__preview-videos" aria-label="未匹配到合适分类视频">
-                        {previewScopedPendingItems.map((item) => (
+                  <section
+                    className="favorite-ledger-panel__preview-row favorite-ledger-panel__preview-row--pending"
+                    role="group"
+                    aria-label={`未匹配到合适分类 ${previewScopedPendingItems.length} 条`}
+                  >
+                    <header>
+                      <span className="favorite-ledger-panel__preview-heading">
+                        <strong>未匹配到合适分类</strong>
+                        <small>{previewScopedPendingItems.length} 条需要处理</small>
+                      </span>
+                      <label>
+                        <input
+                          type="checkbox"
+                          aria-label="全部存入暂存"
+                          checked={allPreviewScopedPendingItemsStaged}
+                          disabled={deepSeekArchiveRunning}
+                          onChange={(event) =>
+                            setPreviewScopedPendingItemsStaged(event.currentTarget.checked)
+                          }
+                        />
+                        <span>全部存入暂存</span>
+                      </label>
+                    </header>
+                    <div className="favorite-ledger-panel__preview-videos" aria-label="未匹配到合适分类视频">
+                      {previewScopedPendingItems.length > 0 ? (
+                        previewScopedPendingItems.map((item) => (
                           <article key={`pending-${item.sourceFolderTitle}-${item.aid}`}>
                             <div
                               className="favorite-ledger-panel__preview-video favorite-ledger-panel__preview-video--pending"
@@ -3479,23 +3452,15 @@ export function FavoriteLedgerPanel({
                               {renderOldFavoriteVideoTitle(item)}
                               {renderOldFavoritePreviewMeta(item)}
                               <small>{pendingReasonText(item)}</small>
-                              <div className="favorite-ledger-panel__pending-actions" aria-label={`${item.title} 操作`}>
-                                {renderOldFavoriteArchiveControls(item, 'unclassified')}
-                                <button
-                                  type="button"
-                                  aria-label={`再次整理 ${item.title}`}
-                                  disabled={deepSeekArchiveRunning}
-                                  onClick={() => void rejudgeOldFavorite(item)}
-                                >
-                                  再次整理
-                                </button>
-                              </div>
+                              {renderOldFavoriteArchiveControls(item, 'unclassified')}
                             </div>
                           </article>
-                        ))}
-                      </div>
-                    </section>
-                  ) : null}
+                        ))
+                      ) : (
+                        <p>暂无需要处理的旧藏。</p>
+                      )}
+                    </div>
+                  </section>
                   {oldFavoriteTargetGroups.map((group) => {
                     const selectedCount = group.entries.filter((entry) => entry.selected).length
                     const allSelected = group.entries.length > 0 && selectedCount === group.entries.length
@@ -3536,6 +3501,7 @@ export function FavoriteLedgerPanel({
                               <div
                                 className={[
                                   'favorite-ledger-panel__preview-video',
+                                  selected ? 'favorite-ledger-panel__preview-video--selected' : '',
                                   changedByDeepSeek
                                     ? 'favorite-ledger-panel__preview-video--deepseek'
                                     : ''
@@ -3543,20 +3509,17 @@ export function FavoriteLedgerPanel({
                                   .filter(Boolean)
                                   .join(' ')}
                                 data-selected={selected}
+                                aria-pressed={selected}
+                                aria-disabled={deepSeekArchiveRunning || target.alreadyInTarget}
+                                onClick={() => {
+                                  if (!deepSeekArchiveRunning && !target.alreadyInTarget) {
+                                    toggleOldFavoriteTarget(item, group.ledgerId)
+                                  }
+                                }}
                               >
                                 {renderOldFavoriteVideoTitle(item)}
                                 {renderOldFavoritePreviewMeta(item, target)}
-                              </div>
-                              <div className="favorite-ledger-panel__pending-actions" aria-label={`${item.title} 操作`}>
                                 {renderOldFavoriteArchiveControls(item, group.ledgerId, target)}
-                                <button
-                                  type="button"
-                                  aria-label={`再次整理 ${item.title}`}
-                                  disabled={deepSeekArchiveRunning}
-                                  onClick={() => void rejudgeOldFavorite(item)}
-                                >
-                                  再次整理
-                                </button>
                               </div>
                             </article>
                           ))}
@@ -3565,8 +3528,6 @@ export function FavoriteLedgerPanel({
                     )
                   })}
                 </div>
-              ) : (
-                <p>暂无可归册旧藏。</p>
               )}
             </div>
           ) : null}

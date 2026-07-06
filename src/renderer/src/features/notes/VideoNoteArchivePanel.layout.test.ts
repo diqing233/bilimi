@@ -17,7 +17,8 @@ describe('VideoNoteArchivePanel layout styles', () => {
 
   it('keeps version controls, starred toggle and memo toggle on one row', () => {
     expect(styles).toContain('.video-note-archive__version-controls {\n  display: flex;')
-    expect(styles).toContain('.video-note-archive__version-controls label {\n  flex: 1 1 180px;')
+    expect(styles).toContain('.video-note-archive__version-picker {\n  position: relative;\n  display: grid;\n  gap: 4px;\n  flex: 1 1 180px;')
+    expect(styles).toContain('.video-note-archive__version-picker > button {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;')
     expect(styles).toContain('.video-note-archive__version-controls .video-note-archive__star-button {\n  min-width: 30px;')
     expect(styles).toContain('.video-note-archive__version-controls button:not(.video-note-archive__star-button) {\n  min-height: 30px;')
   })

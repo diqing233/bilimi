@@ -44,6 +44,7 @@ import { CommentChooser } from './CommentChooser'
 import { CommentIntentDialog } from './CommentIntentDialog'
 import { FavoriteLedgerPanel } from './FavoriteLedgerPanel'
 import { MemorialPanel } from './MemorialPanel'
+import type { VideoNotesResultTab } from '../notes/VideoNotesPanel'
 import { VideoNoteArchivePanel } from '../notes/VideoNoteArchivePanel'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
@@ -242,6 +243,18 @@ const FAVORITE_CORRECTION_LEARNING_HELP =
 const FAVORITE_CORRECTION_CLASSIFICATION_HELP =
   '开启后，后续分类会参考这些纠错记录；关闭后只保留记录，不影响自动分类。'
 
+const SETTINGS_JUMP_OPTIONS = [
+  { value: 'diagnostics', label: '诊断' },
+  { value: 'pet', label: '宠物设置' },
+  { value: 'transcription', label: '视频音频转写速度' },
+  { value: 'archive', label: '收藏整理' },
+  { value: 'learning', label: '整理策略' },
+  { value: 'review-actions', label: '批阅动作' },
+  { value: 'deepseek', label: 'DeepSeek' }
+] as const
+
+type SettingsJumpValue = (typeof SETTINGS_JUMP_OPTIONS)[number]['value']
+
 function formatSettingsDate(value?: string) {
   if (!value) return '未记录'
 
@@ -414,6 +427,7 @@ export function FloatingAssistantApp({
   const [settingsDiagnosticMessage, setSettingsDiagnosticMessage] = useState('')
   const [settingsDiagnosticsExpanded, setSettingsDiagnosticsExpanded] = useState(true)
   const [settingsLearningMessage, setSettingsLearningMessage] = useState('')
+  const [settingsJumpValue, setSettingsJumpValue] = useState<SettingsJumpValue>('diagnostics')
   const mounted = useRef(false)
   const lastPreferenceChangeAt = useRef(0)
   const lastPreferenceSaveAt = useRef(0)
@@ -424,7 +438,13 @@ export function FloatingAssistantApp({
   const workspaceRequestsEnabledRef = useRef(workspaceRequestsEnabled)
   const activeTab = controlledActiveTab ?? uncontrolledActiveTab
   const [activeView, setActiveView] = useState<AssistantWorkspaceView>(activeTab)
+  const [notesWorkspaceView, setNotesWorkspaceView] =
+    useState<Extract<AssistantWorkspaceView, 'notes' | 'noteArchive'>>('notes')
+  const [videoNotesResultTab, setVideoNotesResultTab] =
+    useState<VideoNotesResultTab | null>(null)
   const [organizeOldFavoritesRequestSignal, setOrganizeOldFavoritesRequestSignal] = useState(0)
+  const settingsStatusMessage =
+    settingsDiagnosticMessage || settingsLearningMessage || deepSeekStatusMessage
   const isSidebarMode = mode === 'sidebar'
 
   function tellPet(tone: PetFeedbackTone, message: string) {
@@ -436,7 +456,11 @@ export function FloatingAssistantApp({
 
   function setActiveTab(tab: AssistantWorkspaceTab, options?: { view?: AssistantWorkspaceView }) {
     setFeedback(null)
-    setActiveView(options?.view ?? tab)
+    const nextView = options?.view ?? (tab === 'notes' ? notesWorkspaceView : tab)
+    setActiveView(nextView)
+    if (tab === 'notes' && (nextView === 'notes' || nextView === 'noteArchive')) {
+      setNotesWorkspaceView(nextView)
+    }
     tellPet('success', TAB_HINTS[tab])
 
     if (controlledActiveTab === undefined) {
@@ -470,13 +494,7 @@ export function FloatingAssistantApp({
       const snapshotArrivedSoonAfterLocalChange = Date.now() - lastLocalPreferenceChangeAt < 2000
       setPreferences((currentPreferences) => {
         const nextPreferences = snapshotArrivedSoonAfterLocalChange
-          ? {
-              ...snapshotPreferences,
-              defaultCoinCount: currentPreferences.defaultCoinCount,
-              commentSubmitMode: currentPreferences.commentSubmitMode,
-              videoAudioTranscriptionThreadLimit:
-                currentPreferences.videoAudioTranscriptionThreadLimit
-            }
+          ? currentPreferences
           : snapshotPreferences
         preferencesRef.current = nextPreferences
         return nextPreferences
@@ -508,9 +526,9 @@ export function FloatingAssistantApp({
 
   useEffect(() => {
     if (controlledActiveTab !== undefined) {
-      setActiveView(controlledActiveTab)
+      setActiveView(controlledActiveTab === 'notes' ? notesWorkspaceView : controlledActiveTab)
     }
-  }, [controlledActiveTab])
+  }, [controlledActiveTab, notesWorkspaceView])
 
   useEffect(() => {
     preferencesRef.current = preferences
@@ -562,6 +580,7 @@ export function FloatingAssistantApp({
       )?.draftNote
       if (activeDraftNote) {
         setVideoNote(activeDraftNote)
+        setNotesWorkspaceView('notes')
         setActiveView('notes')
       }
 
@@ -790,8 +809,18 @@ export function FloatingAssistantApp({
             deepseekAutoSummaryEnabled: true,
             deepseekPetChatEnabled: true
           }
-        : { deepseekEnabled: false }
+        : { deepseekEnabled: false },
+      { persist: true }
     )
+  }
+
+  function jumpToSettingsSection(section: SettingsJumpValue) {
+    setSettingsJumpValue(section)
+    const selector = `[data-settings-section="${section}"]`
+    const target = document.querySelector(selector)
+    if (target && 'scrollIntoView' in target && typeof target.scrollIntoView === 'function') {
+      target.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    }
   }
 
   async function saveDeepSeekSettings() {
@@ -1150,7 +1179,7 @@ export function FloatingAssistantApp({
 
       let summaryText = ''
 
-      if (noteToStore && preferences.deepseekEnabled && options?.summarizeWithDeepSeek) {
+      if (noteToStore && options?.summarizeWithDeepSeek) {
         const poster = await generateNotePoster(noteToStore)
         noteToStore = applyPosterSummaryToNote(noteToStore, poster)
         summaryText = createNotePosterText(poster)
@@ -1308,10 +1337,16 @@ export function FloatingAssistantApp({
   async function updateVideoNoteArchiveVersion(
     archiveId: string,
     versionId: string,
-    note: VideoNote
+    note: VideoNote,
+    summaryText?: string
   ) {
     const archives =
-      (await window.bilimiDesktop?.updateVideoNoteArchiveVersion?.(archiveId, versionId, note)) ?? []
+      (await window.bilimiDesktop?.updateVideoNoteArchiveVersion?.(
+        archiveId,
+        versionId,
+        note,
+        summaryText
+      )) ?? []
     setVideoNoteArchives(archives)
   }
 
@@ -1552,7 +1587,11 @@ export function FloatingAssistantApp({
             onOldFavoriteExecutionStateChange={handleOldFavoriteExecutionStateChange}
             onOpenOldFavoriteVideo={onOpenInTab}
             onRejudgeOldFavorite={rejudgeOldFavorite}
-            deepSeekArchiveAvailable={preferences.deepseekEnabled && preferences.deepseekApiKeyStored}
+            deepSeekArchiveAvailable={
+              preferences.deepseekEnabled &&
+              preferences.deepseekApiKeyStored &&
+              preferences.deepseekDailyClassificationEnabled
+            }
             onOrganizeOldFavoritesWithDeepSeek={organizeOldFavoritesWithDeepSeek}
             onDeepSeekArchiveKeywordSuggestions={mergeDeepSeekArchiveKeywordSuggestions}
             onConfirmArchiveCorrections={confirmArchiveCorrectionRecords}
@@ -1566,6 +1605,21 @@ export function FloatingAssistantApp({
             <header>
               <h2>设置</h2>
               <div className="assistant-settings__header-actions">
+                <label className="assistant-settings__jump">
+                  <span>设置项</span>
+                  <select
+                    value={settingsJumpValue}
+                    onChange={(event) =>
+                      jumpToSettingsSection(event.currentTarget.value as SettingsJumpValue)
+                    }
+                  >
+                    {SETTINGS_JUMP_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <button type="button" onClick={() => void restoreDefaultLayoutSize()}>
                   恢复默认布局
                 </button>
@@ -1574,7 +1628,15 @@ export function FloatingAssistantApp({
                 </button>
               </div>
             </header>
-            <fieldset className="assistant-settings__group assistant-settings__group--diagnostics">
+            {settingsStatusMessage ? (
+              <p className="assistant-settings__status" role="status">
+                {settingsStatusMessage}
+              </p>
+            ) : null}
+            <fieldset
+              className="assistant-settings__group assistant-settings__group--diagnostics"
+              data-settings-section="diagnostics"
+            >
               <legend>诊断</legend>
               <div className="assistant-settings__diagnostics-head">
                 <div>
@@ -1610,9 +1672,11 @@ export function FloatingAssistantApp({
                   ))}
                 </ul>
               ) : null}
-              {settingsDiagnosticMessage ? <p role="status">{settingsDiagnosticMessage}</p> : null}
             </fieldset>
-            <fieldset className="assistant-settings__group assistant-settings__group--pet">
+            <fieldset
+              className="assistant-settings__group assistant-settings__group--pet"
+              data-settings-section="pet"
+            >
               <legend>宠物设置</legend>
               <label>
                 <input
@@ -1692,9 +1756,12 @@ export function FloatingAssistantApp({
                 </button>
               </div>
             </fieldset>
-            <fieldset className="assistant-settings__group assistant-settings__group--transcription">
-              <legend>本地转写性能</legend>
-              <p>控制 whisper.cpp 本地转写能使用多少 CPU 线程；限制越低，电脑越不容易卡，但转写会更慢。</p>
+            <fieldset
+              className="assistant-settings__group assistant-settings__group--transcription"
+              data-settings-section="transcription"
+            >
+              <legend>视频音频转写速度</legend>
+              <p>控制本地 whisper.cpp / whisper-cli.exe 转写视频音频能使用多少 CPU 线程；限制越低，电脑越不容易卡，但转写会更慢。</p>
               <label>
                 <input
                   type="radio"
@@ -1740,7 +1807,10 @@ export function FloatingAssistantApp({
                 <span>限制为 4 线程（较快）</span>
               </label>
             </fieldset>
-            <fieldset className="assistant-settings__group assistant-settings__group--archive">
+            <fieldset
+              className="assistant-settings__group assistant-settings__group--archive"
+              data-settings-section="archive"
+            >
               <legend>bilimi 收藏策略</legend>
               <p>说明：设置一个待分类视频最多可同时保存到几个合适的 bilimi 收藏夹。</p>
               <p>1. 用户原收藏夹不会被移动或删除，也不计入数量。</p>
@@ -1779,7 +1849,10 @@ export function FloatingAssistantApp({
                 <span>最多同时保存到 3 个 bilimi 收藏夹</span>
               </label>
             </fieldset>
-            <fieldset className="assistant-settings__group assistant-settings__group--learning">
+            <fieldset
+              className="assistant-settings__group assistant-settings__group--learning"
+              data-settings-section="learning"
+            >
               <legend>整理策略</legend>
               <div className="assistant-settings__inline-options">
                 {ARCHIVE_STRATEGY_OPTIONS.map((option) => (
@@ -1834,7 +1907,7 @@ export function FloatingAssistantApp({
               </small>
               <div className="assistant-settings__subsection">
                 <div className="assistant-settings__subsection-heading">
-                  <strong>纠错学习记录</strong>
+                  <strong>纠错学习记录（{preferences.favoriteCorrectionRecords.length}）</strong>
                   <button
                     type="button"
                     onClick={clearCorrectionRecords}
@@ -1884,9 +1957,9 @@ export function FloatingAssistantApp({
                               <span title={record.sourceScene}>来源场景：{record.sourceScene}</span>
                               <span title={record.sourceFolderTitle?.trim() || '未记录'}>来源收藏夹：{record.sourceFolderTitle?.trim() || '未记录'}</span>
                               <span title={joinSettingValues(record.matchedKeywords)}>命中关键词：{joinSettingValues(record.matchedKeywords)}</span>
-                              <span title={String(record.score ?? '未记录')}>分数：{record.score ?? '未记录'}</span>
-                              <span title={String(record.confidence ?? '未记录')}>置信度：{record.confidence ?? '未记录'}</span>
-                              <span title={String(record.scoreGap ?? '未记录')}>分差：{record.scoreGap ?? '未记录'}</span>
+                              <span title={String(record.score ?? '未记录')}>匹配分：{record.score ?? '未记录'}</span>
+                              <span title={String(record.confidence ?? '未记录')}>分类把握：{record.confidence ?? '未记录'}</span>
+                              <span title={String(record.scoreGap ?? '未记录')}>领先第二候选：{record.scoreGap ?? '未记录'}</span>
                             </div>
                           </article>
                         )
@@ -1899,7 +1972,7 @@ export function FloatingAssistantApp({
               </div>
               <div className="assistant-settings__subsection">
                 <div className="assistant-settings__subsection-heading">
-                  <strong>关键词建议</strong>
+                  <strong>关键词建议（{pendingKeywordSuggestions.length}）</strong>
                 </div>
                 {pendingKeywordSuggestions.length > 0 ? (
                   <div className="assistant-settings__keyword-list">
@@ -1966,9 +2039,11 @@ export function FloatingAssistantApp({
                   <p className="assistant-settings__empty">暂无关键词建议</p>
                 )}
               </div>
-              {settingsLearningMessage ? <p role="status">{settingsLearningMessage}</p> : null}
             </fieldset>
-            <fieldset className="assistant-settings__group assistant-settings__group--review-actions">
+            <fieldset
+              className="assistant-settings__group assistant-settings__group--review-actions"
+              data-settings-section="review-actions"
+            >
               <legend>批阅动作设置</legend>
               <strong className="assistant-settings__review-action-title">赐：一键三连</strong>
               <label>
@@ -2018,7 +2093,10 @@ export function FloatingAssistantApp({
                 <span>生成 3 条候选，选择后发送（也可以复制后发评论）</span>
               </label>
             </fieldset>
-            <fieldset className="assistant-settings__group assistant-settings__group--deepseek">
+            <fieldset
+              className="assistant-settings__group assistant-settings__group--deepseek"
+              data-settings-section="deepseek"
+            >
               <legend>DeepSeek</legend>
               <label>
                 <input
@@ -2031,192 +2109,201 @@ export function FloatingAssistantApp({
                 <span>启用 DeepSeek</span>
               </label>
               <p className="assistant-settings__deepseek-help">
-                开启后可使用批阅的拟奏短评、札记中的 DeepSeek 总结、宠物对话功能。
+                开启后可使用批阅短评、札记总结、宠物对话和辅助整理。关闭后相关功能入口会提示先开启。
               </p>
-              <div className="assistant-settings__deepseek-switches">
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={preferences.deepseekCommentEnabled}
-                    onChange={(event) =>
-                      updateDeepSeekPreference(
-                        {
-                          deepseekCommentEnabled: event.currentTarget.checked
-                        },
-                        { persist: true }
-                      )
-                    }
-                  />
-                  <span>启用 DeepSeek 生成趣味评论</span>
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={preferences.deepseekAutoSummaryEnabled}
-                    onChange={(event) =>
-                      updateDeepSeekPreference(
-                        {
-                          deepseekAutoSummaryEnabled: event.currentTarget.checked
-                        },
-                        { persist: true }
-                      )
-                    }
-                  />
-                  <span>转写完成后自动生成 DeepSeek 总结</span>
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={preferences.deepseekPetChatEnabled}
-                    onChange={(event) =>
-                      updateDeepSeekPreference(
-                        {
-                          deepseekPetChatEnabled: event.currentTarget.checked
-                        },
-                        { persist: true }
-                      )
-                    }
-                  />
-                  <span>启用 DeepSeek 宠物对话功能</span>
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={preferences.deepseekDailyClassificationEnabled}
-                    onChange={(event) =>
-                      updateDeepSeekPreference(
-                        {
-                          deepseekDailyClassificationEnabled: event.currentTarget.checked
-                        },
-                        { persist: true }
-                      )
-                    }
-                  />
-                  <span>启用 DeepSeek 辅助判断归类收藏夹</span>
-                </label>
-              </div>
-              {preferences.deepseekDailyClassificationEnabled ? (
-                <div className="assistant-settings__deepseek-switches">
+              {preferences.deepseekEnabled ? (
+                <>
+                  <div className="assistant-settings__deepseek-switches">
+                    <label title="用 DeepSeek 根据当前视频生成更自然的评论候选。">
+                      <input
+                        type="checkbox"
+                        checked={preferences.deepseekCommentEnabled}
+                        onChange={(event) =>
+                          updateDeepSeekPreference(
+                            {
+                              deepseekCommentEnabled: event.currentTarget.checked
+                            },
+                            { persist: true }
+                          )
+                        }
+                      />
+                      <span>趣味评论</span>
+                    </label>
+                    <label title="转写音频完成后，自动用 DeepSeek 生成结构化总结。">
+                      <input
+                        type="checkbox"
+                        checked={preferences.deepseekAutoSummaryEnabled}
+                        onChange={(event) =>
+                          updateDeepSeekPreference(
+                            {
+                              deepseekAutoSummaryEnabled: event.currentTarget.checked
+                            },
+                            { persist: true }
+                          )
+                        }
+                      />
+                      <span>自动总结</span>
+                    </label>
+                    <label title="让小咪可以用 DeepSeek 回答问题和聊天。">
+                      <input
+                        type="checkbox"
+                        checked={preferences.deepseekPetChatEnabled}
+                        onChange={(event) =>
+                          updateDeepSeekPreference(
+                            {
+                              deepseekPetChatEnabled: event.currentTarget.checked
+                            },
+                            { persist: true }
+                          )
+                        }
+                      />
+                      <span>宠物对话</span>
+                    </label>
+                    <label title="在整理旧藏时，用 DeepSeek 帮忙判断视频适合放到哪个收藏夹。">
+                      <input
+                        type="checkbox"
+                        checked={preferences.deepseekDailyClassificationEnabled}
+                        onChange={(event) =>
+                          updateDeepSeekPreference(
+                            {
+                              deepseekDailyClassificationEnabled: event.currentTarget.checked
+                            },
+                            { persist: true }
+                          )
+                        }
+                      />
+                      <span>辅助整理</span>
+                    </label>
+                  </div>
+                  {preferences.deepseekDailyClassificationEnabled ? (
+                    <div className="assistant-settings__deepseek-switches assistant-settings__deepseek-switches--nested">
+                      <label title="所有归档建议都交给 DeepSeek 再判断一遍，更细但更慢。">
+                        <input
+                          type="radio"
+                          name="deepseek-daily-classification-mode"
+                          checked={preferences.deepseekDailyClassificationMode === 'all'}
+                          onChange={() =>
+                            updateDeepSeekPreference(
+                              { deepseekDailyClassificationMode: 'all' },
+                              { persist: true }
+                            )
+                          }
+                        />
+                        <span>全部归类</span>
+                      </label>
+                      <label title="只让 DeepSeek 处理不太确定的归档建议，速度更快。">
+                        <input
+                          type="radio"
+                          name="deepseek-daily-classification-mode"
+                          checked={
+                            preferences.deepseekDailyClassificationMode === 'low-confidence-only'
+                          }
+                          onChange={() =>
+                            updateDeepSeekPreference(
+                              { deepseekDailyClassificationMode: 'low-confidence-only' },
+                              { persist: true }
+                            )
+                          }
+                        />
+                        <span>仅不太稳</span>
+                      </label>
+                    </div>
+                  ) : null}
                   <label>
+                    <span>DeepSeek API 密钥</span>
                     <input
-                      type="radio"
-                      name="deepseek-daily-classification-mode"
-                      checked={preferences.deepseekDailyClassificationMode === 'all'}
-                      onChange={() =>
-                        updateDeepSeekPreference(
-                          { deepseekDailyClassificationMode: 'all' },
-                          { persist: true }
-                        )
-                      }
+                      type="password"
+                      value={deepSeekApiKeyDraft}
+                      placeholder={preferences.deepseekApiKeyStored ? '已保存' : ''}
+                      onChange={(event) => setDeepSeekApiKeyDraft(event.currentTarget.value)}
                     />
-                    <span>全部归类都辅助判断</span>
                   </label>
                   <label>
+                    <span>DeepSeek 模型</span>
                     <input
-                      type="radio"
-                      name="deepseek-daily-classification-mode"
-                      checked={
-                        preferences.deepseekDailyClassificationMode === 'low-confidence-only'
-                      }
-                      onChange={() =>
-                        updateDeepSeekPreference(
-                          { deepseekDailyClassificationMode: 'low-confidence-only' },
-                          { persist: true }
-                        )
+                      type="text"
+                      value={preferences.deepseekModel}
+                      onChange={(event) =>
+                        updateDeepSeekPreference({ deepseekModel: event.currentTarget.value })
                       }
                     />
-                    <span>仅低置信时辅助判断</span>
                   </label>
-                </div>
+                  <label>
+                    <span>DeepSeek 服务地址</span>
+                    <input
+                      type="url"
+                      value={preferences.deepseekBaseUrl}
+                      onChange={(event) =>
+                        updateDeepSeekPreference({ deepseekBaseUrl: event.currentTarget.value })
+                      }
+                    />
+                  </label>
+                  <div className="assistant-settings__actions">
+                    <button type="button" onClick={() => void saveDeepSeekSettings()}>
+                      保存 DeepSeek
+                    </button>
+                    <button type="button" onClick={() => void testDeepSeekConnection()}>
+                      测试 DeepSeek
+                    </button>
+                    <button type="button" onClick={() => void resetDeepSeekSettings()}>
+                      重置 DeepSeek
+                    </button>
+                  </div>
+                  <aside className="assistant-settings__deepseek-recommendation">
+                    <strong>致谢 云枢智元</strong>
+                    <p>大模型 Token 中转，低至官方价 2 折起</p>
+                    <p>
+                      <a href="https://yunshulink.com/" target="_blank" rel="noreferrer">
+                        官网：https://yunshulink.com/
+                      </a>
+                    </p>
+                    <p>API 密钥：创建令牌后，令牌分组请选择 deepseek（限时特价），复制密钥到这里使用。</p>
+                    <p className="assistant-settings__copy-row">
+                      <span>推荐模型：deepseek-v4-pro</span>
+                      <button
+                        className="assistant-settings__copy-button"
+                        type="button"
+                        aria-label="复制推荐模型"
+                        onClick={() => void copyDeepSeekRecommendation('deepseek-v4-pro', '推荐模型')}
+                      >
+                        复制
+                      </button>
+                    </p>
+                    <p className="assistant-settings__copy-row">
+                      <span>服务器地址：https://api.yunshulink.com/v1</span>
+                      <button
+                        className="assistant-settings__copy-button"
+                        type="button"
+                        aria-label="复制服务器地址"
+                        onClick={() =>
+                          void copyDeepSeekRecommendation(
+                            'https://api.yunshulink.com/v1',
+                            '服务器地址'
+                          )
+                        }
+                      >
+                        复制
+                      </button>
+                    </p>
+                  </aside>
+                </>
               ) : null}
-              <label>
-                <span>DeepSeek API 密钥</span>
-                <input
-                  type="password"
-                  value={deepSeekApiKeyDraft}
-                  placeholder={preferences.deepseekApiKeyStored ? '已保存' : ''}
-                  onChange={(event) => setDeepSeekApiKeyDraft(event.currentTarget.value)}
-                />
-              </label>
-              <label>
-                <span>DeepSeek 模型</span>
-                <input
-                  type="text"
-                  value={preferences.deepseekModel}
-                  onChange={(event) =>
-                    updateDeepSeekPreference({ deepseekModel: event.currentTarget.value })
-                  }
-                />
-              </label>
-              <label>
-                <span>DeepSeek 服务地址</span>
-                <input
-                  type="url"
-                  value={preferences.deepseekBaseUrl}
-                  onChange={(event) =>
-                    updateDeepSeekPreference({ deepseekBaseUrl: event.currentTarget.value })
-                  }
-                />
-              </label>
-              <div className="assistant-settings__actions">
-                <button type="button" onClick={() => void saveDeepSeekSettings()}>
-                  保存 DeepSeek
-                </button>
-                <button type="button" onClick={() => void testDeepSeekConnection()}>
-                  测试 DeepSeek
-                </button>
-                <button type="button" onClick={() => void resetDeepSeekSettings()}>
-                  重置 DeepSeek
-                </button>
-              </div>
-              {deepSeekStatusMessage ? <p role="status">{deepSeekStatusMessage}</p> : null}
-              <aside className="assistant-settings__deepseek-recommendation">
-                <strong>致谢 云枢智元</strong>
-                <p>大模型 Token 中转，低至官方价 2 折起</p>
-                <p>
-                  <a href="https://yunshulink.com/" target="_blank" rel="noreferrer">
-                    官网：https://yunshulink.com/
-                  </a>
-                </p>
-                <p>API 密钥：创建令牌后，令牌分组请选择 deepseek（限时特价），复制密钥到这里使用。</p>
-                <p className="assistant-settings__copy-row">
-                  <span>推荐模型：deepseek-v4-pro</span>
-                  <button
-                    className="assistant-settings__copy-button"
-                    type="button"
-                    aria-label="复制推荐模型"
-                    onClick={() => void copyDeepSeekRecommendation('deepseek-v4-pro', '推荐模型')}
-                  >
-                    复制
-                  </button>
-                </p>
-                <p className="assistant-settings__copy-row">
-                  <span>服务器地址：https://api.yunshulink.com/v1</span>
-                  <button
-                    className="assistant-settings__copy-button"
-                    type="button"
-                    aria-label="复制服务器地址"
-                    onClick={() =>
-                      void copyDeepSeekRecommendation(
-                        'https://api.yunshulink.com/v1',
-                        '服务器地址'
-                      )
-                    }
-                  >
-                    复制
-                  </button>
-                </p>
-              </aside>
             </fieldset>
           </section>
         ) : activeView === 'noteArchive' ? (
           <VideoNoteArchivePanel
             archives={videoNoteArchives}
-            onClose={() => setActiveTab('notes')}
+            onClose={() => {
+              setNotesWorkspaceView('notes')
+              setActiveTab('notes', { view: 'notes' })
+            }}
             onOpenSource={(url) => window.open(url)}
             onUpdateVersion={updateVideoNoteArchiveVersion}
             onDeleteEntry={deleteVideoNoteArchiveEntry}
             onDeleteVersion={deleteVideoNoteArchiveVersion}
+            deepSeekEnabled={preferences.deepseekEnabled}
+            onGeneratePoster={generateNotePoster}
+            onArchivePosterSummary={archiveNotePosterSummary}
           />
         ) : (
           <MemorialPanel
@@ -2255,10 +2342,16 @@ export function FloatingAssistantApp({
             feedback={feedback}
             onOpenVideoNoteArchive={() => {
               void loadVideoNoteArchives()
+              setNotesWorkspaceView('noteArchive')
               setActiveView('noteArchive')
             }}
             initialTab={activeView === 'notes' ? 'notes' : 'review'}
             showTabs={false}
+            videoNotesResultTab={videoNotesResultTab}
+            onVideoNotesResultTabChange={setVideoNotesResultTab}
+            defaultCoinCount={preferences.defaultCoinCount}
+            commentSubmitMode={preferences.commentSubmitMode}
+            onPreferenceChange={persistPreferencePatch}
           />
         )}
 

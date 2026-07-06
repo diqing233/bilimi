@@ -240,7 +240,8 @@ export function updateVideoNoteArchiveVersion(
   archives: VideoNoteArchiveEntry[],
   archiveId: string,
   versionId: string,
-  note: VideoNote
+  note: VideoNote,
+  summaryText?: string
 ): VideoNoteArchiveEntry[] {
   const normalizedNote = normalizeVideoNote(note)
 
@@ -255,7 +256,7 @@ export function updateVideoNoteArchiveVersion(
                   ...version,
                   note: normalizedNote,
                   plainTranscript: createPlainTranscriptText(normalizedNote),
-                  summaryText: version.summaryText
+                  summaryText: summaryText ?? version.summaryText
                 }
               : version
           ),

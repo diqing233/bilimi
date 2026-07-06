@@ -387,7 +387,7 @@ function createLocalClassificationKeywordSuggestions(
         ledgerId: diagnostic.ledgerId,
         keyword,
         replacement,
-        reason: `本地分类低置信命中弱词「${keyword}」，建议改成更明确的组合词。`,
+        reason: `本地分类不太稳，命中弱词「${keyword}」，建议改成更明确的组合词。`,
         source: 'classifier',
         status: 'pending',
         createdAt

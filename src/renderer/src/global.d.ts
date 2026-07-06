@@ -113,7 +113,8 @@ type BilimiDesktopApi = {
   updateVideoNoteArchiveVersion?: (
     archiveId: string,
     versionId: string,
-    note: VideoNote
+    note: VideoNote,
+    summaryText?: string
   ) => Promise<VideoNoteArchiveEntry[]>
   deleteVideoNoteArchiveEntry?: (archiveId: string) => Promise<VideoNoteArchiveEntry[]>
   deleteVideoNoteArchiveVersion?: (

@@ -497,13 +497,15 @@ export function updateVideoNoteArchiveVersion(
   store: AssistantStoreLike = getDesktopStore(),
   archiveId: string,
   versionId: string,
-  note: VideoNote
+  note: VideoNote,
+  summaryText?: string
 ): VideoNoteArchiveEntry[] {
   const archives = replaceVideoNoteArchiveVersion(
     loadVideoNoteArchives(store),
     archiveId,
     versionId,
-    note
+    note,
+    summaryText
   )
 
   store.set('videoNoteArchives', archives)

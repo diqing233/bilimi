@@ -1,5 +1,5 @@
 ﻿import type { RecommendationLabel } from '@shared/types'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { MemorialPanel } from './MemorialPanel'
 
@@ -169,5 +169,36 @@ describe('MemorialPanel', () => {
     )
 
     expect(screen.getByText('UP').nextElementSibling).toHaveTextContent('李老师讲AI')
+  })
+
+  it('shows inline coin and comment settings that report preference changes', () => {
+    const onPreferenceChange = vi.fn()
+
+    render(
+      <MemorialPanel
+        recommendation={inboxRecommendation}
+        commentDrafts={['先留一评。']}
+        videoCategory="待分拣"
+        videoTitle="测试稿件"
+        onAction={vi.fn()}
+        onClose={vi.fn()}
+        onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
+        onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
+        videoNote={null}
+        videoNoteLoading={false}
+        defaultCoinCount={1}
+        commentSubmitMode="random"
+        onPreferenceChange={onPreferenceChange}
+      />
+    )
+
+    expect(screen.getByLabelText('投币数量')).toHaveValue('1')
+    expect(screen.getByLabelText('评论发送方式')).toHaveValue('random')
+
+    fireEvent.change(screen.getByLabelText('投币数量'), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText('评论发送方式'), { target: { value: 'choose' } })
+
+    expect(onPreferenceChange).toHaveBeenCalledWith({ defaultCoinCount: 2 })
+    expect(onPreferenceChange).toHaveBeenCalledWith({ commentSubmitMode: 'choose' })
   })
 })
