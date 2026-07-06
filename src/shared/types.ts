@@ -303,7 +303,11 @@ export type NotePosterSummary = {
   auditChecklistText?: string
 }
 
-export type DeepSeekArchiveMode = 'all' | 'classified-only' | 'unclassified-only'
+export type DeepSeekArchiveMode =
+  | 'all'
+  | 'classified-only'
+  | 'unclassified-only'
+  | 'low-confidence-and-unclassified'
 
 export type DeepSeekArchiveVideoInput = {
   aid: number

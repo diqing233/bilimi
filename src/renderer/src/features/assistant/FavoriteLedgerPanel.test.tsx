@@ -24,11 +24,21 @@ describe('FavoriteLedgerPanel', () => {
   }
 
   function getPreviewVideoButton(container: HTMLElement, name: RegExp) {
-    const button = within(container)
-      .getAllByRole('button', { name })
-      .find((candidate) => candidate.classList.contains('favorite-ledger-panel__preview-video'))
-    expect(button).toBeDefined()
-    return button!
+    const previewVideo = Array.from(
+      container.querySelectorAll<HTMLElement>('.favorite-ledger-panel__preview-video')
+    ).find((candidate) => name.test(candidate.textContent ?? ''))
+    expect(previewVideo).toBeDefined()
+    return previewVideo!
+  }
+
+  function getPreviewArticle(container: HTMLElement, name: RegExp) {
+    const article = getPreviewVideoButton(container, name).closest('article')
+    expect(article).toBeDefined()
+    return article!
+  }
+
+  function getPreviewTargetToggle(container: HTMLElement, name: RegExp) {
+    return within(getPreviewArticle(container, name)).getByRole('button', { name: /^存入 / })
   }
 
   function createArchivePreviewFixture(): FavoriteLedgerPreview {
@@ -255,9 +265,8 @@ describe('FavoriteLedgerPanel', () => {
     )
     fireEvent.click(within(unmatchedGroup).getByRole('button', { name: '视频来源 没有命中分类的旧藏' }))
     expect(onOpenOldFavoriteVideo).toHaveBeenCalledWith('https://www.bilibili.com/video/av601')
-    expect(container.querySelector('.favorite-ledger-panel__preview-video')).toHaveAttribute(
-      'aria-pressed',
-      'false'
+    expect(container.querySelector('.favorite-ledger-panel__preview-video')).not.toHaveAttribute(
+      'aria-pressed'
     )
   })
 
@@ -552,7 +561,7 @@ describe('FavoriteLedgerPanel', () => {
     })
 
     const stagingGroup = screen.getByRole('group', { name: 'bilimi·暂存 1 条' })
-    expect(within(stagingGroup).getByRole('button', { name: /暂存旧藏/ })).toHaveAttribute(
+    expect(getPreviewTargetToggle(stagingGroup, /暂存旧藏/)).toHaveAttribute(
       'aria-pressed',
       'true'
     )
@@ -572,7 +581,7 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(screen.queryByRole('group', { name: /未匹配到合适分类/ })).not.toBeInTheDocument()
     const gameGroup = screen.getByRole('group', { name: 'bilimi·游戏专区 1 条' })
-    expect(getPreviewVideoButton(gameGroup, /暂时不知道放哪/)).toHaveAttribute(
+    expect(getPreviewTargetToggle(gameGroup, /暂时不知道放哪/)).toHaveAttribute(
       'aria-pressed',
       'true'
     )
@@ -712,9 +721,9 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
 
     const gameGroup = screen.getByRole('group', { name: /bilimi·游戏 1 条/ })
-    const gameVideo = getPreviewVideoButton(gameGroup, /AI 工具也能做游戏剧情复盘/)
-    fireEvent.click(gameVideo)
-    fireEvent.click(gameVideo)
+    const gameTargetToggle = getPreviewTargetToggle(gameGroup, /AI 工具也能做游戏剧情复盘/)
+    fireEvent.click(gameTargetToggle)
+    fireEvent.click(gameTargetToggle)
 
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
     fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
@@ -793,7 +802,7 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
 
     const knowledgeGroup = screen.getByRole('group', { name: /bilimi·学习 2 条/ })
-    fireEvent.click(getPreviewVideoButton(knowledgeGroup, /取消归档的知识视频/))
+    fireEvent.click(getPreviewTargetToggle(knowledgeGroup, /取消归档的知识视频/))
     fireEvent.change(within(knowledgeGroup).getByLabelText('调整分类 改去游戏区的视频'), {
       target: { value: 'game' }
     })
@@ -872,11 +881,11 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '全部存入暂存' }))
 
     const stagingGroup = screen.getByRole('group', { name: 'bilimi·暂存 2 条' })
-    expect(within(stagingGroup).getByRole('button', { name: /暂存旧藏一/ })).toHaveAttribute(
+    expect(getPreviewTargetToggle(stagingGroup, /暂存旧藏一/)).toHaveAttribute(
       'aria-pressed',
       'true'
     )
-    expect(within(stagingGroup).getByRole('button', { name: /暂存旧藏二/ })).toHaveAttribute(
+    expect(getPreviewTargetToggle(stagingGroup, /暂存旧藏二/)).toHaveAttribute(
       'aria-pressed',
       'true'
     )
@@ -2216,8 +2225,8 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.queryByText('已经归档的视频')).not.toBeInTheDocument()
     const knowledgeGroup = screen.getByRole('group', { name: 'Bilimi路知识 1 条' })
     const knowledgeVideo = getPreviewVideoButton(knowledgeGroup, /机器学习科普教程/)
-    expect(knowledgeVideo).toHaveAttribute('aria-pressed', 'true')
-    fireEvent.click(knowledgeVideo)
+    expect(knowledgeVideo).toHaveAttribute('data-selected', 'true')
+    fireEvent.click(getPreviewTargetToggle(knowledgeGroup, /机器学习科普教程/))
 
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
 
@@ -2225,8 +2234,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByRole('button', { name: '确认整理' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     const refreshedKnowledgeGroup = screen.getByRole('group', { name: 'Bilimi路知识 1 条' })
-    const refreshedKnowledgeVideo = getPreviewVideoButton(refreshedKnowledgeGroup, /机器学习科普教程/)
-    fireEvent.click(refreshedKnowledgeVideo)
+    fireEvent.click(getPreviewTargetToggle(refreshedKnowledgeGroup, /机器学习科普教程/))
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
     fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
 
@@ -2403,7 +2411,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('机器学习科普教程')).toBeInTheDocument()
     expect(screen.getByRole('group', { name: 'bilimi·知识学习 1 条' })).toBeInTheDocument()
     const movieGroup = screen.getByRole('group', { name: 'bilimi·影视动漫 1 条' })
-    fireEvent.click(within(movieGroup).getByRole('button', { name: /爆笑鬼畜合集/ }))
+    fireEvent.click(getPreviewTargetToggle(movieGroup, /爆笑鬼畜合集/))
     expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
@@ -2875,10 +2883,14 @@ describe('FavoriteLedgerPanel', () => {
     )
     expect(within(movieGroup).getByLabelText('全选 bilimi·影视动漫')).toBeChecked()
     expect(within(authorGroup).getByLabelText('全选 bilimi·影视飓风追更')).toBeChecked()
-    const movieVideo = getPreviewVideoButton(movieGroup, /影视飓风相机评测/)
-    const authorVideo = getPreviewVideoButton(authorGroup, /影视飓风剪辑教程/)
-    expect(movieVideo).toHaveAttribute('aria-pressed', 'true')
-    expect(authorVideo).toHaveAttribute('aria-pressed', 'true')
+    expect(getPreviewTargetToggle(movieGroup, /影视飓风相机评测/)).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    expect(getPreviewTargetToggle(authorGroup, /影视飓风剪辑教程/)).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
     expect(within(movieGroup).queryByLabelText('整理 影视飓风相机评测 到 bilimi·影视动漫')).not.toBeInTheDocument()
   })
 
@@ -4420,21 +4432,21 @@ describe('FavoriteLedgerPanel', () => {
       onOrganizeOldFavoritesWithDeepSeek
     })
 
-    const modeSelect = screen.getByLabelText<HTMLSelectElement>('DeepSeek 整理范围')
-    expect(modeSelect.value).toBe('all')
+    const modeSelect = screen.getByLabelText<HTMLSelectElement>('DeepSeek 辅助整理范围')
+    expect(modeSelect.value).toBe('low-confidence-and-unclassified')
 
-    fireEvent.change(modeSelect, { target: { value: 'classified-only' } })
+    fireEvent.change(modeSelect, { target: { value: 'all' } })
     expect(onOrganizeOldFavoritesWithDeepSeek).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
 
     await waitFor(() => expect(onOrganizeOldFavoritesWithDeepSeek).toHaveBeenCalledOnce())
     expect(onOrganizeOldFavoritesWithDeepSeek).toHaveBeenCalledWith(
-      'classified-only',
+      'all',
       expect.objectContaining({
         kind: 'favorite-archive-organize',
-        mode: 'classified-only',
-        videos: [expect.objectContaining({ aid: 701 })]
+        mode: 'all',
+        videos: [expect.objectContaining({ aid: 701 }), expect.objectContaining({ aid: 702 })]
       })
     )
   })
@@ -4451,7 +4463,7 @@ describe('FavoriteLedgerPanel', () => {
       onOrganizeOldFavoritesWithDeepSeek
     })
 
-    fireEvent.change(screen.getByLabelText('DeepSeek 整理范围'), {
+    fireEvent.change(screen.getByLabelText('DeepSeek 辅助整理范围'), {
       target: { value: 'unclassified-only' }
     })
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
@@ -4488,10 +4500,17 @@ describe('FavoriteLedgerPanel', () => {
 
     const originalGroup = screen.getByRole('group', { name: 'bilimi·学吧你就 1 条' })
     const originalVideo = getPreviewVideoButton(originalGroup, /AI 效率工具实战/)
+    const originalTargetToggle = getPreviewTargetToggle(originalGroup, /AI 效率工具实战/)
 
+    fireEvent.change(screen.getByLabelText('DeepSeek 辅助整理范围'), {
+      target: { value: 'all' }
+    })
+    fireEvent.change(screen.getByLabelText('DeepSeek 辅助整理范围'), {
+      target: { value: 'all' }
+    })
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
     expect(await screen.findByText('DeepSeek 正在整理旧藏...')).toBeInTheDocument()
-    expect(originalVideo).toBeDisabled()
+    expect(originalTargetToggle).toBeDisabled()
 
     fireEvent.click(originalVideo)
     expect(screen.getByRole('group', { name: 'bilimi·学吧你就 1 条' })).toBeInTheDocument()
@@ -4580,6 +4599,9 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByLabelText('bilimi·AI效率工坊')).not.toBeChecked()
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
 
+    fireEvent.change(screen.getByLabelText('DeepSeek 辅助整理范围'), {
+      target: { value: 'all' }
+    })
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
     expect(await screen.findByText('DeepSeek 正在整理旧藏...')).toBeInTheDocument()
 
@@ -4598,6 +4620,80 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
     expect(screen.getByLabelText('bilimi·AI效率工坊')).not.toBeChecked()
+  })
+
+  it('shows DeepSeek archive progress across request batches', async () => {
+    const resolvers: Array<(result: DeepSeekGenerateResult) => void> = []
+    const onOrganizeOldFavoritesWithDeepSeek = vi.fn().mockImplementation(
+      () =>
+        new Promise<DeepSeekGenerateResult>((resolve) => {
+          resolvers.push(resolve)
+        })
+    )
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: Array.from({ length: 21 }, (_, index) => ({
+        aid: 900 + index,
+        title: `待整理旧藏 ${index + 1}`,
+        sourceFolderTitle: '默认收藏夹',
+        targetLedgerId: 'inbox',
+        targetFolderId: '9008',
+        targetDisplayName: 'bilimi·暂存',
+        reviewRequired: false,
+        alreadyInTarget: false,
+        selected: false,
+        originalSuggestedLedgerIds: [],
+        currentTargetLedgerIds: [],
+        selectedTargetLedgerIds: [],
+        lowConfidence: true
+      })),
+      skippedSourceFolderTitles: []
+    } satisfies FavoriteLedgerPreview)
+
+    await openArchivePreview({
+      deepSeekArchiveAvailable: true,
+      onScanOldFavorites,
+      onOrganizeOldFavoritesWithDeepSeek
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+
+    await waitFor(() => expect(onOrganizeOldFavoritesWithDeepSeek).toHaveBeenCalledOnce())
+    expect(screen.getByText('第 1 / 2 批')).toBeInTheDocument()
+    expect(screen.getByText(/已完成 0 \/ 21 条/)).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'DeepSeek 整理进度' })).toHaveAttribute(
+      'aria-valuenow',
+      '0'
+    )
+
+    await act(async () => {
+      resolvers[0]({
+        kind: 'favorite-archive-organize',
+        results: [],
+        keywordSuggestions: []
+      })
+    })
+
+    await waitFor(() => expect(onOrganizeOldFavoritesWithDeepSeek).toHaveBeenCalledTimes(2))
+    expect(screen.getByText('第 2 / 2 批')).toBeInTheDocument()
+    expect(screen.getByText(/已完成 20 \/ 21 条/)).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'DeepSeek 整理进度' })).toHaveAttribute(
+      'aria-valuenow',
+      '95'
+    )
+
+    await act(async () => {
+      resolvers[1]({
+        kind: 'favorite-archive-organize',
+        results: [],
+        keywordSuggestions: []
+      })
+    })
+
+    await waitFor(() => expect(screen.getByText(/已完成 21 \/ 21 条/)).toBeInTheDocument())
+    expect(screen.getByRole('progressbar', { name: 'DeepSeek 整理进度' })).toHaveAttribute(
+      'aria-valuenow',
+      '100'
+    )
   })
 
   it('applies DeepSeek archive results with displacement notice and reverts the whole run', async () => {
@@ -4657,13 +4753,14 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.queryByRole('group', { name: 'bilimi·学吧你就 1 条' })).not.toBeInTheDocument()
     expect(screen.queryByRole('group', { name: /未匹配到合适分类/ })).not.toBeInTheDocument()
     const deepSeekMovedVideo = getPreviewVideoButton(gameGroup, /AI 效率工具实战/)
-    expect(deepSeekMovedVideo).toHaveAttribute('aria-pressed', 'true')
+    expect(deepSeekMovedVideo).toHaveAttribute('data-selected', 'true')
     expect(deepSeekMovedVideo).toHaveClass(
       'favorite-ledger-panel__preview-video--deepseek'
     )
     expect(screen.getByRole('alert')).toHaveTextContent('超过 1 个目标')
 
-    fireEvent.click(screen.getByRole('button', { name: '撤回本次 DeepSeek 整理' }))
+    expect(screen.queryByRole('button', { name: '撤回本次 DeepSeek 整理' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '撤销本次改动' }))
 
     expect(screen.getByRole('group', { name: 'bilimi·学习 1 条' })).toHaveTextContent(
       'AI 效率工具实战'
@@ -4708,7 +4805,8 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
     const gameGroup = await screen.findByRole('group', { name: 'bilimi·游戏 1 条' })
-    expect(screen.getByRole('button', { name: '撤回本次 DeepSeek 整理' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '撤回本次 DeepSeek 整理' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '撤销本次改动' })).toBeEnabled()
 
     fireEvent.change(within(gameGroup).getByLabelText('调整分类 暂时不知道放哪'), {
       target: { value: 'movie-tv' }
@@ -4719,7 +4817,8 @@ describe('FavoriteLedgerPanel', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
-    await screen.findByRole('button', { name: '撤回本次 DeepSeek 整理' })
+    await screen.findByRole('group', { name: 'bilimi·游戏 1 条' })
+    expect(screen.queryByRole('button', { name: '撤回本次 DeepSeek 整理' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '重置' }))
     expect(screen.queryByRole('button', { name: '撤回本次 DeepSeek 整理' })).not.toBeInTheDocument()
   })

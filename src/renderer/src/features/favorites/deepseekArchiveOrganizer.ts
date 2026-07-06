@@ -131,8 +131,11 @@ function selectTargets(args: {
 }): { ok: true; targets: string[]; attemptedTargets: string[] } | { ok: false; message: string } {
   const rawTargets = uniqueLedgerIds(args.result.targetLedgerIds)
 
-  if (args.result.lowConfidence || rawTargets.some(isUnclassifiedTarget) || rawTargets.includes('inbox')) {
-    return { ok: true, targets: [], attemptedTargets: [] }
+  if (rawTargets.length === 0 || rawTargets.some(isUnclassifiedTarget) || rawTargets.includes('inbox')) {
+    return {
+      ok: false,
+      message: `DeepSeek 整理失败：不可用目标 ${rawTargets.length > 0 ? rawTargets.join(', ') : '空目标'}`
+    }
   }
 
   const invalidTargets = rawTargets.filter((ledgerId) => !args.validEnabledLedgerIds.has(ledgerId))
@@ -159,6 +162,10 @@ export function buildDeepSeekArchiveRequest(
 
       if (mode === 'unclassified-only') {
         return item.currentTargetLedgerIds.length === 0
+      }
+
+      if (mode === 'low-confidence-and-unclassified') {
+        return item.lowConfidence || item.currentTargetLedgerIds.length === 0
       }
 
       return true

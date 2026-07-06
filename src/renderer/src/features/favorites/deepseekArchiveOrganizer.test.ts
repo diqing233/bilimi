@@ -74,7 +74,7 @@ describe('deepseekArchiveOrganizer', () => {
     expect(applied.stats).toEqual({ successCount: 1, failedCount: 0, truncatedCount: 0 })
   })
 
-  it('rejects invalid or disabled targets, truncates over-limit suggestions, and clears unclassified rows', () => {
+  it('rejects invalid disabled and unclassified targets while keeping the previous plan', () => {
     const state = createArchivePlanState([
       {
         aid: 1,
@@ -148,10 +148,10 @@ describe('deepseekArchiveOrganizer', () => {
 
     expect(applied.state.items.map((item) => item.selectedTargetLedgerIds)).toEqual([
       ['game'],
-      [],
+      ['game'],
       []
     ])
-    expect(applied.stats).toEqual({ successCount: 2, failedCount: 2, truncatedCount: 1 })
+    expect(applied.stats).toEqual({ successCount: 1, failedCount: 3, truncatedCount: 1 })
     expect(applied.redDisplacementMessages).toEqual([
       expect.stringContaining('DeepSeek 整理：bilimi·游戏专区 + bilimi·生活日常 超过 1 个目标')
     ])
@@ -253,7 +253,46 @@ describe('deepseekArchiveOrganizer', () => {
     ])
   })
 
-  it('keeps low-confidence or staging DeepSeek suggestions in the unclassified area', () => {
+  it('builds the default DeepSeek archive request from low-confidence and unclassified rows', () => {
+    const state = createArchivePlanState([
+      {
+        aid: 10,
+        title: 'low confidence classified',
+        sourceFolderTitle: 'default',
+        originalSuggestedLedgerIds: ['game'],
+        currentTargetLedgerIds: ['game'],
+        selectedTargetLedgerIds: ['game'],
+        lowConfidence: true,
+        userModified: false
+      },
+      {
+        aid: 11,
+        title: 'confident classified',
+        sourceFolderTitle: 'default',
+        originalSuggestedLedgerIds: ['life-interest'],
+        currentTargetLedgerIds: ['life-interest'],
+        selectedTargetLedgerIds: ['life-interest'],
+        lowConfidence: false,
+        userModified: false
+      },
+      {
+        aid: 12,
+        title: 'unclassified',
+        sourceFolderTitle: 'default',
+        originalSuggestedLedgerIds: [],
+        currentTargetLedgerIds: [],
+        selectedTargetLedgerIds: [],
+        lowConfidence: false,
+        userModified: false
+      }
+    ])
+
+    expect(
+      buildDeepSeekArchiveRequest(state, ledgers, 'low-confidence-and-unclassified', 1).videos
+    ).toEqual([expect.objectContaining({ aid: 10 }), expect.objectContaining({ aid: 12 })])
+  })
+
+  it('applies concrete low-confidence DeepSeek targets and rejects staging suggestions', () => {
     const state = createArchivePlanState([
       {
         aid: 1,
@@ -310,8 +349,12 @@ describe('deepseekArchiveOrganizer', () => {
       ]
     })
 
-    expect(applied.state.items.map((item) => item.selectedTargetLedgerIds)).toEqual([[], []])
-    expect(applied.stats).toEqual({ successCount: 2, failedCount: 0, truncatedCount: 0 })
+    expect(applied.state.items.map((item) => item.selectedTargetLedgerIds)).toEqual([
+      ['life-interest'],
+      []
+    ])
+    expect(applied.stats).toEqual({ successCount: 1, failedCount: 1, truncatedCount: 0 })
+    expect(applied.messages).toEqual(expect.arrayContaining([expect.stringContaining('inbox')]))
   })
 
   it('reverts a run from an isolated snapshot', () => {

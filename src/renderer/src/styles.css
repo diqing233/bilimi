@@ -2852,6 +2852,11 @@ body[data-floating-window="true"],
   justify-content: flex-end;
   gap: 6px;
 }
+.favorite-ledger-panel__deepseek-archive > strong {
+  color: var(--porcelain-deep);
+  font-size: 13px;
+  white-space: nowrap;
+}
 .favorite-ledger-panel__deepseek-archive label {
   display: flex;
   align-items: center;
@@ -2881,6 +2886,73 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__deepseek-archive-status {
   color: var(--porcelain-deep);
   font-weight: 700;
+}
+.favorite-ledger-panel__deepseek-archive-progress {
+  display: grid;
+  gap: 5px;
+}
+.favorite-ledger-panel__deepseek-archive-progress-copy {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--porcelain-muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.favorite-ledger-panel__deepseek-archive-progress-track {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 8px;
+  border: 1px solid rgba(31, 99, 181, 0.2);
+  background: rgba(255, 255, 255, 0.78);
+}
+.favorite-ledger-panel__deepseek-archive-progress-track span {
+  position: relative;
+  z-index: 1;
+  display: block;
+  max-width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(31, 99, 181, 0.88),
+    rgba(59, 146, 135, 0.88)
+  );
+  transition: width 180ms ease;
+}
+.favorite-ledger-panel__deepseek-archive-progress[data-running='true']
+  .favorite-ledger-panel__deepseek-archive-progress-track
+  span,
+.favorite-ledger-panel__deepseek-archive-progress[data-running='true']
+  .favorite-ledger-panel__deepseek-archive-progress-track::after {
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.25) 0,
+      rgba(255, 255, 255, 0.25) 6px,
+      transparent 6px,
+      transparent 12px
+    ),
+    linear-gradient(90deg, rgba(31, 99, 181, 0.88), rgba(59, 146, 135, 0.88));
+  background-size: 18px 18px, 100% 100%;
+  animation: favorite-ledger-deepseek-progress 850ms linear infinite;
+}
+.favorite-ledger-panel__deepseek-archive-progress[data-running='true']
+  .favorite-ledger-panel__deepseek-archive-progress-track::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.2;
+}
+@keyframes favorite-ledger-deepseek-progress {
+  from {
+    background-position: 0 0, 0 0;
+  }
+  to {
+    background-position: 18px 0, 0 0;
+  }
 }
 .favorite-ledger-panel__deepseek-archive-alert {
   border: 1px solid rgba(194, 74, 74, 0.45);
@@ -3168,6 +3240,7 @@ body[data-floating-window="true"],
   color: inherit;
   padding: 7px 8px;
   text-align: left;
+  cursor: default;
 }
 .favorite-ledger-panel__preview-video--pending {
   min-height: 116px;
@@ -3193,17 +3266,9 @@ body[data-floating-window="true"],
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.favorite-ledger-panel__preview-video[aria-pressed="true"] {
-  border-color: rgba(31, 99, 181, 0.45);
-  background: rgba(220, 238, 255, 0.72);
-}
 .favorite-ledger-panel__preview-video--deepseek {
   border-color: rgba(194, 74, 74, 0.58);
   box-shadow: inset 3px 0 0 rgba(194, 74, 74, 0.78);
-}
-.favorite-ledger-panel__preview-video:disabled {
-  cursor: default;
-  opacity: 0.68;
 }
 .favorite-ledger-panel__preview-video-meta {
   display: grid;
@@ -3212,12 +3277,34 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__preview-controls {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 5px;
   min-width: 0;
   margin-top: 6px;
 }
+.favorite-ledger-panel__preview-controls > small,
+.favorite-ledger-panel__preview-controls > button:not(.favorite-ledger-panel__target-toggle) {
+  grid-column: 1 / -1;
+}
 .favorite-ledger-panel__pending-actions .favorite-ledger-panel__preview-controls {
   margin-top: 0;
+}
+.favorite-ledger-panel__target-toggle {
+  min-width: 0;
+  min-height: 28px;
+  border: 1px solid rgba(31, 99, 181, 0.24);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--porcelain-deep);
+  font-size: 12px;
+  font-weight: 700;
+}
+.favorite-ledger-panel__target-toggle span {
+  display: inline-block;
+  width: 12px;
+}
+.favorite-ledger-panel__target-toggle[data-selected='true'] {
+  border-color: rgba(31, 99, 181, 0.62);
+  background: rgba(220, 238, 255, 0.95);
 }
 .favorite-ledger-panel__target-select {
   width: 100%;
