@@ -332,6 +332,94 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
   })
 
+  it('uses DeepSeek for archive preview organization and persists returned keyword suggestions', async () => {
+    const savePreferences = vi.fn().mockImplementation(async (preferences: AssistantPreferences) => preferences)
+    const generateDeepSeek = vi.fn().mockResolvedValue({
+      kind: 'favorite-archive-organize',
+      results: [],
+      keywordSuggestions: [
+        {
+          id: 'deepseek-keyword-1',
+          action: 'add-keyword',
+          ledgerId: 'knowledge',
+          keyword: 'AI 工具',
+          reason: 'DeepSeek 在旧藏整理中发现高频组合词。',
+          source: 'deepseek',
+          status: 'pending',
+          createdAt: '2026-07-06T00:00:00.000Z'
+        }
+      ]
+    })
+    const scanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 901,
+          title: 'AI 工具链教程',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'bilimi·学吧你就',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          originalSuggestedLedgerIds: ['knowledge'],
+          currentTargetLedgerIds: ['knowledge'],
+          selectedTargetLedgerIds: ['knowledge'],
+          lowConfidence: false
+        }
+      ],
+      skippedSourceFolderTitles: []
+    } satisfies FavoriteLedgerPreview)
+    installDesktopApi({
+      generateDeepSeek,
+      savePreferences,
+      scanOldFavorites,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true,
+            deepseekApiKeyStored: true
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: '掌库' }))
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+
+    await waitFor(() =>
+      expect(generateDeepSeek).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'favorite-archive-organize',
+          mode: 'all',
+          videos: [expect.objectContaining({ aid: 901 })]
+        })
+      )
+    )
+    expect(
+      await screen.findByText('DeepSeek 返回 1 条关键词建议，已加入设置里的建议列表。')
+    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          favoriteKeywordSuggestions: [
+            expect.objectContaining({
+              id: 'deepseek-keyword-1',
+              keyword: 'AI 工具',
+              status: 'pending'
+            })
+          ]
+        })
+      )
+    )
+  })
+
   it('keeps the floating assistant fold button available across workspace tabs', async () => {
     const api = installDesktopApi()
 

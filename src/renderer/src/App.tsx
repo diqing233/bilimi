@@ -1307,6 +1307,8 @@ export default function App() {
           return rejudgeOldFavorite(request.item)
         case 'execute-old-favorite-plan':
           return executeOldFavoritePlan(request.items)
+        case 'organize-old-favorites-with-deepseek':
+          return window.bilimiDesktop?.generateDeepSeek?.(request.request) ?? null
         default:
           throw new Error('Unknown assistant runtime request.')
       }

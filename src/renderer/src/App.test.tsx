@@ -2026,6 +2026,54 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('forwards explicit DeepSeek old favorite organization requests to the desktop bridge', async () => {
+    const generateDeepSeek = vi.fn().mockResolvedValue({
+      kind: 'favorite-archive-organize',
+      results: [],
+      keywordSuggestions: []
+    })
+    const { requestRuntime } = renderAppWithRuntimeBridge({
+      generateDeepSeek
+    })
+    const request = {
+      kind: 'favorite-archive-organize' as const,
+      mode: 'all' as const,
+      videos: [
+        {
+          aid: 601,
+          title: 'AI 工具链教程',
+          sourceFolderTitle: '默认收藏夹',
+          originalSuggestedLedgerIds: ['knowledge'],
+          currentTargetLedgerIds: ['knowledge'],
+          selectedTargetLedgerIds: ['knowledge']
+        }
+      ],
+      ledgers: [
+        {
+          id: 'knowledge',
+          displayName: 'bilimi·学吧你就',
+          keywords: ['学习'],
+          enabled: true
+        }
+      ],
+      multiArchiveLimit: 1 as const
+    }
+
+    const result = await requestRuntime({
+      id: 'deepseek-archive-1',
+      type: 'organize-old-favorites-with-deepseek',
+      mode: 'all',
+      request
+    })
+
+    expect(generateDeepSeek).toHaveBeenCalledWith(request)
+    expect(result).toEqual({
+      kind: 'favorite-archive-organize',
+      results: [],
+      keywordSuggestions: []
+    })
+  })
+
   it('saves favorite ledgers through the runtime bridge and persists synced ids', async () => {
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
     const { requestRuntime } = renderAppWithRuntimeBridge({ savePreferences })

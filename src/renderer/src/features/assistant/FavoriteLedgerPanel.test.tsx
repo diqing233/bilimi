@@ -1,4 +1,5 @@
 ﻿import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
+import type { DeepSeekGenerateResult } from '@shared/types'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
@@ -28,6 +29,74 @@ describe('FavoriteLedgerPanel', () => {
       .find((candidate) => candidate.classList.contains('favorite-ledger-panel__preview-video'))
     expect(button).toBeDefined()
     return button!
+  }
+
+  function createArchivePreviewFixture(): FavoriteLedgerPreview {
+    return {
+      items: [
+        {
+          aid: 701,
+          title: 'AI 效率工具实战',
+          author: '效率研究所',
+          description: 'AI 工具流拆解。',
+          tags: ['AI', '效率'],
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'bilimi·学吧你就',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          originalSuggestedLedgerIds: ['knowledge'],
+          currentTargetLedgerIds: ['knowledge'],
+          selectedTargetLedgerIds: ['knowledge'],
+          lowConfidence: false
+        },
+        {
+          aid: 702,
+          title: '暂时不知道放哪',
+          author: '杂谈UP',
+          description: '需要人工补判。',
+          tags: ['杂谈'],
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'inbox',
+          targetFolderId: '9008',
+          targetDisplayName: 'bilimi·暂存',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: false,
+          originalSuggestedLedgerIds: [],
+          currentTargetLedgerIds: [],
+          selectedTargetLedgerIds: [],
+          lowConfidence: true
+        }
+      ],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 2,
+        topAuthors: [],
+        topTags: [],
+        topCategories: [],
+        sourceFolders: [{ name: '默认收藏夹', count: 2 }],
+        titleSeries: [],
+        candidateLedgers: []
+      }
+    }
+  }
+
+  async function openArchivePreview(overrides: Partial<Parameters<typeof FavoriteLedgerPanel>[0]> = {}) {
+    const preview = createArchivePreviewFixture()
+    const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
+    const renderResult = renderPanel({
+      onScanOldFavorites,
+      ...overrides
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+
+    return { ...renderResult, onScanOldFavorites, preview }
   }
 
   it('does not render the standalone pending queue panel', () => {
@@ -4068,6 +4137,336 @@ describe('FavoriteLedgerPanel', () => {
     expect(onScanOldFavorites).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step')
     expect(screen.getByRole('group', { name: 'bilimi·影视动漫 1 条' })).toBeInTheDocument()
+  })
+
+  it('disables archive-preview DeepSeek organization when DeepSeek is unavailable', async () => {
+    const onOrganizeOldFavoritesWithDeepSeek = vi.fn()
+
+    await openArchivePreview({
+      deepSeekArchiveAvailable: false,
+      onOrganizeOldFavoritesWithDeepSeek
+    })
+
+    expect(screen.getByRole('button', { name: 'DeepSeek 整理' })).toBeDisabled()
+    expect(screen.getByText('未开启 DeepSeek')).toBeInTheDocument()
+    expect(screen.getByText(/将发送标题、UP、标签、简介、来源收藏夹、当前建议和 bilimi 册目信息/)).toBeInTheDocument()
+    expect(onOrganizeOldFavoritesWithDeepSeek).not.toHaveBeenCalled()
+  })
+
+  it('keeps DeepSeek archive mode changes local until the user starts organization', async () => {
+    const onOrganizeOldFavoritesWithDeepSeek = vi.fn().mockResolvedValue({
+        kind: 'favorite-archive-organize',
+        results: [],
+        keywordSuggestions: []
+      })
+
+    await openArchivePreview({
+      deepSeekArchiveAvailable: true,
+      onOrganizeOldFavoritesWithDeepSeek
+    })
+
+    const modeSelect = screen.getByLabelText<HTMLSelectElement>('DeepSeek 整理范围')
+    expect(modeSelect.value).toBe('all')
+
+    fireEvent.change(modeSelect, { target: { value: 'classified-only' } })
+    expect(onOrganizeOldFavoritesWithDeepSeek).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+
+    await waitFor(() => expect(onOrganizeOldFavoritesWithDeepSeek).toHaveBeenCalledOnce())
+    expect(onOrganizeOldFavoritesWithDeepSeek).toHaveBeenCalledWith(
+      'classified-only',
+      expect.objectContaining({
+        kind: 'favorite-archive-organize',
+        mode: 'classified-only',
+        videos: [expect.objectContaining({ aid: 701 })]
+      })
+    )
+  })
+
+  it('sends only unclassified-area videos for DeepSeek archive unclassified-only mode', async () => {
+    const onOrganizeOldFavoritesWithDeepSeek = vi.fn().mockResolvedValue({
+        kind: 'favorite-archive-organize',
+        results: [],
+        keywordSuggestions: []
+      })
+
+    await openArchivePreview({
+      deepSeekArchiveAvailable: true,
+      onOrganizeOldFavoritesWithDeepSeek
+    })
+
+    fireEvent.change(screen.getByLabelText('DeepSeek 整理范围'), {
+      target: { value: 'unclassified-only' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+
+    await waitFor(() => expect(onOrganizeOldFavoritesWithDeepSeek).toHaveBeenCalledOnce())
+    expect(onOrganizeOldFavoritesWithDeepSeek).toHaveBeenCalledWith(
+      'unclassified-only',
+      expect.objectContaining({
+        mode: 'unclassified-only',
+        videos: [expect.objectContaining({ aid: 702 })]
+      })
+    )
+  })
+
+  it('locks archive preview edits and execution while DeepSeek organization is running', async () => {
+    let resolveDeepSeek: (result: DeepSeekGenerateResult) => void = () => undefined
+    const onOrganizeOldFavoritesWithDeepSeek = vi.fn().mockReturnValue(
+      new Promise<DeepSeekGenerateResult>((resolve) => {
+        resolveDeepSeek = resolve
+      })
+    )
+    const onExecuteOldFavoritePlan = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: [],
+      missingTargets: [],
+      message: '旧藏已归册。'
+    })
+
+    await openArchivePreview({
+      deepSeekArchiveAvailable: true,
+      onOrganizeOldFavoritesWithDeepSeek,
+      onExecuteOldFavoritePlan
+    })
+
+    const originalGroup = screen.getByRole('group', { name: 'bilimi·学吧你就 1 条' })
+    const originalVideo = getPreviewVideoButton(originalGroup, /AI 效率工具实战/)
+
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    expect(await screen.findByText('DeepSeek 正在整理旧藏...')).toBeInTheDocument()
+    expect(originalVideo).toBeDisabled()
+
+    fireEvent.click(originalVideo)
+    expect(screen.getByRole('group', { name: 'bilimi·学吧你就 1 条' })).toBeInTheDocument()
+
+    const confirmStepButton = screen.getByRole('button', { name: '确认执行' })
+    expect(confirmStepButton).toBeDisabled()
+    fireEvent.click(confirmStepButton)
+    expect(screen.queryByRole('button', { name: '确认整理' })).not.toBeInTheDocument()
+    expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolveDeepSeek({
+        kind: 'favorite-archive-organize',
+        results: [],
+        keywordSuggestions: []
+      })
+    })
+  })
+
+  it('locks old favorite guide candidate selection while DeepSeek organization is running', async () => {
+    let resolveDeepSeek: (result: DeepSeekGenerateResult) => void = () => undefined
+    const onOrganizeOldFavoritesWithDeepSeek = vi.fn().mockReturnValue(
+      new Promise<DeepSeekGenerateResult>((resolve) => {
+        resolveDeepSeek = resolve
+      })
+    )
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 801,
+          title: 'AI 候选视频',
+          author: '效率研究所',
+          description: 'AI 工作流拆解。',
+          tags: ['AI', '效率'],
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'bilimi·学吧你就',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          originalSuggestedLedgerIds: ['knowledge'],
+          currentTargetLedgerIds: ['knowledge'],
+          selectedTargetLedgerIds: ['knowledge'],
+          candidateTargets: [
+            {
+              candidateKey: 'tag-cluster:AI',
+              ledgerId: 'custom-tag-cluster-AI',
+              displayName: 'bilimi·AI效率工坊',
+              keywords: ['AI', '效率']
+            }
+          ]
+        }
+      ],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 1,
+        topAuthors: [],
+        topTags: [{ name: 'AI', count: 1 }],
+        topCategories: [],
+        sourceFolders: [{ name: '默认收藏夹', count: 1 }],
+        titleSeries: [],
+        candidateLedgers: [
+          {
+            kind: 'tag-cluster' as const,
+            sourceName: 'AI',
+            displayName: 'bilimi·AI效率工坊',
+            keywords: ['AI', '效率'],
+            count: 1,
+            confidence: 'medium' as const,
+            reason: 'AI 标签适合单独成册。'
+          }
+        ]
+      }
+    } satisfies FavoriteLedgerPreview)
+
+    renderPanel({
+      deepSeekArchiveAvailable: true,
+      onScanOldFavorites,
+      onOrganizeOldFavoritesWithDeepSeek
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    expect(screen.getByLabelText('bilimi·AI效率工坊')).not.toBeChecked()
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    expect(await screen.findByText('DeepSeek 正在整理旧藏...')).toBeInTheDocument()
+
+    const candidateStepButton = screen.getByRole('button', { name: '推荐收藏夹' })
+    expect(candidateStepButton).toBeDisabled()
+    fireEvent.click(candidateStepButton)
+    expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step')
+
+    await act(async () => {
+      resolveDeepSeek({
+        kind: 'favorite-archive-organize',
+        results: [],
+        keywordSuggestions: []
+      })
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    expect(screen.getByLabelText('bilimi·AI效率工坊')).not.toBeChecked()
+  })
+
+  it('applies DeepSeek archive results with displacement notice and reverts the whole run', async () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
+      if (ledger.id === 'knowledge') {
+        return { ...ledger, displayName: 'bilimi·学习', bilibiliFolderId: '9001' }
+      }
+      if (ledger.id === 'game') {
+        return { ...ledger, displayName: 'bilimi·游戏', bilibiliFolderId: '9002' }
+      }
+      if (ledger.id === 'movie-tv') {
+        return { ...ledger, displayName: 'bilimi·影视', bilibiliFolderId: '9003' }
+      }
+      return ledger
+    })
+    const onOrganizeOldFavoritesWithDeepSeek = vi.fn().mockResolvedValue({
+      kind: 'favorite-archive-organize',
+      results: [
+        {
+          aid: 701,
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerIds: ['game', 'movie-tv'],
+          keepOriginal: false,
+          reason: 'DeepSeek 认为它更像游戏工具。',
+          confidence: 0.91,
+          lowConfidence: false
+        },
+        {
+          aid: 702,
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerIds: ['game'],
+          keepOriginal: false,
+          reason: 'DeepSeek 补判为游戏。',
+          confidence: 0.86,
+          lowConfidence: false
+        }
+      ],
+      keywordSuggestions: []
+    } satisfies DeepSeekGenerateResult)
+
+    await openArchivePreview({
+      ledgers,
+      deepSeekArchiveAvailable: true,
+      onOrganizeOldFavoritesWithDeepSeek
+    })
+
+    expect(screen.getByRole('group', { name: 'bilimi·学吧你就 1 条' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: /未匹配到合适分类 1 条/ })).toHaveTextContent(
+      '暂时不知道放哪'
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+
+    const gameGroup = await screen.findByRole('group', { name: 'bilimi·游戏 2 条' })
+    expect(gameGroup).toHaveTextContent('AI 效率工具实战')
+    expect(gameGroup).toHaveTextContent('暂时不知道放哪')
+    expect(screen.queryByRole('group', { name: 'bilimi·学吧你就 1 条' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: /未匹配到合适分类/ })).not.toBeInTheDocument()
+    const deepSeekMovedVideo = getPreviewVideoButton(gameGroup, /AI 效率工具实战/)
+    expect(deepSeekMovedVideo).toHaveAttribute('aria-pressed', 'true')
+    expect(deepSeekMovedVideo).toHaveClass(
+      'favorite-ledger-panel__preview-video--deepseek'
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent('超过 1 个目标')
+
+    fireEvent.click(screen.getByRole('button', { name: '撤回本次 DeepSeek 整理' }))
+
+    expect(screen.getByRole('group', { name: 'bilimi·学吧你就 1 条' })).toHaveTextContent(
+      'AI 效率工具实战'
+    )
+    expect(screen.getByRole('group', { name: /未匹配到合适分类 1 条/ })).toHaveTextContent(
+      '暂时不知道放哪'
+    )
+    expect(screen.queryByRole('group', { name: 'bilimi·游戏 2 条' })).not.toBeInTheDocument()
+  })
+
+  it('invalidates the DeepSeek run snapshot after manual archive edits or reset', async () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
+      if (ledger.id === 'game') {
+        return { ...ledger, displayName: 'bilimi·游戏', bilibiliFolderId: '9002' }
+      }
+      if (ledger.id === 'movie-tv') {
+        return { ...ledger, displayName: 'bilimi·影视', bilibiliFolderId: '9003' }
+      }
+      return ledger
+    })
+    const onOrganizeOldFavoritesWithDeepSeek = vi.fn().mockResolvedValue({
+      kind: 'favorite-archive-organize',
+      results: [
+        {
+          aid: 702,
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerIds: ['game'],
+          keepOriginal: false,
+          reason: 'DeepSeek 补判为游戏。',
+          confidence: 0.84,
+          lowConfidence: false
+        }
+      ],
+      keywordSuggestions: []
+    } satisfies DeepSeekGenerateResult)
+
+    await openArchivePreview({
+      ledgers,
+      deepSeekArchiveAvailable: true,
+      onOrganizeOldFavoritesWithDeepSeek
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    const gameGroup = await screen.findByRole('group', { name: 'bilimi·游戏 1 条' })
+    expect(screen.getByRole('button', { name: '撤回本次 DeepSeek 整理' })).toBeInTheDocument()
+
+    fireEvent.change(within(gameGroup).getByLabelText('调整分类 暂时不知道放哪'), {
+      target: { value: 'movie-tv' }
+    })
+    expect(screen.queryByRole('button', { name: '撤回本次 DeepSeek 整理' })).not.toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'bilimi·影视 1 条' })).toHaveTextContent(
+      '暂时不知道放哪'
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    await screen.findByRole('button', { name: '撤回本次 DeepSeek 整理' })
+    fireEvent.click(screen.getByRole('button', { name: '重置' }))
+    expect(screen.queryByRole('button', { name: '撤回本次 DeepSeek 整理' })).not.toBeInTheDocument()
   })
 
   it('does not offer DeepSeek old favorite assistance from the scan overview', async () => {

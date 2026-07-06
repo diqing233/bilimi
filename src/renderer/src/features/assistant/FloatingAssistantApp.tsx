@@ -1,6 +1,9 @@
 import type {
   AssistantAction,
   AssistantAutomationResult,
+  DeepSeekArchiveMode,
+  DeepSeekGenerateRequest,
+  DeepSeekGenerateResult,
   FavoriteCorrectionRecord,
   AssistantPreferences,
   FavoriteKeywordSuggestion,
@@ -1423,6 +1426,37 @@ export function FloatingAssistantApp({
     return refreshedItem
   }
 
+  async function organizeOldFavoritesWithDeepSeek(
+    _mode: DeepSeekArchiveMode,
+    request: DeepSeekGenerateRequest
+  ): Promise<DeepSeekGenerateResult | null | undefined> {
+    tellPet('progress', '小咪正在请 DeepSeek 整理旧藏。')
+    const result = await window.bilimiDesktop?.generateDeepSeek?.(request)
+    tellPet(
+      result?.kind === 'favorite-archive-organize' ? 'success' : 'error',
+      result?.kind === 'favorite-archive-organize'
+        ? 'DeepSeek 旧藏整理结果已返回。'
+        : 'DeepSeek 旧藏整理没有返回可用结果。'
+    )
+    return result
+  }
+
+  function mergeDeepSeekArchiveKeywordSuggestions(suggestions: FavoriteKeywordSuggestion[]) {
+    if (suggestions.length === 0) {
+      return
+    }
+
+    const existingIds = new Set(
+      preferencesRef.current.favoriteKeywordSuggestions.map((suggestion) => suggestion.id)
+    )
+    const nextSuggestions = [
+      ...preferencesRef.current.favoriteKeywordSuggestions,
+      ...suggestions.filter((suggestion) => !existingIds.has(suggestion.id))
+    ]
+
+    persistPreferencePatch({ favoriteKeywordSuggestions: nextSuggestions })
+  }
+
   function handleOldFavoriteExecutionStateChange(state: 'running' | 'finished') {
     tellPet(
       state === 'running' ? 'progress' : 'success',
@@ -1495,6 +1529,9 @@ export function FloatingAssistantApp({
             onOldFavoriteExecutionStateChange={handleOldFavoriteExecutionStateChange}
             onOpenOldFavoriteVideo={onOpenInTab}
             onRejudgeOldFavorite={rejudgeOldFavorite}
+            deepSeekArchiveAvailable={preferences.deepseekEnabled && preferences.deepseekApiKeyStored}
+            onOrganizeOldFavoritesWithDeepSeek={organizeOldFavoritesWithDeepSeek}
+            onDeepSeekArchiveKeywordSuggestions={mergeDeepSeekArchiveKeywordSuggestions}
             favoriteArchiveMultiMode={preferences.favoriteArchiveMultiMode}
             organizeOldFavoritesRequestSignal={organizeOldFavoritesRequestSignal}
           />
