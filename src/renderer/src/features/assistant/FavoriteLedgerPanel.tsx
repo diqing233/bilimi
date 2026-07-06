@@ -3156,15 +3156,13 @@ export function FavoriteLedgerPanel({
                 <h4>归档预览</h4>
                 {oldFavoriteGuideMode === 'organize' ? (
                   <div className="favorite-ledger-panel__preview-toolbar">
-                    {deepSeekArchiveRunSnapshot ? null : (
-                      <button
-                        type="button"
-                        disabled={deepSeekArchiveRunning || (!hasArchivePreviewChanges && !archiveRedoSnapshot)}
-                        onClick={archiveRedoSnapshot ? redoArchivePreviewChanges : undoArchivePreviewChanges}
-                      >
-                        {archiveRedoSnapshot ? '再次复原' : '撤销本次改动'}
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      disabled={deepSeekArchiveRunning || (!hasArchivePreviewChanges && !archiveRedoSnapshot)}
+                      onClick={archiveRedoSnapshot ? redoArchivePreviewChanges : undoArchivePreviewChanges}
+                    >
+                      {archiveRedoSnapshot ? '再次复原' : '撤销本次改动'}
+                    </button>
                     <div className="favorite-ledger-panel__deepseek-archive">
                       <label>
                         <span>DeepSeek 整理范围</span>

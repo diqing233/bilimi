@@ -4662,7 +4662,6 @@ describe('FavoriteLedgerPanel', () => {
       'favorite-ledger-panel__preview-video--deepseek'
     )
     expect(screen.getByRole('alert')).toHaveTextContent('超过 1 个目标')
-    expect(screen.queryByRole('button', { name: '撤销本次改动' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '撤回本次 DeepSeek 整理' }))
 
