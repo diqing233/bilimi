@@ -263,7 +263,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(within(unmatchedGroup).getByText(/低置信：分差 0.08/)).toHaveTextContent(
       '标题只命中弱关键词、标签不足'
     )
-    fireEvent.click(within(unmatchedGroup).getByRole('button', { name: '视频来源 没有命中分类的旧藏' }))
+    fireEvent.click(within(unmatchedGroup).getByRole('button', { name: '打开视频来源 没有命中分类的旧藏' }))
     expect(onOpenOldFavoriteVideo).toHaveBeenCalledWith('https://www.bilibili.com/video/av601')
     expect(container.querySelector('.favorite-ledger-panel__preview-video')).not.toHaveAttribute(
       'aria-pressed'
@@ -516,11 +516,12 @@ describe('FavoriteLedgerPanel', () => {
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
 
-    fireEvent.click(screen.getByRole('button', { name: '视频来源 手动分类旧藏' }))
+    fireEvent.click(screen.getByRole('button', { name: '打开视频来源 手动分类旧藏' }))
 
     expect(onOpenOldFavoriteVideo).toHaveBeenCalledWith('https://www.bilibili.com/video/av242')
     expect(screen.getByRole('group', { name: '未匹配到合适分类 1 条' })).toBeInTheDocument()
     expect(screen.getByText('手动分类旧藏')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '视频来源 手动分类旧藏' })).not.toBeInTheDocument()
   })
 
   it('adds a pending old favorite to staging for this round when requested', async () => {
@@ -620,7 +621,10 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
 
-    const guideHint = /建议按顺序从左到右操作/
+    const guideHint = /请主人从左到右查阅完成本轮整理/
+    const guide = screen.getByText(guideHint)
+    const stepNav = screen.getByRole('navigation', { name: '整理旧藏步骤' })
+    expect(Boolean(guide.compareDocumentPosition(stepNav) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
     expect(screen.getByText(guideHint)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
@@ -983,7 +987,8 @@ describe('FavoriteLedgerPanel', () => {
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
 
-    expect(screen.getByRole('button', { name: '视频来源 无法补判旧藏' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '打开视频来源 无法补判旧藏' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '视频来源 无法补判旧藏' })).not.toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: '存入收藏夹 无法补判旧藏' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '再次整理 无法补判旧藏' })).toBeInTheDocument()
   })

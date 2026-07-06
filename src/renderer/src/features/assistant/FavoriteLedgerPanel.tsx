@@ -266,7 +266,7 @@ const LEDGER_SYNC_HINT =
 const BACKUP_COMPLETE_MESSAGE =
   '小咪备册已完成，主人可以再增加自己想要的收藏夹，点击同步即可'
 const OLD_FAVORITE_GUIDE_HINT =
-  '建议按顺序从左到右操作：扫描概览勾选自己要整理的收藏夹（默认全部）；推荐收藏夹可以额外勾选并生成新的收藏夹；归档预览查看最终分类详情，可启用 DeepSeek 辅助整理；确认执行开始执行并查看整理进度，结束后点击“好的”即可结束本轮整理。'
+  '请主人从左到右查阅完成本轮整理：①在扫描概览勾选要整理的收藏夹（默认全选）；②在推荐收藏夹勾选想新建的收藏夹；③在归档预览里检查分类结果，可启用 DeepSeek 辅助调整④最后确认执行并查看进度，完成后点“好的”结束本轮整理哦'
 type OldFavoriteGuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
 type OldFavoriteGuideMode = 'setup' | 'organize'
 const OLD_FAVORITE_GUIDE_STEPS: Array<{ id: OldFavoriteGuideStep; label: string }> = [
@@ -1881,6 +1881,21 @@ export function FavoriteLedgerPanel({
     onOpenOldFavoriteVideo?.(oldFavoriteVideoUrl(item))
   }
 
+  function renderOldFavoriteVideoTitle(item: FavoriteLedgerPreviewItem) {
+    return (
+      <button
+        type="button"
+        className="favorite-ledger-panel__preview-video-title"
+        title={item.title}
+        aria-label={`打开视频来源 ${item.title}`}
+        disabled={deepSeekArchiveRunning}
+        onClick={() => openOldFavoriteVideo(item)}
+      >
+        {item.title}
+      </button>
+    )
+  }
+
   function updatePreviewItemFromPlanItem(planItem: FavoriteArchivePlanItemState) {
     setPreview((current) => {
       if (!current) {
@@ -3097,6 +3112,7 @@ export function FavoriteLedgerPanel({
         >
           <div className="favorite-ledger-panel__guide-header">
             <h3>{oldFavoriteGuideMode === 'setup' ? '备册' : '整理旧藏'}</h3>
+            <p className="favorite-ledger-panel__guide-hint">{OLD_FAVORITE_GUIDE_HINT}</p>
             <nav className="favorite-ledger-panel__guide-steps" aria-label="整理旧藏步骤">
               {OLD_FAVORITE_GUIDE_STEPS.map((step) => (
                 <button
@@ -3111,7 +3127,6 @@ export function FavoriteLedgerPanel({
               ))}
             </nav>
           </div>
-          <p className="favorite-ledger-panel__guide-hint">{OLD_FAVORITE_GUIDE_HINT}</p>
 
           {oldFavoriteStep === 'scan' ? (
             <section className="favorite-ledger-panel__insights" aria-label="基础数据">
@@ -3426,23 +3441,10 @@ export function FavoriteLedgerPanel({
                             <div
                               className="favorite-ledger-panel__preview-video favorite-ledger-panel__preview-video--pending"
                             >
-                              <span
-                                className="favorite-ledger-panel__preview-video-title"
-                                title={item.title}
-                              >
-                                {item.title}
-                              </span>
+                              {renderOldFavoriteVideoTitle(item)}
                               {renderOldFavoritePreviewMeta(item)}
                               <small>{pendingReasonText(item)}</small>
                               <div className="favorite-ledger-panel__pending-actions" aria-label={`${item.title} 操作`}>
-                                <button
-                                  type="button"
-                                  aria-label={`视频来源 ${item.title}`}
-                                  disabled={deepSeekArchiveRunning}
-                                  onClick={() => openOldFavoriteVideo(item)}
-                                >
-                                  视频来源
-                                </button>
                                 {renderOldFavoriteArchiveControls(item, 'unclassified')}
                                 <button
                                   type="button"
@@ -3507,23 +3509,10 @@ export function FavoriteLedgerPanel({
                                   .join(' ')}
                                 data-selected={selected}
                               >
-                                <span
-                                  className="favorite-ledger-panel__preview-video-title"
-                                  title={item.title}
-                                >
-                                  {item.title}
-                                </span>
+                                {renderOldFavoriteVideoTitle(item)}
                                 {renderOldFavoritePreviewMeta(item, target)}
                               </div>
                               <div className="favorite-ledger-panel__pending-actions" aria-label={`${item.title} 操作`}>
-                                <button
-                                  type="button"
-                                  aria-label={`视频来源 ${item.title}`}
-                                  disabled={deepSeekArchiveRunning}
-                                  onClick={() => openOldFavoriteVideo(item)}
-                                >
-                                  视频来源
-                                </button>
                                 {renderOldFavoriteArchiveControls(item, group.ledgerId, target)}
                                 <button
                                   type="button"
