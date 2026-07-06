@@ -173,6 +173,152 @@ describe('DeepSeek main service', () => {
     })
   })
 
+  it('parses favorite archive organization JSON and normalizes keyword suggestions', async () => {
+    const fetchImpl = createJsonFetch(
+      JSON.stringify({
+        results: [
+          {
+            aid: 1,
+            sourceFolderTitle: '默认收藏夹',
+            targetLedgerIds: ['life-interest'],
+            keepOriginal: false,
+            reason: '旅行攻略语义更接近日常生活',
+            confidence: 0.86,
+            lowConfidence: false,
+            secondPassChanged: true
+          }
+        ],
+        keywordSuggestions: [
+          {
+            action: 'replace-with-combination',
+            ledgerId: 'game',
+            keyword: '攻略',
+            replacement: '游戏攻略',
+            reason: '裸攻略容易误分旅行内容'
+          }
+        ]
+      })
+    )
+
+    await expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: {
+          kind: 'favorite-archive-organize',
+          mode: 'all',
+          videos: [
+            {
+              aid: 1,
+              title: '东京旅行攻略',
+              sourceFolderTitle: '默认收藏夹',
+              originalSuggestedLedgerIds: [],
+              currentTargetLedgerIds: [],
+              selectedTargetLedgerIds: []
+            }
+          ],
+          ledgers: [
+            {
+              id: 'life-interest',
+              displayName: 'bilimi·生活日常',
+              keywords: ['旅行攻略'],
+              enabled: true
+            }
+          ],
+          multiArchiveLimit: 1
+        } as unknown as DeepSeekGenerateRequest,
+        fetchImpl
+      })
+    ).resolves.toMatchObject({
+      kind: 'favorite-archive-organize',
+      results: [
+        {
+          aid: 1,
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerIds: ['life-interest'],
+          keepOriginal: false,
+          reason: '旅行攻略语义更接近日常生活',
+          confidence: 0.86,
+          lowConfidence: false,
+          secondPassChanged: true
+        }
+      ],
+      keywordSuggestions: [
+        {
+          id: 'deepseek:game:replace-with-combination:攻略:游戏攻略',
+          action: 'replace-with-combination',
+          ledgerId: 'game',
+          keyword: '攻略',
+          replacement: '游戏攻略',
+          reason: '裸攻略容易误分旅行内容',
+          source: 'deepseek',
+          status: 'pending'
+        }
+      ]
+    })
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
+      messages: Array<{ role: string; content: string }>
+    }
+    const systemMessage = body.messages.find((message) => message.role === 'system')?.content ?? ''
+
+    expect(systemMessage).toContain('only output existing enabled bilimi ledgers')
+    expect(systemMessage).toContain('未分类')
+    expect(systemMessage).toContain('cannot create folders')
+    expect(systemMessage).toContain('cannot directly edit keywords')
+    expect(systemMessage).toContain('Return JSON only')
+  })
+
+  it('marks archive rows invalid when confidence is missing without dropping usable rows', async () => {
+    const result = await generateDeepSeekResult({
+      config: baseConfig,
+      request: {
+        kind: 'favorite-archive-organize',
+        mode: 'all',
+        videos: [],
+        ledgers: [],
+        multiArchiveLimit: 1
+      },
+      fetchImpl: createJsonFetch(
+        JSON.stringify({
+          results: [
+            {
+              aid: 1,
+              targetLedgerIds: ['life-interest'],
+              keepOriginal: false,
+              reason: '旅行攻略',
+              lowConfidence: false
+            },
+            {
+              aid: 2,
+              targetLedgerIds: ['game'],
+              keepOriginal: false,
+              reason: '游戏攻略',
+              confidence: 0.9,
+              lowConfidence: false
+            }
+          ],
+          keywordSuggestions: []
+        })
+      )
+    })
+
+    expect(result).toMatchObject({
+      kind: 'favorite-archive-organize',
+      results: [
+        {
+          aid: 1,
+          invalid: true,
+          errorMessage: expect.stringContaining('invalid confidence')
+        },
+        {
+          aid: 2,
+          targetLedgerIds: ['game']
+        }
+      ]
+    })
+    expect(result.kind === 'favorite-archive-organize' ? result.results[1].invalid : true).toBeUndefined()
+  })
+
   it('asks DeepSeek to polish the transcript before creating a faithful Chinese summary', async () => {
     const fetchImpl = createJsonFetch(
       JSON.stringify({

@@ -1,7 +1,10 @@
 import type {
+  DeepSeekArchiveVideoResult,
   DeepSeekErrorCode,
   DeepSeekGenerateRequest,
   DeepSeekGenerateResult,
+  FavoriteKeywordSuggestion,
+  FavoriteKeywordSuggestionAction,
   NotePosterSummary,
   VideoNote
 } from '../../src/shared/types'
@@ -23,6 +26,15 @@ type DeepSeekChoiceResponse = {
 }
 
 const REVIEW_COMMENT_CHARACTER_LIMIT = 100
+
+const VALID_KEYWORD_SUGGESTION_ACTIONS = new Set<FavoriteKeywordSuggestionAction>([
+  'add-keyword',
+  'remove-keyword',
+  'downgrade-to-weak',
+  'replace-with-combination',
+  'add-entity-alias',
+  'add-concept-variant'
+])
 
 const BILIMI_PET_CHAT_CONTEXT = [
   'You are 小咪, the warm desktop pet assistant inside bilimi. Reply naturally, briefly, and in the user language.',
@@ -64,6 +76,10 @@ function trimJsonPayload<T>(items: T[], maxLength: number): T[] {
   }
 
   return selected
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function selectTranscriptForSummary(note: VideoNote): VideoNote['transcript'] {
@@ -135,6 +151,134 @@ function summarizeNote(note: VideoNote): string {
   })
 }
 
+function invalidArchiveResult(
+  row: Record<string, unknown> | undefined,
+  errorMessage: string
+): DeepSeekArchiveVideoResult {
+  const aid = typeof row?.aid === 'number' && Number.isFinite(row.aid) ? row.aid : undefined
+  const sourceFolderTitle =
+    typeof row?.sourceFolderTitle === 'string' && row.sourceFolderTitle.trim()
+      ? row.sourceFolderTitle.trim()
+      : undefined
+  return {
+    aid,
+    sourceFolderTitle,
+    targetLedgerIds: coerceStringArray(row?.targetLedgerIds, 3),
+    keepOriginal: row?.keepOriginal === true,
+    reason: typeof row?.reason === 'string' ? row.reason.trim() : '',
+    lowConfidence: row?.lowConfidence === true,
+    secondPassChanged: row?.secondPassChanged === true,
+    invalid: true,
+    errorMessage
+  }
+}
+
+function parseArchiveResultRow(row: unknown): DeepSeekArchiveVideoResult {
+  if (!isRecord(row)) {
+    return invalidArchiveResult(undefined, 'DeepSeek returned a non-object result row.')
+  }
+
+  const aid = typeof row.aid === 'number' && Number.isFinite(row.aid) ? row.aid : undefined
+  const sourceFolderTitle =
+    typeof row.sourceFolderTitle === 'string' && row.sourceFolderTitle.trim()
+      ? row.sourceFolderTitle.trim()
+      : undefined
+  const targetLedgerIds = coerceStringArray(row.targetLedgerIds, 3)
+  const reason = typeof row.reason === 'string' ? row.reason.trim() : ''
+  const confidence =
+    typeof row.confidence === 'number' && Number.isFinite(row.confidence) ? row.confidence : undefined
+  const invalidReasons: string[] = []
+
+  if (aid === undefined) {
+    invalidReasons.push('invalid aid')
+  }
+  if (!Array.isArray(row.targetLedgerIds) || targetLedgerIds.length === 0) {
+    invalidReasons.push('invalid targetLedgerIds')
+  }
+  if (confidence === undefined || confidence < 0 || confidence > 1) {
+    invalidReasons.push('invalid confidence')
+  }
+  if (!reason) {
+    invalidReasons.push('invalid reason')
+  }
+
+  const result: DeepSeekArchiveVideoResult = {
+    aid,
+    sourceFolderTitle,
+    targetLedgerIds,
+    keepOriginal: row.keepOriginal === true,
+    reason,
+    confidence,
+    lowConfidence: row.lowConfidence === true,
+    secondPassChanged: row.secondPassChanged === true
+  }
+
+  if (invalidReasons.length > 0) {
+    return {
+      ...result,
+      invalid: true,
+      errorMessage: `DeepSeek result row is invalid: ${invalidReasons.join(', ')}.`
+    }
+  }
+
+  return result
+}
+
+function normalizeKeywordSuggestionId(input: {
+  action: FavoriteKeywordSuggestionAction
+  ledgerId?: string
+  keyword?: string
+  replacement?: string
+}) {
+  return [
+    'deepseek',
+    input.ledgerId ?? 'none',
+    input.action,
+    input.keyword ?? '',
+    input.replacement ?? ''
+  ].join(':')
+}
+
+function normalizeArchiveKeywordSuggestions(value: unknown): FavoriteKeywordSuggestion[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const createdAt = new Date().toISOString()
+
+  return value.flatMap((suggestion) => {
+    if (
+      !isRecord(suggestion) ||
+      !VALID_KEYWORD_SUGGESTION_ACTIONS.has(suggestion.action as FavoriteKeywordSuggestionAction) ||
+      typeof suggestion.reason !== 'string' ||
+      !suggestion.reason.trim()
+    ) {
+      return []
+    }
+
+    const normalized: FavoriteKeywordSuggestion = {
+      id: normalizeKeywordSuggestionId({
+        action: suggestion.action as FavoriteKeywordSuggestionAction,
+        ledgerId: typeof suggestion.ledgerId === 'string' ? suggestion.ledgerId.trim() : undefined,
+        keyword: typeof suggestion.keyword === 'string' ? suggestion.keyword.trim() : undefined,
+        replacement:
+          typeof suggestion.replacement === 'string' ? suggestion.replacement.trim() : undefined
+      }),
+      action: suggestion.action as FavoriteKeywordSuggestionAction,
+      ledgerId: typeof suggestion.ledgerId === 'string' ? suggestion.ledgerId.trim() : undefined,
+      keyword: typeof suggestion.keyword === 'string' ? suggestion.keyword.trim() : undefined,
+      replacement:
+        typeof suggestion.replacement === 'string' ? suggestion.replacement.trim() : undefined,
+      reason: suggestion.reason.trim(),
+      source: 'deepseek',
+      status: 'pending',
+      createdAt
+    }
+
+    return [normalized]
+  })
+}
+
 function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
   if (request.kind === 'review-comment') {
     return [
@@ -173,6 +317,31 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
       {
         role: 'user',
         content: summarizeNote(request.note)
+      }
+    ]
+  }
+
+  if (request.kind === 'favorite-archive-organize') {
+    return [
+      {
+        role: 'system',
+        content: [
+          'You organize Bilibili favorite archive preview rows for bilimi.',
+          'You may only output existing enabled bilimi ledgers from the provided ledger list, or 未分类 when the video should not be archived.',
+          'You cannot create folders and cannot directly edit keywords; keywordSuggestions are only pending suggestions for the user to review.',
+          'Echo sourceFolderTitle from each input video in every result so duplicate aid rows from different source folders can be applied to the intended row.',
+          'Respect multiArchiveLimit for targetLedgerIds. Use keepOriginal only when the current targets should remain alongside the suggested targets.',
+          'Return JSON only: {"results":[{"aid":1,"sourceFolderTitle":"默认收藏夹","targetLedgerIds":["ledger-id"],"keepOriginal":false,"reason":"","confidence":0.8,"lowConfidence":false,"secondPassChanged":false}],"keywordSuggestions":[{"action":"replace-with-combination","ledgerId":"game","keyword":"攻略","replacement":"游戏攻略","reason":""}]}'
+        ].join(' ')
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          mode: request.mode,
+          multiArchiveLimit: request.multiArchiveLimit,
+          ledgers: request.ledgers,
+          videos: request.videos
+        })
       }
     ]
   }
@@ -248,6 +417,23 @@ function parseResult(
         polishedTranscriptText,
         auditChecklistText
       }
+    }
+  }
+
+  if (request.kind === 'favorite-archive-organize') {
+    const parsed = parseJsonContent(content) as {
+      results?: unknown
+      keywordSuggestions?: unknown
+    }
+
+    if (!Array.isArray(parsed.results)) {
+      throw new DeepSeekServiceError('invalid-output', 'DeepSeek did not return archive results.')
+    }
+
+    return {
+      kind: 'favorite-archive-organize',
+      results: parsed.results.map(parseArchiveResultRow),
+      keywordSuggestions: normalizeArchiveKeywordSuggestions(parsed.keywordSuggestions)
     }
   }
 

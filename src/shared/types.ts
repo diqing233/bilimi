@@ -301,6 +301,37 @@ export type NotePosterSummary = {
   auditChecklistText?: string
 }
 
+export type DeepSeekArchiveMode = 'all' | 'classified-only' | 'unclassified-only'
+
+export type DeepSeekArchiveVideoInput = {
+  aid: number
+  title: string
+  sourceFolderTitle: string
+  originalSuggestedLedgerIds: FavoriteLedgerId[]
+  currentTargetLedgerIds: FavoriteLedgerId[]
+  selectedTargetLedgerIds: FavoriteLedgerId[]
+}
+
+export type DeepSeekArchiveLedgerInput = {
+  id: FavoriteLedgerId
+  displayName: string
+  keywords: string[]
+  enabled: boolean
+}
+
+export type DeepSeekArchiveVideoResult = {
+  aid?: number
+  sourceFolderTitle?: string
+  targetLedgerIds: FavoriteLedgerId[]
+  keepOriginal: boolean
+  reason: string
+  confidence?: number
+  lowConfidence: boolean
+  secondPassChanged?: boolean
+  invalid?: boolean
+  errorMessage?: string
+}
+
 export type DeepSeekGenerateRequest =
   | {
       kind: 'review-comment'
@@ -317,11 +348,23 @@ export type DeepSeekGenerateRequest =
       messages: DeepSeekChatMessage[]
       context?: { title?: string; pageText?: string }
     }
+  | {
+      kind: 'favorite-archive-organize'
+      mode: DeepSeekArchiveMode
+      videos: DeepSeekArchiveVideoInput[]
+      ledgers: DeepSeekArchiveLedgerInput[]
+      multiArchiveLimit: 1 | 2 | 3
+    }
 
 export type DeepSeekGenerateResult =
   | { kind: 'review-comment'; comments: string[] }
   | { kind: 'note-poster'; poster: NotePosterSummary }
   | { kind: 'pet-chat'; message: string }
+  | {
+      kind: 'favorite-archive-organize'
+      results: DeepSeekArchiveVideoResult[]
+      keywordSuggestions: FavoriteKeywordSuggestion[]
+    }
 
 export type DeepSeekKeyStatus = { configured: boolean }
 
