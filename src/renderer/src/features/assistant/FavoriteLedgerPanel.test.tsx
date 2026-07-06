@@ -611,6 +611,60 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
+  it('keeps the old favorite guide hint visible while switching guide steps', async () => {
+    const preview = createArchivePreviewFixture()
+    const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
+
+    renderPanel({ onScanOldFavorites })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+
+    const guideHint = /建议按顺序从左到右操作/
+    expect(screen.getByText(guideHint)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    expect(screen.getByText(guideHint)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    expect(screen.getByText(guideHint)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    expect(screen.getByText(guideHint)).toBeInTheDocument()
+  })
+
+  it('supports archive undo and redo keyboard shortcuts outside form controls', async () => {
+    await openArchivePreview()
+
+    fireEvent.change(screen.getByLabelText('调整分类 AI 效率工具实战'), {
+      target: { value: 'game' }
+    })
+    expect(screen.getByRole('group', { name: 'bilimi·游戏专区 1 条' })).toHaveTextContent(
+      'AI 效率工具实战'
+    )
+
+    fireEvent.keyDown(document, { key: 'z', ctrlKey: true })
+
+    expect(screen.getByRole('group', { name: 'bilimi·知识学习 1 条' })).toHaveTextContent(
+      'AI 效率工具实战'
+    )
+    expect(screen.queryByRole('group', { name: 'bilimi·游戏专区 1 条' })).not.toBeInTheDocument()
+
+    fireEvent.keyDown(document, { key: 'Z', ctrlKey: true, shiftKey: true })
+
+    expect(screen.getByRole('group', { name: 'bilimi·游戏专区 1 条' })).toHaveTextContent(
+      'AI 效率工具实战'
+    )
+
+    const modeSelect = screen.getByLabelText('DeepSeek 辅助整理范围')
+    modeSelect.focus()
+    fireEvent.keyDown(modeSelect, { key: 'z', ctrlKey: true })
+
+    expect(screen.getByRole('group', { name: 'bilimi·游戏专区 1 条' })).toHaveTextContent(
+      'AI 效率工具实战'
+    )
+  })
+
   it('confirms archive preview correction drafts only after executing the selected plan', async () => {
     const onExecuteOldFavoritePlan = vi.fn().mockResolvedValue({
       ok: true,
@@ -4420,6 +4474,31 @@ describe('FavoriteLedgerPanel', () => {
     expect(onOrganizeOldFavoritesWithDeepSeek).not.toHaveBeenCalled()
   })
 
+  it('presents DeepSeek organization and archive undo as separate preview tools', async () => {
+    await openArchivePreview({
+      deepSeekArchiveAvailable: true,
+      onOrganizeOldFavoritesWithDeepSeek: vi.fn()
+    })
+
+    const deepSeekCard = screen.getByRole('group', { name: 'DeepSeek 辅助整理' })
+    expect(deepSeekCard).toHaveClass('favorite-ledger-panel__deepseek-archive-card')
+    expect(within(deepSeekCard).getByText('DeepSeek 辅助整理')).toBeInTheDocument()
+    expect(within(deepSeekCard).getByRole('button', { name: 'DeepSeek 整理' })).toBeInTheDocument()
+    expect(within(deepSeekCard).getByText('整理范围')).toBeInTheDocument()
+    expect(within(deepSeekCard).getByLabelText('DeepSeek 辅助整理范围')).toBeInTheDocument()
+    expect(
+      within(deepSeekCard).getByText(/将发送标题、UP、标签、简介、来源收藏夹、当前建议和 bilimi 册目信息/)
+    ).toBeInTheDocument()
+
+    const undoTools = screen.getByRole('group', { name: '归档预览改动操作' })
+    expect(undoTools).toHaveClass('favorite-ledger-panel__archive-history-card')
+    expect(within(undoTools).getByRole('button', { name: '撤销本次改动' })).toBeInTheDocument()
+    expect(within(undoTools).getByText(/Ctrl\+Z 撤销本次 DeepSeek 调整/)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '归档预览' }).closest('.favorite-ledger-panel__preview-topbar')).not.toHaveTextContent(
+      'DeepSeek 辅助整理'
+    )
+  })
+
   it('keeps DeepSeek archive mode changes local until the user starts organization', async () => {
     const onOrganizeOldFavoritesWithDeepSeek = vi.fn().mockResolvedValue({
         kind: 'favorite-archive-organize',
@@ -4873,7 +4952,8 @@ describe('FavoriteLedgerPanel', () => {
       expect.not.objectContaining({ enhanceWithDeepSeek: expect.anything() })
     )
     expect(screen.queryByRole('button', { name: '智能补判旧藏' })).not.toBeInTheDocument()
-    expect(screen.queryByText(/DeepSeek/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'DeepSeek 整理' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('DeepSeek 辅助整理范围')).not.toBeInTheDocument()
   })
 
   it('recommends using Bilibili tags as ledger keywords', () => {

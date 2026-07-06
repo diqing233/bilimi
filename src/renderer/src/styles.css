@@ -2842,33 +2842,62 @@ body[data-floating-window="true"],
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
 }
-.favorite-ledger-panel__deepseek-archive {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
+.favorite-ledger-panel__preview-tools {
+  display: grid;
+  gap: 8px;
 }
-.favorite-ledger-panel__deepseek-archive > strong {
-  color: var(--porcelain-deep);
-  font-size: 13px;
-  white-space: nowrap;
+.favorite-ledger-panel__archive-history-card,
+.favorite-ledger-panel__deepseek-archive-card {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid rgba(31, 99, 181, 0.18);
+  background: rgba(255, 255, 255, 0.6);
+  padding: 8px;
 }
-.favorite-ledger-panel__deepseek-archive label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.favorite-ledger-panel__archive-history-card {
+  justify-items: start;
+}
+.favorite-ledger-panel__archive-history-button {
+  min-width: 132px;
+  min-height: 36px;
+  padding: 6px 12px;
+  font-weight: 800;
+}
+.favorite-ledger-panel__archive-history-card p {
+  margin: 0;
   color: var(--porcelain-muted);
   font-size: 12px;
+  line-height: 1.45;
 }
-.favorite-ledger-panel__deepseek-archive select {
+.favorite-ledger-panel__deepseek-archive-heading,
+.favorite-ledger-panel__deepseek-archive-scope {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+.favorite-ledger-panel__deepseek-archive-heading > strong {
+  min-width: 0;
+  color: var(--porcelain-deep);
+  font-size: 13px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+.favorite-ledger-panel__deepseek-archive-scope > span {
+  color: var(--porcelain-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.favorite-ledger-panel__deepseek-archive-scope select {
+  max-width: 100%;
   min-height: 30px;
   color: var(--porcelain-text);
 }
-.favorite-ledger-panel__deepseek-archive button {
+.favorite-ledger-panel__deepseek-archive-heading button {
   min-height: 30px;
   padding: 5px 8px;
 }
@@ -2976,6 +3005,15 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__guide-header {
   display: grid;
   gap: 8px;
+}
+.favorite-ledger-panel__guide-hint {
+  margin: 0;
+  border: 1px solid rgba(31, 99, 181, 0.14);
+  background: rgba(220, 238, 255, 0.46);
+  color: var(--porcelain-muted);
+  padding: 7px 8px;
+  font-size: 12px;
+  line-height: 1.55;
 }
 .favorite-ledger-panel__guide-steps {
   display: grid;

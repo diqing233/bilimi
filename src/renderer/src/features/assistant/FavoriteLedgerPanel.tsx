@@ -265,6 +265,8 @@ const LEDGER_SYNC_HINT =
   '自定义你的bilimi收藏夹，点击收藏名字可以进行编辑，添加好后点击【同步】即可更新到b站；取消勾选再点击同步，也会删除对应的 bilimi 收藏夹。'
 const BACKUP_COMPLETE_MESSAGE =
   '小咪备册已完成，主人可以再增加自己想要的收藏夹，点击同步即可'
+const OLD_FAVORITE_GUIDE_HINT =
+  '建议按顺序从左到右操作：扫描概览勾选自己要整理的收藏夹（默认全部）；推荐收藏夹可以额外勾选并生成新的收藏夹；归档预览查看最终分类详情，可启用 DeepSeek 辅助整理；确认执行开始执行并查看整理进度，结束后点击“好的”即可结束本轮整理。'
 type OldFavoriteGuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
 type OldFavoriteGuideMode = 'setup' | 'organize'
 const OLD_FAVORITE_GUIDE_STEPS: Array<{ id: OldFavoriteGuideStep; label: string }> = [
@@ -295,6 +297,20 @@ type DeepSeekArchiveProgress = {
   totalVideos: number
   currentChunk: number
   totalChunks: number
+}
+
+function isEditableShortcutTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false
+  }
+
+  const tagName = target.tagName.toLowerCase()
+  return (
+    tagName === 'input' ||
+    tagName === 'select' ||
+    tagName === 'textarea' ||
+    target.isContentEditable
+  )
 }
 
 type OldFavoriteSourceFolderSummary = {
@@ -2667,6 +2683,52 @@ export function FavoriteLedgerPanel({
     !archivePlanState ||
     !deepSeekArchiveAvailable ||
     !onOrganizeOldFavoritesWithDeepSeek
+
+  useEffect(() => {
+    if (oldFavoriteGuideMode !== 'organize' || oldFavoriteStep !== 'preview') {
+      return undefined
+    }
+
+    function handleArchiveShortcut(event: KeyboardEvent) {
+      if (
+        !event.ctrlKey ||
+        event.altKey ||
+        event.metaKey ||
+        event.key.toLowerCase() !== 'z' ||
+        isEditableShortcutTarget(event.target)
+      ) {
+        return
+      }
+
+      if (event.shiftKey) {
+        if (!archiveRedoSnapshot || deepSeekArchiveRunning) {
+          return
+        }
+
+        event.preventDefault()
+        redoArchivePreviewChanges()
+        return
+      }
+
+      if (!archivePlanState || deepSeekArchiveRunning || !hasArchivePreviewChanges) {
+        return
+      }
+
+      event.preventDefault()
+      undoArchivePreviewChanges()
+    }
+
+    document.addEventListener('keydown', handleArchiveShortcut)
+    return () => document.removeEventListener('keydown', handleArchiveShortcut)
+  }, [
+    archivePlanState,
+    archiveRedoSnapshot,
+    deepSeekArchiveRunning,
+    hasArchivePreviewChanges,
+    oldFavoriteGuideMode,
+    oldFavoriteStep
+  ])
+
   function oldFavoriteCandidateDetailText(candidate: FavoriteLedgerCandidate) {
     return oldFavoriteCandidateRecommendationText(candidate)
   }
@@ -3049,6 +3111,7 @@ export function FavoriteLedgerPanel({
               ))}
             </nav>
           </div>
+          <p className="favorite-ledger-panel__guide-hint">{OLD_FAVORITE_GUIDE_HINT}</p>
 
           {oldFavoriteStep === 'scan' ? (
             <section className="favorite-ledger-panel__insights" aria-label="基础数据">
@@ -3224,19 +3287,44 @@ export function FavoriteLedgerPanel({
             <div className="favorite-ledger-panel__preview">
               <div className="favorite-ledger-panel__preview-topbar">
                 <h4>归档预览</h4>
-                {oldFavoriteGuideMode === 'organize' ? (
-                  <div className="favorite-ledger-panel__preview-toolbar">
-                    <button
-                      type="button"
-                      disabled={deepSeekArchiveRunning || (!hasArchivePreviewChanges && !archiveRedoSnapshot)}
-                      onClick={archiveRedoSnapshot ? redoArchivePreviewChanges : undoArchivePreviewChanges}
+              </div>
+              {oldFavoriteGuideMode === 'organize' ? (
+                <>
+                  <div className="favorite-ledger-panel__preview-tools">
+                    <div
+                      className="favorite-ledger-panel__archive-history-card"
+                      role="group"
+                      aria-label="归档预览改动操作"
                     >
-                      {archiveRedoSnapshot ? '再次复原' : '撤销本次改动'}
-                    </button>
-                    <div className="favorite-ledger-panel__deepseek-archive">
-                      <strong>DeepSeek 辅助整理</strong>
-                      <label>
-                        <span className="sr-only">DeepSeek 辅助整理范围</span>
+                      <button
+                        type="button"
+                        className="favorite-ledger-panel__archive-history-button"
+                        disabled={deepSeekArchiveRunning || (!hasArchivePreviewChanges && !archiveRedoSnapshot)}
+                        onClick={archiveRedoSnapshot ? redoArchivePreviewChanges : undoArchivePreviewChanges}
+                      >
+                        {archiveRedoSnapshot ? '再次复原' : '撤销本次改动'}
+                      </button>
+                      <p>
+                        Ctrl+Z 撤销本次 DeepSeek 调整，Ctrl+Shift+Z 复原；按钮会撤销或复原全部预览改动。
+                      </p>
+                    </div>
+                    <div
+                      className="favorite-ledger-panel__deepseek-archive-card"
+                      role="group"
+                      aria-label="DeepSeek 辅助整理"
+                    >
+                      <div className="favorite-ledger-panel__deepseek-archive-heading">
+                        <strong>DeepSeek 辅助整理</strong>
+                        <button
+                          type="button"
+                          disabled={deepSeekArchiveDisabled}
+                          onClick={() => void organizeOldFavoritesWithDeepSeek()}
+                        >
+                          {deepSeekArchiveRunning ? '整理中...' : 'DeepSeek 整理'}
+                        </button>
+                      </div>
+                      <label className="favorite-ledger-panel__deepseek-archive-scope">
+                        <span>整理范围</span>
                         <select
                           aria-label="DeepSeek 辅助整理范围"
                           value={deepSeekArchiveMode}
@@ -3250,58 +3338,47 @@ export function FavoriteLedgerPanel({
                           <option value="unclassified-only">仅整理待分类</option>
                         </select>
                       </label>
-                      <button
-                        type="button"
-                        disabled={deepSeekArchiveDisabled}
-                        onClick={() => void organizeOldFavoritesWithDeepSeek()}
-                      >
-                        {deepSeekArchiveRunning ? '整理中...' : 'DeepSeek 整理'}
-                      </button>
                       {deepSeekArchiveAvailable ? null : (
                         <small className="favorite-ledger-panel__deepseek-archive-disabled">
                           未开启 DeepSeek
                         </small>
                       )}
+                      <p className="favorite-ledger-panel__deepseek-archive-hint">
+                        将发送标题、UP、标签、简介、来源收藏夹、当前建议和 bilimi 册目信息给 DeepSeek。
+                      </p>
+                      {deepSeekArchiveStatus ? (
+                        <p className="favorite-ledger-panel__deepseek-archive-status" role="status">
+                          {deepSeekArchiveStatus}
+                        </p>
+                      ) : null}
+                      {deepSeekArchiveProgress ? (
+                        <div
+                          className="favorite-ledger-panel__deepseek-archive-progress"
+                          data-running={deepSeekArchiveRunning}
+                        >
+                          <div className="favorite-ledger-panel__deepseek-archive-progress-copy">
+                            <span>
+                              第 {deepSeekArchiveProgress.currentChunk} / {deepSeekArchiveProgress.totalChunks} 批
+                            </span>
+                            <span>
+                              已完成 {deepSeekArchiveProgress.completedVideos} /{' '}
+                              {deepSeekArchiveProgress.totalVideos} 条
+                            </span>
+                          </div>
+                          <div
+                            aria-label="DeepSeek 整理进度"
+                            aria-valuemax={100}
+                            aria-valuemin={0}
+                            aria-valuenow={deepSeekArchiveProgressValue}
+                            className="favorite-ledger-panel__deepseek-archive-progress-track"
+                            role="progressbar"
+                          >
+                            <span style={{ width: `${deepSeekArchiveProgressValue}%` }} />
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
-                ) : null}
-              </div>
-              {oldFavoriteGuideMode === 'organize' ? (
-                <>
-                  <p className="favorite-ledger-panel__deepseek-archive-hint">
-                    将发送标题、UP、标签、简介、来源收藏夹、当前建议和 bilimi 册目信息给 DeepSeek。
-                  </p>
-                  {deepSeekArchiveStatus ? (
-                    <p className="favorite-ledger-panel__deepseek-archive-status" role="status">
-                      {deepSeekArchiveStatus}
-                    </p>
-                  ) : null}
-                  {deepSeekArchiveProgress ? (
-                    <div
-                      className="favorite-ledger-panel__deepseek-archive-progress"
-                      data-running={deepSeekArchiveRunning}
-                    >
-                      <div className="favorite-ledger-panel__deepseek-archive-progress-copy">
-                        <span>
-                          第 {deepSeekArchiveProgress.currentChunk} / {deepSeekArchiveProgress.totalChunks} 批
-                        </span>
-                        <span>
-                          已完成 {deepSeekArchiveProgress.completedVideos} /{' '}
-                          {deepSeekArchiveProgress.totalVideos} 条
-                        </span>
-                      </div>
-                      <div
-                        aria-label="DeepSeek 整理进度"
-                        aria-valuemax={100}
-                        aria-valuemin={0}
-                        aria-valuenow={deepSeekArchiveProgressValue}
-                        className="favorite-ledger-panel__deepseek-archive-progress-track"
-                        role="progressbar"
-                      >
-                        <span style={{ width: `${deepSeekArchiveProgressValue}%` }} />
-                      </div>
-                    </div>
-                  ) : null}
                   {deepSeekArchiveDisplacementMessages.length > 0 ? (
                     <div className="favorite-ledger-panel__deepseek-archive-alert" role="alert">
                       {deepSeekArchiveDisplacementMessages.map((message) => (
