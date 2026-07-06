@@ -316,14 +316,15 @@ describe('FavoriteLedgerPanel', () => {
 
     const gameGroup = screen.getByRole('group', { name: 'bilimi·游戏 1 条' })
     expect(within(gameGroup).getByText('可以改去游戏区的视频')).toBeInTheDocument()
-    expect(within(gameGroup).getByText('原建议：bilimi·学习')).toBeInTheDocument()
+    expect(within(gameGroup).getByText('已改：bilimi·学习 -> bilimi·游戏')).toBeInTheDocument()
+    expect(within(gameGroup).getByRole('button', { name: '恢复原建议 可以改去游戏区的视频' })).toHaveTextContent('恢复')
     expect(screen.queryByRole('group', { name: 'bilimi·学习 1 条' })).not.toBeInTheDocument()
 
     fireEvent.click(within(gameGroup).getByRole('button', { name: '恢复原建议 可以改去游戏区的视频' }))
 
     expect(screen.getByRole('group', { name: 'bilimi·学习 1 条' })).toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'bilimi·游戏 1 条' })).not.toBeInTheDocument()
-    expect(screen.queryByText('原建议：bilimi·学习')).not.toBeInTheDocument()
+    expect(screen.queryByText('已改：bilimi·学习 -> bilimi·游戏')).not.toBeInTheDocument()
   })
 
   it('confirms how multi-target old favorites move to unclassified', async () => {
@@ -612,7 +613,7 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
-  it('keeps the old favorite guide hint visible while switching guide steps', async () => {
+  it('toggles the old favorite guide hint from the heading help button', async () => {
     const preview = createArchivePreviewFixture()
     const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
 
@@ -622,6 +623,12 @@ describe('FavoriteLedgerPanel', () => {
     await screen.findByRole('region', { name: '整理旧藏向导' })
 
     const guideHint = /请主人从左到右查阅完成本轮整理/
+    expect(screen.queryByText(guideHint)).not.toBeInTheDocument()
+
+    const helpButton = screen.getByRole('button', { name: '展开整理旧藏说明' })
+    expect(helpButton).toHaveAttribute('title', expect.stringContaining('请主人从左到右查阅完成本轮整理'))
+    fireEvent.click(helpButton)
+
     const guide = screen.getByText(guideHint)
     const stepNav = screen.getByRole('navigation', { name: '整理旧藏步骤' })
     expect(Boolean(guide.compareDocumentPosition(stepNav) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
@@ -1387,6 +1394,13 @@ describe('FavoriteLedgerPanel', () => {
     expect(within(headerActions as HTMLElement).queryByRole('button', { name: '新建收藏夹' })).not.toBeInTheDocument()
     expect(within(headerActions as HTMLElement).getByRole('button', { name: '同步' })).toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    const ledgerHelpButton = within(ledgerRegion).getByRole('button', { name: '展开收藏夹说明' })
+    expect(ledgerHelpButton).toHaveAttribute(
+      'title',
+      '自定义你的bilimi收藏夹，点击收藏名字可以进行编辑，添加好后点击【同步】即可更新到b站；取消勾选再点击同步，也会删除对应的 bilimi 收藏夹。'
+    )
+    expect(ledgerRegion.querySelector('.favorite-ledger-panel__sync-hint')).not.toBeInTheDocument()
+    fireEvent.click(ledgerHelpButton)
     expect(ledgerRegion.querySelector('.favorite-ledger-panel__sync-hint')).toHaveTextContent(
       '自定义你的bilimi收藏夹，点击收藏名字可以进行编辑，添加好后点击【同步】即可更新到b站；取消勾选再点击同步，也会删除对应的 bilimi 收藏夹。'
     )

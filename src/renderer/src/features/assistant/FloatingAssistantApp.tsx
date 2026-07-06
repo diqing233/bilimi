@@ -237,12 +237,10 @@ const KEYWORD_SUGGESTION_ACTION_LABELS: Record<FavoriteKeywordSuggestion['action
   'add-concept-variant': '新增概念变体'
 }
 
-const KEYWORD_SUGGESTION_STATUS_LABELS: Record<FavoriteKeywordSuggestionStatus, string> = {
-  pending: '待处理',
-  accepted: '已采纳',
-  ignored: '已忽略',
-  deleted: '已删除'
-}
+const FAVORITE_CORRECTION_LEARNING_HELP =
+  '确认整理后，记录“原建议”和“你实际选择”的差异，用来沉淀纠错经验。'
+const FAVORITE_CORRECTION_CLASSIFICATION_HELP =
+  '开启后，后续分类会参考这些纠错记录；关闭后只保留记录，不影响自动分类。'
 
 function formatSettingsDate(value?: string) {
   if (!value) return '未记录'
@@ -415,9 +413,6 @@ export function FloatingAssistantApp({
   const [settingsDiagnosticRunning, setSettingsDiagnosticRunning] = useState(false)
   const [settingsDiagnosticMessage, setSettingsDiagnosticMessage] = useState('')
   const [settingsDiagnosticsExpanded, setSettingsDiagnosticsExpanded] = useState(true)
-  const [expandedCorrectionRecordIds, setExpandedCorrectionRecordIds] = useState<Set<string>>(
-    () => new Set()
-  )
   const [settingsLearningMessage, setSettingsLearningMessage] = useState('')
   const mounted = useRef(false)
   const lastPreferenceChangeAt = useRef(0)
@@ -654,34 +649,14 @@ export function FloatingAssistantApp({
     getPreferenceSaveScheduler().schedule(nextPreferences)
   }
 
-  function toggleCorrectionRecordExpanded(recordId: string) {
-    setExpandedCorrectionRecordIds((currentIds) => {
-      const nextIds = new Set(currentIds)
-
-      if (nextIds.has(recordId)) {
-        nextIds.delete(recordId)
-      } else {
-        nextIds.add(recordId)
-      }
-
-      return nextIds
-    })
-  }
-
   function deleteCorrectionRecord(recordId: string) {
     const nextRecords = preferencesRef.current.favoriteCorrectionRecords.filter(
       (record) => record.id !== recordId
     )
-    setExpandedCorrectionRecordIds((currentIds) => {
-      const nextIds = new Set(currentIds)
-      nextIds.delete(recordId)
-      return nextIds
-    })
     persistPreferencePatch({ favoriteCorrectionRecords: nextRecords })
   }
 
   function clearCorrectionRecords() {
-    setExpandedCorrectionRecordIds(new Set())
     persistPreferencePatch({ favoriteCorrectionRecords: [] })
   }
 
@@ -1540,6 +1515,10 @@ export function FloatingAssistantApp({
     closeAssistant()
   }
 
+  const pendingKeywordSuggestions = preferences.favoriteKeywordSuggestions.filter(
+    (suggestion) => suggestion.status === 'pending'
+  )
+
   const workspace = (
     <section
       className={isSidebarMode ? 'assistant-sidebar-workspace' : 'floating-assistant-workspace'}
@@ -1829,6 +1808,12 @@ export function FloatingAssistantApp({
                 />
                 <span>记录纠错学习</span>
               </label>
+              <small
+                className="assistant-settings__option-help"
+                title={FAVORITE_CORRECTION_LEARNING_HELP}
+              >
+                {FAVORITE_CORRECTION_LEARNING_HELP}
+              </small>
               <label>
                 <input
                   type="checkbox"
@@ -1841,6 +1826,12 @@ export function FloatingAssistantApp({
                 />
                 <span>纠错学习参与分类</span>
               </label>
+              <small
+                className="assistant-settings__option-help"
+                title={FAVORITE_CORRECTION_CLASSIFICATION_HELP}
+              >
+                {FAVORITE_CORRECTION_CLASSIFICATION_HELP}
+              </small>
               <div className="assistant-settings__subsection">
                 <div className="assistant-settings__subsection-heading">
                   <strong>纠错学习记录</strong>
@@ -1856,7 +1847,6 @@ export function FloatingAssistantApp({
                   <div className="assistant-settings__learning-list">
                     {preferences.favoriteCorrectionRecords.map(
                       (record: FavoriteCorrectionRecord) => {
-                        const expanded = expandedCorrectionRecordIds.has(record.id)
                         const originalLedger = getLedgerDisplayName(
                           preferences.favoriteLedgers,
                           record.originalLedgerId
@@ -1866,80 +1856,39 @@ export function FloatingAssistantApp({
                             getLedgerDisplayName(preferences.favoriteLedgers, ledgerId)
                           )
                         )
+                        const summaryText = `原建议：${originalLedger}；用户选择：${userLedgers}；时间：${formatSettingsDate(record.confirmedAt ?? record.createdAt)}`
 
                         return (
-                          <details
+                          <article
                             key={record.id}
                             className="assistant-settings__learning-item"
-                            open={expanded}
-                            onToggle={(event) => {
-                              const nextOpen = event.currentTarget.open
-                              setExpandedCorrectionRecordIds((currentIds) => {
-                                if (currentIds.has(record.id) === nextOpen) {
-                                  return currentIds
-                                }
-
-                                const nextIds = new Set(currentIds)
-                                if (nextOpen) {
-                                  nextIds.add(record.id)
-                                } else {
-                                  nextIds.delete(record.id)
-                                }
-                                return nextIds
-                              })
-                            }}
                           >
-                            <summary
-                              onClick={(event) => {
-                                if ((event.target as HTMLElement).closest('button')) {
-                                  return
-                                }
-
-                                event.preventDefault()
-                                toggleCorrectionRecordExpanded(record.id)
-                              }}
-                            >
+                            <div className="assistant-settings__learning-head">
                               <span className="assistant-settings__learning-summary">
-                                <strong>{record.title}</strong>
-                                <small>
-                                  原建议：{originalLedger}；用户选择：{userLedgers}；时间：
-                                  {formatSettingsDate(record.confirmedAt ?? record.createdAt)}
-                                </small>
+                                <strong title={record.title}>{record.title}</strong>
+                                <small title={summaryText}>{summaryText}</small>
                               </span>
                               <span className="assistant-settings__learning-actions">
                                 <button
                                   type="button"
-                                  aria-label={`${expanded ? '收起纠错' : '展开纠错'} ${record.title}`}
-                                  onClick={(event) => {
-                                    event.preventDefault()
-                                    toggleCorrectionRecordExpanded(record.id)
-                                  }}
-                                >
-                                  {expanded ? '收起' : '展开'}
-                                </button>
-                                <button
-                                  type="button"
                                   aria-label={`删除纠错 ${record.title}`}
-                                  onClick={(event) => {
-                                    event.preventDefault()
-                                    deleteCorrectionRecord(record.id)
-                                  }}
+                                  onClick={() => deleteCorrectionRecord(record.id)}
                                 >
                                   删除
                                 </button>
                               </span>
-                            </summary>
-                            <div className="assistant-settings__learning-detail">
-                              <span>UP：{record.author?.trim() || '未记录'}</span>
-                              <span>标签：{joinSettingValues(record.tags)}</span>
-                              <span>来源场景：{record.sourceScene}</span>
-                              <span>来源收藏夹：{record.sourceFolderTitle?.trim() || '未记录'}</span>
-                              <span>命中关键词：{joinSettingValues(record.matchedKeywords)}</span>
-                              <span>分数：{record.score ?? '未记录'}</span>
-                              <span>置信度：{record.confidence ?? '未记录'}</span>
-                              <span>分差：{record.scoreGap ?? '未记录'}</span>
                             </div>
-                          </details>
+                            <div className="assistant-settings__learning-detail">
+                              <span title={record.author?.trim() || '未记录'}>UP：{record.author?.trim() || '未记录'}</span>
+                              <span title={joinSettingValues(record.tags)}>标签：{joinSettingValues(record.tags)}</span>
+                              <span title={record.sourceScene}>来源场景：{record.sourceScene}</span>
+                              <span title={record.sourceFolderTitle?.trim() || '未记录'}>来源收藏夹：{record.sourceFolderTitle?.trim() || '未记录'}</span>
+                              <span title={joinSettingValues(record.matchedKeywords)}>命中关键词：{joinSettingValues(record.matchedKeywords)}</span>
+                              <span title={String(record.score ?? '未记录')}>分数：{record.score ?? '未记录'}</span>
+                              <span title={String(record.confidence ?? '未记录')}>置信度：{record.confidence ?? '未记录'}</span>
+                              <span title={String(record.scoreGap ?? '未记录')}>分差：{record.scoreGap ?? '未记录'}</span>
+                            </div>
+                          </article>
                         )
                       }
                     )}
@@ -1952,9 +1901,9 @@ export function FloatingAssistantApp({
                 <div className="assistant-settings__subsection-heading">
                   <strong>关键词建议</strong>
                 </div>
-                {preferences.favoriteKeywordSuggestions.length > 0 ? (
+                {pendingKeywordSuggestions.length > 0 ? (
                   <div className="assistant-settings__keyword-list">
-                    {preferences.favoriteKeywordSuggestions.map((suggestion) => {
+                    {pendingKeywordSuggestions.map((suggestion) => {
                       const targetLabel = getLedgerDisplayName(
                         preferences.favoriteLedgers,
                         suggestion.ledgerId
@@ -1968,12 +1917,17 @@ export function FloatingAssistantApp({
                       return (
                         <article key={suggestion.id} className="assistant-settings__keyword-item">
                           <div className="assistant-settings__keyword-summary">
-                            <strong>{KEYWORD_SUGGESTION_ACTION_LABELS[suggestion.action]}</strong>
-                            <span>目标收藏夹：{targetLabel}</span>
-                            <span>关键词：{suggestion.keyword?.trim() || '未记录'}</span>
-                            <span>替换词：{suggestion.replacement?.trim() || '未记录'}</span>
-                            <small>理由：{suggestion.reason}</small>
-                            <small>状态：{KEYWORD_SUGGESTION_STATUS_LABELS[suggestion.status]}</small>
+                            <strong title={KEYWORD_SUGGESTION_ACTION_LABELS[suggestion.action]}>
+                              {KEYWORD_SUGGESTION_ACTION_LABELS[suggestion.action]}
+                            </strong>
+                            <span title={targetLabel}>目标收藏夹：{targetLabel}</span>
+                            <span title={suggestion.keyword?.trim() || '未记录'}>
+                              关键词：{suggestion.keyword?.trim() || '未记录'}
+                            </span>
+                            <span title={suggestion.replacement?.trim() || '未记录'}>
+                              替换词：{suggestion.replacement?.trim() || '未记录'}
+                            </span>
+                            <small title={suggestion.reason}>理由：{suggestion.reason}</small>
                           </div>
                           <div className="assistant-settings__keyword-actions">
                             <button

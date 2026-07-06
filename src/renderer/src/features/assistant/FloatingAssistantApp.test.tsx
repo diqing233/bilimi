@@ -722,7 +722,7 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByRole('radio', { name: '仅低置信时辅助判断' })).toBeVisible()
   })
 
-  it('can expand, delete, and clear correction records', async () => {
+  it('can review, delete, and clear correction records', async () => {
     const { savePreferences } = installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
@@ -768,7 +768,6 @@ describe('FloatingAssistantApp', () => {
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
-    fireEvent.click(screen.getByRole('button', { name: /展开纠错 东京旅行攻略/ }))
 
     expect(screen.getByText(/标签：旅行/)).toBeInTheDocument()
     expect(screen.getByText(/UP：旅行UP/)).toBeInTheDocument()
@@ -1056,8 +1055,8 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
-  it('can delete accepted or ignored keyword suggestions from settings', async () => {
-    const { savePreferences } = installDesktopApi({
+  it('hides processed keyword suggestions from settings', async () => {
+    installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
           preferences: createPreferences({
@@ -1091,22 +1090,54 @@ describe('FloatingAssistantApp', () => {
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
-    fireEvent.click(screen.getByRole('button', { name: /删除建议 实况/ }))
-    fireEvent.click(screen.getByRole('button', { name: /删除建议 攻略/ }))
+
+    expect(screen.queryByText('实况')).not.toBeInTheDocument()
+    expect(screen.queryByText('攻略')).not.toBeInTheDocument()
+    expect(screen.getByText('暂无关键词建议')).toBeInTheDocument()
+  })
+
+  it('removes keyword suggestions from the visible list after handling them', async () => {
+    const { savePreferences } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            favoriteKeywordSuggestions: [
+              {
+                id: 's1',
+                action: 'downgrade-to-weak',
+                ledgerId: 'game',
+                keyword: '实况',
+                reason: '弱词更适合。',
+                source: 'user',
+                status: 'pending',
+                createdAt: '2026-07-05T00:00:00.000Z'
+              }
+            ]
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: /忽略建议 实况/ }))
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenLastCalledWith(
         expect.objectContaining({
           favoriteKeywordSuggestions: expect.arrayContaining([
-            expect.objectContaining({ id: 's1', status: 'deleted' }),
-            expect.objectContaining({ id: 's2', status: 'deleted' })
+            expect.objectContaining({ id: 's1', status: 'ignored' })
           ])
         })
       )
     )
+
+    expect(screen.queryByText('实况')).not.toBeInTheDocument()
+    expect(screen.getByText('暂无关键词建议')).toBeInTheDocument()
   })
 
-  it('keeps correction record details label in sync when the summary is toggled directly', async () => {
+  it('shows correction records without folding controls', async () => {
     installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
@@ -1135,9 +1166,11 @@ describe('FloatingAssistantApp', () => {
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
-    fireEvent.click(screen.getByText('东京旅行攻略'))
 
-    expect(screen.getByRole('button', { name: /收起纠错 东京旅行攻略/ })).toBeInTheDocument()
+    expect(screen.getByText('东京旅行攻略')).toBeInTheDocument()
+    expect(screen.getByText(/原建议：游戏专区/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /展开纠错 东京旅行攻略/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /收起纠错 东京旅行攻略/ })).not.toBeInTheDocument()
   })
 
   it('runs startup diagnostics from settings', async () => {

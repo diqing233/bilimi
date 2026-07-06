@@ -1139,6 +1139,8 @@ export function FavoriteLedgerPanel({
   const [oldFavoriteStep, setOldFavoriteStep] = useState<OldFavoriteGuideStep>('scan')
   const [oldFavoriteGuideMode, setOldFavoriteGuideMode] = useState<OldFavoriteGuideMode>('organize')
   const [tagCandidatesExpanded, setTagCandidatesExpanded] = useState(false)
+  const [ledgerHintExpanded, setLedgerHintExpanded] = useState(false)
+  const [oldFavoriteGuideHintExpanded, setOldFavoriteGuideHintExpanded] = useState(false)
   const ledgerNamesById = useMemo(
     () => Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName])),
     [draftLedgers]
@@ -2794,13 +2796,13 @@ export function FavoriteLedgerPanel({
 
     return (
       <span className="favorite-ledger-panel__preview-video-meta">
-        <small>来源：{item.sourceFolderTitle}</small>
-        <small>UP：{oldFavoriteAuthorText(item)}</small>
+        <small title={item.sourceFolderTitle}>来源：{item.sourceFolderTitle}</small>
+        <small title={oldFavoriteAuthorText(item)}>UP：{oldFavoriteAuthorText(item)}</small>
         {visibleTagsText ? (
           <small title={allTagsText}>标签：{visibleTagsText}</small>
         ) : null}
-        {lowConfidenceText ? <small>{lowConfidenceText}</small> : null}
-        {target?.alreadyInTarget ? <small>已在目标</small> : null}
+        {lowConfidenceText ? <small title={lowConfidenceText}>{lowConfidenceText}</small> : null}
+        {target?.alreadyInTarget ? <small title="已在目标">已在目标</small> : null}
       </span>
     )
   }
@@ -2814,6 +2816,8 @@ export function FavoriteLedgerPanel({
     const targetDisplayName = archiveLedgerDisplayName(areaLedgerId)
     const hasSelectedTarget = areaLedgerId !== 'unclassified'
     const selected = hasSelectedTarget && item.selectedTargetLedgerIds.includes(areaLedgerId)
+    const modified = oldFavoriteArchiveWasModified(item)
+    const deltaText = `已改：${originalArchiveSuggestionText(item)} -> ${targetDisplayName}`
 
     return (
       <div className="favorite-ledger-panel__preview-controls" onClick={(event) => event.stopPropagation()}>
@@ -2854,13 +2858,14 @@ export function FavoriteLedgerPanel({
             <option value="unclassified">未分类</option>
           </select>
         </label>
-        {oldFavoriteArchiveWasModified(item) ? (
-          <>
-            <small className="favorite-ledger-panel__preview-delta">
-              原建议：{originalArchiveSuggestionText(item)}
+        {modified ? (
+          <div className="favorite-ledger-panel__preview-delta-row">
+            <small className="favorite-ledger-panel__preview-delta" title={deltaText}>
+              {deltaText}
             </small>
             <button
               type="button"
+              className="favorite-ledger-panel__preview-delta-action"
               aria-label={`恢复原建议 ${item.title}`}
               disabled={deepSeekArchiveRunning}
               onClick={(event) => {
@@ -2868,9 +2873,9 @@ export function FavoriteLedgerPanel({
                 revertOldFavoriteArchiveSuggestion(item)
               }}
             >
-              恢复原建议
+              恢复
             </button>
-          </>
+          </div>
         ) : null}
       </div>
     )
@@ -2955,7 +2960,19 @@ export function FavoriteLedgerPanel({
       <div className="favorite-ledger-panel__workspace">
         <section className="favorite-ledger-panel__checklist" aria-label="收藏夹">
         <div className="favorite-ledger-panel__category-header">
-          <h3>收藏夹</h3>
+          <span className="favorite-ledger-panel__section-title">
+            <h3 title={LEDGER_SYNC_HINT}>收藏夹</h3>
+            <button
+              type="button"
+              className="favorite-ledger-panel__help-toggle"
+              aria-label={`${ledgerHintExpanded ? '收起' : '展开'}收藏夹说明`}
+              aria-expanded={ledgerHintExpanded}
+              title={LEDGER_SYNC_HINT}
+              onClick={() => setLedgerHintExpanded((expanded) => !expanded)}
+            >
+              {ledgerHintExpanded ? '^' : 'v'}
+            </button>
+          </span>
           <div className="favorite-ledger-panel__category-actions">
             <button type="button" disabled={busy || deepSeekArchiveRunning} onClick={resetLedgers}>
               重置
@@ -2968,7 +2985,9 @@ export function FavoriteLedgerPanel({
             </button>
           </div>
         </div>
-        <p className="favorite-ledger-panel__sync-hint">{LEDGER_SYNC_HINT}</p>
+        {ledgerHintExpanded ? (
+          <p className="favorite-ledger-panel__sync-hint">{LEDGER_SYNC_HINT}</p>
+        ) : null}
         <div className="favorite-ledger-panel__chips">
           {ledgersToDisplay.map((ledger, ledgerIndex) => {
             const isLedgerEnabled = ledgerEnabled(ledger)
@@ -3111,8 +3130,24 @@ export function FavoriteLedgerPanel({
           aria-label={oldFavoriteGuideMode === 'setup' ? '备册向导' : '整理旧藏向导'}
         >
           <div className="favorite-ledger-panel__guide-header">
-            <h3>{oldFavoriteGuideMode === 'setup' ? '备册' : '整理旧藏'}</h3>
-            <p className="favorite-ledger-panel__guide-hint">{OLD_FAVORITE_GUIDE_HINT}</p>
+            <span className="favorite-ledger-panel__section-title">
+              <h3 title={OLD_FAVORITE_GUIDE_HINT}>
+                {oldFavoriteGuideMode === 'setup' ? '备册' : '整理旧藏'}
+              </h3>
+              <button
+                type="button"
+                className="favorite-ledger-panel__help-toggle"
+                aria-label={`${oldFavoriteGuideHintExpanded ? '收起' : '展开'}整理旧藏说明`}
+                aria-expanded={oldFavoriteGuideHintExpanded}
+                title={OLD_FAVORITE_GUIDE_HINT}
+                onClick={() => setOldFavoriteGuideHintExpanded((expanded) => !expanded)}
+              >
+                {oldFavoriteGuideHintExpanded ? '^' : 'v'}
+              </button>
+            </span>
+            {oldFavoriteGuideHintExpanded ? (
+              <p className="favorite-ledger-panel__guide-hint">{OLD_FAVORITE_GUIDE_HINT}</p>
+            ) : null}
             <nav className="favorite-ledger-panel__guide-steps" aria-label="整理旧藏步骤">
               {OLD_FAVORITE_GUIDE_STEPS.map((step) => (
                 <button
