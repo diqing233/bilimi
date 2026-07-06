@@ -23,6 +23,11 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     hidePetDuringVideoFullscreen: false,
     bilibiliOperationMode: 'api-assisted',
     favoriteArchiveMultiMode: 'off',
+    favoriteArchiveStrategy: 'aggressive',
+    favoriteCorrectionLearningEnabled: true,
+    favoriteCorrectionLearningClassificationEnabled: true,
+    favoriteCorrectionRecords: [],
+    favoriteKeywordSuggestions: [],
     defaultCoinCount: 1,
     commentSubmitMode: 'random',
     deepseekEnabled: false,
@@ -440,6 +445,458 @@ describe('FloatingAssistantApp', () => {
     expect(
       screen.getByText('最多同时保存到 3 个 bilimi 收藏夹')
     ).toBeInTheDocument()
+  })
+
+  it('renders archive strategy and correction learning settings', async () => {
+    installDesktopApi()
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+
+    expect(screen.getByRole('group', { name: '整理策略' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: '积极整理' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '记录纠错学习' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '纠错学习参与分类' })).toBeChecked()
+  })
+
+  it('saves archive strategy and correction learning choices', async () => {
+    const { savePreferences } = installDesktopApi()
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('radio', { name: '均衡整理' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '记录纠错学习' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '纠错学习参与分类' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          favoriteArchiveStrategy: 'balanced',
+          favoriteCorrectionLearningEnabled: false,
+          favoriteCorrectionLearningClassificationEnabled: false
+        })
+      )
+    )
+  })
+
+  it('can expand, delete, and clear correction records', async () => {
+    const { savePreferences } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            favoriteCorrectionRecords: [
+              {
+                id: 'c1',
+                aid: 1,
+                title: '东京旅行攻略',
+                originalLedgerId: 'game',
+                userLedgerIds: ['life-interest'],
+                source: 'user',
+                feedbackType: 'strong-correction',
+                sourceScene: 'archive-preview',
+                sourceFolderTitle: '稍后再看',
+                author: '旅行UP',
+                tags: ['旅行'],
+                matchedKeywords: ['攻略'],
+                score: 0.8,
+                confidence: 'medium',
+                scoreGap: 0.18,
+                createdAt: '2026-07-05T00:00:00.000Z',
+                confirmedAt: '2026-07-05T00:01:00.000Z'
+              },
+              {
+                id: 'c2',
+                aid: 2,
+                title: '料理学习笔记',
+                userLedgerIds: ['craft'],
+                source: 'user',
+                feedbackType: 'weak-negative',
+                sourceScene: 'daily-favorite',
+                tags: [],
+                matchedKeywords: [],
+                createdAt: '2026-07-05T00:02:00.000Z'
+              }
+            ]
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: /展开纠错 东京旅行攻略/ }))
+
+    expect(screen.getByText(/标签：旅行/)).toBeInTheDocument()
+    expect(screen.getByText(/UP：旅行UP/)).toBeInTheDocument()
+    expect(screen.getByText(/命中关键词：攻略/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /删除纠错 东京旅行攻略/ }))
+
+    expect(screen.queryByText('东京旅行攻略')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          favoriteCorrectionRecords: [
+            expect.objectContaining({
+              id: 'c2',
+              title: '料理学习笔记'
+            })
+          ]
+        })
+      )
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '清空纠错记录' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          favoriteCorrectionRecords: []
+        })
+      )
+    )
+  })
+
+  it('accepts keyword suggestions that add or replace ledger keywords', async () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'game'
+        ? {
+            ...ledger,
+            keywords: ['游戏', '单机']
+          }
+        : ledger
+    )
+    const { savePreferences } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            favoriteLedgers: ledgers,
+            favoriteKeywordSuggestions: [
+              {
+                id: 's1',
+                action: 'add-keyword',
+                ledgerId: 'game',
+                keyword: '攻略',
+                reason: '用户多次改到游戏册。',
+                source: 'user',
+                status: 'pending',
+                createdAt: '2026-07-05T00:00:00.000Z'
+              },
+              {
+                id: 's2',
+                action: 'replace-with-combination',
+                ledgerId: 'game',
+                keyword: '单机',
+                replacement: '单机攻略',
+                reason: '组合词更精确。',
+                source: 'user',
+                status: 'pending',
+                createdAt: '2026-07-05T00:01:00.000Z'
+              }
+            ]
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: /采纳建议 攻略/ }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          favoriteLedgers: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'game',
+              keywords: expect.arrayContaining(['游戏', '单机', '攻略'])
+            })
+          ]),
+          favoriteKeywordSuggestions: expect.arrayContaining([
+            expect.objectContaining({
+              id: 's1',
+              status: 'accepted'
+            })
+          ])
+        })
+      )
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /采纳建议 单机/ }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          favoriteLedgers: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'game',
+              keywords: expect.arrayContaining(['游戏', '攻略', '单机攻略'])
+            })
+          ]),
+          favoriteKeywordSuggestions: expect.arrayContaining([
+            expect.objectContaining({
+              id: 's2',
+              status: 'accepted'
+            })
+          ])
+        })
+      )
+    )
+
+    expect(
+      savePreferences.mock.calls.at(-1)?.[0].favoriteLedgers.find((ledger) => ledger.id === 'game')
+        ?.keywords
+    ).not.toContain('单机')
+  })
+
+  it('can ignore and delete keyword suggestions', async () => {
+    const { savePreferences } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            favoriteKeywordSuggestions: [
+              {
+                id: 's1',
+                action: 'downgrade-to-weak',
+                ledgerId: 'game',
+                keyword: '实况',
+                reason: '弱词更适合。',
+                source: 'user',
+                status: 'pending',
+                createdAt: '2026-07-05T00:00:00.000Z'
+              },
+              {
+                id: 's2',
+                action: 'remove-keyword',
+                ledgerId: 'life-interest',
+                keyword: 'vlog',
+                reason: '误命中生活册。',
+                source: 'user',
+                status: 'pending',
+                createdAt: '2026-07-05T00:01:00.000Z'
+              }
+            ]
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: /忽略建议 实况/ }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          favoriteKeywordSuggestions: expect.arrayContaining([
+            expect.objectContaining({
+              id: 's1',
+              status: 'ignored'
+            })
+          ])
+        })
+      )
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /删除建议 vlog/ }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          favoriteKeywordSuggestions: expect.arrayContaining([
+            expect.objectContaining({
+              id: 's2',
+              status: 'deleted'
+            })
+          ])
+        })
+      )
+    )
+  })
+
+  it('keeps newer local preference edits when an older save resolves before the latest save', async () => {
+    let resolveFirstSave: (preferences: AssistantPreferences) => void = () => {}
+    let resolveSecondSave: (preferences: AssistantPreferences) => void = () => {}
+    const savePreferences = vi
+      .fn()
+      .mockImplementationOnce(
+        (preferences: AssistantPreferences) =>
+          new Promise<AssistantPreferences>((resolve) => {
+            resolveFirstSave = () => resolve(preferences)
+          })
+      )
+      .mockImplementationOnce(
+        (preferences: AssistantPreferences) =>
+          new Promise<AssistantPreferences>((resolve) => {
+            resolveSecondSave = () => resolve(preferences)
+          })
+      )
+      .mockImplementation(async (preferences: AssistantPreferences) => preferences)
+    installDesktopApi({
+      savePreferences,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            favoriteKeywordSuggestions: [
+              {
+                id: 's1',
+                action: 'downgrade-to-weak',
+                ledgerId: 'game',
+                keyword: '实况',
+                reason: '弱词更适合。',
+                source: 'user',
+                status: 'pending',
+                createdAt: '2026-07-05T00:00:00.000Z'
+              },
+              {
+                id: 's2',
+                action: 'downgrade-to-weak',
+                ledgerId: 'game',
+                keyword: '攻略',
+                reason: '弱词更适合。',
+                source: 'user',
+                status: 'pending',
+                createdAt: '2026-07-05T00:01:00.000Z'
+              },
+              {
+                id: 's3',
+                action: 'downgrade-to-weak',
+                ledgerId: 'game',
+                keyword: '剧情',
+                reason: '弱词更适合。',
+                source: 'user',
+                status: 'pending',
+                createdAt: '2026-07-05T00:02:00.000Z'
+              }
+            ]
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: /忽略建议 实况/ }))
+
+    await waitFor(() => expect(savePreferences).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByRole('button', { name: /忽略建议 攻略/ }))
+
+    act(() => {
+      resolveFirstSave(savePreferences.mock.calls[0][0])
+    })
+
+    await waitFor(() => expect(savePreferences).toHaveBeenCalledTimes(2))
+
+    fireEvent.click(screen.getByRole('button', { name: /忽略建议 剧情/ }))
+
+    act(() => {
+      resolveSecondSave(savePreferences.mock.calls[1][0])
+    })
+
+    await waitFor(() => expect(savePreferences).toHaveBeenCalledTimes(3))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          favoriteKeywordSuggestions: expect.arrayContaining([
+            expect.objectContaining({ id: 's1', status: 'ignored' }),
+            expect.objectContaining({ id: 's2', status: 'ignored' }),
+            expect.objectContaining({ id: 's3', status: 'ignored' })
+          ])
+        })
+      )
+    )
+  })
+
+  it('can delete accepted or ignored keyword suggestions from settings', async () => {
+    const { savePreferences } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            favoriteKeywordSuggestions: [
+              {
+                id: 's1',
+                action: 'downgrade-to-weak',
+                ledgerId: 'game',
+                keyword: '实况',
+                reason: '已采纳的弱词。',
+                source: 'user',
+                status: 'accepted',
+                createdAt: '2026-07-05T00:00:00.000Z'
+              },
+              {
+                id: 's2',
+                action: 'downgrade-to-weak',
+                ledgerId: 'game',
+                keyword: '攻略',
+                reason: '已忽略的弱词。',
+                source: 'user',
+                status: 'ignored',
+                createdAt: '2026-07-05T00:01:00.000Z'
+              }
+            ]
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: /删除建议 实况/ }))
+    fireEvent.click(screen.getByRole('button', { name: /删除建议 攻略/ }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          favoriteKeywordSuggestions: expect.arrayContaining([
+            expect.objectContaining({ id: 's1', status: 'deleted' }),
+            expect.objectContaining({ id: 's2', status: 'deleted' })
+          ])
+        })
+      )
+    )
+  })
+
+  it('keeps correction record details label in sync when the summary is toggled directly', async () => {
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            favoriteCorrectionRecords: [
+              {
+                id: 'c1',
+                aid: 1,
+                title: '东京旅行攻略',
+                originalLedgerId: 'game',
+                userLedgerIds: ['life-interest'],
+                source: 'user',
+                feedbackType: 'strong-correction',
+                sourceScene: 'archive-preview',
+                tags: ['旅行'],
+                matchedKeywords: ['攻略'],
+                createdAt: '2026-07-05T00:00:00.000Z',
+                confirmedAt: '2026-07-05T00:01:00.000Z'
+              }
+            ]
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByText('东京旅行攻略'))
+
+    expect(screen.getByRole('button', { name: /收起纠错 东京旅行攻略/ })).toBeInTheDocument()
   })
 
   it('runs startup diagnostics from settings', async () => {

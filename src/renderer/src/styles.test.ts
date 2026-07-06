@@ -406,6 +406,17 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.assistant-settings__group--archive p { margin: 0;')
   })
 
+  it('keeps correction learning and keyword suggestion settings compact', () => {
+    expectStyleSnippet('.assistant-settings__learning-list { display: grid; gap: 6px;')
+    expectStyleSnippet('.assistant-settings__learning-item summary { display: grid; grid-template-columns: minmax(0, 1fr) auto;')
+    expectStyleSnippet('.assistant-settings__learning-summary { min-width: 0; overflow: hidden;')
+    expectStyleSnippet('.assistant-settings__keyword-actions button { min-height: 30px; height: 30px;')
+    expectStyleSnippet('.assistant-settings__keyword-actions button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;')
+    expect(compactStyles).not.toContain(
+      '.assistant-settings__learning-item { border: 1px solid rgba(31, 99, 181, 0.18); background: rgba(247, 251, 255, 0.64);'
+    )
+  })
+
   it('keeps the pet shortcut heading the same font size as pet settings', () => {
     expect(normalizedStyles).toContain('.assistant-settings__group legend {\n  color: var(--porcelain-text);')
     expect(normalizedStyles).not.toContain(

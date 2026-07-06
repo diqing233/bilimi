@@ -1,7 +1,11 @@
 import type {
   AssistantAction,
   AssistantAutomationResult,
+  FavoriteCorrectionRecord,
   AssistantPreferences,
+  FavoriteKeywordSuggestion,
+  FavoriteKeywordSuggestionStatus,
+  FavoriteLedger,
   FavoriteLedgerSaveOptions,
   FavoriteLedgerStatus,
   NotePosterSummary,
@@ -212,6 +216,84 @@ function normalizeTitle(title: string) {
   return title.replace(BILIBILI_TITLE_SUFFIX, '').trim() || CURRENT_TITLE
 }
 
+const ARCHIVE_STRATEGY_OPTIONS: Array<{
+  value: AssistantPreferences['favoriteArchiveStrategy']
+  label: string
+}> = [
+  { value: 'aggressive', label: '积极整理' },
+  { value: 'balanced', label: '均衡整理' },
+  { value: 'conservative', label: '保守整理' }
+]
+
+const KEYWORD_SUGGESTION_ACTION_LABELS: Record<FavoriteKeywordSuggestion['action'], string> = {
+  'add-keyword': '新增关键词',
+  'remove-keyword': '移除关键词',
+  'downgrade-to-weak': '降为弱词',
+  'replace-with-combination': '替换组合词',
+  'add-entity-alias': '新增实体别名',
+  'add-concept-variant': '新增概念变体'
+}
+
+const KEYWORD_SUGGESTION_STATUS_LABELS: Record<FavoriteKeywordSuggestionStatus, string> = {
+  pending: '待处理',
+  accepted: '已采纳',
+  ignored: '已忽略',
+  deleted: '已删除'
+}
+
+function formatSettingsDate(value?: string) {
+  if (!value) return '未记录'
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+function joinSettingValues(values: Array<string | number | undefined>) {
+  const text = values
+    .map((value) => String(value ?? '').trim())
+    .filter(Boolean)
+    .join('、')
+
+  return text || '未记录'
+}
+
+function getLedgerDisplayName(ledgers: FavoriteLedger[], ledgerId?: string) {
+  if (!ledgerId) return '未记录'
+
+  const ledger = ledgers.find((candidate) => candidate.id === ledgerId)
+  return ledger ? stripBilimiPrefix(ledger.displayName) : ledgerId
+}
+
+function updateLedgerKeywords(
+  ledgers: FavoriteLedger[],
+  ledgerId: string | undefined,
+  updater: (keywords: string[]) => string[]
+) {
+  if (!ledgerId) return ledgers
+
+  return ledgers.map((ledger) =>
+    ledger.id === ledgerId
+      ? {
+          ...ledger,
+          keywords: Array.from(
+            new Set(
+              updater([...ledger.keywords])
+                .map((keyword) => keyword.trim())
+                .filter(Boolean)
+            )
+          )
+        }
+      : ledger
+  )
+}
+
 function createDefaultResult(message: string): AssistantAutomationResult {
   return {
     ok: true,
@@ -321,6 +403,10 @@ export function FloatingAssistantApp({
   const [settingsDiagnosticRunning, setSettingsDiagnosticRunning] = useState(false)
   const [settingsDiagnosticMessage, setSettingsDiagnosticMessage] = useState('')
   const [settingsDiagnosticsExpanded, setSettingsDiagnosticsExpanded] = useState(true)
+  const [expandedCorrectionRecordIds, setExpandedCorrectionRecordIds] = useState<Set<string>>(
+    () => new Set()
+  )
+  const [settingsLearningMessage, setSettingsLearningMessage] = useState('')
   const mounted = useRef(false)
   const lastPreferenceChangeAt = useRef(0)
   const lastPreferenceSaveAt = useRef(0)
@@ -525,12 +611,17 @@ export function FloatingAssistantApp({
             return nextPreferences
           }
 
+          const saveStartedAt = Date.now()
           const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
           const savedPreferences = createInitialAssistantPreferences(saved)
-          preferencesRef.current = savedPreferences
+          const newerLocalChangeExists = lastPreferenceChangeAt.current > saveStartedAt
 
-          if (mounted.current) {
-            setPreferences(savedPreferences)
+          if (!newerLocalChangeExists) {
+            preferencesRef.current = savedPreferences
+
+            if (mounted.current) {
+              setPreferences(savedPreferences)
+            }
           }
 
           lastPreferenceSaveAt.current = Date.now()
@@ -549,6 +640,90 @@ export function FloatingAssistantApp({
     })
     applyPreferenceSnapshot(nextPreferences)
     getPreferenceSaveScheduler().schedule(nextPreferences)
+  }
+
+  function toggleCorrectionRecordExpanded(recordId: string) {
+    setExpandedCorrectionRecordIds((currentIds) => {
+      const nextIds = new Set(currentIds)
+
+      if (nextIds.has(recordId)) {
+        nextIds.delete(recordId)
+      } else {
+        nextIds.add(recordId)
+      }
+
+      return nextIds
+    })
+  }
+
+  function deleteCorrectionRecord(recordId: string) {
+    const nextRecords = preferencesRef.current.favoriteCorrectionRecords.filter(
+      (record) => record.id !== recordId
+    )
+    setExpandedCorrectionRecordIds((currentIds) => {
+      const nextIds = new Set(currentIds)
+      nextIds.delete(recordId)
+      return nextIds
+    })
+    persistPreferencePatch({ favoriteCorrectionRecords: nextRecords })
+  }
+
+  function clearCorrectionRecords() {
+    setExpandedCorrectionRecordIds(new Set())
+    persistPreferencePatch({ favoriteCorrectionRecords: [] })
+  }
+
+  function updateKeywordSuggestionStatus(
+    suggestionId: string,
+    status: FavoriteKeywordSuggestionStatus,
+    favoriteLedgers = preferencesRef.current.favoriteLedgers
+  ) {
+    const nextSuggestions = preferencesRef.current.favoriteKeywordSuggestions.map((suggestion) =>
+      suggestion.id === suggestionId ? { ...suggestion, status } : suggestion
+    )
+
+    persistPreferencePatch({
+      favoriteLedgers,
+      favoriteKeywordSuggestions: nextSuggestions
+    })
+  }
+
+  function acceptKeywordSuggestion(suggestion: FavoriteKeywordSuggestion) {
+    let nextLedgers = preferencesRef.current.favoriteLedgers
+
+    if (suggestion.action === 'add-keyword' && suggestion.keyword) {
+      nextLedgers = updateLedgerKeywords(nextLedgers, suggestion.ledgerId, (keywords) => [
+        ...keywords,
+        suggestion.keyword ?? ''
+      ])
+      setSettingsLearningMessage('关键词已加入目标收藏夹。')
+    } else if (suggestion.action === 'remove-keyword' && suggestion.keyword) {
+      nextLedgers = updateLedgerKeywords(nextLedgers, suggestion.ledgerId, (keywords) =>
+        keywords.filter((keyword) => keyword !== suggestion.keyword)
+      )
+      setSettingsLearningMessage('关键词已从目标收藏夹移除。')
+    } else if (
+      suggestion.action === 'replace-with-combination' &&
+      suggestion.keyword &&
+      suggestion.replacement
+    ) {
+      nextLedgers = updateLedgerKeywords(nextLedgers, suggestion.ledgerId, (keywords) => [
+        ...keywords.filter((keyword) => keyword !== suggestion.keyword),
+        suggestion.replacement ?? ''
+      ])
+      setSettingsLearningMessage('关键词已替换为组合词。')
+    } else if (suggestion.action === 'downgrade-to-weak') {
+      setSettingsLearningMessage('已采纳；当前版本弱词由分类器内置解释。')
+    } else if (
+      suggestion.action === 'add-entity-alias' ||
+      suggestion.action === 'add-concept-variant'
+    ) {
+      setSettingsLearningMessage('已采纳；需要后续版本纳入内置词库。')
+    } else {
+      setSettingsLearningMessage('建议已采纳。')
+    }
+
+    updateKeywordSuggestionStatus(suggestion.id, 'accepted', nextLedgers)
   }
 
   async function persistPreferences(nextPreferences: AssistantPreferences) {
@@ -1542,6 +1717,220 @@ export function FloatingAssistantApp({
                 />
                 <span>最多同时保存到 3 个 bilimi 收藏夹</span>
               </label>
+            </fieldset>
+            <fieldset className="assistant-settings__group assistant-settings__group--learning">
+              <legend>整理策略</legend>
+              <div className="assistant-settings__inline-options">
+                {ARCHIVE_STRATEGY_OPTIONS.map((option) => (
+                  <label key={option.value}>
+                    <input
+                      type="radio"
+                      name="favorite-archive-strategy"
+                      checked={preferences.favoriteArchiveStrategy === option.value}
+                      onChange={() =>
+                        persistPreferencePatch({ favoriteArchiveStrategy: option.value })
+                      }
+                    />
+                    <span>{option.label}</span>
+                  </label>
+                ))}
+              </div>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={preferences.favoriteCorrectionLearningEnabled}
+                  onChange={(event) =>
+                    persistPreferencePatch({
+                      favoriteCorrectionLearningEnabled: event.currentTarget.checked
+                    })
+                  }
+                />
+                <span>记录纠错学习</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={preferences.favoriteCorrectionLearningClassificationEnabled}
+                  onChange={(event) =>
+                    persistPreferencePatch({
+                      favoriteCorrectionLearningClassificationEnabled: event.currentTarget.checked
+                    })
+                  }
+                />
+                <span>纠错学习参与分类</span>
+              </label>
+              <div className="assistant-settings__subsection">
+                <div className="assistant-settings__subsection-heading">
+                  <strong>纠错学习记录</strong>
+                  <button
+                    type="button"
+                    onClick={clearCorrectionRecords}
+                    disabled={preferences.favoriteCorrectionRecords.length === 0}
+                  >
+                    清空纠错记录
+                  </button>
+                </div>
+                {preferences.favoriteCorrectionRecords.length > 0 ? (
+                  <div className="assistant-settings__learning-list">
+                    {preferences.favoriteCorrectionRecords.map(
+                      (record: FavoriteCorrectionRecord) => {
+                        const expanded = expandedCorrectionRecordIds.has(record.id)
+                        const originalLedger = getLedgerDisplayName(
+                          preferences.favoriteLedgers,
+                          record.originalLedgerId
+                        )
+                        const userLedgers = joinSettingValues(
+                          record.userLedgerIds.map((ledgerId) =>
+                            getLedgerDisplayName(preferences.favoriteLedgers, ledgerId)
+                          )
+                        )
+
+                        return (
+                          <details
+                            key={record.id}
+                            className="assistant-settings__learning-item"
+                            open={expanded}
+                            onToggle={(event) => {
+                              const nextOpen = event.currentTarget.open
+                              setExpandedCorrectionRecordIds((currentIds) => {
+                                if (currentIds.has(record.id) === nextOpen) {
+                                  return currentIds
+                                }
+
+                                const nextIds = new Set(currentIds)
+                                if (nextOpen) {
+                                  nextIds.add(record.id)
+                                } else {
+                                  nextIds.delete(record.id)
+                                }
+                                return nextIds
+                              })
+                            }}
+                          >
+                            <summary
+                              onClick={(event) => {
+                                if ((event.target as HTMLElement).closest('button')) {
+                                  return
+                                }
+
+                                event.preventDefault()
+                                toggleCorrectionRecordExpanded(record.id)
+                              }}
+                            >
+                              <span className="assistant-settings__learning-summary">
+                                <strong>{record.title}</strong>
+                                <small>
+                                  原建议：{originalLedger}；用户选择：{userLedgers}；时间：
+                                  {formatSettingsDate(record.confirmedAt ?? record.createdAt)}
+                                </small>
+                              </span>
+                              <span className="assistant-settings__learning-actions">
+                                <button
+                                  type="button"
+                                  aria-label={`${expanded ? '收起纠错' : '展开纠错'} ${record.title}`}
+                                  onClick={(event) => {
+                                    event.preventDefault()
+                                    toggleCorrectionRecordExpanded(record.id)
+                                  }}
+                                >
+                                  {expanded ? '收起' : '展开'}
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label={`删除纠错 ${record.title}`}
+                                  onClick={(event) => {
+                                    event.preventDefault()
+                                    deleteCorrectionRecord(record.id)
+                                  }}
+                                >
+                                  删除
+                                </button>
+                              </span>
+                            </summary>
+                            <div className="assistant-settings__learning-detail">
+                              <span>UP：{record.author?.trim() || '未记录'}</span>
+                              <span>标签：{joinSettingValues(record.tags)}</span>
+                              <span>来源场景：{record.sourceScene}</span>
+                              <span>来源收藏夹：{record.sourceFolderTitle?.trim() || '未记录'}</span>
+                              <span>命中关键词：{joinSettingValues(record.matchedKeywords)}</span>
+                              <span>分数：{record.score ?? '未记录'}</span>
+                              <span>置信度：{record.confidence ?? '未记录'}</span>
+                              <span>分差：{record.scoreGap ?? '未记录'}</span>
+                            </div>
+                          </details>
+                        )
+                      }
+                    )}
+                  </div>
+                ) : (
+                  <p className="assistant-settings__empty">暂无纠错记录</p>
+                )}
+              </div>
+              <div className="assistant-settings__subsection">
+                <div className="assistant-settings__subsection-heading">
+                  <strong>关键词建议</strong>
+                </div>
+                {preferences.favoriteKeywordSuggestions.length > 0 ? (
+                  <div className="assistant-settings__keyword-list">
+                    {preferences.favoriteKeywordSuggestions.map((suggestion) => {
+                      const targetLabel = getLedgerDisplayName(
+                        preferences.favoriteLedgers,
+                        suggestion.ledgerId
+                      )
+                      const keywordLabel =
+                        suggestion.keyword?.trim() ||
+                        suggestion.replacement?.trim() ||
+                        suggestion.id
+                      const isPending = suggestion.status === 'pending'
+
+                      return (
+                        <article key={suggestion.id} className="assistant-settings__keyword-item">
+                          <div className="assistant-settings__keyword-summary">
+                            <strong>{KEYWORD_SUGGESTION_ACTION_LABELS[suggestion.action]}</strong>
+                            <span>目标收藏夹：{targetLabel}</span>
+                            <span>关键词：{suggestion.keyword?.trim() || '未记录'}</span>
+                            <span>替换词：{suggestion.replacement?.trim() || '未记录'}</span>
+                            <small>理由：{suggestion.reason}</small>
+                            <small>状态：{KEYWORD_SUGGESTION_STATUS_LABELS[suggestion.status]}</small>
+                          </div>
+                          <div className="assistant-settings__keyword-actions">
+                            <button
+                              type="button"
+                              aria-label={`采纳建议 ${keywordLabel}`}
+                              disabled={!isPending}
+                              onClick={() => acceptKeywordSuggestion(suggestion)}
+                            >
+                              <span>采纳</span>
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`忽略建议 ${keywordLabel}`}
+                              disabled={!isPending}
+                              onClick={() =>
+                                updateKeywordSuggestionStatus(suggestion.id, 'ignored')
+                              }
+                            >
+                              <span>忽略</span>
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`删除建议 ${keywordLabel}`}
+                              onClick={() =>
+                                updateKeywordSuggestionStatus(suggestion.id, 'deleted')
+                              }
+                            >
+                              <span>删除</span>
+                            </button>
+                          </div>
+                        </article>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <p className="assistant-settings__empty">暂无关键词建议</p>
+                )}
+              </div>
+              {settingsLearningMessage ? <p role="status">{settingsLearningMessage}</p> : null}
             </fieldset>
             <fieldset className="assistant-settings__group assistant-settings__group--review-actions">
               <legend>批阅动作设置</legend>
