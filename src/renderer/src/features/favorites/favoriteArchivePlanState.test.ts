@@ -205,4 +205,27 @@ describe('favoriteArchivePlanState', () => {
       })
     ])
   })
+
+  it('keeps selected real bilimi targets without synced folder ids executable', () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'life-interest'
+        ? { ...ledger, bilibiliFolderId: undefined }
+        : ledger
+    )
+    const state = createArchivePlanState([
+      {
+        ...item,
+        currentTargetLedgerIds: ['life-interest', 'unclassified', 'inbox'],
+        selectedTargetLedgerIds: ['life-interest', 'unclassified', 'inbox']
+      }
+    ])
+
+    expect(buildExecutableArchivePlan(state, ledgers)).toEqual([
+      expect.objectContaining({
+        aid: 101,
+        targetLedgerId: 'life-interest',
+        targetFolderId: ''
+      })
+    ])
+  })
 })

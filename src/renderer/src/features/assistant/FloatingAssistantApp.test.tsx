@@ -422,6 +422,124 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
+  it('deduplicates DeepSeek archive keyword suggestions by action ledger keyword and replacement', async () => {
+    const savePreferences = vi.fn().mockImplementation(async (preferences: AssistantPreferences) => preferences)
+    const generateDeepSeek = vi.fn().mockResolvedValue({
+      kind: 'favorite-archive-organize',
+      results: [],
+      keywordSuggestions: [
+        {
+          id: 'deepseek-keyword-duplicate-pending',
+          action: 'add-keyword',
+          ledgerId: 'knowledge',
+          keyword: 'AI 工具',
+          reason: '同一条待处理建议不应重复加入。',
+          source: 'deepseek',
+          status: 'pending',
+          createdAt: '2026-07-06T00:02:00.000Z'
+        },
+        {
+          id: 'deepseek-keyword-duplicate-accepted',
+          action: 'replace-with-combination',
+          ledgerId: 'game',
+          keyword: '攻略',
+          replacement: '游戏攻略',
+          reason: '已处理过的建议不应同轮回流。',
+          source: 'deepseek',
+          status: 'pending',
+          createdAt: '2026-07-06T00:03:00.000Z'
+        },
+        {
+          id: 'deepseek-keyword-new',
+          action: 'add-keyword',
+          ledgerId: 'life-interest',
+          keyword: '通勤路线',
+          reason: '新的组合词仍应进入待处理列表。',
+          source: 'deepseek',
+          status: 'pending',
+          createdAt: '2026-07-06T00:04:00.000Z'
+        }
+      ]
+    })
+    const scanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 902,
+          title: 'AI 工具链教程',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'bilimi·学吧你就',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          originalSuggestedLedgerIds: ['knowledge'],
+          currentTargetLedgerIds: ['knowledge'],
+          selectedTargetLedgerIds: ['knowledge'],
+          lowConfidence: false
+        }
+      ],
+      skippedSourceFolderTitles: []
+    } satisfies FavoriteLedgerPreview)
+    installDesktopApi({
+      generateDeepSeek,
+      savePreferences,
+      scanOldFavorites,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true,
+            deepseekApiKeyStored: true,
+            favoriteKeywordSuggestions: [
+              {
+                id: 'existing-pending',
+                action: 'add-keyword',
+                ledgerId: 'knowledge',
+                keyword: 'AI 工具',
+                reason: 'Already pending.',
+                source: 'deepseek',
+                status: 'pending',
+                createdAt: '2026-07-06T00:00:00.000Z'
+              },
+              {
+                id: 'existing-accepted',
+                action: 'replace-with-combination',
+                ledgerId: 'game',
+                keyword: '攻略',
+                replacement: '游戏攻略',
+                reason: 'Already accepted.',
+                source: 'deepseek',
+                status: 'accepted',
+                createdAt: '2026-07-06T00:01:00.000Z'
+              }
+            ]
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: '掌库' }))
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          favoriteKeywordSuggestions: [
+            expect.objectContaining({ id: 'existing-pending' }),
+            expect.objectContaining({ id: 'existing-accepted' }),
+            expect.objectContaining({ id: 'deepseek-keyword-new' })
+          ]
+        })
+      )
+    )
+  })
+
   it('keeps the floating assistant fold button available across workspace tabs', async () => {
     const api = installDesktopApi()
 
@@ -2301,6 +2419,81 @@ describe('FloatingAssistantApp', () => {
     expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'happy')).toBe(true)
     expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.message.includes('first item done'))).toBe(false)
     expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.message.includes('second item done'))).toBe(false)
+  })
+
+  it('persists confirmed archive preview correction records after old favorite execution', async () => {
+    const savePreferences = vi.fn().mockImplementation(async (preferences: AssistantPreferences) => preferences)
+    const executeOldFavoritePlan = vi.fn().mockResolvedValue(createResult('old favorite done'))
+    const favoriteLedgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'knowledge'
+        ? { ...ledger, bilibiliFolderId: '9001' }
+        : ledger.id === 'game'
+          ? { ...ledger, bilibiliFolderId: '9002' }
+          : ledger
+    )
+    installDesktopApi({
+      executeOldFavoritePlan,
+      savePreferences,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            favoriteLedgers
+          })
+        })
+      ),
+      scanOldFavorites: vi.fn().mockResolvedValue({
+        items: [
+          {
+            aid: 903,
+            title: '星铁剧情解析',
+            sourceFolderTitle: '默认收藏夹',
+            targetLedgerId: 'knowledge',
+            targetFolderId: '9001',
+            targetDisplayName: 'bilimi·知识学习',
+            reviewRequired: false,
+            alreadyInTarget: false,
+            selected: true,
+            originalSuggestedLedgerIds: ['knowledge'],
+            currentTargetLedgerIds: ['knowledge'],
+            selectedTargetLedgerIds: ['knowledge'],
+            lowConfidence: false
+          }
+        ],
+        skippedSourceFolderTitles: []
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: '掌库' }))
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.change(screen.getByLabelText('调整分类 星铁剧情解析'), {
+      target: { value: 'game' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+
+    await waitFor(() => expect(executeOldFavoritePlan).toHaveBeenCalledOnce())
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          favoriteCorrectionRecords: [
+            expect.objectContaining({
+              aid: 903,
+              originalLedgerId: 'knowledge',
+              userLedgerIds: ['game'],
+              source: 'user',
+              feedbackType: 'strong-correction',
+              sourceScene: 'archive-preview',
+              confirmedAt: expect.any(String)
+            })
+          ]
+        })
+      )
+    )
   })
 
   it('refreshes the displayed video when the main window reports a snapshot change', async () => {

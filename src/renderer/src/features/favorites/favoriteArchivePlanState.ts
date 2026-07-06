@@ -221,7 +221,7 @@ export function buildExecutableArchivePlan(
       }
 
       const ledger = ledgersById.get(ledgerId)
-      if (!ledger?.bilibiliFolderId) {
+      if (!ledger) {
         continue
       }
 
@@ -230,7 +230,7 @@ export function buildExecutableArchivePlan(
         title: item.title,
         sourceFolderTitle: item.sourceFolderTitle,
         targetLedgerId: ledger.id,
-        targetFolderId: ledger.bilibiliFolderId
+        targetFolderId: ledger.bilibiliFolderId ?? ''
       })
     }
   }

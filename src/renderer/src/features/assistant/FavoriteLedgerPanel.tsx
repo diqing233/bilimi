@@ -11,6 +11,7 @@ import type {
   DeepSeekGenerateResult,
   FavoriteKeywordSuggestion,
   FavoriteArchiveMultiMode,
+  FavoriteCorrectionRecord,
   FavoriteLedger,
   FavoriteLedgerRuleType,
   FavoriteLedgerSaveOptions
@@ -38,6 +39,7 @@ import {
   revertDeepSeekArchiveRun,
   type DeepSeekArchiveRunSnapshot
 } from '../favorites/deepseekArchiveOrganizer'
+import { createCorrectionDraft } from '../recommendation/correctionLearning'
 import { classifyVideoContent } from '../recommendation/videoClassifier'
 import { AssistantActionButton } from './AssistantActionButton'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
@@ -65,6 +67,7 @@ type FavoriteLedgerPanelProps = {
     request: DeepSeekGenerateRequest
   ) => Promise<DeepSeekGenerateResult | null | undefined>
   onDeepSeekArchiveKeywordSuggestions?: (suggestions: FavoriteKeywordSuggestion[]) => void
+  onConfirmArchiveCorrections?: (records: FavoriteCorrectionRecord[]) => void
   favoriteArchiveMultiMode?: FavoriteArchiveMultiMode
   organizeOldFavoritesRequestSignal?: number
 }
@@ -301,6 +304,12 @@ function visibleLedgers(ledgers: FavoriteLedger[], expanded: boolean) {
 
 function archivePlanItemKey(item: Pick<FavoriteLedgerPreviewItem, 'aid' | 'sourceFolderTitle'>) {
   return `${item.sourceFolderTitle}::${item.aid}`
+}
+
+function archivePlanTargetKey(
+  item: Pick<FavoriteLedgerPreviewItem, 'aid' | 'sourceFolderTitle' | 'targetLedgerId'>
+) {
+  return `${archivePlanItemKey(item)}::${item.targetLedgerId}`
 }
 
 function favoriteLedgerDisplayShortName(displayName: string) {
@@ -727,6 +736,74 @@ function sameLedgerIds(left: string[], right: string[]) {
   return left.every((ledgerId) => rightIds.has(ledgerId))
 }
 
+function executableCorrectionLedgerIds(ledgerIds: string[]) {
+  return uniqueLedgerIds(ledgerIds.filter((ledgerId) => ledgerId !== 'inbox' && ledgerId !== 'unclassified'))
+}
+
+function buildConfirmedArchiveCorrectionRecords(args: {
+  state: FavoriteArchivePlanState
+  preview: FavoriteLedgerPreview
+  successfulTargetKeys: Set<string>
+  confirmedAt: string
+}): FavoriteCorrectionRecord[] {
+  const records: FavoriteCorrectionRecord[] = []
+
+  for (const planItem of args.state.items) {
+    if (!planItem.userModified) {
+      continue
+    }
+
+    const originalLedgerIds = executableCorrectionLedgerIds(planItem.originalSuggestedLedgerIds)
+    const selectedLedgerIds = executableCorrectionLedgerIds(planItem.selectedTargetLedgerIds)
+    const confirmedSelectedLedgerIds = selectedLedgerIds.filter((ledgerId) =>
+      args.successfulTargetKeys.has(
+        archivePlanTargetKey({
+          aid: planItem.aid,
+          sourceFolderTitle: planItem.sourceFolderTitle,
+          targetLedgerId: ledgerId
+        })
+      )
+    )
+
+    if (confirmedSelectedLedgerIds.length === 0) {
+      continue
+    }
+
+    if (sameLedgerIds(originalLedgerIds, confirmedSelectedLedgerIds)) {
+      continue
+    }
+
+    const previewItem = args.preview.items.find(
+      (item) => item.aid === planItem.aid && item.sourceFolderTitle === planItem.sourceFolderTitle
+    )
+    const diagnostic = previewItem?.classificationDiagnostic
+    const draft = createCorrectionDraft({
+      aid: planItem.aid,
+      title: planItem.title,
+      originalLedgerId: originalLedgerIds[0],
+      userLedgerIds: confirmedSelectedLedgerIds,
+      source: planItem.lastChangeSource === 'deepseek' ? 'user-confirmed-deepseek' : 'user',
+      feedbackType: 'strong-correction',
+      sourceScene: 'archive-preview',
+      sourceFolderTitle: planItem.sourceFolderTitle,
+      author: previewItem?.author,
+      tags: previewItem?.tags ?? [],
+      matchedKeywords: diagnostic?.matchedKeywords,
+      score: diagnostic?.score,
+      confidence: diagnostic?.confidence,
+      scoreGap: diagnostic?.scoreGap,
+      createdAt: args.confirmedAt
+    })
+
+    records.push({
+      ...draft,
+      confirmedAt: args.confirmedAt
+    })
+  }
+
+  return records
+}
+
 function favoriteLedgerNameForArchiveId(
   ledgerId: string,
   item: FavoriteLedgerPreviewItem,
@@ -973,6 +1050,7 @@ export function FavoriteLedgerPanel({
   deepSeekArchiveAvailable = false,
   onOrganizeOldFavoritesWithDeepSeek,
   onDeepSeekArchiveKeywordSuggestions,
+  onConfirmArchiveCorrections,
   favoriteArchiveMultiMode = 'off',
   organizeOldFavoritesRequestSignal = 0
 }: FavoriteLedgerPanelProps) {
@@ -2195,7 +2273,18 @@ export function FavoriteLedgerPanel({
       setActiveLedgerIndex(null)
       setActiveLedgerSavedSnapshot(null)
 
-      const selectedItems = selectedOldFavoritePlanItems.filter(
+      const savedLedgers = Array.isArray((saveResult as { ledgers?: FavoriteLedger[] } | undefined)?.ledgers)
+        ? (saveResult as { ledgers: FavoriteLedger[] }).ledgers
+        : nextLedgers
+      const selectedItems = (
+        archivePlanState
+          ? buildSelectedOldFavoritePlanItems({
+              state: archivePlanState,
+              items: selectableOldFavoriteItems,
+              ledgers: ledgersWithOldFavoriteTargetFolders(savedLedgers, selectableOldFavoriteItems)
+            })
+          : selectedOldFavoritePlanItems
+      ).filter(
         (item) => item.targetFolderId || item.selectedCandidateTarget
       )
       if (selectedItems.length === 0) {
@@ -2205,14 +2294,30 @@ export function FavoriteLedgerPanel({
 
       setOldFavoriteExecutionProgress({ completed: 0, total: selectedItems.length })
       const results: OldFavoriteExecutionResult[] = []
+      const successfulTargetKeys = new Set<string>()
       for (const [index, item] of selectedItems.entries()) {
         const result = (await onExecuteOldFavoritePlan([item])) as OldFavoriteExecutionResult
         results.push(result)
+        if (result.ok !== false) {
+          successfulTargetKeys.add(archivePlanTargetKey(item))
+        }
         setOldFavoriteExecutionProgress({ completed: index + 1, total: selectedItems.length })
         if (result.paused) {
           break
         }
         await paceOldFavoriteExecution(index + 1, index < selectedItems.length - 1)
+      }
+      if (archivePlanState && successfulTargetKeys.size > 0) {
+        const records = buildConfirmedArchiveCorrectionRecords({
+          state: archivePlanState,
+          preview,
+          successfulTargetKeys,
+          confirmedAt: new Date().toISOString()
+        })
+
+        if (records.length > 0) {
+          onConfirmArchiveCorrections?.(records)
+        }
       }
       const failedCount = results.filter((result) => result.ok === false).length
       const paused = results.some((result) => result.paused)

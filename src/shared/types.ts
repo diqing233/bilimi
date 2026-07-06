@@ -86,7 +86,7 @@ export type FavoriteArchiveStrategy = 'aggressive' | 'balanced' | 'conservative'
 
 export type ClassificationConfidenceLevel = 'high' | 'medium' | 'low'
 
-export type FavoriteCorrectionSource = 'user' | 'deepseek' | 'user-confirmed-deepseek'
+export type FavoriteCorrectionSource = 'user' | 'deepseek' | 'user-confirmed-deepseek' | 'classifier'
 export type FavoriteCorrectionFeedbackType = 'strong-correction' | 'weak-negative'
 export type FavoriteKeywordSuggestionAction =
   | 'add-keyword'

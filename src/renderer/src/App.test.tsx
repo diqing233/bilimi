@@ -1169,6 +1169,80 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('adds local classification diagnostic keyword suggestions after a successful favorite action', async () => {
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const preferences = createAppPreferences({
+      favoriteLedgers: createDefaultFavoriteLedgers()
+        .filter((ledger) => ['game', 'inbox'].includes(ledger.id))
+        .map((ledger) =>
+          ledger.id === 'game'
+            ? { ...ledger, keywords: ['攻略'], bilibiliFolderId: '9002' }
+            : ledger
+        )
+    })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      savePreferences
+    })
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          aid: 706,
+          title: '攻略',
+          pageText: '攻略',
+          tags: ['攻略']
+        }
+      }
+
+      return {
+        ok: true,
+        steps: ['favorite:open', 'favorite:folder', 'favorite'],
+        missingTargets: [],
+        message: '已按内容归入内库。'
+      }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1localsuggestion'
+          }
+        })
+      )
+    })
+
+    const result = await requestRuntime({
+      id: 'run-local-suggestion',
+      type: 'run-action',
+      action: '藏',
+      options: { pageClickOnly: true }
+    })
+
+    expect(result).toEqual(expect.objectContaining({ ok: true }))
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          favoriteKeywordSuggestions: [
+            expect.objectContaining({
+              action: 'replace-with-combination',
+              ledgerId: 'game',
+              keyword: '攻略',
+              replacement: '游戏攻略',
+              source: 'classifier',
+              status: 'pending'
+            })
+          ]
+        })
+      )
+    )
+  })
+
   it('uses DeepSeek daily classification review before executing a corrected favorite action', async () => {
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
     const generateDeepSeek = vi.fn().mockResolvedValue({
@@ -1179,7 +1253,7 @@ describe('App runtime integration', () => {
       confidence: 0.84,
       keywordSuggestions: [
         {
-          id: 'deepseek:game:replace-with-combination:攻略:游戏攻略',
+          id: 'deepseek:game:replace-with-combination:攻略:游戏攻略:new',
           action: 'replace-with-combination',
           ledgerId: 'game',
           keyword: '攻略',
@@ -1196,6 +1270,19 @@ describe('App runtime integration', () => {
       deepseekApiKeyStored: true,
       deepseekDailyClassificationEnabled: true,
       favoriteArchiveMultiMode: 'off',
+      favoriteKeywordSuggestions: [
+        {
+          id: 'existing-accepted-game-guide',
+          action: 'replace-with-combination',
+          ledgerId: 'game',
+          keyword: '攻略',
+          replacement: '游戏攻略',
+          reason: '已采纳过的同签名建议不应重复加入。',
+          source: 'deepseek',
+          status: 'accepted',
+          createdAt: '2026-07-05T00:00:00.000Z'
+        }
+      ],
       favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) => {
         if (ledger.id === 'game') {
           return { ...ledger, keywords: ['地铁攻略'], bilibiliFolderId: '9002', isDefault: false }
@@ -1294,13 +1381,13 @@ describe('App runtime integration', () => {
             sourceScene: 'daily-favorite'
           })
         ]),
-        favoriteKeywordSuggestions: expect.arrayContaining([
+        favoriteKeywordSuggestions: [
           expect.objectContaining({
-            id: 'deepseek:game:replace-with-combination:攻略:游戏攻略',
+            id: 'existing-accepted-game-guide',
             source: 'deepseek',
-            status: 'pending'
+            status: 'accepted'
           })
-        ])
+        ]
       })
     )
   })

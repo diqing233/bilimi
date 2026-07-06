@@ -332,6 +332,72 @@ function shouldReviewDailyClassification(
   )
 }
 
+const LOCAL_WEAK_KEYWORD_REPLACEMENTS: Record<string, Record<string, string>> = {
+  game: {
+    '攻略': '游戏攻略',
+    '剧情': '游戏剧情',
+    '教程': '游戏教程'
+  },
+  'movie-tv': {
+    '剧情': '影视剧情',
+    '解说': '影视解说',
+    '名场面': '影视名场面'
+  },
+  'life-interest': {
+    '攻略': '生活攻略',
+    '教程': '生活教程',
+    '测评': '生活测评'
+  },
+  knowledge: {
+    '教程': '知识教程',
+    '入门': '知识入门',
+    '测评': '知识测评'
+  }
+}
+
+function createLocalClassificationKeywordSuggestions(
+  diagnostics: Array<FavoriteLedgerClassificationDiagnostic & { ledgerId: string }>
+): FavoriteKeywordSuggestion[] {
+  const createdAt = new Date().toISOString()
+  const suggestions: FavoriteKeywordSuggestion[] = []
+
+  for (const diagnostic of diagnostics) {
+    if (
+      diagnostic.ledgerId === 'inbox' ||
+      (!diagnostic.lowConfidence &&
+        !(diagnostic.strongSignals.length === 0 && diagnostic.weakSignals.length > 0))
+    ) {
+      continue
+    }
+
+    const replacements = LOCAL_WEAK_KEYWORD_REPLACEMENTS[diagnostic.ledgerId]
+    if (!replacements) {
+      continue
+    }
+
+    for (const keyword of Array.from(new Set(diagnostic.weakSignals))) {
+      const replacement = replacements[keyword]
+      if (!replacement || replacement === keyword) {
+        continue
+      }
+
+      suggestions.push({
+        id: ['classifier', diagnostic.ledgerId, 'replace-with-combination', keyword, replacement].join(':'),
+        action: 'replace-with-combination',
+        ledgerId: diagnostic.ledgerId,
+        keyword,
+        replacement,
+        reason: `本地分类低置信命中弱词「${keyword}」，建议改成更明确的组合词。`,
+        source: 'classifier',
+        status: 'pending',
+        createdAt
+      })
+    }
+  }
+
+  return suggestions
+}
+
 function actionUsesFavorite(action: AssistantAction) {
   return action === '赏' || action === '藏' || action === '赐'
 }
@@ -341,10 +407,30 @@ function mergeKeywordSuggestions(
   incoming: FavoriteKeywordSuggestion[]
 ) {
   const existingIds = new Set(existing.map((suggestion) => suggestion.id))
-  return [
-    ...existing,
-    ...incoming.filter((suggestion) => !existingIds.has(suggestion.id))
-  ]
+  const existingSignatures = new Set(existing.map((suggestion) => [
+    suggestion.action,
+    suggestion.ledgerId,
+    suggestion.keyword?.trim().toLocaleLowerCase() ?? '',
+    suggestion.replacement?.trim().toLocaleLowerCase() ?? ''
+  ].join('::')))
+  const nextIncomingSuggestions: FavoriteKeywordSuggestion[] = []
+
+  for (const suggestion of incoming) {
+    const signature = [
+      suggestion.action,
+      suggestion.ledgerId,
+      suggestion.keyword?.trim().toLocaleLowerCase() ?? '',
+      suggestion.replacement?.trim().toLocaleLowerCase() ?? ''
+    ].join('::')
+    if (existingIds.has(suggestion.id) || existingSignatures.has(signature)) {
+      continue
+    }
+    existingIds.add(suggestion.id)
+    existingSignatures.add(signature)
+    nextIncomingSuggestions.push(suggestion)
+  }
+
+  return [...existing, ...nextIncomingSuggestions]
 }
 
 type DailyClassificationReviewResult = Extract<
@@ -1466,6 +1552,18 @@ export default function App() {
         recordAssistantPreferenceFeedback(preferences, targetLedgerId, action),
         deepSeekCorrection
       )
+      const localKeywordSuggestions = actionUsesFavorite(action)
+        ? createLocalClassificationKeywordSuggestions(localDiagnostics)
+        : []
+      if (localKeywordSuggestions.length > 0) {
+        nextPreferences = createInitialAssistantPreferences({
+          ...nextPreferences,
+          favoriteKeywordSuggestions: mergeKeywordSuggestions(
+            nextPreferences.favoriteKeywordSuggestions,
+            localKeywordSuggestions
+          )
+        })
+      }
       setPreferences(nextPreferences)
       if (window.bilimiDesktop?.savePreferences) {
         const saved = await window.bilimiDesktop.savePreferences(nextPreferences)

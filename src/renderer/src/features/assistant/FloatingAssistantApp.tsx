@@ -297,6 +297,15 @@ function updateLedgerKeywords(
   )
 }
 
+function keywordSuggestionSignature(suggestion: FavoriteKeywordSuggestion) {
+  return [
+    suggestion.action,
+    suggestion.ledgerId,
+    suggestion.keyword?.trim().toLocaleLowerCase() ?? '',
+    suggestion.replacement?.trim().toLocaleLowerCase() ?? ''
+  ].join('::')
+}
+
 function createDefaultResult(message: string): AssistantAutomationResult {
   return {
     ok: true,
@@ -1453,12 +1462,43 @@ export function FloatingAssistantApp({
     const existingIds = new Set(
       preferencesRef.current.favoriteKeywordSuggestions.map((suggestion) => suggestion.id)
     )
+    const existingSignatures = new Set(
+      preferencesRef.current.favoriteKeywordSuggestions.map(keywordSuggestionSignature)
+    )
+    const nextIncomingSuggestions: FavoriteKeywordSuggestion[] = []
+
+    for (const suggestion of suggestions) {
+      const signature = keywordSuggestionSignature(suggestion)
+      if (existingIds.has(suggestion.id) || existingSignatures.has(signature)) {
+        continue
+      }
+      existingIds.add(suggestion.id)
+      existingSignatures.add(signature)
+      nextIncomingSuggestions.push(suggestion)
+    }
+
     const nextSuggestions = [
       ...preferencesRef.current.favoriteKeywordSuggestions,
-      ...suggestions.filter((suggestion) => !existingIds.has(suggestion.id))
+      ...nextIncomingSuggestions
     ]
 
     persistPreferencePatch({ favoriteKeywordSuggestions: nextSuggestions })
+  }
+
+  function confirmArchiveCorrectionRecords(records: FavoriteCorrectionRecord[]) {
+    if (!preferencesRef.current.favoriteCorrectionLearningEnabled || records.length === 0) {
+      return
+    }
+
+    const existingIds = new Set(
+      preferencesRef.current.favoriteCorrectionRecords.map((record) => record.id)
+    )
+    const nextRecords = [
+      ...preferencesRef.current.favoriteCorrectionRecords,
+      ...records.filter((record) => !existingIds.has(record.id))
+    ]
+
+    persistPreferencePatch({ favoriteCorrectionRecords: nextRecords })
   }
 
   function handleOldFavoriteExecutionStateChange(state: 'running' | 'finished') {
@@ -1536,6 +1576,7 @@ export function FloatingAssistantApp({
             deepSeekArchiveAvailable={preferences.deepseekEnabled && preferences.deepseekApiKeyStored}
             onOrganizeOldFavoritesWithDeepSeek={organizeOldFavoritesWithDeepSeek}
             onDeepSeekArchiveKeywordSuggestions={mergeDeepSeekArchiveKeywordSuggestions}
+            onConfirmArchiveCorrections={confirmArchiveCorrectionRecords}
             favoriteArchiveMultiMode={preferences.favoriteArchiveMultiMode}
             organizeOldFavoritesRequestSignal={organizeOldFavoritesRequestSignal}
           />

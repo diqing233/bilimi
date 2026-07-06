@@ -45,7 +45,8 @@ const VALID_KEYWORD_SUGGESTION_STATUSES = new Set<FavoriteKeywordSuggestionStatu
 const VALID_CORRECTION_SOURCES = new Set<FavoriteCorrectionSource>([
   'user',
   'deepseek',
-  'user-confirmed-deepseek'
+  'user-confirmed-deepseek',
+  'classifier'
 ])
 
 const VALID_CORRECTION_FEEDBACK_TYPES = new Set<FavoriteCorrectionFeedbackType>([

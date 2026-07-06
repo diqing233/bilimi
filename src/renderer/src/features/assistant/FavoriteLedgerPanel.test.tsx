@@ -560,6 +560,219 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('已选择 1 条归档任务')).toBeInTheDocument()
   })
 
+  it('confirms archive preview correction drafts only after executing the selected plan', async () => {
+    const onExecuteOldFavoritePlan = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['api:ledger:append:701'],
+      missingTargets: [],
+      message: '旧藏整理已完成。'
+    })
+    const onConfirmArchiveCorrections = vi.fn()
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'game'
+        ? { ...ledger, bilibiliFolderId: '9002' }
+        : ledger.id === 'knowledge'
+          ? { ...ledger, bilibiliFolderId: '9001' }
+          : ledger
+    )
+    await openArchivePreview({
+      ledgers,
+      onExecuteOldFavoritePlan,
+      onConfirmArchiveCorrections
+    })
+
+    fireEvent.change(screen.getByLabelText('调整分类 AI 效率工具实战'), {
+      target: { value: 'game' }
+    })
+
+    expect(onConfirmArchiveCorrections).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce())
+    await waitFor(() =>
+      expect(onConfirmArchiveCorrections).toHaveBeenCalledWith([
+        expect.objectContaining({
+          aid: 701,
+          title: 'AI 效率工具实战',
+          originalLedgerId: 'knowledge',
+          userLedgerIds: ['game'],
+          source: 'user',
+          feedbackType: 'strong-correction',
+          sourceScene: 'archive-preview',
+          sourceFolderTitle: '默认收藏夹',
+          confirmedAt: expect.any(String)
+        })
+      ])
+    )
+  })
+
+  it('does not confirm added archive correction targets when that target execution fails', async () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
+      if (ledger.id === 'knowledge') {
+        return { ...ledger, displayName: 'bilimi·学习', bilibiliFolderId: '9001' }
+      }
+      if (ledger.id === 'game') {
+        return { ...ledger, displayName: 'bilimi·游戏', bilibiliFolderId: '9002' }
+      }
+      return ledger
+    })
+    const preview: FavoriteLedgerPreview = {
+      items: [
+        {
+          aid: 703,
+          title: 'AI 工具也能做游戏剧情复盘',
+          author: '效率研究所',
+          description: '从 AI 工具聊到游戏剧情整理。',
+          tags: ['AI', '游戏'],
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'bilimi·学习',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          originalSuggestedLedgerIds: ['knowledge'],
+          currentTargetLedgerIds: ['knowledge', 'game'],
+          selectedTargetLedgerIds: ['knowledge', 'game'],
+          lowConfidence: false
+        }
+      ],
+      skippedSourceFolderTitles: []
+    }
+    const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
+    const onExecuteOldFavoritePlan = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['api:ledger:append:703:knowledge'],
+        missingTargets: [],
+        message: '学习收藏夹追加成功。'
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        steps: [],
+        missingTargets: ['9002'],
+        message: '游戏收藏夹追加失败。'
+      })
+    const onConfirmArchiveCorrections = vi.fn()
+
+    renderPanel({
+      ledgers,
+      onScanOldFavorites,
+      onExecuteOldFavoritePlan,
+      onConfirmArchiveCorrections
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+
+    const gameGroup = screen.getByRole('group', { name: /bilimi·游戏 1 条/ })
+    const gameVideo = getPreviewVideoButton(gameGroup, /AI 工具也能做游戏剧情复盘/)
+    fireEvent.click(gameVideo)
+    fireEvent.click(gameVideo)
+
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(2))
+    expect(onExecuteOldFavoritePlan).toHaveBeenNthCalledWith(1, [
+      expect.objectContaining({ targetLedgerId: 'knowledge' })
+    ])
+    expect(onExecuteOldFavoritePlan).toHaveBeenNthCalledWith(2, [
+      expect.objectContaining({ targetLedgerId: 'game' })
+    ])
+    expect(onConfirmArchiveCorrections).not.toHaveBeenCalled()
+  })
+
+  it('drops weak negative archive correction drafts for items without executed targets', async () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'knowledge'
+        ? { ...ledger, displayName: 'bilimi·学习', bilibiliFolderId: '9001' }
+        : ledger.id === 'game'
+          ? { ...ledger, displayName: 'bilimi·游戏', bilibiliFolderId: '9002' }
+          : ledger
+    )
+    const preview: FavoriteLedgerPreview = {
+      items: [
+        {
+          aid: 704,
+          title: '取消归档的知识视频',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'bilimi·学习',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          originalSuggestedLedgerIds: ['knowledge'],
+          currentTargetLedgerIds: ['knowledge'],
+          selectedTargetLedgerIds: ['knowledge'],
+          lowConfidence: false
+        },
+        {
+          aid: 705,
+          title: '改去游戏区的视频',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'bilimi·学习',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          originalSuggestedLedgerIds: ['knowledge'],
+          currentTargetLedgerIds: ['knowledge'],
+          selectedTargetLedgerIds: ['knowledge'],
+          lowConfidence: false
+        }
+      ],
+      skippedSourceFolderTitles: []
+    }
+    const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
+    const onExecuteOldFavoritePlan = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['api:ledger:append:705:game'],
+      missingTargets: [],
+      message: '游戏收藏夹追加成功。'
+    })
+    const onConfirmArchiveCorrections = vi.fn()
+
+    renderPanel({
+      ledgers,
+      onScanOldFavorites,
+      onExecuteOldFavoritePlan,
+      onConfirmArchiveCorrections
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+
+    const knowledgeGroup = screen.getByRole('group', { name: /bilimi·学习 2 条/ })
+    fireEvent.click(getPreviewVideoButton(knowledgeGroup, /取消归档的知识视频/))
+    fireEvent.change(within(knowledgeGroup).getByLabelText('调整分类 改去游戏区的视频'), {
+      target: { value: 'game' }
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce())
+    await waitFor(() =>
+      expect(onConfirmArchiveCorrections).toHaveBeenCalledWith([
+        expect.objectContaining({
+          aid: 705,
+          originalLedgerId: 'knowledge',
+          userLedgerIds: ['game'],
+          source: 'user',
+          feedbackType: 'strong-correction'
+        })
+      ])
+    )
+  })
+
   it('selects all unmatched old favorites for inbox staging from the pending header', async () => {
     const onScanOldFavorites = vi.fn().mockResolvedValue({
       items: [
@@ -1991,14 +2204,14 @@ describe('FavoriteLedgerPanel', () => {
       ])
     )
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(2))
-    expect(onExecuteOldFavoritePlan).toHaveBeenNthCalledWith(1, [
+    expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([
       expect.objectContaining({
         aid: 101,
         targetLedgerId: 'knowledge',
         targetFolderId: '9001'
       })
     ])
-    expect(onExecuteOldFavoritePlan).toHaveBeenNthCalledWith(2, [
+    expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([
       expect.objectContaining({
         aid: 101,
         targetLedgerId: 'custom-tag-cluster-AI',
