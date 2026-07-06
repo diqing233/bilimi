@@ -51,6 +51,12 @@ export function normalizeFavoriteArchiveStrategy(value: unknown): FavoriteArchiv
   return value === 'balanced' || value === 'conservative' ? value : 'aggressive'
 }
 
+export function normalizeDeepSeekDailyClassificationMode(
+  value: unknown
+): AssistantPreferences['deepseekDailyClassificationMode'] {
+  return value === 'low-confidence-only' ? 'low-confidence-only' : 'all'
+}
+
 function normalizeFavoriteKeywordSuggestions(value: unknown): FavoriteKeywordSuggestion[] {
   return normalizeKeywordSuggestions(value)
 }
@@ -148,6 +154,13 @@ export function createInitialAssistantPreferences(
     deepseekPetChatEnabled: normalizeDeepSeekFeatureToggle(
       persisted?.deepseekPetChatEnabled,
       persisted?.deepseekEnabled
+    ),
+    deepseekDailyClassificationEnabled:
+      typeof persisted?.deepseekDailyClassificationEnabled === 'boolean'
+        ? persisted.deepseekDailyClassificationEnabled
+        : false,
+    deepseekDailyClassificationMode: normalizeDeepSeekDailyClassificationMode(
+      persisted?.deepseekDailyClassificationMode
     ),
     deepseekModel: normalizeDeepSeekModel(persisted?.deepseekModel),
     deepseekBaseUrl: normalizeDeepSeekBaseUrl(persisted?.deepseekBaseUrl),

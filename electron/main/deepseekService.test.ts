@@ -319,6 +319,153 @@ describe('DeepSeek main service', () => {
     expect(result.kind === 'favorite-archive-organize' ? result.results[1].invalid : true).toBeUndefined()
   })
 
+  it('parses daily favorite classification review JSON and filters unusable targets', async () => {
+    const fetchImpl = createJsonFetch(
+      JSON.stringify({
+        targetLedgerIds: ['life-interest', 'disabled-ledger'],
+        corrected: true,
+        reason: '旅行攻略应归入生活日常，不是游戏攻略。',
+        confidence: 0.82,
+        keywordSuggestions: [
+          {
+            action: 'replace-with-combination',
+            ledgerId: 'game',
+            keyword: '攻略',
+            replacement: '游戏攻略',
+            reason: '裸攻略容易误判旅行内容'
+          }
+        ]
+      })
+    )
+
+    await expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: {
+          kind: 'favorite-daily-classify-review',
+          video: {
+            aid: 701,
+            title: '大阪地铁换乘攻略',
+            author: '旅行研究所',
+            description: '交通路线与避坑',
+            tags: ['旅行', '攻略'],
+            category: '生活',
+            pageText: '大阪地铁换乘攻略'
+          },
+          localClassification: {
+            targetLedgerIds: ['game'],
+            primaryLedgerId: 'game',
+            displayNames: ['bilimi·游戏'],
+            reason: '本地命中攻略',
+            diagnostics: [
+              {
+                ledgerId: 'game',
+                score: 4,
+                runnerUpLedgerId: 'life-interest',
+                runnerUpScore: 3.5,
+                scoreGap: 0.5,
+                confidence: 'low',
+                lowConfidence: true,
+                matchedKeywords: ['攻略'],
+                strongSignals: [],
+                weakSignals: ['攻略'],
+                entityAliases: [],
+                conceptClusters: [],
+                positiveRules: [],
+                negativeRules: []
+              }
+            ]
+          },
+          ledgers: [
+            {
+              id: 'game',
+              displayName: 'bilimi·游戏',
+              keywords: ['游戏攻略'],
+              enabled: true
+            },
+            {
+              id: 'life-interest',
+              displayName: 'bilimi·生活日常',
+              keywords: ['旅行攻略'],
+              enabled: true
+            },
+            {
+              id: 'disabled-ledger',
+              displayName: '停用',
+              keywords: [],
+              enabled: false
+            }
+          ]
+        },
+        fetchImpl
+      })
+    ).resolves.toMatchObject({
+      kind: 'favorite-daily-classify-review',
+      targetLedgerIds: ['life-interest'],
+      corrected: true,
+      reason: '旅行攻略应归入生活日常，不是游戏攻略。',
+      confidence: 0.82,
+      keywordSuggestions: [
+        {
+          id: 'deepseek:game:replace-with-combination:攻略:游戏攻略',
+          source: 'deepseek',
+          status: 'pending'
+        }
+      ]
+    })
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
+      messages: Array<{ role: string; content: string }>
+    }
+    const systemMessage = body.messages.find((message) => message.role === 'system')?.content ?? ''
+
+    expect(systemMessage).toContain('existing enabled bilimi ledgers')
+    expect(systemMessage).toContain('unclassified')
+    expect(systemMessage).toContain('JSON only')
+    expect(systemMessage).toContain('keywordSuggestions are only pending suggestions')
+  })
+
+  it('marks daily classification review invalid when confidence or targets are unusable', async () => {
+    await expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: {
+          kind: 'favorite-daily-classify-review',
+          video: { aid: 702, title: '疑难视频', tags: [] },
+          localClassification: {
+            targetLedgerIds: ['game'],
+            primaryLedgerId: 'game',
+            displayNames: ['bilimi·游戏'],
+            diagnostics: []
+          },
+          ledgers: [
+            {
+              id: 'game',
+              displayName: 'bilimi·游戏',
+              keywords: ['游戏'],
+              enabled: true
+            }
+          ]
+        },
+        fetchImpl: createJsonFetch(
+          JSON.stringify({
+            targetLedgerIds: ['unknown-ledger'],
+            corrected: true,
+            reason: '目标不可用',
+            confidence: 1.4,
+            keywordSuggestions: []
+          })
+        )
+      })
+    ).resolves.toMatchObject({
+      kind: 'favorite-daily-classify-review',
+      targetLedgerIds: [],
+      corrected: false,
+      invalid: true,
+      errorMessage: expect.stringContaining('invalid confidence')
+    })
+  })
+
   it('asks DeepSeek to polish the transcript before creating a faithful Chinese summary', async () => {
     const fetchImpl = createJsonFetch(
       JSON.stringify({

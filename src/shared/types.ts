@@ -181,6 +181,8 @@ export type AssistantPreferences = {
   deepseekCommentEnabled: boolean
   deepseekAutoSummaryEnabled: boolean
   deepseekPetChatEnabled: boolean
+  deepseekDailyClassificationEnabled: boolean
+  deepseekDailyClassificationMode: 'all' | 'low-confidence-only'
   deepseekModel: string
   deepseekBaseUrl: string
   permissionOnboardingCompleted: boolean
@@ -332,6 +334,39 @@ export type DeepSeekArchiveVideoResult = {
   errorMessage?: string
 }
 
+export type DeepSeekDailyVideoContext = {
+  aid?: number
+  title?: string
+  author?: string
+  description?: string
+  pageText?: string
+  tags?: string[]
+  category?: string
+}
+
+export type DeepSeekDailyClassificationDiagnosticInput =
+  FavoriteLedgerClassificationDiagnostic & {
+    ledgerId: FavoriteLedgerId
+  }
+
+export type DeepSeekDailyClassificationInput = {
+  targetLedgerIds: FavoriteLedgerId[]
+  primaryLedgerId: FavoriteLedgerId
+  displayNames: string[]
+  reason?: string
+  diagnostics: DeepSeekDailyClassificationDiagnosticInput[]
+}
+
+export type DeepSeekDailyClassificationReviewResult = {
+  targetLedgerIds: FavoriteLedgerId[]
+  corrected: boolean
+  reason: string
+  confidence?: number
+  keywordSuggestions: FavoriteKeywordSuggestion[]
+  invalid?: boolean
+  errorMessage?: string
+}
+
 export type DeepSeekGenerateRequest =
   | {
       kind: 'review-comment'
@@ -355,6 +390,12 @@ export type DeepSeekGenerateRequest =
       ledgers: DeepSeekArchiveLedgerInput[]
       multiArchiveLimit: 1 | 2 | 3
     }
+  | {
+      kind: 'favorite-daily-classify-review'
+      video: DeepSeekDailyVideoContext
+      localClassification: DeepSeekDailyClassificationInput
+      ledgers: DeepSeekArchiveLedgerInput[]
+    }
 
 export type DeepSeekGenerateResult =
   | { kind: 'review-comment'; comments: string[] }
@@ -365,6 +406,7 @@ export type DeepSeekGenerateResult =
       results: DeepSeekArchiveVideoResult[]
       keywordSuggestions: FavoriteKeywordSuggestion[]
     }
+  | ({ kind: 'favorite-daily-classify-review' } & DeepSeekDailyClassificationReviewResult)
 
 export type DeepSeekKeyStatus = { configured: boolean }
 

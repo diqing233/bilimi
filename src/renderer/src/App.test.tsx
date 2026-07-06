@@ -46,8 +46,17 @@ function createAppPreferences(
     deepseekCommentEnabled: false,
     deepseekAutoSummaryEnabled: false,
     deepseekPetChatEnabled: false,
+    deepseekDailyClassificationEnabled: false,
+    deepseekDailyClassificationMode: 'all',
     deepseekModel: 'deepseek-v4-flash',
     deepseekBaseUrl: 'https://api.deepseek.com',
+    favoriteArchiveStrategy: 'aggressive',
+    favoriteCorrectionLearningEnabled: true,
+    favoriteCorrectionLearningClassificationEnabled: true,
+    favoriteCorrectionRecords: [],
+    favoriteKeywordSuggestions: [],
+    assistantSidebarWidthPx: null,
+    videoAudioTranscriptionThreadLimit: 'unlimited',
     permissionOnboardingCompleted: true,
     ...overrides
   }
@@ -1158,6 +1167,700 @@ describe('App runtime integration', () => {
         })
       })
     )
+  })
+
+  it('uses DeepSeek daily classification review before executing a corrected favorite action', async () => {
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const generateDeepSeek = vi.fn().mockResolvedValue({
+      kind: 'favorite-daily-classify-review',
+      targetLedgerIds: ['game'],
+      corrected: true,
+      reason: 'DeepSeek 认为地铁攻略先进入游戏攻略测试册。',
+      confidence: 0.84,
+      keywordSuggestions: [
+        {
+          id: 'deepseek:game:replace-with-combination:攻略:游戏攻略',
+          action: 'replace-with-combination',
+          ledgerId: 'game',
+          keyword: '攻略',
+          replacement: '游戏攻略',
+          reason: '裸攻略容易误判旅行内容',
+          source: 'deepseek',
+          status: 'pending',
+          createdAt: '2026-07-06T00:00:00.000Z'
+        }
+      ]
+    })
+    const preferences = createAppPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekDailyClassificationEnabled: true,
+      favoriteArchiveMultiMode: 'off',
+      favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) => {
+        if (ledger.id === 'game') {
+          return { ...ledger, keywords: ['地铁攻略'], bilibiliFolderId: '9002', isDefault: false }
+        }
+        if (ledger.id === 'life-interest') {
+          return { ...ledger, keywords: ['大阪生活'], bilibiliFolderId: '9005' }
+        }
+        return ledger
+      })
+    })
+    const { desktopApi, notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      generateDeepSeek,
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      savePreferences
+    })
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          aid: 701,
+          title: '大阪地铁换乘攻略',
+          author: '旅行研究所',
+          pageText: '大阪地铁换乘攻略',
+          tags: ['地铁攻略'],
+          category: ''
+        }
+      }
+
+      if (script.includes('/x/v3/fav/resource/deal')) {
+        return {
+          ok: true,
+          steps: ['api:favorite:list', 'api:favorite:add'],
+          missingTargets: [],
+          message: '已用 B 站接口归入 bilimi 收藏夹。'
+        }
+      }
+
+      return {
+        ok: true,
+        steps: ['favorite:open', 'favorite:folder', 'favorite'],
+        missingTargets: [],
+        message: '已按内容归入内库。'
+      }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1dailydeepseek'
+          }
+        })
+      )
+    })
+
+    const result = await requestRuntime({
+      id: 'run-daily-deepseek',
+      type: 'run-action',
+      action: '藏'
+    })
+
+    expect(generateDeepSeek).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'favorite-daily-classify-review',
+        video: expect.objectContaining({ aid: 701, title: '大阪地铁换乘攻略' }),
+        localClassification: expect.objectContaining({
+          targetLedgerIds: ['life-interest']
+        })
+      })
+    )
+    const apiScript = executeJavaScript.mock.calls
+      .map(([script]) => String(script))
+      .find((script) => script.includes('/x/v3/fav/resource/deal')) ?? ''
+    expect(apiScript).toContain('"targetLedgerIds":["game"]')
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        message: expect.stringContaining('DeepSeek 建议改归 bilimi·游戏专区')
+      })
+    )
+    expect(savePreferences).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preferenceCounts: expect.objectContaining({
+          game: 1
+        }),
+        favoriteCorrectionRecords: expect.arrayContaining([
+          expect.objectContaining({
+            aid: 701,
+            originalLedgerId: 'life-interest',
+            userLedgerIds: ['game'],
+            source: 'user-confirmed-deepseek',
+            sourceScene: 'daily-favorite'
+          })
+        ]),
+        favoriteKeywordSuggestions: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'deepseek:game:replace-with-combination:攻略:游戏攻略',
+            source: 'deepseek',
+            status: 'pending'
+          })
+        ])
+      })
+    )
+  })
+
+  it('adjusts an already-favorited local target when DeepSeek daily review returns after the action', async () => {
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const generateDeepSeek = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(
+            () =>
+              resolve({
+                kind: 'favorite-daily-classify-review',
+                targetLedgerIds: ['game'],
+                corrected: true,
+                reason: 'DeepSeek 延迟判断后认为应移入游戏攻略。',
+                confidence: 0.8,
+                keywordSuggestions: []
+              }),
+            5
+          )
+        })
+    )
+    const preferences = createAppPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekDailyClassificationEnabled: true,
+      favoriteArchiveMultiMode: 'off',
+      favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) => {
+        if (ledger.id === 'game') {
+          return { ...ledger, keywords: ['地铁攻略'], bilibiliFolderId: '9002' }
+        }
+        if (ledger.id === 'life-interest') {
+          return { ...ledger, keywords: ['大阪生活'], bilibiliFolderId: '9005' }
+        }
+        return ledger
+      })
+    })
+    const { desktopApi, notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      generateDeepSeek,
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      savePreferences
+    })
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) => {
+      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+        return {
+          aid: 702,
+          title: '大阪地铁换乘攻略',
+          author: '旅行研究所',
+          pageText: '大阪地铁换乘攻略',
+          tags: ['地铁攻略'],
+          category: ''
+        }
+      }
+
+      if (script.includes('/x/v3/fav/resource/deal')) {
+        return {
+          ok: true,
+          steps: script.includes('api:favorite:adjust')
+            ? ['api:favorite:adjust-list', 'api:favorite:adjust']
+            : ['api:favorite:list', 'api:favorite:add'],
+          missingTargets: [],
+          message: script.includes('api:favorite:adjust')
+            ? 'DeepSeek 后台归类调整已完成。'
+            : '已用 B 站接口归入 bilimi 收藏夹。'
+        }
+      }
+
+      return {
+        ok: true,
+        steps: ['favorite:open', 'favorite:folder', 'favorite'],
+        missingTargets: [],
+        message: '已按内容归入内库。'
+      }
+    })
+    Object.assign(webview, { executeJavaScript })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1dailydeepseeklate'
+          }
+        })
+      )
+    })
+
+    const result = await requestRuntime({
+      id: 'run-daily-deepseek-late',
+      type: 'run-action',
+      action: '藏'
+    })
+    await waitFor(() =>
+      expect(
+        executeJavaScript.mock.calls
+          .map(([script]) => String(script))
+          .filter((script) => script.includes('/x/v3/fav/resource/deal'))
+      ).toHaveLength(2)
+    )
+    const apiScripts = executeJavaScript.mock.calls
+      .map(([script]) => String(script))
+      .filter((script) => script.includes('/x/v3/fav/resource/deal'))
+
+    expect(apiScripts[0]).toContain('"targetLedgerIds":["life-interest"]')
+    expect(apiScripts[1]).toContain('"addLedgerIds":["game"]')
+    expect(apiScripts[1]).toContain('"removeLedgerIds":["life-interest"]')
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        message: expect.stringContaining('已用 B 站接口归入 bilimi 收藏夹')
+      })
+    )
+    await waitFor(() =>
+      expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tone: 'success',
+          message: expect.stringContaining('DeepSeek 后台已改归 bilimi·游戏专区')
+        })
+      )
+    )
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          favoriteCorrectionRecords: expect.arrayContaining([
+            expect.objectContaining({
+              aid: 702,
+              originalLedgerId: 'life-interest',
+              userLedgerIds: ['game'],
+              source: 'user-confirmed-deepseek'
+            })
+          ])
+        })
+      )
+    )
+  })
+
+  it('keeps local favorite state and skips confirmed learning when delayed DeepSeek adjustment fails', async () => {
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const generateDeepSeek = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(
+            () =>
+              resolve({
+                kind: 'favorite-daily-classify-review',
+                targetLedgerIds: ['game'],
+                corrected: true,
+                reason: 'DeepSeek 延迟判断后认为应移入游戏攻略。',
+                confidence: 0.8,
+                keywordSuggestions: []
+              }),
+            5
+          )
+        })
+    )
+    const preferences = createAppPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekDailyClassificationEnabled: true,
+      favoriteArchiveMultiMode: 'off',
+      favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) => {
+        if (ledger.id === 'game') {
+          return { ...ledger, keywords: ['地铁攻略'], bilibiliFolderId: '9002' }
+        }
+        if (ledger.id === 'life-interest') {
+          return { ...ledger, keywords: ['大阪生活'], bilibiliFolderId: '9005' }
+        }
+        return ledger
+      })
+    })
+    const { desktopApi, notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      generateDeepSeek,
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      savePreferences
+    })
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+          return {
+            aid: 703,
+            title: '大阪地铁换乘攻略',
+            author: '旅行研究所',
+            pageText: '大阪地铁换乘攻略',
+            tags: ['地铁攻略'],
+            category: ''
+          }
+        }
+
+        if (script.includes('/x/v3/fav/resource/deal')) {
+          const isAdjustment = script.includes('api:favorite:adjust')
+          return {
+            ok: !isAdjustment,
+            steps: isAdjustment
+              ? ['api:favorite:adjust-list']
+              : ['api:favorite:list', 'api:favorite:add'],
+            missingTargets: isAdjustment ? ['favorite-api-adjust'] : [],
+            message: isAdjustment
+              ? 'DeepSeek 后台归类调整未能完成：网络错误'
+              : '已用 B 站接口归入 bilimi 收藏夹。'
+          }
+        }
+
+        return {
+          ok: true,
+          steps: ['favorite:open', 'favorite:folder', 'favorite'],
+          missingTargets: [],
+          message: '已按内容归入内库。'
+        }
+      })
+    })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1dailydeepseekfail'
+          }
+        })
+      )
+    })
+
+    const result = await requestRuntime({
+      id: 'run-daily-deepseek-fail',
+      type: 'run-action',
+      action: '藏'
+    })
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        message: expect.stringContaining('已用 B 站接口归入 bilimi 收藏夹')
+      })
+    )
+    await waitFor(() =>
+      expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tone: 'error',
+          message: expect.stringContaining('请稍后重试或手动整理')
+        })
+      )
+    )
+    expect(savePreferences).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preferenceCounts: expect.objectContaining({
+          'life-interest': 1
+        }),
+        favoriteCorrectionRecords: []
+      })
+    )
+  })
+
+  it('reports delayed DeepSeek adjustment script errors without confirmed learning', async () => {
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const generateDeepSeek = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          setTimeout(
+            () =>
+              resolve({
+                kind: 'favorite-daily-classify-review',
+                targetLedgerIds: ['game'],
+                corrected: true,
+                reason: 'DeepSeek 延迟判断后认为应移入游戏攻略。',
+                confidence: 0.8,
+                keywordSuggestions: []
+              }),
+            5
+          )
+        })
+    )
+    const preferences = createAppPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekDailyClassificationEnabled: true,
+      favoriteArchiveMultiMode: 'off',
+      favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) => {
+        if (ledger.id === 'game') {
+          return { ...ledger, keywords: ['地铁攻略'], bilibiliFolderId: '9002' }
+        }
+        if (ledger.id === 'life-interest') {
+          return { ...ledger, keywords: ['大阪生活'], bilibiliFolderId: '9005' }
+        }
+        return ledger
+      })
+    })
+    const { desktopApi, notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      generateDeepSeek,
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      savePreferences
+    })
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+          return {
+            aid: 704,
+            title: '大阪地铁换乘攻略',
+            author: '旅行研究所',
+            pageText: '大阪地铁换乘攻略',
+            tags: ['地铁攻略'],
+            category: ''
+          }
+        }
+
+        if (script.includes('/x/v3/fav/resource/deal')) {
+          if (script.includes('api:favorite:adjust')) {
+            throw new Error('webview gone')
+          }
+
+          return {
+            ok: true,
+            steps: ['api:favorite:list', 'api:favorite:add'],
+            missingTargets: [],
+            message: '已用 B 站接口归入 bilimi 收藏夹。'
+          }
+        }
+
+        return {
+          ok: true,
+          steps: ['favorite:open', 'favorite:folder', 'favorite'],
+          missingTargets: [],
+          message: '已按内容归入内库。'
+        }
+      })
+    })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1dailydeepseekreject'
+          }
+        })
+      )
+    })
+
+    const result = await requestRuntime({
+      id: 'run-daily-deepseek-reject',
+      type: 'run-action',
+      action: '藏'
+    })
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        message: expect.stringContaining('已用 B 站接口归入 bilimi 收藏夹')
+      })
+    )
+    await waitFor(() =>
+      expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tone: 'error',
+          message: expect.stringContaining('webview gone')
+        })
+      )
+    )
+    expect(savePreferences).toHaveBeenCalledWith(
+      expect.objectContaining({
+        favoriteCorrectionRecords: []
+      })
+    )
+  })
+
+  it('returns the local favorite result without waiting for a hanging delayed DeepSeek review', async () => {
+    const generateDeepSeek = vi.fn(() => new Promise(() => undefined))
+    const preferences = createAppPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekDailyClassificationEnabled: true,
+      favoriteArchiveMultiMode: 'off',
+      favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) =>
+        ledger.id === 'life-interest'
+          ? { ...ledger, keywords: ['大阪生活'], bilibiliFolderId: '9005' }
+          : ledger
+      )
+    })
+    const { notifyPreferencesChanged, requestRuntimeDirect } = renderAppWithRuntimeBridge({
+      generateDeepSeek,
+      loadPreferences: vi.fn().mockResolvedValue(preferences)
+    })
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+          return {
+            aid: 705,
+            title: '大阪生活记录',
+            pageText: '大阪生活记录',
+            tags: ['大阪生活']
+          }
+        }
+
+        if (script.includes('/x/v3/fav/resource/deal')) {
+          return {
+            ok: true,
+            steps: ['api:favorite:list', 'api:favorite:add'],
+            missingTargets: [],
+            message: '已用 B 站接口归入 bilimi 收藏夹。'
+          }
+        }
+
+        return {
+          ok: true,
+          steps: ['favorite:open', 'favorite:folder', 'favorite'],
+          missingTargets: [],
+          message: '已按内容归入内库。'
+        }
+      })
+    })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1dailydeepseekhang'
+          }
+        })
+      )
+    })
+
+    const result = await Promise.race([
+      requestRuntimeDirect({
+        id: 'run-daily-deepseek-hang',
+        type: 'run-action',
+        action: '藏'
+      }),
+      new Promise((resolve) => setTimeout(() => resolve('timed-out'), 50))
+    ])
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        message: expect.stringContaining('已用 B 站接口归入 bilimi 收藏夹')
+      })
+    )
+  })
+
+  it('does not run DeepSeek daily classification for non-favorite actions', async () => {
+    const generateDeepSeek = vi.fn()
+    const preferences = createAppPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekDailyClassificationEnabled: true
+    })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      generateDeepSeek,
+      loadPreferences: vi.fn().mockResolvedValue(preferences)
+    })
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+          return {
+            aid: 704,
+            title: '大阪地铁换乘攻略',
+            pageText: '大阪地铁换乘攻略',
+            tags: ['地铁攻略']
+          }
+        }
+
+        return {
+          ok: true,
+          steps: ['comment:open', 'comment:submit'],
+          missingTargets: [],
+          message: '评论已发送。'
+        }
+      })
+    })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: {
+            url: 'https://www.bilibili.com/video/BV1dailydeepseekcomment'
+          }
+        })
+      )
+    })
+
+    await requestRuntime({
+      id: 'run-daily-deepseek-comment',
+      type: 'run-action',
+      action: '表',
+      submitComment: true,
+      commentDraft: '很好看'
+    })
+
+    expect(generateDeepSeek).not.toHaveBeenCalled()
+  })
+
+  it('skips DeepSeek daily review in low-confidence-only mode for confident local matches', async () => {
+    const generateDeepSeek = vi.fn()
+    const preferences = createAppPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekDailyClassificationEnabled: true,
+      deepseekDailyClassificationMode: 'low-confidence-only',
+      favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) =>
+        ledger.id === 'knowledge'
+          ? { ...ledger, keywords: ['机器学习', '教程', 'AI', '科普'], bilibiliFolderId: '9001' }
+          : ledger
+      )
+    })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      generateDeepSeek,
+      loadPreferences: vi.fn().mockResolvedValue(preferences)
+    })
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+          return {
+            aid: 801,
+            title: '机器学习 AI 科普教程',
+            pageText: '机器学习 AI 科普教程',
+            tags: ['机器学习', 'AI', '教程'],
+            category: '科技'
+          }
+        }
+
+        return {
+          ok: true,
+          steps: ['favorite:open', 'favorite:folder', 'favorite'],
+          missingTargets: [],
+          message: '已按内容归入内库。'
+        }
+      })
+    })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: { url: 'https://www.bilibili.com/video/BV1confident' }
+        })
+      )
+    })
+
+    await requestRuntime({ id: 'run-low-confidence-skip', type: 'run-action', action: '藏' })
+
+    expect(generateDeepSeek).not.toHaveBeenCalled()
   })
 
   it('adds successful new favorite inbox fallback to the pending queue', async () => {

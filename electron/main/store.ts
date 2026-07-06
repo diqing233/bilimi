@@ -62,6 +62,8 @@ export type AssistantPreferences = {
   deepseekCommentEnabled: boolean
   deepseekAutoSummaryEnabled: boolean
   deepseekPetChatEnabled: boolean
+  deepseekDailyClassificationEnabled: boolean
+  deepseekDailyClassificationMode: 'all' | 'low-confidence-only'
   deepseekModel: string
   deepseekBaseUrl: string
   permissionOnboardingCompleted: boolean
@@ -106,6 +108,8 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   deepseekCommentEnabled: false,
   deepseekAutoSummaryEnabled: false,
   deepseekPetChatEnabled: false,
+  deepseekDailyClassificationEnabled: false,
+  deepseekDailyClassificationMode: 'all',
   deepseekModel: 'deepseek-v4-flash',
   deepseekBaseUrl: 'https://api.deepseek.com',
   permissionOnboardingCompleted: false,
@@ -139,6 +143,12 @@ function normalizeVideoAudioTranscriptionThreadLimit(
 
 function normalizeFavoriteArchiveStrategy(value: unknown): FavoriteArchiveStrategy {
   return value === 'balanced' || value === 'conservative' ? value : 'aggressive'
+}
+
+function normalizeDeepSeekDailyClassificationMode(
+  value: unknown
+): AssistantPreferences['deepseekDailyClassificationMode'] {
+  return value === 'low-confidence-only' ? 'low-confidence-only' : 'all'
 }
 
 const VALID_KEYWORD_SUGGESTION_ACTIONS = new Set<FavoriteKeywordSuggestionAction>([
@@ -332,6 +342,10 @@ export function loadAssistantPreferences(
       'deepseekPetChatEnabled',
       Boolean(store.get('deepseekEnabled'))
     ),
+    deepseekDailyClassificationEnabled: Boolean(store.get('deepseekDailyClassificationEnabled')),
+    deepseekDailyClassificationMode: normalizeDeepSeekDailyClassificationMode(
+      store.get('deepseekDailyClassificationMode')
+    ),
     deepseekModel: store.get('deepseekModel') || DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
     deepseekBaseUrl: store.get('deepseekBaseUrl') || DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl,
     permissionOnboardingCompleted: Boolean(store.get('permissionOnboardingCompleted')),
@@ -374,6 +388,10 @@ export function saveAssistantPreferences(
     deepseekCommentEnabled: Boolean(preferences.deepseekCommentEnabled),
     deepseekAutoSummaryEnabled: Boolean(preferences.deepseekAutoSummaryEnabled),
     deepseekPetChatEnabled: Boolean(preferences.deepseekPetChatEnabled),
+    deepseekDailyClassificationEnabled: Boolean(preferences.deepseekDailyClassificationEnabled),
+    deepseekDailyClassificationMode: normalizeDeepSeekDailyClassificationMode(
+      preferences.deepseekDailyClassificationMode
+    ),
     deepseekModel: preferences.deepseekModel || DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
     deepseekBaseUrl: preferences.deepseekBaseUrl || DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl,
     permissionOnboardingCompleted: Boolean(preferences.permissionOnboardingCompleted),

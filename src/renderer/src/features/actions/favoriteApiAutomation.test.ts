@@ -1,6 +1,9 @@
 ﻿import { describe, expect, it, vi } from 'vitest'
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
-import { buildFavoriteApiFallbackScript } from './favoriteApiAutomation'
+import {
+  buildFavoriteApiAdjustmentScript,
+  buildFavoriteApiFallbackScript
+} from './favoriteApiAutomation'
 
 function installBilibiliPageState() {
   Object.defineProperty(document, 'cookie', {
@@ -172,6 +175,60 @@ describe('buildFavoriteApiFallbackScript', () => {
     expect(result.steps).toEqual(['api:favorite:list', 'api:favorite:add'])
     expect(requests[1].body).toContain('add_media_ids=91000001%2C91000002')
     expect(requests[1].body).toContain('del_media_ids=')
+  })
+
+  it('adjusts an already-favorited video by adding DeepSeek targets and removing local targets', async () => {
+    installBilibiliPageState()
+
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'game'
+        ? { ...ledger, bilibiliFolderId: '91000002' }
+        : ledger.id === 'life-interest'
+          ? { ...ledger, bilibiliFolderId: '91000005' }
+          : ledger
+    )
+    const requests: Array<{ body?: string; method?: string; url: string }> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        requests.push({
+          body: init?.body?.toString(),
+          method: init?.method,
+          url
+        })
+
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({
+            code: 0,
+            data: {
+              list: [
+                { id: 91000002, title: 'bilimi·游戏专区' },
+                { id: 91000005, title: 'bilimi·生活日常' }
+              ]
+            },
+            message: 'OK'
+          })
+        }
+
+        if (url.includes('/x/v3/fav/resource/deal')) {
+          return Response.json({ code: 0, data: {}, message: 'OK' })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(
+      buildFavoriteApiAdjustmentScript(ledgers, {
+        addLedgerIds: ['game'],
+        removeLedgerIds: ['life-interest']
+      })
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.steps).toEqual(['api:favorite:adjust-list', 'api:favorite:adjust'])
+    expect(requests[1].body).toContain('add_media_ids=91000002')
+    expect(requests[1].body).toContain('del_media_ids=91000005')
   })
 
   it('marks the Bilibili toolbar favorite button active after API favorite succeeds', async () => {

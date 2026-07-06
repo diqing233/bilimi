@@ -35,6 +35,8 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     deepseekCommentEnabled: false,
     deepseekAutoSummaryEnabled: false,
     deepseekPetChatEnabled: false,
+    deepseekDailyClassificationEnabled: false,
+    deepseekDailyClassificationMode: 'all',
     deepseekModel: 'deepseek-v4-flash',
     deepseekBaseUrl: 'https://api.deepseek.com',
     permissionOnboardingCompleted: true,
@@ -567,6 +569,33 @@ describe('FloatingAssistantApp', () => {
         })
       )
     )
+  })
+
+  it('renders DeepSeek daily classification review controls with safe defaults', async () => {
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true,
+            deepseekApiKeyStored: true
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+
+    const reviewToggle = screen.getByRole('checkbox', {
+      name: '启用 DeepSeek 辅助判断归类收藏夹'
+    })
+    expect(reviewToggle).not.toBeChecked()
+
+    fireEvent.click(reviewToggle)
+
+    expect(screen.getByRole('radio', { name: '全部归类都辅助判断' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: '仅低置信时辅助判断' })).toBeVisible()
   })
 
   it('can expand, delete, and clear correction records', async () => {
@@ -2013,6 +2042,8 @@ describe('FloatingAssistantApp', () => {
           deepseekCommentEnabled: true,
           deepseekAutoSummaryEnabled: true,
           deepseekPetChatEnabled: true,
+          deepseekDailyClassificationEnabled: false,
+          deepseekDailyClassificationMode: 'all',
           deepseekModel: 'deepseek-chat',
           deepseekBaseUrl: 'https://api.deepseek.local'
         })
@@ -2033,6 +2064,9 @@ describe('FloatingAssistantApp', () => {
       expect(screen.getByRole('checkbox', { name: '启用 DeepSeek 生成趣味评论' })).not.toBeChecked()
       expect(screen.getByRole('checkbox', { name: '转写完成后自动生成 DeepSeek 总结' })).not.toBeChecked()
       expect(screen.getByRole('checkbox', { name: '启用 DeepSeek 宠物对话功能' })).not.toBeChecked()
+      expect(
+        screen.getByRole('checkbox', { name: '启用 DeepSeek 辅助判断归类收藏夹' })
+      ).not.toBeChecked()
     })
     expect(screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥').value).toBe('')
     expect(screen.getByLabelText<HTMLInputElement>('DeepSeek 模型').value).toBe('deepseek-v4-flash')
@@ -2047,6 +2081,8 @@ describe('FloatingAssistantApp', () => {
           deepseekCommentEnabled: false,
           deepseekAutoSummaryEnabled: false,
           deepseekPetChatEnabled: false,
+          deepseekDailyClassificationEnabled: false,
+          deepseekDailyClassificationMode: 'all',
           deepseekModel: 'deepseek-v4-flash',
           deepseekBaseUrl: 'https://api.deepseek.com'
         })

@@ -69,6 +69,40 @@ describe('executeAssistantAction', () => {
     expect(result.ok).toBe(true)
   })
 
+  it('prefixes the automation result message when a pre-action review adjusted the target', async () => {
+    const runScript = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['favorite:open', 'favorite:folder', 'favorite'],
+        missingTargets: [],
+        message: '收藏已入库。'
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['api:favorite:list', 'api:favorite:add'],
+        missingTargets: [],
+        message: '已用 B 站接口归入 bilimi 收藏夹。'
+      })
+
+    const result = await executeAssistantAction({
+      action: '藏',
+      runScript,
+      favoritesFolderName: 'bilimi 内库',
+      favoriteLedgers,
+      targetLedgerId: 'life-interest',
+      targetLedgerIds: ['life-interest'],
+      resultMessagePrefix: 'DeepSeek 建议改归 bilimi·生活日常：旅行攻略更匹配。'
+    })
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        message: 'DeepSeek 建议改归 bilimi·生活日常：旅行攻略更匹配。\n已用 B 站接口归入 bilimi 收藏夹。'
+      })
+    )
+  })
+
   it('runs 点赞 + 收藏 for 赏', async () => {
     const runScript = vi
       .fn()

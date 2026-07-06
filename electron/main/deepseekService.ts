@@ -1,5 +1,6 @@
 import type {
   DeepSeekArchiveVideoResult,
+  DeepSeekDailyClassificationReviewResult,
   DeepSeekErrorCode,
   DeepSeekGenerateRequest,
   DeepSeekGenerateResult,
@@ -224,6 +225,21 @@ function parseArchiveResultRow(row: unknown): DeepSeekArchiveVideoResult {
   return result
 }
 
+function enabledLedgerIdsForRequest(request: DeepSeekGenerateRequest): Set<string> {
+  if (
+    request.kind !== 'favorite-archive-organize' &&
+    request.kind !== 'favorite-daily-classify-review'
+  ) {
+    return new Set()
+  }
+
+  return new Set(
+    request.ledgers
+      .filter((ledger) => ledger.enabled || ledger.id === 'inbox')
+      .map((ledger) => ledger.id)
+  )
+}
+
 function normalizeKeywordSuggestionId(input: {
   action: FavoriteKeywordSuggestionAction
   ledgerId?: string
@@ -277,6 +293,73 @@ function normalizeArchiveKeywordSuggestions(value: unknown): FavoriteKeywordSugg
 
     return [normalized]
   })
+}
+
+function invalidDailyClassificationReviewResult(
+  row: Record<string, unknown>,
+  targetLedgerIds: string[],
+  reason: string,
+  errorMessage: string
+): DeepSeekDailyClassificationReviewResult {
+  return {
+    targetLedgerIds,
+    corrected: false,
+    reason,
+    confidence:
+      typeof row.confidence === 'number' && Number.isFinite(row.confidence)
+        ? row.confidence
+        : undefined,
+    keywordSuggestions: normalizeArchiveKeywordSuggestions(row.keywordSuggestions),
+    invalid: true,
+    errorMessage
+  }
+}
+
+function parseDailyClassificationReviewResult(
+  request: Extract<DeepSeekGenerateRequest, { kind: 'favorite-daily-classify-review' }>,
+  content: string
+): DeepSeekGenerateResult {
+  const parsed = parseJsonContent(content)
+  const row = isRecord(parsed) ? parsed : {}
+  const allowedLedgerIds = enabledLedgerIdsForRequest(request)
+  const targetLedgerIds = coerceStringArray(row.targetLedgerIds, 3).filter((ledgerId) =>
+    allowedLedgerIds.has(ledgerId)
+  )
+  const confidence =
+    typeof row.confidence === 'number' && Number.isFinite(row.confidence) ? row.confidence : undefined
+  const reason = typeof row.reason === 'string' ? row.reason.trim() : ''
+  const invalidReasons: string[] = []
+
+  if (!Array.isArray(row.targetLedgerIds) || targetLedgerIds.length === 0) {
+    invalidReasons.push('invalid targetLedgerIds')
+  }
+  if (confidence === undefined || confidence < 0 || confidence > 1) {
+    invalidReasons.push('invalid confidence')
+  }
+  if (!reason) {
+    invalidReasons.push('invalid reason')
+  }
+
+  if (invalidReasons.length > 0) {
+    return {
+      kind: 'favorite-daily-classify-review',
+      ...invalidDailyClassificationReviewResult(
+        row,
+        targetLedgerIds,
+        reason,
+        `DeepSeek daily classification review is invalid: ${invalidReasons.join(', ')}.`
+      )
+    }
+  }
+
+  return {
+    kind: 'favorite-daily-classify-review',
+    targetLedgerIds,
+    corrected: row.corrected === true,
+    reason,
+    confidence,
+    keywordSuggestions: normalizeArchiveKeywordSuggestions(row.keywordSuggestions)
+  }
 }
 
 function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
@@ -341,6 +424,29 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
           multiArchiveLimit: request.multiArchiveLimit,
           ledgers: request.ledgers,
           videos: request.videos
+        })
+      }
+    ]
+  }
+
+  if (request.kind === 'favorite-daily-classify-review') {
+    return [
+      {
+        role: 'system',
+        content: [
+          'You review one daily Bilibili favorite classification for bilimi before the real action executes.',
+          'You may only output existing enabled bilimi ledgers from the provided ledger list, or inbox/unclassified when the video should stay unclassified.',
+          'Do not create folders and do not directly edit keywords; keywordSuggestions are only pending suggestions for the user to review.',
+          'Set corrected=true only when the local classification should be replaced before executing. If local targets are correct, echo them and set corrected=false.',
+          'Return JSON only: {"targetLedgerIds":["ledger-id"],"corrected":false,"reason":"","confidence":0.8,"keywordSuggestions":[{"action":"replace-with-combination","ledgerId":"game","keyword":"攻略","replacement":"游戏攻略","reason":""}]}'
+        ].join(' ')
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          video: request.video,
+          localClassification: request.localClassification,
+          ledgers: request.ledgers.filter((ledger) => ledger.enabled || ledger.id === 'inbox')
         })
       }
     ]
@@ -435,6 +541,10 @@ function parseResult(
       results: parsed.results.map(parseArchiveResultRow),
       keywordSuggestions: normalizeArchiveKeywordSuggestions(parsed.keywordSuggestions)
     }
+  }
+
+  if (request.kind === 'favorite-daily-classify-review') {
+    return parseDailyClassificationReviewResult(request, content)
   }
 
   const message = trimTo(content, 220)

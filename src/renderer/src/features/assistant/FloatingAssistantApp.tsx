@@ -846,6 +846,8 @@ export function FloatingAssistantApp({
       deepseekCommentEnabled: false,
       deepseekAutoSummaryEnabled: false,
       deepseekPetChatEnabled: false,
+      deepseekDailyClassificationEnabled: false,
+      deepseekDailyClassificationMode: 'all',
       deepseekModel: DEFAULT_DEEPSEEK_MODEL,
       deepseekBaseUrl: DEFAULT_DEEPSEEK_BASE_URL
     }
@@ -872,6 +874,8 @@ export function FloatingAssistantApp({
       deepseekCommentEnabled: false,
       deepseekAutoSummaryEnabled: false,
       deepseekPetChatEnabled: false,
+      deepseekDailyClassificationEnabled: false,
+      deepseekDailyClassificationMode: 'all',
       deepseekModel: DEFAULT_DEEPSEEK_MODEL,
       deepseekBaseUrl: DEFAULT_DEEPSEEK_BASE_URL,
       assistantSidebarWidthPx: null
@@ -2080,7 +2084,56 @@ export function FloatingAssistantApp({
                   />
                   <span>启用 DeepSeek 宠物对话功能</span>
                 </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={preferences.deepseekDailyClassificationEnabled}
+                    onChange={(event) =>
+                      updateDeepSeekPreference(
+                        {
+                          deepseekDailyClassificationEnabled: event.currentTarget.checked
+                        },
+                        { persist: true }
+                      )
+                    }
+                  />
+                  <span>启用 DeepSeek 辅助判断归类收藏夹</span>
+                </label>
               </div>
+              {preferences.deepseekDailyClassificationEnabled ? (
+                <div className="assistant-settings__deepseek-switches">
+                  <label>
+                    <input
+                      type="radio"
+                      name="deepseek-daily-classification-mode"
+                      checked={preferences.deepseekDailyClassificationMode === 'all'}
+                      onChange={() =>
+                        updateDeepSeekPreference(
+                          { deepseekDailyClassificationMode: 'all' },
+                          { persist: true }
+                        )
+                      }
+                    />
+                    <span>全部归类都辅助判断</span>
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="deepseek-daily-classification-mode"
+                      checked={
+                        preferences.deepseekDailyClassificationMode === 'low-confidence-only'
+                      }
+                      onChange={() =>
+                        updateDeepSeekPreference(
+                          { deepseekDailyClassificationMode: 'low-confidence-only' },
+                          { persist: true }
+                        )
+                      }
+                    />
+                    <span>仅低置信时辅助判断</span>
+                  </label>
+                </div>
+              ) : null}
               <label>
                 <span>DeepSeek API 密钥</span>
                 <input

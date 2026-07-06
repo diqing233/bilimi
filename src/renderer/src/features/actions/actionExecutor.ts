@@ -21,6 +21,7 @@ type ExecuteAssistantActionArgs = {
   favoriteLedgers: FavoriteLedger[]
   targetLedgerId: string
   targetLedgerIds?: string[]
+  resultMessagePrefix?: string
 }
 
 const DOM_SCRIPT_TIMEOUT_MS = 15_000
@@ -170,6 +171,20 @@ function skipFavoriteApiFallback(
 }
 
 export async function executeAssistantAction(args: ExecuteAssistantActionArgs) {
+  const result = await executeAssistantActionCore(args)
+  const prefix = args.resultMessagePrefix?.trim()
+
+  if (!prefix) {
+    return result
+  }
+
+  return {
+    ...result,
+    message: result.message ? `${prefix}\n${result.message}` : prefix
+  }
+}
+
+async function executeAssistantActionCore(args: ExecuteAssistantActionArgs) {
   if (args.action === '阅') {
     return { ok: true, steps: [], missingTargets: [], message: '此折已阅。' }
   }

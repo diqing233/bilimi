@@ -5,9 +5,12 @@ import type {
   AssistantPreferences,
   BrowserTabModel,
   DeepSeekGenerateRequest,
+  DeepSeekGenerateResult,
   FavoriteLedger,
+  FavoriteLedgerClassificationDiagnostic,
   FavoriteLedgerSaveOptions,
   FavoriteLedgerStatus,
+  FavoriteKeywordSuggestion,
   PendingFavoriteQueueItem,
   VideoNote,
   VideoNoteExtractionResult,
@@ -16,6 +19,7 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { runVisualFavoriteFallback } from './features/actions/visualFavoriteFallback'
 import { executeAssistantAction } from './features/actions/actionExecutor'
+import { buildFavoriteApiAdjustmentScript } from './features/actions/favoriteApiAutomation'
 import { BiliWebview } from './features/browser/BiliWebview'
 import {
   buildVideoContentContextScript,
@@ -56,12 +60,16 @@ import type {
 import { AssistantSidebar } from './features/assistant/AssistantSidebar'
 import { PET_VIDEO_OPENING_LINES, pickPetLine } from './features/assistant/petInteractionLines'
 import { composeMemorialComments } from './features/comments/commentComposer'
+import { createCorrectionDraft } from './features/recommendation/correctionLearning'
+import type { FavoriteArchiveTarget } from './features/recommendation/archivePlanning'
 
 const HOME_TAB_ID = 'home'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
 const BILIBILI_VIDEO_URL_PATTERN = /bilibili\.com\/video\/([^/?#]+)/i
 export const VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS = 900
 const IS_TEST_RUNTIME = import.meta.env.MODE === 'test'
+const DAILY_DEEPSEEK_PRE_ACTION_WAIT_MS = IS_TEST_RUNTIME ? 0 : 1200
+const DAILY_DEEPSEEK_BACKGROUND_TIMEOUT_MS = IS_TEST_RUNTIME ? 50 : 15_000
 const NO_CURRENT_VIDEO_RESULT: AssistantAutomationResult = {
   ok: false,
   steps: [],
@@ -277,6 +285,164 @@ function pendingQueueItemFromCurrentVideo(
     updatedAt: now,
     status: 'pending'
   }
+}
+
+function ledgerDisplayName(ledgers: FavoriteLedger[], ledgerId: string) {
+  return ledgers.find((ledger) => ledger.id === ledgerId)?.displayName ?? ledgerId
+}
+
+function uniqueLedgerIds(ledgerIds: string[]) {
+  return Array.from(new Set(ledgerIds.filter((ledgerId) => ledgerId.trim()).map((ledgerId) => ledgerId.trim())))
+}
+
+function diagnosticsForTargets(
+  targets: FavoriteArchiveTarget[],
+  fallbackDiagnostic?: FavoriteLedgerClassificationDiagnostic
+) {
+  const diagnostics = targets.flatMap((target) =>
+    target.diagnostic ? [{ ledgerId: target.ledgerId, ...target.diagnostic }] : []
+  )
+
+  if (diagnostics.length === 0 && fallbackDiagnostic) {
+    return [{ ledgerId: 'inbox', ...fallbackDiagnostic }]
+  }
+
+  return diagnostics
+}
+
+function shouldReviewDailyClassification(
+  mode: AssistantPreferences['deepseekDailyClassificationMode'],
+  diagnostics: Array<FavoriteLedgerClassificationDiagnostic & { ledgerId: string }>
+) {
+  if (mode === 'all') {
+    return true
+  }
+
+  if (diagnostics.length === 0) {
+    return true
+  }
+
+  return diagnostics.some(
+    (diagnostic) =>
+      diagnostic.lowConfidence ||
+      diagnostic.confidence === 'low' ||
+      diagnostic.scoreGap < 2.5 ||
+      diagnostic.negativeRules.length > 0 ||
+      (diagnostic.strongSignals.length === 0 && diagnostic.weakSignals.length > 0)
+  )
+}
+
+function actionUsesFavorite(action: AssistantAction) {
+  return action === '赏' || action === '藏' || action === '赐'
+}
+
+function mergeKeywordSuggestions(
+  existing: FavoriteKeywordSuggestion[],
+  incoming: FavoriteKeywordSuggestion[]
+) {
+  const existingIds = new Set(existing.map((suggestion) => suggestion.id))
+  return [
+    ...existing,
+    ...incoming.filter((suggestion) => !existingIds.has(suggestion.id))
+  ]
+}
+
+type DailyClassificationReviewResult = Extract<
+  DeepSeekGenerateResult,
+  { kind: 'favorite-daily-classify-review' }
+>
+
+type DailyDeepSeekCorrection = {
+  originalLedgerId: string
+  targetLedgerIds: string[]
+  reason: string
+  keywordSuggestions: FavoriteKeywordSuggestion[]
+}
+
+function sameLedgerSet(left: string[], right: string[]) {
+  const leftSet = new Set(uniqueLedgerIds(left))
+  const rightSet = new Set(uniqueLedgerIds(right))
+
+  return leftSet.size === rightSet.size && Array.from(leftSet).every((ledgerId) => rightSet.has(ledgerId))
+}
+
+function dailyCorrectionFromReview(args: {
+  favoriteLedgers: FavoriteLedger[]
+  localTargetLedgerId: string
+  localTargetLedgerIds: string[]
+  reviewResult?: DailyClassificationReviewResult
+}): DailyDeepSeekCorrection | undefined {
+  if (
+    !args.reviewResult?.corrected ||
+    args.reviewResult.invalid ||
+    args.reviewResult.targetLedgerIds.length === 0
+  ) {
+    return undefined
+  }
+
+  const usableTargetLedgerIds = uniqueLedgerIds(args.reviewResult.targetLedgerIds).filter(
+    (ledgerId) =>
+      ledgerId === 'inbox' ||
+      args.favoriteLedgers.some((ledger) => ledger.id === ledgerId && ledger.enabled)
+  )
+
+  if (
+    usableTargetLedgerIds.length === 0 ||
+    sameLedgerSet(usableTargetLedgerIds, args.localTargetLedgerIds)
+  ) {
+    return undefined
+  }
+
+  return {
+    originalLedgerId: args.localTargetLedgerId,
+    targetLedgerIds: usableTargetLedgerIds,
+    reason: args.reviewResult.reason,
+    keywordSuggestions: args.reviewResult.keywordSuggestions
+  }
+}
+
+function withResultMessagePrefix(
+  result: AssistantAutomationResult,
+  prefix: string,
+  extra?: Pick<AssistantAutomationResult, 'missingTargets' | 'steps'>
+): AssistantAutomationResult {
+  const normalizedPrefix = prefix.trim()
+
+  return {
+    ...result,
+    steps: extra?.steps ? [...result.steps, ...extra.steps] : result.steps,
+    missingTargets: extra?.missingTargets
+      ? [...result.missingTargets, ...extra.missingTargets]
+      : result.missingTargets,
+    message: result.message ? `${normalizedPrefix}\n${result.message}` : normalizedPrefix
+  }
+}
+
+async function waitForDelay(delayMs: number) {
+  await new Promise((resolve) => setTimeout(resolve, delayMs))
+}
+
+async function waitForDailyReviewBeforeAction(
+  reviewPromise: Promise<DailyClassificationReviewResult | undefined>
+): Promise<
+  | { status: 'ready'; result?: DailyClassificationReviewResult }
+  | { status: 'pending' }
+> {
+  const pending = Symbol('daily-review-pending')
+  const result = await Promise.race([
+    reviewPromise,
+    waitForDelay(DAILY_DEEPSEEK_PRE_ACTION_WAIT_MS).then(() => pending)
+  ])
+
+  return result === pending ? { status: 'pending' } : { status: 'ready', result }
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  delayMs: number,
+  fallback: T
+): Promise<T> {
+  return Promise.race([promise, waitForDelay(delayMs).then(() => fallback)])
 }
 
 export default function App() {
@@ -1141,9 +1307,78 @@ export default function App() {
       ledgers: preferences.favoriteLedgers,
       multiArchiveMode: preferences.favoriteArchiveMultiMode
     })
-    const targetLedgerId =
+    const localClassification = classifyVideoContent(videoContentContext, preferences.favoriteLedgers)
+    const localTargetLedgerId =
       archiveTargets[0]?.ledgerId ??
-      classifyVideoContent(videoContentContext, preferences.favoriteLedgers).ledgerId
+      localClassification.ledgerId
+    const localTargetLedgerIds =
+      archiveTargets.length > 0
+        ? archiveTargets.map((target) => target.ledgerId)
+        : [localTargetLedgerId]
+    const localDiagnostics = diagnosticsForTargets(archiveTargets, localClassification.diagnostic)
+    let targetLedgerId = localTargetLedgerId
+    let targetLedgerIds = localTargetLedgerIds
+    let resultMessagePrefix: string | undefined
+    let deepSeekCorrection: DailyDeepSeekCorrection | undefined
+    let postActionDailyReviewPromise: Promise<DailyClassificationReviewResult | undefined> | undefined
+
+    if (
+      actionUsesFavorite(action) &&
+      preferences.deepseekEnabled &&
+      preferences.deepseekApiKeyStored &&
+      preferences.deepseekDailyClassificationEnabled &&
+      window.bilimiDesktop?.generateDeepSeek &&
+      shouldReviewDailyClassification(preferences.deepseekDailyClassificationMode, localDiagnostics)
+    ) {
+      const reviewRequest: DeepSeekGenerateRequest = {
+        kind: 'favorite-daily-classify-review',
+        video: videoContentContext,
+        localClassification: {
+          targetLedgerIds: localTargetLedgerIds,
+          primaryLedgerId: localTargetLedgerId,
+          displayNames: localTargetLedgerIds.map((ledgerId) =>
+            ledgerDisplayName(preferences.favoriteLedgers, ledgerId)
+          ),
+          reason: localClassification.matchedKeywords.length
+            ? `本地命中：${localClassification.matchedKeywords.join('、')}`
+            : undefined,
+          diagnostics: localDiagnostics
+        },
+        ledgers: preferences.favoriteLedgers.map((ledger) => ({
+          id: ledger.id,
+          displayName: ledger.displayName,
+          keywords: ledger.keywords,
+          enabled: ledger.enabled
+        }))
+      }
+      const reviewPromise = window.bilimiDesktop
+        .generateDeepSeek(reviewRequest)
+        .then((reviewResult): DailyClassificationReviewResult | undefined =>
+          reviewResult?.kind === 'favorite-daily-classify-review' ? reviewResult : undefined
+        )
+        .catch(() => undefined)
+      const reviewBeforeAction = await waitForDailyReviewBeforeAction(reviewPromise)
+
+      if (reviewBeforeAction.status === 'pending') {
+        postActionDailyReviewPromise = reviewPromise
+      } else {
+        const correction = dailyCorrectionFromReview({
+          favoriteLedgers: preferences.favoriteLedgers,
+          localTargetLedgerId,
+          localTargetLedgerIds,
+          reviewResult: reviewBeforeAction.result
+        })
+
+        if (correction) {
+          targetLedgerIds = correction.targetLedgerIds
+          targetLedgerId = correction.targetLedgerIds[0]
+          resultMessagePrefix = `DeepSeek 建议改归 ${correction.targetLedgerIds
+            .map((ledgerId) => ledgerDisplayName(preferences.favoriteLedgers, ledgerId))
+            .join('、')}：${correction.reason}`
+          deepSeekCorrection = correction
+        }
+      }
+    }
     const commentDraft =
       action === '表' &&
       (options?.submitComment ?? preferences.commentSubmitMode === 'random') &&
@@ -1158,7 +1393,7 @@ export default function App() {
             )
           )
         : options?.commentDraft
-    const result = await executeAssistantAction({
+    let result = await executeAssistantAction({
       action,
       favoritesFolderName: preferences.favoritesFolderName,
       runScript,
@@ -1172,7 +1407,8 @@ export default function App() {
         (action === '表' ? preferences.commentSubmitMode === 'random' : undefined),
       favoriteLedgers: preferences.favoriteLedgers,
       targetLedgerId,
-      targetLedgerIds: archiveTargets.map((target) => target.ledgerId)
+      targetLedgerIds,
+      resultMessagePrefix
     })
 
     if (result.ok && action !== '阅') {
@@ -1184,12 +1420,132 @@ export default function App() {
         }
       }
 
-      const nextPreferences = recordAssistantPreferenceFeedback(preferences, targetLedgerId, action)
+      const applyDailyCorrectionLearning = (
+        basePreferences: AssistantPreferences,
+        correction: DailyDeepSeekCorrection | undefined
+      ) => {
+        if (
+          !correction ||
+          !preferences.favoriteCorrectionLearningEnabled ||
+          !Number.isFinite(Number(videoContentContext.aid))
+        ) {
+          return basePreferences
+        }
+
+        const diagnostic = localDiagnostics.find(
+          (candidate) => candidate.ledgerId === correction.originalLedgerId
+        )
+
+        return createInitialAssistantPreferences({
+          ...basePreferences,
+          favoriteCorrectionRecords: [
+            ...basePreferences.favoriteCorrectionRecords,
+            createCorrectionDraft({
+              aid: Number(videoContentContext.aid),
+              title: videoContentContext.title || '未命名视频',
+              originalLedgerId: correction.originalLedgerId,
+              userLedgerIds: correction.targetLedgerIds,
+              source: 'user-confirmed-deepseek',
+              sourceScene: 'daily-favorite',
+              author: videoContentContext.author,
+              tags: videoContentContext.tags ?? [],
+              matchedKeywords: diagnostic?.matchedKeywords ?? localClassification.matchedKeywords,
+              score: diagnostic?.score,
+              confidence: diagnostic?.confidence,
+              scoreGap: diagnostic?.scoreGap
+            })
+          ],
+          favoriteKeywordSuggestions: mergeKeywordSuggestions(
+            basePreferences.favoriteKeywordSuggestions,
+            correction.keywordSuggestions
+          )
+        })
+      }
+
+      let nextPreferences = applyDailyCorrectionLearning(
+        recordAssistantPreferenceFeedback(preferences, targetLedgerId, action),
+        deepSeekCorrection
+      )
       setPreferences(nextPreferences)
       if (window.bilimiDesktop?.savePreferences) {
         const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
-        setPreferences(createInitialAssistantPreferences(saved))
+        nextPreferences = createInitialAssistantPreferences(saved)
+        setPreferences(nextPreferences)
         window.bilimiDesktop.notifyAssistantSnapshotChanged?.()
+      }
+
+      if (postActionDailyReviewPromise) {
+        void (async () => {
+          const reviewResult = await withTimeout(
+            postActionDailyReviewPromise,
+            DAILY_DEEPSEEK_BACKGROUND_TIMEOUT_MS,
+            undefined
+          )
+          const correction = dailyCorrectionFromReview({
+            favoriteLedgers: preferences.favoriteLedgers,
+            localTargetLedgerId,
+            localTargetLedgerIds,
+            reviewResult
+          })
+
+          if (!correction) {
+            return
+          }
+
+          const removeLedgerIds = localTargetLedgerIds.filter(
+            (ledgerId) => ledgerId !== 'inbox' && !correction.targetLedgerIds.includes(ledgerId)
+          )
+          let adjustmentResult: AssistantAutomationResult
+          try {
+            adjustmentResult = await withTimeout(
+              runScript(
+                buildFavoriteApiAdjustmentScript(preferences.favoriteLedgers, {
+                  addLedgerIds: correction.targetLedgerIds,
+                  removeLedgerIds
+                })
+              ),
+              DAILY_DEEPSEEK_BACKGROUND_TIMEOUT_MS,
+              {
+                ok: false,
+                steps: ['api:favorite:adjust-timeout'],
+                missingTargets: ['favorite-api-adjust-timeout'],
+                message: 'DeepSeek 后台归类调整超时。'
+              }
+            )
+          } catch (error) {
+            adjustmentResult = {
+              ok: false,
+              steps: ['api:favorite:adjust-error'],
+              missingTargets: ['favorite-api-adjust'],
+              message:
+                'DeepSeek 后台归类调整未能完成：' +
+                (error instanceof Error ? error.message : String(error || '未知错误'))
+            }
+          }
+          const targetNames = correction.targetLedgerIds
+            .map((ledgerId) => ledgerDisplayName(preferences.favoriteLedgers, ledgerId))
+            .join('、')
+
+          if (!adjustmentResult.ok) {
+            window.bilimiDesktop?.setAssistantPetHint?.({
+              tone: 'error',
+              message: `DeepSeek 建议改归 ${targetNames}，但后台调整失败：${adjustmentResult.message} 请稍后重试或手动整理。`
+            })
+            return
+          }
+
+          const correctedPreferences = applyDailyCorrectionLearning(nextPreferences, correction)
+          setPreferences(correctedPreferences)
+          if (window.bilimiDesktop?.savePreferences) {
+            const saved = await window.bilimiDesktop.savePreferences(correctedPreferences)
+            setPreferences(createInitialAssistantPreferences(saved))
+            window.bilimiDesktop.notifyAssistantSnapshotChanged?.()
+          }
+          window.bilimiDesktop?.setAssistantPetHint?.({
+            tone: 'success',
+            message: `DeepSeek 后台已改归 ${targetNames}：${correction.reason}`
+          })
+        })()
       }
     }
 

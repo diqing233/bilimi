@@ -97,6 +97,12 @@ function createFakeStore(
       initial.deepseekAutoSummaryEnabled ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekAutoSummaryEnabled,
     deepseekPetChatEnabled:
       initial.deepseekPetChatEnabled ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekPetChatEnabled,
+    deepseekDailyClassificationEnabled:
+      initial.deepseekDailyClassificationEnabled ??
+      DEFAULT_ASSISTANT_PREFERENCES.deepseekDailyClassificationEnabled,
+    deepseekDailyClassificationMode:
+      initial.deepseekDailyClassificationMode ??
+      DEFAULT_ASSISTANT_PREFERENCES.deepseekDailyClassificationMode,
     deepseekModel: initial.deepseekModel ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
     deepseekBaseUrl: initial.deepseekBaseUrl ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl,
     permissionOnboardingCompleted:
@@ -185,6 +191,28 @@ describe('assistant preference store helpers', () => {
     })
   })
 
+  it('defaults and persists DeepSeek daily classification preferences', () => {
+    const store = createFakeStore()
+    delete (store.snapshot as Record<string, unknown>).deepseekDailyClassificationEnabled
+    delete (store.snapshot as Record<string, unknown>).deepseekDailyClassificationMode
+
+    expect(loadAssistantPreferences(store)).toMatchObject({
+      deepseekDailyClassificationEnabled: false,
+      deepseekDailyClassificationMode: 'all'
+    })
+
+    const saved = saveAssistantPreferences(store, {
+      ...DEFAULT_ASSISTANT_PREFERENCES,
+      deepseekDailyClassificationEnabled: true,
+      deepseekDailyClassificationMode: 'low-confidence-only'
+    })
+
+    expect(saved).toMatchObject({
+      deepseekDailyClassificationEnabled: true,
+      deepseekDailyClassificationMode: 'low-confidence-only'
+    })
+  })
+
   it('loads favorite ledgers and first-open prompt state with preferences', () => {
     const store = createFakeStore({
       favoriteLedgers: [
@@ -265,6 +293,8 @@ describe('assistant preference store helpers', () => {
       deepseekCommentEnabled: true,
       deepseekAutoSummaryEnabled: false,
       deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: true,
+      deepseekDailyClassificationMode: 'low-confidence-only',
       deepseekModel: 'deepseek-reasoner',
       deepseekBaseUrl: 'https://deepseek.example',
       permissionOnboardingCompleted: true,
@@ -304,6 +334,8 @@ describe('assistant preference store helpers', () => {
       deepseekEnabled: true,
       deepseekCommentEnabled: true,
       deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: true,
+      deepseekDailyClassificationMode: 'low-confidence-only',
       deepseekModel: 'deepseek-reasoner',
       deepseekBaseUrl: 'https://deepseek.example',
       permissionOnboardingCompleted: true,
