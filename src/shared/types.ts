@@ -308,16 +308,23 @@ export type DeepSeekArchiveMode = 'all' | 'classified-only' | 'unclassified-only
 export type DeepSeekArchiveVideoInput = {
   aid: number
   title: string
+  author?: string
+  description?: string
+  tags?: string[]
+  category?: string
   sourceFolderTitle: string
   originalSuggestedLedgerIds: FavoriteLedgerId[]
   currentTargetLedgerIds: FavoriteLedgerId[]
   selectedTargetLedgerIds: FavoriteLedgerId[]
+  lowConfidence?: boolean
+  classificationDiagnostic?: FavoriteLedgerClassificationDiagnostic
 }
 
 export type DeepSeekArchiveLedgerInput = {
   id: FavoriteLedgerId
   displayName: string
   keywords: string[]
+  ruleType?: FavoriteLedgerRuleType
   enabled: boolean
 }
 

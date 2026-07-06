@@ -131,7 +131,7 @@ function selectTargets(args: {
 }): { ok: true; targets: string[]; attemptedTargets: string[] } | { ok: false; message: string } {
   const rawTargets = uniqueLedgerIds(args.result.targetLedgerIds)
 
-  if (rawTargets.some(isUnclassifiedTarget)) {
+  if (args.result.lowConfidence || rawTargets.some(isUnclassifiedTarget) || rawTargets.includes('inbox')) {
     return { ok: true, targets: [], attemptedTargets: [] }
   }
 
@@ -166,10 +166,16 @@ export function buildDeepSeekArchiveRequest(
     .map((item) => ({
       aid: item.aid,
       title: item.title,
+      author: item.author,
+      description: item.description,
+      tags: item.tags,
+      category: item.category,
       sourceFolderTitle: item.sourceFolderTitle,
       originalSuggestedLedgerIds: [...item.originalSuggestedLedgerIds],
       currentTargetLedgerIds: [...item.currentTargetLedgerIds],
-      selectedTargetLedgerIds: [...item.selectedTargetLedgerIds]
+      selectedTargetLedgerIds: [...item.selectedTargetLedgerIds],
+      lowConfidence: item.lowConfidence,
+      classificationDiagnostic: item.classificationDiagnostic
     }))
 
   return {
@@ -177,11 +183,12 @@ export function buildDeepSeekArchiveRequest(
     mode,
     videos,
     ledgers: ledgers
-      .filter((ledger) => ledger.enabled)
+      .filter((ledger) => ledger.enabled && ledger.id !== 'inbox')
       .map((ledger) => ({
         id: ledger.id,
         displayName: ledger.displayName,
         keywords: [...ledger.keywords],
+        ruleType: ledger.ruleType,
         enabled: ledger.enabled
       })),
     multiArchiveLimit

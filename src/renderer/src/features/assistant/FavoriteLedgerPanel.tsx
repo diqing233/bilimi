@@ -1,4 +1,4 @@
-import {
+﻿import {
   BILIMI_LEDGER_PREFIX,
   createDefaultFavoriteLedgers,
   isBilimiManagedLedgerName,
@@ -7,6 +7,7 @@ import {
 import type {
   AssistantAutomationResult,
   DeepSeekArchiveMode,
+  DeepSeekArchiveVideoResult,
   DeepSeekGenerateRequest,
   DeepSeekGenerateResult,
   FavoriteKeywordSuggestion,
@@ -542,10 +543,16 @@ function createArchivePlanStateFromPreviewItems(
         itemKey: archivePlanItemKey(item),
         aid: item.aid,
         title: item.title,
+        author: item.author,
+        description: item.description,
+        tags: item.tags,
+        category: item.category,
         sourceFolderTitle: item.sourceFolderTitle,
         originalSuggestedLedgerIds,
         currentTargetLedgerIds,
-        selectedTargetLedgerIds
+        selectedTargetLedgerIds,
+        lowConfidence: item.lowConfidence,
+        classificationDiagnostic: item.classificationDiagnostic
       }
     })
   )
@@ -1079,10 +1086,12 @@ export function FavoriteLedgerPanel({
   const [deepSeekArchiveDisplacementMessages, setDeepSeekArchiveDisplacementMessages] = useState<string[]>([])
   const [deepSeekArchiveRunSnapshot, setDeepSeekArchiveRunSnapshot] =
     useState<DeepSeekArchiveRunSnapshot | null>(null)
+  const [archiveRedoSnapshot, setArchiveRedoSnapshot] = useState<DeepSeekArchiveRunSnapshot | null>(null)
 
   function clearDeepSeekArchiveRunSnapshot() {
     setDeepSeekArchiveRunSnapshot(null)
     setDeepSeekArchiveDisplacementMessages([])
+    setArchiveRedoSnapshot(null)
   }
   const [oldFavoriteExecuting, setOldFavoriteExecuting] = useState(false)
   const [oldFavoriteExecutionAwaitingAcknowledgement, setOldFavoriteExecutionAwaitingAcknowledgement] =
@@ -1879,6 +1888,44 @@ export function FavoriteLedgerPanel({
     })
   }
 
+  function updatePreviewFromArchivePlan(nextState: FavoriteArchivePlanState) {
+    setPreview((current) => {
+      if (!current) {
+        return current
+      }
+
+      return {
+        ...current,
+        items: current.items.map((item) => {
+          const planItem = nextState.items.find(
+            (candidate) =>
+              candidate.aid === item.aid && candidate.sourceFolderTitle === item.sourceFolderTitle
+          )
+          if (!planItem) {
+            return item
+          }
+
+          return normalizeOldFavoritePreviewItem(
+            {
+              ...item,
+              originalSuggestedLedgerIds: [...planItem.originalSuggestedLedgerIds],
+              currentTargetLedgerIds: [...planItem.currentTargetLedgerIds],
+              selectedTargetLedgerIds: [...planItem.selectedTargetLedgerIds],
+              targets:
+                planItem.currentTargetLedgerIds.length > 0
+                  ? planItem.currentTargetLedgerIds.map((ledgerId) => ({
+                      ...targetForOldFavoriteLedgerId(item, ledgerId, draftLedgers),
+                      selected: planItem.selectedTargetLedgerIds.includes(ledgerId)
+                    }))
+                  : []
+            },
+            draftLedgers
+          )
+        })
+      }
+    })
+  }
+
   function commitArchivePlanSelection(
     item: FavoriteLedgerPreviewItem,
     nextState: FavoriteArchivePlanState
@@ -1967,6 +2014,11 @@ export function FavoriteLedgerPanel({
       return
     }
 
+    if (areaLedgerId === 'unclassified') {
+      applyArchiveSelection(item, [nextLedgerId])
+      return
+    }
+
     applyArchiveSelection(
       item,
       uniqueLedgerIds(currentLedgerIds.map((ledgerId) => (ledgerId === areaLedgerId ? nextLedgerId : ledgerId)))
@@ -2017,12 +2069,34 @@ export function FavoriteLedgerPanel({
     setPendingUnclassifiedDecision(null)
   }
 
-  function stageOldFavorite(item: FavoriteLedgerPreviewItem) {
-    if (deepSeekArchiveRunning) {
-      return
+  function chunkDeepSeekArchiveRequest(
+    request: Extract<DeepSeekGenerateRequest, { kind: 'favorite-archive-organize' }>,
+    chunkSize = 20
+  ) {
+    const chunks: Array<Extract<DeepSeekGenerateRequest, { kind: 'favorite-archive-organize' }>> = []
+    for (let index = 0; index < request.videos.length; index += chunkSize) {
+      chunks.push({
+        ...request,
+        videos: request.videos.slice(index, index + chunkSize)
+      })
     }
+    return chunks
+  }
 
-    applyArchiveSelection(item, ['inbox'])
+  function failedDeepSeekArchiveRows(
+    request: Extract<DeepSeekGenerateRequest, { kind: 'favorite-archive-organize' }>,
+    message: string
+  ): DeepSeekArchiveVideoResult[] {
+    return request.videos.map((video) => ({
+      aid: video.aid,
+      sourceFolderTitle: video.sourceFolderTitle,
+      targetLedgerIds: [],
+      keepOriginal: false,
+      reason: '',
+      lowConfidence: true,
+      invalid: true,
+      errorMessage: message
+    }))
   }
 
   async function organizeOldFavoritesWithDeepSeek() {
@@ -2050,11 +2124,27 @@ export function FavoriteLedgerPanel({
 
     try {
       const snapshot = createDeepSeekArchiveSnapshot(archivePlanState)
-      const result = await onOrganizeOldFavoritesWithDeepSeek(deepSeekArchiveMode, request)
+      const chunks = chunkDeepSeekArchiveRequest(request)
+      const results: DeepSeekArchiveVideoResult[] = []
+      const keywordSuggestions: FavoriteKeywordSuggestion[] = []
 
-      if (!result || result.kind !== 'favorite-archive-organize' || !Array.isArray(result.results)) {
-        setDeepSeekArchiveStatus('DeepSeek 返回格式无效，未应用结果。')
-        return
+      for (const [chunkIndex, chunk] of chunks.entries()) {
+        if (chunks.length > 1) {
+          setDeepSeekArchiveStatus(`DeepSeek 正在整理旧藏... ${chunkIndex + 1}/${chunks.length}`)
+        }
+
+        try {
+          const result = await onOrganizeOldFavoritesWithDeepSeek(deepSeekArchiveMode, chunk)
+          if (!result || result.kind !== 'favorite-archive-organize' || !Array.isArray(result.results)) {
+            results.push(...failedDeepSeekArchiveRows(chunk, 'DeepSeek 返回格式无效。'))
+            continue
+          }
+
+          results.push(...result.results)
+          keywordSuggestions.push(...(result.keywordSuggestions ?? []))
+        } catch (error) {
+          results.push(...failedDeepSeekArchiveRows(chunk, errorMessage(error)))
+        }
       }
 
       const applied = applyDeepSeekArchiveResults({
@@ -2062,15 +2152,16 @@ export function FavoriteLedgerPanel({
         ledgers: archiveExecutionLedgers,
         enabledLedgerIds: archiveExecutionLedgers.filter((ledger) => ledger.enabled).map((ledger) => ledger.id),
         multiArchiveLimit,
-        results: result.results
+        results
       })
       setArchivePlanState(applied.state)
+      updatePreviewFromArchivePlan(applied.state)
       setDeepSeekArchiveRunSnapshot(snapshot)
       setDeepSeekArchiveDisplacementMessages(applied.redDisplacementMessages)
 
-      const keywordSuggestionCount = result.keywordSuggestions?.length ?? 0
+      const keywordSuggestionCount = keywordSuggestions.length
       if (keywordSuggestionCount > 0) {
-        onDeepSeekArchiveKeywordSuggestions?.(result.keywordSuggestions)
+        onDeepSeekArchiveKeywordSuggestions?.(keywordSuggestions)
         setDeepSeekArchiveStatus(
           onDeepSeekArchiveKeywordSuggestions
             ? `DeepSeek 返回 ${keywordSuggestionCount} 条关键词建议，已加入设置里的建议列表。`
@@ -2099,10 +2190,59 @@ export function FavoriteLedgerPanel({
       return
     }
 
-    setArchivePlanState(revertDeepSeekArchiveRun(archivePlanState, deepSeekArchiveRunSnapshot))
+    const revertedState = revertDeepSeekArchiveRun(archivePlanState, deepSeekArchiveRunSnapshot)
+    setArchivePlanState(revertedState)
+    updatePreviewFromArchivePlan(revertedState)
     setDeepSeekArchiveRunSnapshot(null)
     setDeepSeekArchiveDisplacementMessages([])
     setDeepSeekArchiveStatus('已撤回本次 DeepSeek 整理。')
+  }
+
+  function archivePlanHasPreviewChanges(state: FavoriteArchivePlanState) {
+    return state.items.some((item) => {
+      const original = state.originalItemsByKey[item.itemKey]
+      return (
+        !original ||
+        !sameLedgerIds(item.currentTargetLedgerIds, original.currentTargetLedgerIds) ||
+        !sameLedgerIds(item.selectedTargetLedgerIds, original.selectedTargetLedgerIds)
+      )
+    })
+  }
+
+  function originalArchivePlanState(state: FavoriteArchivePlanState) {
+    return state.items.reduce(
+      (nextState, item) => revertArchivePlanItem(nextState, { itemKey: item.itemKey }),
+      state
+    )
+  }
+
+  function undoArchivePreviewChanges() {
+    if (!archivePlanState || deepSeekArchiveRunning || !archivePlanHasPreviewChanges(archivePlanState)) {
+      return
+    }
+
+    const redoSnapshot = createDeepSeekArchiveSnapshot(archivePlanState)
+    const revertedState = originalArchivePlanState(archivePlanState)
+    setArchivePlanState(revertedState)
+    updatePreviewFromArchivePlan(revertedState)
+    setArchiveRedoSnapshot(redoSnapshot)
+    setDeepSeekArchiveRunSnapshot(null)
+    setDeepSeekArchiveDisplacementMessages([])
+    setPendingUnclassifiedDecision(null)
+    setDeepSeekArchiveStatus('已撤销本次改动。')
+  }
+
+  function redoArchivePreviewChanges() {
+    if (!archiveRedoSnapshot || deepSeekArchiveRunning) {
+      return
+    }
+
+    const restoredState = revertDeepSeekArchiveRun(archiveRedoSnapshot, archiveRedoSnapshot)
+    setArchivePlanState(restoredState)
+    updatePreviewFromArchivePlan(restoredState)
+    setArchiveRedoSnapshot(null)
+    setPendingUnclassifiedDecision(null)
+    setDeepSeekArchiveStatus('已再次复原本次改动。')
   }
 
   function setPreviewScopedPendingItemsStaged(selected: boolean) {
@@ -2434,6 +2574,7 @@ export function FavoriteLedgerPanel({
       }),
     [archiveExecutionLedgers, archivePlanState, selectableOldFavoriteItems]
   )
+  const hasArchivePreviewChanges = archivePlanState ? archivePlanHasPreviewChanges(archivePlanState) : false
   const allPreviewScopedPendingItemsStaged =
     previewScopedPendingItems.length > 0 &&
     previewScopedPendingItems.every((item) => {
@@ -2493,12 +2634,10 @@ export function FavoriteLedgerPanel({
   }
 
   function archiveTargetOptionsForOldFavoriteItem(item: FavoriteLedgerPreviewItem) {
-    const currentLedgerIds = new Set(currentArchiveLedgerIdsForOldFavoriteItem(item))
     return draftLedgers.filter(
       (ledger) =>
         ledger.enabled &&
-        isBilimiLedger(ledger) &&
-        (ledger.id !== 'inbox' || currentLedgerIds.has('inbox'))
+        isBilimiLedger(ledger)
     )
   }
 
@@ -2542,12 +2681,17 @@ export function FavoriteLedgerPanel({
     item: FavoriteLedgerPreviewItem,
     areaLedgerId: string
   ) {
+    const selectLabel = areaLedgerId === 'unclassified' ? '存入收藏夹' : '调整分类'
+    const hasSelectedTarget = areaLedgerId !== 'unclassified'
+
     return (
       <div className="favorite-ledger-panel__preview-controls" onClick={(event) => event.stopPropagation()}>
         <label>
-          <span className="sr-only">调整分类 {item.title}</span>
+          <span className="sr-only">{selectLabel} {item.title}</span>
           <select
-            aria-label={`调整分类 ${item.title}`}
+            aria-label={`${selectLabel} ${item.title}`}
+            className="favorite-ledger-panel__target-select"
+            data-selected={hasSelectedTarget}
             value={areaLedgerId}
             disabled={deepSeekArchiveRunning}
             onClick={(event) => event.stopPropagation()}
@@ -3011,34 +3155,43 @@ export function FavoriteLedgerPanel({
               <div className="favorite-ledger-panel__preview-topbar">
                 <h4>归档预览</h4>
                 {oldFavoriteGuideMode === 'organize' ? (
-                  <div className="favorite-ledger-panel__deepseek-archive">
-                    <label>
-                      <span>DeepSeek 整理范围</span>
-                      <select
-                        aria-label="DeepSeek 整理范围"
-                        value={deepSeekArchiveMode}
-                        disabled={deepSeekArchiveRunning}
-                        onChange={(event) =>
-                          setDeepSeekArchiveMode(event.currentTarget.value as DeepSeekArchiveMode)
-                        }
-                      >
-                        <option value="all">全体整理</option>
-                        <option value="classified-only">仅二判</option>
-                        <option value="unclassified-only">仅整理未分类</option>
-                      </select>
-                    </label>
+                  <div className="favorite-ledger-panel__preview-toolbar">
                     <button
                       type="button"
-                      disabled={deepSeekArchiveDisabled}
-                      onClick={() => void organizeOldFavoritesWithDeepSeek()}
+                      disabled={deepSeekArchiveRunning || (!hasArchivePreviewChanges && !archiveRedoSnapshot)}
+                      onClick={archiveRedoSnapshot ? redoArchivePreviewChanges : undoArchivePreviewChanges}
                     >
-                      {deepSeekArchiveRunning ? '整理中...' : 'DeepSeek 整理'}
+                      {archiveRedoSnapshot ? '再次复原' : '撤销本次改动'}
                     </button>
-                    {deepSeekArchiveAvailable ? null : (
-                      <small className="favorite-ledger-panel__deepseek-archive-disabled">
-                        未开启 DeepSeek
-                      </small>
-                    )}
+                    <div className="favorite-ledger-panel__deepseek-archive">
+                      <label>
+                        <span>DeepSeek 整理范围</span>
+                        <select
+                          aria-label="DeepSeek 整理范围"
+                          value={deepSeekArchiveMode}
+                          disabled={deepSeekArchiveRunning}
+                          onChange={(event) =>
+                            setDeepSeekArchiveMode(event.currentTarget.value as DeepSeekArchiveMode)
+                          }
+                        >
+                          <option value="all">全体整理</option>
+                          <option value="classified-only">仅二判</option>
+                          <option value="unclassified-only">仅整理未分类</option>
+                        </select>
+                      </label>
+                      <button
+                        type="button"
+                        disabled={deepSeekArchiveDisabled}
+                        onClick={() => void organizeOldFavoritesWithDeepSeek()}
+                      >
+                        {deepSeekArchiveRunning ? '整理中...' : 'DeepSeek 整理'}
+                      </button>
+                      {deepSeekArchiveAvailable ? null : (
+                        <small className="favorite-ledger-panel__deepseek-archive-disabled">
+                          未开启 DeepSeek
+                        </small>
+                      )}
+                    </div>
                   </div>
                 ) : null}
               </div>
@@ -3122,14 +3275,7 @@ export function FavoriteLedgerPanel({
                                 >
                                   视频来源
                                 </button>
-                                <button
-                                  type="button"
-                                  aria-label={`存入暂存 ${item.title}`}
-                                  disabled={deepSeekArchiveRunning}
-                                  onClick={() => stageOldFavorite(item)}
-                                >
-                                  存入暂存
-                                </button>
+                                {renderOldFavoriteArchiveControls(item, 'unclassified')}
                                 <button
                                   type="button"
                                   aria-label={`再次整理 ${item.title}`}

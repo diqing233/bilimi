@@ -253,6 +253,67 @@ describe('deepseekArchiveOrganizer', () => {
     ])
   })
 
+  it('keeps low-confidence or staging DeepSeek suggestions in the unclassified area', () => {
+    const state = createArchivePlanState([
+      {
+        aid: 1,
+        title: '决定不了的旧藏',
+        sourceFolderTitle: '默认收藏夹',
+        originalSuggestedLedgerIds: [],
+        currentTargetLedgerIds: [],
+        selectedTargetLedgerIds: [],
+        userModified: false
+      },
+      {
+        aid: 2,
+        title: '被建议暂存的旧藏',
+        sourceFolderTitle: '默认收藏夹',
+        originalSuggestedLedgerIds: [],
+        currentTargetLedgerIds: [],
+        selectedTargetLedgerIds: [],
+        userModified: false
+      }
+    ])
+
+    const applied = applyDeepSeekArchiveResults({
+      state,
+      ledgers: [
+        ...ledgers,
+        {
+          id: 'inbox',
+          displayName: 'bilimi·暂存',
+          keywords: [],
+          enabled: true,
+          priority: 0,
+          isDefault: true
+        }
+      ],
+      enabledLedgerIds: ['life-interest', 'game', 'inbox'],
+      multiArchiveLimit: 1,
+      results: [
+        {
+          aid: 1,
+          targetLedgerIds: ['life-interest'],
+          keepOriginal: false,
+          reason: 'DeepSeek 没有把握。',
+          confidence: 0.42,
+          lowConfidence: true
+        },
+        {
+          aid: 2,
+          targetLedgerIds: ['inbox'],
+          keepOriginal: false,
+          reason: '先放暂存。',
+          confidence: 0.7,
+          lowConfidence: false
+        }
+      ]
+    })
+
+    expect(applied.state.items.map((item) => item.selectedTargetLedgerIds)).toEqual([[], []])
+    expect(applied.stats).toEqual({ successCount: 2, failedCount: 0, truncatedCount: 0 })
+  })
+
   it('reverts a run from an isolated snapshot', () => {
     const state = createArchivePlanState([
       {

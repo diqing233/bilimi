@@ -3135,6 +3135,13 @@ body[data-floating-window="true"],
   margin-top: 0;
   white-space: nowrap;
 }
+.favorite-ledger-panel__preview-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
 .favorite-ledger-panel__preview-videos {
   grid-column: 1 / -1;
   display: grid;
@@ -3208,6 +3215,23 @@ body[data-floating-window="true"],
   gap: 5px;
   min-width: 0;
   margin-top: 6px;
+}
+.favorite-ledger-panel__pending-actions .favorite-ledger-panel__preview-controls {
+  margin-top: 0;
+}
+.favorite-ledger-panel__target-select {
+  width: 100%;
+  min-width: 0;
+  min-height: 28px;
+  border: 1px solid rgba(31, 99, 181, 0.24);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--porcelain-deep);
+  font-size: 12px;
+}
+.favorite-ledger-panel__target-select[data-selected='true'] {
+  border-color: rgba(31, 99, 181, 0.55);
+  background: rgba(220, 238, 255, 0.9);
+  font-weight: 700;
 }
 .favorite-ledger-panel__preview-delta {
   color: var(--porcelain-primary);

@@ -1,4 +1,4 @@
-import type { FavoriteLedger } from '@shared/types'
+import type { FavoriteLedger, FavoriteLedgerClassificationDiagnostic } from '@shared/types'
 
 export type FavoriteArchivePlanChangeSource = 'classifier' | 'user' | 'deepseek' | 'rejudge'
 
@@ -6,10 +6,16 @@ export type FavoriteArchivePlanItemState = {
   itemKey: string
   aid: number
   title: string
+  author?: string
+  description?: string
+  tags?: string[]
+  category?: string
   sourceFolderTitle: string
   originalSuggestedLedgerIds: string[]
   currentTargetLedgerIds: string[]
   selectedTargetLedgerIds: string[]
+  lowConfidence?: boolean
+  classificationDiagnostic?: FavoriteLedgerClassificationDiagnostic
   userModified: boolean
   lastChangeSource: FavoriteArchivePlanChangeSource
 }

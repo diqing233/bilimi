@@ -547,7 +547,9 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
-    fireEvent.click(screen.getByRole('button', { name: '存入暂存 暂存旧藏' }))
+    fireEvent.change(screen.getByLabelText('存入收藏夹 暂存旧藏'), {
+      target: { value: 'inbox' }
+    })
 
     const stagingGroup = screen.getByRole('group', { name: 'bilimi·暂存 1 条' })
     expect(within(stagingGroup).getByRole('button', { name: /暂存旧藏/ })).toHaveAttribute(
@@ -558,6 +560,46 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
 
     expect(screen.getByText('已选择 1 条归档任务')).toBeInTheDocument()
+  })
+
+  it('lets unmatched old favorites choose any enabled bilimi ledger instead of only staging', async () => {
+    await openArchivePreview()
+
+    const pendingGroup = screen.getByRole('group', { name: /未匹配到合适分类 1 条/ })
+    fireEvent.change(within(pendingGroup).getByLabelText('存入收藏夹 暂时不知道放哪'), {
+      target: { value: 'game' }
+    })
+
+    expect(screen.queryByRole('group', { name: /未匹配到合适分类/ })).not.toBeInTheDocument()
+    const gameGroup = screen.getByRole('group', { name: 'bilimi·游戏专区 1 条' })
+    expect(getPreviewVideoButton(gameGroup, /暂时不知道放哪/)).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+  })
+
+  it('undoes and redoes all archive preview changes from the preview toolbar', async () => {
+    await openArchivePreview()
+
+    fireEvent.change(screen.getByLabelText('调整分类 AI 效率工具实战'), {
+      target: { value: 'game' }
+    })
+    expect(screen.getByRole('group', { name: 'bilimi·游戏专区 1 条' })).toHaveTextContent(
+      'AI 效率工具实战'
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '撤销本次改动' }))
+
+    expect(screen.getByRole('group', { name: 'bilimi·知识学习 1 条' })).toHaveTextContent(
+      'AI 效率工具实战'
+    )
+    expect(screen.queryByRole('group', { name: 'bilimi·游戏专区 1 条' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '再次复原' }))
+
+    expect(screen.getByRole('group', { name: 'bilimi·游戏专区 1 条' })).toHaveTextContent(
+      'AI 效率工具实战'
+    )
   })
 
   it('confirms archive preview correction drafts only after executing the selected plan', async () => {
@@ -879,7 +921,7 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
 
     expect(screen.getByRole('button', { name: '视频来源 无法补判旧藏' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '存入暂存 无法补判旧藏' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '存入收藏夹 无法补判旧藏' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '再次整理 无法补判旧藏' })).toBeInTheDocument()
   })
 
@@ -4623,7 +4665,7 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '撤回本次 DeepSeek 整理' }))
 
-    expect(screen.getByRole('group', { name: 'bilimi·学吧你就 1 条' })).toHaveTextContent(
+    expect(screen.getByRole('group', { name: 'bilimi·学习 1 条' })).toHaveTextContent(
       'AI 效率工具实战'
     )
     expect(screen.getByRole('group', { name: /未匹配到合适分类 1 条/ })).toHaveTextContent(
