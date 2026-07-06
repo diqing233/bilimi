@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improved old-favorite archive preview with stronger local classification, editable and reversible target choices, optional DeepSeek-assisted organization, and safer correction/keyword learning settings.
+
 ## 0.1.1 - 2026-07-05
 
 - Fixed favorite-ledger editing so the editor `保存` action only saves the local draft; users must select the folder and click `同步` before Bilibili folders are updated.
