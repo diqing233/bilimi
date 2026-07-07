@@ -150,6 +150,13 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
+  it('keeps the global assistant status integrated with the surrounding panel', () => {
+    expectStyleSnippet('.floating-assistant-global-status { min-height: 48px; display: grid; grid-template-rows: 1fr 1fr; gap: 3px; padding: 5px 8px; border: 1px solid rgba(31, 99, 181, 0.14); border-left: 0; border-right: 0; background: rgba(247, 251, 255, 0.82);')
+    expectStyleSnippet('.floating-assistant-global-status__feedback { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--porcelain-deep); font-size: 14px; font-weight: 700;')
+    expectStyleSnippet('.floating-assistant-global-status__lights { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));')
+    expectStyleSnippet('.floating-assistant-global-status__light { min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 4px; overflow: hidden; color: var(--porcelain-muted); font-size: 12px;')
+  })
+
   it('keeps every assistant sidebar panel stretched to the ledger frame height', () => {
     expectStyleSnippet(
       '.assistant-sidebar-workspace .floating-assistant-view { min-width: 0; min-height: 0; height: 100%; overflow: hidden;'
@@ -327,7 +334,13 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__sync-hint { color: var(--porcelain-muted); font-size: 12px;')
     expectStyleSnippet('.favorite-ledger-panel__help-toggle { appearance: none; width: 14px; height: 18px;')
     expectStyleSnippet('.favorite-ledger-panel__help-toggle { appearance: none; width: 14px; height: 18px; min-width: 14px; min-height: 18px; padding: 0; border: 0; background: transparent; box-shadow: none;')
-    expectStyleSnippet('.favorite-ledger-panel__help-toggle:hover:not(:disabled), .favorite-ledger-panel__help-toggle:focus-visible:not(:disabled) { background: transparent; color: var(--porcelain-deep);')
+    expectStyleSnippet('.favorite-ledger-panel__help-toggle:hover:not(:disabled), .favorite-ledger-panel__help-toggle:focus-visible:not(:disabled) { border-color: transparent; background: transparent;')
+    expect(normalizedStyles).toContain(
+      '.favorite-ledger-panel .favorite-ledger-panel__help-toggle:hover:not(:disabled),\n.favorite-ledger-panel .favorite-ledger-panel__help-toggle:focus-visible:not(:disabled) {\n  border-color: transparent;'
+    )
+    expect(normalizedStyles.indexOf('.favorite-ledger-panel button:hover:not(:disabled):not(.assistant-action-button)')).toBeLessThan(
+      normalizedStyles.indexOf('.favorite-ledger-panel .favorite-ledger-panel__help-toggle:hover:not(:disabled)')
+    )
     expectStyleSnippet('.favorite-ledger-panel__category-actions { display: flex; flex-wrap: wrap;')
     expect(normalizedStyles).not.toContain('favorite-ledger-panel__pending-queue')
     expectStyleSnippet('.favorite-ledger-panel__pending-actions { display: grid; grid-template-columns: minmax(0, 1fr);')
