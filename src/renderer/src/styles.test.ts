@@ -67,7 +67,7 @@ describe('renderer porcelain theme styles', () => {
       '@media (max-width: 1200px), (max-height: 760px) { .app-main { grid-template-rows: 38px minmax(0, 1fr);'
     )
     expectStyleSnippet(
-      '.assistant-sidebar-workspace { gap: 8px; padding: 8px; font-size: 13px;'
+      '.assistant-sidebar-workspace { grid-template-rows: 50px 70px minmax(0, 1fr); font-size: 13px;'
     )
     expectStyleSnippet(
       '.assistant-sidebar { width: var(--assistant-sidebar-width, clamp(288px, 26vw, 320px));'
@@ -146,8 +146,30 @@ describe('renderer porcelain theme styles', () => {
       '.floating-assistant-workspace__fold { position: absolute; right: 0; bottom: 0;'
     )
     expect(normalizedStyles).toContain(
-      '.assistant-sidebar-workspace .floating-assistant-tabs {\n  display: grid;\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 6px;\n  padding-left: 0;'
+      '.assistant-sidebar-workspace .floating-assistant-tabs {\n  display: grid;\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 6px;\n  align-items: center;\n  padding: 8px 12px;'
     )
+  })
+
+  it('keeps the sidebar tabs centered above a transparent global status strip', () => {
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace { height: 100%; min-height: 0; box-sizing: border-box; display: grid; grid-template-rows: 54px 78px minmax(0, 1fr); gap: 0; padding: 0;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .floating-assistant-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; align-items: center; padding: 8px 12px;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .floating-assistant-global-status { min-height: 0; padding: 6px 12px 7px;'
+    )
+    expectStyleSnippet(
+      '.floating-assistant-global-status { min-height: 48px; display: grid; grid-template-rows: 1fr 1fr; gap: 3px; padding: 5px 8px; border: 0; background: transparent;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace > .memorial-panel, .assistant-sidebar-workspace > .floating-assistant-view, .assistant-sidebar-workspace > .favorite-ledger-panel, .assistant-sidebar-workspace > .video-note-archive, .assistant-sidebar-workspace > .assistant-settings { min-height: 0; margin: 0 12px; border-top: 1px solid rgba(31, 99, 181, 0.22);'
+    )
+    expectStyleSnippet('.assistant-sidebar { position: relative; width: var(--assistant-sidebar-width, clamp(320px, 24vw, 384px)); min-width: var(--assistant-sidebar-width, clamp(320px, 24vw, 384px)); height: 100%; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);')
+    expectStyleSnippet('.assistant-sidebar__workspace { min-width: 0; min-height: 0; height: 100%;')
+    expect(normalizedStyles).not.toContain('border-left: 0;\n  border-right: 0;')
+    expect(normalizedStyles).not.toContain('background: rgba(232, 244, 255, 0.72);')
   })
 
   it('keeps the floating pet fixed-size inside its transparent stage', () => {
