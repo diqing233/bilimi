@@ -2909,6 +2909,7 @@ body[data-floating-window="true"],
   min-width: 0;
 }
 .favorite-ledger-panel__help-toggle {
+  appearance: none;
   width: 14px;
   height: 18px;
   min-width: 14px;
