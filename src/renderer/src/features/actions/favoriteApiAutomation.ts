@@ -265,7 +265,9 @@ export function buildFavoriteApiFallbackScript(
           ok: true,
           steps,
           missingTargets: [],
-          message: '已用 B 站接口归入 bilimi 收藏夹。'
+          message: '已用 B 站接口归入 bilimi 收藏夹：' +
+            targetLedgers.map((ledger) => ledger.displayName).join('、') +
+            '。'
         };
       } catch (error) {
         return {

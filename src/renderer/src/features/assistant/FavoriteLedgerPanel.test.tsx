@@ -120,6 +120,101 @@ describe('FavoriteLedgerPanel', () => {
     expect(within(getPreviewArticle(container, /暂时不知道放哪/)).getByText('当前位置')).toBeInTheDocument()
   })
 
+  it('keeps the current-location switch outside the selectable preview card body', async () => {
+    const { container } = await openArchivePreview()
+
+    const article = getPreviewArticle(container, /AI 效率工具实战/)
+    const cardBody = article.querySelector('.favorite-ledger-panel__preview-video')
+    const controls = article.querySelector('.favorite-ledger-panel__preview-controls')
+
+    expect(cardBody).toBeInTheDocument()
+    expect(controls).toBeInTheDocument()
+    expect(cardBody).not.toContainElement(controls as HTMLElement)
+  })
+
+  it('offers a change-history dropdown before archive undo and redo actions', async () => {
+    await openArchivePreview()
+
+    const historyTools = screen.getByRole('group', { name: '归档预览改动操作' })
+    const historySelect = within(historyTools).getByRole('combobox', { name: '改动记录' })
+    const undoButton = within(historyTools).getByRole('button', { name: '撤销本次改动' })
+    const redoButton = within(historyTools).getByRole('button', { name: '恢复本次改动' })
+
+    expect(historySelect.compareDocumentPosition(undoButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(undoButton.compareDocumentPosition(redoButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('uses compact stacked-arrow help toggles without text glyphs', async () => {
+    await openArchivePreview()
+
+    const ledgerHelpButton = screen.getByRole('button', { name: '展开收藏夹说明' })
+    const oldFavoriteHelpButton = screen.getByRole('button', { name: '展开整理旧藏说明' })
+
+    for (const helpButton of [ledgerHelpButton, oldFavoriteHelpButton]) {
+      expect(helpButton).not.toHaveTextContent(/[\^v]/)
+      expect(helpButton.querySelectorAll('.favorite-ledger-panel__help-arrow')).toHaveLength(2)
+    }
+  })
+
+  it('lets the change-history dropdown jump to the latest changed archive card', async () => {
+    const scrollIntoView = vi.fn()
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
+    HTMLElement.prototype.scrollIntoView = scrollIntoView
+
+    try {
+      const { container } = await openArchivePreview()
+      fireEvent.change(screen.getByLabelText('调整分类 AI 效率工具实战'), {
+        target: { value: 'game' }
+      })
+
+      const historySelect = screen.getByRole('combobox', { name: '改动记录' })
+      expect(within(historySelect).getByRole('option', { name: /最近一次改动：AI 效率工具实战/ })).toBeInTheDocument()
+
+      fireEvent.change(historySelect, {
+        target: { value: 'latest' }
+      })
+
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' })
+      expect(getPreviewArticle(container, /AI 效率工具实战/)).toHaveAttribute('data-latest-change', 'true')
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView
+    }
+  })
+
+  it('shows only the latest archive move notice in orange preview styling', async () => {
+    const { container } = await openArchivePreview()
+
+    fireEvent.change(screen.getByLabelText('调整分类 AI 效率工具实战'), {
+      target: { value: 'game' }
+    })
+    fireEvent.change(screen.getByLabelText('调整分类 暂时不知道放哪'), {
+      target: { value: 'inbox' }
+    })
+
+    const latestArticle = getPreviewArticle(container, /暂时不知道放哪/)
+    expect(container.querySelectorAll('.favorite-ledger-panel__preview-delta-row')).toHaveLength(1)
+    expect(within(latestArticle).getByText(/最近改动：/)).toHaveClass(
+      'favorite-ledger-panel__preview-delta-row'
+    )
+    expect(getPreviewArticle(container, /AI 效率工具实战/)).not.toHaveAttribute(
+      'data-latest-change',
+      'true'
+    )
+  })
+
+  it('reports old favorite scan results to the global feedback owner while keeping the local message', async () => {
+    const onOldFavoriteStatusUpdate = vi.fn()
+
+    await openArchivePreview({ onOldFavoriteStatusUpdate })
+
+    expect(onOldFavoriteStatusUpdate).toHaveBeenCalledWith({
+      label: '旧藏待整理 2',
+      message: '已扫描 2 条旧藏，可勾选后整理。',
+      tone: 'warn'
+    })
+    expect(screen.getByText('已扫描 2 条旧藏，可勾选后整理。')).toBeInTheDocument()
+  })
+
   it('toggles matched archive cards by clicking the card body', async () => {
     const { container } = await openArchivePreview()
     const previewVideo = getPreviewVideoButton(container, /AI 效率工具实战/)

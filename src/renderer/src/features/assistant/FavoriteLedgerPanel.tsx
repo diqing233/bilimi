@@ -60,6 +60,11 @@ type FavoriteLedgerPanelProps = {
   }) => Promise<FavoriteLedgerPreview>
   onExecuteOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
   onOldFavoriteExecutionStateChange?: (state: 'running' | 'finished') => void
+  onOldFavoriteStatusUpdate?: (status: {
+    label: string
+    message: string
+    tone: 'idle' | 'ok' | 'warn' | 'error' | 'running'
+  }) => void
   onOpenOldFavoriteVideo?: (url: string) => void
   onRejudgeOldFavorite?: (item: FavoriteLedgerPreviewItem) => Promise<FavoriteLedgerPreviewItem>
   deepSeekArchiveAvailable?: boolean
@@ -75,6 +80,12 @@ type FavoriteLedgerPanelProps = {
 
 type OldFavoriteExecutionResult = AssistantAutomationResult & {
   paused?: boolean
+}
+
+type ArchivePreviewLatestChange = {
+  itemKey: string
+  title: string
+  message: string
 }
 
 const OLD_FAVORITE_APPEND_DELAY_MS = { min: 1200, max: 3000 }
@@ -1095,6 +1106,7 @@ export function FavoriteLedgerPanel({
   onScanOldFavorites,
   onExecuteOldFavoritePlan,
   onOldFavoriteExecutionStateChange,
+  onOldFavoriteStatusUpdate,
   onOpenOldFavoriteVideo,
   onRejudgeOldFavorite,
   deepSeekArchiveAvailable = false,
@@ -1134,6 +1146,7 @@ export function FavoriteLedgerPanel({
     useState<DeepSeekArchiveRunSnapshot | null>(null)
   const [archiveUndoStack, setArchiveUndoStack] = useState<DeepSeekArchiveRunSnapshot[]>([])
   const [archiveRedoStack, setArchiveRedoStack] = useState<DeepSeekArchiveRunSnapshot[]>([])
+  const [latestArchiveChange, setLatestArchiveChange] = useState<ArchivePreviewLatestChange | null>(null)
 
   function clearDeepSeekArchiveRunSnapshot(options: { resetHistory?: boolean } = {}) {
     setDeepSeekArchiveRunSnapshot(null)
@@ -1142,6 +1155,7 @@ export function FavoriteLedgerPanel({
     if (options.resetHistory) {
       setArchiveUndoStack([])
       setArchiveRedoStack([])
+      setLatestArchiveChange(null)
     }
   }
 
@@ -1791,11 +1805,17 @@ export function FavoriteLedgerPanel({
       setSelectedOldFavoriteSourceFolderTitles(
         new Set(normalizedPreview.items.map((item) => item.sourceFolderTitle))
       )
-      setStatus(
+      const scannedCount = normalizedPreview.insights?.totalVideos ?? normalizedPreview.items.length
+      const scanMessage =
         mode === 'setup'
-          ? `已扫描 ${normalizedPreview.insights?.totalVideos ?? normalizedPreview.items.length} 条旧藏，可勾选库房后同步。`
+          ? `已扫描 ${scannedCount} 条旧藏，可勾选库房后同步。`
           : `已扫描 ${normalizedPreview.items.length} 条旧藏，可勾选后整理。`
-      )
+      setStatus(scanMessage)
+      onOldFavoriteStatusUpdate?.({
+        label: mode === 'setup' ? `旧藏待备册 ${scannedCount}` : `旧藏待整理 ${normalizedPreview.items.length}`,
+        message: scanMessage,
+        tone: 'warn'
+      })
     } catch (error) {
       setPreview(null)
       setArchivePlanState(null)
@@ -2012,6 +2032,10 @@ export function FavoriteLedgerPanel({
 
     if (archivePlanState && archivePlanHasPreviewChanges(nextState)) {
       recordArchivePreviewHistory(archivePlanState)
+    }
+    const latestChange = archivePlanState ? latestArchiveChangeBetween(archivePlanState, nextState) : null
+    if (latestChange) {
+      setLatestArchiveChange(latestChange)
     }
     clearDeepSeekArchiveRunSnapshot()
     setArchivePlanState(nextState)
@@ -2252,6 +2276,7 @@ export function FavoriteLedgerPanel({
       recordArchivePreviewHistory(archivePlanState)
       setArchivePlanState(applied.state)
       updatePreviewFromArchivePlan(applied.state)
+      setLatestArchiveChange(latestArchiveChangeBetween(archivePlanState, applied.state))
       setDeepSeekArchiveRunSnapshot(snapshot)
       setDeepSeekArchiveDisplacementMessages(applied.redDisplacementMessages)
 
@@ -2303,6 +2328,7 @@ export function FavoriteLedgerPanel({
     setArchiveRedoStack((current) => [...current, createDeepSeekArchiveSnapshot(archivePlanState)])
     setArchivePlanState(revertedState)
     updatePreviewFromArchivePlan(revertedState)
+    setLatestArchiveChange(latestArchiveChangeBetween(archivePlanState, revertedState))
     setDeepSeekArchiveRunSnapshot(null)
     setDeepSeekArchiveDisplacementMessages([])
     setPendingUnclassifiedDecision(null)
@@ -2319,6 +2345,7 @@ export function FavoriteLedgerPanel({
     setArchiveUndoStack((current) => [...current, createDeepSeekArchiveSnapshot(archivePlanState)])
     setArchivePlanState(restoredState)
     updatePreviewFromArchivePlan(restoredState)
+    setLatestArchiveChange(latestArchiveChangeBetween(archivePlanState, restoredState))
     setPendingUnclassifiedDecision(null)
   }
 
@@ -2423,14 +2450,10 @@ export function FavoriteLedgerPanel({
       })
 
       clearDeepSeekArchiveRunSnapshot()
-      setArchivePlanState((current) => {
-        if (!current) {
-          return current
-        }
-
-        return {
-          ...current,
-          items: current.items.map((planItem) =>
+      if (archivePlanState) {
+        const nextState = {
+          ...archivePlanState,
+          items: archivePlanState.items.map((planItem) =>
             planItem.aid === item.aid && planItem.sourceFolderTitle === item.sourceFolderTitle
               ? {
                   ...planItem,
@@ -2443,7 +2466,12 @@ export function FavoriteLedgerPanel({
               : planItem
           )
         }
-      })
+        setArchivePlanState(nextState)
+        const latestChange = latestArchiveChangeBetween(archivePlanState, nextState)
+        if (latestChange) {
+          setLatestArchiveChange(latestChange)
+        }
+      }
       return
     }
 
@@ -2812,6 +2840,43 @@ export function FavoriteLedgerPanel({
     return archiveExecutionLedgers.find((ledger) => ledger.id === ledgerId)?.displayName ?? ledgerId
   }
 
+  function archivePlanTargetText(planItem: FavoriteArchivePlanItemState) {
+    if (planItem.currentTargetLedgerIds.length === 0) {
+      return '未分类'
+    }
+
+    return planItem.currentTargetLedgerIds.map(archiveLedgerDisplayName).join('、')
+  }
+
+  function latestArchiveChangeBetween(
+    previousState: FavoriteArchivePlanState,
+    nextState: FavoriteArchivePlanState
+  ): ArchivePreviewLatestChange | null {
+    const movedItems = nextState.items.filter((nextItem) => {
+      const previousItem = previousState.items.find((item) => item.itemKey === nextItem.itemKey)
+      return previousItem && !sameLedgerIds(previousItem.currentTargetLedgerIds, nextItem.currentTargetLedgerIds)
+    })
+    const latestItem = movedItems[movedItems.length - 1]
+    if (!latestItem) {
+      return null
+    }
+
+    const previousItem = previousState.items.find((item) => item.itemKey === latestItem.itemKey)
+    const previousTargetText = previousItem ? archivePlanTargetText(previousItem) : '未分类'
+    const nextTargetText = archivePlanTargetText(latestItem)
+    return {
+      itemKey: latestItem.itemKey,
+      title: latestItem.title,
+      message: `最近改动：${previousTargetText} -> ${nextTargetText}`
+    }
+  }
+
+  function jumpToLatestArchiveChange() {
+    document
+      .querySelector<HTMLElement>('[data-latest-change="true"]')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+
   function renderOldFavoritePreviewMeta(item: FavoriteLedgerPreviewItem, target?: FavoriteLedgerPreviewTarget) {
     const allTagsText = oldFavoriteTagsText(item)
     const visibleTagsText = oldFavoriteVisibleTagsText(item)
@@ -2870,6 +2935,22 @@ export function FavoriteLedgerPanel({
           {modified ? '将移至此分类' : '当前建议分类'}
         </small>
       </div>
+    )
+  }
+
+  function renderLatestArchiveChangeNotice(item: FavoriteLedgerPreviewItem, areaLedgerId: string) {
+    if (latestArchiveChange?.itemKey !== archivePlanItemKey(item)) {
+      return null
+    }
+    const primaryAreaLedgerId = currentArchiveLedgerIdsForOldFavoriteItem(item)[0] ?? 'unclassified'
+    if (primaryAreaLedgerId !== areaLedgerId) {
+      return null
+    }
+
+    return (
+      <small className="favorite-ledger-panel__preview-delta-row">
+        {latestArchiveChange.message}
+      </small>
     )
   }
 
@@ -2962,7 +3043,10 @@ export function FavoriteLedgerPanel({
               title={LEDGER_SYNC_HINT}
               onClick={() => setLedgerHintExpanded((expanded) => !expanded)}
             >
-              {ledgerHintExpanded ? '^' : 'v'}
+              <span className="favorite-ledger-panel__help-arrows" aria-hidden="true">
+                <span className="favorite-ledger-panel__help-arrow favorite-ledger-panel__help-arrow--up" />
+                <span className="favorite-ledger-panel__help-arrow favorite-ledger-panel__help-arrow--down" />
+              </span>
             </button>
           </span>
           <div className="favorite-ledger-panel__category-actions">
@@ -3134,7 +3218,10 @@ export function FavoriteLedgerPanel({
                 title={OLD_FAVORITE_GUIDE_HINT}
                 onClick={() => setOldFavoriteGuideHintExpanded((expanded) => !expanded)}
               >
-                {oldFavoriteGuideHintExpanded ? '^' : 'v'}
+                <span className="favorite-ledger-panel__help-arrows" aria-hidden="true">
+                  <span className="favorite-ledger-panel__help-arrow favorite-ledger-panel__help-arrow--up" />
+                  <span className="favorite-ledger-panel__help-arrow favorite-ledger-panel__help-arrow--down" />
+                </span>
               </button>
             </span>
             {oldFavoriteGuideHintExpanded ? (
@@ -3414,6 +3501,28 @@ export function FavoriteLedgerPanel({
                       aria-label="归档预览改动操作"
                     >
                       <div className="favorite-ledger-panel__archive-history-actions">
+                        <label className="favorite-ledger-panel__archive-history-select">
+                          <span>改动记录</span>
+                          <select
+                            aria-label="改动记录"
+                            disabled={!latestArchiveChange}
+                            value=""
+                            onChange={(event) => {
+                              if (event.currentTarget.value === 'latest') {
+                                jumpToLatestArchiveChange()
+                              }
+                            }}
+                          >
+                            {!latestArchiveChange ? (
+                              <option value="">暂无改动记录</option>
+                            ) : (
+                              <>
+                                <option value="">选择改动记录</option>
+                                <option value="latest">最近一次改动：{latestArchiveChange.title}</option>
+                              </>
+                            )}
+                          </select>
+                        </label>
                         <button
                           type="button"
                           className="favorite-ledger-panel__archive-history-button"
@@ -3477,15 +3586,21 @@ export function FavoriteLedgerPanel({
                     <div className="favorite-ledger-panel__preview-videos" aria-label="未匹配到合适分类视频">
                       {previewScopedPendingItems.length > 0 ? (
                         previewScopedPendingItems.map((item) => (
-                          <article key={`pending-${item.sourceFolderTitle}-${item.aid}`}>
+                          <article
+                            key={`pending-${item.sourceFolderTitle}-${item.aid}`}
+                            data-latest-change={
+                              latestArchiveChange?.itemKey === archivePlanItemKey(item) ? 'true' : undefined
+                            }
+                          >
                             <div
                               className="favorite-ledger-panel__preview-video favorite-ledger-panel__preview-video--pending"
                             >
                               {renderOldFavoriteVideoTitle(item)}
                               {renderOldFavoritePreviewMeta(item)}
                               <small>{pendingReasonText(item)}</small>
-                              {renderOldFavoriteArchiveControls(item, 'unclassified')}
                             </div>
+                            {renderOldFavoriteArchiveControls(item, 'unclassified')}
+                            {renderLatestArchiveChangeNotice(item, 'unclassified')}
                           </article>
                         ))
                       ) : (
@@ -3529,7 +3644,12 @@ export function FavoriteLedgerPanel({
                           aria-label={`${group.displayName} 视频`}
                         >
                           {group.entries.map(({ item, target, selected, changedByDeepSeek }) => (
-                            <article key={`${group.ledgerId}-${item.sourceFolderTitle}-${item.aid}`}>
+                            <article
+                              key={`${group.ledgerId}-${item.sourceFolderTitle}-${item.aid}`}
+                              data-latest-change={
+                                latestArchiveChange?.itemKey === archivePlanItemKey(item) ? 'true' : undefined
+                              }
+                            >
                               <div
                                 className={[
                                   'favorite-ledger-panel__preview-video',
@@ -3551,8 +3671,9 @@ export function FavoriteLedgerPanel({
                               >
                                 {renderOldFavoriteVideoTitle(item)}
                                 {renderOldFavoritePreviewMeta(item, target)}
-                                {renderOldFavoriteArchiveControls(item, group.ledgerId, target)}
                               </div>
+                              {renderOldFavoriteArchiveControls(item, group.ledgerId, target)}
+                              {renderLatestArchiveChangeNotice(item, group.ledgerId)}
                             </article>
                           ))}
                         </div>

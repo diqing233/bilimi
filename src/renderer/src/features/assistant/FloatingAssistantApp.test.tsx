@@ -613,6 +613,57 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByText('三分钟讲清机器学习科普教程')).toBeInTheDocument()
   })
 
+  it('keeps quick review settings compact inside action buttons', async () => {
+    installDesktopApi()
+
+    render(<FloatingAssistantApp />)
+
+    expect(await screen.findByRole('button', { name: /赐.*投币厚赏/ })).toBeInTheDocument()
+    expect(screen.queryByText('投币数量')).not.toBeInTheDocument()
+    expect(screen.queryByText('评论发送方式')).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '投币厚赏参数' })).toHaveDisplayValue('1 枚')
+    expect(screen.getByRole('combobox', { name: '拟奏短评参数' })).toHaveDisplayValue('随机直发')
+  })
+
+  it('summarizes every DeepSeek feature in the global status tooltip', async () => {
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true,
+            deepseekApiKeyStored: true,
+            deepseekCommentEnabled: true,
+            deepseekAutoSummaryEnabled: false,
+            deepseekPetChatEnabled: true,
+            deepseekDailyClassificationEnabled: false
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    const deepSeekStatus = await screen.findByLabelText('DeepSeek状态')
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
+        'title',
+        expect.stringContaining('趣评生成：开启')
+      )
+    )
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
+      'title',
+      expect.stringContaining('自动总结：关闭')
+    )
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
+      'title',
+      expect.stringContaining('宠物对话：开启')
+    )
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
+      'title',
+      expect.stringContaining('辅助整理：关闭')
+    )
+  })
+
   it('uses a loading placeholder instead of a fake video title before the snapshot arrives', async () => {
     let resolveSnapshot: (snapshot: AssistantSnapshot) => void = () => {}
     installDesktopApi({
@@ -728,12 +779,27 @@ describe('FloatingAssistantApp', () => {
 
     const settingsJump = screen.getByRole<HTMLSelectElement>('combobox', { name: '设置项' })
     expect(settingsJump).toHaveValue('diagnostics')
-    expect(within(settingsJump).getByRole('option', { name: '诊断' })).toBeInTheDocument()
-    expect(within(settingsJump).getByRole('option', { name: 'DeepSeek' })).toBeInTheDocument()
+    expect(Array.from(settingsJump.options).map((option) => option.textContent)).toEqual([
+      '诊断',
+      'DeepSeek',
+      '宠物设置',
+      '视频音频转写速度',
+      '收藏整理',
+      '整理策略',
+      '批阅动作'
+    ])
     expect(await screen.findByText('纠错学习记录（1）')).toBeInTheDocument()
     expect(screen.getByText('关键词建议（1）')).toBeInTheDocument()
 
+    const diagnosticsSection = screen.getByRole('group', { name: '诊断' })
     const deepSeekSection = screen.getByRole('group', { name: 'DeepSeek' })
+    const petSection = screen.getByRole('group', { name: '宠物设置' })
+    expect(
+      diagnosticsSection.compareDocumentPosition(deepSeekSection) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      deepSeekSection.compareDocumentPosition(petSection) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
     deepSeekSection.scrollIntoView = vi.fn()
     fireEvent.change(settingsJump, { target: { value: 'deepseek' } })
 
@@ -1279,7 +1345,7 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByRole('list', { name: '设置诊断结果' })).toBeInTheDocument()
     expect(screen.getByText('B 站网络')).toBeInTheDocument()
     expect(screen.getByText('当前 B 站页面')).toBeInTheDocument()
-    expect(await screen.findByRole('status')).toHaveTextContent('诊断完成。')
+    await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent('诊断完成。'))
   })
 
   it('can collapse and expand long settings diagnostics', async () => {
@@ -1798,7 +1864,10 @@ describe('FloatingAssistantApp', () => {
       )
     )
     expect(restoreDefaultLayoutSize).toHaveBeenCalledOnce()
-    expect(await screen.findByRole('status')).toHaveTextContent('布局大小已恢复默认。')
+    await waitFor(() =>
+      expect(screen.getByLabelText('全局提示')).toHaveTextContent('布局大小已恢复默认。')
+    )
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
   it('saves the local audio transcription thread limit from settings', async () => {
@@ -2240,17 +2309,12 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '复制推荐模型' }))
     expect(screen.getByRole('button', { name: '复制推荐模型' })).toHaveTextContent('复制')
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('deepseek-v4-pro'))
-    const copyStatus = await screen.findByRole('status')
-    expect(copyStatus).toHaveTextContent('已复制推荐模型。')
-    expect(
-      copyStatus.compareDocumentPosition(screen.getByText('致谢 云枢智元')) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
+    await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent('已复制推荐模型。'))
 
     fireEvent.click(screen.getByRole('button', { name: '复制服务器地址' }))
     expect(screen.getByRole('button', { name: '复制服务器地址' })).toHaveTextContent('复制')
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://api.yunshulink.com/v1'))
-    expect(await screen.findByRole('status')).toHaveTextContent('已复制服务器地址。')
+    await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent('已复制服务器地址。'))
 
     expect(screen.queryByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' })).not.toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: '趣味评论' })).toBeChecked()
@@ -2289,7 +2353,7 @@ describe('FloatingAssistantApp', () => {
 
     await waitFor(() => expect(saveDeepSeekApiKey).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledOnce())
-    expect(await screen.findByRole('status')).toHaveTextContent('DeepSeek 连接成功。')
+    await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent('DeepSeek 连接成功。'))
 
     fireEvent.click(screen.getByRole('button', { name: '重置 DeepSeek' }))
 
@@ -2319,7 +2383,7 @@ describe('FloatingAssistantApp', () => {
         })
       )
     )
-    expect(await screen.findByRole('status')).toHaveTextContent('DeepSeek 设置已重置。')
+    await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent('DeepSeek 设置已重置。'))
   })
 
   it('persists the DeepSeek auto-summary toggle as soon as it changes', async () => {
@@ -2384,8 +2448,10 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek' }))
     fireEvent.click(screen.getByRole('button', { name: '测试 DeepSeek' }))
 
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      'DeepSeek 测试功能未加载，请重启应用后再试。'
+    await waitFor(() =>
+      expect(screen.getByLabelText('全局提示')).toHaveTextContent(
+        'DeepSeek 测试功能未加载，请重启应用后再试。'
+      )
     )
   })
 

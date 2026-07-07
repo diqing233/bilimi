@@ -114,6 +114,19 @@ describe('VideoNoteArchivePanel', () => {
     expect(screen.queryByText('纯文稿连续阅读，提供复制全文。')).not.toBeInTheDocument()
   })
 
+  it('collapses the selected archive detail when clicking the same video again', () => {
+    renderArchivePanel()
+
+    const archiveButton = screen.getByRole('button', { name: /机器学习入门/ })
+    fireEvent.click(archiveButton)
+
+    expect(screen.getByRole('article', { name: '机器学习入门' })).toBeInTheDocument()
+
+    fireEvent.click(archiveButton)
+
+    expect(screen.queryByRole('article', { name: '机器学习入门' })).not.toBeInTheDocument()
+  })
+
   it('searches title, author, bvid, transcript and summary text', () => {
     renderArchivePanel()
 

@@ -239,8 +239,8 @@ export function MemorialPanel({
                       onPointerDown={stopActionEvent}
                       onKeyDown={stopActionEvent}
                     >
-                      <span>投币数量</span>
                       <select
+                        aria-label="投币厚赏参数"
                         value={defaultCoinCount}
                         onChange={(event) => {
                           event.stopPropagation()
@@ -260,8 +260,8 @@ export function MemorialPanel({
                       onPointerDown={stopActionEvent}
                       onKeyDown={stopActionEvent}
                     >
-                      <span>评论发送方式</span>
                       <select
+                        aria-label="拟奏短评参数"
                         value={commentSubmitMode}
                         onChange={(event) => {
                           event.stopPropagation()
@@ -270,8 +270,8 @@ export function MemorialPanel({
                           })
                         }}
                       >
-                        <option value="random">随机生成一条并直接发送</option>
-                        <option value="choose">生成 3 条候选</option>
+                        <option value="random">随机直发</option>
+                        <option value="choose">生成候选</option>
                       </select>
                     </label>
                   ) : null

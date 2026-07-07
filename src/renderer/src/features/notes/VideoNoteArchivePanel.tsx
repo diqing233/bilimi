@@ -131,6 +131,16 @@ export function VideoNoteArchivePanel({
   }, [selectedVersion?.id, selectedVersion?.note.userMemo])
 
   function selectArchive(archive: VideoNoteArchiveEntry): void {
+    if (selectedArchiveId === archive.id) {
+      setSelectedArchiveId(null)
+      setSelectedVersionId(null)
+      setActiveResultTab(null)
+      setMemoOpen(false)
+      setVersionMenuOpen(false)
+      setMoreMenuOpen(false)
+      return
+    }
+
     setSelectedArchiveId(archive.id)
     setSelectedVersionId(archive.versions.at(-1)?.id ?? null)
     setActiveResultTab(null)

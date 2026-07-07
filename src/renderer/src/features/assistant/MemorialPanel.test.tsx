@@ -190,15 +190,17 @@ describe('MemorialPanel', () => {
       />
     )
 
-    expect(screen.getByLabelText('投币数量')).toHaveValue('1')
-    expect(screen.getByLabelText('评论发送方式')).toHaveValue('random')
-    expect(screen.getByTestId('review-action-coin')).toContainElement(screen.getByLabelText('投币数量'))
+    expect(screen.queryByText('投币数量')).not.toBeInTheDocument()
+    expect(screen.queryByText('评论发送方式')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('投币厚赏参数')).toHaveValue('1')
+    expect(screen.getByLabelText('拟奏短评参数')).toHaveValue('random')
+    expect(screen.getByTestId('review-action-coin')).toContainElement(screen.getByLabelText('投币厚赏参数'))
     expect(screen.getByTestId('review-action-comment')).toContainElement(
-      screen.getByLabelText('评论发送方式')
+      screen.getByLabelText('拟奏短评参数')
     )
 
-    fireEvent.change(screen.getByLabelText('投币数量'), { target: { value: '2' } })
-    fireEvent.change(screen.getByLabelText('评论发送方式'), { target: { value: 'choose' } })
+    fireEvent.change(screen.getByLabelText('投币厚赏参数'), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText('拟奏短评参数'), { target: { value: 'choose' } })
 
     expect(onPreferenceChange).toHaveBeenCalledWith({ defaultCoinCount: 2 })
     expect(onPreferenceChange).toHaveBeenCalledWith({ commentSubmitMode: 'choose' })
