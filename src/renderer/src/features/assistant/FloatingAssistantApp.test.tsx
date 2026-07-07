@@ -676,7 +676,7 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByRole('checkbox', { name: '纠错学习参与分类' })).toBeChecked()
   })
 
-  it('renders a settings jump menu and concise learning counts', async () => {
+  it('renders fixed settings section buttons and concise learning counts', async () => {
     installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
@@ -721,15 +721,29 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
 
-    expect(screen.getByRole('combobox', { name: '设置项' })).toHaveValue('diagnostics')
+    const settingsSectionNav = screen.getByRole('group', { name: '设置分区' })
+    expect(within(settingsSectionNav).getByRole('button', { name: '设置项' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    )
+    expect(within(settingsSectionNav).getByRole('button', { name: '诊断' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    expect(within(settingsSectionNav).getByRole('button', { name: 'DeepSeek' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    )
+    expect(screen.queryByRole('combobox', { name: '设置项' })).not.toBeInTheDocument()
     expect(await screen.findByText('纠错学习记录（1）')).toBeInTheDocument()
     expect(screen.getByText('关键词建议（1）')).toBeInTheDocument()
 
-    fireEvent.change(screen.getByRole('combobox', { name: '设置项' }), {
-      target: { value: 'transcription' }
-    })
+    fireEvent.click(within(settingsSectionNav).getByRole('button', { name: '设置项' }))
 
-    expect(screen.getByRole('combobox', { name: '设置项' })).toHaveValue('transcription')
+    expect(within(settingsSectionNav).getByRole('button', { name: '设置项' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
     expect(screen.getByRole('group', { name: '视频音频转写速度' })).toBeInTheDocument()
     expect(
       screen.getByText(

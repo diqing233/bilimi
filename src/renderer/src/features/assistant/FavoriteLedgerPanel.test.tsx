@@ -337,6 +337,7 @@ describe('FavoriteLedgerPanel', () => {
 
     const gameGroup = screen.getByRole('group', { name: 'bilimi·游戏 1 条' })
     expect(within(gameGroup).getByText('可以改去游戏区的视频')).toBeInTheDocument()
+    expect(within(gameGroup).getByText('将移至此分类')).toBeInTheDocument()
     expect(within(gameGroup).getByText('当前位置')).toHaveAttribute(
       'title',
       '已改：bilimi·学习 -> bilimi·游戏'
@@ -350,6 +351,81 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByRole('group', { name: 'bilimi·学习 1 条' })).toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'bilimi·游戏 1 条' })).not.toBeInTheDocument()
     expect(screen.getByText('当前位置')).toHaveAttribute('title', 'bilimi·学习')
+  })
+
+  it('sorts moved archive targets before low-confidence matches inside each ledger group', async () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
+      if (ledger.id === 'knowledge') {
+        return { ...ledger, displayName: 'bilimi·学习', bilibiliFolderId: '9001' }
+      }
+      if (ledger.id === 'game') {
+        return { ...ledger, displayName: 'bilimi·游戏', bilibiliFolderId: '9002' }
+      }
+      return ledger
+    })
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 701,
+          title: '低置信但未移动',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'game',
+          targetFolderId: '9002',
+          targetDisplayName: 'bilimi·游戏',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          originalSuggestedLedgerIds: ['game'],
+          currentTargetLedgerIds: ['game'],
+          selectedTargetLedgerIds: ['game'],
+          lowConfidence: true
+        },
+        {
+          aid: 702,
+          title: 'DeepSeek 已移动',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'game',
+          targetFolderId: '9002',
+          targetDisplayName: 'bilimi·游戏',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          originalSuggestedLedgerIds: ['knowledge'],
+          currentTargetLedgerIds: ['game'],
+          selectedTargetLedgerIds: ['game'],
+          lowConfidence: false
+        },
+        {
+          aid: 703,
+          title: '普通稳定匹配',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'game',
+          targetFolderId: '9002',
+          targetDisplayName: 'bilimi·游戏',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          originalSuggestedLedgerIds: ['game'],
+          currentTargetLedgerIds: ['game'],
+          selectedTargetLedgerIds: ['game'],
+          lowConfidence: false
+        }
+      ],
+      skippedSourceFolderTitles: []
+    })
+
+    renderPanel({ ledgers, onScanOldFavorites })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+
+    const gameGroup = screen.getByRole('group', { name: 'bilimi·游戏 3 条' })
+    const titles = Array.from(
+      gameGroup.querySelectorAll('.favorite-ledger-panel__preview-video-title')
+    ).map((node) => node.textContent)
+
+    expect(titles).toEqual(['DeepSeek 已移动', '低置信但未移动', '普通稳定匹配'])
   })
 
   it('confirms how multi-target old favorites move to unclassified', async () => {
@@ -4531,7 +4607,13 @@ describe('FavoriteLedgerPanel', () => {
     expect(within(deepSeekCard).getByText('DeepSeek 辅助整理')).toBeInTheDocument()
     expect(within(deepSeekCard).getByRole('button', { name: 'DeepSeek 整理' })).toBeInTheDocument()
     expect(within(deepSeekCard).getByText('整理范围')).toBeInTheDocument()
-    expect(within(deepSeekCard).getByLabelText('DeepSeek 辅助整理范围')).toBeInTheDocument()
+    const scopeSelect = within(deepSeekCard).getByLabelText<HTMLSelectElement>('DeepSeek 辅助整理范围')
+    expect(scopeSelect).toBeInTheDocument()
+    expect(Array.from(scopeSelect.options).map((option) => option.textContent)).toEqual([
+      '不太稳 + 未匹配到合适分类',
+      'DeepSeek 进行二次整理',
+      '仅未匹配到合适分类'
+    ])
     expect(
       within(deepSeekCard).getByText(/将发送标题、UP、标签、简介、来源收藏夹、当前建议和 bilimi 册目信息/)
     ).toBeInTheDocument()

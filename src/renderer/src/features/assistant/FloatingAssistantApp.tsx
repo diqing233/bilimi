@@ -1603,37 +1603,50 @@ export function FloatingAssistantApp({
         {activeView === 'ledger' ? null : activeView === 'settings' ? (
           <section className="assistant-settings" aria-label="助手设置">
             <header>
-              <h2>设置</h2>
-              <div className="assistant-settings__header-actions">
-                <label className="assistant-settings__jump">
-                  <span>设置项</span>
-                  <select
-                    value={settingsJumpValue}
-                    onChange={(event) =>
-                      jumpToSettingsSection(event.currentTarget.value as SettingsJumpValue)
-                    }
-                  >
-                    {SETTINGS_JUMP_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button type="button" onClick={() => void restoreDefaultLayoutSize()}>
-                  恢复默认布局
+              <div className="assistant-settings__title-row">
+                <h2>设置</h2>
+                <div className="assistant-settings__header-actions">
+                  <button type="button" onClick={() => void restoreDefaultLayoutSize()}>
+                    恢复默认布局
+                  </button>
+                  <button type="button" onClick={() => void resetAssistantSettings()}>
+                    重置设置
+                  </button>
+                </div>
+              </div>
+              <div className="assistant-settings__section-buttons" role="group" aria-label="设置分区">
+                <button
+                  type="button"
+                  aria-pressed={
+                    settingsJumpValue !== 'diagnostics' && settingsJumpValue !== 'deepseek'
+                  }
+                  onClick={() => jumpToSettingsSection('pet')}
+                >
+                  设置项
                 </button>
-                <button type="button" onClick={() => void resetAssistantSettings()}>
-                  重置设置
+                <button
+                  type="button"
+                  aria-pressed={settingsJumpValue === 'diagnostics'}
+                  onClick={() => jumpToSettingsSection('diagnostics')}
+                >
+                  诊断
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={settingsJumpValue === 'deepseek'}
+                  onClick={() => jumpToSettingsSection('deepseek')}
+                >
+                  DeepSeek
                 </button>
               </div>
             </header>
-            {settingsStatusMessage ? (
-              <p className="assistant-settings__status" role="status">
-                {settingsStatusMessage}
-              </p>
-            ) : null}
-            <fieldset
+            <div className="assistant-settings__body">
+              {settingsStatusMessage ? (
+                <p className="assistant-settings__status" role="status">
+                  {settingsStatusMessage}
+                </p>
+              ) : null}
+              <fieldset
               className="assistant-settings__group assistant-settings__group--diagnostics"
               data-settings-section="diagnostics"
             >
@@ -2288,7 +2301,8 @@ export function FloatingAssistantApp({
                   </aside>
                 </>
               ) : null}
-            </fieldset>
+              </fieldset>
+            </div>
           </section>
         ) : activeView === 'noteArchive' ? (
           <VideoNoteArchivePanel

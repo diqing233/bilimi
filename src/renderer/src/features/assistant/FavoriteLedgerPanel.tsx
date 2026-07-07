@@ -284,6 +284,7 @@ type OldFavoriteTargetGroup = {
     target: FavoriteLedgerPreviewTarget
     selected: boolean
     changedByDeepSeek: boolean
+    targetChanged: boolean
   }>
 }
 
@@ -777,6 +778,13 @@ function sameLedgerIds(left: string[], right: string[]) {
   return left.every((ledgerId) => rightIds.has(ledgerId))
 }
 
+function archivePlanTargetChanged(item: FavoriteArchivePlanItemState) {
+  return !sameLedgerIds(
+    item.originalSuggestedLedgerIds.filter((ledgerId) => ledgerId !== 'inbox' && ledgerId !== 'unclassified'),
+    item.currentTargetLedgerIds.filter((ledgerId) => ledgerId !== 'inbox' && ledgerId !== 'unclassified')
+  )
+}
+
 function executableCorrectionLedgerIds(ledgerIds: string[]) {
   return uniqueLedgerIds(ledgerIds.filter((ledgerId) => ledgerId !== 'inbox' && ledgerId !== 'unclassified'))
 }
@@ -963,7 +971,8 @@ function buildOldFavoriteTargetGroups(args: {
         item,
         target,
         selected: planItem.selectedTargetLedgerIds.includes(target.ledgerId),
-        changedByDeepSeek: planItem.lastChangeSource === 'deepseek'
+        changedByDeepSeek: planItem.lastChangeSource === 'deepseek',
+        targetChanged: archivePlanTargetChanged(planItem)
       })
       groups.set(target.ledgerId, group)
     }
@@ -2639,11 +2648,11 @@ export function FavoriteLedgerPanel({
         entries: [...group.entries].sort((left, right) => {
           const leftLowConfidence = left.item.lowConfidence || left.item.classificationDiagnostic?.lowConfidence
           const rightLowConfidence = right.item.lowConfidence || right.item.classificationDiagnostic?.lowConfidence
+          if (left.targetChanged !== right.targetChanged) {
+            return left.targetChanged ? -1 : 1
+          }
           if (leftLowConfidence !== rightLowConfidence) {
             return leftLowConfidence ? -1 : 1
-          }
-          if (left.changedByDeepSeek !== right.changedByDeepSeek) {
-            return left.changedByDeepSeek ? -1 : 1
           }
           return left.item.title.localeCompare(right.item.title, 'zh-Hans-CN')
         })
@@ -2847,6 +2856,9 @@ export function FavoriteLedgerPanel({
             <option value="unclassified">未分类</option>
           </select>
         </label>
+        <small className="favorite-ledger-panel__position-note">
+          {modified ? '将移至此分类' : '当前建议分类'}
+        </small>
       </div>
     )
   }
@@ -3356,9 +3368,11 @@ export function FavoriteLedgerPanel({
                             setDeepSeekArchiveMode(event.currentTarget.value as DeepSeekArchiveMode)
                           }
                         >
-                          <option value="low-confidence-and-unclassified">不太稳 + 待分类</option>
-                          <option value="all">全部二次整理</option>
-                          <option value="unclassified-only">仅整理待分类</option>
+                          <option value="low-confidence-and-unclassified">
+                            不太稳 + 未匹配到合适分类
+                          </option>
+                          <option value="all">DeepSeek 进行二次整理</option>
+                          <option value="unclassified-only">仅未匹配到合适分类</option>
                         </select>
                       </label>
                       {deepSeekArchiveAvailable ? null : (
