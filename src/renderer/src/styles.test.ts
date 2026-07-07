@@ -150,6 +150,21 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
+  it('keeps every assistant sidebar panel stretched to the ledger frame height', () => {
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .floating-assistant-view { min-width: 0; min-height: 0; height: 100%; overflow: hidden;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .memorial-panel, .assistant-sidebar-workspace .favorite-ledger-panel, .assistant-sidebar-workspace .video-note-archive, .assistant-sidebar-workspace .assistant-settings { width: 100%; height: 100%; max-height: none; box-sizing: border-box; box-shadow: none;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .memorial-panel__paper { height: 100%; max-height: none; box-sizing: border-box; overflow: auto; box-shadow: none;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .favorite-ledger-panel, .assistant-sidebar-workspace .video-note-archive { height: 100%; box-sizing: border-box; overflow: auto;'
+    )
+  })
+
   it('keeps the floating pet fixed-size inside its transparent stage', () => {
     expect(normalizedStyles).toContain('.palace-maid-pet-shell {\n  width: 336px;\n  height: 380px;')
     expectStyleSnippet(

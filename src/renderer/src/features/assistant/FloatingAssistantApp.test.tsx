@@ -3202,6 +3202,20 @@ describe('FloatingAssistantApp', () => {
     expect(closeFloatingAssistant).not.toHaveBeenCalled()
   })
 
+  it('uses height-controlled view wrappers for every sidebar panel', async () => {
+    const { container } = render(<FloatingAssistantApp mode="sidebar" />)
+
+    expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
+
+    const viewWrappers = container.querySelectorAll(
+      '.assistant-sidebar-workspace > .floating-assistant-view'
+    )
+    expect(viewWrappers).toHaveLength(3)
+    expect(container.querySelector('.memorial-panel')?.parentElement).toHaveClass(
+      'floating-assistant-view'
+    )
+  })
+
   it('reports cheer and done pet states around successful sidebar actions', async () => {
     const setAssistantPetState = vi.fn()
     const setAssistantPetHint = vi.fn()

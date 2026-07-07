@@ -2546,7 +2546,7 @@ export function FloatingAssistantApp({
           </section>
         ) : (
           <>
-            <div hidden={activeView !== 'noteArchive'}>
+            <div className="floating-assistant-view" hidden={activeView !== 'noteArchive'}>
               <VideoNoteArchivePanel
                 archives={videoNoteArchives}
                 onClose={() => {
@@ -2562,7 +2562,7 @@ export function FloatingAssistantApp({
                 onArchivePosterSummary={archiveNotePosterSummary}
               />
             </div>
-            <div hidden={activeView === 'noteArchive'}>
+            <div className="floating-assistant-view" hidden={activeView === 'noteArchive'}>
               <MemorialPanel
                 recommendation={recommendation}
                 commentDrafts={commentDrafts}
