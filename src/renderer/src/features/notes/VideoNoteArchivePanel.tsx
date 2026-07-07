@@ -476,58 +476,59 @@ export function VideoNoteArchivePanel({
         {selectedArchive && selectedVersion ? (
           <article className="video-note-archive__detail" aria-label={selectedArchive.source.title}>
             <header>
-              <h3>
-                <a
-                  href={selectedArchive.source.url}
-                  onClick={(event) => {
-                    event.preventDefault()
-                    onOpenSource(selectedArchive.source.url)
-                  }}
-                >
-                  {selectedArchive.source.title}
-                </a>
-              </h3>
-              <p>
-                {selectedArchive.source.author ?? '未署名'} · {selectedArchive.source.bvid ?? '未识别'}
-              </p>
-              <div className="video-note-archive__more">
-                <button
-                  type="button"
-                  aria-label="更多档案操作"
-                  aria-haspopup="menu"
-                  aria-expanded={moreMenuOpen}
-                  onClick={() => setMoreMenuOpen((open) => !open)}
-                >
-                  ⋯
-                </button>
-                {moreMenuOpen ? (
-                  <div className="video-note-archive__menu" role="menu">
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setMoreMenuOpen(false)
-                        onOpenSource(selectedArchive.source.url)
-                      }}
-                    >
-                      打开视频来源
-                    </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setMoreMenuOpen(false)
-                        setPendingDelete({ type: 'entry', archiveId: selectedArchive.id })
-                      }}
-                    >
-                      删除视频档案
-                    </button>
-                  </div>
-                ) : null}
+              <div className="video-note-archive__detail-title-row">
+                <h3>
+                  <a
+                    href={selectedArchive.source.url}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      onOpenSource(selectedArchive.source.url)
+                    }}
+                  >
+                    {selectedArchive.source.title}
+                  </a>
+                </h3>
+                <div className="video-note-archive__more">
+                  <button
+                    type="button"
+                    aria-label="更多档案操作"
+                    aria-haspopup="menu"
+                    aria-expanded={moreMenuOpen}
+                    onClick={() => setMoreMenuOpen((open) => !open)}
+                  >
+                    ⋯
+                  </button>
+                  {moreMenuOpen ? (
+                    <div className="video-note-archive__menu" role="menu">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMoreMenuOpen(false)
+                          onOpenSource(selectedArchive.source.url)
+                        }}
+                      >
+                        打开视频来源
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMoreMenuOpen(false)
+                          setPendingDelete({ type: 'entry', archiveId: selectedArchive.id })
+                        }}
+                      >
+                        删除视频档案
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               </div>
-            </header>
-
-            <div className="video-note-archive__version-controls">
+              <p className="video-note-archive__detail-meta">
+                {selectedArchive.source.author ?? '未知作者'} · {selectedArchive.source.bvid ?? '未识别'} ·{' '}
+                {selectedArchive.versions.length} 次转写
+              </p>
+              <div className="video-note-archive__version-controls">
               <div className="video-note-archive__version-picker">
                 <span id="video-note-archive-version-label">历史版本</span>
                 <button
@@ -607,6 +608,7 @@ export function VideoNoteArchivePanel({
                 备注
               </button>
             </div>
+            </header>
 
             {memoOpen ? (
               <section className="video-note-archive__editor" aria-label="备注">

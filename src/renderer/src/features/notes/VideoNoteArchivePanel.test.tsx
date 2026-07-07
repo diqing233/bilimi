@@ -214,11 +214,55 @@ describe('VideoNoteArchivePanel', () => {
 
     const detail = screen.getByRole('article', { name: /\u673a\u5668\u5b66\u4e60/ })
     const controls = detail.querySelector('.video-note-archive__version-controls')
+    const header = detail.querySelector('header')
     const editor = screen.getByLabelText('\u5907\u6ce8')
 
     expect(controls).not.toBeNull()
-    expect(controls?.nextElementSibling).toBe(editor)
+    expect(header?.contains(controls)).toBe(true)
+    expect(header?.nextElementSibling).toBe(editor)
     expect(detail.querySelector('.video-note-archive__actions')).toBeNull()
+  })
+
+  it('keeps archive detail title, metadata and version controls in compact adjacent rows', () => {
+    renderArchivePanel()
+
+    fireEvent.click(screen.getByRole('button', { name: /BV1note/ }))
+
+    const detail = screen.getByRole('article', { name: /\u673a\u5668\u5b66\u4e60/ })
+    const titleRow = detail.querySelector('.video-note-archive__detail-title-row')
+    const metadataRow = detail.querySelector('.video-note-archive__detail-meta')
+    const versionRow = detail.querySelector('.video-note-archive__version-controls')
+    const title = screen.getByRole('link', { name: /\u673a\u5668\u5b66\u4e60/ })
+    const moreButton = screen.getByRole('button', { name: /\u66f4\u591a.*\u64cd\u4f5c/ })
+
+    expect(titleRow).not.toBeNull()
+    expect(metadataRow).not.toBeNull()
+    expect(versionRow).not.toBeNull()
+    expect(titleRow?.contains(title)).toBe(true)
+    expect(titleRow?.contains(moreButton)).toBe(true)
+    expect(titleRow?.nextElementSibling).toBe(metadataRow)
+    expect(metadataRow?.nextElementSibling).toBe(versionRow)
+    expect(metadataRow).toHaveTextContent('BV1note')
+    expect(metadataRow).toHaveTextContent('2')
+  })
+
+  it('keeps whole-archive deletion in the more menu and version deletion inside version rows', () => {
+    renderArchivePanel()
+
+    fireEvent.click(screen.getByRole('button', { name: /BV1note/ }))
+    fireEvent.click(screen.getByRole('button', { name: /\u66f4\u591a.*\u64cd\u4f5c/ }))
+
+    const moreMenu = screen.getByRole('menu')
+    expect(within(moreMenu).getByRole('menuitem', { name: /\u6253\u5f00.*\u6765\u6e90/ })).toBeInTheDocument()
+    expect(within(moreMenu).getByRole('menuitem', { name: /\u5220\u9664.*\u89c6\u9891.*\u6863\u6848/ })).toBeInTheDocument()
+    expect(within(moreMenu).queryByRole('menuitem', { name: /\u5220\u9664\u7248\u672c/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /\u66f4\u591a.*\u64cd\u4f5c/ }))
+    fireEvent.click(screen.getByRole('button', { name: /\u5c55\u5f00.*\u5386\u53f2\u7248\u672c/ }))
+
+    const versionMenu = screen.getByRole('listbox')
+    expect(within(versionMenu).getAllByRole('button', { name: /\u5220\u9664.*v\d/ })).toHaveLength(2)
+    expect(within(versionMenu).queryByRole('button', { name: /\u5220\u9664.*\u89c6\u9891.*\u6863\u6848/ })).not.toBeInTheDocument()
   })
 
   it('copies transcript and summary text', async () => {

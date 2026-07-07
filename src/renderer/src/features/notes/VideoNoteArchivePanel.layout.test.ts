@@ -17,10 +17,24 @@ describe('VideoNoteArchivePanel layout styles', () => {
 
   it('keeps version controls, starred toggle and memo toggle on one row', () => {
     expect(styles).toContain('.video-note-archive__version-controls {\n  display: flex;')
-    expect(styles).toContain('.video-note-archive__version-picker {\n  position: relative;\n  display: grid;\n  gap: 4px;\n  flex: 1 1 180px;')
+    expect(styles).toContain('.video-note-archive__version-picker {\n  position: relative;\n  display: flex;\n  gap: 6px;\n  align-items: center;\n  flex: 1 1 180px;')
     expect(styles).toContain('.video-note-archive__version-picker > button {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;')
     expect(styles).toContain('.video-note-archive__version-controls .video-note-archive__star-button {\n  min-width: 30px;')
     expect(styles).toContain('.video-note-archive__version-controls button:not(.video-note-archive__star-button) {\n  min-height: 30px;')
+  })
+
+  it('keeps the detail top layout compact with the menu centered on the title row', () => {
+    expect(styles).toContain('.video-note-archive__detail {\n  display: grid;\n  gap: 8px;')
+    expect(styles).toContain('.video-note-archive__detail-title-row {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;\n  gap: 8px;\n  align-items: center;')
+    expect(styles).toContain('.video-note-archive__detail-meta {\n  margin: 0;\n  color: var(--porcelain-muted);\n  font-size: 12px;')
+    expect(styles).toContain('.video-note-archive__version-controls {\n  display: flex;\n  gap: 6px;\n  align-items: center;')
+  })
+
+  it('fixes archive result tab dimensions and keeps selected and unselected tabs the same size', () => {
+    expect(styles).toContain('.video-note-archive__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(104px, 1fr));\n  gap: 6px;')
+    expect(styles).toContain('.video-note-archive__result-tabs button {\n  width: 100%;\n  min-width: 0;\n  height: 36px;\n  min-height: 36px;')
+    expect(styles).toContain('.video-note-archive__result-tabs button[aria-selected="true"] {\n  background: var(--porcelain-primary);\n  color: var(--porcelain-white);')
+    expect(styles).toContain('.video-note-archive__result-tabs button[aria-selected="false"] {\n  background: rgba(220, 238, 255, 0.56);\n  color: var(--porcelain-primary);')
   })
 
   it('stacks the archive list above the detail pane', () => {
@@ -28,7 +42,7 @@ describe('VideoNoteArchivePanel layout styles', () => {
   })
 
   it('keeps archive detail content inside the visible pane by default', () => {
-    expect(styles).toContain('.video-note-archive__detail {\n  display: grid;\n  gap: 10px;')
+    expect(styles).toContain('.video-note-archive__detail {\n  display: grid;\n  gap: 8px;')
     expect(styles).toContain('overflow-x: hidden;')
     expect(styles).toContain('white-space: pre-wrap;')
     expect(styles).toContain('overflow-wrap: anywhere;')

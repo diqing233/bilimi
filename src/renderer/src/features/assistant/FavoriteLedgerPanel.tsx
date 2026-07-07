@@ -1132,13 +1132,22 @@ export function FavoriteLedgerPanel({
   const [deepSeekArchiveDisplacementMessages, setDeepSeekArchiveDisplacementMessages] = useState<string[]>([])
   const [deepSeekArchiveRunSnapshot, setDeepSeekArchiveRunSnapshot] =
     useState<DeepSeekArchiveRunSnapshot | null>(null)
-  const [archiveRedoSnapshot, setArchiveRedoSnapshot] = useState<DeepSeekArchiveRunSnapshot | null>(null)
+  const [archiveUndoStack, setArchiveUndoStack] = useState<DeepSeekArchiveRunSnapshot[]>([])
+  const [archiveRedoStack, setArchiveRedoStack] = useState<DeepSeekArchiveRunSnapshot[]>([])
 
-  function clearDeepSeekArchiveRunSnapshot() {
+  function clearDeepSeekArchiveRunSnapshot(options: { resetHistory?: boolean } = {}) {
     setDeepSeekArchiveRunSnapshot(null)
     setDeepSeekArchiveDisplacementMessages([])
-    setArchiveRedoSnapshot(null)
     setDeepSeekArchiveProgress(null)
+    if (options.resetHistory) {
+      setArchiveUndoStack([])
+      setArchiveRedoStack([])
+    }
+  }
+
+  function recordArchivePreviewHistory(state: FavoriteArchivePlanState) {
+    setArchiveUndoStack((current) => [...current, createDeepSeekArchiveSnapshot(state)])
+    setArchiveRedoStack([])
   }
   const [oldFavoriteExecuting, setOldFavoriteExecuting] = useState(false)
   const [oldFavoriteExecutionAwaitingAcknowledgement, setOldFavoriteExecutionAwaitingAcknowledgement] =
@@ -1282,7 +1291,7 @@ export function FavoriteLedgerPanel({
     setActiveLedgerSavedSnapshot(null)
     setSelectedCandidateKeys(new Set())
     setArchivePlanState(null)
-    clearDeepSeekArchiveRunSnapshot()
+    clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
     setPendingUnclassifiedDecision(null)
     setLedgerListExpanded(false)
     setStatus(null)
@@ -1728,7 +1737,7 @@ export function FavoriteLedgerPanel({
       if (nextPreview.ok === false) {
         setPreview(null)
         setArchivePlanState(null)
-        clearDeepSeekArchiveRunSnapshot()
+        clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
         setPendingUnclassifiedDecision(null)
         setStatus(`整理旧藏未完成：${nextPreview.message || '请稍后重试。'}`)
         return
@@ -1742,7 +1751,7 @@ export function FavoriteLedgerPanel({
       const nextCandidateKeys = recommendedCandidateKeysForPreview(normalizedPreview)
       setPreview(normalizedPreview)
       setArchivePlanState(createArchivePlanStateFromPreviewItems(normalizedPreview.items, nextCandidateKeys))
-      clearDeepSeekArchiveRunSnapshot()
+      clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
       setPendingUnclassifiedDecision(null)
       setOldFavoriteStep('scan')
       setOldFavoriteGuideMode(mode)
@@ -1790,7 +1799,7 @@ export function FavoriteLedgerPanel({
     } catch (error) {
       setPreview(null)
       setArchivePlanState(null)
-      clearDeepSeekArchiveRunSnapshot()
+      clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
       setPendingUnclassifiedDecision(null)
       setStatus(`整理旧藏未完成：${errorMessage(error)}`)
     } finally {
@@ -2001,6 +2010,9 @@ export function FavoriteLedgerPanel({
       return
     }
 
+    if (archivePlanState && archivePlanHasPreviewChanges(nextState)) {
+      recordArchivePreviewHistory(archivePlanState)
+    }
     clearDeepSeekArchiveRunSnapshot()
     setArchivePlanState(nextState)
     updatePreviewItemFromPlanItem(nextPlanItem)
@@ -2237,6 +2249,7 @@ export function FavoriteLedgerPanel({
         multiArchiveLimit,
         results
       })
+      recordArchivePreviewHistory(archivePlanState)
       setArchivePlanState(applied.state)
       updatePreviewFromArchivePlan(applied.state)
       setDeepSeekArchiveRunSnapshot(snapshot)
@@ -2279,40 +2292,34 @@ export function FavoriteLedgerPanel({
     })
   }
 
-  function originalArchivePlanState(state: FavoriteArchivePlanState) {
-    return state.items.reduce(
-      (nextState, item) => revertArchivePlanItem(nextState, { itemKey: item.itemKey }),
-      state
-    )
-  }
-
   function undoArchivePreviewChanges() {
-    if (!archivePlanState || deepSeekArchiveRunning || !archivePlanHasPreviewChanges(archivePlanState)) {
+    if (!archivePlanState || deepSeekArchiveRunning || archiveUndoStack.length === 0) {
       return
     }
 
-    const redoSnapshot = createDeepSeekArchiveSnapshot(archivePlanState)
-    const revertedState = originalArchivePlanState(archivePlanState)
+    const previousSnapshot = archiveUndoStack[archiveUndoStack.length - 1]
+    const revertedState = revertDeepSeekArchiveRun(archivePlanState, previousSnapshot)
+    setArchiveUndoStack((current) => current.slice(0, -1))
+    setArchiveRedoStack((current) => [...current, createDeepSeekArchiveSnapshot(archivePlanState)])
     setArchivePlanState(revertedState)
     updatePreviewFromArchivePlan(revertedState)
-    setArchiveRedoSnapshot(redoSnapshot)
     setDeepSeekArchiveRunSnapshot(null)
     setDeepSeekArchiveDisplacementMessages([])
     setPendingUnclassifiedDecision(null)
-    setDeepSeekArchiveStatus('已撤销本次改动。')
   }
 
   function redoArchivePreviewChanges() {
-    if (!archiveRedoSnapshot || deepSeekArchiveRunning) {
+    if (!archivePlanState || archiveRedoStack.length === 0 || deepSeekArchiveRunning) {
       return
     }
 
-    const restoredState = revertDeepSeekArchiveRun(archiveRedoSnapshot, archiveRedoSnapshot)
+    const nextSnapshot = archiveRedoStack[archiveRedoStack.length - 1]
+    const restoredState = revertDeepSeekArchiveRun(archivePlanState, nextSnapshot)
+    setArchiveRedoStack((current) => current.slice(0, -1))
+    setArchiveUndoStack((current) => [...current, createDeepSeekArchiveSnapshot(archivePlanState)])
     setArchivePlanState(restoredState)
     updatePreviewFromArchivePlan(restoredState)
-    setArchiveRedoSnapshot(null)
     setPendingUnclassifiedDecision(null)
-    setDeepSeekArchiveStatus('已再次复原本次改动。')
   }
 
   function setPreviewScopedPendingItemsStaged(selected: boolean) {
@@ -2320,6 +2327,9 @@ export function FavoriteLedgerPanel({
       return
     }
 
+    if (archivePlanState) {
+      recordArchivePreviewHistory(archivePlanState)
+    }
     clearDeepSeekArchiveRunSnapshot()
     const itemKeys = new Set(previewScopedPendingItems.map(archivePlanItemKey))
     setArchivePlanState((current) => {
@@ -2731,7 +2741,7 @@ export function FavoriteLedgerPanel({
       }
 
       if (event.shiftKey) {
-        if (!archiveRedoSnapshot || deepSeekArchiveRunning) {
+        if (archiveRedoStack.length === 0 || deepSeekArchiveRunning) {
           return
         }
 
@@ -2740,7 +2750,7 @@ export function FavoriteLedgerPanel({
         return
       }
 
-      if (!archivePlanState || deepSeekArchiveRunning || !hasArchivePreviewChanges) {
+      if (!archivePlanState || deepSeekArchiveRunning || archiveUndoStack.length === 0) {
         return
       }
 
@@ -2752,9 +2762,9 @@ export function FavoriteLedgerPanel({
     return () => document.removeEventListener('keydown', handleArchiveShortcut)
   }, [
     archivePlanState,
-    archiveRedoSnapshot,
+    archiveRedoStack,
+    archiveUndoStack,
     deepSeekArchiveRunning,
-    hasArchivePreviewChanges,
     oldFavoriteGuideMode,
     oldFavoriteStep
   ])
@@ -3327,23 +3337,6 @@ export function FavoriteLedgerPanel({
                 <>
                   <div className="favorite-ledger-panel__preview-tools">
                     <div
-                      className="favorite-ledger-panel__archive-history-card"
-                      role="group"
-                      aria-label="归档预览改动操作"
-                    >
-                      <button
-                        type="button"
-                        className="favorite-ledger-panel__archive-history-button"
-                        disabled={deepSeekArchiveRunning || (!hasArchivePreviewChanges && !archiveRedoSnapshot)}
-                        onClick={archiveRedoSnapshot ? redoArchivePreviewChanges : undoArchivePreviewChanges}
-                      >
-                        {archiveRedoSnapshot ? '再次复原' : '撤销本次改动'}
-                      </button>
-                      <p>
-                        Ctrl+Z 撤销本次 DeepSeek 调整，Ctrl+Shift+Z 复原；按钮会撤销或复原全部预览改动。
-                      </p>
-                    </div>
-                    <div
                       className="favorite-ledger-panel__deepseek-archive-card"
                       role="group"
                       aria-label="DeepSeek 辅助整理"
@@ -3414,6 +3407,31 @@ export function FavoriteLedgerPanel({
                           </div>
                         </div>
                       ) : null}
+                    </div>
+                    <div
+                      className="favorite-ledger-panel__archive-history-card"
+                      role="group"
+                      aria-label="归档预览改动操作"
+                    >
+                      <div className="favorite-ledger-panel__archive-history-actions">
+                        <button
+                          type="button"
+                          className="favorite-ledger-panel__archive-history-button"
+                          disabled={deepSeekArchiveRunning || archiveUndoStack.length === 0}
+                          onClick={undoArchivePreviewChanges}
+                        >
+                          撤销本次改动
+                        </button>
+                        <button
+                          type="button"
+                          className="favorite-ledger-panel__archive-history-button"
+                          disabled={deepSeekArchiveRunning || archiveRedoStack.length === 0}
+                          onClick={redoArchivePreviewChanges}
+                        >
+                          恢复本次改动
+                        </button>
+                      </div>
+                      <p>Ctrl+Z 撤销，Ctrl+Shift+Z 恢复；会按最近改动逐步回退或重做。</p>
                     </div>
                   </div>
                   {deepSeekArchiveDisplacementMessages.length > 0 ? (

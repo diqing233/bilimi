@@ -72,7 +72,7 @@ describe('MemorialPanel', () => {
     )
   })
 
-  it('shows whether DeepSeek will generate comments or use default suggestions', () => {
+  it('does not render static DeepSeek comment capability copy in the review content area', () => {
     const props = {
       recommendation: inboxRecommendation,
       commentDrafts: ['先留一评。'],
@@ -87,15 +87,11 @@ describe('MemorialPanel', () => {
     }
     const { rerender } = render(<MemorialPanel {...props} deepSeekEnabled={false} />)
 
-    expect(screen.getByText('DeepSeek 未开启，表会推荐三条默认评论。')).toHaveClass(
-      'memorial-panel__deepseek-status'
-    )
+    expect(screen.queryByText(/DeepSeek .*表会.*评论/)).not.toBeInTheDocument()
 
     rerender(<MemorialPanel {...props} deepSeekEnabled={true} />)
 
-    expect(screen.getByText('DeepSeek 已开启，表会生成三条有趣视频评论。')).toHaveClass(
-      'memorial-panel__deepseek-status'
-    )
+    expect(screen.queryByText(/DeepSeek .*表会.*评论/)).not.toBeInTheDocument()
   })
 
   it('shows the recommendation summary as the visible classification hint', () => {
@@ -123,7 +119,7 @@ describe('MemorialPanel', () => {
     )
   })
 
-  it('localizes missing automation targets in feedback', () => {
+  it('localizes missing automation targets in feedback and keeps the execution log collapsed', () => {
     render(
       <MemorialPanel
         recommendation={inboxRecommendation}
@@ -139,7 +135,7 @@ describe('MemorialPanel', () => {
         feedback={{
           tone: 'error',
           message: '尚有 like 未能寻见。',
-          steps: [],
+          steps: ['already-liked', 'favorite:add'],
           missingTargets: ['like']
         }}
       />
@@ -147,6 +143,7 @@ describe('MemorialPanel', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('未得：点赞按钮')
     expect(screen.queryByText('未得：like')).not.toBeInTheDocument()
+    expect(screen.getByText('执行日志').closest('details')).not.toHaveAttribute('open')
   })
 
   it('passes the current video author into the notes panel', () => {
@@ -171,8 +168,9 @@ describe('MemorialPanel', () => {
     expect(screen.getByText('UP').nextElementSibling).toHaveTextContent('李老师讲AI')
   })
 
-  it('shows inline coin and comment settings that report preference changes', () => {
+  it('embeds coin and comment settings inside their action buttons without firing actions', () => {
     const onPreferenceChange = vi.fn()
+    const onAction = vi.fn()
 
     render(
       <MemorialPanel
@@ -180,7 +178,7 @@ describe('MemorialPanel', () => {
         commentDrafts={['先留一评。']}
         videoCategory="待分拣"
         videoTitle="测试稿件"
-        onAction={vi.fn()}
+        onAction={onAction}
         onClose={vi.fn()}
         onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
         onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
@@ -194,11 +192,16 @@ describe('MemorialPanel', () => {
 
     expect(screen.getByLabelText('投币数量')).toHaveValue('1')
     expect(screen.getByLabelText('评论发送方式')).toHaveValue('random')
+    expect(screen.getByTestId('review-action-coin')).toContainElement(screen.getByLabelText('投币数量'))
+    expect(screen.getByTestId('review-action-comment')).toContainElement(
+      screen.getByLabelText('评论发送方式')
+    )
 
     fireEvent.change(screen.getByLabelText('投币数量'), { target: { value: '2' } })
     fireEvent.change(screen.getByLabelText('评论发送方式'), { target: { value: 'choose' } })
 
     expect(onPreferenceChange).toHaveBeenCalledWith({ defaultCoinCount: 2 })
     expect(onPreferenceChange).toHaveBeenCalledWith({ commentSubmitMode: 'choose' })
+    expect(onAction).not.toHaveBeenCalled()
   })
 })

@@ -8,7 +8,7 @@ import type {
   VideoAudioTranscriptionQueueSnapshot,
   VideoNote
 } from '@shared/types'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type SyntheticEvent } from 'react'
 import { VideoNotesPanel, type VideoNotesResultTab } from '../notes/VideoNotesPanel'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
@@ -146,6 +146,10 @@ function localizeFeedbackMessage(message: string) {
   )
 }
 
+function stopActionEvent(event: SyntheticEvent) {
+  event.stopPropagation()
+}
+
 export function MemorialPanel({
   recommendation,
   commentDrafts,
@@ -224,40 +228,47 @@ export function MemorialPanel({
               {recommendation.hint ? (
                 <p className="memorial-panel__recommendation-summary">{recommendation.hint}</p>
               ) : null}
-              <p className="memorial-panel__deepseek-status">
-                {deepSeekEnabled && deepSeekCommentEnabled
-                  ? 'DeepSeek 已开启，表会生成三条有趣视频评论。'
-                  : 'DeepSeek 未开启，表会推荐三条默认评论。'}
-              </p>
             </aside>
             <div className="memorial-panel__actions" role="group" aria-label="批阅动作">
               {ACTIONS.map(({ action, testId, label, description, icon, iconAlt }) => {
                 const quickSetting =
                   action === '赐' ? (
-                    <label className="memorial-panel__action-setting">
+                    <label
+                      className="memorial-panel__action-setting"
+                      onClick={stopActionEvent}
+                      onPointerDown={stopActionEvent}
+                      onKeyDown={stopActionEvent}
+                    >
                       <span>投币数量</span>
                       <select
                         value={defaultCoinCount}
-                        onChange={(event) =>
+                        onChange={(event) => {
+                          event.stopPropagation()
                           onPreferenceChange?.({
                             defaultCoinCount: Number(event.currentTarget.value) as 1 | 2
                           })
-                        }
+                        }}
                       >
                         <option value={1}>1 枚</option>
                         <option value={2}>2 枚</option>
                       </select>
                     </label>
                   ) : action === '表' ? (
-                    <label className="memorial-panel__action-setting">
+                    <label
+                      className="memorial-panel__action-setting"
+                      onClick={stopActionEvent}
+                      onPointerDown={stopActionEvent}
+                      onKeyDown={stopActionEvent}
+                    >
                       <span>评论发送方式</span>
                       <select
                         value={commentSubmitMode}
-                        onChange={(event) =>
+                        onChange={(event) => {
+                          event.stopPropagation()
                           onPreferenceChange?.({
                             commentSubmitMode: event.currentTarget.value as CommentSubmitMode
                           })
-                        }
+                        }}
                       >
                         <option value="random">随机生成一条并直接发送</option>
                         <option value="choose">生成 3 条候选</option>
@@ -279,8 +290,9 @@ export function MemorialPanel({
                       badge={action}
                       label={label}
                       description={description}
-                    />
-                    {quickSetting}
+                    >
+                      {quickSetting}
+                    </AssistantActionButton>
                   </div>
                 )
               })}
@@ -317,7 +329,7 @@ export function MemorialPanel({
           >
             <p>{localizeFeedbackMessage(feedback.message)}</p>
             {feedback.steps.length > 0 ? (
-              <details open className="memorial-panel__log">
+              <details className="memorial-panel__log">
                 <summary>执行日志</summary>
                 <ol>
                   {feedback.steps.map((step, index) => (

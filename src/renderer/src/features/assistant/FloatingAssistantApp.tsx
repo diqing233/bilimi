@@ -182,6 +182,14 @@ const TAB_HINTS: Record<AssistantWorkspaceTab, string> = {
   settings: '小咪切到设置啦，宠物和 DeepSeek 都在这里调。'
 }
 
+type GlobalStatusTone = 'ok' | 'warn' | 'error' | 'running' | 'idle'
+
+type GlobalStatusItem = {
+  label: string
+  detail: string
+  tone: GlobalStatusTone
+}
+
 function createFallbackSnapshot(): AssistantSnapshot {
   const preferences = createInitialAssistantPreferences()
 
@@ -339,6 +347,33 @@ function createPetHintMessage(message: string) {
   return `主人，${trimmed}`
 }
 
+function formatGlobalProgressPercent(progress?: VideoAudioTranscriptionProgress) {
+  if (!progress) return null
+
+  if (
+    progress.step === 'transcribing-segment' &&
+    typeof progress.segmentIndex === 'number' &&
+    typeof progress.segmentCount === 'number' &&
+    progress.segmentCount > 0
+  ) {
+    return Math.min(100, Math.max(0, Math.round(30 + 38 * (progress.segmentIndex / progress.segmentCount))))
+  }
+
+  const fallbackByStep: Record<VideoAudioTranscriptionProgress['step'], number> = {
+    'preparing-session': 8,
+    'downloading-audio': 18,
+    'preparing-segments': 30,
+    'transcribing-segment': 50,
+    'merging-transcript': 76,
+    'generating-note': 94,
+    'summarizing-deepseek': 96,
+    'saving-archive': 98,
+    'queue-completed': 100
+  }
+
+  return fallbackByStep[progress.step]
+}
+
 function createActionErrorHint(action: AssistantAction, result: AssistantAutomationResult) {
   const message = result.message.trim()
   const missingCurrentVideo = result.missingTargets.includes('current-video')
@@ -428,6 +463,10 @@ export function FloatingAssistantApp({
   const [settingsDiagnosticsExpanded, setSettingsDiagnosticsExpanded] = useState(true)
   const [settingsLearningMessage, setSettingsLearningMessage] = useState('')
   const [settingsJumpValue, setSettingsJumpValue] = useState<SettingsJumpValue>('diagnostics')
+  const [globalFeedbackMessage, setGlobalFeedbackMessage] = useState('等待操作')
+  const [oldFavoriteExecutionState, setOldFavoriteExecutionState] =
+    useState<'idle' | 'running' | 'finished'>('idle')
+  const settingsBodyRef = useRef<HTMLDivElement | null>(null)
   const mounted = useRef(false)
   const lastPreferenceChangeAt = useRef(0)
   const lastPreferenceSaveAt = useRef(0)
@@ -443,15 +482,134 @@ export function FloatingAssistantApp({
   const [videoNotesResultTab, setVideoNotesResultTab] =
     useState<VideoNotesResultTab | null>(null)
   const [organizeOldFavoritesRequestSignal, setOrganizeOldFavoritesRequestSignal] = useState(0)
-  const settingsStatusMessage =
-    settingsDiagnosticMessage || settingsLearningMessage || deepSeekStatusMessage
   const isSidebarMode = mode === 'sidebar'
+
+  const globalTranscriptionStatus = useMemo<GlobalStatusItem>(() => {
+    const failedItem = transcriptionQueue.items.find((item) => item.status === 'failed')
+    if (failedItem) {
+      return {
+        label: '转写失败',
+        detail: failedItem.errorMessage || '转写失败，可重试。',
+        tone: 'error'
+      }
+    }
+
+    const runningItem = transcriptionQueue.items.find((item) => item.status === 'running')
+    if (runningItem) {
+      const percent = formatGlobalProgressPercent(runningItem.progress)
+      const pendingCount = transcriptionQueue.items.filter((item) => item.status === 'pending').length
+      return {
+        label: percent === null ? '转写中' : `转写 ${percent}%`,
+        detail: `${runningItem.title} 正在转写${pendingCount > 0 ? `，排队 ${pendingCount} 个` : ''}`,
+        tone: 'running'
+      }
+    }
+
+    const pendingCount = transcriptionQueue.items.filter((item) => item.status === 'pending').length
+    if (pendingCount > 0) {
+      return {
+        label: `转写排队 ${pendingCount}`,
+        detail: `还有 ${pendingCount} 个转写任务等待处理。`,
+        tone: 'warn'
+      }
+    }
+
+    const completedItem = transcriptionQueue.items
+      .filter((item) => item.status === 'completed')
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
+    if (completedItem) {
+      return {
+        label: '转写完成',
+        detail: `${completedItem.title} 已完成转写。`,
+        tone: 'ok'
+      }
+    }
+
+    return {
+      label: '转写空闲',
+      detail: '当前没有转写任务。',
+      tone: 'idle'
+    }
+  }, [transcriptionQueue])
+
+  const globalDeepSeekStatus = useMemo<GlobalStatusItem>(() => {
+    if (!preferences.deepseekEnabled || !preferences.deepseekApiKeyStored) {
+      return {
+        label: 'DeepSeek 未连',
+        detail: '未连接 DeepSeek，无法使用总结、短评和辅助整理。',
+        tone: 'warn'
+      }
+    }
+
+    const runningDeepSeekItem = transcriptionQueue.items.find(
+      (item) => item.status === 'running' && item.progress?.step === 'summarizing-deepseek'
+    )
+    if (runningDeepSeekItem) {
+      return {
+        label: 'DeepSeek 总结中',
+        detail: `${runningDeepSeekItem.title} 正在生成 DeepSeek 总结。`,
+        tone: 'running'
+      }
+    }
+
+    return {
+      label: 'DeepSeek 已连',
+      detail: preferences.deepseekCommentEnabled
+        ? 'DeepSeek 已开启，会生成三条有趣视频评论。'
+        : 'DeepSeek 已连接，短评仍使用默认候选。',
+      tone: 'ok'
+    }
+  }, [
+    preferences.deepseekApiKeyStored,
+    preferences.deepseekCommentEnabled,
+    preferences.deepseekEnabled,
+    transcriptionQueue
+  ])
+
+  const globalLedgerStatus = useMemo<GlobalStatusItem>(() => {
+    if (oldFavoriteExecutionState === 'running') {
+      return {
+        label: '整理中',
+        detail: '旧藏正在整理中。',
+        tone: 'running'
+      }
+    }
+
+    if (favoriteLedgerStatus?.missingLedgerIds.length) {
+      return {
+        label: '未备册',
+        detail: `还有 ${favoriteLedgerStatus.missingLedgerIds.length} 个 bilimi 收藏夹未备册。`,
+        tone: 'error'
+      }
+    }
+
+    if (favoriteLedgerStatus?.ok) {
+      return {
+        label: oldFavoriteExecutionState === 'finished' ? '整理完成' : '已备册',
+        detail: oldFavoriteExecutionState === 'finished' ? '本次旧藏整理已结束。' : 'bilimi 收藏夹已备册。',
+        tone: 'ok'
+      }
+    }
+
+    return {
+      label: '整理空闲',
+      detail: '暂未检查备册状态。',
+      tone: 'idle'
+    }
+  }, [favoriteLedgerStatus, oldFavoriteExecutionState])
 
   function tellPet(tone: PetFeedbackTone, message: string) {
     window.bilimiDesktop?.setAssistantPetHint?.({
       tone: PET_FEEDBACK_TONES[tone],
       message: createPetHintMessage(message)
     })
+  }
+
+  function setGlobalFeedback(message: string) {
+    const trimmed = message.trim()
+    if (trimmed) {
+      setGlobalFeedbackMessage(trimmed)
+    }
   }
 
   function setActiveTab(tab: AssistantWorkspaceTab, options?: { view?: AssistantWorkspaceView }) {
@@ -581,10 +739,10 @@ export function FloatingAssistantApp({
       if (activeDraftNote) {
         setVideoNote(activeDraftNote)
         setNotesWorkspaceView('notes')
-        setActiveView('notes')
       }
 
       if (hadRunning && !hasRunning && snapshot.items.some((item) => item.status === 'completed')) {
+        setGlobalFeedback('转写完成，文稿已保存到档案库')
         void syncCompletedQueuedVideoNote(snapshot)
       }
     })
@@ -817,9 +975,30 @@ export function FloatingAssistantApp({
   function jumpToSettingsSection(section: SettingsJumpValue) {
     setSettingsJumpValue(section)
     const selector = `[data-settings-section="${section}"]`
-    const target = document.querySelector(selector)
+    const target = settingsBodyRef.current?.querySelector(selector) ?? document.querySelector(selector)
     if (target && 'scrollIntoView' in target && typeof target.scrollIntoView === 'function') {
       target.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    }
+  }
+
+  function syncSettingsJumpFromScroll() {
+    const body = settingsBodyRef.current
+    if (!body) {
+      return
+    }
+
+    const bodyTop = body.getBoundingClientRect().top
+    let nextValue = settingsJumpValue
+
+    for (const option of SETTINGS_JUMP_OPTIONS) {
+      const section = body.querySelector<HTMLElement>(`[data-settings-section="${option.value}"]`)
+      if (section && section.getBoundingClientRect().top - bodyTop <= 12) {
+        nextValue = option.value
+      }
+    }
+
+    if (nextValue !== settingsJumpValue) {
+      setSettingsJumpValue(nextValue)
     }
   }
 
@@ -848,6 +1027,7 @@ export function FloatingAssistantApp({
     const result = await window.bilimiDesktop.testDeepSeekConnection()
     const statusMessage = localizeDeepSeekStatusMessage(result.message)
     setDeepSeekStatusMessage(statusMessage)
+    setGlobalFeedback(statusMessage)
     tellPet(result.ok ? 'success' : 'error', statusMessage)
   }
 
@@ -1066,6 +1246,7 @@ export function FloatingAssistantApp({
         steps: result.steps,
         missingTargets: result.missingTargets
       })
+      setGlobalFeedback(result.message)
       tellPet(
         result.ok ? 'done' : 'error',
         result.ok ? ACTION_SUCCESS_HINTS[action] : createActionErrorHint(action, result)
@@ -1079,6 +1260,7 @@ export function FloatingAssistantApp({
         steps: [],
         missingTargets: []
       })
+      setGlobalFeedback(message)
       tellPet('error', message)
       window.bilimiDesktop?.setAssistantPetState?.('error')
     } finally {
@@ -1237,6 +1419,7 @@ export function FloatingAssistantApp({
     }
 
     tellPet('progress', '已加入转写队列，小咪会按顺序处理。')
+    setGlobalFeedback('已加入转写队列')
     const nextQueue = await window.bilimiDesktop.enqueueCurrentVideoAudioTranscription?.(options)
 
     if (nextQueue) {
@@ -1512,6 +1695,8 @@ export function FloatingAssistantApp({
   }
 
   function handleOldFavoriteExecutionStateChange(state: 'running' | 'finished') {
+    setOldFavoriteExecutionState(state)
+    setGlobalFeedback(state === 'running' ? '旧藏整理中' : '本次整理已结束')
     tellPet(
       state === 'running' ? 'progress' : 'success',
       state === 'running' ? '旧藏整理中，请耐心等待。' : '本次整理已结束。'
@@ -1575,6 +1760,34 @@ export function FloatingAssistantApp({
           ))}
         </div>
 
+        <section className="floating-assistant-global-status" aria-label="全局提示区">
+          <p
+            className="floating-assistant-global-status__feedback"
+            aria-label="全局提示"
+            aria-live="polite"
+          >
+            {globalFeedbackMessage}
+          </p>
+          <div className="floating-assistant-global-status__lights" aria-label="后台状态灯">
+            {[
+              { ...globalDeepSeekStatus, ariaLabel: 'DeepSeek状态' },
+              { ...globalTranscriptionStatus, ariaLabel: '转写音频状态' },
+              { ...globalLedgerStatus, ariaLabel: '整理状态' }
+            ].map((item) => (
+              <span
+                key={item.label}
+                className="floating-assistant-global-status__light"
+                data-tone={item.tone}
+                aria-label={item.ariaLabel}
+                title={item.detail}
+              >
+                <span className="floating-assistant-global-status__dot" aria-hidden="true" />
+                <span>{item.label}</span>
+              </span>
+            ))}
+          </div>
+        </section>
+
         <div className="floating-assistant-view" hidden={activeView !== 'ledger'}>
           <FavoriteLedgerPanel
             ledgers={preferences.favoriteLedgers}
@@ -1614,38 +1827,27 @@ export function FloatingAssistantApp({
                   </button>
                 </div>
               </div>
-              <div className="assistant-settings__section-buttons" role="group" aria-label="设置分区">
-                <button
-                  type="button"
-                  aria-pressed={
-                    settingsJumpValue !== 'diagnostics' && settingsJumpValue !== 'deepseek'
+              <label className="assistant-settings__jump">
+                <span>设置项</span>
+                <select
+                  value={settingsJumpValue}
+                  onChange={(event) =>
+                    jumpToSettingsSection(event.currentTarget.value as SettingsJumpValue)
                   }
-                  onClick={() => jumpToSettingsSection('pet')}
                 >
-                  设置项
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={settingsJumpValue === 'diagnostics'}
-                  onClick={() => jumpToSettingsSection('diagnostics')}
-                >
-                  诊断
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={settingsJumpValue === 'deepseek'}
-                  onClick={() => jumpToSettingsSection('deepseek')}
-                >
-                  DeepSeek
-                </button>
-              </div>
+                  {SETTINGS_JUMP_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </header>
-            <div className="assistant-settings__body">
-              {settingsStatusMessage ? (
-                <p className="assistant-settings__status" role="status">
-                  {settingsStatusMessage}
-                </p>
-              ) : null}
+            <div
+              className="assistant-settings__body"
+              ref={settingsBodyRef}
+              onScroll={syncSettingsJumpFromScroll}
+            >
               <fieldset
               className="assistant-settings__group assistant-settings__group--diagnostics"
               data-settings-section="diagnostics"
@@ -1674,6 +1876,11 @@ export function FloatingAssistantApp({
                   </button>
                 ) : null}
               </div>
+              {settingsDiagnosticMessage ? (
+                <p className="assistant-settings__status" role="status">
+                  {settingsDiagnosticMessage}
+                </p>
+              ) : null}
               {settingsDiagnosticReport && settingsDiagnosticsExpanded ? (
                 <ul className="assistant-settings__diagnostics-list" aria-label="设置诊断结果">
                   {settingsDiagnosticReport.items.map((item) => (
@@ -1882,6 +2089,11 @@ export function FloatingAssistantApp({
                   </label>
                 ))}
               </div>
+              {settingsLearningMessage ? (
+                <p className="assistant-settings__status" role="status">
+                  {settingsLearningMessage}
+                </p>
+              ) : null}
               <label>
                 <input
                   type="checkbox"
@@ -2262,6 +2474,11 @@ export function FloatingAssistantApp({
                       重置 DeepSeek
                     </button>
                   </div>
+                  {deepSeekStatusMessage ? (
+                    <p className="assistant-settings__status" role="status">
+                      {deepSeekStatusMessage}
+                    </p>
+                  ) : null}
                   <aside className="assistant-settings__deepseek-recommendation">
                     <strong>致谢 云枢智元</strong>
                     <p>大模型 Token 中转，低至官方价 2 折起</p>
@@ -2301,7 +2518,12 @@ export function FloatingAssistantApp({
                   </aside>
                 </>
               ) : null}
-              </fieldset>
+              {!preferences.deepseekEnabled && deepSeekStatusMessage ? (
+                <p className="assistant-settings__status" role="status">
+                  {deepSeekStatusMessage}
+                </p>
+              ) : null}
+            </fieldset>
             </div>
           </section>
         ) : activeView === 'noteArchive' ? (

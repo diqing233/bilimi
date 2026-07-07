@@ -676,7 +676,7 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByRole('checkbox', { name: '纠错学习参与分类' })).toBeChecked()
   })
 
-  it('renders fixed settings section buttons and concise learning counts', async () => {
+  it('renders the settings jump select instead of fixed section buttons', async () => {
     installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
@@ -721,29 +721,27 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
 
-    const settingsSectionNav = screen.getByRole('group', { name: '设置分区' })
-    expect(within(settingsSectionNav).getByRole('button', { name: '设置项' })).toHaveAttribute(
-      'aria-pressed',
-      'false'
-    )
-    expect(within(settingsSectionNav).getByRole('button', { name: '诊断' })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    )
-    expect(within(settingsSectionNav).getByRole('button', { name: 'DeepSeek' })).toHaveAttribute(
-      'aria-pressed',
-      'false'
-    )
-    expect(screen.queryByRole('combobox', { name: '设置项' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: '设置分区' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '设置项' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '诊断' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'DeepSeek' })).not.toBeInTheDocument()
+
+    const settingsJump = screen.getByRole<HTMLSelectElement>('combobox', { name: '设置项' })
+    expect(settingsJump).toHaveValue('diagnostics')
+    expect(within(settingsJump).getByRole('option', { name: '诊断' })).toBeInTheDocument()
+    expect(within(settingsJump).getByRole('option', { name: 'DeepSeek' })).toBeInTheDocument()
     expect(await screen.findByText('纠错学习记录（1）')).toBeInTheDocument()
     expect(screen.getByText('关键词建议（1）')).toBeInTheDocument()
 
-    fireEvent.click(within(settingsSectionNav).getByRole('button', { name: '设置项' }))
+    const deepSeekSection = screen.getByRole('group', { name: 'DeepSeek' })
+    deepSeekSection.scrollIntoView = vi.fn()
+    fireEvent.change(settingsJump, { target: { value: 'deepseek' } })
 
-    expect(within(settingsSectionNav).getByRole('button', { name: '设置项' })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    )
+    expect(settingsJump).toHaveValue('deepseek')
+    expect(deepSeekSection.scrollIntoView).toHaveBeenCalledWith({
+      block: 'start',
+      behavior: 'smooth'
+    })
     expect(screen.getByRole('group', { name: '视频音频转写速度' })).toBeInTheDocument()
     expect(
       screen.getByText(
@@ -1425,7 +1423,7 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
-  it('dismisses review action feedback when switching to another workspace page', async () => {
+  it('dismisses local review action details while keeping global feedback when switching pages', async () => {
     installDesktopApi({
       runAssistantAction: vi.fn().mockResolvedValue({
         ok: true,
@@ -1440,11 +1438,12 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(await screen.findByTestId('review-action-like'))
 
     expect(await screen.findByRole('status')).toHaveTextContent('Saved to bilimi.')
+    expect(screen.getByLabelText('全局提示')).toHaveTextContent('Saved to bilimi.')
     expect(screen.getByText('like:already-liked')).toBeInTheDocument()
 
     fireEvent.click(screen.getAllByRole('tab')[1])
 
-    expect(screen.queryByText('Saved to bilimi.')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('全局提示')).toHaveTextContent('Saved to bilimi.')
     expect(screen.queryByText('like:already-liked')).not.toBeInTheDocument()
   })
 
@@ -2852,6 +2851,83 @@ describe('FloatingAssistantApp', () => {
       'true'
     )
     expect(screen.getByText('正在生成 DeepSeek 总结')).toBeInTheDocument()
+  })
+
+  it('keeps the review page active when a background transcription finishes', async () => {
+    const note = createVideoNote()
+    const archive: VideoNoteArchiveEntry = {
+      id: note.id,
+      source: note.source,
+      versions: [
+        {
+          id: `${note.id}:version:${note.updatedAt}`,
+          note,
+          plainTranscript: '机器学习需要数据和模型。',
+          summaryText: '',
+          createdAt: note.updatedAt
+        }
+      ],
+      createdAt: note.createdAt,
+      updatedAt: note.updatedAt
+    }
+    const loadVideoNoteArchives = vi.fn().mockResolvedValue([archive])
+    let queueChanged:
+      | Parameters<NonNullable<Window['bilimiDesktop']['onVideoAudioTranscriptionQueueChanged']>>[0]
+      | undefined
+    installDesktopApi({
+      loadVideoNoteArchives,
+      loadVideoAudioTranscriptionQueue: vi.fn().mockResolvedValue({
+        activeItemId: 'bvid:BV1note',
+        items: [
+          {
+            id: 'bvid:BV1note',
+            url: 'https://www.bilibili.com/video/BV1note',
+            title: '机器学习入门教程',
+            bvid: 'BV1note',
+            status: 'running',
+            createdAt: '2026-06-25T00:00:00.000Z',
+            updatedAt: '2026-06-25T00:00:00.000Z'
+          }
+        ]
+      }),
+      onVideoAudioTranscriptionQueueChanged: vi.fn((callback) => {
+        queueChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    expect(await screen.findByRole('tab', { name: '批阅' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+
+    act(() => {
+      queueChanged?.({
+        items: [
+          {
+            id: 'bvid:BV1note',
+            url: 'https://www.bilibili.com/video/BV1note',
+            title: '机器学习入门教程',
+            bvid: 'BV1note',
+            status: 'completed',
+            createdAt: '2026-06-25T00:00:00.000Z',
+            updatedAt: '2026-06-25T00:01:00.000Z',
+            completedAt: '2026-06-25T00:01:00.000Z',
+            archiveNoteId: note.id
+          }
+        ]
+      })
+    })
+
+    await waitFor(() => expect(loadVideoNoteArchives).toHaveBeenCalled())
+    expect(screen.getByRole('tab', { name: '批阅' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByLabelText('全局提示')).toHaveTextContent(
+      '转写完成，文稿已保存到档案库'
+    )
+    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写完成')
+    expect(screen.queryByRole('tabpanel', { name: /无时间线文稿/ })).not.toBeInTheDocument()
   })
 
   it('archives generated audio notes and opens the global archive panel', async () => {

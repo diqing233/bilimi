@@ -692,7 +692,7 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
-  it('undoes and redoes all archive preview changes from the preview toolbar', async () => {
+  it('undoes and redoes archive preview changes step by step from separate toolbar buttons', async () => {
     await openArchivePreview()
 
     fireEvent.change(screen.getByLabelText('调整分类 AI 效率工具实战'), {
@@ -701,6 +701,22 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByRole('group', { name: 'bilimi·游戏专区 1 条' })).toHaveTextContent(
       'AI 效率工具实战'
     )
+    fireEvent.change(screen.getByLabelText('调整分类 暂时不知道放哪'), {
+      target: { value: 'music' }
+    })
+    expect(screen.getByRole('group', { name: 'bilimi·音乐舞台 1 条' })).toHaveTextContent(
+      '暂时不知道放哪'
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '撤销本次改动' }))
+
+    expect(screen.getByRole('group', { name: 'bilimi·游戏专区 1 条' })).toHaveTextContent(
+      'AI 效率工具实战'
+    )
+    expect(screen.getByRole('group', { name: /未匹配到合适分类 1 条/ })).toHaveTextContent(
+      '暂时不知道放哪'
+    )
+    expect(screen.queryByRole('group', { name: 'bilimi·音乐舞台 1 条' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '撤销本次改动' }))
 
@@ -708,12 +724,25 @@ describe('FavoriteLedgerPanel', () => {
       'AI 效率工具实战'
     )
     expect(screen.queryByRole('group', { name: 'bilimi·游戏专区 1 条' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '撤销本次改动' })).toBeDisabled()
 
-    fireEvent.click(screen.getByRole('button', { name: '再次复原' }))
+    expect(screen.queryByText('已撤销本次改动。')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '恢复本次改动' }))
 
     expect(screen.getByRole('group', { name: 'bilimi·游戏专区 1 条' })).toHaveTextContent(
       'AI 效率工具实战'
     )
+    expect(screen.getByRole('group', { name: /未匹配到合适分类 1 条/ })).toHaveTextContent(
+      '暂时不知道放哪'
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '恢复本次改动' }))
+
+    expect(screen.getByRole('group', { name: 'bilimi·音乐舞台 1 条' })).toHaveTextContent(
+      '暂时不知道放哪'
+    )
+    expect(screen.getByRole('button', { name: '恢复本次改动' })).toBeDisabled()
   })
 
   it('toggles the old favorite guide hint from the heading help button', async () => {
@@ -4621,7 +4650,11 @@ describe('FavoriteLedgerPanel', () => {
     const undoTools = screen.getByRole('group', { name: '归档预览改动操作' })
     expect(undoTools).toHaveClass('favorite-ledger-panel__archive-history-card')
     expect(within(undoTools).getByRole('button', { name: '撤销本次改动' })).toBeInTheDocument()
-    expect(within(undoTools).getByText(/Ctrl\+Z 撤销本次 DeepSeek 调整/)).toBeInTheDocument()
+    expect(within(undoTools).getByRole('button', { name: '恢复本次改动' })).toBeInTheDocument()
+    expect(within(undoTools).getByText(/Ctrl\+Z 撤销，Ctrl\+Shift\+Z 恢复/)).toBeInTheDocument()
+    expect(Boolean(deepSeekCard.compareDocumentPosition(undoTools) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
+      true
+    )
     expect(screen.getByRole('heading', { name: '归档预览' }).closest('.favorite-ledger-panel__preview-topbar')).not.toHaveTextContent(
       'DeepSeek 辅助整理'
     )
