@@ -664,6 +664,34 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
+  it('shows an idle no-transcript status when the current video has no transcription yet', async () => {
+    installDesktopApi({
+      loadVideoAudioTranscriptionQueue: vi.fn().mockResolvedValue({
+        items: [
+          {
+            id: 'bvid:BV-old-failed',
+            url: 'https://www.bilibili.com/video/BV-old-failed',
+            title: '旧视频',
+            bvid: 'BV-old-failed',
+            status: 'failed',
+            errorMessage: 'Audio download failed.',
+            createdAt: '2026-06-25T00:00:00.000Z',
+            updatedAt: '2026-06-25T00:01:00.000Z'
+          }
+        ]
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('暂无转写')
+    )
+    const transcriptionStatus = screen.getByLabelText('转写音频状态')
+    expect(transcriptionStatus).toHaveAttribute('data-tone', 'idle')
+    expect(transcriptionStatus).not.toHaveTextContent('转写失败')
+  })
+
   it('uses a loading placeholder instead of a fake video title before the snapshot arrives', async () => {
     let resolveSnapshot: (snapshot: AssistantSnapshot) => void = () => {}
     installDesktopApi({

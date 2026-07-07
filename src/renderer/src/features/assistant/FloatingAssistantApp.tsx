@@ -506,15 +506,6 @@ export function FloatingAssistantApp({
   const isSidebarMode = mode === 'sidebar'
 
   const globalTranscriptionStatus = useMemo<GlobalStatusItem>(() => {
-    const failedItem = transcriptionQueue.items.find((item) => item.status === 'failed')
-    if (failedItem) {
-      return {
-        label: '转写失败',
-        detail: failedItem.errorMessage || '转写失败，可重试。',
-        tone: 'error'
-      }
-    }
-
     const runningItem = transcriptionQueue.items.find((item) => item.status === 'running')
     if (runningItem) {
       const percent = formatGlobalProgressPercent(runningItem.progress)
@@ -547,8 +538,8 @@ export function FloatingAssistantApp({
     }
 
     return {
-      label: '转写空闲',
-      detail: '当前没有转写任务。',
+      label: '暂无转写',
+      detail: '当前视频暂无可用转写。',
       tone: 'idle'
     }
   }, [transcriptionQueue])
