@@ -206,8 +206,8 @@ body[data-floating-window="true"],
   min-width: 0;
   overflow: hidden;
   padding: 5px 0 5px 10px;
-  border-bottom: 1px solid rgba(7, 26, 51, 0.26);
-  background: rgba(220, 238, 255, 0.94);
+  border-bottom: 1px solid rgba(31, 99, 181, 0.16);
+  background: rgba(247, 251, 255, 0.96);
 }
 .browser-tabs__list {
   min-width: 0;
@@ -225,7 +225,7 @@ body[data-floating-window="true"],
   align-items: center;
   height: 100%;
   padding: 0 0 0 8px;
-  border-left: 1px solid rgba(7, 26, 51, 0.24);
+  border-left: 1px solid rgba(31, 99, 181, 0.16);
   box-sizing: border-box;
 }
 .browser-tabs__item {

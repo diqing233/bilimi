@@ -78,6 +78,9 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain(
       '.browser-tabs {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;'
     )
+    expectStyleSnippet(
+      '.browser-tabs { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; min-width: 0; overflow: hidden; padding: 5px 0 5px 10px; border-bottom: 1px solid rgba(31, 99, 181, 0.16); background: rgba(247, 251, 255, 0.96);'
+    )
     expect(normalizedStyles).toContain(
       '.browser-tabs__list {\n  min-width: 0;\n  display: flex;'
     )
@@ -85,7 +88,7 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain(
       '.browser-tabs__controls {\n  display: grid;\n  grid-template-columns: 34px 78px;'
     )
-    expect(normalizedStyles).toContain('border-left: 1px solid rgba(7, 26, 51, 0.24);')
+    expect(normalizedStyles).toContain('border-left: 1px solid rgba(31, 99, 181, 0.16);')
     expect(normalizedStyles).toContain('.browser-tabs__collapse-slot {\n  width: 78px;')
   })
 
