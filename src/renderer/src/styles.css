@@ -4204,7 +4204,23 @@ body[data-floating-window="true"],
   cursor: not-allowed;
   opacity: 0.54;
 }
-.assistant-settings__group--learning > label {
+.assistant-settings__group--deepseek > label:first-of-type {
+  display: flex;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed rgba(31, 99, 181, 0.22);
+}
+.assistant-settings__group--deepseek > label:nth-of-type(2) {
+  border-top: 1px dashed rgba(31, 99, 181, 0.22);
+  padding-top: 10px;
+}
+.assistant-settings__group--learning .assistant-settings__inline-options {
+  padding-bottom: 8px;
+  border-bottom: 1px dashed rgba(31, 99, 181, 0.22);
+}
+.assistant-settings__subsection--records {
+  border-top: 1px dashed rgba(31, 99, 181, 0.22);
+  padding-top: 10px;
+}.assistant-settings__group--learning > label {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 2px 8px;

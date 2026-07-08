@@ -2424,7 +2424,7 @@ export function FloatingAssistantApp({
               >
                 {FAVORITE_CORRECTION_CLASSIFICATION_HELP}
               </small>
-              <div className="assistant-settings__subsection">
+              <div className="assistant-settings__subsection assistant-settings__subsection--records">
                 <div className="assistant-settings__subsection-heading">
                   <strong>纠错学习记录（{preferences.favoriteCorrectionRecords.length}）</strong>
                   <button
