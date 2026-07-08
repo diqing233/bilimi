@@ -562,17 +562,20 @@ export function updatePendingFavoriteQueueItemStatus(
 export function loadVideoAudioTranscriptionQueue(
   store: AssistantStoreLike = getDesktopStore()
 ): VideoAudioTranscriptionQueueItem[] {
-  return (store.get('videoAudioTranscriptionQueue') ?? [])
-    .filter((item) => item.status !== 'completed')
-    .map((item) =>
-      item.status === 'running'
-        ? {
-            ...item,
-            status: 'failed',
-            errorMessage: 'bilimi was closed before this transcription finished.'
-          }
-        : item
-    )
+  const items = store.get('videoAudioTranscriptionQueue') ?? []
+
+  if (items.length === 0) {
+    return []
+  }
+
+  items.forEach((item) => {
+    if (item.draftNote && !item.archiveNoteId) {
+      saveVideoNoteArchiveVersion(store, item.draftNote, item.completedAt ?? item.updatedAt, '')
+    }
+  })
+  store.set('videoAudioTranscriptionQueue', [])
+
+  return []
 }
 
 export function saveVideoAudioTranscriptionQueue(

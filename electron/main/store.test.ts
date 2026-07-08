@@ -704,7 +704,48 @@ describe('video audio transcription queue store helpers', () => {
     expect(loadVideoAudioTranscriptionQueue(store)).toEqual([])
   })
 
-  it('saves queue items, drops completed history, and normalizes interrupted running jobs on load', () => {
+  it('recovers draft notes from stale failed jobs and resets the queue on load', () => {
+    const draftNote = createStoreNote('bvid:BV1queue')
+    const failedItem: VideoAudioTranscriptionQueueItem = {
+      id: 'bvid:BV1queue',
+      url: 'https://www.bilibili.com/video/BV1queue',
+      title: 'Queue video',
+      bvid: 'BV1queue',
+      status: 'failed',
+      createdAt: '2026-06-25T00:00:00.000Z',
+      updatedAt: '2026-06-25T00:01:00.000Z',
+      progress: { step: 'summarizing-deepseek', message: 'Generating DeepSeek summary.' },
+      errorMessage: 'DeepSeek is not configured.',
+      draftNote
+    }
+    const pendingItem: VideoAudioTranscriptionQueueItem = {
+      id: 'bvid:BV2queue',
+      url: 'https://www.bilibili.com/video/BV2queue',
+      title: 'Second queue video',
+      bvid: 'BV2queue',
+      status: 'pending',
+      createdAt: '2026-06-25T00:02:00.000Z',
+      updatedAt: '2026-06-25T00:02:00.000Z'
+    }
+    const store = createFakeStore()
+
+    saveVideoAudioTranscriptionQueue(store, [failedItem, pendingItem])
+
+    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([])
+    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual([])
+    expect(store.snapshot.videoNoteArchives).toHaveLength(1)
+    expect(store.snapshot.videoNoteArchives[0]).toMatchObject({
+      id: 'bvid:BV1queue',
+      versions: [
+        expect.objectContaining({
+          note: draftNote,
+          summaryText: ''
+        })
+      ]
+    })
+  })
+
+  it('resets stale running, pending, and completed queue items on load', () => {
     const runningItem: VideoAudioTranscriptionQueueItem = {
       id: 'bvid:BV1queue',
       url: 'https://www.bilibili.com/video/BV1queue',
@@ -743,13 +784,7 @@ describe('video audio transcription queue store helpers', () => {
       pendingItem,
       completedItem
     ])
-    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([
-      {
-        ...runningItem,
-        status: 'failed',
-        errorMessage: 'bilimi was closed before this transcription finished.'
-      },
-      pendingItem
-    ])
+    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([])
+    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual([])
   })
 })

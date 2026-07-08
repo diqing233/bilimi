@@ -148,6 +148,7 @@ export function createVideoTranscriptionQueue({
       publish()
 
       let summaryText = ''
+      let summaryErrorMessage: string | undefined
       if (runningItem.summarizeWithDeepSeek && summarizeNote) {
         updateItem(runningItem.id, (item) => ({
           ...item,
@@ -156,7 +157,11 @@ export function createVideoTranscriptionQueue({
           updatedAt: now()
         }))
         publish()
-        summaryText = await summarizeNote(note)
+        try {
+          summaryText = await summarizeNote(note)
+        } catch (error) {
+          summaryErrorMessage = createErrorMessage(error)
+        }
       }
 
       updateItem(runningItem.id, (item) => ({
@@ -175,7 +180,7 @@ export function createVideoTranscriptionQueue({
         archiveNoteId: note.id,
         draftNote: undefined,
         progress: { step: 'queue-completed', message: 'Queued transcription completed.' },
-        errorMessage: undefined
+        errorMessage: summaryErrorMessage
       }))
     } catch (error) {
       const failedAt = now()

@@ -436,11 +436,15 @@ export function VideoNotesPanel({
 
     if (!itemProgress) return null
     const progress = formatProgress(itemProgress, Boolean(item.summarizeWithDeepSeek))
+    const progressLabel =
+      item.status === 'completed' && item.summarizeWithDeepSeek && item.errorMessage
+        ? '文稿已生成，总结未完成'
+        : progress.label
 
     return (
       <div className="video-notes__queue-progress" role="status" aria-live="polite">
         <div>
-          <span>{progress.label}</span>
+          <span>{progressLabel}</span>
           <span>{progress.percent}%</span>
         </div>
         <progress max={100} value={progress.percent} aria-label={progress.ariaLabel} />

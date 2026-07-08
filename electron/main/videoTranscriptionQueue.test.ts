@@ -177,6 +177,40 @@ describe('video transcription queue', () => {
     )
   })
 
+  it('saves the transcript and completes the job when DeepSeek summary fails', async () => {
+    const transcribe = vi.fn().mockResolvedValue({
+      transcript: createTranscript('transcript survives summary failure'),
+      transcriptSource: 'audio'
+    })
+    const summarizeNote = vi.fn().mockRejectedValue(new Error('DeepSeek is not configured.'))
+    const saveArchiveVersion = vi.fn()
+    const queue = createVideoTranscriptionQueue({
+      loadItems: createStore().load,
+      saveItems: vi.fn(),
+      transcribe,
+      summarizeNote,
+      saveArchiveVersion,
+      now: () => '2026-06-25T00:00:00.000Z'
+    })
+
+    queue.enqueue(createRequest({ summarizeWithDeepSeek: true }))
+    await flushMicrotasks()
+    await flushMicrotasks()
+
+    expect(saveArchiveVersion).toHaveBeenCalledWith(
+      expect.objectContaining<Partial<VideoNote>>({
+        id: 'bvid:BV1queue',
+        transcript: createTranscript('transcript survives summary failure')
+      }),
+      ''
+    )
+    expect(queue.getSnapshot().items[0]).toMatchObject({
+      status: 'completed',
+      errorMessage: 'DeepSeek is not configured.',
+      progress: { step: 'queue-completed' }
+    })
+  })
+
   it('publishes progress through DeepSeek summary and queue completion stages', async () => {
     const transcribe = vi.fn().mockResolvedValue({
       transcript: createTranscript('summary transcript'),

@@ -204,6 +204,37 @@ describe('VideoNotesPanel transcription queue', () => {
     expect(screen.getByText('100%')).toBeInTheDocument()
   })
 
+  it('shows saved transcript completion when the DeepSeek summary step fails', () => {
+    const queue: VideoAudioTranscriptionQueueSnapshot = {
+      items: [
+        {
+          id: 'bvid:BV2note',
+          url: 'https://www.bilibili.com/video/BV2note',
+          title: 'Summary failed video',
+          bvid: 'BV2note',
+          status: 'completed',
+          summarizeWithDeepSeek: true,
+          errorMessage: 'DeepSeek is not configured.',
+          createdAt: '2026-06-25T00:01:00.000Z',
+          updatedAt: '2026-06-25T00:04:00.000Z',
+          completedAt: '2026-06-25T00:04:00.000Z',
+          progress: {
+            step: 'queue-completed',
+            message: 'Queued transcription completed.'
+          }
+        }
+      ]
+    }
+
+    renderQueuePanel(queue)
+
+    expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent(
+      '排队已完成：Summary failed video'
+    )
+    expect(screen.getByRole('status')).toHaveTextContent('文稿已生成，总结未完成')
+    expect(screen.queryByText(/转写失败/)).not.toBeInTheDocument()
+  })
+
   it('keeps transcript tabs usable when the queue is idle after completion', () => {
     const queue: VideoAudioTranscriptionQueueSnapshot = {
       items: [
