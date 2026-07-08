@@ -165,11 +165,12 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
-  it('keeps the global assistant status integrated with the surrounding panel', () => {
-    expectStyleSnippet('.floating-assistant-global-status { min-height: 48px; display: grid; grid-template-rows: 1fr 1fr; gap: 3px; padding: 5px 8px; border: 1px solid rgba(31, 99, 181, 0.14); border-left: 0; border-right: 0; background: rgba(247, 251, 255, 0.82);')
+  it('keeps the global assistant status separated by only a soft bottom rule', () => {
+    expectStyleSnippet('.floating-assistant-global-status { min-height: 48px; display: grid; grid-template-rows: 1fr 1fr; gap: 3px; padding: 5px 8px; border: 0; border-bottom: 1px solid rgba(31, 99, 181, 0.08); background: rgba(247, 251, 255, 0.82);')
     expectStyleSnippet('.floating-assistant-global-status__feedback { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--porcelain-deep); font-size: 14px; font-weight: 700;')
     expectStyleSnippet('.floating-assistant-global-status__lights { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));')
     expectStyleSnippet('.floating-assistant-global-status__light { min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 4px; overflow: hidden; color: var(--porcelain-muted); font-size: 12px;')
+    expect(compactStyles).not.toContain('border: 1px solid rgba(31, 99, 181, 0.14); border-left: 0; border-right: 0;')
   })
 
   it('keeps every assistant sidebar panel stretched to the ledger frame height', () => {
@@ -294,15 +295,21 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.assistant-action-button__description {\n  grid-area: desc;\n  min-width: 0;\n  padding-left: 4px;\n  color: var(--porcelain-muted);\n  font-size: 12px;\n  font-weight: 700;\n  text-align: left;')
   })
 
-  it('presents the review video metadata with only a full-width bottom rule', () => {
+  it('lets the review video metadata flow into the action list without a divider', () => {
     expectStyleSnippet(
-      '.memorial-panel__meta { border-top: 0; border-bottom: 1px solid rgba(31, 99, 181, 0.18); border-right: 0; border-left: 0; background: transparent; margin: 0 -8px; padding: 8px 8px 9px;'
+      '.memorial-panel__body { margin-top: 0; grid-template-columns: 1fr; gap: 8px;'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__meta { border: 0; background: transparent; margin: 0 -8px; padding: 8px 8px 6px;'
     )
     expect(compactStyles).not.toContain(
       '.memorial-panel__copy, .memorial-panel__meta, .memorial-panel__verdict { border: 1px solid'
     )
     expect(compactStyles).not.toContain(
       '.memorial-panel__meta { border-top: 1px dashed'
+    )
+    expect(compactStyles).not.toContain(
+      '.memorial-panel__meta { border-top: 0; border-bottom: 1px solid'
     )
   })
 

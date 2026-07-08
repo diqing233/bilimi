@@ -1303,9 +1303,8 @@ body[data-floating-window="true"],
   grid-template-rows: 1fr 1fr;
   gap: 3px;
   padding: 5px 8px;
-  border: 1px solid rgba(31, 99, 181, 0.14);
-  border-left: 0;
-  border-right: 0;
+  border: 0;
+  border-bottom: 1px solid rgba(31, 99, 181, 0.08);
   background: rgba(247, 251, 255, 0.82);
   box-sizing: border-box;
 }
@@ -1728,7 +1727,7 @@ body[data-floating-window="true"],
 .memorial-panel__body {
   margin-top: 0;
   grid-template-columns: 1fr;
-  gap: 6px;
+  gap: 8px;
 }
 .memorial-panel__tabs,
 .video-notes [role="tablist"] {
@@ -1760,13 +1759,10 @@ body[data-floating-window="true"],
   padding: 6px;
 }
 .memorial-panel__meta {
-  border-top: 0;
-  border-bottom: 1px solid rgba(31, 99, 181, 0.18);
-  border-right: 0;
-  border-left: 0;
+  border: 0;
   background: transparent;
   margin: 0 -8px;
-  padding: 8px 8px 9px;
+  padding: 8px 8px 6px;
 }
 .memorial-panel__copy p,
 .memorial-panel__meta p,
