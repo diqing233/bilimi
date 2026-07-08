@@ -2946,6 +2946,10 @@ body[data-floating-window="true"],
   gap: 6px;
 }
 .video-note-archive__result-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
   width: 100%;
   min-width: 0;
   height: 36px;
