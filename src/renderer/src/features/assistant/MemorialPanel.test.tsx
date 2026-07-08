@@ -198,6 +198,18 @@ describe('MemorialPanel', () => {
     expect(screen.getByTestId('review-action-comment')).toContainElement(
       screen.getByLabelText('拟奏短评参数')
     )
+    expect(screen.getByLabelText('投币厚赏参数').closest('label')).toHaveClass(
+      'memorial-panel__action-setting--rail'
+    )
+    expect(screen.getByLabelText('拟奏短评参数').closest('label')).toHaveClass(
+      'memorial-panel__action-setting--rail'
+    )
+    expect(screen.getByLabelText('投币厚赏参数')).toHaveClass(
+      'memorial-panel__action-setting-select'
+    )
+    expect(screen.getByLabelText('拟奏短评参数')).toHaveClass(
+      'memorial-panel__action-setting-select'
+    )
 
     fireEvent.change(screen.getByLabelText('投币厚赏参数'), { target: { value: '2' } })
     fireEvent.change(screen.getByLabelText('拟奏短评参数'), { target: { value: 'choose' } })

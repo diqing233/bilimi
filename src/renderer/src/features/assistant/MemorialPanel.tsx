@@ -234,12 +234,13 @@ export function MemorialPanel({
                 const quickSetting =
                   action === '赐' ? (
                     <label
-                      className="memorial-panel__action-setting"
+                      className="memorial-panel__action-setting memorial-panel__action-setting--rail"
                       onClick={stopActionEvent}
                       onPointerDown={stopActionEvent}
                       onKeyDown={stopActionEvent}
                     >
                       <select
+                        className="memorial-panel__action-setting-select"
                         aria-label="投币厚赏参数"
                         value={defaultCoinCount}
                         onChange={(event) => {
@@ -255,12 +256,13 @@ export function MemorialPanel({
                     </label>
                   ) : action === '表' ? (
                     <label
-                      className="memorial-panel__action-setting"
+                      className="memorial-panel__action-setting memorial-panel__action-setting--rail"
                       onClick={stopActionEvent}
                       onPointerDown={stopActionEvent}
                       onKeyDown={stopActionEvent}
                     >
                       <select
+                        className="memorial-panel__action-setting-select"
                         aria-label="拟奏短评参数"
                         value={commentSubmitMode}
                         onChange={(event) => {
