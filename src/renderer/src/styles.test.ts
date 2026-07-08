@@ -291,6 +291,15 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.assistant-action-button__description {\n  grid-area: desc;\n  min-width: 0;\n  padding-left: 4px;\n  color: var(--porcelain-muted);\n  font-size: 12px;\n  font-weight: 700;\n  text-align: left;')
   })
 
+  it('presents the review video metadata as a light divider block instead of a card', () => {
+    expectStyleSnippet(
+      '.memorial-panel__meta { border-top: 1px dashed rgba(31, 99, 181, 0.2); border-bottom: 1px dashed rgba(31, 99, 181, 0.2); border-right: 0; border-left: 0; background: transparent; padding: 8px 0;'
+    )
+    expect(compactStyles).not.toContain(
+      '.memorial-panel__copy, .memorial-panel__meta, .memorial-panel__verdict { border: 1px solid'
+    )
+  })
+
   it('uses compact spacing for the notes panel', () => {
     expect(normalizedStyles).toContain(
       '.video-notes {\n  color: var(--porcelain-text);\n  display: grid;\n  align-content: start;\n  gap: 8px;\n  font-size: 14px;'
