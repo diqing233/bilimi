@@ -1,0 +1,1199 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>bilimi 全程序走查预览</title>
+  <style>
+    :root {
+      --bg: #eaf6ff;
+      --surface: #f8fcff;
+      --card: #ffffff;
+      --line: #b5d3f5;
+      --line-strong: #6fa9e9;
+      --text: #123f72;
+      --muted: #607d9b;
+      --primary: #2168b9;
+      --primary-deep: #154d91;
+      --primary-soft: #e4f2ff;
+      --ok: #24825d;
+      --warn: #b26f00;
+      --run: #2879c9;
+      --idle: #73879a;
+      --danger: #b74343;
+      --shadow: 0 10px 26px rgba(33, 104, 185, .12);
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background: linear-gradient(180deg, #f6fbff 0%, var(--bg) 100%);
+      font-family: "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    button, select, input { font: inherit; }
+    button { cursor: pointer; }
+
+    .page {
+      width: min(100%, 1220px);
+      margin: 0 auto;
+      padding: 18px;
+    }
+
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+
+    h1, h2, h3, p { margin: 0; }
+    h1 { font-size: 22px; line-height: 1.25; }
+    h2 { font-size: 18px; line-height: 1.3; color: #103d6e; }
+    h3 { font-size: 15px; line-height: 1.35; color: #164f85; }
+
+    .desc { color: var(--muted); font-size: 13px; }
+    .strong { font-weight: 700; color: #0f477b; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(340px, 455px) minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .app {
+      border: 1px solid #9bc7f7;
+      background: rgba(232, 246, 255, .9);
+      box-shadow: var(--shadow);
+    }
+
+    .top-nav {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 7px;
+      padding: 12px 10px 8px;
+      background: rgba(246, 251, 255, .96);
+      border-bottom: 1px solid rgba(158, 199, 245, .72);
+      backdrop-filter: blur(10px);
+    }
+
+    .nav-button {
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      border: 1px solid #a8cef6;
+      border-radius: 7px;
+      color: #386997;
+      background: linear-gradient(180deg, #fff 0%, #edf7ff 100%);
+    }
+
+    .nav-button img { width: 24px; height: 24px; object-fit: contain; }
+
+    .nav-button[aria-selected="true"] {
+      color: #fff;
+      border-color: #15579e;
+      background: linear-gradient(180deg, #2d77c6 0%, #1d5fa9 100%);
+    }
+
+    .global-status {
+      border-bottom: 1px solid rgba(136, 184, 237, .7);
+      background: rgba(249, 253, 255, .86);
+    }
+
+    .status-main {
+      min-height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 12px 5px;
+      color: #164f85;
+      font-weight: 700;
+    }
+
+    .status-main small {
+      color: var(--muted);
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      border-top: 1px solid rgba(185, 215, 246, .74);
+      min-height: 34px;
+    }
+
+    .status-cell {
+      position: relative;
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 6px;
+      color: #375f86;
+      font-size: 13px;
+    }
+
+    .status-cell + .status-cell { border-left: 1px solid rgba(185, 215, 246, .74); }
+    .status-cell span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      flex: 0 0 auto;
+      box-shadow: 0 0 0 3px rgba(255, 255, 255, .82);
+      background: var(--idle);
+    }
+
+    .dot.ok { background: var(--ok); }
+    .dot.warn { background: var(--warn); }
+    .dot.run { background: var(--run); }
+    .dot.danger { background: var(--danger); }
+
+    .status-pop {
+      display: none;
+      position: absolute;
+      z-index: 30;
+      top: 100%;
+      left: 6px;
+      right: 6px;
+      min-width: 230px;
+      border: 1px solid #a8cef6;
+      border-radius: 7px;
+      background: #fff;
+      box-shadow: var(--shadow);
+      padding: 10px;
+      color: #24577f;
+      text-align: left;
+    }
+
+    .status-cell:hover .status-pop { display: block; }
+
+    .workspace { padding: 14px 12px 18px; }
+    .view, .subview, .old-step-pane, .result-pane, .archive-result-pane { display: none; }
+    .view.active, .subview.active, .old-step-pane.active, .result-pane.active, .archive-result-pane.active { display: block; }
+
+    .head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .panel, .card {
+      border: 1px solid #b4d3f7;
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, .66);
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .panel.soft { background: rgba(242, 249, 255, .8); }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .tool-button {
+      min-height: 34px;
+      border: 1px solid #a6c9ef;
+      border-radius: 6px;
+      color: #174f84;
+      background: #fff;
+      padding: 0 10px;
+    }
+
+    .tool-button.primary { color: #fff; background: #2168b9; border-color: #1b5da8; }
+    .tool-button.ghost { background: transparent; }
+    .tool-button.danger { color: #9d2f2f; border-color: #e0b5b5; }
+
+    .compact-select {
+      min-height: 34px;
+      border: 1px solid #bdd6f2;
+      color: #173f6a;
+      background: #fafdff;
+      padding: 0 8px;
+    }
+
+    .meta-stack { display: grid; gap: 4px; margin: 8px 0 14px; color: #24577f; }
+
+    .action-list { display: grid; gap: 10px; }
+
+    .action-button {
+      width: 100%;
+      min-height: 78px;
+      display: grid;
+      grid-template-columns: 72px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 8px;
+      border: 1px solid #a9cef7;
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, .72);
+      color: var(--text);
+      text-align: left;
+    }
+
+    .action-button:hover { border-color: #6ea7e6; background: #fff; }
+
+    .action-icon { width: 54px; height: 54px; object-fit: contain; justify-self: center; }
+    .badge {
+      display: inline-flex;
+      min-width: 22px;
+      height: 22px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      color: #fff;
+      background: #1b68b8;
+      font-weight: 700;
+      font-size: 12px;
+      margin-left: -24px;
+      align-self: end;
+      justify-self: end;
+    }
+
+    .icon-wrap { display: grid; grid-template-columns: 1fr; align-items: center; }
+
+    .button-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 4px;
+      font-size: 18px;
+      font-weight: 760;
+      color: #073e75;
+    }
+
+    .segmented, .step-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+      margin: 10px 0;
+    }
+
+    .step-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+    .segmented button, .step-strip button {
+      min-height: 38px;
+      border: 1px solid #a8cef6;
+      border-radius: 6px;
+      color: #1b5d96;
+      background: #fafdff;
+      padding: 0 6px;
+    }
+
+    .segmented button.active, .step-strip button.active {
+      color: #fff;
+      background: #2168b9;
+      border-color: #2168b9;
+    }
+
+    .list { display: grid; gap: 8px; }
+
+    .row, .reference-video, .queue-card, .archive-row {
+      width: 100%;
+      min-height: 50px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+      border: 1px solid #c0d9f4;
+      border-radius: 7px;
+      background: rgba(255, 255, 255, .78);
+      color: var(--text);
+      text-align: left;
+    }
+
+    .row.selected, .reference-video[aria-pressed="true"], .queue-card[aria-pressed="true"], .archive-row[aria-pressed="true"] {
+      border-left: 4px solid #63a5ec;
+      background: #edf7ff;
+    }
+
+    .row-title, .reference-video strong, .archive-row strong {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #0f477b;
+      font-weight: 700;
+    }
+
+    .tag-line { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      max-width: 100%;
+      border: 1px solid #bfd9f5;
+      border-radius: 999px;
+      color: #35678f;
+      background: #f7fbff;
+      padding: 0 8px;
+      font-size: 12px;
+    }
+
+    .progress { height: 5px; overflow: hidden; border-radius: 99px; background: #d8e9fa; margin-top: 9px; }
+    .progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #3d8ee5, #86c7ff); }
+
+    .summary-grid, .queue-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin: 10px 0;
+    }
+
+    .queue-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+    .summary-tile, .queue-card {
+      min-height: 62px;
+      border: 1px solid #c0d9f4;
+      border-radius: 7px;
+      background: rgba(255, 255, 255, .78);
+      padding: 8px;
+    }
+
+    .summary-tile strong, .queue-card strong { display: block; color: #0f477b; }
+    .summary-tile strong { font-size: 17px; line-height: 1.2; }
+
+    .callout { border-left: 4px solid #62a4ed; background: #f1f8ff; padding: 10px 12px; color: #255b88; margin: 10px 0 12px; }
+    .warning { border-left-color: #d29a42; background: #fff8ee; color: #7b5420; }
+
+    .settings-jump {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 10px;
+      align-items: center;
+      padding: 10px;
+      border: 1px solid #b7d5f7;
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, .68);
+      margin-bottom: 12px;
+    }
+
+    .settings-scroll {
+      max-height: 620px;
+      overflow-y: auto;
+      padding-right: 4px;
+      scroll-behavior: smooth;
+    }
+
+    .settings-pane {
+      display: block;
+      scroll-margin-top: 8px;
+    }
+
+    .field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(185, 215, 246, .72); }
+    .field:last-child { border-bottom: 0; }
+
+    .control-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .control-grid--one {
+      grid-template-columns: 1fr;
+    }
+
+    .control-grid label,
+    .choice-row {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+      border: 1px solid #c0d9f4;
+      border-radius: 7px;
+      background: rgba(255, 255, 255, .76);
+      padding: 8px;
+      color: #24577f;
+    }
+
+    .control-grid input,
+    .choice-row input { margin: 0; }
+
+    .text-input {
+      width: 100%;
+      min-height: 34px;
+      border: 1px solid #bdd6f2;
+      color: #173f6a;
+      background: #fafdff;
+      padding: 0 8px;
+    }
+
+    .memo-box {
+      width: 100%;
+      min-height: 74px;
+      resize: vertical;
+      border: 1px solid #bdd6f2;
+      color: #173f6a;
+      background: #fafdff;
+      padding: 8px;
+      font: inherit;
+    }
+
+    .switch {
+      width: 42px; height: 24px; border-radius: 999px; border: 1px solid #9dc2ea; background: #dceeff; position: relative;
+    }
+
+    .switch::after {
+      content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 4px rgba(30, 84, 140, .22);
+    }
+
+    .switch.on { background: #2168b9; }
+    .switch.on::after { left: 21px; }
+
+    .walkthrough {
+      display: grid;
+      gap: 12px;
+    }
+
+    .note-block {
+      border: 1px solid #c3d9f0;
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 12px;
+    }
+
+    .test-grid { display: grid; gap: 8px; margin-top: 10px; }
+    .test-grid button {
+      min-height: 34px;
+      border: 1px solid #c0d9f4;
+      border-radius: 6px;
+      background: #f8fcff;
+      color: #1b5d96;
+      text-align: left;
+      padding: 0 10px;
+    }
+
+    .modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      background: rgba(18, 45, 77, .24);
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+    }
+
+    .modal.active { display: flex; }
+    .modal-card {
+      width: min(420px, 100%);
+      border: 1px solid #9fc8f2;
+      border-radius: var(--radius);
+      background: #fff;
+      box-shadow: 0 24px 80px rgba(21, 77, 145, .22);
+      padding: 14px;
+    }
+
+    .comment-choice {
+      width: 100%;
+      border: 1px solid #c0d9f4;
+      border-radius: 6px;
+      background: #f8fcff;
+      color: var(--text);
+      text-align: left;
+      padding: 9px;
+      margin-top: 8px;
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      color: #24577f;
+      font-family: inherit;
+      font-size: 13px;
+    }
+
+    @media (max-width: 940px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div>
+        <h1>bilimi 全程序走查预览</h1>
+        <p class="desc">主导航和全局状态栏位置不变；下面把真实程序的主要入口做成可点原型。</p>
+      </div>
+      <span class="tag">临时预览，不改项目代码</span>
+    </header>
+
+    <div class="layout">
+      <section class="app" aria-label="bilimi 侧栏预览">
+        <nav class="top-nav" aria-label="主导航">
+          <button class="nav-button" type="button" aria-selected="true" data-tab="review"><img src="/files/xiaomi-idle.png" alt="">批阅</button>
+          <button class="nav-button" type="button" aria-selected="false" data-tab="notes"><img src="/files/xiaomi-working.png" alt="">札记</button>
+          <button class="nav-button" type="button" aria-selected="false" data-tab="ledger"><img src="/files/xiaomi-idle.png" alt="">掌库</button>
+          <button class="nav-button" type="button" aria-selected="false" data-tab="settings"><img src="/files/xiaomi-working.png" alt="">设置</button>
+        </nav>
+
+        <section class="global-status" aria-label="全局状态栏">
+          <div class="status-main">
+            <span id="statusMessage">等待操作。这里显示最近一次关键反馈。</span>
+            <small>全局</small>
+          </div>
+          <div class="status-grid" aria-label="后台状态灯">
+            <div class="status-cell">
+              <span class="dot ok"></span><span id="deepseekLight">DeepSeek 已连</span>
+              <div class="status-pop">
+                <strong>DeepSeek 功能总览</strong>
+                <p class="desc">已开启：趣评生成、收藏夹二判、文稿总结。未开启：宠物对话。</p>
+              </div>
+            </div>
+            <div class="status-cell">
+              <span class="dot idle" id="transcribeDot"></span><span id="transcribeLight">暂无转写</span>
+              <div class="status-pop">
+                <strong>转写状态</strong>
+                <p class="desc">转写队列、进度、失败重试都在这里同步短状态。</p>
+              </div>
+            </div>
+            <div class="status-cell">
+              <span class="dot warn" id="ledgerDot"></span><span id="ledgerLight">旧藏待整理 249</span>
+              <div class="status-pop">
+                <strong>整理状态</strong>
+                <p class="desc">备册、旧藏扫描、确认整理进度共用这一枚状态灯。</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="workspace">
+          <section class="view active" data-view="review">
+            <div class="head">
+              <div>
+                <h2>哔哩哔哩(ﾟーﾟ)つロ 干杯~-bilibili</h2>
+                <p class="desc">当前视频上下文 + 四个批阅动作。</p>
+              </div>
+            </div>
+            <div class="meta-stack">
+              <p>分区：影视动漫</p>
+              <p>签语：可藏</p>
+              <p class="desc">DeepSeek 静态能力说明不放在这里，放状态灯悬浮说明。</p>
+            </div>
+            <div class="action-list" aria-label="批阅动作">
+              <button class="action-button review-action" type="button" data-action="轻赏此条" data-message="已轻赏《中西结合的小曲》，并归入收藏夹：循环歌单。">
+                <span class="icon-wrap"><img class="action-icon" src="/files/xiaomi-idle.png" alt=""><span class="badge">赞</span></span>
+                <span><span class="button-title">轻赏此条</span><span class="desc">一键点赞，并归类收藏到 bilimi</span></span>
+              </button>
+              <button class="action-button review-action" type="button" data-action="归入内库" data-message="已归入内库：影视动漫 / 旧番资料。">
+                <span class="icon-wrap"><img class="action-icon" src="/files/xiaomi-idle.png" alt=""><span class="badge">藏</span></span>
+                <span><span class="button-title">归入内库</span><span class="desc">一键归类收藏，不点赞不投币</span></span>
+              </button>
+              <button class="action-button review-action" type="button" data-action="投币厚赏" data-message="投币厚赏已提交：1 枚，目标收藏夹保持循环歌单。">
+                <span class="icon-wrap"><img class="action-icon" src="/files/xiaomi-working.png" alt=""><span class="badge">赐</span></span>
+                <span><span class="button-title">投币厚赏</span><span class="desc">一键三连，投币数量可在设置中调整</span></span>
+                <select class="compact-select" aria-label="投币数量"><option>1 枚</option><option>2 枚</option></select>
+              </button>
+              <button class="action-button" id="openCommentIntent" type="button">
+                <span class="icon-wrap"><img class="action-icon" src="/files/xiaomi-idle.png" alt=""><span class="badge">表</span></span>
+                <span><span class="button-title">拟奏短评</span><span class="desc">一键弹幕，发送方式可在设置中调整</span></span>
+                <select class="compact-select" aria-label="短评方式"><option>生成候选</option><option>随机直发</option></select>
+              </button>
+            </div>
+          </section>
+
+          <section class="view" data-view="notes">
+            <div class="subview active" data-notes-subview="notesHome">
+              <div class="head">
+                <div>
+                  <h2>札记</h2>
+                  <p class="desc">文稿生成、转写队列和档案库入口。</p>
+                </div>
+              </div>
+              <div class="panel soft">
+                <h3>当前视频详情</h3>
+                <p class="desc">作者：WarmFrost · BV1xx411c7mD · 链接待识别</p>
+                <div class="toolbar">
+                  <button class="tool-button primary" id="startTranscribe">转写音频</button>
+                  <button class="tool-button">整理札记</button>
+                  <button class="tool-button">重新整理</button>
+                  <button class="tool-button" id="openArchive">档案库</button>
+                  <button class="tool-button">存入档案</button>
+                </div>
+                <div class="progress"><span id="noteProgress" style="width: 0%"></span></div>
+                <p class="desc" id="noteProgressText" style="margin-top:6px">暂无转写任务。</p>
+              </div>
+              <div class="panel">
+                <div class="head"><h3>转写队列</h3><span class="tag">等待 / 运行 / 失败都可见</span></div>
+                <div class="list">
+                  <div class="row selected">
+                    <span><span class="row-title">当前视频音频</span><span class="desc">转写中 42% · 第 2 / 4 段</span></span>
+                    <button class="tool-button">取消</button>
+                  </div>
+                  <div class="row">
+                    <span><span class="row-title">三分钟看懂旧番时间线</span><span class="desc">失败 · 可重试</span></span>
+                    <button class="tool-button">重试</button>
+                  </div>
+                  <div class="row">
+                    <span><span class="row-title">画师过程记录：蓝白角色上色</span><span class="desc">尚未开始</span></span>
+                    <button class="tool-button">加入队列</button>
+                  </div>
+                </div>
+              </div>
+              <div class="segmented" aria-label="札记结果切换">
+                <button class="active" type="button" data-result="plain">无时间线文稿</button>
+                <button type="button" data-result="timed">带时间线文稿</button>
+                <button type="button" data-result="summary">DeepSeek 总结</button>
+              </div>
+              <div class="panel result-pane active" data-result-pane="plain">
+                <div class="head"><h3>无时间线文稿</h3><button class="tool-button">复制全文</button></div>
+                <pre>这一段是连续文稿预览。用户点开后按钮行不跳动，只在下面展开内容。</pre>
+              </div>
+              <div class="panel result-pane" data-result-pane="timed">
+                <div class="head"><h3>带时间线文稿</h3><button class="tool-button">复制全文</button></div>
+                <pre>00:12 开场介绍视频主题
+01:08 展开解释关键片段
+03:44 总结适合归档的标签</pre>
+              </div>
+              <div class="panel result-pane" data-result-pane="summary">
+                <div class="head"><h3>DeepSeek 总结</h3><div class="toolbar" style="margin-top:0"><button class="tool-button">更多复制</button><button class="tool-button primary" id="generateSummary">生成总结</button><button class="tool-button">重新总结</button></div></div>
+                <pre id="summaryText">暂无 DeepSeek 总结。点击生成总结后，切页回来仍应显示状态。</pre>
+              </div>
+            </div>
+
+            <div class="subview" data-notes-subview="archive">
+              <div class="head">
+                <div>
+                  <h2>档案库</h2>
+                  <p class="desc">从札记进入。视频详情可展开/收起，切回札记再回来保留。</p>
+                </div>
+                <button class="tool-button" id="backToNotes">返回札记</button>
+              </div>
+              <div class="list">
+                <button class="archive-row" type="button" aria-pressed="true" data-archive-title="【MAD】夏日循环歌单" data-archive-meta="WarmFrost · BV1xx411c7mD · 转写 2 次">
+                  <span><strong>【MAD】夏日循环歌单</strong><span class="desc">WarmFrost · 转写 2 次</span></span><span class="tag">已展开</span>
+                </button>
+                <button class="archive-row" type="button" aria-pressed="false" data-archive-title="三分钟看懂旧番时间线" data-archive-meta="ArchiveNote · BV9xx411c7mD · 转写 1 次">
+                  <span><strong>三分钟看懂旧番时间线</strong><span class="desc">ArchiveNote · 转写 1 次</span></span><span class="tag">详情</span>
+                </button>
+                <button class="archive-row" type="button" aria-pressed="false" data-archive-title="画师过程记录：蓝白角色上色" data-archive-meta="MikaSketch · BV7xx411c7mD · 转写 3 次">
+                  <span><strong>画师过程记录：蓝白角色上色</strong><span class="desc">MikaSketch · 转写 3 次</span></span><span class="tag">详情</span>
+                </button>
+              </div>
+              <div class="panel" id="archiveDetail">
+                <div class="head">
+                  <div>
+                    <h3 id="archiveTitle">【MAD】夏日循环歌单</h3>
+                    <p class="desc" id="archiveMeta">WarmFrost · BV1xx411c7mD · 转写 2 次</p>
+                  </div>
+                  <select class="compact-select"><option>v2 · 今天</option><option>v1 · 昨天</option></select>
+                </div>
+                <div class="toolbar">
+                  <button class="tool-button">打开视频来源</button>
+                  <button class="tool-button danger">删除视频档案</button>
+                  <button class="tool-button danger">删除当前版本</button>
+                </div>
+                <div class="segmented" aria-label="档案结果切换">
+                  <button class="active" type="button" data-archive-result="plain">无时间线文稿</button>
+                  <button type="button" data-archive-result="timed">带时间线文稿</button>
+                  <button type="button" data-archive-result="summary">DeepSeek 总结</button>
+                </div>
+                <div class="archive-result-pane active" data-archive-result-pane="plain"><pre>档案库里的无时间线文稿，布局和札记共用同一行为。</pre></div>
+                <div class="archive-result-pane" data-archive-result-pane="timed"><pre>00:30 档案时间线片段
+02:10 可复制全文
+04:18 可生成总结</pre></div>
+                <div class="archive-result-pane" data-archive-result-pane="summary"><pre>DeepSeek 总结会保留生成中、完成或失败状态，不因切页丢失。</pre></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="view" data-view="ledger">
+            <div class="head">
+              <div>
+                <h2>掌库</h2>
+                <p class="desc">常驻收藏夹管理 + 整理旧藏向导。</p>
+              </div>
+            </div>
+            <div class="panel soft">
+              <div class="head">
+                <div><h3>收藏夹</h3><p class="desc">备册、同步、新建和编辑收藏夹。</p></div>
+                <button class="tool-button ghost" id="toggleLedgerHelp" aria-label="展开收藏夹说明">展开收藏夹说明 ⌄</button>
+              </div>
+              <p class="desc" id="ledgerHelp" hidden>自定义 bilimi 收藏夹，点击收藏名字可以编辑，添加后点击同步即可更新到 B 站。</p>
+              <div class="summary-grid">
+                <div class="summary-tile"><strong>8</strong><span class="desc">bilimi 册目</span></div>
+                <div class="summary-tile"><strong>3</strong><span class="desc">待同步</span></div>
+                <div class="summary-tile"><strong>99</strong><span class="desc">B 站上限</span></div>
+              </div>
+              <div class="toolbar">
+                <button class="tool-button">备册同步</button>
+                <button class="tool-button">重置</button>
+                <button class="tool-button">全部加入</button>
+                <button class="tool-button">同步</button>
+                <button class="tool-button">新建收藏夹</button>
+                <button class="tool-button">折叠</button>
+                <button class="tool-button primary" id="openOldFavorites" aria-expanded="true">整理旧藏</button>
+              </div>
+            </div>
+            <div class="panel" aria-label="当前收藏夹">
+              <div class="head">
+                <div><h3>正在编辑：bilimi·循环歌单</h3><p class="desc">真实掌库里选中收藏夹后会显示编辑区。</p></div>
+                <div class="toolbar" style="margin-top:0"><button class="tool-button">保存</button><button class="tool-button danger">删除</button></div>
+              </div>
+              <label class="field">
+                <span>收藏夹种类</span>
+                <select class="compact-select" aria-label="收藏夹种类"><option>关键词</option><option>UP 主</option><option>标签</option></select>
+              </label>
+              <label class="field">
+                <span>册名</span>
+                <input class="text-input" aria-label="册名" value="循环歌单">
+              </label>
+              <label>
+                <span class="strong">关键词</span>
+                <textarea class="memo-box">音乐、MAD、循环、歌单</textarea>
+              </label>
+            </div>
+
+            <div class="card" id="oldFavoritesCard">
+              <div class="head">
+                <div>
+                  <h3>整理旧藏</h3>
+                  <p class="desc">按钮触发的工作卡片，四步流程一一对应真实程序。</p>
+                </div>
+                <button class="tool-button ghost" id="closeOldFavorites">收起</button>
+              </div>
+              <div class="step-strip" aria-label="整理旧藏流程">
+                <button class="active" type="button" data-old-step="scan">扫描概览</button>
+                <button type="button" data-old-step="generated">推荐收藏夹</button>
+                <button type="button" data-old-step="preview">归档预览</button>
+                <button type="button" data-old-step="confirm">确认执行</button>
+              </div>
+              <div class="old-step-pane active" data-old-step-pane="scan">
+                <h4>基础数据</h4>
+                <div class="summary-grid">
+                  <div class="summary-tile"><span class="desc">共扫描</span><strong id="queueTotal">249</strong></div>
+                  <div class="summary-tile"><span class="desc">可自动归档</span><strong id="queueReady">211</strong></div>
+                  <div class="summary-tile"><span class="desc">需复核</span><strong>38</strong></div>
+                  <div class="summary-tile"><span class="desc">待分类</span><strong>12</strong></div>
+                  <div class="summary-tile"><span class="desc">已存在</span><strong>24</strong></div>
+                  <div class="summary-tile"><span class="desc">跳过来源</span><strong id="queueCreated">8</strong></div>
+                </div>
+                <div class="queue-grid" aria-label="收藏队列">
+                  <button class="queue-card" type="button" aria-pressed="true" data-total="96" data-ready="82" data-created="4" data-name="默认收藏夹" data-summary="默认收藏夹混合度最高，适合先看未匹配条目。"><strong>默认收藏夹</strong><span class="desc">96 条 · 推荐 4 个新夹</span></button>
+                  <button class="queue-card" type="button" aria-pressed="false" data-total="58" data-ready="47" data-created="2" data-name="稍后看" data-summary="稍后看偏临时内容，建议低置信保留原位。"><strong>稍后看</strong><span class="desc">58 条 · 推荐 2 个新夹</span></button>
+                  <button class="queue-card" type="button" aria-pressed="false" data-total="41" data-ready="39" data-created="1" data-name="番剧补档" data-summary="番剧补档分类集中，适合批量归入影视动漫。"><strong>番剧补档</strong><span class="desc">41 条 · 推荐 1 个新夹</span></button>
+                  <button class="queue-card" type="button" aria-pressed="false" data-total="54" data-ready="51" data-created="1" data-name="工具参考" data-summary="工具参考更像知识/效率资料，适合拆出工具教程。"><strong>工具参考</strong><span class="desc">54 条 · 推荐 1 个新夹</span></button>
+                </div>
+                <div class="callout" id="queueSummary">当前队列：默认收藏夹。默认收藏夹混合度最高，适合先看未匹配条目。</div>
+              </div>
+              <div class="old-step-pane" data-old-step-pane="generated">
+                <div class="callout">推荐收藏夹分两组：追更类和标签类。可以全选、取消全选或单独勾选。</div>
+                <div class="control-grid">
+                  <label><input type="checkbox" aria-label="全选 专属 UP 追更" checked><span>全选 专属 UP 追更</span></label>
+                  <label><input type="checkbox" aria-label="全选 高频标签收藏夹" checked><span>全选 高频标签收藏夹</span></label>
+                </div>
+                <div class="list">
+                  <label class="row"><span><span class="row-title">循环歌单</span><span class="desc">命中 18 条 · 音乐/MAD/循环</span></span><input type="checkbox" checked></label>
+                  <label class="row"><span><span class="row-title">绘画参考</span><span class="desc">命中 12 条 · 绘画/过程</span></span><input type="checkbox" checked></label>
+                  <label class="row"><span><span class="row-title">工具教程</span><span class="desc">命中 9 条 · 效率/教程</span></span><input type="checkbox"></label>
+                </div>
+                <div class="toolbar"><button class="tool-button">展开更多高频标签</button></div>
+              </div>
+              <div class="old-step-pane" data-old-step-pane="preview">
+                <div class="panel">
+                  <div class="head"><h3>DeepSeek 辅助整理</h3><button class="tool-button primary" id="runDeepseekArchive">DeepSeek 整理</button></div>
+                  <div class="toolbar"><span class="desc">DeepSeek 辅助整理范围</span><select class="compact-select" aria-label="DeepSeek 辅助整理范围"><option>不太稳 + 未匹配到合适分类</option><option>DeepSeek 进行二次整理</option><option>仅未匹配到合适分类</option></select></div>
+                  <p class="desc" style="margin-top:8px">操作结果类提示上浮到全局状态栏。</p>
+                </div>
+                <div class="toolbar">
+                  <select class="compact-select" aria-label="改动记录"><option>选择改动记录</option><option>最近一次改动：循环歌单</option></select>
+                  <button class="tool-button" id="undoArchive">撤销本次改动</button>
+                  <button class="tool-button">恢复本次改动</button>
+                  <span class="desc">Ctrl+Z / Ctrl+Shift+Z</span>
+                </div>
+                <section class="panel" aria-label="未匹配到合适分类 2 条">
+                  <div class="head"><h3>未匹配到合适分类</h3><label class="choice-row"><input type="checkbox" aria-label="全部存入暂存"><span>全部存入暂存</span></label></div>
+                  <div class="list" aria-label="未匹配到合适分类视频">
+                    <div class="row"><span><span class="row-title">标题太短的视频</span><span class="desc">缺少标签，需要人工确认。</span></span><select class="compact-select"><option>暂存</option><option>循环歌单</option></select></div>
+                    <div class="row"><span><span class="row-title">直播切片合集</span><span class="desc">同时命中多个收藏夹。</span></span><select class="compact-select"><option>不整理</option><option>影视动漫</option></select></div>
+                  </div>
+                </section>
+                <div class="list" aria-label="归档预览参考视频">
+                  <button class="reference-video" type="button" aria-pressed="true" data-title="【MAD】夏日循环歌单" data-meta="来源：默认收藏夹 · UP：WarmFrost · 标签：音乐 / MAD / 循环" data-target="建议归入：循环歌单" data-note="DeepSeek 二判把“音乐舞台”调整为“循环歌单”。"><span><strong>【MAD】夏日循环歌单</strong><span class="desc">默认收藏夹 · 音乐/MAD</span></span><span class="tag">循环歌单</span></button>
+                  <button class="reference-video" type="button" aria-pressed="false" data-title="画师过程记录：蓝白角色上色" data-meta="来源：稍后看 · UP：MikaSketch · 标签：绘画 / 过程" data-target="建议归入：绘画参考" data-note="标签命中稳定，分类把握较高。"><span><strong>画师过程记录：蓝白角色上色</strong><span class="desc">稍后看 · 绘画/过程</span></span><span class="tag">绘画参考</span></button>
+                  <button class="reference-video" type="button" aria-pressed="false" data-title="B站收藏夹整理前后对比" data-meta="来源：工具参考 · UP：DeskFlow · 标签：效率 / 收藏夹 / 教程" data-target="建议归入：工具教程" data-note="如果不想混入娱乐内容，可归入工具教程。"><span><strong>B站收藏夹整理前后对比</strong><span class="desc">工具参考 · 效率/教程</span></span><span class="tag">工具教程</span></button>
+                </div>
+                <div class="panel">
+                  <h3 id="ledgerVideoTitle">【MAD】夏日循环歌单</h3>
+                  <p class="desc" id="ledgerVideoMeta">来源：默认收藏夹 · UP：WarmFrost · 标签：音乐 / MAD / 循环</p>
+                  <div class="tag-line"><span class="tag" id="ledgerVideoTarget">建议归入：循环歌单</span><span class="tag">可手动改夹</span></div>
+                  <p class="desc" id="ledgerVideoNote" style="margin-top:8px">DeepSeek 二判把“音乐舞台”调整为“循环歌单”。</p>
+                </div>
+              </div>
+              <div class="old-step-pane" data-old-step-pane="confirm">
+                <div class="warning callout">确认执行前会检查目标收藏夹；执行中会更新全局状态灯。</div>
+                <div class="panel" aria-label="确认未分类处理">
+                  <strong>确认未分类处理</strong>
+                  <p class="desc">同一旧藏命中多个收藏夹时，真实程序会给出明确选择。</p>
+                  <div class="toolbar"><button class="tool-button">全部去掉不整理</button><button class="tool-button">只取消当前收藏夹</button><button class="tool-button">取消</button></div>
+                </div>
+                <button class="tool-button primary" id="executeArchive">确认整理</button>
+                <button class="tool-button">好的</button>
+                <div class="progress"><span id="archiveProgress" style="width:0%"></span></div>
+                <p class="desc" id="archiveProgressText" style="margin-top:6px">等待确认。</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="view" data-view="settings">
+            <div class="head">
+              <div><h2>设置</h2><p class="desc">标题行 + 设置项下拉 + 内容区；动态提示上移到全局状态栏。</p></div>
+              <div class="toolbar" style="margin-top:0"><button class="tool-button" id="restoreLayout">恢复默认布局</button><button class="tool-button danger">重置设置</button></div>
+            </div>
+            <label class="settings-jump">
+              <span class="strong">设置项</span>
+              <select id="settingsJump" class="compact-select" aria-label="设置项">
+                <option value="diagnostics">诊断</option>
+                <option value="deepseek">DeepSeek</option>
+                <option value="pet">宠物设置</option>
+                <option value="transcription">视频音频转写速度</option>
+                <option value="archive">收藏整理</option>
+                <option value="learning">整理策略</option>
+                <option value="review-actions">批阅动作</option>
+              </select>
+            </label>
+            <div class="settings-scroll" id="settingsScroll">
+              <div class="settings-pane" data-settings-pane="diagnostics">
+                <div class="panel"><div class="head"><div><h3>诊断</h3><p class="desc">检查 B 站网络、本地媒体工具、DeepSeek、存储和当前页面状态。</p></div><div class="toolbar" style="margin-top:0"><button class="tool-button primary">运行诊断</button><button class="tool-button">收起诊断</button></div></div><div class="field"><span>偏好设置与本地记录</span><span class="tag">正常</span></div><div class="field"><span>DeepSeek API Key</span><span class="tag">已配置</span></div><div class="field"><span>本地转写组件</span><span class="tag">可用</span></div></div>
+              </div>
+              <div class="settings-pane" data-settings-pane="deepseek">
+                <div class="panel">
+                  <h3>DeepSeek</h3>
+                  <div class="control-grid">
+                    <label><input type="checkbox" checked><span>启用 DeepSeek</span></label>
+                    <label><input type="checkbox" checked><span>趣味评论</span></label>
+                    <label><input type="checkbox" checked><span>自动总结</span></label>
+                    <label><input type="checkbox"><span>宠物对话</span></label>
+                    <label><input type="checkbox" checked><span>辅助整理</span></label>
+                    <label><input type="radio" name="deepseek-mode" checked><span>全部归类</span></label>
+                    <label><input type="radio" name="deepseek-mode"><span>仅不太稳</span></label>
+                  </div>
+                  <label class="field"><span>DeepSeek API 密钥</span><input class="text-input" type="password" value="sk-••••••"></label>
+                  <label class="field"><span>DeepSeek 模型</span><input class="text-input" value="deepseek-v4-flash"></label>
+                  <label class="field"><span>DeepSeek 服务地址</span><input class="text-input" value="https://api.deepseek.com"></label>
+                  <div class="toolbar"><button class="tool-button primary">保存 DeepSeek</button><button class="tool-button" id="testDeepseek">测试 DeepSeek</button><button class="tool-button">重置 DeepSeek</button></div>
+                  <aside class="callout">
+                    <strong>致谢 云枢智元</strong>
+                    <p class="desc">推荐模型：deepseek-v4-pro；服务器地址：https://api.yunshulink.com/v1</p>
+                    <div class="toolbar"><button class="tool-button">复制推荐模型</button><button class="tool-button">复制服务器地址</button></div>
+                  </aside>
+                </div>
+              </div>
+              <div class="settings-pane" data-settings-pane="pet">
+                <div class="panel">
+                  <h3>宠物设置</h3>
+                  <div class="control-grid">
+                    <label><input type="radio" name="pet-style" checked><span>萌版大头</span></label>
+                    <label><input type="radio" name="pet-style"><span>Q版小人</span></label>
+                    <label><input type="checkbox" checked><span>全屏视频时自动收起小咪</span></label>
+                  </div>
+                  <div class="panel soft">
+                    <h3>宠物快捷操作</h3>
+                    <p class="desc">最多 4 个，可不选；数字表示悬浮按钮显示顺序。</p>
+                    <div class="toolbar"><button class="tool-button">助 打开助手</button><button class="tool-button">库 打开档案库</button><button class="tool-button">转 转写音频</button><button class="tool-button">整 整理旧藏</button></div>
+                  </div>
+                  <div class="toolbar"><button class="tool-button primary">唤醒宠物</button><button class="tool-button">关闭宠物</button></div>
+                </div>
+              </div>
+              <div class="settings-pane" data-settings-pane="transcription">
+                <div class="panel"><h3>视频音频转写速度</h3><p class="desc">限制本地转写使用的 CPU 线程，越低越不容易卡。</p><div class="control-grid control-grid--one"><label><input type="radio" name="thread-limit" checked><span>无限制（最快，占用最高）</span></label><label><input type="radio" name="thread-limit"><span>限制为 1 线程（省电）</span></label><label><input type="radio" name="thread-limit"><span>限制为 2 线程（平衡）</span></label><label><input type="radio" name="thread-limit"><span>限制为 4 线程（较快）</span></label></div></div>
+              </div>
+              <div class="settings-pane" data-settings-pane="archive">
+                <div class="panel"><h3>bilimi 收藏策略</h3><p class="desc">设置一个待分类视频最多可同时保存到几个合适的 bilimi 收藏夹。</p><div class="control-grid control-grid--one"><label><input type="radio" name="favorite-archive-multi-mode" checked><span>最多同时保存到 1 个 bilimi 收藏夹</span></label><label><input type="radio" name="favorite-archive-multi-mode"><span>最多同时保存到 2 个 bilimi 收藏夹</span></label><label><input type="radio" name="favorite-archive-multi-mode"><span>最多同时保存到 3 个 bilimi 收藏夹</span></label></div></div>
+              </div>
+              <div class="settings-pane" data-settings-pane="learning">
+                <div class="panel">
+                  <h3>整理策略</h3>
+                  <div class="control-grid">
+                    <label><input type="radio" name="archive-strategy"><span>积极整理</span></label>
+                    <label><input type="radio" name="archive-strategy" checked><span>均衡整理</span></label>
+                    <label><input type="radio" name="archive-strategy"><span>保守整理</span></label>
+                    <label><input type="checkbox" checked><span>记录纠错学习</span></label>
+                    <label><input type="checkbox" checked><span>纠错学习参与分类</span></label>
+                  </div>
+                  <div class="panel soft"><div class="head"><h3>纠错学习记录（1）</h3><button class="tool-button">清空纠错记录</button></div><div class="row"><span><span class="row-title">【MAD】夏日循环歌单</span><span class="desc">原建议：音乐舞台；用户选择：循环歌单</span></span><button class="tool-button danger">删除</button></div></div>
+                  <div class="panel soft"><h3>关键词建议（2）</h3><div class="row"><span><span class="row-title">替换组合词</span><span class="desc">目标收藏夹：循环歌单；关键词：循环</span></span><div class="toolbar" style="margin-top:0"><button class="tool-button">采纳</button><button class="tool-button">忽略</button><button class="tool-button danger">删除</button></div></div></div>
+                </div>
+              </div>
+              <div class="settings-pane" data-settings-pane="review-actions">
+                <div class="panel"><h3>批阅动作设置</h3><strong>赐：一键三连</strong><div class="control-grid control-grid--one"><label><input type="radio" name="default-coin-count" checked><span>默认投 1 枚硬币（再点一次可补投 1 枚）</span></label><label><input type="radio" name="default-coin-count"><span>默认投 2 枚硬币</span></label></div><strong>表：发送弹幕</strong><div class="control-grid control-grid--one"><label><input type="radio" name="comment-submit-mode"><span>随机生成一条并直接发送</span></label><label><input type="radio" name="comment-submit-mode" checked><span>生成 3 条候选，选择后发送（也可以复制后发评论）</span></label></div></div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <aside class="walkthrough" aria-label="走查清单">
+        <div class="note-block">
+          <h2>一一对应清单</h2>
+          <p class="desc">点下面按钮会跳到对应位置，你可以按顺序检查整个程序。</p>
+          <div class="test-grid">
+            <button type="button" data-jump="review">1. 批阅：四个主动作 + 评论候选</button>
+            <button type="button" data-jump="notes">2. 札记：转写、结果切换、DeepSeek 总结</button>
+            <button type="button" data-jump="archive">3. 档案库：列表、详情、版本、结果切换</button>
+            <button type="button" data-jump="ledger">4. 掌库：收藏夹、整理旧藏四步</button>
+            <button type="button" data-jump="settings">5. 设置：诊断、DeepSeek、宠物、转写、整理、批阅动作</button>
+          </div>
+        </div>
+        <div class="note-block">
+          <h2>全局状态栏规则</h2>
+          <p><strong>位置：</strong>固定在主导航下面。</p>
+          <p><strong>第一行：</strong>最近一次关键反馈。</p>
+          <p><strong>第二行：</strong>DeepSeek / 转写 / 整理三等分状态灯。</p>
+        </div>
+        <div class="note-block">
+          <h2>我补齐的可测点</h2>
+          <p class="desc">批阅动作、评论候选弹层、札记转写进度、档案库子视图、掌库四步向导、收藏队列、归档预览视频、设置项下拉切换。</p>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <div class="modal" id="commentIntentModal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="head"><h2>拟奏短评</h2><button class="tool-button ghost" data-close-modal>关闭</button></div>
+      <p class="desc">先说明想表达的方向，再生成候选。</p>
+      <div class="toolbar"><button class="tool-button primary" id="openCommentChooser">生成候选</button><button class="tool-button">随机直发</button></div>
+    </div>
+  </div>
+
+  <div class="modal" id="commentChooserModal" aria-hidden="true">
+    <div class="modal-card">
+      <div class="head"><h2>选择短评</h2><button class="tool-button ghost" data-close-modal>关闭</button></div>
+      <button class="comment-choice" type="button">这段剪得好顺，循环起来很舒服。</button>
+      <button class="comment-choice" type="button">旧番味道一下回来了，适合收入循环歌单。</button>
+      <button class="comment-choice" type="button">画面和节奏贴得很稳，补档收藏了。</button>
+    </div>
+  </div>
+
+  <script>
+    const statusByTab = {
+      review: "已切换到批阅。当前视频动作会在这里反馈。",
+      notes: "已切换到札记。转写和总结状态会保留。",
+      ledger: "已切换到掌库。旧藏整理状态同步到顶部。",
+      settings: "已切换到设置。动态提示统一显示在顶部。"
+    };
+
+    function setStatus(message) {
+      document.getElementById("statusMessage").textContent = message;
+    }
+
+    function setView(tab) {
+      document.querySelectorAll(".nav-button").forEach((item) => {
+        item.setAttribute("aria-selected", String(item.dataset.tab === tab));
+      });
+      document.querySelectorAll(".view").forEach((view) => {
+        view.classList.toggle("active", view.dataset.view === tab);
+      });
+      setStatus(statusByTab[tab] || "等待操作。");
+    }
+
+    document.querySelectorAll(".nav-button").forEach((button) => {
+      button.addEventListener("click", () => setView(button.dataset.tab));
+    });
+
+    document.querySelectorAll(".review-action").forEach((button) => {
+      button.addEventListener("click", () => setStatus(button.dataset.message));
+    });
+
+    function openModal(id) {
+      const modal = document.getElementById(id);
+      modal.classList.add("active");
+      modal.setAttribute("aria-hidden", "false");
+    }
+
+    function closeModals() {
+      document.querySelectorAll(".modal").forEach((modal) => {
+        modal.classList.remove("active");
+        modal.setAttribute("aria-hidden", "true");
+      });
+    }
+
+    document.getElementById("openCommentIntent").addEventListener("click", () => {
+      openModal("commentIntentModal");
+      setStatus("正在准备短评候选。");
+    });
+    document.getElementById("openCommentChooser").addEventListener("click", () => {
+      closeModals();
+      openModal("commentChooserModal");
+      setStatus("DeepSeek 已生成 3 条短评候选。");
+    });
+    document.querySelectorAll("[data-close-modal]").forEach((button) => button.addEventListener("click", closeModals));
+    document.querySelectorAll(".comment-choice").forEach((button) => {
+      button.addEventListener("click", () => {
+        closeModals();
+        setStatus(`短评已选：${button.textContent}`);
+      });
+    });
+
+    document.getElementById("startTranscribe").addEventListener("click", () => {
+      document.getElementById("noteProgress").style.width = "42%";
+      document.getElementById("noteProgressText").textContent = "正在转写第 2 / 4 段。";
+      document.getElementById("transcribeDot").className = "dot run";
+      document.getElementById("transcribeLight").textContent = "转写 42%";
+      setStatus("已开始转写音频，切页不会中断。");
+    });
+
+    document.querySelectorAll("[data-result]").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll("[data-result]").forEach((item) => item.classList.toggle("active", item === button));
+        document.querySelectorAll("[data-result-pane]").forEach((pane) => pane.classList.toggle("active", pane.dataset.resultPane === button.dataset.result));
+        setStatus(`札记结果已切换：${button.textContent}`);
+      });
+    });
+
+    document.getElementById("generateSummary").addEventListener("click", () => {
+      document.getElementById("summaryText").textContent = "DeepSeek 总结生成中...\n\n稍后会显示结构化摘要、关键词和精修文稿。";
+      document.getElementById("deepseekLight").textContent = "DeepSeek 总结中";
+      setStatus("正在生成 DeepSeek 总结，切页后仍保留状态。");
+    });
+
+    document.getElementById("openArchive").addEventListener("click", () => {
+      document.querySelector('[data-notes-subview="notesHome"]').classList.remove("active");
+      document.querySelector('[data-notes-subview="archive"]').classList.add("active");
+      setStatus("已打开档案库。");
+    });
+    document.getElementById("backToNotes").addEventListener("click", () => {
+      document.querySelector('[data-notes-subview="archive"]').classList.remove("active");
+      document.querySelector('[data-notes-subview="notesHome"]').classList.add("active");
+      setStatus("已返回札记。档案库详情状态保留。");
+    });
+
+    document.querySelectorAll(".archive-row").forEach((row) => {
+      row.addEventListener("click", () => {
+        const wasOpen = row.getAttribute("aria-pressed") === "true";
+        document.querySelectorAll(".archive-row").forEach((item) => item.setAttribute("aria-pressed", "false"));
+        if (wasOpen) {
+          document.getElementById("archiveDetail").hidden = true;
+          setStatus("档案库详情已收起。");
+          return;
+        }
+        row.setAttribute("aria-pressed", "true");
+        document.getElementById("archiveDetail").hidden = false;
+        document.getElementById("archiveTitle").textContent = row.dataset.archiveTitle;
+        document.getElementById("archiveMeta").textContent = row.dataset.archiveMeta;
+        setStatus(`档案库已打开：${row.dataset.archiveTitle}`);
+      });
+    });
+
+    document.querySelectorAll("[data-archive-result]").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll("[data-archive-result]").forEach((item) => item.classList.toggle("active", item === button));
+        document.querySelectorAll("[data-archive-result-pane]").forEach((pane) => pane.classList.toggle("active", pane.dataset.archiveResultPane === button.dataset.archiveResult));
+        setStatus(`档案结果已切换：${button.textContent}`);
+      });
+    });
+
+    document.getElementById("toggleLedgerHelp").addEventListener("click", () => {
+      const help = document.getElementById("ledgerHelp");
+      help.hidden = !help.hidden;
+      setStatus(help.hidden ? "收藏夹说明已收起。" : "收藏夹说明已展开。");
+    });
+
+    const oldFavoritesCard = document.getElementById("oldFavoritesCard");
+    document.getElementById("openOldFavorites").addEventListener("click", () => {
+      oldFavoritesCard.hidden = false;
+      setStatus("整理旧藏卡片已展开。");
+    });
+    document.getElementById("closeOldFavorites").addEventListener("click", () => {
+      oldFavoritesCard.hidden = true;
+      setStatus("整理旧藏卡片已收起，状态仍保留在顶部。");
+    });
+
+    document.querySelectorAll("[data-old-step]").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll("[data-old-step]").forEach((item) => item.classList.toggle("active", item === button));
+        document.querySelectorAll("[data-old-step-pane]").forEach((pane) => pane.classList.toggle("active", pane.dataset.oldStepPane === button.dataset.oldStep));
+        setStatus(`整理旧藏步骤：${button.textContent}`);
+      });
+    });
+
+    document.querySelectorAll(".queue-card").forEach((queue) => {
+      queue.addEventListener("click", () => {
+        document.querySelectorAll(".queue-card").forEach((item) => item.setAttribute("aria-pressed", String(item === queue)));
+        document.getElementById("queueTotal").textContent = queue.dataset.total;
+        document.getElementById("queueReady").textContent = queue.dataset.ready;
+        document.getElementById("queueCreated").textContent = queue.dataset.created;
+        document.getElementById("queueSummary").textContent = `当前队列：${queue.dataset.name}。${queue.dataset.summary}`;
+        document.getElementById("ledgerLight").textContent = `旧藏待整理 ${queue.dataset.total}`;
+        setStatus(`已切换旧藏收藏队列：${queue.dataset.name}`);
+      });
+    });
+
+    document.querySelectorAll(".reference-video").forEach((video) => {
+      video.addEventListener("click", () => {
+        document.querySelectorAll(".reference-video").forEach((item) => item.setAttribute("aria-pressed", String(item === video)));
+        document.getElementById("ledgerVideoTitle").textContent = video.dataset.title;
+        document.getElementById("ledgerVideoMeta").textContent = video.dataset.meta;
+        document.getElementById("ledgerVideoTarget").textContent = video.dataset.target;
+        document.getElementById("ledgerVideoNote").textContent = video.dataset.note;
+        setStatus(`归档预览已打开参考视频：${video.dataset.title}`);
+      });
+    });
+
+    document.getElementById("runDeepseekArchive").addEventListener("click", () => {
+      document.getElementById("ledgerDot").className = "dot run";
+      document.getElementById("ledgerLight").textContent = "整理中";
+      setStatus("DeepSeek 正在辅助整理已勾选旧藏。");
+    });
+    document.getElementById("undoArchive").addEventListener("click", () => setStatus("已撤销本次归档预览改动。"));
+    document.getElementById("executeArchive").addEventListener("click", () => {
+      document.getElementById("archiveProgress").style.width = "66%";
+      document.getElementById("archiveProgressText").textContent = "整理进度 164 / 249。";
+      document.getElementById("ledgerDot").className = "dot run";
+      document.getElementById("ledgerLight").textContent = "整理 66%";
+      setStatus("正在执行旧藏整理，进度同步到全局状态栏。");
+    });
+
+    document.getElementById("settingsJump").addEventListener("change", (event) => {
+      const value = event.currentTarget.value;
+      const pane = document.querySelector(`[data-settings-pane="${value}"]`);
+      pane?.scrollIntoView({ block: "start", behavior: "smooth" });
+      setStatus(`设置项已切换：${event.currentTarget.selectedOptions[0].textContent}`);
+    });
+    document.getElementById("restoreLayout").addEventListener("click", () => setStatus("布局大小已恢复默认。"));
+    document.getElementById("testDeepseek").addEventListener("click", () => setStatus("DeepSeek 连接成功。"));
+
+    document.querySelectorAll("[data-jump]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const target = button.dataset.jump;
+        if (target === "archive") {
+          setView("notes");
+          document.querySelector('[data-notes-subview="notesHome"]').classList.remove("active");
+          document.querySelector('[data-notes-subview="archive"]').classList.add("active");
+          setStatus("走查：档案库。");
+          return;
+        }
+        setView(target);
+      });
+    });
+  </script>
+</body>
+</html>
