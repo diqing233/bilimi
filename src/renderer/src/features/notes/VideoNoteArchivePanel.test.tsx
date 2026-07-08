@@ -111,15 +111,23 @@ describe('VideoNoteArchivePanel', () => {
 
     expect(screen.getByRole('article', { name: '机器学习入门' })).toBeInTheDocument()
     expect(screen.getByRole('tablist', { name: '档案文稿' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveTextContent(
-      '纯文稿连续阅读，提供复制全文。'
-    )
-    expect(screen.getByRole('tab', { name: /带时间线文稿/ })).toHaveTextContent(
-      '按时间段阅读，提供复制全文。'
-    )
-    expect(screen.getByRole('tab', { name: /DeepSeek 总结/ })).toHaveTextContent(
-      '更丰富精细的结构化摘要，提供复制全文。'
-    )
+    expect(screen.getByRole('tab', { name: '无时间线文稿' })).toHaveTextContent('无时间线文稿')
+    expect(screen.getByRole('tab', { name: '带时间线文稿' })).toHaveTextContent('带时间线文稿')
+    expect(screen.getByRole('tab', { name: 'DeepSeek 总结' })).toHaveTextContent('DeepSeek 总结')
+    expect(screen.queryByText('纯文稿连续阅读，提供复制全文。')).not.toBeInTheDocument()
+  })
+
+  it('keeps the archive detail compact until a transcript tab is expanded', () => {
+    renderArchivePanel()
+    const archive = screen.getByRole('region', { name: '全局档案库' })
+
+    expect(archive).toHaveAttribute('data-result-expanded', 'false')
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    expect(archive).toHaveAttribute('data-result-expanded', 'false')
+    fireEvent.click(screen.getByRole('tab', { name: '无时间线文稿' }))
+    expect(archive).toHaveAttribute('data-result-expanded', 'true')
+    fireEvent.click(screen.getByRole('tab', { name: '无时间线文稿' }))
+    expect(archive).toHaveAttribute('data-result-expanded', 'false')
   })
 
   it('marks only the clicked archive video as expanded in the list', () => {

@@ -2637,7 +2637,7 @@ body[data-floating-window="true"],
 }
 .video-note-archive {
   display: grid;
-  grid-template-rows: minmax(0, 1.05fr) minmax(0, 0.85fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto auto;
   gap: 10px;
   min-height: 0;
   border: 0;
@@ -2646,6 +2646,9 @@ body[data-floating-window="true"],
   padding: 0;
   font-size: 12px;
   line-height: 1.45;
+}
+.video-note-archive[data-result-expanded="true"] {
+  grid-template-rows: minmax(0, 1.05fr) minmax(0, 0.85fr) auto;
 }
 .video-note-archive__history-card,
 .video-note-archive__detail {
@@ -2987,16 +2990,15 @@ body[data-floating-window="true"],
   gap: 6px;
 }
 .video-note-archive__result-tabs button {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  align-content: start;
-  gap: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   min-width: 0;
-  height: 78px;
-  min-height: 78px;
+  min-height: 36px;
+  height: 36px;
   box-sizing: border-box;
-  padding: 6px 8px;
+  padding: 5px 8px;
   border: 1px solid rgba(31, 99, 181, 0.28);
   font-size: 13px;
   line-height: 1.15;

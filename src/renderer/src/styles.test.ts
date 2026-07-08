@@ -410,13 +410,14 @@ describe('renderer porcelain theme styles', () => {
       '.video-note-archive__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(104px, 1fr));'
     )
     expectStyleSnippet(
-      '.video-note-archive__result-tabs button { display: grid; grid-template-rows: auto minmax(0, 1fr); align-content: start; gap: 2px; width: 100%; min-width: 0; height: 78px; min-height: 78px;'
+      '.video-note-archive__result-tabs button { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-width: 0; min-height: 36px; height: 36px;'
     )
     expectStyleSnippet(
-      '.video-note-archive { display: grid; grid-template-rows: minmax(0, 1.05fr) minmax(0, 0.85fr) auto; gap: 10px; min-height: 0; border: 0; background: transparent;'
+      '.video-note-archive { display: grid; grid-template-rows: minmax(0, 1fr) auto auto; gap: 10px; min-height: 0; border: 0; background: transparent;'
     )
-    expect(normalizedStyles).not.toContain('.video-note-archive[data-result-expanded="true"]')
-    expect(normalizedStyles).not.toContain('grid-template-rows: minmax(0, 1fr) auto auto;')
+    expectStyleSnippet(
+      '.video-note-archive[data-result-expanded="true"] { grid-template-rows: minmax(0, 1.05fr) minmax(0, 0.85fr) auto;'
+    )
     expectStyleSnippet(
       '.video-note-archive__history-card, .video-note-archive__detail { width: 100%; box-sizing: border-box;'
     )

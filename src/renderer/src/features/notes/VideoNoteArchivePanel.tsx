@@ -32,10 +32,10 @@ type VideoNoteArchivePanelProps = {
 
 type ArchiveResultTab = 'plain' | 'timed' | 'summary'
 
-const archiveResultTabs: Array<{ id: ArchiveResultTab; label: string; description: string }> = [
-  { id: 'plain', label: '无时间线文稿', description: '纯文稿连续阅读，提供复制全文。' },
-  { id: 'timed', label: '带时间线文稿', description: '按时间段阅读，提供复制全文。' },
-  { id: 'summary', label: 'DeepSeek 总结', description: '更丰富精细的结构化摘要，提供复制全文。' }
+const archiveResultTabs: Array<{ id: ArchiveResultTab; label: string }> = [
+  { id: 'plain', label: '无时间线文稿' },
+  { id: 'timed', label: '带时间线文稿' },
+  { id: 'summary', label: 'DeepSeek 总结' }
 ]
 
 type PendingDelete =
@@ -301,8 +301,7 @@ export function VideoNoteArchivePanel({
             id={'video-note-archive-tab-' + tab.id}
             onClick={() => toggleResultTab(tab.id)}
           >
-            <strong>{tab.label}</strong>
-            <small>{tab.description}</small>
+            {tab.label}
           </button>
         ))}
       </div>
@@ -415,7 +414,11 @@ export function VideoNoteArchivePanel({
   }
 
   return (
-    <section className="video-note-archive" aria-label="全局档案库">
+    <section
+      className="video-note-archive"
+      aria-label="全局档案库"
+      data-result-expanded={activeResultTab ? 'true' : 'false'}
+    >
       <div className="video-note-archive__history-card">
         <header className="video-note-archive__header">
           <div>

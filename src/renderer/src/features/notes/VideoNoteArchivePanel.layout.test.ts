@@ -33,18 +33,17 @@ describe('VideoNoteArchivePanel layout styles', () => {
 
   it('fixes archive result tab dimensions and keeps selected and unselected tabs the same size', () => {
     expect(styles).toContain('.video-note-archive__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(104px, 1fr));\n  gap: 6px;')
-    expect(styles).toContain('.video-note-archive__result-tabs button {\n  display: grid;\n  grid-template-rows: auto minmax(0, 1fr);\n  align-content: start;\n  gap: 2px;')
-    expect(styles).toContain('width: 100%;\n  min-width: 0;\n  height: 78px;\n  min-height: 78px;')
+    expect(styles).toContain('.video-note-archive__result-tabs button {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;')
+    expect(styles).toContain('width: 100%;\n  min-width: 0;\n  min-height: 36px;\n  height: 36px;')
     expect(styles).toContain('.video-note-archive__result-tabs button[aria-selected="true"] {\n  background: var(--porcelain-primary);\n  color: var(--porcelain-white);')
     expect(styles).toContain('.video-note-archive__result-tabs button[aria-selected="false"] {\n  background: rgba(220, 238, 255, 0.56);\n  color: var(--porcelain-primary);')
   })
 
   it('stacks the archive list above the detail pane', () => {
+    expect(styles).toContain('grid-template-rows: minmax(0, 1fr) auto auto;')
     expect(styles).toContain(
-      'grid-template-rows: minmax(0, 1.05fr) minmax(0, 0.85fr) auto;'
+      '.video-note-archive[data-result-expanded="true"] {\n  grid-template-rows: minmax(0, 1.05fr) minmax(0, 0.85fr) auto;'
     )
-    expect(styles).not.toContain('.video-note-archive[data-result-expanded="true"]')
-    expect(styles).not.toContain('grid-template-rows: minmax(0, 1fr) auto auto;')
   })
 
   it('keeps archive detail content inside the visible pane by default', () => {
