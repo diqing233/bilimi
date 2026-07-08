@@ -208,12 +208,12 @@ describe('renderer porcelain theme styles', () => {
     expect(compactStyles).not.toContain('border: 1px solid rgba(31, 99, 181, 0.14); border-left: 0; border-right: 0;')
   })
 
-  it('uses softer assistant sidebar divider lines while keeping the outer frame and tab buttons defined', () => {
+  it('uses dashed assistant sidebar divider lines while keeping the outer frame and tab buttons defined', () => {
     expectStyleSnippet('.floating-assistant-chrome { min-width: 0; display: grid; grid-template-rows: auto auto; border: 1px solid #82b8f0;')
-    expectStyleSnippet('.floating-assistant-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; padding: 8px 8px 7px; border-bottom: 1px solid #d1e6fb;')
+    expectStyleSnippet('.floating-assistant-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; padding: 8px 8px 7px; border-bottom: 1px dashed #d1e6fb;')
     expectStyleSnippet('.floating-assistant-tabs button { width: 100%; min-width: 0; min-height: 38px; display: grid; grid-template-columns: 22px minmax(0, auto); justify-content: center; align-items: center; gap: 4px; border: 1px solid #8ec0f4;')
-    expectStyleSnippet('.floating-assistant-global-status__lights { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; align-items: center; border-top: 1px solid #d1e6fb;')
-    expectStyleSnippet('.floating-assistant-global-status__light + .floating-assistant-global-status__light { border-left: 1px solid #d1e6fb;')
+    expectStyleSnippet('.floating-assistant-global-status__lights { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; align-items: center; border-top: 1px dashed #d1e6fb;')
+    expectStyleSnippet('.floating-assistant-global-status__light + .floating-assistant-global-status__light { border-left: 1px dashed #d1e6fb;')
   })
 
   it('keeps every assistant sidebar panel stretched to the ledger frame height', () => {
