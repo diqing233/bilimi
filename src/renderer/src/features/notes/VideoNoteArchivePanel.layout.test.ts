@@ -33,10 +33,11 @@ describe('VideoNoteArchivePanel layout styles', () => {
 
   it('fixes archive result tab dimensions and keeps selected and unselected tabs the same size', () => {
     expect(styles).toContain('.video-note-archive__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(104px, 1fr));\n  gap: 6px;')
-    expect(styles).toContain('.video-note-archive__result-tabs button {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;')
-    expect(styles).toContain('width: 100%;\n  min-width: 0;\n  min-height: 36px;\n  height: 36px;')
-    expect(styles).toContain('.video-note-archive__result-tabs button[aria-selected="true"] {\n  background: var(--porcelain-primary);\n  color: var(--porcelain-white);')
-    expect(styles).toContain('.video-note-archive__result-tabs button[aria-selected="false"] {\n  background: rgba(220, 238, 255, 0.56);\n  color: var(--porcelain-primary);')
+    expect(styles).toContain('.video-note-archive__result-tabs button {\n  width: 100%;\n}')
+    expect(styles).toContain('.video-notes__result-tabs button {\n  display: grid;\n  grid-template-rows: auto minmax(0, 1fr);')
+    expect(styles).toContain('height: 78px;\n  min-height: 78px;')
+    expect(styles).toContain('.video-note-archive__result-tabs button[aria-selected="true"],\n.memorial-panel__tabs button[aria-selected="true"],\n.video-notes [role="tab"][aria-selected="true"] {')
+    expect(styles).not.toContain('min-height: 36px;\n  height: 36px;')
   })
 
   it('stacks the archive list above the detail pane', () => {
@@ -56,6 +57,12 @@ describe('VideoNoteArchivePanel layout styles', () => {
   it('lets every archive result tab use the detail pane scrollbar', () => {
     expect(styles).toContain(
       '.video-note-archive__result-panel .video-notes__plain-text,\n.video-note-archive__result-panel pre {\n  max-height: none;\n  overflow: visible;'
+    )
+    expect(styles).toContain(
+      '.video-note-archive__detail section {\n  display: grid;\n  gap: 6px;\n  border-top: 1px dashed rgba(31, 99, 181, 0.18);'
+    )
+    expect(styles).toContain(
+      '.video-note-archive__result-panel .video-notes__plain-text {\n  border-top: 0;\n  padding-top: 0;'
     )
   })
 })

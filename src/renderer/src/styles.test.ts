@@ -161,16 +161,13 @@ describe('renderer porcelain theme styles', () => {
     expect(sidebarStyles).toContain('.assistant-sidebar-workspace .floating-assistant-tabs {')
     expect(sidebarStyles).toContain('padding-left: 0;')
     expectStyleSnippet(
-      '.assistant-sidebar-workspace { --assistant-sidebar-workspace-padding-x: 12px; height: 100%;'
+      '.assistant-sidebar-workspace { --assistant-sidebar-workspace-padding-x: 12px; --assistant-sidebar-scrollbar-rail: var(--assistant-sidebar-workspace-padding-x); height: 100%; min-height: 0; box-sizing: border-box; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 6px; padding: 4px var(--assistant-sidebar-workspace-padding-x) 12px;'
     )
     expectStyleSnippet(
-      '.assistant-sidebar-workspace { --assistant-sidebar-workspace-padding-x: 12px; height: 100%; min-height: 0; box-sizing: border-box; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 6px; padding: 4px var(--assistant-sidebar-workspace-padding-x) 12px;'
+      '.assistant-sidebar-workspace .floating-assistant-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; padding: 7px 6px 6px;'
     )
     expectStyleSnippet(
-      '.assistant-sidebar-workspace .floating-assistant-tabs button { grid-template-columns: 24px minmax(0, auto); gap: 3px; min-height: 32px;'
-    )
-    expectStyleSnippet(
-      '.assistant-sidebar-workspace .floating-assistant-global-status { margin-right: calc(var(--assistant-sidebar-workspace-padding-x) * -1); margin-left: calc(var(--assistant-sidebar-workspace-padding-x) * -1); padding-right: var(--assistant-sidebar-workspace-padding-x); padding-left: var(--assistant-sidebar-workspace-padding-x);'
+      '.assistant-sidebar-workspace .floating-assistant-global-status { margin-right: 0; margin-left: 0; padding-right: 0; padding-left: 0;'
     )
     expect(sidebarStyles).toContain('.assistant-sidebar__collapse-label {\n  line-height: 1;')
     expect(sidebarStyles).toContain('.assistant-sidebar__collapse-pet {\n  width: 24px;\n  height: 24px;')
@@ -182,9 +179,9 @@ describe('renderer porcelain theme styles', () => {
       '.floating-assistant-tabs {\n  display: grid;\n  grid-template-columns: repeat(4, minmax(0, 1fr));'
     )
     expect(normalizedStyles).toContain(
-      '.floating-assistant-tabs button {\n  width: 100%;\n  min-width: 0;\n  min-height: 36px;'
+      '.floating-assistant-tabs button {\n  width: 100%;\n  min-width: 0;\n  min-height: 38px;'
     )
-    expect(normalizedStyles).toContain('grid-template-columns: 28px max-content;')
+    expect(normalizedStyles).toContain('grid-template-columns: 22px minmax(0, auto);')
     expect(normalizedStyles).toContain('white-space: nowrap;')
     expect(normalizedStyles).toContain(
       '.floating-assistant-tabs button span {\n  min-width: 0;\n  white-space: nowrap;\n  writing-mode: horizontal-tb;'
@@ -196,15 +193,15 @@ describe('renderer porcelain theme styles', () => {
       '.floating-assistant-workspace__fold { position: absolute; right: 0; bottom: 0;'
     )
     expect(normalizedStyles).toContain(
-      '.assistant-sidebar-workspace .floating-assistant-tabs {\n  display: grid;\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 6px;\n  padding-left: 0;'
+      '.assistant-sidebar-workspace .floating-assistant-tabs {\n  display: grid;\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 5px;\n  padding: 7px 6px 6px;'
     )
   })
 
   it('keeps the global assistant status separated by a visible soft bottom rule', () => {
-    expectStyleSnippet('.floating-assistant-global-status { min-height: 48px; display: grid; grid-template-rows: 1fr 1fr; gap: 3px; padding: 5px 8px; border: 0; border-bottom: 1px solid rgba(31, 99, 181, 0.12); background: rgba(247, 251, 255, 0.82);')
-    expectStyleSnippet('.floating-assistant-global-status__feedback { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--porcelain-deep); font-size: 14px; font-weight: 700;')
+    expectStyleSnippet('.floating-assistant-global-status { min-height: 68px; display: grid; grid-template-rows: minmax(34px, auto) 34px; gap: 0; padding: 0; border: 0; background: rgba(247, 251, 255, 0.76);')
+    expectStyleSnippet('.floating-assistant-global-status__feedback { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--porcelain-deep); padding: 7px 10px; font-size: 14px; font-weight: 700;')
     expectStyleSnippet('.floating-assistant-global-status__lights { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));')
-    expectStyleSnippet('.floating-assistant-global-status__light { min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 4px; overflow: hidden; color: var(--porcelain-muted); font-size: 12px;')
+    expectStyleSnippet('.floating-assistant-global-status__light { min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 100%; padding: 0 4px; overflow: hidden; color: #285e90; font-size: 12px;')
     expect(compactStyles).not.toContain('border: 1px solid rgba(31, 99, 181, 0.14); border-left: 0; border-right: 0;')
   })
 
@@ -410,8 +407,12 @@ describe('renderer porcelain theme styles', () => {
       '.video-note-archive__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(104px, 1fr));'
     )
     expectStyleSnippet(
-      '.video-note-archive__result-tabs button { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-width: 0; min-height: 36px; height: 36px;'
+      '.video-note-archive__result-tabs button { width: 100%;'
     )
+    expect(normalizedStyles).toContain(
+      '.video-note-archive__result-tabs button[aria-selected="true"],\n.memorial-panel__tabs button[aria-selected="true"],\n.video-notes [role="tab"][aria-selected="true"]'
+    )
+    expect(normalizedStyles).not.toContain('min-height: 36px;\n  height: 36px;')
     expectStyleSnippet(
       '.video-note-archive { display: grid; grid-template-rows: minmax(0, 1fr) auto auto; gap: 10px; min-height: 0; border: 0; background: transparent;'
     )
@@ -433,6 +434,8 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.video-notes__summary-section { display: grid; gap: 5px; min-width: 0; border-top: 1px dashed rgba(31, 99, 181, 0.18);')
     expectStyleSnippet('.video-notes__summary-section pre { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; border: 0; background: transparent;')
     expectStyleSnippet('.video-notes__plain-text { max-height: 160px; overflow: auto; border-top: 1px dashed rgba(31, 99, 181, 0.18); background: transparent;')
+    expectStyleSnippet('.video-note-archive__detail section { display: grid; gap: 6px; border-top: 1px dashed rgba(31, 99, 181, 0.18);')
+    expectStyleSnippet('.video-note-archive__result-panel .video-notes__plain-text { border-top: 0; padding-top: 0;')
     expect(normalizedStyles).not.toContain('.video-notes__plain-text {\n  max-height: 160px;\n  overflow: auto;\n  border: 1px solid')
     expect(normalizedStyles).toContain('.video-notes textarea {\n  min-height: 60px;')
     expect(normalizedStyles).toContain(
