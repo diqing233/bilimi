@@ -456,6 +456,33 @@
       font: inherit;
     }
 
+    .archive-search {
+      display: grid;
+      grid-template-columns: auto minmax(180px, 1fr);
+      gap: 8px;
+      align-items: center;
+      flex: 1 1 260px;
+      min-width: 0;
+      color: #24577f;
+      font-weight: 700;
+    }
+
+    .archive-actions {
+      justify-content: flex-end;
+      margin-top: 0;
+    }
+
+    .archive-memo-editor {
+      margin: 8px 0 10px;
+    }
+
+    .archive-memo-editor label {
+      display: grid;
+      gap: 6px;
+      color: #24577f;
+      font-weight: 700;
+    }
+
     .switch {
       width: 42px; height: 24px; border-radius: 999px; border: 1px solid #9dc2ea; background: #dceeff; position: relative;
     }
@@ -686,14 +713,22 @@
                 </div>
                 <button class="tool-button" id="backToNotes">返回札记</button>
               </div>
+              <div class="toolbar" aria-label="档案库筛选">
+                <label class="archive-search">
+                  <span>搜索档案</span>
+                  <input class="text-input" id="archiveSearch" type="search" role="searchbox" placeholder="标题、UP、BV 号">
+                </label>
+                <button class="tool-button" id="archiveStarFilter" type="button" aria-label="星标" aria-pressed="false" title="星标">⭐</button>
+                <button class="tool-button" id="archiveMemoFilter" type="button" aria-pressed="false">已备注</button>
+              </div>
               <div class="list">
-                <button class="archive-row" type="button" aria-pressed="true" data-archive-title="【MAD】夏日循环歌单" data-archive-meta="WarmFrost · BV1xx411c7mD · 转写 2 次">
-                  <span><strong>【MAD】夏日循环歌单</strong><span class="desc">WarmFrost · 转写 2 次</span></span><span class="tag">已展开</span>
+                <button class="archive-row" type="button" aria-pressed="true" data-archive-title="【MAD】夏日循环歌单" data-archive-meta="WarmFrost · BV1xx411c7mD · 转写 2 次" data-starred="true" data-memo="复看副歌转场">
+                  <span><strong>【MAD】夏日循环歌单</strong><span class="desc">WarmFrost · 转写 2 次 · 已星标</span></span><span class="tag">已展开</span>
                 </button>
-                <button class="archive-row" type="button" aria-pressed="false" data-archive-title="三分钟看懂旧番时间线" data-archive-meta="ArchiveNote · BV9xx411c7mD · 转写 1 次">
+                <button class="archive-row" type="button" aria-pressed="false" data-archive-title="三分钟看懂旧番时间线" data-archive-meta="ArchiveNote · BV9xx411c7mD · 转写 1 次" data-starred="false" data-memo="">
                   <span><strong>三分钟看懂旧番时间线</strong><span class="desc">ArchiveNote · 转写 1 次</span></span><span class="tag">详情</span>
                 </button>
-                <button class="archive-row" type="button" aria-pressed="false" data-archive-title="画师过程记录：蓝白角色上色" data-archive-meta="MikaSketch · BV7xx411c7mD · 转写 3 次">
+                <button class="archive-row" type="button" aria-pressed="false" data-archive-title="画师过程记录：蓝白角色上色" data-archive-meta="MikaSketch · BV7xx411c7mD · 转写 3 次" data-starred="false" data-memo="色彩参考">
                   <span><strong>画师过程记录：蓝白角色上色</strong><span class="desc">MikaSketch · 转写 3 次</span></span><span class="tag">详情</span>
                 </button>
               </div>
@@ -703,13 +738,26 @@
                     <h3 id="archiveTitle">【MAD】夏日循环歌单</h3>
                     <p class="desc" id="archiveMeta">WarmFrost · BV1xx411c7mD · 转写 2 次</p>
                   </div>
-                  <select class="compact-select"><option>v2 · 今天</option><option>v1 · 昨天</option></select>
+                  <div class="toolbar archive-actions">
+                    <label>
+                      <span class="desc">历史版本</span>
+                      <select class="compact-select" aria-label="历史版本"><option>v2 · 今天</option><option>v1 · 昨天</option></select>
+                    </label>
+                    <button class="tool-button" id="archiveStarButton" type="button" aria-label="星标收藏" aria-pressed="true" title="星标收藏">⭐ 星标收藏</button>
+                    <button class="tool-button" id="archiveMemoButton" type="button" aria-pressed="false">备注</button>
+                  </div>
                 </div>
                 <div class="toolbar">
                   <button class="tool-button">打开视频来源</button>
                   <button class="tool-button danger">删除视频档案</button>
                   <button class="tool-button danger">删除当前版本</button>
                 </div>
+                <section class="archive-memo-editor" id="archiveMemoEditor" aria-label="备注" hidden>
+                  <label>
+                    <span>本地备注</span>
+                    <textarea class="memo-box" id="archiveMemoText">复看副歌转场</textarea>
+                  </label>
+                </section>
                 <div class="segmented" aria-label="档案结果切换">
                   <button class="active" type="button" data-archive-result="plain">无时间线文稿</button>
                   <button type="button" data-archive-result="timed">带时间线文稿</button>
@@ -1086,6 +1134,82 @@
       setStatus("已返回札记。档案库详情状态保留。");
     });
 
+    const archiveSearch = document.getElementById("archiveSearch");
+    const archiveStarFilter = document.getElementById("archiveStarFilter");
+    const archiveMemoFilter = document.getElementById("archiveMemoFilter");
+    const archiveStarButton = document.getElementById("archiveStarButton");
+    const archiveMemoButton = document.getElementById("archiveMemoButton");
+    const archiveMemoEditor = document.getElementById("archiveMemoEditor");
+    const archiveMemoText = document.getElementById("archiveMemoText");
+
+    function selectedArchiveRow() {
+      return document.querySelector('.archive-row[aria-pressed="true"]');
+    }
+
+    function syncArchiveDetail(row) {
+      document.getElementById("archiveTitle").textContent = row.dataset.archiveTitle;
+      document.getElementById("archiveMeta").textContent = row.dataset.archiveMeta;
+      archiveStarButton.setAttribute("aria-pressed", row.dataset.starred === "true" ? "true" : "false");
+      archiveMemoText.value = row.dataset.memo || "";
+    }
+
+    function applyArchiveFilters() {
+      const query = archiveSearch.value.trim().toLowerCase();
+      const onlyStarred = archiveStarFilter.getAttribute("aria-pressed") === "true";
+      const onlyMemo = archiveMemoFilter.getAttribute("aria-pressed") === "true";
+      document.querySelectorAll(".archive-row").forEach((row) => {
+        const haystack = `${row.dataset.archiveTitle} ${row.dataset.archiveMeta} ${row.textContent}`.toLowerCase();
+        const matchesQuery = !query || haystack.includes(query);
+        const matchesStar = !onlyStarred || row.dataset.starred === "true";
+        const matchesMemo = !onlyMemo || Boolean(row.dataset.memo);
+        row.hidden = !(matchesQuery && matchesStar && matchesMemo);
+      });
+    }
+
+    archiveSearch.addEventListener("input", () => {
+      applyArchiveFilters();
+      setStatus(`档案库搜索：${archiveSearch.value || "全部"}`);
+    });
+
+    archiveStarFilter.addEventListener("click", () => {
+      const next = archiveStarFilter.getAttribute("aria-pressed") !== "true";
+      archiveStarFilter.setAttribute("aria-pressed", String(next));
+      applyArchiveFilters();
+      setStatus(next ? "档案库只看星标。" : "档案库已取消星标筛选。");
+    });
+
+    archiveMemoFilter.addEventListener("click", () => {
+      const next = archiveMemoFilter.getAttribute("aria-pressed") !== "true";
+      archiveMemoFilter.setAttribute("aria-pressed", String(next));
+      applyArchiveFilters();
+      setStatus(next ? "档案库只看已备注。" : "档案库已取消备注筛选。");
+    });
+
+    archiveStarButton.addEventListener("click", () => {
+      const row = selectedArchiveRow();
+      if (!row) return;
+      const next = row.dataset.starred !== "true";
+      row.dataset.starred = String(next);
+      archiveStarButton.setAttribute("aria-pressed", String(next));
+      const desc = row.querySelector(".desc");
+      desc.textContent = desc.textContent.replace(" · 已星标", "") + (next ? " · 已星标" : "");
+      applyArchiveFilters();
+      setStatus(next ? "当前档案已星标收藏。" : "当前档案已取消星标。");
+    });
+
+    archiveMemoButton.addEventListener("click", () => {
+      archiveMemoEditor.hidden = !archiveMemoEditor.hidden;
+      archiveMemoButton.setAttribute("aria-pressed", String(!archiveMemoEditor.hidden));
+      setStatus(archiveMemoEditor.hidden ? "本地备注已收起。" : "本地备注已展开。");
+    });
+
+    archiveMemoText.addEventListener("input", () => {
+      const row = selectedArchiveRow();
+      if (!row) return;
+      row.dataset.memo = archiveMemoText.value.trim();
+      applyArchiveFilters();
+    });
+
     document.querySelectorAll(".archive-row").forEach((row) => {
       row.addEventListener("click", () => {
         const wasOpen = row.getAttribute("aria-pressed") === "true";
@@ -1097,8 +1221,7 @@
         }
         row.setAttribute("aria-pressed", "true");
         document.getElementById("archiveDetail").hidden = false;
-        document.getElementById("archiveTitle").textContent = row.dataset.archiveTitle;
-        document.getElementById("archiveMeta").textContent = row.dataset.archiveMeta;
+        syncArchiveDetail(row);
         setStatus(`档案库已打开：${row.dataset.archiveTitle}`);
       });
     });
