@@ -41,7 +41,7 @@
     button { cursor: pointer; }
 
     .page {
-      width: min(100%, 1220px);
+      width: min(100%, 520px);
       margin: 0 auto;
       padding: 18px;
     }
@@ -63,9 +63,10 @@
 
     .layout {
       display: grid;
-      grid-template-columns: minmax(340px, 455px) minmax(0, 1fr);
+      grid-template-columns: minmax(340px, 455px);
       gap: 16px;
       align-items: start;
+      justify-content: center;
     }
 
     .app {
@@ -494,29 +495,6 @@
     .switch.on { background: #2168b9; }
     .switch.on::after { left: 21px; }
 
-    .walkthrough {
-      display: grid;
-      gap: 12px;
-    }
-
-    .note-block {
-      border: 1px solid #c3d9f0;
-      border-radius: var(--radius);
-      background: #fff;
-      padding: 12px;
-    }
-
-    .test-grid { display: grid; gap: 8px; margin-top: 10px; }
-    .test-grid button {
-      min-height: 34px;
-      border: 1px solid #c0d9f4;
-      border-radius: 6px;
-      background: #f8fcff;
-      color: #1b5d96;
-      text-align: left;
-      padding: 0 10px;
-    }
-
     .modal {
       display: none;
       position: fixed;
@@ -657,12 +635,15 @@
               <div class="panel soft">
                 <h3>当前视频详情</h3>
                 <p class="desc">作者：WarmFrost · BV1xx411c7mD · 链接待识别</p>
-                <div class="toolbar">
-                  <button class="tool-button primary" id="startTranscribe">转写音频</button>
-                  <button class="tool-button">整理札记</button>
-                  <button class="tool-button">重新整理</button>
-                  <button class="tool-button" id="openArchive">档案库</button>
-                  <button class="tool-button">存入档案</button>
+                <div class="action-grid" aria-label="札记主操作">
+                  <button class="action-button" id="startTranscribe" type="button">
+                    <span class="icon-wrap"><img class="action-icon" src="/files/xiaomi-working.png" alt=""><span class="badge">转</span></span>
+                    <span><span class="button-title">转写音频</span><span class="desc">一键转写视频音频，生成文稿自动保存在档案库</span></span>
+                  </button>
+                  <button class="action-button" id="openArchive" type="button">
+                    <span class="icon-wrap"><img class="action-icon" src="/files/xiaomi-idle.png" alt=""><span class="badge">库</span></span>
+                    <span><span class="button-title">档案库</span><span class="desc">打开档案库，可查看或备注视频文稿</span></span>
+                  </button>
                 </div>
                 <div class="progress"><span id="noteProgress" style="width: 0%"></span></div>
                 <p class="desc" id="noteProgressText" style="margin-top:6px">暂无转写任务。</p>
@@ -791,13 +772,19 @@
                 <div class="summary-tile"><strong>99</strong><span class="desc">B 站上限</span></div>
               </div>
               <div class="toolbar">
-                <button class="tool-button">备册同步</button>
+                <button class="action-button" type="button">
+                  <span class="icon-wrap"><img class="action-icon" src="/files/xiaomi-idle.png" alt=""><span class="badge">备</span></span>
+                  <span><span class="button-title">备册</span><span class="desc">一键生成 bilimi 收藏夹，用于归类收藏和整理</span></span>
+                </button>
                 <button class="tool-button">重置</button>
                 <button class="tool-button">全部加入</button>
                 <button class="tool-button">同步</button>
                 <button class="tool-button">新建收藏夹</button>
                 <button class="tool-button">折叠</button>
-                <button class="tool-button primary" id="openOldFavorites" aria-expanded="true">整理旧藏</button>
+                <button class="action-button" id="openOldFavorites" type="button" aria-expanded="true">
+                  <span class="icon-wrap"><img class="action-icon" src="/files/xiaomi-working.png" alt=""><span class="badge">整</span></span>
+                  <span><span class="button-title">整理旧藏</span><span class="desc">扫描旧藏，确认后整理到 bilimi 收藏夹里</span></span>
+                </button>
               </div>
             </div>
             <div class="panel" aria-label="当前收藏夹">
@@ -965,7 +952,7 @@
                   <div class="panel soft">
                     <h3>宠物快捷操作</h3>
                     <p class="desc">最多 4 个，可不选；数字表示悬浮按钮显示顺序。</p>
-                    <div class="toolbar"><button class="tool-button">助 打开助手</button><button class="tool-button">库 打开档案库</button><button class="tool-button">转 转写音频</button><button class="tool-button">整 整理旧藏</button></div>
+                    <div class="toolbar"><button class="tool-button">库 打开档案库</button><button class="tool-button">转 转写音频</button><button class="tool-button">整 整理旧藏</button></div>
                   </div>
                   <div class="toolbar"><button class="tool-button primary">唤醒宠物</button><button class="tool-button">关闭宠物</button></div>
                 </div>
@@ -998,29 +985,6 @@
         </div>
       </section>
 
-      <aside class="walkthrough" aria-label="走查清单">
-        <div class="note-block">
-          <h2>一一对应清单</h2>
-          <p class="desc">点下面按钮会跳到对应位置，你可以按顺序检查整个程序。</p>
-          <div class="test-grid">
-            <button type="button" data-jump="review">1. 批阅：四个主动作 + 评论候选</button>
-            <button type="button" data-jump="notes">2. 札记：转写、结果切换、DeepSeek 总结</button>
-            <button type="button" data-jump="archive">3. 档案库：列表、详情、版本、结果切换</button>
-            <button type="button" data-jump="ledger">4. 掌库：收藏夹、整理旧藏四步</button>
-            <button type="button" data-jump="settings">5. 设置：诊断、DeepSeek、宠物、转写、整理、批阅动作</button>
-          </div>
-        </div>
-        <div class="note-block">
-          <h2>全局状态栏规则</h2>
-          <p><strong>位置：</strong>固定在主导航下面。</p>
-          <p><strong>第一行：</strong>最近一次关键反馈。</p>
-          <p><strong>第二行：</strong>DeepSeek / 转写 / 整理三等分状态灯。</p>
-        </div>
-        <div class="note-block">
-          <h2>我补齐的可测点</h2>
-          <p class="desc">批阅动作、评论候选弹层、札记转写进度、档案库子视图、掌库四步向导、收藏队列、归档预览视频、设置项下拉切换。</p>
-        </div>
-      </aside>
     </div>
   </main>
 
@@ -1304,19 +1268,6 @@
     document.getElementById("restoreLayout").addEventListener("click", () => setStatus("布局大小已恢复默认。"));
     document.getElementById("testDeepseek").addEventListener("click", () => setStatus("DeepSeek 连接成功。"));
 
-    document.querySelectorAll("[data-jump]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const target = button.dataset.jump;
-        if (target === "archive") {
-          setView("notes");
-          document.querySelector('[data-notes-subview="notesHome"]').classList.remove("active");
-          document.querySelector('[data-notes-subview="archive"]').classList.add("active");
-          setStatus("走查：档案库。");
-          return;
-        }
-        setView(target);
-      });
-    });
   </script>
 </body>
 </html>
