@@ -80,7 +80,7 @@ describe('VideoNotesPanel', () => {
     expect(onGenerate).not.toHaveBeenCalled()
   })
 
-  it('keeps transcript result panels closed until audio transcription starts', async () => {
+  it('keeps transcript result panels closed after audio transcription completes until the user opens them', async () => {
     const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
     const { rerender } = renderPanel({ note: null, onTranscribeAudio })
 
@@ -104,11 +104,9 @@ describe('VideoNotesPanel', () => {
     )
     expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveAttribute(
       'aria-selected',
-      'true'
+      'false'
     )
-    expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).toHaveTextContent(
-      '先介绍机器学习的基本概念。'
-    )
+    expect(screen.queryByRole('tabpanel', { name: /无时间线文稿/ })).not.toBeInTheDocument()
   })
 
   it('lets users collapse transcript result tabs and keeps the panel collapsed across rerenders', () => {
@@ -161,6 +159,11 @@ describe('VideoNotesPanel', () => {
 
     await waitFor(() => expect(onEnqueueTranscription).toHaveBeenCalledOnce())
     expect(onTranscribeAudio).not.toHaveBeenCalled()
+    expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveAttribute(
+      'aria-selected',
+      'false'
+    )
+    expect(screen.queryByRole('tabpanel', { name: /无时间线文稿/ })).not.toBeInTheDocument()
     expect(await screen.findByText('「当前视频」已开始转写。')).toBeInTheDocument()
   })
 

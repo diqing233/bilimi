@@ -329,7 +329,6 @@ export function VideoNotesPanel({
 
   async function runTranscribeAudio(): Promise<VideoNote | null> {
     if (!onTranscribeAudio || generationBusy) return null
-    setResultTab('plain')
     setTranscribingAudio(true)
     setStatusMessage('')
     setErrorMessage('')
@@ -351,7 +350,6 @@ export function VideoNotesPanel({
 
   async function handleEnqueueTranscription(): Promise<void> {
     if (!onEnqueueTranscription || generationBusy) return
-    setResultTab('plain')
     setStatusMessage('')
     setErrorMessage('')
     try {

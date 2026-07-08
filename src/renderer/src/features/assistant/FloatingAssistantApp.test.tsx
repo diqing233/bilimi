@@ -2979,7 +2979,7 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByText('UP').nextElementSibling).toHaveTextContent('AI Teacher')
   })
 
-  it('shows the recognized transcript while DeepSeek summary is still running', async () => {
+  it('keeps recognized transcript closed while DeepSeek summary is still running until the user opens it', async () => {
     let queueChanged:
       | Parameters<NonNullable<Window['bilimiDesktop']['onVideoAudioTranscriptionQueueChanged']>>[0]
       | undefined
@@ -3031,12 +3031,60 @@ describe('FloatingAssistantApp', () => {
       })
     })
 
-    expect(await screen.findByText('机器学习需要数据和模型。')).toBeInTheDocument()
+    expect(screen.getByText('正在生成 DeepSeek 总结')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveAttribute(
       'aria-selected',
-      'true'
+      'false'
     )
-    expect(screen.getByText('正在生成 DeepSeek 总结')).toBeInTheDocument()
+    expect(screen.queryByRole('tabpanel', { name: /无时间线文稿/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+
+    expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).toHaveTextContent(
+      '机器学习需要数据和模型。'
+    )
+  })
+
+  it('keeps the note archive open when a background transcription draft arrives in sidebar mode', async () => {
+    const note = createVideoNote()
+    const loadVideoNoteArchives = vi.fn().mockResolvedValue([])
+    let queueChanged:
+      | Parameters<NonNullable<Window['bilimiDesktop']['onVideoAudioTranscriptionQueueChanged']>>[0]
+      | undefined
+    installDesktopApi({
+      loadVideoNoteArchives,
+      onVideoAudioTranscriptionQueueChanged: vi.fn((callback) => {
+        queueChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp mode="sidebar" activeTab="notes" onActiveTabChange={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '档案库' }))
+    expect(await screen.findByRole('region', { name: '全局档案库' })).toBeInTheDocument()
+
+    act(() => {
+      queueChanged?.({
+        activeItemId: 'bvid:BV1note',
+        items: [
+          {
+            id: 'bvid:BV1note',
+            url: 'https://www.bilibili.com/video/BV1note',
+            title: '机器学习入门教程',
+            bvid: 'BV1note',
+            status: 'running',
+            createdAt: '2026-06-25T00:00:00.000Z',
+            updatedAt: '2026-06-25T00:00:30.000Z',
+            progress: { step: 'summarizing-deepseek', message: 'Generating DeepSeek summary.' },
+            draftNote: note
+          }
+        ]
+      })
+    })
+
+    expect(screen.getByRole('region', { name: '全局档案库' })).toBeInTheDocument()
+    expect(screen.queryByRole('tabpanel', { name: /无时间线文稿/ })).not.toBeInTheDocument()
   })
 
   it('keeps the review page active when a background transcription finishes', async () => {
@@ -3201,6 +3249,7 @@ describe('FloatingAssistantApp', () => {
       })
     })
     await waitFor(() => expect(loadVideoNoteArchives).toHaveBeenCalledTimes(2))
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
     expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).toHaveTextContent(
       '机器学习需要数据和模型。'
     )

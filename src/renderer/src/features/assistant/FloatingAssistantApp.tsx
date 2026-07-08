@@ -794,7 +794,6 @@ export function FloatingAssistantApp({
       )?.draftNote
       if (activeDraftNote) {
         setVideoNote(activeDraftNote)
-        setNotesWorkspaceView('notes')
       }
 
       if (hadRunning && !hasRunning && snapshot.items.some((item) => item.status === 'completed')) {
