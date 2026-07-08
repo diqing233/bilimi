@@ -1494,6 +1494,7 @@ body[data-floating-window="true"],
   box-sizing: border-box;
   overflow: auto;
   box-shadow: none;
+  border: 0;
 }
 .assistant-sidebar-workspace .favorite-ledger-panel,
 .assistant-sidebar-workspace .video-note-archive {

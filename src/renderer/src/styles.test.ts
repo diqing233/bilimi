@@ -165,7 +165,7 @@ describe('renderer porcelain theme styles', () => {
       '.assistant-sidebar-workspace .memorial-panel, .assistant-sidebar-workspace .favorite-ledger-panel, .assistant-sidebar-workspace .video-note-archive, .assistant-sidebar-workspace .assistant-settings { width: 100%; height: 100%; max-height: none; box-sizing: border-box; box-shadow: none;'
     )
     expectStyleSnippet(
-      '.assistant-sidebar-workspace .memorial-panel__paper { height: 100%; max-height: none; box-sizing: border-box; overflow: auto; box-shadow: none;'
+      '.assistant-sidebar-workspace .memorial-panel__paper { height: 100%; max-height: none; box-sizing: border-box; overflow: auto; box-shadow: none; border: 0;'
     )
     expectStyleSnippet(
       '.assistant-sidebar-workspace .favorite-ledger-panel, .assistant-sidebar-workspace .video-note-archive { height: 100%; box-sizing: border-box; overflow: auto;'
