@@ -291,12 +291,15 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.assistant-action-button__description {\n  grid-area: desc;\n  min-width: 0;\n  padding-left: 4px;\n  color: var(--porcelain-muted);\n  font-size: 12px;\n  font-weight: 700;\n  text-align: left;')
   })
 
-  it('presents the review video metadata as a light divider block instead of a card', () => {
+  it('presents the review video metadata with only a full-width bottom rule', () => {
     expectStyleSnippet(
-      '.memorial-panel__meta { border-top: 1px dashed rgba(31, 99, 181, 0.2); border-bottom: 1px dashed rgba(31, 99, 181, 0.2); border-right: 0; border-left: 0; background: transparent; padding: 8px 0;'
+      '.memorial-panel__meta { border-top: 0; border-bottom: 1px solid rgba(31, 99, 181, 0.18); border-right: 0; border-left: 0; background: transparent; margin: 0 -8px; padding: 8px 8px 9px;'
     )
     expect(compactStyles).not.toContain(
       '.memorial-panel__copy, .memorial-panel__meta, .memorial-panel__verdict { border: 1px solid'
+    )
+    expect(compactStyles).not.toContain(
+      '.memorial-panel__meta { border-top: 1px dashed'
     )
   })
 
