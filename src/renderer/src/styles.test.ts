@@ -360,6 +360,12 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet(
       '.video-notes__primary-actions { display: grid; grid-template-columns: 1fr; gap: 6px; align-items: center; border: 0; background: transparent; padding: 0;'
     )
+    expectStyleSnippet(
+      '.video-notes, .video-notes__source, .video-notes__primary-actions, .video-notes__result-tabs, .video-notes__primary-actions .assistant-action-button { width: 100%; box-sizing: border-box;'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__paper > .video-notes { width: auto; margin-right: -8px; margin-left: -8px;'
+    )
     expect(normalizedStyles).not.toContain('.video-notes__primary-title')
     expectStyleSnippet('.assistant-action-button { min-height: 62px; display: grid; grid-template-columns: 58px minmax(0, 1fr) auto;')
     expect(normalizedStyles).toContain(

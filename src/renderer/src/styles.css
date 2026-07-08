@@ -2111,6 +2111,19 @@ body[data-floating-window="true"],
   font-size: 14px;
   line-height: 1.45;
 }
+.video-notes,
+.video-notes__source,
+.video-notes__primary-actions,
+.video-notes__result-tabs,
+.video-notes__primary-actions .assistant-action-button {
+  width: 100%;
+  box-sizing: border-box;
+}
+.memorial-panel__paper > .video-notes {
+  width: auto;
+  margin-right: -8px;
+  margin-left: -8px;
+}
 .video-notes__source,
 .video-notes__primary-actions,
 .video-notes__progress,
