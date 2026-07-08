@@ -2866,6 +2866,66 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByText('「三分钟讲清机器学习科普教程」已开始转写。')).toBeInTheDocument()
   })
 
+  it('clears the stale no-video alert after a later audio transcription enqueue succeeds', async () => {
+    let snapshotChanged: (() => void) | undefined
+    const generateVideoNoteFromAudio = vi.fn()
+    const enqueueCurrentVideoAudioTranscription = vi.fn().mockResolvedValue({
+      activeItemId: 'bvid:BV1note',
+      items: [
+        {
+          id: 'bvid:BV1note',
+          url: 'https://www.bilibili.com/video/BV1note',
+          title: '三分钟讲清机器学习科普教程',
+          bvid: 'BV1note',
+          status: 'running',
+          createdAt: '2026-06-25T00:00:00.000Z',
+          updatedAt: '2026-06-25T00:00:00.000Z'
+        }
+      ]
+    })
+    const requestAssistantSnapshot = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createSnapshot({
+          videoTitle: '首页',
+          videoContentContext: {
+            title: '首页',
+            pageText: '推荐、番剧、直播和游戏中心'
+          },
+          activeTabUrl: 'https://www.bilibili.com/'
+        })
+      )
+      .mockResolvedValueOnce(createSnapshot())
+
+    installDesktopApi({
+      generateVideoNoteFromAudio,
+      enqueueCurrentVideoAudioTranscription,
+      requestAssistantSnapshot,
+      onAssistantSnapshotChanged: vi.fn((callback) => {
+        snapshotChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('未打开视频')
+    expect(enqueueCurrentVideoAudioTranscription).not.toHaveBeenCalled()
+
+    snapshotChanged?.()
+    expect(await screen.findByText('三分钟讲清机器学习科普教程')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+
+    await waitFor(() => expect(enqueueCurrentVideoAudioTranscription).toHaveBeenCalledOnce())
+    expect(generateVideoNoteFromAudio).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(await screen.findByText('「三分钟讲清机器学习科普教程」已开始转写。')).toBeInTheDocument()
+  })
+
   it('shows a no-video alert and pet hint when audio transcription has no video', async () => {
     const generateVideoNoteFromAudio = vi.fn().mockResolvedValue(null)
     const enqueueCurrentVideoAudioTranscription = vi.fn().mockResolvedValue(null)

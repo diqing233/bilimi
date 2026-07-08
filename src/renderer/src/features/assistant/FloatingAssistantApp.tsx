@@ -123,6 +123,10 @@ type ActionFeedback = {
   missingTargets: string[]
 }
 
+function isCurrentVideoMissingFeedback(feedback: ActionFeedback | null): boolean {
+  return feedback?.tone === 'error' && feedback.missingTargets.includes('current-video')
+}
+
 type PetFeedbackTone =
   | ActionFeedback['tone']
   | 'happy'
@@ -781,6 +785,12 @@ export function FloatingAssistantApp({
     transcriptionQueueRef.current = transcriptionQueue
   }, [transcriptionQueue])
 
+  function clearCurrentVideoMissingFeedback() {
+    setFeedback((currentFeedback) =>
+      isCurrentVideoMissingFeedback(currentFeedback) ? null : currentFeedback
+    )
+  }
+
   useEffect(() => {
     return window.bilimiDesktop?.onVideoAudioTranscriptionQueueChanged?.((snapshot) => {
       const hadRunning = transcriptionQueueRef.current.items.some((item) => item.status === 'running')
@@ -788,6 +798,9 @@ export function FloatingAssistantApp({
 
       transcriptionQueueRef.current = snapshot
       setTranscriptionQueue(snapshot)
+      if (hasRunning) {
+        clearCurrentVideoMissingFeedback()
+      }
 
       const activeDraftNote = snapshot.items.find(
         (item) => item.status === 'running' && item.draftNote
@@ -1516,6 +1529,7 @@ export function FloatingAssistantApp({
     if (nextQueue) {
       transcriptionQueueRef.current = nextQueue
       setTranscriptionQueue(nextQueue)
+      clearCurrentVideoMissingFeedback()
     }
     return nextQueue
   }
