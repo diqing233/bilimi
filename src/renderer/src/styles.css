@@ -74,7 +74,7 @@
 .assistant-sidebar-workspace .floating-assistant-tabs button {
   grid-template-columns: 24px minmax(0, auto);
   gap: 3px;
-  min-height: 34px;
+  min-height: 32px;
   padding: 3px 4px;
   font-size: 12px;
   overflow: hidden;
@@ -1309,6 +1309,12 @@ body[data-floating-window="true"],
   background: rgba(247, 251, 255, 0.82);
   box-sizing: border-box;
 }
+.assistant-sidebar-workspace .floating-assistant-global-status {
+  margin-right: calc(var(--assistant-sidebar-workspace-padding-x) * -1);
+  margin-left: calc(var(--assistant-sidebar-workspace-padding-x) * -1);
+  padding-right: var(--assistant-sidebar-workspace-padding-x);
+  padding-left: var(--assistant-sidebar-workspace-padding-x);
+}
 .floating-assistant-global-status__feedback {
   margin: 0;
   min-width: 0;
@@ -1441,13 +1447,14 @@ body[data-floating-window="true"],
   overflow: hidden;
 }
 .assistant-sidebar-workspace {
+  --assistant-sidebar-workspace-padding-x: 12px;
   height: 100%;
   min-height: 0;
   box-sizing: border-box;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 10px;
-  padding: 12px;
+  gap: 6px;
+  padding: 4px var(--assistant-sidebar-workspace-padding-x) 12px;
   background: linear-gradient(
     180deg,
     var(--porcelain-surface) 0%,
@@ -1658,8 +1665,9 @@ body[data-floating-window="true"],
   }
 
   .assistant-sidebar-workspace {
-    gap: 8px;
-    padding: 8px;
+    --assistant-sidebar-workspace-padding-x: 8px;
+    gap: 6px;
+    padding: 4px var(--assistant-sidebar-workspace-padding-x) 8px;
     font-size: 13px;
   }
 

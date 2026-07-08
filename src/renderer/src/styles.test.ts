@@ -67,7 +67,7 @@ describe('renderer porcelain theme styles', () => {
       '@media (max-width: 1200px), (max-height: 760px) { .app-main { grid-template-rows: 38px minmax(0, 1fr);'
     )
     expectStyleSnippet(
-      '.assistant-sidebar-workspace { gap: 8px; padding: 8px; font-size: 13px;'
+      '.assistant-sidebar-workspace { --assistant-sidebar-workspace-padding-x: 8px; gap: 6px; padding: 4px var(--assistant-sidebar-workspace-padding-x) 8px; font-size: 13px;'
     )
     expectStyleSnippet(
       '.assistant-sidebar { width: var(--assistant-sidebar-width, clamp(288px, 26vw, 320px));'
@@ -122,6 +122,18 @@ describe('renderer porcelain theme styles', () => {
     expect(sidebarStyles).toContain('grid-template-columns: 24px auto;')
     expect(sidebarStyles).toContain('.assistant-sidebar-workspace .floating-assistant-tabs {')
     expect(sidebarStyles).toContain('padding-left: 0;')
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace { --assistant-sidebar-workspace-padding-x: 12px; height: 100%;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace { --assistant-sidebar-workspace-padding-x: 12px; height: 100%; min-height: 0; box-sizing: border-box; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 6px; padding: 4px var(--assistant-sidebar-workspace-padding-x) 12px;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .floating-assistant-tabs button { grid-template-columns: 24px minmax(0, auto); gap: 3px; min-height: 32px;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .floating-assistant-global-status { margin-right: calc(var(--assistant-sidebar-workspace-padding-x) * -1); margin-left: calc(var(--assistant-sidebar-workspace-padding-x) * -1); padding-right: var(--assistant-sidebar-workspace-padding-x); padding-left: var(--assistant-sidebar-workspace-padding-x);'
+    )
     expect(sidebarStyles).toContain('.assistant-sidebar__collapse-label {\n  line-height: 1;')
     expect(sidebarStyles).toContain('.assistant-sidebar__collapse-pet {\n  width: 24px;\n  height: 24px;')
     expect(sidebarStyles).not.toContain('.assistant-sidebar[data-collapsed="true"] .assistant-sidebar__collapse-button {\n  right: 12px;\n  bottom: 12px;')
