@@ -1781,49 +1781,51 @@ export function FloatingAssistantApp({
       className={isSidebarMode ? 'assistant-sidebar-workspace' : 'floating-assistant-workspace'}
       onPointerDown={closeAssistantFromBlankWorkspace}
     >
-        <div className="floating-assistant-tabs" role="tablist" aria-label="助手功能">
-          {WORKSPACE_TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-label={tab.label}
-              aria-selected={activeTab === tab.id}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              <img className="floating-assistant-tabs__pet" src={tab.icon} alt={tab.iconAlt} />
-              <span>{tab.label}</span>
-            </button>
-          ))}
-        </div>
-
-        <section className="floating-assistant-global-status" aria-label="全局提示区">
-          <p
-            className="floating-assistant-global-status__feedback"
-            aria-label="全局提示"
-            aria-live="polite"
-          >
-            {globalFeedbackMessage}
-          </p>
-          <div className="floating-assistant-global-status__lights" aria-label="后台状态灯">
-            {[
-              { ...globalDeepSeekStatus, ariaLabel: 'DeepSeek状态' },
-              { ...globalTranscriptionStatus, ariaLabel: '转写音频状态' },
-              { ...globalLedgerStatus, ariaLabel: '整理状态' }
-            ].map((item) => (
-              <span
-                key={item.label}
-                className="floating-assistant-global-status__light"
-                data-tone={item.tone}
-                aria-label={item.ariaLabel}
-                title={item.detail}
+        <div className="floating-assistant-chrome">
+          <div className="floating-assistant-tabs" role="tablist" aria-label="助手功能">
+            {WORKSPACE_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-label={tab.label}
+                aria-selected={activeTab === tab.id}
+                onClick={() => setActiveTab(tab.id)}
               >
-                <span className="floating-assistant-global-status__dot" aria-hidden="true" />
-                <span>{item.label}</span>
-              </span>
+                <img className="floating-assistant-tabs__pet" src={tab.icon} alt={tab.iconAlt} />
+                <span>{tab.label}</span>
+              </button>
             ))}
           </div>
-        </section>
+
+          <section className="floating-assistant-global-status" aria-label="全局提示区">
+            <p
+              className="floating-assistant-global-status__feedback"
+              aria-label="全局提示"
+              aria-live="polite"
+            >
+              {globalFeedbackMessage}
+            </p>
+            <div className="floating-assistant-global-status__lights" aria-label="后台状态灯">
+              {[
+                { ...globalDeepSeekStatus, ariaLabel: 'DeepSeek状态' },
+                { ...globalTranscriptionStatus, ariaLabel: '转写音频状态' },
+                { ...globalLedgerStatus, ariaLabel: '整理状态' }
+              ].map((item) => (
+                <span
+                  key={item.label}
+                  className="floating-assistant-global-status__light"
+                  data-tone={item.tone}
+                  aria-label={item.ariaLabel}
+                  title={item.detail}
+                >
+                  <span className="floating-assistant-global-status__dot" aria-hidden="true" />
+                  <span>{item.label}</span>
+                </span>
+              ))}
+            </div>
+          </section>
+        </div>
 
         <div className="floating-assistant-view" hidden={activeView !== 'ledger'}>
           <FavoriteLedgerPanel
