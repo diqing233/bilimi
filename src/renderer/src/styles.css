@@ -72,11 +72,11 @@
   flex: 0 0 auto;
 }
 .assistant-sidebar-workspace .floating-assistant-tabs button {
-  grid-template-columns: 20px minmax(0, auto);
-  gap: 3px;
-  min-height: 38px;
-  padding: 0 4px;
-  font-size: 13px;
+  grid-template-columns: 18px minmax(0, auto);
+  gap: 2px;
+  min-height: 34px;
+  padding: 0 3px;
+  font-size: 12px;
   overflow: hidden;
 }
 .assistant-sidebar-workspace .floating-assistant-tabs button span {
@@ -84,8 +84,8 @@
   text-overflow: ellipsis;
 }
 .assistant-sidebar-workspace .floating-assistant-tabs__pet {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 .assistant-sidebar-workspace .assistant-dialog--comment-chooser {
   position: absolute;
@@ -1358,32 +1358,36 @@ body[data-floating-window="true"],
   min-width: 0;
   display: grid;
   grid-template-rows: auto auto;
-  border: 1px solid rgba(110, 167, 230, 0.68);
-  background: rgba(247, 251, 255, 0.72);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  border: 1px solid #82b8f0;
+  border-radius: 9px;
+  background: rgba(247, 251, 255, 0.86);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.8) inset,
+    0 2px 8px rgba(31, 99, 181, 0.08);
+  overflow: hidden;
 }
 .floating-assistant-tabs {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  padding: 11px 10px 8px;
-  border-bottom: 1px solid rgba(149, 198, 247, 0.74);
+  gap: 7px;
+  padding: 8px 8px 7px;
+  border-bottom: 1px solid #9bc7f4;
 }
 .floating-assistant-tabs button {
   width: 100%;
   min-width: 0;
-  min-height: 44px;
+  min-height: 38px;
   display: grid;
-  grid-template-columns: 25px minmax(0, auto);
+  grid-template-columns: 22px minmax(0, auto);
   justify-content: center;
   align-items: center;
-  gap: 5px;
-  border: 1px solid rgba(111, 171, 235, 0.62);
-  border-radius: 8px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(236, 247, 255, 0.96));
+  gap: 4px;
+  border: 1px solid #8ec0f4;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #ffffff 0%, #edf7ff 100%);
   color: #2f6697;
   font:
-    15px "Microsoft YaHei UI",
+    14px "Microsoft YaHei UI",
     "Microsoft YaHei",
     "Noto Sans SC",
     sans-serif;
@@ -1402,8 +1406,8 @@ body[data-floating-window="true"],
   writing-mode: horizontal-tb;
 }
 .floating-assistant-tabs__pet {
-  width: 25px;
-  height: 25px;
+  width: 22px;
+  height: 22px;
   object-fit: contain;
   filter: drop-shadow(0 2px 3px rgba(31, 99, 181, 0.18));
   pointer-events: none;
@@ -1413,19 +1417,19 @@ body[data-floating-window="true"],
 .floating-assistant-tabs button[aria-selected="true"] {
   background: linear-gradient(180deg, #2c7ac7 0%, #1f64ae 100%);
   color: #ffffff;
-  border-color: rgba(23, 91, 166, 0.78);
+  border-color: #175ba6;
   box-shadow:
     0 2px 6px rgba(31, 99, 181, 0.2),
     inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 .floating-assistant-global-status {
-  min-height: 78px;
+  min-height: 68px;
   display: grid;
-  grid-template-rows: minmax(40px, auto) 38px;
+  grid-template-rows: minmax(34px, auto) 34px;
   gap: 0;
   padding: 0;
   border: 0;
-  background: rgba(247, 251, 255, 0.68);
+  background: rgba(247, 251, 255, 0.76);
   box-sizing: border-box;
 }
 .assistant-sidebar-workspace .floating-assistant-global-status {
@@ -1441,10 +1445,10 @@ body[data-floating-window="true"],
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--porcelain-deep);
-  padding: 9px 12px;
-  font-size: 15px;
+  padding: 7px 10px;
+  font-size: 14px;
   font-weight: 700;
-  line-height: 20px;
+  line-height: 18px;
 }
 .floating-assistant-global-status__lights {
   min-width: 0;
@@ -1452,24 +1456,24 @@ body[data-floating-window="true"],
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0;
   align-items: center;
-  border-top: 1px solid rgba(149, 198, 247, 0.74);
+  border-top: 1px solid #9bc7f4;
 }
 .floating-assistant-global-status__light {
   min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 4px;
   height: 100%;
-  padding: 0 5px;
+  padding: 0 4px;
   overflow: hidden;
   color: #285e90;
-  font-size: 13px;
-  line-height: 16px;
+  font-size: 12px;
+  line-height: 15px;
   white-space: nowrap;
 }
 .floating-assistant-global-status__light + .floating-assistant-global-status__light {
-  border-left: 1px solid rgba(149, 198, 247, 0.74);
+  border-left: 1px solid #9bc7f4;
 }
 .floating-assistant-global-status__light > span:last-child {
   min-width: 0;
@@ -1477,8 +1481,8 @@ body[data-floating-window="true"],
   text-overflow: ellipsis;
 }
 .floating-assistant-global-status__dot {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   flex: 0 0 auto;
   border-radius: 999px;
   background: #9aa8b8;
@@ -1592,8 +1596,8 @@ body[data-floating-window="true"],
 .assistant-sidebar-workspace .floating-assistant-tabs {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-  padding: 10px 8px 8px;
+  gap: 5px;
+  padding: 7px 6px 6px;
 }
 .assistant-sidebar-workspace > .memorial-panel,
 .assistant-sidebar-workspace > .floating-assistant-view,
@@ -1799,13 +1803,13 @@ body[data-floating-window="true"],
 
   .assistant-sidebar-workspace .floating-assistant-tabs {
     gap: 4px;
-    padding: 8px 6px 7px;
+    padding: 6px 5px 5px;
   }
 
   .assistant-sidebar-workspace .floating-assistant-tabs button {
-    min-height: 40px;
-    padding: 0 4px;
-    font-size: 13px;
+    min-height: 32px;
+    padding: 0 3px;
+    font-size: 12px;
   }
 
   .assistant-sidebar__collapse-button {
