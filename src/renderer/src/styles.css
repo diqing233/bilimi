@@ -4050,7 +4050,9 @@ body[data-floating-window="true"],
   overflow: auto;
   display: grid;
   align-content: start;
-  gap: 12px;
+  gap: 16px;
+  border-top: 1px dashed rgba(31, 99, 181, 0.2);
+  padding-top: 14px;
   padding-right: 2px;
 }
 .assistant-settings__jump {
@@ -4092,7 +4094,7 @@ body[data-floating-window="true"],
 }
 .assistant-settings__group {
   display: grid;
-  gap: 8px;
+  gap: 12px;
   margin: 0;
   border: 1px solid rgba(31, 99, 181, 0.18);
   background: rgba(247, 251, 255, 0.64);
@@ -4101,6 +4103,7 @@ body[data-floating-window="true"],
 }
 .assistant-settings__group legend {
   color: var(--porcelain-text);
+  font-size: 14px;
   font-weight: 700;
   padding: 0 4px;
 }
