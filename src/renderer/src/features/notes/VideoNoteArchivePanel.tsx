@@ -460,11 +460,12 @@ export function VideoNoteArchivePanel({
           {filteredArchives.length > 0 ? (
             filteredArchives.map((archive) => {
               const latestVersion = getLatestVersion(archive)
+              const isSelected = archive.id === selectedArchive?.id
               return (
                 <li key={archive.id}>
                   <button
                     type="button"
-                    aria-pressed={archive.id === selectedArchive?.id}
+                    aria-pressed={isSelected}
                     onClick={() => selectArchive(archive)}
                   >
                     <strong>{archive.source.title}</strong>
@@ -474,6 +475,9 @@ export function VideoNoteArchivePanel({
                       {archive.versions.some((version) => version.note.starred) ? ' · 已星标' : ''}
                     </small>
                     <small>{latestVersion ? latestVersion.createdAt : archive.updatedAt}</small>
+                    <span className="video-note-archive__list-state">
+                      {isSelected ? '已展开' : '详情'}
+                    </span>
                   </button>
                 </li>
               )

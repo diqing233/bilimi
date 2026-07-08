@@ -114,6 +114,26 @@ describe('VideoNoteArchivePanel', () => {
     expect(screen.queryByText('纯文稿连续阅读，提供复制全文。')).not.toBeInTheDocument()
   })
 
+  it('marks only the clicked archive video as expanded in the list', () => {
+    renderArchivePanel()
+
+    const machineLearningButton = screen.getByRole('button', { name: /机器学习入门/ })
+    const reactButton = screen.getByRole('button', { name: /React 状态管理/ })
+
+    expect(within(machineLearningButton).getByText('详情')).toBeInTheDocument()
+    expect(within(reactButton).getByText('详情')).toBeInTheDocument()
+
+    fireEvent.click(machineLearningButton)
+
+    expect(within(machineLearningButton).getByText('已展开')).toBeInTheDocument()
+    expect(within(reactButton).getByText('详情')).toBeInTheDocument()
+
+    fireEvent.click(reactButton)
+
+    expect(within(machineLearningButton).getByText('详情')).toBeInTheDocument()
+    expect(within(reactButton).getByText('已展开')).toBeInTheDocument()
+  })
+
   it('collapses the selected archive detail when clicking the same video again', () => {
     renderArchivePanel()
 
