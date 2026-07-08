@@ -228,6 +228,9 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
 }
 
 describe('FloatingAssistantApp', () => {
+  const favoriteLedgerSafetyNote =
+    '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
+
   it('responds to pet workspace requests inside the floating assistant window', async () => {
     let openWorkspace: Parameters<
       NonNullable<Window['bilimiDesktop']['onOpenFloatingAssistantWorkspace']>
@@ -690,6 +693,35 @@ describe('FloatingAssistantApp', () => {
     const transcriptionStatus = screen.getByLabelText('转写音频状态')
     expect(transcriptionStatus).toHaveAttribute('data-tone', 'idle')
     expect(transcriptionStatus).not.toHaveTextContent('转写失败')
+  })
+
+  it('guides the user to log in and back up ledgers instead of waiting for action', async () => {
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          activeTabUrl: '',
+          favoriteLedgerStatus: {
+            ok: false,
+            ledgers: createDefaultFavoriteLedgers(),
+            missingLedgerIds: ['knowledge'],
+            message: '册目缺失。'
+          }
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('全局提示')).toHaveTextContent(
+        '请先登录 B 站，并到掌库备册。'
+      )
+    )
+    expect(screen.getByLabelText('全局提示')).not.toHaveTextContent('等待操作')
+    expect(screen.getByLabelText('整理状态')).toHaveAttribute(
+      'title',
+      expect.stringContaining(favoriteLedgerSafetyNote)
+    )
   })
 
   it('uses a loading placeholder instead of a fake video title before the snapshot arrives', async () => {
@@ -1771,6 +1803,55 @@ describe('FloatingAssistantApp', () => {
         ])
       )
     )
+  })
+
+  it('marks ledger status as unbacked after syncing every ledger out of backup', async () => {
+    const backedLedgers = createDefaultFavoriteLedgers().map((ledger, index) => ({
+      ...ledger,
+      enabled: true,
+      bilibiliFolderId: String(9001 + index)
+    }))
+    const clearedLedgers = backedLedgers.map((ledger) => ({
+      ...ledger,
+      enabled: false
+    }))
+    const requestAssistantSnapshot = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createSnapshot({
+          preferences: createPreferences({ favoriteLedgers: backedLedgers }),
+          favoriteLedgerStatus: {
+            ok: true,
+            ledgers: backedLedgers,
+            missingLedgerIds: [],
+            message: '册目查验已毕。'
+          }
+        })
+      )
+      .mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({ favoriteLedgers: clearedLedgers }),
+          favoriteLedgerStatus: {
+            ok: true,
+            ledgers: clearedLedgers,
+            missingLedgerIds: [],
+            message: '册目查验已毕。'
+          }
+        })
+      )
+    const saveFavoriteLedgers = vi.fn().mockResolvedValue(createResult('掌库已同步。'))
+    installDesktopApi({ requestAssistantSnapshot, saveFavoriteLedgers })
+
+    render(<FloatingAssistantApp />)
+
+    await waitFor(() => expect(screen.getByLabelText('整理状态')).toHaveTextContent('已备册'))
+    fireEvent.click(screen.getByRole('tab', { name: '掌库' }))
+    fireEvent.click(screen.getByRole('button', { name: '取消全选' }))
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+
+    await waitFor(() => expect(screen.getByLabelText('整理状态')).toHaveTextContent('未备册'))
+    expect(screen.getByLabelText('整理状态')).toHaveAttribute('data-tone', 'error')
+    expect(screen.getByLabelText('全局提示')).toHaveTextContent('请到掌库备册后再开始整理。')
   })
 
   it('saves the selected pet style and fullscreen pet visibility from assistant settings', async () => {

@@ -58,8 +58,11 @@ import { PET_COLLAPSE_FAREWELL_LINES, pickPetLine } from './petInteractionLines'
 const CURRENT_TITLE = '等待视频加载'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
 const BILIBILI_VIDEO_URL_PATTERN = /bilibili\.com\/video\/[^/?#]+/i
+const BILIBILI_PAGE_PATTERN = /bilibili\.com/i
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash'
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
+const FAVORITE_LEDGER_BACKUP_HINT =
+  '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
 const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
   funny: '娱乐',
   humor: '娱乐',
@@ -188,6 +191,19 @@ type GlobalStatusItem = {
   label: string
   detail: string
   tone: GlobalStatusTone
+}
+
+function favoriteLedgerBackupGap(ledgers: FavoriteLedger[]) {
+  const enabledLedgers = ledgers.filter((ledger) => ledger.enabled)
+  const enabledLedgersWithoutFolder = enabledLedgers.filter(
+    (ledger) => !ledger.bilibiliFolderId?.trim()
+  )
+
+  return {
+    enabledCount: enabledLedgers.length,
+    enabledWithoutFolderCount: enabledLedgersWithoutFolder.length,
+    backedEnabledCount: enabledLedgers.length - enabledLedgersWithoutFolder.length
+  }
 }
 
 function createFallbackSnapshot(): AssistantSnapshot {
@@ -483,7 +499,7 @@ export function FloatingAssistantApp({
   const [settingsDiagnosticsExpanded, setSettingsDiagnosticsExpanded] = useState(true)
   const [settingsLearningMessage, setSettingsLearningMessage] = useState('')
   const [settingsJumpValue, setSettingsJumpValue] = useState<SettingsJumpValue>('diagnostics')
-  const [globalFeedbackMessage, setGlobalFeedbackMessage] = useState('等待操作')
+  const [globalFeedbackMessage, setGlobalFeedbackMessage] = useState('')
   const [oldFavoriteExecutionState, setOldFavoriteExecutionState] =
     useState<'idle' | 'running' | 'finished'>('idle')
   const [oldFavoriteGlobalStatus, setOldFavoriteGlobalStatus] = useState<GlobalStatusItem | null>(null)
@@ -580,6 +596,8 @@ export function FloatingAssistantApp({
   ])
 
   const globalLedgerStatus = useMemo<GlobalStatusItem>(() => {
+    const backupGap = favoriteLedgerBackupGap(preferences.favoriteLedgers)
+
     if (oldFavoriteExecutionState === 'running') {
       return {
         label: '整理中',
@@ -595,7 +613,23 @@ export function FloatingAssistantApp({
     if (favoriteLedgerStatus?.missingLedgerIds.length) {
       return {
         label: '未备册',
-        detail: `还有 ${favoriteLedgerStatus.missingLedgerIds.length} 个 bilimi 收藏夹未备册。`,
+        detail: `还有 ${favoriteLedgerStatus.missingLedgerIds.length} 个 bilimi 收藏夹未备册。\n${FAVORITE_LEDGER_BACKUP_HINT}`,
+        tone: 'error'
+      }
+    }
+
+    if (backupGap.enabledCount === 0) {
+      return {
+        label: '未备册',
+        detail: `当前没有启用的 bilimi 收藏夹。\n${FAVORITE_LEDGER_BACKUP_HINT}`,
+        tone: 'error'
+      }
+    }
+
+    if (backupGap.enabledWithoutFolderCount > 0) {
+      return {
+        label: '未备册',
+        detail: `还有 ${backupGap.enabledWithoutFolderCount} 个已启用 bilimi 收藏夹未备册。\n${FAVORITE_LEDGER_BACKUP_HINT}`,
         tone: 'error'
       }
     }
@@ -613,7 +647,12 @@ export function FloatingAssistantApp({
       detail: '暂未检查备册状态。',
       tone: 'idle'
     }
-  }, [favoriteLedgerStatus, oldFavoriteExecutionState, oldFavoriteGlobalStatus])
+  }, [
+    favoriteLedgerStatus,
+    oldFavoriteExecutionState,
+    oldFavoriteGlobalStatus,
+    preferences.favoriteLedgers
+  ])
 
   function tellPet(tone: PetFeedbackTone, message: string) {
     window.bilimiDesktop?.setAssistantPetHint?.({
@@ -796,6 +835,28 @@ export function FloatingAssistantApp({
     commentIntentOpen ||
     commentIntentBusy
   const selectedPetHoverShortcuts = normalizePetHoverShortcuts(preferences.petHoverShortcuts)
+  const hasBilibiliPageOpen = BILIBILI_PAGE_PATTERN.test(resolvedSnapshot.activeTabUrl?.trim() ?? '')
+  const favoriteLedgerBackupStatus = favoriteLedgerBackupGap(preferences.favoriteLedgers)
+  const hasMissingFavoriteLedgers =
+    Boolean(favoriteLedgerStatus?.missingLedgerIds.length) ||
+    favoriteLedgerBackupStatus.enabledCount === 0 ||
+    favoriteLedgerBackupStatus.enabledWithoutFolderCount > 0
+  const readinessFeedbackMessage = useMemo(() => {
+    if (!hasBilibiliPageOpen && hasMissingFavoriteLedgers) {
+      return '请先登录 B 站，并到掌库备册。'
+    }
+
+    if (!hasBilibiliPageOpen) {
+      return '请先登录 B 站。'
+    }
+
+    if (hasMissingFavoriteLedgers) {
+      return '请到掌库备册后再开始整理。'
+    }
+
+    return '准备就绪。'
+  }, [hasBilibiliPageOpen, hasMissingFavoriteLedgers])
+  const displayedGlobalFeedbackMessage = globalFeedbackMessage || readinessFeedbackMessage
 
   function applyPreferenceSnapshot(nextPreferences: AssistantPreferences) {
     lastPreferenceChangeAt.current = Date.now()
@@ -1811,7 +1872,7 @@ export function FloatingAssistantApp({
               aria-label="全局提示"
               aria-live="polite"
             >
-              {globalFeedbackMessage}
+              {displayedGlobalFeedbackMessage}
             </p>
             <div className="floating-assistant-global-status__lights" aria-label="后台状态灯">
               {[

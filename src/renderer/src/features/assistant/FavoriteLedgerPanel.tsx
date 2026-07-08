@@ -270,8 +270,6 @@ function saveStatusMessage(result: AssistantAutomationResult | void) {
 const COLLAPSED_LEDGER_COUNT = 15
 const COLLAPSED_TAG_CANDIDATE_COUNT = 12
 const EXPANDED_TAG_CANDIDATE_COUNT = 24
-const FAVORITE_LEDGER_SAFETY_NOTE =
-  '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
 const LEDGER_SYNC_HINT =
   '自定义你的bilimi收藏夹，点击收藏名字可以进行编辑，添加好后点击【同步】即可更新到b站；取消勾选再点击同步，也会删除对应的 bilimi 收藏夹。'
 const BACKUP_COMPLETE_MESSAGE =
@@ -2989,8 +2987,6 @@ export function FavoriteLedgerPanel({
         <div className="favorite-ledger-panel__header">
           <h2 className="sr-only">掌库</h2>
         </div>
-
-        <p className="favorite-ledger-panel__safety-note">{FAVORITE_LEDGER_SAFETY_NOTE}</p>
 
         <div className="favorite-ledger-panel__toolbar">
           <AssistantActionButton

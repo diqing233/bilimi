@@ -156,6 +156,12 @@ describe('FavoriteLedgerPanel', () => {
     }
   })
 
+  it('keeps the first-use backup note out of the ledger panel body', () => {
+    renderPanel()
+
+    expect(screen.queryByText(safetyNote)).not.toBeInTheDocument()
+  })
+
   it('lets the change-history dropdown jump to the latest changed archive card', async () => {
     const scrollIntoView = vi.fn()
     const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
@@ -2177,9 +2183,7 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '影视动漫' }))
     expect(screen.getByText('正在编辑：bilimi·影视动漫')).toBeInTheDocument()
 
-    fireEvent.click(
-      screen.getByText(safetyNote)
-    )
+    fireEvent.click(screen.getByRole('dialog', { name: '掌库' }))
 
     expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
   })
@@ -2223,9 +2227,7 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.change(editor.getByLabelText('册名'), {
       target: { value: '音MAD' }
     })
-    fireEvent.click(
-      screen.getByText(safetyNote)
-    )
+    fireEvent.click(screen.getByRole('dialog', { name: '掌库' }))
 
     expect(screen.getByText('正在编辑：bilimi·音MAD')).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('当前收藏夹有未保存修改，请先保存。')
