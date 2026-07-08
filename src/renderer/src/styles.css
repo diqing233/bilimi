@@ -170,6 +170,7 @@ textarea,
 .floating-assistant-chrome,
 .memorial-panel__paper,
 .memorial-panel__copy,
+.memorial-panel__meta,
 .memorial-panel__verdict,
 .memorial-panel__action-setting select,
 .memorial-panel__actions button,
@@ -1891,10 +1892,11 @@ body[data-floating-window="true"],
   padding: 6px;
 }
 .memorial-panel__meta {
-  border: 0;
-  background: transparent;
-  margin: 0 -8px;
-  padding: 8px 8px 6px;
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid rgba(31, 99, 181, 0.16);
+  background: rgba(247, 251, 255, 0.64);
+  padding: 8px;
 }
 .memorial-panel__copy p,
 .memorial-panel__meta p,
@@ -1910,6 +1912,12 @@ body[data-floating-window="true"],
   display: grid;
   grid-template-columns: 1fr;
   gap: 8px;
+}
+.memorial-panel__actions,
+.memorial-panel__action-card,
+.memorial-panel__actions .assistant-action-button {
+  width: 100%;
+  box-sizing: border-box;
 }
 .memorial-panel__action-card {
   display: grid;

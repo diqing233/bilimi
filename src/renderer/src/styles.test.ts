@@ -330,16 +330,18 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.assistant-action-button__description {\n  grid-area: desc;\n  min-width: 0;\n  padding-left: 4px;\n  color: var(--porcelain-muted);\n  font-size: 12px;\n  font-weight: 700;\n  text-align: left;')
   })
 
-  it('lets the review video metadata flow into the action list without a divider', () => {
+  it('frames review video metadata and stretches review actions to the panel width', () => {
     expectStyleSnippet(
       '.memorial-panel__body { margin-top: 0; grid-template-columns: 1fr; gap: 8px;'
     )
     expectStyleSnippet(
-      '.memorial-panel__meta { border: 0; background: transparent; margin: 0 -8px; padding: 8px 8px 6px;'
+      '.memorial-panel__meta { box-sizing: border-box; width: 100%; border: 1px solid rgba(31, 99, 181, 0.16); background: rgba(247, 251, 255, 0.64); padding: 8px;'
     )
-    expect(compactStyles).not.toContain(
-      '.memorial-panel__copy, .memorial-panel__meta, .memorial-panel__verdict { border: 1px solid'
+    expectStyleSnippet(
+      '.memorial-panel__actions, .memorial-panel__action-card, .memorial-panel__actions .assistant-action-button { width: 100%; box-sizing: border-box;'
     )
+    expect(compactStyles).not.toContain('.memorial-panel__meta { border: 0;')
+    expect(compactStyles).not.toContain('margin: 0 -8px')
     expect(compactStyles).not.toContain(
       '.memorial-panel__meta { border-top: 1px dashed'
     )
