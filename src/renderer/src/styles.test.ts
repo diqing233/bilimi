@@ -397,6 +397,18 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet(
       '.video-note-archive__result-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 0; width: 100%; min-width: 0; height: 36px; min-height: 36px;'
     )
+    expectStyleSnippet(
+      '.video-note-archive { display: grid; grid-template-rows: minmax(0, 1.05fr) minmax(0, 0.85fr) auto; gap: 10px; min-height: 0; border: 0; background: transparent;'
+    )
+    expectStyleSnippet(
+      '.video-note-archive__history-card, .video-note-archive__detail { width: 100%; box-sizing: border-box;'
+    )
+    expectStyleSnippet(
+      '.video-note-archive__history-card { display: grid; grid-template-rows: auto auto minmax(0, 1fr);'
+    )
+    expectStyleSnippet(
+      '.video-note-archive__toolbar, .video-note-archive__list { border-top: 1px dashed rgba(31, 99, 181, 0.2);'
+    )
     expectStyleSnippet('.video-notes__source dd { min-width: 0; overflow-wrap: anywhere;')
     expectStyleSnippet('.video-notes__summary-result { display: grid; gap: 8px; min-width: 0;')
     expectStyleSnippet('.video-notes__summary-result pre { max-width: 100%; overflow-x: hidden; white-space: pre-wrap; overflow-wrap: anywhere;')

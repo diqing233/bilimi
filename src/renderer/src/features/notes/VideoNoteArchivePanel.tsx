@@ -415,47 +415,47 @@ export function VideoNoteArchivePanel({
 
   return (
     <section className="video-note-archive" aria-label="全局档案库">
-      <header className="video-note-archive__header">
-        <div>
-          <span>全局档案库</span>
-          <h2>所有视频历史</h2>
+      <div className="video-note-archive__history-card">
+        <header className="video-note-archive__header">
+          <div>
+            <span>全局档案库</span>
+            <h2>所有视频历史</h2>
+          </div>
+          <button type="button" onClick={onClose}>
+            返回札记
+          </button>
+        </header>
+
+        <div className="video-note-archive__toolbar">
+          <label>
+            搜索档案
+            <input
+              type="search"
+              role="searchbox"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className="video-note-archive__star-button video-note-archive__star-filter"
+            aria-label="星标"
+            aria-pressed={hasStarred}
+            title="星标"
+            onClick={() => setHasStarred((current) => !current)}
+          >
+            ⭐
+          </button>
+          <button
+            type="button"
+            className="video-note-archive__memo-filter"
+            aria-pressed={hasMemo}
+            onClick={() => setHasMemo((current) => !current)}
+          >
+            已备注
+          </button>
         </div>
-        <button type="button" onClick={onClose}>
-          返回札记
-        </button>
-      </header>
 
-      <div className="video-note-archive__toolbar">
-        <label>
-          搜索档案
-          <input
-            type="search"
-            role="searchbox"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </label>
-        <button
-          type="button"
-          className="video-note-archive__star-button video-note-archive__star-filter"
-          aria-label="星标"
-          aria-pressed={hasStarred}
-          title="星标"
-          onClick={() => setHasStarred((current) => !current)}
-        >
-          ⭐
-        </button>
-        <button
-          type="button"
-          className="video-note-archive__memo-filter"
-          aria-pressed={hasMemo}
-          onClick={() => setHasMemo((current) => !current)}
-        >
-          已备注
-        </button>
-      </div>
-
-      <div className="video-note-archive__body">
         <ul className="video-note-archive__list" aria-label="视频列表">
           {filteredArchives.length > 0 ? (
             filteredArchives.map((archive) => {
@@ -482,9 +482,10 @@ export function VideoNoteArchivePanel({
             <p>没有匹配的档案。</p>
           )}
         </ul>
+      </div>
 
-        {selectedArchive && selectedVersion ? (
-          <article className="video-note-archive__detail" aria-label={selectedArchive.source.title}>
+      {selectedArchive && selectedVersion ? (
+        <article className="video-note-archive__detail" aria-label={selectedArchive.source.title}>
             <header>
               <div className="video-note-archive__detail-title-row">
                 <h3>
@@ -636,13 +637,12 @@ export function VideoNoteArchivePanel({
             {renderResultTabs()}
             {renderActiveResult(selectedVersion)}
 
-          </article>
-        ) : (
-          <section className="video-note-archive__detail">
-            <p>请选择上方档案查看文稿、备注和星标。</p>
-          </section>
-        )}
-      </div>
+        </article>
+      ) : (
+        <section className="video-note-archive__detail">
+          <p>请选择上方档案查看文稿、备注和星标。</p>
+        </section>
+      )}
 
       {statusMessage ? <p role="status">{statusMessage}</p> : null}
 
