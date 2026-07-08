@@ -2695,6 +2695,22 @@ body[data-floating-window="true"],
 .video-note-archive__header h2 {
   font-size: 18px;
 }
+.video-note-archive__return-button {
+  min-height: 38px;
+  padding: 7px 12px;
+  border-color: rgba(31, 99, 181, 0.72);
+  background: var(--porcelain-primary);
+  color: var(--porcelain-surface);
+  font-weight: 800;
+  box-shadow: 0 6px 14px rgba(31, 99, 181, 0.18);
+}
+.video-note-archive__return-button:hover:not(:disabled),
+.video-note-archive__return-button:focus-visible:not(:disabled) {
+  border-color: rgba(23, 69, 119, 0.82);
+  background: var(--porcelain-deep);
+  color: var(--porcelain-white);
+  box-shadow: 0 8px 18px rgba(31, 99, 181, 0.24);
+}
 .video-note-archive__toolbar,
 .video-note-archive__list {
   border-top: 1px dashed rgba(31, 99, 181, 0.2);

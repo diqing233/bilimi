@@ -83,6 +83,14 @@ function renderArchivePanel(overrides: Partial<React.ComponentProps<typeof Video
 }
 
 describe('VideoNoteArchivePanel', () => {
+  it('marks the return-to-notes control as the archive primary navigation action', () => {
+    renderArchivePanel()
+
+    expect(screen.getByRole('button', { name: '返回札记' })).toHaveClass(
+      'video-note-archive__return-button'
+    )
+  })
+
   it('renders searchable archive list before showing selected video detail', () => {
     renderArchivePanel()
 

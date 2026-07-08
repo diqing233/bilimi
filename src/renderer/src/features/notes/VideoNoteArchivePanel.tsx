@@ -426,7 +426,11 @@ export function VideoNoteArchivePanel({
             <span>全局档案库</span>
             <h2>所有视频历史</h2>
           </div>
-          <button type="button" onClick={onClose}>
+          <button
+            type="button"
+            className="video-note-archive__return-button"
+            onClick={onClose}
+          >
             返回札记
           </button>
         </header>

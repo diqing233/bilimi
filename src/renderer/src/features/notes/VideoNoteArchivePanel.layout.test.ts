@@ -6,6 +6,16 @@ const stylesPath = resolve(process.cwd(), 'src/renderer/src/styles.css')
 const styles = readFileSync(stylesPath, 'utf8').replace(/\r\n/g, '\n')
 
 describe('VideoNoteArchivePanel layout styles', () => {
+  it('makes the return-to-notes button visually prominent in the archive header', () => {
+    expect(styles).toContain('.video-note-archive__return-button {\n  min-height: 38px;')
+    expect(styles).toContain('background: var(--porcelain-primary);')
+    expect(styles).toContain('color: var(--porcelain-surface);')
+    expect(styles).toContain('font-weight: 800;')
+    expect(styles).toContain(
+      '.video-note-archive__return-button:hover:not(:disabled),\n.video-note-archive__return-button:focus-visible:not(:disabled) {'
+    )
+  })
+
   it('keeps search, memo filter and starred filter on one compact row', () => {
     expect(styles).toContain('.video-note-archive__header,\n.video-note-archive__toolbar,\n.video-note-archive__actions {\n  display: flex;')
     expect(styles).toContain('justify-content: flex-end;')
