@@ -206,8 +206,16 @@ body[data-floating-window="true"],
   min-width: 0;
   overflow: hidden;
   padding: 5px 0 5px 10px;
-  border-bottom: 1px solid rgba(31, 99, 181, 0.16);
-  background: rgba(247, 251, 255, 0.96);
+  border-top: 1px solid rgba(255, 255, 255, 0.72);
+  border-bottom: 1px solid rgba(31, 99, 181, 0.24);
+  background: linear-gradient(
+    180deg,
+    rgba(232, 242, 252, 0.98),
+    rgba(213, 230, 246, 0.98)
+  );
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.76),
+    0 1px 4px rgba(7, 26, 51, 0.1);
 }
 .browser-tabs__list {
   min-width: 0;
@@ -225,8 +233,9 @@ body[data-floating-window="true"],
   align-items: center;
   height: 100%;
   padding: 0 0 0 8px;
-  border-left: 1px solid rgba(31, 99, 181, 0.16);
+  border-left: 1px solid rgba(31, 99, 181, 0.22);
   box-sizing: border-box;
+  background: rgba(213, 230, 246, 0.44);
 }
 .browser-tabs__item {
   display: grid;
@@ -237,13 +246,17 @@ body[data-floating-window="true"],
   min-width: 112px;
   max-width: 220px;
   height: 30px;
-  border: 1px solid rgba(31, 99, 181, 0.16);
-  border-radius: 6px;
-  background: rgba(247, 251, 255, 0.72);
+  border: 1px solid rgba(31, 99, 181, 0.2);
+  border-radius: 6px 6px 4px 4px;
+  background: rgba(247, 251, 255, 0.62);
+  box-shadow: inset 0 -1px 0 rgba(31, 99, 181, 0.08);
 }
 .browser-tabs__item[data-selected="true"] {
-  border-color: rgba(31, 99, 181, 0.34);
-  background: rgba(255, 254, 253, 0.92);
+  border-color: rgba(31, 99, 181, 0.42);
+  background: rgba(255, 254, 253, 0.96);
+  box-shadow:
+    0 1px 3px rgba(7, 26, 51, 0.08),
+    inset 0 -2px 0 var(--porcelain-primary);
 }
 .browser-tabs__tab,
 .browser-tabs__close,
