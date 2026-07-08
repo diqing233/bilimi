@@ -79,7 +79,7 @@ describe('renderer porcelain theme styles', () => {
       '.browser-tabs {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;'
     )
     expectStyleSnippet(
-      '.browser-tabs { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; min-width: 0; overflow: hidden; padding: 5px 0 5px 10px; border-top: 1px solid rgba(255, 255, 255, 0.72); border-bottom: 1px solid rgba(31, 99, 181, 0.24); background: linear-gradient( 180deg, rgba(232, 242, 252, 0.98), rgba(213, 230, 246, 0.98) ); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76), 0 1px 4px rgba(7, 26, 51, 0.1);'
+      '.browser-tabs { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; min-width: 0; overflow: hidden; padding: 5px 0 5px 10px; border-top: 1px solid rgba(31, 99, 181, 0.06); border-bottom: 1px solid rgba(31, 99, 181, 0.18); background: linear-gradient( 180deg, rgba(226, 238, 249, 0.96), rgba(216, 232, 246, 0.96) ); box-shadow: 0 1px 2px rgba(7, 26, 51, 0.06);'
     )
     expect(normalizedStyles).toContain(
       '.browser-tabs__list {\n  min-width: 0;\n  display: flex;'
@@ -94,7 +94,7 @@ describe('renderer porcelain theme styles', () => {
 
   it('visually separates the app browser toolbar from the native window title bar', () => {
     expectStyleSnippet(
-      '.browser-tabs { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; min-width: 0; overflow: hidden; padding: 5px 0 5px 10px; border-top: 1px solid rgba(255, 255, 255, 0.72); border-bottom: 1px solid rgba(31, 99, 181, 0.24); background: linear-gradient( 180deg, rgba(232, 242, 252, 0.98), rgba(213, 230, 246, 0.98) ); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76), 0 1px 4px rgba(7, 26, 51, 0.1);'
+      '.browser-tabs { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; min-width: 0; overflow: hidden; padding: 5px 0 5px 10px; border-top: 1px solid rgba(31, 99, 181, 0.06); border-bottom: 1px solid rgba(31, 99, 181, 0.18); background: linear-gradient( 180deg, rgba(226, 238, 249, 0.96), rgba(216, 232, 246, 0.96) ); box-shadow: 0 1px 2px rgba(7, 26, 51, 0.06);'
     )
     expectStyleSnippet(
       '.browser-tabs__item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; flex: 0 0 auto; width: clamp(112px, 16vw, 220px); min-width: 112px; max-width: 220px; height: 30px; border: 1px solid rgba(31, 99, 181, 0.2); border-radius: 6px 6px 4px 4px; background: rgba(247, 251, 255, 0.62); box-shadow: inset 0 -1px 0 rgba(31, 99, 181, 0.08);'
@@ -105,6 +105,8 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet(
       '.browser-tabs__controls { display: grid; grid-template-columns: 34px 78px; gap: 8px; align-items: center; height: 100%; padding: 0 0 0 8px; border-left: 1px solid rgba(31, 99, 181, 0.22); box-sizing: border-box; background: rgba(213, 230, 246, 0.44);'
     )
+    expect(styles).not.toContain('border-top: 1px solid rgba(255, 255, 255')
+    expect(styles).not.toContain('inset 0 1px 0 rgba(255, 255, 255, 0.76)')
     expect(styles).not.toContain('-webkit-app-region: drag')
   })
 
