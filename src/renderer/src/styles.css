@@ -151,6 +151,101 @@ body,
   --porcelain-error: #9b3642;
   --porcelain-success: #2f7f6d;
   --porcelain-warn: #8f4a5a;
+  --porcelain-radius-join: 4px;
+  --porcelain-radius-control: 6px;
+  --porcelain-radius-surface: 8px;
+  --porcelain-radius-panel: 10px;
+}
+button,
+input,
+select,
+textarea,
+[role="button"],
+[role="tab"] {
+  border-radius: var(--porcelain-radius-control);
+}
+.assistant-dialog__comment-row,
+.seal-button__hint,
+.floating-assistant-workspace,
+.floating-assistant-chrome,
+.memorial-panel__paper,
+.memorial-panel__copy,
+.memorial-panel__verdict,
+.memorial-panel__action-setting select,
+.memorial-panel__actions button,
+.memorial-panel__close,
+.memorial-panel__tabs button,
+.favorite-ledger-panel button,
+.favorite-ledger-panel input,
+.favorite-ledger-panel textarea,
+.video-note-archive button,
+.video-note-archive input,
+.video-note-archive select,
+.video-notes button,
+.video-notes [role="tab"],
+.video-notes__source,
+.video-notes__primary-actions,
+.video-notes__progress,
+.video-notes__queue,
+.video-notes [role="tabpanel"],
+.video-notes__annotations,
+.video-notes__memo,
+.video-notes__queue li,
+.video-notes__summary-section pre,
+.video-notes__plain-text,
+.video-notes input,
+.video-notes textarea,
+.video-notes #video-notes-annotations > ol > li,
+.video-notes__keywords li,
+.video-note-archive,
+.video-note-archive__toolbar,
+.video-note-archive__list,
+.video-note-archive__detail,
+.video-note-archive__menu,
+.video-note-archive__version-menu,
+.video-note-archive__result-tabs button,
+.video-note-archive__detail pre,
+.video-note-archive__dialog,
+.memorial-panel__feedback,
+.favorite-ledger-panel,
+.favorite-ledger-panel__workspace,
+.favorite-ledger-panel__notice,
+.favorite-ledger-panel__status,
+.favorite-ledger-panel__editor,
+.favorite-ledger-panel__preview article,
+.favorite-ledger-panel__fixed-prefix,
+.favorite-ledger-panel__archive-history-card,
+.favorite-ledger-panel__deepseek-archive-card,
+.favorite-ledger-panel__archive-history-select select,
+.favorite-ledger-panel__deepseek-archive-scope select,
+.favorite-ledger-panel__deepseek-archive-progress-track,
+.favorite-ledger-panel__deepseek-archive-alert,
+.favorite-ledger-panel__old-favorites-guide,
+.favorite-ledger-panel__guide-metrics article,
+.favorite-ledger-panel__inbox-split,
+.favorite-ledger-panel__candidates article,
+.favorite-ledger-panel__confirm,
+.favorite-ledger-panel__preview-video,
+.favorite-ledger-panel__target-toggle,
+.favorite-ledger-panel__target-select,
+.favorite-ledger-panel__old-favorite-progress,
+.favorite-ledger-prompt,
+.assistant-settings,
+.assistant-settings__jump select,
+.assistant-settings__status,
+.assistant-settings__group,
+.assistant-settings__hover-shortcut,
+.assistant-settings__pet-actions button,
+.assistant-settings__copy-button,
+.assistant-settings__group--deepseek input[type="text"],
+.assistant-settings__group--deepseek input[type="password"],
+.assistant-settings__group--deepseek input[type="url"],
+.assistant-settings__actions button,
+.assistant-settings__deepseek-recommendation,
+.assistant-dialog,
+.assistant-dialog button,
+.assistant-dialog--intent textarea {
+  border-radius: var(--porcelain-radius-surface);
 }
 body {
   overflow: hidden;
@@ -2184,15 +2279,15 @@ body[data-floating-window="true"],
   align-items: stretch;
 }
 .video-notes__copy-split .video-notes__copy-main {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
+  border-top-right-radius: var(--porcelain-radius-join);
+  border-bottom-right-radius: var(--porcelain-radius-join);
 }
 .video-notes__copy-split .video-notes__copy-menu-button {
   width: 28px;
-  margin-left: -1px;
+  margin-left: 2px;
   padding-inline: 0;
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
+  border-top-left-radius: var(--porcelain-radius-join);
+  border-bottom-left-radius: var(--porcelain-radius-join);
 }
 .video-notes__copy-menu {
   position: absolute;

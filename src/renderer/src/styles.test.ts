@@ -12,6 +12,23 @@ function expectStyleSnippet(snippet: string): void {
 }
 
 describe('renderer porcelain theme styles', () => {
+  it('keeps bordered controls rounded instead of square-cornered', () => {
+    expect(normalizedStyles).not.toMatch(/border-(?:top|bottom)-(?:left|right)-radius:\s*0\b/)
+
+    const roundedControlSelectors = [
+      'button',
+      'input',
+      'select',
+      'textarea',
+      '[role="button"]',
+      '[role="tab"]'
+    ]
+
+    expectStyleSnippet(
+      `${roundedControlSelectors.join(', ')} { border-radius: var(--porcelain-radius-control);`
+    )
+  })
+
   it('removes the old brown-gold palette from global UI styles', () => {
     const retiredPalette = [
       '#1f140f',
