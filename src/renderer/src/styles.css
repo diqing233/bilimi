@@ -1372,7 +1372,7 @@ body[data-floating-window="true"],
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 7px;
   padding: 8px 8px 7px;
-  border-bottom: 1px solid #9bc7f4;
+  border-bottom: 1px solid #d1e6fb;
 }
 .floating-assistant-tabs button {
   width: 100%;
@@ -1457,7 +1457,7 @@ body[data-floating-window="true"],
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0;
   align-items: center;
-  border-top: 1px solid #9bc7f4;
+  border-top: 1px solid #d1e6fb;
 }
 .floating-assistant-global-status__light {
   min-width: 0;
@@ -1474,7 +1474,7 @@ body[data-floating-window="true"],
   white-space: nowrap;
 }
 .floating-assistant-global-status__light + .floating-assistant-global-status__light {
-  border-left: 1px solid #9bc7f4;
+  border-left: 1px solid #d1e6fb;
 }
 .floating-assistant-global-status__light > span:last-child {
   min-width: 0;
