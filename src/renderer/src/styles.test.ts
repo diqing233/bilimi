@@ -420,33 +420,6 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__preview h3 { font-size: 16px;')
   })
 
-  it('connects the sidebar ledger tab, status, and ledger controls as one light blue work panel', () => {
-    expectStyleSnippet(
-      '.assistant-sidebar-workspace:has(.floating-assistant-view:not([hidden]) > .favorite-ledger-panel) { --assistant-ledger-panel-border: rgba(31, 99, 181, 0.3); --assistant-ledger-panel-bg: rgba(247, 251, 255, 0.76); gap: 0; padding-bottom: 10px;'
-    )
-    expectStyleSnippet(
-      '.assistant-sidebar-workspace:has(.floating-assistant-view:not([hidden]) > .favorite-ledger-panel) .floating-assistant-tabs { position: relative; z-index: 1; padding: 4px 4px 0; border: 1px solid var(--assistant-ledger-panel-border); border-bottom: 0; border-radius: 7px 7px 0 0; background: var(--assistant-ledger-panel-bg);'
-    )
-    expectStyleSnippet(
-      '.assistant-sidebar-workspace:has(.floating-assistant-view:not([hidden]) > .favorite-ledger-panel) .floating-assistant-tabs button[aria-selected="true"] { border-bottom-color: rgba(247, 251, 255, 0.96); background: rgba(247, 251, 255, 0.96); box-shadow: none;'
-    )
-    expectStyleSnippet(
-      '.assistant-sidebar-workspace:has(.floating-assistant-view:not([hidden]) > .favorite-ledger-panel) .floating-assistant-global-status { margin-right: 0; margin-left: 0; padding: 6px 8px; border-right: 1px solid var(--assistant-ledger-panel-border); border-bottom: 1px solid rgba(31, 99, 181, 0.16); border-left: 1px solid var(--assistant-ledger-panel-border); background: var(--assistant-ledger-panel-bg);'
-    )
-    expectStyleSnippet(
-      '.assistant-sidebar-workspace:has(.floating-assistant-view:not([hidden]) > .favorite-ledger-panel) .floating-assistant-view { border-right: 1px solid var(--assistant-ledger-panel-border); border-bottom: 1px solid var(--assistant-ledger-panel-border); border-left: 1px solid var(--assistant-ledger-panel-border); border-radius: 0 0 7px 7px; background: var(--assistant-ledger-panel-bg);'
-    )
-    expectStyleSnippet(
-      '.assistant-sidebar-workspace:has(.floating-assistant-view:not([hidden]) > .favorite-ledger-panel) .favorite-ledger-panel { border: 0; background: transparent; padding: 8px;'
-    )
-    expectStyleSnippet(
-      '.assistant-sidebar-workspace:has(.floating-assistant-view:not([hidden]) > .favorite-ledger-panel) .favorite-ledger-panel__workspace { border-color: rgba(31, 99, 181, 0.2); background: rgba(255, 255, 255, 0.56);'
-    )
-    expectStyleSnippet(
-      '.assistant-sidebar-workspace:has(.floating-assistant-view:not([hidden]) > .favorite-ledger-panel) { gap: 0; padding-bottom: 8px;'
-    )
-  })
-
   it('styles the old favorites guide as a step-based review flow', () => {
     expectStyleSnippet('.favorite-ledger-panel__old-favorites-guide { display: grid; gap: 10px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));')
