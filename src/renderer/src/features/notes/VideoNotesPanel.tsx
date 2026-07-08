@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type {
   NotePosterSummary,
   TranscriptSegment,
@@ -166,6 +166,25 @@ function createTimedTranscriptText(segments: TranscriptSegment[]): string {
     .join('\n\n')
 }
 
+function createQueueItemStatusLabel(item: VideoAudioTranscriptionQueueItem): string {
+  switch (item.status) {
+    case 'pending':
+      return '等待转写'
+    case 'running':
+      return '正在转写'
+    case 'completed':
+      return '排队已完成'
+    case 'failed':
+      return '转写失败'
+    case 'canceled':
+      return '已取消'
+  }
+}
+
+function createQueueItemOptionLabel(item: VideoAudioTranscriptionQueueItem): string {
+  return `${createQueueItemStatusLabel(item)}：${item.title}`
+}
+
 export function VideoNotesPanel({
   note,
   currentVideoTitle = '当前视频',
@@ -197,6 +216,7 @@ export function VideoNotesPanel({
     summary: NotePosterSummary
   } | null>(null)
   const [posterGenerating, setPosterGenerating] = useState(false)
+  const [selectedQueueItemId, setSelectedQueueItemId] = useState<string | null>(null)
   const activeQueueItem = useMemo(
     () =>
       transcriptionQueue?.items.find((item) =>
@@ -213,26 +233,46 @@ export function VideoNotesPanel({
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null,
     [transcriptionQueue]
   )
-  const visibleQueueItem = activeQueueItem ?? latestCompletedQueueItem
+  const defaultVisibleQueueItem = activeQueueItem ?? latestCompletedQueueItem
+  const queueItems = useMemo(() => transcriptionQueue?.items ?? [], [transcriptionQueue])
+  const visibleQueueItem =
+    queueItems.find((item) => item.id === selectedQueueItemId) ?? defaultVisibleQueueItem
+  const isQueuePreviewActive = Boolean(
+    visibleQueueItem && (queueItems.length > 1 || visibleQueueItem.draftNote || !note)
+  )
+  const visibleNote = isQueuePreviewActive ? visibleQueueItem?.draftNote ?? null : note
   const queuedItemCount = useMemo(
     () => transcriptionQueue?.items.filter((item) => item.status === 'pending').length ?? 0,
     [transcriptionQueue]
   )
   const generationBusy = isLoading || localGenerating || transcribingAudio
   const activeResultTab = controlledActiveResultTab ?? uncontrolledActiveResultTab
-  const notePosterKey = note ? createPosterCacheKey(note) : ''
+  const notePosterKey = visibleNote ? createPosterCacheKey(visibleNote) : ''
   const activePosterSummary =
     posterSummary && posterSummary.noteKey === notePosterKey ? posterSummary.summary : null
-  const activeArchivedSummaryText = activePosterSummary ? '' : archivedSummaryText.trim()
+  const activeArchivedSummaryText = activePosterSummary || isQueuePreviewActive ? '' : archivedSummaryText.trim()
   const archivedCopyParts = useMemo(
     () => createNotePosterCopyParts(activeArchivedSummaryText),
     [activeArchivedSummaryText]
   )
   const hasDeepSeekSummary = Boolean(activePosterSummary || activeArchivedSummaryText)
+  const sourceTitle =
+    visibleNote?.source.title ?? (isQueuePreviewActive ? visibleQueueItem?.title : currentVideoTitle) ?? currentVideoTitle
   const sourceAuthor =
-    note?.source.author?.trim() || currentVideoAuthor?.trim() || '待转写后补齐'
-  const plainTranscript = useMemo(() => (note ? createPlainTranscriptText(note) : ''), [note])
-  const timedTranscript = useMemo(() => (note ? createTimedTranscriptText(note.transcript) : ''), [note])
+    visibleNote?.source.author?.trim() ||
+    (isQueuePreviewActive ? visibleQueueItem?.author?.trim() : currentVideoAuthor?.trim()) ||
+    currentVideoAuthor?.trim() ||
+    '待转写后补齐'
+  const sourceBvid = visibleNote?.source.bvid ?? (isQueuePreviewActive ? visibleQueueItem?.bvid : undefined)
+  const sourceUrl = visibleNote?.source.url ?? (isQueuePreviewActive ? visibleQueueItem?.url : undefined)
+  const plainTranscript = useMemo(
+    () => (visibleNote ? createPlainTranscriptText(visibleNote) : ''),
+    [visibleNote]
+  )
+  const timedTranscript = useMemo(
+    () => (visibleNote ? createTimedTranscriptText(visibleNote.transcript) : ''),
+    [visibleNote]
+  )
   const summaryText = useMemo(
     () =>
       activePosterSummary
@@ -240,6 +280,13 @@ export function VideoNotesPanel({
         : activeArchivedSummaryText,
     [activeArchivedSummaryText, activePosterSummary]
   )
+
+  useEffect(() => {
+    if (!selectedQueueItemId) return
+    if (!queueItems.some((item) => item.id === selectedQueueItemId)) {
+      setSelectedQueueItemId(null)
+    }
+  }, [queueItems, selectedQueueItemId])
 
   function setResultTab(tab: VideoNotesResultTab | null): void {
     if (controlledActiveResultTab === undefined) {
@@ -410,14 +457,26 @@ export function VideoNotesPanel({
 
   function renderTranscriptionQueue(): React.JSX.Element | null {
     if (!visibleQueueItem) return null
-    const statusLabel =
-      visibleQueueItem.status === 'completed' ? '排队已完成' : '正在转写'
+    const statusLabel = createQueueItemStatusLabel(visibleQueueItem)
 
     return (
       <section className="video-notes__queue" aria-label="转写状态">
         <div className="video-notes__panel-header">
           <strong>{statusLabel}：{visibleQueueItem.title}</strong>
-          <span>排队中：{queuedItemCount} 个</span>
+          <label className="video-notes__queue-selector">
+            <span>排队中：{queuedItemCount} 个</span>
+            <select
+              aria-label="切换队列视频"
+              value={visibleQueueItem.id}
+              onChange={(event) => setSelectedQueueItemId(event.target.value)}
+            >
+              {queueItems.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {createQueueItemOptionLabel(item)}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         {renderQueueItemProgress(visibleQueueItem)}
       </section>
@@ -448,7 +507,7 @@ export function VideoNotesPanel({
   function renderSummaryPanel(): React.JSX.Element {
     const summaryCopy = summaryText || '暂无 DeepSeek 总结。'
     const summaryActionLabel = hasDeepSeekSummary ? '重新总结' : '生成总结'
-    const summaryActionDisabled = !deepSeekEnabled || !note || posterGenerating
+    const summaryActionDisabled = !deepSeekEnabled || !visibleNote || posterGenerating
     const polishedCopy = activePosterSummary
       ? createPolishedTranscriptText(activePosterSummary)
       : archivedCopyParts.polishedTranscriptText
@@ -464,7 +523,7 @@ export function VideoNotesPanel({
               type="button"
               className="video-notes__summary-generate"
               disabled={summaryActionDisabled}
-              onClick={() => note && void generatePosterForNote(note)}
+              onClick={() => visibleNote && void generatePosterForNote(visibleNote)}
             >
               {posterGenerating ? '生成中...' : summaryActionLabel}
             </button>
@@ -532,7 +591,7 @@ export function VideoNotesPanel({
           </section>
         ) : !deepSeekEnabled ? (
           <p className="video-notes__summary-empty">请先到设置启用 DeepSeek 后再生成总结。</p>
-        ) : note ? (
+        ) : visibleNote ? (
           <p className="video-notes__summary-empty">
             请点击生成总结，让 DeepSeek 基于文稿生成精准总结。
           </p>
@@ -552,15 +611,15 @@ export function VideoNotesPanel({
   return (
     <section className="video-notes" aria-label="视频札记">
       <section className="video-notes__source" aria-label="当前视频详情">
-        <span>{note ? '当前视频' : '当前视频详情'}</span>
-        <h3>{note?.source.title ?? currentVideoTitle}</h3>
+        <span>{visibleNote ? '当前视频' : '当前视频详情'}</span>
+        <h3>{sourceTitle}</h3>
         <dl>
           <dt>UP</dt>
           <dd>{sourceAuthor}</dd>
           <dt>BV</dt>
-          <dd>{note?.source.bvid ?? '待识别'}</dd>
+          <dd>{sourceBvid ?? '待识别'}</dd>
           <dt>链接</dt>
-          <dd>{note?.source.url ?? '待转写后补齐'}</dd>
+          <dd>{sourceUrl ?? '待转写后补齐'}</dd>
         </dl>
       </section>
 
@@ -593,17 +652,21 @@ export function VideoNotesPanel({
       {renderTranscriptionQueue()}
       {renderResultTabs()}
 
-      {!note && activeResultTab ? (
+      {!visibleNote && activeResultTab ? (
         activeResultTab === 'summary' ? (
           renderSummaryPanel()
         ) : (
           <div role="tabpanel" id={'video-notes-' + activeResultTab}>
-            暂无文稿。点击“转写音频”开始。
+            {visibleQueueItem
+              ? visibleQueueItem.status === 'completed'
+                ? '该队列项暂无可预览文稿，可到档案库查看。'
+                : '该视频还在转写，完成后可查看文稿。'
+              : '暂无文稿。点击“转写音频”开始。'}
           </div>
         )
       ) : null}
 
-      {note && activeResultTab === 'plain' ? (
+      {visibleNote && activeResultTab === 'plain' ? (
         <div role="tabpanel" id="video-notes-plain" aria-labelledby="video-notes-tab-plain">
           <div className="video-notes__panel-header">
             <strong>无时间线文稿</strong>
@@ -615,7 +678,7 @@ export function VideoNotesPanel({
         </div>
       ) : null}
 
-      {note && activeResultTab === 'timed' ? (
+      {visibleNote && activeResultTab === 'timed' ? (
         <div role="tabpanel" id="video-notes-timed" aria-labelledby="video-notes-tab-timed">
           <div className="video-notes__panel-header">
             <strong>带时间线文稿</strong>
@@ -624,7 +687,7 @@ export function VideoNotesPanel({
             </button>
           </div>
           <ol aria-label="带时间线文稿">
-            {note.transcript.map((segment, index) => (
+            {visibleNote.transcript.map((segment, index) => (
               <li key={String(segment.start ?? 'unknown') + '-' + index}>
                 <time>{formatTimestamp(segment.start)}</time>
                 <p>{segment.text}</p>
@@ -634,7 +697,7 @@ export function VideoNotesPanel({
         </div>
       ) : null}
 
-      {note && activeResultTab === 'summary' ? renderSummaryPanel() : null}
+      {visibleNote && activeResultTab === 'summary' ? renderSummaryPanel() : null}
 
       {errorMessage ? <p role="alert">{errorMessage}</p> : null}
       {statusMessage ? <p role="status">{statusMessage}</p> : null}

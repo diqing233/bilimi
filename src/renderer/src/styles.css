@@ -2233,6 +2233,25 @@ body[data-floating-window="true"],
   display: grid;
   gap: 5px;
 }
+.video-notes__queue-selector {
+  display: grid;
+  flex: 0 1 150px;
+  min-width: 118px;
+  gap: 3px;
+  color: var(--porcelain-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.video-notes__queue-selector select {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  border: 1px solid rgba(31, 99, 181, 0.26);
+  border-radius: 6px;
+  background: rgba(255, 254, 253, 0.95);
+  color: var(--porcelain-text);
+  font: inherit;
+}
 .video-notes__queue-progress progress {
   width: 100%;
   height: 8px;

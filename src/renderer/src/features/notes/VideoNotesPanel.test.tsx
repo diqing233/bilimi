@@ -218,8 +218,9 @@ describe('VideoNotesPanel', () => {
     })
 
     expect(screen.queryByRole('button', { name: '加入队列' })).not.toBeInTheDocument()
-    expect(screen.getByText('正在转写：正在跑的视频')).toBeInTheDocument()
-    expect(screen.getByText('排队中：0 个')).toBeInTheDocument()
+    const queueStatus = screen.getByRole('region', { name: '转写状态' })
+    expect(queueStatus).toHaveTextContent('正在转写：正在跑的视频')
+    expect(queueStatus).toHaveTextContent('排队中：0 个')
 
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
 

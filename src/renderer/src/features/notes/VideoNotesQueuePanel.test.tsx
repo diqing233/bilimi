@@ -27,6 +27,23 @@ const sampleNote: VideoNote = {
   updatedAt: '2026-04-28T00:00:00.000Z'
 }
 
+const queuedCompletedNote: VideoNote = {
+  ...sampleNote,
+  id: 'note-queued-completed',
+  source: {
+    title: 'Completed video',
+    author: 'Queue teacher',
+    tags: ['Queue'],
+    bvid: 'BV3note',
+    url: 'https://www.bilibili.com/video/BV3note'
+  },
+  transcript: [
+    { start: 0, end: 8, text: 'Completed queued transcript.' },
+    { start: 9, end: 18, text: 'Second queued line.' }
+  ],
+  updatedAt: '2026-06-25T00:04:00.000Z'
+}
+
 function renderQueuePanel(queue: VideoAudioTranscriptionQueueSnapshot) {
   const onEnqueueTranscription = vi.fn().mockResolvedValue(queue)
 
@@ -228,9 +245,61 @@ describe('VideoNotesPanel transcription queue', () => {
 
     renderQueuePanel(queue)
 
-    const status = screen.getByText(/Completed video/).closest('section')
-    expect(status).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent(
+      '排队已完成：Completed video'
+    )
     expect(screen.getByText('100%')).toBeInTheDocument()
     expect(screen.queryByText('94%')).not.toBeInTheDocument()
+  })
+
+  it('switches queued videos from the queue selector and previews each draft transcript', () => {
+    const queue: VideoAudioTranscriptionQueueSnapshot = {
+      activeItemId: 'bvid:BV2note',
+      items: [
+        {
+          id: 'bvid:BV2note',
+          url: 'https://www.bilibili.com/video/BV2note',
+          title: 'Running video',
+          bvid: 'BV2note',
+          status: 'running',
+          createdAt: '2026-06-25T00:01:00.000Z',
+          updatedAt: '2026-06-25T00:02:00.000Z',
+          progress: {
+            step: 'transcribing-segment',
+            message: 'Transcribing segment 1/2.',
+            segmentIndex: 1,
+            segmentCount: 2
+          }
+        },
+        {
+          id: 'bvid:BV3note',
+          url: 'https://www.bilibili.com/video/BV3note',
+          title: 'Completed video',
+          bvid: 'BV3note',
+          status: 'completed',
+          createdAt: '2026-06-25T00:03:00.000Z',
+          updatedAt: '2026-06-25T00:04:00.000Z',
+          completedAt: '2026-06-25T00:04:00.000Z',
+          draftNote: queuedCompletedNote
+        }
+      ]
+    }
+
+    renderQueuePanel(queue)
+
+    fireEvent.change(screen.getByRole('combobox', { name: '切换队列视频' }), {
+      target: { value: 'bvid:BV3note' }
+    })
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+
+    expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent(
+      '排队已完成：Completed video'
+    )
+    expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).toHaveTextContent(
+      'Completed queued transcript.'
+    )
+    expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).not.toHaveTextContent(
+      'Transcript text.'
+    )
   })
 })
