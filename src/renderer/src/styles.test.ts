@@ -388,6 +388,9 @@ describe('renderer porcelain theme styles', () => {
     )
     expectStyleSnippet('.video-notes__result-tabs button { display: grid; grid-template-rows: auto minmax(0, 1fr); align-content: start; gap: 2px; height: 78px; min-height: 78px; min-width: 0; box-sizing: border-box; padding: 6px 8px;')
     expectStyleSnippet('.video-notes__result-tabs small { display: -webkit-box; overflow: hidden; color: inherit; opacity: 0.78; line-height: 1.18; -webkit-box-orient: vertical; -webkit-line-clamp: 3;')
+    expectStyleSnippet('.video-notes__queue-selector { position: relative; top: -2px; display: inline-flex; flex: 0 0 auto; align-self: flex-start; align-items: center;')
+    expectStyleSnippet('.video-notes__queue-selector select { appearance: none; width: 24px; min-width: 24px; height: 24px; padding: 0;')
+    expectStyleSnippet('.video-notes__queue-selector::after { content: ""; position: absolute; right: 8px; top: 50%; width: 6px; height: 6px; border-right: 1.5px solid rgba(31, 99, 181, 0.72); border-bottom: 1.5px solid rgba(31, 99, 181, 0.72); transform: translateY(-62%) rotate(45deg); pointer-events: none;')
     expect(normalizedStyles).toContain(
       '.video-note-archive__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(104px, 1fr));'
     )
