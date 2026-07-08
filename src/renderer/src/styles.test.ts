@@ -629,7 +629,7 @@ describe('renderer porcelain theme styles', () => {
   it('keeps sidebar review comment suggestions readable inside the workspace', () => {
     expectStyleSnippet('.memorial-panel__deepseek-status {')
     expectStyleSnippet('.assistant-dialog--comment-chooser { position: relative; box-sizing: border-box; max-height: min(52vh, 360px); padding: 12px 12px 36px; overflow: hidden;')
-    expectStyleSnippet('.assistant-dialog__comment-list { display: grid; gap: 8px; max-height: min(36vh, 232px); margin-bottom: 6px; overflow: auto;')
+    expectStyleSnippet('.assistant-dialog__comment-list { display: grid; gap: 8px; max-height: min(36vh, 232px); margin-right: -8px; padding-right: 16px; margin-bottom: 6px; overflow: auto;')
     expectStyleSnippet('.assistant-dialog__comment-row { display: block;')
     expectStyleSnippet('.assistant-dialog .assistant-dialog__comment-choice { display: inline; width: auto;')
     expectStyleSnippet('line-height: 1.55; padding: 0; white-space: normal; overflow-wrap: anywhere;')

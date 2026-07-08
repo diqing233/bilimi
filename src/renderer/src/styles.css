@@ -18,6 +18,8 @@
   display: grid;
   gap: 8px;
   max-height: min(36vh, 232px);
+  margin-right: -8px;
+  padding-right: 16px;
   margin-bottom: 6px;
   overflow: auto;
 }
