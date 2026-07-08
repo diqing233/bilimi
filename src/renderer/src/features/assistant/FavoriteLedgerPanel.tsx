@@ -1742,6 +1742,11 @@ export function FavoriteLedgerPanel({
     clearDeepSeekArchiveRunSnapshot()
     setOldFavoriteExecutionProgress(null)
     setStatus('正在扫描旧藏，请稍候。')
+    onOldFavoriteStatusUpdate?.({
+      label: '扫描旧藏',
+      message: '正在扫描旧藏，请稍候。',
+      tone: 'running'
+    })
     try {
       const nextPreview = await onScanOldFavorites({
         multiArchiveMode: favoriteArchiveMultiMode
@@ -1751,7 +1756,13 @@ export function FavoriteLedgerPanel({
         setArchivePlanState(null)
         clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
         setPendingUnclassifiedDecision(null)
-        setStatus(`整理旧藏未完成：${nextPreview.message || '请稍后重试。'}`)
+        const failureMessage = `整理旧藏未完成：${nextPreview.message || '请稍后重试。'}`
+        setStatus(failureMessage)
+        onOldFavoriteStatusUpdate?.({
+          label: '扫描失败',
+          message: failureMessage,
+          tone: 'error'
+        })
         return
       }
 
@@ -1819,7 +1830,13 @@ export function FavoriteLedgerPanel({
       setArchivePlanState(null)
       clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
       setPendingUnclassifiedDecision(null)
-      setStatus(`整理旧藏未完成：${errorMessage(error)}`)
+      const failureMessage = `整理旧藏未完成：${errorMessage(error)}`
+      setStatus(failureMessage)
+      onOldFavoriteStatusUpdate?.({
+        label: '扫描失败',
+        message: failureMessage,
+        tone: 'error'
+      })
     } finally {
       setBusy(false)
     }

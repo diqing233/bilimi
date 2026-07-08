@@ -2588,6 +2588,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
 
     expect(await screen.findByRole('status')).toHaveTextContent('正在扫描旧藏，请稍候。')
+    expect(screen.getByLabelText('全局提示')).toHaveTextContent('正在扫描旧藏，请稍候。')
     fireEvent.click(screen.getByRole('tab', { name: '批阅' }))
     expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
 
