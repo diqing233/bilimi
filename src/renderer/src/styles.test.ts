@@ -374,7 +374,12 @@ describe('renderer porcelain theme styles', () => {
       '.video-notes__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));\n  gap: 4px;'
     )
     expect(normalizedStyles).toContain(
-      '.video-notes__result-tabs button {\n  display: grid;\n  gap: 2px;\n  min-height: 50px;'
+      '.video-notes__result-tabs button {\n  display: grid;\n  grid-template-rows: auto minmax(0, 1fr);\n  align-content: start;\n  gap: 2px;\n  height: 78px;\n  min-height: 78px;'
+    )
+    expectStyleSnippet('.video-notes__result-tabs button { display: grid; grid-template-rows: auto minmax(0, 1fr); align-content: start; gap: 2px; height: 78px; min-height: 78px; min-width: 0; box-sizing: border-box; padding: 6px 8px;')
+    expectStyleSnippet('.video-notes__result-tabs small { display: -webkit-box; overflow: hidden; color: inherit; opacity: 0.78; line-height: 1.18; -webkit-box-orient: vertical; -webkit-line-clamp: 3;')
+    expect(normalizedStyles).toContain(
+      '.video-note-archive__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(104px, 1fr));'
     )
     expectStyleSnippet('.video-notes__source dd { min-width: 0; overflow-wrap: anywhere;')
     expectStyleSnippet('.video-notes__summary-result { display: grid; gap: 8px; min-width: 0;')
