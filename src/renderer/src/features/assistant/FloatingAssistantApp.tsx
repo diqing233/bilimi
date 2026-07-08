@@ -1021,14 +1021,21 @@ export function FloatingAssistantApp({
 
   async function saveDeepSeekSettings() {
     const keyDraft = deepSeekApiKeyDraft.trim()
+    let nextPreferences = preferencesRef.current
 
     tellPet('progress', '小咪正在保存 DeepSeek 设置。')
 
     if (keyDraft) {
-      await window.bilimiDesktop?.saveDeepSeekApiKey?.(keyDraft)
+      const keyStatus = await window.bilimiDesktop?.saveDeepSeekApiKey?.(keyDraft)
+      if (keyStatus) {
+        nextPreferences = createInitialAssistantPreferences({
+          ...preferencesRef.current,
+          deepseekApiKeyStored: keyStatus.configured
+        })
+      }
     }
 
-    await persistPreferences(preferencesRef.current)
+    await persistPreferences(nextPreferences)
     setGlobalFeedback('DeepSeek 设置已保存。')
     tellPet('success', 'DeepSeek 设置保存好啦。')
   }

@@ -2366,6 +2366,7 @@ describe('FloatingAssistantApp', () => {
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
           deepseekEnabled: true,
+          deepseekApiKeyStored: true,
           deepseekCommentEnabled: true,
           deepseekAutoSummaryEnabled: true,
           deepseekPetChatEnabled: true,
@@ -2381,6 +2382,15 @@ describe('FloatingAssistantApp', () => {
 
     await waitFor(() => expect(saveDeepSeekApiKey).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledOnce())
+    expect(clearDeepSeekApiKey).not.toHaveBeenCalled()
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deepseekEnabled: true,
+          deepseekApiKeyStored: true
+        })
+      )
+    )
     await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent('DeepSeek 连接成功。'))
 
     fireEvent.click(screen.getByRole('button', { name: '重置 DeepSeek' }))
