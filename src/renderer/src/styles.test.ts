@@ -410,11 +410,13 @@ describe('renderer porcelain theme styles', () => {
       '.video-note-archive__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(104px, 1fr));'
     )
     expectStyleSnippet(
-      '.video-note-archive__result-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 0; width: 100%; min-width: 0; height: 36px; min-height: 36px;'
+      '.video-note-archive__result-tabs button { display: grid; grid-template-rows: auto minmax(0, 1fr); align-content: start; gap: 2px; width: 100%; min-width: 0; height: 78px; min-height: 78px;'
     )
     expectStyleSnippet(
       '.video-note-archive { display: grid; grid-template-rows: minmax(0, 1.05fr) minmax(0, 0.85fr) auto; gap: 10px; min-height: 0; border: 0; background: transparent;'
     )
+    expect(normalizedStyles).not.toContain('.video-note-archive[data-result-expanded="true"]')
+    expect(normalizedStyles).not.toContain('grid-template-rows: minmax(0, 1fr) auto auto;')
     expectStyleSnippet(
       '.video-note-archive__history-card, .video-note-archive__detail { width: 100%; box-sizing: border-box;'
     )
@@ -427,8 +429,10 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.video-notes__source dd { min-width: 0; overflow-wrap: anywhere;')
     expectStyleSnippet('.video-notes__summary-result { display: grid; gap: 8px; min-width: 0;')
     expectStyleSnippet('.video-notes__summary-result pre { max-width: 100%; overflow-x: hidden; white-space: pre-wrap; overflow-wrap: anywhere;')
-    expectStyleSnippet('.video-notes__summary-section pre { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;')
-    expect(normalizedStyles).toContain('.video-notes__plain-text {\n  max-height: 160px;')
+    expectStyleSnippet('.video-notes__summary-section { display: grid; gap: 5px; min-width: 0; border-top: 1px dashed rgba(31, 99, 181, 0.18);')
+    expectStyleSnippet('.video-notes__summary-section pre { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; border: 0; background: transparent;')
+    expectStyleSnippet('.video-notes__plain-text { max-height: 160px; overflow: auto; border-top: 1px dashed rgba(31, 99, 181, 0.18); background: transparent;')
+    expect(normalizedStyles).not.toContain('.video-notes__plain-text {\n  max-height: 160px;\n  overflow: auto;\n  border: 1px solid')
     expect(normalizedStyles).toContain('.video-notes textarea {\n  min-height: 60px;')
     expect(normalizedStyles).toContain(
       '.video-notes__memo textarea[readonly] {\n  min-height: 130px;'
@@ -549,8 +553,8 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__preview-row--pending .favorite-ledger-panel__preview-videos article { background: transparent;')
     expectStyleSnippet('.favorite-ledger-panel__preview-row--pending .favorite-ledger-panel__preview-video { border-color: rgba(31, 99, 181, 0.14); border-left-color: rgba(31, 99, 181, 0.14); background: rgba(255, 255, 255, 0.74);')
     expectStyleSnippet('.favorite-ledger-panel__preview-video-meta { display: grid; gap: 3px; min-width: 0;')
-    expectStyleSnippet('.favorite-ledger-panel__preview-controls { display: flex; justify-content: flex-start;')
     expectStyleSnippet('.favorite-ledger-panel__preview-video-meta small { min-width: 0; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-controls { display: flex; justify-content: flex-start;')
     expectStyleSnippet(".favorite-ledger-panel__preview-videos article[data-latest-change='true'] { outline: 1px solid rgba(232, 132, 31, 0.32);")
     expectStyleSnippet('.favorite-ledger-panel__preview-delta-row { display: block; min-width: 0; margin-top: 5px; border-left: 2px solid rgba(232, 132, 31, 0.86); background: rgba(255, 241, 219, 0.94);')
     expectStyleSnippet('.favorite-ledger-panel__preview-delta { min-width: 0; overflow: hidden; color: rgb(145, 82, 21);')
@@ -581,6 +585,8 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.assistant-settings__deepseek-switches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));')
     expectStyleSnippet('.assistant-settings__deepseek-switches label { display: inline-grid; grid-template-columns: auto minmax(0, 1fr);')
     expectStyleSnippet('.assistant-settings__deepseek-switches--nested { grid-template-columns: repeat(2, minmax(0, max-content));')
+    expectStyleSnippet('.assistant-settings__group--deepseek > label:first-of-type { display: flex; padding-bottom: 8px; border-bottom: 1px dashed rgba(31, 99, 181, 0.22);')
+    expectStyleSnippet('.assistant-settings__group--deepseek > label:nth-of-type(2) { border-top: 1px dashed rgba(31, 99, 181, 0.22); padding-top: 10px;')
     expect(normalizedStyles).not.toContain('.assistant-settings__deepseek-divider')
     expect(normalizedStyles).toContain('.assistant-settings__actions')
     expect(normalizedStyles).toContain(
@@ -609,6 +615,8 @@ describe('renderer porcelain theme styles', () => {
   })
 
   it('keeps correction learning and keyword suggestion settings compact', () => {
+    expectStyleSnippet('.assistant-settings__group--learning .assistant-settings__inline-options { padding-bottom: 8px; border-bottom: 1px dashed rgba(31, 99, 181, 0.22);')
+    expectStyleSnippet('.assistant-settings__subsection--records { border-top: 1px dashed rgba(31, 99, 181, 0.22); padding-top: 10px;')
     expectStyleSnippet('.assistant-settings__learning-list { display: grid; gap: 6px;')
     expectStyleSnippet('.assistant-settings__option-help { min-width: 0; overflow: hidden; color: var(--porcelain-muted);')
     expectStyleSnippet('.assistant-settings__learning-head { display: grid; grid-template-columns: minmax(0, 1fr) auto;')

@@ -9,7 +9,8 @@ describe('VideoNoteArchivePanel layout styles', () => {
   it('keeps search, memo filter and starred filter on one compact row', () => {
     expect(styles).toContain('.video-note-archive__header,\n.video-note-archive__toolbar,\n.video-note-archive__actions {\n  display: flex;')
     expect(styles).toContain('justify-content: flex-end;')
-    expect(styles).toContain('.video-note-archive__toolbar {\n  border: 1px solid rgba(31, 99, 181, 0.16);\n  background: rgba(247, 251, 255, 0.64);\n  padding: 8px;\n  justify-content: flex-end;\n  align-items: flex-end;')
+    expect(styles).toContain('.video-note-archive__toolbar,\n.video-note-archive__list {\n  border-top: 1px dashed rgba(31, 99, 181, 0.2);')
+    expect(styles).toContain('.video-note-archive__toolbar {\n  padding: 8px 0;\n  justify-content: flex-end;\n  align-items: flex-end;')
     expect(styles).toContain('.video-note-archive__toolbar label:first-child {\n  flex: 1 1 180px;')
     expect(styles).toContain('.video-note-archive__toolbar label:first-child input {\n  width: 100%;\n  height: 42px;')
     expect(styles).toContain('.video-note-archive__star-filter,\n.video-note-archive__memo-filter {\n  height: 42px;')
@@ -32,13 +33,18 @@ describe('VideoNoteArchivePanel layout styles', () => {
 
   it('fixes archive result tab dimensions and keeps selected and unselected tabs the same size', () => {
     expect(styles).toContain('.video-note-archive__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(104px, 1fr));\n  gap: 6px;')
-    expect(styles).toContain('.video-note-archive__result-tabs button {\n  width: 100%;\n  min-width: 0;\n  height: 36px;\n  min-height: 36px;')
+    expect(styles).toContain('.video-note-archive__result-tabs button {\n  display: grid;\n  grid-template-rows: auto minmax(0, 1fr);\n  align-content: start;\n  gap: 2px;')
+    expect(styles).toContain('width: 100%;\n  min-width: 0;\n  height: 78px;\n  min-height: 78px;')
     expect(styles).toContain('.video-note-archive__result-tabs button[aria-selected="true"] {\n  background: var(--porcelain-primary);\n  color: var(--porcelain-white);')
     expect(styles).toContain('.video-note-archive__result-tabs button[aria-selected="false"] {\n  background: rgba(220, 238, 255, 0.56);\n  color: var(--porcelain-primary);')
   })
 
   it('stacks the archive list above the detail pane', () => {
-    expect(styles).toContain('grid-template-rows: minmax(150px, 0.9fr) minmax(0, 1.1fr);')
+    expect(styles).toContain(
+      'grid-template-rows: minmax(0, 1.05fr) minmax(0, 0.85fr) auto;'
+    )
+    expect(styles).not.toContain('.video-note-archive[data-result-expanded="true"]')
+    expect(styles).not.toContain('grid-template-rows: minmax(0, 1fr) auto auto;')
   })
 
   it('keeps archive detail content inside the visible pane by default', () => {

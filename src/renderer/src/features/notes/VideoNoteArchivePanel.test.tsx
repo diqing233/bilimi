@@ -94,7 +94,7 @@ describe('VideoNoteArchivePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
 
     expect(screen.queryByText('第二版纯文稿。')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('tab', { name: '无时间线文稿' }))
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
 
     expect(screen.getByText('第二版纯文稿。')).toBeInTheDocument()
     expect(screen.queryByLabelText('批注标题')).not.toBeInTheDocument()
@@ -111,7 +111,15 @@ describe('VideoNoteArchivePanel', () => {
 
     expect(screen.getByRole('article', { name: '机器学习入门' })).toBeInTheDocument()
     expect(screen.getByRole('tablist', { name: '档案文稿' })).toBeInTheDocument()
-    expect(screen.queryByText('纯文稿连续阅读，提供复制全文。')).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveTextContent(
+      '纯文稿连续阅读，提供复制全文。'
+    )
+    expect(screen.getByRole('tab', { name: /带时间线文稿/ })).toHaveTextContent(
+      '按时间段阅读，提供复制全文。'
+    )
+    expect(screen.getByRole('tab', { name: /DeepSeek 总结/ })).toHaveTextContent(
+      '更丰富精细的结构化摘要，提供复制全文。'
+    )
   })
 
   it('marks only the clicked archive video as expanded in the list', () => {
@@ -197,7 +205,7 @@ describe('VideoNoteArchivePanel', () => {
       target: { value: 'bvid:BV1note:version:2026-06-17T00:00:00.000Z' }
     })
 
-    fireEvent.click(screen.getByRole('tab', { name: '无时间线文稿' }))
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
     expect(screen.getByText(/先介绍机器学习的基本概念/)).toBeInTheDocument()
   })
 
@@ -205,10 +213,10 @@ describe('VideoNoteArchivePanel', () => {
     renderArchivePanel()
 
     fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
-    fireEvent.click(screen.getByRole('tab', { name: '无时间线文稿' }))
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
     expect(screen.getByText('第二版纯文稿。')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('tab', { name: '无时间线文稿' }))
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
 
     expect(screen.queryByText('第二版纯文稿。')).not.toBeInTheDocument()
   })
@@ -308,11 +316,11 @@ describe('VideoNoteArchivePanel', () => {
     renderArchivePanel()
 
     fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
-    fireEvent.click(screen.getByRole('tab', { name: '无时间线文稿' }))
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('第二版纯文稿。'))
 
-    fireEvent.click(screen.getByRole('tab', { name: 'DeepSeek 总结' }))
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
     expect(screen.getByText('暂无 DeepSeek 总结。')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '复制全文' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(''))
@@ -351,7 +359,7 @@ describe('VideoNoteArchivePanel', () => {
     renderArchivePanel({ archives })
 
     fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
-    fireEvent.click(screen.getByRole('tab', { name: 'DeepSeek 总结' }))
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
 
     const splitButton = screen.getByRole('group', { name: '档案 DeepSeek 复制' })
     fireEvent.click(within(splitButton).getByRole('button', { name: '复制全文' }))
@@ -395,7 +403,7 @@ describe('VideoNoteArchivePanel', () => {
     renderArchivePanel({ onGeneratePoster, onArchivePosterSummary })
 
     fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
-    fireEvent.click(screen.getByRole('tab', { name: 'DeepSeek 总结' }))
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
     fireEvent.click(screen.getByRole('button', { name: '生成总结' }))
 
     await waitFor(() => expect(onGeneratePoster).toHaveBeenCalledWith(expect.objectContaining({

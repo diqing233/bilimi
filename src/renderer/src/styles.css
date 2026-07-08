@@ -2346,11 +2346,7 @@ body[data-floating-window="true"],
   -webkit-line-clamp: 3;
 }
 .video-note-archive__result-tabs button {
-  display: block;
-  min-height: 36px;
-  font-size: 12px;
-  font-weight: 400;
-  text-align: center;
+  width: 100%;
 }
 .video-notes [role="tabpanel"] {
   display: grid;
@@ -2458,9 +2454,9 @@ body[data-floating-window="true"],
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   margin: 0;
-  border: 1px solid rgba(31, 99, 181, 0.12);
-  background: rgba(255, 254, 253, 0.74);
-  padding: 7px;
+  border: 0;
+  background: transparent;
+  padding: 0;
   line-height: 1.58;
   font: inherit;
 }
@@ -2473,9 +2469,9 @@ body[data-floating-window="true"],
 .video-notes__plain-text {
   max-height: 160px;
   overflow: auto;
-  border: 1px solid rgba(31, 99, 181, 0.12);
-  background: rgba(255, 254, 253, 0.74);
-  padding: 6px;
+  border-top: 1px dashed rgba(31, 99, 181, 0.18);
+  background: transparent;
+  padding: 8px 0 0;
   line-height: 1.55;
 }
 .video-notes input {
@@ -2991,19 +2987,21 @@ body[data-floating-window="true"],
   gap: 6px;
 }
 .video-note-archive__result-tabs button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  align-content: start;
+  gap: 2px;
   width: 100%;
   min-width: 0;
-  height: 36px;
-  min-height: 36px;
+  height: 78px;
+  min-height: 78px;
   box-sizing: border-box;
-  padding: 0 10px;
+  padding: 6px 8px;
   border: 1px solid rgba(31, 99, 181, 0.28);
   font-size: 13px;
-  line-height: 1;
+  line-height: 1.15;
+  overflow: hidden;
+  text-align: left;
 }
 .video-note-archive__result-tabs button[aria-selected="true"] {
   background: var(--porcelain-primary);
@@ -3025,9 +3023,9 @@ body[data-floating-window="true"],
   max-height: 160px;
   overflow-x: hidden;
   overflow-y: auto;
-  border: 1px solid rgba(31, 99, 181, 0.12);
-  background: rgba(255, 254, 253, 0.74);
-  padding: 8px;
+  border: 0;
+  background: transparent;
+  padding: 0;
   font:
     12px "Noto Serif SC",
     "Songti SC",
@@ -3895,9 +3893,9 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__preview-videos article {
   min-width: 0;
-  border: 0;
   display: grid;
   grid-template-rows: minmax(116px, 1fr) auto;
+  border: 0;
   background: transparent;
   padding: 0;
 }
@@ -4270,6 +4268,23 @@ body[data-floating-window="true"],
 .assistant-settings__keyword-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.54;
+}
+.assistant-settings__group--deepseek > label:first-of-type {
+  display: flex;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed rgba(31, 99, 181, 0.22);
+}
+.assistant-settings__group--deepseek > label:nth-of-type(2) {
+  border-top: 1px dashed rgba(31, 99, 181, 0.22);
+  padding-top: 10px;
+}
+.assistant-settings__group--learning .assistant-settings__inline-options {
+  padding-bottom: 8px;
+  border-bottom: 1px dashed rgba(31, 99, 181, 0.22);
+}
+.assistant-settings__subsection--records {
+  border-top: 1px dashed rgba(31, 99, 181, 0.22);
+  padding-top: 10px;
 }
 .assistant-settings__group--learning > label {
   display: grid;
