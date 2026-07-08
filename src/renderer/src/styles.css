@@ -3081,8 +3081,7 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__form,
 .favorite-ledger-panel__preview,
 .favorite-ledger-panel__chips,
-.favorite-ledger-panel__chip-item,
-.favorite-ledger-panel__category-actions {
+.favorite-ledger-panel__chip-item {
   width: 100%;
   box-sizing: border-box;
 }

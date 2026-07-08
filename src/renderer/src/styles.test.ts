@@ -427,7 +427,10 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; border: 0; background: transparent; padding: 0;')
     expectStyleSnippet('.favorite-ledger-panel__toolbar { display: grid; grid-template-columns: 1fr; width: 100%;')
     expectStyleSnippet(
-      '.favorite-ledger-panel__topbar, .favorite-ledger-panel__toolbar, .favorite-ledger-panel__toolbar button, .favorite-ledger-panel__workspace, .favorite-ledger-panel__notice, .favorite-ledger-panel__status, .favorite-ledger-panel__checklist, .favorite-ledger-panel__editor, .favorite-ledger-panel__form, .favorite-ledger-panel__preview, .favorite-ledger-panel__chips, .favorite-ledger-panel__chip-item, .favorite-ledger-panel__category-actions { width: 100%; box-sizing: border-box;'
+      '.favorite-ledger-panel__topbar, .favorite-ledger-panel__toolbar, .favorite-ledger-panel__toolbar button, .favorite-ledger-panel__workspace, .favorite-ledger-panel__notice, .favorite-ledger-panel__status, .favorite-ledger-panel__checklist, .favorite-ledger-panel__editor, .favorite-ledger-panel__form, .favorite-ledger-panel__preview, .favorite-ledger-panel__chips, .favorite-ledger-panel__chip-item { width: 100%; box-sizing: border-box;'
+    )
+    expect(compactStyles).not.toContain(
+      '.favorite-ledger-panel__chip-item, .favorite-ledger-panel__category-actions { width: 100%;'
     )
     expectStyleSnippet('.assistant-action-button:hover:not(:disabled), .assistant-action-button:focus-visible:not(:disabled) { border-color: rgba(31, 99, 181, 0.5);')
     expectStyleSnippet('.favorite-ledger-panel__safety-note { flex: 1 0 100%; color: var(--porcelain-muted); font-size: 12px;')
