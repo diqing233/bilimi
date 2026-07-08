@@ -336,6 +336,12 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__help-toggle { appearance: none; width: 14px; height: 18px; min-width: 14px; min-height: 18px; padding: 0; border: 0; background: transparent; box-shadow: none;')
     expectStyleSnippet('.favorite-ledger-panel__help-toggle:hover:not(:disabled), .favorite-ledger-panel__help-toggle:focus-visible:not(:disabled) { border-color: transparent; background: transparent;')
     expect(normalizedStyles).toContain(
+      '.favorite-ledger-panel .favorite-ledger-panel__help-toggle {\n  border: 0;'
+    )
+    expect(normalizedStyles.indexOf('.favorite-ledger-panel button,')).toBeLessThan(
+      normalizedStyles.indexOf('.favorite-ledger-panel .favorite-ledger-panel__help-toggle {')
+    )
+    expect(normalizedStyles).toContain(
       '.favorite-ledger-panel .favorite-ledger-panel__help-toggle:hover:not(:disabled),\n.favorite-ledger-panel .favorite-ledger-panel__help-toggle:focus-visible:not(:disabled) {\n  border-color: transparent;'
     )
     expect(normalizedStyles.indexOf('.favorite-ledger-panel button:hover:not(:disabled):not(.assistant-action-button)')).toBeLessThan(

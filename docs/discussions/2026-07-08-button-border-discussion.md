@@ -65,6 +65,10 @@
 - 2026-07-08 补救记录：用户反馈界面无明显变化后复查，发现通用 `.favorite-ledger-panel button:hover/focus` 规则会在悬停 / 聚焦时重新加回边框、白底、阴影和位移。
 - 已在通用按钮 hover/focus 规则之后增加 `.favorite-ledger-panel .favorite-ledger-panel__help-toggle:hover/focus` 专属覆盖，明确保持透明背景、透明边框、无阴影、无位移。
 - 样式测试新增顺序断言，确保专属覆盖位于通用按钮规则之后，避免再次被 CSS 层叠反压。
+- 2026-07-08 二次补救记录：用户提供局部截图后确认，黄色框不是 UI 边框，真正残留的是箭头按钮外侧的浅蓝默认小方框。
+- 根因是默认态 `.favorite-ledger-panel button` 通用规则特异性高于 `.favorite-ledger-panel__help-toggle`，会持续给小说明按钮加回边框和背景。
+- 已增加 `.favorite-ledger-panel .favorite-ledger-panel__help-toggle` 默认态高特异性覆盖，确保默认态也无边框、无背景、无阴影。
+- 样式测试新增默认态高特异性覆盖和顺序断言，避免之后再次被通用按钮规则覆盖。
 
 ## 待确认问题
 

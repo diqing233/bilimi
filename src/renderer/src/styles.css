@@ -1933,6 +1933,11 @@ body[data-floating-window="true"],
   background: var(--porcelain-primary);
   color: var(--porcelain-surface);
 }
+.favorite-ledger-panel .favorite-ledger-panel__help-toggle {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
 .favorite-ledger-panel .favorite-ledger-panel__help-toggle:hover:not(:disabled),
 .favorite-ledger-panel .favorite-ledger-panel__help-toggle:focus-visible:not(:disabled) {
   border-color: transparent;
