@@ -744,7 +744,7 @@ function oldFavoriteTagsText(item: FavoriteLedgerPreviewItem) {
 }
 
 function oldFavoriteVisibleTagsText(item: FavoriteLedgerPreviewItem) {
-  return oldFavoriteTagsText(item)
+  return oldFavoriteTagsText(item) || '未识别到'
 }
 
 function deepSeekArchiveMultiLimit(mode: FavoriteArchiveMultiMode): 1 | 2 | 3 {
@@ -2902,9 +2902,7 @@ export function FavoriteLedgerPanel({
       <span className="favorite-ledger-panel__preview-video-meta">
         <small title={item.sourceFolderTitle}>来源：{item.sourceFolderTitle}</small>
         <small title={oldFavoriteAuthorText(item)}>UP：{oldFavoriteAuthorText(item)}</small>
-        {visibleTagsText ? (
-          <small title={allTagsText}>标签：{visibleTagsText}</small>
-        ) : null}
+        <small title={allTagsText || visibleTagsText}>标签：{visibleTagsText}</small>
         <small title={confidenceTitle}>{confidenceText}</small>
         {target?.alreadyInTarget ? <small title="已在目标">已在目标</small> : null}
       </span>
@@ -2925,12 +2923,12 @@ export function FavoriteLedgerPanel({
     return (
       <div className="favorite-ledger-panel__preview-controls" onClick={(event) => event.stopPropagation()}>
         <label className="favorite-ledger-panel__position-control">
-          <span title={modified ? deltaText : targetDisplayName}>当前位置</span>
           <span className="sr-only">{selectLabel} {item.title}</span>
           <select
             aria-label={`${selectLabel} ${item.title}`}
             className="favorite-ledger-panel__target-select"
             data-selected={hasSelectedTarget}
+            title={modified ? deltaText : targetDisplayName}
             value={areaLedgerId}
             disabled={deepSeekArchiveRunning}
             onClick={(event) => event.stopPropagation()}
@@ -2946,9 +2944,6 @@ export function FavoriteLedgerPanel({
             <option value="unclassified">未分类</option>
           </select>
         </label>
-        <small className="favorite-ledger-panel__position-note">
-          {modified ? '将移至此分类' : '当前建议分类'}
-        </small>
       </div>
     )
   }

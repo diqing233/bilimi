@@ -109,15 +109,21 @@ describe('FavoriteLedgerPanel', () => {
     return { ...renderResult, onScanOldFavorites, preview }
   }
 
-  it('uses a compact current-location selector instead of per-card archive action buttons', async () => {
+  it('uses a compact archive selector without visible helper labels', async () => {
     const { container } = await openArchivePreview()
 
     expect(screen.getByText('增删收藏夹或修改标签后，回到归档预览会自动更新')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^存入 / })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^再次整理 / })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^恢复原建议 / })).not.toBeInTheDocument()
-    expect(within(getPreviewArticle(container, /AI 效率工具实战/)).getByText('当前位置')).toBeInTheDocument()
-    expect(within(getPreviewArticle(container, /暂时不知道放哪/)).getByText('当前位置')).toBeInTheDocument()
+    expect(
+      within(getPreviewArticle(container, /AI 效率工具实战/)).getByLabelText('调整分类 AI 效率工具实战')
+    ).toBeInTheDocument()
+    expect(
+      within(getPreviewArticle(container, /暂时不知道放哪/)).getByLabelText('调整分类 暂时不知道放哪')
+    ).toBeInTheDocument()
+    expect(screen.queryByText('当前位置')).not.toBeInTheDocument()
+    expect(screen.queryByText('当前建议分类')).not.toBeInTheDocument()
   })
 
   it('keeps the current-location switch outside the selectable preview card body', async () => {
@@ -130,6 +136,19 @@ describe('FavoriteLedgerPanel', () => {
     expect(cardBody).toBeInTheDocument()
     expect(controls).toBeInTheDocument()
     expect(cardBody).not.toContainElement(controls as HTMLElement)
+  })
+
+  it('shows unrecognized tag text when an old favorite has no tags', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.items[0] = {
+      ...preview.items[0],
+      tags: []
+    }
+    const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
+
+    const { container } = await openArchivePreview({ onScanOldFavorites })
+
+    expect(within(getPreviewArticle(container, /AI 效率工具实战/)).getByText('标签：未识别到')).toBeInTheDocument()
   })
 
   it('offers a change-history dropdown before archive undo and redo actions', async () => {
@@ -438,8 +457,9 @@ describe('FavoriteLedgerPanel', () => {
 
     const gameGroup = screen.getByRole('group', { name: 'bilimi·游戏 1 条' })
     expect(within(gameGroup).getByText('可以改去游戏区的视频')).toBeInTheDocument()
-    expect(within(gameGroup).getByText('将移至此分类')).toBeInTheDocument()
-    expect(within(gameGroup).getByText('当前位置')).toHaveAttribute(
+    expect(within(gameGroup).queryByText('将移至此分类')).not.toBeInTheDocument()
+    expect(within(gameGroup).queryByText('当前位置')).not.toBeInTheDocument()
+    expect(within(gameGroup).getByLabelText('调整分类 可以改去游戏区的视频')).toHaveAttribute(
       'title',
       '已改：bilimi·学习 -> bilimi·游戏'
     )
@@ -451,7 +471,7 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(screen.getByRole('group', { name: 'bilimi·学习 1 条' })).toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'bilimi·游戏 1 条' })).not.toBeInTheDocument()
-    expect(screen.getByText('当前位置')).toHaveAttribute('title', 'bilimi·学习')
+    expect(screen.getByLabelText('调整分类 可以改去游戏区的视频')).toHaveAttribute('title', 'bilimi·学习')
   })
 
   it('sorts moved archive targets before low-confidence matches inside each ledger group', async () => {
