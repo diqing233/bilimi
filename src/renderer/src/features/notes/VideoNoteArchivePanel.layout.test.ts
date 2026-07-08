@@ -31,10 +31,13 @@ describe('VideoNoteArchivePanel layout styles', () => {
   })
 
   it('fixes archive result tab dimensions and keeps selected and unselected tabs the same size', () => {
-    expect(styles).toContain('.video-note-archive__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(104px, 1fr));\n  gap: 6px;')
+    expect(styles).toContain('.video-note-archive__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(0, 1fr));\n  gap: 6px;')
     expect(styles).toContain('.video-note-archive__result-tabs button {\n  width: 100%;\n  min-width: 0;\n  height: 36px;\n  min-height: 36px;')
     expect(styles).toContain('.video-note-archive__result-tabs button[aria-selected="true"] {\n  background: var(--porcelain-primary);\n  color: var(--porcelain-white);')
     expect(styles).toContain('.video-note-archive__result-tabs button[aria-selected="false"] {\n  background: rgba(220, 238, 255, 0.56);\n  color: var(--porcelain-primary);')
+    expect(styles).not.toContain('grid-template-columns: repeat(3, minmax(104px, 1fr));')
+    expect(styles).toContain('@media (max-width: 900px) {\n  .assistant-overlay')
+    expect(styles).toContain('.video-note-archive__result-tabs {\n    grid-template-columns: repeat(3, minmax(0, 1fr));')
   })
 
   it('stacks the archive list above the detail pane', () => {
