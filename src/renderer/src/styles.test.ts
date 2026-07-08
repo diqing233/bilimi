@@ -231,6 +231,21 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
+  it('keeps assistant sidebar scrollbars on the outer edge instead of shrinking panel cards', () => {
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace { --assistant-sidebar-workspace-padding-x: 12px; --assistant-sidebar-scrollbar-rail: var(--assistant-sidebar-workspace-padding-x);'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .memorial-panel__paper, .assistant-sidebar-workspace .favorite-ledger-panel, .assistant-sidebar-workspace .video-note-archive { width: auto; margin-right: calc(var(--assistant-sidebar-scrollbar-rail) * -1);'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .memorial-panel__paper { padding-right: calc(8px + var(--assistant-sidebar-scrollbar-rail));'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .favorite-ledger-panel, .assistant-sidebar-workspace .video-note-archive { padding-right: var(--assistant-sidebar-scrollbar-rail);'
+    )
+  })
+
   it('keeps the floating pet fixed-size inside its transparent stage', () => {
     expect(normalizedStyles).toContain('.palace-maid-pet-shell {\n  width: 336px;\n  height: 380px;')
     expectStyleSnippet(
