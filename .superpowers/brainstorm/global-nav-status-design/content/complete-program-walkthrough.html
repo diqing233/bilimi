@@ -224,7 +224,19 @@
       padding: 0 10px;
     }
 
-    .tool-button.primary { color: #fff; background: #2168b9; border-color: #1b5da8; }
+    .tool-button.primary {
+      color: #fff;
+      background: #2168b9;
+      border-color: #1b5da8;
+      font-weight: 700;
+    }
+
+    .tool-button.secondary {
+      color: #386997;
+      background: #f8fcff;
+      border-color: #c2dcf7;
+    }
+
     .tool-button.ghost { background: transparent; }
     .tool-button.danger { color: #9d2f2f; border-color: #e0b5b5; }
 
@@ -404,6 +416,103 @@
     .settings-pane {
       display: block;
       scroll-margin-top: 8px;
+    }
+
+    .settings-actions {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .settings-actions__primary,
+    .settings-actions__secondary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .settings-actions__primary {
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(185, 215, 246, .72);
+    }
+
+    .settings-actions__primary .tool-button {
+      flex: 1 1 160px;
+    }
+
+    .settings-actions__secondary .tool-button {
+      flex: 1 1 118px;
+    }
+
+    .pet-shortcuts {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .pet-shortcut {
+      width: 100%;
+      min-height: 54px;
+      display: grid;
+      grid-template-columns: 30px minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      border: 1px solid #a6c9ef;
+      border-radius: 7px;
+      background: #fff;
+      color: #174f84;
+      padding: 6px 10px;
+      text-align: left;
+    }
+
+    .pet-shortcut[aria-pressed="true"] {
+      border-color: #6ea7e6;
+      background: #edf7ff;
+    }
+
+    .pet-shortcut:disabled {
+      opacity: .62;
+      cursor: default;
+    }
+
+    .pet-shortcut-mark {
+      display: inline-flex;
+      width: 24px;
+      height: 24px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: #2168b9;
+      color: #fff;
+      font-size: 12px;
+    }
+
+    .pet-shortcut-copy {
+      min-width: 0;
+      display: grid;
+      gap: 1px;
+    }
+
+    .pet-shortcut-copy strong,
+    .pet-shortcut-copy small {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .pet-shortcut-copy strong {
+      color: #174f84;
+      font-size: 13px;
+    }
+
+    .pet-shortcut-copy small {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    @media (max-width: 390px) {
+      .pet-shortcuts { grid-template-columns: 1fr; }
     }
 
     .field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(185, 215, 246, .72); }
@@ -900,7 +1009,12 @@
           <section class="view" data-view="settings">
             <div class="head">
               <div><h2>设置</h2><p class="desc">标题行 + 设置项下拉 + 内容区；动态提示上移到全局状态栏。</p></div>
-              <div class="toolbar" style="margin-top:0"><button class="tool-button" id="restoreLayout">恢复默认布局</button><button class="tool-button danger">重置设置</button></div>
+              <div class="settings-actions" style="margin-top:0">
+                <div class="settings-actions__secondary">
+                  <button class="tool-button secondary" id="restoreLayout">恢复默认布局</button>
+                  <button class="tool-button danger">重置设置</button>
+                </div>
+              </div>
             </div>
             <label class="settings-jump">
               <span class="strong">设置项</span>
@@ -916,7 +1030,7 @@
             </label>
             <div class="settings-scroll" id="settingsScroll">
               <div class="settings-pane" data-settings-pane="diagnostics">
-                <div class="panel"><div class="head"><div><h3>诊断</h3><p class="desc">检查 B 站网络、本地媒体工具、DeepSeek、存储和当前页面状态。</p></div><div class="toolbar" style="margin-top:0"><button class="tool-button primary">运行诊断</button><button class="tool-button">收起诊断</button></div></div><div class="field"><span>偏好设置与本地记录</span><span class="tag">正常</span></div><div class="field"><span>DeepSeek API Key</span><span class="tag">已配置</span></div><div class="field"><span>本地转写组件</span><span class="tag">可用</span></div></div>
+                <div class="panel"><div class="head"><div><h3>诊断</h3><p class="desc">检查 B 站网络、本地媒体工具、DeepSeek、存储和当前页面状态。</p></div><div class="settings-actions" style="margin-top:0"><div class="settings-actions__primary"><button class="tool-button primary">运行诊断</button></div><div class="settings-actions__secondary"><button class="tool-button secondary">收起诊断</button></div></div></div><div class="field"><span>偏好设置与本地记录</span><span class="tag">正常</span></div><div class="field"><span>DeepSeek API Key</span><span class="tag">已配置</span></div><div class="field"><span>本地转写组件</span><span class="tag">可用</span></div></div>
               </div>
               <div class="settings-pane" data-settings-pane="deepseek">
                 <div class="panel">
@@ -933,7 +1047,10 @@
                   <label class="field"><span>DeepSeek API 密钥</span><input class="text-input" type="password" value="sk-••••••"></label>
                   <label class="field"><span>DeepSeek 模型</span><input class="text-input" value="deepseek-v4-flash"></label>
                   <label class="field"><span>DeepSeek 服务地址</span><input class="text-input" value="https://api.deepseek.com"></label>
-                  <div class="toolbar"><button class="tool-button primary">保存 DeepSeek</button><button class="tool-button" id="testDeepseek">测试 DeepSeek</button><button class="tool-button">重置 DeepSeek</button></div>
+                  <div class="settings-actions">
+                    <div class="settings-actions__primary"><button class="tool-button primary">保存 DeepSeek</button></div>
+                    <div class="settings-actions__secondary"><button class="tool-button secondary" id="testDeepseek">测试 DeepSeek</button><button class="tool-button danger">重置 DeepSeek</button></div>
+                  </div>
                   <aside class="callout">
                     <strong>致谢 云枢智元</strong>
                     <p class="desc">推荐模型：deepseek-v4-pro；服务器地址：https://api.yunshulink.com/v1</p>
@@ -952,9 +1069,40 @@
                   <div class="panel soft">
                     <h3>宠物快捷操作</h3>
                     <p class="desc">最多 4 个，可不选；数字表示悬浮按钮显示顺序。</p>
-                    <div class="toolbar"><button class="tool-button">库 打开档案库</button><button class="tool-button">转 转写音频</button><button class="tool-button">整 整理旧藏</button></div>
+                    <div class="pet-shortcuts" role="group" aria-label="宠物快捷操作">
+                      <button class="pet-shortcut" type="button" aria-pressed="true">
+                        <span class="pet-shortcut-mark">1</span><span class="pet-shortcut-copy"><strong>赏</strong><small>轻赏此条</small></span>
+                      </button>
+                      <button class="pet-shortcut" type="button" disabled>
+                        <span class="pet-shortcut-mark">藏</span><span class="pet-shortcut-copy"><strong>藏</strong><small>归入内库</small></span>
+                      </button>
+                      <button class="pet-shortcut" type="button" aria-pressed="true">
+                        <span class="pet-shortcut-mark">2</span><span class="pet-shortcut-copy"><strong>赐</strong><small>投币厚赏</small></span>
+                      </button>
+                      <button class="pet-shortcut" type="button" disabled>
+                        <span class="pet-shortcut-mark">表</span><span class="pet-shortcut-copy"><strong>表</strong><small>拟奏短评</small></span>
+                      </button>
+                      <button class="pet-shortcut" type="button" aria-pressed="true">
+                        <span class="pet-shortcut-mark">3</span><span class="pet-shortcut-copy"><strong>咪</strong><small>打开小咪</small></span>
+                      </button>
+                      <button class="pet-shortcut" type="button" aria-pressed="true">
+                        <span class="pet-shortcut-mark">4</span><span class="pet-shortcut-copy"><strong>转</strong><small>转写音频</small></span>
+                      </button>
+                      <button class="pet-shortcut" type="button" disabled>
+                        <span class="pet-shortcut-mark">库</span><span class="pet-shortcut-copy"><strong>库</strong><small>打开档案库</small></span>
+                      </button>
+                      <button class="pet-shortcut" type="button" disabled>
+                        <span class="pet-shortcut-mark">备</span><span class="pet-shortcut-copy"><strong>备</strong><small>备齐册目</small></span>
+                      </button>
+                      <button class="pet-shortcut" type="button" disabled>
+                        <span class="pet-shortcut-mark">整</span><span class="pet-shortcut-copy"><strong>整</strong><small>整理旧藏</small></span>
+                      </button>
+                    </div>
                   </div>
-                  <div class="toolbar"><button class="tool-button primary">唤醒宠物</button><button class="tool-button">关闭宠物</button></div>
+                  <div class="settings-actions">
+                    <div class="settings-actions__primary"><button class="tool-button primary">唤醒宠物</button></div>
+                    <div class="settings-actions__secondary"><button class="tool-button secondary">关闭宠物</button></div>
+                  </div>
                 </div>
               </div>
               <div class="settings-pane" data-settings-pane="transcription">
