@@ -165,8 +165,8 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
-  it('keeps the global assistant status separated by only a soft bottom rule', () => {
-    expectStyleSnippet('.floating-assistant-global-status { min-height: 48px; display: grid; grid-template-rows: 1fr 1fr; gap: 3px; padding: 5px 8px; border: 0; border-bottom: 1px solid rgba(31, 99, 181, 0.08); background: rgba(247, 251, 255, 0.82);')
+  it('keeps the global assistant status separated by a visible soft bottom rule', () => {
+    expectStyleSnippet('.floating-assistant-global-status { min-height: 48px; display: grid; grid-template-rows: 1fr 1fr; gap: 3px; padding: 5px 8px; border: 0; border-bottom: 1px solid rgba(31, 99, 181, 0.12); background: rgba(247, 251, 255, 0.82);')
     expectStyleSnippet('.floating-assistant-global-status__feedback { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--porcelain-deep); font-size: 14px; font-weight: 700;')
     expectStyleSnippet('.floating-assistant-global-status__lights { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));')
     expectStyleSnippet('.floating-assistant-global-status__light { min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 4px; overflow: hidden; color: var(--porcelain-muted); font-size: 12px;')
