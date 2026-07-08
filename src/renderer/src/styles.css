@@ -2234,23 +2234,28 @@ body[data-floating-window="true"],
   gap: 5px;
 }
 .video-notes__queue-selector {
-  display: grid;
-  flex: 0 1 150px;
-  min-width: 118px;
-  gap: 3px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
   color: var(--porcelain-muted);
   font-size: 12px;
   font-weight: 700;
 }
 .video-notes__queue-selector select {
-  width: 100%;
+  width: 28px;
   min-width: 0;
-  height: 30px;
+  height: 28px;
+  padding: 0;
   border: 1px solid rgba(31, 99, 181, 0.26);
   border-radius: 6px;
   background: rgba(255, 254, 253, 0.95);
-  color: var(--porcelain-text);
+  color: transparent;
+  cursor: pointer;
   font: inherit;
+}
+.video-notes__queue-selector select option {
+  color: var(--porcelain-text);
 }
 .video-notes__queue-progress progress {
   width: 100%;

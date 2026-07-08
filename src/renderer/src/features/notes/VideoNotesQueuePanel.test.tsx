@@ -125,6 +125,19 @@ describe('VideoNotesPanel transcription queue', () => {
 
     expect(status).toHaveTextContent('正在转写：Running video')
     expect(status).toHaveTextContent('排队中：1 个')
+    const queueCount = screen.getByText('排队中：1 个')
+    const queueDetails =
+      '等待转写：Pending video\n正在转写：Running video\n转写失败：Failed video'
+    expect(queueCount).toHaveAttribute('title', queueDetails)
+    expect(screen.getByRole('combobox', { name: '切换队列视频' })).toHaveAttribute(
+      'title',
+      queueDetails
+    )
+    expect(
+      Array.from(screen.getByRole('combobox', { name: '切换队列视频' }).querySelectorAll('option')).map(
+        (option) => option.textContent
+      )
+    ).toEqual(['等待转写：Pending video', '正在转写：Running video', '转写失败：Failed video'])
     expect(screen.getByText('正在转写第 2 / 4 段')).toBeInTheDocument()
     expect(screen.getByText('49%')).toBeInTheDocument()
     expect(screen.getByLabelText('转写音频到文稿生成整体进度')).toHaveAttribute('value', '49')

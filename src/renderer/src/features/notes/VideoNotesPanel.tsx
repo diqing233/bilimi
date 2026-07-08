@@ -458,15 +458,17 @@ export function VideoNotesPanel({
   function renderTranscriptionQueue(): React.JSX.Element | null {
     if (!visibleQueueItem) return null
     const statusLabel = createQueueItemStatusLabel(visibleQueueItem)
+    const queueDetailsTitle = queueItems.map((item) => createQueueItemOptionLabel(item)).join('\n')
 
     return (
       <section className="video-notes__queue" aria-label="转写状态">
         <div className="video-notes__panel-header">
           <strong>{statusLabel}：{visibleQueueItem.title}</strong>
-          <label className="video-notes__queue-selector">
-            <span>排队中：{queuedItemCount} 个</span>
+          <label className="video-notes__queue-selector" title={queueDetailsTitle}>
+            <span title={queueDetailsTitle}>排队中：{queuedItemCount} 个</span>
             <select
               aria-label="切换队列视频"
+              title={queueDetailsTitle}
               value={visibleQueueItem.id}
               onChange={(event) => setSelectedQueueItemId(event.target.value)}
             >
