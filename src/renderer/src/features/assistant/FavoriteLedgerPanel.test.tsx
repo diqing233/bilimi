@@ -118,7 +118,7 @@ describe('FavoriteLedgerPanel', () => {
   function confirmOldFavoriteExecution() {
     fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
     const dialog = screen.getByRole('alertdialog', { name: '确认开始整理？' })
-    expect(dialog).toHaveTextContent('开始后本轮整理无法更改')
+    expect(dialog).toHaveTextContent('小咪提醒：主人要开始整理吗？开始后就不能再调整了哦！')
     fireEvent.click(within(dialog).getByRole('button', { name: '开始整理' }))
   }
 
@@ -179,11 +179,14 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
     const dialog = screen.getByRole('alertdialog', { name: '确认开始整理？' })
-    expect(dialog).toHaveTextContent('开始后本轮整理无法更改')
+    expect(dialog).toHaveTextContent('小咪提醒：主人要开始整理吗？开始后就不能再调整了哦！')
+    expect(screen.queryByRole('heading', { name: '确认执行' })).not.toBeInTheDocument()
+    expect(screen.queryByText('已选择 1 条归档任务')).not.toBeInTheDocument()
     expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
 
     fireEvent.click(within(dialog).getByRole('button', { name: '返回检查' }))
     expect(screen.queryByRole('alertdialog', { name: '确认开始整理？' })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '确认执行' })).toBeInTheDocument()
     expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
 
     confirmOldFavoriteExecution()
