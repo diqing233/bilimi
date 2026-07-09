@@ -387,13 +387,16 @@ describe('renderer porcelain theme styles', () => {
       '.palace-maid-pet__hover-shortcuts[data-layout="fan"] .palace-maid-pet__hover-shortcut:nth-child(1) { transform: translate(12px, 0);'
     )
     expectStyleSnippet(
-      '.palace-maid-pet__hover-shortcuts[data-assistant-shortcut="true"] .palace-maid-pet__assistant-shortcut { position: absolute; left: -1px; bottom: -36px;'
+      '.palace-maid-pet__hover-shortcuts[data-assistant-shortcut="true"] .palace-maid-pet__assistant-shortcut { position: absolute; left: 42px; bottom: 50px;'
     )
     expectStyleSnippet(
       '.palace-maid-pet__hover-shortcuts[data-layout="grid"] { left: 30px; bottom: 6px; grid-template-columns: repeat(2, 32px); gap: 5px;'
     )
     expectStyleSnippet(
       '.palace-maid-pet__hover-shortcuts[data-layout="grid"][data-assistant-shortcut="true"] { left: 34px; bottom: 16px;'
+    )
+    expectStyleSnippet(
+      '.palace-maid-pet__hover-shortcuts[data-layout="grid"][data-assistant-shortcut="true"] .palace-maid-pet__assistant-shortcut { left: 74px; bottom: 18px;'
     )
     expect(normalizedStyles).toContain('.palace-maid-pet__assistant-shortcut')
     expect(normalizedStyles).not.toContain('left: 18px;\n  bottom: 50px;')
