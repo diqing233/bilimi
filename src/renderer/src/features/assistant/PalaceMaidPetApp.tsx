@@ -25,6 +25,7 @@ const PET_SIZE_STEP_PX = 16
 const PET_SIZE_MIN_PX = 100
 const PET_SIZE_MAX_PX = 164
 const PET_SIZE_DEFAULT_PX = 148
+const PET_HOVER_GRID_SIZE_THRESHOLD_PX = 116
 const DEEPSEEK_CHAT_DISABLED_MESSAGE =
   '主人，想要跟小咪交流的话去设置开启DeepSeek支持吧'
 const DEEPSEEK_PET_CHAT_DISABLED_MESSAGE =
@@ -75,7 +76,7 @@ export function PalaceMaidPetApp() {
     preferences.deepseekPetChatEnabled
   const hoverShortcuts = resolvePetHoverShortcuts(preferences.petHoverShortcuts)
   const hoverShortcutLayout =
-    preferences.showPetAssistantShortcut && hoverShortcuts.length >= 4 ? 'grid' : 'fan'
+    hoverShortcuts.length >= 4 && petSize <= PET_HOVER_GRID_SIZE_THRESHOLD_PX ? 'grid' : 'fan'
 
   function showLocalPetHint(tone: AssistantPetHint['tone'], message: string) {
     setPetHint({ tone, message })
@@ -643,6 +644,7 @@ export function PalaceMaidPetApp() {
         aria-label="小咪悬浮快捷按钮"
         data-visible={hoverShortcutsVisible ? 'true' : 'false'}
         data-layout={hoverShortcutLayout}
+        data-assistant-shortcut={preferences.showPetAssistantShortcut ? 'true' : 'false'}
         onPointerEnter={() => {
           enterInteractiveRegion()
           showHoverShortcuts()

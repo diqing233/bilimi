@@ -589,7 +589,8 @@ describe('PalaceMaidPetApp', () => {
 
     const shortcuts = screen.getByRole('group', { name: '小咪悬浮快捷按钮', hidden: true })
     expect(shortcuts).toHaveAttribute('data-visible', 'true')
-    expect(shortcuts).toHaveAttribute('data-layout', 'grid')
+    expect(shortcuts).toHaveAttribute('data-layout', 'fan')
+    expect(shortcuts).toHaveAttribute('data-assistant-shortcut', 'true')
     expect(screen.getAllByTestId('pet-hover-shortcut')).toHaveLength(4)
     expect(screen.getByRole('button', { name: '打开小咪' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '赏' })).toBeInTheDocument()
@@ -681,7 +682,7 @@ describe('PalaceMaidPetApp', () => {
     expect(screen.queryByRole('button', { name: '打开小咪' })).not.toBeInTheDocument()
   })
 
-  it('switches hover shortcuts to a compact grid when four business shortcuts and the assistant shortcut are shown', async () => {
+  it('keeps four business shortcuts in the fan layout until the pet is very small', async () => {
     installDesktopApi({
       loadPreferences: vi.fn().mockResolvedValue(
         createPreferences({
@@ -698,6 +699,13 @@ describe('PalaceMaidPetApp', () => {
     const shortcuts = await screen.findByRole('group', { name: '小咪悬浮快捷按钮', hidden: true })
     await waitFor(() => expect(screen.getAllByTestId('pet-hover-shortcut')).toHaveLength(4))
     expect(screen.getByRole('button', { name: '打开小咪' })).toBeInTheDocument()
+    expect(shortcuts).toHaveAttribute('data-layout', 'fan')
+
+    const pet = screen.getByRole('button', { name: '打开 bilimi，小咪在这里' })
+    fireEvent.pointerEnter(pet)
+    fireEvent.click(screen.getByRole('button', { name: '缩小小咪' }))
+    fireEvent.click(screen.getByRole('button', { name: '缩小小咪' }))
+
     expect(shortcuts).toHaveAttribute('data-layout', 'grid')
   })
 

@@ -1092,6 +1092,9 @@ body[data-floating-window="true"],
     opacity 120ms ease,
     transform 120ms ease;
 }
+.palace-maid-pet__hover-shortcuts[data-assistant-shortcut="true"] {
+  left: 34px;
+}
 .palace-maid-pet__hover-shortcuts[data-visible="true"],
 .palace-maid-pet__hover-shortcuts:focus-within {
   opacity: 1;
@@ -1129,14 +1132,24 @@ body[data-floating-window="true"],
 .palace-maid-pet__hover-shortcuts[data-layout="fan"] .palace-maid-pet__hover-shortcut:nth-child(4) {
   transform: translate(9px, 1px);
 }
+.palace-maid-pet__hover-shortcuts[data-assistant-shortcut="true"] .palace-maid-pet__assistant-shortcut {
+  position: absolute;
+  left: -1px;
+  bottom: -36px;
+}
 .palace-maid-pet__hover-shortcuts[data-layout="grid"] {
   left: 30px;
   bottom: 6px;
   grid-template-columns: repeat(2, 32px);
   gap: 5px;
 }
-.palace-maid-pet__hover-shortcuts[data-layout="grid"] .palace-maid-pet__assistant-shortcut {
-  transform: translate(8px, 0);
+.palace-maid-pet__hover-shortcuts[data-layout="grid"][data-assistant-shortcut="true"] {
+  left: 34px;
+  bottom: 16px;
+}
+.palace-maid-pet__hover-shortcuts[data-layout="grid"][data-assistant-shortcut="true"] .palace-maid-pet__assistant-shortcut {
+  left: -1px;
+  bottom: -37px;
 }
 .palace-maid-pet__hover-shortcut:hover,
 .palace-maid-pet__hover-shortcut:focus-visible,
