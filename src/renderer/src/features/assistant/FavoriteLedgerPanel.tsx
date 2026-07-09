@@ -85,7 +85,10 @@ type OldFavoriteExecutionResult = AssistantAutomationResult & {
 type ArchivePreviewLatestChange = {
   itemKey: string
   title: string
-  message: string
+  previousTargetLedgerIds: string[]
+  nextTargetLedgerIds: string[]
+  previousTargetText: string
+  nextTargetText: string
 }
 
 const OLD_FAVORITE_APPEND_DELAY_MS = { min: 1200, max: 3000 }
@@ -2899,7 +2902,10 @@ export function FavoriteLedgerPanel({
     return {
       itemKey: latestItem.itemKey,
       title: latestItem.title,
-      message: `最近改动：${previousTargetText} -> ${nextTargetText}`
+      previousTargetLedgerIds: previousItem ? [...previousItem.currentTargetLedgerIds] : [],
+      nextTargetLedgerIds: [...latestItem.currentTargetLedgerIds],
+      previousTargetText,
+      nextTargetText
     }
   }
 
@@ -2934,8 +2940,9 @@ export function FavoriteLedgerPanel({
     const selectLabel = '调整分类'
     const targetDisplayName = archiveLedgerDisplayName(areaLedgerId)
     const hasSelectedTarget = areaLedgerId !== 'unclassified'
-    const modified = oldFavoriteArchiveWasModified(item)
-    const deltaText = `已改：${originalArchiveSuggestionText(item)} -> ${targetDisplayName}`
+    const targetTitle = hasSelectedTarget
+      ? `当前位置：${targetDisplayName}，可手动切换`
+      : '当前位置：未分类，可手动切换到 bilimi 收藏夹'
 
     return (
       <div className="favorite-ledger-panel__preview-controls" onClick={(event) => event.stopPropagation()}>
@@ -2945,7 +2952,7 @@ export function FavoriteLedgerPanel({
             aria-label={`${selectLabel} ${item.title}`}
             className="favorite-ledger-panel__target-select"
             data-selected={hasSelectedTarget}
-            title={modified ? deltaText : targetDisplayName}
+            title={targetTitle}
             value={areaLedgerId}
             disabled={deepSeekArchiveRunning}
             onClick={(event) => event.stopPropagation()}
@@ -2961,7 +2968,28 @@ export function FavoriteLedgerPanel({
             <option value="unclassified">未分类</option>
           </select>
         </label>
+        {renderLatestArchiveChangeNotice(item, areaLedgerId)}
       </div>
+    )
+  }
+
+  function undoLatestArchiveItemChange(item: FavoriteLedgerPreviewItem) {
+    if (!archivePlanState || !latestArchiveChange || deepSeekArchiveRunning) {
+      return
+    }
+
+    if (archivePlanItemKey(item) !== latestArchiveChange.itemKey) {
+      return
+    }
+
+    commitArchivePlanSelection(
+      item,
+      applyArchivePlanSelection(
+        archivePlanState,
+        { aid: item.aid, sourceFolderTitle: item.sourceFolderTitle },
+        latestArchiveChange.previousTargetLedgerIds,
+        'user'
+      )
     )
   }
 
@@ -2974,9 +3002,22 @@ export function FavoriteLedgerPanel({
       return null
     }
 
+    const message = `最近改动：来自【${latestArchiveChange.previousTargetText}】`
+    const detail = `最近改动：来自【${latestArchiveChange.previousTargetText}】，当前位置【${latestArchiveChange.nextTargetText}】，可撤销本次移动`
+
     return (
       <small className="favorite-ledger-panel__preview-delta-row">
-        {latestArchiveChange.message}
+        <span className="favorite-ledger-panel__preview-delta" title={detail}>
+          {message}
+        </span>
+        <button
+          type="button"
+          className="favorite-ledger-panel__preview-delta-action"
+          disabled={deepSeekArchiveRunning}
+          onClick={() => undoLatestArchiveItemChange(item)}
+        >
+          撤销
+        </button>
       </small>
     )
   }
@@ -3667,7 +3708,6 @@ export function FavoriteLedgerPanel({
                               <small>{pendingReasonText(item)}</small>
                             </div>
                             {renderOldFavoriteArchiveControls(item, 'unclassified')}
-                            {renderLatestArchiveChangeNotice(item, 'unclassified')}
                           </article>
                         ))
                       ) : (
@@ -3740,7 +3780,6 @@ export function FavoriteLedgerPanel({
                                 {renderOldFavoritePreviewMeta(item, target)}
                               </div>
                               {renderOldFavoriteArchiveControls(item, group.ledgerId, target)}
-                              {renderLatestArchiveChangeNotice(item, group.ledgerId)}
                             </article>
                           ))}
                         </div>

@@ -127,6 +127,12 @@ describe('FavoriteLedgerPanel', () => {
     expect(
       within(getPreviewArticle(container, /暂时不知道放哪/)).getByLabelText('调整分类 暂时不知道放哪')
     ).toBeInTheDocument()
+    expect(
+      within(getPreviewArticle(container, /AI 效率工具实战/)).getByLabelText('调整分类 AI 效率工具实战')
+    ).toHaveAttribute('title', '当前位置：bilimi·知识学习，可手动切换')
+    expect(
+      within(getPreviewArticle(container, /暂时不知道放哪/)).getByLabelText('调整分类 暂时不知道放哪')
+    ).toHaveAttribute('title', '当前位置：未分类，可手动切换到 bilimi 收藏夹')
     expect(screen.queryByText('当前位置')).not.toBeInTheDocument()
     expect(screen.queryByText('当前建议分类')).not.toBeInTheDocument()
   })
@@ -276,8 +282,16 @@ describe('FavoriteLedgerPanel', () => {
 
     const latestArticle = getPreviewArticle(container, /暂时不知道放哪/)
     expect(container.querySelectorAll('.favorite-ledger-panel__preview-delta-row')).toHaveLength(1)
-    expect(within(latestArticle).getByText(/最近改动：/)).toHaveClass(
-      'favorite-ledger-panel__preview-delta-row'
+    expect(within(latestArticle).getByText('最近改动：来自【未分类】')).toHaveClass(
+      'favorite-ledger-panel__preview-delta'
+    )
+    expect(within(latestArticle).getByText('最近改动：来自【未分类】')).toHaveAttribute(
+      'title',
+      '最近改动：来自【未分类】，当前位置【bilimi·暂存】，可撤销本次移动'
+    )
+    fireEvent.click(within(latestArticle).getByRole('button', { name: '撤销' }))
+    await waitFor(() =>
+      expect(screen.getByLabelText('调整分类 暂时不知道放哪')).toHaveValue('unclassified')
     )
     expect(getPreviewArticle(container, /AI 效率工具实战/)).not.toHaveAttribute(
       'data-latest-change',
@@ -519,7 +533,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(within(gameGroup).queryByText('当前位置')).not.toBeInTheDocument()
     expect(within(gameGroup).getByLabelText('调整分类 可以改去游戏区的视频')).toHaveAttribute(
       'title',
-      '已改：bilimi·学习 -> bilimi·游戏'
+      '当前位置：bilimi·游戏，可手动切换'
     )
     expect(screen.queryByRole('group', { name: 'bilimi·学习 1 条' })).not.toBeInTheDocument()
 
@@ -529,7 +543,10 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(screen.getByRole('group', { name: 'bilimi·学习 1 条' })).toBeInTheDocument()
     expect(screen.queryByRole('group', { name: 'bilimi·游戏 1 条' })).not.toBeInTheDocument()
-    expect(screen.getByLabelText('调整分类 可以改去游戏区的视频')).toHaveAttribute('title', 'bilimi·学习')
+    expect(screen.getByLabelText('调整分类 可以改去游戏区的视频')).toHaveAttribute(
+      'title',
+      '当前位置：bilimi·学习，可手动切换'
+    )
   })
 
   it('sorts moved archive targets before low-confidence matches inside each ledger group', async () => {
