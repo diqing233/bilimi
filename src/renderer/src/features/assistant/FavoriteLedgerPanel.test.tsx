@@ -1848,9 +1848,12 @@ describe('FavoriteLedgerPanel', () => {
     expect(ledgerRegion.querySelector('.favorite-ledger-panel__sync-hint')).toHaveTextContent(
       '自定义你的bilimi收藏夹，点击收藏名字可以进行编辑，添加好后点击【同步】即可更新到b站；取消勾选再点击同步，也会删除对应的 bilimi 收藏夹。'
     )
-    expect(ledgerRegion.querySelector('.favorite-ledger-panel__sync-hint')).toHaveTextContent(
-      'DeepSeek约束只在开启 DeepSeek 后作为辅助判断参考'
+    const syncHint = ledgerRegion.querySelector('.favorite-ledger-panel__sync-hint')
+    expect(syncHint).toHaveTextContent(
+      '关键词、UP 名字和标签用于本地识别；DeepSeek 约束只在开启 DeepSeek 后作为辅助判断参考，可以输入一段自然语言。'
     )
+    expect(syncHint).not.toHaveTextContent('【DeepSeek约束】')
+    expect(syncHint).not.toHaveTextContent('手动输入')
 
     const visibleLedgerNames = Array.from(
       ledgerRegion.querySelector('.favorite-ledger-panel__chips')?.children ?? []
@@ -2237,7 +2240,10 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.change(editor.getByLabelText('收藏夹种类'), { target: { value: ruleType } })
     fireEvent.change(editor.getByLabelText('册名'), { target: { value: name } })
     fireEvent.change(editor.getByLabelText(ruleLabel), { target: { value: localRules } })
-    fireEvent.change(editor.getByLabelText('DeepSeek约束'), { target: { value: constraint } })
+    const constraintField = editor.getByLabelText('DeepSeek约束')
+    expect(constraintField.tagName).toBe('INPUT')
+    expect(constraintField).toHaveAttribute('type', 'text')
+    fireEvent.change(constraintField, { target: { value: constraint } })
     fireEvent.click(editor.getByRole('button', { name: '保存' }))
 
     fireEvent.click(screen.getByRole('button', { name: `加入同步 bilimi·${name}` }))
@@ -2258,13 +2264,19 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
-  it('splits a legacy inline DeepSeek constraint into the separate constraint field', () => {
+  it('splits a legacy inline DeepSeek constraint into the separate one-line constraint field', () => {
     const ledgers = [
       ...createDefaultFavoriteLedgers(),
       {
         id: 'custom-photo',
         displayName: 'bilimi·摄影',
-        keywords: ['摄影', '后期', DEEPSEEK_CONSTRAINT_MARKER, '只收教程和案例复盘。'],
+        keywords: [
+          '摄影',
+          '后期',
+          DEEPSEEK_CONSTRAINT_MARKER,
+          '只收教程和案例复盘。\n排除器材广告。',
+          '保留案例复盘。'
+        ],
         ruleType: 'tag' as const,
         enabled: true,
         priority: 999,
@@ -2277,7 +2289,9 @@ describe('FavoriteLedgerPanel', () => {
 
     const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
     expect(editor.getByLabelText('标签')).toHaveValue('摄影、后期')
-    expect(editor.getByLabelText('DeepSeek约束')).toHaveValue('只收教程和案例复盘。')
+    const constraintField = editor.getByLabelText('DeepSeek约束')
+    expect(constraintField.tagName).toBe('INPUT')
+    expect(constraintField).toHaveValue('只收教程和案例复盘。 排除器材广告。 保留案例复盘。')
   })
 
   it('edits a new ledger as a DeepSeek constraint collection', async () => {

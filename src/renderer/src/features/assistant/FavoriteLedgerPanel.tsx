@@ -131,6 +131,10 @@ function splitLedgerRuleText(value: string, ruleType: FavoriteLedgerRuleType) {
   return splitKeywords(value)
 }
 
+function normalizeDeepSeekConstraintLine(value: string) {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
 function splitLedgerKeywordSections(ledger: FavoriteLedger) {
   const markerIndex = ledger.keywords.findIndex((keyword) => keyword === DEEPSEEK_CONSTRAINT_MARKER)
   if (markerIndex < 0) {
@@ -142,7 +146,7 @@ function splitLedgerKeywordSections(ledger: FavoriteLedger) {
 
   return {
     localKeywords: ledger.keywords.slice(0, markerIndex),
-    deepSeekConstraint: ledger.keywords.slice(markerIndex + 1).join('\n').trim()
+    deepSeekConstraint: normalizeDeepSeekConstraintLine(ledger.keywords.slice(markerIndex + 1).join(' '))
   }
 }
 
@@ -152,7 +156,7 @@ function composeLedgerKeywords(
   ruleType: FavoriteLedgerRuleType
 ) {
   const localKeywords = splitLedgerRuleText(ruleText, ruleType)
-  const constraint = deepSeekConstraint.trim()
+  const constraint = normalizeDeepSeekConstraintLine(deepSeekConstraint)
   return constraint && ruleType !== 'deepseek'
     ? [...localKeywords, DEEPSEEK_CONSTRAINT_MARKER, constraint]
     : localKeywords
@@ -3544,8 +3548,7 @@ export function FavoriteLedgerPanel({
           <div className="favorite-ledger-panel__sync-hint">
             <p>{LEDGER_SYNC_HINT}</p>
             <p>
-              关键词、UP 名字和标签用于本地识别；DeepSeek约束只在开启 DeepSeek 后作为辅助判断参考，
-              不需要手动输入{DEEPSEEK_CONSTRAINT_MARKER}。
+              关键词、UP 名字和标签用于本地识别；DeepSeek 约束只在开启 DeepSeek 后作为辅助判断参考，可以输入一段自然语言。
             </p>
           </div>
         ) : null}
@@ -3682,9 +3685,11 @@ export function FavoriteLedgerPanel({
             />
           </label>
           {activeLedgerRuleType !== 'deepseek' ? (
-            <label>
-              DeepSeek约束
-              <textarea
+            <label className="favorite-ledger-panel__deepseek-constraint-line">
+              <span>DeepSeek约束：</span>
+              <input
+                aria-label="DeepSeek约束"
+                type="text"
                 value={activeLedgerDeepSeekConstraint}
                 onChange={(event) =>
                   updateActiveLedger({

@@ -3526,6 +3526,13 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__prefixed-input input {
   min-width: 0;
 }
+.favorite-ledger-panel__editor .favorite-ledger-panel__deepseek-constraint-line {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+.favorite-ledger-panel__deepseek-constraint-line span {
+  white-space: nowrap;
+}
 .favorite-ledger-panel__editor textarea {
   min-height: 72px;
   resize: vertical;
