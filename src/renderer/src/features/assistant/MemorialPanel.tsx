@@ -37,6 +37,7 @@ type MemorialPanelProps = {
   videoCategory?: string
   videoTitle: string
   videoAuthor?: string
+  hasCurrentVideo?: boolean
   onAction: (action: AssistantAction) => void
   onClose: () => void
   onGenerateVideoNote: () => Promise<VideoNote | null>
@@ -166,6 +167,7 @@ export function MemorialPanel({
   videoCategory = '解闷小品',
   videoTitle,
   videoAuthor,
+  hasCurrentVideo = true,
   onAction,
   onClose,
   onGenerateVideoNote,
@@ -226,8 +228,17 @@ export function MemorialPanel({
           <div className="memorial-panel__body">
             <aside className="memorial-panel__meta">
               <p title={videoTitle}>{videoTitle}</p>
-              <p>{videoCategory}</p>
-              <p>签语：{recommendation.badge}</p>
+              {hasCurrentVideo ? (
+                <>
+                  <p>小咪准备把这个视频归类到这里：{videoCategory}</p>
+                  <p>小咪的批阅签语：{recommendation.badge}</p>
+                </>
+              ) : (
+                <>
+                  <p>小咪会在这里展示视频的预归类位置</p>
+                  <p>小咪会在这里给出批阅建议</p>
+                </>
+              )}
               {recommendation.hint ? (
                 <p className="memorial-panel__recommendation-summary">{recommendation.hint}</p>
               ) : null}

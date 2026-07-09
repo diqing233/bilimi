@@ -2938,6 +2938,7 @@ export function FloatingAssistantApp({
                 videoCategory={videoCategory}
                 videoTitle={resolvedVideoTitle}
                 videoAuthor={resolvedVideoAuthor}
+                hasCurrentVideo={hasCurrentVideo}
                 onAction={handleAction}
                 onClose={closeAssistant}
                 closeLabel={isSidebarMode ? '收起侧栏' : '合折'}

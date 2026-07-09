@@ -9,6 +9,51 @@ const inboxRecommendation: RecommendationLabel = {
 }
 
 describe('MemorialPanel', () => {
+  it('shows 小咪 review wording for the current video classification and badge', () => {
+    render(
+      <MemorialPanel
+        recommendation={{ badge: '可藏', summary: '适合归到影视动漫。' }}
+        commentDrafts={['先留一评。']}
+        videoCategory="影视动漫"
+        videoTitle="测试稿件"
+        hasCurrentVideo={true}
+        onAction={vi.fn()}
+        onClose={vi.fn()}
+        onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
+        onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
+        videoNote={null}
+        videoNoteLoading={false}
+      />
+    )
+
+    expect(screen.getByText('小咪准备把这个视频归类到这里：影视动漫')).toBeInTheDocument()
+    expect(screen.getByText('小咪的批阅签语：可藏')).toBeInTheDocument()
+  })
+
+  it('shows 小咪 placeholder wording in the meta card when the current page is not a video', () => {
+    render(
+      <MemorialPanel
+        recommendation={{ badge: '可藏', summary: '适合归到影视动漫。' }}
+        commentDrafts={['先留一评。']}
+        videoCategory="影视动漫"
+        videoTitle="哔哩哔哩首页"
+        hasCurrentVideo={false}
+        onAction={vi.fn()}
+        onClose={vi.fn()}
+        onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
+        onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
+        videoNote={null}
+        videoNoteLoading={false}
+      />
+    )
+
+    expect(screen.getByText('哔哩哔哩首页')).toBeInTheDocument()
+    expect(screen.getByText('小咪会在这里展示视频的预归类位置')).toBeInTheDocument()
+    expect(screen.getByText('小咪会在这里给出批阅建议')).toBeInTheDocument()
+    expect(screen.queryByText('小咪准备把这个视频归类到这里：影视动漫')).not.toBeInTheDocument()
+    expect(screen.queryByText('小咪的批阅签语：可藏')).not.toBeInTheDocument()
+  })
+
   it('omits the temporary-review copy, guidance box and red verdict block from the review panel', () => {
     render(
       <MemorialPanel
