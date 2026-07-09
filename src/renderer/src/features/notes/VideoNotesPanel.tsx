@@ -582,50 +582,52 @@ export function VideoNotesPanel({
             />
           </div>
         </div>
-        {posterGenerating ? (
-          <p role="status">DeepSeek 正在生成总结...</p>
-        ) : activePosterSummary ? (
-          <section className="video-notes__summary-result" aria-label="DeepSeek 总结">
-            <h4>{activePosterSummary.title}</h4>
-            <p className="video-notes__summary-subtitle">{activePosterSummary.subtitle}</p>
-            <ul className="video-notes__summary-points">
-              {activePosterSummary.keyPoints.map((point) => (
-                <li key={point}>{point}</li>
-              ))}
-            </ul>
-            {activePosterSummary.keywords.length > 0 ? (
-              <ul className="video-notes__keywords" aria-label="关键词">
-                {activePosterSummary.keywords.map((keyword) => (
-                  <li key={keyword}>{keyword}</li>
+        <div className="video-notes__result-body">
+          {posterGenerating ? (
+            <p role="status">DeepSeek 正在生成总结...</p>
+          ) : activePosterSummary ? (
+            <section className="video-notes__summary-result" aria-label="DeepSeek 总结">
+              <h4>{activePosterSummary.title}</h4>
+              <p className="video-notes__summary-subtitle">{activePosterSummary.subtitle}</p>
+              <ul className="video-notes__summary-points">
+                {activePosterSummary.keyPoints.map((point) => (
+                  <li key={point}>{point}</li>
                 ))}
               </ul>
-            ) : null}
-            {activePosterSummary.polishedTranscriptText?.trim() ? (
-              <article className="video-notes__summary-section">
-                <h4>精修文稿</h4>
-                <pre>{activePosterSummary.polishedTranscriptText.replace(/^#+\s*精修文稿\s*/u, '').trim()}</pre>
-              </article>
-            ) : null}
-            {activePosterSummary.auditChecklistText?.trim() ? (
-              <article className="video-notes__summary-section">
-                <h4>内容核对清单</h4>
-                <pre>{activePosterSummary.auditChecklistText.replace(/^#+\s*内容核对清单\s*/u, '').trim()}</pre>
-              </article>
-            ) : null}
-          </section>
-        ) : activeArchivedSummaryText ? (
-          <section className="video-notes__summary-result" aria-label="DeepSeek 总结">
-            <pre>{activeArchivedSummaryText}</pre>
-          </section>
-        ) : !deepSeekEnabled ? (
-          <p className="video-notes__summary-empty">请先到设置启用 DeepSeek 后再生成总结。</p>
-        ) : visibleNote ? (
-          <p className="video-notes__summary-empty">
-            请点击生成总结，让 DeepSeek 基于文稿生成精准总结。
-          </p>
-        ) : (
-          <p className="video-notes__summary-empty">请先转写音频，再生成 DeepSeek 总结。</p>
-        )}
+              {activePosterSummary.keywords.length > 0 ? (
+                <ul className="video-notes__keywords" aria-label="关键词">
+                  {activePosterSummary.keywords.map((keyword) => (
+                    <li key={keyword}>{keyword}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {activePosterSummary.polishedTranscriptText?.trim() ? (
+                <article className="video-notes__summary-section">
+                  <h4>精修文稿</h4>
+                  <pre>{activePosterSummary.polishedTranscriptText.replace(/^#+\s*精修文稿\s*/u, '').trim()}</pre>
+                </article>
+              ) : null}
+              {activePosterSummary.auditChecklistText?.trim() ? (
+                <article className="video-notes__summary-section">
+                  <h4>内容核对清单</h4>
+                  <pre>{activePosterSummary.auditChecklistText.replace(/^#+\s*内容核对清单\s*/u, '').trim()}</pre>
+                </article>
+              ) : null}
+            </section>
+          ) : activeArchivedSummaryText ? (
+            <section className="video-notes__summary-result" aria-label="DeepSeek 总结">
+              <pre>{activeArchivedSummaryText}</pre>
+            </section>
+          ) : !deepSeekEnabled ? (
+            <p className="video-notes__summary-empty">请先到设置启用 DeepSeek 后再生成总结。</p>
+          ) : visibleNote ? (
+            <p className="video-notes__summary-empty">
+              请点击生成总结，让 DeepSeek 基于文稿生成精准总结。
+            </p>
+          ) : (
+            <p className="video-notes__summary-empty">请先转写音频，再生成 DeepSeek 总结。</p>
+          )}
+        </div>
       </div>
     )
   }
@@ -702,7 +704,9 @@ export function VideoNotesPanel({
               复制全文
             </button>
           </div>
-          <div className="video-notes__plain-text">{plainTranscript ? plainTranscript : '暂无文稿。'}</div>
+          <div className="video-notes__result-body video-notes__plain-text">
+            {plainTranscript ? plainTranscript : '暂无文稿。'}
+          </div>
         </div>
       ) : null}
 
@@ -714,14 +718,16 @@ export function VideoNotesPanel({
               复制全文
             </button>
           </div>
-          <ol aria-label="带时间线文稿">
-            {visibleNote.transcript.map((segment, index) => (
-              <li key={String(segment.start ?? 'unknown') + '-' + index}>
-                <time>{formatTimestamp(segment.start)}</time>
-                <p>{segment.text}</p>
-              </li>
-            ))}
-          </ol>
+          <div className="video-notes__result-body">
+            <ol aria-label="带时间线文稿">
+              {visibleNote.transcript.map((segment, index) => (
+                <li key={String(segment.start ?? 'unknown') + '-' + index}>
+                  <time>{formatTimestamp(segment.start)}</time>
+                  <p>{segment.text}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
         </div>
       ) : null}
 

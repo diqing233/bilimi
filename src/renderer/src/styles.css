@@ -195,6 +195,7 @@ textarea,
 .video-notes__memo,
 .video-notes__queue li,
 .video-notes__summary-section pre,
+.video-notes__result-body,
 .video-notes__plain-text,
 .video-notes input,
 .video-notes textarea,
@@ -2489,12 +2490,15 @@ body[data-floating-window="true"],
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.video-notes__plain-text {
+.video-notes__result-body {
   max-height: 160px;
   overflow: auto;
   border-top: 1px dashed rgba(31, 99, 181, 0.18);
   background: transparent;
   padding: 8px 0 0;
+  line-height: 1.55;
+}
+.video-notes__plain-text {
   line-height: 1.55;
 }
 .video-notes input {
@@ -2717,22 +2721,27 @@ body[data-floating-window="true"],
   font-size: 18px;
 }
 .video-note-archive__return-button {
-  min-height: 34px;
-  padding: 5px 10px;
+  min-height: 44px;
+  padding: 8px 16px;
   border-width: 2px;
-  border-color: rgba(31, 99, 181, 0.78);
-  background: rgba(220, 238, 255, 0.86);
-  color: var(--porcelain-text);
-  font-size: 13px;
-  font-weight: 800;
-  box-shadow: 0 4px 10px rgba(31, 99, 181, 0.16);
+  border-color: rgba(7, 26, 51, 0.42);
+  background: linear-gradient(180deg, #1f63b5 0%, #174577 100%);
+  color: var(--porcelain-white);
+  font-size: 14px;
+  font-weight: 900;
+  box-shadow:
+    0 8px 18px rgba(7, 26, 51, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.24);
 }
 .video-note-archive__return-button:hover:not(:disabled),
 .video-note-archive__return-button:focus-visible:not(:disabled) {
-  border-color: rgba(23, 69, 119, 0.86);
-  background: var(--porcelain-ice);
-  color: var(--porcelain-text);
-  box-shadow: 0 6px 14px rgba(31, 99, 181, 0.2);
+  border-color: rgba(7, 26, 51, 0.54);
+  background: linear-gradient(180deg, #2d86c7 0%, #1f63b5 100%);
+  color: var(--porcelain-white);
+  box-shadow:
+    0 10px 22px rgba(7, 26, 51, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
 }
 .video-note-archive__toolbar,
 .video-note-archive__list {
@@ -3055,12 +3064,15 @@ body[data-floating-window="true"],
     "SimSun",
     serif;
 }
-.video-note-archive__result-panel .video-notes__plain-text,
-.video-note-archive__result-panel pre {
+.video-notes__result-body ol,
+.video-notes__result-body pre,
+.video-notes__result-body .video-notes__plain-text {
   max-height: none;
   overflow: visible;
+  border-top: 0;
+  padding-top: 0;
 }
-.video-note-archive__result-panel .video-notes__plain-text {
+.video-note-archive__result-panel .video-notes__result-body {
   border-top: 0;
   padding-top: 0;
 }

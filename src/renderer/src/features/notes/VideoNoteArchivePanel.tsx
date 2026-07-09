@@ -380,36 +380,38 @@ export function VideoNoteArchivePanel({
             </button>
           )}
         </div>
-        {activeResultTab === 'timed' ? (
-          <ol aria-label="带时间线文稿">
-            {version.note.transcript.map((segment, index) => (
-              <li key={String(segment.start ?? 'unknown') + '-' + index}>
-                <time>{formatTimestamp(segment.start)}</time>
-                <p>{segment.text}</p>
-              </li>
-            ))}
-          </ol>
-        ) : activeResultTab === 'summary' ? (
-          version.summaryText ? (
-            <>
-              {extractMarkdownHeading(version.summaryText) ? (
-                <h4>{extractMarkdownHeading(version.summaryText)}</h4>
-              ) : null}
-              <pre>{version.summaryText}</pre>
-            </>
-          ) : deepSeekEnabled ? (
-            <p>
-              <span>暂无 DeepSeek 总结。</span>
-              <span>已有文稿，可以点击生成总结。</span>
-            </p>
+        <div className="video-notes__result-body">
+          {activeResultTab === 'timed' ? (
+            <ol aria-label="带时间线文稿">
+              {version.note.transcript.map((segment, index) => (
+                <li key={String(segment.start ?? 'unknown') + '-' + index}>
+                  <time>{formatTimestamp(segment.start)}</time>
+                  <p>{segment.text}</p>
+                </li>
+              ))}
+            </ol>
+          ) : activeResultTab === 'summary' ? (
+            version.summaryText ? (
+              <>
+                {extractMarkdownHeading(version.summaryText) ? (
+                  <h4>{extractMarkdownHeading(version.summaryText)}</h4>
+                ) : null}
+                <pre>{version.summaryText}</pre>
+              </>
+            ) : deepSeekEnabled ? (
+              <p>
+                <span>暂无 DeepSeek 总结。</span>
+                <span>已有文稿，可以点击生成总结。</span>
+              </p>
+            ) : (
+              <p>请先到设置启用 DeepSeek 后再生成总结。</p>
+            )
           ) : (
-            <p>请先到设置启用 DeepSeek 后再生成总结。</p>
-          )
-        ) : (
-          <div className="video-notes__plain-text">
-            {version.plainTranscript || '暂无文稿。'}
-          </div>
-        )}
+            <div className="video-notes__plain-text">
+              {version.plainTranscript || '暂无文稿。'}
+            </div>
+          )}
+        </div>
       </section>
     )
   }

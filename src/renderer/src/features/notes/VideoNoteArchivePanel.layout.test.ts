@@ -9,20 +9,20 @@ describe('VideoNoteArchivePanel layout styles', () => {
   it('makes the return-to-notes button visually prominent in the archive header', () => {
     const returnButtonStyle = styles.match(/\.video-note-archive__return-button \{[^}]+\}/)?.[0]
 
-    expect(returnButtonStyle).toContain('min-height: 34px;')
-    expect(returnButtonStyle).toContain('padding: 5px 10px;')
+    expect(returnButtonStyle).toContain('min-height: 44px;')
+    expect(returnButtonStyle).toContain('padding: 8px 16px;')
     expect(returnButtonStyle).toContain('border-width: 2px;')
-    expect(returnButtonStyle).toContain('border-color: rgba(31, 99, 181, 0.78);')
-    expect(returnButtonStyle).toContain('background: rgba(220, 238, 255, 0.86);')
-    expect(returnButtonStyle).toContain('color: var(--porcelain-text);')
-    expect(returnButtonStyle).toContain('font-size: 13px;')
-    expect(returnButtonStyle).toContain('font-weight: 800;')
+    expect(returnButtonStyle).toContain('border-color: rgba(7, 26, 51, 0.42);')
+    expect(returnButtonStyle).toContain('background: linear-gradient(180deg, #1f63b5 0%, #174577 100%);')
+    expect(returnButtonStyle).toContain('color: var(--porcelain-white);')
+    expect(returnButtonStyle).toContain('font-size: 14px;')
+    expect(returnButtonStyle).toContain('font-weight: 900;')
 
     const hoverStyle = styles.match(
       /\.video-note-archive__return-button:hover:not\(:disabled\),\n\.video-note-archive__return-button:focus-visible:not\(:disabled\) \{[^}]+\}/
     )?.[0]
-    expect(hoverStyle).toContain('background: var(--porcelain-ice);')
-    expect(hoverStyle).toContain('color: var(--porcelain-text);')
+    expect(hoverStyle).toContain('background: linear-gradient(180deg, #2d86c7 0%, #1f63b5 100%);')
+    expect(hoverStyle).toContain('color: var(--porcelain-white);')
   })
 
   it('keeps the bordered global archive surfaces rounded', () => {
@@ -79,15 +79,15 @@ describe('VideoNoteArchivePanel layout styles', () => {
     expect(styles).toContain('overflow-wrap: anywhere;')
   })
 
-  it('lets every archive result tab use the detail pane scrollbar', () => {
+  it('lets every archive result tab use the same inner result card scrollbar', () => {
     expect(styles).toContain(
-      '.video-note-archive__result-panel .video-notes__plain-text,\n.video-note-archive__result-panel pre {\n  max-height: none;\n  overflow: visible;'
+      '.video-notes__result-body {\n  max-height: 160px;\n  overflow: auto;\n  border-top: 1px dashed rgba(31, 99, 181, 0.18);'
     )
     expect(styles).toContain(
-      '.video-note-archive__detail section {\n  display: grid;\n  gap: 6px;\n  border-top: 1px dashed rgba(31, 99, 181, 0.18);'
+      '.video-notes__result-body ol,\n.video-notes__result-body pre,\n.video-notes__result-body .video-notes__plain-text {\n  max-height: none;\n  overflow: visible;'
     )
     expect(styles).toContain(
-      '.video-note-archive__result-panel .video-notes__plain-text {\n  border-top: 0;\n  padding-top: 0;'
+      '.video-note-archive__result-panel .video-notes__result-body {\n  border-top: 0;\n  padding-top: 0;'
     )
   })
 })
