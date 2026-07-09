@@ -4225,7 +4225,7 @@ body[data-floating-window="true"],
   overflow: auto;
   display: grid;
   align-content: start;
-  gap: 24px;
+  gap: 32px;
   border-top: 1px dashed rgba(31, 99, 181, 0.2);
   padding-top: 14px;
   margin-right: -12px;
