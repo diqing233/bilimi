@@ -1482,7 +1482,7 @@ body[data-floating-window="true"],
   grid-template-rows: minmax(34px, auto) 34px;
   gap: 0;
   padding: 0;
-  border: 0;
+  border-bottom: 1px dashed #d1e6fb;
   background: rgba(247, 251, 255, 0.76);
   box-sizing: border-box;
 }
