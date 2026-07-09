@@ -8,7 +8,7 @@ import type {
   VideoNoteArchiveEntry
 } from '@shared/types'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { FloatingAssistantApp } from './FloatingAssistantApp'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
 import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
@@ -234,6 +234,10 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
 describe('FloatingAssistantApp', () => {
   const favoriteLedgerSafetyNote =
     '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
+
+  beforeEach(() => {
+    window.localStorage.clear()
+  })
 
   it('responds to pet workspace requests inside the floating assistant window', async () => {
     let openWorkspace: Parameters<
@@ -3149,6 +3153,47 @@ describe('FloatingAssistantApp', () => {
 
     expect(screen.getByRole('region', { name: '全局档案库' })).toBeInTheDocument()
     expect(screen.queryByRole('tabpanel', { name: /无时间线文稿/ })).not.toBeInTheDocument()
+  })
+
+  it('restores the last opened archive video after the assistant is folded and reopened', async () => {
+    const note = createVideoNote()
+    const archive: VideoNoteArchiveEntry = {
+      id: note.id,
+      source: note.source,
+      versions: [
+        {
+          id: `${note.id}:version:${note.updatedAt}`,
+          note,
+          plainTranscript: '机器学习需要数据和模型。',
+          summaryText: '机器学习入门',
+          createdAt: note.updatedAt
+        }
+      ],
+      createdAt: note.createdAt,
+      updatedAt: note.updatedAt
+    }
+    installDesktopApi({
+      loadVideoNoteArchives: vi.fn().mockResolvedValue([archive])
+    })
+
+    const app = render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
+    fireEvent.click(await screen.findByRole('button', { name: '档案库' }))
+    fireEvent.click(await screen.findByRole('button', { name: /机器学习入门教程/ }))
+
+    expect(screen.getByRole('article', { name: '机器学习入门教程' })).toBeInTheDocument()
+
+    app.unmount()
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
+    fireEvent.click(await screen.findByRole('button', { name: '档案库' }))
+
+    expect(await screen.findByRole('article', { name: '机器学习入门教程' })).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('button', { name: /机器学习入门教程/ })).getByText('已展开')
+    ).toBeInTheDocument()
   })
 
   it('keeps the review page active when a background transcription finishes', async () => {

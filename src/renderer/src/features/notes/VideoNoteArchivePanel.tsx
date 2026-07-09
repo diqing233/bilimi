@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type {
   NotePosterSummary,
   VideoNote,
@@ -29,9 +29,19 @@ type VideoNoteArchivePanelProps = {
   deepSeekEnabled?: boolean
   onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
   onArchivePosterSummary?: (note: VideoNote, poster: NotePosterSummary) => Promise<void>
+  selectedArchiveId?: string | null
+  selectedVersionId?: string | null
+  activeResultTab?: ArchiveResultTab | null
+  onSelectionChange?: (selection: VideoNoteArchiveSelection) => void
 }
 
 type ArchiveResultTab = 'plain' | 'timed' | 'summary'
+
+export type VideoNoteArchiveSelection = {
+  archiveId: string | null
+  versionId: string | null
+  activeResultTab: ArchiveResultTab | null
+}
 
 const archiveResultTabs: Array<{ id: ArchiveResultTab; label: string; description: string }> = [
   { id: 'plain', label: '无时间线文稿', description: '纯文稿连续阅读，提供复制全文。' },
@@ -84,15 +94,23 @@ export function VideoNoteArchivePanel({
   onDeleteVersion,
   deepSeekEnabled = false,
   onGeneratePoster,
-  onArchivePosterSummary
+  onArchivePosterSummary,
+  selectedArchiveId: controlledSelectedArchiveId,
+  selectedVersionId: controlledSelectedVersionId,
+  activeResultTab: controlledActiveResultTab,
+  onSelectionChange
 }: VideoNoteArchivePanelProps): React.JSX.Element {
+  const archiveRootRef = useRef<HTMLElement | null>(null)
   const [localArchives, setLocalArchives] = useState<VideoNoteArchiveEntry[]>(archives)
   const [query, setQuery] = useState('')
   const [hasMemo, setHasMemo] = useState(false)
   const [hasStarred, setHasStarred] = useState(false)
-  const [selectedArchiveId, setSelectedArchiveId] = useState<string | null>(null)
-  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null)
-  const [activeResultTab, setActiveResultTab] = useState<ArchiveResultTab | null>(null)
+  const [uncontrolledSelectedArchiveId, setUncontrolledSelectedArchiveId] =
+    useState<string | null>(null)
+  const [uncontrolledSelectedVersionId, setUncontrolledSelectedVersionId] =
+    useState<string | null>(null)
+  const [uncontrolledActiveResultTab, setUncontrolledActiveResultTab] =
+    useState<ArchiveResultTab | null>(null)
   const [memoOpen, setMemoOpen] = useState(false)
   const [memoDraft, setMemoDraft] = useState('')
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
@@ -104,6 +122,18 @@ export function VideoNoteArchivePanel({
     () => searchVideoNoteArchives(localArchives, { query, hasMemo, hasStarred }),
     [localArchives, hasMemo, hasStarred, query]
   )
+  const selectedArchiveId =
+    controlledSelectedArchiveId !== undefined
+      ? controlledSelectedArchiveId
+      : uncontrolledSelectedArchiveId
+  const selectedVersionId =
+    controlledSelectedVersionId !== undefined
+      ? controlledSelectedVersionId
+      : uncontrolledSelectedVersionId
+  const activeResultTab =
+    controlledActiveResultTab !== undefined
+      ? controlledActiveResultTab
+      : uncontrolledActiveResultTab
   const selectedArchive =
     localArchives.find((archive) => archive.id === selectedArchiveId) ?? null
   const selectedVersion =
@@ -111,40 +141,69 @@ export function VideoNoteArchivePanel({
     selectedArchive?.versions.at(-1) ??
     null
 
+  function setArchiveSelection(selection: VideoNoteArchiveSelection): void {
+    if (controlledSelectedArchiveId === undefined) {
+      setUncontrolledSelectedArchiveId(selection.archiveId)
+    }
+    if (controlledSelectedVersionId === undefined) {
+      setUncontrolledSelectedVersionId(selection.versionId)
+    }
+    if (controlledActiveResultTab === undefined) {
+      setUncontrolledActiveResultTab(selection.activeResultTab)
+    }
+    onSelectionChange?.(selection)
+  }
+
   useEffect(() => {
     setLocalArchives(archives)
   }, [archives])
 
   useEffect(() => {
     if (selectedArchiveId && !selectedArchive) {
-      setSelectedArchiveId(null)
-      setSelectedVersionId(null)
+      if (localArchives.length === 0) {
+        return
+      }
+      setArchiveSelection({ archiveId: null, versionId: null, activeResultTab: null })
       return
     }
 
     if (selectedArchive && !selectedVersion) {
-      setSelectedVersionId(selectedArchive.versions.at(-1)?.id ?? null)
+      setArchiveSelection({
+        archiveId: selectedArchive.id,
+        versionId: selectedArchive.versions.at(-1)?.id ?? null,
+        activeResultTab
+      })
     }
-  }, [selectedArchive, selectedArchiveId, selectedVersion])
+  }, [activeResultTab, selectedArchive, selectedArchiveId, selectedVersion])
 
   useEffect(() => {
     setMemoDraft(selectedVersion?.note.userMemo ?? '')
   }, [selectedVersion?.id, selectedVersion?.note.userMemo])
 
+  useEffect(() => {
+    if (!selectedArchive) {
+      return
+    }
+
+    archiveRootRef.current
+      ?.querySelector<HTMLElement>('.video-note-archive__list button[aria-pressed="true"]')
+      ?.scrollIntoView?.({ block: 'nearest' })
+  }, [selectedArchive])
+
   function selectArchive(archive: VideoNoteArchiveEntry): void {
     if (selectedArchiveId === archive.id) {
-      setSelectedArchiveId(null)
-      setSelectedVersionId(null)
-      setActiveResultTab(null)
+      setArchiveSelection({ archiveId: null, versionId: null, activeResultTab: null })
       setMemoOpen(false)
       setVersionMenuOpen(false)
       setMoreMenuOpen(false)
       return
     }
 
-    setSelectedArchiveId(archive.id)
-    setSelectedVersionId(archive.versions.at(-1)?.id ?? null)
-    setActiveResultTab(null)
+    setArchiveSelection({
+      archiveId: archive.id,
+      versionId: archive.versions.at(-1)?.id ?? null,
+      activeResultTab: null
+    })
     setMemoOpen(false)
     setVersionMenuOpen(false)
     setMoreMenuOpen(false)
@@ -165,8 +224,7 @@ export function VideoNoteArchivePanel({
       setLocalArchives((current) =>
         current.filter((archive) => archive.id !== pendingDelete.archiveId)
       )
-      setSelectedArchiveId(null)
-      setSelectedVersionId(null)
+      setArchiveSelection({ archiveId: null, versionId: null, activeResultTab: null })
     } else {
       await onDeleteVersion(pendingDelete.archiveId, pendingDelete.versionId)
       setLocalArchives((current) =>
@@ -188,7 +246,11 @@ export function VideoNoteArchivePanel({
         const remainingVersion =
           selectedArchive?.versions.find((version) => version.id !== pendingDelete.versionId) ??
           null
-        setSelectedVersionId(remainingVersion?.id ?? null)
+        setArchiveSelection({
+          archiveId: selectedArchiveId,
+          versionId: remainingVersion?.id ?? null,
+          activeResultTab
+        })
       }
     }
 
@@ -248,7 +310,11 @@ export function VideoNoteArchivePanel({
   }
 
   function toggleResultTab(tab: ArchiveResultTab): void {
-    setActiveResultTab((current) => (current === tab ? null : tab))
+    setArchiveSelection({
+      archiveId: selectedArchiveId,
+      versionId: selectedVersionId,
+      activeResultTab: activeResultTab === tab ? null : tab
+    })
   }
 
   async function generateSummary(version: VideoNoteArchiveVersion): Promise<void> {
@@ -424,6 +490,7 @@ export function VideoNoteArchivePanel({
 
   return (
     <section
+      ref={archiveRootRef}
       className="video-note-archive"
       aria-label="全局档案库"
       data-result-expanded={activeResultTab ? 'true' : 'false'}
@@ -582,7 +649,13 @@ export function VideoNoteArchivePanel({
                   className="video-note-archive__version-native"
                   aria-label="历史版本"
                   value={selectedVersion.id}
-                  onChange={(event) => setSelectedVersionId(event.target.value)}
+                  onChange={(event) =>
+                    setArchiveSelection({
+                      archiveId: selectedArchive.id,
+                      versionId: event.target.value,
+                      activeResultTab
+                    })
+                  }
                 >
                   {selectedArchive.versions.map((version, index) => (
                     <option key={version.id} value={version.id}>
@@ -602,7 +675,11 @@ export function VideoNoteArchivePanel({
                         <button
                           type="button"
                           onClick={() => {
-                            setSelectedVersionId(version.id)
+                            setArchiveSelection({
+                              archiveId: selectedArchive.id,
+                              versionId: version.id,
+                              activeResultTab
+                            })
                             setVersionMenuOpen(false)
                           }}
                         >

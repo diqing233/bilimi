@@ -193,6 +193,20 @@ describe('VideoNoteArchivePanel', () => {
     expect(screen.queryByRole('article', { name: '机器学习入门' })).not.toBeInTheDocument()
   })
 
+  it('restores the previously selected archive detail when reopened with saved selection', () => {
+    const archives = createArchives()
+    renderArchivePanel({
+      archives,
+      selectedArchiveId: archives[0].id,
+      selectedVersionId: archives[0].versions.at(-1)?.id ?? null
+    })
+
+    const archiveButton = screen.getByRole('button', { name: /机器学习入门/ })
+
+    expect(screen.getByRole('article', { name: '机器学习入门' })).toBeInTheDocument()
+    expect(within(archiveButton).getByText('已展开')).toBeInTheDocument()
+  })
+
   it('searches title, author, bvid, transcript and summary text', () => {
     renderArchivePanel()
 

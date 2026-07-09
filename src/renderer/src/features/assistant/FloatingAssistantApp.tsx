@@ -45,7 +45,10 @@ import { CommentIntentDialog } from './CommentIntentDialog'
 import { FavoriteLedgerPanel } from './FavoriteLedgerPanel'
 import { MemorialPanel } from './MemorialPanel'
 import type { VideoNotesResultTab } from '../notes/VideoNotesPanel'
-import { VideoNoteArchivePanel } from '../notes/VideoNoteArchivePanel'
+import {
+  VideoNoteArchivePanel,
+  type VideoNoteArchiveSelection
+} from '../notes/VideoNoteArchivePanel'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
@@ -61,6 +64,12 @@ const BILIBILI_VIDEO_URL_PATTERN = /bilibili\.com\/video\/[^/?#]+/i
 const BILIBILI_PAGE_PATTERN = /bilibili\.com/i
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash'
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
+const VIDEO_NOTE_ARCHIVE_SELECTION_STORAGE_KEY = 'bilimi.videoNoteArchive.selection'
+const EMPTY_VIDEO_NOTE_ARCHIVE_SELECTION: VideoNoteArchiveSelection = {
+  archiveId: null,
+  versionId: null,
+  activeResultTab: null
+}
 const FAVORITE_LEDGER_BACKUP_HINT =
   '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
 const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
@@ -71,6 +80,47 @@ const VIDEO_CATEGORY_LABELS: Record<RecommendationKind, string> = {
   life: '生活',
   craft: '知识学习',
   suspicious: '待确认'
+}
+
+function isVideoNoteArchiveResultTab(value: unknown): value is VideoNoteArchiveSelection['activeResultTab'] {
+  return value === null || value === 'plain' || value === 'timed' || value === 'summary'
+}
+
+function normalizeVideoNoteArchiveSelection(value: unknown): VideoNoteArchiveSelection {
+  if (!value || typeof value !== 'object') {
+    return EMPTY_VIDEO_NOTE_ARCHIVE_SELECTION
+  }
+
+  const candidate = value as Partial<Record<keyof VideoNoteArchiveSelection, unknown>>
+  return {
+    archiveId: typeof candidate.archiveId === 'string' ? candidate.archiveId : null,
+    versionId: typeof candidate.versionId === 'string' ? candidate.versionId : null,
+    activeResultTab: isVideoNoteArchiveResultTab(candidate.activeResultTab)
+      ? candidate.activeResultTab
+      : null
+  }
+}
+
+function loadStoredVideoNoteArchiveSelection(): VideoNoteArchiveSelection {
+  try {
+    const rawValue = window.localStorage.getItem(VIDEO_NOTE_ARCHIVE_SELECTION_STORAGE_KEY)
+    return rawValue
+      ? normalizeVideoNoteArchiveSelection(JSON.parse(rawValue))
+      : EMPTY_VIDEO_NOTE_ARCHIVE_SELECTION
+  } catch {
+    return EMPTY_VIDEO_NOTE_ARCHIVE_SELECTION
+  }
+}
+
+function saveStoredVideoNoteArchiveSelection(selection: VideoNoteArchiveSelection): void {
+  try {
+    window.localStorage.setItem(
+      VIDEO_NOTE_ARCHIVE_SELECTION_STORAGE_KEY,
+      JSON.stringify(selection)
+    )
+  } catch {
+    // Storage can be unavailable in restricted renderer contexts; in-memory state still works.
+  }
 }
 
 function pickRandomCommentDraft(drafts: string[]) {
@@ -522,6 +572,8 @@ export function FloatingAssistantApp({
     useState<Extract<AssistantWorkspaceView, 'notes' | 'noteArchive'>>('notes')
   const [videoNotesResultTab, setVideoNotesResultTab] =
     useState<VideoNotesResultTab | null>(null)
+  const [videoNoteArchiveSelection, setVideoNoteArchiveSelection] =
+    useState<VideoNoteArchiveSelection>(() => loadStoredVideoNoteArchiveSelection())
   const [organizeOldFavoritesRequestSignal, setOrganizeOldFavoritesRequestSignal] = useState(0)
   const isSidebarMode = mode === 'sidebar'
 
@@ -1647,6 +1699,11 @@ export function FloatingAssistantApp({
     setVideoNote(note)
   }
 
+  function handleVideoNoteArchiveSelectionChange(selection: VideoNoteArchiveSelection) {
+    setVideoNoteArchiveSelection(selection)
+    saveStoredVideoNoteArchiveSelection(selection)
+  }
+
 
   async function ensureFavoriteLedgers() {
     tellPet('progress', '小咪正在检查 bilimi 分册是否齐全。')
@@ -2643,6 +2700,10 @@ export function FloatingAssistantApp({
                 deepSeekEnabled={preferences.deepseekEnabled}
                 onGeneratePoster={generateNotePoster}
                 onArchivePosterSummary={archiveNotePosterSummary}
+                selectedArchiveId={videoNoteArchiveSelection.archiveId}
+                selectedVersionId={videoNoteArchiveSelection.versionId}
+                activeResultTab={videoNoteArchiveSelection.activeResultTab}
+                onSelectionChange={handleVideoNoteArchiveSelectionChange}
               />
             </div>
             <div className="floating-assistant-view" hidden={activeView === 'noteArchive'}>
