@@ -41,6 +41,7 @@ function createAppPreferences(
     preferenceCounts: {},
     petStyle: 'big-head',
     petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
+    showPetAssistantShortcut: true,
     hidePetDuringVideoFullscreen: false,
     bilibiliOperationMode: 'api-assisted',
     favoriteArchiveMultiMode: 'off',

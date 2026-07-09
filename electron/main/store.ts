@@ -3,6 +3,7 @@ import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '../../sr
 import { normalizeAssistantSidebarWidthPx } from '../../src/shared/assistantSidebarWidth'
 import {
   DEFAULT_PET_HOVER_SHORTCUTS,
+  hasLegacyAssistantHoverShortcut,
   normalizePetHoverShortcuts,
   type PetHoverShortcutId
 } from '../../src/shared/petHoverShortcuts'
@@ -45,6 +46,7 @@ export type AssistantPreferences = {
   ledgerPromptDismissed: boolean
   petStyle: 'big-head' | 'classic'
   petHoverShortcuts: PetHoverShortcutId[]
+  showPetAssistantShortcut: boolean
   hidePetDuringVideoFullscreen: boolean
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode
@@ -91,6 +93,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   ledgerPromptDismissed: false,
   petStyle: 'big-head',
   petHoverShortcuts: DEFAULT_PET_HOVER_SHORTCUTS,
+  showPetAssistantShortcut: true,
   hidePetDuringVideoFullscreen: false,
   bilibiliOperationMode: 'api-assisted',
   favoriteArchiveMultiMode: 'off',
@@ -308,6 +311,11 @@ export function loadAssistantPreferences(
     ledgerPromptDismissed: Boolean(store.get('ledgerPromptDismissed')),
     petStyle: petStyle === 'classic' ? 'classic' : 'big-head',
     petHoverShortcuts: normalizePetHoverShortcuts(store.get('petHoverShortcuts')),
+    showPetAssistantShortcut:
+      store.has?.('showPetAssistantShortcut') === false
+        ? true
+        : Boolean(store.get('showPetAssistantShortcut')) ||
+          hasLegacyAssistantHoverShortcut(store.get('petHoverShortcuts')),
     hidePetDuringVideoFullscreen: Boolean(store.get('hidePetDuringVideoFullscreen')),
     bilibiliOperationMode:
       bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted',
@@ -372,6 +380,7 @@ export function saveAssistantPreferences(
     ledgerPromptDismissed: Boolean(preferences.ledgerPromptDismissed),
     petStyle: preferences.petStyle === 'classic' ? 'classic' : 'big-head',
     petHoverShortcuts: normalizePetHoverShortcuts(preferences.petHoverShortcuts),
+    showPetAssistantShortcut: Boolean(preferences.showPetAssistantShortcut),
     hidePetDuringVideoFullscreen: Boolean(preferences.hidePetDuringVideoFullscreen),
     bilibiliOperationMode:
       preferences.bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted',

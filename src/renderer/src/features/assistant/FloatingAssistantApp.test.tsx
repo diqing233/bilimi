@@ -20,7 +20,8 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     ledgerPromptDismissed: true,
     preferenceCounts: {},
     petStyle: 'big-head',
-    petHoverShortcuts: ['like', 'coin', 'assistant', 'transcribe'],
+    petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
+    showPetAssistantShortcut: true,
     hidePetDuringVideoFullscreen: false,
     bilibiliOperationMode: 'api-assisted',
     favoriteArchiveMultiMode: 'off',
@@ -1382,6 +1383,77 @@ describe('FloatingAssistantApp', () => {
     expect(screen.queryByRole('button', { name: /收起纠错 东京旅行攻略/ })).not.toBeInTheDocument()
   })
 
+  it('keeps learning records compact and shows processed keyword suggestions separately', async () => {
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            favoriteCorrectionRecords: [
+              {
+                id: 'c1',
+                aid: 1,
+                title: '东京旅行攻略',
+                originalLedgerId: 'game',
+                userLedgerIds: ['life-interest'],
+                source: 'user',
+                feedbackType: 'strong-correction',
+                sourceScene: 'archive-preview',
+                tags: ['旅行'],
+                matchedKeywords: ['攻略'],
+                createdAt: '2026-07-05T00:00:00.000Z',
+                confirmedAt: '2026-07-05T00:01:00.000Z'
+              }
+            ],
+            favoriteKeywordSuggestions: [
+              {
+                id: 'pending-keyword',
+                action: 'add-keyword',
+                ledgerId: 'knowledge',
+                keyword: '机器学习',
+                reason: '新词可帮助后续分类。',
+                source: 'deepseek',
+                status: 'pending',
+                createdAt: '2026-07-05T00:00:00.000Z'
+              },
+              {
+                id: 'accepted-keyword',
+                action: 'replace-with-combination',
+                ledgerId: 'game',
+                keyword: '攻略',
+                replacement: '游戏攻略',
+                reason: '弱词已替换为组合词。',
+                source: 'classifier',
+                status: 'accepted',
+                createdAt: '2026-07-05T00:02:00.000Z'
+              }
+            ]
+          })
+        })
+      )
+    })
+
+    const { container } = render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+
+    expect(screen.getByRole('list', { name: '纠错学习记录' })).toHaveClass(
+      'assistant-settings__record-track'
+    )
+    expect(screen.getByRole('list', { name: '待处理关键词建议' })).toHaveClass(
+      'assistant-settings__record-track'
+    )
+    expect(screen.getByText('机器学习')).toBeInTheDocument()
+    expect(screen.queryByText('游戏攻略')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '已处理' }))
+
+    expect(screen.getByRole('list', { name: '已处理关键词建议' })).toHaveClass(
+      'assistant-settings__record-track'
+    )
+    expect(screen.getByText('游戏攻略')).toBeInTheDocument()
+    expect(container.querySelectorAll('.assistant-settings__record-card')).toHaveLength(2)
+  })
+
   it('runs startup diagnostics from settings', async () => {
     const runStartupDiagnostics = vi.fn().mockResolvedValue({
       ok: true,
@@ -2344,29 +2416,40 @@ describe('FloatingAssistantApp', () => {
       screen.getByText('选择常用操作，数字表示显示顺序；点击可启用或停用快捷项，可不选，最多4个。')
     ).toBeInTheDocument()
     const shortcutGroup = screen.getByRole('group', { name: '宠物快捷操作' })
-    expect(within(shortcutGroup).queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(within(shortcutGroup).getByRole('checkbox', { name: '显示打开小咪按钮' })).toBeChecked()
     expect(within(shortcutGroup).getByRole('button', { name: '赏 轻赏此条 第 1 位' })).toHaveTextContent('1')
     expect(within(shortcutGroup).getByRole('button', { name: '赐 投币厚赏 第 2 位' })).toHaveTextContent('2')
-    expect(within(shortcutGroup).getByRole('button', { name: '咪 打开小咪 第 3 位' })).toHaveTextContent('3')
+    expect(within(shortcutGroup).queryByRole('button', { name: /咪 打开小咪/ })).not.toBeInTheDocument()
+    expect(within(shortcutGroup).getByRole('button', { name: '表 拟奏短评 第 3 位' })).toHaveTextContent('3')
     expect(within(shortcutGroup).getByRole('button', { name: '转 转写音频 第 4 位' })).toHaveTextContent('4')
-    expect(within(shortcutGroup).getByRole('button', { name: '藏 归入内库' })).toBeDisabled()
+    expect(within(shortcutGroup).getByRole('button', { name: '库 打开档案库' })).toBeDisabled()
+
+    fireEvent.click(within(shortcutGroup).getByRole('checkbox', { name: '显示打开小咪按钮' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          showPetAssistantShortcut: false
+        })
+      )
+    )
 
     fireEvent.click(within(shortcutGroup).getByRole('button', { name: '转 转写音频 第 4 位' }))
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
-          petHoverShortcuts: ['like', 'coin', 'assistant']
+          petHoverShortcuts: ['like', 'coin', 'comment']
         })
       )
     )
 
-    fireEvent.click(within(shortcutGroup).getByRole('button', { name: '藏 归入内库' }))
+    fireEvent.click(within(shortcutGroup).getByRole('button', { name: '库 打开档案库' }))
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
-          petHoverShortcuts: ['like', 'coin', 'assistant', 'favorite']
+          petHoverShortcuts: ['like', 'coin', 'comment', 'library']
         })
       )
     )
@@ -2381,7 +2464,7 @@ describe('FloatingAssistantApp', () => {
 
     const shortcutGroup = screen.getByRole('group', { name: '宠物快捷操作' })
     fireEvent.click(within(shortcutGroup).getByRole('button', { name: '转 转写音频 第 4 位' }))
-    fireEvent.click(within(shortcutGroup).getByRole('button', { name: '咪 打开小咪 第 3 位' }))
+    fireEvent.click(within(shortcutGroup).getByRole('button', { name: '表 拟奏短评 第 3 位' }))
     fireEvent.click(within(shortcutGroup).getByRole('button', { name: '赐 投币厚赏 第 2 位' }))
     fireEvent.click(within(shortcutGroup).getByRole('button', { name: '赏 轻赏此条 第 1 位' }))
 

@@ -589,8 +589,9 @@ describe('PalaceMaidPetApp', () => {
 
     const shortcuts = screen.getByRole('group', { name: '小咪悬浮快捷按钮', hidden: true })
     expect(shortcuts).toHaveAttribute('data-visible', 'true')
-    expect(shortcuts).toHaveAttribute('data-layout', 'fan')
+    expect(shortcuts).toHaveAttribute('data-layout', 'grid')
     expect(screen.getAllByTestId('pet-hover-shortcut')).toHaveLength(4)
+    expect(screen.getByRole('button', { name: '打开小咪' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '赏' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '赐' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '表' })).toBeInTheDocument()
@@ -605,7 +606,8 @@ describe('PalaceMaidPetApp', () => {
   it('opens the floating assistant workspace from the 咪 hover shortcut', async () => {
     const openFloatingAssistantWorkspace = vi.fn().mockResolvedValue(undefined)
     const assistantShortcutPreferences = createPreferences({
-      petHoverShortcuts: ['assistant']
+      petHoverShortcuts: ['like', 'coin'],
+      showPetAssistantShortcut: true
     })
     const api = installDesktopApi({
       openFloatingAssistantWorkspace,
@@ -621,7 +623,7 @@ describe('PalaceMaidPetApp', () => {
     render(<PalaceMaidPetApp />)
 
     fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
-    fireEvent.click(await screen.findByRole('button', { name: '咪' }))
+    fireEvent.click(await screen.findByRole('button', { name: '打开小咪' }))
 
     await waitFor(() =>
       expect(api.openFloatingAssistantWorkspace).toHaveBeenCalledWith({ tab: 'review' })
@@ -632,7 +634,8 @@ describe('PalaceMaidPetApp', () => {
 
   it('anchors the floating assistant workspace to the clicked pet hover shortcut', async () => {
     const assistantShortcutPreferences = createPreferences({
-      petHoverShortcuts: ['assistant']
+      petHoverShortcuts: ['like', 'coin'],
+      showPetAssistantShortcut: true
     })
     const api = installDesktopApi({
       openFloatingAssistantWorkspace: vi.fn().mockResolvedValue(undefined),
@@ -647,7 +650,7 @@ describe('PalaceMaidPetApp', () => {
     render(<PalaceMaidPetApp />)
 
     fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
-    fireEvent.click(await screen.findByRole('button', { name: '咪' }), {
+    fireEvent.click(await screen.findByRole('button', { name: '打开小咪' }), {
       screenX: 720,
       screenY: 460
     })
@@ -658,6 +661,44 @@ describe('PalaceMaidPetApp', () => {
         anchor: { screenX: 720, screenY: 460 }
       })
     )
+  })
+
+  it('hides the standalone assistant shortcut when the preference is disabled', async () => {
+    installDesktopApi({
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          petHoverShortcuts: ['like', 'coin'],
+          showPetAssistantShortcut: false
+        })
+      )
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '赏' })).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: '打开小咪' })).not.toBeInTheDocument()
+  })
+
+  it('switches hover shortcuts to a compact grid when four business shortcuts and the assistant shortcut are shown', async () => {
+    installDesktopApi({
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          petHoverShortcuts: ['like', 'favorite', 'coin', 'comment'],
+          showPetAssistantShortcut: true
+        })
+      )
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
+
+    const shortcuts = await screen.findByRole('group', { name: '小咪悬浮快捷按钮', hidden: true })
+    await waitFor(() => expect(screen.getAllByTestId('pet-hover-shortcut')).toHaveLength(4))
+    expect(screen.getByRole('button', { name: '打开小咪' })).toBeInTheDocument()
+    expect(shortcuts).toHaveAttribute('data-layout', 'grid')
   })
 
   it('opens the floating comment chooser for 表 without expanding the main sidebar', async () => {

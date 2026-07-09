@@ -122,6 +122,10 @@ export function createInitialAssistantPreferences(
     ledgerPromptDismissed: Boolean(persisted?.ledgerPromptDismissed),
     petStyle: normalizePetStyle(persisted?.petStyle),
     petHoverShortcuts: normalizePetHoverShortcuts(persisted?.petHoverShortcuts),
+    showPetAssistantShortcut:
+      typeof persisted?.showPetAssistantShortcut === 'boolean'
+        ? persisted.showPetAssistantShortcut
+        : true,
     hidePetDuringVideoFullscreen: Boolean(persisted?.hidePetDuringVideoFullscreen),
     bilibiliOperationMode: normalizeBilibiliOperationMode(persisted?.bilibiliOperationMode),
     favoriteArchiveMultiMode: normalizeFavoriteArchiveMultiMode(persisted?.favoriteArchiveMultiMode),

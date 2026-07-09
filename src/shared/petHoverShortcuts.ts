@@ -41,6 +41,17 @@ export const DEFAULT_PET_HOVER_SHORTCUTS: PetHoverShortcutId[] = [
 ]
 
 const PET_HOVER_SHORTCUT_IDS = new Set(PET_HOVER_SHORTCUTS.map((shortcut) => shortcut.id))
+const PET_SORTABLE_HOVER_SHORTCUT_IDS = new Set(
+  PET_HOVER_SHORTCUTS.filter((shortcut) => shortcut.id !== 'assistant').map((shortcut) => shortcut.id)
+)
+
+export const PET_SORTABLE_HOVER_SHORTCUTS = PET_HOVER_SHORTCUTS.filter(
+  (shortcut) => shortcut.id !== 'assistant'
+)
+
+export function hasLegacyAssistantHoverShortcut(value: unknown): boolean {
+  return Array.isArray(value) && value.includes('assistant')
+}
 
 export function normalizePetHoverShortcuts(value: unknown): PetHoverShortcutId[] {
   if (!Array.isArray(value)) {
@@ -53,6 +64,7 @@ export function normalizePetHoverShortcuts(value: unknown): PetHoverShortcutId[]
     if (
       typeof item === 'string' &&
       PET_HOVER_SHORTCUT_IDS.has(item as PetHoverShortcutId) &&
+      PET_SORTABLE_HOVER_SHORTCUT_IDS.has(item as PetHoverShortcutId) &&
       !normalized.includes(item as PetHoverShortcutId)
     ) {
       normalized.push(item as PetHoverShortcutId)

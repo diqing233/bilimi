@@ -105,6 +105,8 @@ function createFakeStore(
       DEFAULT_ASSISTANT_PREFERENCES.deepseekDailyClassificationMode,
     deepseekModel: initial.deepseekModel ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
     deepseekBaseUrl: initial.deepseekBaseUrl ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl,
+    showPetAssistantShortcut:
+      initial.showPetAssistantShortcut ?? DEFAULT_ASSISTANT_PREFERENCES.showPetAssistantShortcut,
     permissionOnboardingCompleted:
       initial.permissionOnboardingCompleted ??
       DEFAULT_ASSISTANT_PREFERENCES.permissionOnboardingCompleted,
@@ -176,6 +178,24 @@ describe('assistant preference store helpers', () => {
     const store = createFakeStore()
 
     expect(loadAssistantPreferences(store).commentSubmitMode).toBe('random')
+  })
+
+  it('migrates the assistant pet shortcut into its standalone toggle', () => {
+    const store = createFakeStore({
+      petHoverShortcuts: ['like', 'assistant', 'coin', 'comment', 'transcribe']
+    })
+
+    expect(loadAssistantPreferences(store)).toMatchObject({
+      petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
+      showPetAssistantShortcut: true
+    })
+  })
+
+  it('defaults the standalone assistant pet shortcut toggle to visible', () => {
+    const store = createFakeStore()
+    delete (store.snapshot as Partial<DesktopStoreState>).showPetAssistantShortcut
+
+    expect(loadAssistantPreferences(store).showPetAssistantShortcut).toBe(true)
   })
 
   it('defaults correction learning preferences for legacy stores', () => {
@@ -301,6 +321,7 @@ describe('assistant preference store helpers', () => {
       deepseekDailyClassificationMode: 'low-confidence-only',
       deepseekModel: 'deepseek-reasoner',
       deepseekBaseUrl: 'https://deepseek.example',
+      showPetAssistantShortcut: false,
       permissionOnboardingCompleted: true,
       assistantSidebarWidthPx: 360,
       videoAudioTranscriptionThreadLimit: 2
@@ -342,6 +363,7 @@ describe('assistant preference store helpers', () => {
       deepseekDailyClassificationMode: 'low-confidence-only',
       deepseekModel: 'deepseek-reasoner',
       deepseekBaseUrl: 'https://deepseek.example',
+      showPetAssistantShortcut: false,
       permissionOnboardingCompleted: true,
       assistantSidebarWidthPx: 360,
       videoAudioTranscriptionThreadLimit: 2

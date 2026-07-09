@@ -164,6 +164,7 @@ export type AssistantPreferences = {
   ledgerPromptDismissed: boolean
   petStyle: 'big-head' | 'classic'
   petHoverShortcuts: PetHoverShortcutId[]
+  showPetAssistantShortcut: boolean
   hidePetDuringVideoFullscreen: boolean
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode

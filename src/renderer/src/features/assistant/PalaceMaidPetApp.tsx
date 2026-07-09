@@ -74,6 +74,8 @@ export function PalaceMaidPetApp() {
     preferences.deepseekApiKeyStored &&
     preferences.deepseekPetChatEnabled
   const hoverShortcuts = resolvePetHoverShortcuts(preferences.petHoverShortcuts)
+  const hoverShortcutLayout =
+    preferences.showPetAssistantShortcut && hoverShortcuts.length >= 4 ? 'grid' : 'fan'
 
   function showLocalPetHint(tone: AssistantPetHint['tone'], message: string) {
     setPetHint({ tone, message })
@@ -398,6 +400,15 @@ export function PalaceMaidPetApp() {
     }
   }
 
+  function openAssistantShortcut(event?: ReactMouseEvent<HTMLButtonElement>) {
+    dragState.current = null
+    setPressed(false)
+    setClosePromptVisible(false)
+    const anchor = createWorkspaceAnchor(event)
+    showLocalPetHint('hint', '主人，小咪把小窗口打开啦。')
+    void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'review', anchor })
+  }
+
   async function runHoverShortcut(
     shortcut: PetHoverShortcut,
     event?: ReactMouseEvent<HTMLButtonElement>
@@ -631,7 +642,7 @@ export function PalaceMaidPetApp() {
         role="group"
         aria-label="小咪悬浮快捷按钮"
         data-visible={hoverShortcutsVisible ? 'true' : 'false'}
-        data-layout="fan"
+        data-layout={hoverShortcutLayout}
         onPointerEnter={() => {
           enterInteractiveRegion()
           showHoverShortcuts()
@@ -662,6 +673,25 @@ export function PalaceMaidPetApp() {
             {shortcut.label}
           </button>
         ))}
+        {preferences.showPetAssistantShortcut ? (
+          <button
+            className="palace-maid-pet__assistant-shortcut"
+            type="button"
+            aria-label="打开小咪"
+            title="打开小咪"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              openAssistantShortcut(event)
+            }}
+            onPointerDown={(event) => {
+              event.stopPropagation()
+              setPressed(false)
+            }}
+          >
+            咪
+          </button>
+        ) : null}
       </div>
       {closePromptVisible ? (
         <span

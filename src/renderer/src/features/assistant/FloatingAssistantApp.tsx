@@ -21,8 +21,8 @@ import type {
   VideoNoteArchiveEntry
 } from '@shared/types'
 import {
-  PET_HOVER_SHORTCUTS,
   PET_HOVER_SHORTCUT_LIMIT,
+  PET_SORTABLE_HOVER_SHORTCUTS,
   normalizePetHoverShortcuts,
   type PetHoverShortcutId
 } from '@shared/petHoverShortcuts'
@@ -321,6 +321,13 @@ const FAVORITE_CORRECTION_LEARNING_HELP =
 const FAVORITE_CORRECTION_CLASSIFICATION_HELP =
   '开启后，后续分类会参考这些纠错记录；关闭后只保留记录，不影响自动分类。'
 
+const KEYWORD_SUGGESTION_STATUS_LABELS: Record<FavoriteKeywordSuggestionStatus, string> = {
+  pending: '待处理',
+  accepted: '已采纳',
+  ignored: '已忽略',
+  deleted: '已删除'
+}
+
 const SETTINGS_JUMP_OPTIONS = [
   { value: 'diagnostics', label: '诊断' },
   { value: 'deepseek', label: 'DeepSeek' },
@@ -552,6 +559,8 @@ export function FloatingAssistantApp({
   const [settingsDiagnosticMessage, setSettingsDiagnosticMessage] = useState('')
   const [settingsDiagnosticsExpanded, setSettingsDiagnosticsExpanded] = useState(true)
   const [settingsLearningMessage, setSettingsLearningMessage] = useState('')
+  const [settingsKeywordSuggestionView, setSettingsKeywordSuggestionView] =
+    useState<'pending' | 'processed'>('pending')
   const [settingsJumpValue, setSettingsJumpValue] = useState<SettingsJumpValue>('diagnostics')
   const [globalFeedbackMessage, setGlobalFeedbackMessage] = useState('')
   const [oldFavoriteExecutionState, setOldFavoriteExecutionState] =
@@ -1913,6 +1922,13 @@ export function FloatingAssistantApp({
   const pendingKeywordSuggestions = preferences.favoriteKeywordSuggestions.filter(
     (suggestion) => suggestion.status === 'pending'
   )
+  const processedKeywordSuggestions = preferences.favoriteKeywordSuggestions.filter(
+    (suggestion) => suggestion.status !== 'pending'
+  )
+  const visibleKeywordSuggestions =
+    settingsKeywordSuggestionView === 'pending'
+      ? pendingKeywordSuggestions
+      : processedKeywordSuggestions
 
   const workspace = (
     <section
@@ -2308,7 +2324,19 @@ export function FloatingAssistantApp({
                     选择常用操作，数字表示显示顺序；点击可启用或停用快捷项，可不选，最多4个。
                   </small>
                 </div>
-                {PET_HOVER_SHORTCUTS.map((shortcut) => {
+                <label className="assistant-settings__hover-shortcut-toggle">
+                  <input
+                    type="checkbox"
+                    checked={preferences.showPetAssistantShortcut}
+                    onChange={(event) =>
+                      persistPreferencePatch({
+                        showPetAssistantShortcut: event.currentTarget.checked
+                      })
+                    }
+                  />
+                  <span>显示打开小咪按钮</span>
+                </label>
+                {PET_SORTABLE_HOVER_SHORTCUTS.map((shortcut) => {
                   const selectedIndex = selectedPetHoverShortcuts.indexOf(shortcut.id)
                   const selected = selectedIndex >= 0
                   const selectionFull = selectedPetHoverShortcuts.length >= PET_HOVER_SHORTCUT_LIMIT
@@ -2506,7 +2534,11 @@ export function FloatingAssistantApp({
                   </button>
                 </div>
                 {preferences.favoriteCorrectionRecords.length > 0 ? (
-                  <div className="assistant-settings__learning-list">
+                  <div
+                    className="assistant-settings__record-track assistant-settings__learning-list"
+                    role="list"
+                    aria-label="纠错学习记录"
+                  >
                     {preferences.favoriteCorrectionRecords.map(
                       (record: FavoriteCorrectionRecord) => {
                         const originalLedger = getLedgerDisplayName(
@@ -2523,7 +2555,8 @@ export function FloatingAssistantApp({
                         return (
                           <article
                             key={record.id}
-                            className="assistant-settings__learning-item"
+                            className="assistant-settings__record-card assistant-settings__learning-item"
+                            role="listitem"
                           >
                             <div className="assistant-settings__learning-head">
                               <span className="assistant-settings__learning-summary">
@@ -2556,16 +2589,42 @@ export function FloatingAssistantApp({
                     )}
                   </div>
                 ) : (
-                  <p className="assistant-settings__empty">暂无纠错记录</p>
+                  <p className="assistant-settings__empty">
+                    暂无纠错记录。确认整理时如果实际选择不同于原建议，会记录在这里。
+                  </p>
                 )}
               </div>
               <div className="assistant-settings__subsection">
                 <div className="assistant-settings__subsection-heading">
                   <strong>关键词建议（{pendingKeywordSuggestions.length}）</strong>
+                  <span className="assistant-settings__view-toggle" role="group" aria-label="关键词建议视图">
+                    <button
+                      type="button"
+                      aria-pressed={settingsKeywordSuggestionView === 'pending'}
+                      onClick={() => setSettingsKeywordSuggestionView('pending')}
+                    >
+                      待处理
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={settingsKeywordSuggestionView === 'processed'}
+                      onClick={() => setSettingsKeywordSuggestionView('processed')}
+                    >
+                      已处理
+                    </button>
+                  </span>
                 </div>
-                {pendingKeywordSuggestions.length > 0 ? (
-                  <div className="assistant-settings__keyword-list">
-                    {pendingKeywordSuggestions.map((suggestion) => {
+                {visibleKeywordSuggestions.length > 0 ? (
+                  <div
+                    className="assistant-settings__record-track assistant-settings__keyword-list"
+                    role="list"
+                    aria-label={
+                      settingsKeywordSuggestionView === 'pending'
+                        ? '待处理关键词建议'
+                        : '已处理关键词建议'
+                    }
+                  >
+                    {visibleKeywordSuggestions.map((suggestion) => {
                       const targetLabel = getLedgerDisplayName(
                         preferences.favoriteLedgers,
                         suggestion.ledgerId
@@ -2577,55 +2636,64 @@ export function FloatingAssistantApp({
                       const isPending = suggestion.status === 'pending'
 
                       return (
-                        <article key={suggestion.id} className="assistant-settings__keyword-item">
+                        <article
+                          key={suggestion.id}
+                          className="assistant-settings__record-card assistant-settings__keyword-item"
+                          role="listitem"
+                        >
                           <div className="assistant-settings__keyword-summary">
                             <strong title={KEYWORD_SUGGESTION_ACTION_LABELS[suggestion.action]}>
                               {KEYWORD_SUGGESTION_ACTION_LABELS[suggestion.action]}
                             </strong>
+                            <span title={KEYWORD_SUGGESTION_STATUS_LABELS[suggestion.status]}>
+                              状态：{KEYWORD_SUGGESTION_STATUS_LABELS[suggestion.status]}
+                            </span>
                             <span title={targetLabel}>目标收藏夹：{targetLabel}</span>
                             <span title={suggestion.keyword?.trim() || '未记录'}>
-                              关键词：{suggestion.keyword?.trim() || '未记录'}
+                              关键词：<span>{suggestion.keyword?.trim() || '未记录'}</span>
                             </span>
                             <span title={suggestion.replacement?.trim() || '未记录'}>
-                              替换词：{suggestion.replacement?.trim() || '未记录'}
+                              替换词：<span>{suggestion.replacement?.trim() || '未记录'}</span>
                             </span>
                             <small title={suggestion.reason}>理由：{suggestion.reason}</small>
                           </div>
-                          <div className="assistant-settings__keyword-actions">
-                            <button
-                              type="button"
-                              aria-label={`采纳建议 ${keywordLabel}`}
-                              disabled={!isPending}
-                              onClick={() => acceptKeywordSuggestion(suggestion)}
-                            >
-                              <span>采纳</span>
-                            </button>
-                            <button
-                              type="button"
-                              aria-label={`忽略建议 ${keywordLabel}`}
-                              disabled={!isPending}
-                              onClick={() =>
-                                updateKeywordSuggestionStatus(suggestion.id, 'ignored')
-                              }
-                            >
-                              <span>忽略</span>
-                            </button>
-                            <button
-                              type="button"
-                              aria-label={`删除建议 ${keywordLabel}`}
-                              onClick={() =>
-                                updateKeywordSuggestionStatus(suggestion.id, 'deleted')
-                              }
-                            >
-                              <span>删除</span>
-                            </button>
-                          </div>
+                          {isPending ? (
+                            <div className="assistant-settings__keyword-actions">
+                              <button
+                                type="button"
+                                aria-label={`采纳建议 ${keywordLabel}`}
+                                onClick={() => acceptKeywordSuggestion(suggestion)}
+                              >
+                                <span>采纳</span>
+                              </button>
+                              <button
+                                type="button"
+                                aria-label={`忽略建议 ${keywordLabel}`}
+                                onClick={() =>
+                                  updateKeywordSuggestionStatus(suggestion.id, 'ignored')
+                                }
+                              >
+                                <span>忽略</span>
+                              </button>
+                              <button
+                                type="button"
+                                aria-label={`删除建议 ${keywordLabel}`}
+                                onClick={() =>
+                                  updateKeywordSuggestionStatus(suggestion.id, 'deleted')
+                                }
+                              >
+                                <span>删除</span>
+                              </button>
+                            </div>
+                          ) : null}
                         </article>
                       )
                     })}
                   </div>
                 ) : (
-                  <p className="assistant-settings__empty">暂无关键词建议</p>
+                  <p className="assistant-settings__empty">
+                    暂无关键词建议
+                  </p>
                 )}
               </div>
             </fieldset>

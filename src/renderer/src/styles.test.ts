@@ -119,9 +119,7 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet(
       '.browser-tabs__tab { min-width: 0; height: 100%; display: inline-flex; align-items: center; gap: 6px; overflow: hidden;'
     )
-    expectStyleSnippet(
-      '.browser-tabs__tab::before { content: ""; flex: 0 0 14px; width: 14px; height: 14px;'
-    )
+    expect(normalizedStyles).not.toContain('.browser-tabs__tab::before')
     expectStyleSnippet(
       '.browser-tabs__close { width: 0; min-width: 0; height: 26px; padding: 0; opacity: 0; overflow: hidden; pointer-events: none;'
     )
@@ -274,8 +272,8 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
-  it('uses dashed assistant sidebar divider lines while keeping the outer frame and tab buttons defined', () => {
-    expectStyleSnippet('.floating-assistant-chrome { min-width: 0; display: grid; grid-template-rows: auto auto; border: 1px solid #82b8f0;')
+  it('uses lightweight assistant workspace chrome while keeping tab buttons defined', () => {
+    expectStyleSnippet('.floating-assistant-chrome { min-width: 0; display: grid; grid-template-rows: auto auto; border: 0;')
     expectStyleSnippet('.floating-assistant-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; padding: 8px 8px 7px; border-bottom: 1px dashed #d1e6fb;')
     expectStyleSnippet('.floating-assistant-tabs button { width: 100%; min-width: 0; min-height: 38px; display: grid; grid-template-columns: 22px minmax(0, auto); justify-content: center; align-items: center; gap: 4px; border: 1px solid #8ec0f4;')
     expectStyleSnippet('.floating-assistant-global-status__lights { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; align-items: center; border-top: 1px dashed #d1e6fb;')
@@ -385,6 +383,10 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet(
       '.palace-maid-pet__hover-shortcuts[data-layout="fan"] .palace-maid-pet__hover-shortcut:nth-child(1) { transform: translate(12px, 0);'
     )
+    expectStyleSnippet(
+      '.palace-maid-pet__hover-shortcuts[data-layout="grid"] { left: 30px; bottom: 6px; grid-template-columns: repeat(2, 32px); gap: 5px;'
+    )
+    expect(normalizedStyles).toContain('.palace-maid-pet__assistant-shortcut')
     expect(normalizedStyles).not.toContain('left: 18px;\n  bottom: 50px;')
     expect(normalizedStyles).not.toContain('transform: translate(18px, -16px);')
     expectStyleSnippet('.palace-maid-pet__resize-step:active { transform: none;')
@@ -396,11 +398,11 @@ describe('renderer porcelain theme styles', () => {
 
   it('uses compact spacing for the review panel', () => {
     expect(normalizedStyles).toContain(
-      '.memorial-panel__paper {\n  border: 1px solid rgba(31, 99, 181, 0.3);'
+      '.memorial-panel__paper {\n  border: 0;'
     )
     expect(normalizedStyles).toContain('padding: 8px 8px 46px;\n  max-height: calc(100vh - 16px);')
     expectStyleSnippet(
-      '.memorial-panel__paper { border: 1px solid rgba(31, 99, 181, 0.3); position: relative;'
+      '.memorial-panel__paper { border: 0; position: relative;'
     )
     expectStyleSnippet('.memorial-panel__paper { padding: 8px 8px 46px;')
     expectStyleSnippet(
@@ -437,7 +439,7 @@ describe('renderer porcelain theme styles', () => {
       '.memorial-panel__body { margin-top: 0; margin-right: -8px; margin-left: -8px; grid-template-columns: 1fr; gap: 8px;'
     )
     expectStyleSnippet(
-      '.memorial-panel__meta { box-sizing: border-box; width: 100%; border: 1px solid rgba(31, 99, 181, 0.16); background: rgba(247, 251, 255, 0.64); padding: 8px;'
+      '.memorial-panel__meta { box-sizing: border-box; width: 100%; border: 0; background: rgba(247, 251, 255, 0.42); padding: 8px;'
     )
     expectStyleSnippet(
       '.memorial-panel__actions, .memorial-panel__action-card, .memorial-panel__actions .assistant-action-button { width: 100%; box-sizing: border-box;'
@@ -445,7 +447,7 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.assistant-action-button {\n  min-height: 62px;')
     expect(compactStyles).not.toContain('.memorial-panel__meta { height:')
     expect(compactStyles).not.toContain('.assistant-action-button { height:')
-    expect(compactStyles).not.toContain('.memorial-panel__meta { border: 0;')
+    expect(compactStyles).not.toContain('.memorial-panel__meta { border: 1px solid')
     expect(compactStyles).not.toContain(
       '.memorial-panel__meta { border-top: 1px dashed'
     )
@@ -528,7 +530,7 @@ describe('renderer porcelain theme styles', () => {
 
   it('keeps assistant panel rows from stretching into tall empty blocks', () => {
     expect(normalizedStyles).toContain(
-      '.memorial-panel__paper {\n  border: 1px solid rgba(31, 99, 181, 0.3);'
+      '.memorial-panel__paper {\n  border: 0;'
     )
     expect(normalizedStyles).toContain('display: grid;\n  align-content: start;\n  gap: 6px;')
     expect(normalizedStyles).toContain(
@@ -730,7 +732,8 @@ describe('renderer porcelain theme styles', () => {
   it('keeps correction learning and keyword suggestion settings compact', () => {
     expectStyleSnippet('.assistant-settings__group--learning .assistant-settings__inline-options { padding-bottom: 8px; border-bottom: 1px dashed rgba(31, 99, 181, 0.22);')
     expectStyleSnippet('.assistant-settings__subsection--records { border-top: 1px dashed rgba(31, 99, 181, 0.22); padding-top: 10px;')
-    expectStyleSnippet('.assistant-settings__learning-list { display: grid; gap: 6px;')
+    expectStyleSnippet('.assistant-settings__record-track { display: flex; align-items: stretch; gap: 12px;')
+    expectStyleSnippet('.assistant-settings__record-card { flex: 0 0 calc(100% - 52px);')
     expectStyleSnippet('.assistant-settings__option-help { min-width: 0; overflow: hidden; color: var(--porcelain-muted);')
     expectStyleSnippet('.assistant-settings__learning-head { display: grid; grid-template-columns: minmax(0, 1fr) auto;')
     expectStyleSnippet('.assistant-settings__learning-summary { min-width: 0; overflow: hidden;')
