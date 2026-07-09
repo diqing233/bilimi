@@ -1041,6 +1041,11 @@ export function FloatingAssistantApp({
     updateKeywordSuggestionStatus(suggestion.id, 'accepted', nextLedgers)
   }
 
+  function restoreKeywordSuggestionToPending(suggestion: FavoriteKeywordSuggestion) {
+    updateKeywordSuggestionStatus(suggestion.id, 'pending')
+    setSettingsLearningMessage('已撤回到待处理，收藏夹关键词不自动回滚。')
+  }
+
   async function persistPreferences(nextPreferences: AssistantPreferences) {
     const normalizedPreferences = createInitialAssistantPreferences(nextPreferences)
     applyPreferenceSnapshot(normalizedPreferences)
@@ -2522,6 +2527,11 @@ export function FloatingAssistantApp({
               >
                 {FAVORITE_CORRECTION_CLASSIFICATION_HELP}
               </small>
+              {settingsLearningMessage ? (
+                <p className="assistant-settings__status" role="status">
+                  {settingsLearningMessage}
+                </p>
+              ) : null}
               <div className="assistant-settings__subsection assistant-settings__subsection--records">
                 <div className="assistant-settings__subsection-heading">
                   <strong>纠错学习记录（{preferences.favoriteCorrectionRecords.length}）</strong>
@@ -2642,9 +2652,21 @@ export function FloatingAssistantApp({
                           role="listitem"
                         >
                           <div className="assistant-settings__keyword-summary">
-                            <strong title={KEYWORD_SUGGESTION_ACTION_LABELS[suggestion.action]}>
-                              {KEYWORD_SUGGESTION_ACTION_LABELS[suggestion.action]}
-                            </strong>
+                            <div className="assistant-settings__keyword-head">
+                              <strong title={KEYWORD_SUGGESTION_ACTION_LABELS[suggestion.action]}>
+                                {KEYWORD_SUGGESTION_ACTION_LABELS[suggestion.action]}
+                              </strong>
+                              {!isPending ? (
+                                <button
+                                  type="button"
+                                  className="assistant-settings__keyword-restore"
+                                  aria-label={`撤回建议 ${keywordLabel}`}
+                                  onClick={() => restoreKeywordSuggestionToPending(suggestion)}
+                                >
+                                  撤回
+                                </button>
+                              ) : null}
+                            </div>
                             <span title={KEYWORD_SUGGESTION_STATUS_LABELS[suggestion.status]}>
                               状态：{KEYWORD_SUGGESTION_STATUS_LABELS[suggestion.status]}
                             </span>

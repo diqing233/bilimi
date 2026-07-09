@@ -750,6 +750,8 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.assistant-settings__learning-head { display: grid; grid-template-columns: minmax(0, 1fr) auto;')
     expectStyleSnippet('.assistant-settings__learning-summary { min-width: 0; overflow: hidden;')
     expectStyleSnippet('.assistant-settings__keyword-item { display: grid; grid-template-columns: minmax(0, 1fr);')
+    expectStyleSnippet('.assistant-settings__keyword-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;')
+    expectStyleSnippet('.assistant-settings__keyword-restore { min-width: 44px; min-height: 24px;')
     expectStyleSnippet('.assistant-settings__keyword-actions button { min-height: 30px; height: 30px;')
     expectStyleSnippet('.assistant-settings__keyword-actions button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;')
     expect(compactStyles).not.toContain(

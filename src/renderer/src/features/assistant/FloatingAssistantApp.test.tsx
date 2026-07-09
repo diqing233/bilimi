@@ -1384,7 +1384,9 @@ describe('FloatingAssistantApp', () => {
   })
 
   it('keeps learning records compact and shows processed keyword suggestions separately', async () => {
+    const savePreferences = vi.fn().mockImplementation(async (preferences: AssistantPreferences) => preferences)
     installDesktopApi({
+      savePreferences,
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
           preferences: createPreferences({
@@ -1452,6 +1454,25 @@ describe('FloatingAssistantApp', () => {
     )
     expect(screen.getByText('游戏攻略')).toBeInTheDocument()
     expect(container.querySelectorAll('.assistant-settings__record-card')).toHaveLength(2)
+
+    fireEvent.click(screen.getByRole('button', { name: '撤回建议 攻略' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          favoriteKeywordSuggestions: expect.arrayContaining([
+            expect.objectContaining({ id: 'accepted-keyword', status: 'pending' })
+          ])
+        })
+      )
+    )
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '已撤回到待处理，收藏夹关键词不自动回滚。'
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '待处理' }))
+
+    expect(screen.getByRole('list', { name: '待处理关键词建议' })).toHaveTextContent('游戏攻略')
   })
 
   it('runs startup diagnostics from settings', async () => {

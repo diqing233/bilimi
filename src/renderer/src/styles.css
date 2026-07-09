@@ -4491,7 +4491,8 @@ body[data-floating-window="true"],
 }
 .assistant-settings__subsection-heading button,
 .assistant-settings__learning-actions button,
-.assistant-settings__keyword-actions button {
+.assistant-settings__keyword-actions button,
+.assistant-settings__keyword-restore {
   border: 1px solid rgba(31, 99, 181, 0.3);
   border-radius: 6px;
   background: var(--porcelain-surface);
@@ -4652,6 +4653,26 @@ body[data-floating-window="true"],
   display: grid;
   gap: 2px;
   min-width: 0;
+}
+.assistant-settings__keyword-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.assistant-settings__keyword-head strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.assistant-settings__keyword-restore {
+  min-width: 44px;
+  min-height: 24px;
+  padding: 2px 8px;
+  font-size: 12px;
+  line-height: 1.2;
 }
 .assistant-settings__keyword-actions {
   display: grid;
