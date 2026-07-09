@@ -4,6 +4,7 @@ import type {
   DeepSeekGenerateRequest,
   FavoriteLedger
 } from '@shared/types'
+import { parseFavoriteLedgerRules } from '@shared/favoriteLedgerConstraints'
 import {
   applyArchivePlanSelection,
   type FavoriteArchivePlanItemState,
@@ -191,13 +192,17 @@ export function buildDeepSeekArchiveRequest(
     videos,
     ledgers: ledgers
       .filter((ledger) => ledger.enabled && ledger.id !== 'inbox')
-      .map((ledger) => ({
-        id: ledger.id,
-        displayName: ledger.displayName,
-        keywords: [...ledger.keywords],
-        ruleType: ledger.ruleType,
-        enabled: ledger.enabled
-      })),
+      .map((ledger) => {
+        const parsedRules = parseFavoriteLedgerRules(ledger)
+        return {
+          id: ledger.id,
+          displayName: ledger.displayName,
+          keywords: parsedRules.localKeywords,
+          deepSeekConstraint: parsedRules.deepSeekConstraint,
+          ruleType: ledger.ruleType,
+          enabled: ledger.enabled
+        }
+      }),
     multiArchiveLimit
   }
 }

@@ -28,6 +28,7 @@ import {
 } from './features/recommendation/videoClassifier'
 import { planFavoriteArchiveTargets } from './features/recommendation/archivePlanning'
 import { createInitialAssistantPreferences } from './features/state/assistantState'
+import { parseFavoriteLedgerRules } from '@shared/favoriteLedgerConstraints'
 import {
   buildVideoNoteExtractionScript,
   normalizeExtractedVideoNoteResult
@@ -1437,12 +1438,17 @@ export default function App() {
             : undefined,
           diagnostics: localDiagnostics
         },
-        ledgers: preferences.favoriteLedgers.map((ledger) => ({
-          id: ledger.id,
-          displayName: ledger.displayName,
-          keywords: ledger.keywords,
-          enabled: ledger.enabled
-        }))
+        ledgers: preferences.favoriteLedgers.map((ledger) => {
+          const parsedRules = parseFavoriteLedgerRules(ledger)
+          return {
+            id: ledger.id,
+            displayName: ledger.displayName,
+            keywords: parsedRules.localKeywords,
+            deepSeekConstraint: parsedRules.deepSeekConstraint,
+            ruleType: ledger.ruleType,
+            enabled: ledger.enabled
+          }
+        })
       }
       const reviewPromise = window.bilimiDesktop
         .generateDeepSeek(reviewRequest)

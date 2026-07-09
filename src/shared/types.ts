@@ -26,7 +26,7 @@ export type DefaultFavoriteLedgerId =
 
 export type FavoriteLedgerId = string
 export type RecommendationKind = FavoriteLedgerId
-export type FavoriteLedgerRuleType = 'keyword' | 'author' | 'tag'
+export type FavoriteLedgerRuleType = 'keyword' | 'author' | 'tag' | 'deepseek'
 
 export type FavoriteLedger = {
   id: FavoriteLedgerId
@@ -329,6 +329,7 @@ export type DeepSeekArchiveLedgerInput = {
   id: FavoriteLedgerId
   displayName: string
   keywords: string[]
+  deepSeekConstraint?: string
   ruleType?: FavoriteLedgerRuleType
   enabled: boolean
 }

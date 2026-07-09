@@ -345,6 +345,53 @@ describe('classifyVideoContent', () => {
     ).not.toBe('custom-tag-guide')
   })
 
+  it('ignores DeepSeek-only constraints when scoring local ledger rules', () => {
+    const ledgers: FavoriteLedger[] = [
+      {
+        id: 'custom-genshin-lore',
+        displayName: 'bilimi·原神考据',
+        keywords: [
+          '原神',
+          '【DeepSeek约束】',
+          '抽卡',
+          '直播切片',
+          '不要收抽卡、整活、直播切片、纯二创剪辑。'
+        ],
+        enabled: true,
+        priority: -20,
+        isDefault: false
+      },
+      ...createDefaultFavoriteLedgers()
+    ]
+
+    expect(classifyVideoContent({ title: '抽卡直播切片合集' }, ledgers).ledgerId).not.toBe(
+      'custom-genshin-lore'
+    )
+    expect(classifyVideoContent({ title: '原神世界观考据' }, ledgers)).toMatchObject({
+      ledgerId: 'custom-genshin-lore',
+      matchedKeywords: ['原神']
+    })
+  })
+
+  it('keeps DeepSeek constraint ledgers out of local automatic classification', () => {
+    const ledgers: FavoriteLedger[] = [
+      {
+        id: 'custom-deepseek-lore',
+        displayName: 'bilimi·剧情考据',
+        keywords: ['剧情解析'],
+        ruleType: 'deepseek',
+        enabled: true,
+        priority: -20,
+        isDefault: false
+      },
+      ...createDefaultFavoriteLedgers()
+    ]
+
+    expect(classifyVideoContent({ title: '剧情解析 世界观分析' }, ledgers).ledgerId).not.toBe(
+      'custom-deepseek-lore'
+    )
+  })
+
   it('skips disabled ledgers and falls back to inbox when no category is clear', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
       ledger.id === 'knowledge' ? { ...ledger, enabled: false } : ledger

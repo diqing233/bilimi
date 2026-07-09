@@ -4,6 +4,7 @@
   isBilimiManagedLedgerName,
   stripBilimiLedgerPrefix
 } from '@shared/favoriteLedgers'
+import { DEEPSEEK_CONSTRAINT_MARKER } from '@shared/favoriteLedgerConstraints'
 import type {
   AssistantAutomationResult,
   DeepSeekArchiveMode,
@@ -122,6 +123,41 @@ function splitKeywords(value: string) {
     .filter(Boolean)
 }
 
+function splitLedgerRuleText(value: string, ruleType: FavoriteLedgerRuleType) {
+  if (ruleType === 'deepseek') {
+    return value.trim() ? [value.trim()] : []
+  }
+
+  if (!value.includes(DEEPSEEK_CONSTRAINT_MARKER)) {
+    return splitKeywords(value)
+  }
+
+  const [localRuleText = '', ...constraintParts] = value.split(DEEPSEEK_CONSTRAINT_MARKER)
+  const deepSeekConstraint = constraintParts.join(DEEPSEEK_CONSTRAINT_MARKER).trim()
+  return [
+    ...splitKeywords(localRuleText),
+    DEEPSEEK_CONSTRAINT_MARKER,
+    ...(deepSeekConstraint ? [deepSeekConstraint] : [])
+  ]
+}
+
+function ledgerRuleText(ledger: FavoriteLedger) {
+  if ((ledger.ruleType ?? 'keyword') === 'deepseek') {
+    return ledger.keywords.join('\n')
+  }
+
+  const markerIndex = ledger.keywords.findIndex((keyword) => keyword === DEEPSEEK_CONSTRAINT_MARKER)
+  if (markerIndex < 0) {
+    return ledger.keywords.join('、')
+  }
+
+  const localKeywords = ledger.keywords.slice(0, markerIndex).join('、')
+  const deepSeekConstraint = ledger.keywords.slice(markerIndex + 1).join('\n')
+  return [localKeywords, DEEPSEEK_CONSTRAINT_MARKER, deepSeekConstraint]
+    .filter((part) => part.trim())
+    .join('\n')
+}
+
 function customLedgerId(name: string) {
   const base = name.replace(/\W+/g, '-').replace(/^-|-$/g, '') || 'ledger'
   return `custom-${base}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -134,7 +170,8 @@ function canDeleteLedger(ledger: FavoriteLedger) {
 const LEDGER_RULE_TYPE_OPTIONS: Array<{ value: FavoriteLedgerRuleType; label: string }> = [
   { value: 'keyword', label: '关键词收藏夹' },
   { value: 'author', label: '专属 UP 追更收藏夹' },
-  { value: 'tag', label: '标签收藏夹' }
+  { value: 'tag', label: '标签收藏夹' },
+  { value: 'deepseek', label: 'DeepSeek约束收藏夹' }
 ]
 
 const DEEPSEEK_ARCHIVE_SCOPE_OPTIONS: Array<{ value: DeepSeekArchiveMode; label: string }> = [
@@ -179,6 +216,9 @@ function ruleFieldLabel(ruleType: FavoriteLedgerRuleType) {
   if (ruleType === 'tag') {
     return '标签'
   }
+  if (ruleType === 'deepseek') {
+    return 'DeepSeek约束'
+  }
   return '关键词'
 }
 
@@ -188,6 +228,9 @@ function rulePrimaryHint(ruleType: FavoriteLedgerRuleType) {
   }
   if (ruleType === 'tag') {
     return '填写一个或多个 B 站标签，命中标签时会优先存入这个收藏夹。'
+  }
+  if (ruleType === 'deepseek') {
+    return '填写自然语言判断规则。此类型不参与本地自动分类，必须开启 DeepSeek 后才会用于辅助判断。'
   }
   return '建议优先填写 B 站标签里的词；标签命中权重最高，标题、分区、简介等信息会辅助判断。'
 }
@@ -199,7 +242,10 @@ function ruleSecondaryHint(ruleType: FavoriteLedgerRuleType) {
   if (ruleType === 'tag') {
     return '不同标签用顿号或空格隔开，逗号、斜杠也能识别。'
   }
-  return '不同关键词用顿号或空格隔开，逗号、斜杠也能识别。'
+  if (ruleType === 'deepseek') {
+    return 'DeepSeek 未开启时不会自动命中；需要本地规则时请选择关键词、UP 或标签收藏夹。'
+  }
+  return `不同关键词用顿号或空格隔开，逗号、斜杠也能识别；也可添加${DEEPSEEK_CONSTRAINT_MARKER}，其后的内容只给 DeepSeek 参考。`
 }
 
 function alreadyHasLedger(ledgers: FavoriteLedger[], displayName: string) {
@@ -3579,9 +3625,11 @@ export function FavoriteLedgerPanel({
           <label>
             {ruleFieldLabel(activeLedgerRuleType)}
             <textarea
-              value={activeLedger.keywords.join('、')}
+              value={ledgerRuleText(activeLedger)}
               onChange={(event) =>
-                updateActiveLedger({ keywords: splitKeywords(event.currentTarget.value) })
+                updateActiveLedger({
+                  keywords: splitLedgerRuleText(event.currentTarget.value, activeLedgerRuleType)
+                })
               }
             />
           </label>

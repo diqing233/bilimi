@@ -523,6 +523,7 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
           'When no exact ledger exists but the video has meaningful topic signals, choose the closest existing enabled ledger instead of 未分类.',
           'Use 未分类 only as a last resort for empty, unsafe, spammy, or genuinely unclassifiable videos; if you choose it, explain why no existing ledger fits.',
           'When choosing a closest existing ledger for a missing exact topic, include keywordSuggestions only for the final chosen ledger.',
+          'If a ledger has deepSeekConstraint, you must use it as folder-specific decision guidance. It is not a keyword list; do not classify a video only because a word appears inside the constraint text.',
           'You cannot create folders and cannot directly edit keywords; keywordSuggestions are only pending suggestions for the user to review.',
           'Echo sourceFolderTitle from each input video in every result so duplicate aid rows from different source folders can be applied to the intended row.',
           'Respect multiArchiveLimit for targetLedgerIds. Use keepOriginal only when the current targets should remain alongside the suggested targets.',
@@ -551,6 +552,7 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
           'When no exact ledger exists but the video has meaningful topic signals, choose the closest existing enabled ledger instead of inbox/unclassified.',
           'Use inbox/unclassified only as a last resort for empty, unsafe, spammy, or genuinely unclassifiable videos; if you choose it, explain why no existing ledger fits.',
           'When choosing a closest existing ledger for a missing exact topic, include keywordSuggestions only for the final chosen ledger.',
+          'If a ledger has deepSeekConstraint, use it as folder-specific decision guidance. It is not a keyword list; do not classify a video only because a word appears inside the constraint text.',
           'Do not create folders and do not directly edit keywords; keywordSuggestions are only pending suggestions for the user to review.',
           'Set corrected=true only when the local classification should be replaced before executing. If local targets are correct, echo them and set corrected=false.',
           'Return JSON only: {"targetLedgerIds":["ledger-id"],"corrected":false,"reason":"","confidence":0.8,"keywordSuggestions":[{"action":"replace-with-combination","ledgerId":"game","keyword":"攻略","replacement":"游戏攻略","reason":""}]}'

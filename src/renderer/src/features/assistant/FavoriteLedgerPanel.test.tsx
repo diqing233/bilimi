@@ -2150,6 +2150,52 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
+  it('edits a new ledger as a DeepSeek constraint collection', async () => {
+    const onSaveLedgers = vi.fn()
+
+    render(
+      <FavoriteLedgerPanel
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={onSaveLedgers}
+        onScanOldFavorites={vi.fn()}
+        onExecuteOldFavoritePlan={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹' }))
+
+    const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
+    fireEvent.change(editor.getByLabelText('收藏夹种类'), { target: { value: 'deepseek' } })
+    expect(editor.getByLabelText('DeepSeek约束')).toBeInTheDocument()
+    expect(
+      screen.getByText('填写自然语言判断规则。此类型不参与本地自动分类，必须开启 DeepSeek 后才会用于辅助判断。')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('DeepSeek 未开启时不会自动命中；需要本地规则时请选择关键词、UP 或标签收藏夹。')
+    ).toBeInTheDocument()
+
+    fireEvent.change(editor.getByLabelText('册名'), { target: { value: '剧情考据' } })
+    fireEvent.change(editor.getByLabelText('DeepSeek约束'), {
+      target: { value: '只收剧情解析、角色考据、世界观分析。\n不要收抽卡、整活、直播切片。' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '加入同步 bilimi·剧情考据' }))
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+
+    await waitFor(() =>
+      expect(onSaveLedgers).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            displayName: 'bilimi·剧情考据',
+            ruleType: 'deepseek',
+            keywords: ['只收剧情解析、角色考据、世界观分析。\n不要收抽卡、整活、直播切片。']
+          })
+        ])
+      )
+    )
+  })
+
   it('saves the dragged ledger order and keeps new ledgers in the header action', async () => {
     const onSaveLedgers = vi.fn().mockResolvedValue({
       ok: true,
@@ -2338,7 +2384,9 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(editor.queryByRole('button', { name: '删除末词' })).not.toBeInTheDocument()
     expect(editor.queryByRole('button', { name: '新增关键词' })).not.toBeInTheDocument()
-    expect(screen.getByText('不同关键词用顿号或空格隔开，逗号、斜杠也能识别。')).toBeInTheDocument()
+    expect(
+      screen.getByText('不同关键词用顿号或空格隔开，逗号、斜杠也能识别；也可添加【DeepSeek约束】，其后的内容只给 DeepSeek 参考。')
+    ).toBeInTheDocument()
 
     fireEvent.click(editor.getByRole('button', { name: '保存' }))
 
@@ -2544,6 +2592,9 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(
       screen.getByText('建议优先填写 B 站标签里的词；标签命中权重最高，标题、分区、简介等信息会辅助判断。')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('不同关键词用顿号或空格隔开，逗号、斜杠也能识别；也可添加【DeepSeek约束】，其后的内容只给 DeepSeek 参考。')
     ).toBeInTheDocument()
   })
 

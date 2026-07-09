@@ -8,6 +8,7 @@ import {
   planFavoriteArchiveTargets,
   type FavoriteArchiveTarget
 } from '../recommendation/archivePlanning'
+import { parseFavoriteLedgerRules } from '@shared/favoriteLedgerConstraints'
 import type {
   FavoriteArchiveMultiMode,
   FavoriteArchiveStrategy,
@@ -300,7 +301,7 @@ function ledgerMatchesVideo(ledger: FavoriteLedger, video: FavoriteSourceVideo) 
     return false
   }
 
-  return ruleMatchesVideo(ledger.ruleType, ledger.keywords, video)
+  return ruleMatchesVideo(ledger.ruleType, parseFavoriteLedgerRules(ledger).localKeywords, video)
 }
 
 function candidateKey(candidate: FavoriteLedgerCandidate) {
@@ -337,6 +338,10 @@ function ruleMatchesVideo(
   keywords: string[],
   video: FavoriteSourceVideo
 ) {
+  if (ruleType === 'deepseek') {
+    return false
+  }
+
   const normalizedKeywords = keywords.map(normalize).filter(Boolean)
   if (!normalizedKeywords.length) {
     return false

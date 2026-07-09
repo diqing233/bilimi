@@ -1294,7 +1294,11 @@ describe('App runtime integration', () => {
           return { ...ledger, keywords: ['地铁攻略'], bilibiliFolderId: '9002', isDefault: false }
         }
         if (ledger.id === 'life-interest') {
-          return { ...ledger, keywords: ['大阪生活'], bilibiliFolderId: '9005' }
+          return {
+            ...ledger,
+            keywords: ['大阪生活', '【DeepSeek约束】', '只收真实出行经验，不收游戏攻略。'],
+            bilibiliFolderId: '9005'
+          }
         }
         return ledger
       })
@@ -1360,7 +1364,14 @@ describe('App runtime integration', () => {
         video: expect.objectContaining({ aid: 701, title: '大阪地铁换乘攻略' }),
         localClassification: expect.objectContaining({
           targetLedgerIds: ['life-interest']
-        })
+        }),
+        ledgers: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'life-interest',
+            keywords: ['大阪生活'],
+            deepSeekConstraint: '只收真实出行经验，不收游戏攻略。'
+          })
+        ])
       })
     )
     const apiScript = executeJavaScript.mock.calls

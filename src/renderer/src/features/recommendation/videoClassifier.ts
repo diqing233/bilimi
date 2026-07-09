@@ -1,4 +1,5 @@
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
+import { parseFavoriteLedgerRules } from '@shared/favoriteLedgerConstraints'
 import type {
   FavoriteLedger,
   FavoriteLedgerClassification,
@@ -212,7 +213,14 @@ function scoreExplicitContextKeywords(context: VideoContentContext, keywords: st
 }
 
 function ledgerKeywords(ledger: FavoriteLedger) {
-  return [...ledger.keywords, ...(DEFAULT_LEDGER_KEYWORD_SUPPLEMENTS[ledger.id] ?? [])]
+  if (ledgerRuleType(ledger) === 'deepseek') {
+    return []
+  }
+
+  return [
+    ...parseFavoriteLedgerRules(ledger).localKeywords,
+    ...(DEFAULT_LEDGER_KEYWORD_SUPPLEMENTS[ledger.id] ?? [])
+  ]
 }
 
 function ledgerRuleType(ledger: FavoriteLedger) {

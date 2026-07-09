@@ -253,6 +253,64 @@ describe('deepseekArchiveOrganizer', () => {
     ])
   })
 
+  it('sends DeepSeek constraints separately from local keywords', () => {
+    const state = createArchivePlanState([
+      {
+        aid: 1,
+        title: '原神世界观考据',
+        sourceFolderTitle: '默认收藏夹',
+        originalSuggestedLedgerIds: [],
+        currentTargetLedgerIds: [],
+        selectedTargetLedgerIds: [],
+        userModified: false
+      }
+    ])
+    const request = buildDeepSeekArchiveRequest(
+      state,
+      [
+        {
+          id: 'genshin-lore',
+          displayName: 'bilimi·原神考据',
+          keywords: [
+            '原神',
+            '米哈游',
+            '【DeepSeek约束】',
+            '只收剧情解析、角色考据、世界观分析。不要收抽卡、整活、直播切片。'
+          ],
+          ruleType: 'keyword',
+          enabled: true,
+          priority: -20,
+          isDefault: false
+        },
+        {
+          id: 'deepseek-lore',
+          displayName: 'bilimi·剧情考据',
+          keywords: ['只收剧情解析、角色考据、世界观分析。'],
+          ruleType: 'deepseek',
+          enabled: true,
+          priority: -10,
+          isDefault: false
+        }
+      ],
+      'all',
+      1
+    )
+
+    expect(request.ledgers).toEqual([
+      expect.objectContaining({
+        id: 'genshin-lore',
+        keywords: ['原神', '米哈游'],
+        deepSeekConstraint: '只收剧情解析、角色考据、世界观分析。不要收抽卡、整活、直播切片。'
+      }),
+      expect.objectContaining({
+        id: 'deepseek-lore',
+        keywords: [],
+        ruleType: 'deepseek',
+        deepSeekConstraint: '只收剧情解析、角色考据、世界观分析。'
+      })
+    ])
+  })
+
   it('builds the default DeepSeek archive request from low-confidence and unclassified rows', () => {
     const state = createArchivePlanState([
       {

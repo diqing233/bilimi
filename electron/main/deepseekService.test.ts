@@ -221,7 +221,8 @@ describe('DeepSeek main service', () => {
               id: 'life-interest',
               displayName: 'bilimi·生活日常',
               keywords: ['旅行攻略'],
-              enabled: true
+              enabled: true,
+              deepSeekConstraint: '只收真实出行经验，不收游戏攻略。'
             }
           ],
           multiArchiveLimit: 1
@@ -268,7 +269,12 @@ describe('DeepSeek main service', () => {
     expect(systemMessage).toContain('Use 未分类 only as a last resort')
     expect(systemMessage).toContain('cannot create folders')
     expect(systemMessage).toContain('cannot directly edit keywords')
+    expect(systemMessage).toContain('deepSeekConstraint')
+    expect(systemMessage).toContain('must use it as folder-specific decision guidance')
     expect(systemMessage).toContain('Return JSON only')
+    expect(body.messages.find((message) => message.role === 'user')?.content).toContain(
+      '只收真实出行经验，不收游戏攻略。'
+    )
   })
 
   it('marks archive unclassified results invalid when a meaningful video only lacks an exact category', async () => {
