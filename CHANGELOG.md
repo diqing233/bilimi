@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Updated the in-app browser tab strip so multiple open video tabs compress before horizontal scrolling, without leading tab icons.
 - Improved old-favorite archive preview with stronger local classification, editable and reversible target choices, optional DeepSeek-assisted organization, and safer correction/keyword learning settings.
 - Added batch archive-preview change summaries and card-level source notices for DeepSeek moves, staging moves, and generated-ledger selections, with undo/redo preserving generated ledger choices.
 - Kept the note archive's opened video detail visible when returning from review or a folded assistant session, while avoiding restore after a new app session.
