@@ -3592,7 +3592,7 @@ export function FavoriteLedgerPanel({
                                 <option value="">暂无改动记录</option>
                               ) : (
                                 <>
-                                  <option value="">选择改动记录</option>
+                                  <option value="">最近改动</option>
                                   <option value="latest">最近一次改动：{latestArchiveChange.title}</option>
                                 </>
                               )}

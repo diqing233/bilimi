@@ -3531,12 +3531,13 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__archive-history-actions {
   width: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
 }
 .favorite-ledger-panel__archive-history-select {
+  flex: 1 1 148px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -3564,6 +3565,7 @@ body[data-floating-window="true"],
   padding: 4px 8px;
 }
 .favorite-ledger-panel__archive-history-button {
+  flex: 1 1 112px;
   min-width: 112px;
   min-height: 32px;
   padding: 6px 10px;

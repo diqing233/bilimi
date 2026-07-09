@@ -258,6 +258,7 @@ describe('FavoriteLedgerPanel', () => {
 
       const historySelect = screen.getByRole('combobox', { name: '改动记录' })
       expect(within(historySelect).getByRole('option', { name: /最近一次改动：AI 效率工具实战/ })).toBeInTheDocument()
+      expect(within(historySelect).queryByRole('option', { name: '选择改动记录' })).not.toBeInTheDocument()
 
       fireEvent.change(historySelect, {
         target: { value: 'latest' }
