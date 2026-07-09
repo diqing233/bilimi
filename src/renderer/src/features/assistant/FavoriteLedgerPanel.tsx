@@ -85,8 +85,6 @@ type OldFavoriteExecutionResult = AssistantAutomationResult & {
 type ArchivePreviewLatestChange = {
   itemKey: string
   title: string
-  previousTargetLedgerIds: string[]
-  nextTargetLedgerIds: string[]
   previousTargetText: string
   nextTargetText: string
 }
@@ -2902,8 +2900,6 @@ export function FavoriteLedgerPanel({
     return {
       itemKey: latestItem.itemKey,
       title: latestItem.title,
-      previousTargetLedgerIds: previousItem ? [...previousItem.currentTargetLedgerIds] : [],
-      nextTargetLedgerIds: [...latestItem.currentTargetLedgerIds],
       previousTargetText,
       nextTargetText
     }
@@ -2973,26 +2969,6 @@ export function FavoriteLedgerPanel({
     )
   }
 
-  function undoLatestArchiveItemChange(item: FavoriteLedgerPreviewItem) {
-    if (!archivePlanState || !latestArchiveChange || deepSeekArchiveRunning) {
-      return
-    }
-
-    if (archivePlanItemKey(item) !== latestArchiveChange.itemKey) {
-      return
-    }
-
-    commitArchivePlanSelection(
-      item,
-      applyArchivePlanSelection(
-        archivePlanState,
-        { aid: item.aid, sourceFolderTitle: item.sourceFolderTitle },
-        latestArchiveChange.previousTargetLedgerIds,
-        'user'
-      )
-    )
-  }
-
   function renderLatestArchiveChangeNotice(item: FavoriteLedgerPreviewItem, areaLedgerId: string) {
     if (latestArchiveChange?.itemKey !== archivePlanItemKey(item)) {
       return null
@@ -3002,22 +2978,14 @@ export function FavoriteLedgerPanel({
       return null
     }
 
-    const message = `最近改动：来自【${latestArchiveChange.previousTargetText}】`
-    const detail = `最近改动：来自【${latestArchiveChange.previousTargetText}】，当前位置【${latestArchiveChange.nextTargetText}】，可撤销本次移动`
+    const message = `来自 ${latestArchiveChange.previousTargetText}`
+    const detail = `最近改动：从【${latestArchiveChange.previousTargetText}】移到【${latestArchiveChange.nextTargetText}】。`
 
     return (
       <small className="favorite-ledger-panel__preview-delta-row">
         <span className="favorite-ledger-panel__preview-delta" title={detail}>
           {message}
         </span>
-        <button
-          type="button"
-          className="favorite-ledger-panel__preview-delta-action"
-          disabled={deepSeekArchiveRunning}
-          onClick={() => undoLatestArchiveItemChange(item)}
-        >
-          撤销
-        </button>
       </small>
     )
   }

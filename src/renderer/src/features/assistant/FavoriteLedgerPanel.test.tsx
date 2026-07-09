@@ -282,17 +282,14 @@ describe('FavoriteLedgerPanel', () => {
 
     const latestArticle = getPreviewArticle(container, /暂时不知道放哪/)
     expect(container.querySelectorAll('.favorite-ledger-panel__preview-delta-row')).toHaveLength(1)
-    expect(within(latestArticle).getByText('最近改动：来自【未分类】')).toHaveClass(
+    expect(within(latestArticle).getByText('来自 未分类')).toHaveClass(
       'favorite-ledger-panel__preview-delta'
     )
-    expect(within(latestArticle).getByText('最近改动：来自【未分类】')).toHaveAttribute(
+    expect(within(latestArticle).getByText('来自 未分类')).toHaveAttribute(
       'title',
-      '最近改动：来自【未分类】，当前位置【bilimi·暂存】，可撤销本次移动'
+      '最近改动：从【未分类】移到【bilimi·暂存】。'
     )
-    fireEvent.click(within(latestArticle).getByRole('button', { name: '撤销' }))
-    await waitFor(() =>
-      expect(screen.getByLabelText('调整分类 暂时不知道放哪')).toHaveValue('unclassified')
-    )
+    expect(within(latestArticle).queryByRole('button', { name: '撤销' })).not.toBeInTheDocument()
     expect(getPreviewArticle(container, /AI 效率工具实战/)).not.toHaveAttribute(
       'data-latest-change',
       'true'
