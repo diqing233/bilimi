@@ -200,6 +200,7 @@ describe('renderer porcelain theme styles', () => {
   })
 
   it('keeps the four assistant tabs equally spaced with horizontal labels', () => {
+    expectStyleSnippet('.floating-assistant-workspace { position: relative; width: min(420px, 100vw);')
     expect(normalizedStyles).toContain(
       '.floating-assistant-tabs {\n  display: grid;\n  grid-template-columns: repeat(4, minmax(0, 1fr));'
     )
@@ -232,7 +233,8 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.floating-assistant-global-status { min-height: 68px; display: grid; grid-template-rows: minmax(34px, auto) 34px; gap: 0; padding: 0; border-bottom: 0; background: rgba(247, 251, 255, 0.76);')
     expectStyleSnippet('.floating-assistant-global-status__feedback { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--porcelain-deep); padding: 7px 10px; font-size: 14px; font-weight: 700;')
     expectStyleSnippet('.floating-assistant-global-status__lights { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));')
-    expectStyleSnippet('.floating-assistant-global-status__light { min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 100%; padding: 0 4px; overflow: hidden; color: #285e90; font-size: 12px;')
+    expectStyleSnippet('.floating-assistant-global-status__light { appearance: none; border: 0; background: transparent; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 4px;')
+    expectStyleSnippet('.floating-assistant-global-status__light:hover, .floating-assistant-global-status__light:focus-visible { background: rgba(220, 238, 255, 0.72); outline: none;')
   })
 
   it('lets archive history controls wrap instead of overlapping in the assistant sidebar', () => {

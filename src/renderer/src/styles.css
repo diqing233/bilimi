@@ -1392,7 +1392,7 @@ body[data-floating-window="true"],
 }
 .floating-assistant-workspace {
   position: relative;
-  width: 100vw;
+  width: min(420px, 100vw);
   height: 100vh;
   box-sizing: border-box;
   display: grid;
@@ -1514,6 +1514,9 @@ body[data-floating-window="true"],
   border-top: 1px dashed #d1e6fb;
 }
 .floating-assistant-global-status__light {
+  appearance: none;
+  border: 0;
+  background: transparent;
   min-width: 0;
   display: inline-flex;
   align-items: center;
@@ -1523,9 +1526,16 @@ body[data-floating-window="true"],
   padding: 0 4px;
   overflow: hidden;
   color: #285e90;
+  font: inherit;
   font-size: 12px;
   line-height: 15px;
   white-space: nowrap;
+  cursor: pointer;
+}
+.floating-assistant-global-status__light:hover,
+.floating-assistant-global-status__light:focus-visible {
+  background: rgba(220, 238, 255, 0.72);
+  outline: none;
 }
 .floating-assistant-global-status__light + .floating-assistant-global-status__light {
   border-left: 1px dashed #d1e6fb;

@@ -880,7 +880,18 @@ describe('PalaceMaidPetApp', () => {
     })
   })
 
-  it('shows 暂无视频 instead of running a video hover action when no video is open', async () => {
+  it('explains single-character hover shortcuts through 小咪 without running them', async () => {
+    installDesktopApi()
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
+    fireEvent.pointerEnter(await screen.findByRole('button', { name: '赐' }))
+
+    expect(await screen.findByText('赐：投币厚赏')).toBeInTheDocument()
+  })
+
+  it('uses a concrete 小咪 hint instead of 暂无视频 when no video is open', async () => {
     const api = installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
@@ -897,12 +908,15 @@ describe('PalaceMaidPetApp', () => {
     fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
     fireEvent.click(screen.getByRole('button', { name: '赏' }))
 
-    expect(await screen.findByText('暂无视频')).toBeInTheDocument()
+    expect(
+      await screen.findByText('主人，当前还没打开视频，小咪不能帮这条点喜欢。')
+    ).toBeInTheDocument()
+    expect(screen.queryByText('暂无视频')).not.toBeInTheDocument()
     expect(api.runFloatingMenuAction).not.toHaveBeenCalled()
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
 
-  it('shows 暂无视频 instead of opening transcription when no video is open', async () => {
+  it('uses a concrete 小咪 hint instead of 暂无视频 when transcription has no video', async () => {
     const api = installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
@@ -918,7 +932,10 @@ describe('PalaceMaidPetApp', () => {
     fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
     fireEvent.click(screen.getByRole('button', { name: '转' }))
 
-    expect(await screen.findByText('暂无视频')).toBeInTheDocument()
+    expect(
+      await screen.findByText('主人，当前还没打开视频，小咪不能帮这条转写音频。')
+    ).toBeInTheDocument()
+    expect(screen.queryByText('暂无视频')).not.toBeInTheDocument()
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
 

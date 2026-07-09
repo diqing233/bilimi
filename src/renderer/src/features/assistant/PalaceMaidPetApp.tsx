@@ -33,6 +33,14 @@ const DEEPSEEK_PET_CHAT_DISABLED_MESSAGE =
   '主人，想要跟小咪交流的话去设置开启DeepSeek宠物对话功能吧'
 const BILIBILI_VIDEO_URL_PATTERN = /bilibili\.com\/video\/[^/?#]+/i
 
+const PET_SHORTCUT_NO_VIDEO_HINTS: Partial<Record<PetHoverShortcut['id'], string>> = {
+  like: '主人，当前还没打开视频，小咪不能帮这条点喜欢。',
+  favorite: '主人，当前还没打开视频，小咪不能把这条归入 bilimi。',
+  coin: '主人，当前还没打开视频，小咪不能给这条投币。',
+  comment: '主人，当前还没打开视频，小咪不能帮这条拟短评。',
+  transcribe: '主人，当前还没打开视频，小咪不能帮这条转写音频。'
+}
+
 type DragState = {
   startClientX: number
   startClientY: number
@@ -372,6 +380,14 @@ export function PalaceMaidPetApp() {
     )
   }
 
+  function getNoVideoHint(shortcut: PetHoverShortcut) {
+    return PET_SHORTCUT_NO_VIDEO_HINTS[shortcut.id] ?? '主人，当前还没打开视频，小咪不能帮这个忙。'
+  }
+
+  function explainHoverShortcut(shortcut: PetHoverShortcut) {
+    showLocalPetHint('hint', `${shortcut.label}：${shortcut.title}`)
+  }
+
   async function runShortcutWithPetResult(
     workingMessage: string,
     action: () => Promise<{ ok?: boolean; message?: string } | null | undefined> | undefined,
@@ -425,7 +441,7 @@ export function PalaceMaidPetApp() {
       !letsFloatingAssistantHandleCurrentVideoCheck(shortcut) &&
       !(await hasCurrentVideo())
     ) {
-      showLocalPetHint('hint', '暂无视频')
+      showLocalPetHint('hint', getNoVideoHint(shortcut))
       return
     }
 
@@ -670,10 +686,12 @@ export function PalaceMaidPetApp() {
               event.stopPropagation()
               void runHoverShortcut(shortcut, event)
             }}
+            onFocus={() => explainHoverShortcut(shortcut)}
             onPointerDown={(event) => {
               event.stopPropagation()
               setPressed(false)
             }}
+            onPointerEnter={() => explainHoverShortcut(shortcut)}
           >
             {shortcut.label}
           </button>
@@ -689,10 +707,12 @@ export function PalaceMaidPetApp() {
               event.stopPropagation()
               openAssistantShortcut(event)
             }}
+            onFocus={() => showLocalPetHint('hint', '咪：打开小咪')}
             onPointerDown={(event) => {
               event.stopPropagation()
               setPressed(false)
             }}
+            onPointerEnter={() => showLocalPetHint('hint', '咪：打开小咪')}
           >
             咪
           </button>

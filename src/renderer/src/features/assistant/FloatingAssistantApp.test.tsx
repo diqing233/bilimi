@@ -298,6 +298,30 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
   })
 
+  it('uses status lights as shortcuts to the related assistant area', async () => {
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: false,
+            deepseekApiKeyStored: false
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByLabelText('DeepSeek状态'))
+    expect(screen.getByRole('tab', { name: '设置' })).toHaveAttribute('aria-selected', 'true')
+
+    fireEvent.click(screen.getByLabelText('转写音频状态'))
+    expect(screen.getByRole('tab', { name: '札记' })).toHaveAttribute('aria-selected', 'true')
+
+    fireEvent.click(screen.getByLabelText('整理状态'))
+    expect(screen.getByRole('tab', { name: '掌库' })).toHaveAttribute('aria-selected', 'true')
+  })
+
   it('opens the note archive when a pet workspace request asks for 库', async () => {
     let openWorkspace: Parameters<
       NonNullable<Window['bilimiDesktop']['onOpenFloatingAssistantWorkspace']>
@@ -3788,6 +3812,23 @@ describe('FloatingAssistantApp', () => {
     expect(screen.queryByLabelText('本地备注')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '保存札记' })).not.toBeInTheDocument()
     expect(saveVideoNote).not.toHaveBeenCalled()
+  })
+
+  it('tells 小咪 that the archive library opened instead of saying it synced', async () => {
+    const setAssistantPetHint = vi.fn()
+    installDesktopApi({ setAssistantPetHint, loadVideoNoteArchives: vi.fn().mockResolvedValue([]) })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
+    fireEvent.click(screen.getByRole('button', { name: '档案库' }))
+
+    await waitFor(() =>
+      expect(setAssistantPetHint).toHaveBeenCalledWith({
+        tone: 'happy',
+        message: '主人，档案库打开啦，想看的文稿都在这里。'
+      })
+    )
   })
 
   it('closes the system assistant from 合折', async () => {

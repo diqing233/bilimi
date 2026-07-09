@@ -1729,7 +1729,7 @@ export function FloatingAssistantApp({
     setVideoNoteArchives(archives)
 
     if (!silent) {
-      tellPet('success', '档案库已同步。')
+      tellPet('success', '档案库打开啦，想看的文稿都在这里。')
     }
 
     return archives
@@ -2017,6 +2017,10 @@ export function FloatingAssistantApp({
     closeAssistant()
   }
 
+  function jumpToStatusArea(tab: AssistantWorkspaceTab) {
+    setActiveTab(tab)
+  }
+
   const pendingKeywordSuggestions = preferences.favoriteKeywordSuggestions.filter(
     (suggestion) => suggestion.status === 'pending'
   )
@@ -2060,20 +2064,22 @@ export function FloatingAssistantApp({
             </p>
             <div className="floating-assistant-global-status__lights" aria-label="后台状态灯">
               {[
-                { ...globalDeepSeekStatus, ariaLabel: 'DeepSeek状态' },
-                { ...globalTranscriptionStatus, ariaLabel: '转写音频状态' },
-                { ...globalLedgerStatus, ariaLabel: '整理状态' }
+                { ...globalDeepSeekStatus, ariaLabel: 'DeepSeek状态', targetTab: 'settings' },
+                { ...globalTranscriptionStatus, ariaLabel: '转写音频状态', targetTab: 'notes' },
+                { ...globalLedgerStatus, ariaLabel: '整理状态', targetTab: 'ledger' }
               ].map((item) => (
-                <span
+                <button
                   key={item.label}
+                  type="button"
                   className="floating-assistant-global-status__light"
                   data-tone={item.tone}
                   aria-label={item.ariaLabel}
                   title={item.detail}
+                  onClick={() => jumpToStatusArea(item.targetTab as AssistantWorkspaceTab)}
                 >
                   <span className="floating-assistant-global-status__dot" aria-hidden="true" />
                   <span>{item.label}</span>
-                </span>
+                </button>
               ))}
             </div>
           </section>
