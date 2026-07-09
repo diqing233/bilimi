@@ -13,6 +13,12 @@ import { FloatingAssistantApp } from './FloatingAssistantApp'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
 import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
 
+function confirmOldFavoriteExecution() {
+  fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+  const dialog = screen.getByRole('alertdialog', { name: '确认开始整理？' })
+  fireEvent.click(within(dialog).getByRole('button', { name: '开始整理' }))
+}
+
 function createPreferences(overrides: Partial<AssistantPreferences> = {}): AssistantPreferences {
   return {
     favoritesFolderName: 'bilimi 内库',
@@ -2882,7 +2888,7 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() => expect(container.querySelector('.favorite-ledger-panel__old-favorites-guide')).toBeInTheDocument())
     fireEvent.click(container.querySelectorAll('.favorite-ledger-panel__guide-steps button')[2])
     fireEvent.click(container.querySelectorAll('.favorite-ledger-panel__guide-steps button')[3])
-    fireEvent.click(container.querySelector('.favorite-ledger-panel__confirm button')!)
+    confirmOldFavoriteExecution()
 
     await waitFor(() => expect(executeOldFavoritePlan).toHaveBeenCalledTimes(2))
     expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'working')).toBe(true)
@@ -2944,7 +2950,7 @@ describe('FloatingAssistantApp', () => {
       target: { value: 'game' }
     })
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
-    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+    confirmOldFavoriteExecution()
 
     await waitFor(() => expect(executeOldFavoritePlan).toHaveBeenCalledOnce())
     await waitFor(() =>

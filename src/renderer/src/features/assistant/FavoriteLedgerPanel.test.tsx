@@ -115,6 +115,13 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('menuitemradio', { name: label }))
   }
 
+  function confirmOldFavoriteExecution() {
+    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+    const dialog = screen.getByRole('alertdialog', { name: '确认开始整理？' })
+    expect(dialog).toHaveTextContent('开始后本轮整理无法更改')
+    fireEvent.click(within(dialog).getByRole('button', { name: '开始整理' }))
+  }
+
   it('uses a compact archive selector without visible helper labels', async () => {
     const { container } = await openArchivePreview()
 
@@ -154,6 +161,34 @@ describe('FavoriteLedgerPanel', () => {
     expect(generatedHeading).toHaveClass('favorite-ledger-panel__step-title')
     expect(generatedNote).toHaveClass('favorite-ledger-panel__step-note')
     expect(generatedHeading.compareDocumentPosition(generatedNote) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('requires a second confirmation before executing old favorite organization', async () => {
+    const onExecuteOldFavoritePlan = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['api:ledger:append:701'],
+      missingTargets: [],
+      message: '旧藏整理已完成。'
+    })
+    await openArchivePreview({ onExecuteOldFavoritePlan })
+
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+
+    expect(screen.getByText('已选择 1 条归档任务')).toBeInTheDocument()
+    expect(screen.getByText('开始整理后，本轮将按当前预览追加到 bilimi 收藏夹，执行中不能再更改。原收藏不会被删除、移动或取消。')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+    const dialog = screen.getByRole('alertdialog', { name: '确认开始整理？' })
+    expect(dialog).toHaveTextContent('开始后本轮整理无法更改')
+    expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '返回检查' }))
+    expect(screen.queryByRole('alertdialog', { name: '确认开始整理？' })).not.toBeInTheDocument()
+    expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
+
+    confirmOldFavoriteExecution()
+
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce())
   })
 
   it('keeps the current-location switch outside the selectable preview card body', async () => {
@@ -1135,7 +1170,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(onConfirmArchiveCorrections).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
-    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+    confirmOldFavoriteExecution()
 
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce())
     await waitFor(() =>
@@ -1222,7 +1257,7 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(gameTargetToggle)
 
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
-    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+    confirmOldFavoriteExecution()
 
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(2))
     expect(onExecuteOldFavoritePlan).toHaveBeenNthCalledWith(1, [
@@ -1304,7 +1339,7 @@ describe('FavoriteLedgerPanel', () => {
     })
 
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
-    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+    confirmOldFavoriteExecution()
 
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce())
     await waitFor(() =>
@@ -2943,7 +2978,7 @@ describe('FavoriteLedgerPanel', () => {
     const refreshedKnowledgeGroup = screen.getByRole('group', { name: 'Bilimi路知识 1 条' })
     fireEvent.click(getPreviewTargetToggle(refreshedKnowledgeGroup, /机器学习科普教程/))
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
-    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+    confirmOldFavoriteExecution()
 
     await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledTimes(2))
     expect(onSaveLedgers.mock.invocationCallOrder[1]).toBeLessThan(
@@ -3122,7 +3157,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
-    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+    confirmOldFavoriteExecution()
 
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([preview.items[0]]))
   })
@@ -3184,7 +3219,7 @@ describe('FavoriteLedgerPanel', () => {
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
-    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+    confirmOldFavoriteExecution()
 
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(1))
     await waitFor(() =>
@@ -3263,7 +3298,7 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(container.querySelector('.favorite-ledger-panel__old-favorites-guide')).toBeInTheDocument())
     fireEvent.click(container.querySelectorAll('.favorite-ledger-panel__guide-steps button')[2])
     fireEvent.click(container.querySelectorAll('.favorite-ledger-panel__guide-steps button')[3])
-    fireEvent.click(container.querySelector('.favorite-ledger-panel__confirm button')!)
+    confirmOldFavoriteExecution()
 
     await waitFor(() =>
       expect(container.querySelector('.favorite-ledger-panel__old-favorite-progress progress')).toHaveAttribute(
@@ -3357,7 +3392,7 @@ describe('FavoriteLedgerPanel', () => {
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
-    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+    confirmOldFavoriteExecution()
 
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce())
     await waitFor(() => expect(screen.getByRole('button', { name: '好的' })).toBeInTheDocument())
@@ -3371,7 +3406,8 @@ describe('FavoriteLedgerPanel', () => {
     expect(onScanOldFavorites).toHaveBeenCalledTimes(1)
 
     fireEvent.click(screen.getByRole('button', { name: '好的' }))
-    expect(screen.getByRole('button', { name: '确认整理' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '确认整理' })).not.toBeInTheDocument()
   })
 
   it('defaults recommended old favorite ledgers on and previews videos grouped by ledger', async () => {
@@ -3769,7 +3805,7 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
     expect(screen.getByText('已选择 1 条归档任务')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+    confirmOldFavoriteExecution()
 
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([preview.items[0]]))
   })
@@ -3951,7 +3987,7 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(screen.getByText('已选择 1 条归档任务')).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+    confirmOldFavoriteExecution()
 
     await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledTimes(2))
     await waitFor(() =>

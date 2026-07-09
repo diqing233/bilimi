@@ -386,6 +386,10 @@ const BACKUP_COMPLETE_MESSAGE =
   '小咪备册已完成，主人可以再增加自己想要的收藏夹，点击同步即可'
 const OLD_FAVORITE_GUIDE_HINT =
   '请主人从左到右查阅完成本轮整理：①在扫描概览勾选要整理的收藏夹（默认全选）；②在推荐收藏夹勾选想新建的收藏夹；③在归档预览里检查分类结果，可启用 DeepSeek 辅助调整④最后确认执行并查看进度，完成后点“好的”结束本轮整理哦'
+const OLD_FAVORITE_EXECUTION_NOTICE =
+  '开始整理后，本轮将按当前预览追加到 bilimi 收藏夹，执行中不能再更改。原收藏不会被删除、移动或取消。'
+const OLD_FAVORITE_EXECUTION_CONFIRM_MESSAGE =
+  '开始后本轮整理无法更改。小咪只会把视频追加到 bilimi 收藏夹，不会删除、移动或取消原收藏。'
 type OldFavoriteGuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
 type OldFavoriteGuideMode = 'setup' | 'organize'
 const OLD_FAVORITE_GUIDE_STEPS: Array<{ id: OldFavoriteGuideStep; label: string }> = [
@@ -1328,6 +1332,7 @@ export function FavoriteLedgerPanel({
   const [oldFavoriteExecuting, setOldFavoriteExecuting] = useState(false)
   const [oldFavoriteExecutionAwaitingAcknowledgement, setOldFavoriteExecutionAwaitingAcknowledgement] =
     useState(false)
+  const [oldFavoriteExecutionConfirming, setOldFavoriteExecutionConfirming] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -1371,7 +1376,7 @@ export function FavoriteLedgerPanel({
   }, [ledgers])
 
   function oldFavoriteOrganizationLocked() {
-    return oldFavoriteExecuting || oldFavoriteExecutionAwaitingAcknowledgement
+    return oldFavoriteExecuting || oldFavoriteExecutionAwaitingAcknowledgement || oldFavoriteExecutionConfirming
   }
 
   function showOldFavoriteOrganizationPendingMessage() {
@@ -1380,8 +1385,13 @@ export function FavoriteLedgerPanel({
 
   function acknowledgeOldFavoriteExecution() {
     setOldFavoriteExecutionAwaitingAcknowledgement(false)
+    setOldFavoriteExecutionConfirming(false)
     setOldFavoriteExecutionProgress(null)
-    setStatus(null)
+    setPreview(null)
+    setArchivePlanState(null)
+    setPendingUnclassifiedDecision(null)
+    clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
+    setOldFavoriteStep('scan')
   }
 
   async function backUpLedgersFromToolbar() {
@@ -2818,6 +2828,7 @@ export function FavoriteLedgerPanel({
     }
 
     setOldFavoriteExecuting(true)
+    setOldFavoriteExecutionConfirming(false)
     setOldFavoriteExecutionAwaitingAcknowledgement(false)
     setOldFavoriteExecutionProgress(null)
     setSaveStatus(null)
@@ -4238,6 +4249,29 @@ export function FavoriteLedgerPanel({
             </div>
           ) : null}
 
+          {oldFavoriteExecutionConfirming ? (
+            <div
+              className="favorite-ledger-panel__execution-dialog"
+              role="alertdialog"
+              aria-modal="true"
+              aria-label="确认开始整理？"
+            >
+              <h4>确认开始整理？</h4>
+              <p>{OLD_FAVORITE_EXECUTION_CONFIRM_MESSAGE}</p>
+              <div className="favorite-ledger-panel__execution-dialog-actions">
+                <button
+                  type="button"
+                  onClick={() => setOldFavoriteExecutionConfirming(false)}
+                >
+                  返回检查
+                </button>
+                <button type="button" onClick={() => void executeOldFavoritePlan()}>
+                  开始整理
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           {oldFavoriteStep === 'confirm' ? (
             <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
               <h4>确认执行</h4>
@@ -4256,7 +4290,7 @@ export function FavoriteLedgerPanel({
                       {oldFavoriteTargetWarning}
                     </p>
                   ) : null}
-                  <p>只会追加到 bilimi 收藏夹，不会删除、移动或取消原收藏。</p>
+                  <p>{OLD_FAVORITE_EXECUTION_NOTICE}</p>
                   {oldFavoriteExecutionProgress ? (
                     <div
                       className="favorite-ledger-panel__old-favorite-progress"
@@ -4277,13 +4311,15 @@ export function FavoriteLedgerPanel({
                     type="button"
                     disabled={
                       deepSeekArchiveRunning ||
-                      (oldFavoriteExecuting || selectedOldFavoritePlanItems.length === 0) &&
+                      (oldFavoriteExecuting ||
+                        oldFavoriteExecutionConfirming ||
+                        selectedOldFavoritePlanItems.length === 0) &&
                       !oldFavoriteExecutionAwaitingAcknowledgement
                     }
                     onClick={() =>
                       oldFavoriteExecutionAwaitingAcknowledgement
                         ? acknowledgeOldFavoriteExecution()
-                        : void executeOldFavoritePlan()
+                        : setOldFavoriteExecutionConfirming(true)
                     }
                   >
                     {oldFavoriteExecutionAwaitingAcknowledgement

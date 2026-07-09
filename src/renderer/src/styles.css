@@ -229,6 +229,7 @@ textarea,
 .favorite-ledger-panel__inbox-split,
 .favorite-ledger-panel__candidates article,
 .favorite-ledger-panel__confirm,
+.favorite-ledger-panel__execution-dialog,
 .favorite-ledger-panel__preview-video,
 .favorite-ledger-panel__target-toggle,
 .favorite-ledger-panel__target-select,
@@ -4342,6 +4343,22 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__old-favorite-progress progress {
   width: 100%;
+}
+.favorite-ledger-panel__execution-dialog {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(31, 99, 181, 0.24);
+  background: rgba(247, 251, 255, 0.96);
+  padding: 10px;
+}
+.favorite-ledger-panel__execution-dialog h4,
+.favorite-ledger-panel__execution-dialog p {
+  margin: 0;
+}
+.favorite-ledger-panel__execution-dialog-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 .favorite-ledger-prompt {
   width: min(236px, calc(100vw - 16px));
