@@ -424,6 +424,14 @@ export type DeepSeekGenerateResult =
     }
   | ({ kind: 'favorite-daily-classify-review' } & DeepSeekDailyClassificationReviewResult)
 
+export type DeepSeekTaskKind =
+  | 'comment'
+  | 'classification'
+  | 'summary'
+  | 'archive-organize'
+  | 'pet-chat'
+  | 'connection-test'
+
 export type DeepSeekKeyStatus = { configured: boolean }
 
 export type DeepSeekConnectionTestResult = { ok: boolean; message: string }

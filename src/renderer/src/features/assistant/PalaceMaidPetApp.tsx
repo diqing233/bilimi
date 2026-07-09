@@ -17,6 +17,7 @@ import {
 import { createInitialAssistantPreferences } from '../state/assistantState'
 import type { AssistantPreferences, DeepSeekChatMessage } from '@shared/types'
 import { PET_IDLE_GREETINGS, PET_WELCOME_HOME_LINES, pickPetLine } from './petInteractionLines'
+import { publishDeepSeekTask } from './deepSeekTaskSignal'
 
 const DRAG_THRESHOLD_PX = 5
 const LONG_PRESS_SUPPRESSION_MS = 350
@@ -541,6 +542,7 @@ export function PalaceMaidPetApp() {
     setChatDraft('')
     setChatBusy(true)
     setChatError('')
+    publishDeepSeekTask('pet-chat')
 
     try {
       const result = await window.bilimiDesktop?.generateDeepSeek?.({
@@ -560,6 +562,7 @@ export function PalaceMaidPetApp() {
     } catch (error) {
       setChatError(error instanceof Error ? error.message : '小咪现在还答不上来。')
     } finally {
+      publishDeepSeekTask(null)
       setChatBusy(false)
     }
   }

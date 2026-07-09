@@ -60,6 +60,7 @@ import type {
 } from './features/assistant/assistantRuntimeTypes'
 import { AssistantSidebar } from './features/assistant/AssistantSidebar'
 import { PET_VIDEO_OPENING_LINES, pickPetLine } from './features/assistant/petInteractionLines'
+import { publishDeepSeekTask } from './features/assistant/deepSeekTaskSignal'
 import { composeMemorialComments } from './features/comments/commentComposer'
 import { createCorrectionDraft } from './features/recommendation/correctionLearning'
 import type { FavoriteArchiveTarget } from './features/recommendation/archivePlanning'
@@ -1450,12 +1451,14 @@ export default function App() {
           }
         })
       }
+      publishDeepSeekTask('classification')
       const reviewPromise = window.bilimiDesktop
         .generateDeepSeek(reviewRequest)
         .then((reviewResult): DailyClassificationReviewResult | undefined =>
           reviewResult?.kind === 'favorite-daily-classify-review' ? reviewResult : undefined
         )
         .catch(() => undefined)
+        .finally(() => publishDeepSeekTask(null))
       const reviewBeforeAction = await waitForDailyReviewBeforeAction(reviewPromise)
 
       if (reviewBeforeAction.status === 'pending') {

@@ -13,6 +13,17 @@ import { FloatingAssistantApp } from './FloatingAssistantApp'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
 import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+
+  return { promise, resolve, reject }
+}
+
 function confirmOldFavoriteExecution() {
   fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
   const dialog = screen.getByRole('alertdialog', { name: '确认开始整理？' })
@@ -113,6 +124,13 @@ function createVideoNote(): VideoNote {
     createdAt: '2026-05-16T00:00:00.000Z',
     updatedAt: '2026-05-16T00:00:00.000Z'
   }
+}
+
+function createBackedFavoriteLedgers(): FavoriteLedger[] {
+  return createDefaultFavoriteLedgers().map((ledger, index) => ({
+    ...ledger,
+    bilibiliFolderId: `900${index + 1}`
+  }))
 }
 
 function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
@@ -626,6 +644,62 @@ describe('FloatingAssistantApp', () => {
     expect(screen.queryByRole('button', { name: /打开掌库/ })).not.toBeInTheDocument()
     expect(screen.queryByText(/若欲代拟奏表/)).not.toBeInTheDocument()
     expect(await screen.findByText('三分钟讲清机器学习科普教程')).toBeInTheDocument()
+  })
+
+  it('keeps long-running old favorite status out of the realtime feedback line', async () => {
+    const scanRequest = createDeferred<FavoriteLedgerPreview>()
+    const scanOldFavorites = vi.fn(() => scanRequest.promise)
+    const scanPreview = {
+      items: [
+        {
+          aid: 901,
+          title: 'AI 工具链教程',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'bilimi·学吧你就',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          originalSuggestedLedgerIds: ['knowledge'],
+          currentTargetLedgerIds: ['knowledge'],
+          selectedTargetLedgerIds: ['knowledge'],
+          lowConfidence: false
+        }
+      ],
+      skippedSourceFolderTitles: []
+    } satisfies FavoriteLedgerPreview
+    const backedLedgers = createBackedFavoriteLedgers()
+    installDesktopApi({
+      scanOldFavorites,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({ favoriteLedgers: backedLedgers }),
+          favoriteLedgerStatus: {
+            ok: true,
+            ledgers: backedLedgers,
+            missingLedgerIds: [],
+            message: '册目查验已毕。'
+          }
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await waitFor(() => expect(screen.getByLabelText('整理状态')).toHaveTextContent('已备册'))
+    fireEvent.click(screen.getByRole('tab', { name: '掌库' }))
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    await waitFor(() => expect(screen.getByLabelText('整理状态')).toHaveTextContent('旧藏扫描中'))
+    expect(screen.getByLabelText('全局提示')).not.toHaveTextContent('正在扫描旧藏')
+
+    await act(async () => {
+      scanRequest.resolve(scanPreview)
+    })
+
+    await waitFor(() => expect(screen.getByLabelText('整理状态')).toHaveTextContent('旧藏待整理 1'))
+    expect(screen.getByLabelText('全局提示')).toHaveTextContent('旧藏扫描完成，发现 1 条待整理')
   })
 
   it('keeps quick review settings compact inside action buttons', async () => {
@@ -1958,6 +2032,39 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
+  it('shows the active DeepSeek task while AI comments are being generated', async () => {
+    const preferences = createPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: true,
+      deepseekCommentEnabled: true,
+      commentSubmitMode: 'choose'
+    })
+    const commentGeneration = createDeferred<Awaited<ReturnType<NonNullable<Window['bilimiDesktop']['generateDeepSeek']>>>>()
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(createSnapshot({ preferences })),
+      generateDeepSeek: vi.fn(() => commentGeneration.promise)
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByTestId('review-action-comment'))
+
+    await waitFor(() => expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('生成评论中'))
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute('data-tone', 'running')
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
+      'title',
+      'DeepSeek 正在生成趣评候选。'
+    )
+
+    commentGeneration.resolve({
+      kind: 'review-comment',
+      comments: ['AI comment one', 'AI comment two', 'AI comment three']
+    })
+
+    await screen.findByText('AI comment one')
+    await waitFor(() => expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 已连'))
+  })
+
   it('marks ledger status as unbacked after syncing every ledger out of backup', async () => {
     const backedLedgers = createDefaultFavoriteLedgers().map((ledger, index) => ({
       ...ledger,
@@ -2754,7 +2861,8 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
 
     expect(await screen.findByRole('status')).toHaveTextContent('正在扫描旧藏，请稍候。')
-    expect(screen.getByLabelText('全局提示')).toHaveTextContent('正在扫描旧藏，请稍候。')
+    expect(screen.getByLabelText('整理状态')).toHaveTextContent('旧藏扫描中')
+    expect(screen.getByLabelText('全局提示')).not.toHaveTextContent('正在扫描旧藏，请稍候。')
     fireEvent.click(screen.getByRole('tab', { name: '批阅' }))
     expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
 
@@ -3269,6 +3377,42 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).toHaveTextContent(
       '机器学习需要数据和模型。'
     )
+  })
+
+  it('shows queued transcription work in the transcription status light', async () => {
+    installDesktopApi({
+      loadVideoAudioTranscriptionQueue: vi.fn().mockResolvedValue({
+        items: [
+          {
+            id: 'bvid:BV1queued',
+            url: 'https://www.bilibili.com/video/BV1queued',
+            title: '队列里的教程',
+            bvid: 'BV1queued',
+            status: 'pending',
+            createdAt: '2026-06-25T00:00:00.000Z',
+            updatedAt: '2026-06-25T00:00:00.000Z'
+          },
+          {
+            id: 'bvid:BV2queued',
+            url: 'https://www.bilibili.com/video/BV2queued',
+            title: '第二个队列视频',
+            bvid: 'BV2queued',
+            status: 'pending',
+            createdAt: '2026-06-25T00:01:00.000Z',
+            updatedAt: '2026-06-25T00:01:00.000Z'
+          }
+        ]
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写排队 2')
+    )
+    const transcriptionStatus = screen.getByLabelText('转写音频状态')
+    expect(transcriptionStatus).toHaveTextContent('转写排队 2')
+    expect(transcriptionStatus).toHaveAttribute('title', '还有 2 个转写任务等待处理。')
   })
 
   it('keeps the note archive open when a background transcription draft arrives in sidebar mode', async () => {

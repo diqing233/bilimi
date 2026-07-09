@@ -4,6 +4,7 @@ import type {
   DeepSeekArchiveMode,
   DeepSeekGenerateRequest,
   DeepSeekGenerateResult,
+  DeepSeekTaskKind,
   FavoriteCorrectionRecord,
   AssistantPreferences,
   FavoriteKeywordSuggestion,
@@ -57,6 +58,7 @@ import type { AssistantPetHint } from './petState'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
 import { PET_COLLAPSE_FAREWELL_LINES, pickPetLine } from './petInteractionLines'
+import { publishDeepSeekTask, subscribeDeepSeekTask } from './deepSeekTaskSignal'
 
 const CURRENT_TITLE = '等待视频加载'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
@@ -245,6 +247,39 @@ type GlobalStatusItem = {
   label: string
   detail: string
   tone: GlobalStatusTone
+}
+
+const DEEPSEEK_TASK_STATUS: Record<DeepSeekTaskKind, GlobalStatusItem> = {
+  comment: {
+    label: '生成评论中',
+    detail: 'DeepSeek 正在生成趣评候选。',
+    tone: 'running'
+  },
+  classification: {
+    label: '二判中',
+    detail: 'DeepSeek 正在复核分类。',
+    tone: 'running'
+  },
+  summary: {
+    label: '总结中',
+    detail: 'DeepSeek 正在生成文稿总结。',
+    tone: 'running'
+  },
+  'archive-organize': {
+    label: '整理中',
+    detail: 'DeepSeek 正在辅助整理旧藏。',
+    tone: 'running'
+  },
+  'pet-chat': {
+    label: '对话中',
+    detail: 'DeepSeek 正在生成小咪回复。',
+    tone: 'running'
+  },
+  'connection-test': {
+    label: '测试中',
+    detail: 'DeepSeek 正在测试连接。',
+    tone: 'running'
+  }
 }
 
 function favoriteLedgerBackupGap(ledgers: FavoriteLedger[]) {
@@ -564,6 +599,7 @@ export function FloatingAssistantApp({
     useState<'pending' | 'processed'>('pending')
   const [settingsJumpValue, setSettingsJumpValue] = useState<SettingsJumpValue>('diagnostics')
   const [globalFeedbackMessage, setGlobalFeedbackMessage] = useState('')
+  const [deepSeekTask, setDeepSeekTask] = useState<DeepSeekTaskKind | null>(null)
   const [oldFavoriteExecutionState, setOldFavoriteExecutionState] =
     useState<'idle' | 'running' | 'finished'>('idle')
   const [oldFavoriteGlobalStatus, setOldFavoriteGlobalStatus] = useState<GlobalStatusItem | null>(null)
@@ -635,6 +671,10 @@ export function FloatingAssistantApp({
       }
     }
 
+    if (deepSeekTask) {
+      return DEEPSEEK_TASK_STATUS[deepSeekTask]
+    }
+
     const runningDeepSeekItem = transcriptionQueue.items.find(
       (item) => item.status === 'running' && item.progress?.step === 'summarizing-deepseek'
     )
@@ -658,11 +698,16 @@ export function FloatingAssistantApp({
     preferences.deepseekDailyClassificationEnabled,
     preferences.deepseekEnabled,
     preferences.deepseekPetChatEnabled,
+    deepSeekTask,
     transcriptionQueue
   ])
 
   const globalLedgerStatus = useMemo<GlobalStatusItem>(() => {
     const backupGap = favoriteLedgerBackupGap(preferences.favoriteLedgers)
+
+    if (oldFavoriteGlobalStatus) {
+      return oldFavoriteGlobalStatus
+    }
 
     if (oldFavoriteExecutionState === 'running') {
       return {
@@ -670,10 +715,6 @@ export function FloatingAssistantApp({
         detail: '旧藏正在整理中。',
         tone: 'running'
       }
-    }
-
-    if (oldFavoriteGlobalStatus) {
-      return oldFavoriteGlobalStatus
     }
 
     if (favoriteLedgerStatus?.missingLedgerIds.length) {
@@ -725,6 +766,11 @@ export function FloatingAssistantApp({
       tone: PET_FEEDBACK_TONES[tone],
       message: createPetHintMessage(message)
     })
+  }
+
+  function updateDeepSeekTask(task: DeepSeekTaskKind | null) {
+    setDeepSeekTask(task)
+    publishDeepSeekTask(task)
   }
 
   function setGlobalFeedback(message: string) {
@@ -817,6 +863,10 @@ export function FloatingAssistantApp({
   useEffect(() => {
     workspaceRequestsEnabledRef.current = workspaceRequestsEnabled
   }, [workspaceRequestsEnabled])
+
+  useEffect(() => {
+    return subscribeDeepSeekTask(setDeepSeekTask)
+  }, [])
 
   useEffect(() => {
     mounted.current = true
@@ -1206,12 +1256,17 @@ export function FloatingAssistantApp({
     }
 
     tellPet('progress', '小咪正在测试 DeepSeek 连接。')
-    await saveDeepSeekSettings()
-    const result = await window.bilimiDesktop.testDeepSeekConnection()
-    const statusMessage = localizeDeepSeekStatusMessage(result.message)
-    setDeepSeekStatusMessage(statusMessage)
-    setGlobalFeedback(statusMessage)
-    tellPet(result.ok ? 'success' : 'error', statusMessage)
+    updateDeepSeekTask('connection-test')
+    try {
+      await saveDeepSeekSettings()
+      const result = await window.bilimiDesktop.testDeepSeekConnection()
+      const statusMessage = localizeDeepSeekStatusMessage(result.message)
+      setDeepSeekStatusMessage(statusMessage)
+      setGlobalFeedback(statusMessage)
+      tellPet(result.ok ? 'success' : 'error', statusMessage)
+    } finally {
+      updateDeepSeekTask(null)
+    }
   }
 
   async function resetDeepSeekSettings() {
@@ -1353,6 +1408,7 @@ export function FloatingAssistantApp({
   async function generateCommentDrafts(intent = '') {
     setCommentIntentBusy(true)
     setCommentIntentError('')
+    updateDeepSeekTask('comment')
 
     try {
       const result = await window.bilimiDesktop?.generateDeepSeek?.({
@@ -1377,6 +1433,7 @@ export function FloatingAssistantApp({
       setCommentIntentOpen(false)
       submitOrChooseCommentDrafts(commentDrafts)
     } finally {
+      updateDeepSeekTask(null)
       setCommentIntentBusy(false)
     }
   }
@@ -1637,15 +1694,19 @@ export function FloatingAssistantApp({
 
   async function generateNotePoster(note: VideoNote) {
     tellPet('progress', '小咪正在整理 DeepSeek 总结。')
-    const result = await window.bilimiDesktop?.generateDeepSeek?.({ kind: 'note-poster', note })
+    updateDeepSeekTask('summary')
+    try {
+      const result = await window.bilimiDesktop?.generateDeepSeek?.({ kind: 'note-poster', note })
+      if (!result || result.kind !== 'note-poster') {
+        tellPet('error', 'DeepSeek 总结没有生成成功。')
+        throw new Error('Poster generation failed.')
+      }
 
-    if (!result || result.kind !== 'note-poster') {
-      tellPet('error', 'DeepSeek 总结没有生成成功。')
-      throw new Error('Poster generation failed.')
+      tellPet('success', 'DeepSeek 总结做好啦。')
+      return result.poster
+    } finally {
+      updateDeepSeekTask(null)
     }
-
-    tellPet('success', 'DeepSeek 总结做好啦。')
-    return result.poster
   }
 
   async function archiveNotePosterSummary(note: VideoNote, poster: NotePosterSummary) {
@@ -1833,14 +1894,19 @@ export function FloatingAssistantApp({
     request: DeepSeekGenerateRequest
   ): Promise<DeepSeekGenerateResult | null | undefined> {
     tellPet('progress', '小咪正在请 DeepSeek 整理旧藏。')
-    const result = await window.bilimiDesktop?.generateDeepSeek?.(request)
-    tellPet(
-      result?.kind === 'favorite-archive-organize' ? 'success' : 'error',
-      result?.kind === 'favorite-archive-organize'
-        ? 'DeepSeek 旧藏整理结果已返回。'
-        : 'DeepSeek 旧藏整理没有返回可用结果。'
-    )
-    return result
+    updateDeepSeekTask('archive-organize')
+    try {
+      const result = await window.bilimiDesktop?.generateDeepSeek?.(request)
+      tellPet(
+        result?.kind === 'favorite-archive-organize' ? 'success' : 'error',
+        result?.kind === 'favorite-archive-organize'
+          ? 'DeepSeek 旧藏整理结果已返回。'
+          : 'DeepSeek 旧藏整理没有返回可用结果。'
+      )
+      return result
+    } finally {
+      updateDeepSeekTask(null)
+    }
   }
 
   function mergeDeepSeekArchiveKeywordSuggestions(suggestions: FavoriteKeywordSuggestion[]) {
@@ -1892,7 +1958,6 @@ export function FloatingAssistantApp({
 
   function handleOldFavoriteExecutionStateChange(state: 'running' | 'finished') {
     setOldFavoriteExecutionState(state)
-    setGlobalFeedback(state === 'running' ? '旧藏整理中' : '本次整理已结束')
     tellPet(
       state === 'running' ? 'progress' : 'success',
       state === 'running' ? '旧藏整理中，请耐心等待。' : '本次整理已结束。'
@@ -1909,7 +1974,15 @@ export function FloatingAssistantApp({
       detail: status.message,
       tone: status.tone
     })
-    setGlobalFeedback(status.message)
+  }
+
+  function handleOldFavoriteStageFeedback(message: string) {
+    setGlobalFeedback(message)
+  }
+
+  function handleOldFavoriteAcknowledged() {
+    setOldFavoriteExecutionState('idle')
+    setOldFavoriteGlobalStatus(null)
   }
 
   function closeAssistant() {
@@ -2017,6 +2090,8 @@ export function FloatingAssistantApp({
             onExecuteOldFavoritePlan={executeOldFavoritePlan}
             onOldFavoriteExecutionStateChange={handleOldFavoriteExecutionStateChange}
             onOldFavoriteStatusUpdate={handleOldFavoriteStatusUpdate}
+            onOldFavoriteStageFeedback={handleOldFavoriteStageFeedback}
+            onOldFavoriteAcknowledged={handleOldFavoriteAcknowledged}
             onOpenOldFavoriteVideo={onOpenInTab}
             onRejudgeOldFavorite={rejudgeOldFavorite}
             deepSeekArchiveAvailable={

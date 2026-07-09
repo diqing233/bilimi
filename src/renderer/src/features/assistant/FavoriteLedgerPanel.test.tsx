@@ -5420,6 +5420,8 @@ describe('FavoriteLedgerPanel', () => {
 
   it('shows DeepSeek archive progress across request batches', async () => {
     const resolvers: Array<(result: DeepSeekGenerateResult) => void> = []
+    const onOldFavoriteStatusUpdate = vi.fn()
+    const onOldFavoriteStageFeedback = vi.fn()
     const onOrganizeOldFavoritesWithDeepSeek = vi.fn().mockImplementation(
       () =>
         new Promise<DeepSeekGenerateResult>((resolve) => {
@@ -5448,7 +5450,9 @@ describe('FavoriteLedgerPanel', () => {
     await openArchivePreview({
       deepSeekArchiveAvailable: true,
       onScanOldFavorites,
-      onOrganizeOldFavoritesWithDeepSeek
+      onOrganizeOldFavoritesWithDeepSeek,
+      onOldFavoriteStatusUpdate,
+      onOldFavoriteStageFeedback
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
@@ -5460,6 +5464,11 @@ describe('FavoriteLedgerPanel', () => {
       'aria-valuenow',
       '0'
     )
+    expect(onOldFavoriteStatusUpdate).toHaveBeenCalledWith({
+      label: 'DeepSeek整理 0/21',
+      message: 'DeepSeek 正在辅助整理旧藏。',
+      tone: 'running'
+    })
 
     await act(async () => {
       resolvers[0]({
@@ -5476,6 +5485,11 @@ describe('FavoriteLedgerPanel', () => {
       'aria-valuenow',
       '95'
     )
+    expect(onOldFavoriteStatusUpdate).toHaveBeenCalledWith({
+      label: 'DeepSeek整理 20/21',
+      message: 'DeepSeek 正在辅助整理旧藏。',
+      tone: 'running'
+    })
 
     await act(async () => {
       resolvers[1]({
@@ -5490,6 +5504,17 @@ describe('FavoriteLedgerPanel', () => {
       'aria-valuenow',
       '100'
     )
+    expect(onOldFavoriteStatusUpdate).toHaveBeenCalledWith({
+      label: 'DeepSeek整理 21/21',
+      message: 'DeepSeek 正在辅助整理旧藏。',
+      tone: 'running'
+    })
+    expect(onOldFavoriteStatusUpdate).toHaveBeenCalledWith({
+      label: '整理待确认 21',
+      message: 'DeepSeek 整理完成，请确认执行。',
+      tone: 'warn'
+    })
+    expect(onOldFavoriteStageFeedback).toHaveBeenCalledWith('DeepSeek 整理完成，请确认执行')
   })
 
   it('applies DeepSeek archive results with displacement notice and reverts the whole run', async () => {

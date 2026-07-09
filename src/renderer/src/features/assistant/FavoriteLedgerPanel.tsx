@@ -66,6 +66,8 @@ type FavoriteLedgerPanelProps = {
     message: string
     tone: 'idle' | 'ok' | 'warn' | 'error' | 'running'
   }) => void
+  onOldFavoriteStageFeedback?: (message: string) => void
+  onOldFavoriteAcknowledged?: () => void
   onOpenOldFavoriteVideo?: (url: string) => void
   onRejudgeOldFavorite?: (item: FavoriteLedgerPreviewItem) => Promise<FavoriteLedgerPreviewItem>
   deepSeekArchiveAvailable?: boolean
@@ -1241,6 +1243,8 @@ export function FavoriteLedgerPanel({
   onExecuteOldFavoritePlan,
   onOldFavoriteExecutionStateChange,
   onOldFavoriteStatusUpdate,
+  onOldFavoriteStageFeedback,
+  onOldFavoriteAcknowledged,
   onOpenOldFavoriteVideo,
   onRejudgeOldFavorite,
   deepSeekArchiveAvailable = false,
@@ -1392,6 +1396,7 @@ export function FavoriteLedgerPanel({
     setPendingUnclassifiedDecision(null)
     clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
     setOldFavoriteStep('scan')
+    onOldFavoriteAcknowledged?.()
   }
 
   async function backUpLedgersFromToolbar() {
@@ -2021,7 +2026,7 @@ export function FavoriteLedgerPanel({
     setOldFavoriteExecutionProgress(null)
     setStatus('正在扫描旧藏，请稍候。')
     onOldFavoriteStatusUpdate?.({
-      label: '扫描旧藏',
+      label: '旧藏扫描中',
       message: '正在扫描旧藏，请稍候。',
       tone: 'running'
     })
@@ -2097,12 +2102,17 @@ export function FavoriteLedgerPanel({
         mode === 'setup'
           ? `已扫描 ${scannedCount} 条旧藏，可勾选库房后同步。`
           : `已扫描 ${normalizedPreview.items.length} 条旧藏，可勾选后整理。`
+      const scanFeedbackMessage =
+        mode === 'setup'
+          ? `旧藏扫描完成，发现 ${scannedCount} 条待备册`
+          : `旧藏扫描完成，发现 ${normalizedPreview.items.length} 条待整理`
       setStatus(scanMessage)
       onOldFavoriteStatusUpdate?.({
         label: mode === 'setup' ? `旧藏待备册 ${scannedCount}` : `旧藏待整理 ${normalizedPreview.items.length}`,
         message: scanMessage,
         tone: 'warn'
       })
+      onOldFavoriteStageFeedback?.(scanFeedbackMessage)
     } catch (error) {
       setPreview(null)
       setArchivePlanState(null)
@@ -2532,6 +2542,11 @@ export function FavoriteLedgerPanel({
       currentChunk: 1,
       totalChunks: chunks.length
     })
+    onOldFavoriteStatusUpdate?.({
+      label: `DeepSeek整理 0/${request.videos.length}`,
+      message: 'DeepSeek 正在辅助整理旧藏。',
+      tone: 'running'
+    })
     setArchivePreviewAlertMessages([])
 
     try {
@@ -2568,6 +2583,11 @@ export function FavoriteLedgerPanel({
           currentChunk: Math.min(chunkIndex + 1, chunks.length),
           totalChunks: chunks.length
         })
+        onOldFavoriteStatusUpdate?.({
+          label: `DeepSeek整理 ${completedVideos}/${request.videos.length}`,
+          message: 'DeepSeek 正在辅助整理旧藏。',
+          tone: 'running'
+        })
       }
 
       const applied = applyDeepSeekArchiveResults({
@@ -2596,6 +2616,14 @@ export function FavoriteLedgerPanel({
           ...applied.redDisplacementMessages
         ].filter((message): message is string => Boolean(message))
       )
+      const markDeepSeekArchiveReady = () => {
+        onOldFavoriteStatusUpdate?.({
+          label: `整理待确认 ${request.videos.length}`,
+          message: 'DeepSeek 整理完成，请确认执行。',
+          tone: 'warn'
+        })
+        onOldFavoriteStageFeedback?.('DeepSeek 整理完成，请确认执行')
+      }
 
       const keywordSuggestionCount = keywordSuggestions.length
       if (keywordSuggestionCount > 0) {
@@ -2605,6 +2633,7 @@ export function FavoriteLedgerPanel({
             ? `DeepSeek 返回 ${keywordSuggestionCount} 条关键词建议，已加入设置里的建议列表。`
             : `DeepSeek 返回 ${keywordSuggestionCount} 条关键词建议，暂未写入设置，可稍后处理。`
         )
+        markDeepSeekArchiveReady()
         return
       }
 
@@ -2612,10 +2641,12 @@ export function FavoriteLedgerPanel({
         setDeepSeekArchiveStatus(
           `DeepSeek 整理完成：${applied.stats.successCount} 条已应用，${applied.stats.failedCount} 条失败。`
         )
+        markDeepSeekArchiveReady()
         return
       }
 
       setDeepSeekArchiveStatus(`DeepSeek 整理完成：${applied.stats.successCount} 条已应用。`)
+      markDeepSeekArchiveReady()
     } catch (error) {
       setDeepSeekArchiveStatus(error instanceof Error ? error.message : 'DeepSeek 整理失败。')
     } finally {
@@ -2865,6 +2896,11 @@ export function FavoriteLedgerPanel({
       }
 
       setOldFavoriteExecutionProgress({ completed: 0, total: selectedItems.length })
+      onOldFavoriteStatusUpdate?.({
+        label: `确认执行 0/${selectedItems.length}`,
+        message: '正在确认执行旧藏整理。',
+        tone: 'running'
+      })
       const results: OldFavoriteExecutionResult[] = []
       const successfulTargetKeys = new Set<string>()
       for (const [index, item] of selectedItems.entries()) {
@@ -2874,6 +2910,11 @@ export function FavoriteLedgerPanel({
           successfulTargetKeys.add(archivePlanTargetKey(item))
         }
         setOldFavoriteExecutionProgress({ completed: index + 1, total: selectedItems.length })
+        onOldFavoriteStatusUpdate?.({
+          label: `确认执行 ${index + 1}/${selectedItems.length}`,
+          message: '正在确认执行旧藏整理。',
+          tone: 'running'
+        })
         if (result.paused) {
           break
         }
@@ -2901,10 +2942,20 @@ export function FavoriteLedgerPanel({
           : '本次整理已结束。'
       )
       setOldFavoriteExecutionAwaitingAcknowledgement(true)
+      onOldFavoriteStatusUpdate?.({
+        label: '整理完成',
+        message: '本次整理已结束。',
+        tone: 'ok'
+      })
       onOldFavoriteExecutionStateChange?.('finished')
     } catch (error) {
       setStatus(`整理旧藏未完成：${errorMessage(error)}`)
       setOldFavoriteExecutionAwaitingAcknowledgement(true)
+      onOldFavoriteStatusUpdate?.({
+        label: '整理失败',
+        message: `整理旧藏未完成：${errorMessage(error)}`,
+        tone: 'error'
+      })
       onOldFavoriteExecutionStateChange?.('finished')
     } finally {
       setOldFavoriteExecuting(false)
