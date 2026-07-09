@@ -109,6 +109,11 @@ describe('FavoriteLedgerPanel', () => {
     return { ...renderResult, onScanOldFavorites, preview }
   }
 
+  function selectDeepSeekArchiveScope(label: string) {
+    fireEvent.click(screen.getByRole('button', { name: '整理范围' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: label }))
+  }
+
   it('uses a compact archive selector without visible helper labels', async () => {
     const { container } = await openArchivePreview()
 
@@ -151,16 +156,48 @@ describe('FavoriteLedgerPanel', () => {
     expect(within(getPreviewArticle(container, /AI 效率工具实战/)).getByText('标签：未识别到')).toBeInTheDocument()
   })
 
-  it('offers a change-history dropdown before archive undo and redo actions', async () => {
+  it('keeps DeepSeek controls and archive change history in one combined tool card', async () => {
     await openArchivePreview()
 
-    const historyTools = screen.getByRole('group', { name: '归档预览改动操作' })
+    const toolCard = screen.getByRole('group', { name: '归档预览辅助工具' })
+    expect(toolCard.querySelector('.favorite-ledger-panel__archive-tool-divider')).toBeInTheDocument()
+    expect(toolCard.querySelector('.favorite-ledger-panel__deepseek-archive-card')).not.toBeInTheDocument()
+    expect(toolCard.querySelector('.favorite-ledger-panel__archive-history-card')).not.toBeInTheDocument()
+
+    const historyTools = within(toolCard).getByRole('group', { name: '归档预览改动操作' })
     const historySelect = within(historyTools).getByRole('combobox', { name: '改动记录' })
     const undoButton = within(historyTools).getByRole('button', { name: '撤销本次改动' })
     const redoButton = within(historyTools).getByRole('button', { name: '恢复本次改动' })
 
     expect(historySelect.compareDocumentPosition(undoButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(undoButton.compareDocumentPosition(redoButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('uses a compact scope dropdown button before the DeepSeek organize button', async () => {
+    const onOrganizeOldFavoritesWithDeepSeek = vi.fn().mockResolvedValue({
+      kind: 'favorite-archive-organize',
+      results: [],
+      keywordSuggestions: []
+    } satisfies DeepSeekGenerateResult)
+    await openArchivePreview({
+      deepSeekArchiveAvailable: true,
+      onOrganizeOldFavoritesWithDeepSeek
+    })
+
+    expect(screen.queryByRole('combobox', { name: 'DeepSeek 辅助整理范围' })).not.toBeInTheDocument()
+
+    const toolCard = screen.getByRole('group', { name: '归档预览辅助工具' })
+    const scopeButton = within(toolCard).getByRole('button', { name: '整理范围' })
+    const deepSeekButton = within(toolCard).getByRole('button', { name: 'DeepSeek 整理' })
+    expect(scopeButton).toHaveAttribute('title', '当前选择：不太稳 + 未匹配到合适分类')
+    expect(scopeButton.compareDocumentPosition(deepSeekButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    fireEvent.click(scopeButton)
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'DeepSeek 进行二次整理' }))
+    expect(scopeButton).toHaveAttribute('title', '当前选择：DeepSeek 进行二次整理')
+
+    fireEvent.click(deepSeekButton)
+    await waitFor(() => expect(onOrganizeOldFavoritesWithDeepSeek).toHaveBeenCalledWith('all', expect.anything()))
   })
 
   it('uses compact stacked-arrow help toggles without text glyphs', async () => {
@@ -920,9 +957,9 @@ describe('FavoriteLedgerPanel', () => {
       'AI 效率工具实战'
     )
 
-    const modeSelect = screen.getByLabelText('DeepSeek 辅助整理范围')
-    modeSelect.focus()
-    fireEvent.keyDown(modeSelect, { key: 'z', ctrlKey: true })
+    const historySelect = screen.getByLabelText('改动记录')
+    historySelect.focus()
+    fireEvent.keyDown(historySelect, { key: 'z', ctrlKey: true })
 
     expect(screen.getByRole('group', { name: 'bilimi·游戏专区 1 条' })).toHaveTextContent(
       'AI 效率工具实战'
@@ -4742,30 +4779,28 @@ describe('FavoriteLedgerPanel', () => {
     expect(onOrganizeOldFavoritesWithDeepSeek).not.toHaveBeenCalled()
   })
 
-  it('presents DeepSeek organization and archive undo as separate preview tools', async () => {
+  it('presents DeepSeek organization and archive undo in a combined preview tool', async () => {
     await openArchivePreview({
       deepSeekArchiveAvailable: true,
       onOrganizeOldFavoritesWithDeepSeek: vi.fn()
     })
 
-    const deepSeekCard = screen.getByRole('group', { name: 'DeepSeek 辅助整理' })
-    expect(deepSeekCard).toHaveClass('favorite-ledger-panel__deepseek-archive-card')
+    const toolCard = screen.getByRole('group', { name: '归档预览辅助工具' })
+    expect(toolCard).toHaveClass('favorite-ledger-panel__archive-tool-card')
+    expect(toolCard.querySelector('.favorite-ledger-panel__archive-tool-divider')).toBeInTheDocument()
+
+    const deepSeekCard = within(toolCard).getByRole('group', { name: 'DeepSeek 辅助整理' })
     expect(within(deepSeekCard).getByText('DeepSeek 辅助整理')).toBeInTheDocument()
+    expect(within(deepSeekCard).getByRole('button', { name: '整理范围' })).toHaveAttribute(
+      'title',
+      '当前选择：不太稳 + 未匹配到合适分类'
+    )
     expect(within(deepSeekCard).getByRole('button', { name: 'DeepSeek 整理' })).toBeInTheDocument()
-    expect(within(deepSeekCard).getByText('整理范围')).toBeInTheDocument()
-    const scopeSelect = within(deepSeekCard).getByLabelText<HTMLSelectElement>('DeepSeek 辅助整理范围')
-    expect(scopeSelect).toBeInTheDocument()
-    expect(Array.from(scopeSelect.options).map((option) => option.textContent)).toEqual([
-      '不太稳 + 未匹配到合适分类',
-      'DeepSeek 进行二次整理',
-      '仅未匹配到合适分类'
-    ])
     expect(
       within(deepSeekCard).getByText(/将发送标题、UP、标签、简介、来源收藏夹、当前建议和 bilimi 册目信息/)
     ).toBeInTheDocument()
 
-    const undoTools = screen.getByRole('group', { name: '归档预览改动操作' })
-    expect(undoTools).toHaveClass('favorite-ledger-panel__archive-history-card')
+    const undoTools = within(toolCard).getByRole('group', { name: '归档预览改动操作' })
     expect(within(undoTools).getByRole('button', { name: '撤销本次改动' })).toBeInTheDocument()
     expect(within(undoTools).getByRole('button', { name: '恢复本次改动' })).toBeInTheDocument()
     expect(within(undoTools).getByText(/Ctrl\+Z 撤销，Ctrl\+Shift\+Z 恢复/)).toBeInTheDocument()
@@ -4789,10 +4824,12 @@ describe('FavoriteLedgerPanel', () => {
       onOrganizeOldFavoritesWithDeepSeek
     })
 
-    const modeSelect = screen.getByLabelText<HTMLSelectElement>('DeepSeek 辅助整理范围')
-    expect(modeSelect.value).toBe('low-confidence-and-unclassified')
+    expect(screen.getByRole('button', { name: '整理范围' })).toHaveAttribute(
+      'title',
+      '当前选择：不太稳 + 未匹配到合适分类'
+    )
 
-    fireEvent.change(modeSelect, { target: { value: 'all' } })
+    selectDeepSeekArchiveScope('DeepSeek 进行二次整理')
     expect(onOrganizeOldFavoritesWithDeepSeek).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
@@ -4820,9 +4857,7 @@ describe('FavoriteLedgerPanel', () => {
       onOrganizeOldFavoritesWithDeepSeek
     })
 
-    fireEvent.change(screen.getByLabelText('DeepSeek 辅助整理范围'), {
-      target: { value: 'unclassified-only' }
-    })
+    selectDeepSeekArchiveScope('仅未匹配到合适分类')
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
 
     await waitFor(() => expect(onOrganizeOldFavoritesWithDeepSeek).toHaveBeenCalledOnce())
@@ -4859,12 +4894,8 @@ describe('FavoriteLedgerPanel', () => {
     const originalVideo = getPreviewVideoButton(originalGroup, /AI 效率工具实战/)
     const originalTargetToggle = getPreviewTargetToggle(originalGroup, /AI 效率工具实战/)
 
-    fireEvent.change(screen.getByLabelText('DeepSeek 辅助整理范围'), {
-      target: { value: 'all' }
-    })
-    fireEvent.change(screen.getByLabelText('DeepSeek 辅助整理范围'), {
-      target: { value: 'all' }
-    })
+    selectDeepSeekArchiveScope('DeepSeek 进行二次整理')
+    selectDeepSeekArchiveScope('DeepSeek 进行二次整理')
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
     expect(await screen.findByText('DeepSeek 正在整理旧藏...')).toBeInTheDocument()
     expect(originalTargetToggle).toHaveAttribute('aria-disabled', 'true')
@@ -4956,9 +4987,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByLabelText('bilimi·AI效率工坊')).not.toBeChecked()
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
 
-    fireEvent.change(screen.getByLabelText('DeepSeek 辅助整理范围'), {
-      target: { value: 'all' }
-    })
+    selectDeepSeekArchiveScope('DeepSeek 进行二次整理')
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
     expect(await screen.findByText('DeepSeek 正在整理旧藏...')).toBeInTheDocument()
 

@@ -77,6 +77,11 @@ function createResult(message = '已代批。'): AssistantAutomationResult {
   }
 }
 
+function selectDeepSeekArchiveScope(label: string) {
+  fireEvent.click(screen.getByRole('button', { name: '整理范围' }))
+  fireEvent.click(screen.getByRole('menuitemradio', { name: label }))
+}
+
 function createVideoNote(): VideoNote {
   return {
     id: 'bvid:BV1note',
@@ -397,9 +402,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
-    fireEvent.change(screen.getByLabelText('DeepSeek 辅助整理范围'), {
-      target: { value: 'all' }
-    })
+    selectDeepSeekArchiveScope('DeepSeek 进行二次整理')
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
 
     await waitFor(() =>
@@ -533,9 +536,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
-    fireEvent.change(screen.getByLabelText('DeepSeek 辅助整理范围'), {
-      target: { value: 'all' }
-    })
+    selectDeepSeekArchiveScope('DeepSeek 进行二次整理')
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
 
     await waitFor(() =>
