@@ -7,16 +7,21 @@ const styles = readFileSync(stylesPath, 'utf8').replace(/\r\n/g, '\n')
 
 describe('VideoNoteArchivePanel layout styles', () => {
   it('makes the return-to-notes button visually prominent in the archive header', () => {
-    expect(styles).toContain('.video-note-archive__return-button {\n  min-height: 34px;')
-    expect(styles).toContain('padding: 5px 10px;')
-    expect(styles).toContain('border-width: 1.5px;')
-    expect(styles).toContain('background: rgba(255, 254, 253, 0.92);')
-    expect(styles).toContain('color: var(--porcelain-deep);')
-    expect(styles).toContain('font-size: 13px;')
-    expect(styles).toContain('font-weight: 700;')
-    expect(styles).toContain(
-      '.video-note-archive__return-button:hover:not(:disabled),\n.video-note-archive__return-button:focus-visible:not(:disabled) {'
-    )
+    const returnButtonStyle = styles.match(/\.video-note-archive__return-button \{[^}]+\}/)?.[0]
+
+    expect(returnButtonStyle).toContain('min-height: 34px;')
+    expect(returnButtonStyle).toContain('padding: 5px 10px;')
+    expect(returnButtonStyle).toContain('border-width: 1.5px;')
+    expect(returnButtonStyle).toContain('background: var(--porcelain-white);')
+    expect(returnButtonStyle).toContain('color: var(--porcelain-text);')
+    expect(returnButtonStyle).toContain('font-size: 13px;')
+    expect(returnButtonStyle).toContain('font-weight: 700;')
+
+    const hoverStyle = styles.match(
+      /\.video-note-archive__return-button:hover:not\(:disabled\),\n\.video-note-archive__return-button:focus-visible:not\(:disabled\) \{[^}]+\}/
+    )?.[0]
+    expect(hoverStyle).toContain('background: var(--porcelain-white);')
+    expect(hoverStyle).toContain('color: var(--porcelain-text);')
   })
 
   it('keeps the bordered global archive surfaces rounded', () => {

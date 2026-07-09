@@ -2700,8 +2700,8 @@ body[data-floating-window="true"],
   padding: 5px 10px;
   border-width: 1.5px;
   border-color: rgba(31, 99, 181, 0.46);
-  background: rgba(255, 254, 253, 0.92);
-  color: var(--porcelain-deep);
+  background: var(--porcelain-white);
+  color: var(--porcelain-text);
   font-size: 13px;
   font-weight: 700;
   box-shadow: 0 3px 8px rgba(31, 99, 181, 0.12);
@@ -2710,7 +2710,7 @@ body[data-floating-window="true"],
 .video-note-archive__return-button:focus-visible:not(:disabled) {
   border-color: rgba(31, 99, 181, 0.7);
   background: var(--porcelain-white);
-  color: var(--porcelain-deep);
+  color: var(--porcelain-text);
   box-shadow: 0 5px 12px rgba(31, 99, 181, 0.16);
 }
 .video-note-archive__toolbar,
