@@ -1501,7 +1501,7 @@ describe('App runtime integration', () => {
     expect(result).toEqual(
       expect.objectContaining({
         ok: true,
-        message: expect.stringContaining('已用 B 站接口归入 bilimi 收藏夹')
+        message: expect.stringContaining('已归类存入 bilimi·生活日常')
       })
     )
     await waitFor(() =>
@@ -1626,7 +1626,7 @@ describe('App runtime integration', () => {
     expect(result).toEqual(
       expect.objectContaining({
         ok: true,
-        message: expect.stringContaining('已用 B 站接口归入 bilimi 收藏夹')
+        message: expect.stringContaining('已归类存入 bilimi·生活日常')
       })
     )
     await waitFor(() =>
@@ -1744,7 +1744,7 @@ describe('App runtime integration', () => {
     expect(result).toEqual(
       expect.objectContaining({
         ok: true,
-        message: expect.stringContaining('已用 B 站接口归入 bilimi 收藏夹')
+        message: expect.stringContaining('已归类存入 bilimi·生活日常')
       })
     )
     await waitFor(() =>
@@ -1834,7 +1834,7 @@ describe('App runtime integration', () => {
     expect(result).toEqual(
       expect.objectContaining({
         ok: true,
-        message: expect.stringContaining('已用 B 站接口归入 bilimi 收藏夹')
+        message: expect.stringContaining('已归类存入 bilimi·生活日常')
       })
     )
   })

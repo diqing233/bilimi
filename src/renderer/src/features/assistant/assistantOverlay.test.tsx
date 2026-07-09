@@ -259,7 +259,7 @@ describe('AssistantOverlay', () => {
       message: '轻赏已入内库。'
     })
 
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('轻赏已入内库。'))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('已点赞，归类存入 bilimi·暂存。'))
   })
 
   it('lets the user confirm create-and-favorite without triggering a like action', async () => {

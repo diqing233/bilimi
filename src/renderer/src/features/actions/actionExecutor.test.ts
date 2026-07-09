@@ -37,6 +37,7 @@ describe('executeAssistantAction', () => {
     expect(result.steps).toEqual(
       expect.arrayContaining(['favorite:open', 'favorite', 'api:favorite:list', 'api:favorite:add'])
     )
+    expect(result.message).toBe('已归类存入 bilimi·影视动漫。')
   })
 
   it('passes multiple planned Bilimi archive targets to the API confirmation layer', async () => {
@@ -98,7 +99,7 @@ describe('executeAssistantAction', () => {
     expect(result).toEqual(
       expect.objectContaining({
         ok: true,
-        message: 'DeepSeek 建议改归 bilimi·生活日常：旅行攻略更匹配。\n已用 B 站接口归入 bilimi 收藏夹。'
+        message: 'DeepSeek 建议改归 bilimi·生活日常：旅行攻略更匹配。\n已归类存入 bilimi·生活日常。'
       })
     )
   })
@@ -134,6 +135,7 @@ describe('executeAssistantAction', () => {
     expect(result.steps).toEqual(
       expect.arrayContaining(['like', 'favorite', 'api:favorite:list', 'api:favorite:add'])
     )
+    expect(result.message).toBe('已点赞，归类存入 bilimi·影视动漫。')
   })
 
   it('falls back to visual favorite automation when DOM creation cannot find targets', async () => {
@@ -285,6 +287,7 @@ describe('executeAssistantAction', () => {
     expect(result.steps).toEqual(
       expect.arrayContaining(['favorite', 'coin:confirm', 'api:favorite:list', 'api:favorite:add'])
     )
+    expect(result.message).toBe('已一键三连，归类存入 bilimi·影视动漫。')
   })
 
   it('uses shortcut-driven visual favorite automation instead of the API when page clicks only are requested', async () => {
@@ -363,7 +366,7 @@ describe('executeAssistantAction', () => {
       ok: true,
       steps: ['like', 'favorite:open', 'favorite:folder', 'favorite'],
       missingTargets: [],
-      message: '轻赏已入内库。'
+      message: '已点赞，归类存入 bilimi·影视动漫。'
     })
   })
 
