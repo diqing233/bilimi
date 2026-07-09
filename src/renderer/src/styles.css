@@ -1614,7 +1614,7 @@ body[data-floating-window="true"],
   min-width: 0;
   min-height: 0;
   height: 100%;
-  overflow: hidden;
+  overflow: visible;
 }
 .assistant-sidebar-workspace .memorial-panel,
 .assistant-sidebar-workspace .favorite-ledger-panel,

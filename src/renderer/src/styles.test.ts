@@ -215,7 +215,7 @@ describe('renderer porcelain theme styles', () => {
 
   it('keeps every assistant sidebar panel stretched to the ledger frame height', () => {
     expectStyleSnippet(
-      '.assistant-sidebar-workspace .floating-assistant-view { min-width: 0; min-height: 0; height: 100%; overflow: hidden;'
+      '.assistant-sidebar-workspace .floating-assistant-view { min-width: 0; min-height: 0; height: 100%; overflow: visible;'
     )
     expectStyleSnippet(
       '.assistant-sidebar-workspace .memorial-panel, .assistant-sidebar-workspace .favorite-ledger-panel, .assistant-sidebar-workspace .video-note-archive, .assistant-sidebar-workspace .assistant-settings { width: 100%; height: 100%; max-height: none; box-sizing: border-box; box-shadow: none;'
@@ -235,6 +235,9 @@ describe('renderer porcelain theme styles', () => {
     )
     expectStyleSnippet(
       '.assistant-sidebar-workspace .memorial-panel__paper, .assistant-sidebar-workspace .favorite-ledger-panel, .assistant-sidebar-workspace .video-note-archive { width: auto; margin-right: calc(var(--assistant-sidebar-panel-overhang) * -1);'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .floating-assistant-view { min-width: 0; min-height: 0; height: 100%; overflow: visible;'
     )
     expectStyleSnippet(
       '.assistant-sidebar-workspace .memorial-panel__paper { padding-right: calc(8px + var(--assistant-sidebar-panel-overhang));'
