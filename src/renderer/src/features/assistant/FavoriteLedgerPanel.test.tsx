@@ -1,4 +1,5 @@
 ﻿import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
+import { DEEPSEEK_CONSTRAINT_MARKER } from '@shared/favoriteLedgerConstraints'
 import type { DeepSeekGenerateResult, FavoriteLedger } from '@shared/types'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
@@ -1847,6 +1848,9 @@ describe('FavoriteLedgerPanel', () => {
     expect(ledgerRegion.querySelector('.favorite-ledger-panel__sync-hint')).toHaveTextContent(
       '自定义你的bilimi收藏夹，点击收藏名字可以进行编辑，添加好后点击【同步】即可更新到b站；取消勾选再点击同步，也会删除对应的 bilimi 收藏夹。'
     )
+    expect(ledgerRegion.querySelector('.favorite-ledger-panel__sync-hint')).toHaveTextContent(
+      'DeepSeek约束只在开启 DeepSeek 后作为辅助判断参考'
+    )
 
     const visibleLedgerNames = Array.from(
       ledgerRegion.querySelector('.favorite-ledger-panel__chips')?.children ?? []
@@ -1996,6 +2000,47 @@ describe('FavoriteLedgerPanel', () => {
         ])
       )
     )
+  })
+
+  it('locks the rule type for default ledgers while keeping name and keywords editable', async () => {
+    const onSaveLedgers = vi.fn()
+    renderPanel({ onSaveLedgers })
+
+    fireEvent.click(screen.getByRole('button', { name: '知识学习' }))
+
+    const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
+    expect(editor.getByLabelText('收藏夹种类')).toBeDisabled()
+    expect(editor.getByLabelText('收藏夹种类')).toHaveValue('keyword')
+
+    fireEvent.change(editor.getByLabelText('册名'), { target: { value: '知识库' } })
+    fireEvent.change(editor.getByLabelText('关键词'), { target: { value: '课程 教程 学术' } })
+    fireEvent.click(editor.getByRole('button', { name: '保存' }))
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+
+    await waitFor(() =>
+      expect(onSaveLedgers).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'knowledge',
+            displayName: 'bilimi·知识库',
+            keywords: ['课程', '教程', '学术'],
+            isDefault: true
+          })
+        ])
+      )
+    )
+  })
+
+  it('warns when a non-inbox default ledger is saved without local keywords', () => {
+    renderPanel()
+
+    fireEvent.click(screen.getByRole('button', { name: '知识学习' }))
+
+    const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
+    fireEvent.change(editor.getByLabelText('关键词'), { target: { value: '' } })
+    fireEvent.click(editor.getByRole('button', { name: '保存' }))
+
+    expect(screen.getByRole('status')).toHaveTextContent('默认分类关键词已清空')
   })
 
   it('adds a disabled ledger to sync without asking for confirmation', async () => {
@@ -2148,6 +2193,91 @@ describe('FavoriteLedgerPanel', () => {
         ])
       )
     )
+  })
+
+  it.each([
+    {
+      ruleType: 'keyword',
+      ruleLabel: '关键词',
+      name: 'AI资料',
+      localRules: 'AI 教程',
+      expectedLocalRules: ['AI', '教程'],
+      constraint: '只收可复用的学习资料，排除带货软广。'
+    },
+    {
+      ruleType: 'author',
+      ruleLabel: 'UP 名字',
+      name: '追更',
+      localRules: '影视飓风、罗翔说刑法',
+      expectedLocalRules: ['影视飓风', '罗翔说刑法'],
+      constraint: '优先收系列长视频，不收切片搬运。'
+    },
+    {
+      ruleType: 'tag',
+      ruleLabel: '标签',
+      name: '摄影标签',
+      localRules: '摄影 后期',
+      expectedLocalRules: ['摄影', '后期'],
+      constraint: '只收教程和案例复盘，排除器材广告。'
+    }
+  ] as const)('saves a separate DeepSeek constraint for $ruleType ledgers', async ({
+    ruleType,
+    ruleLabel,
+    name,
+    localRules,
+    expectedLocalRules,
+    constraint
+  }) => {
+    const onSaveLedgers = vi.fn()
+    renderPanel({ onSaveLedgers })
+
+    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹' }))
+
+    const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
+    fireEvent.change(editor.getByLabelText('收藏夹种类'), { target: { value: ruleType } })
+    fireEvent.change(editor.getByLabelText('册名'), { target: { value: name } })
+    fireEvent.change(editor.getByLabelText(ruleLabel), { target: { value: localRules } })
+    fireEvent.change(editor.getByLabelText('DeepSeek约束'), { target: { value: constraint } })
+    fireEvent.click(editor.getByRole('button', { name: '保存' }))
+
+    fireEvent.click(screen.getByRole('button', { name: `加入同步 bilimi·${name}` }))
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+
+    await waitFor(() =>
+      expect(onSaveLedgers).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            displayName: `bilimi·${name}`,
+            keywords: [...expectedLocalRules, DEEPSEEK_CONSTRAINT_MARKER, constraint],
+            ruleType,
+            enabled: true,
+            isDefault: false
+          })
+        ])
+      )
+    )
+  })
+
+  it('splits a legacy inline DeepSeek constraint into the separate constraint field', () => {
+    const ledgers = [
+      ...createDefaultFavoriteLedgers(),
+      {
+        id: 'custom-photo',
+        displayName: 'bilimi·摄影',
+        keywords: ['摄影', '后期', DEEPSEEK_CONSTRAINT_MARKER, '只收教程和案例复盘。'],
+        ruleType: 'tag' as const,
+        enabled: true,
+        priority: 999,
+        isDefault: false
+      }
+    ]
+    renderPanel({ ledgers })
+
+    fireEvent.click(screen.getByRole('button', { name: '摄影' }))
+
+    const editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
+    expect(editor.getByLabelText('标签')).toHaveValue('摄影、后期')
+    expect(editor.getByLabelText('DeepSeek约束')).toHaveValue('只收教程和案例复盘。')
   })
 
   it('edits a new ledger as a DeepSeek constraint collection', async () => {
@@ -2384,9 +2514,8 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(editor.queryByRole('button', { name: '删除末词' })).not.toBeInTheDocument()
     expect(editor.queryByRole('button', { name: '新增关键词' })).not.toBeInTheDocument()
-    expect(
-      screen.getByText('不同关键词用顿号或空格隔开，逗号、斜杠也能识别；也可添加【DeepSeek约束】，其后的内容只给 DeepSeek 参考。')
-    ).toBeInTheDocument()
+    expect(screen.getByText('不同关键词用顿号或空格隔开，逗号、斜杠也能识别。')).toBeInTheDocument()
+    expect(editor.getByLabelText('DeepSeek约束')).toBeInTheDocument()
 
     fireEvent.click(editor.getByRole('button', { name: '保存' }))
 
@@ -2593,9 +2722,8 @@ describe('FavoriteLedgerPanel', () => {
     expect(
       screen.getByText('建议优先填写 B 站标签里的词；标签命中权重最高，标题、分区、简介等信息会辅助判断。')
     ).toBeInTheDocument()
-    expect(
-      screen.getByText('不同关键词用顿号或空格隔开，逗号、斜杠也能识别；也可添加【DeepSeek约束】，其后的内容只给 DeepSeek 参考。')
-    ).toBeInTheDocument()
+    expect(screen.getByText('不同关键词用顿号或空格隔开，逗号、斜杠也能识别。')).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: '当前收藏夹' })).getByLabelText('DeepSeek约束')).toBeInTheDocument()
   })
 
   it('deletes only Bilimi custom ledgers after 同步', async () => {

@@ -5,6 +5,8 @@
 - Updated the in-app browser tab strip so multiple open video tabs compress before horizontal scrolling, without leading tab icons.
 - Improved old-favorite archive preview with stronger local classification, editable and reversible target choices, optional DeepSeek-assisted organization, and safer correction/keyword learning settings.
 - Added DeepSeek constraint favorite ledgers and `【DeepSeek约束】` sections so enabled folders can provide AI-only classification guidance without affecting local keyword matching.
+- Locked the default favorite categories to keyword rules while keeping names and keywords editable, with a warning when non-staging defaults lose all local keywords.
+- Split DeepSeek constraints into a dedicated editor field for keyword, UP, and tag favorite ledgers so users no longer need to type the marker manually.
 - Added batch archive-preview change summaries and card-level source notices for DeepSeek moves, staging moves, and generated-ledger selections, with undo/redo preserving generated ledger choices.
 - Kept the note archive's opened video detail visible when returning from review or a folded assistant session, while avoiding restore after a new app session.
 - Added close settings for minimizing to the system tray or exiting bilimi, with an optional remembered confirmation choice before direct exit.

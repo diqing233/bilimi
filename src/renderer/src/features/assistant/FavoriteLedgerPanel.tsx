@@ -128,17 +128,34 @@ function splitLedgerRuleText(value: string, ruleType: FavoriteLedgerRuleType) {
     return value.trim() ? [value.trim()] : []
   }
 
-  if (!value.includes(DEEPSEEK_CONSTRAINT_MARKER)) {
-    return splitKeywords(value)
+  return splitKeywords(value)
+}
+
+function splitLedgerKeywordSections(ledger: FavoriteLedger) {
+  const markerIndex = ledger.keywords.findIndex((keyword) => keyword === DEEPSEEK_CONSTRAINT_MARKER)
+  if (markerIndex < 0) {
+    return {
+      localKeywords: ledger.keywords,
+      deepSeekConstraint: ''
+    }
   }
 
-  const [localRuleText = '', ...constraintParts] = value.split(DEEPSEEK_CONSTRAINT_MARKER)
-  const deepSeekConstraint = constraintParts.join(DEEPSEEK_CONSTRAINT_MARKER).trim()
-  return [
-    ...splitKeywords(localRuleText),
-    DEEPSEEK_CONSTRAINT_MARKER,
-    ...(deepSeekConstraint ? [deepSeekConstraint] : [])
-  ]
+  return {
+    localKeywords: ledger.keywords.slice(0, markerIndex),
+    deepSeekConstraint: ledger.keywords.slice(markerIndex + 1).join('\n').trim()
+  }
+}
+
+function composeLedgerKeywords(
+  ruleText: string,
+  deepSeekConstraint: string,
+  ruleType: FavoriteLedgerRuleType
+) {
+  const localKeywords = splitLedgerRuleText(ruleText, ruleType)
+  const constraint = deepSeekConstraint.trim()
+  return constraint && ruleType !== 'deepseek'
+    ? [...localKeywords, DEEPSEEK_CONSTRAINT_MARKER, constraint]
+    : localKeywords
 }
 
 function ledgerRuleText(ledger: FavoriteLedger) {
@@ -146,16 +163,15 @@ function ledgerRuleText(ledger: FavoriteLedger) {
     return ledger.keywords.join('\n')
   }
 
-  const markerIndex = ledger.keywords.findIndex((keyword) => keyword === DEEPSEEK_CONSTRAINT_MARKER)
-  if (markerIndex < 0) {
-    return ledger.keywords.join('、')
+  return splitLedgerKeywordSections(ledger).localKeywords.join('、')
+}
+
+function ledgerDeepSeekConstraintText(ledger: FavoriteLedger) {
+  if ((ledger.ruleType ?? 'keyword') === 'deepseek') {
+    return ''
   }
 
-  const localKeywords = ledger.keywords.slice(0, markerIndex).join('、')
-  const deepSeekConstraint = ledger.keywords.slice(markerIndex + 1).join('\n')
-  return [localKeywords, DEEPSEEK_CONSTRAINT_MARKER, deepSeekConstraint]
-    .filter((part) => part.trim())
-    .join('\n')
+  return splitLedgerKeywordSections(ledger).deepSeekConstraint
 }
 
 function customLedgerId(name: string) {
@@ -245,7 +261,18 @@ function ruleSecondaryHint(ruleType: FavoriteLedgerRuleType) {
   if (ruleType === 'deepseek') {
     return 'DeepSeek 未开启时不会自动命中；需要本地规则时请选择关键词、UP 或标签收藏夹。'
   }
-  return `不同关键词用顿号或空格隔开，逗号、斜杠也能识别；也可添加${DEEPSEEK_CONSTRAINT_MARKER}，其后的内容只给 DeepSeek 参考。`
+  return '不同关键词用顿号或空格隔开，逗号、斜杠也能识别。'
+}
+
+function defaultLedgerKeywordWarning(ledger: FavoriteLedger) {
+  const ruleType = ledgerRuleType(ledger)
+  const localKeywordCount =
+    ruleType === 'deepseek'
+      ? ledger.keywords.filter((keyword) => keyword.trim()).length
+      : splitLedgerKeywordSections(ledger).localKeywords.length
+  return ledger.isDefault && ledger.id !== 'inbox' && localKeywordCount === 0
+    ? '默认分类关键词已清空，本地识别能力会明显下降，未命中的内容可能进入暂存。'
+    : ''
 }
 
 function alreadyHasLedger(ledgers: FavoriteLedger[], displayName: string) {
@@ -1320,6 +1347,7 @@ export function FavoriteLedgerPanel({
     [activeLedgerIndex, draftLedgers]
   )
   const activeLedgerRuleType = activeLedger ? ledgerRuleType(activeLedger) : 'keyword'
+  const activeLedgerDeepSeekConstraint = activeLedger ? ledgerDeepSeekConstraintText(activeLedger) : ''
   const activeLedgerHasUnsavedChanges = useMemo(() => {
     if (!activeLedger) {
       return false
@@ -1590,7 +1618,12 @@ export function FavoriteLedgerPanel({
     )
     setActiveLedgerSavedSnapshot(ledgerEditorSnapshot(nextLedger))
     setStatus(null)
-    setSaveStatus('已保存到草稿，请勾选后点击同步。')
+    const keywordWarning = defaultLedgerKeywordWarning(nextLedger)
+    setSaveStatus(
+      keywordWarning
+        ? `已保存到草稿，请勾选后点击同步。${keywordWarning}`
+        : '已保存到草稿，请勾选后点击同步。'
+    )
   }
 
   function setAllLedgersEnabled(enabled: boolean) {
@@ -3508,7 +3541,13 @@ export function FavoriteLedgerPanel({
           </div>
         </div>
         {ledgerHintExpanded ? (
-          <p className="favorite-ledger-panel__sync-hint">{LEDGER_SYNC_HINT}</p>
+          <div className="favorite-ledger-panel__sync-hint">
+            <p>{LEDGER_SYNC_HINT}</p>
+            <p>
+              关键词、UP 名字和标签用于本地识别；DeepSeek约束只在开启 DeepSeek 后作为辅助判断参考，
+              不需要手动输入{DEEPSEEK_CONSTRAINT_MARKER}。
+            </p>
+          </div>
         ) : null}
         <div className="favorite-ledger-panel__chips">
           {ledgersToDisplay.map((ledger, ledgerIndex) => {
@@ -3591,10 +3630,15 @@ export function FavoriteLedgerPanel({
             <span>册名</span>
             <select
               aria-label="收藏夹种类"
+              disabled={activeLedger.isDefault}
               value={activeLedgerRuleType}
-              onChange={(event) =>
+              onChange={(event) => {
+                if (activeLedger.isDefault) {
+                  return
+                }
+
                 updateActiveLedger({ ruleType: event.currentTarget.value as FavoriteLedgerRuleType })
-              }
+              }}
             >
               {LEDGER_RULE_TYPE_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -3628,11 +3672,32 @@ export function FavoriteLedgerPanel({
               value={ledgerRuleText(activeLedger)}
               onChange={(event) =>
                 updateActiveLedger({
-                  keywords: splitLedgerRuleText(event.currentTarget.value, activeLedgerRuleType)
+                  keywords: composeLedgerKeywords(
+                    event.currentTarget.value,
+                    activeLedgerDeepSeekConstraint,
+                    activeLedgerRuleType
+                  )
                 })
               }
             />
           </label>
+          {activeLedgerRuleType !== 'deepseek' ? (
+            <label>
+              DeepSeek约束
+              <textarea
+                value={activeLedgerDeepSeekConstraint}
+                onChange={(event) =>
+                  updateActiveLedger({
+                    keywords: composeLedgerKeywords(
+                      ledgerRuleText(activeLedger),
+                      event.currentTarget.value,
+                      activeLedgerRuleType
+                    )
+                  })
+                }
+              />
+            </label>
+          ) : null}
           <p className="favorite-ledger-panel__keyword-hint">
             {rulePrimaryHint(activeLedgerRuleType)}
           </p>
