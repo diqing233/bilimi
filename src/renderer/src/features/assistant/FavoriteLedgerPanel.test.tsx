@@ -1,5 +1,5 @@
 ﻿import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
-import type { DeepSeekGenerateResult } from '@shared/types'
+import type { DeepSeekGenerateResult, FavoriteLedger } from '@shared/types'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
@@ -325,18 +325,20 @@ describe('FavoriteLedgerPanel', () => {
 
       const knowledgeGroup = getPreviewArticle(container, /AI 效率工具实战/).closest('section')
       const gameGroup = getPreviewArticle(container, /游戏区保底视频/).closest('section')
-      expect(knowledgeGroup).toBeDefined()
-      expect(gameGroup).toBeDefined()
-      const knowledgeTrack = knowledgeGroup.querySelector<HTMLElement>(
+      expect(knowledgeGroup).not.toBeNull()
+      expect(gameGroup).not.toBeNull()
+      const knowledgeSection = knowledgeGroup!
+      const gameSection = gameGroup!
+      const knowledgeTrack = knowledgeSection.querySelector<HTMLElement>(
         '.favorite-ledger-panel__preview-videos'
       )
-      const gameTrack = gameGroup.querySelector<HTMLElement>('.favorite-ledger-panel__preview-videos')
+      const gameTrack = gameSection.querySelector<HTMLElement>('.favorite-ledger-panel__preview-videos')
       expect(knowledgeTrack).toBeDefined()
       expect(gameTrack).toBeDefined()
       knowledgeTrack!.scrollLeft = 128
       gameTrack!.scrollLeft = 96
 
-      fireEvent.change(within(knowledgeGroup).getByLabelText('调整分类 AI 效率工具实战'), {
+      fireEvent.change(within(knowledgeSection).getByLabelText('调整分类 AI 效率工具实战'), {
         target: { value: 'game' }
       })
 
@@ -347,14 +349,16 @@ describe('FavoriteLedgerPanel', () => {
       )
       const updatedKnowledgeGroup = getPreviewArticle(container, /知识区保底视频/).closest('section')
       const updatedGameGroup = getPreviewArticle(container, /AI 效率工具实战/).closest('section')
-      expect(updatedKnowledgeGroup).toBeDefined()
-      expect(updatedGameGroup).toBeDefined()
+      expect(updatedKnowledgeGroup).not.toBeNull()
+      expect(updatedGameGroup).not.toBeNull()
+      const updatedKnowledgeSection = updatedKnowledgeGroup!
+      const updatedGameSection = updatedGameGroup!
       expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'nearest' })
-      expect(updatedKnowledgeGroup.querySelector('.favorite-ledger-panel__preview-videos')).toHaveProperty(
+      expect(updatedKnowledgeSection.querySelector('.favorite-ledger-panel__preview-videos')).toHaveProperty(
         'scrollLeft',
         0
       )
-      expect(updatedGameGroup.querySelector('.favorite-ledger-panel__preview-videos')).toHaveProperty(
+      expect(updatedGameSection.querySelector('.favorite-ledger-panel__preview-videos')).toHaveProperty(
         'scrollLeft',
         0
       )
@@ -539,9 +543,17 @@ describe('FavoriteLedgerPanel', () => {
           selectedTargetLedgerIds: [],
           lowConfidence: true,
           classificationDiagnostic: {
+            score: 0.4,
             lowConfidence: true,
             scoreGap: 0.08,
-            matchedSignals: ['标题只命中弱关键词', '标签不足']
+            confidence: 'low',
+            matchedKeywords: [],
+            strongSignals: [],
+            weakSignals: ['标题只命中弱关键词', '标签不足'],
+            entityAliases: [],
+            conceptClusters: [],
+            positiveRules: [],
+            negativeRules: []
           }
         }
       ],
@@ -2162,7 +2174,7 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '同步' }))
 
     await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
-    const savedLedgers = onSaveLedgers.mock.calls[0][0]
+    const savedLedgers = onSaveLedgers.mock.calls[0][0] as FavoriteLedger[]
     const savedLedgerIds = savedLedgers.map((ledger) => ledger.id)
     expect(savedLedgerIds.indexOf('music')).toBeLessThan(savedLedgerIds.indexOf('knowledge'))
     expect(savedLedgers.find((ledger) => ledger.id === 'music')!.priority).toBeLessThan(
@@ -2227,7 +2239,9 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '同步' }))
 
     await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
-    const savedLedgerIds = onSaveLedgers.mock.calls[0][0].map((ledger) => ledger.id)
+    const savedLedgerIds = (onSaveLedgers.mock.calls[0][0] as FavoriteLedger[]).map(
+      (ledger) => ledger.id
+    )
     expect(savedLedgerIds.indexOf('music')).toBe(savedLedgerIds.indexOf('game') - 1)
     expect(savedLedgerIds.indexOf('music')).toBeLessThan(savedLedgerIds.indexOf('movie-tv'))
     expect(savedLedgerIds.indexOf('game')).toBeLessThan(savedLedgerIds.indexOf('movie-tv'))
@@ -5071,6 +5085,7 @@ describe('FavoriteLedgerPanel', () => {
           originalSuggestedLedgerIds: ['knowledge'],
           currentTargetLedgerIds: ['knowledge'],
           selectedTargetLedgerIds: ['knowledge'],
+          lowConfidence: false,
           candidateTargets: [
             {
               candidateKey: 'tag-cluster:AI',

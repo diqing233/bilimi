@@ -1,6 +1,11 @@
 ﻿import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
-import type { AssistantPreferences } from '@shared/types'
+import type {
+  AssistantAutomationResult,
+  AssistantPreferences,
+  DeepSeekGenerateRequest,
+  DeepSeekGenerateResult
+} from '@shared/types'
 import { describe, expect, it, vi } from 'vitest'
 import App, { VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS } from './App'
 import type {
@@ -306,7 +311,7 @@ describe('App runtime integration', () => {
 
     let snapshotFromImmediateReload: AssistantRuntimeResponsePayload | undefined
     let immediateReload: Promise<void> | undefined
-    desktopApi.notifyAssistantSnapshotChanged.mockImplementation(() => {
+    ;(desktopApi.notifyAssistantSnapshotChanged as ReturnType<typeof vi.fn>).mockImplementation(() => {
       immediateReload = requestRuntimeDirect({
         id: 'snapshot-title-immediate',
         type: 'snapshot'
@@ -669,7 +674,7 @@ describe('App runtime integration', () => {
       )
     })
 
-    const result = await requestRuntime({
+    const result = (await requestRuntime({
       id: 'run-danmaku-trusted-input',
       type: 'run-action',
       action: '表',
@@ -677,7 +682,7 @@ describe('App runtime integration', () => {
         commentDraft: 'typed',
         submitComment: true
       }
-    })
+    })) as AssistantAutomationResult
 
     expect(writeText).toHaveBeenCalledWith('typed')
     expect(writeText.mock.invocationCallOrder[0]).toBeLessThan(
@@ -1394,7 +1399,9 @@ describe('App runtime integration', () => {
 
   it('adjusts an already-favorited local target when DeepSeek daily review returns after the action', async () => {
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
-    const generateDeepSeek = vi.fn(
+    const generateDeepSeek = vi.fn<
+      (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
+    >(
       () =>
         new Promise((resolve) => {
           setTimeout(
@@ -1507,7 +1514,7 @@ describe('App runtime integration', () => {
     await waitFor(() =>
       expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith(
         expect.objectContaining({
-          tone: 'success',
+          tone: 'happy',
           message: expect.stringContaining('DeepSeek 后台已改归 bilimi·游戏专区')
         })
       )
@@ -1530,7 +1537,9 @@ describe('App runtime integration', () => {
 
   it('keeps local favorite state and skips confirmed learning when delayed DeepSeek adjustment fails', async () => {
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
-    const generateDeepSeek = vi.fn(
+    const generateDeepSeek = vi.fn<
+      (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
+    >(
       () =>
         new Promise((resolve) => {
           setTimeout(
@@ -1649,7 +1658,9 @@ describe('App runtime integration', () => {
 
   it('reports delayed DeepSeek adjustment script errors without confirmed learning', async () => {
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
-    const generateDeepSeek = vi.fn(
+    const generateDeepSeek = vi.fn<
+      (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
+    >(
       () =>
         new Promise((resolve) => {
           setTimeout(
@@ -1763,7 +1774,9 @@ describe('App runtime integration', () => {
   })
 
   it('returns the local favorite result without waiting for a hanging delayed DeepSeek review', async () => {
-    const generateDeepSeek = vi.fn(() => new Promise(() => undefined))
+    const generateDeepSeek = vi.fn<
+      (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
+    >(() => new Promise(() => undefined))
     const preferences = createAppPreferences({
       deepseekEnabled: true,
       deepseekApiKeyStored: true,
@@ -1888,8 +1901,10 @@ describe('App runtime integration', () => {
       id: 'run-daily-deepseek-comment',
       type: 'run-action',
       action: '表',
-      submitComment: true,
-      commentDraft: '很好看'
+      options: {
+        submitComment: true,
+        commentDraft: '很好看'
+      }
     })
 
     expect(generateDeepSeek).not.toHaveBeenCalled()

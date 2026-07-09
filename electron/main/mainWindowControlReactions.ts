@@ -4,10 +4,11 @@ export const MAIN_WINDOW_CLOSE_FAREWELL_DELAY_MS = 900
 
 type MainWindowControlTarget = {
   close: () => void
-  on: (
-    eventName: 'minimize' | 'restore' | 'maximize' | 'unmaximize' | 'close',
-    handler: (...args: unknown[]) => void
-  ) => void
+  on(eventName: 'minimize', handler: (...args: unknown[]) => void): unknown
+  on(eventName: 'restore', handler: (...args: unknown[]) => void): unknown
+  on(eventName: 'maximize', handler: (...args: unknown[]) => void): unknown
+  on(eventName: 'unmaximize', handler: (...args: unknown[]) => void): unknown
+  on(eventName: 'close', handler: (...args: unknown[]) => void): unknown
 }
 
 type MainWindowControlReactionsOptions = {

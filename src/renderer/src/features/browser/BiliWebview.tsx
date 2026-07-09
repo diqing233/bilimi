@@ -352,7 +352,8 @@ export function BiliWebview({
   return (
     <webview
       ref={(node) => {
-        ref.current = node
+        ref.current = node as Electron.WebviewTag | null
+        node?.setAttribute('allowpopups', model.allowpopups)
       }}
       id={tabId === 'home' ? 'bilimi-webview' : `bilimi-webview-${tabId}`}
       className={`browser-surface${active ? '' : ' browser-surface--hidden'}`}
@@ -360,7 +361,6 @@ export function BiliWebview({
       data-tab-id={tabId}
       src={model.src}
       partition={model.partition}
-      allowpopups={model.allowpopups}
     />
   )
 }

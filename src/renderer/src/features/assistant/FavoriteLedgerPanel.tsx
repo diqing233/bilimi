@@ -528,18 +528,10 @@ function normalizeOldFavoritePreviewItem(
     targets: currentTargets.length > 0 ? [...currentTargets, ...existingUnselectedTargets] : []
   }
 
-  if ('originalSuggestedLedgerIds' in item) {
-    nextItem.originalSuggestedLedgerIds = originalSuggestedLedgerIds
-  }
-  if ('currentTargetLedgerIds' in item) {
-    nextItem.currentTargetLedgerIds = currentTargetLedgerIds
-  }
-  if ('selectedTargetLedgerIds' in item) {
-    nextItem.selectedTargetLedgerIds = selectedTargetLedgerIds
-  }
-  if ('lowConfidence' in item || item.classificationDiagnostic) {
-    nextItem.lowConfidence = item.lowConfidence ?? Boolean(item.classificationDiagnostic?.lowConfidence)
-  }
+  nextItem.originalSuggestedLedgerIds = originalSuggestedLedgerIds
+  nextItem.currentTargetLedgerIds = currentTargetLedgerIds
+  nextItem.selectedTargetLedgerIds = selectedTargetLedgerIds
+  nextItem.lowConfidence = item.lowConfidence ?? Boolean(item.classificationDiagnostic?.lowConfidence)
 
   return nextItem
 }
@@ -775,7 +767,9 @@ function lowConfidenceDetailText(item: FavoriteLedgerPreviewItem) {
     diagnostic?.scoreGap !== undefined
       ? `当前分类比第二候选高 ${diagnostic.scoreGap.toFixed(2)}`
       : null,
-    ...(diagnostic?.matchedSignals ?? [])
+    ...(diagnostic?.matchedKeywords ?? []),
+    ...(diagnostic?.strongSignals ?? []),
+    ...(diagnostic?.weakSignals ?? [])
   ].filter(Boolean)
 
   return details.length > 0 ? details.join('、') : '暂无更多细节'
@@ -2496,7 +2490,7 @@ export function FavoriteLedgerPanel({
 
       clearDeepSeekArchiveRunSnapshot()
       if (archivePlanState) {
-        const nextState = {
+        const nextState: FavoriteArchivePlanState = {
           ...archivePlanState,
           items: archivePlanState.items.map((planItem) =>
             planItem.aid === item.aid && planItem.sourceFolderTitle === item.sourceFolderTitle
@@ -2566,8 +2560,11 @@ export function FavoriteLedgerPanel({
       setActiveLedgerIndex(null)
       setActiveLedgerSavedSnapshot(null)
 
-      const savedLedgers = Array.isArray((saveResult as { ledgers?: FavoriteLedger[] } | undefined)?.ledgers)
-        ? (saveResult as { ledgers: FavoriteLedger[] }).ledgers
+      const saveResultWithLedgers = saveResult as
+        | (AssistantAutomationResult & { ledgers?: FavoriteLedger[] })
+        | undefined
+      const savedLedgers = Array.isArray(saveResultWithLedgers?.ledgers)
+        ? saveResultWithLedgers.ledgers
         : nextLedgers
       const selectedItems = (
         archivePlanState

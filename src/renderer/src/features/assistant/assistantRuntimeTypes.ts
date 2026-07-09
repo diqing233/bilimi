@@ -71,6 +71,12 @@ export type AssistantRuntimeRequest =
       request: DeepSeekGenerateRequest
     }
 
+export type AssistantRuntimeRequestInput = AssistantRuntimeRequest extends infer Request
+  ? Request extends { id: string }
+    ? Omit<Request, 'id'>
+    : never
+  : never
+
 export type AssistantRuntimeResponsePayload =
   | AssistantSnapshot
   | AssistantAutomationResult

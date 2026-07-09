@@ -1130,7 +1130,7 @@ export function FloatingAssistantApp({
   }
 
   async function resetDeepSeekSettings() {
-    const nextPreferences = {
+    const nextPreferences = createInitialAssistantPreferences({
       ...preferencesRef.current,
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
@@ -1141,7 +1141,7 @@ export function FloatingAssistantApp({
       deepseekDailyClassificationMode: 'all',
       deepseekModel: DEFAULT_DEEPSEEK_MODEL,
       deepseekBaseUrl: DEFAULT_DEEPSEEK_BASE_URL
-    }
+    })
 
     setDeepSeekApiKeyDraft('')
     await window.bilimiDesktop?.clearDeepSeekApiKey?.()

@@ -167,7 +167,7 @@ export function AssistantOverlay({
   const [dragState, setDragState] = useState<DragState | null>(null)
   const dragStateRef = useRef<DragState | null>(null)
   const suppressSealClickRef = useRef(false)
-  const suppressSealClickTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null)
+  const suppressSealClickTimerRef = useRef<number | null>(null)
   const [coinPromptOpen, setCoinPromptOpen] = useState(false)
   const [commentChooserOpen, setCommentChooserOpen] = useState(false)
   const [ledgerPanelOpen, setLedgerPanelOpen] = useState(false)

@@ -228,7 +228,7 @@ describe('AssistantOverlay', () => {
       <AssistantOverlay
         runScript={runScript}
         favoritesFolderName="bilimi 内库"
-        storedPreferences={{
+        storedPreferences={createInitialAssistantPreferences({
           favoritesFolderName: 'bilimi 内库',
           favoriteLedgers: [],
           ledgerPromptDismissed: true,
@@ -243,7 +243,7 @@ describe('AssistantOverlay', () => {
           deepseekModel: 'deepseek-v4-flash',
           deepseekBaseUrl: 'https://api.deepseek.com',
           preferenceCounts: {}
-        }}
+        })}
       />
     )
 
@@ -332,7 +332,7 @@ describe('AssistantOverlay', () => {
         runScript={runScript}
         favoritesFolderName="bilimi 内库"
         onRecordFeedback={onRecordFeedback}
-        storedPreferences={{
+        storedPreferences={createInitialAssistantPreferences({
           favoritesFolderName: 'bilimi 内库',
           ledgerPromptDismissed: false,
           petStyle: 'big-head',
@@ -356,7 +356,7 @@ describe('AssistantOverlay', () => {
               isDefault: false
             }
           ]
-        }}
+        })}
         videoContentContext={{
           title: '稍后仔细看的视频'
         }}
@@ -439,7 +439,7 @@ describe('AssistantOverlay', () => {
         runScript={runScript}
         runVisualFallback={runVisualFallback}
         favoritesFolderName="bilimi 内库"
-        storedPreferences={{
+        storedPreferences={createInitialAssistantPreferences({
           favoritesFolderName: 'bilimi 内库',
           favoriteLedgers: [],
           ledgerPromptDismissed: true,
@@ -454,7 +454,7 @@ describe('AssistantOverlay', () => {
           deepseekModel: 'deepseek-v4-flash',
           deepseekBaseUrl: 'https://api.deepseek.com',
           preferenceCounts: {}
-        }}
+        })}
       />
     )
 
@@ -598,14 +598,14 @@ describe('AssistantOverlay', () => {
       <AssistantOverlay
         runScript={runScript}
         favoritesFolderName="bilimi 内库"
-        storedPreferences={{
+        storedPreferences={createInitialAssistantPreferences({
           favoritesFolderName: 'bilimi 内库',
           favoriteLedgers: [],
           ledgerPromptDismissed: true,
           petStyle: 'big-head',
           petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
           hidePetDuringVideoFullscreen: false,
-          bilibiliOperationMode: 'page',
+          bilibiliOperationMode: 'page-visual',
           favoriteArchiveMultiMode: 'off',
           commentSubmitMode: 'manual' as never,
           deepseekEnabled: false,
@@ -614,7 +614,7 @@ describe('AssistantOverlay', () => {
           deepseekModel: 'deepseek-v4-flash',
           deepseekBaseUrl: 'https://api.deepseek.com',
           preferenceCounts: {}
-        }}
+        })}
         videoContentContext={{
           title: '早八生存实录',
           author: '早八观察员'
@@ -647,7 +647,7 @@ describe('AssistantOverlay', () => {
         <AssistantOverlay
           runScript={runScript}
           favoritesFolderName="bilimi 内库"
-          storedPreferences={{
+          storedPreferences={createInitialAssistantPreferences({
             favoritesFolderName: 'bilimi 内库',
             favoriteLedgers: [],
             ledgerPromptDismissed: true,
@@ -666,7 +666,7 @@ describe('AssistantOverlay', () => {
             deepseekModel: 'deepseek-v4-flash',
             deepseekBaseUrl: 'https://api.deepseek.com',
             preferenceCounts: {}
-          }}
+          })}
           videoContentContext={{
             title: '早八生存实录',
             author: '早八观察员'

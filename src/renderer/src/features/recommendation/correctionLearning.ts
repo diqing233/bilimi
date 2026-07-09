@@ -65,7 +65,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeStringArray(value: unknown): string[] {
   return Array.isArray(value)
-    ? Array.from(new Set(value.filter((item): item is string => typeof item === 'string' && item.trim())))
+    ? Array.from(
+        new Set(value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0))
+      )
     : []
 }
 

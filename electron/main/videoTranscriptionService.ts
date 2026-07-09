@@ -1,4 +1,3 @@
-import type { Session } from 'electron'
 import { rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type {
@@ -10,16 +9,14 @@ import type {
 } from '../../src/shared/types'
 import { downloadVideoAudio } from './audioDownload'
 import { segmentAudioForTranscription, type AudioSegment } from './audioSegmenter'
-import { exportBilibiliCookiesToFile } from './bilibiliCookieExport'
+import { exportBilibiliCookiesToFile, type CookieSessionLike } from './bilibiliCookieExport'
 import { resolveMediaToolPaths } from './mediaToolPaths'
 import { transcribeAudioSegmentWithLocalWhisper } from './localWhisperTranscription'
 import { runProcess } from './audioDownload'
 
-type ServiceSessionLike = Pick<Session, 'cookies'>
-
 type ServiceDeps = {
   request: VideoAudioTranscriptionRequest
-  session: ServiceSessionLike
+  session: CookieSessionLike
   tempDir: string
   progress?: (progress: VideoAudioTranscriptionProgress) => void
   resolveTools?: typeof resolveMediaToolPaths

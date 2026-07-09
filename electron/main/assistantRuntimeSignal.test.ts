@@ -4,6 +4,16 @@ import {
   requestAssistantRuntimeWhenReady
 } from './assistantRuntimeSignal'
 import type { AssistantRuntimeResponse } from './assistantRuntimeSignal'
+import type { AssistantAutomationResult } from '../../src/shared/types'
+
+function createAutomationResult(ok: boolean): AssistantAutomationResult {
+  return {
+    ok,
+    steps: [],
+    missingTargets: [],
+    message: ok ? 'ok' : 'failed'
+  }
+}
 
 function createRuntimeTarget(isLoading: boolean) {
   let finishLoad: (() => void) | undefined
@@ -65,7 +75,11 @@ describe('requestAssistantRuntimeWhenReady', () => {
           targetDisplayName: 'bilimi·暂存',
           reviewRequired: false,
           alreadyInTarget: false,
-          selected: false
+          selected: false,
+          originalSuggestedLedgerIds: [],
+          currentTargetLedgerIds: [],
+          selectedTargetLedgerIds: [],
+          lowConfidence: false
         }
       })
     ).toBe(30 * 60 * 1000)
@@ -85,7 +99,7 @@ describe('requestAssistantRuntimeWhenReady', () => {
   it('sends a runtime request immediately when the renderer is loaded', async () => {
     const { target, send } = createRuntimeTarget(false)
     const bus = createResponseBus()
-    const promise = requestAssistantRuntimeWhenReady<{ ok: boolean }>({
+    const promise = requestAssistantRuntimeWhenReady<AssistantAutomationResult>({
       createRequestId: () => 'req-1',
       request: { type: 'snapshot' },
       responseBus: bus,
@@ -98,9 +112,9 @@ describe('requestAssistantRuntimeWhenReady', () => {
       type: 'snapshot'
     })
 
-    bus.emitResponse({ id: 'req-1', ok: true, payload: { ok: true } })
+    bus.emitResponse({ id: 'req-1', ok: true, payload: createAutomationResult(true) })
 
-    await expect(promise).resolves.toEqual({ ok: true })
+    await expect(promise).resolves.toMatchObject({ ok: true })
   })
 
   it('waits for renderer load before sending the runtime request', () => {
@@ -145,7 +159,7 @@ describe('requestAssistantRuntimeWhenReady', () => {
   it('ignores responses for other runtime request ids', async () => {
     const { target } = createRuntimeTarget(false)
     const bus = createResponseBus()
-    const promise = requestAssistantRuntimeWhenReady<{ ok: boolean }>({
+    const promise = requestAssistantRuntimeWhenReady<AssistantAutomationResult>({
       createRequestId: () => 'req-4',
       request: { type: 'snapshot' },
       responseBus: bus,
@@ -153,10 +167,10 @@ describe('requestAssistantRuntimeWhenReady', () => {
       timeoutMs: 100
     })
 
-    bus.emitResponse({ id: 'other', ok: true, payload: { ok: false } })
-    bus.emitResponse({ id: 'req-4', ok: true, payload: { ok: true } })
+    bus.emitResponse({ id: 'other', ok: true, payload: createAutomationResult(false) })
+    bus.emitResponse({ id: 'req-4', ok: true, payload: createAutomationResult(true) })
 
-    await expect(promise).resolves.toEqual({ ok: true })
+    await expect(promise).resolves.toMatchObject({ ok: true })
   })
 
   it('keeps audio note generation alive past the default quick request timeout', async () => {
@@ -165,7 +179,7 @@ describe('requestAssistantRuntimeWhenReady', () => {
     try {
       const { target } = createRuntimeTarget(false)
       const bus = createResponseBus()
-      const promise = requestAssistantRuntimeWhenReady<{ ok: boolean }>({
+      const promise = requestAssistantRuntimeWhenReady<AssistantAutomationResult>({
         createRequestId: () => 'req-5',
         request: { type: 'generate-video-note-from-audio' },
         responseBus: bus,
@@ -174,9 +188,9 @@ describe('requestAssistantRuntimeWhenReady', () => {
 
       await vi.advanceTimersByTimeAsync(8000)
 
-      bus.emitResponse({ id: 'req-5', ok: true, payload: { ok: true } })
+      bus.emitResponse({ id: 'req-5', ok: true, payload: createAutomationResult(true) })
 
-      await expect(promise).resolves.toEqual({ ok: true })
+      await expect(promise).resolves.toMatchObject({ ok: true })
     } finally {
       vi.useRealTimers()
     }
@@ -188,7 +202,7 @@ describe('requestAssistantRuntimeWhenReady', () => {
     try {
       const { target } = createRuntimeTarget(false)
       const bus = createResponseBus()
-      const promise = requestAssistantRuntimeWhenReady<{ ok: boolean }>({
+      const promise = requestAssistantRuntimeWhenReady<AssistantAutomationResult>({
         createRequestId: () => 'req-6',
         request: { type: 'scan-old-favorites' },
         responseBus: bus,
@@ -197,9 +211,9 @@ describe('requestAssistantRuntimeWhenReady', () => {
 
       await vi.advanceTimersByTimeAsync(8000)
 
-      bus.emitResponse({ id: 'req-6', ok: true, payload: { ok: true } })
+      bus.emitResponse({ id: 'req-6', ok: true, payload: createAutomationResult(true) })
 
-      await expect(promise).resolves.toEqual({ ok: true })
+      await expect(promise).resolves.toMatchObject({ ok: true })
     } finally {
       vi.useRealTimers()
     }
@@ -211,7 +225,7 @@ describe('requestAssistantRuntimeWhenReady', () => {
     try {
       const { target } = createRuntimeTarget(false)
       const bus = createResponseBus()
-      const promise = requestAssistantRuntimeWhenReady<{ ok: boolean }>({
+      const promise = requestAssistantRuntimeWhenReady<AssistantAutomationResult>({
         createRequestId: () => 'req-7',
         request: {
           type: 'run-action',
@@ -224,9 +238,9 @@ describe('requestAssistantRuntimeWhenReady', () => {
 
       await vi.advanceTimersByTimeAsync(8000)
 
-      bus.emitResponse({ id: 'req-7', ok: true, payload: { ok: true } })
+      bus.emitResponse({ id: 'req-7', ok: true, payload: createAutomationResult(true) })
 
-      await expect(promise).resolves.toEqual({ ok: true })
+      await expect(promise).resolves.toMatchObject({ ok: true })
     } finally {
       vi.useRealTimers()
     }

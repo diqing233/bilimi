@@ -18,7 +18,12 @@ describe('video transcription service', () => {
         },
         session: { cookies: { get: vi.fn().mockResolvedValue([]) } },
         tempDir: 'C:/tmp/job',
-        resolveTools: () => ({ ytdlpPath: 'yt-dlp', ffmpegPath: 'ffmpeg' }),
+        resolveTools: () => ({
+          ytdlpPath: 'yt-dlp',
+          ffmpegPath: 'ffmpeg',
+          whisperCliPath: 'whisper-cli',
+          whisperModelPath: 'ggml-model.bin'
+        }),
         exportCookies: vi.fn().mockResolvedValue({ path: 'C:/tmp/cookies.txt', cookieCount: 1 }),
         downloadAudio: vi.fn().mockResolvedValue({ audioPath: 'C:/tmp/audio.m4a' }),
         segmentAudio: vi.fn().mockResolvedValue([
@@ -69,7 +74,12 @@ describe('video transcription service', () => {
         },
         session: { cookies: { get: vi.fn().mockResolvedValue([]) } },
         tempDir: 'C:/tmp/job',
-        resolveTools: () => ({ ytdlpPath: 'yt-dlp', ffmpegPath: 'ffmpeg' }),
+        resolveTools: () => ({
+          ytdlpPath: 'yt-dlp',
+          ffmpegPath: 'ffmpeg',
+          whisperCliPath: 'whisper-cli',
+          whisperModelPath: 'ggml-model.bin'
+        }),
         exportCookies: vi.fn().mockResolvedValue({ path: 'C:/tmp/cookies.txt', cookieCount: 1 }),
         downloadAudio: vi.fn().mockRejectedValue(new Error('Audio download failed.')),
         segmentAudio: vi.fn(),

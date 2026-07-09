@@ -77,6 +77,7 @@ import type {
   VideoNote
 } from '../../src/shared/types'
 import type {
+  AssistantRuntimeRequestInput,
   AssistantRuntimeRequest,
   AssistantSnapshot,
   FloatingAssistantActionOptions,
@@ -547,9 +548,7 @@ function ensureMainWindowForAssistantRuntime() {
   return mainWindow
 }
 
-function requestMainAssistantRuntime<TPayload>(
-  request: Omit<AssistantRuntimeRequest, 'id'>
-): Promise<TPayload> {
+function requestMainAssistantRuntime<TPayload>(request: AssistantRuntimeRequestInput): Promise<TPayload> {
   return requestAssistantRuntimeWhenReady<TPayload>({
     createRequestId: createAssistantRuntimeRequestId,
     request,

@@ -120,6 +120,18 @@ function createFakeStore(
     videoAudioTranscriptionQueue: initial.videoAudioTranscriptionQueue ?? []
   }
   const setCalls: unknown[] = []
+  const set: AssistantStoreLike['set'] = (
+    keyOrValues: Partial<DesktopStoreState> | keyof DesktopStoreState,
+    value?: DesktopStoreState[keyof DesktopStoreState]
+  ) => {
+    setCalls.push(keyOrValues)
+    if (typeof keyOrValues === 'object') {
+      Object.assign(snapshot, keyOrValues)
+      return
+    }
+
+    Object.assign(snapshot, { [keyOrValues]: value })
+  }
 
   return {
     setCalls,
@@ -130,15 +142,7 @@ function createFakeStore(
     has(key) {
       return Object.prototype.hasOwnProperty.call(snapshot, key)
     },
-    set(key, value) {
-      setCalls.push(key)
-      if (typeof key === 'object') {
-        Object.assign(snapshot, key)
-        return
-      }
-
-      Object.assign(snapshot, { [key]: value })
-    }
+    set
   }
 }
 

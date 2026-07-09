@@ -370,7 +370,7 @@ export function PalaceMaidPetApp() {
 
   async function runShortcutWithPetResult(
     workingMessage: string,
-    action: () => Promise<{ ok?: boolean; message?: string } | null | undefined>,
+    action: () => Promise<{ ok?: boolean; message?: string } | null | undefined> | undefined,
     fallbackMessage: string
   ) {
     showLocalPetHint('working', workingMessage)
@@ -483,9 +483,10 @@ export function PalaceMaidPetApp() {
     }
 
     if (shortcut.intent === 'video-action' && shortcut.action) {
+      const action = shortcut.action
       void runShortcutWithPetResult(
         `主人，小咪这就去办「${shortcut.label}」。`,
-        () => window.bilimiDesktop?.runFloatingMenuAction?.(shortcut.action),
+        () => window.bilimiDesktop?.runFloatingMenuAction?.(action),
         `「${shortcut.label}」已经处理好了。`
       )
       return

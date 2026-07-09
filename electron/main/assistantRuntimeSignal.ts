@@ -1,4 +1,5 @@
 import type {
+  AssistantRuntimeRequestInput,
   AssistantRuntimeRequest,
   AssistantRuntimeResponsePayload
 } from '../../src/renderer/src/features/assistant/assistantRuntimeTypes'
@@ -22,8 +23,6 @@ type AssistantRuntimeResponseBus = {
     callback: (_event: unknown, response: AssistantRuntimeResponse) => void
   ) => void
 }
-
-type AssistantRuntimeRequestInput = Omit<AssistantRuntimeRequest, 'id'>
 
 const QUICK_RUNTIME_REQUEST_TIMEOUT_MS = 8000
 const ACTION_RUNTIME_REQUEST_TIMEOUT_MS = 60 * 1000

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AssistantPetHint, AssistantPetState } from './petState'
 import type { AssistantPreferences } from '@shared/types'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
+import { createInitialAssistantPreferences } from '../state/assistantState'
 
 vi.mock('./LayeredPetRenderer', () => ({
   LayeredPetRenderer: ({
@@ -26,7 +27,7 @@ vi.mock('./LayeredPetRenderer', () => ({
 import { PalaceMaidPetApp } from './PalaceMaidPetApp'
 
 function createPreferences(overrides: Partial<AssistantPreferences> = {}): AssistantPreferences {
-  return {
+  return createInitialAssistantPreferences({
     favoritesFolderName: 'Bilimi',
     favoriteLedgers: [],
     ledgerPromptDismissed: true,
@@ -45,7 +46,7 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     deepseekModel: 'deepseek-v4-flash',
     deepseekBaseUrl: 'https://api.deepseek.com',
     ...overrides
-  }
+  })
 }
 
 function createSnapshot(overrides: Partial<AssistantSnapshot> = {}): AssistantSnapshot {
@@ -461,24 +462,7 @@ describe('PalaceMaidPetApp', () => {
     expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-style', 'big-head')
 
     act(() => {
-      preferencesChanged?.({
-        favoritesFolderName: 'Bilimi',
-        favoriteLedgers: [],
-        ledgerPromptDismissed: true,
-        preferenceCounts: {},
-        petStyle: 'classic',
-        petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
-        hidePetDuringVideoFullscreen: false,
-        bilibiliOperationMode: 'api-assisted',
-        favoriteArchiveMultiMode: 'off',
-        deepseekEnabled: false,
-        deepseekApiKeyStored: false,
-        deepseekCommentEnabled: false,
-        deepseekAutoSummaryEnabled: false,
-        deepseekPetChatEnabled: false,
-        deepseekModel: 'deepseek-v4-flash',
-        deepseekBaseUrl: 'https://api.deepseek.com'
-      })
+      preferencesChanged?.(createPreferences({ petStyle: 'classic' }))
     })
 
     expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-style', 'classic')

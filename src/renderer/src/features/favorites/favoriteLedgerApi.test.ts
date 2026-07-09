@@ -1,5 +1,6 @@
 ﻿import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import { describe, expect, it, vi } from 'vitest'
+import type { FavoriteLedger } from '@shared/types'
 import {
   buildEnsureFavoriteLedgersScript,
   buildExecuteFavoriteLedgerPlanScript,
@@ -44,7 +45,7 @@ describe('favorite ledger API scripts', () => {
         .filter((ledger) => ledger.id !== 'knowledge' && ledger.enabled)
         .map((ledger) => ledger.id)
     )
-    expect(result.ledgers.find((ledger) => ledger.id === 'knowledge')?.bilibiliFolderId).toBe('1')
+    expect((result.ledgers as FavoriteLedger[]).find((ledger) => ledger.id === 'knowledge')?.bilibiliFolderId).toBe('1')
   })
 
   it('creates only missing enabled ledgers', async () => {
@@ -130,7 +131,7 @@ describe('favorite ledger API scripts', () => {
 
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:create:inbox'])
-    expect(result.ledgers.find((ledger) => ledger.id === 'inbox')?.bilibiliFolderId).toBe('9002')
+    expect((result.ledgers as FavoriteLedger[]).find((ledger) => ledger.id === 'inbox')?.bilibiliFolderId).toBe('9002')
     const createRequest = requests.find((request) => request.url.includes('/folder/add'))
     expect(createRequest?.body).toContain(`title=${encodeURIComponent(inboxLedger.displayName)}`)
   })
@@ -182,7 +183,7 @@ describe('favorite ledger API scripts', () => {
     expect(requests.filter((request) => request.url.includes('/folder/add'))).toHaveLength(1)
     expect(requests[1].body).toContain('csrf=csrf-token')
     expect(requests[1].body).toContain(`title=${encodeURIComponent('bilimi·Custom')}`)
-    expect(result.ledgers.find((ledger) => ledger.id === 'custom-bilimi')?.bilibiliFolderId).toBe(
+    expect((result.ledgers as FavoriteLedger[]).find((ledger) => ledger.id === 'custom-bilimi')?.bilibiliFolderId).toBe(
       '9002'
     )
   })
@@ -216,7 +217,7 @@ describe('favorite ledger API scripts', () => {
 
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:create:inbox'])
-    expect(result.ledgers.find((ledger) => ledger.id === 'inbox')?.bilibiliFolderId).toBe('9002')
+    expect((result.ledgers as FavoriteLedger[]).find((ledger) => ledger.id === 'inbox')?.bilibiliFolderId).toBe('9002')
     const createRequest = requests.find((request) => request.url.includes('/folder/add'))
     expect(createRequest?.body).toContain(`title=${encodeURIComponent(inboxLedger.displayName)}`)
   })
@@ -340,7 +341,7 @@ describe('favorite ledger API scripts', () => {
     expect(result.steps).toEqual(['api:ledger:list', 'api:ledger:delete:knowledge'])
     expect(deleteRequests).toHaveLength(1)
     expect(new URLSearchParams(deleteRequests[0].body).get('media_ids')).toBe('9001')
-    const disabledLedger = result.ledgers.find((ledger) => ledger.id === 'knowledge')
+    const disabledLedger = (result.ledgers as FavoriteLedger[]).find((ledger) => ledger.id === 'knowledge')
     expect(disabledLedger).toEqual(
       expect.objectContaining({
         id: 'knowledge',
@@ -348,7 +349,7 @@ describe('favorite ledger API scripts', () => {
       })
     )
     expect(disabledLedger).not.toHaveProperty('bilibiliFolderId')
-    expect(result.ledgers.find((ledger) => ledger.id === 'game')?.bilibiliFolderId).toBe('9002')
+    expect((result.ledgers as FavoriteLedger[]).find((ledger) => ledger.id === 'game')?.bilibiliFolderId).toBe('9002')
   })
 
   it('keeps disabled Bilimi-managed folders when saving without disabled deletion', async () => {
@@ -396,7 +397,7 @@ describe('favorite ledger API scripts', () => {
     expect(result.ok).toBe(true)
     expect(result.steps).toEqual(['api:ledger:list'])
     expect(requests.some((request) => request.url.includes('/folder/del'))).toBe(false)
-    expect(result.ledgers.find((ledger) => ledger.id === 'knowledge')?.bilibiliFolderId).toBe('9001')
+    expect((result.ledgers as FavoriteLedger[]).find((ledger) => ledger.id === 'knowledge')?.bilibiliFolderId).toBe('9001')
   })
 
   it('appends old favorites without passing delete media ids', async () => {
@@ -1414,7 +1415,7 @@ describe('favorite ledger API scripts', () => {
     const result = await window.eval(buildScanOldFavoritesScript(ledgers))
 
     expect(result.ok).toBe(true)
-    expect(result.sourceFolders[0].videos.map((video) => video.title)).toEqual([
+    expect((result.sourceFolders[0].videos as Array<{ title: string }>).map((video) => video.title)).toEqual([
       'Video tutorial',
       'Link video'
     ])

@@ -514,13 +514,17 @@ async function waitForDailyReviewBeforeAction(
   | { status: 'ready'; result?: DailyClassificationReviewResult }
   | { status: 'pending' }
 > {
-  const pending = Symbol('daily-review-pending')
-  const result = await Promise.race([
+  const pending = 'daily-review-pending' as const
+  const result: DailyClassificationReviewResult | undefined | typeof pending = await Promise.race([
     reviewPromise,
     waitForDelay(DAILY_DEEPSEEK_PRE_ACTION_WAIT_MS).then(() => pending)
   ])
 
-  return result === pending ? { status: 'pending' } : { status: 'ready', result }
+  if (result === pending) {
+    return { status: 'pending' }
+  }
+
+  return { status: 'ready', result }
 }
 
 async function withTimeout<T>(
@@ -1229,11 +1233,14 @@ export default function App() {
     const wait = (delay: number) => new Promise((resolve) => setTimeout(resolve, delay))
     currentActiveWebview.focus?.()
 
-    const sendKey = (keyCode: string, modifiers?: string[]) => {
-      const keyDown = modifiers
+    const sendKey = (
+      keyCode: string,
+      modifiers?: Electron.KeyboardInputEvent['modifiers']
+    ) => {
+      const keyDown: Electron.KeyboardInputEvent = modifiers
         ? { keyCode, modifiers, type: 'keyDown' }
         : { keyCode, type: 'keyDown' }
-      const keyUp = modifiers
+      const keyUp: Electron.KeyboardInputEvent = modifiers
         ? { keyCode, modifiers, type: 'keyUp' }
         : { keyCode, type: 'keyUp' }
       currentActiveWebview.sendInputEvent?.(keyDown)
@@ -1298,7 +1305,7 @@ export default function App() {
       )) as TrustedPlayerActivationResult
 
       if (activation?.ok && activation.clickPoint) {
-        playbackPausedBeforeActivation = activation.paused
+        playbackPausedBeforeActivation = activation.paused ?? null
         activationSteps.push(...activation.steps, 'player:activate-click')
         clickAt(activation.clickPoint)
         await wait(120)
@@ -1640,7 +1647,7 @@ export default function App() {
             window.bilimiDesktop.notifyAssistantSnapshotChanged?.()
           }
           window.bilimiDesktop?.setAssistantPetHint?.({
-            tone: 'success',
+            tone: 'happy',
             message: `DeepSeek 后台已改归 ${targetNames}：${correction.reason}`
           })
         })()

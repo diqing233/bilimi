@@ -2,6 +2,7 @@
 import type {
   AssistantAutomationResult,
   AssistantPreferences,
+  FavoriteLedger,
   FavoriteLedgerStatus,
   VideoNote,
   VideoNoteArchiveEntry
@@ -170,7 +171,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
       }
     ]
   })
-  const loadOpenAiApiKeyStatus = vi.fn().mockResolvedValue({ configured: true })
+  const loadDeepSeekApiKeyStatus = vi.fn().mockResolvedValue({ configured: true })
   const saveOpenAiApiKey = vi.fn().mockResolvedValue({ configured: true })
   const clearOpenAiApiKey = vi.fn().mockResolvedValue({ configured: false })
   const ensureFavoriteLedgers = vi.fn().mockResolvedValue(createResult('册目已备齐。'))
@@ -199,13 +200,12 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     saveDeepSeekApiKey,
     clearDeepSeekApiKey,
     testDeepSeekConnection,
-    loadOpenAiApiKeyStatus,
+    loadDeepSeekApiKeyStatus,
     loadPreferences: vi.fn(),
     onAssistantSnapshotChanged,
     requestAssistantSnapshot,
     runAssistantAction,
     runStartupDiagnostics,
-    saveOpenAiApiKey,
     saveFavoriteLedgers,
     savePreferences,
     restoreDefaultLayoutSize,
@@ -220,7 +220,6 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     scanOldFavorites,
     setAssistantPetHint,
     wakeAssistantPet,
-    clearOpenAiApiKey,
     ...overrides
   } satisfies Partial<Window['bilimiDesktop']>
 
@@ -808,7 +807,7 @@ describe('FloatingAssistantApp', () => {
                 sourceFolderTitle: '默认收藏夹',
                 matchedKeywords: ['攻略'],
                 score: 1,
-                confidence: 0.4,
+                confidence: 'low',
                 createdAt: '2026-07-05T00:00:00.000Z'
               }
             ],
@@ -1091,7 +1090,9 @@ describe('FloatingAssistantApp', () => {
     )
 
     expect(
-      savePreferences.mock.calls.at(-1)?.[0].favoriteLedgers.find((ledger) => ledger.id === 'game')
+      (savePreferences as ReturnType<typeof vi.fn>).mock.calls
+        .at(-1)?.[0]
+        .favoriteLedgers.find((ledger: FavoriteLedger) => ledger.id === 'game')
         ?.keywords
     ).not.toContain('单机')
   })
@@ -2118,10 +2119,12 @@ describe('FloatingAssistantApp', () => {
     const requestAssistantSnapshot = vi
       .fn()
       .mockResolvedValue(createSnapshot({ preferences: createPreferences({ defaultCoinCount: 1 }) }))
-    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => ({
-      ...preferences,
-      defaultCoinCount: 2
-    }))
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) =>
+      createPreferences({
+        ...preferences,
+        defaultCoinCount: 2
+      })
+    )
     installDesktopApi({
       requestAssistantSnapshot,
       savePreferences,

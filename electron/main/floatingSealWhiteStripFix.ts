@@ -12,7 +12,8 @@ type WhiteStripFixTarget = {
   isDestroyed: () => boolean
   getBounds: () => Bounds
   setPosition: (x: number, y: number) => void
-  on: (eventName: 'blur' | 'focus', listener: () => void) => void
+  on(eventName: 'blur', listener: () => void): unknown
+  on(eventName: 'focus', listener: () => void): unknown
 }
 
 type RecompositeStep = {

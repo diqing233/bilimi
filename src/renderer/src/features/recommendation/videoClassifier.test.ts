@@ -1,5 +1,6 @@
 ﻿import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import { describe, expect, it } from 'vitest'
+import type { FavoriteLedger } from '@shared/types'
 import { buildVideoContentContextScript, classifyVideoContent } from './videoClassifier'
 
 describe('classifyVideoContent', () => {
@@ -175,7 +176,7 @@ describe('classifyVideoContent', () => {
   })
 
   it('scores tags higher than title and page text when classification signals conflict', () => {
-    const ledgers = [
+    const ledgers: FavoriteLedger[] = [
       {
         id: 'custom-title-topic',
         displayName: 'bilimi·Title Topic',
@@ -231,7 +232,7 @@ describe('classifyVideoContent', () => {
   })
 
   it('prioritizes enabled custom ledgers over default ledgers', () => {
-    const ledgers = [
+    const ledgers: FavoriteLedger[] = [
       ...createDefaultFavoriteLedgers(),
       {
         id: 'custom-photo',
@@ -258,7 +259,7 @@ describe('classifyVideoContent', () => {
   })
 
   it('prioritizes author follow-up ledgers by matching the video author', () => {
-    const ledgers = [
+    const ledgers: FavoriteLedger[] = [
       {
         id: 'custom-keyword-photo',
         displayName: 'bilimi·摄影关键词',
@@ -297,7 +298,7 @@ describe('classifyVideoContent', () => {
   })
 
   it('prioritizes tag ledgers by matching explicit Bilibili tags only', () => {
-    const ledgers = [
+    const ledgers: FavoriteLedger[] = [
       {
         id: 'custom-keyword-genshin',
         displayName: 'bilimi·原神关键词',
