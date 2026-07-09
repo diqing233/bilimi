@@ -5302,6 +5302,99 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.queryByRole('group', { name: 'bilimi·游戏 2 条' })).not.toBeInTheDocument()
   })
 
+  it('resets affected horizontal preview tracks after DeepSeek moves archive cards', async () => {
+    const scrollIntoView = vi.fn()
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
+    HTMLElement.prototype.scrollIntoView = scrollIntoView
+
+    try {
+      const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
+        if (ledger.id === 'knowledge') {
+          return { ...ledger, displayName: 'bilimi·学习', bilibiliFolderId: '9001' }
+        }
+        if (ledger.id === 'game') {
+          return { ...ledger, displayName: 'bilimi·游戏', bilibiliFolderId: '9002' }
+        }
+        return ledger
+      })
+      const preview = createArchivePreviewFixture()
+      preview.items.push({
+        aid: 704,
+        title: '游戏区保底视频',
+        author: '游戏UP',
+        description: '保留目标分组。',
+        tags: ['游戏'],
+        sourceFolderTitle: '默认收藏夹',
+        targetLedgerId: 'game',
+        targetFolderId: '9002',
+        targetDisplayName: 'bilimi·游戏',
+        reviewRequired: false,
+        alreadyInTarget: false,
+        selected: true,
+        originalSuggestedLedgerIds: ['game'],
+        currentTargetLedgerIds: ['game'],
+        selectedTargetLedgerIds: ['game'],
+        lowConfidence: false
+      })
+      const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
+      const onOrganizeOldFavoritesWithDeepSeek = vi.fn().mockResolvedValue({
+        kind: 'favorite-archive-organize',
+        results: [
+          {
+            aid: 701,
+            sourceFolderTitle: '默认收藏夹',
+            targetLedgerIds: ['game'],
+            keepOriginal: false,
+            reason: 'DeepSeek 认为它更像游戏工具。',
+            confidence: 0.91,
+            lowConfidence: false
+          }
+        ],
+        keywordSuggestions: []
+      } satisfies DeepSeekGenerateResult)
+      const { container } = renderPanel({
+        ledgers,
+        deepSeekArchiveAvailable: true,
+        onScanOldFavorites,
+        onOrganizeOldFavoritesWithDeepSeek
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+      await screen.findByRole('region', { name: '整理旧藏向导' })
+      fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+
+      const knowledgeSection = getPreviewArticle(container, /AI 效率工具实战/).closest('section')
+      const gameSection = getPreviewArticle(container, /游戏区保底视频/).closest('section')
+      expect(knowledgeSection).not.toBeNull()
+      expect(gameSection).not.toBeNull()
+      const knowledgeTrack = knowledgeSection!.querySelector<HTMLElement>(
+        '.favorite-ledger-panel__preview-videos'
+      )
+      const gameTrack = gameSection!.querySelector<HTMLElement>('.favorite-ledger-panel__preview-videos')
+      expect(knowledgeTrack).toBeDefined()
+      expect(gameTrack).toBeDefined()
+      knowledgeTrack!.scrollLeft = 128
+      gameTrack!.scrollLeft = 96
+
+      fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+
+      const updatedGameGroup = await screen.findByRole('group', { name: 'bilimi·游戏 2 条' })
+      expect(updatedGameGroup).toHaveTextContent('AI 效率工具实战')
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'nearest' })
+      expect(
+        getPreviewArticle(container, /AI 效率工具实战/)
+          .closest('section')
+          ?.querySelector('.favorite-ledger-panel__preview-videos')
+      ).toHaveProperty('scrollLeft', 0)
+      expect(updatedGameGroup.querySelector('.favorite-ledger-panel__preview-videos')).toHaveProperty(
+        'scrollLeft',
+        0
+      )
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView
+    }
+  })
+
   it('invalidates the DeepSeek run snapshot after manual archive edits or reset', async () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
       if (ledger.id === 'game') {

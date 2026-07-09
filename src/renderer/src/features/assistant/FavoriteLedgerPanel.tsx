@@ -92,6 +92,7 @@ type ArchivePreviewLatestChange = {
 type ArchivePreviewManualMoveFocus = {
   sourceLedgerId: string
   targetLedgerId: string
+  resetLedgerIds?: string[]
 }
 
 const OLD_FAVORITE_APPEND_DELAY_MS = { min: 1200, max: 3000 }
@@ -2312,10 +2313,14 @@ export function FavoriteLedgerPanel({
         multiArchiveLimit,
         results
       })
+      const deepSeekMoveFocus = archivePreviewMoveFocusBetween(archivePlanState, applied.state)
       recordArchivePreviewHistory(archivePlanState)
       setArchivePlanState(applied.state)
       updatePreviewFromArchivePlan(applied.state)
       setLatestArchiveChange(latestArchiveChangeBetween(archivePlanState, applied.state))
+      if (deepSeekMoveFocus) {
+        setManualArchiveMoveFocus(deepSeekMoveFocus)
+      }
       setDeepSeekArchiveRunSnapshot(snapshot)
       setDeepSeekArchiveDisplacementMessages(applied.redDisplacementMessages)
 
@@ -2753,7 +2758,8 @@ export function FavoriteLedgerPanel({
 
     for (const ledgerId of uniqueLedgerIds([
       manualArchiveMoveFocus.sourceLedgerId,
-      manualArchiveMoveFocus.targetLedgerId
+      manualArchiveMoveFocus.targetLedgerId,
+      ...(manualArchiveMoveFocus.resetLedgerIds ?? [])
     ])) {
       const track = previewRowForLedger(ledgerId)?.querySelector<HTMLElement>(
         '.favorite-ledger-panel__preview-videos'
@@ -2947,6 +2953,39 @@ export function FavoriteLedgerPanel({
       previousTargetText,
       nextTargetText
     }
+  }
+
+  function archivePreviewMoveFocusBetween(
+    previousState: FavoriteArchivePlanState,
+    nextState: FavoriteArchivePlanState
+  ): ArchivePreviewManualMoveFocus | null {
+    const resetLedgerIds: string[] = []
+    let sourceLedgerId = ''
+    let targetLedgerId = ''
+
+    for (const nextItem of nextState.items) {
+      const previousItem = previousState.items.find((item) => item.itemKey === nextItem.itemKey)
+      if (!previousItem || sameLedgerIds(previousItem.currentTargetLedgerIds, nextItem.currentTargetLedgerIds)) {
+        continue
+      }
+
+      const previousLedgerIds =
+        previousItem.currentTargetLedgerIds.length > 0 ? previousItem.currentTargetLedgerIds : ['unclassified']
+      const nextLedgerIds =
+        nextItem.currentTargetLedgerIds.length > 0 ? nextItem.currentTargetLedgerIds : ['unclassified']
+      resetLedgerIds.push(...previousLedgerIds, ...nextLedgerIds)
+      sourceLedgerId = previousLedgerIds[0] ?? 'unclassified'
+      targetLedgerId =
+        nextLedgerIds.find((ledgerId) => !previousLedgerIds.includes(ledgerId)) ??
+        nextLedgerIds[0] ??
+        'unclassified'
+    }
+
+    if (!sourceLedgerId || !targetLedgerId) {
+      return null
+    }
+
+    return { sourceLedgerId, targetLedgerId, resetLedgerIds: uniqueLedgerIds(resetLedgerIds) }
   }
 
   function jumpToLatestArchiveChange() {
