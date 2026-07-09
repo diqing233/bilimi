@@ -8,11 +8,17 @@ const styles = readFileSync(stylesPath, 'utf8').replace(/\r\n/g, '\n')
 describe('VideoNoteArchivePanel layout styles', () => {
   it('makes the return-to-notes button visually prominent in the archive header', () => {
     expect(styles).toContain('.video-note-archive__return-button {\n  min-height: 38px;')
-    expect(styles).toContain('background: var(--porcelain-primary);')
-    expect(styles).toContain('color: var(--porcelain-surface);')
+    expect(styles).toContain('background: var(--porcelain-ice);')
+    expect(styles).toContain('color: var(--porcelain-edge);')
     expect(styles).toContain('font-weight: 800;')
     expect(styles).toContain(
       '.video-note-archive__return-button:hover:not(:disabled),\n.video-note-archive__return-button:focus-visible:not(:disabled) {'
+    )
+  })
+
+  it('keeps the bordered global archive surfaces rounded', () => {
+    expect(styles).toContain(
+      '.video-note-archive__history-card,\n.video-note-archive__detail {\n  width: 100%;\n  box-sizing: border-box;\n  min-width: 0;\n  min-height: 0;\n  overflow: auto;\n  border: 1px solid rgba(31, 99, 181, 0.16);\n  background: rgba(247, 251, 255, 0.64);\n  padding: 8px;\n  border-radius: var(--porcelain-radius-surface);'
     )
   })
 
