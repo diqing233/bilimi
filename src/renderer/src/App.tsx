@@ -1829,7 +1829,7 @@ export default function App() {
                   className="browser-tabs__tab"
                   onClick={() => selectActiveTab(tab.id)}
                 >
-                  {tab.title}
+                  <span className="browser-tabs__title">{tab.title}</span>
                 </button>
                 {tab.id !== HOME_TAB_ID ? (
                   <button

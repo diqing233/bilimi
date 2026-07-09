@@ -109,15 +109,42 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.browser-tabs__collapse-slot {\n  width: 78px;')
   })
 
+  it('compresses many open browser video tabs before falling back to horizontal scrolling', () => {
+    expectStyleSnippet(
+      '.browser-tabs__item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; flex: 1 1 168px; width: auto; min-width: 80px; max-width: 220px;'
+    )
+    expectStyleSnippet(
+      '.browser-tabs__item[data-selected="true"] { flex-basis: clamp(120px, 18vw, 220px);'
+    )
+    expectStyleSnippet(
+      '.browser-tabs__tab { min-width: 0; height: 100%; display: inline-flex; align-items: center; gap: 6px; overflow: hidden;'
+    )
+    expectStyleSnippet(
+      '.browser-tabs__tab::before { content: ""; flex: 0 0 14px; width: 14px; height: 14px;'
+    )
+    expectStyleSnippet(
+      '.browser-tabs__close { width: 0; min-width: 0; height: 26px; padding: 0; opacity: 0; overflow: hidden; pointer-events: none;'
+    )
+    expectStyleSnippet(
+      '.browser-tabs__item:is(:hover, :focus-within, [data-selected="true"]) .browser-tabs__close { width: 26px; opacity: 1; pointer-events: auto;'
+    )
+    expectStyleSnippet(
+      '@media (max-width: 1200px), (max-height: 760px) { .app-main { grid-template-rows: 38px minmax(0, 1fr);'
+    )
+    expectStyleSnippet(
+      '.browser-tabs__item { flex-basis: 132px; min-width: 80px; max-width: 180px; height: 28px;'
+    )
+  })
+
   it('visually separates the app browser toolbar from the native window title bar', () => {
     expectStyleSnippet(
       '.browser-tabs { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; min-width: 0; overflow: hidden; padding: 5px 0 5px 10px; border-top: 1px solid rgba(31, 99, 181, 0.06); border-bottom: 1px solid rgba(31, 99, 181, 0.18); background: linear-gradient( 180deg, rgba(226, 238, 249, 0.96), rgba(216, 232, 246, 0.96) ); box-shadow: 0 1px 2px rgba(7, 26, 51, 0.06);'
     )
     expectStyleSnippet(
-      '.browser-tabs__item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; flex: 0 0 auto; width: clamp(112px, 16vw, 220px); min-width: 112px; max-width: 220px; height: 30px; border: 1px solid rgba(31, 99, 181, 0.2); border-radius: 6px 6px 4px 4px; background: rgba(247, 251, 255, 0.62); box-shadow: inset 0 -1px 0 rgba(31, 99, 181, 0.08);'
+      '.browser-tabs__item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; flex: 1 1 168px; width: auto; min-width: 80px; max-width: 220px; height: 30px; box-sizing: border-box; border: 1px solid rgba(31, 99, 181, 0.2); border-radius: 6px 6px 4px 4px; background: rgba(247, 251, 255, 0.62); box-shadow: inset 0 -1px 0 rgba(31, 99, 181, 0.08);'
     )
     expectStyleSnippet(
-      '.browser-tabs__item[data-selected="true"] { border-color: rgba(31, 99, 181, 0.42); background: rgba(255, 254, 253, 0.96); box-shadow: 0 1px 3px rgba(7, 26, 51, 0.08), inset 0 -2px 0 var(--porcelain-primary);'
+      '.browser-tabs__item[data-selected="true"] { flex-basis: clamp(120px, 18vw, 220px); border-color: rgba(31, 99, 181, 0.42); background: rgba(255, 254, 253, 0.96); box-shadow: 0 1px 3px rgba(7, 26, 51, 0.08), inset 0 -2px 0 var(--porcelain-primary);'
     )
     expectStyleSnippet(
       '.browser-tabs__controls { display: grid; grid-template-columns: 34px 78px; gap: 8px; align-items: center; height: 100%; padding: 0 0 0 8px; border-left: 1px solid rgba(31, 99, 181, 0.22); box-sizing: border-box; background: rgba(213, 230, 246, 0.44);'
