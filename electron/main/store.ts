@@ -32,6 +32,7 @@ import type {
   FavoriteKeywordSuggestionAction,
   FavoriteKeywordSuggestionStatus,
   FavoriteLedger,
+  MainWindowCloseBehavior,
   PendingFavoriteQueueItem,
   PendingFavoriteQueueStatus,
   VideoAudioTranscriptionThreadLimit,
@@ -48,6 +49,8 @@ export type AssistantPreferences = {
   petHoverShortcuts: PetHoverShortcutId[]
   showPetAssistantShortcut: boolean
   hidePetDuringVideoFullscreen: boolean
+  closeBehavior: MainWindowCloseBehavior
+  confirmBeforeExit: boolean
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode
   favoriteArchiveStrategy: FavoriteArchiveStrategy
@@ -95,6 +98,8 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   petHoverShortcuts: DEFAULT_PET_HOVER_SHORTCUTS,
   showPetAssistantShortcut: true,
   hidePetDuringVideoFullscreen: false,
+  closeBehavior: 'minimize-to-tray',
+  confirmBeforeExit: true,
   bilibiliOperationMode: 'api-assisted',
   favoriteArchiveMultiMode: 'off',
   favoriteArchiveStrategy: 'aggressive',
@@ -152,6 +157,10 @@ function normalizeDeepSeekDailyClassificationMode(
   value: unknown
 ): AssistantPreferences['deepseekDailyClassificationMode'] {
   return value === 'low-confidence-only' ? 'low-confidence-only' : 'all'
+}
+
+function normalizeMainWindowCloseBehavior(value: unknown): MainWindowCloseBehavior {
+  return value === 'exit-launcher' ? 'exit-launcher' : 'minimize-to-tray'
 }
 
 const VALID_KEYWORD_SUGGESTION_ACTIONS = new Set<FavoriteKeywordSuggestionAction>([
@@ -317,6 +326,9 @@ export function loadAssistantPreferences(
         : Boolean(store.get('showPetAssistantShortcut')) ||
           hasLegacyAssistantHoverShortcut(store.get('petHoverShortcuts')),
     hidePetDuringVideoFullscreen: Boolean(store.get('hidePetDuringVideoFullscreen')),
+    closeBehavior: normalizeMainWindowCloseBehavior(store.get('closeBehavior')),
+    confirmBeforeExit:
+      store.has?.('confirmBeforeExit') === false ? true : Boolean(store.get('confirmBeforeExit')),
     bilibiliOperationMode:
       bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted',
     favoriteArchiveMultiMode:
@@ -382,6 +394,8 @@ export function saveAssistantPreferences(
     petHoverShortcuts: normalizePetHoverShortcuts(preferences.petHoverShortcuts),
     showPetAssistantShortcut: Boolean(preferences.showPetAssistantShortcut),
     hidePetDuringVideoFullscreen: Boolean(preferences.hidePetDuringVideoFullscreen),
+    closeBehavior: normalizeMainWindowCloseBehavior(preferences.closeBehavior),
+    confirmBeforeExit: Boolean(preferences.confirmBeforeExit),
     bilibiliOperationMode:
       preferences.bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted',
     favoriteArchiveMultiMode:

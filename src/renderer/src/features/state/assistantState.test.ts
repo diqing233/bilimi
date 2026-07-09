@@ -152,6 +152,8 @@ describe('assistant state', () => {
       deepseekPetChatEnabled: false,
       deepseekModel: 'deepseek-v4-flash',
       deepseekBaseUrl: 'https://api.deepseek.com',
+      closeBehavior: 'minimize-to-tray',
+      confirmBeforeExit: true,
       videoAudioTranscriptionThreadLimit: 'unlimited'
     })
     expect(createInitialAssistantPreferences()).not.toHaveProperty(
@@ -213,6 +215,31 @@ describe('assistant state', () => {
       deepseekModel: 'deepseek-v4-flash',
       deepseekBaseUrl: 'https://api.deepseek.com',
       videoAudioTranscriptionThreadLimit: 'unlimited'
+    })
+  })
+
+  it('normalizes main window close behavior preferences', () => {
+    expect(createInitialAssistantPreferences()).toMatchObject({
+      closeBehavior: 'minimize-to-tray',
+      confirmBeforeExit: true
+    })
+    expect(
+      createInitialAssistantPreferences({
+        closeBehavior: 'exit-launcher',
+        confirmBeforeExit: false
+      })
+    ).toMatchObject({
+      closeBehavior: 'exit-launcher',
+      confirmBeforeExit: false
+    })
+    expect(
+      createInitialAssistantPreferences({
+        closeBehavior: 'close-app' as never,
+        confirmBeforeExit: undefined
+      })
+    ).toMatchObject({
+      closeBehavior: 'minimize-to-tray',
+      confirmBeforeExit: true
     })
   })
 

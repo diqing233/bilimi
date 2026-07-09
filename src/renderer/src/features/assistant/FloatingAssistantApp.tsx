@@ -332,6 +332,7 @@ const SETTINGS_JUMP_OPTIONS = [
   { value: 'diagnostics', label: '诊断' },
   { value: 'deepseek', label: 'DeepSeek' },
   { value: 'pet', label: '宠物设置' },
+  { value: 'close', label: '关闭设置' },
   { value: 'transcription', label: '视频音频转写速度' },
   { value: 'archive', label: '收藏整理' },
   { value: 'learning', label: '整理策略' },
@@ -1073,6 +1074,24 @@ export function FloatingAssistantApp({
         : '小咪会常驻陪主人看视频啦。'
     )
     persistPreferencePatch({ hidePetDuringVideoFullscreen })
+  }
+
+  function chooseCloseBehavior(closeBehavior: AssistantPreferences['closeBehavior']) {
+    tellPet(
+      'success',
+      closeBehavior === 'minimize-to-tray'
+        ? '点关闭时会先收进托盘，小咪还在。'
+        : '点关闭时会退出启动器；小咪会先确认一下。'
+    )
+    persistPreferencePatch({ closeBehavior })
+  }
+
+  function toggleExitConfirmation(confirmBeforeExit: boolean) {
+    tellPet(
+      'success',
+      confirmBeforeExit ? '退出前会先问主人一次。' : '以后点关闭会直接退出 bilimi。'
+    )
+    persistPreferencePatch({ confirmBeforeExit })
   }
 
   function togglePetHoverShortcut(shortcutId: PetHoverShortcutId, selected: boolean) {
@@ -2377,6 +2396,43 @@ export function FloatingAssistantApp({
                   关闭宠物
                 </button>
               </div>
+            </fieldset>
+            <fieldset
+              className="assistant-settings__group assistant-settings__group--close"
+              data-settings-section="close"
+            >
+              <legend>关闭设置</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="main-window-close-behavior"
+                  checked={preferences.closeBehavior === 'minimize-to-tray'}
+                  onChange={() => chooseCloseBehavior('minimize-to-tray')}
+                />
+                <span>最小化到系统托盘</span>
+                <small>点关闭时保留后台运行，托盘入口和小咪还在。</small>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="main-window-close-behavior"
+                  checked={preferences.closeBehavior === 'exit-launcher'}
+                  onChange={() => chooseCloseBehavior('exit-launcher')}
+                />
+                <span>退出启动器</span>
+                <small>点关闭时结束启动器和悬浮小咪。</small>
+              </label>
+              <div className="assistant-settings__pet-divider" aria-hidden="true" />
+              <label title="关闭行为为退出启动器时生效；关闭后可在这里重新打开。">
+                <input
+                  type="checkbox"
+                  checked={preferences.confirmBeforeExit}
+                  disabled={preferences.closeBehavior !== 'exit-launcher'}
+                  onChange={(event) => toggleExitConfirmation(event.currentTarget.checked)}
+                />
+                <span>退出前确认</span>
+                <small>点关闭弹出确认框；弹窗里的“记住选择”会同步改这里。</small>
+              </label>
             </fieldset>
             <fieldset
               className="assistant-settings__group assistant-settings__group--transcription"

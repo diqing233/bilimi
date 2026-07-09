@@ -8,6 +8,7 @@ import type {
   FavoriteArchiveStrategy,
   FavoriteKeywordSuggestion,
   FavoriteArchiveMultiMode,
+  MainWindowCloseBehavior,
   RecommendationKind,
   VideoAudioTranscriptionThreadLimit
 } from '@shared/types'
@@ -55,6 +56,10 @@ export function normalizeDeepSeekDailyClassificationMode(
   value: unknown
 ): AssistantPreferences['deepseekDailyClassificationMode'] {
   return value === 'low-confidence-only' ? 'low-confidence-only' : 'all'
+}
+
+export function normalizeMainWindowCloseBehavior(value: unknown): MainWindowCloseBehavior {
+  return value === 'exit-launcher' ? 'exit-launcher' : 'minimize-to-tray'
 }
 
 function normalizeFavoriteKeywordSuggestions(value: unknown): FavoriteKeywordSuggestion[] {
@@ -127,6 +132,9 @@ export function createInitialAssistantPreferences(
         ? persisted.showPetAssistantShortcut
         : true,
     hidePetDuringVideoFullscreen: Boolean(persisted?.hidePetDuringVideoFullscreen),
+    closeBehavior: normalizeMainWindowCloseBehavior(persisted?.closeBehavior),
+    confirmBeforeExit:
+      typeof persisted?.confirmBeforeExit === 'boolean' ? persisted.confirmBeforeExit : true,
     bilibiliOperationMode: normalizeBilibiliOperationMode(persisted?.bilibiliOperationMode),
     favoriteArchiveMultiMode: normalizeFavoriteArchiveMultiMode(persisted?.favoriteArchiveMultiMode),
     favoriteArchiveStrategy: normalizeFavoriteArchiveStrategy(persisted?.favoriteArchiveStrategy),

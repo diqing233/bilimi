@@ -1,4 +1,15 @@
-import { app, BrowserWindow, clipboard, ipcMain, screen, session } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  Menu,
+  Tray,
+  clipboard,
+  dialog,
+  ipcMain,
+  nativeImage,
+  screen,
+  session
+} from 'electron'
 import { spawn } from 'node:child_process'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -33,7 +44,10 @@ import { FloatingMenuController } from './floatingMenuController'
 import { FloatingSealDragController } from './floatingSealDragController'
 import { createMainWindowOptions } from './mainWindowOptions'
 import { restoreMainWindowDefaultLayoutSize } from './mainWindowLayout'
-import { installMainWindowControlReactions } from './mainWindowControlReactions'
+import {
+  createCloseConfirmationOptions,
+  installMainWindowControlReactions
+} from './mainWindowControlReactions'
 import { restoreMainWindowFromPet } from './mainWindowRestore'
 import { installFixedFloatingSealBoundsGuard } from './floatingSealBoundsGuard'
 import { installFloatingSealCaptionStrip } from './floatingSealCaptionStrip'
@@ -107,6 +121,8 @@ const FLOATING_ASSISTANT_QUERY = { window: 'floating-assistant' }
 
 let mainWindow: BrowserWindow | null = null
 let floatingSealWindow: BrowserWindow | null = null
+let mainTray: Tray | null = null
+let appQuitting = false
 let enforceFloatingSealWindowBounds: (() => void) | null = null
 let assistantPetState: AssistantPetState = 'idle'
 
@@ -416,6 +432,67 @@ function closeAssistantPetWindow() {
   floatingSealWindow.close()
 }
 
+function restoreMainWindowFromTray() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    mainWindow = createMainWindow()
+    return
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore()
+  }
+
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+function getTrayIconPath() {
+  return process.platform === 'win32'
+    ? join(__dirname, '../../build/icon.ico')
+    : join(__dirname, '../../electron/assets/bilimi-avatar.png')
+}
+
+function ensureMainTray() {
+  if (mainTray) {
+    return mainTray
+  }
+
+  const icon = nativeImage.createFromPath(getTrayIconPath())
+  mainTray = new Tray(icon)
+  mainTray.setToolTip('bilimi')
+  mainTray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: '\u6253\u5f00 bilimi',
+        click: restoreMainWindowFromTray
+      },
+      {
+        label: '\u9000\u51fa bilimi',
+        click: () => {
+          appQuitting = true
+          app.quit()
+        }
+      }
+    ])
+  )
+  mainTray.on('double-click', restoreMainWindowFromTray)
+
+  return mainTray
+}
+
+function minimizeMainWindowToTray() {
+  ensureMainTray()
+  mainWindow?.hide()
+}
+
+function saveAssistantPreferencePatch(patch: Partial<AssistantPreferences>) {
+  const saved = saveAssistantPreferences(getDesktopStore(), {
+    ...loadAssistantPreferences(getDesktopStore()),
+    ...patch
+  })
+  sendAssistantPreferencesChanged(saved)
+}
+
 function setFloatingSealWindowMouseTransparent(transparent: boolean) {
   if (!floatingSealWindow || floatingSealWindow.isDestroyed()) {
     return
@@ -567,7 +644,25 @@ function createMainWindow() {
   keepMainWindowTitle(win)
   installMainWindowControlReactions({
     closeAssistantPet: closeAssistantPetWindow,
+    getPreferences: () =>
+      appQuitting
+        ? {
+            ...loadAssistantPreferences(getDesktopStore()),
+            closeBehavior: 'exit-launcher',
+            confirmBeforeExit: false
+          }
+        : loadAssistantPreferences(getDesktopStore()),
+    minimizeToTray: minimizeMainWindowToTray,
+    prepareToExitLauncher: () => {
+      appQuitting = true
+    },
+    savePreferencePatch: saveAssistantPreferencePatch,
     sendPetHint: sendAssistantPetHint,
+    showCloseConfirmation: () =>
+      dialog.showMessageBox(win, createCloseConfirmationOptions()).then((result) => ({
+        response: result.response,
+        checkboxChecked: result.checkboxChecked
+      })),
     window: win
   })
   installWindowOpenRouting(win)
@@ -916,6 +1011,10 @@ app.whenReady().then(() => {
   createFloatingSealWindow()
 })
 
+app.on('before-quit', () => {
+  appQuitting = true
+})
+
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  if (appQuitting && process.platform !== 'darwin') app.quit()
 })

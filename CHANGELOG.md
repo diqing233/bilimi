@@ -7,6 +7,7 @@
 - Added DeepSeek constraint favorite ledgers and `【DeepSeek约束】` sections so enabled folders can provide AI-only classification guidance without affecting local keyword matching.
 - Added batch archive-preview change summaries and card-level source notices for DeepSeek moves, staging moves, and generated-ledger selections, with undo/redo preserving generated ledger choices.
 - Kept the note archive's opened video detail visible when returning from review or a folded assistant session, while avoiding restore after a new app session.
+- Added close settings for minimizing to the system tray or exiting bilimi, with an optional remembered confirmation choice before direct exit.
 
 ## 0.1.1 - 2026-07-05
 

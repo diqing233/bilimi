@@ -68,6 +68,8 @@ function createFakeStore(
     hidePetDuringVideoFullscreen:
       initial.hidePetDuringVideoFullscreen ??
       DEFAULT_ASSISTANT_PREFERENCES.hidePetDuringVideoFullscreen,
+    closeBehavior: initial.closeBehavior ?? DEFAULT_ASSISTANT_PREFERENCES.closeBehavior,
+    confirmBeforeExit: initial.confirmBeforeExit ?? DEFAULT_ASSISTANT_PREFERENCES.confirmBeforeExit,
     bilibiliOperationMode:
       initial.bilibiliOperationMode ?? DEFAULT_ASSISTANT_PREFERENCES.bilibiliOperationMode,
     favoriteArchiveMultiMode:
@@ -178,6 +180,36 @@ describe('assistant preference store helpers', () => {
     const store = createFakeStore()
 
     expect(loadAssistantPreferences(store).commentSubmitMode).toBe('random')
+  })
+
+  it('defaults close behavior to tray minimization with exit confirmation enabled', () => {
+    const store = createFakeStore()
+    delete (store.snapshot as Partial<DesktopStoreState>).closeBehavior
+    delete (store.snapshot as Partial<DesktopStoreState>).confirmBeforeExit
+
+    expect(loadAssistantPreferences(store)).toMatchObject({
+      closeBehavior: 'minimize-to-tray',
+      confirmBeforeExit: true
+    })
+  })
+
+  it('persists the main window close behavior preferences', () => {
+    const store = createFakeStore()
+
+    const saved = saveAssistantPreferences(store, {
+      ...DEFAULT_ASSISTANT_PREFERENCES,
+      closeBehavior: 'exit-launcher',
+      confirmBeforeExit: false
+    })
+
+    expect(saved).toMatchObject({
+      closeBehavior: 'exit-launcher',
+      confirmBeforeExit: false
+    })
+    expect(store.snapshot).toMatchObject({
+      closeBehavior: 'exit-launcher',
+      confirmBeforeExit: false
+    })
   })
 
   it('migrates the assistant pet shortcut into its standalone toggle', () => {

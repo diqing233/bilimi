@@ -46,6 +46,7 @@ export type FavoriteLedgerSaveOptions = {
 export type FavoriteArchiveMultiMode = 'off' | 'two' | 'three'
 export type CommentSubmitMode = 'choose' | 'random'
 export type VideoAudioTranscriptionThreadLimit = 'unlimited' | 1 | 2 | 4
+export type MainWindowCloseBehavior = 'minimize-to-tray' | 'exit-launcher'
 
 export type PendingFavoriteQueueSource = 'old-favorite-scan' | 'new-favorite'
 
@@ -166,6 +167,8 @@ export type AssistantPreferences = {
   petHoverShortcuts: PetHoverShortcutId[]
   showPetAssistantShortcut: boolean
   hidePetDuringVideoFullscreen: boolean
+  closeBehavior: MainWindowCloseBehavior
+  confirmBeforeExit: boolean
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode
   favoriteArchiveStrategy: FavoriteArchiveStrategy

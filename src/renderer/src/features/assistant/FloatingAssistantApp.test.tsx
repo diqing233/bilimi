@@ -849,6 +849,7 @@ describe('FloatingAssistantApp', () => {
       '诊断',
       'DeepSeek',
       '宠物设置',
+      '关闭设置',
       '视频音频转写速度',
       '收藏整理',
       '整理策略',
@@ -880,6 +881,52 @@ describe('FloatingAssistantApp', () => {
         '控制本地 whisper.cpp / whisper-cli.exe 转写视频音频能使用多少 CPU 线程；限制越低，电脑越不容易卡，但转写会更慢。'
       )
     ).toBeInTheDocument()
+  })
+
+  it('saves close behavior and exit confirmation settings', async () => {
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            closeBehavior: 'minimize-to-tray',
+            confirmBeforeExit: true
+          })
+        })
+      ),
+      savePreferences
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+
+    expect(screen.getByRole('group', { name: '关闭设置' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /最小化到系统托盘/ })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /退出前确认/ })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('radio', { name: /退出启动器/ }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          closeBehavior: 'exit-launcher',
+          confirmBeforeExit: true
+        })
+      )
+    )
+    expect(screen.getByRole('checkbox', { name: /退出前确认/ })).toBeEnabled()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /退出前确认/ }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          closeBehavior: 'exit-launcher',
+          confirmBeforeExit: false
+        })
+      )
+    )
   })
 
   it('saves archive strategy and correction learning choices', async () => {
