@@ -609,6 +609,15 @@ describe('renderer porcelain theme styles', () => {
     )
     expectStyleSnippet('border-top: 1px dashed rgba(31, 99, 181, 0.2); padding-top: 14px;')
     expectStyleSnippet('margin-right: -12px; padding-right: 10px;')
+    expectStyleSnippet(
+      '.assistant-settings__body::-webkit-scrollbar { width: var(--assistant-sidebar-scrollbar-width);'
+    )
+    expectStyleSnippet(
+      '.assistant-settings__body::-webkit-scrollbar-track { background: rgba(220, 238, 255, 0.72);'
+    )
+    expectStyleSnippet(
+      '.assistant-settings__body::-webkit-scrollbar-thumb { border: 3px solid rgba(220, 238, 255, 0.72); background: rgba(31, 99, 181, 0.48);'
+    )
     expectStyleSnippet('.assistant-settings__group { display: grid; gap: 12px;')
     expectStyleSnippet('.assistant-settings__group legend { color: var(--porcelain-text); font-size: 14px;')
     expectStyleSnippet('.assistant-settings > header button { min-height: 30px;')

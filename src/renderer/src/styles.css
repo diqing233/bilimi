@@ -4266,6 +4266,20 @@ body[data-floating-window="true"],
   padding-top: 14px;
   margin-right: -12px;
   padding-right: 10px;
+  scrollbar-color: rgba(31, 99, 181, 0.48) rgba(220, 238, 255, 0.72);
+  scrollbar-width: auto;
+}
+.assistant-settings__body::-webkit-scrollbar {
+  width: var(--assistant-sidebar-scrollbar-width);
+}
+.assistant-settings__body::-webkit-scrollbar-track {
+  background: rgba(220, 238, 255, 0.72);
+}
+.assistant-settings__body::-webkit-scrollbar-thumb {
+  border: 3px solid rgba(220, 238, 255, 0.72);
+  background: rgba(31, 99, 181, 0.48);
+  border-radius: 999px;
+  background-clip: content-box;
 }
 .assistant-settings__jump {
   display: grid;
