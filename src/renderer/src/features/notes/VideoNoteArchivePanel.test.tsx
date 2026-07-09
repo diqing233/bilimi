@@ -86,8 +86,11 @@ describe('VideoNoteArchivePanel', () => {
   it('marks the return-to-notes control as the archive primary navigation action', () => {
     renderArchivePanel()
 
-    expect(screen.getByRole('button', { name: '返回札记' })).toHaveClass(
-      'video-note-archive__return-button'
+    const returnButton = screen.getByRole('button', { name: '返回 小咪 札记' })
+
+    expect(returnButton).toHaveClass('video-note-archive__return-button')
+    expect(within(returnButton).getByRole('img', { name: '小咪' })).toHaveClass(
+      'video-note-archive__return-pet'
     )
   })
 

@@ -12,6 +12,7 @@ import {
   searchVideoNoteArchives
 } from '@shared/videoNoteArchive'
 import { CopySplitButton } from './CopySplitButton'
+import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 
 type VideoNoteArchivePanelProps = {
   archives: VideoNoteArchiveEntry[]
@@ -433,7 +434,9 @@ export function VideoNoteArchivePanel({
             className="video-note-archive__return-button"
             onClick={onClose}
           >
-            返回札记
+            <span>返回</span>
+            <img className="video-note-archive__return-pet" src={idlePetUrl} alt="小咪" />
+            <span>札记</span>
           </button>
         </header>
 

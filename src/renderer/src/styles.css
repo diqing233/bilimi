@@ -2721,8 +2721,13 @@ body[data-floating-window="true"],
   font-size: 18px;
 }
 .video-note-archive__return-button {
+  display: inline-grid;
+  grid-template-columns: auto 28px auto;
+  gap: 4px;
+  align-items: center;
+  justify-content: center;
   min-height: 42px;
-  padding: 8px 14px;
+  padding: 6px 10px;
   border-color: rgba(31, 99, 181, 0.32);
   background: linear-gradient(180deg, rgba(255, 254, 253, 0.98), rgba(220, 238, 255, 0.98));
   color: var(--porcelain-text);
@@ -2743,6 +2748,15 @@ body[data-floating-window="true"],
   color: var(--porcelain-text);
   box-shadow: 0 8px 16px rgba(31, 99, 181, 0.14);
   transform: translateY(-1px);
+}
+.video-note-archive__return-pet {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 3px rgba(31, 99, 181, 0.18));
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 .video-note-archive__toolbar,
 .video-note-archive__list {
