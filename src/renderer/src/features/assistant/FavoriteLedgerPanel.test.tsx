@@ -271,6 +271,98 @@ describe('FavoriteLedgerPanel', () => {
     }
   })
 
+  it('focuses the destination archive group and resets affected horizontal preview tracks after a manual move', async () => {
+    const scrollIntoView = vi.fn()
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
+    HTMLElement.prototype.scrollIntoView = scrollIntoView
+
+    try {
+      const preview = createArchivePreviewFixture()
+      preview.items.push(
+        {
+          aid: 703,
+          title: '知识区保底视频',
+          author: '知识UP',
+          description: '保留源分组。',
+          tags: ['知识'],
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'bilimi·知识学习',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          originalSuggestedLedgerIds: ['knowledge'],
+          currentTargetLedgerIds: ['knowledge'],
+          selectedTargetLedgerIds: ['knowledge'],
+          lowConfidence: false
+        },
+        {
+          aid: 704,
+          title: '游戏区保底视频',
+          author: '游戏UP',
+          description: '保留目标分组。',
+          tags: ['游戏'],
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'game',
+          targetFolderId: '9002',
+          targetDisplayName: 'bilimi·游戏专区',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          originalSuggestedLedgerIds: ['game'],
+          currentTargetLedgerIds: ['game'],
+          selectedTargetLedgerIds: ['game'],
+          lowConfidence: false
+        }
+      )
+      const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
+      const { container } = renderPanel({ onScanOldFavorites })
+
+      fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+      await screen.findByRole('region', { name: '整理旧藏向导' })
+      fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+
+      const knowledgeGroup = getPreviewArticle(container, /AI 效率工具实战/).closest('section')
+      const gameGroup = getPreviewArticle(container, /游戏区保底视频/).closest('section')
+      expect(knowledgeGroup).toBeDefined()
+      expect(gameGroup).toBeDefined()
+      const knowledgeTrack = knowledgeGroup.querySelector<HTMLElement>(
+        '.favorite-ledger-panel__preview-videos'
+      )
+      const gameTrack = gameGroup.querySelector<HTMLElement>('.favorite-ledger-panel__preview-videos')
+      expect(knowledgeTrack).toBeDefined()
+      expect(gameTrack).toBeDefined()
+      knowledgeTrack!.scrollLeft = 128
+      gameTrack!.scrollLeft = 96
+
+      fireEvent.change(within(knowledgeGroup).getByLabelText('调整分类 AI 效率工具实战'), {
+        target: { value: 'game' }
+      })
+
+      await waitFor(() =>
+        expect(getPreviewArticle(container, /AI 效率工具实战/).closest('section')).toHaveTextContent(
+          '游戏区保底视频'
+        )
+      )
+      const updatedKnowledgeGroup = getPreviewArticle(container, /知识区保底视频/).closest('section')
+      const updatedGameGroup = getPreviewArticle(container, /AI 效率工具实战/).closest('section')
+      expect(updatedKnowledgeGroup).toBeDefined()
+      expect(updatedGameGroup).toBeDefined()
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'nearest' })
+      expect(updatedKnowledgeGroup.querySelector('.favorite-ledger-panel__preview-videos')).toHaveProperty(
+        'scrollLeft',
+        0
+      )
+      expect(updatedGameGroup.querySelector('.favorite-ledger-panel__preview-videos')).toHaveProperty(
+        'scrollLeft',
+        0
+      )
+    } finally {
+      HTMLElement.prototype.scrollIntoView = originalScrollIntoView
+    }
+  })
+
   it('shows only the latest archive move notice in orange preview styling', async () => {
     const { container } = await openArchivePreview()
 

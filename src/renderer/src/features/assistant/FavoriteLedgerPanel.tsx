@@ -89,6 +89,11 @@ type ArchivePreviewLatestChange = {
   nextTargetText: string
 }
 
+type ArchivePreviewManualMoveFocus = {
+  sourceLedgerId: string
+  targetLedgerId: string
+}
+
 const OLD_FAVORITE_APPEND_DELAY_MS = { min: 1200, max: 3000 }
 const OLD_FAVORITE_COOLDOWN_DELAY_MS = { min: 15000, max: 45000 }
 const OLD_FAVORITE_COOLDOWN_EVERY = 25
@@ -1157,6 +1162,8 @@ export function FavoriteLedgerPanel({
   const [archiveUndoStack, setArchiveUndoStack] = useState<DeepSeekArchiveRunSnapshot[]>([])
   const [archiveRedoStack, setArchiveRedoStack] = useState<DeepSeekArchiveRunSnapshot[]>([])
   const [latestArchiveChange, setLatestArchiveChange] = useState<ArchivePreviewLatestChange | null>(null)
+  const [manualArchiveMoveFocus, setManualArchiveMoveFocus] =
+    useState<ArchivePreviewManualMoveFocus | null>(null)
 
   function clearDeepSeekArchiveRunSnapshot(options: { resetHistory?: boolean } = {}) {
     setDeepSeekArchiveRunSnapshot(null)
@@ -2138,11 +2145,13 @@ export function FavoriteLedgerPanel({
       }
 
       moveOldFavoriteToUnclassified(item)
+      setManualArchiveMoveFocus({ sourceLedgerId: areaLedgerId, targetLedgerId: 'unclassified' })
       return
     }
 
     if (areaLedgerId === 'unclassified') {
       applyArchiveSelection(item, [nextLedgerId])
+      setManualArchiveMoveFocus({ sourceLedgerId: areaLedgerId, targetLedgerId: nextLedgerId })
       return
     }
 
@@ -2150,6 +2159,7 @@ export function FavoriteLedgerPanel({
       item,
       uniqueLedgerIds(currentLedgerIds.map((ledgerId) => (ledgerId === areaLedgerId ? nextLedgerId : ledgerId)))
     )
+    setManualArchiveMoveFocus({ sourceLedgerId: areaLedgerId, targetLedgerId: nextLedgerId })
   }
 
   function resolvePendingUnclassifiedPreviewItem() {
@@ -2185,6 +2195,10 @@ export function FavoriteLedgerPanel({
 
     if (mode === 'all') {
       moveOldFavoriteToUnclassified(pendingItem)
+      setManualArchiveMoveFocus({
+        sourceLedgerId: pendingUnclassifiedDecision.areaLedgerId,
+        targetLedgerId: 'unclassified'
+      })
       setPendingUnclassifiedDecision(null)
       return
     }
@@ -2193,6 +2207,10 @@ export function FavoriteLedgerPanel({
       (ledgerId) => ledgerId !== pendingUnclassifiedDecision.areaLedgerId
     )
     applyArchiveSelection(pendingItem, remainingLedgerIds)
+    setManualArchiveMoveFocus({
+      sourceLedgerId: pendingUnclassifiedDecision.areaLedgerId,
+      targetLedgerId: remainingLedgerIds[0] ?? 'unclassified'
+    })
     setPendingUnclassifiedDecision(null)
   }
 
@@ -2725,6 +2743,35 @@ export function FavoriteLedgerPanel({
     },
     [archiveExecutionLedgers, archivePlanState, selectableOldFavoriteItems]
   )
+  useEffect(() => {
+    if (!manualArchiveMoveFocus) {
+      return
+    }
+
+    const previewRows = Array.from(
+      document.querySelectorAll<HTMLElement>('.favorite-ledger-panel__preview-row')
+    )
+    const previewRowForLedger = (ledgerId: string) =>
+      previewRows.find((row) => row.dataset.archiveLedgerId === ledgerId) ?? null
+
+    for (const ledgerId of uniqueLedgerIds([
+      manualArchiveMoveFocus.sourceLedgerId,
+      manualArchiveMoveFocus.targetLedgerId
+    ])) {
+      const track = previewRowForLedger(ledgerId)?.querySelector<HTMLElement>(
+        '.favorite-ledger-panel__preview-videos'
+      )
+      if (track) {
+        track.scrollLeft = 0
+      }
+    }
+
+    previewRowForLedger(manualArchiveMoveFocus.targetLedgerId)?.scrollIntoView?.({
+      behavior: 'smooth',
+      block: 'nearest'
+    })
+    setManualArchiveMoveFocus(null)
+  }, [manualArchiveMoveFocus, oldFavoriteTargetGroups])
   const hasArchivePreviewChanges = archivePlanState ? archivePlanHasPreviewChanges(archivePlanState) : false
   const deepSeekArchiveProgressValue = deepSeekArchiveProgress
     ? deepSeekArchiveProgressPercent(deepSeekArchiveProgress)
@@ -3638,6 +3685,7 @@ export function FavoriteLedgerPanel({
                 <div className="favorite-ledger-panel__preview-groups">
                   <section
                     className="favorite-ledger-panel__preview-row favorite-ledger-panel__preview-row--pending"
+                    data-archive-ledger-id="unclassified"
                     role="group"
                     aria-label={`未匹配到合适分类 ${previewScopedPendingItems.length} 条`}
                   >
@@ -3691,6 +3739,7 @@ export function FavoriteLedgerPanel({
                       <section
                         key={group.ledgerId}
                         className="favorite-ledger-panel__preview-row"
+                        data-archive-ledger-id={group.ledgerId}
                         role="group"
                         aria-label={`${group.displayName} ${group.entries.length} 条`}
                       >

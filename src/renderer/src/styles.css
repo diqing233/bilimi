@@ -4178,6 +4178,7 @@ body[data-floating-window="true"],
   min-height: 28px;
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   border-radius: var(--porcelain-radius-control);
   border-left: 2px solid rgba(232, 132, 31, 0.78);
   background: rgba(255, 241, 219, 0.72);
@@ -4186,9 +4187,12 @@ body[data-floating-window="true"],
   font-weight: 800;
   line-height: 1.35;
   overflow: hidden;
+  text-align: left;
   padding: 0 6px;
 }
 .favorite-ledger-panel__preview-delta {
+  display: block;
+  width: 100%;
   min-width: 0;
   overflow: hidden;
   color: rgb(145, 82, 21);
