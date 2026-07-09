@@ -9,20 +9,20 @@ describe('VideoNoteArchivePanel layout styles', () => {
   it('makes the return-to-notes button visually prominent in the archive header', () => {
     const returnButtonStyle = styles.match(/\.video-note-archive__return-button \{[^}]+\}/)?.[0]
 
-    expect(returnButtonStyle).toContain('min-height: 44px;')
-    expect(returnButtonStyle).toContain('padding: 8px 16px;')
-    expect(returnButtonStyle).toContain('border-width: 2px;')
-    expect(returnButtonStyle).toContain('border-color: rgba(7, 26, 51, 0.42);')
-    expect(returnButtonStyle).toContain('background: linear-gradient(180deg, #1f63b5 0%, #174577 100%);')
-    expect(returnButtonStyle).toContain('color: var(--porcelain-white);')
-    expect(returnButtonStyle).toContain('font-size: 14px;')
-    expect(returnButtonStyle).toContain('font-weight: 900;')
+    expect(returnButtonStyle).toContain('min-height: 42px;')
+    expect(returnButtonStyle).toContain('padding: 8px 14px;')
+    expect(returnButtonStyle).toContain('border-color: rgba(31, 99, 181, 0.32);')
+    expect(returnButtonStyle).toContain('background: linear-gradient(180deg, rgba(255, 254, 253, 0.98), rgba(220, 238, 255, 0.98));')
+    expect(returnButtonStyle).toContain('color: var(--porcelain-text);')
+    expect(returnButtonStyle).toContain('font-size: 15px;')
+    expect(returnButtonStyle).toContain('font-weight: 700;')
+    expect(returnButtonStyle).toContain('line-height: 1.25;')
 
     const hoverStyle = styles.match(
       /\.video-note-archive__return-button:hover:not\(:disabled\),\n\.video-note-archive__return-button:focus-visible:not\(:disabled\) \{[^}]+\}/
     )?.[0]
-    expect(hoverStyle).toContain('background: linear-gradient(180deg, #2d86c7 0%, #1f63b5 100%);')
-    expect(hoverStyle).toContain('color: var(--porcelain-white);')
+    expect(hoverStyle).toContain('background: linear-gradient(180deg, rgba(255, 254, 253, 1), rgba(220, 238, 255, 1));')
+    expect(hoverStyle).toContain('color: var(--porcelain-text);')
   })
 
   it('keeps the bordered global archive surfaces rounded', () => {
