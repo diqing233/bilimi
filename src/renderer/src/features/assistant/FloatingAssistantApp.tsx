@@ -64,7 +64,7 @@ const BILIBILI_VIDEO_URL_PATTERN = /bilibili\.com\/video\/[^/?#]+/i
 const BILIBILI_PAGE_PATTERN = /bilibili\.com/i
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash'
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
-const VIDEO_NOTE_ARCHIVE_SELECTION_STORAGE_KEY = 'bilimi.videoNoteArchive.selection'
+const VIDEO_NOTE_ARCHIVE_SELECTION_SESSION_KEY = 'bilimi.videoNoteArchive.selection'
 const EMPTY_VIDEO_NOTE_ARCHIVE_SELECTION: VideoNoteArchiveSelection = {
   archiveId: null,
   versionId: null,
@@ -101,9 +101,9 @@ function normalizeVideoNoteArchiveSelection(value: unknown): VideoNoteArchiveSel
   }
 }
 
-function loadStoredVideoNoteArchiveSelection(): VideoNoteArchiveSelection {
+function loadSessionVideoNoteArchiveSelection(): VideoNoteArchiveSelection {
   try {
-    const rawValue = window.localStorage.getItem(VIDEO_NOTE_ARCHIVE_SELECTION_STORAGE_KEY)
+    const rawValue = window.sessionStorage.getItem(VIDEO_NOTE_ARCHIVE_SELECTION_SESSION_KEY)
     return rawValue
       ? normalizeVideoNoteArchiveSelection(JSON.parse(rawValue))
       : EMPTY_VIDEO_NOTE_ARCHIVE_SELECTION
@@ -112,10 +112,10 @@ function loadStoredVideoNoteArchiveSelection(): VideoNoteArchiveSelection {
   }
 }
 
-function saveStoredVideoNoteArchiveSelection(selection: VideoNoteArchiveSelection): void {
+function saveSessionVideoNoteArchiveSelection(selection: VideoNoteArchiveSelection): void {
   try {
-    window.localStorage.setItem(
-      VIDEO_NOTE_ARCHIVE_SELECTION_STORAGE_KEY,
+    window.sessionStorage.setItem(
+      VIDEO_NOTE_ARCHIVE_SELECTION_SESSION_KEY,
       JSON.stringify(selection)
     )
   } catch {
@@ -573,7 +573,7 @@ export function FloatingAssistantApp({
   const [videoNotesResultTab, setVideoNotesResultTab] =
     useState<VideoNotesResultTab | null>(null)
   const [videoNoteArchiveSelection, setVideoNoteArchiveSelection] =
-    useState<VideoNoteArchiveSelection>(() => loadStoredVideoNoteArchiveSelection())
+    useState<VideoNoteArchiveSelection>(() => loadSessionVideoNoteArchiveSelection())
   const [organizeOldFavoritesRequestSignal, setOrganizeOldFavoritesRequestSignal] = useState(0)
   const isSidebarMode = mode === 'sidebar'
 
@@ -1701,7 +1701,7 @@ export function FloatingAssistantApp({
 
   function handleVideoNoteArchiveSelectionChange(selection: VideoNoteArchiveSelection) {
     setVideoNoteArchiveSelection(selection)
-    saveStoredVideoNoteArchiveSelection(selection)
+    saveSessionVideoNoteArchiveSelection(selection)
   }
 
 

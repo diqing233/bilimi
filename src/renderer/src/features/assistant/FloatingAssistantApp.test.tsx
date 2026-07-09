@@ -237,6 +237,7 @@ describe('FloatingAssistantApp', () => {
 
   beforeEach(() => {
     window.localStorage.clear()
+    window.sessionStorage.clear()
   })
 
   it('responds to pet workspace requests inside the floating assistant window', async () => {
@@ -3193,6 +3194,46 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByRole('article', { name: '机器学习入门教程' })).toBeInTheDocument()
     expect(
       within(screen.getByRole('button', { name: /机器学习入门教程/ })).getByText('已展开')
+    ).toBeInTheDocument()
+  })
+
+  it('does not restore archive detail from persistent storage after a new app session starts', async () => {
+    const note = createVideoNote()
+    const archive: VideoNoteArchiveEntry = {
+      id: note.id,
+      source: note.source,
+      versions: [
+        {
+          id: `${note.id}:version:${note.updatedAt}`,
+          note,
+          plainTranscript: '机器学习需要数据和模型。',
+          summaryText: '机器学习入门',
+          createdAt: note.updatedAt
+        }
+      ],
+      createdAt: note.createdAt,
+      updatedAt: note.updatedAt
+    }
+    window.localStorage.setItem(
+      'bilimi.videoNoteArchive.selection',
+      JSON.stringify({
+        archiveId: archive.id,
+        versionId: archive.versions[0].id,
+        activeResultTab: 'plain'
+      })
+    )
+    installDesktopApi({
+      loadVideoNoteArchives: vi.fn().mockResolvedValue([archive])
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
+    fireEvent.click(await screen.findByRole('button', { name: '档案库' }))
+
+    expect(screen.queryByRole('article', { name: '机器学习入门教程' })).not.toBeInTheDocument()
+    expect(
+      within(screen.getByRole('button', { name: /机器学习入门教程/ })).getByText('详情')
     ).toBeInTheDocument()
   })
 

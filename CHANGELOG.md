@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Improved old-favorite archive preview with stronger local classification, editable and reversible target choices, optional DeepSeek-assisted organization, and safer correction/keyword learning settings.
+- Kept the note archive's opened video detail visible when returning from review or a folded assistant session, while avoiding restore after a new app session.
 
 ## 0.1.1 - 2026-07-05
 
