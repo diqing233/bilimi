@@ -2696,20 +2696,22 @@ body[data-floating-window="true"],
   font-size: 18px;
 }
 .video-note-archive__return-button {
-  min-height: 38px;
-  padding: 7px 12px;
-  border-color: rgba(31, 99, 181, 0.72);
-  background: var(--porcelain-ice);
-  color: var(--porcelain-edge);
-  font-weight: 800;
-  box-shadow: 0 6px 14px rgba(31, 99, 181, 0.18);
+  min-height: 34px;
+  padding: 5px 10px;
+  border-width: 1.5px;
+  border-color: rgba(31, 99, 181, 0.46);
+  background: rgba(255, 254, 253, 0.92);
+  color: var(--porcelain-deep);
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 3px 8px rgba(31, 99, 181, 0.12);
 }
 .video-note-archive__return-button:hover:not(:disabled),
 .video-note-archive__return-button:focus-visible:not(:disabled) {
-  border-color: rgba(23, 69, 119, 0.82);
+  border-color: rgba(31, 99, 181, 0.7);
   background: var(--porcelain-white);
-  color: var(--porcelain-edge);
-  box-shadow: 0 8px 18px rgba(31, 99, 181, 0.24);
+  color: var(--porcelain-deep);
+  box-shadow: 0 5px 12px rgba(31, 99, 181, 0.16);
 }
 .video-note-archive__toolbar,
 .video-note-archive__list {

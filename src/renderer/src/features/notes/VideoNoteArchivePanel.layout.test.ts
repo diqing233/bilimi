@@ -7,10 +7,13 @@ const styles = readFileSync(stylesPath, 'utf8').replace(/\r\n/g, '\n')
 
 describe('VideoNoteArchivePanel layout styles', () => {
   it('makes the return-to-notes button visually prominent in the archive header', () => {
-    expect(styles).toContain('.video-note-archive__return-button {\n  min-height: 38px;')
-    expect(styles).toContain('background: var(--porcelain-ice);')
-    expect(styles).toContain('color: var(--porcelain-edge);')
-    expect(styles).toContain('font-weight: 800;')
+    expect(styles).toContain('.video-note-archive__return-button {\n  min-height: 34px;')
+    expect(styles).toContain('padding: 5px 10px;')
+    expect(styles).toContain('border-width: 1.5px;')
+    expect(styles).toContain('background: rgba(255, 254, 253, 0.92);')
+    expect(styles).toContain('color: var(--porcelain-deep);')
+    expect(styles).toContain('font-size: 13px;')
+    expect(styles).toContain('font-weight: 700;')
     expect(styles).toContain(
       '.video-note-archive__return-button:hover:not(:disabled),\n.video-note-archive__return-button:focus-visible:not(:disabled) {'
     )
