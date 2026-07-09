@@ -582,7 +582,9 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain('.assistant-settings__section-buttons')
     expectStyleSnippet('.assistant-settings__jump { display: grid; grid-template-columns: auto minmax(140px, 1fr); align-items: center;')
     expectStyleSnippet('.assistant-settings__jump select { box-sizing: border-box; min-width: 0; min-height: 30px;')
-    expectStyleSnippet('.assistant-settings__body { min-height: 0; overflow: auto;')
+    expectStyleSnippet(
+      '.assistant-settings__body { min-height: 0; overflow: auto; display: grid; align-content: start; gap: 24px;'
+    )
     expectStyleSnippet('border-top: 1px dashed rgba(31, 99, 181, 0.2); padding-top: 14px;')
     expectStyleSnippet('margin-right: -12px; padding-right: 10px;')
     expectStyleSnippet('.assistant-settings__group { display: grid; gap: 12px;')
