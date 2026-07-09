@@ -195,6 +195,12 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain(
       '.assistant-sidebar-workspace .floating-assistant-tabs {\n  display: grid;\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 5px;\n  padding: 7px 6px 6px;'
     )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .floating-assistant-tabs button { grid-template-columns: 18px minmax(0, auto); gap: 2px; min-height: 34px; padding: 0 3px; font-size: 13px; overflow: hidden;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .floating-assistant-tabs__pet { width: 18px; height: 18px; transform: scale(1.3333333333);'
+    )
   })
 
   it('keeps the global assistant status separated by a visible soft bottom rule', () => {
