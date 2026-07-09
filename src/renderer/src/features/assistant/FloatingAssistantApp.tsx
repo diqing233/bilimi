@@ -1689,6 +1689,7 @@ export function FloatingAssistantApp({
 
     if (latestVersion) {
       setVideoNote(latestVersion.note)
+      setVideoNotesResultTab('plain')
     }
   }
 

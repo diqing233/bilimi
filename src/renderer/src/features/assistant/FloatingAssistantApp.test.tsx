@@ -3388,7 +3388,7 @@ describe('FloatingAssistantApp', () => {
     ).toBeInTheDocument()
   })
 
-  it('keeps the review page active when a background transcription finishes', async () => {
+  it('keeps the review page active while preparing background transcript and DeepSeek summary results', async () => {
     const note = createVideoNote()
     const archive: VideoNoteArchiveEntry = {
       id: note.id,
@@ -3398,7 +3398,16 @@ describe('FloatingAssistantApp', () => {
           id: `${note.id}:version:${note.updatedAt}`,
           note,
           plainTranscript: '机器学习需要数据和模型。',
-          summaryText: '',
+          summaryText: [
+            '## 精准总结',
+            '',
+            '### 后台 DeepSeek 总结',
+            '后台总结已经保存。',
+            '',
+            '## 精修文稿',
+            '',
+            '后台精修文稿也已经保存。'
+          ].join('\n'),
           createdAt: note.updatedAt
         }
       ],
@@ -3463,6 +3472,21 @@ describe('FloatingAssistantApp', () => {
     )
     expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写完成')
     expect(screen.queryByRole('tabpanel', { name: /无时间线文稿/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: '札记' }))
+    expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+    expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).toHaveTextContent(
+      '机器学习需要数据和模型。'
+    )
+
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+    expect(screen.getByRole('region', { name: /DeepSeek 总结/ })).toHaveTextContent(
+      '后台 DeepSeek 总结'
+    )
+    expect(screen.getByText(/后台精修文稿也已经保存/)).toBeInTheDocument()
   })
 
   it('archives generated audio notes and opens the global archive panel', async () => {
@@ -3550,7 +3574,10 @@ describe('FloatingAssistantApp', () => {
       })
     })
     await waitFor(() => expect(loadVideoNoteArchives).toHaveBeenCalledTimes(2))
-    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+    expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
     expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).toHaveTextContent(
       '机器学习需要数据和模型。'
     )
