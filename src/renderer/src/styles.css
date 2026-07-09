@@ -3480,17 +3480,24 @@ body[data-floating-window="true"],
   align-items: center;
 }
 .favorite-ledger-panel__archive-history-select {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 6px;
+  display: flex;
   align-items: center;
+  gap: 6px;
   min-width: 0;
+  min-height: 32px;
   color: var(--porcelain-deep);
   font-size: 13px;
   font-weight: 800;
   line-height: 1.35;
 }
+.favorite-ledger-panel__archive-history-select > span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  transform: translateY(1px);
+}
 .favorite-ledger-panel__archive-history-select select {
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 30px;
   border: 1px solid rgba(31, 99, 181, 0.22);
@@ -3545,7 +3552,21 @@ body[data-floating-window="true"],
   padding: 4px 8px;
 }
 .favorite-ledger-panel__deepseek-archive-scope > button {
-  min-width: 72px;
+  min-width: 84px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.favorite-ledger-panel__deepseek-archive-scope-arrow {
+  font-size: 10px;
+  line-height: 1;
+  width: 0;
+  height: 0;
+  border-top: 4px solid currentColor;
+  border-right: 4px solid transparent;
+  border-left: 4px solid transparent;
+  opacity: 0.78;
 }
 .favorite-ledger-panel__deepseek-archive-scope-menu {
   position: absolute;

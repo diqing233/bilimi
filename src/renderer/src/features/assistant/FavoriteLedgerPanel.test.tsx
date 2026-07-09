@@ -207,7 +207,10 @@ describe('FavoriteLedgerPanel', () => {
     const toolCard = screen.getByRole('group', { name: '归档预览辅助工具' })
     const scopeButton = within(toolCard).getByRole('button', { name: '整理范围' })
     const deepSeekButton = within(toolCard).getByRole('button', { name: 'DeepSeek 整理' })
+    const scopeArrow = scopeButton.querySelector('.favorite-ledger-panel__deepseek-archive-scope-arrow')
     expect(scopeButton).toHaveAttribute('title', '当前选择：不太稳 + 未匹配到合适分类')
+    expect(scopeArrow).toBeInTheDocument()
+    expect(scopeArrow).toHaveAttribute('aria-hidden', 'true')
     expect(scopeButton.compareDocumentPosition(deepSeekButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 
     fireEvent.click(scopeButton)

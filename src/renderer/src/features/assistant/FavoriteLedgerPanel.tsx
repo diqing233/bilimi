@@ -3001,7 +3001,8 @@ export function FavoriteLedgerPanel({
           disabled={deepSeekArchiveRunning}
           onClick={() => setDeepSeekArchiveScopeOpen((open) => !open)}
         >
-          整理范围
+          <span>整理范围</span>
+          <span className="favorite-ledger-panel__deepseek-archive-scope-arrow" aria-hidden="true" />
         </button>
         {deepSeekArchiveScopeOpen ? (
           <div
