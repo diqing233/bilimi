@@ -22,7 +22,7 @@ describe('VideoNoteArchivePanel layout styles', () => {
     expect(returnButtonStyle).toContain('line-height: 1.25;')
     expect(styles).toContain('.video-note-archive__return-pet {\n  width: 28px;\n  height: 28px;')
     expect(styles).toContain(
-      '.video-note-archive__return-label {\n  color: var(--porcelain-text);\n  font-size: 15px;\n  font-weight: 700;\n  line-height: 1.25;\n  text-align: left;'
+      '.video-note-archive__return-label {\n  color: var(--porcelain-text);\n  font-size: 18px;\n  font-weight: 700;\n  line-height: 1.25;\n  text-align: left;'
     )
 
     const hoverStyle = styles.match(

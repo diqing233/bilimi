@@ -2751,7 +2751,7 @@ body[data-floating-window="true"],
 }
 .video-note-archive__return-label {
   color: var(--porcelain-text);
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 700;
   line-height: 1.25;
   text-align: left;
