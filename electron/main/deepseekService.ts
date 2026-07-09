@@ -117,6 +117,77 @@ function coerceStringArray(value: unknown, limit: number): string[] {
     : []
 }
 
+function isUnclassifiedLedgerId(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  return (
+    normalized === 'inbox' ||
+    normalized === 'unclassified' ||
+    normalized === '未分类' ||
+    normalized === '未整理'
+  )
+}
+
+function hasMeaningfulVideoSignal(video: {
+  title?: string
+  author?: string
+  description?: string
+  pageText?: string
+  tags?: string[]
+  category?: string
+}): boolean {
+  return [
+    video.title,
+    video.author,
+    video.description,
+    video.pageText,
+    video.category,
+    ...(video.tags ?? [])
+  ].some((value) => typeof value === 'string' && value.trim().length >= 2)
+}
+
+function explainsUnclassifiedLastResort(reason: string): boolean {
+  const normalized = reason.trim().toLowerCase()
+  return [
+    '空信息',
+    '无有效信息',
+    '信息不足',
+    '无法判断',
+    '无法归类',
+    '不可分类',
+    '广告',
+    '垃圾',
+    '风险',
+    '违规',
+    '不适合任何',
+    '都不适合',
+    '全部不适合',
+    'no useful information',
+    'insufficient information',
+    'unsafe',
+    'spam',
+    'risk'
+  ].some((keyword) => normalized.includes(keyword))
+}
+
+function shouldRejectUnclassifiedForMeaningfulVideo(args: {
+  targetLedgerIds: string[]
+  reason: string
+  video?: {
+    title?: string
+    author?: string
+    description?: string
+    pageText?: string
+    tags?: string[]
+    category?: string
+  }
+}): boolean {
+  return (
+    args.targetLedgerIds.some(isUnclassifiedLedgerId) &&
+    Boolean(args.video && hasMeaningfulVideoSignal(args.video)) &&
+    !explainsUnclassifiedLastResort(args.reason)
+  )
+}
+
 function isUsefulNoteKeyPoint(value: string): boolean {
   const normalized = value.replace(/\s+/g, '')
   return normalized.length >= 24
@@ -174,7 +245,27 @@ function invalidArchiveResult(
   }
 }
 
-function parseArchiveResultRow(row: unknown): DeepSeekArchiveVideoResult {
+function findArchiveRequestVideo(
+  request: Extract<DeepSeekGenerateRequest, { kind: 'favorite-archive-organize' }>,
+  aid: number | undefined,
+  sourceFolderTitle: string | undefined
+) {
+  if (aid === undefined) {
+    return undefined
+  }
+
+  const matches = request.videos.filter(
+    (video) =>
+      video.aid === aid &&
+      (!sourceFolderTitle || video.sourceFolderTitle.trim() === sourceFolderTitle)
+  )
+  return matches.length === 1 ? matches[0] : request.videos.find((video) => video.aid === aid)
+}
+
+function parseArchiveResultRow(
+  request: Extract<DeepSeekGenerateRequest, { kind: 'favorite-archive-organize' }>,
+  row: unknown
+): DeepSeekArchiveVideoResult {
   if (!isRecord(row)) {
     return invalidArchiveResult(undefined, 'DeepSeek returned a non-object result row.')
   }
@@ -201,6 +292,15 @@ function parseArchiveResultRow(row: unknown): DeepSeekArchiveVideoResult {
   }
   if (!reason) {
     invalidReasons.push('invalid reason')
+  }
+  if (
+    shouldRejectUnclassifiedForMeaningfulVideo({
+      targetLedgerIds,
+      reason,
+      video: findArchiveRequestVideo(request, aid, sourceFolderTitle)
+    })
+  ) {
+    invalidReasons.push('unclassified target should choose the closest existing enabled ledger')
   }
 
   const result: DeepSeekArchiveVideoResult = {
@@ -339,6 +439,15 @@ function parseDailyClassificationReviewResult(
   if (!reason) {
     invalidReasons.push('invalid reason')
   }
+  if (
+    shouldRejectUnclassifiedForMeaningfulVideo({
+      targetLedgerIds,
+      reason,
+      video: request.video
+    })
+  ) {
+    invalidReasons.push('unclassified target should choose the closest existing enabled ledger')
+  }
 
   if (invalidReasons.length > 0) {
     return {
@@ -411,6 +520,9 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
         content: [
           'You organize Bilibili favorite archive preview rows for bilimi.',
           'You may only output existing enabled bilimi ledgers from the provided ledger list, or 未分类 when the video should not be archived.',
+          'When no exact ledger exists but the video has meaningful topic signals, choose the closest existing enabled ledger instead of 未分类.',
+          'Use 未分类 only as a last resort for empty, unsafe, spammy, or genuinely unclassifiable videos; if you choose it, explain why no existing ledger fits.',
+          'When choosing a closest existing ledger for a missing exact topic, include keywordSuggestions only for the final chosen ledger.',
           'You cannot create folders and cannot directly edit keywords; keywordSuggestions are only pending suggestions for the user to review.',
           'Echo sourceFolderTitle from each input video in every result so duplicate aid rows from different source folders can be applied to the intended row.',
           'Respect multiArchiveLimit for targetLedgerIds. Use keepOriginal only when the current targets should remain alongside the suggested targets.',
@@ -436,6 +548,9 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
         content: [
           'You review one daily Bilibili favorite classification for bilimi before the real action executes.',
           'You may only output existing enabled bilimi ledgers from the provided ledger list, or inbox/unclassified when the video should stay unclassified.',
+          'When no exact ledger exists but the video has meaningful topic signals, choose the closest existing enabled ledger instead of inbox/unclassified.',
+          'Use inbox/unclassified only as a last resort for empty, unsafe, spammy, or genuinely unclassifiable videos; if you choose it, explain why no existing ledger fits.',
+          'When choosing a closest existing ledger for a missing exact topic, include keywordSuggestions only for the final chosen ledger.',
           'Do not create folders and do not directly edit keywords; keywordSuggestions are only pending suggestions for the user to review.',
           'Set corrected=true only when the local classification should be replaced before executing. If local targets are correct, echo them and set corrected=false.',
           'Return JSON only: {"targetLedgerIds":["ledger-id"],"corrected":false,"reason":"","confidence":0.8,"keywordSuggestions":[{"action":"replace-with-combination","ledgerId":"game","keyword":"攻略","replacement":"游戏攻略","reason":""}]}'
@@ -538,7 +653,7 @@ function parseResult(
 
     return {
       kind: 'favorite-archive-organize',
-      results: parsed.results.map(parseArchiveResultRow),
+      results: parsed.results.map((row) => parseArchiveResultRow(request, row)),
       keywordSuggestions: normalizeArchiveKeywordSuggestions(parsed.keywordSuggestions)
     }
   }

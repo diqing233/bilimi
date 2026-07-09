@@ -263,9 +263,75 @@ describe('DeepSeek main service', () => {
 
     expect(systemMessage).toContain('only output existing enabled bilimi ledgers')
     expect(systemMessage).toContain('未分类')
+    expect(systemMessage).toContain('choose the closest existing enabled ledger')
+    expect(systemMessage).toContain('keywordSuggestions')
+    expect(systemMessage).toContain('Use 未分类 only as a last resort')
     expect(systemMessage).toContain('cannot create folders')
     expect(systemMessage).toContain('cannot directly edit keywords')
     expect(systemMessage).toContain('Return JSON only')
+  })
+
+  it('marks archive unclassified results invalid when a meaningful video only lacks an exact category', async () => {
+    const result = await generateDeepSeekResult({
+      config: baseConfig,
+      request: {
+        kind: 'favorite-archive-organize',
+        mode: 'unclassified-only',
+        videos: [
+          {
+            aid: 77,
+            title: '【一气看完】喜欢文本位的可以跑进来了。',
+            tags: ['爽文', '大女主', '小说推文', '文本位', '宝藏小说'],
+            sourceFolderTitle: '默认收藏夹',
+            originalSuggestedLedgerIds: [],
+            currentTargetLedgerIds: [],
+            selectedTargetLedgerIds: []
+          }
+        ],
+        ledgers: [
+          {
+            id: 'movie-tv',
+            displayName: 'bilimi·影视动漫',
+            keywords: ['影视剧情', '角色分析'],
+            enabled: true
+          },
+          {
+            id: 'entertainment',
+            displayName: 'bilimi·搞笑杂谈',
+            keywords: ['娱乐', '杂谈'],
+            enabled: true
+          }
+        ],
+        multiArchiveLimit: 1
+      },
+      fetchImpl: createJsonFetch(
+        JSON.stringify({
+          results: [
+            {
+              aid: 77,
+              sourceFolderTitle: '默认收藏夹',
+              targetLedgerIds: ['unclassified'],
+              keepOriginal: false,
+              reason: '没有小说推文这个精确分类。',
+              confidence: 0.7,
+              lowConfidence: false
+            }
+          ],
+          keywordSuggestions: []
+        })
+      )
+    })
+
+    expect(result).toMatchObject({
+      kind: 'favorite-archive-organize',
+      results: [
+        {
+          aid: 77,
+          invalid: true,
+          errorMessage: expect.stringContaining('closest existing enabled ledger')
+        }
+      ]
+    })
   })
 
   it('marks archive rows invalid when confidence is missing without dropping usable rows', async () => {
@@ -421,8 +487,66 @@ describe('DeepSeek main service', () => {
 
     expect(systemMessage).toContain('existing enabled bilimi ledgers')
     expect(systemMessage).toContain('unclassified')
+    expect(systemMessage).toContain('choose the closest existing enabled ledger')
+    expect(systemMessage).toContain('keywordSuggestions')
     expect(systemMessage).toContain('JSON only')
     expect(systemMessage).toContain('keywordSuggestions are only pending suggestions')
+  })
+
+  it('marks daily inbox results invalid when a meaningful video only lacks an exact category', async () => {
+    await expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: {
+          kind: 'favorite-daily-classify-review',
+          video: {
+            aid: 88,
+            title: '【一气看完】喜欢文本位的可以跑进来了。',
+            tags: ['爽文', '大女主', '小说推文', '文本位', '宝藏小说']
+          },
+          localClassification: {
+            targetLedgerIds: [],
+            primaryLedgerId: 'inbox',
+            displayNames: ['bilimi·暂存'],
+            reason: '本地没有命中精确分类',
+            diagnostics: []
+          },
+          ledgers: [
+            {
+              id: 'movie-tv',
+              displayName: 'bilimi·影视动漫',
+              keywords: ['影视剧情', '角色分析'],
+              enabled: true
+            },
+            {
+              id: 'entertainment',
+              displayName: 'bilimi·搞笑杂谈',
+              keywords: ['娱乐', '杂谈'],
+              enabled: true
+            },
+            {
+              id: 'inbox',
+              displayName: 'bilimi·暂存',
+              keywords: [],
+              enabled: true
+            }
+          ]
+        },
+        fetchImpl: createJsonFetch(
+          JSON.stringify({
+            targetLedgerIds: ['inbox'],
+            corrected: false,
+            reason: '没有小说推文这个精确分类。',
+            confidence: 0.7,
+            keywordSuggestions: []
+          })
+        )
+      })
+    ).resolves.toMatchObject({
+      kind: 'favorite-daily-classify-review',
+      invalid: true,
+      errorMessage: expect.stringContaining('closest existing enabled ledger')
+    })
   })
 
   it('marks daily classification review invalid when confidence or targets are unusable', async () => {
