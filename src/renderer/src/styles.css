@@ -4014,20 +4014,21 @@ body[data-floating-window="true"],
   grid-column: 1 / -1;
   display: flex;
   align-items: stretch;
-  gap: 12px;
+  gap: 16px;
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 0 6px 6px;
-  scroll-padding-inline: 6px;
+  padding: 0 12px 8px;
+  scroll-padding-inline: 12px;
   scroll-snap-type: x proximity;
   scrollbar-width: thin;
 }
 .favorite-ledger-panel__preview-videos article {
-  flex: 0 0 calc(100% - 28px);
+  flex: 0 0 calc(100% - 56px);
   min-width: 0;
   display: grid;
   grid-template-rows: minmax(116px, 1fr) auto;
+  scroll-snap-align: start;
   border: 0;
   background: transparent;
   padding: 0;
