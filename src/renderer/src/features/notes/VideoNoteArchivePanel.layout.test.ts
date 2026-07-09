@@ -11,16 +11,17 @@ describe('VideoNoteArchivePanel layout styles', () => {
 
     expect(returnButtonStyle).toContain('min-height: 34px;')
     expect(returnButtonStyle).toContain('padding: 5px 10px;')
-    expect(returnButtonStyle).toContain('border-width: 1.5px;')
-    expect(returnButtonStyle).toContain('background: var(--porcelain-white);')
+    expect(returnButtonStyle).toContain('border-width: 2px;')
+    expect(returnButtonStyle).toContain('border-color: rgba(31, 99, 181, 0.78);')
+    expect(returnButtonStyle).toContain('background: rgba(220, 238, 255, 0.86);')
     expect(returnButtonStyle).toContain('color: var(--porcelain-text);')
     expect(returnButtonStyle).toContain('font-size: 13px;')
-    expect(returnButtonStyle).toContain('font-weight: 700;')
+    expect(returnButtonStyle).toContain('font-weight: 800;')
 
     const hoverStyle = styles.match(
       /\.video-note-archive__return-button:hover:not\(:disabled\),\n\.video-note-archive__return-button:focus-visible:not\(:disabled\) \{[^}]+\}/
     )?.[0]
-    expect(hoverStyle).toContain('background: var(--porcelain-white);')
+    expect(hoverStyle).toContain('background: var(--porcelain-ice);')
     expect(hoverStyle).toContain('color: var(--porcelain-text);')
   })
 

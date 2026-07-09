@@ -2719,20 +2719,20 @@ body[data-floating-window="true"],
 .video-note-archive__return-button {
   min-height: 34px;
   padding: 5px 10px;
-  border-width: 1.5px;
-  border-color: rgba(31, 99, 181, 0.46);
-  background: var(--porcelain-white);
+  border-width: 2px;
+  border-color: rgba(31, 99, 181, 0.78);
+  background: rgba(220, 238, 255, 0.86);
   color: var(--porcelain-text);
   font-size: 13px;
-  font-weight: 700;
-  box-shadow: 0 3px 8px rgba(31, 99, 181, 0.12);
+  font-weight: 800;
+  box-shadow: 0 4px 10px rgba(31, 99, 181, 0.16);
 }
 .video-note-archive__return-button:hover:not(:disabled),
 .video-note-archive__return-button:focus-visible:not(:disabled) {
-  border-color: rgba(31, 99, 181, 0.7);
-  background: var(--porcelain-white);
+  border-color: rgba(23, 69, 119, 0.86);
+  background: var(--porcelain-ice);
   color: var(--porcelain-text);
-  box-shadow: 0 5px 12px rgba(31, 99, 181, 0.16);
+  box-shadow: 0 6px 14px rgba(31, 99, 181, 0.2);
 }
 .video-note-archive__toolbar,
 .video-note-archive__list {
