@@ -2674,6 +2674,7 @@ export function FloatingAssistantApp({
                 onChangeVideoNote={handleChangeVideoNote}
                 videoNote={videoNote}
                 videoNoteArchivedSummaryText={videoNoteArchivedSummaryText}
+                videoNoteArchives={videoNoteArchives}
                 videoNoteLoading={videoNoteLoading}
                 transcriptionProgress={transcriptionProgress}
                 transcriptionQueue={transcriptionQueue}

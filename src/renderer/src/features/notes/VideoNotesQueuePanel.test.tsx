@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { VideoAudioTranscriptionQueueSnapshot, VideoNote } from '@shared/types'
+import type { VideoAudioTranscriptionQueueSnapshot, VideoNote, VideoNoteArchiveEntry } from '@shared/types'
 import { VideoNotesPanel } from './VideoNotesPanel'
 
 const sampleNote: VideoNote = {
@@ -76,6 +76,24 @@ function renderQueuePanelWithNote(queue: VideoAudioTranscriptionQueueSnapshot) {
       transcriptionQueue={queue}
     />
   )
+}
+
+function createArchive(note: VideoNote): VideoNoteArchiveEntry {
+  return {
+    id: note.id,
+    source: note.source,
+    createdAt: note.createdAt,
+    updatedAt: note.updatedAt,
+    versions: [
+      {
+        id: `${note.id}:version:${note.updatedAt}`,
+        note,
+        plainTranscript: note.transcript.map((segment) => segment.text).join('\n\n'),
+        summaryText: '',
+        createdAt: note.updatedAt
+      }
+    ]
+  }
 }
 
 describe('VideoNotesPanel transcription queue', () => {
@@ -345,5 +363,68 @@ describe('VideoNotesPanel transcription queue', () => {
     expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).not.toHaveTextContent(
       'Transcript text.'
     )
+  })
+
+  it('previews the selected completed queue item from its archived note when the queue item no longer keeps a draft', () => {
+    const otherCompletedNote: VideoNote = {
+      ...sampleNote,
+      id: 'note-other-completed',
+      source: {
+        title: 'Other completed video',
+        author: 'Other teacher',
+        tags: [],
+        bvid: 'BV4note',
+        url: 'https://www.bilibili.com/video/BV4note'
+      },
+      transcript: [{ start: 0, end: 6, text: 'Other archived transcript.' }],
+      updatedAt: '2026-06-25T00:05:00.000Z'
+    }
+    const queue: VideoAudioTranscriptionQueueSnapshot = {
+      items: [
+        {
+          id: 'bvid:BV3note',
+          url: 'https://www.bilibili.com/video/BV3note',
+          title: 'Completed video',
+          bvid: 'BV3note',
+          status: 'completed',
+          archiveNoteId: queuedCompletedNote.id,
+          createdAt: '2026-06-25T00:03:00.000Z',
+          updatedAt: '2026-06-25T00:04:00.000Z',
+          completedAt: '2026-06-25T00:04:00.000Z'
+        },
+        {
+          id: 'bvid:BV4note',
+          url: 'https://www.bilibili.com/video/BV4note',
+          title: 'Other completed video',
+          bvid: 'BV4note',
+          status: 'completed',
+          archiveNoteId: otherCompletedNote.id,
+          createdAt: '2026-06-25T00:04:00.000Z',
+          updatedAt: '2026-06-25T00:05:00.000Z',
+          completedAt: '2026-06-25T00:05:00.000Z'
+        }
+      ]
+    }
+
+    render(
+      <VideoNotesPanel
+        note={null}
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+        onTranscribeAudio={vi.fn()}
+        onEnqueueTranscription={vi.fn().mockResolvedValue(queue)}
+        transcriptionQueue={queue}
+        archivedNotes={[createArchive(queuedCompletedNote), createArchive(otherCompletedNote)]}
+      />
+    )
+
+    fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: 'bvid:BV3note' }
+    })
+    fireEvent.click(screen.getAllByRole('tab')[0])
+
+    expect(screen.getByRole('tabpanel')).toHaveTextContent('Completed queued transcript.')
+    expect(screen.getByRole('tabpanel')).not.toHaveTextContent('Other archived transcript.')
   })
 })

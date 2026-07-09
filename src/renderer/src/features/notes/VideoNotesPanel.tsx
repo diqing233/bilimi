@@ -5,7 +5,8 @@ import type {
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionQueueItem,
   VideoAudioTranscriptionQueueSnapshot,
-  VideoNote
+  VideoNote,
+  VideoNoteArchiveEntry
 } from '@shared/types'
 import {
   createNotePosterCopyParts,
@@ -43,6 +44,7 @@ type VideoNotesPanelProps = {
   deepSeekAutoSummaryEnabled?: boolean
   transcriptionProgress?: VideoAudioTranscriptionProgress | null
   transcriptionQueue?: VideoAudioTranscriptionQueueSnapshot
+  archivedNotes?: VideoNoteArchiveEntry[]
   activeResultTab?: VideoNotesResultTab | null
   onActiveResultTabChange?: (tab: VideoNotesResultTab | null) => void
 }
@@ -185,6 +187,18 @@ function createQueueItemOptionLabel(item: VideoAudioTranscriptionQueueItem): str
   return `${createQueueItemStatusLabel(item)}：${item.title}`
 }
 
+function findArchivedQueueVersion(
+  archives: VideoNoteArchiveEntry[],
+  queueItem?: VideoAudioTranscriptionQueueItem | null
+): VideoNoteArchiveEntry['versions'][number] | null {
+  if (!queueItem?.archiveNoteId) return null
+  const archive = archives.find((entry) => entry.id === queueItem.archiveNoteId)
+  const latestVersion = archive?.versions
+    .slice()
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
+  return latestVersion ?? null
+}
+
 export function VideoNotesPanel({
   note,
   currentVideoTitle = '当前视频',
@@ -201,6 +215,7 @@ export function VideoNotesPanel({
   deepSeekAutoSummaryEnabled = false,
   transcriptionProgress = null,
   transcriptionQueue,
+  archivedNotes = [],
   activeResultTab: controlledActiveResultTab,
   onActiveResultTabChange
 }: VideoNotesPanelProps): React.JSX.Element {
@@ -237,10 +252,15 @@ export function VideoNotesPanel({
   const queueItems = useMemo(() => transcriptionQueue?.items ?? [], [transcriptionQueue])
   const visibleQueueItem =
     queueItems.find((item) => item.id === selectedQueueItemId) ?? defaultVisibleQueueItem
-  const isQueuePreviewActive = Boolean(
-    visibleQueueItem && (queueItems.length > 1 || visibleQueueItem.draftNote || !note)
+  const archivedQueueVersion = useMemo(
+    () => findArchivedQueueVersion(archivedNotes, visibleQueueItem),
+    [archivedNotes, visibleQueueItem]
   )
-  const visibleNote = isQueuePreviewActive ? visibleQueueItem?.draftNote ?? null : note
+  const archivedQueueNote = archivedQueueVersion?.note ?? null
+  const isQueuePreviewActive = Boolean(
+    visibleQueueItem && (queueItems.length > 1 || visibleQueueItem.draftNote || archivedQueueNote || !note)
+  )
+  const visibleNote = isQueuePreviewActive ? visibleQueueItem?.draftNote ?? archivedQueueNote : note
   const queuedItemCount = useMemo(
     () => transcriptionQueue?.items.filter((item) => item.status === 'pending').length ?? 0,
     [transcriptionQueue]
@@ -250,7 +270,11 @@ export function VideoNotesPanel({
   const notePosterKey = visibleNote ? createPosterCacheKey(visibleNote) : ''
   const activePosterSummary =
     posterSummary && posterSummary.noteKey === notePosterKey ? posterSummary.summary : null
-  const activeArchivedSummaryText = activePosterSummary || isQueuePreviewActive ? '' : archivedSummaryText.trim()
+  const activeArchivedSummaryText = activePosterSummary
+    ? ''
+    : isQueuePreviewActive
+      ? archivedQueueVersion?.summaryText?.trim() ?? ''
+      : archivedSummaryText.trim()
   const archivedCopyParts = useMemo(
     () => createNotePosterCopyParts(activeArchivedSummaryText),
     [activeArchivedSummaryText]

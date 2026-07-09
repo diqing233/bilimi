@@ -6,7 +6,8 @@ import type {
   NotePosterSummary,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionQueueSnapshot,
-  VideoNote
+  VideoNote,
+  VideoNoteArchiveEntry
 } from '@shared/types'
 import { useEffect, useState, type SyntheticEvent } from 'react'
 import { VideoNotesPanel, type VideoNotesResultTab } from '../notes/VideoNotesPanel'
@@ -54,6 +55,7 @@ type MemorialPanelProps = {
   onOpenVideoNoteArchive?: () => void
   videoNote: VideoNote | null
   videoNoteArchivedSummaryText?: string
+  videoNoteArchives?: VideoNoteArchiveEntry[]
   videoNoteLoading: boolean
   transcriptionProgress?: VideoAudioTranscriptionProgress | null
   transcriptionQueue?: VideoAudioTranscriptionQueueSnapshot
@@ -178,6 +180,7 @@ export function MemorialPanel({
   onOpenVideoNoteArchive,
   videoNote,
   videoNoteArchivedSummaryText = '',
+  videoNoteArchives = [],
   videoNoteLoading,
   transcriptionProgress,
   transcriptionQueue,
@@ -313,6 +316,7 @@ export function MemorialPanel({
             onChange={onChangeVideoNote}
             onOpenArchive={onOpenVideoNoteArchive}
             archivedSummaryText={videoNoteArchivedSummaryText}
+            archivedNotes={videoNoteArchives}
             deepSeekEnabled={deepSeekEnabled}
             deepSeekAutoSummaryEnabled={deepSeekAutoSummaryEnabled}
             transcriptionProgress={transcriptionProgress}
