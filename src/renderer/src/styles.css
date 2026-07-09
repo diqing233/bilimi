@@ -3745,6 +3745,15 @@ body[data-floating-window="true"],
   font-size: 12px;
   line-height: 1.45;
 }
+.favorite-ledger-panel__step-title {
+  margin: 0;
+}
+.favorite-ledger-panel__step-note {
+  margin: 0;
+  color: var(--porcelain-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
 .favorite-ledger-panel__candidates {
   display: grid;
   gap: 8px;

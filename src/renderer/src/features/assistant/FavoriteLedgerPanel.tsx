@@ -3376,8 +3376,8 @@ export function FavoriteLedgerPanel({
 
           {oldFavoriteStep === 'generated' ? (
             <section className="favorite-ledger-panel__candidates" aria-label="专属收藏夹候选">
-              <h4>推荐收藏夹</h4>
-              <p>确认执行后，会把已勾选候选同步到 B 站收藏夹里。</p>
+              <h4 className="favorite-ledger-panel__step-title">推荐收藏夹</h4>
+              <p className="favorite-ledger-panel__step-note">确认执行后，会把已勾选候选同步到 B 站收藏夹里。</p>
               <div className="favorite-ledger-panel__candidate-section">
                 <div className="favorite-ledger-panel__candidate-section-heading">
                   <h5>专属 UP 追更</h5>
@@ -3489,8 +3489,8 @@ export function FavoriteLedgerPanel({
             <div className="favorite-ledger-panel__preview">
               <div className="favorite-ledger-panel__preview-topbar">
                 <div>
-                  <h4>归档预览</h4>
-                  <p>增删收藏夹或修改标签后，回到归档预览会自动更新</p>
+                  <h4 className="favorite-ledger-panel__step-title">归档预览</h4>
+                  <p className="favorite-ledger-panel__step-note">增删收藏夹或修改标签后，回到归档预览会自动更新</p>
                 </div>
               </div>
               {oldFavoriteGuideMode === 'organize' ? (

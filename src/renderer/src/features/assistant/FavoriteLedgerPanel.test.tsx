@@ -131,6 +131,24 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.queryByText('当前建议分类')).not.toBeInTheDocument()
   })
 
+  it('renders old favorite step notes as compact text directly under their headings', async () => {
+    await openArchivePreview()
+
+    const previewHeading = screen.getByRole('heading', { name: '归档预览' })
+    const previewNote = screen.getByText('增删收藏夹或修改标签后，回到归档预览会自动更新')
+    expect(previewHeading).toHaveClass('favorite-ledger-panel__step-title')
+    expect(previewNote).toHaveClass('favorite-ledger-panel__step-note')
+    expect(previewHeading.compareDocumentPosition(previewNote) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+
+    const generatedHeading = screen.getByRole('heading', { name: '推荐收藏夹' })
+    const generatedNote = screen.getByText('确认执行后，会把已勾选候选同步到 B 站收藏夹里。')
+    expect(generatedHeading).toHaveClass('favorite-ledger-panel__step-title')
+    expect(generatedNote).toHaveClass('favorite-ledger-panel__step-note')
+    expect(generatedHeading.compareDocumentPosition(generatedNote) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('keeps the current-location switch outside the selectable preview card body', async () => {
     const { container } = await openArchivePreview()
 
