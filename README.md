@@ -2,18 +2,18 @@
 
 bilimi 是一个面向 Bilibili 使用场景的 Windows 桌面应用。它基于 Electron + React 构建，把内置 B站浏览器、右侧助手工作区、收藏夹整理、视频笔记、本地音频转写和小咪桌面伴随入口放在同一个应用里。
 
-当前公开版本是 `0.1.0`，Windows x64 用户可以直接下载安装包使用。
+当前公开版本是 `0.1.1`，Windows x64 用户可以直接下载安装包使用。
 
 ## 下载与安装
 
 前往 GitHub Release 下载最新版 Windows 安装包：
 
-[下载 bilimi 0.1.0](https://github.com/diqing233/bilimi/releases/download/v0.1.0/bilimi.Setup.0.1.0.exe)
+[下载 bilimi 0.1.1](https://github.com/diqing233/bilimi/releases/download/v0.1.1/bilimi.Setup.0.1.1.exe)
 
 安装包名称：
 
 ```text
-bilimi.Setup.0.1.0.exe
+bilimi.Setup.0.1.1.exe
 ```
 
 安装后，应用名称显示为 `bilimi`，应用图标为小咪头像。
