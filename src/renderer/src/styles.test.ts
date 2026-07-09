@@ -161,7 +161,7 @@ describe('renderer porcelain theme styles', () => {
     expect(sidebarStyles).toContain('.assistant-sidebar-workspace .floating-assistant-tabs {')
     expect(sidebarStyles).toContain('padding-left: 0;')
     expectStyleSnippet(
-      '.assistant-sidebar-workspace { --assistant-sidebar-workspace-padding-x: 12px; --assistant-sidebar-panel-overhang: var(--assistant-sidebar-workspace-padding-x); height: 100%; min-height: 0; box-sizing: border-box; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 6px; padding: 4px var(--assistant-sidebar-workspace-padding-x) 12px;'
+      '.assistant-sidebar-workspace { --assistant-sidebar-workspace-padding-x: 12px; --assistant-sidebar-scrollbar-width: 12px; --assistant-sidebar-panel-overhang: max(var(--assistant-sidebar-workspace-padding-x), var(--assistant-sidebar-scrollbar-width)); height: 100%; min-height: 0; box-sizing: border-box; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 6px; padding: 4px var(--assistant-sidebar-workspace-padding-x) 12px;'
     )
     expectStyleSnippet(
       '.assistant-sidebar-workspace .floating-assistant-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; padding: 7px 6px 6px;'
@@ -231,7 +231,7 @@ describe('renderer porcelain theme styles', () => {
   it('keeps assistant sidebar scrollbars in a right-side panel overhang instead of reserving content space', () => {
     expect(normalizedStyles).not.toContain('--assistant-sidebar-scrollbar-rail')
     expectStyleSnippet(
-      '.assistant-sidebar-workspace { --assistant-sidebar-workspace-padding-x: 12px; --assistant-sidebar-panel-overhang: var(--assistant-sidebar-workspace-padding-x);'
+      '.assistant-sidebar-workspace { --assistant-sidebar-workspace-padding-x: 12px; --assistant-sidebar-scrollbar-width: 12px; --assistant-sidebar-panel-overhang: max(var(--assistant-sidebar-workspace-padding-x), var(--assistant-sidebar-scrollbar-width));'
     )
     expectStyleSnippet(
       '.assistant-sidebar-workspace .memorial-panel__paper, .assistant-sidebar-workspace .favorite-ledger-panel, .assistant-sidebar-workspace .video-note-archive { width: auto; margin-right: calc(var(--assistant-sidebar-panel-overhang) * -1);'
@@ -241,6 +241,15 @@ describe('renderer porcelain theme styles', () => {
     )
     expectStyleSnippet(
       '.assistant-sidebar-workspace .favorite-ledger-panel, .assistant-sidebar-workspace .video-note-archive { padding-right: var(--assistant-sidebar-panel-overhang);'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .memorial-panel__paper::-webkit-scrollbar, .assistant-sidebar-workspace .favorite-ledger-panel::-webkit-scrollbar, .assistant-sidebar-workspace .video-note-archive::-webkit-scrollbar { width: var(--assistant-sidebar-scrollbar-width);'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .memorial-panel__paper::-webkit-scrollbar-track, .assistant-sidebar-workspace .favorite-ledger-panel::-webkit-scrollbar-track, .assistant-sidebar-workspace .video-note-archive::-webkit-scrollbar-track { background: rgba(220, 238, 255, 0.72);'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .memorial-panel__paper::-webkit-scrollbar-thumb, .assistant-sidebar-workspace .favorite-ledger-panel::-webkit-scrollbar-thumb, .assistant-sidebar-workspace .video-note-archive::-webkit-scrollbar-thumb { border: 3px solid rgba(220, 238, 255, 0.72); background: rgba(31, 99, 181, 0.48);'
     )
   })
 
