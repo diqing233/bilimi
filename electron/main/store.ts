@@ -347,8 +347,14 @@ export function loadAssistantPreferences(
     deepseekDailyClassificationMode: normalizeDeepSeekDailyClassificationMode(
       store.get('deepseekDailyClassificationMode')
     ),
-    deepseekModel: store.get('deepseekModel') || DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
-    deepseekBaseUrl: store.get('deepseekBaseUrl') || DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl,
+    deepseekModel:
+      typeof store.get('deepseekModel') === 'string'
+        ? store.get('deepseekModel')
+        : DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
+    deepseekBaseUrl:
+      typeof store.get('deepseekBaseUrl') === 'string'
+        ? store.get('deepseekBaseUrl')
+        : DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl,
     permissionOnboardingCompleted: Boolean(store.get('permissionOnboardingCompleted')),
     assistantSidebarWidthPx: normalizeAssistantSidebarWidthPx(store.get('assistantSidebarWidthPx'))
   }
@@ -393,8 +399,14 @@ export function saveAssistantPreferences(
     deepseekDailyClassificationMode: normalizeDeepSeekDailyClassificationMode(
       preferences.deepseekDailyClassificationMode
     ),
-    deepseekModel: preferences.deepseekModel || DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
-    deepseekBaseUrl: preferences.deepseekBaseUrl || DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl,
+    deepseekModel:
+      typeof preferences.deepseekModel === 'string'
+        ? preferences.deepseekModel
+        : DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
+    deepseekBaseUrl:
+      typeof preferences.deepseekBaseUrl === 'string'
+        ? preferences.deepseekBaseUrl
+        : DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl,
     permissionOnboardingCompleted: Boolean(preferences.permissionOnboardingCompleted),
     assistantSidebarWidthPx: normalizeAssistantSidebarWidthPx(preferences.assistantSidebarWidthPx)
   })

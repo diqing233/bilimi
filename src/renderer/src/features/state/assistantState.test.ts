@@ -186,12 +186,24 @@ describe('assistant state', () => {
     })
   })
 
+  it('hydrates explicitly cleared DeepSeek model and service address as empty strings', () => {
+    expect(
+      createInitialAssistantPreferences({
+        deepseekModel: '',
+        deepseekBaseUrl: ''
+      })
+    ).toMatchObject({
+      deepseekModel: '',
+      deepseekBaseUrl: ''
+    })
+  })
+
   it('normalizes invalid persisted DeepSeek preference values', () => {
     expect(
       createInitialAssistantPreferences({
         bilibiliOperationMode: 'unsupported' as never,
         deepseekAutoSummaryEnabled: true,
-        deepseekModel: '',
+        deepseekModel: 42 as never,
         deepseekBaseUrl: 'bad-url',
         videoAudioTranscriptionThreadLimit: 8 as never
       } as Partial<ReturnType<typeof createInitialAssistantPreferences>>)

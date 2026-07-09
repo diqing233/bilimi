@@ -436,6 +436,28 @@ describe('assistant preference store helpers', () => {
     expect(store.snapshot.deepseekApiKey).toBe('')
   })
 
+  it('preserves cleared DeepSeek model and service address preferences', () => {
+    const store = createFakeStore({
+      deepseekModel: 'deepseek-chat',
+      deepseekBaseUrl: 'https://api.deepseek.local'
+    })
+
+    const saved = saveAssistantPreferences(store, {
+      ...DEFAULT_ASSISTANT_PREFERENCES,
+      deepseekModel: '',
+      deepseekBaseUrl: ''
+    })
+
+    expect(saved).toMatchObject({
+      deepseekModel: '',
+      deepseekBaseUrl: ''
+    })
+    expect(loadAssistantPreferences(store)).toMatchObject({
+      deepseekModel: '',
+      deepseekBaseUrl: ''
+    })
+  })
+
   it('loads DeepSeek feature toggles with legacy inheritance', () => {
     const legacyStore = createFakeStore({
       deepseekEnabled: true

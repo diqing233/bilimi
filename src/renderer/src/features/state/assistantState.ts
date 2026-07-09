@@ -80,12 +80,16 @@ export function normalizeVideoAudioTranscriptionThreadLimit(
 }
 
 function normalizeDeepSeekModel(value: unknown): string {
-  return typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_DEEPSEEK_MODEL
+  return typeof value === 'string' ? value.trim() : DEFAULT_DEEPSEEK_MODEL
 }
 
 function normalizeDeepSeekBaseUrl(value: unknown): string {
-  if (typeof value !== 'string' || !value.trim()) {
+  if (typeof value !== 'string') {
     return DEFAULT_DEEPSEEK_BASE_URL
+  }
+
+  if (!value.trim()) {
+    return ''
   }
 
   try {
