@@ -2749,6 +2749,13 @@ body[data-floating-window="true"],
   box-shadow: 0 8px 16px rgba(31, 99, 181, 0.14);
   transform: translateY(-1px);
 }
+.video-note-archive__return-label {
+  color: var(--porcelain-text);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: left;
+}
 .video-note-archive__return-pet {
   width: 28px;
   height: 28px;

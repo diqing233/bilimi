@@ -89,6 +89,8 @@ describe('VideoNoteArchivePanel', () => {
     const returnButton = screen.getByRole('button', { name: '返回 小咪 札记' })
 
     expect(returnButton).toHaveClass('video-note-archive__return-button')
+    expect(within(returnButton).getByText('返回')).toHaveClass('video-note-archive__return-label')
+    expect(within(returnButton).getByText('札记')).toHaveClass('video-note-archive__return-label')
     expect(within(returnButton).getByRole('img', { name: '小咪' })).toHaveClass(
       'video-note-archive__return-pet'
     )

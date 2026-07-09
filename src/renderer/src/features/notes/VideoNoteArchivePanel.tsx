@@ -434,9 +434,9 @@ export function VideoNoteArchivePanel({
             className="video-note-archive__return-button"
             onClick={onClose}
           >
-            <span>返回</span>
+            <span className="video-note-archive__return-label">返回</span>
             <img className="video-note-archive__return-pet" src={idlePetUrl} alt="小咪" />
-            <span>札记</span>
+            <span className="video-note-archive__return-label">札记</span>
           </button>
         </header>
 
