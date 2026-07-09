@@ -228,9 +228,9 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
-  it('keeps the global assistant status separated by a visible soft bottom rule', () => {
-    expectStyleSnippet('.floating-assistant-global-status { min-height: 68px; display: grid; grid-template-rows: minmax(34px, auto) 34px; gap: 0; padding: 0; border-bottom: 1px dashed #d1e6fb; background: rgba(247, 251, 255, 0.76);')
-    expectStyleSnippet('.floating-assistant-global-status__feedback { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--porcelain-deep); background: rgba(247, 251, 255, 0.82); box-shadow: inset 0 0 0 1px rgba(31, 99, 181, 0.18); padding: 7px 10px; font-size: 14px; font-weight: 700;')
+  it('keeps the global assistant status inside the chrome frame without an extra bottom rule', () => {
+    expectStyleSnippet('.floating-assistant-global-status { min-height: 68px; display: grid; grid-template-rows: minmax(34px, auto) 34px; gap: 0; padding: 0; border-bottom: 0; background: rgba(247, 251, 255, 0.76);')
+    expectStyleSnippet('.floating-assistant-global-status__feedback { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--porcelain-deep); padding: 7px 10px; font-size: 14px; font-weight: 700;')
     expectStyleSnippet('.floating-assistant-global-status__lights { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));')
     expectStyleSnippet('.floating-assistant-global-status__light { min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 100%; padding: 0 4px; overflow: hidden; color: #285e90; font-size: 12px;')
   })
@@ -271,8 +271,8 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
-  it('uses lightweight assistant workspace chrome while keeping tab buttons defined', () => {
-    expectStyleSnippet('.floating-assistant-chrome { min-width: 0; display: grid; grid-template-rows: auto auto; border: 0;')
+  it('frames the assistant workspace chrome while keeping tab buttons defined', () => {
+    expectStyleSnippet('.floating-assistant-chrome { min-width: 0; display: grid; grid-template-rows: auto auto; border: 1px solid rgba(31, 99, 181, 0.28); border-radius: 8px; background: rgba(247, 251, 255, 0.72); box-shadow: 0 1px 3px rgba(7, 26, 51, 0.08); overflow: hidden;')
     expectStyleSnippet('.floating-assistant-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; padding: 8px 8px 7px; border-bottom: 1px dashed #d1e6fb;')
     expectStyleSnippet('.floating-assistant-tabs button { width: 100%; min-width: 0; min-height: 38px; display: grid; grid-template-columns: 22px minmax(0, auto); justify-content: center; align-items: center; gap: 4px; border: 1px solid #8ec0f4;')
     expectStyleSnippet('.floating-assistant-global-status__lights { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; align-items: center; border-top: 1px dashed #d1e6fb;')
@@ -627,6 +627,7 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__scan-warning { margin: 0; color: var(--porcelain-warn);')
     expectStyleSnippet('.favorite-ledger-panel__step-note { margin: 0; font-size: 12px; line-height: 1.45;')
     expect(normalizedStyles).not.toContain('.favorite-ledger-panel__step-note {\n  margin: 0;\n  color: var(--porcelain-muted);')
+    expectStyleSnippet('.favorite-ledger-panel__step-divider { border: 0; border-top: 1px dashed rgba(31, 99, 181, 0.28);')
     expect(normalizedStyles).not.toContain('favorite-ledger-panel__scan-candidates')
     expectStyleSnippet('.favorite-ledger-panel__candidate-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));')
     expectStyleSnippet('.favorite-ledger-panel__candidates article, .favorite-ledger-panel__confirm { border: 1px solid rgba(31, 99, 181, 0.18);')

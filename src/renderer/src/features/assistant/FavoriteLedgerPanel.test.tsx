@@ -4315,8 +4315,14 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
 
+    const scanOverviewHeading = await screen.findByRole('heading', { name: '扫描概览' })
+    const scanOverviewNote = screen.getByText('共扫描 6 条旧藏，生成 1 个候选收藏夹')
+    const scanOverviewSection = scanOverviewHeading.closest('section')
+    expect(scanOverviewSection).toBeInTheDocument()
+    expect(scanOverviewNote).toHaveClass('favorite-ledger-panel__step-note')
+    expect(scanOverviewSection).toHaveTextContent(/扫描概览[\s\S]*共扫描 6 条旧藏，生成 1 个候选收藏夹[\s\S]*基础数据/)
+    expect(scanOverviewSection?.querySelectorAll('.favorite-ledger-panel__step-divider')).toHaveLength(2)
     expect(await screen.findByText('基础数据')).toBeInTheDocument()
-    expect(screen.getByText('共扫描 6 条旧藏，生成 1 个候选收藏夹')).toBeInTheDocument()
     expect(screen.getByText('标签补取失败 4 条，高频标签候选可能偏少；稍后重扫会更准。')).toBeInTheDocument()
     expect(screen.getByText('待分类')).toBeInTheDocument()
     expect(screen.queryByText('高频标签候选')).not.toBeInTheDocument()
@@ -4329,6 +4335,13 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('默认收藏夹 6')).toBeInTheDocument()
     expect(screen.getByText('bilimi·待分类 2')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    const generatedHeading = screen.getByRole('heading', { name: '推荐收藏夹' })
+    const generatedSection = generatedHeading.closest('section')
+    expect(generatedSection).toBeInTheDocument()
+    expect(generatedSection).toHaveTextContent(
+      /推荐收藏夹[\s\S]*确认执行后，会把已勾选候选同步到 B 站收藏夹里。[\s\S]*专属 UP 追更[\s\S]*高频标签收藏夹/
+    )
+    expect(generatedSection?.querySelectorAll('.favorite-ledger-panel__step-divider')).toHaveLength(2)
     expect(screen.getAllByText('AI工具').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByLabelText('bilimi·AI工具')).not.toBeChecked()
     fireEvent.click(screen.getByLabelText('全选 高频标签收藏夹'))

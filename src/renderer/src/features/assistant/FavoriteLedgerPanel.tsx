@@ -3761,42 +3761,53 @@ export function FavoriteLedgerPanel({
           </div>
 
           {oldFavoriteStep === 'scan' ? (
-            <section className="favorite-ledger-panel__insights" aria-label="基础数据">
-              <h4>基础数据</h4>
-              <div className="favorite-ledger-panel__guide-metrics">
-                <article>
-                  <span>共扫描</span>
-                  <strong>{preview.insights?.totalVideos ?? preview.items.length}</strong>
-                </article>
-                <article>
-                  <span>可自动归档</span>
-                  <strong>{autoSelectedOldFavoriteCount}</strong>
-                </article>
-                <article>
-                  <span>需复核</span>
-                  <strong>{reviewRequiredOldFavoriteCount}</strong>
-                </article>
-                <article>
-                  <span>待分类</span>
-                  <strong>{previewScopedPendingItems.length}</strong>
-                </article>
-                <article>
-                  <span>已存在</span>
-                  <strong>{alreadyInTargetOldFavoriteCount}</strong>
-                </article>
-                <article>
-                  <span>跳过来源</span>
-                  <strong>{skippedSourceFolderCount}</strong>
-                </article>
-              </div>
+            <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
+              <h4 className="favorite-ledger-panel__step-title">扫描概览</h4>
               {preview.insights ? (
                 <>
-                  <p>共扫描 {preview.insights.totalVideos} 条旧藏，生成 {preview.insights.candidateLedgers.length} 个候选收藏夹</p>
+                  <p className="favorite-ledger-panel__step-note">
+                    共扫描 {preview.insights.totalVideos} 条旧藏，生成 {preview.insights.candidateLedgers.length} 个候选收藏夹
+                  </p>
                   {tagDetailFailureCount > 0 ? (
                     <p className="favorite-ledger-panel__scan-warning">
                       标签补取失败 {tagDetailFailureCount} 条，高频标签候选可能偏少；稍后重扫会更准。
                     </p>
                   ) : null}
+                  <hr className="favorite-ledger-panel__step-divider" aria-hidden="true" />
+                </>
+              ) : null}
+              <section className="favorite-ledger-panel__insights" aria-label="基础数据">
+                <h4>基础数据</h4>
+                <div className="favorite-ledger-panel__guide-metrics">
+                  <article>
+                    <span>共扫描</span>
+                    <strong>{preview.insights?.totalVideos ?? preview.items.length}</strong>
+                  </article>
+                  <article>
+                    <span>可自动归档</span>
+                    <strong>{autoSelectedOldFavoriteCount}</strong>
+                  </article>
+                  <article>
+                    <span>需复核</span>
+                    <strong>{reviewRequiredOldFavoriteCount}</strong>
+                  </article>
+                  <article>
+                    <span>待分类</span>
+                    <strong>{previewScopedPendingItems.length}</strong>
+                  </article>
+                  <article>
+                    <span>已存在</span>
+                    <strong>{alreadyInTargetOldFavoriteCount}</strong>
+                  </article>
+                  <article>
+                    <span>跳过来源</span>
+                    <strong>{skippedSourceFolderCount}</strong>
+                  </article>
+                </div>
+              </section>
+              {preview.insights ? (
+                <>
+                  <hr className="favorite-ledger-panel__step-divider" aria-hidden="true" />
                   <div className="favorite-ledger-panel__insight-columns">
                     <div>
                       <strong>扫描收藏夹</strong>
@@ -3823,6 +3834,7 @@ export function FavoriteLedgerPanel({
             <section className="favorite-ledger-panel__candidates" aria-label="专属收藏夹候选">
               <h4 className="favorite-ledger-panel__step-title">推荐收藏夹</h4>
               <p className="favorite-ledger-panel__step-note">确认执行后，会把已勾选候选同步到 B 站收藏夹里。</p>
+              <hr className="favorite-ledger-panel__step-divider" aria-hidden="true" />
               <div className="favorite-ledger-panel__candidate-section">
                 <div className="favorite-ledger-panel__candidate-section-heading">
                   <h5>专属 UP 追更</h5>
@@ -3873,6 +3885,7 @@ export function FavoriteLedgerPanel({
                 )}
                 </div>
               </div>
+              <hr className="favorite-ledger-panel__step-divider" aria-hidden="true" />
               <div className="favorite-ledger-panel__candidate-section">
                 <div className="favorite-ledger-panel__candidate-section-heading">
                   <h5>高频标签收藏夹</h5>
