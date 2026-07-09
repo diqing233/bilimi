@@ -3597,9 +3597,10 @@ body[data-floating-window="true"],
   line-height: 1.45;
 }
 .favorite-ledger-panel__deepseek-archive-heading {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
 }
 .favorite-ledger-panel__deepseek-archive-heading > strong {
@@ -3610,11 +3611,17 @@ body[data-floating-window="true"],
   white-space: nowrap;
 }
 .favorite-ledger-panel__deepseek-archive-actions {
+  flex: 1 1 176px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
   min-width: 0;
+}
+.favorite-ledger-panel__deepseek-archive-actions > button,
+.favorite-ledger-panel__deepseek-archive-scope {
+  flex: 0 0 auto;
 }
 .favorite-ledger-panel__deepseek-archive-scope {
   position: relative;
@@ -3622,6 +3629,7 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__deepseek-archive-scope > button,
 .favorite-ledger-panel__deepseek-archive-heading button {
+  white-space: nowrap;
   min-height: 28px;
   border: 1px solid rgba(31, 99, 181, 0.26);
   background: rgba(247, 251, 255, 0.92);

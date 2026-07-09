@@ -232,6 +232,21 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
+  it('lets DeepSeek archive actions wrap instead of squeezing buttons', () => {
+    expectStyleSnippet(
+      '.favorite-ledger-panel__deepseek-archive-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__deepseek-archive-actions { flex: 1 1 176px; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__deepseek-archive-actions > button, .favorite-ledger-panel__deepseek-archive-scope { flex: 0 0 auto;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__deepseek-archive-scope > button, .favorite-ledger-panel__deepseek-archive-heading button { white-space: nowrap;'
+    )
+  })
+
   it('uses dashed assistant sidebar divider lines while keeping the outer frame and tab buttons defined', () => {
     expectStyleSnippet('.floating-assistant-chrome { min-width: 0; display: grid; grid-template-rows: auto auto; border: 1px solid #82b8f0;')
     expectStyleSnippet('.floating-assistant-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; padding: 8px 8px 7px; border-bottom: 1px dashed #d1e6fb;')
@@ -593,7 +608,7 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__archive-history-actions { width: 100%; display: flex; flex-wrap: wrap;')
     expectStyleSnippet('.favorite-ledger-panel__archive-history-select { flex: 0 0 auto; position: relative; display: flex; align-items: center;')
     expectStyleSnippet('.favorite-ledger-panel__archive-history-button { flex: 1 1 112px; min-width: 112px; min-height: 32px;')
-    expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-actions { display: flex; align-items: center; justify-content: flex-end;')
+    expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-actions { flex: 1 1 176px; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;')
     expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-scope > button { min-width: 84px; display: inline-flex; align-items: center; justify-content: center; gap: 4px;')
     expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-scope-arrow { font-size: 10px; line-height: 1;')
     expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-scope-menu { position: absolute; z-index: 10;')
