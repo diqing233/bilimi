@@ -195,6 +195,7 @@ export function MemorialPanel({
   showCloseButton = true
 }: MemorialPanelProps) {
   const feedbackRole = feedback?.tone === 'error' ? 'alert' : 'status'
+  const authorLabel = videoAuthor?.trim() || '待识别'
   const [activePanelTab, setActivePanelTab] = useState<MemorialPanelTab>(initialTab)
 
   useEffect(() => {
@@ -230,13 +231,13 @@ export function MemorialPanel({
               <p title={videoTitle}>{videoTitle}</p>
               {hasCurrentVideo ? (
                 <>
-                  <p>小咪准备把这个视频归类到这里：{videoCategory}</p>
-                  <p>小咪的批阅签语：{recommendation.badge}</p>
+                  <p>UP 主：{authorLabel}</p>
+                  <p>小咪准备归类到：{videoCategory}</p>
                 </>
               ) : (
                 <>
+                  <p>UP 主会显示在这里</p>
                   <p>小咪会在这里展示视频的预归类位置</p>
-                  <p>小咪会在这里给出批阅建议</p>
                 </>
               )}
               {recommendation.hint ? (

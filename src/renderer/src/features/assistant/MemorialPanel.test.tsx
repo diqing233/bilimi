@@ -9,13 +9,14 @@ const inboxRecommendation: RecommendationLabel = {
 }
 
 describe('MemorialPanel', () => {
-  it('shows 小咪 review wording for the current video classification and badge', () => {
+  it('shows the current video author and classification in the meta card', () => {
     render(
       <MemorialPanel
         recommendation={{ badge: '可藏', summary: '适合归到影视动漫。' }}
         commentDrafts={['先留一评。']}
         videoCategory="影视动漫"
         videoTitle="测试稿件"
+        videoAuthor="电影观察员"
         hasCurrentVideo={true}
         onAction={vi.fn()}
         onClose={vi.fn()}
@@ -26,8 +27,9 @@ describe('MemorialPanel', () => {
       />
     )
 
-    expect(screen.getByText('小咪准备把这个视频归类到这里：影视动漫')).toBeInTheDocument()
-    expect(screen.getByText('小咪的批阅签语：可藏')).toBeInTheDocument()
+    expect(screen.getByText('UP 主：电影观察员')).toBeInTheDocument()
+    expect(screen.getByText('小咪准备归类到：影视动漫')).toBeInTheDocument()
+    expect(screen.queryByText('小咪的批阅签语：可藏')).not.toBeInTheDocument()
   })
 
   it('shows 小咪 placeholder wording in the meta card when the current page is not a video', () => {
@@ -48,9 +50,10 @@ describe('MemorialPanel', () => {
     )
 
     expect(screen.getByText('哔哩哔哩首页')).toBeInTheDocument()
+    expect(screen.getByText('UP 主会显示在这里')).toBeInTheDocument()
     expect(screen.getByText('小咪会在这里展示视频的预归类位置')).toBeInTheDocument()
-    expect(screen.getByText('小咪会在这里给出批阅建议')).toBeInTheDocument()
-    expect(screen.queryByText('小咪准备把这个视频归类到这里：影视动漫')).not.toBeInTheDocument()
+    expect(screen.queryByText('小咪会在这里给出批阅建议')).not.toBeInTheDocument()
+    expect(screen.queryByText('小咪准备归类到：影视动漫')).not.toBeInTheDocument()
     expect(screen.queryByText('小咪的批阅签语：可藏')).not.toBeInTheDocument()
   })
 
