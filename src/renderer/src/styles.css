@@ -3537,7 +3537,8 @@ body[data-floating-window="true"],
   align-items: center;
 }
 .favorite-ledger-panel__archive-history-select {
-  flex: 1 1 148px;
+  flex: 0 0 auto;
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -3555,14 +3556,32 @@ body[data-floating-window="true"],
   transform: translateY(1px);
 }
 .favorite-ledger-panel__archive-history-select select {
-  flex: 1 1 auto;
-  min-width: 0;
+  appearance: none;
+  flex: 0 0 32px;
+  width: 32px;
+  max-width: 32px;
+  min-width: 32px;
   min-height: 30px;
+  color: transparent;
+  text-indent: 100%;
   border: 1px solid rgba(31, 99, 181, 0.22);
   background: rgba(255, 255, 255, 0.78);
-  color: var(--porcelain-text);
   font: inherit;
   padding: 4px 8px;
+  cursor: pointer;
+  overflow: hidden;
+}
+.favorite-ledger-panel__archive-history-select::after {
+  content: "";
+  position: absolute;
+  right: 11px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid rgba(31, 99, 181, 0.72);
+  border-bottom: 1.5px solid rgba(31, 99, 181, 0.72);
+  transform: translateY(-62%) rotate(45deg);
+  pointer-events: none;
 }
 .favorite-ledger-panel__archive-history-button {
   flex: 1 1 112px;
