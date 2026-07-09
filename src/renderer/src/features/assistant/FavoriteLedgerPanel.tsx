@@ -83,16 +83,32 @@ type OldFavoriteExecutionResult = AssistantAutomationResult & {
 }
 
 type ArchivePreviewLatestChange = {
-  itemKey: string
+  kind: 'single' | 'batch'
   title: string
-  previousTargetText: string
-  nextTargetText: string
+  reason: string
+  movedCount: number
+  itemChanges: Record<
+    string,
+    {
+      title: string
+      previousTargetText: string
+      nextTargetText: string
+    }
+  >
+  focusItemKey?: string
 }
 
 type ArchivePreviewManualMoveFocus = {
   sourceLedgerId: string
   targetLedgerId: string
   resetLedgerIds?: string[]
+  scrollIntoView?: boolean
+}
+
+type ArchivePreviewHistorySnapshot = {
+  archivePlanState: DeepSeekArchiveRunSnapshot
+  selectedCandidateKeys: string[]
+  draftLedgers: FavoriteLedger[]
 }
 
 const OLD_FAVORITE_APPEND_DELAY_MS = { min: 1200, max: 3000 }
@@ -563,21 +579,26 @@ function createArchivePlanStateFromPreviewItems(
   items: FavoriteLedgerPreviewItem[],
   selectedCandidateKeys: Set<string> = new Set()
 ) {
+  const hasSelectedCandidates = selectedCandidateKeys.size > 0
+
   return createArchivePlanState(
     items.map((item) => {
+      const itemWithCandidateTargets = hasSelectedCandidates
+        ? itemWithSelectedCandidateTargets(item, selectedCandidateKeys)
+        : item
       const originalSuggestedLedgerIds = archiveLedgerIdsForSelectedCandidates(
         item,
         originalArchiveLedgerIdsForOldFavoriteItem(item),
         selectedCandidateKeys
       )
       const currentTargetLedgerIds = archiveLedgerIdsForSelectedCandidates(
-        item,
-        currentArchiveLedgerIdsForOldFavoriteItem(item),
+        itemWithCandidateTargets,
+        currentArchiveLedgerIdsForOldFavoriteItem(itemWithCandidateTargets),
         selectedCandidateKeys
       )
       const selectedTargetLedgerIds = archiveLedgerIdsForSelectedCandidates(
-        item,
-        selectedArchiveLedgerIdsForOldFavoriteItem(item),
+        itemWithCandidateTargets,
+        selectedArchiveLedgerIdsForOldFavoriteItem(itemWithCandidateTargets),
         selectedCandidateKeys
       )
 
@@ -706,9 +727,32 @@ function itemWithSelectedCandidateTargets(
     nextTargets.push(candidateTargetToPreviewTarget(candidateTarget))
   }
 
+  const selectedCandidateLedgerIds = selectedCandidateTargets.map((target) => target.ledgerId)
+  const previousCurrentLedgerIds = Array.isArray(item.currentTargetLedgerIds)
+    ? item.currentTargetLedgerIds
+    : currentArchiveLedgerIdsForOldFavoriteItem(item)
+  const previousSelectedLedgerIds = Array.isArray(item.selectedTargetLedgerIds)
+    ? item.selectedTargetLedgerIds
+    : selectedArchiveLedgerIdsForOldFavoriteItem(item)
+  const currentTargetLedgerIds = uniqueLedgerIds([
+    ...previousCurrentLedgerIds.filter((ledgerId) => ledgerId !== 'inbox'),
+    ...selectedCandidateLedgerIds
+  ])
+  const selectedTargetLedgerIds = uniqueLedgerIds([
+    ...previousSelectedLedgerIds.filter((ledgerId) => ledgerId !== 'inbox'),
+    ...selectedCandidateLedgerIds
+  ])
+  const primaryTarget = nextTargets.find((target) => target.ledgerId === currentTargetLedgerIds[0])
+
   return {
     ...item,
-    targets: nextTargets
+    targets: nextTargets,
+    currentTargetLedgerIds,
+    selectedTargetLedgerIds,
+    targetLedgerId: primaryTarget?.ledgerId ?? currentTargetLedgerIds[0] ?? 'inbox',
+    targetFolderId: primaryTarget?.folderId ?? '',
+    targetDisplayName: primaryTarget?.displayName ?? item.targetDisplayName,
+    selected: selectedTargetLedgerIds.length > 0
   }
 }
 
@@ -1151,18 +1195,18 @@ export function FavoriteLedgerPanel({
   const [deepSeekArchiveStatus, setDeepSeekArchiveStatus] = useState('')
   const [deepSeekArchiveProgress, setDeepSeekArchiveProgress] =
     useState<DeepSeekArchiveProgress | null>(null)
-  const [deepSeekArchiveDisplacementMessages, setDeepSeekArchiveDisplacementMessages] = useState<string[]>([])
+  const [archivePreviewAlertMessages, setArchivePreviewAlertMessages] = useState<string[]>([])
   const [deepSeekArchiveRunSnapshot, setDeepSeekArchiveRunSnapshot] =
     useState<DeepSeekArchiveRunSnapshot | null>(null)
-  const [archiveUndoStack, setArchiveUndoStack] = useState<DeepSeekArchiveRunSnapshot[]>([])
-  const [archiveRedoStack, setArchiveRedoStack] = useState<DeepSeekArchiveRunSnapshot[]>([])
+  const [archiveUndoStack, setArchiveUndoStack] = useState<ArchivePreviewHistorySnapshot[]>([])
+  const [archiveRedoStack, setArchiveRedoStack] = useState<ArchivePreviewHistorySnapshot[]>([])
   const [latestArchiveChange, setLatestArchiveChange] = useState<ArchivePreviewLatestChange | null>(null)
   const [manualArchiveMoveFocus, setManualArchiveMoveFocus] =
     useState<ArchivePreviewManualMoveFocus | null>(null)
 
   function clearDeepSeekArchiveRunSnapshot(options: { resetHistory?: boolean } = {}) {
     setDeepSeekArchiveRunSnapshot(null)
-    setDeepSeekArchiveDisplacementMessages([])
+    setArchivePreviewAlertMessages([])
     setDeepSeekArchiveProgress(null)
     if (options.resetHistory) {
       setArchiveUndoStack([])
@@ -1171,8 +1215,37 @@ export function FavoriteLedgerPanel({
     }
   }
 
+  function cloneArchiveDraftLedger(ledger: FavoriteLedger): FavoriteLedger {
+    return {
+      ...ledger,
+      keywords: [...ledger.keywords]
+    }
+  }
+
+  function createArchivePreviewHistorySnapshot(
+    state: FavoriteArchivePlanState
+  ): ArchivePreviewHistorySnapshot {
+    return {
+      archivePlanState: createDeepSeekArchiveSnapshot(state),
+      selectedCandidateKeys: [...selectedCandidateKeys],
+      draftLedgers: draftLedgers.map(cloneArchiveDraftLedger)
+    }
+  }
+
+  function restoreArchivePreviewHistorySnapshot(snapshot: ArchivePreviewHistorySnapshot) {
+    const restoredState = revertDeepSeekArchiveRun(
+      archivePlanState ?? snapshot.archivePlanState,
+      snapshot.archivePlanState
+    )
+    setArchivePlanState(restoredState)
+    updatePreviewFromArchivePlan(restoredState)
+    setSelectedCandidateKeys(new Set(snapshot.selectedCandidateKeys))
+    setDraftLedgers(snapshot.draftLedgers.map(cloneArchiveDraftLedger))
+    return restoredState
+  }
+
   function recordArchivePreviewHistory(state: FavoriteArchivePlanState) {
-    setArchiveUndoStack((current) => [...current, createDeepSeekArchiveSnapshot(state)])
+    setArchiveUndoStack((current) => [...current, createArchivePreviewHistorySnapshot(state)])
     setArchiveRedoStack([])
   }
   const [oldFavoriteExecuting, setOldFavoriteExecuting] = useState(false)
@@ -1498,7 +1571,11 @@ export function FavoriteLedgerPanel({
     setAllLedgersEnabled(!draftLedgers.every(ledgerEnabled))
   }
 
-  function setArchivePlanCandidateSelected(candidateTargetKey: string, selected: boolean) {
+  function setArchivePlanCandidateSelected(
+    candidateTargetKey: string,
+    selected: boolean,
+    reason: string
+  ) {
     if (deepSeekArchiveRunning) {
       return
     }
@@ -1519,7 +1596,7 @@ export function FavoriteLedgerPanel({
         }
       }
 
-      return {
+      const nextState = {
         ...current,
         items: current.items.map((planItem) => {
           const candidateLedgerIds = candidateLedgerIdsByItemKey.get(planItem.itemKey)
@@ -1531,6 +1608,8 @@ export function FavoriteLedgerPanel({
           const selectedTargetLedgerIds = new Set(planItem.selectedTargetLedgerIds)
           for (const ledgerId of candidateLedgerIds) {
             if (selected) {
+              currentTargetLedgerIds.delete('inbox')
+              selectedTargetLedgerIds.delete('inbox')
               currentTargetLedgerIds.add(ledgerId)
               selectedTargetLedgerIds.add(ledgerId)
             } else {
@@ -1544,10 +1623,43 @@ export function FavoriteLedgerPanel({
             currentTargetLedgerIds: Array.from(currentTargetLedgerIds),
             selectedTargetLedgerIds: Array.from(selectedTargetLedgerIds),
             userModified: true,
-            lastChangeSource: 'user'
+            lastChangeSource: 'user' as const
           }
         })
       }
+      const previousStateForChange = selected
+        ? {
+            ...current,
+            items: current.items.map((planItem) =>
+              candidateLedgerIdsByItemKey.has(planItem.itemKey)
+                ? {
+                    ...planItem,
+                    currentTargetLedgerIds: planItem.currentTargetLedgerIds.filter(
+                      (ledgerId) => ledgerId !== 'inbox'
+                    ),
+                    selectedTargetLedgerIds: planItem.selectedTargetLedgerIds.filter(
+                      (ledgerId) => ledgerId !== 'inbox'
+                    )
+                  }
+                : planItem
+            )
+          }
+        : current
+      const latestChange = latestArchiveChangeBetween(previousStateForChange, nextState, {
+        batchReason: reason,
+        forceBatch: true,
+        inboxAsUnclassified: selected
+      })
+      if (!latestChange) {
+        return current
+      }
+
+      recordArchivePreviewHistory(previousStateForChange)
+      setLatestArchiveChange(latestChange)
+      setArchivePreviewAlertMessages(
+        [archiveChangeAlertSummary(latestChange)].filter((message): message is string => Boolean(message))
+      )
+      return nextState
     })
   }
 
@@ -1557,46 +1669,51 @@ export function FavoriteLedgerPanel({
     }
 
     const key = candidateKey(candidate)
-    setSelectedCandidateKeys((current) => {
-      setSaveStatus(null)
-      const next = new Set(current)
-      if (!selected) {
+    setSaveStatus(null)
+    if (!selected) {
+      setArchivePlanCandidateSelected(key, false, `取消勾选收藏夹「${candidate.displayName}」`)
+      setSelectedCandidateKeys((current) => {
+        const next = new Set(current)
         next.delete(key)
-        setArchivePlanCandidateSelected(key, false)
-        setDraftLedgers((currentLedgers) =>
-          currentLedgers.filter(
-            (ledger) =>
-              !(
-                !ledger.isDefault &&
-                ledger.id === candidateLedgerId(candidate) &&
-                ledger.displayName === candidate.displayName
-              )
-          )
-        )
-      } else {
-        next.add(key)
-        setArchivePlanCandidateSelected(key, true)
-        setDraftLedgers((currentLedgers) => {
-          if (alreadyHasLedger(currentLedgers, candidate.displayName)) {
-            return currentLedgers.map((ledger) =>
+        return next
+      })
+      setDraftLedgers((currentLedgers) =>
+        currentLedgers.filter(
+          (ledger) =>
+            !(
+              !ledger.isDefault &&
+              ledger.id === candidateLedgerId(candidate) &&
               ledger.displayName === candidate.displayName
-                ? {
-                    ...ledger,
-                    enabled: true
-                  }
-                : ledger
             )
-          }
+        )
+      )
+      return
+    }
 
-          return withSequentialPriorities([
-            ...currentLedgers,
-            candidateToLedger(candidate, (currentLedgers.length + 1) * 10)
-          ])
-        })
-        setLedgerListExpanded(true)
-      }
+    setArchivePlanCandidateSelected(key, true, `勾选收藏夹「${candidate.displayName}」`)
+    setSelectedCandidateKeys((current) => {
+      const next = new Set(current)
+      next.add(key)
       return next
     })
+    setDraftLedgers((currentLedgers) => {
+      if (alreadyHasLedger(currentLedgers, candidate.displayName)) {
+        return currentLedgers.map((ledger) =>
+          ledger.displayName === candidate.displayName
+            ? {
+                ...ledger,
+                enabled: true
+              }
+            : ledger
+        )
+      }
+
+      return withSequentialPriorities([
+        ...currentLedgers,
+        candidateToLedger(candidate, (currentLedgers.length + 1) * 10)
+      ])
+    })
+    setLedgerListExpanded(true)
   }
 
   function setCandidateGroupSelected(candidates: FavoriteLedgerCandidate[], selected: boolean) {
@@ -1607,6 +1724,60 @@ export function FavoriteLedgerPanel({
     for (const candidate of candidates) {
       setCandidateSelected(candidate, selected)
     }
+  }
+
+  function selectedCandidateBatchReason() {
+    const selectedCandidates =
+      preview?.insights?.candidateLedgers.filter((candidate) =>
+        selectedCandidateKeys.has(candidateKey(candidate))
+      ) ?? []
+    if (selectedCandidates.length === 1) {
+      return `勾选收藏夹「${selectedCandidates[0].displayName}」`
+    }
+
+    return `勾选 ${selectedCandidates.length} 个收藏夹`
+  }
+
+  function syncSelectedCandidatesToArchivePlanForPreview() {
+    if (!preview || !archivePlanState || selectedCandidateKeys.size === 0) {
+      return
+    }
+
+    const nextState = createArchivePlanStateFromPreviewItems(preview.items, selectedCandidateKeys)
+    const latestChange = latestArchiveChangeBetween(archivePlanState, nextState, {
+      batchReason: selectedCandidateBatchReason(),
+      forceBatch: true
+    })
+    if (!latestChange) {
+      if (!latestArchiveChange) {
+        const baselineState = createArchivePlanStateFromPreviewItems(preview.items)
+        const baselineChange = latestArchiveChangeBetween(baselineState, nextState, {
+          batchReason: selectedCandidateBatchReason(),
+          forceBatch: true
+        })
+        if (baselineChange) {
+          setLatestArchiveChange(baselineChange)
+          setArchivePreviewAlertMessages(
+            [archiveChangeAlertSummary(baselineChange)].filter((message): message is string => Boolean(message))
+          )
+        }
+      }
+      return
+    }
+
+    recordArchivePreviewHistory(archivePlanState)
+    setArchivePlanState(nextState)
+    setLatestArchiveChange(latestChange)
+    setArchivePreviewAlertMessages(
+      [archiveChangeAlertSummary(latestChange)].filter((message): message is string => Boolean(message))
+    )
+  }
+
+  function switchOldFavoriteStep(stepId: OldFavoriteGuideStep) {
+    if (stepId === 'preview') {
+      syncSelectedCandidatesToArchivePlanForPreview()
+    }
+    setOldFavoriteStep(stepId)
   }
 
   function candidateToLedger(candidate: FavoriteLedgerCandidate, priority: number): FavoriteLedger {
@@ -2268,7 +2439,7 @@ export function FavoriteLedgerPanel({
       currentChunk: 1,
       totalChunks: chunks.length
     })
-    setDeepSeekArchiveDisplacementMessages([])
+    setArchivePreviewAlertMessages([])
 
     try {
       const snapshot = createDeepSeekArchiveSnapshot(archivePlanState)
@@ -2314,15 +2485,24 @@ export function FavoriteLedgerPanel({
         results
       })
       const deepSeekMoveFocus = archivePreviewMoveFocusBetween(archivePlanState, applied.state)
+      const deepSeekArchiveChange = latestArchiveChangeBetween(archivePlanState, applied.state, {
+        batchReason: 'DeepSeek 批量整理',
+        forceBatch: true
+      })
       recordArchivePreviewHistory(archivePlanState)
       setArchivePlanState(applied.state)
       updatePreviewFromArchivePlan(applied.state)
-      setLatestArchiveChange(latestArchiveChangeBetween(archivePlanState, applied.state))
+      setLatestArchiveChange(deepSeekArchiveChange)
       if (deepSeekMoveFocus) {
-        setManualArchiveMoveFocus(deepSeekMoveFocus)
+        setManualArchiveMoveFocus({ ...deepSeekMoveFocus, scrollIntoView: false })
       }
       setDeepSeekArchiveRunSnapshot(snapshot)
-      setDeepSeekArchiveDisplacementMessages(applied.redDisplacementMessages)
+      setArchivePreviewAlertMessages(
+        [
+          archiveChangeAlertSummary(deepSeekArchiveChange),
+          ...applied.redDisplacementMessages
+        ].filter((message): message is string => Boolean(message))
+      )
 
       const keywordSuggestionCount = keywordSuggestions.length
       if (keywordSuggestionCount > 0) {
@@ -2367,14 +2547,13 @@ export function FavoriteLedgerPanel({
     }
 
     const previousSnapshot = archiveUndoStack[archiveUndoStack.length - 1]
-    const revertedState = revertDeepSeekArchiveRun(archivePlanState, previousSnapshot)
+    const currentSnapshot = createArchivePreviewHistorySnapshot(archivePlanState)
+    const revertedState = restoreArchivePreviewHistorySnapshot(previousSnapshot)
     setArchiveUndoStack((current) => current.slice(0, -1))
-    setArchiveRedoStack((current) => [...current, createDeepSeekArchiveSnapshot(archivePlanState)])
-    setArchivePlanState(revertedState)
-    updatePreviewFromArchivePlan(revertedState)
+    setArchiveRedoStack((current) => [...current, currentSnapshot])
     setLatestArchiveChange(latestArchiveChangeBetween(archivePlanState, revertedState))
     setDeepSeekArchiveRunSnapshot(null)
-    setDeepSeekArchiveDisplacementMessages([])
+    setArchivePreviewAlertMessages([])
     setPendingUnclassifiedDecision(null)
   }
 
@@ -2384,45 +2563,49 @@ export function FavoriteLedgerPanel({
     }
 
     const nextSnapshot = archiveRedoStack[archiveRedoStack.length - 1]
-    const restoredState = revertDeepSeekArchiveRun(archivePlanState, nextSnapshot)
+    const currentSnapshot = createArchivePreviewHistorySnapshot(archivePlanState)
+    const restoredState = restoreArchivePreviewHistorySnapshot(nextSnapshot)
     setArchiveRedoStack((current) => current.slice(0, -1))
-    setArchiveUndoStack((current) => [...current, createDeepSeekArchiveSnapshot(archivePlanState)])
-    setArchivePlanState(restoredState)
-    updatePreviewFromArchivePlan(restoredState)
+    setArchiveUndoStack((current) => [...current, currentSnapshot])
     setLatestArchiveChange(latestArchiveChangeBetween(archivePlanState, restoredState))
     setPendingUnclassifiedDecision(null)
   }
 
   function setPreviewScopedPendingItemsStaged(selected: boolean) {
-    if (deepSeekArchiveRunning) {
+    if (deepSeekArchiveRunning || !archivePlanState) {
       return
     }
 
-    if (archivePlanState) {
-      recordArchivePreviewHistory(archivePlanState)
-    }
     clearDeepSeekArchiveRunSnapshot()
     const itemKeys = new Set(previewScopedPendingItems.map(archivePlanItemKey))
-    setArchivePlanState((current) => {
-      if (!current) {
-        return current
-      }
-
-      return {
-        ...current,
-        items: current.items.map((planItem) =>
-          itemKeys.has(planItem.itemKey)
-            ? {
-                ...planItem,
-                currentTargetLedgerIds: selected ? ['inbox'] : [],
-                selectedTargetLedgerIds: selected ? ['inbox'] : [],
-                userModified: true,
-                lastChangeSource: 'user'
-              }
-            : planItem
-        )
-      }
+    const nextState = {
+      ...archivePlanState,
+      items: archivePlanState.items.map((planItem) =>
+        itemKeys.has(planItem.itemKey)
+          ? {
+              ...planItem,
+              currentTargetLedgerIds: selected ? ['inbox'] : [],
+              selectedTargetLedgerIds: selected ? ['inbox'] : [],
+              userModified: true,
+              lastChangeSource: 'user' as const
+            }
+          : planItem
+      )
+    }
+    const latestChange = latestArchiveChangeBetween(archivePlanState, nextState, {
+      batchReason: selected ? '全部存入暂存' : '取消暂存',
+      forceBatch: true
     })
+    if (!latestChange) {
+      return
+    }
+
+    recordArchivePreviewHistory(archivePlanState)
+    setArchivePlanState(nextState)
+    setLatestArchiveChange(latestChange)
+    setArchivePreviewAlertMessages(
+      [archiveChangeAlertSummary(latestChange)].filter((message): message is string => Boolean(message))
+    )
   }
 
   function candidateForOldFavoriteTarget(target: {
@@ -2769,10 +2952,12 @@ export function FavoriteLedgerPanel({
       }
     }
 
-    previewRowForLedger(manualArchiveMoveFocus.targetLedgerId)?.scrollIntoView?.({
-      behavior: 'smooth',
-      block: 'nearest'
-    })
+    if (manualArchiveMoveFocus.scrollIntoView !== false) {
+      previewRowForLedger(manualArchiveMoveFocus.targetLedgerId)?.scrollIntoView?.({
+        behavior: 'smooth',
+        block: 'nearest'
+      })
+    }
     setManualArchiveMoveFocus(null)
   }, [manualArchiveMoveFocus, oldFavoriteTargetGroups])
   const hasArchivePreviewChanges = archivePlanState ? archivePlanHasPreviewChanges(archivePlanState) : false
@@ -2923,17 +3108,28 @@ export function FavoriteLedgerPanel({
     return archiveExecutionLedgers.find((ledger) => ledger.id === ledgerId)?.displayName ?? ledgerId
   }
 
-  function archivePlanTargetText(planItem: FavoriteArchivePlanItemState) {
+  function archivePlanTargetText(
+    planItem: FavoriteArchivePlanItemState,
+    options: { inboxAsUnclassified?: boolean } = {}
+  ) {
     if (planItem.currentTargetLedgerIds.length === 0) {
       return '未分类'
     }
 
-    return planItem.currentTargetLedgerIds.map(archiveLedgerDisplayName).join('、')
+    const displayLedgerIds = options.inboxAsUnclassified
+      ? planItem.currentTargetLedgerIds.filter((ledgerId) => ledgerId !== 'inbox')
+      : planItem.currentTargetLedgerIds
+    if (displayLedgerIds.length === 0) {
+      return '未分类'
+    }
+
+    return displayLedgerIds.map(archiveLedgerDisplayName).join('、')
   }
 
   function latestArchiveChangeBetween(
     previousState: FavoriteArchivePlanState,
-    nextState: FavoriteArchivePlanState
+    nextState: FavoriteArchivePlanState,
+    options: { batchReason?: string; forceBatch?: boolean; inboxAsUnclassified?: boolean } = {}
   ): ArchivePreviewLatestChange | null {
     const movedItems = nextState.items.filter((nextItem) => {
       const previousItem = previousState.items.find((item) => item.itemKey === nextItem.itemKey)
@@ -2944,15 +3140,44 @@ export function FavoriteLedgerPanel({
       return null
     }
 
-    const previousItem = previousState.items.find((item) => item.itemKey === latestItem.itemKey)
-    const previousTargetText = previousItem ? archivePlanTargetText(previousItem) : '未分类'
-    const nextTargetText = archivePlanTargetText(latestItem)
-    return {
-      itemKey: latestItem.itemKey,
-      title: latestItem.title,
-      previousTargetText,
-      nextTargetText
+    const itemChanges: ArchivePreviewLatestChange['itemChanges'] = {}
+    for (const nextItem of movedItems) {
+      const previousMovedItem = previousState.items.find((item) => item.itemKey === nextItem.itemKey)
+      itemChanges[nextItem.itemKey] = {
+        title: nextItem.title,
+        previousTargetText: previousMovedItem
+          ? archivePlanTargetText(previousMovedItem, {
+              inboxAsUnclassified: options.inboxAsUnclassified
+            })
+          : '未分类',
+        nextTargetText: archivePlanTargetText(nextItem)
+      }
     }
+    const isBatch = Boolean(options.forceBatch) || movedItems.length > 1
+    return {
+      kind: isBatch ? 'batch' : 'single',
+      title: latestItem.title,
+      reason: options.batchReason ?? latestItem.title,
+      movedCount: movedItems.length,
+      itemChanges,
+      focusItemKey: latestItem.itemKey
+    }
+  }
+
+  function archiveChangeRecordOptionText(change: ArchivePreviewLatestChange) {
+    if (change.kind === 'batch') {
+      return `最近批量改动：${change.reason}，移动 ${change.movedCount} 条`
+    }
+
+    return `最近一次改动：${change.title}`
+  }
+
+  function archiveChangeAlertSummary(change: ArchivePreviewLatestChange | null) {
+    if (!change || change.kind !== 'batch') {
+      return null
+    }
+
+    return `${change.reason}：移动 ${change.movedCount} 条`
   }
 
   function archivePreviewMoveFocusBetween(
@@ -2989,6 +3214,10 @@ export function FavoriteLedgerPanel({
   }
 
   function jumpToLatestArchiveChange() {
+    if (latestArchiveChange?.kind !== 'single') {
+      return
+    }
+
     document
       .querySelector<HTMLElement>('[data-latest-change="true"]')
       ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -3053,16 +3282,21 @@ export function FavoriteLedgerPanel({
   }
 
   function renderLatestArchiveChangeNotice(item: FavoriteLedgerPreviewItem, areaLedgerId: string) {
-    if (latestArchiveChange?.itemKey !== archivePlanItemKey(item)) {
+    const itemChange = latestArchiveChange?.itemChanges[archivePlanItemKey(item)]
+    if (!itemChange) {
       return null
     }
-    const primaryAreaLedgerId = currentArchiveLedgerIdsForOldFavoriteItem(item)[0] ?? 'unclassified'
+    const planItem = archivePlanState?.items.find((candidate) => candidate.itemKey === archivePlanItemKey(item))
+    const primaryAreaLedgerId =
+      planItem?.currentTargetLedgerIds[0] ??
+      currentArchiveLedgerIdsForOldFavoriteItem(item)[0] ??
+      'unclassified'
     if (primaryAreaLedgerId !== areaLedgerId) {
       return null
     }
 
-    const message = `来自 ${latestArchiveChange.previousTargetText}`
-    const detail = `最近改动：从【${latestArchiveChange.previousTargetText}】移到【${latestArchiveChange.nextTargetText}】。`
+    const message = `来自 ${itemChange.previousTargetText}`
+    const detail = `最近改动：从【${itemChange.previousTargetText}】移到【${itemChange.nextTargetText}】。`
 
     return (
       <small className="favorite-ledger-panel__preview-delta-row">
@@ -3400,7 +3634,7 @@ export function FavoriteLedgerPanel({
                   type="button"
                   aria-current={oldFavoriteStep === step.id ? 'step' : undefined}
                   disabled={deepSeekArchiveRunning && oldFavoriteStep !== step.id}
-                  onClick={() => setOldFavoriteStep(step.id)}
+                  onClick={() => switchOldFavoriteStep(step.id)}
                 >
                   {step.label}
                 </button>
@@ -3676,7 +3910,7 @@ export function FavoriteLedgerPanel({
                               ) : (
                                 <>
                                   <option value="">最近改动</option>
-                                  <option value="latest">最近一次改动：{latestArchiveChange.title}</option>
+                                  <option value="latest">{archiveChangeRecordOptionText(latestArchiveChange)}</option>
                                 </>
                               )}
                             </select>
@@ -3702,9 +3936,9 @@ export function FavoriteLedgerPanel({
                       </div>
                     </div>
                   </div>
-                  {deepSeekArchiveDisplacementMessages.length > 0 ? (
+                  {archivePreviewAlertMessages.length > 0 ? (
                     <div className="favorite-ledger-panel__deepseek-archive-alert" role="alert">
-                      {deepSeekArchiveDisplacementMessages.map((message) => (
+                      {archivePreviewAlertMessages.map((message) => (
                         <p key={message}>{message}</p>
                       ))}
                     </div>
@@ -3749,7 +3983,7 @@ export function FavoriteLedgerPanel({
                           <article
                             key={`pending-${item.sourceFolderTitle}-${item.aid}`}
                             data-latest-change={
-                              latestArchiveChange?.itemKey === archivePlanItemKey(item) ? 'true' : undefined
+                              latestArchiveChange?.itemChanges[archivePlanItemKey(item)] ? 'true' : undefined
                             }
                           >
                             <div
@@ -3807,7 +4041,7 @@ export function FavoriteLedgerPanel({
                             <article
                               key={`${group.ledgerId}-${item.sourceFolderTitle}-${item.aid}`}
                               data-latest-change={
-                                latestArchiveChange?.itemKey === archivePlanItemKey(item) ? 'true' : undefined
+                                latestArchiveChange?.itemChanges[archivePlanItemKey(item)] ? 'true' : undefined
                               }
                             >
                               <div

@@ -1384,10 +1384,23 @@ describe('FavoriteLedgerPanel', () => {
       'aria-pressed',
       'true'
     )
+    expect(getPreviewArticle(stagingGroup, /暂存旧藏一/)).toHaveTextContent('来自 未分类')
+    expect(getPreviewArticle(stagingGroup, /暂存旧藏二/)).toHaveTextContent('来自 未分类')
+    expect(screen.getByRole('combobox', { name: '改动记录' })).toHaveTextContent(
+      '最近批量改动：全部存入暂存，移动 2 条'
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent('全部存入暂存：移动 2 条')
+
+    fireEvent.click(screen.getByRole('button', { name: '撤销本次改动' }))
+    expect(screen.getByRole('group', { name: /未匹配到合适分类 2 条/ })).toHaveTextContent(
+      '暂存旧藏一'
+    )
+    expect(screen.queryByRole('group', { name: 'bilimi·暂存 2 条' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
 
-    expect(screen.getByText('已选择 2 条归档任务')).toBeInTheDocument()
+    expect(screen.getByText('已选择 0 条归档任务')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '确认整理' })).toBeDisabled()
   })
 
   it.skip('keeps retry judgment available for pending old favorites without a usable target', async () => {
@@ -4211,8 +4224,20 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByLabelText('全选 高频标签收藏夹'))
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
 
-    expect(screen.getByRole('group', { name: 'bilimi·摄影 1 条' })).toBeInTheDocument()
+    const photoGroup = screen.getByRole('group', { name: 'bilimi·摄影 1 条' })
+    expect(photoGroup).toBeInTheDocument()
+    expect(getPreviewArticle(photoGroup, /光影构图入门/)).toHaveTextContent('来自 未分类')
+    expect(screen.getByRole('combobox', { name: '改动记录' })).toHaveTextContent(
+      '最近批量改动：勾选收藏夹「bilimi·摄影」，移动 1 条'
+    )
     expect(screen.queryByRole('group', { name: 'bilimi·待分类 1 条' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '撤销本次改动' }))
+    expect(screen.queryByRole('group', { name: 'bilimi·摄影 1 条' })).not.toBeInTheDocument()
+    expect(screen.getByRole('group', { name: /未匹配到合适分类 1 条/ })).toHaveTextContent('光影构图入门')
+
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    expect(screen.getByLabelText('bilimi·摄影')).not.toBeChecked()
   })
 
   it('backs up the top ledger checklist immediately from 备册', async () => {
@@ -5288,6 +5313,11 @@ describe('FavoriteLedgerPanel', () => {
     expect(deepSeekMovedVideo).toHaveClass(
       'favorite-ledger-panel__preview-video--deepseek'
     )
+    expect(getPreviewArticle(gameGroup, /AI 效率工具实战/)).toHaveTextContent('来自 bilimi·学习')
+    expect(getPreviewArticle(gameGroup, /暂时不知道放哪/)).toHaveTextContent('来自 未分类')
+    expect(screen.getByRole('combobox', { name: '改动记录' })).toHaveTextContent(
+      '最近批量改动：DeepSeek 批量整理，移动 2 条'
+    )
     expect(screen.getByRole('alert')).toHaveTextContent('超过 1 个目标')
 
     expect(screen.queryByRole('button', { name: '撤回本次 DeepSeek 整理' })).not.toBeInTheDocument()
@@ -5302,7 +5332,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.queryByRole('group', { name: 'bilimi·游戏 2 条' })).not.toBeInTheDocument()
   })
 
-  it('resets affected horizontal preview tracks after DeepSeek moves archive cards', async () => {
+  it('resets affected horizontal preview tracks without vertically focusing after DeepSeek moves archive cards', async () => {
     const scrollIntoView = vi.fn()
     const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
     HTMLElement.prototype.scrollIntoView = scrollIntoView
@@ -5380,7 +5410,7 @@ describe('FavoriteLedgerPanel', () => {
 
       const updatedGameGroup = await screen.findByRole('group', { name: 'bilimi·游戏 2 条' })
       expect(updatedGameGroup).toHaveTextContent('AI 效率工具实战')
-      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'nearest' })
+      expect(scrollIntoView).not.toHaveBeenCalled()
       expect(
         getPreviewArticle(container, /AI 效率工具实战/)
           .closest('section')
