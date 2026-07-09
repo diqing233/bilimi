@@ -322,7 +322,7 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain('.palace-maid-pet__resize-handle')
     expect(normalizedStyles).not.toContain('cursor: nwse-resize;')
     expect(normalizedStyles).not.toContain('right: 7px;\n  bottom: 7px;')
-    expect(normalizedStyles).not.toContain('-webkit-line-clamp: 2;')
+    expect(normalizedStyles).not.toContain('.palace-maid-pet__bubble span {\n  -webkit-line-clamp: 2;')
   })
 
   it('uses compact spacing for the review panel', () => {
@@ -409,10 +409,10 @@ describe('renderer porcelain theme styles', () => {
       '.video-notes__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));\n  gap: 4px;'
     )
     expect(normalizedStyles).toContain(
-      '.video-notes__result-tabs button {\n  display: grid;\n  grid-template-rows: auto minmax(0, 1fr);\n  align-content: start;\n  gap: 2px;\n  height: 78px;\n  min-height: 78px;'
+      '.video-notes__result-tabs button {\n  display: grid;\n  grid-template-rows: auto auto;\n  align-content: start;\n  gap: 2px;\n  height: 66px;\n  min-height: 66px;'
     )
-    expectStyleSnippet('.video-notes__result-tabs button { display: grid; grid-template-rows: auto minmax(0, 1fr); align-content: start; gap: 2px; height: 78px; min-height: 78px; min-width: 0; box-sizing: border-box; padding: 6px 8px;')
-    expectStyleSnippet('.video-notes__result-tabs small { display: -webkit-box; overflow: hidden; color: inherit; opacity: 0.78; line-height: 1.18; -webkit-box-orient: vertical; -webkit-line-clamp: 3;')
+    expectStyleSnippet('.video-notes__result-tabs button { display: grid; grid-template-rows: auto auto; align-content: start; gap: 2px; height: 66px; min-height: 66px; min-width: 0; box-sizing: border-box; padding: 6px 8px;')
+    expectStyleSnippet('.video-notes__result-tabs small { display: -webkit-box; overflow: hidden; color: inherit; opacity: 0.78; line-height: 1.18; -webkit-box-orient: vertical; -webkit-line-clamp: 2; text-overflow: ellipsis;')
     expectStyleSnippet('.video-notes__queue-selector { position: relative; top: -2px; display: inline-flex; flex: 0 0 auto; align-self: flex-start; align-items: center;')
     expectStyleSnippet('.video-notes__queue-selector select { appearance: none; width: 24px; min-width: 24px; height: 24px; padding: 0;')
     expectStyleSnippet('.video-notes__queue-selector::after { content: ""; position: absolute; right: 8px; top: 50%; width: 6px; height: 6px; border-right: 1.5px solid rgba(31, 99, 181, 0.72); border-bottom: 1.5px solid rgba(31, 99, 181, 0.72); transform: translateY(-62%) rotate(45deg); pointer-events: none;')

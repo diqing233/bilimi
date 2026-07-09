@@ -130,6 +130,23 @@ describe('VideoNotesPanel', () => {
     expect(screen.queryByRole('tabpanel', { name: /无时间线文稿/ })).not.toBeInTheDocument()
   })
 
+  it('keeps full result tab descriptions available as hover tooltips', () => {
+    renderPanel()
+
+    expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveAttribute(
+      'title',
+      '无时间线文稿：纯文稿连续阅读，提供复制全文。'
+    )
+    expect(screen.getByRole('tab', { name: /带时间线文稿/ })).toHaveAttribute(
+      'title',
+      '带时间线文稿：按时间段阅读，提供复制全文。'
+    )
+    expect(screen.getByRole('tab', { name: /DeepSeek 总结/ })).toHaveAttribute(
+      'title',
+      'DeepSeek 总结：更丰富精细的结构化摘要，提供复制全文。'
+    )
+  })
+
   it('uses the primary transcription action to enqueue the first video when queue support is available', async () => {
     const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
     const onEnqueueTranscription = vi.fn().mockResolvedValue({

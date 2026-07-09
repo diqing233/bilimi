@@ -133,6 +133,18 @@ describe('VideoNoteArchivePanel', () => {
     expect(screen.getByRole('tab', { name: /DeepSeek 总结/ })).toHaveTextContent(
       '更丰富精细的结构化摘要，提供复制全文。'
     )
+    expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveAttribute(
+      'title',
+      '无时间线文稿：纯文稿连续阅读，提供复制全文。'
+    )
+    expect(screen.getByRole('tab', { name: /带时间线文稿/ })).toHaveAttribute(
+      'title',
+      '带时间线文稿：按时间段阅读，提供复制全文。'
+    )
+    expect(screen.getByRole('tab', { name: /DeepSeek 总结/ })).toHaveAttribute(
+      'title',
+      'DeepSeek 总结：更丰富精细的结构化摘要，提供复制全文。'
+    )
   })
 
   it('keeps the archive detail compact until a transcript tab is expanded', () => {

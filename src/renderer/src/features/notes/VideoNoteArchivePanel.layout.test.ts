@@ -66,8 +66,8 @@ describe('VideoNoteArchivePanel layout styles', () => {
   it('fixes archive result tab dimensions and keeps selected and unselected tabs the same size', () => {
     expect(styles).toContain('.video-note-archive__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(104px, 1fr));\n  gap: 6px;')
     expect(styles).toContain('.video-note-archive__result-tabs button {\n  width: 100%;\n}')
-    expect(styles).toContain('.video-notes__result-tabs button {\n  display: grid;\n  grid-template-rows: auto minmax(0, 1fr);')
-    expect(styles).toContain('height: 78px;\n  min-height: 78px;')
+    expect(styles).toContain('.video-notes__result-tabs button {\n  display: grid;\n  grid-template-rows: auto auto;')
+    expect(styles).toContain('height: 66px;\n  min-height: 66px;')
     expect(styles).toContain('.video-note-archive__result-tabs button[aria-selected="true"],\n.memorial-panel__tabs button[aria-selected="true"],\n.video-notes [role="tab"][aria-selected="true"] {')
     expect(styles).not.toContain('min-height: 36px;\n  height: 36px;')
   })

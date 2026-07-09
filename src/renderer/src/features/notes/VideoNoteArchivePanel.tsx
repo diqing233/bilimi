@@ -292,20 +292,25 @@ export function VideoNoteArchivePanel({
         role="tablist"
         aria-label="档案文稿"
       >
-        {archiveResultTabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={activeResultTab === tab.id}
-            aria-controls={'video-note-archive-' + tab.id}
-            id={'video-note-archive-tab-' + tab.id}
-            onClick={() => toggleResultTab(tab.id)}
-          >
-            <strong>{tab.label}</strong>
-            <small>{tab.description}</small>
-          </button>
-        ))}
+        {archiveResultTabs.map((tab) => {
+          const tooltip = `${tab.label}：${tab.description}`
+
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={activeResultTab === tab.id}
+              aria-controls={'video-note-archive-' + tab.id}
+              id={'video-note-archive-tab-' + tab.id}
+              title={tooltip}
+              onClick={() => toggleResultTab(tab.id)}
+            >
+              <strong>{tab.label}</strong>
+              <small>{tab.description}</small>
+            </button>
+          )
+        })}
       </div>
     )
   }

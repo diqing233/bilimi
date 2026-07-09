@@ -514,20 +514,25 @@ export function VideoNotesPanel({
   function renderResultTabs(): React.JSX.Element {
     return (
       <div className="video-notes__result-tabs" role="tablist" aria-label="札记结果">
-        {resultTabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={activeResultTab === tab.id}
-            aria-controls={'video-notes-' + tab.id}
-            id={'video-notes-tab-' + tab.id}
-            onClick={() => handleResultTabClick(tab.id)}
-          >
-            <strong>{tab.label}</strong>
-            <small>{tab.description}</small>
-          </button>
-        ))}
+        {resultTabs.map((tab) => {
+          const tooltip = `${tab.label}：${tab.description}`
+
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={activeResultTab === tab.id}
+              aria-controls={'video-notes-' + tab.id}
+              id={'video-notes-tab-' + tab.id}
+              title={tooltip}
+              onClick={() => handleResultTabClick(tab.id)}
+            >
+              <strong>{tab.label}</strong>
+              <small>{tab.description}</small>
+            </button>
+          )
+        })}
       </div>
     )
   }

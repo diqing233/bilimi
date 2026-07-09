@@ -2340,11 +2340,11 @@ body[data-floating-window="true"],
 }
 .video-notes__result-tabs button {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
   align-content: start;
   gap: 2px;
-  height: 78px;
-  min-height: 78px;
+  height: 66px;
+  min-height: 66px;
   min-width: 0;
   box-sizing: border-box;
   padding: 6px 8px;
@@ -2367,7 +2367,8 @@ body[data-floating-window="true"],
   opacity: 0.78;
   line-height: 1.18;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
+  text-overflow: ellipsis;
 }
 .video-note-archive__result-tabs button {
   width: 100%;
