@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Allowed old-favorite organization rounds with zero archive tasks to end directly from the confirmation page without sending an archive request.
 - Reordered settings so organization strategy follows DeepSeek and close settings appear last in both navigation and page content.
 - Refined assistant status lights so long-running scan, DeepSeek, transcription queue, and old-favorite organization states stay visible without occupying the realtime feedback line.
 - Updated the in-app browser tab strip so multiple open video tabs compress before horizontal scrolling, without leading tab icons.
