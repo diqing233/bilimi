@@ -1175,7 +1175,7 @@ describe('App runtime integration', () => {
     )
   })
 
-  it('adds local classification diagnostic keyword suggestions after a successful favorite action', async () => {
+  it('does not add local diagnostic keyword suggestions after a successful favorite action', async () => {
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
     const preferences = createAppPreferences({
       favoriteLedgers: createDefaultFavoriteLedgers()
@@ -1231,21 +1231,15 @@ describe('App runtime integration', () => {
     })
 
     expect(result).toEqual(expect.objectContaining({ ok: true }))
-    await waitFor(() =>
-      expect(savePreferences).toHaveBeenCalledWith(
-        expect.objectContaining({
-          favoriteKeywordSuggestions: [
-            expect.objectContaining({
-              action: 'replace-with-combination',
-              ledgerId: 'game',
-              keyword: '攻略',
-              replacement: '游戏攻略',
-              source: 'classifier',
-              status: 'pending'
-            })
-          ]
-        })
-      )
+    await waitFor(() => expect(savePreferences).toHaveBeenCalled())
+    expect(savePreferences).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        favoriteKeywordSuggestions: expect.arrayContaining([
+          expect.objectContaining({
+            source: 'classifier'
+          })
+        ])
+      })
     )
   })
 

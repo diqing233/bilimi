@@ -6,6 +6,7 @@
 - Updated the in-app browser tab strip so multiple open video tabs compress before horizontal scrolling, without leading tab icons.
 - Improved old-favorite archive preview with stronger local classification, editable and reversible target choices, optional DeepSeek-assisted organization, and safer correction/keyword learning settings.
 - Added DeepSeek constraint favorite ledgers so enabled folders can provide AI-only classification guidance without affecting local keyword matching.
+- Scoped classification learning so only DeepSeek produces reviewable keyword suggestions, while correction records are kept as reference evidence instead of direct local-classification inputs.
 - Locked the default favorite categories to keyword rules while keeping names and keywords editable, with a warning when non-staging defaults lose all local keywords.
 - Split DeepSeek constraints into a dedicated one-line editor field for keyword, UP, and tag favorite ledgers.
 - Added batch archive-preview change summaries and card-level source notices for DeepSeek moves, staging moves, and generated-ledger selections, with undo/redo preserving generated ledger choices.

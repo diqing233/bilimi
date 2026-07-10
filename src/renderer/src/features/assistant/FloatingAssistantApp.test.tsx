@@ -470,6 +470,12 @@ describe('FloatingAssistantApp', () => {
     expect(
       await screen.findByText('DeepSeek 返回 1 条关键词建议，已加入设置里的建议列表。')
     ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '前往采纳 DeepSeek 建议' }))
+    expect(screen.getByRole('tab', { name: '设置' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '设置项' })).toHaveValue(
+      'learning'
+    )
+    expect(screen.getByText('DeepSeek 建议（1）')).toBeInTheDocument()
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -893,8 +899,10 @@ describe('FloatingAssistantApp', () => {
 
     expect(screen.getByRole('group', { name: '整理策略' })).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: '积极整理' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: '记录纠错学习' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: '纠错学习参与分类' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '记录纠错参考' })).toBeChecked()
+    expect(screen.queryByRole('checkbox', { name: '纠错学习参与分类' })).not.toBeInTheDocument()
+    expect(screen.getByText('DeepSeek 建议（0）')).toBeInTheDocument()
+    expect(screen.getByText('纠错参考记录（0）')).toBeInTheDocument()
   })
 
   it('renders the settings jump select instead of fixed section buttons', async () => {
@@ -928,7 +936,7 @@ describe('FloatingAssistantApp', () => {
                 ledgerId: 'game',
                 keyword: '攻略',
                 reason: '用户多次改到游戏册。',
-                source: 'user',
+                source: 'deepseek',
                 status: 'pending',
                 createdAt: '2026-07-05T00:00:00.000Z'
               }
@@ -959,8 +967,8 @@ describe('FloatingAssistantApp', () => {
       '整理策略',
       '批阅动作'
     ])
-    expect(await screen.findByText('纠错学习记录（1）')).toBeInTheDocument()
-    expect(screen.getByText('关键词建议（1）')).toBeInTheDocument()
+    expect(await screen.findByText('纠错参考记录（1）')).toBeInTheDocument()
+    expect(screen.getByText('DeepSeek 建议（1）')).toBeInTheDocument()
 
     const diagnosticsSection = screen.getByRole('group', { name: '诊断' })
     const deepSeekSection = screen.getByRole('group', { name: 'DeepSeek' })
@@ -1040,15 +1048,13 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
     fireEvent.click(screen.getByRole('radio', { name: '均衡整理' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: '记录纠错学习' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: '纠错学习参与分类' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '记录纠错参考' }))
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenLastCalledWith(
         expect.objectContaining({
           favoriteArchiveStrategy: 'balanced',
-          favoriteCorrectionLearningEnabled: false,
-          favoriteCorrectionLearningClassificationEnabled: false
+          favoriteCorrectionLearningEnabled: false
         })
       )
     )
@@ -1093,7 +1099,7 @@ describe('FloatingAssistantApp', () => {
                 title: '东京旅行攻略',
                 originalLedgerId: 'game',
                 userLedgerIds: ['life-interest'],
-                source: 'user',
+                source: 'deepseek',
                 feedbackType: 'strong-correction',
                 sourceScene: 'archive-preview',
                 sourceFolderTitle: '稍后再看',
@@ -1111,7 +1117,7 @@ describe('FloatingAssistantApp', () => {
                 aid: 2,
                 title: '料理学习笔记',
                 userLedgerIds: ['craft'],
-                source: 'user',
+                source: 'deepseek',
                 feedbackType: 'weak-negative',
                 sourceScene: 'daily-favorite',
                 tags: [],
@@ -1180,7 +1186,7 @@ describe('FloatingAssistantApp', () => {
                 ledgerId: 'game',
                 keyword: '攻略',
                 reason: '用户多次改到游戏册。',
-                source: 'user',
+                source: 'deepseek',
                 status: 'pending',
                 createdAt: '2026-07-05T00:00:00.000Z'
               },
@@ -1191,7 +1197,7 @@ describe('FloatingAssistantApp', () => {
                 keyword: '单机',
                 replacement: '单机攻略',
                 reason: '组合词更精确。',
-                source: 'user',
+                source: 'deepseek',
                 status: 'pending',
                 createdAt: '2026-07-05T00:01:00.000Z'
               }
@@ -1266,7 +1272,7 @@ describe('FloatingAssistantApp', () => {
                 ledgerId: 'game',
                 keyword: '实况',
                 reason: '弱词更适合。',
-                source: 'user',
+                source: 'deepseek',
                 status: 'pending',
                 createdAt: '2026-07-05T00:00:00.000Z'
               },
@@ -1276,7 +1282,7 @@ describe('FloatingAssistantApp', () => {
                 ledgerId: 'life-interest',
                 keyword: 'vlog',
                 reason: '误命中生活册。',
-                source: 'user',
+                source: 'deepseek',
                 status: 'pending',
                 createdAt: '2026-07-05T00:01:00.000Z'
               }
@@ -1350,7 +1356,7 @@ describe('FloatingAssistantApp', () => {
                 ledgerId: 'game',
                 keyword: '实况',
                 reason: '弱词更适合。',
-                source: 'user',
+                source: 'deepseek',
                 status: 'pending',
                 createdAt: '2026-07-05T00:00:00.000Z'
               },
@@ -1360,7 +1366,7 @@ describe('FloatingAssistantApp', () => {
                 ledgerId: 'game',
                 keyword: '攻略',
                 reason: '弱词更适合。',
-                source: 'user',
+                source: 'deepseek',
                 status: 'pending',
                 createdAt: '2026-07-05T00:01:00.000Z'
               },
@@ -1370,7 +1376,7 @@ describe('FloatingAssistantApp', () => {
                 ledgerId: 'game',
                 keyword: '剧情',
                 reason: '弱词更适合。',
-                source: 'user',
+                source: 'deepseek',
                 status: 'pending',
                 createdAt: '2026-07-05T00:02:00.000Z'
               }
@@ -1428,7 +1434,7 @@ describe('FloatingAssistantApp', () => {
                 ledgerId: 'game',
                 keyword: '实况',
                 reason: '已采纳的弱词。',
-                source: 'user',
+                source: 'deepseek',
                 status: 'accepted',
                 createdAt: '2026-07-05T00:00:00.000Z'
               },
@@ -1454,7 +1460,7 @@ describe('FloatingAssistantApp', () => {
 
     expect(screen.queryByText('实况')).not.toBeInTheDocument()
     expect(screen.queryByText('攻略')).not.toBeInTheDocument()
-    expect(screen.getByText('暂无关键词建议')).toBeInTheDocument()
+    expect(screen.getByText('暂无 DeepSeek 建议')).toBeInTheDocument()
   })
 
   it('removes keyword suggestions from the visible list after handling them', async () => {
@@ -1469,7 +1475,7 @@ describe('FloatingAssistantApp', () => {
                 ledgerId: 'game',
                 keyword: '实况',
                 reason: '弱词更适合。',
-                source: 'user',
+                source: 'deepseek',
                 status: 'pending',
                 createdAt: '2026-07-05T00:00:00.000Z'
               }
@@ -1495,7 +1501,7 @@ describe('FloatingAssistantApp', () => {
     )
 
     expect(screen.queryByText('实况')).not.toBeInTheDocument()
-    expect(screen.getByText('暂无关键词建议')).toBeInTheDocument()
+    expect(screen.getByText('暂无 DeepSeek 建议')).toBeInTheDocument()
   })
 
   it('shows correction records without folding controls', async () => {
@@ -1534,7 +1540,7 @@ describe('FloatingAssistantApp', () => {
     expect(screen.queryByRole('button', { name: /收起纠错 东京旅行攻略/ })).not.toBeInTheDocument()
   })
 
-  it('keeps learning records compact and shows processed keyword suggestions separately', async () => {
+  it('keeps correction reference records compact and shows processed DeepSeek suggestions separately', async () => {
     const savePreferences = vi.fn().mockImplementation(async (preferences: AssistantPreferences) => preferences)
     installDesktopApi({
       savePreferences,
@@ -1575,7 +1581,7 @@ describe('FloatingAssistantApp', () => {
                 keyword: '攻略',
                 replacement: '游戏攻略',
                 reason: '弱词已替换为组合词。',
-                source: 'classifier',
+                source: 'deepseek',
                 status: 'accepted',
                 createdAt: '2026-07-05T00:02:00.000Z'
               }
@@ -1589,10 +1595,10 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
 
-    expect(screen.getByRole('list', { name: '纠错学习记录' })).toHaveClass(
+    expect(screen.getByRole('list', { name: '纠错参考记录' })).toHaveClass(
       'assistant-settings__record-track'
     )
-    expect(screen.getByRole('list', { name: '待处理关键词建议' })).toHaveClass(
+    expect(screen.getByRole('list', { name: '待处理 DeepSeek 建议' })).toHaveClass(
       'assistant-settings__record-track'
     )
     expect(screen.getByText('机器学习')).toBeInTheDocument()
@@ -1600,7 +1606,7 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '已处理' }))
 
-    expect(screen.getByRole('list', { name: '已处理关键词建议' })).toHaveClass(
+    expect(screen.getByRole('list', { name: '已处理 DeepSeek 建议' })).toHaveClass(
       'assistant-settings__record-track'
     )
     expect(screen.getByText('游戏攻略')).toBeInTheDocument()
@@ -1623,7 +1629,7 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '待处理' }))
 
-    expect(screen.getByRole('list', { name: '待处理关键词建议' })).toHaveTextContent('游戏攻略')
+    expect(screen.getByRole('list', { name: '待处理 DeepSeek 建议' })).toHaveTextContent('游戏攻略')
   })
 
   it('runs startup diagnostics from settings', async () => {

@@ -76,6 +76,7 @@ type FavoriteLedgerPanelProps = {
     request: DeepSeekGenerateRequest
   ) => Promise<DeepSeekGenerateResult | null | undefined>
   onDeepSeekArchiveKeywordSuggestions?: (suggestions: FavoriteKeywordSuggestion[]) => void
+  onOpenDeepSeekSuggestions?: () => void
   onConfirmArchiveCorrections?: (records: FavoriteCorrectionRecord[]) => void
   favoriteArchiveMultiMode?: FavoriteArchiveMultiMode
   organizeOldFavoritesRequestSignal?: number
@@ -1250,6 +1251,7 @@ export function FavoriteLedgerPanel({
   deepSeekArchiveAvailable = false,
   onOrganizeOldFavoritesWithDeepSeek,
   onDeepSeekArchiveKeywordSuggestions,
+  onOpenDeepSeekSuggestions,
   onConfirmArchiveCorrections,
   favoriteArchiveMultiMode = 'off',
   organizeOldFavoritesRequestSignal = 0
@@ -1278,6 +1280,7 @@ export function FavoriteLedgerPanel({
   const [deepSeekArchiveScopeOpen, setDeepSeekArchiveScopeOpen] = useState(false)
   const [deepSeekArchiveRunning, setDeepSeekArchiveRunning] = useState(false)
   const [deepSeekArchiveStatus, setDeepSeekArchiveStatus] = useState('')
+  const [deepSeekArchiveSuggestionCount, setDeepSeekArchiveSuggestionCount] = useState(0)
   const [deepSeekArchiveProgress, setDeepSeekArchiveProgress] =
     useState<DeepSeekArchiveProgress | null>(null)
   const [archivePreviewAlertMessages, setArchivePreviewAlertMessages] = useState<string[]>([])
@@ -2536,6 +2539,7 @@ export function FavoriteLedgerPanel({
     const chunks = chunkDeepSeekArchiveRequest(request)
     setDeepSeekArchiveRunning(true)
     setDeepSeekArchiveStatus('DeepSeek 正在整理旧藏...')
+    setDeepSeekArchiveSuggestionCount(0)
     setDeepSeekArchiveProgress({
       completedVideos: 0,
       totalVideos: request.videos.length,
@@ -2628,6 +2632,7 @@ export function FavoriteLedgerPanel({
       const keywordSuggestionCount = keywordSuggestions.length
       if (keywordSuggestionCount > 0) {
         onDeepSeekArchiveKeywordSuggestions?.(keywordSuggestions)
+        setDeepSeekArchiveSuggestionCount(keywordSuggestionCount)
         setDeepSeekArchiveStatus(
           onDeepSeekArchiveKeywordSuggestions
             ? `DeepSeek 返回 ${keywordSuggestionCount} 条关键词建议，已加入设置里的建议列表。`
@@ -4051,6 +4056,15 @@ export function FavoriteLedgerPanel({
                           <p className="favorite-ledger-panel__deepseek-archive-status" role="status">
                             {deepSeekArchiveStatus}
                           </p>
+                        ) : null}
+                        {deepSeekArchiveSuggestionCount > 0 && onOpenDeepSeekSuggestions ? (
+                          <button
+                            type="button"
+                            className="favorite-ledger-panel__deepseek-suggestion-link"
+                            onClick={onOpenDeepSeekSuggestions}
+                          >
+                            前往采纳 DeepSeek 建议
+                          </button>
                         ) : null}
                         {deepSeekArchiveProgress ? (
                           <div

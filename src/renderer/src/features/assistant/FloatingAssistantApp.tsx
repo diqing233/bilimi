@@ -352,9 +352,7 @@ const KEYWORD_SUGGESTION_ACTION_LABELS: Record<FavoriteKeywordSuggestion['action
 }
 
 const FAVORITE_CORRECTION_LEARNING_HELP =
-  '确认整理后，记录“原建议”和“你实际选择”的差异，用来沉淀纠错经验。'
-const FAVORITE_CORRECTION_CLASSIFICATION_HELP =
-  '开启后，后续分类会参考这些纠错记录；关闭后只保留记录，不影响自动分类。'
+  '确认整理后，记录“原建议”和“你实际选择”的差异，作为回看分类边界的参考；记录本身不会直接影响本地分类。'
 
 const KEYWORD_SUGGESTION_STATUS_LABELS: Record<FavoriteKeywordSuggestionStatus, string> = {
   pending: '待处理',
@@ -1206,6 +1204,12 @@ export function FloatingAssistantApp({
     }
   }
 
+  function openSettingsSection(section: SettingsJumpValue) {
+    setActiveTab('settings')
+    setSettingsJumpValue(section)
+    window.setTimeout(() => jumpToSettingsSection(section), 0)
+  }
+
   function syncSettingsJumpFromScroll() {
     const body = settingsBodyRef.current
     if (!body) {
@@ -2021,10 +2025,13 @@ export function FloatingAssistantApp({
     setActiveTab(tab)
   }
 
-  const pendingKeywordSuggestions = preferences.favoriteKeywordSuggestions.filter(
+  const deepSeekKeywordSuggestions = preferences.favoriteKeywordSuggestions.filter(
+    (suggestion) => suggestion.source === 'deepseek'
+  )
+  const pendingKeywordSuggestions = deepSeekKeywordSuggestions.filter(
     (suggestion) => suggestion.status === 'pending'
   )
-  const processedKeywordSuggestions = preferences.favoriteKeywordSuggestions.filter(
+  const processedKeywordSuggestions = deepSeekKeywordSuggestions.filter(
     (suggestion) => suggestion.status !== 'pending'
   )
   const visibleKeywordSuggestions =
@@ -2107,6 +2114,7 @@ export function FloatingAssistantApp({
             }
             onOrganizeOldFavoritesWithDeepSeek={organizeOldFavoritesWithDeepSeek}
             onDeepSeekArchiveKeywordSuggestions={mergeDeepSeekArchiveKeywordSuggestions}
+            onOpenDeepSeekSuggestions={() => openSettingsSection('learning')}
             onConfirmArchiveCorrections={confirmArchiveCorrectionRecords}
             favoriteArchiveMultiMode={preferences.favoriteArchiveMultiMode}
             organizeOldFavoritesRequestSignal={organizeOldFavoritesRequestSignal}
@@ -2639,31 +2647,13 @@ export function FloatingAssistantApp({
                     })
                   }
                 />
-                <span>记录纠错学习</span>
+                <span>记录纠错参考</span>
               </label>
               <small
                 className="assistant-settings__option-help"
                 title={FAVORITE_CORRECTION_LEARNING_HELP}
               >
                 {FAVORITE_CORRECTION_LEARNING_HELP}
-              </small>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={preferences.favoriteCorrectionLearningClassificationEnabled}
-                  onChange={(event) =>
-                    persistPreferencePatch({
-                      favoriteCorrectionLearningClassificationEnabled: event.currentTarget.checked
-                    })
-                  }
-                />
-                <span>纠错学习参与分类</span>
-              </label>
-              <small
-                className="assistant-settings__option-help"
-                title={FAVORITE_CORRECTION_CLASSIFICATION_HELP}
-              >
-                {FAVORITE_CORRECTION_CLASSIFICATION_HELP}
               </small>
               {settingsLearningMessage ? (
                 <p className="assistant-settings__status" role="status">
@@ -2672,7 +2662,7 @@ export function FloatingAssistantApp({
               ) : null}
               <div className="assistant-settings__subsection assistant-settings__subsection--records">
                 <div className="assistant-settings__subsection-heading">
-                  <strong>纠错学习记录（{preferences.favoriteCorrectionRecords.length}）</strong>
+                  <strong>纠错参考记录（{preferences.favoriteCorrectionRecords.length}）</strong>
                   <button
                     type="button"
                     onClick={clearCorrectionRecords}
@@ -2685,7 +2675,7 @@ export function FloatingAssistantApp({
                   <div
                     className="assistant-settings__record-track assistant-settings__learning-list"
                     role="list"
-                    aria-label="纠错学习记录"
+                    aria-label="纠错参考记录"
                   >
                     {preferences.favoriteCorrectionRecords.map(
                       (record: FavoriteCorrectionRecord) => {
@@ -2738,14 +2728,14 @@ export function FloatingAssistantApp({
                   </div>
                 ) : (
                   <p className="assistant-settings__empty">
-                    暂无纠错记录。确认整理时如果实际选择不同于原建议，会记录在这里。
+                    暂无纠错参考。确认整理时如果实际选择不同于原建议，会记录在这里；记录本身不会直接影响本地分类。
                   </p>
                 )}
               </div>
               <div className="assistant-settings__subsection">
                 <div className="assistant-settings__subsection-heading">
-                  <strong>关键词建议（{pendingKeywordSuggestions.length}）</strong>
-                  <span className="assistant-settings__view-toggle" role="group" aria-label="关键词建议视图">
+                  <strong>DeepSeek 建议（{pendingKeywordSuggestions.length}）</strong>
+                  <span className="assistant-settings__view-toggle" role="group" aria-label="DeepSeek 建议视图">
                     <button
                       type="button"
                       aria-pressed={settingsKeywordSuggestionView === 'pending'}
@@ -2768,8 +2758,8 @@ export function FloatingAssistantApp({
                     role="list"
                     aria-label={
                       settingsKeywordSuggestionView === 'pending'
-                        ? '待处理关键词建议'
-                        : '已处理关键词建议'
+                        ? '待处理 DeepSeek 建议'
+                        : '已处理 DeepSeek 建议'
                     }
                   >
                     {visibleKeywordSuggestions.map((suggestion) => {
@@ -2852,7 +2842,7 @@ export function FloatingAssistantApp({
                   </div>
                 ) : (
                   <p className="assistant-settings__empty">
-                    暂无关键词建议
+                    暂无 DeepSeek 建议
                   </p>
                 )}
               </div>
