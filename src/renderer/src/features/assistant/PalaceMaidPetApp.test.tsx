@@ -147,13 +147,15 @@ describe('PalaceMaidPetApp', () => {
     fireEvent.click(pet)
     vi.setSystemTime(new Date('2026-07-10T10:00:00.800+08:00'))
     fireEvent.click(pet)
+    vi.setSystemTime(new Date('2026-07-10T10:00:01.200+08:00'))
+    fireEvent.click(pet)
 
-    expect(api.restoreMainWindowFromPet).toHaveBeenCalledTimes(3)
+    expect(api.restoreMainWindowFromPet).toHaveBeenCalledTimes(4)
     expect(screen.getByText(/捉弄小咪|小咪会害羞/)).toBeInTheDocument()
     expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'surprised')
     expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute(
       'data-click-reaction-signal',
-      '3'
+      '4'
     )
   })
 
@@ -298,6 +300,25 @@ describe('PalaceMaidPetApp', () => {
 
     expect(screen.queryByText('小咪忙碌中')).not.toBeInTheDocument()
     expect(screen.getByText('主人，小咪正在帮你整理札记～')).toBeInTheDocument()
+  })
+
+  it('keeps desktop pet hint tones instead of flattening them to generic hints', () => {
+    let hintChanged: ((hint: AssistantPetHint) => void) | undefined
+    installDesktopApi({
+      onAssistantPetHintChanged: vi.fn((callback) => {
+        hintChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    act(() => {
+      hintChanged?.({ tone: 'happy', message: '主人，档案库打开啦，想看的文稿都在这里。' })
+    })
+
+    expect(screen.getByText('主人，档案库打开啦，想看的文稿都在这里。')).toBeInTheDocument()
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'happy')
   })
 
   it('keeps the speech bubble free of the pet hint title line', () => {
@@ -835,6 +856,7 @@ describe('PalaceMaidPetApp', () => {
     await waitFor(() => expect(api.runFloatingMenuAction).toHaveBeenCalledWith('表'))
     expect(api.openFloatingAssistantWorkspace).not.toHaveBeenCalled()
     expect(screen.getByText('弹幕已发送，没有看到请检查弹幕开关是否开启')).toBeInTheDocument()
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'done')
   })
 
   it('starts transcription directly from the 转 hover shortcut and only reports through 小咪', async () => {
@@ -934,6 +956,7 @@ describe('PalaceMaidPetApp', () => {
     expect(
       await screen.findByText('主人，当前还没打开视频，小咪不能帮这条点喜欢。')
     ).toBeInTheDocument()
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'shy')
     expect(screen.queryByText('暂无视频')).not.toBeInTheDocument()
     expect(api.runFloatingMenuAction).not.toHaveBeenCalled()
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
@@ -958,6 +981,7 @@ describe('PalaceMaidPetApp', () => {
     expect(
       await screen.findByText('主人，当前还没打开视频，小咪不能帮这条转写音频。')
     ).toBeInTheDocument()
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'shy')
     expect(screen.queryByText('暂无视频')).not.toBeInTheDocument()
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })

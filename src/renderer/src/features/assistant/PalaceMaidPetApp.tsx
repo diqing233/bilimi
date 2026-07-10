@@ -126,7 +126,7 @@ export function PalaceMaidPetApp() {
         return
       }
 
-      showLocalPetHint(hint.tone === 'working' || hint.tone === 'error' ? hint.tone : 'hint', message)
+      showLocalPetHint(hint.tone, message)
       scheduleIdleGreeting()
     })
   }, [])
@@ -368,7 +368,6 @@ export function PalaceMaidPetApp() {
     petClickStreak.current = { count: nextCount, lastAt: now }
 
     if (nextCount >= PET_TEASE_CLICK_THRESHOLD) {
-      petClickStreak.current = { count: 0, lastAt: now }
       return { tone: 'surprised', message: pickPetLine(PET_TEASE_CLICK_LINES) }
     }
 
@@ -422,7 +421,7 @@ export function PalaceMaidPetApp() {
     try {
       const result = await action()
       const message = result?.message?.trim() || fallbackMessage
-      showLocalPetHint(result?.ok === false ? 'error' : 'hint', message)
+      showLocalPetHint(result?.ok === false ? 'error' : 'done', message)
     } catch (error) {
       showLocalPetHint(
         'error',
@@ -447,7 +446,7 @@ export function PalaceMaidPetApp() {
     setPressed(false)
     setClosePromptVisible(false)
     const anchor = createWorkspaceAnchor(event)
-    showLocalPetHint('hint', '主人，小咪把小窗口打开啦。')
+    showLocalPetHint('happy', '主人，小咪把小窗口打开啦。')
     void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'review', anchor })
   }
 
@@ -465,18 +464,18 @@ export function PalaceMaidPetApp() {
       !letsFloatingAssistantHandleCurrentVideoCheck(shortcut) &&
       !(await hasCurrentVideo())
     ) {
-      showLocalPetHint('hint', getNoVideoHint(shortcut))
+      showLocalPetHint('shy', getNoVideoHint(shortcut))
       return
     }
 
     if (shortcut.id === 'assistant') {
-      showLocalPetHint('hint', '主人，小咪把小窗口打开啦。')
+      showLocalPetHint('happy', '主人，小咪把小窗口打开啦。')
       void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'review', anchor })
       return
     }
 
     if (shortcut.id === 'library') {
-      showLocalPetHint('hint', '主人，小咪打开档案库啦。')
+      showLocalPetHint('happy', '主人，小咪打开档案库啦。')
       void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({
         tab: 'notes',
         anchor,
@@ -486,7 +485,7 @@ export function PalaceMaidPetApp() {
     }
 
     if (shortcut.id === 'organize-old-favorites') {
-      showLocalPetHint('hint', '主人，小咪切到掌库啦，旧藏整理从这里开始。')
+      showLocalPetHint('happy', '主人，小咪切到掌库啦，旧藏整理从这里开始。')
       void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({
         tab: 'ledger',
         anchor,
@@ -526,7 +525,7 @@ export function PalaceMaidPetApp() {
         return
       }
 
-      showLocalPetHint('hint', '主人，小咪打开短评三选一小窗口啦。')
+      showLocalPetHint('happy', '主人，小咪打开短评三选一小窗口啦。')
       void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({
         action: '表',
         anchor,
