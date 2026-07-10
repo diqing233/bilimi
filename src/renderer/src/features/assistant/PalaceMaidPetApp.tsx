@@ -464,7 +464,7 @@ export function PalaceMaidPetApp() {
       !letsFloatingAssistantHandleCurrentVideoCheck(shortcut) &&
       !(await hasCurrentVideo())
     ) {
-      showLocalPetHint('shy', getNoVideoHint(shortcut))
+      showLocalPetHint('error', getNoVideoHint(shortcut))
       return
     }
 

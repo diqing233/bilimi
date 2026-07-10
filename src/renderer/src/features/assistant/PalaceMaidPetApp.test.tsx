@@ -956,7 +956,7 @@ describe('PalaceMaidPetApp', () => {
     expect(
       await screen.findByText('主人，当前还没打开视频，小咪不能帮这条点喜欢。')
     ).toBeInTheDocument()
-    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'shy')
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'error')
     expect(screen.queryByText('暂无视频')).not.toBeInTheDocument()
     expect(api.runFloatingMenuAction).not.toHaveBeenCalled()
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
@@ -981,7 +981,7 @@ describe('PalaceMaidPetApp', () => {
     expect(
       await screen.findByText('主人，当前还没打开视频，小咪不能帮这条转写音频。')
     ).toBeInTheDocument()
-    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'shy')
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'error')
     expect(screen.queryByText('暂无视频')).not.toBeInTheDocument()
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
