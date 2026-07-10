@@ -2042,11 +2042,28 @@ body[data-floating-window="true"],
   grid-template-columns: minmax(0, 1fr) 56px;
   gap: 0;
   align-items: stretch;
+  border: 1px solid rgba(31, 99, 181, 0.22);
+  border-radius: var(--porcelain-radius-control);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 254, 253, 0.98),
+    rgba(220, 238, 255, 0.98)
+  );
+  overflow: hidden;
 }
 .memorial-panel__action-card--with-setting .assistant-action-button {
   border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join)
     var(--porcelain-radius-join) var(--porcelain-radius-control);
-  border-right: 0;
+  border: 0;
+  background: transparent;
+}
+.memorial-panel__action-card--with-setting
+  .assistant-action-button:hover:not(:disabled),
+.memorial-panel__action-card--with-setting
+  .assistant-action-button:focus-visible:not(:disabled) {
+  background: transparent;
+  box-shadow: none;
+  transform: none;
 }
 .memorial-panel__action-setting {
   display: grid;
@@ -2065,14 +2082,11 @@ body[data-floating-window="true"],
   max-width: 100%;
   min-width: 0;
   min-height: 62px;
-  border: 1px solid rgba(31, 99, 181, 0.22);
+  border: 0;
+  border-left: 1px solid rgba(31, 99, 181, 0.22);
   border-radius: var(--porcelain-radius-join) var(--porcelain-radius-control)
     var(--porcelain-radius-control) var(--porcelain-radius-join);
-  background: linear-gradient(
-    180deg,
-    rgba(255, 254, 253, 0.98),
-    rgba(220, 238, 255, 0.98)
-  );
+  background: transparent;
   color: var(--porcelain-text);
   font: inherit;
   font-weight: 700;
@@ -2086,13 +2100,9 @@ body[data-floating-window="true"],
 }
 .memorial-panel__action-setting select:hover,
 .memorial-panel__action-setting select:focus-visible {
-  border-color: rgba(31, 99, 181, 0.5);
-  background: linear-gradient(
-    180deg,
-    rgba(255, 254, 253, 1),
-    rgba(220, 238, 255, 1)
-  );
-  box-shadow: 0 8px 16px rgba(31, 99, 181, 0.14);
+  border-left-color: rgba(31, 99, 181, 0.5);
+  background: transparent;
+  box-shadow: none;
 }
 .memorial-panel__actions button,
 .memorial-panel__close,

@@ -425,13 +425,19 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.memorial-panel__actions {\n  display: grid;\n  grid-template-columns: 1fr;')
     expect(normalizedStyles).toContain('.assistant-action-button {\n  min-height: 62px;')
     expectStyleSnippet(
-      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 56px; gap: 0; align-items: stretch;'
+      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 56px; gap: 0; align-items: stretch; border: 1px solid rgba(31, 99, 181, 0.22);'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 56px; gap: 0; align-items: stretch; border: 1px solid rgba(31, 99, 181, 0.22); border-radius: var(--porcelain-radius-control); background: linear-gradient('
     )
     expectStyleSnippet(
       '.memorial-panel__action-card--with-setting .assistant-action-button { border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join) var(--porcelain-radius-join) var(--porcelain-radius-control);'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-card--with-setting .assistant-action-button { border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join) var(--porcelain-radius-join) var(--porcelain-radius-control); border-right: 0;'
+      '.memorial-panel__action-card--with-setting .assistant-action-button { border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join) var(--porcelain-radius-join) var(--porcelain-radius-control); border: 0; background: transparent;'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting .assistant-action-button:hover:not(:disabled), .memorial-panel__action-card--with-setting .assistant-action-button:focus-visible:not(:disabled) { background: transparent; box-shadow: none; transform: none;'
     )
     expectStyleSnippet(
       '.memorial-panel__action-setting { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; justify-self: stretch; min-width: 0; width: 56px; max-width: 56px;'
@@ -440,13 +446,13 @@ describe('renderer porcelain theme styles', () => {
       '.memorial-panel__action-setting select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 62px;'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-setting select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 62px; border: 1px solid rgba(31, 99, 181, 0.22);'
+      '.memorial-panel__action-setting select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 62px; border: 0; border-left: 1px solid rgba(31, 99, 181, 0.22);'
     )
     expect(normalizedStyles).toContain(
-      '.memorial-panel__action-setting select {\n  box-sizing: border-box;\n  width: 100%;\n  max-width: 100%;\n  min-width: 0;\n  min-height: 62px;\n  border: 1px solid rgba(31, 99, 181, 0.22);\n  border-radius: var(--porcelain-radius-join) var(--porcelain-radius-control)\n    var(--porcelain-radius-control) var(--porcelain-radius-join);\n  background: linear-gradient('
+      '.memorial-panel__action-setting select {\n  box-sizing: border-box;\n  width: 100%;\n  max-width: 100%;\n  min-width: 0;\n  min-height: 62px;\n  border: 0;\n  border-left: 1px solid rgba(31, 99, 181, 0.22);\n  border-radius: var(--porcelain-radius-join) var(--porcelain-radius-control)\n    var(--porcelain-radius-control) var(--porcelain-radius-join);\n  background: transparent;'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-setting select:hover, .memorial-panel__action-setting select:focus-visible { border-color: rgba(31, 99, 181, 0.5); background: linear-gradient('
+      '.memorial-panel__action-setting select:hover, .memorial-panel__action-setting select:focus-visible { border-left-color: rgba(31, 99, 181, 0.5); background: transparent; box-shadow: none;'
     )
     expect(normalizedStyles).toContain('rgba(220, 238, 255, 0.98)')
     expect(normalizedStyles).toContain('rgba(220, 238, 255, 1)')
