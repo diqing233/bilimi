@@ -14,7 +14,7 @@ For local Windows x64 development or packaging, install the expected files with:
 npm run setup:media-tools
 ```
 
-The setup script downloads pinned Windows x64 binaries for yt-dlp, FFmpeg, whisper.cpp, and the `ggml-small.bin` model. It verifies the model SHA1 before reporting success. On macOS and Linux, place matching executable files in the platform directory listed above.
+The setup script downloads pinned Windows x64 binaries for yt-dlp, FFmpeg, whisper.cpp, and the `ggml-small.bin` model into temporary files. It verifies every configured artifact with its pinned SHA-256 digest before replacing or extracting anything. On macOS and Linux, place matching executable files in the platform directory listed above.
 
 Downloaded binaries are ignored by git. Re-run the command when setting up a new checkout or when the note flow reports that a bundled media tool is missing.
 

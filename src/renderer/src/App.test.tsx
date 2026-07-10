@@ -45,6 +45,10 @@ function createAppPreferences(
     hidePetDuringVideoFullscreen: false,
     bilibiliOperationMode: 'api-assisted',
     favoriteArchiveMultiMode: 'off',
+    closeBehavior: 'exit-launcher',
+    confirmBeforeExit: true,
+    favoriteArchiveProtectionRecords: [],
+    favoriteArchiveProtectionInitializedAccountMids: [],
     defaultCoinCount: 1,
     commentSubmitMode: 'random',
     deepseekEnabled: false,
@@ -136,6 +140,39 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
 }
 
 describe('App runtime integration', () => {
+  it('blocks startup when the desktop bridge is missing', async () => {
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: undefined
+    })
+
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: '无法加载设置' })).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('桌面桥接未加载')
+    expect(document.querySelector('webview')).not.toBeInTheDocument()
+  })
+
+  it('shows a retryable startup error when preferences cannot be loaded', async () => {
+    let storageAvailable = false
+    const loadPreferences = vi.fn(async () => {
+      if (!storageAvailable) throw new Error('\u504f\u597d\u8bfb\u53d6\u5931\u8d25')
+      return createAppPreferences()
+    })
+
+    renderAppWithRuntimeBridge({ loadPreferences })
+
+    expect(await screen.findByRole('heading', { name: '\u65e0\u6cd5\u52a0\u8f7d\u8bbe\u7f6e' })).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('\u504f\u597d\u8bfb\u53d6\u5931\u8d25')
+    expect(document.querySelector('webview')).not.toBeInTheDocument()
+
+    storageAvailable = true
+    fireEvent.click(screen.getByRole('button', { name: '\u91cd\u8bd5' }))
+
+    expect(await screen.findByRole('tablist', { name: '\u7f51\u9875\u6807\u7b7e' })).toBeInTheDocument()
+    expect(loadPreferences.mock.calls.length).toBeGreaterThanOrEqual(2)
+  })
+
   it('shows first-launch permission guidance without running diagnostics', async () => {
     const firstRunPreferences = createAppPreferences({ permissionOnboardingCompleted: false })
     const runStartupDiagnostics = vi.fn()
@@ -173,7 +210,7 @@ describe('App runtime integration', () => {
     renderAppWithRuntimeBridge()
 
     expect(document.querySelector('.seal-button')).not.toBeInTheDocument()
-    expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toBeInTheDocument()
+    expect(await screen.findByRole('complementary', { name: 'bilimi 侧边栏' })).toBeInTheDocument()
     expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '札记' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '掌库' })).toBeInTheDocument()
@@ -2848,6 +2885,9 @@ describe('App runtime integration', () => {
         aid: 250,
         title: '用户刚补了标签',
         sourceFolderTitle: '默认收藏夹',
+        sourceFolderIds: [],
+        sourceFolderTitles: ['默认收藏夹'],
+        currentBilimiFolderIds: [],
         targetLedgerId: 'inbox',
         targetFolderId: '9008',
         targetDisplayName: 'bilimi·暂存',

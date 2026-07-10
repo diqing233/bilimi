@@ -249,6 +249,58 @@ describe('VideoNotesPanel', () => {
     expect(await screen.findByText('正在转写「正在跑的视频」，「当前视频」已加入队列。')).toBeInTheDocument()
   })
 
+  it('cancels the selected pending or running queue item', () => {
+    const onCancelQueuedTranscription = vi.fn()
+    renderPanel({
+      note: null,
+      onCancelQueuedTranscription,
+      transcriptionQueue: {
+        activeItemId: 'bvid:BV-running',
+        items: [
+          {
+            id: 'bvid:BV-running',
+            url: 'https://www.bilibili.com/video/BV-running',
+            title: '正在跑的视频',
+            bvid: 'BV-running',
+            status: 'running',
+            createdAt: '2026-06-25T00:00:00.000Z',
+            updatedAt: '2026-06-25T00:00:00.000Z'
+          }
+        ]
+      }
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '取消转写' }))
+
+    expect(onCancelQueuedTranscription).toHaveBeenCalledWith('bvid:BV-running')
+  })
+
+  it('retries the selected failed or canceled queue item', () => {
+    const onRetryQueuedTranscription = vi.fn()
+    renderPanel({
+      note: null,
+      onRetryQueuedTranscription,
+      transcriptionQueue: {
+        items: [
+          {
+            id: 'bvid:BV-failed',
+            url: 'https://www.bilibili.com/video/BV-failed',
+            title: '失败的视频',
+            bvid: 'BV-failed',
+            status: 'failed',
+            errorMessage: '转写失败',
+            createdAt: '2026-06-25T00:00:00.000Z',
+            updatedAt: '2026-06-25T00:00:00.000Z'
+          }
+        ]
+      }
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '重试转写' }))
+
+    expect(onRetryQueuedTranscription).toHaveBeenCalledWith('bvid:BV-failed')
+  })
+
   it('shows Chinese transcription progress with a visual percentage', () => {
     renderPanel({
       note: null,

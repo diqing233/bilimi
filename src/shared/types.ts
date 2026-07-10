@@ -442,7 +442,10 @@ export type DeepSeekTaskKind =
   | 'pet-chat'
   | 'connection-test'
 
-export type DeepSeekKeyStatus = { configured: boolean }
+export type DeepSeekKeyStatus = {
+  configured: boolean
+  protection: 'encrypted' | 'plaintext' | 'unavailable' | 'error'
+}
 
 export type DeepSeekConnectionTestResult = { ok: boolean; message: string }
 

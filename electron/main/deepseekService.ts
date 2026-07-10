@@ -676,6 +676,8 @@ export async function generateDeepSeekResult(options: {
   config: DeepSeekConfig
   request: DeepSeekGenerateRequest
   fetchImpl?: typeof fetch
+  signal?: AbortSignal
+  timeoutMs?: number
 }): Promise<DeepSeekGenerateResult> {
   const apiKey = options.config.apiKey.trim()
   if (!options.config.enabled || !apiKey) {
@@ -683,7 +685,20 @@ export async function generateDeepSeekResult(options: {
   }
 
   const fetchImpl = options.fetchImpl ?? fetch
+  const controller = new AbortController()
+  const timeoutMs = options.timeoutMs ?? 30_000
+  let timedOut = false
+  const handleCallerAbort = () => controller.abort(options.signal?.reason)
+  if (options.signal?.aborted) {
+    throw new DeepSeekServiceError('network-error', 'DeepSeek request canceled.')
+  }
+  options.signal?.addEventListener('abort', handleCallerAbort, { once: true })
+  const timeout = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
   let response: Response
+  let responseText: string
 
   try {
     response = await fetchImpl(createEndpoint(options.config.baseUrl), {
@@ -692,17 +707,28 @@ export async function generateDeepSeekResult(options: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
+      signal: controller.signal,
       body: JSON.stringify({
         model: options.config.model,
         messages: buildMessages(options.request),
         temperature: options.request.kind === 'pet-chat' ? 0.7 : 0.4
       })
     })
+    responseText = await response.text()
   } catch (error) {
+    if (controller.signal.aborted) {
+      throw new DeepSeekServiceError(
+        'network-error',
+        timedOut ? 'DeepSeek request timed out.' : 'DeepSeek request canceled.'
+      )
+    }
     throw new DeepSeekServiceError(
       'network-error',
       error instanceof Error ? error.message : 'DeepSeek network request failed.'
     )
+  } finally {
+    clearTimeout(timeout)
+    options.signal?.removeEventListener('abort', handleCallerAbort)
   }
 
   if (!response.ok) {
@@ -714,7 +740,7 @@ export async function generateDeepSeekResult(options: {
 
   let payload: DeepSeekChoiceResponse
   try {
-    payload = JSON.parse(await response.text()) as DeepSeekChoiceResponse
+    payload = JSON.parse(responseText) as DeepSeekChoiceResponse
   } catch {
     throw new DeepSeekServiceError('invalid-output', 'DeepSeek returned invalid response JSON.')
   }

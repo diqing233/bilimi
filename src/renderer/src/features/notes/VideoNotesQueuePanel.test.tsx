@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+﻿import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { VideoAudioTranscriptionQueueSnapshot, VideoNote, VideoNoteArchiveEntry } from '@shared/types'
 import { VideoNotesPanel } from './VideoNotesPanel'
@@ -46,6 +46,7 @@ const queuedCompletedNote: VideoNote = {
 
 function renderQueuePanel(queue: VideoAudioTranscriptionQueueSnapshot) {
   const onEnqueueTranscription = vi.fn().mockResolvedValue(queue)
+  const onCancelQueuedTranscription = vi.fn()
 
   render(
     <VideoNotesPanel
@@ -55,12 +56,14 @@ function renderQueuePanel(queue: VideoAudioTranscriptionQueueSnapshot) {
       onSave={vi.fn()}
       onTranscribeAudio={vi.fn()}
       onEnqueueTranscription={onEnqueueTranscription}
+      onCancelQueuedTranscription={onCancelQueuedTranscription}
       transcriptionQueue={queue}
     />
   )
 
   return {
-    onEnqueueTranscription
+    onEnqueueTranscription,
+    onCancelQueuedTranscription
   }
 }
 
@@ -137,7 +140,7 @@ describe('VideoNotesPanel transcription queue', () => {
         }
       ]
     }
-    renderQueuePanel(queue)
+    const { onCancelQueuedTranscription } = renderQueuePanel(queue)
 
     const status = screen.getByRole('region', { name: '转写状态' })
 
@@ -160,7 +163,8 @@ describe('VideoNotesPanel transcription queue', () => {
     expect(screen.getByText('49%')).toBeInTheDocument()
     expect(screen.getByLabelText('转写音频到文稿生成整体进度')).toHaveAttribute('value', '49')
     expect(screen.queryByRole('button', { name: '加入队列' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /取消/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '取消转写' }))
+    expect(onCancelQueuedTranscription).toHaveBeenCalledWith('bvid:BV2note')
     expect(screen.queryByRole('button', { name: /重试/ })).not.toBeInTheDocument()
     expect(screen.queryByText('Audio download failed.')).not.toBeInTheDocument()
   })

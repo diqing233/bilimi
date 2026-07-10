@@ -72,6 +72,8 @@ export type FavoriteLedgerPreviewItem = {
   originalSuggestedLedgerIds: string[]
   currentTargetLedgerIds: string[]
   selectedTargetLedgerIds: string[]
+  desiredTargetFolderIds?: string[]
+  desiredTargetLedgerIds?: string[]
   classificationDiagnostic?: FavoriteLedgerClassificationDiagnostic
   lowConfidence: boolean
   originalSuggestionLabel?: string
@@ -264,7 +266,7 @@ function previewTargetsForVideo(args: {
       keywords: archiveTarget.keywords,
       ruleType: archiveTarget.ruleType,
       alreadyInTarget,
-      selected
+      selected: Boolean(selected)
     })
   }
 

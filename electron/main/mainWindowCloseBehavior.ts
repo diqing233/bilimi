@@ -1,4 +1,4 @@
-import type { MessageBoxSyncOptions } from 'electron'
+import type { MessageBoxOptions } from 'electron'
 import type { AssistantPreferences } from './store'
 
 export type CloseConfirmationResult = {
@@ -16,7 +16,7 @@ export type MainWindowCloseAction =
 
 const CLOSE_CONFIRMATION_BUTTONS = ['最小化到托盘', '退出 bilimi', '取消']
 
-export function createCloseConfirmationOptions(): MessageBoxSyncOptions {
+export function createCloseConfirmationOptions(): MessageBoxOptions {
   return {
     type: 'question',
     title: '关闭 bilimi？',

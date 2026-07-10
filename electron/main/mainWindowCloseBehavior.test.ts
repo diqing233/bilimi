@@ -22,6 +22,8 @@ function createPreferences(
     bilibiliOperationMode: 'api-assisted',
     favoriteArchiveMultiMode: 'off',
     favoriteArchiveStrategy: 'aggressive',
+    favoriteArchiveProtectionRecords: [],
+    favoriteArchiveProtectionInitializedAccountMids: [],
     favoriteCorrectionLearningEnabled: true,
     favoriteCorrectionLearningClassificationEnabled: true,
     favoriteCorrectionRecords: [],

@@ -14,9 +14,10 @@ type QueueDeps = {
   saveItems: (items: VideoAudioTranscriptionQueueItem[]) => void
   transcribe: (
     request: VideoAudioTranscriptionRequest,
-    progress: (progress: VideoAudioTranscriptionProgress) => void
+    progress: (progress: VideoAudioTranscriptionProgress) => void,
+    signal: AbortSignal
   ) => Promise<VideoAudioTranscriptionResult>
-  summarizeNote?: (note: VideoNote) => Promise<string>
+  summarizeNote?: (note: VideoNote, signal: AbortSignal) => Promise<string>
   saveArchiveVersion: (note: VideoNote, summaryText: string) => unknown
   now?: () => string
   onSnapshot?: (snapshot: VideoAudioTranscriptionQueueSnapshot) => void
@@ -92,6 +93,8 @@ export function createVideoTranscriptionQueue({
 }: QueueDeps): VideoTranscriptionQueue {
   let items = restoreUnfinishedItems(loadItems(), now)
   let processing = false
+  let activeItemId: string | undefined
+  let activeController: AbortController | undefined
 
   function publish(): VideoAudioTranscriptionQueueSnapshot {
     const snapshot = snapshotFromItems(items)
@@ -118,6 +121,8 @@ export function createVideoTranscriptionQueue({
     }
 
     processing = true
+    activeItemId = next.id
+    activeController = new AbortController()
     updateItem(next.id, (item) => ({
       ...item,
       status: 'running',
@@ -129,14 +134,19 @@ export function createVideoTranscriptionQueue({
 
     try {
       const runningItem = items.find((item) => item.id === next.id) ?? next
-      const result = await transcribe(runningItem, (progress) => {
-        updateItem(runningItem.id, (item) => ({
-          ...item,
-          progress,
-          updatedAt: now()
-        }))
-        publish()
-      })
+      const result = await transcribe(
+        runningItem,
+        (progress) => {
+          updateItem(runningItem.id, (item) => ({
+            ...item,
+            progress,
+            updatedAt: now()
+          }))
+          publish()
+        },
+        activeController.signal
+      )
+      activeController.signal.throwIfAborted()
       const completedAt = now()
       const note = createNoteFromQueueItem(runningItem, result.transcript, completedAt)
       updateItem(runningItem.id, (item) => ({
@@ -158,11 +168,17 @@ export function createVideoTranscriptionQueue({
         }))
         publish()
         try {
-          summaryText = await summarizeNote(note)
+          summaryText = await summarizeNote(note, activeController.signal)
+          activeController.signal.throwIfAborted()
         } catch (error) {
+          if (activeController.signal.aborted) {
+            throw error
+          }
           summaryErrorMessage = createErrorMessage(error)
         }
       }
+
+      activeController.signal.throwIfAborted()
 
       updateItem(runningItem.id, (item) => ({
         ...item,
@@ -171,6 +187,7 @@ export function createVideoTranscriptionQueue({
       }))
       publish()
 
+      activeController.signal.throwIfAborted()
       saveArchiveVersion(note, summaryText)
       updateItem(runningItem.id, (item) => ({
         ...item,
@@ -186,12 +203,17 @@ export function createVideoTranscriptionQueue({
       const failedAt = now()
       updateItem(next.id, (item) => ({
         ...item,
-        status: 'failed',
+        status: activeController?.signal.aborted || item.status === 'canceled' ? 'canceled' : 'failed',
         updatedAt: failedAt,
-        errorMessage: createErrorMessage(error)
+        errorMessage:
+          activeController?.signal.aborted || item.status === 'canceled'
+            ? undefined
+            : createErrorMessage(error)
       }))
     } finally {
       processing = false
+      activeItemId = undefined
+      activeController = undefined
       publish()
       void processNext()
     }
@@ -229,14 +251,19 @@ export function createVideoTranscriptionQueue({
 
   function cancel(id: string): VideoAudioTranscriptionQueueSnapshot {
     updateItem(id, (item) =>
-      item.status === 'pending'
+      item.status === 'pending' || item.status === 'running'
         ? {
             ...item,
             status: 'canceled',
-            updatedAt: now()
+            updatedAt: now(),
+            errorMessage: undefined
           }
         : item
     )
+
+    if (activeItemId === id) {
+      activeController?.abort()
+    }
 
     return publish()
   }

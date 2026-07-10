@@ -11,6 +11,7 @@ import type {
 } from '@shared/types'
 import { useEffect, useState, type SyntheticEvent } from 'react'
 import { VideoNotesPanel, type VideoNotesResultTab } from '../notes/VideoNotesPanel'
+import { handleTabListKeyDown } from '../accessibility/tabKeyboardNavigation'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
@@ -211,7 +212,13 @@ export function MemorialPanel({
               type="button"
               role="tab"
               aria-selected={activePanelTab === 'review'}
+              tabIndex={activePanelTab === 'review' ? 0 : -1}
               onClick={() => setActivePanelTab('review')}
+              onKeyDown={(event) =>
+                handleTabListKeyDown(event, 0, 2, (index) =>
+                  setActivePanelTab(index === 0 ? 'review' : 'notes')
+                )
+              }
             >
               批阅
             </button>
@@ -219,7 +226,13 @@ export function MemorialPanel({
               type="button"
               role="tab"
               aria-selected={activePanelTab === 'notes'}
+              tabIndex={activePanelTab === 'notes' ? 0 : -1}
               onClick={() => setActivePanelTab('notes')}
+              onKeyDown={(event) =>
+                handleTabListKeyDown(event, 1, 2, (index) =>
+                  setActivePanelTab(index === 0 ? 'review' : 'notes')
+                )
+              }
             >
               札记
             </button>
@@ -305,9 +318,8 @@ export function MemorialPanel({
                       badge={action}
                       label={label}
                       description={description}
-                    >
-                      {quickSetting}
-                    </AssistantActionButton>
+                    />
+                    {quickSetting}
                   </div>
                 )
               })}
@@ -322,6 +334,8 @@ export function MemorialPanel({
             onGenerate={onGenerateVideoNote}
             onTranscribeAudio={onTranscribeVideoAudio}
             onEnqueueTranscription={onEnqueueVideoAudioTranscription}
+            onCancelQueuedTranscription={onCancelQueuedVideoAudioTranscription}
+            onRetryQueuedTranscription={onRetryQueuedVideoAudioTranscription}
             onGeneratePoster={onGeneratePoster}
             onArchivePosterSummary={onArchivePosterSummary}
             onSave={onSaveVideoNote}

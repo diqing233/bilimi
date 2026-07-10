@@ -32,6 +32,7 @@ import {
   saveVideoNoteArchiveVersion,
   updateVideoNoteArchiveVersion,
   saveAssistantPreferences,
+  saveAssistantPreferencePatch as saveAssistantPreferencePatchToStore,
   deleteVideoNoteArchiveEntry,
   deleteVideoNoteArchiveVersion,
   saveVideoNote,
@@ -78,6 +79,8 @@ import { runStartupDiagnostics } from './startupDiagnostics'
 import { BILIMI_SESSION_PARTITION } from '../../src/shared/constants'
 import { createNotePosterText } from '../../src/shared/videoNoteArchive'
 import { configureAppIdentity } from './appIdentity'
+import { installBrowserSessionPolicy } from './browserSessionPolicy'
+import { createMainRendererCrashRecovery } from './mainRendererCrashRecovery'
 import type {
   AssistantAction,
   AssistantAutomationResult,
@@ -125,6 +128,38 @@ let mainTray: Tray | null = null
 let appQuitting = false
 let enforceFloatingSealWindowBounds: (() => void) | null = null
 let assistantPetState: AssistantPetState = 'idle'
+const mainRendererCrashRecovery = createMainRendererCrashRecovery<BrowserWindow>({
+  recreate: (failedWindow) => {
+    if (!failedWindow.isDestroyed()) {
+      failedWindow.destroy()
+    }
+    mainWindow = createMainWindow()
+  },
+  stop: (failedWindow) => {
+    void dialog
+      .showMessageBox(failedWindow, {
+        type: 'error',
+        title: 'bilimi 无法恢复',
+        message: '主界面连续崩溃，已停止自动重启。',
+        detail: '可以重新启动界面；若问题持续，请退出 bilimi 后重新打开。',
+        buttons: ['重新启动界面', '退出 bilimi'],
+        defaultId: 0,
+        cancelId: 1
+      })
+      .then(({ response }) => {
+        if (response === 0) {
+          mainRendererCrashRecovery.reset()
+          if (!failedWindow.isDestroyed()) {
+            failedWindow.destroy()
+          }
+          mainWindow = createMainWindow()
+          return
+        }
+        appQuitting = true
+        app.quit()
+      })
+  }
+})
 
 function openUrlInRendererTab(win: BrowserWindow, url: string) {
   if (!url || win.isDestroyed()) {
@@ -666,6 +701,15 @@ function createMainWindow() {
     window: win
   })
   installWindowOpenRouting(win)
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error('bilimi main renderer failure', {
+      reason: details.reason,
+      exitCode: details.exitCode
+    })
+    if (!appQuitting) {
+      mainRendererCrashRecovery.handleCrash(win)
+    }
+  })
   win.on('closed', () => {
     if (mainWindow === win) {
       mainWindow = null
@@ -696,7 +740,7 @@ function getVideoTranscriptionQueue() {
       saveItems: (items) => {
         saveVideoAudioTranscriptionQueue(getDesktopStore(), items)
       },
-      transcribe: async (request, progress) => {
+      transcribe: async (request, progress, signal) => {
         const tempDir = await mkdtemp(join(tmpdir(), 'bilimi-transcribe-'))
         const sourceSession = session.fromPartition(BILIMI_SESSION_PARTITION)
         const preferences = loadAssistantPreferences(getDesktopStore())
@@ -706,10 +750,11 @@ function getVideoTranscriptionQueue() {
           session: sourceSession,
           tempDir,
           progress,
+          signal,
           threadLimit: preferences.videoAudioTranscriptionThreadLimit
         })
       },
-      summarizeNote: async (note) => {
+      summarizeNote: async (note, signal) => {
         const preferences = loadAssistantPreferences(getDesktopStore())
         const result = await generateDeepSeekResult({
           config: {
@@ -718,7 +763,8 @@ function getVideoTranscriptionQueue() {
             model: preferences.deepseekModel,
             baseUrl: preferences.deepseekBaseUrl
           },
-          request: { kind: 'note-poster', note }
+          request: { kind: 'note-poster', note },
+          signal
         })
 
         if (result.kind !== 'note-poster') {
@@ -746,6 +792,11 @@ function registerAssistantPreferenceHandlers() {
     sendAssistantPreferencesChanged(saved)
     return saved
   })
+  ipcMain.handle('assistant:save-preference-patch', (_event, patch: Partial<AssistantPreferences>) => {
+    const saved = saveAssistantPreferencePatchToStore(getDesktopStore(), patch)
+    sendAssistantPreferencesChanged(saved)
+    return saved
+  })
   ipcMain.handle('layout:restore-default-size', () => {
     const win = ensureMainWindowForAssistantRuntime()
     const display = screen.getDisplayMatching(win.getBounds())
@@ -757,7 +808,12 @@ function registerAssistantPreferenceHandlers() {
       resolveMediaToolPaths,
       loadDeepSeekApiKeyStatus: () => loadDeepSeekApiKeyStatus(getDesktopStore()),
       testDeepSeekConnection: () =>
-        testDeepSeekConnectionForPreferences(loadAssistantPreferences(getDesktopStore()))
+        testDeepSeekConnectionForPreferences(loadAssistantPreferences(getDesktopStore())),
+      storageProbe: {
+        set: (key, value) => getDesktopStore().set(key as never, value as never),
+        get: (key) => getDesktopStore().get(key as never),
+        delete: (key) => getDesktopStore().delete(key as never)
+      }
     })
   )
   ipcMain.handle('pending-favorite-queue:load', () => loadPendingFavoriteQueue(getDesktopStore()))
@@ -1006,9 +1062,18 @@ function registerAssistantPreferenceHandlers() {
 configureAppIdentity(app)
 
 app.whenReady().then(() => {
+  installBrowserSessionPolicy(session.fromPartition(BILIMI_SESSION_PARTITION))
   registerAssistantPreferenceHandlers()
   createMainWindow()
   createFloatingSealWindow()
+})
+
+app.on('child-process-gone', (_event, details) => {
+  console.error('bilimi child process failure', {
+    type: details.type,
+    reason: details.reason,
+    exitCode: details.exitCode
+  })
 })
 
 app.on('before-quit', () => {

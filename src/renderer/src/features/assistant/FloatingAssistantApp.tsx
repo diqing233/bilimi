@@ -3,6 +3,7 @@ import type {
   AssistantAutomationResult,
   DeepSeekArchiveMode,
   DeepSeekGenerateRequest,
+  DeepSeekKeyStatus,
   DeepSeekGenerateResult,
   DeepSeekTaskKind,
   FavoriteCorrectionRecord,
@@ -61,6 +62,7 @@ import type { AssistantSnapshot } from './assistantRuntimeTypes'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
 import { PET_COLLAPSE_FAREWELL_LINES, pickPetLine } from './petInteractionLines'
 import { publishDeepSeekTask, subscribeDeepSeekTask } from './deepSeekTaskSignal'
+import { handleTabListKeyDown } from '../accessibility/tabKeyboardNavigation'
 
 const CURRENT_TITLE = '等待视频加载'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
@@ -588,6 +590,10 @@ export function FloatingAssistantApp({
     items: []
   })
   const [deepSeekApiKeyDraft, setDeepSeekApiKeyDraft] = useState('')
+  const [deepSeekKeyStatus, setDeepSeekKeyStatus] = useState<DeepSeekKeyStatus>({
+    configured: false,
+    protection: 'unavailable'
+  })
   const [deepSeekStatusMessage, setDeepSeekStatusMessage] = useState('')
   const [settingsDiagnosticReport, setSettingsDiagnosticReport] =
     useState<StartupDiagnosticReport | null>(null)
@@ -874,6 +880,9 @@ export function FloatingAssistantApp({
     void loadSnapshot()
     void loadVideoNoteArchives({ silent: true })
     void loadVideoAudioTranscriptionQueue()
+    void window.bilimiDesktop?.loadDeepSeekApiKeyStatus?.().then((status) => {
+      if (mounted.current && status) setDeepSeekKeyStatus(status)
+    })
 
     return () => {
       void preferenceSaveSchedulerRef.current?.flush()
@@ -1242,6 +1251,7 @@ export function FloatingAssistantApp({
     if (keyDraft) {
       const keyStatus = await window.bilimiDesktop?.saveDeepSeekApiKey?.(keyDraft)
       if (keyStatus) {
+        setDeepSeekKeyStatus(keyStatus)
         nextPreferences = createInitialAssistantPreferences({
           ...preferencesRef.current,
           deepseekApiKeyStored: keyStatus.configured
@@ -1291,6 +1301,7 @@ export function FloatingAssistantApp({
 
     setDeepSeekApiKeyDraft('')
     await window.bilimiDesktop?.clearDeepSeekApiKey?.()
+    setDeepSeekKeyStatus({ configured: false, protection: 'unavailable' })
     await persistPreferences(nextPreferences)
     setDeepSeekStatusMessage('')
     setGlobalFeedback('DeepSeek 设置已重置。')
@@ -2061,14 +2072,20 @@ export function FloatingAssistantApp({
     >
         <div className="floating-assistant-chrome">
           <div className="floating-assistant-tabs" role="tablist" aria-label="助手功能">
-            {WORKSPACE_TABS.map((tab) => (
+            {WORKSPACE_TABS.map((tab, tabIndex) => (
               <button
                 key={tab.id}
                 type="button"
                 role="tab"
                 aria-label={tab.label}
                 aria-selected={activeTab === tab.id}
+                tabIndex={activeTab === tab.id ? 0 : -1}
                 onClick={() => setActiveTab(tab.id)}
+                onKeyDown={(event) =>
+                  handleTabListKeyDown(event, tabIndex, WORKSPACE_TABS.length, (nextIndex) =>
+                    setActiveTab(WORKSPACE_TABS[nextIndex].id)
+                  )
+                }
               >
                 <img className="floating-assistant-tabs__pet" src={tab.icon} alt={tab.iconAlt} />
                 <span>{tab.label}</span>
@@ -2328,15 +2345,26 @@ export function FloatingAssistantApp({
                       </label>
                     </div>
                   ) : null}
-                  <label>
-                    <span>DeepSeek API 密钥</span>
+                  <div className="assistant-settings__field">
+                    <label htmlFor="deepseek-api-key">DeepSeek API 密钥</label>
                     <input
+                      id="deepseek-api-key"
                       type="password"
                       value={deepSeekApiKeyDraft}
                       placeholder={preferences.deepseekApiKeyStored ? '已保存' : ''}
+                      aria-describedby="deepseek-api-key-protection"
                       onChange={(event) => setDeepSeekApiKeyDraft(event.currentTarget.value)}
                     />
-                  </label>
+                    <small id="deepseek-api-key-protection">
+                      {deepSeekKeyStatus.protection === 'encrypted'
+                        ? '系统加密保护'
+                        : deepSeekKeyStatus.protection === 'plaintext'
+                          ? '本地明文保存'
+                          : deepSeekKeyStatus.protection === 'error'
+                            ? '密钥需要重新填写'
+                            : '尚未保存密钥'}
+                    </small>
+                  </div>
                   <label>
                     <span>DeepSeek 模型</span>
                     <input
@@ -2933,7 +2961,6 @@ export function FloatingAssistantApp({
                 onDeleteVersion={deleteVideoNoteArchiveVersion}
                 deepSeekEnabled={preferences.deepseekEnabled}
                 onGeneratePoster={generateNotePoster}
-                onArchivePosterSummary={archiveNotePosterSummary}
                 selectedArchiveId={videoNoteArchiveSelection.archiveId}
                 selectedVersionId={videoNoteArchiveSelection.versionId}
                 activeResultTab={videoNoteArchiveSelection.activeResultTab}

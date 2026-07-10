@@ -89,7 +89,11 @@ describe('video transcription queue', () => {
     await flushMicrotasks()
 
     expect(transcribe).toHaveBeenCalledTimes(1)
-    expect(transcribe).toHaveBeenCalledWith(expect.objectContaining({ title: 'Queue video' }), expect.any(Function))
+    expect(transcribe).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Queue video' }),
+      expect.any(Function),
+      expect.any(AbortSignal)
+    )
     expect(queue.getSnapshot().items.map((item) => item.status)).toEqual(['running', 'pending'])
 
     first.resolve({ transcript: createTranscript('first transcript'), transcriptSource: 'audio' })
@@ -167,7 +171,8 @@ describe('video transcription queue', () => {
       expect.objectContaining<Partial<VideoNote>>({
         id: 'bvid:BV1queue',
         transcript: createTranscript('summary transcript')
-      })
+      }),
+      expect.any(AbortSignal)
     )
     expect(saveArchiveVersion).toHaveBeenCalledWith(
       expect.objectContaining<Partial<VideoNote>>({
@@ -302,7 +307,11 @@ describe('video transcription queue', () => {
     await flushMicrotasks()
     await flushMicrotasks()
 
-    expect(transcribe).toHaveBeenCalledWith(expect.objectContaining({ id: 'bvid:BV1queue' }), expect.any(Function))
+    expect(transcribe).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'bvid:BV1queue' }),
+      expect.any(Function),
+      expect.any(AbortSignal)
+    )
     expect(saveArchiveVersion).toHaveBeenCalledWith(
       expect.objectContaining<Partial<VideoNote>>({
         id: 'bvid:BV1queue',
@@ -383,6 +392,86 @@ describe('video transcription queue', () => {
     await flushMicrotasks()
 
     expect(queue.getSnapshot().items.map((item) => item.status)).toEqual(['failed', 'completed'])
+  })
+
+  it('aborts a running job, marks it canceled, and continues with the next pending item', async () => {
+    const firstStarted = createDeferred<void>()
+    const second = createDeferred<{ transcript: TranscriptSegment[]; transcriptSource: 'audio' }>()
+    const transcribe = vi
+      .fn()
+      .mockImplementationOnce(
+        (_request, _progress, signal: AbortSignal) =>
+          new Promise((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(new DOMException('Canceled', 'AbortError')))
+            firstStarted.resolve()
+          })
+      )
+      .mockReturnValueOnce(second.promise)
+    const queue = createVideoTranscriptionQueue({
+      loadItems: createStore().load,
+      saveItems: vi.fn(),
+      transcribe,
+      saveArchiveVersion: vi.fn(),
+      now: () => '2026-06-25T00:00:00.000Z'
+    })
+
+    queue.enqueue(createRequest())
+    queue.enqueue(
+      createRequest({
+        url: 'https://www.bilibili.com/video/BV2queue',
+        title: 'Second',
+        bvid: 'BV2queue'
+      })
+    )
+    await firstStarted.promise
+
+    queue.cancel('bvid:BV1queue')
+    await flushMicrotasks()
+
+    expect(queue.getSnapshot().items[0]).toMatchObject({ status: 'canceled' })
+    expect(queue.getSnapshot().items[1]).toMatchObject({ status: 'running' })
+    expect(transcribe).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ id: 'bvid:BV1queue' }),
+      expect.any(Function),
+      expect.any(AbortSignal)
+    )
+
+    second.resolve({ transcript: createTranscript('second'), transcriptSource: 'audio' })
+    await flushMicrotasks()
+  })
+
+  it('cancels a running DeepSeek summary without archiving the canceled item', async () => {
+    const summaryStarted = createDeferred<void>()
+    const summarizeNote = vi.fn(
+      (_note: VideoNote, signal: AbortSignal) =>
+        new Promise<string>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new DOMException('Canceled', 'AbortError')))
+          summaryStarted.resolve()
+        })
+    )
+    const saveArchiveVersion = vi.fn()
+    const queue = createVideoTranscriptionQueue({
+      loadItems: createStore().load,
+      saveItems: vi.fn(),
+      transcribe: vi.fn().mockResolvedValue({
+        transcript: createTranscript('summary transcript'),
+        transcriptSource: 'audio'
+      }),
+      summarizeNote,
+      saveArchiveVersion,
+      now: () => '2026-06-25T00:00:00.000Z'
+    })
+
+    queue.enqueue(createRequest({ summarizeWithDeepSeek: true }))
+    await summaryStarted.promise
+
+    queue.cancel('bvid:BV1queue')
+    await flushMicrotasks()
+
+    expect(summarizeNote).toHaveBeenCalledWith(expect.any(Object), expect.any(AbortSignal))
+    expect(queue.getSnapshot().items[0]).toMatchObject({ status: 'canceled' })
+    expect(saveArchiveVersion).not.toHaveBeenCalled()
   })
 
   it('does not duplicate a video that is already pending or running', async () => {

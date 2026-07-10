@@ -13,6 +13,7 @@ import {
   saveDeepSeekApiKey,
   saveVideoNote,
   saveAssistantPreferences,
+  saveAssistantPreferencePatch,
   loadPendingFavoriteQueue,
   savePendingFavoriteQueue,
   clearPendingFavoriteQueue,
@@ -124,6 +125,7 @@ function createFakeStore(
       initial.videoAudioTranscriptionThreadLimit ??
       DEFAULT_ASSISTANT_PREFERENCES.videoAudioTranscriptionThreadLimit,
     deepseekApiKey: initial.deepseekApiKey ?? '',
+    deepseekApiKeyEncrypted: initial.deepseekApiKeyEncrypted ?? '',
     videoNotes: initial.videoNotes ?? [],
     videoNoteArchives: initial.videoNoteArchives ?? [],
     pendingFavoriteQueue: initial.pendingFavoriteQueue ?? [],
@@ -378,7 +380,11 @@ describe('assistant preference store helpers', () => {
       ledgerPromptDismissed: false,
       bilibiliOperationMode: 'page-visual',
       favoriteArchiveMultiMode: 'two',
+      closeBehavior: 'exit-launcher',
+      confirmBeforeExit: true,
       favoriteArchiveStrategy: 'balanced',
+      favoriteArchiveProtectionRecords: [],
+      favoriteArchiveProtectionInitializedAccountMids: [],
       favoriteCorrectionLearningEnabled: false,
       favoriteCorrectionLearningClassificationEnabled: false,
       favoriteCorrectionRecords: [
@@ -646,18 +652,82 @@ describe('assistant preference store helpers', () => {
 
   it('saves and clears the DeepSeek API key status', () => {
     const store = createFakeStore()
+    const safeStorage = {
+      isEncryptionAvailable: () => true,
+      encryptString: (value: string) => Buffer.from(`encrypted:${value}`),
+      decryptString: (value: Buffer) => value.toString().replace('encrypted:', '')
+    }
 
-    expect(loadDeepSeekApiKeyStatus(store)).toEqual({ configured: false })
-    expect(saveDeepSeekApiKey(store, 'sk-test')).toEqual({ configured: true })
-    expect(loadDeepSeekApiKeyStatus(store)).toEqual({ configured: true })
-    expect(clearDeepSeekApiKey(store)).toEqual({ configured: false })
-    expect(loadDeepSeekApiKeyStatus(store)).toEqual({ configured: false })
+    expect(loadDeepSeekApiKeyStatus(store, safeStorage)).toEqual({
+      configured: false,
+      protection: 'unavailable'
+    })
+    expect(saveDeepSeekApiKey(store, 'sk-test', safeStorage)).toEqual({
+      configured: true,
+      protection: 'encrypted'
+    })
+    expect(loadDeepSeekApiKeyStatus(store, safeStorage)).toEqual({
+      configured: true,
+      protection: 'encrypted'
+    })
+    expect(store.snapshot.deepseekApiKey).toBe('')
+    expect(store.snapshot.deepseekApiKeyEncrypted).not.toBe('')
+    expect(clearDeepSeekApiKey(store)).toEqual({
+      configured: false,
+      protection: 'unavailable'
+    })
+    expect(loadDeepSeekApiKeyStatus(store, safeStorage)).toEqual({
+      configured: false,
+      protection: 'unavailable'
+    })
+  })
+
+  it('merges a preference patch against the latest stored preferences', () => {
+    const store = createFakeStore({ deepseekEnabled: false, assistantSidebarWidthPx: 320 })
+    store.set('deepseekEnabled', true)
+
+    const saved = saveAssistantPreferencePatch(store, { assistantSidebarWidthPx: 480 })
+
+    expect(saved.deepseekEnabled).toBe(true)
+    expect(saved.assistantSidebarWidthPx).toBe(480)
   })
 
   it('reflects DeepSeek API key presence in loaded assistant preferences', () => {
     const store = createFakeStore({ deepseekApiKey: 'sk-test' })
 
-    expect(loadAssistantPreferences(store).deepseekApiKeyStored).toBe(true)
+    expect(loadAssistantPreferences(store, {
+      isEncryptionAvailable: () => false,
+      encryptString: (value: string) => Buffer.from(value),
+      decryptString: (value: Buffer) => value.toString()
+    }).deepseekApiKeyStored).toBe(true)
+  })
+
+  it('reflects encrypted-only DeepSeek API key presence after restart', () => {
+    const store = createFakeStore({
+      deepseekApiKey: '',
+      deepseekApiKeyEncrypted: Buffer.from('encrypted:sk-test').toString('base64')
+    })
+
+    expect(loadAssistantPreferences(store, {
+      isEncryptionAvailable: () => true,
+      encryptString: (value: string) => Buffer.from(`encrypted:${value}`),
+      decryptString: (value: Buffer) => value.toString().replace('encrypted:', '')
+    }).deepseekApiKeyStored).toBe(true)
+  })
+
+  it('does not report an invalid encrypted DeepSeek key as usable', () => {
+    const store = createFakeStore({
+      deepseekApiKey: '',
+      deepseekApiKeyEncrypted: 'not-valid-ciphertext'
+    })
+
+    expect(loadAssistantPreferences(store, {
+      isEncryptionAvailable: () => true,
+      encryptString: (value: string) => Buffer.from(value),
+      decryptString: () => {
+        throw new Error('decrypt failed')
+      }
+    })).toMatchObject({ deepseekApiKeyStored: false })
   })
 })
 
@@ -858,7 +928,7 @@ describe('video audio transcription queue store helpers', () => {
     expect(loadVideoAudioTranscriptionQueue(store)).toEqual([])
   })
 
-  it('recovers draft notes from stale failed jobs and resets the queue on load', () => {
+  it('archives recoverable draft notes while retaining the queue on load', () => {
     const draftNote = createStoreNote('bvid:BV1queue')
     const failedItem: VideoAudioTranscriptionQueueItem = {
       id: 'bvid:BV1queue',
@@ -885,8 +955,18 @@ describe('video audio transcription queue store helpers', () => {
 
     saveVideoAudioTranscriptionQueue(store, [failedItem, pendingItem])
 
-    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([])
-    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual([])
+    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([
+      expect.objectContaining({
+        id: failedItem.id,
+        status: 'failed',
+        archiveNoteId: draftNote.id,
+        draftNote: undefined
+      }),
+      pendingItem
+    ])
+    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual(
+      loadVideoAudioTranscriptionQueue(store)
+    )
     expect(store.snapshot.videoNoteArchives).toHaveLength(1)
     expect(store.snapshot.videoNoteArchives[0]).toMatchObject({
       id: 'bvid:BV1queue',
@@ -899,7 +979,7 @@ describe('video audio transcription queue store helpers', () => {
     })
   })
 
-  it('resets stale running, pending, and completed queue items on load', () => {
+  it('restores stale running items to pending while retaining other queue states', () => {
     const runningItem: VideoAudioTranscriptionQueueItem = {
       id: 'bvid:BV1queue',
       url: 'https://www.bilibili.com/video/BV1queue',
@@ -938,7 +1018,45 @@ describe('video audio transcription queue store helpers', () => {
       pendingItem,
       completedItem
     ])
-    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([])
-    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual([])
+    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([
+      expect.objectContaining({
+        id: runningItem.id,
+        status: 'pending',
+        startedAt: undefined
+      }),
+      pendingItem,
+      completedItem
+    ])
+    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual(
+      loadVideoAudioTranscriptionQueue(store)
+    )
+  })
+
+  it('completes a recovered running draft instead of retranscribing it', () => {
+    const draftNote = createStoreNote('bvid:BV1running-draft')
+    const store = createFakeStore()
+
+    saveVideoAudioTranscriptionQueue(store, [
+      {
+        id: 'bvid:BV1running-draft',
+        url: 'https://www.bilibili.com/video/BV1running-draft',
+        title: 'Recovered draft',
+        bvid: 'BV1running-draft',
+        status: 'running',
+        createdAt: '2026-06-25T00:00:00.000Z',
+        updatedAt: '2026-06-25T00:01:00.000Z',
+        progress: { step: 'summarizing-deepseek', message: 'Generating DeepSeek summary.' },
+        draftNote
+      }
+    ])
+
+    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([
+      expect.objectContaining({
+        status: 'completed',
+        archiveNoteId: draftNote.id,
+        draftNote: undefined
+      })
+    ])
+    expect(store.snapshot.videoNoteArchives).toHaveLength(1)
   })
 })

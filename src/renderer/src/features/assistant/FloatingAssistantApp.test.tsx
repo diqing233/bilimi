@@ -40,10 +40,13 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
     showPetAssistantShortcut: true,
     hidePetDuringVideoFullscreen: false,
+    closeBehavior: 'exit-launcher',
+    confirmBeforeExit: true,
     bilibiliOperationMode: 'api-assisted',
     favoriteArchiveMultiMode: 'off',
     favoriteArchiveStrategy: 'aggressive',
     favoriteArchiveProtectionRecords: [],
+    favoriteArchiveProtectionInitializedAccountMids: [],
     favoriteCorrectionLearningEnabled: true,
     favoriteCorrectionLearningClassificationEnabled: true,
     favoriteCorrectionRecords: [],
@@ -261,6 +264,23 @@ describe('FloatingAssistantApp', () => {
   const favoriteLedgerSafetyNote =
     '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
 
+  it('moves assistant tabs with arrow, Home, and End keys using roving tab stops', async () => {
+    installDesktopApi()
+    render(<FloatingAssistantApp />)
+    const tabs = await screen.findAllByRole('tab')
+
+    expect(tabs[0]).toHaveAttribute('tabindex', '0')
+    expect(tabs[1]).toHaveAttribute('tabindex', '-1')
+    tabs[0].focus()
+    fireEvent.keyDown(tabs[0], { key: 'ArrowRight' })
+    expect(tabs[1]).toHaveFocus()
+    expect(tabs[1]).toHaveAttribute('aria-selected', 'true')
+    fireEvent.keyDown(tabs[1], { key: 'End' })
+    expect(tabs.at(-1)).toHaveFocus()
+    fireEvent.keyDown(tabs.at(-1)!, { key: 'Home' })
+    expect(tabs[0]).toHaveFocus()
+  })
+
   beforeEach(() => {
     window.localStorage.clear()
     window.sessionStorage.clear()
@@ -404,6 +424,9 @@ describe('FloatingAssistantApp', () => {
           aid: 901,
           title: '完成后保护的旧藏',
           sourceFolderTitle: '默认收藏夹',
+          sourceFolderIds: [],
+          sourceFolderTitles: ['默认收藏夹'],
+          currentBilimiFolderIds: [],
           targetLedgerId: 'knowledge',
           targetFolderId: '9001',
           targetDisplayName: 'bilimi·知识学习',
@@ -412,7 +435,8 @@ describe('FloatingAssistantApp', () => {
           selected: true,
           originalSuggestedLedgerIds: ['knowledge'],
           currentTargetLedgerIds: ['knowledge'],
-          selectedTargetLedgerIds: ['knowledge']
+          selectedTargetLedgerIds: ['knowledge'],
+          lowConfidence: false
         }
       ],
       skippedSourceFolderTitles: [],
@@ -497,6 +521,9 @@ describe('FloatingAssistantApp', () => {
           aid: 901,
           title: 'AI 工具链教程',
           sourceFolderTitle: '默认收藏夹',
+          sourceFolderIds: [],
+          sourceFolderTitles: ['默认收藏夹'],
+          currentBilimiFolderIds: [],
           targetLedgerId: 'knowledge',
           targetFolderId: '9001',
           targetDisplayName: 'bilimi·学吧你就',
@@ -614,6 +641,9 @@ describe('FloatingAssistantApp', () => {
           aid: 902,
           title: 'AI 工具链教程',
           sourceFolderTitle: '默认收藏夹',
+          sourceFolderIds: [],
+          sourceFolderTitles: ['默认收藏夹'],
+          currentBilimiFolderIds: [],
           targetLedgerId: 'knowledge',
           targetFolderId: '9001',
           targetDisplayName: 'bilimi·学吧你就',
@@ -763,6 +793,9 @@ describe('FloatingAssistantApp', () => {
           aid: 901,
           title: 'AI 工具链教程',
           sourceFolderTitle: '默认收藏夹',
+          sourceFolderIds: [],
+          sourceFolderTitles: ['默认收藏夹'],
+          currentBilimiFolderIds: [],
           targetLedgerId: 'knowledge',
           targetFolderId: '9001',
           targetDisplayName: 'bilimi·学吧你就',
@@ -2990,6 +3023,9 @@ describe('FloatingAssistantApp', () => {
             aid: 101,
             title: '动画分镜教程',
             sourceFolderTitle: '默认收藏夹',
+            sourceFolderIds: [],
+            sourceFolderTitles: ['默认收藏夹'],
+            currentBilimiFolderIds: [],
             targetLedgerId: 'movie-tv',
             targetFolderId: '9001',
             targetDisplayName: 'bilimi·影视动漫',
@@ -3032,6 +3068,9 @@ describe('FloatingAssistantApp', () => {
           aid: 242,
           title: '待分类旧藏',
           sourceFolderTitle: '默认收藏夹',
+          sourceFolderIds: [],
+          sourceFolderTitles: ['默认收藏夹'],
+          currentBilimiFolderIds: [],
           targetLedgerId: 'inbox',
           targetFolderId: '',
           targetDisplayName: 'bilimi·暂存',
@@ -3074,6 +3113,9 @@ describe('FloatingAssistantApp', () => {
             aid: 101,
             title: 'old favorite with two targets',
             sourceFolderTitle: 'Default Favorites',
+            sourceFolderIds: [],
+            sourceFolderTitles: ['Default Favorites'],
+            currentBilimiFolderIds: [],
             targetLedgerId: 'knowledge',
             targetFolderId: '9001',
             targetDisplayName: 'Bilimi Knowledge',
@@ -3148,6 +3190,9 @@ describe('FloatingAssistantApp', () => {
             aid: 903,
             title: '星铁剧情解析',
             sourceFolderTitle: '默认收藏夹',
+            sourceFolderIds: [],
+            sourceFolderTitles: ['默认收藏夹'],
+            currentBilimiFolderIds: [],
             targetLedgerId: 'knowledge',
             targetFolderId: '9001',
             targetDisplayName: 'bilimi·知识学习',

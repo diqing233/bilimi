@@ -63,6 +63,84 @@ function createLongTranscriptNote(): VideoNote {
 }
 
 describe('DeepSeek main service', () => {
+  it('aborts a request when the caller cancels it', async () => {
+    const controller = new AbortController()
+    const fetchImpl = vi.fn((_url: string | URL | Request, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+      })
+    ) as typeof fetch
+    const request = generateDeepSeekResult({
+      config: baseConfig,
+      request: { kind: 'pet-chat', messages: [{ role: 'user', content: 'hello' }] },
+      fetchImpl,
+      signal: controller.signal
+    })
+
+    controller.abort()
+
+    await expect(request).rejects.toMatchObject({
+      code: 'network-error',
+      message: 'DeepSeek request canceled.'
+    })
+  })
+
+  it('keeps timeout and caller cancellation active while reading the response body', async () => {
+    vi.useFakeTimers()
+    const fetchImpl = vi.fn((_url: string | URL | Request, init?: RequestInit) =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: vi.fn(
+          () =>
+            new Promise<string>((_resolve, reject) => {
+              init?.signal?.addEventListener('abort', () =>
+                reject(new DOMException('Aborted', 'AbortError'))
+              )
+            })
+        )
+      } as unknown as Response)
+    ) as typeof fetch
+    const assertion = expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: { kind: 'pet-chat', messages: [{ role: 'user', content: 'hello' }] },
+        fetchImpl,
+        timeoutMs: 50
+      })
+    ).rejects.toMatchObject({
+      code: 'network-error',
+      message: 'DeepSeek request timed out.'
+    })
+
+    await vi.advanceTimersByTimeAsync(50)
+
+    await assertion
+    vi.useRealTimers()
+  })
+
+  it('aborts a request that exceeds the configured timeout', async () => {
+    vi.useFakeTimers()
+    const fetchImpl = vi.fn((_url: string | URL | Request, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+      })
+    ) as typeof fetch
+    const assertion = expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: { kind: 'pet-chat', messages: [{ role: 'user', content: 'hello' }] },
+        fetchImpl,
+        timeoutMs: 50
+      })
+    ).rejects.toMatchObject({ code: 'network-error', message: 'DeepSeek request timed out.' })
+
+    await vi.advanceTimersByTimeAsync(50)
+    await assertion
+    vi.useRealTimers()
+  })
+
   it('rejects missing keys as not configured', async () => {
     await expect(
       generateDeepSeekResult({

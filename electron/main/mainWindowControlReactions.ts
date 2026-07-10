@@ -15,7 +15,7 @@ type MainWindowControlTarget = {
   on(eventName: 'restore', handler: (...args: unknown[]) => void): unknown
   on(eventName: 'maximize', handler: (...args: unknown[]) => void): unknown
   on(eventName: 'unmaximize', handler: (...args: unknown[]) => void): unknown
-  on(eventName: 'close', handler: (...args: unknown[]) => void): unknown
+  on(eventName: 'close', handler: (event: { preventDefault: () => void }) => void): unknown
 }
 
 type MainWindowControlReactionsOptions = {
@@ -144,7 +144,7 @@ export function installMainWindowControlReactions({
     })
   })
 
-  window.on('close', (event: { preventDefault?: () => void } = {}) => {
+  window.on('close', (event) => {
     if (allowNativeClose) {
       return
     }
@@ -152,7 +152,7 @@ export function installMainWindowControlReactions({
     const action = resolveMainWindowCloseAction({ preferences: getPreferences() })
 
     if (action.kind === 'confirm-before-exit') {
-      event.preventDefault?.()
+      event.preventDefault()
       void Promise.resolve(showCloseConfirmation()).then((confirmation) => {
         const confirmedAction = resolveMainWindowCloseAction({
           preferences: getPreferences(),

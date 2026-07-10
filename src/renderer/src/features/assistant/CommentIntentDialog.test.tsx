@@ -47,4 +47,23 @@ describe('CommentIntentDialog', () => {
 
     expect(onCancel).toHaveBeenCalledOnce()
   })
+
+  it('traps focus, closes with Escape, and restores the trigger focus', () => {
+    const trigger = document.createElement('button')
+    document.body.append(trigger)
+    trigger.focus()
+    const onCancel = vi.fn()
+    const { unmount } = render(
+      <CommentIntentDialog busy={false} error="" onSubmit={vi.fn()} onCancel={onCancel} />
+    )
+
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(screen.getByLabelText('评论方向')).toHaveFocus()
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(onCancel).toHaveBeenCalledOnce()
+    unmount()
+    expect(trigger).toHaveFocus()
+    trigger.remove()
+  })
 })

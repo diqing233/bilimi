@@ -1,8 +1,37 @@
-import { describe, expect, it, vi } from 'vitest'
+﻿import { describe, expect, it, vi } from 'vitest'
 import { runStartupDiagnostics } from './startupDiagnostics'
 
 describe('runStartupDiagnostics', () => {
+  it('probes storage by writing, reading, and deleting a temporary value', async () => {
+    const values = new Map<string, unknown>()
+    const storageProbe = {
+      set: vi.fn((key: string, value: unknown) => values.set(key, value)),
+      get: vi.fn((key: string) => values.get(key)),
+      delete: vi.fn((key: string) => values.delete(key))
+    }
+
+    const report = await runStartupDiagnostics({
+      resolveMediaToolPaths: () => ({
+        ytdlpPath: 'tools/yt-dlp.exe',
+        ffmpegPath: 'tools/ffmpeg.exe',
+        whisperCliPath: 'tools/whisper-cli.exe',
+        whisperModelPath: 'tools/ggml-small.bin'
+      }),
+      loadDeepSeekApiKeyStatus: () => ({ configured: false, protection: 'unavailable' }),
+      testDeepSeekConnection: vi.fn(),
+      fetch: vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+      platform: 'linux',
+      storageProbe
+    })
+
+    expect(report.items).toContainEqual(expect.objectContaining({ id: 'storage', status: 'ok' }))
+    expect(storageProbe.set).toHaveBeenCalledOnce()
+    expect(storageProbe.get).toHaveBeenCalledOnce()
+    expect(storageProbe.delete).toHaveBeenCalledOnce()
+  })
+
   it('reports core startup checks with DeepSeek as optional when it is not configured', async () => {
+    let storedProbeValue: unknown
     const queryWindowsFirewallRules = vi.fn().mockResolvedValue([
       {
         action: 'Allow',
@@ -21,8 +50,17 @@ describe('runStartupDiagnostics', () => {
         whisperCliPath: 'tools/whisper-cli.exe',
         whisperModelPath: 'tools/ggml-small.bin'
       })),
-      loadDeepSeekApiKeyStatus: vi.fn(() => ({ configured: false })),
+      loadDeepSeekApiKeyStatus: vi.fn(() => ({ configured: false, protection: 'unavailable' as const })),
       testDeepSeekConnection: vi.fn(),
+      storageProbe: {
+        set: vi.fn((_key, value) => {
+          storedProbeValue = value
+        }),
+        get: vi.fn(() => storedProbeValue),
+        delete: vi.fn(() => {
+          storedProbeValue = undefined
+        })
+      },
       platform: 'win32',
       execPath: 'C:\\Program Files\\bilimi\\bilimi.exe',
       queryWindowsFirewallRules
@@ -53,8 +91,13 @@ describe('runStartupDiagnostics', () => {
         whisperCliPath: 'tools/whisper-cli.exe',
         whisperModelPath: 'tools/ggml-small.bin'
       })),
-      loadDeepSeekApiKeyStatus: vi.fn(() => ({ configured: false })),
+      loadDeepSeekApiKeyStatus: vi.fn(() => ({ configured: false, protection: 'unavailable' as const })),
       testDeepSeekConnection: vi.fn(),
+      storageProbe: {
+        set: vi.fn(),
+        get: vi.fn(() => 'bilimi-storage-probe'),
+        delete: vi.fn()
+      },
       platform: 'win32',
       execPath: 'C:\\Program Files\\bilimi\\bilimi.exe',
       queryWindowsFirewallRules: vi.fn().mockResolvedValue([])
@@ -80,7 +123,7 @@ describe('runStartupDiagnostics', () => {
         whisperCliPath: 'tools/whisper-cli.exe',
         whisperModelPath: 'tools/ggml-small.bin'
       })),
-      loadDeepSeekApiKeyStatus: vi.fn(() => ({ configured: false })),
+      loadDeepSeekApiKeyStatus: vi.fn(() => ({ configured: false, protection: 'unavailable' as const })),
       testDeepSeekConnection: vi.fn(),
       platform: 'win32',
       execPath: 'C:\\Program Files\\bilimi\\bilimi.exe',
@@ -108,7 +151,7 @@ describe('runStartupDiagnostics', () => {
         whisperCliPath: 'tools/whisper-cli.exe',
         whisperModelPath: 'tools/ggml-small.bin'
       })),
-      loadDeepSeekApiKeyStatus: vi.fn(() => ({ configured: false })),
+      loadDeepSeekApiKeyStatus: vi.fn(() => ({ configured: false, protection: 'unavailable' as const })),
       testDeepSeekConnection: vi.fn(),
       platform: 'win32',
       execPath: 'D:\\bilimi\\bilimi.exe',
@@ -150,7 +193,7 @@ describe('runStartupDiagnostics', () => {
         whisperCliPath: 'tools/whisper-cli.exe',
         whisperModelPath: 'tools/ggml-small.bin'
       })),
-      loadDeepSeekApiKeyStatus: vi.fn(() => ({ configured: false })),
+      loadDeepSeekApiKeyStatus: vi.fn(() => ({ configured: false, protection: 'unavailable' as const })),
       testDeepSeekConnection: vi.fn(),
       platform: 'win32',
       execPath: 'C:\\Program Files\\bilimi\\resources\\app.asar.unpacked\\helper.exe',
@@ -179,7 +222,7 @@ describe('runStartupDiagnostics', () => {
         whisperCliPath: 'tools/whisper-cli.exe',
         whisperModelPath: 'tools/ggml-small.bin'
       })),
-      loadDeepSeekApiKeyStatus: vi.fn(() => ({ configured: false })),
+      loadDeepSeekApiKeyStatus: vi.fn(() => ({ configured: false, protection: 'unavailable' as const })),
       testDeepSeekConnection: vi.fn(),
       platform: 'win32',
       execPath: 'C:\\Users\\diqing\\bilimi\\node_modules\\electron\\dist\\electron.exe',

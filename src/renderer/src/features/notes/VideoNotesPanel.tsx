@@ -8,6 +8,7 @@ import type {
   VideoNote,
   VideoNoteArchiveEntry
 } from '@shared/types'
+import { handleTabListKeyDown } from '../accessibility/tabKeyboardNavigation'
 import {
   createNotePosterCopyParts,
   createNotePosterSummaryText,
@@ -36,6 +37,8 @@ type VideoNotesPanelProps = {
   onEnqueueTranscription?: (
     options?: VideoNotesGenerateOptions
   ) => Promise<VideoAudioTranscriptionQueueSnapshot | null>
+  onCancelQueuedTranscription?: (id: string) => void
+  onRetryQueuedTranscription?: (id: string) => void
   onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
   onArchivePosterSummary?: (note: VideoNote, poster: NotePosterSummary) => Promise<void>
   onOpenArchive?: () => void
@@ -207,6 +210,8 @@ export function VideoNotesPanel({
   onGenerate,
   onTranscribeAudio,
   onEnqueueTranscription,
+  onCancelQueuedTranscription,
+  onRetryQueuedTranscription,
   onGeneratePoster,
   onArchivePosterSummary,
   onOpenArchive,
@@ -248,8 +253,15 @@ export function VideoNotesPanel({
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null,
     [transcriptionQueue]
   )
-  const defaultVisibleQueueItem = activeQueueItem ?? latestCompletedQueueItem
   const queueItems = useMemo(() => transcriptionQueue?.items ?? [], [transcriptionQueue])
+  const latestActionableQueueItem = useMemo(
+    () =>
+      queueItems
+        .filter((item) => item.status === 'pending' || item.status === 'failed' || item.status === 'canceled')
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null,
+    [queueItems]
+  )
+  const defaultVisibleQueueItem = activeQueueItem ?? latestActionableQueueItem ?? latestCompletedQueueItem
   const visibleQueueItem =
     queueItems.find((item) => item.id === selectedQueueItemId) ?? defaultVisibleQueueItem
   const archivedQueueVersion = useMemo(
@@ -490,21 +502,40 @@ export function VideoNotesPanel({
       <section className="video-notes__queue" aria-label="转写状态">
         <div className="video-notes__panel-header">
           <strong>{statusLabel}：{visibleQueueItem.title}</strong>
-          <label className="video-notes__queue-selector" title={queueDetailsTitle}>
-            <span title={queueDetailsTitle}>排队中：{queuedItemCount} 个</span>
-            <select
-              aria-label="切换队列视频"
-              title={queueDetailsTitle}
-              value={visibleQueueItem.id}
-              onChange={(event) => setSelectedQueueItemId(event.target.value)}
-            >
-              {queueItems.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {createQueueItemOptionLabel(item)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="video-notes__queue-actions">
+            {visibleQueueItem.status === 'pending' || visibleQueueItem.status === 'running' ? (
+              <button
+                type="button"
+                onClick={() => onCancelQueuedTranscription?.(visibleQueueItem.id)}
+                disabled={!onCancelQueuedTranscription}
+              >
+                取消转写
+              </button>
+            ) : visibleQueueItem.status === 'failed' || visibleQueueItem.status === 'canceled' ? (
+              <button
+                type="button"
+                onClick={() => onRetryQueuedTranscription?.(visibleQueueItem.id)}
+                disabled={!onRetryQueuedTranscription}
+              >
+                重试转写
+              </button>
+            ) : null}
+            <label className="video-notes__queue-selector" title={queueDetailsTitle}>
+              <span title={queueDetailsTitle}>排队中：{queuedItemCount} 个</span>
+              <select
+                aria-label="切换队列视频"
+                title={queueDetailsTitle}
+                value={visibleQueueItem.id}
+                onChange={(event) => setSelectedQueueItemId(event.target.value)}
+              >
+                {queueItems.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {createQueueItemOptionLabel(item)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
         {renderQueueItemProgress(visibleQueueItem)}
       </section>
@@ -514,7 +545,7 @@ export function VideoNotesPanel({
   function renderResultTabs(): React.JSX.Element {
     return (
       <div className="video-notes__result-tabs" role="tablist" aria-label="札记结果">
-        {resultTabs.map((tab) => {
+        {resultTabs.map((tab, tabIndex) => {
           const tooltip = `${tab.label}：${tab.description}`
 
           return (
@@ -523,10 +554,16 @@ export function VideoNotesPanel({
               type="button"
               role="tab"
               aria-selected={activeResultTab === tab.id}
+              tabIndex={activeResultTab === tab.id ? 0 : -1}
               aria-controls={'video-notes-' + tab.id}
               id={'video-notes-tab-' + tab.id}
               title={tooltip}
               onClick={() => handleResultTabClick(tab.id)}
+              onKeyDown={(event) =>
+                handleTabListKeyDown(event, tabIndex, resultTabs.length, (nextIndex) =>
+                  handleResultTabClick(resultTabs[nextIndex].id)
+                )
+              }
             >
               <strong>{tab.label}</strong>
               <small>{tab.description}</small>

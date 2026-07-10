@@ -555,6 +555,12 @@ body[data-floating-window="true"],
   cursor: not-allowed;
   opacity: 0.68;
 }
+.browser-surface-host {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
 .browser-surface {
   position: absolute;
   inset: 0;
@@ -573,6 +579,17 @@ body[data-floating-window="true"],
   visibility: hidden;
   opacity: 0;
   pointer-events: none;
+}
+.browser-surface__error {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  background: var(--porcelain-surface);
+  color: var(--porcelain-text);
 }
 .assistant-overlay {
   position: absolute;
@@ -1284,8 +1301,11 @@ body[data-floating-window="true"],
 @media (prefers-reduced-motion: reduce) {
   .layered-pet,
   .layered-pet__layer,
-  .layered-pet__layer--effect {
+  .layered-pet__layer--effect,
+  .floating-assistant-global-status__dot,
+  .favorite-ledger-panel__deepseek-archive-progress-track {
     animation: none;
+    transition: none;
   }
 }
 .floating-menu-shell {

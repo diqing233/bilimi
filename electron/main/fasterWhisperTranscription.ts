@@ -29,6 +29,7 @@ type TranscribeInput = {
   pythonCandidates?: PythonCandidate[]
   scriptPath?: string
   runProcess?: RunProcess
+  signal?: AbortSignal
 }
 
 type PythonCandidate = {
@@ -141,17 +142,22 @@ export async function transcribeAudioSegmentWithFasterWhisper({
     ? [{ command: pythonCommand, argsPrefix: [] }]
     : createPythonCandidates(),
   scriptPath = defaultScriptPath(),
-  runProcess = defaultRunProcess
+  runProcess = defaultRunProcess,
+  signal
 }: TranscribeInput): Promise<TranscriptSegment[]> {
   let result: Awaited<ReturnType<RunProcess>> | null = null
   let lastStartError: unknown = null
 
   for (const candidate of pythonCandidates) {
     try {
-      result = await runProcess(candidate.command, [
-        ...candidate.argsPrefix,
-        ...buildFasterWhisperArgs({ scriptPath, audioPath: path, model })
-      ])
+      result = await runProcess(
+        candidate.command,
+        [
+          ...candidate.argsPrefix,
+          ...buildFasterWhisperArgs({ scriptPath, audioPath: path, model })
+        ],
+        { signal, timeoutMs: 30 * 60_000 }
+      )
       break
     } catch (error) {
       lastStartError = error

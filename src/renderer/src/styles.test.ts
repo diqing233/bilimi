@@ -789,5 +789,9 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.video-notes button:disabled { cursor: not-allowed;')
     expectStyleSnippet('.assistant-settings__diagnostics-head button:disabled, .assistant-settings > header button:disabled { cursor: not-allowed;')
   })
+
+  it('disables nonessential status and progress motion when reduced motion is requested', () => {
+    expectStyleSnippet('@media (prefers-reduced-motion: reduce) { .layered-pet, .layered-pet__layer, .layered-pet__layer--effect, .floating-assistant-global-status__dot, .favorite-ledger-panel__deepseek-archive-progress-track { animation: none; transition: none;')
+  })
 })
 

@@ -20,6 +20,13 @@ type AssistantSidebarProps = {
 
 export { ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX, clampAssistantSidebarWidthPx }
 
+function getSidebarWidthBounds(windowWidth: number): { min: number; max: number } {
+  return {
+    min: clampAssistantSidebarWidthPx(Number.NEGATIVE_INFINITY, windowWidth),
+    max: clampAssistantSidebarWidthPx(Number.POSITIVE_INFINITY, windowWidth)
+  }
+}
+
 type SidebarDragState = {
   startClientX: number
   startWidth: number
@@ -38,16 +45,11 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
   latestSidebarWidthPx.current = sidebarWidthPx
 
   async function persistSidebarWidth(widthPx: number | null) {
-    const currentPreferences = await window.bilimiDesktop?.loadPreferences?.()
-
-    if (!currentPreferences || !window.bilimiDesktop?.savePreferences) {
+    if (!window.bilimiDesktop?.savePreferencePatch) {
       return
     }
 
-    await window.bilimiDesktop.savePreferences({
-      ...currentPreferences,
-      assistantSidebarWidthPx: widthPx
-    })
+    await window.bilimiDesktop.savePreferencePatch({ assistantSidebarWidthPx: widthPx })
   }
 
   function collapseSidebar() {
@@ -76,10 +78,14 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
     let disposed = false
 
     async function loadWidthPreference() {
-      const preferences = await window.bilimiDesktop?.loadPreferences?.()
+      try {
+        const preferences = await window.bilimiDesktop?.loadPreferences?.()
 
-      if (!disposed && preferences?.assistantSidebarWidthPx) {
-        setSidebarWidthPx(clampAssistantSidebarWidthPx(preferences.assistantSidebarWidthPx, window.innerWidth))
+        if (!disposed && preferences?.assistantSidebarWidthPx) {
+          setSidebarWidthPx(clampAssistantSidebarWidthPx(preferences.assistantSidebarWidthPx, window.innerWidth))
+        }
+      } catch {
+        // App owns the retryable startup error; the sidebar must not leak a rejection.
       }
     }
 
@@ -197,12 +203,37 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
     setResizing(true)
   }
 
+  function resizeSidebarWithKeyboard(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const bounds = getSidebarWidthBounds(window.innerWidth)
+    const currentWidth =
+      latestSidebarWidthPx.current ??
+      clampAssistantSidebarWidthPx(getAssistantSidebarDefaultWidthPx(window.innerWidth), window.innerWidth)
+    const nextWidth =
+      event.key === 'Home'
+        ? bounds.min
+        : event.key === 'End'
+          ? bounds.max
+          : clampAssistantSidebarWidthPx(
+              currentWidth + (event.key === 'ArrowRight' ? 16 : -16),
+              window.innerWidth
+            )
+    latestSidebarWidthPx.current = nextWidth
+    setSidebarWidthPx(nextWidth)
+    void persistSidebarWidth(nextWidth)
+  }
+
   const sidebarStyle =
     sidebarWidthPx === null
       ? undefined
       : ({
           '--assistant-sidebar-width': `${sidebarWidthPx}px`
         } as CSSProperties)
+  const sidebarBounds = getSidebarWidthBounds(window.innerWidth)
+  const accessibleSidebarWidth =
+    sidebarWidthPx ??
+    clampAssistantSidebarWidthPx(getAssistantSidebarDefaultWidthPx(window.innerWidth), window.innerWidth)
 
   return (
     <aside
@@ -214,9 +245,14 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
       <div
         className="assistant-sidebar__resize-handle"
         role="separator"
+        tabIndex={0}
         aria-label="调整侧边栏宽度"
         aria-orientation="vertical"
+        aria-valuemin={sidebarBounds.min}
+        aria-valuemax={sidebarBounds.max}
+        aria-valuenow={accessibleSidebarWidth}
         onPointerDown={beginSidebarResize}
+        onKeyDown={resizeSidebarWithKeyboard}
         onDoubleClick={() => {
           dragState.current = null
           setSidebarWidthPx(null)

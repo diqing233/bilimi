@@ -216,7 +216,7 @@ describe('MemorialPanel', () => {
     expect(screen.getByText('UP').nextElementSibling).toHaveTextContent('李老师讲AI')
   })
 
-  it('embeds coin and comment settings inside their action buttons without firing actions', () => {
+  it('places coin and comment settings beside their action buttons without nesting controls', () => {
     const onPreferenceChange = vi.fn()
     const onAction = vi.fn()
 
@@ -242,8 +242,8 @@ describe('MemorialPanel', () => {
     expect(screen.queryByText('评论发送方式')).not.toBeInTheDocument()
     expect(screen.getByLabelText('投币厚赏参数')).toHaveValue('1')
     expect(screen.getByLabelText('拟奏短评参数')).toHaveValue('random')
-    expect(screen.getByTestId('review-action-coin')).toContainElement(screen.getByLabelText('投币厚赏参数'))
-    expect(screen.getByTestId('review-action-comment')).toContainElement(
+    expect(screen.getByTestId('review-action-coin')).not.toContainElement(screen.getByLabelText('投币厚赏参数'))
+    expect(screen.getByTestId('review-action-comment')).not.toContainElement(
       screen.getByLabelText('拟奏短评参数')
     )
 
