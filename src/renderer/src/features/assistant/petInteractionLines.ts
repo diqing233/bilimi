@@ -10,6 +10,12 @@ export const PET_WELCOME_HOME_LINES = [
   '小咪在这里，欢迎回家。'
 ]
 
+export const PET_TEASE_CLICK_LINES = [
+  '主人，不要一直捉弄小咪啦……小咪会害羞的。',
+  '主人又来捉弄小咪，小咪真的会害羞的。',
+  '再捉弄小咪的话，小咪要躲进袖子里一下啦。'
+]
+
 export const PET_COLLAPSE_FAREWELL_LINES = [
   '主人先专心享受，有需要随时呼唤小咪'
 ]

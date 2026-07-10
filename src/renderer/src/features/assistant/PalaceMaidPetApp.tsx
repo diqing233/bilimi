@@ -16,12 +16,19 @@ import {
 } from './petState'
 import { createInitialAssistantPreferences } from '../state/assistantState'
 import type { AssistantPreferences, DeepSeekChatMessage } from '@shared/types'
-import { PET_IDLE_GREETINGS, PET_WELCOME_HOME_LINES, pickPetLine } from './petInteractionLines'
+import {
+  PET_IDLE_GREETINGS,
+  PET_TEASE_CLICK_LINES,
+  PET_WELCOME_HOME_LINES,
+  pickPetLine
+} from './petInteractionLines'
 import { publishDeepSeekTask } from './deepSeekTaskSignal'
 
 const DRAG_THRESHOLD_PX = 5
 const LONG_PRESS_SUPPRESSION_MS = 350
 const IDLE_GREETING_DELAY_MS = 45_000
+const PET_TEASE_CLICK_WINDOW_MS = 1_500
+const PET_TEASE_CLICK_THRESHOLD = 3
 const PET_SIZE_STEP_PX = 16
 const PET_SIZE_MIN_PX = 100
 const PET_SIZE_MAX_PX = 164
@@ -58,6 +65,7 @@ export function PalaceMaidPetApp() {
   const resizeControlsHideTimeout = useRef<number | null>(null)
   const hoverShortcutsHideTimeout = useRef<number | null>(null)
   const interactiveHoverCount = useRef(0)
+  const petClickStreak = useRef({ count: 0, lastAt: 0 })
   const suppressNextClick = useRef(false)
   const chatTailRef = useRef<HTMLSpanElement | null>(null)
   const [pressed, setPressed] = useState(false)
@@ -352,10 +360,26 @@ export function PalaceMaidPetApp() {
     )
   }
 
+  function getRestorePetHint(): AssistantPetHint {
+    const now = Date.now()
+    const withinTeaseWindow = now - petClickStreak.current.lastAt <= PET_TEASE_CLICK_WINDOW_MS
+    const nextCount = withinTeaseWindow ? petClickStreak.current.count + 1 : 1
+
+    petClickStreak.current = { count: nextCount, lastAt: now }
+
+    if (nextCount >= PET_TEASE_CLICK_THRESHOLD) {
+      petClickStreak.current = { count: 0, lastAt: now }
+      return { tone: 'surprised', message: pickPetLine(PET_TEASE_CLICK_LINES) }
+    }
+
+    return { tone: 'shy', message: pickPetLine(PET_WELCOME_HOME_LINES) }
+  }
+
   function restoreMainWindow() {
     setClosePromptVisible(false)
     setClickReactionSignal((signal) => signal + 1)
-    showLocalPetHint('shy', pickPetLine(PET_WELCOME_HOME_LINES))
+    const hint = getRestorePetHint()
+    showLocalPetHint(hint.tone, hint.message)
     void window.bilimiDesktop?.restoreMainWindowFromPet?.()
   }
 

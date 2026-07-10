@@ -134,6 +134,29 @@ describe('PalaceMaidPetApp', () => {
     )
   })
 
+  it('gets bashful when the owner clicks 小咪 repeatedly', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-10T10:00:00+08:00'))
+    const api = installDesktopApi()
+
+    render(<PalaceMaidPetApp />)
+
+    const pet = screen.getByRole('button', { name: '打开 bilimi，小咪在这里' })
+    fireEvent.click(pet)
+    vi.setSystemTime(new Date('2026-07-10T10:00:00.400+08:00'))
+    fireEvent.click(pet)
+    vi.setSystemTime(new Date('2026-07-10T10:00:00.800+08:00'))
+    fireEvent.click(pet)
+
+    expect(api.restoreMainWindowFromPet).toHaveBeenCalledTimes(3)
+    expect(screen.getByText(/捉弄小咪|小咪会害羞/)).toBeInTheDocument()
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'surprised')
+    expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute(
+      'data-click-reaction-signal',
+      '3'
+    )
+  })
+
   it('shows a close prompt on right click and closes after the prompt is clicked', () => {
     const api = installDesktopApi()
 
