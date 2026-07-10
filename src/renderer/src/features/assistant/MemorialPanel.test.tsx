@@ -216,7 +216,7 @@ describe('MemorialPanel', () => {
     expect(screen.getByText('UP').nextElementSibling).toHaveTextContent('李老师讲AI')
   })
 
-  it('embeds coin and comment settings inside their action buttons without firing actions', () => {
+  it('attaches narrow coin and comment menus to their action buttons without firing actions', () => {
     const onPreferenceChange = vi.fn()
     const onAction = vi.fn()
 
@@ -242,9 +242,27 @@ describe('MemorialPanel', () => {
     expect(screen.queryByText('评论发送方式')).not.toBeInTheDocument()
     expect(screen.getByLabelText('投币厚赏参数')).toHaveValue('1')
     expect(screen.getByLabelText('拟奏短评参数')).toHaveValue('random')
-    expect(screen.getByTestId('review-action-coin')).toContainElement(screen.getByLabelText('投币厚赏参数'))
-    expect(screen.getByTestId('review-action-comment')).toContainElement(
+    expect(screen.getByLabelText('投币厚赏参数')).toHaveDisplayValue('一枚')
+    expect(screen.getByLabelText('拟奏短评参数')).toHaveDisplayValue('随机')
+    expect(screen.getByLabelText('投币厚赏参数')).toHaveAttribute(
+      'title',
+      '默认投 1 枚硬币（再点一次可补投 1 枚）'
+    )
+    expect(screen.getByLabelText('拟奏短评参数')).toHaveAttribute('title', '随机生成一条并直接发送')
+    expect(screen.getByTestId('review-action-coin')).not.toContainElement(
+      screen.getByLabelText('投币厚赏参数')
+    )
+    expect(screen.getByTestId('review-action-comment')).not.toContainElement(
       screen.getByLabelText('拟奏短评参数')
+    )
+    expect(screen.getByTestId('review-action-coin').parentElement).toBe(
+      screen.getByLabelText('投币厚赏参数').parentElement?.parentElement
+    )
+    expect(screen.getByTestId('review-action-comment').parentElement).toBe(
+      screen.getByLabelText('拟奏短评参数').parentElement?.parentElement
+    )
+    expect(screen.getByTestId('review-action-coin').parentElement).toHaveClass(
+      'memorial-panel__action-card--with-setting'
     )
 
     fireEvent.change(screen.getByLabelText('投币厚赏参数'), { target: { value: '2' } })

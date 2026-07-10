@@ -818,8 +818,8 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByRole('button', { name: /赐.*投币厚赏/ })).toBeInTheDocument()
     expect(screen.queryByText('投币数量')).not.toBeInTheDocument()
     expect(screen.queryByText('评论发送方式')).not.toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: '投币厚赏参数' })).toHaveDisplayValue('1 枚')
-    expect(screen.getByRole('combobox', { name: '拟奏短评参数' })).toHaveDisplayValue('随机直发')
+    expect(screen.getByRole('combobox', { name: '投币厚赏参数' })).toHaveDisplayValue('一枚')
+    expect(screen.getByRole('combobox', { name: '拟奏短评参数' })).toHaveDisplayValue('随机')
   })
 
   it('summarizes every DeepSeek feature in the global status tooltip', async () => {
