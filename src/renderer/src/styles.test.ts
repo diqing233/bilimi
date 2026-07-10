@@ -431,22 +431,26 @@ describe('renderer porcelain theme styles', () => {
       '.memorial-panel__action-card--with-setting .assistant-action-button { border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join) var(--porcelain-radius-join) var(--porcelain-radius-control);'
     )
     expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting .assistant-action-button { border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join) var(--porcelain-radius-join) var(--porcelain-radius-control); border-right: 0;'
+    )
+    expectStyleSnippet(
       '.memorial-panel__action-setting { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; justify-self: stretch; min-width: 0; width: 56px; max-width: 56px;'
     )
     expectStyleSnippet(
       '.memorial-panel__action-setting select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 62px;'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-setting select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 62px; border: 1px solid rgba(31, 99, 181, 0.22); border-left: 0;'
+      '.memorial-panel__action-setting select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 62px; border: 1px solid rgba(31, 99, 181, 0.22);'
     )
     expect(normalizedStyles).toContain(
-      '.memorial-panel__action-setting select {\n  box-sizing: border-box;\n  width: 100%;\n  max-width: 100%;\n  min-width: 0;\n  min-height: 62px;\n  border: 1px solid rgba(31, 99, 181, 0.22);\n  border-left: 0;\n  border-radius: var(--porcelain-radius-join) var(--porcelain-radius-control)\n    var(--porcelain-radius-control) var(--porcelain-radius-join);\n  background: linear-gradient('
+      '.memorial-panel__action-setting select {\n  box-sizing: border-box;\n  width: 100%;\n  max-width: 100%;\n  min-width: 0;\n  min-height: 62px;\n  border: 1px solid rgba(31, 99, 181, 0.22);\n  border-radius: var(--porcelain-radius-join) var(--porcelain-radius-control)\n    var(--porcelain-radius-control) var(--porcelain-radius-join);\n  background: linear-gradient('
     )
     expectStyleSnippet(
       '.memorial-panel__action-setting select:hover, .memorial-panel__action-setting select:focus-visible { border-color: rgba(31, 99, 181, 0.5); background: linear-gradient('
     )
-    expect(normalizedStyles).toContain('rgba(247, 251, 255, 0.98)')
-    expect(normalizedStyles).toContain('rgba(247, 251, 255, 1)')
+    expect(normalizedStyles).toContain('rgba(220, 238, 255, 0.98)')
+    expect(normalizedStyles).toContain('rgba(220, 238, 255, 1)')
+    expect(normalizedStyles).toContain('padding: 0 15px 0 7px;\n  text-align: left;\n  text-align-last: left;')
     expect(normalizedStyles).toContain('grid-template-columns: 58px minmax(0, 1fr);')
     expectStyleSnippet('grid-template-areas: "mark label" "mark desc";')
     expect(normalizedStyles).toContain(
