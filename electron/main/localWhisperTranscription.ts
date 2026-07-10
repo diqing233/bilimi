@@ -36,6 +36,7 @@ type TranscribeInput = {
   threadLimit?: VideoAudioTranscriptionThreadLimit
   runProcess?: RunProcess
   readTextFile?: typeof readFile
+  signal?: AbortSignal
 }
 
 const traditionalToSimplified = OpenCC.Converter({ from: 't', to: 'cn' })
@@ -144,7 +145,8 @@ export async function transcribeAudioSegmentWithLocalWhisper({
   modelPath,
   threadLimit = 'unlimited',
   runProcess = defaultRunProcess,
-  readTextFile = readFile
+  readTextFile = readFile,
+  signal
 }: TranscribeInput): Promise<TranscriptSegment[]> {
   const outputPath = outputPathWithoutExtension(path)
   const result = await runProcess(
@@ -155,7 +157,8 @@ export async function transcribeAudioSegmentWithLocalWhisper({
       audioPath: path,
       outputPathWithoutExtension: outputPath,
       threadLimit
-    })
+    }),
+    { signal }
   )
 
   if (result.exitCode !== 0) {

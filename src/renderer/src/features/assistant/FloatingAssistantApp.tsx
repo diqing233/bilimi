@@ -69,6 +69,14 @@ const BILIBILI_PAGE_PATTERN = /bilibili\.com/i
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash'
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
 const VIDEO_NOTE_ARCHIVE_SELECTION_SESSION_KEY = 'bilimi.videoNoteArchive.selection'
+const DEEPSEEK_KEY_STATUS_LABELS = {
+  savedSecure: '已保存 · 系统加密保护',
+  savedPlain: '已保存 · 本地明文保存',
+  unreadable: '无法读取 · 请重新填写',
+  unsaved: '尚未保存'
+} as const
+
+type DeepSeekKeyFieldStatus = keyof typeof DEEPSEEK_KEY_STATUS_LABELS
 const EMPTY_VIDEO_NOTE_ARCHIVE_SELECTION: VideoNoteArchiveSelection = {
   archiveId: null,
   versionId: null,
@@ -555,6 +563,47 @@ function applyPosterSummaryToNote(note: VideoNote, poster: NotePosterSummary): V
   }
 }
 
+function deepSeekKeyStatusConfigured(status: unknown): boolean {
+  return Boolean(
+    status &&
+      typeof status === 'object' &&
+      'configured' in status &&
+      (status as { configured?: unknown }).configured
+  )
+}
+
+function deepSeekKeyStatusUsesPlainStorage(status: unknown): boolean {
+  if (!status || typeof status !== 'object') {
+    return false
+  }
+
+  const protection = String((status as { protection?: unknown }).protection ?? '').toLowerCase()
+  if (protection === 'plaintext') {
+    return true
+  }
+
+  const storage = String(
+    (status as { storage?: unknown; storageType?: unknown; backend?: unknown }).storage ??
+      (status as { storageType?: unknown }).storageType ??
+      (status as { backend?: unknown }).backend ??
+      ''
+  ).toLowerCase()
+
+  return ['plain', 'plaintext', 'local-plain', 'local_plain', 'file'].includes(storage)
+}
+
+function deepSeekKeyFieldStatusFromKeyStatus(status: unknown): DeepSeekKeyFieldStatus {
+  if (status && typeof status === 'object' && (status as { protection?: unknown }).protection === 'error') {
+    return 'unreadable'
+  }
+
+  if (!deepSeekKeyStatusConfigured(status)) {
+    return 'unsaved'
+  }
+
+  return deepSeekKeyStatusUsesPlainStorage(status) ? 'savedPlain' : 'savedSecure'
+}
+
 export function FloatingAssistantApp({
   mode = 'floating',
   activeTab: controlledActiveTab,
@@ -585,9 +634,12 @@ export function FloatingAssistantApp({
   const [transcriptionProgress, setTranscriptionProgress] =
     useState<VideoAudioTranscriptionProgress | null>(null)
   const [transcriptionQueue, setTranscriptionQueue] = useState<VideoAudioTranscriptionQueueSnapshot>({
-    items: []
+    items: [],
+    sessionCompletedCount: 0
   })
   const [deepSeekApiKeyDraft, setDeepSeekApiKeyDraft] = useState('')
+  const [deepSeekKeyFieldStatus, setDeepSeekKeyFieldStatus] =
+    useState<DeepSeekKeyFieldStatus>('unsaved')
   const [deepSeekStatusMessage, setDeepSeekStatusMessage] = useState('')
   const [settingsDiagnosticReport, setSettingsDiagnosticReport] =
     useState<StartupDiagnosticReport | null>(null)
@@ -614,7 +666,10 @@ export function FloatingAssistantApp({
   const preferenceSaveSchedulerRef = useRef<PreferenceSaveScheduler<AssistantPreferences> | null>(
     null
   )
-  const transcriptionQueueRef = useRef<VideoAudioTranscriptionQueueSnapshot>({ items: [] })
+  const transcriptionQueueRef = useRef<VideoAudioTranscriptionQueueSnapshot>({
+    items: [],
+    sessionCompletedCount: 0
+  })
   const workspaceRequestsEnabledRef = useRef(workspaceRequestsEnabled)
   const activeTab = controlledActiveTab ?? uncontrolledActiveTab
   const [activeView, setActiveView] = useState<AssistantWorkspaceView>(activeTab)
@@ -871,6 +926,35 @@ export function FloatingAssistantApp({
   useEffect(() => {
     return subscribeDeepSeekTask(setDeepSeekTask)
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadDeepSeekKeyFieldStatus() {
+      if (!window.bilimiDesktop?.loadDeepSeekApiKeyStatus) {
+        setDeepSeekKeyFieldStatus(preferences.deepseekApiKeyStored ? 'savedSecure' : 'unsaved')
+        return
+      }
+
+      try {
+        const keyStatus = await window.bilimiDesktop.loadDeepSeekApiKeyStatus()
+
+        if (!cancelled && mounted.current) {
+          setDeepSeekKeyFieldStatus(deepSeekKeyFieldStatusFromKeyStatus(keyStatus))
+        }
+      } catch {
+        if (!cancelled && mounted.current) {
+          setDeepSeekKeyFieldStatus('unreadable')
+        }
+      }
+    }
+
+    void loadDeepSeekKeyFieldStatus()
+
+    return () => {
+      cancelled = true
+    }
+  }, [preferences.deepseekApiKeyStored])
 
   useEffect(() => {
     mounted.current = true
@@ -1295,25 +1379,59 @@ export function FloatingAssistantApp({
     }
   }
 
-  async function saveDeepSeekSettings() {
+  async function saveDeepSeekSettings(): Promise<boolean> {
     const keyDraft = deepSeekApiKeyDraft.trim()
     let nextPreferences = preferencesRef.current
+    let keyWasSaved = false
 
     tellPet('progress', '小咪正在保存 DeepSeek 设置。')
 
     if (keyDraft) {
-      const keyStatus = await window.bilimiDesktop?.saveDeepSeekApiKey?.(keyDraft)
+      if (!window.bilimiDesktop?.saveDeepSeekApiKey) {
+        setGlobalFeedback('DeepSeek 密钥保存失败，请重试。')
+        tellPet('error', 'DeepSeek 密钥保存失败，请重试。')
+        return false
+      }
+
+      let keyStatus: unknown
+      try {
+        keyStatus = await window.bilimiDesktop.saveDeepSeekApiKey(keyDraft)
+      } catch {
+        setGlobalFeedback('DeepSeek 密钥保存失败，请重试。')
+        tellPet('error', 'DeepSeek 密钥保存失败，请重试。')
+        return false
+      }
+
       if (keyStatus) {
+        keyWasSaved = true
+        setDeepSeekKeyFieldStatus(deepSeekKeyFieldStatusFromKeyStatus(keyStatus))
         nextPreferences = createInitialAssistantPreferences({
           ...preferencesRef.current,
-          deepseekApiKeyStored: keyStatus.configured
+          deepseekApiKeyStored: deepSeekKeyStatusConfigured(keyStatus)
         })
       }
     }
 
-    await persistPreferences(nextPreferences)
+    try {
+      await persistPreferences(nextPreferences)
+    } catch {
+      if (keyWasSaved) {
+        setGlobalFeedback('DeepSeek 密钥已保存，但其他设置保存失败，请重试。')
+        tellPet('error', 'DeepSeek 密钥已保存，但其他设置保存失败，请重试。')
+      } else {
+        setGlobalFeedback('DeepSeek 设置保存失败，请重试。')
+        tellPet('error', 'DeepSeek 设置保存失败，请重试。')
+      }
+      return false
+    }
+
+    if (keyWasSaved) {
+      setDeepSeekApiKeyDraft('')
+    }
+
     setGlobalFeedback('DeepSeek 设置已保存。')
     tellPet('success', 'DeepSeek 设置保存好啦。')
+    return true
   }
 
   async function testDeepSeekConnection() {
@@ -1326,7 +1444,10 @@ export function FloatingAssistantApp({
     tellPet('progress', '小咪正在测试 DeepSeek 连接。')
     updateDeepSeekTask('connection-test')
     try {
-      await saveDeepSeekSettings()
+      const saved = await saveDeepSeekSettings()
+      if (!saved) {
+        return
+      }
       const result = await window.bilimiDesktop.testDeepSeekConnection()
       const statusMessage = localizeDeepSeekStatusMessage(result.message)
       setDeepSeekStatusMessage(statusMessage)
@@ -1352,6 +1473,7 @@ export function FloatingAssistantApp({
     })
 
     setDeepSeekApiKeyDraft('')
+    setDeepSeekKeyFieldStatus('unsaved')
     await window.bilimiDesktop?.clearDeepSeekApiKey?.()
     await persistPreferences(nextPreferences)
     setDeepSeekStatusMessage('')
@@ -1382,6 +1504,7 @@ export function FloatingAssistantApp({
     })
 
     setDeepSeekApiKeyDraft('')
+    setDeepSeekKeyFieldStatus('unsaved')
     await window.bilimiDesktop?.clearDeepSeekApiKey?.()
     await persistPreferences(nextPreferences)
     setDeepSeekStatusMessage('')
@@ -1708,7 +1831,8 @@ export function FloatingAssistantApp({
 
   async function loadVideoAudioTranscriptionQueue() {
     const snapshot = (await window.bilimiDesktop?.loadVideoAudioTranscriptionQueue?.()) ?? {
-      items: []
+      items: [],
+      sessionCompletedCount: 0
     }
     transcriptionQueueRef.current = snapshot
     setTranscriptionQueue(snapshot)
@@ -2395,7 +2519,8 @@ export function FloatingAssistantApp({
                     <input
                       type="password"
                       value={deepSeekApiKeyDraft}
-                      placeholder={preferences.deepseekApiKeyStored ? '已保存' : ''}
+                      placeholder={DEEPSEEK_KEY_STATUS_LABELS[deepSeekKeyFieldStatus]}
+                      aria-invalid={deepSeekKeyFieldStatus === 'unreadable' ? 'true' : undefined}
                       onChange={(event) => setDeepSeekApiKeyDraft(event.currentTarget.value)}
                     />
                   </label>

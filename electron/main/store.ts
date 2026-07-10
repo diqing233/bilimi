@@ -84,6 +84,7 @@ export type AssistantPreferences = {
 
 export type DesktopStoreState = AssistantPreferences & {
   deepseekApiKey: string
+  deepseekApiKeyEncrypted: string
   videoNotes: VideoNote[]
   videoNoteArchives: VideoNoteArchiveEntry[]
   pendingFavoriteQueue: PendingFavoriteQueueItem[]
@@ -95,6 +96,17 @@ export type AssistantStoreLike = {
   has?<Key extends keyof DesktopStoreState>(key: Key): boolean
   set(values: Partial<DesktopStoreState>): void
   set<Key extends keyof DesktopStoreState>(key: Key, value: DesktopStoreState[Key]): void
+}
+
+type SafeStorageLike = {
+  isEncryptionAvailable(): boolean
+  encryptString(value: string): Buffer
+  decryptString(value: Buffer): string
+}
+
+const EMPTY_DEEPSEEK_KEY_STATUS: DeepSeekKeyStatus = {
+  configured: false,
+  protection: 'unavailable'
 }
 
 export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
@@ -136,6 +148,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
 export const DEFAULT_DESKTOP_STORE_STATE: DesktopStoreState = {
   ...DEFAULT_ASSISTANT_PREFERENCES,
   deepseekApiKey: '',
+  deepseekApiKeyEncrypted: '',
   videoNotes: [],
   videoNoteArchives: [],
   pendingFavoriteQueue: [],
@@ -322,6 +335,7 @@ export function loadAssistantPreferences(
   const commentSubmitMode = store.get('commentSubmitMode')
   const videoAudioTranscriptionThreadLimit = store.get('videoAudioTranscriptionThreadLimit')
   const deepseekApiKey = store.get('deepseekApiKey') ?? ''
+  const deepseekApiKeyEncrypted = store.get('deepseekApiKeyEncrypted') ?? ''
 
   return {
     favoritesFolderName: store.get('favoritesFolderName'),
@@ -369,7 +383,9 @@ export function loadAssistantPreferences(
     ),
     preferenceCounts: store.get('preferenceCounts') ?? {},
     deepseekEnabled: Boolean(store.get('deepseekEnabled')),
-    deepseekApiKeyStored: Boolean(String(deepseekApiKey).trim()),
+    deepseekApiKeyStored: Boolean(
+      String(deepseekApiKey).trim() || String(deepseekApiKeyEncrypted).trim()
+    ),
     deepseekCommentEnabled: loadDeepSeekFeatureToggle(
       store,
       'deepseekCommentEnabled',
@@ -463,32 +479,88 @@ export function saveAssistantPreferences(
 }
 
 export function loadDeepSeekApiKeyStatus(
-  store: AssistantStoreLike = getDesktopStore()
+  store: AssistantStoreLike = getDesktopStore(),
+  safeStorage?: SafeStorageLike
 ): DeepSeekKeyStatus {
-  return { configured: Boolean((store.get('deepseekApiKey') ?? '').trim()) }
+  const encryptedValue = (store.get('deepseekApiKeyEncrypted') ?? '').trim()
+  if (encryptedValue) {
+    if (!safeStorage?.isEncryptionAvailable()) {
+      return { configured: false, protection: 'error' }
+    }
+
+    try {
+      const apiKey = safeStorage.decryptString(Buffer.from(encryptedValue, 'base64')).trim()
+      return apiKey ? { configured: true, protection: 'encrypted' } : EMPTY_DEEPSEEK_KEY_STATUS
+    } catch {
+      return { configured: false, protection: 'error' }
+    }
+  }
+
+  const plaintextValue = (store.get('deepseekApiKey') ?? '').trim()
+  if (!plaintextValue) {
+    return EMPTY_DEEPSEEK_KEY_STATUS
+  }
+
+  if (safeStorage?.isEncryptionAvailable()) {
+    store.set('deepseekApiKeyEncrypted', safeStorage.encryptString(plaintextValue).toString('base64'))
+    store.set('deepseekApiKey', '')
+    return { configured: true, protection: 'encrypted' }
+  }
+
+  return { configured: true, protection: 'plaintext' }
 }
 
-export function loadDeepSeekApiKey(store: AssistantStoreLike = getDesktopStore()): string {
-  return store.get('deepseekApiKey') ?? ''
+export function loadDeepSeekApiKey(
+  store: AssistantStoreLike = getDesktopStore(),
+  safeStorage?: SafeStorageLike
+): string {
+  const encryptedValue = (store.get('deepseekApiKeyEncrypted') ?? '').trim()
+  if (encryptedValue) {
+    if (!safeStorage?.isEncryptionAvailable()) {
+      return ''
+    }
+
+    try {
+      return safeStorage.decryptString(Buffer.from(encryptedValue, 'base64')).trim()
+    } catch {
+      return ''
+    }
+  }
+
+  return (store.get('deepseekApiKey') ?? '').trim()
 }
 
 export function saveDeepSeekApiKey(
   store: AssistantStoreLike = getDesktopStore(),
-  key: string
+  key: string,
+  safeStorage?: SafeStorageLike
 ): DeepSeekKeyStatus {
-  store.set('deepseekApiKey', key.trim())
-  store.set('deepseekApiKeyStored', loadDeepSeekApiKeyStatus(store).configured)
+  const apiKey = key.trim()
+  if (!apiKey) {
+    return clearDeepSeekApiKey(store)
+  }
 
-  return loadDeepSeekApiKeyStatus(store)
+  if (safeStorage?.isEncryptionAvailable()) {
+    store.set('deepseekApiKeyEncrypted', safeStorage.encryptString(apiKey).toString('base64'))
+    store.set('deepseekApiKey', '')
+    store.set('deepseekApiKeyStored', true)
+    return { configured: true, protection: 'encrypted' }
+  }
+
+  store.set('deepseekApiKeyEncrypted', '')
+  store.set('deepseekApiKey', apiKey)
+  store.set('deepseekApiKeyStored', true)
+  return { configured: true, protection: 'plaintext' }
 }
 
 export function clearDeepSeekApiKey(
   store: AssistantStoreLike = getDesktopStore()
 ): DeepSeekKeyStatus {
+  store.set('deepseekApiKeyEncrypted', '')
   store.set('deepseekApiKey', '')
   store.set('deepseekApiKeyStored', false)
 
-  return loadDeepSeekApiKeyStatus(store)
+  return EMPTY_DEEPSEEK_KEY_STATUS
 }
 
 export function loadVideoNotes(store: AssistantStoreLike = getDesktopStore()): VideoNote[] {

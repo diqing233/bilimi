@@ -36,6 +36,34 @@ describe('audio download', () => {
     )
   })
 
+  it('kills child processes when canceled by an AbortSignal', async () => {
+    const child = new EventEmitter() as EventEmitter & {
+      pid: number
+      stdout: EventEmitter
+      stderr: EventEmitter
+      kill: ReturnType<typeof vi.fn>
+    }
+    child.pid = 12345
+    child.stdout = new EventEmitter()
+    child.stderr = new EventEmitter()
+    child.kill = vi.fn()
+    spawn.mockReturnValue(child)
+    const controller = new AbortController()
+
+    const promise = runProcess('python', ['script.py'], { signal: controller.signal })
+    controller.abort()
+    child.emit('close', null)
+
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
+    expect(child.kill).toHaveBeenCalled()
+    if (process.platform === 'win32') {
+      expect(spawn).toHaveBeenCalledWith('taskkill', ['/pid', '12345', '/T', '/F'], {
+        stdio: 'ignore',
+        windowsHide: true
+      })
+    }
+  })
+
   it('builds conservative yt-dlp args for one current video', () => {
     expect(
       buildYtdlpAudioArgs({
@@ -81,6 +109,32 @@ describe('audio download', () => {
         statFile
       })
     ).resolves.toEqual({ audioPath: 'C:/tmp/audio.m4a' })
+  })
+
+  it('passes cancellation signals to yt-dlp', async () => {
+    const runProcess = vi.fn().mockResolvedValue({
+      stdout: 'C:/tmp/audio.m4a\n',
+      stderr: '',
+      exitCode: 0
+    })
+    const statFile = vi.fn().mockResolvedValue({ size: 1024 })
+    const controller = new AbortController()
+
+    await downloadVideoAudio({
+      ytdlpPath: 'C:/tools/yt-dlp.exe',
+      url: 'https://www.bilibili.com/video/BV1demo',
+      cookiePath: 'C:/tmp/cookies.txt',
+      outputTemplate: 'C:/tmp/audio.%(ext)s',
+      runProcess,
+      statFile,
+      signal: controller.signal
+    })
+
+    expect(runProcess).toHaveBeenCalledWith(
+      'C:/tools/yt-dlp.exe',
+      expect.any(Array),
+      { signal: controller.signal }
+    )
   })
 
   it('falls back to the actual non-empty source media file when printed filepath is missing', async () => {

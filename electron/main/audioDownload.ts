@@ -8,9 +8,35 @@ export type ProcessResult = {
   exitCode: number
 }
 
-export type RunProcess = (command: string, args: string[]) => Promise<ProcessResult>
+export type ProcessRunOptions = {
+  signal?: AbortSignal
+}
 
-export function runProcess(command: string, args: string[]): Promise<ProcessResult> {
+export type RunProcess = (
+  command: string,
+  args: string[],
+  options?: ProcessRunOptions
+) => Promise<ProcessResult>
+
+function killProcessTree(pid?: number) {
+  if (!pid) {
+    return
+  }
+
+  if (process.platform === 'win32') {
+    const killer = spawn('taskkill', ['/pid', String(pid), '/T', '/F'], {
+      stdio: 'ignore',
+      windowsHide: true
+    })
+    killer.on('error', () => {})
+  }
+}
+
+export function runProcess(
+  command: string,
+  args: string[],
+  options: ProcessRunOptions = {}
+): Promise<ProcessResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       env: {
@@ -22,6 +48,39 @@ export function runProcess(command: string, args: string[]): Promise<ProcessResu
     })
     let stdout = ''
     let stderr = ''
+    let settled = false
+    let aborted = false
+
+    const removeAbortListener = () => {
+      options.signal?.removeEventListener('abort', abortProcess)
+    }
+
+    const createAbortError = () => {
+      const error = new Error('Process canceled.')
+      error.name = 'AbortError'
+      return error
+    }
+
+    const settle = (callback: () => void) => {
+      if (settled) {
+        return
+      }
+      settled = true
+      removeAbortListener()
+      callback()
+    }
+
+    const abortProcess = () => {
+      aborted = true
+      killProcessTree(child.pid)
+      child.kill()
+    }
+
+    if (options.signal?.aborted) {
+      abortProcess()
+    } else {
+      options.signal?.addEventListener('abort', abortProcess, { once: true })
+    }
 
     child.stdout.on('data', (chunk) => {
       stdout += String(chunk)
@@ -30,10 +89,19 @@ export function runProcess(command: string, args: string[]): Promise<ProcessResu
       stderr += String(chunk)
     })
     child.on('error', (error) => {
-      reject(error)
+      settle(() => {
+        reject(aborted ? createAbortError() : error)
+      })
     })
     child.on('close', (exitCode) => {
-      resolve({ stdout, stderr, exitCode: exitCode ?? 1 })
+      settle(() => {
+        if (aborted) {
+          reject(createAbortError())
+          return
+        }
+
+        resolve({ stdout, stderr, exitCode: exitCode ?? 1 })
+      })
     })
   })
 }
@@ -212,7 +280,8 @@ export async function downloadVideoAudio({
   cookiePath,
   outputTemplate,
   runProcess: run = runProcess,
-  statFile = stat
+  statFile = stat,
+  signal
 }: {
   ytdlpPath: string
   url: string
@@ -220,8 +289,11 @@ export async function downloadVideoAudio({
   outputTemplate: string
   runProcess?: RunProcess
   statFile?: (path: string) => Promise<{ size: number }>
+  signal?: AbortSignal
 }): Promise<{ audioPath: string }> {
-  const result = await run(ytdlpPath, buildYtdlpAudioArgs({ url, cookiePath, outputTemplate }))
+  const result = await run(ytdlpPath, buildYtdlpAudioArgs({ url, cookiePath, outputTemplate }), {
+    signal
+  })
 
   if (result.exitCode !== 0) {
     throw new Error(`Audio download failed: ${sanitizeProcessText(result.stderr || result.stdout)}`)

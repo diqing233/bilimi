@@ -2958,7 +2958,11 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存 DeepSeek' }))
 
     await waitFor(() => expect(saveDeepSeekApiKey).toHaveBeenCalledWith('sk-test'))
-    expect(screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥').value).toBe('sk-test')
+    await waitFor(() => {
+      const apiKeyInput = screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥')
+      expect(apiKeyInput.value).toBe('')
+      expect(apiKeyInput).toHaveAttribute('placeholder', '已保存 · 系统加密保护')
+    })
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2977,8 +2981,8 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '测试 DeepSeek' }))
 
-    await waitFor(() => expect(saveDeepSeekApiKey).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledOnce())
+    expect(saveDeepSeekApiKey).toHaveBeenCalledOnce()
     expect(clearDeepSeekApiKey).not.toHaveBeenCalled()
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
@@ -3019,6 +3023,83 @@ describe('FloatingAssistantApp', () => {
       )
     )
     await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent('DeepSeek 设置已重置。'))
+  })
+
+  it('preserves the DeepSeek key draft when key saving fails', async () => {
+    const saveDeepSeekApiKey = vi.fn().mockRejectedValue(new Error('keychain unavailable'))
+    installDesktopApi({
+      saveDeepSeekApiKey,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.change(screen.getByLabelText('DeepSeek API 密钥'), {
+      target: { value: 'sk-draft' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存 DeepSeek' }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('全局提示')).toHaveTextContent('DeepSeek 密钥保存失败，请重试。')
+    )
+    expect(screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥').value).toBe('sk-draft')
+  })
+
+  it('preserves the DeepSeek key draft when preference saving fails after the key is saved', async () => {
+    const savePreferences = vi.fn().mockRejectedValue(new Error('store unavailable'))
+    installDesktopApi({
+      savePreferences,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.change(screen.getByLabelText('DeepSeek API 密钥'), {
+      target: { value: 'sk-draft' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存 DeepSeek' }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('全局提示')).toHaveTextContent(
+        'DeepSeek 密钥已保存，但其他设置保存失败，请重试。'
+      )
+    )
+    expect(screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥').value).toBe('sk-draft')
+  })
+
+  it('shows a recoverable DeepSeek key field error when saved status cannot be read', async () => {
+    installDesktopApi({
+      loadDeepSeekApiKeyStatus: vi.fn().mockRejectedValue(new Error('credential store unavailable')),
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    const apiKeyInput = await screen.findByLabelText<HTMLInputElement>('DeepSeek API 密钥')
+
+    await waitFor(() => expect(apiKeyInput).toHaveAttribute('placeholder', '无法读取 · 请重新填写'))
+    expect(apiKeyInput).toHaveAttribute('aria-invalid', 'true')
   })
 
   it('persists the DeepSeek auto-summary toggle as soon as it changes', async () => {
