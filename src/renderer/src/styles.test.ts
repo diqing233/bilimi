@@ -425,16 +425,25 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.memorial-panel__actions {\n  display: grid;\n  grid-template-columns: 1fr;')
     expect(normalizedStyles).toContain('.assistant-action-button {\n  min-height: 62px;')
     expectStyleSnippet(
-      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 78px; gap: 0; align-items: stretch;'
+      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 64px; gap: 0; align-items: stretch;'
     )
     expectStyleSnippet(
       '.memorial-panel__action-card--with-setting .assistant-action-button { border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join) var(--porcelain-radius-join) var(--porcelain-radius-control);'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-setting { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; justify-self: stretch; min-width: 0; width: 78px; max-width: 78px;'
+      '.memorial-panel__action-setting { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; justify-self: stretch; min-width: 0; width: 64px; max-width: 64px;'
     )
     expectStyleSnippet(
       '.memorial-panel__action-setting select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 62px;'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-setting select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 62px; border: 1px solid rgba(31, 99, 181, 0.22); border-left: 0;'
+    )
+    expect(normalizedStyles).toContain(
+      '.memorial-panel__action-setting select {\n  box-sizing: border-box;\n  width: 100%;\n  max-width: 100%;\n  min-width: 0;\n  min-height: 62px;\n  border: 1px solid rgba(31, 99, 181, 0.22);\n  border-left: 0;\n  border-radius: var(--porcelain-radius-join) var(--porcelain-radius-control)\n    var(--porcelain-radius-control) var(--porcelain-radius-join);\n  background: linear-gradient('
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-setting select:hover, .memorial-panel__action-setting select:focus-visible { border-color: rgba(31, 99, 181, 0.5); background: linear-gradient('
     )
     expect(normalizedStyles).toContain('grid-template-columns: 58px minmax(0, 1fr);')
     expectStyleSnippet('grid-template-areas: "mark label" "mark desc";')

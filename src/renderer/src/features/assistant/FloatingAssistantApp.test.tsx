@@ -2468,6 +2468,132 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
+  it('preserves externally resized sidebar width when saving review action settings', async () => {
+    let notifyPreferencesChanged: ((preferences: AssistantPreferences) => void) | undefined
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    installDesktopApi({
+      savePreferences,
+      onAssistantPreferencesChanged: vi.fn((callback) => {
+        notifyPreferencesChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await screen.findByRole('tab', { name: '设置' })
+
+    act(() => {
+      notifyPreferencesChanged?.(createPreferences({ assistantSidebarWidthPx: 420 }))
+    })
+
+    fireEvent.click(screen.getByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('radio', { name: '默认投 2 枚硬币' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          assistantSidebarWidthPx: 420,
+          defaultCoinCount: 2
+        })
+      )
+    )
+  })
+
+  it('updates a pending review action settings save when the sidebar is resized before debounce drains', async () => {
+    let notifyPreferencesChanged: ((preferences: AssistantPreferences) => void) | undefined
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    installDesktopApi({
+      savePreferences,
+      onAssistantPreferencesChanged: vi.fn((callback) => {
+        notifyPreferencesChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('radio', { name: '默认投 2 枚硬币' }))
+
+    expect(savePreferences).not.toHaveBeenCalled()
+
+    act(() => {
+      notifyPreferencesChanged?.(createPreferences({ assistantSidebarWidthPx: 420 }))
+    })
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          assistantSidebarWidthPx: 420,
+          defaultCoinCount: 2
+        })
+      )
+    )
+  })
+
+  it('keeps externally resized sidebar width after an older review action settings save resolves', async () => {
+    let notifyPreferencesChanged: ((preferences: AssistantPreferences) => void) | undefined
+    let resolveSave!: (preferences: AssistantPreferences) => void
+    const savePreferences = vi
+      .fn<(preferences: AssistantPreferences) => Promise<AssistantPreferences>>()
+      .mockImplementationOnce(
+        (preferences: AssistantPreferences) =>
+          new Promise<AssistantPreferences>((resolve) => {
+            resolveSave = resolve
+          })
+      )
+      .mockImplementation(async (preferences: AssistantPreferences) => preferences)
+    installDesktopApi({
+      savePreferences,
+      onAssistantPreferencesChanged: vi.fn((callback) => {
+        notifyPreferencesChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('radio', { name: '默认投 2 枚硬币' }))
+
+    await waitFor(() => expect(savePreferences).toHaveBeenCalledOnce())
+    expect(savePreferences).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        assistantSidebarWidthPx: null,
+        defaultCoinCount: 2
+      })
+    )
+
+    act(() => {
+      notifyPreferencesChanged?.(createPreferences({ assistantSidebarWidthPx: 420 }))
+    })
+
+    act(() => {
+      notifyPreferencesChanged?.(savePreferences.mock.calls[0][0])
+    })
+
+    await act(async () => {
+      resolveSave(savePreferences.mock.calls[0][0])
+    })
+
+    fireEvent.click(
+      screen.getByRole('radio', {
+        name: '生成 3 条候选，选择后发送（也可以复制后发评论）'
+      })
+    )
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          assistantSidebarWidthPx: 420,
+          commentSubmitMode: 'choose',
+          defaultCoinCount: 2
+        })
+      )
+    )
+  })
+
   it('does not refresh the assistant snapshot after saving review action settings', async () => {
     const notifyAssistantSnapshotChanged = vi.fn()
     const { savePreferences } = installDesktopApi({

@@ -607,6 +607,10 @@ export function FloatingAssistantApp({
   const mounted = useRef(false)
   const lastPreferenceChangeAt = useRef(0)
   const lastPreferenceSaveAt = useRef(0)
+  const inFlightPreferenceSaveRef = useRef<{
+    preferences: AssistantPreferences
+    startedAt: number
+  } | null>(null)
   const preferenceSaveSchedulerRef = useRef<PreferenceSaveScheduler<AssistantPreferences> | null>(
     null
   )
@@ -888,6 +892,53 @@ export function FloatingAssistantApp({
   }, [loadSnapshot])
 
   useEffect(() => {
+    return window.bilimiDesktop?.onAssistantPreferencesChanged?.((nextPreferences) => {
+      const nextSidebarWidthPx =
+        createInitialAssistantPreferences(nextPreferences).assistantSidebarWidthPx
+
+      setPreferences((currentPreferences) => {
+        const inFlightPreferenceSave = inFlightPreferenceSaveRef.current
+        const isStaleInFlightSidebarWidth =
+          Boolean(inFlightPreferenceSave) &&
+          inFlightPreferenceSave?.preferences.assistantSidebarWidthPx === nextSidebarWidthPx &&
+          currentPreferences.assistantSidebarWidthPx !== nextSidebarWidthPx &&
+          lastPreferenceChangeAt.current > inFlightPreferenceSave.startedAt
+
+        if (isStaleInFlightSidebarWidth) {
+          preferencesRef.current = currentPreferences
+          return currentPreferences
+        }
+
+        if (currentPreferences.assistantSidebarWidthPx === nextSidebarWidthPx) {
+          preferencesRef.current = currentPreferences
+          return currentPreferences
+        }
+
+        const mergedPreferences = createInitialAssistantPreferences({
+          ...currentPreferences,
+          assistantSidebarWidthPx: nextSidebarWidthPx
+        })
+        lastPreferenceChangeAt.current = Date.now()
+        preferencesRef.current = mergedPreferences
+        const saveScheduler = preferenceSaveSchedulerRef.current
+        const updatePendingSidebarWidth = (pendingPreferences: AssistantPreferences) =>
+          createInitialAssistantPreferences({
+            ...pendingPreferences,
+            assistantSidebarWidthPx: nextSidebarWidthPx
+          })
+
+        if (
+          !saveScheduler?.updatePending(updatePendingSidebarWidth) &&
+          saveScheduler?.hasActiveSave()
+        ) {
+          saveScheduler.schedule(mergedPreferences)
+        }
+        return mergedPreferences
+      })
+    })
+  }, [])
+
+  useEffect(() => {
     return window.bilimiDesktop?.onVideoAudioTranscriptionProgress?.((progress) => {
       setTranscriptionProgress(progress)
     })
@@ -998,20 +1049,31 @@ export function FloatingAssistantApp({
           }
 
           const saveStartedAt = Date.now()
-          const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
-          const savedPreferences = createInitialAssistantPreferences(saved)
-          const newerLocalChangeExists = lastPreferenceChangeAt.current > saveStartedAt
-
-          if (!newerLocalChangeExists) {
-            preferencesRef.current = savedPreferences
-
-            if (mounted.current) {
-              setPreferences(savedPreferences)
-            }
+          inFlightPreferenceSaveRef.current = {
+            preferences: nextPreferences,
+            startedAt: saveStartedAt
           }
 
-          lastPreferenceSaveAt.current = Date.now()
-          return savedPreferences
+          try {
+            const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
+            const savedPreferences = createInitialAssistantPreferences(saved)
+            const newerLocalChangeExists = lastPreferenceChangeAt.current > saveStartedAt
+
+            if (!newerLocalChangeExists) {
+              preferencesRef.current = savedPreferences
+
+              if (mounted.current) {
+                setPreferences(savedPreferences)
+              }
+            }
+
+            lastPreferenceSaveAt.current = Date.now()
+            return savedPreferences
+          } finally {
+            if (inFlightPreferenceSaveRef.current?.startedAt === saveStartedAt) {
+              inFlightPreferenceSaveRef.current = null
+            }
+          }
         }
       })
     }
