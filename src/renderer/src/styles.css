@@ -3922,6 +3922,25 @@ body[data-floating-window="true"],
   font-size: 18px;
   line-height: 1;
 }
+
+.favorite-ledger-panel__protected-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  color: var(--porcelain-muted);
+}
+
+.favorite-ledger-panel__reconciliation-delta {
+  display: grid;
+  gap: 2px;
+}
+
+.favorite-ledger-panel__protected-summary button {
+  min-height: 28px;
+  padding: 4px 8px;
+}
 .favorite-ledger-panel__scan-warning {
   margin: 0;
   color: var(--porcelain-warn);

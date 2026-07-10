@@ -43,6 +43,7 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     bilibiliOperationMode: 'api-assisted',
     favoriteArchiveMultiMode: 'off',
     favoriteArchiveStrategy: 'aggressive',
+    favoriteArchiveProtectionRecords: [],
     favoriteCorrectionLearningEnabled: true,
     favoriteCorrectionLearningClassificationEnabled: true,
     favoriteCorrectionRecords: [],
@@ -393,6 +394,83 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByRole('tab', { name: '掌库' })).toHaveAttribute('aria-selected', 'true')
     await waitFor(() => expect(scanOldFavorites).toHaveBeenCalledOnce())
     expect(screen.getByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+  })
+
+  it('persists completed old favorite protection records from the ledger panel', async () => {
+    const savePreferences = vi.fn().mockImplementation(async (preferences: AssistantPreferences) => preferences)
+    const preview: FavoriteLedgerPreview = {
+      items: [
+        {
+          aid: 901,
+          title: '完成后保护的旧藏',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'bilimi·知识学习',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          originalSuggestedLedgerIds: ['knowledge'],
+          currentTargetLedgerIds: ['knowledge'],
+          selectedTargetLedgerIds: ['knowledge']
+        }
+      ],
+      skippedSourceFolderTitles: [],
+      scanContext: {
+        accountMid: '42',
+        totalUniqueVideos: 1,
+        activeSourceFolders: [],
+        protectedVideos: [],
+        managedFolders: [],
+        targetMembership: {},
+        multiArchiveMode: 'off'
+      }
+    }
+    installDesktopApi({
+      savePreferences,
+      scanOldFavorites: vi.fn().mockResolvedValue(preview),
+      executeOldFavoritePlan: vi.fn().mockImplementation(async ([item]) => ({
+        ok: true,
+        steps: [],
+        missingTargets: [],
+        completedItems: [item],
+        message: 'done'
+      })),
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) =>
+              ledger.id === 'knowledge' ? { ...ledger, bilibiliFolderId: '9001' } : ledger
+            )
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+    expect(await screen.findByRole('tab', { name: '批阅' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: '掌库' }))
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    confirmOldFavoriteExecution()
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({
+          favoriteArchiveProtectionRecords: [
+            expect.objectContaining({
+              accountMid: '42',
+              aid: 901,
+              targetLedgerIds: ['knowledge'],
+              targetFolderIds: ['9001'],
+              completedAt: expect.any(String)
+            })
+          ]
+        })
+      )
+    )
   })
 
   it('uses DeepSeek for archive preview organization and persists returned keyword suggestions', async () => {

@@ -662,7 +662,8 @@ describe('favorite ledger API scripts', () => {
     expect(result).toMatchObject({
       ok: true,
       steps: ['api:ledger:append-refresh:123', 'api:ledger:append:123'],
-      missingTargets: []
+      missingTargets: [],
+      completedItems: [expect.objectContaining({ aid: 123, targetFolderId: '9010' })]
     })
     const appendBody = new URLSearchParams(
       requests.find((request) => request.url.includes('/x/v3/fav/resource/deal'))?.body
@@ -920,7 +921,8 @@ describe('favorite ledger API scripts', () => {
     expect(result).toMatchObject({
       ok: true,
       steps: ['api:ledger:append-retry:123', 'api:ledger:append:123'],
-      missingTargets: []
+      missingTargets: [],
+      completedItems: [expect.objectContaining({ aid: 123, targetFolderId: '9009' })]
     })
     const appendBodies = requests
       .filter((request) => request.url.includes('/x/v3/fav/resource/deal'))
@@ -1020,6 +1022,16 @@ describe('favorite ledger API scripts', () => {
     const result = await window.eval(buildScanOldFavoritesScript(ledgers))
 
     expect(result.ok).toBe(true)
+    expect(result.accountMid).toBe('42')
+    expect(result.managedFolderScanComplete).toBe(true)
+    expect(result.managedFolders).toEqual([
+      {
+        id: '9001',
+        title: ledgers[0].displayName,
+        ledgerId: ledgers[0].id,
+        isInbox: false
+      }
+    ])
     expect(result.sourceFolders).toEqual([
       {
         id: '101',
@@ -1066,6 +1078,207 @@ describe('favorite ledger API scripts', () => {
       'api:favorite:scan-source:9001'
     ])
     expect(requests.some((url) => url.includes('/x/v3/fav/resource/deal'))).toBe(false)
+  })
+
+  it('reconciles a protected favorite by adding every new target before removing old Bilimi targets', async () => {
+    installCookies()
+    const requests: URLSearchParams[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.includes('/x/v3/fav/resource/deal')) {
+          requests.push(new URLSearchParams(init?.body?.toString()))
+          return Response.json({ code: 0, data: {} })
+        }
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(
+      buildExecuteFavoriteLedgerPlanScript([
+        {
+          aid: 123,
+          title: '重新整理视频',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9002',
+          targetDisplayName: 'bilimi·知识学习',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          desiredTargetFolderIds: ['9002'],
+          currentBilimiFolderIds: ['9001'],
+          reorganizeProtected: true
+        }
+      ])
+    )
+
+    expect(result).toMatchObject({
+      ok: true,
+      completedItems: [
+        expect.objectContaining({
+          aid: 123,
+          finalFolderIds: ['9002'],
+          addedFolderIds: ['9002'],
+          removedFolderIds: ['9001']
+        })
+      ]
+    })
+    expect(requests.map((body) => [body.get('add_media_ids'), body.get('del_media_ids')])).toEqual([
+      ['9002', ''],
+      ['', '9001']
+    ])
+  })
+
+  it('does not remove old Bilimi targets when adding a replacement fails', async () => {
+    installCookies()
+    const requests: URLSearchParams[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.includes('/x/v3/fav/resource/deal')) {
+          const body = new URLSearchParams(init?.body?.toString())
+          requests.push(body)
+          return Response.json({ code: -101, message: 'add failed', data: {} })
+        }
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({ code: 0, data: { list: [] } })
+        }
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(
+      buildExecuteFavoriteLedgerPlanScript([
+        {
+          aid: 123,
+          title: '加入失败',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9002',
+          targetDisplayName: 'bilimi·知识学习',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          desiredTargetFolderIds: ['9002'],
+          currentBilimiFolderIds: ['9001'],
+          reorganizeProtected: true
+        }
+      ])
+    )
+
+    expect(result.ok).toBe(false)
+    expect(requests).toHaveLength(1)
+    expect(requests[0].get('del_media_ids')).toBe('')
+  })
+
+  it('reports partial failure when an obsolete Bilimi target cannot be removed', async () => {
+    installCookies()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.includes('/x/v3/fav/resource/deal')) {
+          const body = new URLSearchParams(init?.body?.toString())
+          return body.get('del_media_ids')
+            ? Response.json({ code: -500, message: 'remove failed', data: {} })
+            : Response.json({ code: 0, data: {} })
+        }
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(
+      buildExecuteFavoriteLedgerPlanScript([
+        {
+          aid: 123,
+          title: '移出失败',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9002',
+          targetDisplayName: 'bilimi·知识学习',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          desiredTargetFolderIds: ['9002'],
+          currentBilimiFolderIds: ['9001'],
+          reorganizeProtected: true
+        }
+      ])
+    )
+
+    expect(result).toMatchObject({ ok: false, partial: true })
+  })
+
+  it('pauses protected reconciliation when Bilibili protection is detected', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: -509, message: 'request too fast' })))
+
+    const result = await window.eval(buildExecuteFavoriteLedgerPlanScript([{
+      aid: 123,
+      title: '风控中的重新整理',
+      sourceFolderTitle: '默认收藏夹',
+      targetLedgerId: 'knowledge',
+      targetFolderId: '9002',
+      targetDisplayName: 'bilimi·知识学习',
+      reviewRequired: false,
+      alreadyInTarget: false,
+      selected: true,
+      desiredTargetFolderIds: ['9002'],
+      currentBilimiFolderIds: ['9001'],
+      reorganizeProtected: true
+    }]))
+
+    expect(result).toMatchObject({ ok: false, paused: true, steps: ['api:ledger:protection-paused:123'] })
+  })
+
+  it('scans legacy Bilimi folders and marks managed folder failures as incomplete', async () => {
+    installCookies()
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
+      ...ledger,
+      bilibiliFolderId: '9001'
+    }))
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({
+            code: 0,
+            data: {
+              list: [
+                { id: 101, title: '默认收藏夹' },
+                { id: 9001, title: ledgers[0].displayName },
+                { id: 9009, title: 'bilimi·旧分类' }
+              ]
+            }
+          })
+        }
+
+        if (url.includes('media_id=101')) {
+          return Response.json({ code: 0, data: { medias: [], has_more: false } })
+        }
+        if (url.includes('media_id=9001')) {
+          return Response.json({
+            code: 0,
+            data: { medias: [{ id: 7, title: '已整理', intro: '', type: 2 }], has_more: false }
+          })
+        }
+        if (url.includes('media_id=9009')) {
+          return Response.json({ code: -500, message: 'failed' })
+        }
+
+        throw new Error(`Unexpected request: ${url}`)
+      })
+    )
+
+    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+
+    expect(result.managedFolders).toEqual([
+      expect.objectContaining({ id: '9001', ledgerId: ledgers[0].id, isInbox: false }),
+      expect.objectContaining({ id: '9009', title: 'bilimi·旧分类', isInbox: false })
+    ])
+    expect(result.targetMembership).toEqual({ '9001': [7] })
+    expect(result.managedFolderScanComplete).toBe(false)
   })
 
   it('fills missing old favorite tags from the Bilibili tag detail API', async () => {

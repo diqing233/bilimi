@@ -153,6 +153,14 @@ export type FavoriteLedgerStatus = {
   message: string
 }
 
+export type FavoriteArchiveProtectionRecord = {
+  accountMid: string
+  aid: number
+  targetLedgerIds: string[]
+  targetFolderIds: string[]
+  completedAt: string
+}
+
 export type RecommendationLabel = {
   badge: '可赏' | '可阅' | '请陛下过目' | '慎入' | '可藏' | '待分拣'
   summary: string
@@ -175,6 +183,8 @@ export type AssistantPreferences = {
   favoriteCorrectionLearningEnabled: boolean
   favoriteCorrectionLearningClassificationEnabled: boolean
   favoriteCorrectionRecords: FavoriteCorrectionRecord[]
+  favoriteArchiveProtectionRecords?: FavoriteArchiveProtectionRecord[]
+  favoriteArchiveProtectionInitializedAccountMids?: string[]
   favoriteKeywordSuggestions: FavoriteKeywordSuggestion[]
   defaultCoinCount: 1 | 2
   commentSubmitMode: CommentSubmitMode

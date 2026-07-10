@@ -13,6 +13,7 @@ import type {
   DeepSeekGenerateResult,
   FavoriteKeywordSuggestion,
   FavoriteArchiveMultiMode,
+  FavoriteArchiveProtectionRecord,
   FavoriteCorrectionRecord,
   FavoriteLedger,
   FavoriteLedgerRuleType,
@@ -20,10 +21,12 @@ import type {
 } from '@shared/types'
 import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react'
 import type { FavoriteLedgerCandidate } from '../favorites/favoriteLedgerInsights'
-import type {
-  FavoriteLedgerPreview,
-  FavoriteLedgerPreviewItem,
-  FavoriteLedgerPreviewTarget
+import {
+  createFavoriteLedgerPreview,
+  type FavoriteSourceFolder,
+  type FavoriteLedgerPreview,
+  type FavoriteLedgerPreviewItem,
+  type FavoriteLedgerPreviewTarget
 } from '../favorites/favoriteLedgerPreview'
 import {
   applyArchivePlanSelection,
@@ -78,12 +81,21 @@ type FavoriteLedgerPanelProps = {
   onDeepSeekArchiveKeywordSuggestions?: (suggestions: FavoriteKeywordSuggestion[]) => void
   onOpenDeepSeekSuggestions?: () => void
   onConfirmArchiveCorrections?: (records: FavoriteCorrectionRecord[]) => void
+  onConfirmArchiveProtections?: (records: FavoriteArchiveProtectionRecord[]) => void
   favoriteArchiveMultiMode?: FavoriteArchiveMultiMode
   organizeOldFavoritesRequestSignal?: number
 }
 
 type OldFavoriteExecutionResult = AssistantAutomationResult & {
   paused?: boolean
+  partial?: boolean
+  completedItems?: Array<
+    FavoriteLedgerPreviewItem & {
+      finalFolderIds?: string[]
+      addedFolderIds?: string[]
+      removedFolderIds?: string[]
+    }
+  >
 }
 
 type ArchivePreviewLatestChange = {
@@ -1208,7 +1220,95 @@ function buildSelectedOldFavoritePlanItems(args: {
     }
   }
 
-  return planItems
+  const regularItems: FavoriteLedgerPreviewItem[] = []
+  const protectedItems = new Map<string, FavoriteLedgerPreviewItem>()
+  for (const item of planItems) {
+    if (!item.reorganizeProtected) {
+      regularItems.push(item)
+      continue
+    }
+
+    const key = archivePlanItemKey(item)
+    const existing = protectedItems.get(key)
+    const desiredTargetFolderIds = uniqueLedgerIds([
+      ...(existing?.desiredTargetFolderIds ?? []),
+      item.targetFolderId
+    ])
+    const desiredTargetLedgerIds = uniqueLedgerIds([
+      ...(existing?.desiredTargetLedgerIds ?? []),
+      item.targetLedgerId
+    ])
+    protectedItems.set(key, {
+      ...(existing ?? item),
+      desiredTargetFolderIds,
+      desiredTargetLedgerIds,
+      currentBilimiFolderIds: item.currentBilimiFolderIds ?? [],
+      reorganizeProtected: true
+    })
+  }
+
+  return [...regularItems, ...protectedItems.values()]
+}
+
+function buildConfirmedArchiveProtectionRecords(args: {
+  accountMid: string
+  selectedItems: FavoriteLedgerPreviewItem[]
+  results: OldFavoriteExecutionResult[]
+  confirmedAt: string
+}): FavoriteArchiveProtectionRecord[] {
+  if (!args.accountMid) {
+    return []
+  }
+
+  const selectedByAid = new Map<number, FavoriteLedgerPreviewItem[]>()
+  for (const item of args.selectedItems) {
+    selectedByAid.set(item.aid, [...(selectedByAid.get(item.aid) ?? []), item])
+  }
+
+  const resultsByAid = new Map<number, OldFavoriteExecutionResult[]>()
+  for (const [index, item] of args.selectedItems.entries()) {
+    const result = args.results[index]
+    if (result) {
+      resultsByAid.set(item.aid, [...(resultsByAid.get(item.aid) ?? []), result])
+    }
+  }
+
+  const records: FavoriteArchiveProtectionRecord[] = []
+  for (const [aid, items] of selectedByAid) {
+    const results = resultsByAid.get(aid) ?? []
+    if (results.length !== items.length || results.some((result) => result.ok === false || result.partial)) {
+      continue
+    }
+    if (results.some((result) => !(result.completedItems ?? []).some((item) => item.aid === aid))) {
+      continue
+    }
+
+    const completedItems = results.flatMap((result) => result.completedItems ?? []).filter((item) => item.aid === aid)
+    const reorganizedItem = items.find((item) => item.reorganizeProtected)
+    const targetFolderIds = uniqueLedgerIds(
+      reorganizedItem
+        ? completedItems.flatMap((item) => item.finalFolderIds ?? item.desiredTargetFolderIds ?? [])
+        : completedItems.flatMap((item) => item.targetFolderId ? [item.targetFolderId] : [])
+    )
+    const targetLedgerIds = uniqueLedgerIds(
+      reorganizedItem
+        ? items.flatMap((item) => item.desiredTargetLedgerIds ?? [])
+        : items.map((item) => item.targetLedgerId)
+    )
+    if (targetFolderIds.length === 0 || targetLedgerIds.length === 0) {
+      continue
+    }
+
+    records.push({
+      accountMid: args.accountMid,
+      aid,
+      targetLedgerIds,
+      targetFolderIds,
+      completedAt: args.confirmedAt
+    })
+  }
+
+  return records
 }
 
 function randomDelayMs(range: { min: number; max: number }) {
@@ -1253,6 +1353,7 @@ export function FavoriteLedgerPanel({
   onDeepSeekArchiveKeywordSuggestions,
   onOpenDeepSeekSuggestions,
   onConfirmArchiveCorrections,
+  onConfirmArchiveProtections,
   favoriteArchiveMultiMode = 'off',
   organizeOldFavoritesRequestSignal = 0
 }: FavoriteLedgerPanelProps) {
@@ -1262,6 +1363,9 @@ export function FavoriteLedgerPanel({
   const [activeLedgerSavedSnapshot, setActiveLedgerSavedSnapshot] =
     useState<ReturnType<typeof ledgerEditorSnapshot> | null>(null)
   const [preview, setPreview] = useState<FavoriteLedgerPreview | null>(null)
+  const [baseScanPreview, setBaseScanPreview] = useState<FavoriteLedgerPreview | null>(null)
+  const [reorganizedProtectedAids, setReorganizedProtectedAids] = useState<Set<number>>(new Set())
+  const [protectedReorganizationConfirming, setProtectedReorganizationConfirming] = useState(false)
   const [selectedDefaultLedgerIds, setSelectedDefaultLedgerIds] = useState<Set<string>>(
     () => new Set(ledgers.filter((ledger) => ledger.enabled && ledger.isDefault).map((ledger) => ledger.id))
   )
@@ -1395,6 +1499,9 @@ export function FavoriteLedgerPanel({
     setOldFavoriteExecutionConfirming(false)
     setOldFavoriteExecutionProgress(null)
     setPreview(null)
+    setBaseScanPreview(null)
+    setReorganizedProtectedAids(new Set())
+    setProtectedReorganizationConfirming(false)
     setArchivePlanState(null)
     setPendingUnclassifiedDecision(null)
     clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
@@ -2039,6 +2146,8 @@ export function FavoriteLedgerPanel({
       })
       if (nextPreview.ok === false) {
         setPreview(null)
+        setBaseScanPreview(null)
+        setReorganizedProtectedAids(new Set())
         setArchivePlanState(null)
         clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
         setPendingUnclassifiedDecision(null)
@@ -2059,6 +2168,9 @@ export function FavoriteLedgerPanel({
 
       const nextCandidateKeys = recommendedCandidateKeysForPreview(normalizedPreview)
       setPreview(normalizedPreview)
+      setBaseScanPreview(normalizedPreview)
+      setReorganizedProtectedAids(new Set())
+      setProtectedReorganizationConfirming(false)
       setArchivePlanState(createArchivePlanStateFromPreviewItems(normalizedPreview.items, nextCandidateKeys))
       clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
       setPendingUnclassifiedDecision(null)
@@ -2098,7 +2210,12 @@ export function FavoriteLedgerPanel({
         )
       }
       setSelectedOldFavoriteSourceFolderTitles(
-        new Set(normalizedPreview.items.map((item) => item.sourceFolderTitle))
+        new Set([
+          ...normalizedPreview.items.map((item) => item.sourceFolderTitle),
+          ...(normalizedPreview.scanContext?.protectedVideos.flatMap(
+            (item) => item.sourceFolderTitles ?? []
+          ) ?? [])
+        ])
       )
       const scannedCount = normalizedPreview.insights?.totalVideos ?? normalizedPreview.items.length
       const scanMessage =
@@ -2118,6 +2235,8 @@ export function FavoriteLedgerPanel({
       onOldFavoriteStageFeedback?.(scanFeedbackMessage)
     } catch (error) {
       setPreview(null)
+      setBaseScanPreview(null)
+      setReorganizedProtectedAids(new Set())
       setArchivePlanState(null)
       clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
       setPendingUnclassifiedDecision(null)
@@ -2780,11 +2899,21 @@ export function FavoriteLedgerPanel({
 
     if (onRejudgeOldFavorite) {
       const refreshedItem = await onRejudgeOldFavorite(item)
-      const refreshedCurrentLedgerIds = rejudgedCurrentArchiveLedgerIds(refreshedItem)
-      const refreshedSelectedLedgerIds = rejudgedSelectedArchiveLedgerIds(refreshedItem)
+      const refreshedItemWithProtection = item.reorganizeProtected
+        ? {
+            ...refreshedItem,
+            sourceFolderIds: item.sourceFolderIds,
+            sourceFolderTitles: item.sourceFolderTitles,
+            currentBilimiFolderIds: item.currentBilimiFolderIds,
+            protectedForIncrementalScan: item.protectedForIncrementalScan,
+            reorganizeProtected: true
+          }
+        : refreshedItem
+      const refreshedCurrentLedgerIds = rejudgedCurrentArchiveLedgerIds(refreshedItemWithProtection)
+      const refreshedSelectedLedgerIds = rejudgedSelectedArchiveLedgerIds(refreshedItemWithProtection)
       const normalizedRefreshedItem = normalizeOldFavoritePreviewItem(
         {
-          ...refreshedItem,
+          ...refreshedItemWithProtection,
           currentTargetLedgerIds: refreshedCurrentLedgerIds,
           selectedTargetLedgerIds: refreshedSelectedLedgerIds
         },
@@ -2863,6 +2992,14 @@ export function FavoriteLedgerPanel({
       return
     }
 
+    if (
+      preview.scanContext &&
+      preview.scanContext.multiArchiveMode !== favoriteArchiveMultiMode
+    ) {
+      setStatus('后台收藏夹数量设置已变化，请重新扫描后确认。')
+      return
+    }
+
     setOldFavoriteExecuting(true)
     setOldFavoriteExecutionConfirming(false)
     setOldFavoriteExecutionAwaitingAcknowledgement(false)
@@ -2895,6 +3032,17 @@ export function FavoriteLedgerPanel({
       ).filter(
         (item) => item.targetFolderId || item.selectedCandidateTarget
       )
+      const targetLimit = deepSeekArchiveMultiLimit(favoriteArchiveMultiMode)
+      if (
+        selectedItems.some(
+          (item) =>
+            item.reorganizeProtected &&
+            (item.desiredTargetFolderIds?.length ?? 0) > targetLimit
+        )
+      ) {
+        setStatus(`当前设置最多允许 ${targetLimit} 个 Bilimi 收藏夹，请调整后再确认。`)
+        return
+      }
       if (selectedItems.length === 0) {
         setStatus('收藏夹已同步，请重新扫描旧藏后再确认整理。')
         return
@@ -2926,31 +3074,52 @@ export function FavoriteLedgerPanel({
         await paceOldFavoriteExecution(index + 1, index < selectedItems.length - 1)
       }
       if (archivePlanState && successfulTargetKeys.size > 0) {
+        const confirmedAt = new Date().toISOString()
         const records = buildConfirmedArchiveCorrectionRecords({
           state: archivePlanState,
           preview,
           successfulTargetKeys,
-          confirmedAt: new Date().toISOString()
+          confirmedAt
         })
 
         if (records.length > 0) {
           onConfirmArchiveCorrections?.(records)
         }
       }
+      if (preview.scanContext) {
+        const protectionRecords = buildConfirmedArchiveProtectionRecords({
+          accountMid: preview.scanContext.accountMid,
+          selectedItems,
+          results,
+          confirmedAt: new Date().toISOString()
+        })
+        if (protectionRecords.length > 0) {
+          onConfirmArchiveProtections?.(protectionRecords)
+        }
+      }
       const failedCount = results.filter((result) => result.ok === false).length
+      const partialCount = results.filter((result) => result.ok === false && result.partial).length
+      const completeFailureCount = failedCount - partialCount
       const paused = results.some((result) => result.paused)
       setStatus(
         paused
           ? '本次整理已暂停，请稍后再继续。'
           : failedCount > 0
-          ? `本次整理已结束，${results.length - failedCount} 条成功，${failedCount} 条失败。`
+          ? `本次整理已结束，${results.length - failedCount} 条成功，${partialCount} 条部分完成，${completeFailureCount} 条失败。`
           : '本次整理已结束。'
       )
       setOldFavoriteExecutionAwaitingAcknowledgement(true)
+      const finalStatus = paused
+        ? { label: '整理已暂停', message: '本次整理已暂停，请稍后再继续。', tone: 'warn' as const }
+        : failedCount > 0
+        ? {
+            label: '整理未完全成功',
+            message: `本次整理已结束，${results.length - failedCount} 条成功，${partialCount} 条部分完成，${completeFailureCount} 条失败。`,
+            tone: 'error' as const
+          }
+        : { label: '整理完成', message: '本次整理已结束。', tone: 'ok' as const }
       onOldFavoriteStatusUpdate?.({
-        label: '整理完成',
-        message: '本次整理已结束。',
-        tone: 'ok'
+        ...finalStatus
       })
       onOldFavoriteExecutionStateChange?.('finished')
     } catch (error) {
@@ -2974,7 +3143,11 @@ export function FavoriteLedgerPanel({
   const selectableOldFavoriteItems = useMemo(
     () =>
       preview?.items
-        .filter((item) => selectedOldFavoriteSourceFolderTitles.has(item.sourceFolderTitle))
+        .filter((item) =>
+          (item.sourceFolderTitles ?? [item.sourceFolderTitle]).some((title) =>
+            selectedOldFavoriteSourceFolderTitles.has(title)
+          )
+        )
         .map((item) => itemWithSelectedCandidateTargets(item, selectedCandidateKeys)) ?? [],
     [preview, selectedOldFavoriteSourceFolderTitles, selectedCandidateKeys]
   )
@@ -2986,9 +3159,82 @@ export function FavoriteLedgerPanel({
     for (const folder of preview?.insights?.sourceFolders ?? []) {
       sourceFolderCounts.set(folder.name, folder.count)
     }
+    for (const item of baseScanPreview?.scanContext?.protectedVideos ?? []) {
+      for (const title of item.sourceFolderTitles ?? []) {
+        sourceFolderCounts.set(title, (sourceFolderCounts.get(title) ?? 0) + 1)
+      }
+    }
 
     return Array.from(sourceFolderCounts, ([name, count]) => ({ name, count }))
-  }, [preview])
+  }, [baseScanPreview, preview])
+  const protectedOldFavoriteCount = baseScanPreview?.scanContext?.protectedVideos.length ?? 0
+  const selectedProtectedOldFavorites = useMemo(
+    () =>
+      (baseScanPreview?.scanContext?.protectedVideos ?? []).filter(
+        (item) =>
+          !reorganizedProtectedAids.has(item.aid) &&
+          (item.sourceFolderTitles ?? []).some((title) =>
+            selectedOldFavoriteSourceFolderTitles.has(title)
+          )
+      ),
+    [baseScanPreview, reorganizedProtectedAids, selectedOldFavoriteSourceFolderTitles]
+  )
+  const activeOldFavoriteCount = baseScanPreview?.items.length ?? preview?.items.length ?? 0
+  const totalScannedOldFavoriteCount =
+    baseScanPreview?.scanContext?.totalUniqueVideos ??
+    (preview?.insights?.totalVideos ?? preview?.items.length ?? 0)
+
+  function protectedVideosAsSourceFolders(aids: Set<number>): FavoriteSourceFolder[] {
+    const folders = new Map<string, FavoriteSourceFolder>()
+    for (const video of baseScanPreview?.scanContext?.protectedVideos ?? []) {
+      if (!aids.has(video.aid)) continue
+      const index = Math.max(
+        0,
+        (video.sourceFolderTitles ?? []).findIndex((title) =>
+          selectedOldFavoriteSourceFolderTitles.has(title)
+        )
+      )
+      const id = video.sourceFolderIds?.[index] ?? `protected-${video.aid}`
+      const title = video.sourceFolderTitles?.[index] ?? '已整理收藏'
+      const folder = folders.get(id) ?? { id, title, videos: [] }
+      folder.videos.push({ ...video, reorganizeProtected: true })
+      folders.set(id, folder)
+    }
+    return Array.from(folders.values())
+  }
+
+  function applyProtectedReorganization(aids: Set<number>) {
+    const context = baseScanPreview?.scanContext
+    if (!context) return
+    const nextPreview = createFavoriteLedgerPreview({
+      ledgers: draftLedgers,
+      sourceFolders: [...context.activeSourceFolders, ...protectedVideosAsSourceFolders(aids)],
+      targetMembership: context.targetMembership,
+      multiArchiveMode: context.multiArchiveMode
+    })
+    nextPreview.scanContext = context
+    const normalizedPreview = {
+      ...nextPreview,
+      items: normalizeOldFavoritePreviewItems(nextPreview.items, draftLedgers)
+    }
+    setPreview(normalizedPreview)
+    setArchivePlanState(createArchivePlanStateFromPreviewItems(normalizedPreview.items, selectedCandidateKeys))
+  }
+
+  function confirmProtectedReorganization() {
+    const next = new Set(reorganizedProtectedAids)
+    for (const item of selectedProtectedOldFavorites) next.add(item.aid)
+    setReorganizedProtectedAids(next)
+    setProtectedReorganizationConfirming(false)
+    applyProtectedReorganization(next)
+  }
+
+  function restoreProtectedFavorites() {
+    if (!baseScanPreview) return
+    setReorganizedProtectedAids(new Set())
+    setPreview(baseScanPreview)
+    setArchivePlanState(createArchivePlanStateFromPreviewItems(baseScanPreview.items, selectedCandidateKeys))
+  }
   const oldFavoriteUserSourceFolders = useMemo(
     () => oldFavoriteSourceFolders.filter((folder) => !isBilimiManagedLedgerName(folder.name)),
     [oldFavoriteSourceFolders]
@@ -3010,6 +3256,27 @@ export function FavoriteLedgerPanel({
       }),
     [archiveExecutionLedgers, archivePlanState, selectableOldFavoriteItems]
   )
+  const protectedReconciliationSummary = useMemo(() => {
+    let addCount = 0
+    let removeCount = 0
+    let unchangedCount = 0
+    for (const item of selectedOldFavoritePlanItems.filter((item) => item.reorganizeProtected)) {
+      const desiredFolderIds = uniqueLedgerIds(item.desiredTargetFolderIds ?? [])
+      const currentFolderIds = uniqueLedgerIds(item.currentBilimiFolderIds ?? [])
+      const hasAdded = desiredFolderIds.some((folderId) => !currentFolderIds.includes(folderId))
+      const hasRemoved = currentFolderIds.some((folderId) => !desiredFolderIds.includes(folderId))
+      if (hasAdded) addCount += 1
+      if (hasRemoved) removeCount += 1
+      if (!hasAdded && !hasRemoved) unchangedCount += 1
+    }
+
+    return {
+      total: selectedOldFavoritePlanItems.filter((item) => item.reorganizeProtected).length,
+      addCount,
+      removeCount,
+      unchangedCount
+    }
+  }, [selectedOldFavoritePlanItems])
   const previewScopedPendingItems = useMemo(
     () =>
       selectableOldFavoriteItems.filter((item) => {
@@ -3378,6 +3645,21 @@ export function FavoriteLedgerPanel({
     const visibleTagsText = oldFavoriteVisibleTagsText(item)
     const confidenceTitle = lowConfidenceDetailText(item)
     const confidenceText = classificationConfidenceText(item)
+    const currentBilimiFolderIds = uniqueLedgerIds(item.currentBilimiFolderIds ?? [])
+    const desiredLedgerIds = uniqueLedgerIds(item.currentTargetLedgerIds ?? [])
+    const desiredFolders = desiredLedgerIds
+      .map((ledgerId) => draftLedgers.find((ledger) => ledger.id === ledgerId))
+      .filter((ledger): ledger is FavoriteLedger => Boolean(ledger?.bilibiliFolderId))
+    const desiredFolderIds = desiredFolders.map((ledger) => ledger.bilibiliFolderId ?? '')
+    const addedFolderNames = desiredFolders
+      .filter((ledger) => !currentBilimiFolderIds.includes(ledger.bilibiliFolderId ?? ''))
+      .map((ledger) => ledger.displayName)
+    const removedFolderNames = currentBilimiFolderIds
+      .filter((folderId) => !desiredFolderIds.includes(folderId))
+      .map(
+        (folderId) =>
+          preview?.scanContext?.managedFolders.find((folder) => folder.id === folderId)?.title ?? folderId
+      )
 
     return (
       <span className="favorite-ledger-panel__preview-video-meta">
@@ -3386,6 +3668,16 @@ export function FavoriteLedgerPanel({
         <small title={allTagsText || visibleTagsText}>标签：{visibleTagsText}</small>
         <small title={confidenceTitle}>{confidenceText}</small>
         {target?.alreadyInTarget ? <small title="已在目标">已在目标</small> : null}
+        {item.reorganizeProtected ? (
+          <span className="favorite-ledger-panel__reconciliation-delta">
+            {addedFolderNames.length > 0 ? <small>将加入：{addedFolderNames.join('、')}</small> : null}
+            {removedFolderNames.length > 0 ? <small>将移出：{removedFolderNames.join('、')}</small> : null}
+            {addedFolderNames.length === 0 && removedFolderNames.length === 0 ? (
+              <small>保持当前 Bilimi 归档</small>
+            ) : null}
+            <small>普通收藏：保持不变</small>
+          </span>
+        ) : null}
       </span>
     )
   }
@@ -3833,7 +4125,9 @@ export function FavoriteLedgerPanel({
               {preview.insights ? (
                 <>
                   <p className="favorite-ledger-panel__step-note">
-                    共扫描 {preview.insights.totalVideos} 条旧藏，生成 {preview.insights.candidateLedgers.length} 个候选收藏夹
+                    {preview.scanContext
+                      ? `共扫描 ${totalScannedOldFavoriteCount} 条旧藏，其中 ${activeOldFavoriteCount} 条进入本轮整理，${protectedOldFavoriteCount} 条之前已整理，本轮保持原归档。`
+                      : `共扫描 ${preview.insights.totalVideos} 条旧藏，生成 ${preview.insights.candidateLedgers.length} 个候选收藏夹`}
                   </p>
                   {tagDetailFailureCount > 0 ? (
                     <p className="favorite-ledger-panel__scan-warning">
@@ -3863,15 +4157,54 @@ export function FavoriteLedgerPanel({
                     <strong>{previewScopedPendingItems.length}</strong>
                   </article>
                   <article>
-                    <span>已存在</span>
-                    <strong>{alreadyInTargetOldFavoriteCount}</strong>
+                    <span>{preview.scanContext ? '已整理跳过' : '已存在'}</span>
+                    <strong>{preview.scanContext ? protectedOldFavoriteCount : alreadyInTargetOldFavoriteCount}</strong>
                   </article>
                   <article>
                     <span>跳过来源</span>
                     <strong>{skippedSourceFolderCount}</strong>
                   </article>
                 </div>
+                {preview.scanContext && protectedOldFavoriteCount > 0 ? (
+                  <div className="favorite-ledger-panel__protected-summary">
+                    {reorganizedProtectedAids.size > 0 ? (
+                      <>
+                        <span>已重新纳入 {reorganizedProtectedAids.size}</span>
+                        <button type="button" onClick={restoreProtectedFavorites}>恢复保护</button>
+                      </>
+                    ) : (
+                      <>
+                        <small>之前已经确认整理的收藏，本轮不会重新判断，也不会改变原来的归档。</small>
+                        <button
+                          type="button"
+                          aria-label="重新整理这些收藏"
+                          disabled={selectedProtectedOldFavorites.length === 0}
+                          onClick={() => setProtectedReorganizationConfirming(true)}
+                        >
+                          重新整理这些收藏 {selectedProtectedOldFavorites.length}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ) : null}
               </section>
+              {protectedReorganizationConfirming ? (
+                <div
+                  className="favorite-ledger-panel__execution-dialog"
+                  role="alertdialog"
+                  aria-modal="true"
+                  aria-label="确认重新整理已整理收藏？"
+                >
+                  <h4>确认重新整理已整理收藏？</h4>
+                  <p>
+                    将把当前来源中已整理的 {selectedProtectedOldFavorites.length} 条重新加入本轮判断，并按后台收藏夹数量设置重新收敛 Bilimi 归档。用户原有普通收藏不会改变。
+                  </p>
+                  <div className="favorite-ledger-panel__execution-dialog-actions">
+                    <button type="button" onClick={() => setProtectedReorganizationConfirming(false)}>取消</button>
+                    <button type="button" onClick={confirmProtectedReorganization}>继续重新整理</button>
+                  </div>
+                </div>
+              ) : null}
               {preview.insights ? (
                 <>
                   <hr className="favorite-ledger-panel__step-divider" aria-hidden="true" />
@@ -4353,6 +4686,15 @@ export function FavoriteLedgerPanel({
                     <p className="favorite-ledger-panel__confirm-warning" role="alert">
                       {oldFavoriteTargetWarning}
                     </p>
+                  ) : null}
+                  {protectedReconciliationSummary.total > 0 ? (
+                    <>
+                      <p>
+                        重新整理 {protectedReconciliationSummary.total} 条：{protectedReconciliationSummary.addCount} 条将加入，
+                        {protectedReconciliationSummary.removeCount} 条将移出，{protectedReconciliationSummary.unchangedCount} 条保持当前 Bilimi 归档。
+                      </p>
+                      <p>普通收藏保持不变。</p>
+                    </>
                   ) : null}
                   <p>{OLD_FAVORITE_EXECUTION_NOTICE}</p>
                   {oldFavoriteExecutionProgress ? (

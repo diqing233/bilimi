@@ -84,6 +84,12 @@ function createFakeStore(
       DEFAULT_ASSISTANT_PREFERENCES.favoriteCorrectionLearningClassificationEnabled,
     favoriteCorrectionRecords:
       initial.favoriteCorrectionRecords ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteCorrectionRecords,
+    favoriteArchiveProtectionRecords:
+      initial.favoriteArchiveProtectionRecords ??
+      DEFAULT_ASSISTANT_PREFERENCES.favoriteArchiveProtectionRecords,
+    favoriteArchiveProtectionInitializedAccountMids:
+      initial.favoriteArchiveProtectionInitializedAccountMids ??
+      DEFAULT_ASSISTANT_PREFERENCES.favoriteArchiveProtectionInitializedAccountMids,
     favoriteKeywordSuggestions:
       initial.favoriteKeywordSuggestions ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteKeywordSuggestions,
     defaultCoinCount: initial.defaultCoinCount ?? DEFAULT_ASSISTANT_PREFERENCES.defaultCoinCount,
@@ -245,6 +251,74 @@ describe('assistant preference store helpers', () => {
       favoriteCorrectionRecords: [],
       favoriteKeywordSuggestions: []
     })
+  })
+
+  it('loads and saves normalized favorite archive protection records', () => {
+    const store = createFakeStore({
+      favoriteArchiveProtectionRecords: [
+        {
+          accountMid: '42',
+          aid: 7,
+          targetLedgerIds: ['game', 'game'],
+          targetFolderIds: ['9001', '9001'],
+          completedAt: '2026-07-10T00:00:00.000Z'
+        },
+        { accountMid: '', aid: 8 } as never
+      ]
+    })
+
+    expect(loadAssistantPreferences(store).favoriteArchiveProtectionRecords).toEqual([
+      {
+        accountMid: '42',
+        aid: 7,
+        targetLedgerIds: ['game'],
+        targetFolderIds: ['9001'],
+        completedAt: '2026-07-10T00:00:00.000Z'
+      }
+    ])
+
+    const saved = saveAssistantPreferences(store, {
+      ...DEFAULT_ASSISTANT_PREFERENCES,
+      favoriteArchiveProtectionRecords: [
+        {
+          accountMid: '42',
+          aid: 9,
+          targetLedgerIds: ['knowledge', 'knowledge'],
+          targetFolderIds: ['9002'],
+          completedAt: '2026-07-10T01:00:00.000Z'
+        }
+      ]
+    })
+
+    expect(saved.favoriteArchiveProtectionRecords).toEqual([
+      {
+        accountMid: '42',
+        aid: 9,
+        targetLedgerIds: ['knowledge'],
+        targetFolderIds: ['9002'],
+        completedAt: '2026-07-10T01:00:00.000Z'
+      }
+    ])
+  })
+
+  it('defaults favorite archive protection records for legacy stores', () => {
+    const store = createFakeStore()
+    delete (store.snapshot as Partial<DesktopStoreState>).favoriteArchiveProtectionRecords
+
+    expect(loadAssistantPreferences(store).favoriteArchiveProtectionRecords).toEqual([])
+  })
+
+  it('normalizes accounts that completed the legacy favorite archive migration', () => {
+    const store = createFakeStore({
+      favoriteArchiveProtectionInitializedAccountMids: ['42', '42', ' ', '99']
+    })
+
+    expect(loadAssistantPreferences(store).favoriteArchiveProtectionInitializedAccountMids).toEqual(['42', '99'])
+    const saved = saveAssistantPreferences(store, {
+      ...DEFAULT_ASSISTANT_PREFERENCES,
+      favoriteArchiveProtectionInitializedAccountMids: ['7', '7', ' ']
+    })
+    expect(saved.favoriteArchiveProtectionInitializedAccountMids).toEqual(['7'])
   })
 
   it('defaults and persists DeepSeek daily classification preferences', () => {

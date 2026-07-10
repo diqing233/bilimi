@@ -445,6 +445,361 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('已扫描 2 条旧藏，可勾选后整理。')).toBeInTheDocument()
   })
 
+  it('shows protected counts and temporarily reintroduces only selected-source favorites', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.scanContext = {
+      accountMid: '42',
+      totalUniqueVideos: 4,
+      activeSourceFolders: [
+        {
+          id: 'source-1',
+          title: '默认收藏夹',
+          videos: preview.items.map((item) => ({
+            aid: item.aid,
+            title: item.title,
+            description: item.description,
+            tags: item.tags,
+            sourceFolderIds: ['source-1'],
+            sourceFolderTitles: ['默认收藏夹'],
+            currentBilimiFolderIds: []
+          }))
+        }
+      ],
+      protectedVideos: [
+        {
+          aid: 801,
+          title: '默认来源已整理',
+          tags: ['游戏'],
+          sourceFolderIds: ['source-1'],
+          sourceFolderTitles: ['默认收藏夹'],
+          currentBilimiFolderIds: ['9002'],
+          protectedForIncrementalScan: true
+        },
+        {
+          aid: 802,
+          title: '旅行来源已整理',
+          tags: ['旅行'],
+          sourceFolderIds: ['source-2'],
+          sourceFolderTitles: ['旅行收藏'],
+          currentBilimiFolderIds: ['9005'],
+          protectedForIncrementalScan: true
+        }
+      ],
+      managedFolders: [
+        { id: '9002', title: 'bilimi·游戏专区', ledgerId: 'game', isInbox: false },
+        { id: '9005', title: 'bilimi·生活日常', ledgerId: 'life-interest', isInbox: false }
+      ],
+      targetMembership: { '9002': [801], '9005': [802] },
+      multiArchiveMode: 'off'
+    }
+    const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
+    renderPanel({ onScanOldFavorites })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+
+    expect(
+      screen.getByText('共扫描 4 条旧藏，其中 2 条进入本轮整理，2 条之前已整理，本轮保持原归档。')
+    ).toBeInTheDocument()
+    expect(screen.getByText('已整理跳过')).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('整理来源 旅行收藏'))
+    expect(screen.getByRole('button', { name: '重新整理这些收藏' })).toHaveTextContent('1')
+    expect(screen.queryByText('默认来源已整理')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '重新整理这些收藏' }))
+    const dialog = screen.getByRole('alertdialog', { name: '确认重新整理已整理收藏？' })
+    expect(dialog).toHaveTextContent('当前来源中已整理的 1 条')
+    fireEvent.click(within(dialog).getByRole('button', { name: '继续重新整理' }))
+
+    expect(screen.getByText('已重新纳入 1')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '恢复保护' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    expect(screen.getAllByText('默认来源已整理').length).toBeGreaterThan(0)
+    expect(screen.queryByText('旅行来源已整理')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '扫描概览' }))
+    fireEvent.click(screen.getByRole('button', { name: '恢复保护' }))
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    expect(screen.queryByText('默认来源已整理')).not.toBeInTheDocument()
+  })
+
+  it('executes a protected multi-target reorganization as one reconciled video plan', async () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
+      if (ledger.id === 'knowledge') return { ...ledger, bilibiliFolderId: '9001' }
+      if (ledger.id === 'game') return { ...ledger, bilibiliFolderId: '9002' }
+      return ledger
+    })
+    const preview: FavoriteLedgerPreview = {
+      items: [],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 0,
+        topAuthors: [],
+        topTags: [],
+        topCategories: [],
+        sourceFolders: [],
+        titleSeries: [],
+        candidateLedgers: []
+      },
+      scanContext: {
+        accountMid: '42',
+        totalUniqueVideos: 1,
+        activeSourceFolders: [],
+        protectedVideos: [
+          {
+            aid: 801,
+            title: '需要双目标重新整理',
+            tags: ['知识', '游戏'],
+            sourceFolderIds: ['source-1'],
+            sourceFolderTitles: ['默认收藏夹'],
+            currentBilimiFolderIds: ['9001'],
+            protectedForIncrementalScan: true
+          }
+        ],
+        managedFolders: [
+          { id: '9001', title: 'bilimi·知识学习', ledgerId: 'knowledge', isInbox: false },
+          { id: '9002', title: 'bilimi·游戏专区', ledgerId: 'game', isInbox: false }
+        ],
+        targetMembership: { '9001': [801], '9002': [] },
+        multiArchiveMode: 'two'
+      }
+    }
+    const onExecuteOldFavoritePlan = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: [],
+      missingTargets: [],
+      completedItems: [],
+      message: 'done'
+    })
+    renderPanel({
+      ledgers,
+      favoriteArchiveMultiMode: 'two',
+      onScanOldFavorites: vi.fn().mockResolvedValue(preview),
+      onExecuteOldFavoritePlan
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '重新整理这些收藏' }))
+    fireEvent.click(screen.getByRole('button', { name: '继续重新整理' }))
+    await screen.findByText('已重新纳入 1')
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    const item = (await screen.findByText('需要双目标重新整理')).closest('article')!
+    fireEvent.change(within(item).getByLabelText('调整分类 需要双目标重新整理'), {
+      target: { value: 'game' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    confirmOldFavoriteExecution()
+
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce())
+    expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([
+      expect.objectContaining({
+        aid: 801,
+        reorganizeProtected: true,
+        currentBilimiFolderIds: ['9001'],
+        desiredTargetFolderIds: expect.arrayContaining(['9001', '9002'])
+      })
+    ])
+  })
+
+  it('records complete protected reorganization results and shows Bilimi reconciliation deltas', async () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
+      if (ledger.id === 'knowledge') return { ...ledger, bilibiliFolderId: '9001' }
+      if (ledger.id === 'game') return { ...ledger, bilibiliFolderId: '9002' }
+      return ledger
+    })
+    const preview: FavoriteLedgerPreview = {
+      items: [],
+      skippedSourceFolderTitles: [],
+      insights: {
+        totalVideos: 0,
+        topAuthors: [],
+        topTags: [],
+        topCategories: [],
+        sourceFolders: [],
+        titleSeries: [],
+        candidateLedgers: []
+      },
+      scanContext: {
+        accountMid: '42',
+        totalUniqueVideos: 1,
+        activeSourceFolders: [],
+        protectedVideos: [
+          {
+            aid: 801,
+            title: '需要迁移归档',
+            tags: ['游戏'],
+            sourceFolderIds: ['source-1'],
+            sourceFolderTitles: ['默认收藏夹'],
+            currentBilimiFolderIds: ['9001'],
+            protectedForIncrementalScan: true
+          }
+        ],
+        managedFolders: [
+          { id: '9001', title: 'bilimi·知识学习', ledgerId: 'knowledge', isInbox: false },
+          { id: '9002', title: 'bilimi·游戏专区', ledgerId: 'game', isInbox: false }
+        ],
+        targetMembership: { '9001': [801], '9002': [] },
+        multiArchiveMode: 'off'
+      }
+    }
+    const onExecuteOldFavoritePlan = vi.fn().mockImplementation(async ([item]) => ({
+      ok: true,
+      steps: [],
+      missingTargets: [],
+      completedItems: [{ ...item, finalFolderIds: ['9002'], addedFolderIds: ['9002'], removedFolderIds: ['9001'] }],
+      message: 'done'
+    }))
+    const onConfirmArchiveProtections = vi.fn()
+    renderPanel({
+      ledgers,
+      onScanOldFavorites: vi.fn().mockResolvedValue(preview),
+      onExecuteOldFavoritePlan,
+      onConfirmArchiveProtections
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '重新整理这些收藏' }))
+    fireEvent.click(screen.getByRole('button', { name: '继续重新整理' }))
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+
+    const item = (await screen.findByText('需要迁移归档')).closest('article')!
+    expect(within(item).getByText('将加入：bilimi·游戏专区')).toBeInTheDocument()
+    expect(within(item).getByText('将移出：bilimi·知识学习')).toBeInTheDocument()
+    expect(within(item).getByText('普通收藏：保持不变')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    expect(screen.getByText('重新整理 1 条：1 条将加入，1 条将移出，0 条保持当前 Bilimi 归档。')).toBeInTheDocument()
+    expect(screen.getByText('普通收藏保持不变。')).toBeInTheDocument()
+    confirmOldFavoriteExecution()
+
+    await waitFor(() =>
+      expect(onConfirmArchiveProtections).toHaveBeenCalledWith([
+        expect.objectContaining({
+          accountMid: '42',
+          aid: 801,
+          targetLedgerIds: ['game'],
+          targetFolderIds: ['9002'],
+          completedAt: expect.any(String)
+        })
+      ])
+    )
+  })
+
+  it('reports partial old favorite results separately from complete failures', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.items = [
+      preview.items[0],
+      {
+        ...preview.items[0],
+        aid: 703,
+        title: '完全失败的视频'
+      }
+    ]
+    const onExecuteOldFavoritePlan = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, partial: true, steps: [], missingTargets: [], completedItems: [], message: 'partial' })
+      .mockResolvedValueOnce({ ok: false, steps: [], missingTargets: [], completedItems: [], message: 'failed' })
+    const onOldFavoriteStatusUpdate = vi.fn()
+    renderPanel({
+      onScanOldFavorites: vi.fn().mockResolvedValue(preview),
+      onExecuteOldFavoritePlan,
+      onOldFavoriteStatusUpdate
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    confirmOldFavoriteExecution()
+
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(2))
+    expect(screen.getByText('本次整理已结束，0 条成功，1 条部分完成，1 条失败。')).toBeInTheDocument()
+    expect(onOldFavoriteStatusUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ label: '整理未完全成功', tone: 'error' })
+    )
+  })
+
+  it('protects a normal video only after every selected target completes successfully', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.scanContext = {
+      accountMid: '42',
+      totalUniqueVideos: 2,
+      activeSourceFolders: [],
+      protectedVideos: [],
+      managedFolders: [],
+      targetMembership: {},
+      multiArchiveMode: 'two'
+    }
+    preview.items[0] = {
+      ...preview.items[0],
+      targets: [
+        { ledgerId: 'knowledge', folderId: '9001', displayName: 'bilimi·知识学习', keywords: [], alreadyInTarget: false, selected: true },
+        { ledgerId: 'game', folderId: '9002', displayName: 'bilimi·游戏专区', keywords: [], alreadyInTarget: false, selected: true }
+      ],
+      originalSuggestedLedgerIds: ['knowledge', 'game'],
+      currentTargetLedgerIds: ['knowledge', 'game'],
+      selectedTargetLedgerIds: ['knowledge', 'game']
+    }
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
+      if (ledger.id === 'knowledge') return { ...ledger, bilibiliFolderId: '9001' }
+      if (ledger.id === 'game') return { ...ledger, bilibiliFolderId: '9002' }
+      return ledger
+    })
+    const onExecuteOldFavoritePlan = vi
+      .fn()
+      .mockImplementationOnce(async ([item]) => ({ ok: true, steps: [], missingTargets: [], completedItems: [item], message: 'done' }))
+      .mockImplementationOnce(async () => ({ ok: false, partial: true, steps: [], missingTargets: ['9002'], completedItems: [], message: 'failed' }))
+    const onConfirmArchiveProtections = vi.fn()
+    renderPanel({
+      ledgers,
+      favoriteArchiveMultiMode: 'two',
+      onScanOldFavorites: vi.fn().mockResolvedValue(preview),
+      onExecuteOldFavoritePlan,
+      onConfirmArchiveProtections
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    confirmOldFavoriteExecution()
+
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(2))
+    expect(onConfirmArchiveProtections).not.toHaveBeenCalled()
+  })
+
+
+  it('requires a rescan when the target-count setting changed after scanning', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.scanContext = {
+      accountMid: '42',
+      totalUniqueVideos: 2,
+      activeSourceFolders: [],
+      protectedVideos: [],
+      managedFolders: [],
+      targetMembership: {},
+      multiArchiveMode: 'off'
+    }
+    const onExecuteOldFavoritePlan = vi.fn()
+    renderPanel({
+      favoriteArchiveMultiMode: 'two',
+      onScanOldFavorites: vi.fn().mockResolvedValue(preview),
+      onExecuteOldFavoritePlan
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    confirmOldFavoriteExecution()
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '后台收藏夹数量设置已变化，请重新扫描后确认。'
+    )
+    expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
+  })
+
   it('toggles matched archive cards by clicking the card body', async () => {
     const { container } = await openArchivePreview()
     const previewVideo = getPreviewVideoButton(container, /AI 效率工具实战/)
@@ -2856,6 +3211,7 @@ describe('FavoriteLedgerPanel', () => {
           aid: 101,
           title: '机器学习科普教程',
           sourceFolderTitle: '默认收藏夹',
+          sourceFolderTitles: ['默认收藏夹', '旅行收藏'],
           targetLedgerId: 'knowledge',
           targetFolderId: '9001',
           targetDisplayName: 'Bilimi路知识',
@@ -3745,6 +4101,7 @@ describe('FavoriteLedgerPanel', () => {
           aid: 101,
           title: '机器学习科普教程',
           sourceFolderTitle: '默认收藏夹',
+          sourceFolderTitles: ['默认收藏夹', '旅行收藏'],
           targetLedgerId: 'knowledge',
           targetFolderId: '9001',
           targetDisplayName: 'bilimi·知识学习',
@@ -3800,17 +4157,14 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
 
-    fireEvent.click(screen.getByLabelText('整理来源 旅行收藏'))
+    fireEvent.click(screen.getByLabelText('整理来源 默认收藏夹'))
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
 
     expect(screen.getByText('机器学习科普教程')).toBeInTheDocument()
-    expect(screen.queryByText('东京旅行攻略')).not.toBeInTheDocument()
+    expect(screen.getByText('东京旅行攻略')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
-    expect(screen.getByText('已选择 1 条归档任务')).toBeInTheDocument()
-    confirmOldFavoriteExecution()
-
-    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([preview.items[0]]))
+    expect(screen.getByText('已选择 2 条归档任务')).toBeInTheDocument()
   })
 
   it('applies selected candidate ledgers to source folders that are re-enabled later', async () => {

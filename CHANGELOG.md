@@ -6,6 +6,7 @@
 - Refined assistant status lights so long-running scan, DeepSeek, transcription queue, and old-favorite organization states stay visible without occupying the realtime feedback line.
 - Updated the in-app browser tab strip so multiple open video tabs compress before horizontal scrolling, without leading tab icons.
 - Improved old-favorite archive preview with stronger local classification, editable and reversible target choices, optional DeepSeek-assisted organization, and safer correction/keyword learning settings.
+- Added incremental protection for completed old-favorite organization, with source-scoped reorganization that safely reconciles only Bilimi-managed folders to the configured target limit.
 - Added DeepSeek constraint favorite ledgers so enabled folders can provide AI-only classification guidance without affecting local keyword matching.
 - Scoped classification learning so only DeepSeek produces reviewable keyword suggestions, while correction records are kept as reference evidence instead of direct local-classification inputs.
 - Locked the default favorite categories to keyword rules while keeping names and keywords editable, with a warning when non-staging defaults lose all local keywords.

@@ -51,6 +51,11 @@ import {
   type FavoriteLedgerPreviewItem,
   type FavoriteSourceFolder
 } from './features/favorites/favoriteLedgerPreview'
+import {
+  partitionFavoriteArchiveSources,
+  upsertFavoriteArchiveProtectionRecords,
+  type FavoriteArchiveManagedFolder
+} from '@shared/favoriteArchiveProtection'
 import { createLocalVideoNoteDraft } from './features/notes/videoNoteSummarizer'
 import { parseManualTranscript } from './features/notes/transcriptNormalizer'
 import { recordAssistantPreferenceFeedback } from './features/state/assistantState'
@@ -1011,8 +1016,11 @@ export default function App() {
     const scanResult = await runScript(
       buildScanOldFavoritesScript(preferences.favoriteLedgers)
     ) as AssistantAutomationResult & {
+      accountMid?: string
       sourceFolders?: FavoriteSourceFolder[]
       targetMembership?: Record<string, number[]>
+      managedFolders?: FavoriteArchiveManagedFolder[]
+      managedFolderScanComplete?: boolean
       skippedSourceFolderTitles?: string[]
       scanDiagnostics?: FavoriteLedgerPreview['scanDiagnostics']
     }
@@ -1026,14 +1034,72 @@ export default function App() {
       }
     }
 
+    if (scanResult.managedFolderScanComplete === false) {
+      return {
+        ok: false,
+        message: 'Bilimi 收藏夹读取不完整，请稍后重试。',
+        items: [],
+        skippedSourceFolderTitles: scanResult.skippedSourceFolderTitles ?? []
+      }
+    }
+
+    const multiArchiveMode = options.multiArchiveMode ?? preferences.favoriteArchiveMultiMode
+    const partition = partitionFavoriteArchiveSources({
+      accountMid: scanResult.accountMid ?? '',
+      sourceFolders: scanResult.sourceFolders,
+      managedFolders: scanResult.managedFolders ?? [],
+      targetMembership: scanResult.targetMembership,
+      protectionRecords: preferences.favoriteArchiveProtectionRecords ?? [],
+      initializeExistingMembership: !(
+        preferences.favoriteArchiveProtectionInitializedAccountMids ?? []
+      ).includes(scanResult.accountMid ?? '')
+    })
+
+    const shouldMarkProtectionMigrationComplete =
+      Boolean(scanResult.accountMid) &&
+      (scanResult.skippedSourceFolderTitles?.length ?? 0) === 0 &&
+      !(preferences.favoriteArchiveProtectionInitializedAccountMids ?? []).includes(
+        scanResult.accountMid ?? ''
+      )
+    if (partition.initializedProtectionRecords.length > 0 || shouldMarkProtectionMigrationComplete) {
+      const nextPreferences = createInitialAssistantPreferences({
+        ...preferences,
+        favoriteArchiveProtectionRecords: upsertFavoriteArchiveProtectionRecords(
+          preferences.favoriteArchiveProtectionRecords ?? [],
+          partition.initializedProtectionRecords
+        ),
+        favoriteArchiveProtectionInitializedAccountMids: Array.from(
+          new Set([
+            ...(preferences.favoriteArchiveProtectionInitializedAccountMids ?? []),
+            ...(shouldMarkProtectionMigrationComplete ? [scanResult.accountMid ?? ''] : [])
+          ].filter(Boolean))
+        )
+      })
+      setPreferences(nextPreferences)
+      if (window.bilimiDesktop?.savePreferences) {
+        const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
+        setPreferences(createInitialAssistantPreferences(saved))
+      }
+    }
+
     const preview = createFavoriteLedgerPreview({
       ledgers: preferences.favoriteLedgers,
-      sourceFolders: scanResult.sourceFolders,
+      sourceFolders: partition.activeSourceFolders,
       targetMembership: scanResult.targetMembership,
       skippedSourceFolderTitles: scanResult.skippedSourceFolderTitles,
       scanDiagnostics: scanResult.scanDiagnostics,
-      multiArchiveMode: options.multiArchiveMode ?? preferences.favoriteArchiveMultiMode
+      multiArchiveMode
     })
+
+    preview.scanContext = {
+      accountMid: scanResult.accountMid ?? '',
+      totalUniqueVideos: partition.totalUniqueVideos,
+      activeSourceFolders: partition.activeSourceFolders,
+      protectedVideos: partition.protectedVideos,
+      managedFolders: scanResult.managedFolders ?? [],
+      targetMembership: scanResult.targetMembership,
+      multiArchiveMode
+    }
 
     return preview
   }

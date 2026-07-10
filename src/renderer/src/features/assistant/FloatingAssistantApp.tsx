@@ -6,6 +6,7 @@ import type {
   DeepSeekGenerateResult,
   DeepSeekTaskKind,
   FavoriteCorrectionRecord,
+  FavoriteArchiveProtectionRecord,
   AssistantPreferences,
   FavoriteKeywordSuggestion,
   FavoriteKeywordSuggestionStatus,
@@ -29,6 +30,7 @@ import {
 } from '@shared/petHoverShortcuts'
 import { createNotePosterText } from '@shared/videoNoteArchive'
 import { stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
+import { upsertFavoriteArchiveProtectionRecords } from '@shared/favoriteArchiveProtection'
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { composeMemorialComments } from '../comments/commentComposer'
 import { classifyVideoContent } from '../recommendation/videoClassifier'
@@ -1960,6 +1962,19 @@ export function FloatingAssistantApp({
     persistPreferencePatch({ favoriteCorrectionRecords: nextRecords })
   }
 
+  function confirmArchiveProtectionRecords(records: FavoriteArchiveProtectionRecord[]) {
+    if (records.length === 0) {
+      return
+    }
+
+    persistPreferencePatch({
+      favoriteArchiveProtectionRecords: upsertFavoriteArchiveProtectionRecords(
+        preferencesRef.current.favoriteArchiveProtectionRecords ?? [],
+        records
+      )
+    })
+  }
+
   function handleOldFavoriteExecutionStateChange(state: 'running' | 'finished') {
     setOldFavoriteExecutionState(state)
     tellPet(
@@ -2116,6 +2131,7 @@ export function FloatingAssistantApp({
             onDeepSeekArchiveKeywordSuggestions={mergeDeepSeekArchiveKeywordSuggestions}
             onOpenDeepSeekSuggestions={() => openSettingsSection('learning')}
             onConfirmArchiveCorrections={confirmArchiveCorrectionRecords}
+            onConfirmArchiveProtections={confirmArchiveProtectionRecords}
             favoriteArchiveMultiMode={preferences.favoriteArchiveMultiMode}
             organizeOldFavoritesRequestSignal={organizeOldFavoritesRequestSignal}
           />

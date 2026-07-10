@@ -20,11 +20,16 @@ import {
   upsertPendingFavoriteQueueItems as mergePendingFavoriteQueueItems,
   updatePendingFavoriteQueueItemStatus as setPendingFavoriteQueueItemStatus
 } from '../../src/shared/pendingFavoriteQueue'
+import {
+  normalizeFavoriteArchiveProtectionInitializedAccountMids,
+  normalizeFavoriteArchiveProtectionRecords
+} from '../../src/shared/favoriteArchiveProtection'
 import type {
   CommentSubmitMode,
   DeepSeekKeyStatus,
   FavoriteArchiveStrategy,
   FavoriteArchiveMultiMode,
+  FavoriteArchiveProtectionRecord,
   FavoriteCorrectionFeedbackType,
   FavoriteCorrectionRecord,
   FavoriteCorrectionSource,
@@ -57,6 +62,8 @@ export type AssistantPreferences = {
   favoriteCorrectionLearningEnabled: boolean
   favoriteCorrectionLearningClassificationEnabled: boolean
   favoriteCorrectionRecords: FavoriteCorrectionRecord[]
+  favoriteArchiveProtectionRecords: FavoriteArchiveProtectionRecord[]
+  favoriteArchiveProtectionInitializedAccountMids: string[]
   favoriteKeywordSuggestions: FavoriteKeywordSuggestion[]
   defaultCoinCount: 1 | 2
   commentSubmitMode: CommentSubmitMode
@@ -106,6 +113,8 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   favoriteCorrectionLearningEnabled: true,
   favoriteCorrectionLearningClassificationEnabled: true,
   favoriteCorrectionRecords: [],
+  favoriteArchiveProtectionRecords: [],
+  favoriteArchiveProtectionInitializedAccountMids: [],
   favoriteKeywordSuggestions: [],
   defaultCoinCount: 1,
   commentSubmitMode: 'random',
@@ -345,6 +354,13 @@ export function loadAssistantPreferences(
         ? true
         : Boolean(store.get('favoriteCorrectionLearningClassificationEnabled')),
     favoriteCorrectionRecords: normalizeFavoriteCorrectionRecords(store.get('favoriteCorrectionRecords')),
+    favoriteArchiveProtectionRecords: normalizeFavoriteArchiveProtectionRecords(
+      store.get('favoriteArchiveProtectionRecords')
+    ),
+    favoriteArchiveProtectionInitializedAccountMids:
+      normalizeFavoriteArchiveProtectionInitializedAccountMids(
+        store.get('favoriteArchiveProtectionInitializedAccountMids')
+      ),
     favoriteKeywordSuggestions: normalizeFavoriteKeywordSuggestions(store.get('favoriteKeywordSuggestions')),
     defaultCoinCount: defaultCoinCount === 2 ? 2 : 1,
     commentSubmitMode: commentSubmitMode === 'random' ? 'random' : 'choose',
@@ -408,6 +424,13 @@ export function saveAssistantPreferences(
       preferences.favoriteCorrectionLearningClassificationEnabled
     ),
     favoriteCorrectionRecords: normalizeFavoriteCorrectionRecords(preferences.favoriteCorrectionRecords),
+    favoriteArchiveProtectionRecords: normalizeFavoriteArchiveProtectionRecords(
+      preferences.favoriteArchiveProtectionRecords
+    ),
+    favoriteArchiveProtectionInitializedAccountMids:
+      normalizeFavoriteArchiveProtectionInitializedAccountMids(
+        preferences.favoriteArchiveProtectionInitializedAccountMids
+      ),
     favoriteKeywordSuggestions: normalizeFavoriteKeywordSuggestions(preferences.favoriteKeywordSuggestions),
     defaultCoinCount: preferences.defaultCoinCount === 2 ? 2 : 1,
     commentSubmitMode: preferences.commentSubmitMode === 'random' ? 'random' : 'choose',

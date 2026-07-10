@@ -30,6 +30,9 @@ describe('createFavoriteLedgerPreview', () => {
       targetLedgerId: 'inbox',
       reviewRequired: true,
       selected: false,
+      sourceFolderIds: ['1'],
+      sourceFolderTitles: ['Default favorites'],
+      currentBilimiFolderIds: [],
       currentTargetLedgerIds: [],
       selectedTargetLedgerIds: []
     })

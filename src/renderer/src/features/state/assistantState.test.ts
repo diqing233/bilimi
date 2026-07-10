@@ -332,6 +332,7 @@ describe('assistant state', () => {
       favoriteCorrectionLearningEnabled: true,
       favoriteCorrectionLearningClassificationEnabled: true,
       favoriteCorrectionRecords: [],
+      favoriteArchiveProtectionRecords: [],
       favoriteKeywordSuggestions: []
     })
 
@@ -417,5 +418,40 @@ describe('assistant state', () => {
       ],
       favoriteKeywordSuggestions: []
     })
+  })
+
+  it('normalizes favorite archive protection records from persisted preferences', () => {
+    expect(
+      createInitialAssistantPreferences({
+        favoriteArchiveProtectionRecords: [
+          {
+            accountMid: '42',
+            aid: 7,
+            targetLedgerIds: ['game', 'game'],
+            targetFolderIds: ['9001', '9001'],
+            completedAt: '2026-07-10T00:00:00.000Z'
+          },
+          { accountMid: '', aid: 8 } as never
+        ]
+      }).favoriteArchiveProtectionRecords
+    ).toEqual([
+      {
+        accountMid: '42',
+        aid: 7,
+        targetLedgerIds: ['game'],
+        targetFolderIds: ['9001'],
+        completedAt: '2026-07-10T00:00:00.000Z'
+      }
+    ])
+    expect(createInitialAssistantPreferences().favoriteArchiveProtectionRecords).toEqual([])
+  })
+
+  it('normalizes accounts that completed the legacy favorite archive migration', () => {
+    expect(
+      createInitialAssistantPreferences({
+        favoriteArchiveProtectionInitializedAccountMids: ['42', '42', ' ', '99']
+      }).favoriteArchiveProtectionInitializedAccountMids
+    ).toEqual(['42', '99'])
+    expect(createInitialAssistantPreferences().favoriteArchiveProtectionInitializedAccountMids).toEqual([])
   })
 })

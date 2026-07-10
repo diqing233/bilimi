@@ -2619,6 +2619,179 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('keeps protected favorites out of the active preview and persists legacy migration records', async () => {
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({ savePreferences })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes(OLD_FAVORITE_SCAN_SCRIPT_MARKER)) {
+          return {
+            ok: true,
+            accountMid: '42',
+            sourceFolders: [
+              {
+                id: '101',
+                title: '默认收藏夹',
+                videos: [
+                  { aid: 7, title: '旧版已整理' },
+                  { aid: 8, title: '本轮新增', description: '教程学习' }
+                ]
+              }
+            ],
+            managedFolders: [
+              { id: '9001', title: 'bilimi·知识学习', ledgerId: 'knowledge', isInbox: false }
+            ],
+            managedFolderScanComplete: true,
+            targetMembership: { '9001': [7] },
+            skippedSourceFolderTitles: [],
+            steps: [],
+            missingTargets: [],
+            message: 'old favorites scanned'
+          }
+        }
+        return emptyLedgerStatus()
+      })
+    })
+
+    const preview = await requestRuntime({ id: 'scan-protected-1', type: 'scan-old-favorites' })
+
+    expect(preview).toEqual(
+      expect.objectContaining({
+        items: [expect.objectContaining({ aid: 8 })],
+        scanContext: expect.objectContaining({
+          accountMid: '42',
+          totalUniqueVideos: 2,
+          protectedVideos: [expect.objectContaining({ aid: 7 })]
+        })
+      })
+    )
+    expect(savePreferences).toHaveBeenCalledWith(
+      expect.objectContaining({
+        favoriteArchiveProtectionRecords: [
+          expect.objectContaining({
+            accountMid: '42',
+            aid: 7,
+            targetLedgerIds: ['knowledge'],
+            targetFolderIds: ['9001']
+          })
+        ],
+        favoriteArchiveProtectionInitializedAccountMids: ['42']
+      })
+    )
+  })
+
+  it('keeps unrecorded partial Bilimi memberships active after migration is complete', async () => {
+    const preferences = createAppPreferences({
+      favoriteArchiveProtectionInitializedAccountMids: ['42']
+    })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge()
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) =>
+        script.includes(OLD_FAVORITE_SCAN_SCRIPT_MARKER)
+          ? {
+              ok: true,
+              accountMid: '42',
+              sourceFolders: [
+                { id: '101', title: '默认收藏夹', videos: [{ aid: 9, title: '上次只完成一部分' }] }
+              ],
+              managedFolders: [
+                { id: '9001', title: 'bilimi·知识学习', ledgerId: 'knowledge', isInbox: false }
+              ],
+              managedFolderScanComplete: true,
+              targetMembership: { '9001': [9] },
+              skippedSourceFolderTitles: [],
+              steps: [],
+              missingTargets: [],
+              message: 'old favorites scanned'
+            }
+          : emptyLedgerStatus()
+      )
+    })
+
+    const preview = await requestRuntime({ id: 'scan-partial-1', type: 'scan-old-favorites' })
+
+    expect(preview).toEqual(
+      expect.objectContaining({
+        items: [expect.objectContaining({ aid: 9, currentBilimiFolderIds: ['9001'] })],
+        scanContext: expect.objectContaining({ protectedVideos: [] })
+      })
+    )
+  })
+
+  it('does not finish legacy migration while a source folder was skipped', async () => {
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({ savePreferences })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) =>
+        script.includes(OLD_FAVORITE_SCAN_SCRIPT_MARKER)
+          ? {
+              ok: true,
+              accountMid: '42',
+              sourceFolders: [],
+              managedFolders: [],
+              managedFolderScanComplete: true,
+              targetMembership: {},
+              skippedSourceFolderTitles: ['稍后再看'],
+              steps: [],
+              missingTargets: [],
+              message: 'old favorites scanned'
+            }
+          : emptyLedgerStatus()
+      )
+    })
+
+    await requestRuntime({ id: 'scan-migration-incomplete-1', type: 'scan-old-favorites' })
+
+    expect(savePreferences).not.toHaveBeenCalledWith(
+      expect.objectContaining({ favoriteArchiveProtectionInitializedAccountMids: ['42'] })
+    )
+  })
+
+  it('rejects old favorite plans when a Bilimi folder scan is incomplete', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) =>
+        script.includes(OLD_FAVORITE_SCAN_SCRIPT_MARKER)
+          ? {
+              ok: true,
+              accountMid: '42',
+              sourceFolders: [],
+              managedFolders: [{ id: '9001', title: 'bilimi·知识学习', isInbox: false }],
+              managedFolderScanComplete: false,
+              targetMembership: {},
+              skippedSourceFolderTitles: ['bilimi·知识学习'],
+              steps: [],
+              missingTargets: [],
+              message: 'old favorites scanned'
+            }
+          : emptyLedgerStatus()
+      )
+    })
+
+    const preview = await requestRuntime({ id: 'scan-incomplete-1', type: 'scan-old-favorites' })
+
+    expect(preview).toEqual(
+      expect.objectContaining({
+        ok: false,
+        items: [],
+        message: expect.stringContaining('Bilimi 收藏夹读取不完整')
+      })
+    )
+  })
+
   it('rejudges one old favorite from fresh Bilibili scan data', async () => {
     const preferences = createAppPreferences({
       favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) => {

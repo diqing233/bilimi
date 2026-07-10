@@ -1,6 +1,10 @@
 import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '@shared/favoriteLedgers'
 import { normalizeAssistantSidebarWidthPx } from '@shared/assistantSidebarWidth'
 import { normalizePetHoverShortcuts } from '@shared/petHoverShortcuts'
+import {
+  normalizeFavoriteArchiveProtectionInitializedAccountMids,
+  normalizeFavoriteArchiveProtectionRecords
+} from '@shared/favoriteArchiveProtection'
 import type {
   AssistantAction,
   AssistantPreferences,
@@ -147,6 +151,13 @@ export function createInitialAssistantPreferences(
         ? persisted.favoriteCorrectionLearningClassificationEnabled
         : true,
     favoriteCorrectionRecords: normalizeCorrectionRecords(persisted?.favoriteCorrectionRecords),
+    favoriteArchiveProtectionRecords: normalizeFavoriteArchiveProtectionRecords(
+      persisted?.favoriteArchiveProtectionRecords
+    ),
+    favoriteArchiveProtectionInitializedAccountMids:
+      normalizeFavoriteArchiveProtectionInitializedAccountMids(
+        persisted?.favoriteArchiveProtectionInitializedAccountMids
+      ),
     favoriteKeywordSuggestions: normalizeFavoriteKeywordSuggestions(persisted?.favoriteKeywordSuggestions),
     defaultCoinCount: normalizeDefaultCoinCount(persisted?.defaultCoinCount),
     commentSubmitMode: normalizeCommentSubmitMode(persisted?.commentSubmitMode),
