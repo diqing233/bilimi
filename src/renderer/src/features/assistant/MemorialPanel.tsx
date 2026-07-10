@@ -305,7 +305,10 @@ export function MemorialPanel({
                   ) : null
 
                 return (
-                  <div key={action} className="memorial-panel__action-card">
+                  <div
+                    key={action}
+                    className={`memorial-panel__action-card${quickSetting ? ' memorial-panel__action-card--with-setting' : ''}`}
+                  >
                     <AssistantActionButton
                       type="button"
                       data-testid={testId}

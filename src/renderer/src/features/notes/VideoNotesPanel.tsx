@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type {
   NotePosterSummary,
   TranscriptSegment,
@@ -237,6 +237,9 @@ export function VideoNotesPanel({
   } | null>(null)
   const [posterGenerating, setPosterGenerating] = useState(false)
   const [selectedQueueItemId, setSelectedQueueItemId] = useState<string | null>(null)
+  const [queueMenuOpen, setQueueMenuOpen] = useState(false)
+  const queueMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const queueMenuRef = useRef<HTMLDivElement | null>(null)
   const activeQueueItem = useMemo(
     () =>
       transcriptionQueue?.items.find((item) =>
@@ -244,13 +247,6 @@ export function VideoNotesPanel({
           ? item.id === transcriptionQueue.activeItemId
           : item.status === 'running'
       ) ?? null,
-    [transcriptionQueue]
-  )
-  const latestCompletedQueueItem = useMemo(
-    () =>
-      transcriptionQueue?.items
-        .filter((item) => item.status === 'completed')
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null,
     [transcriptionQueue]
   )
   const queueItems = useMemo(() => transcriptionQueue?.items ?? [], [transcriptionQueue])
@@ -261,9 +257,8 @@ export function VideoNotesPanel({
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null,
     [queueItems]
   )
-  const defaultVisibleQueueItem = activeQueueItem ?? latestActionableQueueItem ?? latestCompletedQueueItem
   const visibleQueueItem =
-    queueItems.find((item) => item.id === selectedQueueItemId) ?? defaultVisibleQueueItem
+    queueItems.find((item) => item.id === selectedQueueItemId) ?? activeQueueItem ?? latestActionableQueueItem
   const archivedQueueVersion = useMemo(
     () => findArchivedQueueVersion(archivedNotes, visibleQueueItem),
     [archivedNotes, visibleQueueItem]
@@ -323,6 +318,40 @@ export function VideoNotesPanel({
       setSelectedQueueItemId(null)
     }
   }, [queueItems, selectedQueueItemId])
+
+  useEffect(() => {
+    if (!queueMenuOpen) return
+
+    const focusItemId = activeQueueItem?.id ?? queueItems[0]?.id
+    const primaryButtons = queueMenuRef.current?.querySelectorAll<HTMLButtonElement>(
+      '[data-queue-item-id]'
+    )
+    const focusTarget = Array.from(primaryButtons ?? []).find(
+      (button) => button.dataset.queueItemId === focusItemId
+    )
+    focusTarget?.focus()
+
+    function handleOutsidePointerDown(event: PointerEvent): void {
+      if (!(event.target instanceof Node)) return
+      if (
+        queueMenuRef.current?.contains(event.target) ||
+        queueMenuTriggerRef.current?.contains(event.target)
+      ) {
+        return
+      }
+
+      setQueueMenuOpen(false)
+      queueMenuTriggerRef.current?.focus()
+    }
+
+    document.addEventListener('pointerdown', handleOutsidePointerDown)
+    return () => document.removeEventListener('pointerdown', handleOutsidePointerDown)
+  }, [activeQueueItem?.id, queueItems, queueMenuOpen])
+
+  function closeQueueMenuAndRestoreFocus(): void {
+    setQueueMenuOpen(false)
+    queueMenuTriggerRef.current?.focus()
+  }
 
   function setResultTab(tab: VideoNotesResultTab | null): void {
     if (controlledActiveResultTab === undefined) {
@@ -470,7 +499,23 @@ export function VideoNotesPanel({
           } satisfies VideoAudioTranscriptionProgress)
         : item.progress
 
-    if (!itemProgress) return null
+    if (!itemProgress && item.status !== 'running') return null
+    if (!itemProgress) {
+      return (
+        <div className="video-notes__queue-progress" role="status" aria-live="polite">
+          <div>
+            <span>转写进行中</span>
+            <button
+              type="button"
+              onClick={() => onCancelQueuedTranscription?.(item.id)}
+              disabled={!onCancelQueuedTranscription}
+            >
+              取消转写
+            </button>
+          </div>
+        </div>
+      )
+    }
     const progress = formatProgress(itemProgress, Boolean(item.summarizeWithDeepSeek))
     const progressLabel =
       item.status === 'completed' && item.summarizeWithDeepSeek && item.errorMessage
@@ -481,7 +526,18 @@ export function VideoNotesPanel({
       <div className="video-notes__queue-progress" role="status" aria-live="polite">
         <div>
           <span>{progressLabel}</span>
-          <span>{progress.percent}%</span>
+          <span>
+            {progress.percent}%
+            {item.status === 'running' ? (
+              <button
+                type="button"
+                onClick={() => onCancelQueuedTranscription?.(item.id)}
+                disabled={!onCancelQueuedTranscription}
+              >
+                取消转写
+              </button>
+            ) : null}
+          </span>
         </div>
         <progress max={100} value={progress.percent} aria-label={progress.ariaLabel} />
         {itemProgress.step === 'transcribing-segment' ? (
@@ -503,40 +559,81 @@ export function VideoNotesPanel({
         <div className="video-notes__panel-header">
           <strong>{statusLabel}：{visibleQueueItem.title}</strong>
           <div className="video-notes__queue-actions">
-            {visibleQueueItem.status === 'pending' || visibleQueueItem.status === 'running' ? (
-              <button
-                type="button"
-                onClick={() => onCancelQueuedTranscription?.(visibleQueueItem.id)}
-                disabled={!onCancelQueuedTranscription}
-              >
-                取消转写
-              </button>
-            ) : visibleQueueItem.status === 'failed' || visibleQueueItem.status === 'canceled' ? (
-              <button
-                type="button"
-                onClick={() => onRetryQueuedTranscription?.(visibleQueueItem.id)}
-                disabled={!onRetryQueuedTranscription}
-              >
-                重试转写
-              </button>
-            ) : null}
-            <label className="video-notes__queue-selector" title={queueDetailsTitle}>
-              <span title={queueDetailsTitle}>排队中：{queuedItemCount} 个</span>
-              <select
-                aria-label="切换队列视频"
-                title={queueDetailsTitle}
-                value={visibleQueueItem.id}
-                onChange={(event) => setSelectedQueueItemId(event.target.value)}
-              >
-                {queueItems.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {createQueueItemOptionLabel(item)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <span title={queueDetailsTitle}>排队中：{queuedItemCount} 个</span>
+            <button
+              ref={queueMenuTriggerRef}
+              type="button"
+              aria-label="查看转写队列"
+              aria-haspopup="dialog"
+              aria-expanded={queueMenuOpen}
+              aria-controls="video-notes-transcription-queue"
+              title={queueDetailsTitle}
+              onClick={() => setQueueMenuOpen((open) => !open)}
+            >
+              {queueMenuOpen ? '收起' : '展开'}
+            </button>
           </div>
         </div>
+        {queueMenuOpen ? (
+          <div
+            ref={queueMenuRef}
+            id="video-notes-transcription-queue"
+            className="video-notes__queue-menu"
+            role="dialog"
+            aria-label="转写队列"
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                event.stopPropagation()
+                closeQueueMenuAndRestoreFocus()
+              }
+            }}
+          >
+            {queueItems.map((item) => (
+              <div className="video-notes__queue-menu-item" key={item.id}>
+                <button
+                  type="button"
+                  aria-label={`查看队列任务：${item.title}`}
+                  data-queue-item-id={item.id}
+                  onClick={() => {
+                    setSelectedQueueItemId(item.id)
+                    closeQueueMenuAndRestoreFocus()
+                  }}
+                >
+                  {createQueueItemOptionLabel(item)}
+                </button>
+                {item.status === 'pending' ? (
+                  <button
+                    type="button"
+                    aria-label={`取消转写：${item.title}`}
+                    onClick={() => onCancelQueuedTranscription?.(item.id)}
+                    disabled={!onCancelQueuedTranscription}
+                  >
+                    取消
+                  </button>
+                ) : item.status === 'failed' ? (
+                  <button
+                    type="button"
+                    aria-label={`重试转写：${item.title}`}
+                    onClick={() => onRetryQueuedTranscription?.(item.id)}
+                    disabled={!onRetryQueuedTranscription}
+                  >
+                    重试
+                  </button>
+                ) : item.status === 'canceled' ? (
+                  <button
+                    type="button"
+                    aria-label={`重新转写：${item.title}`}
+                    onClick={() => onRetryQueuedTranscription?.(item.id)}
+                    disabled={!onRetryQueuedTranscription}
+                  >
+                    重新转写
+                  </button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
         {renderQueueItemProgress(visibleQueueItem)}
       </section>
     )

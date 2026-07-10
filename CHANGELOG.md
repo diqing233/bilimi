@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-- Added persistent, cancelable local transcription queues with restart recovery, stage timeouts, process-tree termination, retry controls, and cancelable DeepSeek summary requests.
+- Added cancelable local transcription queues with stage timeouts, process-tree termination, retry controls, cancelable DeepSeek summary requests, restart cleanup after draft recovery, and a per-launch completion count.
+- Restored the approved compact UI contracts for review-action settings, queue controls, DeepSeek credential status, recommendation copy actions, and status-light navigation.
 - Protected DeepSeek API keys with Electron `safeStorage` when available, migrated legacy plaintext keys, disclosed plaintext fallback status, and bounded DeepSeek requests with timeouts.
 - Restricted embedded-browser permissions to minimal Bilibili capabilities and added one-shot webview and main-renderer crash recovery without automatic reload loops.
 - Hardened note and preference persistence with memo-draft recovery, optimistic rollback, atomic preference patches, visible startup load failures, and real storage diagnostics.

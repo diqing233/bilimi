@@ -64,10 +64,9 @@ The queue owns one `AbortController` for its active item. Enqueue, state transit
 
 On startup:
 
-- `running` items become `pending`.
-- `pending`, `failed`, `canceled`, and `completed` items remain present.
-- A completed draft that was already archived is not archived again.
-- The stored queue is never cleared merely because the app restarted.
+- Recoverable draft notes are saved to the archive before queue cleanup.
+- The stored queue is cleared and no previous task is resumed automatically.
+- The per-launch completed count starts at zero and is kept only in main-process memory.
 
 Cancellation behavior:
 
@@ -75,7 +74,7 @@ Cancellation behavior:
 - A running item aborts its controller, terminates the current process tree, and finishes as `canceled` rather than `failed`.
 - Retrying a failed or canceled item resets transient error/progress fields and returns it to `pending`.
 
-The notes UI exposes context-appropriate controls for the selected queue item and synchronizes from queue change events.
+The notes UI exposes context-appropriate controls for the selected queue item and synchronizes from queue change events. Running cancellation stays beside progress, while pending cancellation and retry actions live in the queue popover. Completed history does not replace the current video's note automatically.
 
 ### DeepSeek Credential Store
 

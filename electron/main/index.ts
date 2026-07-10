@@ -1062,6 +1062,7 @@ function registerAssistantPreferenceHandlers() {
 configureAppIdentity(app)
 
 app.whenReady().then(() => {
+  getVideoTranscriptionQueue()
   installBrowserSessionPolicy(session.fromPartition(BILIMI_SESSION_PARTITION))
   registerAssistantPreferenceHandlers()
   createMainWindow()

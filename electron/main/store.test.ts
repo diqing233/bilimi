@@ -1,4 +1,6 @@
 ﻿import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import {
   DEFAULT_ASSISTANT_PREFERENCES,
   loadVideoNotes,
@@ -922,13 +924,25 @@ describe('video note archive store helpers', () => {
 })
 
 describe('video audio transcription queue store helpers', () => {
+  it('initializes the transcription queue during app startup before creating windows', () => {
+    const mainSource = new TextDecoder('gbk').decode(
+      readFileSync(resolve(process.cwd(), 'electron/main/index.ts'))
+    )
+    const readyBlock = mainSource.slice(mainSource.indexOf('app.whenReady().then(() => {'))
+
+    expect(readyBlock.indexOf('getVideoTranscriptionQueue()')).toBeGreaterThanOrEqual(0)
+    expect(readyBlock.indexOf('getVideoTranscriptionQueue()')).toBeLessThan(
+      readyBlock.indexOf('createMainWindow()')
+    )
+  })
+
   it('loads an empty queue by default', () => {
     const store = createFakeStore()
 
     expect(loadVideoAudioTranscriptionQueue(store)).toEqual([])
   })
 
-  it('archives recoverable draft notes while retaining the queue on load', () => {
+  it('archives recoverable draft notes and clears the persisted queue on load', () => {
     const draftNote = createStoreNote('bvid:BV1queue')
     const failedItem: VideoAudioTranscriptionQueueItem = {
       id: 'bvid:BV1queue',
@@ -955,18 +969,8 @@ describe('video audio transcription queue store helpers', () => {
 
     saveVideoAudioTranscriptionQueue(store, [failedItem, pendingItem])
 
-    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([
-      expect.objectContaining({
-        id: failedItem.id,
-        status: 'failed',
-        archiveNoteId: draftNote.id,
-        draftNote: undefined
-      }),
-      pendingItem
-    ])
-    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual(
-      loadVideoAudioTranscriptionQueue(store)
-    )
+    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([])
+    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual([])
     expect(store.snapshot.videoNoteArchives).toHaveLength(1)
     expect(store.snapshot.videoNoteArchives[0]).toMatchObject({
       id: 'bvid:BV1queue',
@@ -977,9 +981,12 @@ describe('video audio transcription queue store helpers', () => {
         })
       ]
     })
+
+    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([])
+    expect(store.snapshot.videoNoteArchives).toHaveLength(1)
   })
 
-  it('restores stale running items to pending while retaining other queue states', () => {
+  it('clears every persisted queue status on load', () => {
     const runningItem: VideoAudioTranscriptionQueueItem = {
       id: 'bvid:BV1queue',
       url: 'https://www.bilibili.com/video/BV1queue',
@@ -1018,21 +1025,11 @@ describe('video audio transcription queue store helpers', () => {
       pendingItem,
       completedItem
     ])
-    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([
-      expect.objectContaining({
-        id: runningItem.id,
-        status: 'pending',
-        startedAt: undefined
-      }),
-      pendingItem,
-      completedItem
-    ])
-    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual(
-      loadVideoAudioTranscriptionQueue(store)
-    )
+    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([])
+    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual([])
   })
 
-  it('completes a recovered running draft instead of retranscribing it', () => {
+  it('archives a running draft before clearing it instead of retranscribing it', () => {
     const draftNote = createStoreNote('bvid:BV1running-draft')
     const store = createFakeStore()
 
@@ -1050,13 +1047,8 @@ describe('video audio transcription queue store helpers', () => {
       }
     ])
 
-    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([
-      expect.objectContaining({
-        status: 'completed',
-        archiveNoteId: draftNote.id,
-        draftNote: undefined
-      })
-    ])
+    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([])
+    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual([])
     expect(store.snapshot.videoNoteArchives).toHaveLength(1)
   })
 })

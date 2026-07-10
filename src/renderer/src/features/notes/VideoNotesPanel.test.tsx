@@ -150,6 +150,7 @@ describe('VideoNotesPanel', () => {
   it('uses the primary transcription action to enqueue the first video when queue support is available', async () => {
     const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
     const onEnqueueTranscription = vi.fn().mockResolvedValue({
+      sessionCompletedCount: 0,
       activeItemId: 'bvid:BV-current',
       items: [
         {
@@ -169,7 +170,7 @@ describe('VideoNotesPanel', () => {
       currentVideoTitle: '当前视频',
       onTranscribeAudio,
       onEnqueueTranscription,
-      transcriptionQueue: { items: [] }
+      transcriptionQueue: { items: [], sessionCompletedCount: 0 }
     })
 
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
@@ -187,6 +188,7 @@ describe('VideoNotesPanel', () => {
   it('uses the primary transcription action to enqueue when another video is already running', async () => {
     const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
     const onEnqueueTranscription = vi.fn().mockResolvedValue({
+      sessionCompletedCount: 0,
       activeItemId: 'bvid:BV-running',
       items: [
         {
@@ -217,6 +219,7 @@ describe('VideoNotesPanel', () => {
       onEnqueueTranscription,
       transcriptionQueue: {
         activeItemId: 'bvid:BV-running',
+        sessionCompletedCount: 0,
         items: [
           {
             id: 'bvid:BV-running',
@@ -255,6 +258,7 @@ describe('VideoNotesPanel', () => {
       note: null,
       onCancelQueuedTranscription,
       transcriptionQueue: {
+        sessionCompletedCount: 0,
         activeItemId: 'bvid:BV-running',
         items: [
           {
@@ -281,6 +285,7 @@ describe('VideoNotesPanel', () => {
       note: null,
       onRetryQueuedTranscription,
       transcriptionQueue: {
+        sessionCompletedCount: 0,
         items: [
           {
             id: 'bvid:BV-failed',
@@ -296,7 +301,8 @@ describe('VideoNotesPanel', () => {
       }
     })
 
-    fireEvent.click(screen.getByRole('button', { name: '重试转写' }))
+    fireEvent.click(screen.getByRole('button', { name: '查看转写队列' }))
+    fireEvent.click(screen.getByRole('button', { name: '重试转写：失败的视频' }))
 
     expect(onRetryQueuedTranscription).toHaveBeenCalledWith('bvid:BV-failed')
   })

@@ -246,6 +246,25 @@ describe('MemorialPanel', () => {
     expect(screen.getByTestId('review-action-comment')).not.toContainElement(
       screen.getByLabelText('拟奏短评参数')
     )
+    expect(screen.getByTestId('review-action-coin').parentElement).toBe(
+      screen.getByLabelText('投币厚赏参数').parentElement?.parentElement
+    )
+    expect(screen.getByTestId('review-action-comment').parentElement).toBe(
+      screen.getByLabelText('拟奏短评参数').parentElement?.parentElement
+    )
+    expect(screen.getByTestId('review-action-coin').parentElement).toHaveClass(
+      'memorial-panel__action-card--with-setting'
+    )
+
+    const focusableControls = Array.from(
+      document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>('button:not([disabled]), select')
+    )
+    expect(focusableControls.indexOf(screen.getByTestId('review-action-coin'))).toBeLessThan(
+      focusableControls.indexOf(screen.getByLabelText('投币厚赏参数'))
+    )
+    expect(focusableControls.indexOf(screen.getByTestId('review-action-comment'))).toBeLessThan(
+      focusableControls.indexOf(screen.getByLabelText('拟奏短评参数'))
+    )
 
     fireEvent.change(screen.getByLabelText('投币厚赏参数'), { target: { value: '2' } })
     fireEvent.change(screen.getByLabelText('拟奏短评参数'), { target: { value: 'choose' } })

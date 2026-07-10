@@ -653,40 +653,14 @@ export function loadVideoAudioTranscriptionQueue(
     return []
   }
 
-  const recoveredItems: VideoAudioTranscriptionQueueItem[] = items.map((item) => {
+  for (const item of items) {
     if (item.draftNote && !item.archiveNoteId) {
       saveVideoNoteArchiveVersion(store, item.draftNote, item.completedAt ?? item.updatedAt, '')
-      return {
-        ...item,
-        status: item.status === 'running' ? 'completed' as const : item.status,
-        completedAt: item.status === 'running' ? item.completedAt ?? item.updatedAt : item.completedAt,
-        startedAt: undefined,
-        archiveNoteId: item.draftNote.id,
-        draftNote: undefined,
-        progress:
-          item.status === 'running'
-            ? {
-                step: 'queue-completed' as const,
-                message: 'Recovered transcript saved after restart.'
-              }
-            : item.progress,
-        errorMessage: item.status === 'running' ? undefined : item.errorMessage
-      }
     }
+  }
+  store.set('videoAudioTranscriptionQueue', [])
 
-    return item.status === 'running'
-      ? {
-          ...item,
-          status: 'pending' as const,
-          startedAt: undefined,
-          progress: undefined,
-          errorMessage: undefined
-        }
-      : item
-  })
-  store.set('videoAudioTranscriptionQueue', recoveredItems)
-
-  return recoveredItems
+  return []
 }
 
 export function saveVideoAudioTranscriptionQueue(

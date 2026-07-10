@@ -159,14 +159,13 @@ Run the same focused tests. Expected: all pass.
 
 - [ ] **Step 1: Write failing store and queue tests**
 
-Replace the old store expectation that restart clears the queue with:
+This step was superseded after user review. Keep the original product rule: application startup archives recoverable drafts and clears the stored queue. Do not restore previous tasks automatically.
+
+The final regression expectations are:
 
 ```ts
-expect(loadVideoAudioTranscriptionQueue(store)).toEqual([
-  expect.objectContaining({ id: 'running', status: 'pending' }),
-  expect.objectContaining({ id: 'failed', status: 'failed' }),
-  expect.objectContaining({ id: 'completed', status: 'completed' })
-])
+expect(loadVideoAudioTranscriptionQueue(store)).toEqual([])
+expect(store.snapshot.videoAudioTranscriptionQueue).toEqual([])
 ```
 
 Assert completed drafts are archived only when needed and persisted queue data is retained. Add a queue test where `transcribe` waits for `signal.abort`, call `cancel(runningId)`, and assert the item ends as `canceled` and processing continues to the next pending item.

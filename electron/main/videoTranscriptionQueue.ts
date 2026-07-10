@@ -57,29 +57,15 @@ function createNoteFromQueueItem(
   })
 }
 
-function snapshotFromItems(items: VideoAudioTranscriptionQueueItem[]): VideoAudioTranscriptionQueueSnapshot {
+function snapshotFromItems(
+  items: VideoAudioTranscriptionQueueItem[],
+  sessionCompletedCount: number
+): VideoAudioTranscriptionQueueSnapshot {
   return {
     items,
-    activeItemId: items.find((item) => item.status === 'running')?.id
+    activeItemId: items.find((item) => item.status === 'running')?.id,
+    sessionCompletedCount
   }
-}
-
-function restoreUnfinishedItems(
-  items: VideoAudioTranscriptionQueueItem[],
-  getRestoredAt: () => string
-): VideoAudioTranscriptionQueueItem[] {
-  return items.map((item) =>
-    item.status === 'running'
-      ? {
-          ...item,
-          status: 'pending',
-          updatedAt: getRestoredAt(),
-          startedAt: undefined,
-          progress: undefined,
-          errorMessage: undefined
-        }
-      : item
-  )
 }
 
 export function createVideoTranscriptionQueue({
@@ -91,13 +77,14 @@ export function createVideoTranscriptionQueue({
   now = () => new Date().toISOString(),
   onSnapshot
 }: QueueDeps): VideoTranscriptionQueue {
-  let items = restoreUnfinishedItems(loadItems(), now)
+  let items = loadItems()
+  let sessionCompletedCount = 0
   let processing = false
   let activeItemId: string | undefined
   let activeController: AbortController | undefined
 
   function publish(): VideoAudioTranscriptionQueueSnapshot {
-    const snapshot = snapshotFromItems(items)
+    const snapshot = snapshotFromItems(items, sessionCompletedCount)
     saveItems(items)
     onSnapshot?.(snapshot)
     return snapshot
@@ -199,6 +186,7 @@ export function createVideoTranscriptionQueue({
         progress: { step: 'queue-completed', message: 'Queued transcription completed.' },
         errorMessage: summaryErrorMessage
       }))
+      sessionCompletedCount += 1
     } catch (error) {
       const failedAt = now()
       updateItem(next.id, (item) => ({
@@ -244,9 +232,9 @@ export function createVideoTranscriptionQueue({
       }))
     }
 
-    const snapshot = publish()
+    publish()
     void processNext()
-    return snapshot
+    return snapshotFromItems(items, sessionCompletedCount)
   }
 
   function cancel(id: string): VideoAudioTranscriptionQueueSnapshot {
@@ -293,7 +281,7 @@ export function createVideoTranscriptionQueue({
   }
 
   return {
-    getSnapshot: () => snapshotFromItems(items),
+    getSnapshot: () => snapshotFromItems(items, sessionCompletedCount),
     enqueue,
     cancel,
     retry

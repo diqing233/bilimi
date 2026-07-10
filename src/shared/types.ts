@@ -556,4 +556,5 @@ export type VideoAudioTranscriptionQueueItem = VideoAudioTranscriptionRequest & 
 export type VideoAudioTranscriptionQueueSnapshot = {
   items: VideoAudioTranscriptionQueueItem[]
   activeItemId?: string
+  sessionCompletedCount: number
 }

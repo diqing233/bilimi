@@ -172,6 +172,25 @@ function findArchivedSummaryTextForNote(
   return matchingVersion?.summaryText.trim() ?? ''
 }
 
+function isVideoNoteForActiveSnapshot(note: VideoNote, snapshot: AssistantSnapshot): boolean {
+  const activeUrl = snapshot.activeTabUrl?.trim()
+  if (!activeUrl) return false
+
+  const activeBvid = activeUrl.match(/bilibili\.com\/video\/([^/?#]+)/i)?.[1]
+  const noteBvid = note.source.bvid?.trim()
+  if (activeBvid && noteBvid) {
+    return activeBvid.toLowerCase() === noteBvid.toLowerCase()
+  }
+
+  try {
+    const active = new URL(activeUrl)
+    const source = new URL(note.source.url)
+    return active.origin === source.origin && active.pathname === source.pathname
+  } catch {
+    return activeUrl === note.source.url.trim()
+  }
+}
+
 type ActionFeedback = {
   tone: 'progress' | 'success' | 'error'
   message: string
@@ -587,7 +606,8 @@ export function FloatingAssistantApp({
   const [transcriptionProgress, setTranscriptionProgress] =
     useState<VideoAudioTranscriptionProgress | null>(null)
   const [transcriptionQueue, setTranscriptionQueue] = useState<VideoAudioTranscriptionQueueSnapshot>({
-    items: []
+    items: [],
+    sessionCompletedCount: 0
   })
   const [deepSeekApiKeyDraft, setDeepSeekApiKeyDraft] = useState('')
   const [deepSeekKeyStatus, setDeepSeekKeyStatus] = useState<DeepSeekKeyStatus>({
@@ -616,7 +636,10 @@ export function FloatingAssistantApp({
   const preferenceSaveSchedulerRef = useRef<PreferenceSaveScheduler<AssistantPreferences> | null>(
     null
   )
-  const transcriptionQueueRef = useRef<VideoAudioTranscriptionQueueSnapshot>({ items: [] })
+  const transcriptionQueueRef = useRef<VideoAudioTranscriptionQueueSnapshot>({
+    items: [],
+    sessionCompletedCount: 0
+  })
   const workspaceRequestsEnabledRef = useRef(workspaceRequestsEnabled)
   const activeTab = controlledActiveTab ?? uncontrolledActiveTab
   const [activeView, setActiveView] = useState<AssistantWorkspaceView>(activeTab)
@@ -650,20 +673,14 @@ export function FloatingAssistantApp({
       }
     }
 
-    const completedItem = transcriptionQueue.items
-      .filter((item) => item.status === 'completed')
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
-    if (completedItem) {
-      return {
-        label: '转写完成',
-        detail: `${completedItem.title} 已完成转写。`,
-        tone: 'ok'
-      }
-    }
+    const completedCount = transcriptionQueue.sessionCompletedCount
 
     return {
-      label: '暂无转写',
-      detail: '当前视频暂无可用转写。',
+      label: completedCount > 0 ? `暂无转写 · 完成 ${completedCount}` : '暂无转写',
+      detail:
+        completedCount > 0
+          ? `本次启动已完成 ${completedCount} 个转写，文稿已保存到档案库。失败和取消的任务不计入。`
+          : '当前没有转写任务。',
       tone: 'idle'
     }
   }, [transcriptionQueue])
@@ -880,9 +897,16 @@ export function FloatingAssistantApp({
     void loadSnapshot()
     void loadVideoNoteArchives({ silent: true })
     void loadVideoAudioTranscriptionQueue()
-    void window.bilimiDesktop?.loadDeepSeekApiKeyStatus?.().then((status) => {
-      if (mounted.current && status) setDeepSeekKeyStatus(status)
-    })
+    void window.bilimiDesktop
+      ?.loadDeepSeekApiKeyStatus?.()
+      .then((status) => {
+        if (mounted.current && status) setDeepSeekKeyStatus(status)
+      })
+      .catch(() => {
+        if (mounted.current) {
+          setDeepSeekKeyStatus({ configured: false, protection: 'error' })
+        }
+      })
 
     return () => {
       void preferenceSaveSchedulerRef.current?.flush()
@@ -914,8 +938,17 @@ export function FloatingAssistantApp({
 
   useEffect(() => {
     return window.bilimiDesktop?.onVideoAudioTranscriptionQueueChanged?.((snapshot) => {
-      const hadRunning = transcriptionQueueRef.current.items.some((item) => item.status === 'running')
+      const previousItems = transcriptionQueueRef.current.items
+      const previousCompletedCount = transcriptionQueueRef.current.sessionCompletedCount
       const hasRunning = snapshot.items.some((item) => item.status === 'running')
+      const completedItemIds = snapshot.items
+        .filter(
+          (item) =>
+            item.status === 'completed' &&
+            item.archiveNoteId &&
+            previousItems.find((previousItem) => previousItem.id === item.id)?.status !== 'completed'
+        )
+        .map((item) => item.id)
 
       transcriptionQueueRef.current = snapshot
       setTranscriptionQueue(snapshot)
@@ -930,9 +963,9 @@ export function FloatingAssistantApp({
         setVideoNote(activeDraftNote)
       }
 
-      if (hadRunning && !hasRunning && snapshot.items.some((item) => item.status === 'completed')) {
+      if (snapshot.sessionCompletedCount > previousCompletedCount) {
         setGlobalFeedback('转写完成，文稿已保存到档案库')
-        void syncCompletedQueuedVideoNote(snapshot)
+        void syncCompletedQueuedVideoNotes(snapshot, completedItemIds)
       }
     })
   }, [])
@@ -1245,23 +1278,44 @@ export function FloatingAssistantApp({
   async function saveDeepSeekSettings() {
     const keyDraft = deepSeekApiKeyDraft.trim()
     let nextPreferences = preferencesRef.current
+    let savedKeyStatus: DeepSeekKeyStatus | undefined
 
     tellPet('progress', '小咪正在保存 DeepSeek 设置。')
 
     if (keyDraft) {
-      const keyStatus = await window.bilimiDesktop?.saveDeepSeekApiKey?.(keyDraft)
-      if (keyStatus) {
-        setDeepSeekKeyStatus(keyStatus)
+      try {
+        savedKeyStatus = await window.bilimiDesktop?.saveDeepSeekApiKey?.(keyDraft)
+      } catch {
+        setGlobalFeedback('DeepSeek 密钥保存失败，请重试。')
+        tellPet('error', 'DeepSeek 密钥保存失败，请重试。')
+        return false
+      }
+      if (savedKeyStatus) {
+        setDeepSeekKeyStatus(savedKeyStatus)
         nextPreferences = createInitialAssistantPreferences({
           ...preferencesRef.current,
-          deepseekApiKeyStored: keyStatus.configured
+          deepseekApiKeyStored: savedKeyStatus.configured
         })
       }
     }
 
-    await persistPreferences(nextPreferences)
+    try {
+      await persistPreferences(nextPreferences)
+    } catch {
+      const message = savedKeyStatus?.configured
+        ? 'DeepSeek 密钥已保存，但其他设置保存失败，请重试。'
+        : 'DeepSeek 设置保存失败，请重试。'
+      setGlobalFeedback(message)
+      tellPet('error', message)
+      return false
+    }
+
+    if (savedKeyStatus) {
+      setDeepSeekApiKeyDraft('')
+    }
     setGlobalFeedback('DeepSeek 设置已保存。')
     tellPet('success', 'DeepSeek 设置保存好啦。')
+    return true
   }
 
   async function testDeepSeekConnection() {
@@ -1274,7 +1328,7 @@ export function FloatingAssistantApp({
     tellPet('progress', '小咪正在测试 DeepSeek 连接。')
     updateDeepSeekTask('connection-test')
     try {
-      await saveDeepSeekSettings()
+      if (!(await saveDeepSeekSettings())) return
       const result = await window.bilimiDesktop.testDeepSeekConnection()
       const statusMessage = localizeDeepSeekStatusMessage(result.message)
       setDeepSeekStatusMessage(statusMessage)
@@ -1657,7 +1711,8 @@ export function FloatingAssistantApp({
 
   async function loadVideoAudioTranscriptionQueue() {
     const snapshot = (await window.bilimiDesktop?.loadVideoAudioTranscriptionQueue?.()) ?? {
-      items: []
+      items: [],
+      sessionCompletedCount: 0
     }
     transcriptionQueueRef.current = snapshot
     setTranscriptionQueue(snapshot)
@@ -1752,22 +1807,28 @@ export function FloatingAssistantApp({
     return archives
   }
 
-  async function syncCompletedQueuedVideoNote(snapshot: VideoAudioTranscriptionQueueSnapshot) {
-    const completedItem = snapshot.items
-      .filter((item) => item.status === 'completed' && item.archiveNoteId)
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
+  async function syncCompletedQueuedVideoNotes(
+    snapshot: VideoAudioTranscriptionQueueSnapshot,
+    completedItemIds: string[]
+  ) {
     const archives = await loadVideoNoteArchives({ silent: true })
+    const activeSnapshot = snapshotRef.current
 
-    if (!completedItem?.archiveNoteId) return
-
-    const archive = archives.find((entry) => entry.id === completedItem.archiveNoteId)
-    const latestVersion = archive?.versions
-      .slice()
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
-
-    if (latestVersion) {
-      setVideoNote(latestVersion.note)
-      setVideoNotesResultTab('plain')
+    for (const completedItemId of completedItemIds) {
+      const completedItem = snapshot.items.find((item) => item.id === completedItemId)
+      if (!completedItem?.archiveNoteId) continue
+      const archive = archives.find((entry) => entry.id === completedItem.archiveNoteId)
+      const latestVersion = archive?.versions
+        .slice()
+        .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]
+      if (
+        latestVersion &&
+        activeSnapshot &&
+        isVideoNoteForActiveSnapshot(latestVersion.note, activeSnapshot)
+      ) {
+        setVideoNote(latestVersion.note)
+        setVideoNotesResultTab('plain')
+      }
     }
   }
 
@@ -2048,7 +2109,11 @@ export function FloatingAssistantApp({
   }
 
   function jumpToStatusArea(tab: AssistantWorkspaceTab) {
-    setActiveTab(tab)
+    if (tab === 'settings') {
+      openSettingsSection('deepseek')
+      return
+    }
+    setActiveTab(tab, tab === 'notes' ? { view: 'notes' } : undefined)
   }
 
   const deepSeekKeywordSuggestions = preferences.favoriteKeywordSuggestions.filter(
@@ -2345,26 +2410,38 @@ export function FloatingAssistantApp({
                       </label>
                     </div>
                   ) : null}
-                  <div className="assistant-settings__field">
-                    <label htmlFor="deepseek-api-key">DeepSeek API 密钥</label>
+                  <label
+                    className="assistant-settings__deepseek-key-field"
+                    htmlFor="deepseek-api-key"
+                  >
+                    <span>DeepSeek API 密钥</span>
                     <input
                       id="deepseek-api-key"
                       type="password"
                       value={deepSeekApiKeyDraft}
-                      placeholder={preferences.deepseekApiKeyStored ? '已保存' : ''}
-                      aria-describedby="deepseek-api-key-protection"
+                      placeholder={
+                        deepSeekKeyStatus.protection === 'encrypted'
+                          ? '已保存 · 系统加密保护'
+                          : deepSeekKeyStatus.protection === 'plaintext'
+                            ? '已保存 · 本地明文保存'
+                            : deepSeekKeyStatus.protection === 'error'
+                              ? '无法读取 · 请重新填写'
+                              : '尚未保存'
+                      }
+                      aria-invalid={deepSeekKeyStatus.protection === 'error' ? true : undefined}
+                      aria-describedby="deepseek-api-key-status"
                       onChange={(event) => setDeepSeekApiKeyDraft(event.currentTarget.value)}
                     />
-                    <small id="deepseek-api-key-protection">
-                      {deepSeekKeyStatus.protection === 'encrypted'
-                        ? '系统加密保护'
-                        : deepSeekKeyStatus.protection === 'plaintext'
-                          ? '本地明文保存'
-                          : deepSeekKeyStatus.protection === 'error'
-                            ? '密钥需要重新填写'
-                            : '尚未保存密钥'}
-                    </small>
-                  </div>
+                  </label>
+                  <span id="deepseek-api-key-status" className="sr-only">
+                    {deepSeekKeyStatus.protection === 'encrypted'
+                      ? '已保存 · 系统加密保护'
+                      : deepSeekKeyStatus.protection === 'plaintext'
+                        ? '已保存 · 本地明文保存'
+                        : deepSeekKeyStatus.protection === 'error'
+                          ? '无法读取 · 请重新填写'
+                          : '尚未保存'}
+                  </span>
                   <label>
                     <span>DeepSeek 模型</span>
                     <input
@@ -2406,31 +2483,40 @@ export function FloatingAssistantApp({
                     </p>
                     <p>API 密钥：创建令牌后，令牌分组请选择 deepseek（限时特价），复制密钥到这里使用。</p>
                     <p className="assistant-settings__copy-row">
-                      <span>推荐模型：deepseek-v4-pro</span>
-                      <button
-                        className="assistant-settings__copy-button"
-                        type="button"
-                        aria-label="复制推荐模型"
-                        onClick={() => void copyDeepSeekRecommendation('deepseek-v4-pro', '推荐模型')}
-                      >
-                        复制
-                      </button>
+                      <span>推荐模型：</span>
+                      <span className="assistant-settings__copy-value">
+                        <span>deepseek-v4-pro</span>
+                        <button
+                          className="assistant-settings__copy-button"
+                          type="button"
+                          aria-label="复制推荐模型"
+                          onClick={() => void copyDeepSeekRecommendation('deepseek-v4-pro', '推荐模型')}
+                        >
+                          复制
+                        </button>
+                      </span>
                     </p>
                     <p className="assistant-settings__copy-row">
-                      <span>服务器地址：https://api.yunshulink.com/v1</span>
-                      <button
-                        className="assistant-settings__copy-button"
-                        type="button"
-                        aria-label="复制服务器地址"
-                        onClick={() =>
-                          void copyDeepSeekRecommendation(
-                            'https://api.yunshulink.com/v1',
-                            '服务器地址'
-                          )
-                        }
-                      >
-                        复制
-                      </button>
+                      <span>服务器地址：</span>
+                      <span className="assistant-settings__copy-value assistant-settings__copy-value--url">
+                        <span>https://api.yunshulink.com/</span>
+                        <span className="assistant-settings__copy-value-tail">
+                          <span>v1</span>
+                          <button
+                            className="assistant-settings__copy-button"
+                            type="button"
+                            aria-label="复制服务器地址"
+                            onClick={() =>
+                              void copyDeepSeekRecommendation(
+                                'https://api.yunshulink.com/v1',
+                                '服务器地址'
+                              )
+                            }
+                          >
+                            复制
+                          </button>
+                        </span>
+                      </span>
                     </p>
                   </aside>
                 </>
