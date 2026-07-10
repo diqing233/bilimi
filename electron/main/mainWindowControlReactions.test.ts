@@ -57,6 +57,38 @@ describe('installMainWindowControlReactions', () => {
     }
   })
 
+  it('uses the standby wording for the second native minimize line', () => {
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.34)
+    const window = createTestWindow()
+    const sendPetHint = vi.fn()
+
+    try {
+      installMainWindowControlReactions({
+        closeAssistantPet: vi.fn(),
+        getPreferences: () =>
+          ({
+            closeBehavior: 'exit-launcher',
+            confirmBeforeExit: false
+          }) as never,
+        minimizeToTray: vi.fn(),
+        prepareToExitLauncher: vi.fn(),
+        savePreferencePatch: vi.fn(),
+        sendPetHint,
+        showCloseConfirmation: vi.fn(),
+        window
+      })
+
+      window.emit('minimize')
+
+      expect(sendPetHint).toHaveBeenCalledWith({
+        tone: 'sleepy',
+        message: '小咪先在旁边待命啦，主人随时找我~'
+      })
+    } finally {
+      random.mockRestore()
+    }
+  })
+
   it('welcomes the owner back when the taskbar restores a minimized window', () => {
     const random = vi.spyOn(Math, 'random').mockReturnValue(0)
     const window = createTestWindow()

@@ -31,7 +31,7 @@ type MainWindowControlReactionsOptions = {
 
 const MINIMIZE_LINES = [
   '那小咪先收起来啦，等你回来。',
-  '主人去忙吧，小咪待会儿见。',
+  '小咪先在旁边待命啦，主人随时找我~',
   '小咪先安静一下，主人回来再叫我。'
 ]
 
