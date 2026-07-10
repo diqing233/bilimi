@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useModalFocus } from '../accessibility/useModalFocus'
 
 type CommentIntentDialogProps = {
   busy: boolean
@@ -15,7 +14,6 @@ export function CommentIntentDialog({
   onCancel
 }: CommentIntentDialogProps) {
   const [intent, setIntent] = useState('')
-  const dialogRef = useModalFocus(onCancel)
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -29,13 +27,7 @@ export function CommentIntentDialog({
   }
 
   return (
-    <form
-      ref={dialogRef as React.RefObject<HTMLFormElement>}
-      className="assistant-dialog assistant-dialog--intent"
-      role="dialog"
-      aria-modal="true"
-      onSubmit={handleSubmit}
-    >
+    <form className="assistant-dialog assistant-dialog--intent" role="dialog" onSubmit={handleSubmit}>
       <label>
         <span>评论方向</span>
         <textarea

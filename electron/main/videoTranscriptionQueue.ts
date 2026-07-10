@@ -14,10 +14,9 @@ type QueueDeps = {
   saveItems: (items: VideoAudioTranscriptionQueueItem[]) => void
   transcribe: (
     request: VideoAudioTranscriptionRequest,
-    progress: (progress: VideoAudioTranscriptionProgress) => void,
-    signal: AbortSignal
+    progress: (progress: VideoAudioTranscriptionProgress) => void
   ) => Promise<VideoAudioTranscriptionResult>
-  summarizeNote?: (note: VideoNote, signal: AbortSignal) => Promise<string>
+  summarizeNote?: (note: VideoNote) => Promise<string>
   saveArchiveVersion: (note: VideoNote, summaryText: string) => unknown
   now?: () => string
   onSnapshot?: (snapshot: VideoAudioTranscriptionQueueSnapshot) => void
@@ -57,15 +56,29 @@ function createNoteFromQueueItem(
   })
 }
 
-function snapshotFromItems(
-  items: VideoAudioTranscriptionQueueItem[],
-  sessionCompletedCount: number
-): VideoAudioTranscriptionQueueSnapshot {
+function snapshotFromItems(items: VideoAudioTranscriptionQueueItem[]): VideoAudioTranscriptionQueueSnapshot {
   return {
     items,
-    activeItemId: items.find((item) => item.status === 'running')?.id,
-    sessionCompletedCount
+    activeItemId: items.find((item) => item.status === 'running')?.id
   }
+}
+
+function restoreUnfinishedItems(
+  items: VideoAudioTranscriptionQueueItem[],
+  getRestoredAt: () => string
+): VideoAudioTranscriptionQueueItem[] {
+  return items.map((item) =>
+    item.status === 'running'
+      ? {
+          ...item,
+          status: 'pending',
+          updatedAt: getRestoredAt(),
+          startedAt: undefined,
+          progress: undefined,
+          errorMessage: undefined
+        }
+      : item
+  )
 }
 
 export function createVideoTranscriptionQueue({
@@ -77,14 +90,11 @@ export function createVideoTranscriptionQueue({
   now = () => new Date().toISOString(),
   onSnapshot
 }: QueueDeps): VideoTranscriptionQueue {
-  let items = loadItems()
-  let sessionCompletedCount = 0
+  let items = restoreUnfinishedItems(loadItems(), now)
   let processing = false
-  let activeItemId: string | undefined
-  let activeController: AbortController | undefined
 
   function publish(): VideoAudioTranscriptionQueueSnapshot {
-    const snapshot = snapshotFromItems(items, sessionCompletedCount)
+    const snapshot = snapshotFromItems(items)
     saveItems(items)
     onSnapshot?.(snapshot)
     return snapshot
@@ -108,8 +118,6 @@ export function createVideoTranscriptionQueue({
     }
 
     processing = true
-    activeItemId = next.id
-    activeController = new AbortController()
     updateItem(next.id, (item) => ({
       ...item,
       status: 'running',
@@ -121,19 +129,14 @@ export function createVideoTranscriptionQueue({
 
     try {
       const runningItem = items.find((item) => item.id === next.id) ?? next
-      const result = await transcribe(
-        runningItem,
-        (progress) => {
-          updateItem(runningItem.id, (item) => ({
-            ...item,
-            progress,
-            updatedAt: now()
-          }))
-          publish()
-        },
-        activeController.signal
-      )
-      activeController.signal.throwIfAborted()
+      const result = await transcribe(runningItem, (progress) => {
+        updateItem(runningItem.id, (item) => ({
+          ...item,
+          progress,
+          updatedAt: now()
+        }))
+        publish()
+      })
       const completedAt = now()
       const note = createNoteFromQueueItem(runningItem, result.transcript, completedAt)
       updateItem(runningItem.id, (item) => ({
@@ -155,17 +158,11 @@ export function createVideoTranscriptionQueue({
         }))
         publish()
         try {
-          summaryText = await summarizeNote(note, activeController.signal)
-          activeController.signal.throwIfAborted()
+          summaryText = await summarizeNote(note)
         } catch (error) {
-          if (activeController.signal.aborted) {
-            throw error
-          }
           summaryErrorMessage = createErrorMessage(error)
         }
       }
-
-      activeController.signal.throwIfAborted()
 
       updateItem(runningItem.id, (item) => ({
         ...item,
@@ -174,7 +171,6 @@ export function createVideoTranscriptionQueue({
       }))
       publish()
 
-      activeController.signal.throwIfAborted()
       saveArchiveVersion(note, summaryText)
       updateItem(runningItem.id, (item) => ({
         ...item,
@@ -186,22 +182,16 @@ export function createVideoTranscriptionQueue({
         progress: { step: 'queue-completed', message: 'Queued transcription completed.' },
         errorMessage: summaryErrorMessage
       }))
-      sessionCompletedCount += 1
     } catch (error) {
       const failedAt = now()
       updateItem(next.id, (item) => ({
         ...item,
-        status: activeController?.signal.aborted || item.status === 'canceled' ? 'canceled' : 'failed',
+        status: 'failed',
         updatedAt: failedAt,
-        errorMessage:
-          activeController?.signal.aborted || item.status === 'canceled'
-            ? undefined
-            : createErrorMessage(error)
+        errorMessage: createErrorMessage(error)
       }))
     } finally {
       processing = false
-      activeItemId = undefined
-      activeController = undefined
       publish()
       void processNext()
     }
@@ -232,26 +222,21 @@ export function createVideoTranscriptionQueue({
       }))
     }
 
-    publish()
+    const snapshot = publish()
     void processNext()
-    return snapshotFromItems(items, sessionCompletedCount)
+    return snapshot
   }
 
   function cancel(id: string): VideoAudioTranscriptionQueueSnapshot {
     updateItem(id, (item) =>
-      item.status === 'pending' || item.status === 'running'
+      item.status === 'pending'
         ? {
             ...item,
             status: 'canceled',
-            updatedAt: now(),
-            errorMessage: undefined
+            updatedAt: now()
           }
         : item
     )
-
-    if (activeItemId === id) {
-      activeController?.abort()
-    }
 
     return publish()
   }
@@ -281,7 +266,7 @@ export function createVideoTranscriptionQueue({
   }
 
   return {
-    getSnapshot: () => snapshotFromItems(items, sessionCompletedCount),
+    getSnapshot: () => snapshotFromItems(items),
     enqueue,
     cancel,
     retry

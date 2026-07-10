@@ -69,7 +69,6 @@ import { publishDeepSeekTask } from './features/assistant/deepSeekTaskSignal'
 import { composeMemorialComments } from './features/comments/commentComposer'
 import { createCorrectionDraft } from './features/recommendation/correctionLearning'
 import type { FavoriteArchiveTarget } from './features/recommendation/archivePlanning'
-import { handleTabListKeyDown } from './features/accessibility/tabKeyboardNavigation'
 
 const HOME_TAB_ID = 'home'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
@@ -499,11 +498,7 @@ export default function App() {
       IS_TEST_RUNTIME ? { permissionOnboardingCompleted: true } : undefined
     )
   )
-  const [preferenceLoadAttempt, setPreferenceLoadAttempt] = useState(0)
-  const [preferenceLoadState, setPreferenceLoadState] = useState<{
-    status: 'loading' | 'ready' | 'error'
-    message: string
-  }>({ status: IS_TEST_RUNTIME ? 'ready' : 'loading', message: '' })
+  const [preferencesLoaded, setPreferencesLoaded] = useState(IS_TEST_RUNTIME)
   const activeWebview = useMemo(() => webviews[activeTabId] ?? null, [activeTabId, webviews])
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0],
@@ -531,15 +526,12 @@ export default function App() {
     let cancelled = false
 
     async function loadPreferences() {
-      if (!IS_TEST_RUNTIME || preferenceLoadAttempt > 0) {
-        setPreferenceLoadState({ status: 'loading', message: '' })
-      }
       if (!window.bilimiDesktop?.loadPreferences) {
         if (!cancelled) {
-          setPreferenceLoadState({
-            status: 'error',
-            message: '桌面桥接未加载，请重启 bilimi。'
-          })
+          setPreferences(
+            createInitialAssistantPreferences({ permissionOnboardingCompleted: true })
+          )
+          setPreferencesLoaded(true)
         }
         return
       }
@@ -555,14 +547,14 @@ export default function App() {
               createInitialAssistantPreferences({ permissionOnboardingCompleted: true })
             )
           }
-          setPreferenceLoadState({ status: 'ready', message: '' })
+          setPreferencesLoaded(true)
         }
-      } catch (error) {
+      } catch {
         if (!cancelled) {
-          setPreferenceLoadState({
-            status: 'error',
-            message: error instanceof Error ? error.message : '读取本地设置失败。'
-          })
+          setPreferences(
+            createInitialAssistantPreferences({ permissionOnboardingCompleted: true })
+          )
+          setPreferencesLoaded(true)
         }
       }
     }
@@ -572,7 +564,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [preferenceLoadAttempt])
+  }, [])
 
   useEffect(() => {
     return window.bilimiDesktop?.onAssistantPreferencesChanged?.((nextPreferences) => {
@@ -1797,29 +1789,12 @@ export default function App() {
     seekVideoTime
   ])
 
-  if (preferenceLoadState.status === 'loading') {
+  if (!preferencesLoaded) {
     return (
       <main className="startup-permission" aria-label="启动中">
         <section className="startup-permission__panel startup-permission__panel--compact">
           <p className="startup-permission__eyebrow">bilimi</p>
           <h1>启动中</h1>
-        </section>
-      </main>
-    )
-  }
-
-  if (preferenceLoadState.status === 'error') {
-    return (
-      <main className="startup-permission" aria-label="启动失败">
-        <section className="startup-permission__panel startup-permission__panel--compact">
-          <p className="startup-permission__eyebrow">bilimi</p>
-          <h1>无法加载设置</h1>
-          <p role="alert">{preferenceLoadState.message}</p>
-          <div className="startup-permission__actions">
-            <button type="button" onClick={() => setPreferenceLoadAttempt((attempt) => attempt + 1)}>
-              重试
-            </button>
-          </div>
         </section>
       </main>
     )
@@ -1838,7 +1813,7 @@ export default function App() {
       <div className="app-main">
         <div className="browser-tabs">
           <div className="browser-tabs__list" role="tablist" aria-label="网页标签">
-            {tabs.map((tab, tabIndex) => (
+            {tabs.map((tab) => (
               <div
                 key={tab.id}
                 className="browser-tabs__item"
@@ -1848,14 +1823,8 @@ export default function App() {
                   type="button"
                   role="tab"
                   aria-selected={tab.id === activeTabId}
-                  tabIndex={tab.id === activeTabId ? 0 : -1}
                   className="browser-tabs__tab"
                   onClick={() => selectActiveTab(tab.id)}
-                  onKeyDown={(event) =>
-                    handleTabListKeyDown(event, tabIndex, tabs.length, (nextIndex) =>
-                      selectActiveTab(tabs[nextIndex].id)
-                    )
-                  }
                 >
                   <span className="browser-tabs__title">{tab.title}</span>
                 </button>

@@ -111,7 +111,7 @@ describe('fasterWhisperTranscription', () => {
       'cpu',
       '--compute-type',
       'int8'
-    ], { signal: undefined, timeoutMs: 30 * 60_000 })
+    ])
   })
 
   it('falls back to the next Python candidate when a command cannot start', async () => {
@@ -149,7 +149,7 @@ describe('fasterWhisperTranscription', () => {
       'cpu',
       '--compute-type',
       'int8'
-    ], { signal: undefined, timeoutMs: 30 * 60_000 })
+    ])
     expect(runProcess).toHaveBeenNthCalledWith(2, 'python3', [
       'C:/app/tools/transcribe_faster_whisper.py',
       '--audio',
@@ -160,7 +160,7 @@ describe('fasterWhisperTranscription', () => {
       'cpu',
       '--compute-type',
       'int8'
-    ], { signal: undefined, timeoutMs: 30 * 60_000 })
+    ])
   })
 
   it('returns a readable error when faster-whisper is not installed', async () => {

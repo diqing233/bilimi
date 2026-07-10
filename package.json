@@ -11,8 +11,6 @@
     "dev": "electron-vite dev",
     "generate:app-icon": "node scripts/generate-app-icon.mjs",
     "build": "electron-vite build",
-    "typecheck": "tsc --noEmit",
-    "verify": "npm run typecheck && npm test && npm run build",
     "preview": "electron-vite preview",
     "setup:media-tools": "node scripts/setup-media-tools.mjs",
     "setup:electron": "set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/&& install-electron --no",

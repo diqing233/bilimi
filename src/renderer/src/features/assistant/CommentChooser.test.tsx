@@ -19,7 +19,6 @@ describe('CommentChooser', () => {
 
     const dialog = screen.getByRole('dialog', { name: '小咪推荐评论' })
     expect(dialog).toHaveClass('assistant-dialog--comment-chooser')
-    expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /这个视频真不错/ })).toHaveClass(
       'assistant-dialog__comment-choice'
@@ -120,7 +119,7 @@ describe('CommentChooser', () => {
       <CommentChooser drafts={['第一条', '第二条', '第三条']} onSelect={vi.fn()} onCancel={onCancel} />
     )
 
-    fireEvent.keyDown(document.activeElement ?? screen.getByRole('dialog'), { key: 'Escape' })
+    fireEvent.keyDown(window, { key: 'Escape' })
 
     expect(onCancel).toHaveBeenCalledOnce()
   })

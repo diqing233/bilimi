@@ -103,7 +103,6 @@ type BilimiDesktopApi = {
     options?: FavoriteLedgerSaveOptions
   ) => Promise<AssistantAutomationResult>
   savePreferences: (preferences: AssistantPreferences) => Promise<AssistantPreferences>
-  savePreferencePatch?: (patch: Partial<AssistantPreferences>) => Promise<AssistantPreferences>
   restoreDefaultLayoutSize?: () => Promise<void>
   saveDeepSeekApiKey?: (apiKey: string) => Promise<DeepSeekKeyStatus>
   saveVideoNote?: (note: VideoNote) => Promise<VideoNote[]>

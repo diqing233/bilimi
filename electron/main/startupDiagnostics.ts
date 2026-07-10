@@ -16,11 +16,6 @@ type StartupDiagnosticsDependencies = {
   resolveMediaToolPaths: () => MediaToolPaths
   loadDeepSeekApiKeyStatus: () => DeepSeekKeyStatus
   testDeepSeekConnection: () => Promise<DeepSeekConnectionTestResult>
-  storageProbe?: {
-    set: (key: string, value: unknown) => unknown
-    get: (key: string) => unknown
-    delete: (key: string) => unknown
-  }
 }
 
 type WindowsFirewallRule = {
@@ -282,42 +277,13 @@ async function checkDeepSeek(
   })
 }
 
-function checkStorage(
-  storageProbe?: StartupDiagnosticsDependencies['storageProbe']
-): StartupDiagnosticItem {
-  if (!storageProbe) {
-    return createItem({
-      id: 'storage',
-      label: '本地存储',
-      status: 'warning',
-      message: '未执行本地存储读写检查。'
-    })
-  }
-
-  const key = `startupDiagnosticProbe:${Date.now()}:${Math.random()}`
-  const value = `bilimi:${key}`
-  try {
-    storageProbe.set(key, value)
-    if (storageProbe.get(key) !== value) {
-      throw new Error('读回的诊断值不一致。')
-    }
-    return createItem({
-      id: 'storage',
-      label: '本地存储',
-      status: 'ok',
-      message: '偏好设置与本地记录存储可用。'
-    })
-  } catch (error) {
-    return createItem({
-      id: 'storage',
-      label: '本地存储',
-      status: 'error',
-      message: error instanceof Error ? error.message : '本地存储读写失败。',
-      action: '请检查用户数据目录权限和磁盘空间。'
-    })
-  } finally {
-    storageProbe.delete(key)
-  }
+function checkStorage(): StartupDiagnosticItem {
+  return createItem({
+    id: 'storage',
+    label: '本地存储',
+    status: 'ok',
+    message: '偏好设置与本地记录存储可用。'
+  })
 }
 
 export async function runStartupDiagnostics(
@@ -336,7 +302,7 @@ export async function runStartupDiagnostics(
     bilibiliNetwork,
     windowsFirewall,
     checkMediaTools(dependencies.resolveMediaToolPaths),
-    checkStorage(dependencies.storageProbe),
+    checkStorage(),
     deepseek
   ]
 

@@ -2,13 +2,6 @@
 
 ## Unreleased
 
-- Added cancelable local transcription queues with stage timeouts, process-tree termination, retry controls, cancelable DeepSeek summary requests, restart cleanup after draft recovery, and a per-launch completion count.
-- Restored the approved compact UI contracts for review-action settings, queue controls, DeepSeek credential status, recommendation copy actions, and status-light navigation.
-- Protected DeepSeek API keys with Electron `safeStorage` when available, migrated legacy plaintext keys, disclosed plaintext fallback status, and bounded DeepSeek requests with timeouts.
-- Restricted embedded-browser permissions to minimal Bilibili capabilities and added one-shot webview and main-renderer crash recovery without automatic reload loops.
-- Hardened note and preference persistence with memo-draft recovery, optimistic rollback, atomic preference patches, visible startup load failures, and real storage diagnostics.
-- Verified every bundled media download with pinned SHA-256 digests before installation or extraction.
-- Added keyboard tab navigation, modal focus handling, keyboard-resizable sidebar semantics, reduced-motion support, TypeScript checking, and the `npm run verify` quality gate.
 - Reordered settings so organization strategy follows DeepSeek and close settings appear last in both navigation and page content.
 - Refined assistant status lights so long-running scan, DeepSeek, transcription queue, and old-favorite organization states stay visible without occupying the realtime feedback line.
 - Updated the in-app browser tab strip so multiple open video tabs compress before horizontal scrolling, without leading tab icons.

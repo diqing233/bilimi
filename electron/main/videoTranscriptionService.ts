@@ -27,12 +27,10 @@ type ServiceDeps = {
     path: string
     offsetSeconds: number
     threadLimit?: VideoAudioTranscriptionThreadLimit
-    signal?: AbortSignal
   }) => Promise<TranscriptSegment[]>
   getAudioDuration?: (path: string, ffmpegPath?: string) => Promise<number>
   cleanup?: (path: string) => Promise<void>
   threadLimit?: VideoAudioTranscriptionThreadLimit
-  signal?: AbortSignal
 }
 
 function normalizePath(path: string): string {
@@ -87,8 +85,7 @@ export async function transcribeCurrentVideoAudio({
   transcribeSegment,
   getAudioDuration = getAudioDurationSeconds,
   cleanup = defaultCleanup,
-  threadLimit = 'unlimited',
-  signal
+  threadLimit = 'unlimited'
 }: ServiceDeps): Promise<VideoAudioTranscriptionResult> {
   try {
     emit(progress, { step: 'preparing-session', message: 'Preparing current login session.' })
@@ -99,13 +96,11 @@ export async function transcribeCurrentVideoAudio({
         path: string
         offsetSeconds: number
         threadLimit?: VideoAudioTranscriptionThreadLimit
-        signal?: AbortSignal
       }) =>
         transcribeAudioSegmentWithLocalWhisper({
           ...input,
           cliPath: tools.whisperCliPath,
-          modelPath: tools.whisperModelPath,
-          signal: input.signal
+          modelPath: tools.whisperModelPath
         }))
     const cookieExport = await exportCookies({ session, tempDir })
 
@@ -115,8 +110,7 @@ export async function transcribeCurrentVideoAudio({
       ytdlpPath: tools.ytdlpPath,
       url: request.url,
       cookiePath: cookieExport.path,
-      outputTemplate,
-      signal
+      outputTemplate
     })
 
     emit(progress, { step: 'preparing-segments', message: 'Preparing audio segments.' })
@@ -125,8 +119,7 @@ export async function transcribeCurrentVideoAudio({
       ffmpegPath: tools.ffmpegPath,
       inputPath: audioPath,
       outputDir: tempDir,
-      durationSeconds,
-      signal
+      durationSeconds
     })
 
     const transcript: TranscriptSegment[] = []
@@ -142,8 +135,7 @@ export async function transcribeCurrentVideoAudio({
         ...(await transcribeAudioSegment({
           path: segment.path,
           offsetSeconds: segment.offsetSeconds,
-          threadLimit,
-          signal
+          threadLimit
         }))
       )
     }

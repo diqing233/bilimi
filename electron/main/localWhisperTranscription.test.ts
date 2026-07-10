@@ -138,25 +138,21 @@ describe('localWhisperTranscription', () => {
       })
     ).resolves.toEqual([{ start: 12, end: 14, text: 'local transcript' }])
 
-    expect(runProcess).toHaveBeenCalledWith(
-      'C:/app/resources/tools/win32/whisper/whisper-cli.exe',
-      [
-        '-m',
-        'C:/app/resources/tools/win32/whisper/models/ggml-small.bin',
-        '-f',
-        'C:/tmp/segment-000.wav',
-        '-l',
-        'auto',
-        '-t',
-        expect.stringMatching(/^\d+$/),
-        '-oj',
-        '-ojf',
-        '-of',
-        'C:/tmp/segment-000',
-        '-np'
-      ],
-      { signal: undefined, timeoutMs: 30 * 60_000 }
-    )
+    expect(runProcess).toHaveBeenCalledWith('C:/app/resources/tools/win32/whisper/whisper-cli.exe', [
+      '-m',
+      'C:/app/resources/tools/win32/whisper/models/ggml-small.bin',
+      '-f',
+      'C:/tmp/segment-000.wav',
+      '-l',
+      'auto',
+      '-t',
+      expect.stringMatching(/^\d+$/),
+      '-oj',
+      '-ojf',
+      '-of',
+      'C:/tmp/segment-000',
+      '-np'
+    ])
     expect(readTextFile).toHaveBeenCalledWith('C:/tmp/segment-000.json', 'utf8')
   })
 

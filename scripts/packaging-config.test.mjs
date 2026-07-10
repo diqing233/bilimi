@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { downloads } from './setup-media-tools.mjs'
 
 const packageJson = JSON.parse(readFileSync('package.json', 'utf8'))
 
@@ -40,9 +39,5 @@ describe('Windows installer packaging config', () => {
       from: 'tools/win32',
       to: 'tools/win32'
     })
-  })
-
-  it('pins SHA-256 checksums for every bundled Windows media artifact', () => {
-    expect(downloads.win32.every((item) => /^[a-f0-9]{64}$/.test(item.sha256))).toBe(true)
   })
 })

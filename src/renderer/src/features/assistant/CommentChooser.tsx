@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { useModalFocus } from '../accessibility/useModalFocus'
+import { useEffect, useState } from 'react'
 
 type CommentChooserProps = {
   drafts: string[]
@@ -10,9 +9,20 @@ type CommentChooserProps = {
 export function CommentChooser({ drafts, onSelect, onCancel }: CommentChooserProps) {
   const [submitted, setSubmitted] = useState(false)
   const [copyStatus, setCopyStatus] = useState('')
-  const dialogRef = useModalFocus(() => {
-    if (!submitted) onCancel()
-  })
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !submitted) {
+        onCancel()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [onCancel, submitted])
 
   function handleSelect(draft: string) {
     if (submitted) {
@@ -41,13 +51,7 @@ export function CommentChooser({ drafts, onSelect, onCancel }: CommentChooserPro
   }
 
   return (
-    <div
-      ref={dialogRef as React.RefObject<HTMLDivElement>}
-      className="assistant-dialog assistant-dialog--comment-chooser"
-      role="dialog"
-      aria-modal="true"
-      aria-label="小咪推荐评论"
-    >
+    <div className="assistant-dialog assistant-dialog--comment-chooser" role="dialog" aria-label="小咪推荐评论">
       <p>小咪拟好三条，主人点一条就发送。</p>
       <div className="assistant-dialog__comment-list" role="group" aria-label="评论候选">
         {drafts.map((draft, index) => (

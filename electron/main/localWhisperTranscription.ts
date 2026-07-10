@@ -35,7 +35,6 @@ type TranscribeInput = {
   modelPath: string
   threadLimit?: VideoAudioTranscriptionThreadLimit
   runProcess?: RunProcess
-  signal?: AbortSignal
   readTextFile?: typeof readFile
 }
 
@@ -145,7 +144,6 @@ export async function transcribeAudioSegmentWithLocalWhisper({
   modelPath,
   threadLimit = 'unlimited',
   runProcess = defaultRunProcess,
-  signal,
   readTextFile = readFile
 }: TranscribeInput): Promise<TranscriptSegment[]> {
   const outputPath = outputPathWithoutExtension(path)
@@ -157,8 +155,7 @@ export async function transcribeAudioSegmentWithLocalWhisper({
       audioPath: path,
       outputPathWithoutExtension: outputPath,
       threadLimit
-    }),
-    { signal, timeoutMs: 30 * 60_000 }
+    })
   )
 
   if (result.exitCode !== 0) {

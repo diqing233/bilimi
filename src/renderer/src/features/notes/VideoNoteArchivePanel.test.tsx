@@ -76,6 +76,7 @@ function renderArchivePanel(overrides: Partial<React.ComponentProps<typeof Video
       onDeleteVersion={vi.fn()}
       deepSeekEnabled={true}
       onGeneratePoster={vi.fn()}
+      onArchivePosterSummary={vi.fn()}
       {...overrides}
     />
   )
@@ -449,9 +450,9 @@ describe('VideoNoteArchivePanel', () => {
       auditChecklistText: '- 文稿：已读取'
     }
     const onGeneratePoster = vi.fn().mockResolvedValue(poster)
-    const onUpdateVersion = vi.fn().mockResolvedValue(undefined)
+    const onArchivePosterSummary = vi.fn().mockResolvedValue(undefined)
 
-    renderArchivePanel({ onGeneratePoster, onUpdateVersion })
+    renderArchivePanel({ onGeneratePoster, onArchivePosterSummary })
 
     fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
     fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
@@ -460,13 +461,7 @@ describe('VideoNoteArchivePanel', () => {
     await waitFor(() => expect(onGeneratePoster).toHaveBeenCalledWith(expect.objectContaining({
       id: 'bvid:BV1note'
     })))
-    expect(onUpdateVersion).toHaveBeenCalledOnce()
-    expect(onUpdateVersion).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.any(String),
-      expect.objectContaining({ overview: expect.any(Object) }),
-      expect.stringContaining('归档总结')
-    )
+    expect(onArchivePosterSummary).toHaveBeenCalledWith(expect.any(Object), poster)
     expect(await screen.findByText('归档总结')).toBeInTheDocument()
   })
 
@@ -547,133 +542,6 @@ describe('VideoNoteArchivePanel', () => {
         })
       )
     )
-  })
-
-  it('saves a dirty memo before switching to another archive', async () => {
-    const onUpdateVersion = vi.fn().mockResolvedValue(undefined)
-    renderArchivePanel({ onUpdateVersion })
-
-    fireEvent.click(screen.getByRole('button', { name: /React 状态管理/ }))
-    fireEvent.click(screen.getByRole('button', { name: '备注' }))
-    fireEvent.change(screen.getByLabelText('本地备注'), { target: { value: '切换前保存。' } })
-    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
-
-    await waitFor(() =>
-      expect(onUpdateVersion).toHaveBeenCalledWith(
-        'bvid:BV1react',
-        'bvid:BV1react:version:2026-06-16T00:00:00.000Z',
-        expect.objectContaining({ userMemo: '切换前保存。' })
-      )
-    )
-  })
-
-  it('restores optimistic starred state when persistence fails', async () => {
-    const onUpdateVersion = vi.fn().mockRejectedValue(new Error('保存失败'))
-    renderArchivePanel({ onUpdateVersion })
-
-    fireEvent.click(screen.getByRole('button', { name: /React 状态管理/ }))
-    const star = screen.getByRole('button', { name: '星标收藏' })
-    fireEvent.click(star)
-
-    await waitFor(() => expect(star).toHaveAttribute('aria-pressed', 'false'))
-    expect(screen.getByRole('status')).toHaveTextContent('保存失败')
-  })
-
-  it('saves a dirty memo before switching versions', async () => {
-    const onUpdateVersion = vi.fn().mockResolvedValue(undefined)
-    renderArchivePanel({ onUpdateVersion })
-
-    fireEvent.click(screen.getByRole('button', { name: /BV1note/ }))
-    fireEvent.click(screen.getByRole('button', { name: '\u5907\u6ce8' }))
-    fireEvent.change(screen.getByLabelText('\u672c\u5730\u5907\u6ce8'), {
-      target: { value: '\u5207\u6362\u7248\u672c\u524d\u4fdd\u5b58' }
-    })
-    fireEvent.change(screen.getByLabelText('\u5386\u53f2\u7248\u672c'), {
-      target: { value: 'bvid:BV1note:version:2026-06-17T00:00:00.000Z' }
-    })
-
-    await waitFor(() => expect(onUpdateVersion).toHaveBeenCalledWith(
-      'bvid:BV1note',
-      'bvid:BV1note:version:2026-06-17T01:00:00.000Z',
-      expect.objectContaining({ userMemo: '\u5207\u6362\u7248\u672c\u524d\u4fdd\u5b58' })
-    ))
-    expect(screen.getByLabelText('\u5386\u53f2\u7248\u672c')).toHaveValue(
-      'bvid:BV1note:version:2026-06-17T00:00:00.000Z'
-    )
-  })
-
-  it('saves a dirty memo before closing the archive', async () => {
-    const onClose = vi.fn()
-    const onUpdateVersion = vi.fn().mockResolvedValue(undefined)
-    renderArchivePanel({ onClose, onUpdateVersion })
-
-    fireEvent.click(screen.getByRole('button', { name: /BV1react/ }))
-    fireEvent.click(screen.getByRole('button', { name: '\u5907\u6ce8' }))
-    fireEvent.change(screen.getByLabelText('\u672c\u5730\u5907\u6ce8'), {
-      target: { value: '\u5173\u95ed\u524d\u4fdd\u5b58' }
-    })
-    fireEvent.click(screen.getByRole('button', { name: /\u8fd4\u56de.*\u672d\u8bb0/ }))
-
-    expect(onClose).not.toHaveBeenCalled()
-    await waitFor(() => expect(onUpdateVersion).toHaveBeenCalled())
-    expect(onClose).toHaveBeenCalledOnce()
-  })
-
-  it('keeps a dirty memo visible when saving before navigation fails', async () => {
-    const onUpdateVersion = vi.fn().mockRejectedValue(new Error('\u5907\u6ce8\u4fdd\u5b58\u5931\u8d25'))
-    renderArchivePanel({ onUpdateVersion })
-
-    fireEvent.click(screen.getByRole('button', { name: /BV1react/ }))
-    fireEvent.click(screen.getByRole('button', { name: '\u5907\u6ce8' }))
-    const memo = screen.getByLabelText('\u672c\u5730\u5907\u6ce8')
-    fireEvent.change(memo, { target: { value: '\u4e0d\u80fd\u4e22\u7684\u8349\u7a3f' } })
-    fireEvent.click(screen.getByRole('button', { name: /BV1note/ }))
-
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('\u5907\u6ce8\u4fdd\u5b58\u5931\u8d25'))
-    expect(memo).toHaveValue('\u4e0d\u80fd\u4e22\u7684\u8349\u7a3f')
-    expect(screen.getByRole('article', { name: /React/ })).toBeInTheDocument()
-  })
-
-  it('restores an unconfirmed memo after the archive unmounts and reopens', async () => {
-    const archives = createArchives()
-    const onUpdateVersion = vi.fn().mockRejectedValue(new Error('\u4fdd\u5b58\u5931\u8d25'))
-    const selection = {
-      selectedArchiveId: 'bvid:BV1react',
-      selectedVersionId: 'bvid:BV1react:version:2026-06-16T00:00:00.000Z'
-    }
-    const first = renderArchivePanel({ archives, onUpdateVersion, ...selection })
-
-    fireEvent.click(screen.getByRole('button', { name: '\u5907\u6ce8' }))
-    fireEvent.change(screen.getByLabelText('\u672c\u5730\u5907\u6ce8'), {
-      target: { value: '\u91cd\u5f00\u540e\u8fd8\u5728\u7684\u8349\u7a3f' }
-    })
-    first.unmount()
-
-    await waitFor(() => expect(onUpdateVersion).toHaveBeenCalledWith(
-      'bvid:BV1react',
-      'bvid:BV1react:version:2026-06-16T00:00:00.000Z',
-      expect.objectContaining({ userMemo: '\u91cd\u5f00\u540e\u8fd8\u5728\u7684\u8349\u7a3f' })
-    ))
-
-    renderArchivePanel({ archives, onUpdateVersion: vi.fn(), ...selection })
-    fireEvent.click(screen.getByRole('button', { name: '\u5907\u6ce8' }))
-    expect(screen.getByLabelText('\u672c\u5730\u5907\u6ce8')).toHaveValue(
-      '\u91cd\u5f00\u540e\u8fd8\u5728\u7684\u8349\u7a3f'
-    )
-  })
-
-  it('keeps the delete confirmation open when deletion fails', async () => {
-    const onDeleteEntry = vi.fn().mockRejectedValue(new Error('\u5220\u9664\u5931\u8d25'))
-    renderArchivePanel({ onDeleteEntry })
-
-    fireEvent.click(screen.getByRole('button', { name: /BV1note/ }))
-    fireEvent.click(screen.getByRole('button', { name: /\u66f4\u591a.*\u64cd\u4f5c/ }))
-    fireEvent.click(screen.getByRole('menuitem', { name: /\u5220\u9664.*\u6863\u6848/ }))
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '\u786e\u8ba4\u5220\u9664' }))
-
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('\u5220\u9664\u5931\u8d25'))
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByRole('article', { name: /\u673a\u5668\u5b66\u4e60/ })).toBeInTheDocument()
   })
 
   it('opens source and confirms destructive deletes', async () => {

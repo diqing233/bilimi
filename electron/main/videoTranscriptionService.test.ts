@@ -53,14 +53,12 @@ describe('video transcription service', () => {
     expect(Object.keys(transcribeSegment.mock.calls[0][0])).toEqual([
       'path',
       'offsetSeconds',
-      'threadLimit',
-      'signal'
+      'threadLimit'
     ])
     expect(transcribeSegment.mock.calls[0][0]).toEqual({
       path: 'C:/tmp/segment-000.mp3',
       offsetSeconds: 0,
-      threadLimit: 2,
-      signal: undefined
+      threadLimit: 2
     })
     expect(cleanup).toHaveBeenCalledWith('C:/tmp/job')
   })
@@ -92,37 +90,5 @@ describe('video transcription service', () => {
     ).rejects.toThrow('Audio download failed')
 
     expect(cleanup).toHaveBeenCalledWith('C:/tmp/job')
-  })
-
-  it('propagates one abort signal through every media stage', async () => {
-    const controller = new AbortController()
-    const downloadAudio = vi.fn().mockResolvedValue({ audioPath: 'C:/tmp/audio.m4a' })
-    const segmentAudio = vi.fn().mockResolvedValue([
-      { path: 'C:/tmp/segment-000.mp3', offsetSeconds: 0 }
-    ])
-    const transcribeSegment = vi.fn().mockResolvedValue([])
-
-    await transcribeCurrentVideoAudio({
-      request: { url: 'https://www.bilibili.com/video/BV1demo', title: 'Demo' },
-      session: { cookies: { get: vi.fn().mockResolvedValue([]) } },
-      tempDir: 'C:/tmp/job',
-      signal: controller.signal,
-      resolveTools: () => ({
-        ytdlpPath: 'yt-dlp',
-        ffmpegPath: 'ffmpeg',
-        whisperCliPath: 'whisper-cli',
-        whisperModelPath: 'ggml-model.bin'
-      }),
-      exportCookies: vi.fn().mockResolvedValue({ path: 'C:/tmp/cookies.txt', cookieCount: 1 }),
-      downloadAudio,
-      segmentAudio,
-      transcribeSegment,
-      getAudioDuration: vi.fn().mockResolvedValue(60),
-      cleanup: vi.fn().mockResolvedValue(undefined)
-    })
-
-    expect(downloadAudio).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }))
-    expect(segmentAudio).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }))
-    expect(transcribeSegment).toHaveBeenCalledWith(expect.objectContaining({ signal: controller.signal }))
   })
 })

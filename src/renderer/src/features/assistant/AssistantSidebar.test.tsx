@@ -22,10 +22,6 @@ function installDesktopApi({
     | ((preferences: ReturnType<typeof createInitialAssistantPreferences>) => void)
     | undefined
   let storedPreferences = preferences
-  const savePreferencePatch = vi.fn(async (patch) => {
-    storedPreferences = createInitialAssistantPreferences({ ...storedPreferences, ...patch })
-    return storedPreferences
-  })
   const openWorkspaceCallbacks: Array<
     Parameters<NonNullable<Window['bilimiDesktop']['onOpenFloatingAssistantWorkspace']>>[0]
   > = []
@@ -52,7 +48,6 @@ function installDesktopApi({
         storedPreferences = createInitialAssistantPreferences(nextPreferences)
         return storedPreferences
       }),
-      savePreferencePatch,
       setAssistantPetHint: vi.fn(),
       loadVideoAudioTranscriptionQueue: vi.fn().mockResolvedValue({
         activeItemId: 'bvid:BV1note',
@@ -92,8 +87,7 @@ function installDesktopApi({
       }
     },
     setAssistantPetHint: window.bilimiDesktop.setAssistantPetHint as ReturnType<typeof vi.fn>,
-    savePreferences: window.bilimiDesktop.savePreferences as ReturnType<typeof vi.fn>,
-    savePreferencePatch
+    savePreferences: window.bilimiDesktop.savePreferences as ReturnType<typeof vi.fn>
   }
 }
 
@@ -117,33 +111,6 @@ describe('assistant sidebar width helpers', () => {
 })
 
 describe('AssistantSidebar', () => {
-  it('persists width through an atomic preference patch', async () => {
-    const savePreferencePatch = vi.fn().mockResolvedValue({})
-    window.bilimiDesktop = {
-      ...window.bilimiDesktop,
-      savePreferencePatch
-    }
-    render(<AssistantSidebar />)
-
-    fireEvent.doubleClick(screen.getByRole('separator', { name: '调整侧边栏宽度' }))
-
-    await waitFor(() =>
-      expect(savePreferencePatch).toHaveBeenCalledWith({ assistantSidebarWidthPx: null })
-    )
-  })
-  it('exposes and adjusts the sidebar width from the keyboard', async () => {
-    const savePreferencePatch = vi.fn().mockResolvedValue({})
-    window.bilimiDesktop = { ...window.bilimiDesktop, savePreferencePatch }
-    render(<AssistantSidebar />)
-    const separator = screen.getByRole('separator', { name: '调整侧边栏宽度' })
-
-    expect(separator).toHaveAttribute('tabindex', '0')
-    expect(separator).toHaveAttribute('aria-valuemin')
-    expect(separator).toHaveAttribute('aria-valuemax')
-    fireEvent.keyDown(separator, { key: 'ArrowRight' })
-
-    await waitFor(() => expect(savePreferencePatch).toHaveBeenCalled())
-  })
   beforeEach(() => {
     setWindowInnerWidth(1366)
   })
@@ -280,13 +247,17 @@ describe('AssistantSidebar', () => {
       fireEvent.pointerUp(window, { clientX: 260, pointerId: 1 })
     })
 
-    expect(api.savePreferencePatch).toHaveBeenLastCalledWith({ assistantSidebarWidthPx: 320 })
+    expect(api.savePreferences).toHaveBeenLastCalledWith(
+      expect.objectContaining({ assistantSidebarWidthPx: 320 })
+    )
 
     fireEvent.doubleClick(resizeHandle)
 
     expect(sidebar.style.getPropertyValue('--assistant-sidebar-width')).toBe('')
     await waitFor(() =>
-      expect(api.savePreferencePatch).toHaveBeenLastCalledWith({ assistantSidebarWidthPx: null })
+      expect(api.savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({ assistantSidebarWidthPx: null })
+      )
     )
     expect(ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX).toBe(384)
   })

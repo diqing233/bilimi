@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, render } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { BiliWebview } from './BiliWebview'
 
@@ -177,60 +177,5 @@ describe('BiliWebview', () => {
     rerender(<BiliWebview active tabId="home" url="https://www.bilibili.com/video/BV1navigated" />)
 
     expect(webview).toHaveAttribute('src', 'https://www.bilibili.com/video/BV1initial')
-  })
-
-  it('reloads once after a renderer crash and shows manual recovery after a repeated crash', () => {
-    render(<BiliWebview active tabId="home" url="https://www.bilibili.com" />)
-    const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
-    const reload = vi.fn()
-    Object.assign(webview, { reload })
-
-    act(() => {
-      webview.dispatchEvent(
-        Object.assign(new Event('render-process-gone'), {
-          details: { reason: 'crashed', exitCode: 1 }
-        })
-      )
-    })
-    expect(reload).toHaveBeenCalledOnce()
-
-    act(() => {
-      webview.dispatchEvent(
-        Object.assign(new Event('render-process-gone'), {
-          details: { reason: 'crashed', exitCode: 1 }
-        })
-      )
-    })
-    expect(screen.getByRole('alert')).toHaveTextContent('网页连续崩溃')
-
-    fireEvent.click(screen.getByRole('button', { name: '重新加载网页' }))
-    expect(reload).toHaveBeenCalledTimes(2)
-  })
-
-  it('ignores aborted navigation and subframe load failures', () => {
-    render(<BiliWebview active tabId="home" url="https://www.bilibili.com" />)
-    const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
-    const reload = vi.fn()
-    Object.assign(webview, { reload })
-
-    act(() => {
-      webview.dispatchEvent(
-        Object.assign(new Event('did-fail-load'), {
-          errorCode: -3,
-          errorDescription: 'ERR_ABORTED',
-          isMainFrame: true
-        })
-      )
-      webview.dispatchEvent(
-        Object.assign(new Event('did-fail-load'), {
-          errorCode: -105,
-          errorDescription: 'ERR_NAME_NOT_RESOLVED',
-          isMainFrame: false
-        })
-      )
-    })
-
-    expect(reload).not.toHaveBeenCalled()
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

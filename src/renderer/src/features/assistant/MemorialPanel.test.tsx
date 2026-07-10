@@ -216,7 +216,7 @@ describe('MemorialPanel', () => {
     expect(screen.getByText('UP').nextElementSibling).toHaveTextContent('李老师讲AI')
   })
 
-  it('places coin and comment settings beside their action buttons without nesting controls', () => {
+  it('embeds coin and comment settings inside their action buttons without firing actions', () => {
     const onPreferenceChange = vi.fn()
     const onAction = vi.fn()
 
@@ -242,28 +242,9 @@ describe('MemorialPanel', () => {
     expect(screen.queryByText('评论发送方式')).not.toBeInTheDocument()
     expect(screen.getByLabelText('投币厚赏参数')).toHaveValue('1')
     expect(screen.getByLabelText('拟奏短评参数')).toHaveValue('random')
-    expect(screen.getByTestId('review-action-coin')).not.toContainElement(screen.getByLabelText('投币厚赏参数'))
-    expect(screen.getByTestId('review-action-comment')).not.toContainElement(
+    expect(screen.getByTestId('review-action-coin')).toContainElement(screen.getByLabelText('投币厚赏参数'))
+    expect(screen.getByTestId('review-action-comment')).toContainElement(
       screen.getByLabelText('拟奏短评参数')
-    )
-    expect(screen.getByTestId('review-action-coin').parentElement).toBe(
-      screen.getByLabelText('投币厚赏参数').parentElement?.parentElement
-    )
-    expect(screen.getByTestId('review-action-comment').parentElement).toBe(
-      screen.getByLabelText('拟奏短评参数').parentElement?.parentElement
-    )
-    expect(screen.getByTestId('review-action-coin').parentElement).toHaveClass(
-      'memorial-panel__action-card--with-setting'
-    )
-
-    const focusableControls = Array.from(
-      document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>('button:not([disabled]), select')
-    )
-    expect(focusableControls.indexOf(screen.getByTestId('review-action-coin'))).toBeLessThan(
-      focusableControls.indexOf(screen.getByLabelText('投币厚赏参数'))
-    )
-    expect(focusableControls.indexOf(screen.getByTestId('review-action-comment'))).toBeLessThan(
-      focusableControls.indexOf(screen.getByLabelText('拟奏短评参数'))
     )
 
     fireEvent.change(screen.getByLabelText('投币厚赏参数'), { target: { value: '2' } })
