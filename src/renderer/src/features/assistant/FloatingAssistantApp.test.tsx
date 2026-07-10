@@ -960,24 +960,33 @@ describe('FloatingAssistantApp', () => {
     expect(Array.from(settingsJump.options).map((option) => option.textContent)).toEqual([
       '诊断',
       'DeepSeek',
+      '整理策略',
       '宠物设置',
-      '关闭设置',
       '视频音频转写速度',
       '收藏整理',
-      '整理策略',
-      '批阅动作'
+      '批阅动作',
+      '关闭设置'
     ])
     expect(await screen.findByText('纠错参考记录（1）')).toBeInTheDocument()
     expect(screen.getByText('DeepSeek 建议（1）')).toBeInTheDocument()
 
     const diagnosticsSection = screen.getByRole('group', { name: '诊断' })
     const deepSeekSection = screen.getByRole('group', { name: 'DeepSeek' })
+    const learningSection = screen.getByRole('group', { name: '整理策略' })
     const petSection = screen.getByRole('group', { name: '宠物设置' })
+    const reviewActionsSection = screen.getByRole('group', { name: '批阅动作设置' })
+    const closeSection = screen.getByRole('group', { name: '关闭设置' })
     expect(
       diagnosticsSection.compareDocumentPosition(deepSeekSection) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
     expect(
-      deepSeekSection.compareDocumentPosition(petSection) & Node.DOCUMENT_POSITION_FOLLOWING
+      deepSeekSection.compareDocumentPosition(learningSection) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      learningSection.compareDocumentPosition(petSection) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      reviewActionsSection.compareDocumentPosition(closeSection) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
     deepSeekSection.scrollIntoView = vi.fn()
     fireEvent.change(settingsJump, { target: { value: 'deepseek' } })

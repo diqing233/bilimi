@@ -364,12 +364,12 @@ const KEYWORD_SUGGESTION_STATUS_LABELS: Record<FavoriteKeywordSuggestionStatus, 
 const SETTINGS_JUMP_OPTIONS = [
   { value: 'diagnostics', label: '诊断' },
   { value: 'deepseek', label: 'DeepSeek' },
+  { value: 'learning', label: '整理策略' },
   { value: 'pet', label: '宠物设置' },
-  { value: 'close', label: '关闭设置' },
   { value: 'transcription', label: '视频音频转写速度' },
   { value: 'archive', label: '收藏整理' },
-  { value: 'learning', label: '整理策略' },
-  { value: 'review-actions', label: '批阅动作' }
+  { value: 'review-actions', label: '批阅动作' },
+  { value: 'close', label: '关闭设置' }
 ] as const
 
 type SettingsJumpValue = (typeof SETTINGS_JUMP_OPTIONS)[number]['value']
@@ -2393,231 +2393,6 @@ export function FloatingAssistantApp({
               ) : null}
             </fieldset>
             <fieldset
-              className="assistant-settings__group assistant-settings__group--pet"
-              data-settings-section="pet"
-            >
-              <legend>宠物设置</legend>
-              <label>
-                <input
-                  type="radio"
-                  name="pet-style"
-                  checked={preferences.petStyle === 'big-head'}
-                  onChange={() => choosePetStyle('big-head')}
-                />
-                <span>萌版大头</span>
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="pet-style"
-                  checked={preferences.petStyle === 'classic'}
-                  onChange={() => choosePetStyle('classic')}
-                />
-                <span>Q版小人</span>
-              </label>
-              <div className="assistant-settings__pet-divider" aria-hidden="true" />
-              <label>
-                <input
-                  type="checkbox"
-                  checked={preferences.hidePetDuringVideoFullscreen}
-                  onChange={(event) =>
-                    toggleVideoFullscreenPetVisibility(event.currentTarget.checked)
-                  }
-                />
-                <span>全屏视频时自动收起小咪</span>
-              </label>
-              <div className="assistant-settings__pet-divider" aria-hidden="true" />
-              <div
-                className="assistant-settings__hover-shortcuts"
-                role="group"
-                aria-label="宠物快捷操作"
-              >
-                <div className="assistant-settings__hover-shortcuts-copy">
-                  <strong>宠物快捷操作</strong>
-                  <small>
-                    选择常用操作，数字表示显示顺序；点击可启用或停用快捷项，可不选，最多4个。
-                  </small>
-                </div>
-                <label className="assistant-settings__hover-shortcut-toggle">
-                  <input
-                    type="checkbox"
-                    checked={preferences.showPetAssistantShortcut}
-                    onChange={(event) =>
-                      persistPreferencePatch({
-                        showPetAssistantShortcut: event.currentTarget.checked
-                      })
-                    }
-                  />
-                  <span>显示打开小咪按钮</span>
-                </label>
-                {PET_SORTABLE_HOVER_SHORTCUTS.map((shortcut) => {
-                  const selectedIndex = selectedPetHoverShortcuts.indexOf(shortcut.id)
-                  const selected = selectedIndex >= 0
-                  const selectionFull = selectedPetHoverShortcuts.length >= PET_HOVER_SHORTCUT_LIMIT
-                  const orderLabel = selected ? ` 第 ${selectedIndex + 1} 位` : ''
-
-                  return (
-                    <button
-                      key={shortcut.id}
-                      className="assistant-settings__hover-shortcut"
-                      type="button"
-                      aria-label={`${shortcut.label} ${shortcut.title}${orderLabel}`}
-                      aria-pressed={selected}
-                      disabled={!selected && selectionFull}
-                      onClick={() => togglePetHoverShortcut(shortcut.id, !selected)}
-                    >
-                      <span className="assistant-settings__hover-shortcut-mark">
-                        {selected ? selectedIndex + 1 : shortcut.label}
-                      </span>
-                      <span className="assistant-settings__hover-shortcut-copy">
-                        <strong>{shortcut.label}</strong>
-                        <small>{shortcut.title}</small>
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-              <div className="assistant-settings__pet-divider" aria-hidden="true" />
-              <div className="assistant-settings__pet-actions">
-                <button type="button" onClick={wakeAssistantPet}>
-                  唤醒宠物
-                </button>
-                <button type="button" onClick={closeAssistantPet}>
-                  关闭宠物
-                </button>
-              </div>
-            </fieldset>
-            <fieldset
-              className="assistant-settings__group assistant-settings__group--close"
-              data-settings-section="close"
-            >
-              <legend>关闭设置</legend>
-              <label>
-                <input
-                  type="radio"
-                  name="main-window-close-behavior"
-                  checked={preferences.closeBehavior === 'minimize-to-tray'}
-                  onChange={() => chooseCloseBehavior('minimize-to-tray')}
-                />
-                <span>最小化到系统托盘</span>
-                <small>点关闭时保留后台运行，托盘入口和小咪还在。</small>
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="main-window-close-behavior"
-                  checked={preferences.closeBehavior === 'exit-launcher'}
-                  onChange={() => chooseCloseBehavior('exit-launcher')}
-                />
-                <span>退出启动器</span>
-                <small>点关闭时结束启动器和悬浮小咪。</small>
-              </label>
-              <div className="assistant-settings__pet-divider" aria-hidden="true" />
-              <label title="关闭行为为退出启动器时生效；关闭后可在这里重新打开。">
-                <input
-                  type="checkbox"
-                  checked={preferences.confirmBeforeExit}
-                  disabled={preferences.closeBehavior !== 'exit-launcher'}
-                  onChange={(event) => toggleExitConfirmation(event.currentTarget.checked)}
-                />
-                <span>退出前确认</span>
-                <small>点关闭弹出确认框；弹窗里的“记住选择”会同步改这里。</small>
-              </label>
-            </fieldset>
-            <fieldset
-              className="assistant-settings__group assistant-settings__group--transcription"
-              data-settings-section="transcription"
-            >
-              <legend>视频音频转写速度</legend>
-              <p>控制本地 whisper.cpp / whisper-cli.exe 转写视频音频能使用多少 CPU 线程；限制越低，电脑越不容易卡，但转写会更慢。</p>
-              <label>
-                <input
-                  type="radio"
-                  name="video-audio-transcription-thread-limit"
-                  checked={preferences.videoAudioTranscriptionThreadLimit === 'unlimited'}
-                  onChange={() =>
-                    persistPreferencePatch({ videoAudioTranscriptionThreadLimit: 'unlimited' })
-                  }
-                />
-                <span>无限制（最快，占用最高）</span>
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="video-audio-transcription-thread-limit"
-                  checked={preferences.videoAudioTranscriptionThreadLimit === 1}
-                  onChange={() =>
-                    persistPreferencePatch({ videoAudioTranscriptionThreadLimit: 1 })
-                  }
-                />
-                <span>限制为 1 线程（省电）</span>
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="video-audio-transcription-thread-limit"
-                  checked={preferences.videoAudioTranscriptionThreadLimit === 2}
-                  onChange={() =>
-                    persistPreferencePatch({ videoAudioTranscriptionThreadLimit: 2 })
-                  }
-                />
-                <span>限制为 2 线程（平衡）</span>
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="video-audio-transcription-thread-limit"
-                  checked={preferences.videoAudioTranscriptionThreadLimit === 4}
-                  onChange={() =>
-                    persistPreferencePatch({ videoAudioTranscriptionThreadLimit: 4 })
-                  }
-                />
-                <span>限制为 4 线程（较快）</span>
-              </label>
-            </fieldset>
-            <fieldset
-              className="assistant-settings__group assistant-settings__group--archive"
-              data-settings-section="archive"
-            >
-              <legend>bilimi 收藏策略</legend>
-              <p>说明：设置一个待分类视频最多可同时保存到几个合适的 bilimi 收藏夹。</p>
-              <p>1. 用户原收藏夹不会被移动或删除，也不计入数量。</p>
-              <p>2. 优先保存到 bilimi 中系统推荐生成和用户自定义创建的收藏夹。</p>
-              <label>
-                <input
-                  type="radio"
-                  name="favorite-archive-multi-mode"
-                  checked={preferences.favoriteArchiveMultiMode === 'off'}
-                  onChange={() =>
-                    persistPreferencePatch({ favoriteArchiveMultiMode: 'off' })
-                  }
-                />
-                <span>最多同时保存到 1 个 bilimi 收藏夹</span>
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="favorite-archive-multi-mode"
-                  checked={preferences.favoriteArchiveMultiMode === 'two'}
-                  onChange={() =>
-                    persistPreferencePatch({ favoriteArchiveMultiMode: 'two' })
-                  }
-                />
-                <span>最多同时保存到 2 个 bilimi 收藏夹</span>
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="favorite-archive-multi-mode"
-                  checked={preferences.favoriteArchiveMultiMode === 'three'}
-                  onChange={() =>
-                    persistPreferencePatch({ favoriteArchiveMultiMode: 'three' })
-                  }
-                />
-                <span>最多同时保存到 3 个 bilimi 收藏夹</span>
-              </label>
-            </fieldset>
-            <fieldset
               className="assistant-settings__group assistant-settings__group--learning"
               data-settings-section="learning"
             >
@@ -2848,6 +2623,194 @@ export function FloatingAssistantApp({
               </div>
             </fieldset>
             <fieldset
+              className="assistant-settings__group assistant-settings__group--pet"
+              data-settings-section="pet"
+            >
+              <legend>宠物设置</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="pet-style"
+                  checked={preferences.petStyle === 'big-head'}
+                  onChange={() => choosePetStyle('big-head')}
+                />
+                <span>萌版大头</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="pet-style"
+                  checked={preferences.petStyle === 'classic'}
+                  onChange={() => choosePetStyle('classic')}
+                />
+                <span>Q版小人</span>
+              </label>
+              <div className="assistant-settings__pet-divider" aria-hidden="true" />
+              <label>
+                <input
+                  type="checkbox"
+                  checked={preferences.hidePetDuringVideoFullscreen}
+                  onChange={(event) =>
+                    toggleVideoFullscreenPetVisibility(event.currentTarget.checked)
+                  }
+                />
+                <span>全屏视频时自动收起小咪</span>
+              </label>
+              <div className="assistant-settings__pet-divider" aria-hidden="true" />
+              <div
+                className="assistant-settings__hover-shortcuts"
+                role="group"
+                aria-label="宠物快捷操作"
+              >
+                <div className="assistant-settings__hover-shortcuts-copy">
+                  <strong>宠物快捷操作</strong>
+                  <small>
+                    选择常用操作，数字表示显示顺序；点击可启用或停用快捷项，可不选，最多4个。
+                  </small>
+                </div>
+                <label className="assistant-settings__hover-shortcut-toggle">
+                  <input
+                    type="checkbox"
+                    checked={preferences.showPetAssistantShortcut}
+                    onChange={(event) =>
+                      persistPreferencePatch({
+                        showPetAssistantShortcut: event.currentTarget.checked
+                      })
+                    }
+                  />
+                  <span>显示打开小咪按钮</span>
+                </label>
+                {PET_SORTABLE_HOVER_SHORTCUTS.map((shortcut) => {
+                  const selectedIndex = selectedPetHoverShortcuts.indexOf(shortcut.id)
+                  const selected = selectedIndex >= 0
+                  const selectionFull = selectedPetHoverShortcuts.length >= PET_HOVER_SHORTCUT_LIMIT
+                  const orderLabel = selected ? ` 第 ${selectedIndex + 1} 位` : ''
+
+                  return (
+                    <button
+                      key={shortcut.id}
+                      className="assistant-settings__hover-shortcut"
+                      type="button"
+                      aria-label={`${shortcut.label} ${shortcut.title}${orderLabel}`}
+                      aria-pressed={selected}
+                      disabled={!selected && selectionFull}
+                      onClick={() => togglePetHoverShortcut(shortcut.id, !selected)}
+                    >
+                      <span className="assistant-settings__hover-shortcut-mark">
+                        {selected ? selectedIndex + 1 : shortcut.label}
+                      </span>
+                      <span className="assistant-settings__hover-shortcut-copy">
+                        <strong>{shortcut.label}</strong>
+                        <small>{shortcut.title}</small>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="assistant-settings__pet-divider" aria-hidden="true" />
+              <div className="assistant-settings__pet-actions">
+                <button type="button" onClick={wakeAssistantPet}>
+                  唤醒宠物
+                </button>
+                <button type="button" onClick={closeAssistantPet}>
+                  关闭宠物
+                </button>
+              </div>
+            </fieldset>
+            <fieldset
+              className="assistant-settings__group assistant-settings__group--transcription"
+              data-settings-section="transcription"
+            >
+              <legend>视频音频转写速度</legend>
+              <p>控制本地 whisper.cpp / whisper-cli.exe 转写视频音频能使用多少 CPU 线程；限制越低，电脑越不容易卡，但转写会更慢。</p>
+              <label>
+                <input
+                  type="radio"
+                  name="video-audio-transcription-thread-limit"
+                  checked={preferences.videoAudioTranscriptionThreadLimit === 'unlimited'}
+                  onChange={() =>
+                    persistPreferencePatch({ videoAudioTranscriptionThreadLimit: 'unlimited' })
+                  }
+                />
+                <span>无限制（最快，占用最高）</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="video-audio-transcription-thread-limit"
+                  checked={preferences.videoAudioTranscriptionThreadLimit === 1}
+                  onChange={() =>
+                    persistPreferencePatch({ videoAudioTranscriptionThreadLimit: 1 })
+                  }
+                />
+                <span>限制为 1 线程（省电）</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="video-audio-transcription-thread-limit"
+                  checked={preferences.videoAudioTranscriptionThreadLimit === 2}
+                  onChange={() =>
+                    persistPreferencePatch({ videoAudioTranscriptionThreadLimit: 2 })
+                  }
+                />
+                <span>限制为 2 线程（平衡）</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="video-audio-transcription-thread-limit"
+                  checked={preferences.videoAudioTranscriptionThreadLimit === 4}
+                  onChange={() =>
+                    persistPreferencePatch({ videoAudioTranscriptionThreadLimit: 4 })
+                  }
+                />
+                <span>限制为 4 线程（较快）</span>
+              </label>
+            </fieldset>
+            <fieldset
+              className="assistant-settings__group assistant-settings__group--archive"
+              data-settings-section="archive"
+            >
+              <legend>bilimi 收藏策略</legend>
+              <p>说明：设置一个待分类视频最多可同时保存到几个合适的 bilimi 收藏夹。</p>
+              <p>1. 用户原收藏夹不会被移动或删除，也不计入数量。</p>
+              <p>2. 优先保存到 bilimi 中系统推荐生成和用户自定义创建的收藏夹。</p>
+              <label>
+                <input
+                  type="radio"
+                  name="favorite-archive-multi-mode"
+                  checked={preferences.favoriteArchiveMultiMode === 'off'}
+                  onChange={() =>
+                    persistPreferencePatch({ favoriteArchiveMultiMode: 'off' })
+                  }
+                />
+                <span>最多同时保存到 1 个 bilimi 收藏夹</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="favorite-archive-multi-mode"
+                  checked={preferences.favoriteArchiveMultiMode === 'two'}
+                  onChange={() =>
+                    persistPreferencePatch({ favoriteArchiveMultiMode: 'two' })
+                  }
+                />
+                <span>最多同时保存到 2 个 bilimi 收藏夹</span>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="favorite-archive-multi-mode"
+                  checked={preferences.favoriteArchiveMultiMode === 'three'}
+                  onChange={() =>
+                    persistPreferencePatch({ favoriteArchiveMultiMode: 'three' })
+                  }
+                />
+                <span>最多同时保存到 3 个 bilimi 收藏夹</span>
+              </label>
+            </fieldset>
+            <fieldset
               className="assistant-settings__group assistant-settings__group--review-actions"
               data-settings-section="review-actions"
             >
@@ -2898,6 +2861,43 @@ export function FloatingAssistantApp({
                   }
                 />
                 <span>生成 3 条候选，选择后发送（也可以复制后发评论）</span>
+              </label>
+            </fieldset>
+            <fieldset
+              className="assistant-settings__group assistant-settings__group--close"
+              data-settings-section="close"
+            >
+              <legend>关闭设置</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="main-window-close-behavior"
+                  checked={preferences.closeBehavior === 'minimize-to-tray'}
+                  onChange={() => chooseCloseBehavior('minimize-to-tray')}
+                />
+                <span>最小化到系统托盘</span>
+                <small>点关闭时保留后台运行，托盘入口和小咪还在。</small>
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="main-window-close-behavior"
+                  checked={preferences.closeBehavior === 'exit-launcher'}
+                  onChange={() => chooseCloseBehavior('exit-launcher')}
+                />
+                <span>退出启动器</span>
+                <small>点关闭时结束启动器和悬浮小咪。</small>
+              </label>
+              <div className="assistant-settings__pet-divider" aria-hidden="true" />
+              <label title="关闭行为为退出启动器时生效；关闭后可在这里重新打开。">
+                <input
+                  type="checkbox"
+                  checked={preferences.confirmBeforeExit}
+                  disabled={preferences.closeBehavior !== 'exit-launcher'}
+                  onChange={(event) => toggleExitConfirmation(event.currentTarget.checked)}
+                />
+                <span>退出前确认</span>
+                <small>点关闭弹出确认框；弹窗里的“记住选择”会同步改这里。</small>
               </label>
             </fieldset>
             </div>
