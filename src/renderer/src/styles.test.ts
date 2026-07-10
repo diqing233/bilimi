@@ -425,13 +425,13 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.memorial-panel__actions {\n  display: grid;\n  grid-template-columns: 1fr;')
     expect(normalizedStyles).toContain('.assistant-action-button {\n  min-height: 62px;')
     expectStyleSnippet(
-      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 64px; gap: 0; align-items: stretch;'
+      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 56px; gap: 0; align-items: stretch;'
     )
     expectStyleSnippet(
       '.memorial-panel__action-card--with-setting .assistant-action-button { border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join) var(--porcelain-radius-join) var(--porcelain-radius-control);'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-setting { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; justify-self: stretch; min-width: 0; width: 64px; max-width: 64px;'
+      '.memorial-panel__action-setting { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; justify-self: stretch; min-width: 0; width: 56px; max-width: 56px;'
     )
     expectStyleSnippet(
       '.memorial-panel__action-setting select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 62px;'
@@ -445,6 +445,8 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet(
       '.memorial-panel__action-setting select:hover, .memorial-panel__action-setting select:focus-visible { border-color: rgba(31, 99, 181, 0.5); background: linear-gradient('
     )
+    expect(normalizedStyles).toContain('rgba(247, 251, 255, 0.98)')
+    expect(normalizedStyles).toContain('rgba(247, 251, 255, 1)')
     expect(normalizedStyles).toContain('grid-template-columns: 58px minmax(0, 1fr);')
     expectStyleSnippet('grid-template-areas: "mark label" "mark desc";')
     expect(normalizedStyles).toContain(
