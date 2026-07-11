@@ -3150,6 +3150,14 @@ export function FloatingAssistantApp({
                 deepSeekEnabled={preferences.deepseekEnabled}
                 deepSeekCommentEnabled={preferences.deepseekCommentEnabled}
                 deepSeekAutoSummaryEnabled={preferences.deepseekAutoSummaryEnabled}
+                deepSeekSummaryGenerating={
+                  deepSeekTask === 'summary' ||
+                  transcriptionQueue.items.some(
+                    (item) =>
+                      item.status === 'running' &&
+                      item.progress?.step === 'summarizing-deepseek'
+                  )
+                }
                 videoCategory={videoCategory}
                 videoTitle={resolvedVideoTitle}
                 videoAuthor={resolvedVideoAuthor}

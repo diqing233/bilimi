@@ -29,6 +29,7 @@ type MemorialPanelProps = {
   deepSeekEnabled?: boolean
   deepSeekCommentEnabled?: boolean
   deepSeekAutoSummaryEnabled?: boolean
+  deepSeekSummaryGenerating?: boolean
   defaultCoinCount?: 1 | 2
   commentSubmitMode?: CommentSubmitMode
   onPreferenceChange?: (patch: Partial<AssistantPreferences>) => void
@@ -169,6 +170,7 @@ export function MemorialPanel({
   deepSeekEnabled = false,
   deepSeekCommentEnabled = deepSeekEnabled,
   deepSeekAutoSummaryEnabled = false,
+  deepSeekSummaryGenerating = false,
   defaultCoinCount = 1,
   commentSubmitMode = 'choose',
   onPreferenceChange,
@@ -352,6 +354,7 @@ export function MemorialPanel({
             archivedNotes={videoNoteArchives}
             deepSeekEnabled={deepSeekEnabled}
             deepSeekAutoSummaryEnabled={deepSeekAutoSummaryEnabled}
+            deepSeekSummaryGenerating={deepSeekSummaryGenerating}
             transcriptionProgress={transcriptionProgress}
             transcriptionQueue={transcriptionQueue}
             activeResultTab={videoNotesResultTab}

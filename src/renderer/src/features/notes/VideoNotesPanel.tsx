@@ -44,6 +44,7 @@ type VideoNotesPanelProps = {
   archivedSummaryText?: string
   deepSeekEnabled?: boolean
   deepSeekAutoSummaryEnabled?: boolean
+  deepSeekSummaryGenerating?: boolean
   transcriptionProgress?: VideoAudioTranscriptionProgress | null
   transcriptionQueue?: VideoAudioTranscriptionQueueSnapshot
   archivedNotes?: VideoNoteArchiveEntry[]
@@ -217,6 +218,7 @@ export function VideoNotesPanel({
   archivedSummaryText = '',
   deepSeekEnabled = false,
   deepSeekAutoSummaryEnabled = false,
+  deepSeekSummaryGenerating = false,
   transcriptionProgress = null,
   transcriptionQueue,
   archivedNotes = [],
@@ -622,7 +624,8 @@ export function VideoNotesPanel({
   function renderSummaryPanel(): React.JSX.Element {
     const summaryCopy = summaryText || '暂无 DeepSeek 总结。'
     const summaryActionLabel = hasDeepSeekSummary ? '重新总结' : '生成总结'
-    const summaryActionDisabled = !deepSeekEnabled || !visibleNote || posterGenerating
+    const summaryGenerating = posterGenerating || deepSeekSummaryGenerating
+    const summaryActionDisabled = !deepSeekEnabled || !visibleNote || summaryGenerating
     const polishedCopy = activePosterSummary
       ? createPolishedTranscriptText(activePosterSummary)
       : archivedCopyParts.polishedTranscriptText
@@ -640,7 +643,7 @@ export function VideoNotesPanel({
               disabled={summaryActionDisabled}
               onClick={() => visibleNote && void generatePosterForNote(visibleNote)}
             >
-              {posterGenerating ? '生成中...' : summaryActionLabel}
+              {summaryGenerating ? '生成中...' : summaryActionLabel}
             </button>
             <CopySplitButton
               groupLabel="DeepSeek 复制"

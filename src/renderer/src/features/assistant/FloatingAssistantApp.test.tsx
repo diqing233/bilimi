@@ -3769,6 +3769,9 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).toHaveTextContent(
       '机器学习需要数据和模型。'
     )
+
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+    expect(screen.getByRole('button', { name: '生成中...' })).toBeDisabled()
   })
 
   it('shows queued transcription work in the transcription status light', async () => {
