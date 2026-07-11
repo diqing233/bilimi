@@ -1507,7 +1507,7 @@ body[data-floating-window="true"],
   white-space: nowrap;
   color: var(--porcelain-deep);
   padding: 7px 10px;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 18px;
 }

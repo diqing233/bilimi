@@ -293,6 +293,10 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByLabelText('全局提示')).toHaveTextContent(
       'DeepSeek 二判完成：与本地判断一致，保留在「游戏专区」。'
     )
+    expect(screen.getByLabelText('全局提示')).toHaveAttribute(
+      'title',
+      'DeepSeek 二判完成：与本地判断一致，保留在「游戏专区」。'
+    )
   })
 
   it('does not replay historical runtime feedback when the assistant first mounts', async () => {
@@ -570,7 +574,11 @@ describe('FloatingAssistantApp', () => {
 
   it('uses DeepSeek for archive preview organization and persists returned keyword suggestions', async () => {
     const savePreferences = vi.fn().mockImplementation(async (preferences: AssistantPreferences) => preferences)
-    const generateDeepSeek = vi.fn().mockResolvedValue({
+    const deepSeekOrganization = createDeferred<
+      Awaited<ReturnType<NonNullable<Window['bilimiDesktop']['generateDeepSeek']>>>
+    >()
+    const generateDeepSeek = vi.fn(() => deepSeekOrganization.promise)
+    const deepSeekResult = {
       kind: 'favorite-archive-organize',
       results: [],
       keywordSuggestions: [
@@ -585,7 +593,7 @@ describe('FloatingAssistantApp', () => {
           createdAt: '2026-07-06T00:00:00.000Z'
         }
       ]
-    })
+    } as const
     const scanOldFavorites = vi.fn().mockResolvedValue({
       items: [
         {
@@ -629,6 +637,10 @@ describe('FloatingAssistantApp', () => {
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     selectDeepSeekArchiveScope('DeepSeek 进行二次整理')
+
+    expect(generateDeepSeek).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('DeepSeek状态')).not.toHaveTextContent('DeepSeek 工作中')
+
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
 
     await waitFor(() =>
@@ -640,9 +652,16 @@ describe('FloatingAssistantApp', () => {
         })
       )
     )
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 工作中')
+    )
+
+    deepSeekOrganization.resolve(deepSeekResult)
+
     expect(
       await screen.findByText('DeepSeek 返回 1 条关键词建议，已加入设置里的建议列表。')
     ).toBeInTheDocument()
+    expect(screen.getByLabelText('DeepSeek状态')).not.toHaveTextContent('DeepSeek 工作中')
     fireEvent.click(screen.getByRole('button', { name: '前往采纳 DeepSeek 建议' }))
     expect(screen.getByRole('tab', { name: '设置' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '设置项' })).toHaveValue(
@@ -917,29 +936,57 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByRole('combobox', { name: '拟奏短评参数' })).toHaveDisplayValue('随机')
   })
 
-  it('shows saved DeepSeek configuration as pending verification', async () => {
+  it('validates saved DeepSeek configuration once after startup', async () => {
+    let snapshotChanged: (() => void) | undefined
+    const connectionTest = createDeferred<{
+      ok: boolean
+      message: string
+      requestedModel: string
+      responseModel: string
+    }>()
+    const testDeepSeekConnection = vi.fn().mockReturnValue(connectionTest.promise)
+    const connectionResult = {
+      ok: true,
+      message: 'DeepSeek connection succeeded.',
+      requestedModel: 'deepseek-v4-pro',
+      responseModel: 'deepseek-v4-pro'
+    }
     installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
           preferences: createPreferences({
             deepseekEnabled: true,
             deepseekApiKeyStored: true,
+            deepseekModel: 'deepseek-v4-pro',
             deepseekCommentEnabled: true,
             deepseekAutoSummaryEnabled: false,
             deepseekPetChatEnabled: true,
             deepseekDailyClassificationEnabled: false
           })
         })
-      )
+      ),
+      testDeepSeekConnection,
+      onAssistantSnapshotChanged: vi.fn((callback: () => void) => {
+        snapshotChanged = callback
+        return vi.fn()
+      })
     })
 
-    render(<FloatingAssistantApp />)
+    render(<FloatingAssistantApp mode="sidebar" />)
 
-    await screen.findByLabelText('DeepSeek状态')
+    await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledOnce())
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 验证中')
+
+    connectionTest.resolve(connectionResult)
+
     await waitFor(() =>
-      expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 待测试')
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 已连接')
     )
-    expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute('data-tone', 'warn')
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute('data-tone', 'ok')
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
+      'title',
+      expect.stringContaining('当前模型：deepseek-v4-pro')
+    )
     await waitFor(() =>
       expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
         'title',
@@ -958,7 +1005,43 @@ describe('FloatingAssistantApp', () => {
       'title',
       expect.stringContaining('辅助整理：关闭')
     )
+
+    act(() => snapshotChanged?.())
+    await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledOnce())
   })
+
+  it.each([
+    {
+      deepseekEnabled: false,
+      deepseekApiKeyStored: true,
+      expectedStatus: 'DeepSeek 未启用'
+    },
+    {
+      deepseekEnabled: true,
+      deepseekApiKeyStored: false,
+      expectedStatus: 'DeepSeek 待配置'
+    }
+  ])(
+    'does not validate DeepSeek on startup when enabled=$deepseekEnabled and configured=$deepseekApiKeyStored',
+    async ({ expectedStatus, ...deepSeekPreferences }) => {
+      const testDeepSeekConnection = vi.fn()
+      installDesktopApi({
+        requestAssistantSnapshot: vi.fn().mockResolvedValue(
+          createSnapshot({
+            preferences: createPreferences(deepSeekPreferences)
+          })
+        ),
+        testDeepSeekConnection
+      })
+
+      render(<FloatingAssistantApp />)
+
+      await waitFor(() =>
+        expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent(expectedStatus)
+      )
+      expect(testDeepSeekConnection).not.toHaveBeenCalled()
+    }
+  )
 
   it('shows an idle no-transcript status when the current video has no transcription yet', async () => {
     installDesktopApi({
@@ -2483,7 +2566,12 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute('data-tone', 'running')
     expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
       'title',
-      expect.stringContaining('趣评生成：三分钟讲清机器学习科普教程')
+      [
+        'DeepSeek 工作中',
+        '当前模型：deepseek-v4-flash',
+        '正在执行 1 项任务：',
+        '• 趣评生成：三分钟讲清机器学习科普教程'
+      ].join('\n')
     )
 
     commentGeneration.resolve({

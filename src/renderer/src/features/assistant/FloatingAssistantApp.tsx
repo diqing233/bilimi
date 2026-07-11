@@ -389,6 +389,7 @@ function formatDeepSeekFeatureList(preferences: AssistantPreferences): string {
 
   return [
     'DeepSeek 已连接。',
+    `当前模型：${preferences.deepseekModel || '未配置'}`,
     `趣评生成：${preferences.deepseekCommentEnabled ? '开启' : '关闭'}，拟奏短评会生成候选。`,
     `自动总结：${preferences.deepseekAutoSummaryEnabled ? '开启' : '关闭'}，转写后生成文稿总结。`,
     `宠物对话：${preferences.deepseekPetChatEnabled ? '开启' : '关闭'}，小咪可使用 DeepSeek 对话。`,
@@ -606,6 +607,7 @@ export function FloatingAssistantApp({
   const snapshotRef = useRef<AssistantSnapshot | null>(null)
   const lastRuntimeFeedbackId = useRef<number | undefined>(undefined)
   const runtimeFeedbackSnapshotLoaded = useRef(false)
+  const startupDeepSeekValidationAttempted = useRef(false)
   const snapshotLoadQueue = useRef<Promise<void>>(Promise.resolve())
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences()
@@ -748,9 +750,14 @@ export function FloatingAssistantApp({
       (task, index, tasks) => tasks.findIndex((candidate) => candidate.id === task.id) === index
     )
     if (activeDeepSeekTasks.length > 0) {
+      const validatingConnection = activeDeepSeekTasks.every(
+        (task) => task.kind === 'connection-test'
+      )
       return {
-        label: 'DeepSeek 工作中',
+        label: validatingConnection ? 'DeepSeek 验证中' : 'DeepSeek 工作中',
         detail: [
+          validatingConnection ? 'DeepSeek 验证中' : 'DeepSeek 工作中',
+          `当前模型：${preferences.deepseekModel || '未配置'}`,
           `正在执行 ${activeDeepSeekTasks.length} 项任务：`,
           ...activeDeepSeekTasks.map(
             (task) => `• ${task.detail?.trim() || DEEPSEEK_TASK_DEFAULT_DETAIL[task.kind]}`
@@ -790,6 +797,7 @@ export function FloatingAssistantApp({
     preferences.deepseekCommentEnabled,
     preferences.deepseekDailyClassificationEnabled,
     preferences.deepseekEnabled,
+    preferences.deepseekModel,
     preferences.deepseekPetChatEnabled,
     deepSeekConnectionStatus,
     localDeepSeekTasks,
@@ -1027,6 +1035,36 @@ export function FloatingAssistantApp({
       mounted.current = false
     }
   }, [loadSnapshot])
+
+  useEffect(() => {
+    if (
+      mode !== 'sidebar' ||
+      !snapshot ||
+      startupDeepSeekValidationAttempted.current ||
+      !preferences.deepseekEnabled ||
+      !preferences.deepseekApiKeyStored ||
+      !window.bilimiDesktop?.testDeepSeekConnection
+    ) {
+      return
+    }
+
+    startupDeepSeekValidationAttempted.current = true
+    const finishDeepSeekTask = startDeepSeekTask({
+      id: 'startup-connection-test',
+      kind: 'connection-test',
+      detail: '连接验证：启动时自动检查'
+    })
+
+    void window.bilimiDesktop
+      .testDeepSeekConnection()
+      .then((result) => {
+        setDeepSeekConnectionStatus(result.ok ? 'connected' : 'failed')
+      })
+      .catch(() => {
+        setDeepSeekConnectionStatus('failed')
+      })
+      .finally(finishDeepSeekTask)
+  }, [mode, preferences.deepseekApiKeyStored, preferences.deepseekEnabled, snapshot])
 
   useEffect(() => {
     return window.bilimiDesktop?.onAssistantSnapshotChanged?.(() => {
@@ -2457,6 +2495,7 @@ export function FloatingAssistantApp({
               className="floating-assistant-global-status__feedback"
               aria-label="全局提示"
               aria-live="polite"
+              title={displayedGlobalFeedbackMessage}
             >
               {displayedGlobalFeedbackMessage}
             </p>
