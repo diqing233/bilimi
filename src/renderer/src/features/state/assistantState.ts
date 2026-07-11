@@ -172,20 +172,25 @@ export function createInitialAssistantPreferences(
     deepseekApiKeyStored: Boolean(persisted?.deepseekApiKeyStored),
     deepseekCommentEnabled: normalizeDeepSeekFeatureToggle(
       persisted?.deepseekCommentEnabled,
-      persisted?.deepseekEnabled
+      true
     ),
     deepseekAutoSummaryEnabled: normalizeDeepSeekFeatureToggle(
       persisted?.deepseekAutoSummaryEnabled,
-      persisted?.deepseekEnabled
+      true
     ),
     deepseekPetChatEnabled: normalizeDeepSeekFeatureToggle(
       persisted?.deepseekPetChatEnabled,
-      persisted?.deepseekEnabled
+      true
     ),
     deepseekDailyClassificationEnabled:
       typeof persisted?.deepseekDailyClassificationEnabled === 'boolean'
         ? persisted.deepseekDailyClassificationEnabled
-        : false,
+        : true,
+    deepseekArchiveOrganizationEnabled:
+      typeof persisted?.deepseekArchiveOrganizationEnabled === 'boolean'
+        ? persisted.deepseekArchiveOrganizationEnabled
+        : true,
+    deepseekFeatureDefaultsInitialized: Boolean(persisted?.deepseekFeatureDefaultsInitialized),
     deepseekDailyClassificationMode: normalizeDeepSeekDailyClassificationMode(
       persisted?.deepseekDailyClassificationMode
     ),

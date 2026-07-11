@@ -487,6 +487,41 @@ describe('PalaceMaidPetApp', () => {
     expect(api.generateDeepSeek).not.toHaveBeenCalled()
   })
 
+  it('stops offering pet chat after a preference broadcast disables it', async () => {
+    let preferencesChanged: ((preferences: AssistantPreferences) => void) | undefined
+    const api = installDesktopApi({
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          deepseekEnabled: true,
+          deepseekApiKeyStored: true,
+          deepseekPetChatEnabled: true
+        })
+      ),
+      onAssistantPreferencesChanged: vi.fn((callback) => {
+        preferencesChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<PalaceMaidPetApp />)
+    fireEvent.click(screen.getByRole('button', { name: '打开小咪对话' }))
+    await screen.findByLabelText('和小咪说话')
+
+    act(() => {
+      preferencesChanged?.(
+        createPreferences({
+          deepseekEnabled: true,
+          deepseekApiKeyStored: true,
+          deepseekPetChatEnabled: false
+        })
+      )
+    })
+
+    expect(screen.queryByLabelText('和小咪说话')).not.toBeInTheDocument()
+    expect(screen.getByText('主人，想要跟小咪交流的话去设置开启DeepSeek宠物对话功能吧')).toBeInTheDocument()
+    expect(api.generateDeepSeek).not.toHaveBeenCalled()
+  })
+
   it('shows an alert when 小咪 chat fails', async () => {
     installDesktopApi({
       loadPreferences: vi.fn().mockResolvedValue(

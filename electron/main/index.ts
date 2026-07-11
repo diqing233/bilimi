@@ -75,6 +75,7 @@ import { createRendererFilePath } from './rendererPath'
 import { transcribeCurrentVideoAudio } from './videoTranscriptionService'
 import { createVideoTranscriptionQueue } from './videoTranscriptionQueue'
 import { DeepSeekServiceError, generateDeepSeekResult } from './deepseekService'
+import { assertDeepSeekRequestEnabled } from './deepseekFeatureAccess'
 import { resolveMediaToolPaths } from './mediaToolPaths'
 import { runStartupDiagnostics } from './startupDiagnostics'
 import { BILIMI_SESSION_PARTITION } from '../../src/shared/constants'
@@ -729,6 +730,7 @@ function getVideoTranscriptionQueue() {
       },
       summarizeNote: async (note, signal) => {
         const preferences = loadAssistantPreferences(getDesktopStore())
+        assertDeepSeekRequestEnabled(preferences, 'note-poster')
         const result = await generateDeepSeekResult({
           config: {
             enabled: preferences.deepseekEnabled,
@@ -802,6 +804,8 @@ function registerAssistantPreferenceHandlers() {
   })
   ipcMain.handle('deepseek:generate', (_event, request: DeepSeekGenerateRequest) => {
     const preferences = loadAssistantPreferences(getDesktopStore())
+
+    assertDeepSeekRequestEnabled(preferences, request.kind)
 
     return generateDeepSeekResult({
       config: {

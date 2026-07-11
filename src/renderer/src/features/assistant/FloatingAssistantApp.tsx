@@ -376,24 +376,40 @@ function formatSettingsDate(value?: string) {
   })
 }
 
-function formatDeepSeekFeatureList(preferences: AssistantPreferences): string {
-  if (!preferences.deepseekEnabled || !preferences.deepseekApiKeyStored) {
-    return [
-      'DeepSeek 未连接。',
-      `趣评生成：${preferences.deepseekCommentEnabled ? '开启' : '关闭'}`,
-      `自动总结：${preferences.deepseekAutoSummaryEnabled ? '开启' : '关闭'}`,
-      `宠物对话：${preferences.deepseekPetChatEnabled ? '开启' : '关闭'}`,
-      `辅助整理：${preferences.deepseekDailyClassificationEnabled ? '开启' : '关闭'}`
-    ].join('\n')
-  }
+function formatDeepSeekFeatureLines(preferences: AssistantPreferences): string[] {
+  const reviewMode =
+    preferences.deepseekDailyClassificationMode === 'low-confidence-only'
+      ? '仅不太稳'
+      : '全部归类'
 
   return [
-    'DeepSeek 已连接。',
-    `当前模型：${preferences.deepseekModel || '未配置'}`,
-    `趣评生成：${preferences.deepseekCommentEnabled ? '开启' : '关闭'}，拟奏短评会生成候选。`,
-    `自动总结：${preferences.deepseekAutoSummaryEnabled ? '开启' : '关闭'}，转写后生成文稿总结。`,
-    `宠物对话：${preferences.deepseekPetChatEnabled ? '开启' : '关闭'}，小咪可使用 DeepSeek 对话。`,
-    `辅助整理：${preferences.deepseekDailyClassificationEnabled ? '开启' : '关闭'}，代批和旧藏整理会复核分类。`
+    preferences.deepseekCommentEnabled
+      ? '趣味评论：开启，会生成候选弹幕，可复制发布为评论。'
+      : '趣味评论：关闭，不会生成候选弹幕。',
+    preferences.deepseekAutoSummaryEnabled
+      ? '自动总结：开启，会在视频转写后生成文稿总结。'
+      : '自动总结：关闭，不会在视频转写后生成文稿总结。',
+    preferences.deepseekPetChatEnabled
+      ? '宠物对话：开启，小咪会调用 DeepSeek 对话。'
+      : '宠物对话：关闭，小咪不会调用 DeepSeek 对话。',
+    preferences.deepseekDailyClassificationEnabled
+      ? `批阅辅助：开启（${reviewMode}），会用 DeepSeek 复核批阅分类。`
+      : '批阅辅助：关闭，不会使用 DeepSeek 复核批阅分类。',
+    preferences.deepseekArchiveOrganizationEnabled
+      ? '旧藏整理：开启，可在归档预览中手动执行 DeepSeek 整理。'
+      : '旧藏整理：关闭，无法在归档预览中执行 DeepSeek 整理。'
+  ]
+}
+
+function formatDeepSeekFeatureList(preferences: AssistantPreferences): string {
+  return [
+    preferences.deepseekEnabled && preferences.deepseekApiKeyStored
+      ? 'DeepSeek 已连接。'
+      : 'DeepSeek 未连接。',
+    ...(preferences.deepseekEnabled && preferences.deepseekApiKeyStored
+      ? [`当前模型：${preferences.deepseekModel || '未配置'}`]
+      : []),
+    ...formatDeepSeekFeatureLines(preferences)
   ].join('\n')
 }
 
@@ -705,8 +721,8 @@ export function FloatingAssistantApp({
 
     if (transcriptionQueue.sessionCompletedCount > 0) {
       return {
-        label: `暂无转写 · 完成 ${transcriptionQueue.sessionCompletedCount}`,
-        detail: `本次启动已完成 ${transcriptionQueue.sessionCompletedCount} 个转写，文稿已保存到档案库。`,
+        label: `暂无转写 · 成功 ${transcriptionQueue.sessionCompletedCount}`,
+        detail: `本次启动已成功转写 ${transcriptionQueue.sessionCompletedCount} 个视频，文稿已保存到档案库。`,
         tone: 'ok'
       }
     }
@@ -761,7 +777,9 @@ export function FloatingAssistantApp({
           `正在执行 ${activeDeepSeekTasks.length} 项任务：`,
           ...activeDeepSeekTasks.map(
             (task) => `• ${task.detail?.trim() || DEEPSEEK_TASK_DEFAULT_DETAIL[task.kind]}`
-          )
+          ),
+          '',
+          ...formatDeepSeekFeatureLines(preferences)
         ].join('\n'),
         tone: 'running'
       }
@@ -770,7 +788,10 @@ export function FloatingAssistantApp({
     if (deepSeekConnectionStatus === 'failed') {
       return {
         label: 'DeepSeek 连接失败',
-        detail: '配置已保存，但最近一次真实连接测试失败，请检查密钥、模型和服务地址。',
+        detail: [
+          '配置已保存，但最近一次真实连接测试失败，请检查密钥、模型和服务地址。',
+          ...formatDeepSeekFeatureLines(preferences)
+        ].join('\n'),
         tone: 'error'
       }
     }
@@ -780,7 +801,8 @@ export function FloatingAssistantApp({
         label: 'DeepSeek 待测试',
         detail: [
           '配置已保存，尚未完成本次运行的连接验证。',
-          ...formatDeepSeekFeatureList(preferences).split('\n').slice(1)
+          `当前模型：${preferences.deepseekModel || '未配置'}`,
+          ...formatDeepSeekFeatureLines(preferences)
         ].join('\n'),
         tone: 'warn'
       }
@@ -796,6 +818,8 @@ export function FloatingAssistantApp({
     preferences.deepseekAutoSummaryEnabled,
     preferences.deepseekCommentEnabled,
     preferences.deepseekDailyClassificationEnabled,
+    preferences.deepseekArchiveOrganizationEnabled,
+    preferences.deepseekDailyClassificationMode,
     preferences.deepseekEnabled,
     preferences.deepseekModel,
     preferences.deepseekPetChatEnabled,
@@ -1459,14 +1483,18 @@ export function FloatingAssistantApp({
   function toggleDeepSeekEnabled(enabled: boolean) {
     const previousScrollTop = enabled ? settingsBodyRef.current?.scrollTop : undefined
     updateDeepSeekPreference(
-      enabled
+      enabled && !preferencesRef.current.deepseekFeatureDefaultsInitialized
         ? {
             deepseekEnabled: true,
             deepseekCommentEnabled: true,
             deepseekAutoSummaryEnabled: true,
-            deepseekPetChatEnabled: true
+            deepseekPetChatEnabled: true,
+            deepseekDailyClassificationEnabled: true,
+            deepseekArchiveOrganizationEnabled: true,
+            deepseekDailyClassificationMode: 'all',
+            deepseekFeatureDefaultsInitialized: true
           }
-        : { deepseekEnabled: false },
+        : { deepseekEnabled: enabled },
       { persist: true }
     )
 
@@ -1625,10 +1653,12 @@ export function FloatingAssistantApp({
       ...preferencesRef.current,
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
-      deepseekCommentEnabled: false,
-      deepseekAutoSummaryEnabled: false,
-      deepseekPetChatEnabled: false,
-      deepseekDailyClassificationEnabled: false,
+      deepseekCommentEnabled: true,
+      deepseekAutoSummaryEnabled: true,
+      deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: true,
+      deepseekArchiveOrganizationEnabled: true,
+      deepseekFeatureDefaultsInitialized: true,
       deepseekDailyClassificationMode: 'all',
       deepseekModel: DEFAULT_DEEPSEEK_MODEL,
       deepseekBaseUrl: DEFAULT_DEEPSEEK_BASE_URL
@@ -1660,10 +1690,12 @@ export function FloatingAssistantApp({
       videoAudioTranscriptionThreadLimit: 'unlimited',
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
-      deepseekCommentEnabled: false,
-      deepseekAutoSummaryEnabled: false,
-      deepseekPetChatEnabled: false,
-      deepseekDailyClassificationEnabled: false,
+      deepseekCommentEnabled: true,
+      deepseekAutoSummaryEnabled: true,
+      deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: true,
+      deepseekArchiveOrganizationEnabled: true,
+      deepseekFeatureDefaultsInitialized: true,
       deepseekDailyClassificationMode: 'all',
       deepseekModel: DEFAULT_DEEPSEEK_MODEL,
       deepseekBaseUrl: DEFAULT_DEEPSEEK_BASE_URL,
@@ -2542,7 +2574,7 @@ export function FloatingAssistantApp({
             deepSeekArchiveAvailable={
               preferences.deepseekEnabled &&
               preferences.deepseekApiKeyStored &&
-              preferences.deepseekDailyClassificationEnabled
+              preferences.deepseekArchiveOrganizationEnabled
             }
             onOrganizeOldFavoritesWithDeepSeek={organizeOldFavoritesWithDeepSeek}
             onDeepSeekArchiveKeywordSuggestions={mergeDeepSeekArchiveKeywordSuggestions}
@@ -2695,7 +2727,24 @@ export function FloatingAssistantApp({
                       />
                       <span>宠物对话</span>
                     </label>
-                    <label title="在整理旧藏时，用 DeepSeek 帮忙判断视频适合放到哪个收藏夹。">
+                    <label title="允许在归档预览中手动使用 DeepSeek 整理旧藏。">
+                      <input
+                        type="checkbox"
+                        checked={preferences.deepseekArchiveOrganizationEnabled}
+                        onChange={(event) =>
+                          updateDeepSeekPreference(
+                            {
+                              deepseekArchiveOrganizationEnabled: event.currentTarget.checked
+                            },
+                            { persist: true }
+                          )
+                        }
+                      />
+                      <span>旧藏整理</span>
+                    </label>
+                  </div>
+                  <div className="assistant-settings__deepseek-review-control">
+                    <label title="让 DeepSeek 复核日常批阅的分类结果。">
                       <input
                         type="checkbox"
                         checked={preferences.deepseekDailyClassificationEnabled}
@@ -2708,43 +2757,27 @@ export function FloatingAssistantApp({
                           )
                         }
                       />
-                      <span>辅助整理</span>
+                      <span>批阅辅助</span>
                     </label>
+                    <select
+                      aria-label="批阅辅助范围"
+                      disabled={!preferences.deepseekDailyClassificationEnabled}
+                      value={preferences.deepseekDailyClassificationMode}
+                      onChange={(event) =>
+                        updateDeepSeekPreference(
+                          {
+                            deepseekDailyClassificationMode: event.currentTarget.value as
+                              | 'all'
+                              | 'low-confidence-only'
+                          },
+                          { persist: true }
+                        )
+                      }
+                    >
+                      <option value="all">全部归类</option>
+                      <option value="low-confidence-only">仅不太稳</option>
+                    </select>
                   </div>
-                  {preferences.deepseekDailyClassificationEnabled ? (
-                    <div className="assistant-settings__deepseek-switches assistant-settings__deepseek-switches--nested">
-                      <label title="所有归档建议都交给 DeepSeek 再判断一遍，更细但更慢。">
-                        <input
-                          type="radio"
-                          name="deepseek-daily-classification-mode"
-                          checked={preferences.deepseekDailyClassificationMode === 'all'}
-                          onChange={() =>
-                            updateDeepSeekPreference(
-                              { deepseekDailyClassificationMode: 'all' },
-                              { persist: true }
-                            )
-                          }
-                        />
-                        <span>全部归类</span>
-                      </label>
-                      <label title="只让 DeepSeek 处理不太确定的归档建议，速度更快。">
-                        <input
-                          type="radio"
-                          name="deepseek-daily-classification-mode"
-                          checked={
-                            preferences.deepseekDailyClassificationMode === 'low-confidence-only'
-                          }
-                          onChange={() =>
-                            updateDeepSeekPreference(
-                              { deepseekDailyClassificationMode: 'low-confidence-only' },
-                              { persist: true }
-                            )
-                          }
-                        />
-                        <span>仅不太稳</span>
-                      </label>
-                    </div>
-                  ) : null}
                   <label>
                     <span>DeepSeek API 密钥</span>
                     <input
@@ -2811,19 +2844,37 @@ export function FloatingAssistantApp({
                       </a>
                     </p>
                     <p>API 密钥：创建令牌后，令牌分组请选择 deepseek（官方），复制密钥到这里使用。</p>
-                    <p className="assistant-settings__copy-row assistant-settings__recommendation-divider">
-                      <span>推荐模型：deepseek-v4-pro</span>
+                    <p className="assistant-settings__recommendation-divider">推荐模型：</p>
+                    <p className="assistant-settings__copy-row">
+                      <span>（日常便宜）deepseek-v4-flash</span>
                       <button
                         className="assistant-settings__copy-button"
                         type="button"
-                        aria-label="复制推荐模型"
-                        onClick={() => void copyDeepSeekRecommendation('deepseek-v4-pro', '推荐模型')}
+                        aria-label="复制日常便宜模型"
+                        onClick={() =>
+                          void copyDeepSeekRecommendation('deepseek-v4-flash', '日常便宜模型')
+                        }
                       >
                         复制
                       </button>
                     </p>
-                    <p className="assistant-settings__copy-row assistant-settings__recommendation-divider">
-                      <span>服务器地址：https://api.yunshulink.com/v1</span>
+                    <p className="assistant-settings__copy-row">
+                      <span>（精准略贵）deepseek-v4-pro</span>
+                      <button
+                        className="assistant-settings__copy-button"
+                        type="button"
+                        aria-label="复制精准略贵模型"
+                        onClick={() =>
+                          void copyDeepSeekRecommendation('deepseek-v4-pro', '精准略贵模型')
+                        }
+                      >
+                        复制
+                      </button>
+                    </p>
+                    <p className="assistant-settings__recommendation-divider">
+                      <span>服务器地址：</span>
+                      <span className="assistant-settings__copy-row assistant-settings__copy-row--inline">
+                        <span>https://api.yunshulink.com/v1</span>
                       <button
                         className="assistant-settings__copy-button"
                         type="button"
@@ -2837,6 +2888,7 @@ export function FloatingAssistantApp({
                       >
                         复制
                       </button>
+                      </span>
                     </p>
                   </aside>
                 </>

@@ -139,7 +139,7 @@ describe('assistant state', () => {
     })
   })
 
-  it('creates disabled DeepSeek preferences by default', () => {
+  it('creates DeepSeek child features enabled by default while keeping the master switch off', () => {
     expect(createInitialAssistantPreferences()).toMatchObject({
       bilibiliOperationMode: 'api-assisted',
       favoriteArchiveMultiMode: 'off',
@@ -147,9 +147,12 @@ describe('assistant state', () => {
       commentSubmitMode: 'choose',
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
-      deepseekCommentEnabled: false,
-      deepseekAutoSummaryEnabled: false,
-      deepseekPetChatEnabled: false,
+      deepseekCommentEnabled: true,
+      deepseekAutoSummaryEnabled: true,
+      deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: true,
+      deepseekArchiveOrganizationEnabled: true,
+      deepseekFeatureDefaultsInitialized: false,
       deepseekModel: 'deepseek-v4-flash',
       deepseekBaseUrl: 'https://api.deepseek.com',
       closeBehavior: 'minimize-to-tray',
@@ -173,11 +176,13 @@ describe('assistant state', () => {
     })
   })
 
-  it('keeps new DeepSeek feature switches off by default while inheriting legacy enabled settings', () => {
+  it('preserves explicit DeepSeek child switches and migrates legacy settings to enabled', () => {
     expect(createInitialAssistantPreferences()).toMatchObject({
       deepseekEnabled: false,
-      deepseekCommentEnabled: false,
-      deepseekPetChatEnabled: false
+      deepseekCommentEnabled: true,
+      deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: true,
+      deepseekArchiveOrganizationEnabled: true
     })
 
     expect(createInitialAssistantPreferences({ deepseekEnabled: true })).toMatchObject({
@@ -191,12 +196,16 @@ describe('assistant state', () => {
       createInitialAssistantPreferences({
         deepseekEnabled: true,
         deepseekCommentEnabled: false,
-        deepseekPetChatEnabled: true
+        deepseekPetChatEnabled: true,
+        deepseekDailyClassificationEnabled: false,
+        deepseekArchiveOrganizationEnabled: false
       })
     ).toMatchObject({
       deepseekEnabled: true,
       deepseekCommentEnabled: false,
-      deepseekPetChatEnabled: true
+      deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: false,
+      deepseekArchiveOrganizationEnabled: false
     })
   })
 

@@ -351,25 +351,33 @@ describe('assistant preference store helpers', () => {
     expect(saved.favoriteArchiveProtectionInitializedAccountMids).toEqual(['7'])
   })
 
-  it('defaults and persists DeepSeek daily classification preferences', () => {
+  it('defaults and persists independent DeepSeek organization preferences', () => {
     const store = createFakeStore()
     delete (store.snapshot as Record<string, unknown>).deepseekDailyClassificationEnabled
     delete (store.snapshot as Record<string, unknown>).deepseekDailyClassificationMode
+    delete (store.snapshot as Record<string, unknown>).deepseekArchiveOrganizationEnabled
+    delete (store.snapshot as Record<string, unknown>).deepseekFeatureDefaultsInitialized
 
     expect(loadAssistantPreferences(store)).toMatchObject({
-      deepseekDailyClassificationEnabled: false,
-      deepseekDailyClassificationMode: 'all'
+      deepseekDailyClassificationEnabled: true,
+      deepseekDailyClassificationMode: 'all',
+      deepseekArchiveOrganizationEnabled: true,
+      deepseekFeatureDefaultsInitialized: false
     })
 
     const saved = saveAssistantPreferences(store, {
       ...DEFAULT_ASSISTANT_PREFERENCES,
       deepseekDailyClassificationEnabled: true,
-      deepseekDailyClassificationMode: 'low-confidence-only'
+      deepseekDailyClassificationMode: 'low-confidence-only',
+      deepseekArchiveOrganizationEnabled: false,
+      deepseekFeatureDefaultsInitialized: true
     })
 
     expect(saved).toMatchObject({
       deepseekDailyClassificationEnabled: true,
-      deepseekDailyClassificationMode: 'low-confidence-only'
+      deepseekDailyClassificationMode: 'low-confidence-only',
+      deepseekArchiveOrganizationEnabled: false,
+      deepseekFeatureDefaultsInitialized: true
     })
   })
 

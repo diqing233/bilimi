@@ -75,6 +75,8 @@ export type AssistantPreferences = {
   deepseekAutoSummaryEnabled: boolean
   deepseekPetChatEnabled: boolean
   deepseekDailyClassificationEnabled: boolean
+  deepseekArchiveOrganizationEnabled: boolean
+  deepseekFeatureDefaultsInitialized: boolean
   deepseekDailyClassificationMode: 'all' | 'low-confidence-only'
   deepseekModel: string
   deepseekBaseUrl: string
@@ -134,10 +136,12 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   preferenceCounts: {},
   deepseekEnabled: false,
   deepseekApiKeyStored: false,
-  deepseekCommentEnabled: false,
-  deepseekAutoSummaryEnabled: false,
-  deepseekPetChatEnabled: false,
-  deepseekDailyClassificationEnabled: false,
+  deepseekCommentEnabled: true,
+  deepseekAutoSummaryEnabled: true,
+  deepseekPetChatEnabled: true,
+  deepseekDailyClassificationEnabled: true,
+  deepseekArchiveOrganizationEnabled: true,
+  deepseekFeatureDefaultsInitialized: false,
   deepseekDailyClassificationMode: 'all',
   deepseekModel: 'deepseek-v4-flash',
   deepseekBaseUrl: 'https://api.deepseek.com',
@@ -159,7 +163,12 @@ let desktopStore: Store<DesktopStoreState> | undefined
 
 function loadDeepSeekFeatureToggle(
   store: AssistantStoreLike,
-  key: 'deepseekCommentEnabled' | 'deepseekPetChatEnabled',
+  key:
+    | 'deepseekCommentEnabled'
+    | 'deepseekAutoSummaryEnabled'
+    | 'deepseekPetChatEnabled'
+    | 'deepseekDailyClassificationEnabled'
+    | 'deepseekArchiveOrganizationEnabled',
   legacyEnabled: boolean
 ): boolean {
   return store.has?.(key) === false ? legacyEnabled : Boolean(store.get(key))
@@ -389,15 +398,25 @@ export function loadAssistantPreferences(
     deepseekCommentEnabled: loadDeepSeekFeatureToggle(
       store,
       'deepseekCommentEnabled',
-      Boolean(store.get('deepseekEnabled'))
+      true
     ),
-    deepseekAutoSummaryEnabled: Boolean(store.get('deepseekAutoSummaryEnabled')),
+    deepseekAutoSummaryEnabled: loadDeepSeekFeatureToggle(store, 'deepseekAutoSummaryEnabled', true),
     deepseekPetChatEnabled: loadDeepSeekFeatureToggle(
       store,
       'deepseekPetChatEnabled',
-      Boolean(store.get('deepseekEnabled'))
+      true
     ),
-    deepseekDailyClassificationEnabled: Boolean(store.get('deepseekDailyClassificationEnabled')),
+    deepseekDailyClassificationEnabled: loadDeepSeekFeatureToggle(
+      store,
+      'deepseekDailyClassificationEnabled',
+      true
+    ),
+    deepseekArchiveOrganizationEnabled: loadDeepSeekFeatureToggle(
+      store,
+      'deepseekArchiveOrganizationEnabled',
+      true
+    ),
+    deepseekFeatureDefaultsInitialized: Boolean(store.get('deepseekFeatureDefaultsInitialized')),
     deepseekDailyClassificationMode: normalizeDeepSeekDailyClassificationMode(
       store.get('deepseekDailyClassificationMode')
     ),
@@ -460,6 +479,8 @@ export function saveAssistantPreferences(
     deepseekAutoSummaryEnabled: Boolean(preferences.deepseekAutoSummaryEnabled),
     deepseekPetChatEnabled: Boolean(preferences.deepseekPetChatEnabled),
     deepseekDailyClassificationEnabled: Boolean(preferences.deepseekDailyClassificationEnabled),
+    deepseekArchiveOrganizationEnabled: Boolean(preferences.deepseekArchiveOrganizationEnabled),
+    deepseekFeatureDefaultsInitialized: Boolean(preferences.deepseekFeatureDefaultsInitialized),
     deepseekDailyClassificationMode: normalizeDeepSeekDailyClassificationMode(
       preferences.deepseekDailyClassificationMode
     ),

@@ -5086,6 +5086,32 @@ body[data-floating-window="true"],
 .assistant-settings__deepseek-switches input[type="checkbox"] {
   margin-top: 2px;
 }
+.assistant-settings__deepseek-review-control {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-left: 2px solid rgba(31, 99, 181, 0.18);
+  padding-left: 10px;
+}
+.assistant-settings__deepseek-review-control label {
+  display: inline-flex;
+  grid-template-columns: none;
+  gap: 8px;
+}
+.assistant-settings__deepseek-review-control select {
+  min-height: 28px;
+  border: 1px solid rgba(31, 99, 181, 0.28);
+  border-radius: 7px;
+  background: var(--porcelain-surface);
+  color: var(--porcelain-text);
+  padding: 3px 24px 3px 8px;
+  font: inherit;
+}
+.assistant-settings__deepseek-review-control select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 @media (max-width: 420px) {
   .assistant-settings__deepseek-switches,
   .assistant-settings__deepseek-switches--nested {
@@ -5169,7 +5195,12 @@ body[data-floating-window="true"],
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
   overflow-wrap: normal;
+}
+.assistant-settings__copy-row--inline {
+  display: inline-flex;
+  vertical-align: middle;
 }
 .assistant-settings__copy-row span {
   min-width: 0;

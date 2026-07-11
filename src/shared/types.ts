@@ -196,6 +196,8 @@ export type AssistantPreferences = {
   deepseekAutoSummaryEnabled: boolean
   deepseekPetChatEnabled: boolean
   deepseekDailyClassificationEnabled: boolean
+  deepseekArchiveOrganizationEnabled: boolean
+  deepseekFeatureDefaultsInitialized: boolean
   deepseekDailyClassificationMode: 'all' | 'low-confidence-only'
   deepseekModel: string
   deepseekBaseUrl: string

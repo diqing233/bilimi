@@ -61,10 +61,11 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     commentSubmitMode: 'random',
     deepseekEnabled: false,
     deepseekApiKeyStored: false,
-    deepseekCommentEnabled: false,
-    deepseekAutoSummaryEnabled: false,
-    deepseekPetChatEnabled: false,
-    deepseekDailyClassificationEnabled: false,
+    deepseekCommentEnabled: true,
+    deepseekAutoSummaryEnabled: true,
+    deepseekPetChatEnabled: true,
+    deepseekDailyClassificationEnabled: true,
+    deepseekArchiveOrganizationEnabled: true,
     deepseekDailyClassificationMode: 'all',
     deepseekModel: 'deepseek-v4-flash',
     deepseekBaseUrl: 'https://api.deepseek.com',
@@ -990,7 +991,7 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() =>
       expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
         'title',
-        expect.stringContaining('趣评生成：开启')
+        expect.stringContaining('趣味评论：开启')
       )
     )
     expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
@@ -1003,7 +1004,7 @@ describe('FloatingAssistantApp', () => {
     )
     expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
       'title',
-      expect.stringContaining('辅助整理：关闭')
+      expect.stringContaining('批阅辅助：关闭')
     )
 
     act(() => snapshotChanged?.())
@@ -1082,12 +1083,12 @@ describe('FloatingAssistantApp', () => {
     render(<FloatingAssistantApp />)
 
     await waitFor(() =>
-      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('暂无转写 · 完成 3')
+      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('暂无转写 · 成功 3')
     )
     const transcriptionStatus = screen.getByLabelText('转写音频状态')
     expect(transcriptionStatus).toHaveAttribute(
       'title',
-      '本次启动已完成 3 个转写，文稿已保存到档案库。'
+      '本次启动已成功转写 3 个视频，文稿已保存到档案库。'
     )
 
     fireEvent.click(transcriptionStatus)
@@ -1104,14 +1105,14 @@ describe('FloatingAssistantApp', () => {
 
     const app = render(<FloatingAssistantApp />)
     await waitFor(() =>
-      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('暂无转写 · 完成 2')
+      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('暂无转写 · 成功 2')
     )
 
     app.unmount()
     render(<FloatingAssistantApp />)
 
     await waitFor(() =>
-      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('暂无转写 · 完成 2')
+      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('暂无转写 · 成功 2')
     )
     expect(loadVideoAudioTranscriptionQueue).toHaveBeenCalledTimes(2)
   })
@@ -1374,7 +1375,7 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
-  it('renders DeepSeek daily classification review controls with safe defaults', async () => {
+  it('renders independent DeepSeek organization controls with a compact review mode select', async () => {
     installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
@@ -1390,15 +1391,59 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
 
-    const reviewToggle = screen.getByRole('checkbox', {
-      name: '辅助整理'
-    })
-    expect(reviewToggle).not.toBeChecked()
+    const reviewToggle = screen.getByRole('checkbox', { name: '批阅辅助' })
+    const archiveToggle = screen.getByRole('checkbox', { name: '旧藏整理' })
+    const reviewMode = screen.getByRole('combobox', { name: '批阅辅助范围' })
+
+    expect(reviewToggle).toBeChecked()
+    expect(archiveToggle).toBeChecked()
+    expect(reviewMode).toHaveValue('all')
 
     fireEvent.click(reviewToggle)
+    expect(reviewMode).toBeDisabled()
+    expect(archiveToggle).toBeChecked()
+  })
 
-    expect(screen.getByRole('radio', { name: '全部归类' })).toBeChecked()
-    expect(screen.getByRole('radio', { name: '仅不太稳' })).toBeVisible()
+  it('enables every DeepSeek child feature only on the first master-switch activation', async () => {
+    const { savePreferences } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: false,
+            deepseekFeatureDefaultsInitialized: false,
+            deepseekCommentEnabled: false,
+            deepseekAutoSummaryEnabled: false,
+            deepseekPetChatEnabled: false,
+            deepseekDailyClassificationEnabled: false,
+            deepseekArchiveOrganizationEnabled: false
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek' }))
+
+    expect(screen.getByRole('checkbox', { name: '趣味评论' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '自动总结' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '宠物对话' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '批阅辅助' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '旧藏整理' })).toBeChecked()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '宠物对话' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek' }))
+
+    expect(screen.getByRole('checkbox', { name: '宠物对话' })).not.toBeChecked()
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          deepseekFeatureDefaultsInitialized: true,
+          deepseekPetChatEnabled: false
+        })
+      )
+    )
   })
 
   it('can review, delete, and clear correction records', async () => {
@@ -2566,12 +2611,11 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute('data-tone', 'running')
     expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
       'title',
-      [
-        'DeepSeek 工作中',
-        '当前模型：deepseek-v4-flash',
-        '正在执行 1 项任务：',
-        '• 趣评生成：三分钟讲清机器学习科普教程'
-      ].join('\n')
+      expect.stringContaining('• 趣评生成：三分钟讲清机器学习科普教程')
+    )
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
+      'title',
+      expect.stringContaining('批阅辅助：开启（全部归类）')
     )
 
     commentGeneration.resolve({
@@ -2705,9 +2749,11 @@ describe('FloatingAssistantApp', () => {
           defaultCoinCount: 2,
           commentSubmitMode: 'choose',
           deepseekEnabled: false,
-          deepseekCommentEnabled: false,
-          deepseekAutoSummaryEnabled: false,
-          deepseekPetChatEnabled: false,
+          deepseekCommentEnabled: true,
+          deepseekAutoSummaryEnabled: true,
+          deepseekPetChatEnabled: true,
+          deepseekDailyClassificationEnabled: true,
+          deepseekArchiveOrganizationEnabled: true,
           deepseekModel: 'deepseek-v4-flash',
           deepseekBaseUrl: 'https://api.deepseek.com',
           assistantSidebarWidthPx: null,
@@ -3583,31 +3629,34 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByText('大模型 Token 中转，低至官方价 2 折起')).toBeInTheDocument()
     expect(screen.getByText(/令牌分组请选择 deepseek（官方）/)).toBeInTheDocument()
     expect(screen.queryByText(/限时特价/)).not.toBeInTheDocument()
-    expect(screen.getByText('推荐模型：deepseek-v4-pro')).toBeInTheDocument()
-    expect(screen.getByText('服务器地址：https://api.yunshulink.com/v1')).toBeInTheDocument()
-    expect(screen.getByText('推荐模型：deepseek-v4-pro').closest('p')).toHaveClass(
+    expect(screen.getByText('（日常便宜）deepseek-v4-flash')).toBeInTheDocument()
+    expect(screen.getByText('（精准略贵）deepseek-v4-pro')).toBeInTheDocument()
+    expect(screen.getByText('https://api.yunshulink.com/v1')).toBeInTheDocument()
+    expect(screen.getByText('推荐模型：').closest('p')).toHaveClass(
       'assistant-settings__recommendation-divider'
     )
-    expect(screen.getByText('服务器地址：https://api.yunshulink.com/v1').closest('p')).toHaveClass(
+    expect(screen.getByText('https://api.yunshulink.com/v1').closest('p')).toHaveClass(
       'assistant-settings__recommendation-divider'
     )
     expect(
       screen.getByText('开启后可使用批阅短评、札记总结、宠物对话和辅助整理。关闭后相关功能入口会提示先开启。')
     ).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '复制推荐模型' }))
-    expect(screen.getByRole('button', { name: '复制推荐模型' })).toHaveTextContent('复制')
+    fireEvent.click(screen.getByRole('button', { name: '复制日常便宜模型' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('deepseek-v4-flash'))
+    fireEvent.click(screen.getByRole('button', { name: '复制精准略贵模型' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('deepseek-v4-pro'))
-    await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent('已复制推荐模型。'))
+    await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent('已复制精准略贵模型。'))
 
     fireEvent.click(screen.getByRole('button', { name: '复制服务器地址' }))
     expect(screen.getByRole('button', { name: '复制服务器地址' })).toHaveTextContent('复制')
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://api.yunshulink.com/v1'))
     await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent('已复制服务器地址。'))
 
-    expect(screen.queryByRole('checkbox', { name: '用 DeepSeek 辅助整理旧藏' })).not.toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: '趣味评论' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: '自动总结' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: '宠物对话' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '批阅辅助' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '旧藏整理' })).toBeChecked()
     fireEvent.change(screen.getByLabelText('DeepSeek API 密钥'), {
       target: { value: 'sk-test' }
     })
@@ -3634,7 +3683,8 @@ describe('FloatingAssistantApp', () => {
           deepseekCommentEnabled: true,
           deepseekAutoSummaryEnabled: true,
           deepseekPetChatEnabled: true,
-          deepseekDailyClassificationEnabled: false,
+          deepseekDailyClassificationEnabled: true,
+          deepseekArchiveOrganizationEnabled: true,
           deepseekDailyClassificationMode: 'all',
           deepseekModel: 'deepseek-chat',
           deepseekBaseUrl: 'https://api.deepseek.local'
@@ -3666,7 +3716,7 @@ describe('FloatingAssistantApp', () => {
       expect(screen.queryByRole('checkbox', { name: '趣味评论' })).not.toBeInTheDocument()
       expect(screen.queryByRole('checkbox', { name: '自动总结' })).not.toBeInTheDocument()
       expect(screen.queryByRole('checkbox', { name: '宠物对话' })).not.toBeInTheDocument()
-      expect(screen.queryByRole('checkbox', { name: '辅助整理' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('checkbox', { name: '批阅辅助' })).not.toBeInTheDocument()
     })
     expect(screen.queryByLabelText('DeepSeek API 密钥')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('DeepSeek 模型')).not.toBeInTheDocument()
@@ -3676,10 +3726,11 @@ describe('FloatingAssistantApp', () => {
         expect.objectContaining({
           deepseekEnabled: false,
           deepseekApiKeyStored: false,
-          deepseekCommentEnabled: false,
-          deepseekAutoSummaryEnabled: false,
-          deepseekPetChatEnabled: false,
-          deepseekDailyClassificationEnabled: false,
+          deepseekCommentEnabled: true,
+          deepseekAutoSummaryEnabled: true,
+          deepseekPetChatEnabled: true,
+          deepseekDailyClassificationEnabled: true,
+          deepseekArchiveOrganizationEnabled: true,
           deepseekDailyClassificationMode: 'all',
           deepseekModel: 'deepseek-v4-flash',
           deepseekBaseUrl: 'https://api.deepseek.com'
@@ -3751,11 +3802,11 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek' }))
-    fireEvent.click(screen.getByRole('button', { name: '复制推荐模型' }))
+    fireEvent.click(screen.getByRole('button', { name: '复制精准略贵模型' }))
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('deepseek-v4-pro'))
     await waitFor(() => expect(writeClipboardText).toHaveBeenCalledWith('deepseek-v4-pro'))
-    expect(screen.getByLabelText('全局提示')).toHaveTextContent('已复制推荐模型。')
+    expect(screen.getByLabelText('全局提示')).toHaveTextContent('已复制精准略贵模型。')
   })
 
   it('preserves the DeepSeek key draft when key saving fails', async () => {
@@ -4243,8 +4294,14 @@ describe('FloatingAssistantApp', () => {
 
     await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledOnce())
     expect(savePreferences).toHaveBeenCalled()
-    expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 连接失败')
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 连接失败')
+    )
     expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute('data-tone', 'error')
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
+      'title',
+      expect.stringContaining('旧藏整理：开启，可在归档预览中手动执行 DeepSeek 整理。')
+    )
     expect(screen.getByLabelText('全局提示')).toHaveTextContent(
       '配置已保存，但连接测试失败：DeepSeek API 请求失败：401 Unauthorized'
     )
@@ -4974,7 +5031,7 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByLabelText('全局提示')).toHaveTextContent(
       '转写完成，文稿已保存到档案库'
     )
-    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('暂无转写 · 完成 1')
+    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('暂无转写 · 成功 1')
     expect(screen.queryByRole('tabpanel', { name: /无时间线文稿/ })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('tab', { name: '札记' }))

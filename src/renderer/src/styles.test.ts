@@ -767,6 +767,8 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.assistant-settings__deepseek-switches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));')
     expectStyleSnippet('.assistant-settings__deepseek-switches label { display: inline-grid; grid-template-columns: auto minmax(0, 1fr);')
     expectStyleSnippet('.assistant-settings__deepseek-switches--nested { grid-template-columns: repeat(2, minmax(0, max-content));')
+    expectStyleSnippet('.assistant-settings__deepseek-review-control { display: flex; align-items: center; flex-wrap: wrap;')
+    expectStyleSnippet('.assistant-settings__deepseek-review-control select:disabled { opacity: 0.5; cursor: not-allowed;')
     expectStyleSnippet('.assistant-settings__group--deepseek > label:first-of-type { display: flex; padding-bottom: 8px; border-bottom: 1px dashed rgba(31, 99, 181, 0.22);')
     expectStyleSnippet('.assistant-settings__group--deepseek > label:nth-of-type(2) { border-top: 1px dashed rgba(31, 99, 181, 0.22); padding-top: 10px;')
     expect(normalizedStyles).not.toContain('.assistant-settings__deepseek-divider')
@@ -787,8 +789,9 @@ describe('renderer porcelain theme styles', () => {
       '.assistant-settings__recommendation-divider { border-top: 1px dashed rgba(31, 99, 181, 0.28); padding-top: 4px;'
     )
     expectStyleSnippet(
-      '.assistant-settings__copy-row { display: flex; align-items: center; gap: 6px;'
+      '.assistant-settings__copy-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;'
     )
+    expectStyleSnippet('.assistant-settings__copy-row--inline { display: inline-flex; vertical-align: middle;')
     expectStyleSnippet(
       '.assistant-settings__copy-button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center;'
     )
