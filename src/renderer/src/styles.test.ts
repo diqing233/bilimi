@@ -440,6 +440,9 @@ describe('renderer porcelain theme styles', () => {
       '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 56px; gap: 0; align-items: stretch; border: 1px solid rgba(31, 99, 181, 0.22); border-radius: var(--porcelain-radius-control); background: linear-gradient('
     )
     expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting:hover, .memorial-panel__action-card--with-setting:focus-within { border-color: rgba(31, 99, 181, 0.5); background: linear-gradient( 180deg, rgba(255, 254, 253, 1), rgba(220, 238, 255, 1) ); box-shadow: 0 8px 16px rgba(31, 99, 181, 0.14); transform: translateY(-1px);'
+    )
+    expectStyleSnippet(
       '.memorial-panel__action-card--with-setting .assistant-action-button { border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join) var(--porcelain-radius-join) var(--porcelain-radius-control);'
     )
     expectStyleSnippet(
