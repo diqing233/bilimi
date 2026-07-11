@@ -477,4 +477,41 @@ describe('executeAssistantAction', () => {
       vi.useRealTimers()
     }
   })
+
+  it('keeps the 15-second page fallback threshold and reports a friendly message', async () => {
+    vi.useFakeTimers()
+
+    const runScript = vi.fn(
+      () =>
+        new Promise<never>(() => {
+          // Simulates a page script that never settles.
+        })
+    )
+
+    try {
+      let settled = false
+      const resultPromise = executeAssistantAction({
+        action: '表',
+        runScript,
+        favoritesFolderName: 'bilimi 内库',
+        favoriteLedgers,
+        targetLedgerId: 'movie-tv'
+      }).then((result) => {
+        settled = true
+        return result
+      })
+
+      await vi.advanceTimersByTimeAsync(14_999)
+      expect(settled).toBe(false)
+
+      await vi.advanceTimersByTimeAsync(1)
+      await expect(resultPromise).resolves.toMatchObject({
+        ok: false,
+        steps: ['dom:timeout'],
+        message: '页面响应较慢，已尝试屏幕操作。'
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

@@ -158,7 +158,7 @@ async function runScriptWithTimeout(
             ok: false,
             steps: ['dom:timeout'],
             missingTargets: ['favorite-timeout'],
-            message: '页面脚本执行超时，已切换到屏幕兜底。'
+            message: '页面响应较慢，已尝试屏幕操作。'
           })
         }, DOM_SCRIPT_TIMEOUT_MS)
       })

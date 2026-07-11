@@ -1366,6 +1366,7 @@ export function FavoriteLedgerPanel({
   const [baseScanPreview, setBaseScanPreview] = useState<FavoriteLedgerPreview | null>(null)
   const [reorganizedProtectedAids, setReorganizedProtectedAids] = useState<Set<number>>(new Set())
   const [protectedReorganizationConfirming, setProtectedReorganizationConfirming] = useState(false)
+  const [abnormalProtectionReorganizationConfirming, setAbnormalProtectionReorganizationConfirming] = useState(false)
   const [selectedDefaultLedgerIds, setSelectedDefaultLedgerIds] = useState<Set<string>>(
     () => new Set(ledgers.filter((ledger) => ledger.enabled && ledger.isDefault).map((ledger) => ledger.id))
   )
@@ -1502,6 +1503,7 @@ export function FavoriteLedgerPanel({
     setBaseScanPreview(null)
     setReorganizedProtectedAids(new Set())
     setProtectedReorganizationConfirming(false)
+    setAbnormalProtectionReorganizationConfirming(false)
     setArchivePlanState(null)
     setPendingUnclassifiedDecision(null)
     clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
@@ -2171,6 +2173,7 @@ export function FavoriteLedgerPanel({
       setBaseScanPreview(normalizedPreview)
       setReorganizedProtectedAids(new Set())
       setProtectedReorganizationConfirming(false)
+      setAbnormalProtectionReorganizationConfirming(false)
       setArchivePlanState(createArchivePlanStateFromPreviewItems(normalizedPreview.items, nextCandidateKeys))
       clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
       setPendingUnclassifiedDecision(null)
@@ -3168,6 +3171,15 @@ export function FavoriteLedgerPanel({
     return Array.from(sourceFolderCounts, ([name, count]) => ({ name, count }))
   }, [baseScanPreview, preview])
   const protectedOldFavoriteCount = baseScanPreview?.scanContext?.protectedVideos.length ?? 0
+  const protectedArchiveHealthCounts = useMemo(() => {
+    const counts = { complete: 0, incomplete: 0, invalid: 0 }
+    for (const item of baseScanPreview?.scanContext?.protectedVideos ?? []) {
+      if (reorganizedProtectedAids.has(item.aid)) continue
+      if (!(item.sourceFolderTitles ?? []).some((title) => selectedOldFavoriteSourceFolderTitles.has(title))) continue
+      counts[item.archiveHealth ?? 'complete'] += 1
+    }
+    return counts
+  }, [baseScanPreview, reorganizedProtectedAids, selectedOldFavoriteSourceFolderTitles])
   const selectedProtectedOldFavorites = useMemo(
     () =>
       (baseScanPreview?.scanContext?.protectedVideos ?? []).filter(
@@ -3178,6 +3190,12 @@ export function FavoriteLedgerPanel({
           )
       ),
     [baseScanPreview, reorganizedProtectedAids, selectedOldFavoriteSourceFolderTitles]
+  )
+  const selectedAbnormalProtectedOldFavorites = useMemo(
+    () => selectedProtectedOldFavorites.filter((item) =>
+      item.archiveHealth === 'incomplete' || item.archiveHealth === 'invalid'
+    ),
+    [selectedProtectedOldFavorites]
   )
   const activeOldFavoriteCount = baseScanPreview?.items.length ?? preview?.items.length ?? 0
   const totalScannedOldFavoriteCount =
@@ -3226,6 +3244,14 @@ export function FavoriteLedgerPanel({
     for (const item of selectedProtectedOldFavorites) next.add(item.aid)
     setReorganizedProtectedAids(next)
     setProtectedReorganizationConfirming(false)
+    applyProtectedReorganization(next)
+  }
+
+  function confirmAbnormalProtectedReorganization() {
+    const next = new Set(reorganizedProtectedAids)
+    for (const item of selectedAbnormalProtectedOldFavorites) next.add(item.aid)
+    setReorganizedProtectedAids(next)
+    setAbnormalProtectionReorganizationConfirming(false)
     applyProtectedReorganization(next)
   }
 
@@ -4139,6 +4165,19 @@ export function FavoriteLedgerPanel({
               ) : null}
               <section className="favorite-ledger-panel__insights" aria-label="基础数据">
                 <h4>基础数据</h4>
+                {preview.scanContext && protectedOldFavoriteCount > 0 && reorganizedProtectedAids.size === 0 ? (
+                  <div className="favorite-ledger-panel__protected-summary">
+                    <small>想按当前规则重新判断以前整理过的视频？可将当前勾选来源中的全部已整理视频重新纳入计算。</small>
+                    <button
+                      type="button"
+                      aria-label={`重新整理全部已整理视频 ${selectedProtectedOldFavorites.length} 条`}
+                      disabled={selectedProtectedOldFavorites.length === 0}
+                      onClick={() => setProtectedReorganizationConfirming(true)}
+                    >
+                      重新整理全部已整理视频 {selectedProtectedOldFavorites.length} 条
+                    </button>
+                  </div>
+                ) : null}
                 <div className="favorite-ledger-panel__guide-metrics">
                   <article>
                     <span>共扫描</span>
@@ -4174,20 +4213,57 @@ export function FavoriteLedgerPanel({
                       </>
                     ) : (
                       <>
-                        <small>之前已经确认整理的收藏，本轮不会重新判断，也不会改变原来的归档。</small>
-                        <button
-                          type="button"
-                          aria-label="重新整理这些收藏"
-                          disabled={selectedProtectedOldFavorites.length === 0}
-                          onClick={() => setProtectedReorganizationConfirming(true)}
-                        >
-                          重新整理这些收藏 {selectedProtectedOldFavorites.length}
-                        </button>
+                        {protectedArchiveHealthCounts.incomplete > 0 || protectedArchiveHealthCounts.invalid > 0 ? (
+                          <>
+                            <small>
+                              发现 {selectedAbnormalProtectedOldFavorites.length} 条视频的原归档状态发生变化。为避免覆盖你的手动调整，本轮暂不处理。
+                            </small>
+                            <button
+                              type="button"
+                              aria-label={`重新整理状态有变化的 ${selectedAbnormalProtectedOldFavorites.length} 条`}
+                              disabled={selectedAbnormalProtectedOldFavorites.length === 0}
+                              onClick={() => setAbnormalProtectionReorganizationConfirming(true)}
+                            >
+                              重新整理状态有变化的 {selectedAbnormalProtectedOldFavorites.length} 条
+                            </button>
+                          </>
+                        ) : (
+                          <small>之前已经确认整理的收藏，本轮不会重新判断，也不会改变原来的归档。</small>
+                        )}
                       </>
                     )}
                   </div>
                 ) : null}
+                {preview.scanContext && protectedOldFavoriteCount > 0 ? (
+                  <>
+                    <div className="favorite-ledger-panel__guide-metrics" aria-label="原归档状态">
+                      <article><span>仍在原归档</span><strong>{protectedArchiveHealthCounts.complete}</strong></article>
+                      <article><span>仅保留部分归档</span><strong>{protectedArchiveHealthCounts.incomplete}</strong></article>
+                      <article><span>已不在原归档</span><strong>{protectedArchiveHealthCounts.invalid}</strong></article>
+                    </div>
+                    <small className="favorite-ledger-panel__step-note">
+                      仍在原归档表示视频仍位于全部原归档收藏夹；仅保留部分归档表示只剩部分位置；已不在原归档表示原来的归档位置均已移除。
+                    </small>
+                  </>
+                ) : null}
               </section>
+              {abnormalProtectionReorganizationConfirming ? (
+                <div
+                  className="favorite-ledger-panel__execution-dialog"
+                  role="alertdialog"
+                  aria-modal="true"
+                  aria-label="确认重新整理状态有变化的视频？"
+                >
+                  <h4>确认重新整理状态有变化的视频？</h4>
+                  <p>
+                    将把当前勾选来源中仅保留部分原归档或已不在原归档的 {selectedAbnormalProtectedOldFavorites.length} 条重新加入本轮判断，并按当前启用的收藏夹规则重新整理。用户原有普通收藏不会改变。
+                  </p>
+                  <div className="favorite-ledger-panel__execution-dialog-actions">
+                    <button type="button" onClick={() => setAbnormalProtectionReorganizationConfirming(false)}>取消</button>
+                    <button type="button" onClick={confirmAbnormalProtectedReorganization}>继续重新整理</button>
+                  </div>
+                </div>
+              ) : null}
               {protectedReorganizationConfirming ? (
                 <div
                   className="favorite-ledger-panel__execution-dialog"
@@ -4197,7 +4273,7 @@ export function FavoriteLedgerPanel({
                 >
                   <h4>确认重新整理已整理收藏？</h4>
                   <p>
-                    将把当前来源中已整理的 {selectedProtectedOldFavorites.length} 条重新加入本轮判断，并按后台收藏夹数量设置重新收敛 Bilimi 归档。用户原有普通收藏不会改变。
+                    将把当前勾选来源中全部已整理的 {selectedProtectedOldFavorites.length} 条重新加入本轮判断，按当前规则重新计算，不受以前分类限制。用户原有普通收藏不会改变。
                   </p>
                   <div className="favorite-ledger-panel__execution-dialog-actions">
                     <button type="button" onClick={() => setProtectedReorganizationConfirming(false)}>取消</button>

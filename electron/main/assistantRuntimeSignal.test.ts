@@ -93,7 +93,24 @@ describe('requestAssistantRuntimeWhenReady', () => {
         options: { submitComment: true }
       })
     ).toBe(60 * 1000)
-    expect(createAssistantRuntimeTimeoutMs({ type: 'snapshot' })).toBe(8000)
+    expect(createAssistantRuntimeTimeoutMs({ type: 'snapshot' })).toBe(60 * 1000)
+  })
+
+  it('keeps every final runtime timeout at or above 60 seconds', () => {
+    const quickRequests = [
+      { type: 'snapshot' as const },
+      { type: 'generate-video-note' as const },
+      { type: 'save-video-note' as const, note: {} as never },
+      { type: 'get-current-video-time' as const },
+      { type: 'seek-video-time' as const, seconds: 30 },
+      { type: 'ensure-ledgers' as const },
+      { type: 'save-ledgers' as const, ledgers: [] },
+      { type: 'open-bilibili-favorites' as const }
+    ]
+
+    for (const request of quickRequests) {
+      expect(createAssistantRuntimeTimeoutMs(request)).toBeGreaterThanOrEqual(60 * 1000)
+    }
   })
 
   it('uses the action timeout while reading the current video before enqueueing transcription', () => {

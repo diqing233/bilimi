@@ -195,10 +195,27 @@ describe('assistant preference store helpers', () => {
     expect(loadAssistantPreferences(store).permissionOnboardingCompleted).toBe(false)
   })
 
-  it('defaults comment submission to random direct sending in persisted preferences', () => {
+  it('defaults missing action preferences to two coins and comment choice mode', () => {
     const store = createFakeStore()
+    delete (store.snapshot as Partial<DesktopStoreState>).defaultCoinCount
+    delete (store.snapshot as Partial<DesktopStoreState>).commentSubmitMode
 
-    expect(loadAssistantPreferences(store).commentSubmitMode).toBe('random')
+    expect(loadAssistantPreferences(store)).toMatchObject({
+      defaultCoinCount: 2,
+      commentSubmitMode: 'choose'
+    })
+  })
+
+  it('preserves persisted action preferences from existing users', () => {
+    const store = createFakeStore({
+      defaultCoinCount: 1,
+      commentSubmitMode: 'random'
+    })
+
+    expect(loadAssistantPreferences(store)).toMatchObject({
+      defaultCoinCount: 1,
+      commentSubmitMode: 'random'
+    })
   })
 
   it('defaults close behavior to tray minimization with exit confirmation enabled', () => {

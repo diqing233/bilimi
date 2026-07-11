@@ -21,6 +21,8 @@ export type AssistantSnapshot = {
   videoContentContext: VideoContentContext
   videoTitle: string
   activeTabUrl?: string
+  runtimeFeedback?: string
+  runtimeFeedbackId?: number
 }
 
 export type FloatingAssistantActionOptions = {

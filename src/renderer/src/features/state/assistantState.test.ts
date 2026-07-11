@@ -143,8 +143,8 @@ describe('assistant state', () => {
     expect(createInitialAssistantPreferences()).toMatchObject({
       bilibiliOperationMode: 'api-assisted',
       favoriteArchiveMultiMode: 'off',
-      defaultCoinCount: 1,
-      commentSubmitMode: 'random',
+      defaultCoinCount: 2,
+      commentSubmitMode: 'choose',
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
       deepseekCommentEnabled: false,
@@ -159,6 +159,18 @@ describe('assistant state', () => {
     expect(createInitialAssistantPreferences()).not.toHaveProperty(
       'deepseekOldFavoriteAssistanceEnabled'
     )
+  })
+
+  it('preserves persisted coin and comment choices', () => {
+    expect(
+      createInitialAssistantPreferences({
+        defaultCoinCount: 1,
+        commentSubmitMode: 'random'
+      })
+    ).toMatchObject({
+      defaultCoinCount: 1,
+      commentSubmitMode: 'random'
+    })
   })
 
   it('keeps new DeepSeek feature switches off by default while inheriting legacy enabled settings', () => {
@@ -283,7 +295,7 @@ describe('assistant state', () => {
         commentSubmitMode: 'surprise' as never
       })
     ).toMatchObject({
-      defaultCoinCount: 1,
+      defaultCoinCount: 2,
       commentSubmitMode: 'choose'
     })
     expect(createInitialAssistantPreferences({ commentSubmitMode: 'manual' as never })).toMatchObject({

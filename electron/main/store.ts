@@ -128,8 +128,8 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   favoriteArchiveProtectionRecords: [],
   favoriteArchiveProtectionInitializedAccountMids: [],
   favoriteKeywordSuggestions: [],
-  defaultCoinCount: 1,
-  commentSubmitMode: 'random',
+  defaultCoinCount: 2,
+  commentSubmitMode: 'choose',
   videoAudioTranscriptionThreadLimit: 'unlimited',
   preferenceCounts: {},
   deepseekEnabled: false,
@@ -376,7 +376,7 @@ export function loadAssistantPreferences(
         store.get('favoriteArchiveProtectionInitializedAccountMids')
       ),
     favoriteKeywordSuggestions: normalizeFavoriteKeywordSuggestions(store.get('favoriteKeywordSuggestions')),
-    defaultCoinCount: defaultCoinCount === 2 ? 2 : 1,
+    defaultCoinCount: defaultCoinCount === 1 ? 1 : 2,
     commentSubmitMode: commentSubmitMode === 'random' ? 'random' : 'choose',
     videoAudioTranscriptionThreadLimit: normalizeVideoAudioTranscriptionThreadLimit(
       videoAudioTranscriptionThreadLimit

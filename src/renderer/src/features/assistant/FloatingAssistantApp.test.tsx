@@ -258,6 +258,76 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
 }
 
 describe('FloatingAssistantApp', () => {
+  it('shows runtime feedback from refreshed snapshots in the global feedback area', async () => {
+    let snapshotChanged: (() => void) | undefined
+    const requestAssistantSnapshot = vi
+      .fn()
+      .mockResolvedValueOnce(createSnapshot())
+      .mockResolvedValueOnce(
+        createSnapshot({
+          runtimeFeedback: 'DeepSeek 二判完成：与本地判断一致，保留在「游戏专区」。',
+          runtimeFeedbackId: 1
+        })
+      )
+    installDesktopApi({
+      requestAssistantSnapshot,
+      onAssistantSnapshotChanged: vi.fn((callback: () => void) => {
+        snapshotChanged = callback
+        return vi.fn()
+      })
+    })
+    render(<FloatingAssistantApp />)
+    await screen.findByRole('main', { name: 'bilimi 悬浮助手' })
+
+    act(() => snapshotChanged?.())
+
+    expect(await screen.findByLabelText('全局提示')).toHaveTextContent(
+      'DeepSeek 二判完成：与本地判断一致，保留在「游戏专区」。'
+    )
+  })
+
+  it('does not replay historical runtime feedback when the assistant first mounts', async () => {
+    let snapshotChanged: (() => void) | undefined
+    let resolveInitialSnapshot: ((snapshot: AssistantSnapshot) => void) | undefined
+    const requestAssistantSnapshot = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Promise<AssistantSnapshot>((resolve) => {
+          resolveInitialSnapshot = resolve
+        })
+      )
+      .mockResolvedValueOnce(
+        createSnapshot({
+          runtimeFeedback: 'DeepSeek 二判完成：这是一条新提示。',
+          runtimeFeedbackId: 8
+        })
+      )
+    installDesktopApi({
+      requestAssistantSnapshot,
+      onAssistantSnapshotChanged: vi.fn((callback: () => void) => {
+        snapshotChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+    await waitFor(() => expect(requestAssistantSnapshot).toHaveBeenCalledTimes(1))
+
+    act(() => snapshotChanged?.())
+    expect(requestAssistantSnapshot).toHaveBeenCalledTimes(1)
+
+    resolveInitialSnapshot?.(
+      createSnapshot({
+        runtimeFeedback: 'DeepSeek 二判完成：这是一条历史提示。',
+        runtimeFeedbackId: 7
+      })
+    )
+
+    expect(await screen.findByLabelText('全局提示')).toHaveTextContent(
+      'DeepSeek 二判完成：这是一条新提示。'
+    )
+    expect(screen.getByLabelText('全局提示')).not.toHaveTextContent('这是一条历史提示')
+  })
   const favoriteLedgerSafetyNote =
     '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
 
@@ -1992,10 +2062,9 @@ describe('FloatingAssistantApp', () => {
     expect(screen.queryByLabelText('评论方向')).not.toBeInTheDocument()
     expect(generateDeepSeek).not.toHaveBeenCalled()
     expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
-    const choices = screen.getAllByRole('button', { name: /三分钟讲清机器学习科普教程/ })
+    const choices = screen.getAllByRole('button', { name: /内容挺有收获|信息量很足|这类内容很实用/ })
     expect(choices).toHaveLength(3)
-    expect(choices[0]).toHaveTextContent(/小咪|我家主人/)
-    expect(choices[0]).toHaveTextContent('李老师讲AI')
+    expect(choices[0]).not.toHaveTextContent(/小咪|主人|特派|再接再厉/)
 
     fireEvent.click(choices[0])
 
@@ -2003,7 +2072,7 @@ describe('FloatingAssistantApp', () => {
       expect(runAssistantAction).toHaveBeenCalledWith(
         '表',
         expect.objectContaining({
-          commentDraft: expect.stringContaining('三分钟讲清机器学习科普教程'),
+          commentDraft: choices[0].textContent,
           pageClickOnly: false
         })
       )
@@ -2072,7 +2141,7 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() => expect(generateDeepSeek).toHaveBeenCalledOnce())
     expect(screen.queryByLabelText('评论方向')).not.toBeInTheDocument()
     const choices = await screen.findAllByRole('button', {
-      name: /三分钟讲清机器学习科普教程/
+      name: /内容挺有收获|信息量很足|这类内容很实用/
     })
     expect(choices).toHaveLength(3)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
@@ -2083,7 +2152,7 @@ describe('FloatingAssistantApp', () => {
       expect(runAssistantAction).toHaveBeenCalledWith(
         '表',
         expect.objectContaining({
-          commentDraft: expect.stringContaining('李老师讲AI'),
+          commentDraft: choices[0].textContent,
           pageClickOnly: false
         })
       )
@@ -2108,7 +2177,7 @@ describe('FloatingAssistantApp', () => {
 
     expect(generateDeepSeek).not.toHaveBeenCalled()
     expect(await screen.findByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
-    const choices = screen.getAllByRole('button', { name: /三分钟讲清机器学习科普教程/ })
+    const choices = screen.getAllByRole('button', { name: /内容挺有收获|信息量很足|这类内容很实用/ })
     expect(choices).toHaveLength(3)
 
     fireEvent.click(choices[0])
@@ -2117,7 +2186,7 @@ describe('FloatingAssistantApp', () => {
       expect(runAssistantAction).toHaveBeenCalledWith(
         '表',
         expect.objectContaining({
-          commentDraft: expect.stringContaining('三分钟讲清机器学习科普教程'),
+          commentDraft: choices[0].textContent,
           pageClickOnly: false
         })
       )
@@ -2360,8 +2429,8 @@ describe('FloatingAssistantApp', () => {
           petStyle: 'big-head',
           hidePetDuringVideoFullscreen: false,
           favoriteArchiveMultiMode: 'off',
-          defaultCoinCount: 1,
-          commentSubmitMode: 'random',
+          defaultCoinCount: 2,
+          commentSubmitMode: 'choose',
           deepseekEnabled: false,
           deepseekCommentEnabled: false,
           deepseekAutoSummaryEnabled: false,
@@ -2375,7 +2444,9 @@ describe('FloatingAssistantApp', () => {
     )
     expect(clearDeepSeekApiKey).toHaveBeenCalledOnce()
     expect(screen.getByRole('radio', { name: '萌版大头' })).toBeChecked()
-    expect(screen.getByRole('radio', { name: '随机生成一条并直接发送' })).toBeChecked()
+    expect(
+      screen.getByRole('radio', { name: '生成 3 条候选，选择后发送（也可以复制后发评论）' })
+    ).toBeChecked()
   })
 
   it('restores the default layout size from the settings header without clearing settings', async () => {
@@ -2723,7 +2794,7 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /表.*拟奏短评/ }))
     expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
-    fireEvent.click(screen.getAllByRole('button', { name: /三分钟讲清机器学习科普教程/ })[0])
+    fireEvent.click(screen.getByRole('button', { name: /内容挺有收获/ }))
 
     await waitFor(() =>
       expect(runAssistantAction).toHaveBeenCalledWith(
@@ -2817,7 +2888,7 @@ describe('FloatingAssistantApp', () => {
         expect(runAssistantAction).toHaveBeenCalledWith(
           '表',
           expect.objectContaining({
-            commentDraft: expect.stringContaining('三分钟讲清机器学习科普教程'),
+            commentDraft: '信息量很足，值得多看几遍消化一下。',
             submitComment: true
           })
         )
