@@ -692,8 +692,9 @@ export function FloatingAssistantApp({
     if (runningItem) {
       const percent = formatGlobalProgressPercent(runningItem.progress)
       const pendingCount = transcriptionQueue.items.filter((item) => item.status === 'pending').length
+      const progressLabel = percent === null ? '转写中' : `转写 ${percent}%`
       return {
-        label: `${percent === null ? '转写中' : `转写 ${percent}%`} · 排队 ${pendingCount}`,
+        label: pendingCount > 0 ? `${progressLabel} · 排队 ${pendingCount}` : progressLabel,
         detail: `${runningItem.title} 正在转写${pendingCount > 0 ? `，排队 ${pendingCount} 个` : ''}`,
         tone: 'running'
       }

@@ -3681,7 +3681,8 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
 
     await waitFor(() => expect(enqueueCurrentVideoAudioTranscription).toHaveBeenCalledOnce())
-    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写 43% · 排队 0')
+    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写 43%')
+    expect(screen.getByLabelText('转写音频状态')).not.toHaveTextContent('排队 0')
     expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent(
       '三分钟讲清机器学习科普教程'
     )
@@ -3691,7 +3692,8 @@ describe('FloatingAssistantApp', () => {
       await initialQueueLoad.promise
     })
 
-    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写 43% · 排队 0')
+    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写 43%')
+    expect(screen.getByLabelText('转写音频状态')).not.toHaveTextContent('排队 0')
     expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent(
       '三分钟讲清机器学习科普教程'
     )
@@ -4023,6 +4025,37 @@ describe('FloatingAssistantApp', () => {
       expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写 50% · 排队 2')
     )
     expect(screen.getByLabelText('转写音频状态')).not.toHaveTextContent('完成 1')
+  })
+
+  it('shows only the active transcription progress when nothing else is queued', async () => {
+    installDesktopApi({
+      loadVideoAudioTranscriptionQueue: vi.fn().mockResolvedValue({
+        activeItemId: 'bvid:BV1running',
+        items: [
+          {
+            id: 'bvid:BV1running',
+            url: 'https://www.bilibili.com/video/BV1running',
+            title: '正在转写的教程',
+            bvid: 'BV1running',
+            status: 'running',
+            createdAt: '2026-06-25T00:00:00.000Z',
+            updatedAt: '2026-06-25T00:01:00.000Z',
+            progress: {
+              step: 'transcribing-segment',
+              percent: 42,
+              message: 'Transcribing segment.'
+            }
+          }
+        ]
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写 50%')
+    )
+    expect(screen.getByLabelText('转写音频状态')).not.toHaveTextContent('排队 0')
   })
 
   it('keeps the note archive open when a background transcription draft arrives in sidebar mode', async () => {
