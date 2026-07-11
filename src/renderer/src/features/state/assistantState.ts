@@ -71,11 +71,11 @@ function normalizeFavoriteKeywordSuggestions(value: unknown): FavoriteKeywordSug
 }
 
 export function normalizeDefaultCoinCount(value: unknown): 1 | 2 {
-  return value === 2 ? 2 : 1
+  return value === 1 ? 1 : 2
 }
 
 export function normalizeCommentSubmitMode(value: unknown): CommentSubmitMode {
-  if (value === undefined || value === 'random') {
+  if (value === 'random') {
     return 'random'
   }
 

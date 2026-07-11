@@ -503,12 +503,20 @@ describe('FavoriteLedgerPanel', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('已整理跳过')).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('整理来源 旅行收藏'))
-    expect(screen.getByRole('button', { name: '重新整理这些收藏' })).toHaveTextContent('1')
+    const basicDataHeading = screen.getByRole('heading', { name: '基础数据' })
+    const allReorganizeButton = screen.getByRole('button', { name: '重新整理全部已整理视频 1 条' })
+    const metrics = screen.getByText('共扫描').closest('.favorite-ledger-panel__guide-metrics')
+    expect(screen.getByText(/当前勾选来源中的全部已整理视频/)).toBeInTheDocument()
+    expect(screen.getByText('仍在原归档').closest('article')).toHaveTextContent('1')
+    expect(basicDataHeading.compareDocumentPosition(allReorganizeButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(allReorganizeButton.compareDocumentPosition(metrics) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.queryByText('默认来源已整理')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '重新整理这些收藏' }))
+    fireEvent.click(allReorganizeButton)
     const dialog = screen.getByRole('alertdialog', { name: '确认重新整理已整理收藏？' })
-    expect(dialog).toHaveTextContent('当前来源中已整理的 1 条')
+    expect(dialog).toHaveTextContent('当前勾选来源中全部已整理的 1 条')
+    expect(dialog).toHaveTextContent('按当前规则重新计算，不受以前分类限制')
+    expect(dialog).toHaveTextContent('用户原有普通收藏不会改变')
     fireEvent.click(within(dialog).getByRole('button', { name: '继续重新整理' }))
 
     expect(screen.getByText('已重新纳入 1')).toBeInTheDocument()
@@ -569,22 +577,53 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
 
-    expect(screen.getByText('归档完整').closest('article')).toHaveTextContent('1')
-    expect(screen.getByText('归档不完整').closest('article')).toHaveTextContent('1')
-    expect(screen.getByText('归档已失效').closest('article')).toHaveTextContent('1')
-    expect(screen.getByText(/异常收藏仍受保护/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '重新整理异常收藏' })).toHaveTextContent('2')
-    expect(screen.getByRole('button', { name: '重新整理这些收藏' })).toHaveTextContent('3')
+    expect(screen.getByText('仍在原归档').closest('article')).toHaveTextContent('1')
+    expect(screen.getByText('仅保留部分归档').closest('article')).toHaveTextContent('1')
+    expect(screen.getByText('已不在原归档').closest('article')).toHaveTextContent('1')
+    expect(screen.getByText(/原归档状态发生变化/)).toBeInTheDocument()
+    expect(screen.getByText(/仍在原归档表示视频仍位于全部原归档收藏夹/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重新整理状态有变化的 2 条' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重新整理全部已整理视频 3 条' })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '重新整理异常收藏' }))
-    const dialog = screen.getByRole('alertdialog', { name: '确认重新整理异常收藏？' })
+    fireEvent.click(screen.getByRole('button', { name: '重新整理状态有变化的 2 条' }))
+    const dialog = screen.getByRole('alertdialog', { name: '确认重新整理状态有变化的视频？' })
     expect(dialog).toHaveTextContent('2 条')
+    expect(dialog).toHaveTextContent('当前勾选来源')
+    expect(dialog).toHaveTextContent('用户原有普通收藏不会改变')
     fireEvent.click(within(dialog).getByRole('button', { name: '继续重新整理' }))
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
 
     expect(screen.getAllByText('归档不完整').length).toBeGreaterThan(0)
     expect(screen.getAllByText('归档已失效').length).toBeGreaterThan(0)
     expect(screen.queryByText('归档完整')).not.toBeInTheDocument()
+  })
+
+  it('keeps all and changed-status reorganization actions visible when their counts match', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.scanContext = {
+      accountMid: '42',
+      totalUniqueVideos: 3,
+      activeSourceFolders: [],
+      protectedVideos: [801, 802, 803].map((aid) => ({
+        aid,
+        title: `状态变化 ${aid}`,
+        sourceFolderIds: ['source-1'],
+        sourceFolderTitles: ['默认收藏夹'],
+        currentBilimiFolderIds: [],
+        protectedForIncrementalScan: true,
+        archiveHealth: 'invalid' as const
+      })),
+      managedFolders: [],
+      targetMembership: {},
+      multiArchiveMode: 'off'
+    }
+    renderPanel({ onScanOldFavorites: vi.fn().mockResolvedValue(preview) })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+
+    expect(screen.getByRole('button', { name: '重新整理全部已整理视频 3 条' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重新整理状态有变化的 3 条' })).toBeInTheDocument()
   })
 
   it('executes a protected multi-target reorganization as one reconciled video plan', async () => {
@@ -644,7 +683,7 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
-    fireEvent.click(screen.getByRole('button', { name: '重新整理这些收藏' }))
+    fireEvent.click(screen.getByRole('button', { name: '重新整理全部已整理视频 1 条' }))
     fireEvent.click(screen.getByRole('button', { name: '继续重新整理' }))
     await screen.findByText('已重新纳入 1')
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
@@ -724,7 +763,7 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
-    fireEvent.click(screen.getByRole('button', { name: '重新整理这些收藏' }))
+    fireEvent.click(screen.getByRole('button', { name: '重新整理全部已整理视频 1 条' }))
     fireEvent.click(screen.getByRole('button', { name: '继续重新整理' }))
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
 

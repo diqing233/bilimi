@@ -76,7 +76,8 @@ const BILIBILI_VIDEO_URL_PATTERN = /bilibili\.com\/video\/([^/?#]+)/i
 export const VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS = 900
 const IS_TEST_RUNTIME = import.meta.env.MODE === 'test'
 const DAILY_DEEPSEEK_PRE_ACTION_WAIT_MS = IS_TEST_RUNTIME ? 0 : 1200
-const DAILY_DEEPSEEK_BACKGROUND_TIMEOUT_MS = IS_TEST_RUNTIME ? 50 : 15_000
+const DAILY_DEEPSEEK_BACKGROUND_TIMEOUT_MS = IS_TEST_RUNTIME ? 50 : 60_000
+let browserTabIdIndex = 0
 const NO_CURRENT_VIDEO_RESULT: AssistantAutomationResult = {
   ok: false,
   steps: [],
@@ -125,10 +126,9 @@ function createTabTitle(url: string): string {
   }
 }
 
-function createTabId(url: string): string {
-  return `tab-${Math.abs(
-    Array.from(url).reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) | 0, 7)
-  )}`
+function createTabId(): string {
+  browserTabIdIndex += 1
+  return `tab-${Date.now()}-${browserTabIdIndex}`
 }
 
 function normalizeVideoTitle(title?: string): string | undefined {
@@ -491,6 +491,7 @@ export default function App() {
   const webviewRefs = useRef<Record<string, Electron.WebviewTag>>({})
   const activeTabChangeMounted = useRef(false)
   const lastPetVideoKey = useRef<string | undefined>(undefined)
+  const assistantRuntimeFeedbackRef = useRef<{ id: number; message: string } | undefined>(undefined)
   const petHiddenForVideoFullscreen = useRef(false)
   const videoFullscreenPetCloseTimer = useRef<number | null>(null)
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
@@ -676,15 +677,8 @@ export default function App() {
     }
 
     commitTabs((currentTabs) => {
-      const existingTab = currentTabs.find((tab) => tab.url === nextUrl)
-
-      if (existingTab) {
-        selectActiveTab(existingTab.id)
-        return currentTabs
-      }
-
       const nextTab = {
-        id: createTabId(nextUrl),
+        id: createTabId(),
         title: createTabTitle(nextUrl),
         url: nextUrl
       }
@@ -1371,11 +1365,27 @@ export default function App() {
       favoriteLedgerStatus,
       videoContentContext,
       activeTabUrl: activeTabSnapshot?.url,
+      runtimeFeedback: assistantRuntimeFeedbackRef.current?.message,
+      runtimeFeedbackId: assistantRuntimeFeedbackRef.current?.id,
       videoTitle:
         normalizeActiveTabVideoTitle(activeTabSnapshot) ??
         videoContentContext.title ??
         '等待视频加载'
     }
+  }
+
+  function ledgerNames(ledgerIds: string[]): string {
+    return ledgerIds
+      .map((ledgerId) => ledgerDisplayName(preferences.favoriteLedgers, ledgerId))
+      .join('、')
+  }
+
+  function publishRuntimeFeedback(message: string) {
+    assistantRuntimeFeedbackRef.current = {
+      id: (assistantRuntimeFeedbackRef.current?.id ?? 0) + 1,
+      message
+    }
+    window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
   }
 
   async function runAssistantRuntimeAction(
@@ -1387,7 +1397,8 @@ export default function App() {
       pageClickOnly?: boolean
     }
   ): Promise<AssistantAutomationResult> {
-    if (!isBilibiliVideoUrl(getActiveTabSnapshot()?.url)) {
+    const actionTabSnapshot = getActiveTabSnapshot()
+    if (!isBilibiliVideoUrl(actionTabSnapshot?.url)) {
       return NO_CURRENT_VIDEO_RESULT
     }
 
@@ -1414,6 +1425,7 @@ export default function App() {
     let targetLedgerId = localTargetLedgerId
     let targetLedgerIds = localTargetLedgerIds
     let resultMessagePrefix: string | undefined
+    let preActionCorrectionTargets: string[] | undefined
     let deepSeekCorrection: DailyDeepSeekCorrection | undefined
     let postActionDailyReviewPromise: Promise<DailyClassificationReviewResult | undefined> | undefined
 
@@ -1474,10 +1486,13 @@ export default function App() {
         if (correction) {
           targetLedgerIds = correction.targetLedgerIds
           targetLedgerId = correction.targetLedgerIds[0]
-          resultMessagePrefix = `DeepSeek 建议改归 ${correction.targetLedgerIds
-            .map((ledgerId) => ledgerDisplayName(preferences.favoriteLedgers, ledgerId))
-            .join('、')}：${correction.reason}`
+          preActionCorrectionTargets = correction.targetLedgerIds
           deepSeekCorrection = correction
+        } else {
+          const localNames = ledgerNames(localTargetLedgerIds)
+          resultMessagePrefix = reviewBeforeAction.result && !reviewBeforeAction.result.invalid
+            ? `DeepSeek 二判完成：与本地判断一致，保留在「${localNames}」。`
+            : `DeepSeek 二判未完成，本次沿用本地判断「${localNames}」。`
         }
       }
     }
@@ -1495,6 +1510,19 @@ export default function App() {
             )
           )
         : options?.commentDraft
+    const currentTabSnapshot = getActiveTabSnapshot()
+    if (
+      currentTabSnapshot?.id !== actionTabSnapshot?.id ||
+      readBilibiliVideoKey(currentTabSnapshot?.url ?? '') !==
+        readBilibiliVideoKey(actionTabSnapshot?.url ?? '')
+    ) {
+      return {
+        ok: false,
+        steps: [],
+        missingTargets: ['active-video-changed'],
+        message: '页面已切换，本次操作未执行。'
+      }
+    }
     let result = await executeAssistantAction({
       action,
       favoritesFolderName: preferences.favoritesFolderName,
@@ -1510,8 +1538,18 @@ export default function App() {
       favoriteLedgers: preferences.favoriteLedgers,
       targetLedgerId,
       targetLedgerIds,
-      resultMessagePrefix
+      resultMessagePrefix: undefined
     })
+
+    if (preActionCorrectionTargets) {
+      resultMessagePrefix = result.ok
+        ? `DeepSeek 二判完成：建议从「${ledgerNames(localTargetLedgerIds)}」改归「${ledgerNames(preActionCorrectionTargets)}」，已按二判结果执行。`
+        : `DeepSeek 二判完成：建议从「${ledgerNames(localTargetLedgerIds)}」改归「${ledgerNames(preActionCorrectionTargets)}」，但本次操作未完成。`
+    }
+    if (resultMessagePrefix?.startsWith('DeepSeek 二判')) {
+      result = withResultMessagePrefix(result, resultMessagePrefix)
+      publishRuntimeFeedback(resultMessagePrefix)
+    }
 
     if (result.ok && action !== '阅') {
       if (targetLedgerId === 'inbox' && action === '藏') {
@@ -1591,6 +1629,24 @@ export default function App() {
           })
 
           if (!correction) {
+            const localNames = ledgerNames(localTargetLedgerIds)
+            publishRuntimeFeedback(
+              reviewResult && !reviewResult.invalid
+                ? `DeepSeek 二判完成：与本地判断一致，保留在「${localNames}」。`
+                : `DeepSeek 二判未完成，本次沿用本地判断「${localNames}」。`
+            )
+            return
+          }
+
+          const currentTabSnapshot = getActiveTabSnapshot()
+          if (
+            currentTabSnapshot?.id !== actionTabSnapshot?.id ||
+            readBilibiliVideoKey(currentTabSnapshot?.url ?? '') !==
+              readBilibiliVideoKey(actionTabSnapshot?.url ?? '')
+          ) {
+            publishRuntimeFeedback(
+              `DeepSeek 二判完成：建议从「${ledgerNames(localTargetLedgerIds)}」改归「${ledgerNames(correction.targetLedgerIds)}」，但页面已切换，本次未调整。`
+            )
             return
           }
 
@@ -1629,6 +1685,9 @@ export default function App() {
             .join('、')
 
           if (!adjustmentResult.ok) {
+            publishRuntimeFeedback(
+              `DeepSeek 二判完成：建议从「${ledgerNames(localTargetLedgerIds)}」改归「${targetNames}」，但后台调整失败。`
+            )
             window.bilimiDesktop?.setAssistantPetHint?.({
               tone: 'error',
               message: `DeepSeek 建议改归 ${targetNames}，但后台调整失败：${adjustmentResult.message} 请稍后重试或手动整理。`
@@ -1643,12 +1702,39 @@ export default function App() {
             setPreferences(createInitialAssistantPreferences(saved))
             window.bilimiDesktop.notifyAssistantSnapshotChanged?.()
           }
+          publishRuntimeFeedback(
+            `DeepSeek 二判完成：建议从「${ledgerNames(localTargetLedgerIds)}」改归「${targetNames}」，已完成调整。`
+          )
           window.bilimiDesktop?.setAssistantPetHint?.({
             tone: 'happy',
             message: `DeepSeek 后台已改归 ${targetNames}：${correction.reason}`
           })
         })()
       }
+    }
+
+    if (!result.ok && postActionDailyReviewPromise) {
+      void (async () => {
+        const reviewResult = await withTimeout(
+          postActionDailyReviewPromise,
+          DAILY_DEEPSEEK_BACKGROUND_TIMEOUT_MS,
+          undefined
+        )
+        const correction = dailyCorrectionFromReview({
+          favoriteLedgers: preferences.favoriteLedgers,
+          localTargetLedgerId,
+          localTargetLedgerIds,
+          reviewResult
+        })
+        const localNames = ledgerNames(localTargetLedgerIds)
+        publishRuntimeFeedback(
+          correction
+            ? `DeepSeek 二判完成：建议从「${localNames}」改归「${ledgerNames(correction.targetLedgerIds)}」，但主操作未完成，本次未调整。`
+            : reviewResult && !reviewResult.invalid
+              ? `DeepSeek 二判完成：与本地判断一致，保留在「${localNames}」，但主操作未完成。`
+              : `DeepSeek 二判未完成，本次沿用本地判断「${localNames}」，但主操作未完成。`
+        )
+      })()
     }
 
     return result

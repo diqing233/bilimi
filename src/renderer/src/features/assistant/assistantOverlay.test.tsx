@@ -514,7 +514,7 @@ describe('AssistantOverlay', () => {
     fireEvent.click(getActionButton('表'))
 
     expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
-    expect(screen.getAllByRole('button').some((button) => button.textContent?.includes('早八观察员'))).toBe(true)
+    expect(screen.getByRole('button', { name: '看完感觉不错，感谢分享。' })).toBeInTheDocument()
 
     fireEvent.click(getActionButton('藏'))
 
@@ -574,8 +574,7 @@ describe('AssistantOverlay', () => {
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
     fireEvent.click(getActionButton('表'))
 
-    const draft =
-      '小咪替我家主人来夸早八观察员的《早八生存实录》：看得很入戏，像不小心点开了快乐开关。UP主请再接再厉，更新更多精彩视频！'
+    const draft = '看完感觉不错，感谢分享。'
 
     expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
 
@@ -625,8 +624,7 @@ describe('AssistantOverlay', () => {
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
     fireEvent.click(getActionButton('表'))
 
-    const draft =
-      '小咪替我家主人来夸早八观察员的《早八生存实录》：看得很入戏，像不小心点开了快乐开关。UP主请再接再厉，更新更多精彩视频！'
+    const draft = '看完感觉不错，感谢分享。'
     fireEvent.click(screen.getByRole('button', { name: draft }))
 
     await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
@@ -680,7 +678,7 @@ describe('AssistantOverlay', () => {
       await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
       expect(screen.queryByText('小咪拟好三条，主人点一条就发送。')).not.toBeInTheDocument()
       expect(runScript.mock.calls[0][0]).toContain('"submitComment":true')
-      expect(runScript.mock.calls[0][0]).toContain('早八生存实录')
+      expect(runScript.mock.calls[0][0]).toContain('这期挺用心的，支持一下。')
     } finally {
       randomSpy.mockRestore()
     }

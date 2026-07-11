@@ -615,6 +615,9 @@ export function FloatingAssistantApp({
 }: FloatingAssistantAppProps = {}) {
   const [snapshot, setSnapshot] = useState<AssistantSnapshot | null>(null)
   const snapshotRef = useRef<AssistantSnapshot | null>(null)
+  const lastRuntimeFeedbackId = useRef<number | undefined>(undefined)
+  const runtimeFeedbackSnapshotLoaded = useRef(false)
+  const snapshotLoadQueue = useRef<Promise<void>>(Promise.resolve())
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences()
   )
@@ -854,8 +857,9 @@ export function FloatingAssistantApp({
     onActiveTabChange?.(tab)
   }
 
-  const loadSnapshot = useCallback(async ({ resetVideoNote = false } = {}) => {
-    try {
+  const loadSnapshot = useCallback(({ resetVideoNote = false } = {}) => {
+    const nextLoad = snapshotLoadQueue.current.then(async () => {
+      try {
       const nextSnapshot =
         (await window.bilimiDesktop?.requestAssistantSnapshot?.()) ?? createFallbackSnapshot()
 
@@ -870,6 +874,17 @@ export function FloatingAssistantApp({
 
       snapshotRef.current = nextSnapshot
       setSnapshot(nextSnapshot)
+      if (!runtimeFeedbackSnapshotLoaded.current) {
+        runtimeFeedbackSnapshotLoaded.current = true
+        lastRuntimeFeedbackId.current = nextSnapshot.runtimeFeedbackId
+      } else if (
+        nextSnapshot.runtimeFeedback &&
+        nextSnapshot.runtimeFeedbackId !== undefined &&
+        nextSnapshot.runtimeFeedbackId !== lastRuntimeFeedbackId.current
+      ) {
+        lastRuntimeFeedbackId.current = nextSnapshot.runtimeFeedbackId
+        setGlobalFeedback(nextSnapshot.runtimeFeedback)
+      }
       const snapshotPreferences = createInitialAssistantPreferences(nextSnapshot.preferences)
       const lastLocalPreferenceChangeAt = Math.max(
         lastPreferenceChangeAt.current,
@@ -888,24 +903,27 @@ export function FloatingAssistantApp({
       if (resetVideoNote) {
         setVideoNote(null)
       }
-    } catch (error) {
-      if (!mounted.current) {
-        return
-      }
+      } catch (error) {
+        if (!mounted.current) {
+          return
+        }
 
-      const fallback = createFallbackSnapshot()
-      snapshotRef.current = fallback
-      setSnapshot(fallback)
-      preferencesRef.current = fallback.preferences
-      setPreferences(fallback.preferences)
-      setFavoriteLedgerStatus(fallback.favoriteLedgerStatus)
-      setFeedback({
-        tone: 'error',
-        message: error instanceof Error ? error.message : '读取当前视频时遇到未知差错。',
-        steps: [],
-        missingTargets: []
-      })
-    }
+        const fallback = createFallbackSnapshot()
+        snapshotRef.current = fallback
+        setSnapshot(fallback)
+        preferencesRef.current = fallback.preferences
+        setPreferences(fallback.preferences)
+        setFavoriteLedgerStatus(fallback.favoriteLedgerStatus)
+        setFeedback({
+          tone: 'error',
+          message: error instanceof Error ? error.message : '读取当前视频时遇到未知差错。',
+          steps: [],
+          missingTargets: []
+        })
+      }
+    })
+    snapshotLoadQueue.current = nextLoad.catch(() => undefined)
+    return nextLoad
   }, [])
 
   useEffect(() => {
@@ -1495,8 +1513,8 @@ export function FloatingAssistantApp({
       petHoverShortcuts: undefined,
       hidePetDuringVideoFullscreen: false,
       favoriteArchiveMultiMode: 'off',
-      defaultCoinCount: 1,
-      commentSubmitMode: 'random',
+      defaultCoinCount: 2,
+      commentSubmitMode: 'choose',
       videoAudioTranscriptionThreadLimit: 'unlimited',
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
