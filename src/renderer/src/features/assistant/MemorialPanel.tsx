@@ -74,6 +74,16 @@ type MemorialPanelProps = {
   showCloseButton?: boolean
 }
 
+const COIN_SETTING_TITLES: Record<1 | 2, string> = {
+  1: '默认投 1 枚硬币（再点一次可补投 1 枚）',
+  2: '默认投 2 枚硬币'
+}
+
+const COMMENT_SETTING_TITLES: Record<CommentSubmitMode, string> = {
+  random: '随机生成一条并直接发送',
+  choose: '生成 3 条候选，选择后发送（也可以复制后发评论）'
+}
+
 const ACTIONS: Array<{
   action: AssistantAction
   testId: string
@@ -256,6 +266,7 @@ export function MemorialPanel({
                     >
                       <select
                         aria-label="投币厚赏参数"
+                        title={COIN_SETTING_TITLES[defaultCoinCount]}
                         value={defaultCoinCount}
                         onChange={(event) => {
                           event.stopPropagation()
@@ -264,8 +275,8 @@ export function MemorialPanel({
                           })
                         }}
                       >
-                        <option value={1}>1 枚</option>
-                        <option value={2}>2 枚</option>
+                        <option value={1}>一枚</option>
+                        <option value={2}>两枚</option>
                       </select>
                     </label>
                   ) : action === '表' ? (
@@ -277,6 +288,7 @@ export function MemorialPanel({
                     >
                       <select
                         aria-label="拟奏短评参数"
+                        title={COMMENT_SETTING_TITLES[commentSubmitMode]}
                         value={commentSubmitMode}
                         onChange={(event) => {
                           event.stopPropagation()
@@ -285,14 +297,22 @@ export function MemorialPanel({
                           })
                         }}
                       >
-                        <option value="random">随机直发</option>
-                        <option value="choose">生成候选</option>
+                        <option value="random">随机</option>
+                        <option value="choose">选择</option>
                       </select>
                     </label>
                   ) : null
 
                 return (
-                  <div key={action} className="memorial-panel__action-card">
+                  <div
+                    key={action}
+                    className={[
+                      'memorial-panel__action-card',
+                      quickSetting ? 'memorial-panel__action-card--with-setting' : ''
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
                     <AssistantActionButton
                       type="button"
                       data-testid={testId}
@@ -305,9 +325,8 @@ export function MemorialPanel({
                       badge={action}
                       label={label}
                       description={description}
-                    >
-                      {quickSetting}
-                    </AssistantActionButton>
+                    />
+                    {quickSetting}
                   </div>
                 )
               })}
@@ -322,6 +341,8 @@ export function MemorialPanel({
             onGenerate={onGenerateVideoNote}
             onTranscribeAudio={onTranscribeVideoAudio}
             onEnqueueTranscription={onEnqueueVideoAudioTranscription}
+            onCancelQueuedVideoAudioTranscription={onCancelQueuedVideoAudioTranscription}
+            onRetryQueuedVideoAudioTranscription={onRetryQueuedVideoAudioTranscription}
             onGeneratePoster={onGeneratePoster}
             onArchivePosterSummary={onArchivePosterSummary}
             onSave={onSaveVideoNote}

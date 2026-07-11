@@ -4,6 +4,7 @@ import {
   loadVideoNotes,
   loadVideoNoteArchives,
   loadAssistantPreferences,
+  loadDeepSeekApiKey,
   loadDeepSeekApiKeyStatus,
   saveVideoNoteArchiveVersion,
   updateVideoNoteArchiveVersion,
@@ -52,6 +53,17 @@ function createStoreNote(id = 'bvid:BV1store'): VideoNote {
     userMemo: '',
     createdAt: '2026-04-28T00:00:00.000Z',
     updatedAt: '2026-04-28T00:00:00.000Z'
+  }
+}
+
+function createSafeStorage({ available = true, failDecrypt = false } = {}) {
+  return {
+    isEncryptionAvailable: () => available,
+    encryptString: (value: string) => Buffer.from('encrypted:' + value, 'utf8'),
+    decryptString: (value: Buffer) => {
+      if (failDecrypt) throw new Error('decrypt failed')
+      return value.toString('utf8').replace(/^encrypted:/u, '')
+    }
   }
 }
 
@@ -124,6 +136,7 @@ function createFakeStore(
       initial.videoAudioTranscriptionThreadLimit ??
       DEFAULT_ASSISTANT_PREFERENCES.videoAudioTranscriptionThreadLimit,
     deepseekApiKey: initial.deepseekApiKey ?? '',
+    deepseekApiKeyEncrypted: initial.deepseekApiKeyEncrypted ?? '',
     videoNotes: initial.videoNotes ?? [],
     videoNoteArchives: initial.videoNoteArchives ?? [],
     pendingFavoriteQueue: initial.pendingFavoriteQueue ?? [],
@@ -646,12 +659,67 @@ describe('assistant preference store helpers', () => {
 
   it('saves and clears the DeepSeek API key status', () => {
     const store = createFakeStore()
+    const safeStorage = createSafeStorage()
 
-    expect(loadDeepSeekApiKeyStatus(store)).toEqual({ configured: false })
-    expect(saveDeepSeekApiKey(store, 'sk-test')).toEqual({ configured: true })
-    expect(loadDeepSeekApiKeyStatus(store)).toEqual({ configured: true })
-    expect(clearDeepSeekApiKey(store)).toEqual({ configured: false })
-    expect(loadDeepSeekApiKeyStatus(store)).toEqual({ configured: false })
+    expect(loadDeepSeekApiKeyStatus(store, safeStorage)).toEqual({
+      configured: false,
+      protection: 'unavailable'
+    })
+    expect(saveDeepSeekApiKey(store, 'sk-test', safeStorage)).toEqual({
+      configured: true,
+      protection: 'encrypted'
+    })
+    expect(loadDeepSeekApiKey(store, safeStorage)).toBe('sk-test')
+    expect(store.snapshot.deepseekApiKey).toBe('')
+    expect(store.snapshot.deepseekApiKeyEncrypted).toBeTruthy()
+    expect(loadDeepSeekApiKeyStatus(store, safeStorage)).toEqual({
+      configured: true,
+      protection: 'encrypted'
+    })
+    expect(clearDeepSeekApiKey(store)).toEqual({ configured: false, protection: 'unavailable' })
+    expect(loadDeepSeekApiKeyStatus(store, safeStorage)).toEqual({
+      configured: false,
+      protection: 'unavailable'
+    })
+  })
+
+  it('falls back to plaintext DeepSeek API key status when encryption is unavailable', () => {
+    const store = createFakeStore()
+    const safeStorage = createSafeStorage({ available: false })
+
+    expect(saveDeepSeekApiKey(store, 'sk-plain', safeStorage)).toEqual({
+      configured: true,
+      protection: 'plaintext'
+    })
+    expect(loadDeepSeekApiKey(store, safeStorage)).toBe('sk-plain')
+    expect(loadDeepSeekApiKeyStatus(store, safeStorage)).toEqual({
+      configured: true,
+      protection: 'plaintext'
+    })
+  })
+
+  it('migrates legacy plaintext DeepSeek API keys into encrypted storage', () => {
+    const store = createFakeStore({ deepseekApiKey: 'sk-legacy' })
+    const safeStorage = createSafeStorage()
+
+    expect(loadDeepSeekApiKeyStatus(store, safeStorage)).toEqual({
+      configured: true,
+      protection: 'encrypted'
+    })
+    expect(store.snapshot.deepseekApiKey).toBe('')
+    expect(loadDeepSeekApiKey(store, safeStorage)).toBe('sk-legacy')
+  })
+
+  it('reports unreadable encrypted DeepSeek API keys as an error state', () => {
+    const safeStorage = createSafeStorage()
+    const encrypted = safeStorage.encryptString('sk-broken').toString('base64')
+    const store = createFakeStore({ deepseekApiKeyEncrypted: encrypted })
+
+    expect(loadDeepSeekApiKeyStatus(store, createSafeStorage({ failDecrypt: true }))).toEqual({
+      configured: false,
+      protection: 'error'
+    })
+    expect(loadDeepSeekApiKey(store, createSafeStorage({ failDecrypt: true }))).toBe('')
   })
 
   it('reflects DeepSeek API key presence in loaded assistant preferences', () => {

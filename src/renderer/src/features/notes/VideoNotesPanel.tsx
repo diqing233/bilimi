@@ -36,6 +36,8 @@ type VideoNotesPanelProps = {
   onEnqueueTranscription?: (
     options?: VideoNotesGenerateOptions
   ) => Promise<VideoAudioTranscriptionQueueSnapshot | null>
+  onCancelQueuedVideoAudioTranscription?: (id: string) => void
+  onRetryQueuedVideoAudioTranscription?: (id: string) => void
   onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
   onArchivePosterSummary?: (note: VideoNote, poster: NotePosterSummary) => Promise<void>
   onOpenArchive?: () => void
@@ -207,6 +209,8 @@ export function VideoNotesPanel({
   onGenerate,
   onTranscribeAudio,
   onEnqueueTranscription,
+  onCancelQueuedVideoAudioTranscription,
+  onRetryQueuedVideoAudioTranscription,
   onGeneratePoster,
   onArchivePosterSummary,
   onOpenArchive,
@@ -232,6 +236,7 @@ export function VideoNotesPanel({
   } | null>(null)
   const [posterGenerating, setPosterGenerating] = useState(false)
   const [selectedQueueItemId, setSelectedQueueItemId] = useState<string | null>(null)
+  const [queueMenuOpen, setQueueMenuOpen] = useState(false)
   const activeQueueItem = useMemo(
     () =>
       transcriptionQueue?.items.find((item) =>
@@ -265,6 +270,7 @@ export function VideoNotesPanel({
     () => transcriptionQueue?.items.filter((item) => item.status === 'pending').length ?? 0,
     [transcriptionQueue]
   )
+  const sessionCompletedCount = transcriptionQueue?.sessionCompletedCount ?? 0
   const generationBusy = isLoading || localGenerating || transcribingAudio
   const activeResultTab = controlledActiveResultTab ?? uncontrolledActiveResultTab
   const notePosterKey = visibleNote ? createPosterCacheKey(visibleNote) : ''
@@ -311,6 +317,12 @@ export function VideoNotesPanel({
       setSelectedQueueItemId(null)
     }
   }, [queueItems, selectedQueueItemId])
+
+  useEffect(() => {
+    if (queueItems.length === 0) {
+      setQueueMenuOpen(false)
+    }
+  }, [queueItems.length])
 
   function setResultTab(tab: VideoNotesResultTab | null): void {
     if (controlledActiveResultTab === undefined) {
@@ -419,6 +431,47 @@ export function VideoNotesPanel({
     setResultTab(activeResultTab === tab ? null : tab)
   }
 
+  function selectQueueItem(id: string): void {
+    setSelectedQueueItemId(id)
+    setQueueMenuOpen(false)
+  }
+
+  function renderQueueItemAction(item: VideoAudioTranscriptionQueueItem): React.JSX.Element | null {
+    if (item.status === 'pending' || item.status === 'running') {
+      return (
+        <button
+          type="button"
+          className="video-notes__queue-row-action"
+          aria-label={'取消 ' + item.title}
+          onClick={(event) => {
+            event.stopPropagation()
+            onCancelQueuedVideoAudioTranscription?.(item.id)
+          }}
+        >
+          取消
+        </button>
+      )
+    }
+
+    if (item.status === 'failed' || item.status === 'canceled') {
+      return (
+        <button
+          type="button"
+          className="video-notes__queue-row-action"
+          aria-label={'重试 ' + item.title}
+          onClick={(event) => {
+            event.stopPropagation()
+            onRetryQueuedVideoAudioTranscription?.(item.id)
+          }}
+        >
+          重试
+        </button>
+      )
+    }
+
+    return null
+  }
+
   async function copyText(value: string, successMessage: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(value)
@@ -470,6 +523,15 @@ export function VideoNotesPanel({
         <div>
           <span>{progressLabel}</span>
           <span>{progress.percent}%</span>
+          {item.status === 'pending' || item.status === 'running' ? (
+            <button
+              type="button"
+              className="video-notes__queue-progress-cancel"
+              onClick={() => onCancelQueuedVideoAudioTranscription?.(item.id)}
+            >
+              取消转写
+            </button>
+          ) : null}
         </div>
         <progress max={100} value={progress.percent} aria-label={progress.ariaLabel} />
         {itemProgress.step === 'transcribing-segment' ? (
@@ -490,21 +552,41 @@ export function VideoNotesPanel({
       <section className="video-notes__queue" aria-label="转写状态">
         <div className="video-notes__panel-header">
           <strong>{statusLabel}：{visibleQueueItem.title}</strong>
-          <label className="video-notes__queue-selector" title={queueDetailsTitle}>
+          <div className="video-notes__queue-selector" title={queueDetailsTitle}>
+            <span>本次完成：{sessionCompletedCount} 个</span>
             <span title={queueDetailsTitle}>排队中：{queuedItemCount} 个</span>
-            <select
+            <button
+              type="button"
               aria-label="切换队列视频"
+              aria-haspopup="menu"
+              aria-expanded={queueMenuOpen}
               title={queueDetailsTitle}
-              value={visibleQueueItem.id}
-              onChange={(event) => setSelectedQueueItemId(event.target.value)}
-            >
-              {queueItems.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {createQueueItemOptionLabel(item)}
-                </option>
-              ))}
-            </select>
-          </label>
+              onClick={() => setQueueMenuOpen((open) => !open)}
+            />
+            {queueMenuOpen ? (
+              <div className="video-notes__queue-menu" role="menu" aria-label="切换队列视频">
+                {queueItems.map((item) => (
+                  <div
+                    key={item.id}
+                    role="menuitem"
+                    tabIndex={0}
+                    className="video-notes__queue-menu-row"
+                    aria-current={item.id === visibleQueueItem.id ? 'true' : undefined}
+                    onClick={() => selectQueueItem(item.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        selectQueueItem(item.id)
+                      }
+                    }}
+                  >
+                    <span>{createQueueItemOptionLabel(item)}</span>
+                    {renderQueueItemAction(item)}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
         {renderQueueItemProgress(visibleQueueItem)}
       </section>

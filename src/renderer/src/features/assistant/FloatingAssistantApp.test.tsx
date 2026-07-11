@@ -818,8 +818,8 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByRole('button', { name: /赐.*投币厚赏/ })).toBeInTheDocument()
     expect(screen.queryByText('投币数量')).not.toBeInTheDocument()
     expect(screen.queryByText('评论发送方式')).not.toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: '投币厚赏参数' })).toHaveDisplayValue('1 枚')
-    expect(screen.getByRole('combobox', { name: '拟奏短评参数' })).toHaveDisplayValue('随机直发')
+    expect(screen.getByRole('combobox', { name: '投币厚赏参数' })).toHaveDisplayValue('一枚')
+    expect(screen.getByRole('combobox', { name: '拟奏短评参数' })).toHaveDisplayValue('随机')
   })
 
   it('summarizes every DeepSeek feature in the global status tooltip', async () => {
@@ -2468,6 +2468,132 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
+  it('preserves externally resized sidebar width when saving review action settings', async () => {
+    let notifyPreferencesChanged: ((preferences: AssistantPreferences) => void) | undefined
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    installDesktopApi({
+      savePreferences,
+      onAssistantPreferencesChanged: vi.fn((callback) => {
+        notifyPreferencesChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await screen.findByRole('tab', { name: '设置' })
+
+    act(() => {
+      notifyPreferencesChanged?.(createPreferences({ assistantSidebarWidthPx: 420 }))
+    })
+
+    fireEvent.click(screen.getByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('radio', { name: '默认投 2 枚硬币' }))
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          assistantSidebarWidthPx: 420,
+          defaultCoinCount: 2
+        })
+      )
+    )
+  })
+
+  it('updates a pending review action settings save when the sidebar is resized before debounce drains', async () => {
+    let notifyPreferencesChanged: ((preferences: AssistantPreferences) => void) | undefined
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    installDesktopApi({
+      savePreferences,
+      onAssistantPreferencesChanged: vi.fn((callback) => {
+        notifyPreferencesChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('radio', { name: '默认投 2 枚硬币' }))
+
+    expect(savePreferences).not.toHaveBeenCalled()
+
+    act(() => {
+      notifyPreferencesChanged?.(createPreferences({ assistantSidebarWidthPx: 420 }))
+    })
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          assistantSidebarWidthPx: 420,
+          defaultCoinCount: 2
+        })
+      )
+    )
+  })
+
+  it('keeps externally resized sidebar width after an older review action settings save resolves', async () => {
+    let notifyPreferencesChanged: ((preferences: AssistantPreferences) => void) | undefined
+    let resolveSave!: (preferences: AssistantPreferences) => void
+    const savePreferences = vi
+      .fn<(preferences: AssistantPreferences) => Promise<AssistantPreferences>>()
+      .mockImplementationOnce(
+        (preferences: AssistantPreferences) =>
+          new Promise<AssistantPreferences>((resolve) => {
+            resolveSave = resolve
+          })
+      )
+      .mockImplementation(async (preferences: AssistantPreferences) => preferences)
+    installDesktopApi({
+      savePreferences,
+      onAssistantPreferencesChanged: vi.fn((callback) => {
+        notifyPreferencesChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('radio', { name: '默认投 2 枚硬币' }))
+
+    await waitFor(() => expect(savePreferences).toHaveBeenCalledOnce())
+    expect(savePreferences).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        assistantSidebarWidthPx: null,
+        defaultCoinCount: 2
+      })
+    )
+
+    act(() => {
+      notifyPreferencesChanged?.(createPreferences({ assistantSidebarWidthPx: 420 }))
+    })
+
+    act(() => {
+      notifyPreferencesChanged?.(savePreferences.mock.calls[0][0])
+    })
+
+    await act(async () => {
+      resolveSave(savePreferences.mock.calls[0][0])
+    })
+
+    fireEvent.click(
+      screen.getByRole('radio', {
+        name: '生成 3 条候选，选择后发送（也可以复制后发评论）'
+      })
+    )
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          assistantSidebarWidthPx: 420,
+          commentSubmitMode: 'choose',
+          defaultCoinCount: 2
+        })
+      )
+    )
+  })
+
   it('does not refresh the assistant snapshot after saving review action settings', async () => {
     const notifyAssistantSnapshotChanged = vi.fn()
     const { savePreferences } = installDesktopApi({
@@ -2832,7 +2958,11 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存 DeepSeek' }))
 
     await waitFor(() => expect(saveDeepSeekApiKey).toHaveBeenCalledWith('sk-test'))
-    expect(screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥').value).toBe('sk-test')
+    await waitFor(() => {
+      const apiKeyInput = screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥')
+      expect(apiKeyInput.value).toBe('')
+      expect(apiKeyInput).toHaveAttribute('placeholder', '已保存 · 系统加密保护')
+    })
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2851,8 +2981,8 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '测试 DeepSeek' }))
 
-    await waitFor(() => expect(saveDeepSeekApiKey).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledOnce())
+    expect(saveDeepSeekApiKey).toHaveBeenCalledOnce()
     expect(clearDeepSeekApiKey).not.toHaveBeenCalled()
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
@@ -2893,6 +3023,83 @@ describe('FloatingAssistantApp', () => {
       )
     )
     await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent('DeepSeek 设置已重置。'))
+  })
+
+  it('preserves the DeepSeek key draft when key saving fails', async () => {
+    const saveDeepSeekApiKey = vi.fn().mockRejectedValue(new Error('keychain unavailable'))
+    installDesktopApi({
+      saveDeepSeekApiKey,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.change(screen.getByLabelText('DeepSeek API 密钥'), {
+      target: { value: 'sk-draft' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存 DeepSeek' }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('全局提示')).toHaveTextContent('DeepSeek 密钥保存失败，请重试。')
+    )
+    expect(screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥').value).toBe('sk-draft')
+  })
+
+  it('preserves the DeepSeek key draft when preference saving fails after the key is saved', async () => {
+    const savePreferences = vi.fn().mockRejectedValue(new Error('store unavailable'))
+    installDesktopApi({
+      savePreferences,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.change(screen.getByLabelText('DeepSeek API 密钥'), {
+      target: { value: 'sk-draft' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存 DeepSeek' }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('全局提示')).toHaveTextContent(
+        'DeepSeek 密钥已保存，但其他设置保存失败，请重试。'
+      )
+    )
+    expect(screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥').value).toBe('sk-draft')
+  })
+
+  it('shows a recoverable DeepSeek key field error when saved status cannot be read', async () => {
+    installDesktopApi({
+      loadDeepSeekApiKeyStatus: vi.fn().mockRejectedValue(new Error('credential store unavailable')),
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    const apiKeyInput = await screen.findByLabelText<HTMLInputElement>('DeepSeek API 密钥')
+
+    await waitFor(() => expect(apiKeyInput).toHaveAttribute('placeholder', '无法读取 · 请重新填写'))
+    expect(apiKeyInput).toHaveAttribute('aria-invalid', 'true')
   })
 
   it('persists the DeepSeek auto-summary toggle as soon as it changes', async () => {

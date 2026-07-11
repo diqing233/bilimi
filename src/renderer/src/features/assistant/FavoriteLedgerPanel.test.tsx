@@ -1713,7 +1713,7 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
-  it('selects all unmatched old favorites for inbox staging from the pending header', async () => {
+  it('ends a zero-task old favorite round directly from confirmation', async () => {
     const onScanOldFavorites = vi.fn().mockResolvedValue({
       items: [
         {
@@ -1762,7 +1762,14 @@ describe('FavoriteLedgerPanel', () => {
       skippedSourceFolderTitles: []
     })
 
-    renderPanel({ onScanOldFavorites })
+    const onExecuteOldFavoritePlan = vi.fn()
+    const onOldFavoriteAcknowledged = vi.fn()
+
+    renderPanel({
+      onScanOldFavorites,
+      onExecuteOldFavoritePlan,
+      onOldFavoriteAcknowledged
+    })
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
@@ -1794,7 +1801,18 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
 
     expect(screen.getByText('已选择 0 条归档任务')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '确认整理' })).toBeDisabled()
+    expect(
+      screen.getByText('本轮没有需要执行的归档任务，点击确认整理后结束本轮整理')
+    ).toBeInTheDocument()
+    const confirmButton = screen.getByRole('button', { name: '确认整理' })
+    expect(confirmButton).toBeEnabled()
+
+    fireEvent.click(confirmButton)
+
+    expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
+    expect(onOldFavoriteAcknowledged).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '好的' })).not.toBeInTheDocument()
   })
 
   it.skip('keeps retry judgment available for pending old favorites without a usable target', async () => {
@@ -4071,6 +4089,7 @@ describe('FavoriteLedgerPanel', () => {
     }
     const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
     const onExecuteOldFavoritePlan = vi.fn()
+    const onOldFavoriteAcknowledged = vi.fn()
 
     render(
       <FavoriteLedgerPanel
@@ -4080,6 +4099,7 @@ describe('FavoriteLedgerPanel', () => {
         onSaveLedgers={vi.fn().mockResolvedValue({ ok: true, steps: [], missingTargets: [], message: '掌库已同步。' })}
         onScanOldFavorites={onScanOldFavorites}
         onExecuteOldFavoritePlan={onExecuteOldFavoritePlan}
+        onOldFavoriteAcknowledged={onOldFavoriteAcknowledged}
       />
     )
 
@@ -4090,8 +4110,10 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
 
     expect(screen.getByText('已选择 0 条归档任务')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '确认整理' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+
     expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
+    expect(onOldFavoriteAcknowledged).toHaveBeenCalledOnce()
   })
 
   it('lets users choose which old favorite source folders to organize from the scan overview', async () => {

@@ -424,8 +424,41 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('display: grid;\n  gap: 8px;')
     expect(normalizedStyles).toContain('.memorial-panel__actions {\n  display: grid;\n  grid-template-columns: 1fr;')
     expect(normalizedStyles).toContain('.assistant-action-button {\n  min-height: 62px;')
-    expect(normalizedStyles).toContain('grid-template-columns: 58px minmax(0, 1fr) auto;')
-    expectStyleSnippet('grid-template-areas: "mark label setting" "mark desc desc";')
+    expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 56px; gap: 0; align-items: stretch; border: 1px solid rgba(31, 99, 181, 0.22);'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 56px; gap: 0; align-items: stretch; border: 1px solid rgba(31, 99, 181, 0.22); border-radius: var(--porcelain-radius-control); background: linear-gradient('
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting .assistant-action-button { border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join) var(--porcelain-radius-join) var(--porcelain-radius-control);'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting .assistant-action-button { border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join) var(--porcelain-radius-join) var(--porcelain-radius-control); border: 0; background: transparent;'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting .assistant-action-button:hover:not(:disabled), .memorial-panel__action-card--with-setting .assistant-action-button:focus-visible:not(:disabled) { background: transparent; box-shadow: none; transform: none;'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-setting { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; justify-self: stretch; min-width: 0; width: 56px; max-width: 56px;'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-setting select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 62px;'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-setting select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 62px; border: 0; border-left: 1px solid rgba(31, 99, 181, 0.22);'
+    )
+    expect(normalizedStyles).toContain(
+      '.memorial-panel__action-setting select {\n  box-sizing: border-box;\n  width: 100%;\n  max-width: 100%;\n  min-width: 0;\n  min-height: 62px;\n  border: 0;\n  border-left: 1px solid rgba(31, 99, 181, 0.22);\n  border-radius: var(--porcelain-radius-join) var(--porcelain-radius-control)\n    var(--porcelain-radius-control) var(--porcelain-radius-join);\n  background: transparent;'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-setting select:hover, .memorial-panel__action-setting select:focus-visible { border-left-color: rgba(31, 99, 181, 0.5); background: transparent; box-shadow: none;'
+    )
+    expect(normalizedStyles).toContain('rgba(220, 238, 255, 0.98)')
+    expect(normalizedStyles).toContain('rgba(220, 238, 255, 1)')
+    expect(normalizedStyles).toContain('padding: 0 15px 0 7px;\n  text-align: left;\n  text-align-last: left;')
+    expect(normalizedStyles).toContain('grid-template-columns: 58px minmax(0, 1fr);')
+    expectStyleSnippet('grid-template-areas: "mark label" "mark desc";')
     expect(normalizedStyles).toContain(
       '.assistant-action-button__icon {\n  grid-area: mark;\n  position: relative;\n  width: 42px;\n  height: 44px;'
     )
@@ -439,7 +472,7 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet(
       '.assistant-action-button__icon strong { position: absolute; right: -2px; bottom: -1px; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 999px; background: var(--porcelain-primary); color: var(--porcelain-white);'
     )
-    expectStyleSnippet('.assistant-action-button .memorial-panel__action-setting { grid-area: setting;')
+    expect(normalizedStyles).not.toContain('.assistant-action-button .memorial-panel__action-setting')
     expect(normalizedStyles).not.toContain('.video-notes__primary-actions strong,')
     expect(normalizedStyles).toContain('.memorial-panel__copy,\n.memorial-panel__meta,\n.memorial-panel__verdict {\n  color: var(--porcelain-text);\n  line-height: 1.5;\n  font-size: 14px;')
     expect(normalizedStyles).not.toContain('.memorial-panel__action span {\n  grid-area: label;')
@@ -487,7 +520,7 @@ describe('renderer porcelain theme styles', () => {
       '.memorial-panel__paper > .video-notes { width: auto; margin-right: -8px; margin-left: -8px;'
     )
     expect(normalizedStyles).not.toContain('.video-notes__primary-title')
-    expectStyleSnippet('.assistant-action-button { min-height: 62px; display: grid; grid-template-columns: 58px minmax(0, 1fr) auto;')
+    expectStyleSnippet('.assistant-action-button { min-height: 62px; display: grid; grid-template-columns: 58px minmax(0, 1fr);')
     expect(normalizedStyles).toContain(
       '.video-notes__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));\n  gap: 4px;'
     )

@@ -745,6 +745,28 @@ describe('DeepSeek main service', () => {
     ).resolves.toEqual({ kind: 'pet-chat', message: 'Thanks for sharing this page.' })
   })
 
+  it('passes cancellation signals to fetch without adding timeout options', async () => {
+    const fetchImpl = createJsonFetch('ok')
+    const controller = new AbortController()
+
+    await generateDeepSeekResult({
+      config: baseConfig,
+      request: {
+        kind: 'pet-chat',
+        messages: [{ role: 'user', content: 'hello' }]
+      },
+      fetchImpl,
+      signal: controller.signal
+    })
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.deepseek.com/chat/completions',
+      expect.objectContaining({ signal: controller.signal })
+    )
+    expect(fetchImpl.mock.calls[0]?.[1]).not.toHaveProperty('timeoutMs')
+    expect(fetchImpl.mock.calls[0]?.[1]).not.toHaveProperty('timeout')
+  })
+
   it('teaches pet chat enough bilimi product context to answer user questions', async () => {
     const fetchImpl = createJsonFetch('bilimi helps you review, collect, and summarize Bilibili videos.')
 

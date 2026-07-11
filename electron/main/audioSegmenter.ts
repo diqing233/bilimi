@@ -80,7 +80,8 @@ export async function segmentAudioForTranscription({
   durationSeconds,
   runProcess = defaultRunProcess,
   listFiles = readdir,
-  statFile = stat
+  statFile = stat,
+  signal
 }: {
   ffmpegPath: string
   inputPath: string
@@ -90,11 +91,13 @@ export async function segmentAudioForTranscription({
   runProcess?: RunProcess
   listFiles?: typeof readdir
   statFile?: (path: string) => Promise<{ size: number }>
+  signal?: AbortSignal
 }): Promise<AudioSegment[]> {
   const outputPattern = normalizePath(join(outputDir, 'segment-%03d.mp3'))
   const result = await runProcess(
     ffmpegPath,
-    buildFfmpegSegmentArgs({ inputPath, segmentSeconds, outputPattern })
+    buildFfmpegSegmentArgs({ inputPath, segmentSeconds, outputPattern }),
+    { signal }
   )
 
   if (result.exitCode !== 0) {

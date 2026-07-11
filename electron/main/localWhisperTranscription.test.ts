@@ -138,22 +138,48 @@ describe('localWhisperTranscription', () => {
       })
     ).resolves.toEqual([{ start: 12, end: 14, text: 'local transcript' }])
 
-    expect(runProcess).toHaveBeenCalledWith('C:/app/resources/tools/win32/whisper/whisper-cli.exe', [
-      '-m',
-      'C:/app/resources/tools/win32/whisper/models/ggml-small.bin',
-      '-f',
-      'C:/tmp/segment-000.wav',
-      '-l',
-      'auto',
-      '-t',
-      expect.stringMatching(/^\d+$/),
-      '-oj',
-      '-ojf',
-      '-of',
-      'C:/tmp/segment-000',
-      '-np'
-    ])
+    expect(runProcess).toHaveBeenCalledWith(
+      'C:/app/resources/tools/win32/whisper/whisper-cli.exe',
+      [
+        '-m',
+        'C:/app/resources/tools/win32/whisper/models/ggml-small.bin',
+        '-f',
+        'C:/tmp/segment-000.wav',
+        '-l',
+        'auto',
+        '-t',
+        expect.stringMatching(/^\d+$/),
+        '-oj',
+        '-ojf',
+        '-of',
+        'C:/tmp/segment-000',
+        '-np'
+      ],
+      { signal: undefined }
+    )
     expect(readTextFile).toHaveBeenCalledWith('C:/tmp/segment-000.json', 'utf8')
+  })
+
+  it('passes cancellation signals to bundled whisper.cpp', async () => {
+    const runProcess = vi.fn().mockResolvedValue({ exitCode: 0, stderr: '', stdout: '' })
+    const readTextFile = vi.fn().mockResolvedValue(JSON.stringify({ transcription: [] }))
+    const controller = new AbortController()
+
+    await transcribeAudioSegmentWithLocalWhisper({
+      path: 'C:/tmp/segment-000.wav',
+      offsetSeconds: 10,
+      cliPath: 'C:/app/resources/tools/win32/whisper/whisper-cli.exe',
+      modelPath: 'C:/app/resources/tools/win32/whisper/models/ggml-small.bin',
+      runProcess,
+      readTextFile,
+      signal: controller.signal
+    })
+
+    expect(runProcess).toHaveBeenCalledWith(
+      'C:/app/resources/tools/win32/whisper/whisper-cli.exe',
+      expect.any(Array),
+      { signal: controller.signal }
+    )
   })
 
   it('returns a Chinese error when bundled whisper.cpp fails', async () => {

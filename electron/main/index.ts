@@ -8,7 +8,8 @@ import {
   ipcMain,
   nativeImage,
   screen,
-  session
+  session,
+  safeStorage
 } from 'electron'
 import { spawn } from 'node:child_process'
 import { mkdtemp } from 'node:fs/promises'
@@ -592,7 +593,7 @@ async function testDeepSeekConnectionForPreferences(preferences: AssistantPrefer
     await generateDeepSeekResult({
       config: {
         enabled: preferences.deepseekEnabled,
-        apiKey: loadDeepSeekApiKey(getDesktopStore()),
+        apiKey: loadDeepSeekApiKey(getDesktopStore(), safeStorage),
         model: preferences.deepseekModel,
         baseUrl: preferences.deepseekBaseUrl
       },
@@ -696,7 +697,7 @@ function getVideoTranscriptionQueue() {
       saveItems: (items) => {
         saveVideoAudioTranscriptionQueue(getDesktopStore(), items)
       },
-      transcribe: async (request, progress) => {
+      transcribe: async (request, progress, signal) => {
         const tempDir = await mkdtemp(join(tmpdir(), 'bilimi-transcribe-'))
         const sourceSession = session.fromPartition(BILIMI_SESSION_PARTITION)
         const preferences = loadAssistantPreferences(getDesktopStore())
@@ -706,19 +707,21 @@ function getVideoTranscriptionQueue() {
           session: sourceSession,
           tempDir,
           progress,
-          threadLimit: preferences.videoAudioTranscriptionThreadLimit
+          threadLimit: preferences.videoAudioTranscriptionThreadLimit,
+          signal
         })
       },
-      summarizeNote: async (note) => {
+      summarizeNote: async (note, signal) => {
         const preferences = loadAssistantPreferences(getDesktopStore())
         const result = await generateDeepSeekResult({
           config: {
             enabled: preferences.deepseekEnabled,
-            apiKey: loadDeepSeekApiKey(getDesktopStore()),
+            apiKey: loadDeepSeekApiKey(getDesktopStore(), safeStorage),
             model: preferences.deepseekModel,
             baseUrl: preferences.deepseekBaseUrl
           },
-          request: { kind: 'note-poster', note }
+          request: { kind: 'note-poster', note },
+          signal
         })
 
         if (result.kind !== 'note-poster') {
@@ -755,7 +758,7 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle('startup:diagnose', () =>
     runStartupDiagnostics({
       resolveMediaToolPaths,
-      loadDeepSeekApiKeyStatus: () => loadDeepSeekApiKeyStatus(getDesktopStore()),
+      loadDeepSeekApiKeyStatus: () => loadDeepSeekApiKeyStatus(getDesktopStore(), safeStorage),
       testDeepSeekConnection: () =>
         testDeepSeekConnectionForPreferences(loadAssistantPreferences(getDesktopStore()))
     })
@@ -770,9 +773,9 @@ function registerAssistantPreferenceHandlers() {
     (_event, aid: number, status: PendingFavoriteQueueStatus) =>
       updatePendingFavoriteQueueItemStatus(getDesktopStore(), aid, status)
   )
-  ipcMain.handle('deepseek:key-status', () => loadDeepSeekApiKeyStatus(getDesktopStore()))
+  ipcMain.handle('deepseek:key-status', () => loadDeepSeekApiKeyStatus(getDesktopStore(), safeStorage))
   ipcMain.handle('deepseek:save-key', (_event, apiKey: string) => {
-    const status = saveDeepSeekApiKey(getDesktopStore(), apiKey)
+    const status = saveDeepSeekApiKey(getDesktopStore(), apiKey, safeStorage)
     sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
     return status
   })
@@ -787,7 +790,7 @@ function registerAssistantPreferenceHandlers() {
     return generateDeepSeekResult({
       config: {
         enabled: preferences.deepseekEnabled,
-        apiKey: loadDeepSeekApiKey(getDesktopStore()),
+        apiKey: loadDeepSeekApiKey(getDesktopStore(), safeStorage),
         model: preferences.deepseekModel,
         baseUrl: preferences.deepseekBaseUrl
       },
@@ -1006,6 +1009,7 @@ function registerAssistantPreferenceHandlers() {
 configureAppIdentity(app)
 
 app.whenReady().then(() => {
+  getVideoTranscriptionQueue()
   registerAssistantPreferenceHandlers()
   createMainWindow()
   createFloatingSealWindow()

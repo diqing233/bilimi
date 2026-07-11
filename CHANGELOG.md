@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Allowed old-favorite organization rounds with zero archive tasks to end directly from the confirmation page without sending an archive request.
 - Reordered settings so organization strategy follows DeepSeek and close settings appear last in both navigation and page content.
 - Refined assistant status lights so long-running scan, DeepSeek, transcription queue, and old-favorite organization states stay visible without occupying the realtime feedback line.
 - Updated the in-app browser tab strip so multiple open video tabs compress before horizontal scrolling, without leading tab icons.
@@ -14,6 +15,8 @@
 - Added batch archive-preview change summaries and card-level source notices for DeepSeek moves, staging moves, and generated-ledger selections, with undo/redo preserving generated ledger choices.
 - Kept the note archive's opened video detail visible when returning from review or a folded assistant session, while avoiding restore after a new app session.
 - Added close settings for minimizing to the system tray or exiting bilimi, with an optional remembered confirmation choice before direct exit.
+- Preserved DeepSeek API key secrecy in settings by clearing saved drafts, showing only saved/readable status, and keeping failed-save drafts recoverable.
+- Clarified transcription queue scope: user cancellation remains, restart archives recoverable drafts before clearing unfinished queue work, session completion count is visible, and fixed automatic timeouts are not included.
 
 ## 0.1.1 - 2026-07-05
 

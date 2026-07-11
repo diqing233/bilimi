@@ -101,17 +101,43 @@ describe('fasterWhisperTranscription', () => {
       })
     ).resolves.toEqual([{ start: 11, end: 13, text: 'local transcript' }])
 
-    expect(runProcess).toHaveBeenCalledWith('python', [
-      'C:/app/tools/transcribe_faster_whisper.py',
-      '--audio',
-      'C:/tmp/segment-000.mp3',
-      '--model',
-      'small',
-      '--device',
-      'cpu',
-      '--compute-type',
-      'int8'
-    ])
+    expect(runProcess).toHaveBeenCalledWith(
+      'python',
+      [
+        'C:/app/tools/transcribe_faster_whisper.py',
+        '--audio',
+        'C:/tmp/segment-000.mp3',
+        '--model',
+        'small',
+        '--device',
+        'cpu',
+        '--compute-type',
+        'int8'
+      ],
+      { signal: undefined }
+    )
+  })
+
+  it('passes cancellation signals to the Python process', async () => {
+    const runProcess = vi.fn().mockResolvedValue({
+      exitCode: 0,
+      stderr: '',
+      stdout: JSON.stringify({ segments: [] })
+    })
+    const controller = new AbortController()
+
+    await transcribeAudioSegmentWithFasterWhisper({
+      path: 'C:/tmp/segment-000.mp3',
+      offsetSeconds: 10,
+      runProcess,
+      scriptPath: 'C:/app/tools/transcribe_faster_whisper.py',
+      pythonCommand: 'python',
+      signal: controller.signal
+    })
+
+    expect(runProcess).toHaveBeenCalledWith('python', expect.any(Array), {
+      signal: controller.signal
+    })
   })
 
   it('falls back to the next Python candidate when a command cannot start', async () => {
@@ -139,28 +165,38 @@ describe('fasterWhisperTranscription', () => {
       })
     ).resolves.toEqual([{ start: 5, end: 6, text: 'fallback transcript' }])
 
-    expect(runProcess).toHaveBeenNthCalledWith(1, 'python', [
-      'C:/app/tools/transcribe_faster_whisper.py',
-      '--audio',
-      'C:/tmp/segment-000.mp3',
-      '--model',
-      'small',
-      '--device',
-      'cpu',
-      '--compute-type',
-      'int8'
-    ])
-    expect(runProcess).toHaveBeenNthCalledWith(2, 'python3', [
-      'C:/app/tools/transcribe_faster_whisper.py',
-      '--audio',
-      'C:/tmp/segment-000.mp3',
-      '--model',
-      'small',
-      '--device',
-      'cpu',
-      '--compute-type',
-      'int8'
-    ])
+    expect(runProcess).toHaveBeenNthCalledWith(
+      1,
+      'python',
+      [
+        'C:/app/tools/transcribe_faster_whisper.py',
+        '--audio',
+        'C:/tmp/segment-000.mp3',
+        '--model',
+        'small',
+        '--device',
+        'cpu',
+        '--compute-type',
+        'int8'
+      ],
+      { signal: undefined }
+    )
+    expect(runProcess).toHaveBeenNthCalledWith(
+      2,
+      'python3',
+      [
+        'C:/app/tools/transcribe_faster_whisper.py',
+        '--audio',
+        'C:/tmp/segment-000.mp3',
+        '--model',
+        'small',
+        '--device',
+        'cpu',
+        '--compute-type',
+        'int8'
+      ],
+      { signal: undefined }
+    )
   })
 
   it('returns a readable error when faster-whisper is not installed', async () => {

@@ -676,6 +676,7 @@ export async function generateDeepSeekResult(options: {
   config: DeepSeekConfig
   request: DeepSeekGenerateRequest
   fetchImpl?: typeof fetch
+  signal?: AbortSignal
 }): Promise<DeepSeekGenerateResult> {
   const apiKey = options.config.apiKey.trim()
   if (!options.config.enabled || !apiKey) {
@@ -692,6 +693,7 @@ export async function generateDeepSeekResult(options: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
+      signal: options.signal,
       body: JSON.stringify({
         model: options.config.model,
         messages: buildMessages(options.request),

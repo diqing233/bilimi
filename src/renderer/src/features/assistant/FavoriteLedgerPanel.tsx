@@ -4682,6 +4682,9 @@ export function FavoriteLedgerPanel({
               ) : (
                 <>
                   <p>已选择 {selectedOldFavoritePlanItems.length} 条归档任务</p>
+                  {selectedOldFavoritePlanItems.length === 0 ? (
+                    <p>本轮没有需要执行的归档任务，点击确认整理后结束本轮整理</p>
+                  ) : null}
                   {oldFavoriteTargetWarning ? (
                     <p className="favorite-ledger-panel__confirm-warning" role="alert">
                       {oldFavoriteTargetWarning}
@@ -4718,14 +4721,15 @@ export function FavoriteLedgerPanel({
                     disabled={
                       deepSeekArchiveRunning ||
                       (oldFavoriteExecuting ||
-                        oldFavoriteExecutionConfirming ||
-                        selectedOldFavoritePlanItems.length === 0) &&
+                        oldFavoriteExecutionConfirming) &&
                       !oldFavoriteExecutionAwaitingAcknowledgement
                     }
                     onClick={() =>
                       oldFavoriteExecutionAwaitingAcknowledgement
                         ? acknowledgeOldFavoriteExecution()
-                        : setOldFavoriteExecutionConfirming(true)
+                        : selectedOldFavoritePlanItems.length === 0
+                          ? acknowledgeOldFavoriteExecution()
+                          : setOldFavoriteExecutionConfirming(true)
                     }
                   >
                     {oldFavoriteExecutionAwaitingAcknowledgement
