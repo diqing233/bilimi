@@ -96,6 +96,15 @@ describe('requestAssistantRuntimeWhenReady', () => {
     expect(createAssistantRuntimeTimeoutMs({ type: 'snapshot' })).toBe(8000)
   })
 
+  it('uses the action timeout while reading the current video before enqueueing transcription', () => {
+    expect(
+      createAssistantRuntimeTimeoutMs({
+        type: 'enqueue-current-video-audio',
+        summarizeWithDeepSeek: true
+      })
+    ).toBe(60 * 1000)
+  })
+
   it('sends a runtime request immediately when the renderer is loaded', async () => {
     const { target, send } = createRuntimeTarget(false)
     const bus = createResponseBus()
