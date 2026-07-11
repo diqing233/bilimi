@@ -625,6 +625,7 @@ export function FloatingAssistantApp({
   const runtimeFeedbackSnapshotLoaded = useRef(false)
   const startupDeepSeekValidationAttempted = useRef(false)
   const deepSeekConnectionValidationInFlight = useRef(false)
+  const deepSeekConnectionValidationSaveRequired = useRef(false)
   const snapshotLoadQueue = useRef<Promise<void>>(Promise.resolve())
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences()
@@ -1082,8 +1083,13 @@ export function FloatingAssistantApp({
       detail: '连接验证：启动时自动检查'
     })
 
-    void window.bilimiDesktop
-      .testDeepSeekConnection()
+    const saveBeforeValidation = deepSeekConnectionValidationSaveRequired.current
+    deepSeekConnectionValidationSaveRequired.current = false
+
+    void (saveBeforeValidation
+      ? persistPreferences(preferencesRef.current)
+      : Promise.resolve())
+      .then(() => window.bilimiDesktop!.testDeepSeekConnection!())
       .then((result) => {
         setDeepSeekConnectionStatus(result.ok ? 'connected' : 'failed')
       })
@@ -1491,6 +1497,8 @@ export function FloatingAssistantApp({
 
     if (!enabled) {
       startupDeepSeekValidationAttempted.current = false
+    } else {
+      deepSeekConnectionValidationSaveRequired.current = true
     }
 
     updateDeepSeekPreference(

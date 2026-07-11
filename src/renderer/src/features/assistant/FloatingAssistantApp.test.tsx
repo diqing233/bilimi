@@ -1028,6 +1028,12 @@ describe('FloatingAssistantApp', () => {
       .fn()
       .mockReturnValueOnce(startupConnectionTest.promise)
       .mockReturnValueOnce(reenabledConnectionTest.promise)
+    const enabledPreferencesSave = createDeferred<AssistantPreferences>()
+    const savePreferences = vi
+      .fn<(preferences: AssistantPreferences) => Promise<AssistantPreferences>>()
+      .mockImplementation((preferences) =>
+        preferences.deepseekEnabled ? enabledPreferencesSave.promise : Promise.resolve(preferences)
+      )
     const connectionResult = {
       ok: true,
       message: 'DeepSeek connection succeeded.',
@@ -1044,7 +1050,8 @@ describe('FloatingAssistantApp', () => {
           })
         })
       ),
-      testDeepSeekConnection
+      testDeepSeekConnection,
+      savePreferences
     })
 
     render(<FloatingAssistantApp mode="sidebar" />)
@@ -1054,6 +1061,12 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() =>
       expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 已连接')
     )
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).not.toHaveAttribute(
+        'title',
+        expect.stringContaining('正在执行')
+      )
+    )
 
     fireEvent.click(screen.getByRole('tab', { name: '设置' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek' }))
@@ -1061,6 +1074,14 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek' }))
 
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenCalledWith(
+        expect.objectContaining({ deepseekEnabled: true, deepseekApiKeyStored: true })
+      )
+    )
+    expect(testDeepSeekConnection).toHaveBeenCalledOnce()
+
+    enabledPreferencesSave.resolve(savePreferences.mock.calls.at(-1)![0])
     await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledTimes(2))
     expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 验证中')
 
