@@ -4025,6 +4025,12 @@ body[data-floating-window="true"],
   font-size: 18px;
   line-height: 1;
 }
+.favorite-ledger-panel__guide-metrics[aria-label="原归档状态"] article {
+  grid-template-rows: 60px 28px;
+}
+.favorite-ledger-panel__guide-metrics[aria-label="原归档状态"] span {
+  min-height: 60px;
+}
 
 .favorite-ledger-panel__protected-summary {
   display: grid;

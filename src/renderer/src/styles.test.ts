@@ -667,6 +667,8 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics article { display: grid; grid-template-rows: 36px 26px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics span { min-height: 36px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics strong { align-self: start; padding-top: 3px; font-variant-numeric: tabular-nums;')
+    expectStyleSnippet('.favorite-ledger-panel__guide-metrics[aria-label="原归档状态"] article { grid-template-rows: 60px 28px;')
+    expectStyleSnippet('.favorite-ledger-panel__guide-metrics[aria-label="原归档状态"] span { min-height: 60px;')
     expectStyleSnippet('.favorite-ledger-panel__protected-summary { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center;')
     expectStyleSnippet('.favorite-ledger-panel__scan-warning { margin: 0; color: var(--porcelain-warn);')
     expectStyleSnippet('.favorite-ledger-panel__step-note { margin: 0; font-size: 12px; line-height: 1.45;')
