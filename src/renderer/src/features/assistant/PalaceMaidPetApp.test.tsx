@@ -377,6 +377,40 @@ describe('PalaceMaidPetApp', () => {
     }
   })
 
+  it('does not interrupt an open pet chat with idle greetings', () => {
+    vi.useFakeTimers()
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
+    let hintChanged: ((hint: AssistantPetHint) => void) | undefined
+    installDesktopApi({
+      onAssistantPetHintChanged: vi.fn((callback) => {
+        hintChanged = callback
+        return vi.fn()
+      })
+    })
+
+    try {
+      render(<PalaceMaidPetApp />)
+
+      fireEvent.click(screen.getByRole('button', { name: '打开小咪对话' }))
+      expect(screen.getByRole('status')).toHaveTextContent('去设置开启DeepSeek支持吧')
+
+      act(() => {
+        vi.advanceTimersByTime(90_000)
+      })
+
+      expect(screen.queryByText('主人还在吗？小咪在这里陪你慢慢看。')).not.toBeInTheDocument()
+
+      act(() => {
+        hintChanged?.({ tone: 'done', message: '应用操作已经完成。' })
+      })
+
+      expect(screen.getByText('应用操作已经完成。')).toBeInTheDocument()
+      expect(document.querySelector('.palace-maid-pet__chat-message')).not.toBeInTheDocument()
+    } finally {
+      random.mockRestore()
+    }
+  })
+
   it('scrolls the pet chat down to the newest reply', async () => {
     const scrollIntoView = vi.fn()
     const originalScrollIntoView = Element.prototype.scrollIntoView
