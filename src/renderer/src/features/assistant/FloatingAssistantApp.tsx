@@ -252,6 +252,7 @@ const TAB_HINTS: Record<AssistantWorkspaceTab, string> = {
 }
 
 type GlobalStatusTone = 'ok' | 'warn' | 'error' | 'running' | 'idle'
+type DeepSeekConnectionStatus = 'pending' | 'connected' | 'failed'
 
 type GlobalStatusItem = {
   label: string
@@ -542,7 +543,7 @@ function localizeDeepSeekStatusMessage(message: string): string {
   }
 
   return message
-    .replace(/^DeepSeek API request failed:/, 'DeepSeek API 请求失败：')
+    .replace(/^DeepSeek API request failed:\s*/, 'DeepSeek API 请求失败：')
     .replace(/^DeepSeek response did not include any content\.$/, 'DeepSeek 响应没有返回内容。')
     .replace(/^DeepSeek response could not be parsed\.$/, 'DeepSeek 响应解析失败。')
     .replace(/^DeepSeek response schema was invalid\.$/, 'DeepSeek 响应格式无效。')
@@ -644,7 +645,8 @@ export function FloatingAssistantApp({
   const [deepSeekApiKeyDraft, setDeepSeekApiKeyDraft] = useState('')
   const [deepSeekKeyFieldStatus, setDeepSeekKeyFieldStatus] =
     useState<DeepSeekKeyFieldStatus>('unsaved')
-  const [deepSeekStatusMessage, setDeepSeekStatusMessage] = useState('')
+  const [deepSeekConnectionStatus, setDeepSeekConnectionStatus] =
+    useState<DeepSeekConnectionStatus>('pending')
   const [settingsDiagnosticReport, setSettingsDiagnosticReport] =
     useState<StartupDiagnosticReport | null>(null)
   const [settingsDiagnosticRunning, setSettingsDiagnosticRunning] = useState(false)
@@ -725,9 +727,17 @@ export function FloatingAssistantApp({
   }, [transcriptionQueue])
 
   const globalDeepSeekStatus = useMemo<GlobalStatusItem>(() => {
-    if (!preferences.deepseekEnabled || !preferences.deepseekApiKeyStored) {
+    if (!preferences.deepseekEnabled) {
       return {
-        label: 'DeepSeek 未连',
+        label: 'DeepSeek 未启用',
+        detail: formatDeepSeekFeatureList(preferences),
+        tone: 'idle'
+      }
+    }
+
+    if (!preferences.deepseekApiKeyStored) {
+      return {
+        label: 'DeepSeek 待配置',
         detail: formatDeepSeekFeatureList(preferences),
         tone: 'warn'
       }
@@ -748,8 +758,27 @@ export function FloatingAssistantApp({
       }
     }
 
+    if (deepSeekConnectionStatus === 'failed') {
+      return {
+        label: 'DeepSeek 连接失败',
+        detail: '配置已保存，但最近一次真实连接测试失败，请检查密钥、模型和服务地址。',
+        tone: 'error'
+      }
+    }
+
+    if (deepSeekConnectionStatus === 'pending') {
+      return {
+        label: 'DeepSeek 待测试',
+        detail: [
+          '配置已保存，尚未完成本次运行的连接验证。',
+          ...formatDeepSeekFeatureList(preferences).split('\n').slice(1)
+        ].join('\n'),
+        tone: 'warn'
+      }
+    }
+
     return {
-      label: 'DeepSeek 已连',
+      label: 'DeepSeek 已连接',
       detail: formatDeepSeekFeatureList(preferences),
       tone: 'ok'
     }
@@ -760,6 +789,7 @@ export function FloatingAssistantApp({
     preferences.deepseekDailyClassificationEnabled,
     preferences.deepseekEnabled,
     preferences.deepseekPetChatEnabled,
+    deepSeekConnectionStatus,
     deepSeekTask,
     transcriptionQueue
   ])
@@ -1347,6 +1377,14 @@ export function FloatingAssistantApp({
 
     applyPreferenceSnapshot(nextPreferences)
 
+    if (
+      'deepseekEnabled' in patch ||
+      'deepseekModel' in patch ||
+      'deepseekBaseUrl' in patch
+    ) {
+      setDeepSeekConnectionStatus('pending')
+    }
+
     if (options.persist) {
       getPreferenceSaveScheduler().schedule(nextPreferences)
     }
@@ -1405,7 +1443,7 @@ export function FloatingAssistantApp({
     }
   }
 
-  async function saveDeepSeekSettings(): Promise<boolean> {
+  async function saveDeepSeekSettings(options: { announceSuccess?: boolean } = {}): Promise<boolean> {
     const keyDraft = deepSeekApiKeyDraft.trim()
     let nextPreferences = preferencesRef.current
     let keyWasSaved = false
@@ -1455,12 +1493,14 @@ export function FloatingAssistantApp({
       setDeepSeekApiKeyDraft('')
     }
 
-    setGlobalFeedback('DeepSeek 设置已保存。')
-    tellPet('success', 'DeepSeek 设置保存好啦。')
+    if (options.announceSuccess !== false) {
+      setGlobalFeedback('DeepSeek 设置已保存。')
+      tellPet('success', 'DeepSeek 设置保存好啦。')
+    }
     return true
   }
 
-  async function testDeepSeekConnection() {
+  async function saveAndTestDeepSeekConnection() {
     if (!window.bilimiDesktop?.testDeepSeekConnection) {
       setGlobalFeedback('DeepSeek 测试功能未加载，请重启应用后再试。')
       tellPet('error', 'DeepSeek 测试功能还没加载好。')
@@ -1470,21 +1510,32 @@ export function FloatingAssistantApp({
     tellPet('progress', '小咪正在测试 DeepSeek 连接。')
     updateDeepSeekTask('connection-test')
     try {
-      const saved = await saveDeepSeekSettings()
+      const saved = await saveDeepSeekSettings({ announceSuccess: false })
       if (!saved) {
         return
       }
       const result = await window.bilimiDesktop.testDeepSeekConnection()
       const statusMessage = localizeDeepSeekStatusMessage(result.message)
-      setDeepSeekStatusMessage(statusMessage)
-      setGlobalFeedback(statusMessage)
+      setDeepSeekConnectionStatus(result.ok ? 'connected' : 'failed')
+      setGlobalFeedback(
+        result.ok ? statusMessage : `配置已保存，但连接测试失败：${statusMessage}`
+      )
       tellPet(result.ok ? 'success' : 'error', statusMessage)
+    } catch {
+      const statusMessage = '配置已保存，但连接测试失败：DeepSeek 连接失败。'
+      setDeepSeekConnectionStatus('failed')
+      setGlobalFeedback(statusMessage)
+      tellPet('error', statusMessage)
     } finally {
       updateDeepSeekTask(null)
     }
   }
 
   async function resetDeepSeekSettings() {
+    if (!window.confirm('重置会关闭 DeepSeek 并删除已保存的 API 密钥，确定继续吗？')) {
+      return
+    }
+
     const nextPreferences = createInitialAssistantPreferences({
       ...preferencesRef.current,
       deepseekEnabled: false,
@@ -1498,13 +1549,18 @@ export function FloatingAssistantApp({
       deepseekBaseUrl: DEFAULT_DEEPSEEK_BASE_URL
     })
 
-    setDeepSeekApiKeyDraft('')
-    setDeepSeekKeyFieldStatus('unsaved')
-    await window.bilimiDesktop?.clearDeepSeekApiKey?.()
-    await persistPreferences(nextPreferences)
-    setDeepSeekStatusMessage('')
-    setGlobalFeedback('DeepSeek 设置已重置。')
-    tellPet('success', 'DeepSeek 设置已经重置，小咪回到本地提示模式啦。')
+    try {
+      await window.bilimiDesktop?.clearDeepSeekApiKey?.()
+      await persistPreferences(nextPreferences)
+      setDeepSeekApiKeyDraft('')
+      setDeepSeekKeyFieldStatus('unsaved')
+      setDeepSeekConnectionStatus('pending')
+      setGlobalFeedback('DeepSeek 设置已重置。')
+      tellPet('success', 'DeepSeek 设置已经重置，小咪回到本地提示模式啦。')
+    } catch {
+      setGlobalFeedback('DeepSeek 设置重置失败，请重试。')
+      tellPet('error', 'DeepSeek 设置重置失败，请重试。')
+    }
   }
 
   async function resetAssistantSettings() {
@@ -1533,7 +1589,7 @@ export function FloatingAssistantApp({
     setDeepSeekKeyFieldStatus('unsaved')
     await window.bilimiDesktop?.clearDeepSeekApiKey?.()
     await persistPreferences(nextPreferences)
-    setDeepSeekStatusMessage('')
+    setDeepSeekConnectionStatus('pending')
     setSettingsDiagnosticMessage('')
     setGlobalFeedback('设置已经恢复默认。')
     tellPet('success', '设置已经恢复默认，小咪重新整理好啦。')
@@ -1642,6 +1698,7 @@ export function FloatingAssistantApp({
         throw new Error('Comment generation failed.')
       }
 
+      setDeepSeekConnectionStatus('connected')
       setAiCommentDrafts(result.comments)
       setCommentIntentOpen(false)
       submitOrChooseCommentDrafts(result.comments)
@@ -1930,6 +1987,7 @@ export function FloatingAssistantApp({
         throw new Error('Poster generation failed.')
       }
 
+      setDeepSeekConnectionStatus('connected')
       tellPet('success', 'DeepSeek 总结做好啦。')
       return result.poster
     } finally {
@@ -2125,6 +2183,9 @@ export function FloatingAssistantApp({
     updateDeepSeekTask('archive-organize')
     try {
       const result = await window.bilimiDesktop?.generateDeepSeek?.(request)
+      if (result) {
+        setDeepSeekConnectionStatus('connected')
+      }
       tellPet(
         result?.kind === 'favorite-archive-organize' ? 'success' : 'error',
         result?.kind === 'favorite-archive-organize'
@@ -2562,7 +2623,10 @@ export function FloatingAssistantApp({
                       value={deepSeekApiKeyDraft}
                       placeholder={DEEPSEEK_KEY_STATUS_LABELS[deepSeekKeyFieldStatus]}
                       aria-invalid={deepSeekKeyFieldStatus === 'unreadable' ? 'true' : undefined}
-                      onChange={(event) => setDeepSeekApiKeyDraft(event.currentTarget.value)}
+                      onChange={(event) => {
+                        setDeepSeekApiKeyDraft(event.currentTarget.value)
+                        setDeepSeekConnectionStatus('pending')
+                      }}
                     />
                   </label>
                   <label>
@@ -2586,13 +2650,18 @@ export function FloatingAssistantApp({
                     />
                   </label>
                   <div className="assistant-settings__actions">
-                    <button type="button" onClick={() => void saveDeepSeekSettings()}>
-                      保存 DeepSeek
+                    <button
+                      type="button"
+                      disabled={deepSeekTask === 'connection-test'}
+                      onClick={() => void saveAndTestDeepSeekConnection()}
+                    >
+                      {deepSeekTask === 'connection-test' ? '保存测试中' : '保存并测试'}
                     </button>
-                    <button type="button" onClick={() => void testDeepSeekConnection()}>
-                      测试 DeepSeek
-                    </button>
-                    <button type="button" onClick={() => void resetDeepSeekSettings()}>
+                    <button
+                      type="button"
+                      disabled={deepSeekTask === 'connection-test'}
+                      onClick={() => void resetDeepSeekSettings()}
+                    >
                       重置 DeepSeek
                     </button>
                   </div>

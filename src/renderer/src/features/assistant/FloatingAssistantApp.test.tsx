@@ -916,7 +916,7 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByRole('combobox', { name: '拟奏短评参数' })).toHaveDisplayValue('随机')
   })
 
-  it('summarizes every DeepSeek feature in the global status tooltip', async () => {
+  it('shows saved DeepSeek configuration as pending verification', async () => {
     installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
@@ -934,7 +934,11 @@ describe('FloatingAssistantApp', () => {
 
     render(<FloatingAssistantApp />)
 
-    const deepSeekStatus = await screen.findByLabelText('DeepSeek状态')
+    await screen.findByLabelText('DeepSeek状态')
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 待测试')
+    )
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute('data-tone', 'warn')
     await waitFor(() =>
       expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
         'title',
@@ -2317,7 +2321,9 @@ describe('FloatingAssistantApp', () => {
     })
 
     await screen.findByText('AI comment one')
-    await waitFor(() => expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 已连'))
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 已连接')
+    )
   })
 
   it('marks ledger status as unbacked after syncing every ledger out of backup', async () => {
@@ -3042,7 +3048,7 @@ describe('FloatingAssistantApp', () => {
     expect(within(shortcutGroup).getByRole('button', { name: '赏 轻赏此条' })).not.toBeDisabled()
   })
 
-  it('saves and tests DeepSeek assistant settings', async () => {
+  it('saves and tests DeepSeek assistant settings with one action', async () => {
     const { clearDeepSeekApiKey, saveDeepSeekApiKey, savePreferences, testDeepSeekConnection } =
       installDesktopApi()
     const writeText = vi.fn().mockResolvedValue(undefined)
@@ -3095,7 +3101,7 @@ describe('FloatingAssistantApp', () => {
       target: { value: 'https://api.deepseek.local' }
     })
 
-    fireEvent.click(screen.getByRole('button', { name: '保存 DeepSeek' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存并测试' }))
 
     await waitFor(() => expect(saveDeepSeekApiKey).toHaveBeenCalledWith('sk-test'))
     await waitFor(() => {
@@ -3119,8 +3125,6 @@ describe('FloatingAssistantApp', () => {
       )
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '测试 DeepSeek' }))
-
     await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledOnce())
     expect(saveDeepSeekApiKey).toHaveBeenCalledOnce()
     expect(clearDeepSeekApiKey).not.toHaveBeenCalled()
@@ -3133,7 +3137,10 @@ describe('FloatingAssistantApp', () => {
       )
     )
     await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent('DeepSeek 连接成功。'))
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 已连接')
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute('data-tone', 'ok')
 
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
     fireEvent.click(screen.getByRole('button', { name: '重置 DeepSeek' }))
 
     await waitFor(() => expect(clearDeepSeekApiKey).toHaveBeenCalledOnce())
@@ -3184,7 +3191,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.change(screen.getByLabelText('DeepSeek API 密钥'), {
       target: { value: 'sk-draft' }
     })
-    fireEvent.click(screen.getByRole('button', { name: '保存 DeepSeek' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存并测试' }))
 
     await waitFor(() =>
       expect(screen.getByLabelText('全局提示')).toHaveTextContent('DeepSeek 密钥保存失败，请重试。')
@@ -3211,7 +3218,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.change(screen.getByLabelText('DeepSeek API 密钥'), {
       target: { value: 'sk-draft' }
     })
-    fireEvent.click(screen.getByRole('button', { name: '保存 DeepSeek' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存并测试' }))
 
     await waitFor(() =>
       expect(screen.getByLabelText('全局提示')).toHaveTextContent(
@@ -3302,7 +3309,7 @@ describe('FloatingAssistantApp', () => {
     await screen.findAllByRole('tab')
     fireEvent.click(screen.getAllByRole('tab')[3])
     fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek' }))
-    fireEvent.click(screen.getByRole('button', { name: '测试 DeepSeek' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存并测试' }))
 
     await waitFor(() =>
       expect(screen.getByLabelText('全局提示')).toHaveTextContent(
@@ -3602,6 +3609,63 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() => expect(enqueueCurrentVideoAudioTranscription).toHaveBeenCalledOnce())
     expect(generateVideoNoteFromAudio).not.toHaveBeenCalled()
     expect(await screen.findByText('「三分钟讲清机器学习科普教程」已开始转写。')).toBeInTheDocument()
+  })
+
+  it('keeps saved settings but marks DeepSeek disconnected when the merged test fails', async () => {
+    const testDeepSeekConnection = vi.fn().mockResolvedValue({
+      ok: false,
+      message: 'DeepSeek API request failed: 401 Unauthorized'
+    })
+    const { savePreferences } = installDesktopApi({
+      testDeepSeekConnection,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true,
+            deepseekApiKeyStored: true
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存并测试' }))
+
+    await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledOnce())
+    expect(savePreferences).toHaveBeenCalled()
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 连接失败')
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute('data-tone', 'error')
+    expect(screen.getByLabelText('全局提示')).toHaveTextContent(
+      '配置已保存，但连接测试失败：DeepSeek API 请求失败：401 Unauthorized'
+    )
+  })
+
+  it('does not reset DeepSeek settings when confirmation is cancelled', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const { clearDeepSeekApiKey, savePreferences } = installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true,
+            deepseekApiKeyStored: true
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 待测试')
+    )
+    fireEvent.click(screen.getByRole('button', { name: '重置 DeepSeek' }))
+
+    expect(confirm).toHaveBeenCalledWith('重置会关闭 DeepSeek 并删除已保存的 API 密钥，确定继续吗？')
+    expect(clearDeepSeekApiKey).not.toHaveBeenCalled()
+    expect(savePreferences).not.toHaveBeenCalled()
   })
 
   it('replaces the global queued feedback after canceling the active transcription', async () => {
