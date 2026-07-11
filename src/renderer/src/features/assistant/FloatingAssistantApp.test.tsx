@@ -905,6 +905,51 @@ describe('FloatingAssistantApp', () => {
     expect(transcriptionStatus).not.toHaveTextContent('转写失败')
   })
 
+  it('shows the completed transcription count from the current app session while idle', async () => {
+    installDesktopApi({
+      loadVideoAudioTranscriptionQueue: vi.fn().mockResolvedValue({
+        items: [],
+        sessionCompletedCount: 3
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('暂无转写 · 完成 3')
+    )
+    const transcriptionStatus = screen.getByLabelText('转写音频状态')
+    expect(transcriptionStatus).toHaveAttribute(
+      'title',
+      '本次启动已完成 3 个转写，文稿已保存到档案库。'
+    )
+
+    fireEvent.click(transcriptionStatus)
+    expect(screen.getByRole('tab', { name: '札记' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByRole('region', { name: '全局档案库' })).not.toBeInTheDocument()
+  })
+
+  it('restores the session completed count after the renderer is rebuilt', async () => {
+    const loadVideoAudioTranscriptionQueue = vi.fn().mockResolvedValue({
+      items: [],
+      sessionCompletedCount: 2
+    })
+    installDesktopApi({ loadVideoAudioTranscriptionQueue })
+
+    const app = render(<FloatingAssistantApp />)
+    await waitFor(() =>
+      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('暂无转写 · 完成 2')
+    )
+
+    app.unmount()
+    render(<FloatingAssistantApp />)
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('暂无转写 · 完成 2')
+    )
+    expect(loadVideoAudioTranscriptionQueue).toHaveBeenCalledTimes(2)
+  })
+
   it('guides the user to log in and back up ledgers instead of waiting for action', async () => {
     installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
@@ -3516,7 +3561,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
 
     await waitFor(() => expect(enqueueCurrentVideoAudioTranscription).toHaveBeenCalledOnce())
-    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写 43%')
+    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写 43% · 排队 0')
     expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent(
       '三分钟讲清机器学习科普教程'
     )
@@ -3526,7 +3571,7 @@ describe('FloatingAssistantApp', () => {
       await initialQueueLoad.promise
     })
 
-    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写 43%')
+    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写 43% · 排队 0')
     expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent(
       '三分钟讲清机器学习科普教程'
     )
@@ -3810,6 +3855,56 @@ describe('FloatingAssistantApp', () => {
     expect(transcriptionStatus).toHaveAttribute('title', '还有 2 个转写任务等待处理。')
   })
 
+  it('shows transcription progress together with the pending queue count', async () => {
+    installDesktopApi({
+      loadVideoAudioTranscriptionQueue: vi.fn().mockResolvedValue({
+        activeItemId: 'bvid:BV1running',
+        sessionCompletedCount: 1,
+        items: [
+          {
+            id: 'bvid:BV1running',
+            url: 'https://www.bilibili.com/video/BV1running',
+            title: '正在转写的教程',
+            bvid: 'BV1running',
+            status: 'running',
+            createdAt: '2026-06-25T00:00:00.000Z',
+            updatedAt: '2026-06-25T00:01:00.000Z',
+            progress: {
+              step: 'transcribing-segment',
+              percent: 42,
+              message: 'Transcribing segment.'
+            }
+          },
+          {
+            id: 'bvid:BV2pending',
+            url: 'https://www.bilibili.com/video/BV2pending',
+            title: '排队教程一',
+            bvid: 'BV2pending',
+            status: 'pending',
+            createdAt: '2026-06-25T00:02:00.000Z',
+            updatedAt: '2026-06-25T00:02:00.000Z'
+          },
+          {
+            id: 'bvid:BV3pending',
+            url: 'https://www.bilibili.com/video/BV3pending',
+            title: '排队教程二',
+            bvid: 'BV3pending',
+            status: 'pending',
+            createdAt: '2026-06-25T00:03:00.000Z',
+            updatedAt: '2026-06-25T00:03:00.000Z'
+          }
+        ]
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写 50% · 排队 2')
+    )
+    expect(screen.getByLabelText('转写音频状态')).not.toHaveTextContent('完成 1')
+  })
+
   it('keeps the note archive open when a background transcription draft arrives in sidebar mode', async () => {
     const note = createVideoNote()
     const loadVideoNoteArchives = vi.fn().mockResolvedValue([])
@@ -4006,7 +4101,8 @@ describe('FloatingAssistantApp', () => {
             completedAt: '2026-06-25T00:01:00.000Z',
             archiveNoteId: note.id
           }
-        ]
+        ],
+        sessionCompletedCount: 1
       })
     })
 
@@ -4015,7 +4111,7 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByLabelText('全局提示')).toHaveTextContent(
       '转写完成，文稿已保存到档案库'
     )
-    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写完成')
+    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('暂无转写 · 完成 1')
     expect(screen.queryByRole('tabpanel', { name: /无时间线文稿/ })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('tab', { name: '札记' }))

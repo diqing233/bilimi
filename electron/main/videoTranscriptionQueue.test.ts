@@ -342,6 +342,7 @@ describe('video transcription queue', () => {
 
     expect(queue.getSnapshot().items[0]).toMatchObject({ status: 'canceled' })
     expect(saveArchiveVersion).not.toHaveBeenCalled()
+    expect(queue.getSnapshot().sessionCompletedCount).toBe(0)
   })
 
   it('does not abort the running job when canceling a pending job', async () => {
@@ -441,6 +442,33 @@ describe('video transcription queue', () => {
     await flushMicrotasks()
 
     expect(queue.getSnapshot().items.map((item) => item.status)).toEqual(['failed', 'completed'])
+    expect(queue.getSnapshot().sessionCompletedCount).toBe(1)
+  })
+
+  it('resets the completed session count when a new app-process queue is created', async () => {
+    const firstQueue = createVideoTranscriptionQueue({
+      loadItems: createStore().load,
+      saveItems: vi.fn(),
+      transcribe: vi.fn().mockResolvedValue({
+        transcript: createTranscript('completed before restart'),
+        transcriptSource: 'audio'
+      }),
+      saveArchiveVersion: vi.fn()
+    })
+    firstQueue.enqueue(createRequest())
+    await flushMicrotasks()
+    await flushMicrotasks()
+
+    expect(firstQueue.getSnapshot().sessionCompletedCount).toBe(1)
+
+    const restartedQueue = createVideoTranscriptionQueue({
+      loadItems: createStore().load,
+      saveItems: vi.fn(),
+      transcribe: vi.fn(),
+      saveArchiveVersion: vi.fn()
+    })
+
+    expect(restartedQueue.getSnapshot().sessionCompletedCount).toBe(0)
   })
 
   it('does not duplicate a video that is already pending or running', async () => {

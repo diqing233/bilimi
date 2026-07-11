@@ -690,7 +690,7 @@ export function FloatingAssistantApp({
       const percent = formatGlobalProgressPercent(runningItem.progress)
       const pendingCount = transcriptionQueue.items.filter((item) => item.status === 'pending').length
       return {
-        label: percent === null ? '转写中' : `转写 ${percent}%`,
+        label: `${percent === null ? '转写中' : `转写 ${percent}%`} · 排队 ${pendingCount}`,
         detail: `${runningItem.title} 正在转写${pendingCount > 0 ? `，排队 ${pendingCount} 个` : ''}`,
         tone: 'running'
       }
@@ -705,13 +705,10 @@ export function FloatingAssistantApp({
       }
     }
 
-    const completedItem = transcriptionQueue.items
-      .filter((item) => item.status === 'completed')
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
-    if (completedItem) {
+    if (transcriptionQueue.sessionCompletedCount > 0) {
       return {
-        label: '转写完成',
-        detail: `${completedItem.title} 已完成转写。`,
+        label: `暂无转写 · 完成 ${transcriptionQueue.sessionCompletedCount}`,
+        detail: `本次启动已完成 ${transcriptionQueue.sessionCompletedCount} 个转写，文稿已保存到档案库。`,
         tone: 'ok'
       }
     }
