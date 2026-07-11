@@ -2778,6 +2778,43 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
+  it('does not resave a DeepSeek preference broadcast that acknowledges the active save', async () => {
+    let notifyPreferencesChanged: ((preferences: AssistantPreferences) => void) | undefined
+    let resolveSave!: (preferences: AssistantPreferences) => void
+    const savePreferences = vi.fn(
+      (preferences: AssistantPreferences) =>
+        new Promise<AssistantPreferences>((resolve) => {
+          resolveSave = resolve
+        })
+    )
+    installDesktopApi({
+      savePreferences,
+      onAssistantPreferencesChanged: vi.fn((callback) => {
+        notifyPreferencesChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek' }))
+
+    await waitFor(() => expect(savePreferences).toHaveBeenCalledOnce())
+
+    act(() => {
+      notifyPreferencesChanged?.(savePreferences.mock.calls[0][0])
+    })
+
+    await act(async () => {
+      resolveSave(savePreferences.mock.calls[0][0])
+    })
+
+    await new Promise((resolve) => window.setTimeout(resolve, 50))
+
+    expect(savePreferences).toHaveBeenCalledOnce()
+  })
+
   it('merges external DeepSeek settings into a pending local preference save', async () => {
     let notifyPreferencesChanged: ((preferences: AssistantPreferences) => void) | undefined
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)

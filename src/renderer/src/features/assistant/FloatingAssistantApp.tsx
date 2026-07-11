@@ -1085,8 +1085,18 @@ export function FloatingAssistantApp({
         lastPreferenceChangeAt.current = Date.now()
         preferencesRef.current = mergedPreferences
 
-        if (!saveScheduler?.updatePending(() => mergedPreferences) && saveScheduler?.hasActiveSave()) {
-          saveScheduler.schedule(mergedPreferences)
+        const hasUnsavedMergedChanges = !arePreferenceValuesEqual(
+          mergedPreferences,
+          normalizedNextPreferences
+        )
+
+        if (hasUnsavedMergedChanges) {
+          if (
+            !saveScheduler?.updatePending(() => mergedPreferences) &&
+            saveScheduler?.hasActiveSave()
+          ) {
+            saveScheduler.schedule(mergedPreferences)
+          }
         }
         return mergedPreferences
       })
