@@ -381,6 +381,7 @@ const SETTINGS_JUMP_OPTIONS = [
   { value: 'review-actions', label: '批阅动作' },
   { value: 'close', label: '关闭设置' }
 ] as const
+const SETTINGS_SCROLL_SYNC_OFFSET = 32
 
 type SettingsJumpValue = (typeof SETTINGS_JUMP_OPTIONS)[number]['value']
 
@@ -1375,7 +1376,10 @@ export function FloatingAssistantApp({
 
     for (const option of SETTINGS_JUMP_OPTIONS) {
       const section = body.querySelector<HTMLElement>(`[data-settings-section="${option.value}"]`)
-      if (section && section.getBoundingClientRect().top - bodyTop <= 12) {
+      if (
+        section &&
+        section.getBoundingClientRect().top - bodyTop <= SETTINGS_SCROLL_SYNC_OFFSET
+      ) {
         nextValue = option.value
       }
     }

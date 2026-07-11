@@ -311,13 +311,26 @@ describe('FloatingAssistantApp', () => {
       )
     })
 
-    render(<FloatingAssistantApp />)
+    const { container } = render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByLabelText('DeepSeek状态'))
     expect(screen.getByRole('tab', { name: '设置' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '设置项' })).toHaveValue(
-      'deepseek'
-    )
+    const settingsJump = screen.getByRole<HTMLSelectElement>('combobox', { name: '设置项' })
+    expect(settingsJump).toHaveValue('deepseek')
+
+    const settingsBody = container.querySelector<HTMLElement>('.assistant-settings__body')
+    const diagnosticsSection = screen.getByRole('group', { name: '诊断' })
+    const deepSeekSection = screen.getByRole('group', { name: 'DeepSeek' })
+    expect(settingsBody).not.toBeNull()
+    vi.spyOn(settingsBody!, 'getBoundingClientRect').mockReturnValue({ top: 100 } as DOMRect)
+    container.querySelectorAll<HTMLElement>('[data-settings-section]').forEach((section) => {
+      vi.spyOn(section, 'getBoundingClientRect').mockReturnValue({ top: 1000 } as DOMRect)
+    })
+    vi.mocked(diagnosticsSection.getBoundingClientRect).mockReturnValue({ top: -200 } as DOMRect)
+    vi.mocked(deepSeekSection.getBoundingClientRect).mockReturnValue({ top: 126 } as DOMRect)
+    fireEvent.scroll(settingsBody!)
+
+    expect(settingsJump).toHaveValue('deepseek')
 
     fireEvent.click(screen.getByLabelText('转写音频状态'))
     expect(screen.getByRole('tab', { name: '札记' })).toHaveAttribute('aria-selected', 'true')
