@@ -70,6 +70,15 @@ describe('renderer porcelain theme styles', () => {
     }
   })
 
+  it('places protected reorganization buttons on the line below their copy', () => {
+    expectStyleSnippet(
+      '.favorite-ledger-panel__protected-summary small { grid-column: 1 / -1; min-width: 0;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__protected-summary small + button { grid-column: 1 / -1; justify-self: start;'
+    )
+  })
+
   it('keeps the main app shell clipped to the window instead of exposing horizontal page scroll', () => {
     expect(normalizedStyles).toContain('body {\n  overflow: hidden;')
     expect(normalizedStyles).toContain('.app-shell {\n  position: relative;\n  width: 100%;')
@@ -658,7 +667,7 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics article { display: grid; grid-template-rows: 36px 26px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics span { min-height: 36px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics strong { align-self: start; padding-top: 3px; font-variant-numeric: tabular-nums;')
-    expectStyleSnippet('.favorite-ledger-panel__protected-summary { display: flex; flex-wrap: wrap; align-items: center;')
+    expectStyleSnippet('.favorite-ledger-panel__protected-summary { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center;')
     expectStyleSnippet('.favorite-ledger-panel__scan-warning { margin: 0; color: var(--porcelain-warn);')
     expectStyleSnippet('.favorite-ledger-panel__step-note { margin: 0; font-size: 12px; line-height: 1.45;')
     expect(normalizedStyles).not.toContain('.favorite-ledger-panel__step-note {\n  margin: 0;\n  color: var(--porcelain-muted);')

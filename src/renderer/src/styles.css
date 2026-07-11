@@ -4028,13 +4028,14 @@ body[data-floating-window="true"],
 
 .favorite-ledger-panel__protected-summary {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 6px;
   color: var(--porcelain-muted);
 }
 
 .favorite-ledger-panel__protected-summary small {
+  grid-column: 1 / -1;
   min-width: 0;
 }
 
@@ -4047,6 +4048,10 @@ body[data-floating-window="true"],
   justify-self: end;
   min-height: 28px;
   padding: 4px 8px;
+}
+.favorite-ledger-panel__protected-summary small + button {
+  grid-column: 1 / -1;
+  justify-self: start;
 }
 .favorite-ledger-panel__scan-warning {
   margin: 0;
