@@ -99,7 +99,7 @@ export function requestAssistantRuntimeWhenReady<TPayload>({
 }
 
 export function createAssistantRuntimeTimeoutMs(request: AssistantRuntimeRequestInput): number {
-  if (request.type === 'run-action') {
+  if (request.type === 'run-action' || request.type === 'enqueue-current-video-audio') {
     return ACTION_RUNTIME_REQUEST_TIMEOUT_MS
   }
 

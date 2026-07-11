@@ -216,6 +216,69 @@ describe('MemorialPanel', () => {
     expect(screen.getByText('UP').nextElementSibling).toHaveTextContent('李老师讲AI')
   })
 
+  it('passes transcription queue cancel and retry actions into the notes panel', () => {
+    const onCancelQueuedVideoAudioTranscription = vi.fn()
+    const onRetryQueuedVideoAudioTranscription = vi.fn()
+
+    render(
+      <MemorialPanel
+        recommendation={inboxRecommendation}
+        commentDrafts={['先留一评。']}
+        videoCategory="待分拣"
+        videoTitle="测试稿件"
+        onAction={vi.fn()}
+        onClose={vi.fn()}
+        onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
+        onTranscribeVideoAudio={vi.fn().mockResolvedValue(null)}
+        onEnqueueVideoAudioTranscription={vi.fn().mockResolvedValue(null)}
+        onCancelQueuedVideoAudioTranscription={onCancelQueuedVideoAudioTranscription}
+        onRetryQueuedVideoAudioTranscription={onRetryQueuedVideoAudioTranscription}
+        onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
+        videoNote={null}
+        videoNoteLoading={false}
+        initialTab="notes"
+        transcriptionQueue={{
+          activeItemId: 'bvid:BV1note',
+          sessionCompletedCount: 1,
+          items: [
+            {
+              id: 'bvid:BV1note',
+              url: 'https://www.bilibili.com/video/BV1note',
+              title: 'Running video',
+              bvid: 'BV1note',
+              status: 'running',
+              createdAt: '2026-06-25T00:01:00.000Z',
+              updatedAt: '2026-06-25T00:02:00.000Z',
+              progress: {
+                step: 'transcribing-segment',
+                message: 'Transcribing segment 1/2.',
+                segmentIndex: 1,
+                segmentCount: 2
+              }
+            },
+            {
+              id: 'bvid:BV2note',
+              url: 'https://www.bilibili.com/video/BV2note',
+              title: 'Failed video',
+              bvid: 'BV2note',
+              status: 'failed',
+              createdAt: '2026-06-25T00:03:00.000Z',
+              updatedAt: '2026-06-25T00:04:00.000Z',
+              errorMessage: 'Audio download failed.'
+            }
+          ]
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '取消转写' }))
+    fireEvent.click(screen.getByRole('button', { name: '切换队列视频' }))
+    fireEvent.click(screen.getByRole('button', { name: '重试 Failed video' }))
+
+    expect(onCancelQueuedVideoAudioTranscription).toHaveBeenCalledWith('bvid:BV1note')
+    expect(onRetryQueuedVideoAudioTranscription).toHaveBeenCalledWith('bvid:BV2note')
+  })
+
   it('attaches narrow coin and comment menus to their action buttons without firing actions', () => {
     const onPreferenceChange = vi.fn()
     const onAction = vi.fn()

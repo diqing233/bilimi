@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { VideoAudioTranscriptionQueueSnapshot, VideoNote, VideoNoteArchiveEntry } from '@shared/types'
@@ -44,7 +45,10 @@ const queuedCompletedNote: VideoNote = {
   updatedAt: '2026-06-25T00:04:00.000Z'
 }
 
-function renderQueuePanel(queue: VideoAudioTranscriptionQueueSnapshot) {
+function renderQueuePanel(
+  queue: VideoAudioTranscriptionQueueSnapshot,
+  props: Partial<ComponentProps<typeof VideoNotesPanel>> = {}
+) {
   const onEnqueueTranscription = vi.fn().mockResolvedValue(queue)
 
   render(
@@ -56,6 +60,7 @@ function renderQueuePanel(queue: VideoAudioTranscriptionQueueSnapshot) {
       onTranscribeAudio={vi.fn()}
       onEnqueueTranscription={onEnqueueTranscription}
       transcriptionQueue={queue}
+      {...props}
     />
   )
 
@@ -100,6 +105,7 @@ describe('VideoNotesPanel transcription queue', () => {
   it('renders a compact running transcription status without extra queue controls', () => {
     const queue: VideoAudioTranscriptionQueueSnapshot = {
       activeItemId: 'bvid:BV2note',
+      sessionCompletedCount: 3,
       items: [
         {
           id: 'bvid:BV1note',
@@ -139,6 +145,8 @@ describe('VideoNotesPanel transcription queue', () => {
     }
     renderQueuePanel(queue)
 
+    expect(screen.getByText('本次完成：3 个')).toBeInTheDocument()
+
     const status = screen.getByRole('region', { name: '转写状态' })
 
     expect(status).toHaveTextContent('正在转写：Running video')
@@ -147,22 +155,83 @@ describe('VideoNotesPanel transcription queue', () => {
     const queueDetails =
       '等待转写：Pending video\n正在转写：Running video\n转写失败：Failed video'
     expect(queueCount).toHaveAttribute('title', queueDetails)
-    expect(screen.getByRole('combobox', { name: '切换队列视频' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: '切换队列视频' })).toHaveAttribute(
       'title',
       queueDetails
     )
-    expect(
-      Array.from(screen.getByRole('combobox', { name: '切换队列视频' }).querySelectorAll('option')).map(
-        (option) => option.textContent
-      )
-    ).toEqual(['等待转写：Pending video', '正在转写：Running video', '转写失败：Failed video'])
+    fireEvent.click(screen.getByRole('button', { name: '切换队列视频' }))
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      '等待转写：Pending video取消',
+      '正在转写：Running video取消',
+      '转写失败：Failed video重试'
+    ])
     expect(screen.getByText('正在转写第 2 / 4 段')).toBeInTheDocument()
     expect(screen.getByText('49%')).toBeInTheDocument()
     expect(screen.getByLabelText('转写音频到文稿生成整体进度')).toHaveAttribute('value', '49')
     expect(screen.queryByRole('button', { name: '加入队列' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /取消/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /重试/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '取消转写' })).toBeInTheDocument()
     expect(screen.queryByText('Audio download failed.')).not.toBeInTheDocument()
+  })
+
+  it('calls queue row actions without switching the selected preview', () => {
+    const onCancelQueuedVideoAudioTranscription = vi.fn()
+    const onRetryQueuedVideoAudioTranscription = vi.fn()
+    const queue: VideoAudioTranscriptionQueueSnapshot = {
+      activeItemId: 'bvid:BV2note',
+      sessionCompletedCount: 3,
+      items: [
+        {
+          id: 'bvid:BV2note',
+          url: 'https://www.bilibili.com/video/BV2note',
+          title: 'Running video',
+          bvid: 'BV2note',
+          status: 'running',
+          createdAt: '2026-06-25T00:01:00.000Z',
+          updatedAt: '2026-06-25T00:02:00.000Z'
+        },
+        {
+          id: 'bvid:BV3note',
+          url: 'https://www.bilibili.com/video/BV3note',
+          title: 'Completed video',
+          bvid: 'BV3note',
+          status: 'completed',
+          createdAt: '2026-06-25T00:03:00.000Z',
+          updatedAt: '2026-06-25T00:04:00.000Z',
+          completedAt: '2026-06-25T00:04:00.000Z',
+          draftNote: queuedCompletedNote
+        },
+        {
+          id: 'bvid:BV4note',
+          url: 'https://www.bilibili.com/video/BV4note',
+          title: 'Failed video',
+          bvid: 'BV4note',
+          status: 'failed',
+          createdAt: '2026-06-25T00:05:00.000Z',
+          updatedAt: '2026-06-25T00:06:00.000Z'
+        }
+      ]
+    }
+
+    renderQueuePanel(queue, {
+      onCancelQueuedVideoAudioTranscription,
+      onRetryQueuedVideoAudioTranscription
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '切换队列视频' }))
+    fireEvent.click(screen.getByRole('button', { name: '取消 Running video' }))
+
+    expect(onCancelQueuedVideoAudioTranscription).toHaveBeenCalledWith('bvid:BV2note')
+    expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent('正在转写：Running video')
+
+    fireEvent.click(screen.getByRole('button', { name: '重试 Failed video' }))
+
+    expect(onRetryQueuedVideoAudioTranscription).toHaveBeenCalledWith('bvid:BV4note')
+    expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent('正在转写：Running video')
+
+    fireEvent.click(screen.getByRole('menuitem', { name: /Completed video/ }))
+    expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent(
+      '排队已完成：Completed video'
+    )
   })
 
   it('shows DeepSeek summary progress as part of the overall queued task', () => {
@@ -349,9 +418,8 @@ describe('VideoNotesPanel transcription queue', () => {
 
     renderQueuePanel(queue)
 
-    fireEvent.change(screen.getByRole('combobox', { name: '切换队列视频' }), {
-      target: { value: 'bvid:BV3note' }
-    })
+    fireEvent.click(screen.getByRole('button', { name: '切换队列视频' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Completed video/ }))
     fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
 
     expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent(
@@ -419,9 +487,8 @@ describe('VideoNotesPanel transcription queue', () => {
       />
     )
 
-    fireEvent.change(screen.getByRole('combobox'), {
-      target: { value: 'bvid:BV3note' }
-    })
+    fireEvent.click(screen.getByRole('button', { name: '切换队列视频' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /Completed video/ }))
     fireEvent.click(screen.getAllByRole('tab')[0])
 
     expect(screen.getByRole('tabpanel')).toHaveTextContent('Completed queued transcript.')

@@ -33,6 +33,17 @@ function createStore(initial: VideoAudioTranscriptionQueueItem[] = []) {
   }
 }
 
+function createSnapshot(
+  snapshot: Omit<VideoAudioTranscriptionQueueSnapshot, 'sessionCompletedCount'> & {
+    sessionCompletedCount?: number
+  }
+): VideoAudioTranscriptionQueueSnapshot {
+  return {
+    sessionCompletedCount: 0,
+    ...snapshot
+  }
+}
+
 function createDeferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (reason?: unknown) => void
@@ -89,7 +100,11 @@ describe('video transcription queue', () => {
     await flushMicrotasks()
 
     expect(transcribe).toHaveBeenCalledTimes(1)
-    expect(transcribe).toHaveBeenCalledWith(expect.objectContaining({ title: 'Queue video' }), expect.any(Function))
+    expect(transcribe).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Queue video' }),
+      expect.any(Function),
+      expect.any(AbortSignal)
+    )
     expect(queue.getSnapshot().items.map((item) => item.status)).toEqual(['running', 'pending'])
 
     first.resolve({ transcript: createTranscript('first transcript'), transcriptSource: 'audio' })
@@ -113,6 +128,7 @@ describe('video transcription queue', () => {
     expect(queue.getSnapshot().items.map((item) => item.status)).toEqual(['completed', 'completed'])
     expect(store.save).toHaveBeenCalled()
     expect(snapshots.at(-1)?.activeItemId).toBeUndefined()
+    expect(queue.getSnapshot().sessionCompletedCount).toBe(2)
   })
 
   it('keeps the request author on queued archive notes', async () => {
@@ -167,7 +183,8 @@ describe('video transcription queue', () => {
       expect.objectContaining<Partial<VideoNote>>({
         id: 'bvid:BV1queue',
         transcript: createTranscript('summary transcript')
-      })
+      }),
+      expect.any(AbortSignal)
     )
     expect(saveArchiveVersion).toHaveBeenCalledWith(
       expect.objectContaining<Partial<VideoNote>>({
@@ -249,8 +266,7 @@ describe('video transcription queue', () => {
     })
   })
 
-  it('resumes unfinished persisted jobs after a restart', async () => {
-    const restartedAt = '2026-06-25T00:00:10.000Z'
+  it('does not resume unfinished persisted jobs after a restart', () => {
     const store = createStore([
       {
         ...createRequest(),
@@ -273,14 +289,7 @@ describe('video transcription queue', () => {
         updatedAt: '2026-06-25T00:00:06.000Z'
       }
     ])
-    const second = createDeferred<{ transcript: TranscriptSegment[]; transcriptSource: 'audio' }>()
-    const transcribe = vi
-      .fn()
-      .mockResolvedValueOnce({
-        transcript: createTranscript('resumed transcript'),
-        transcriptSource: 'audio'
-      })
-      .mockReturnValueOnce(second.promise)
+    const transcribe = vi.fn()
     const saveArchiveVersion = vi.fn()
 
     const queue = createVideoTranscriptionQueue({
@@ -288,35 +297,85 @@ describe('video transcription queue', () => {
       saveItems: store.save,
       transcribe,
       saveArchiveVersion,
-      now: () => restartedAt
+      now: () => '2026-06-25T00:00:10.000Z'
     })
 
-    expect(queue.getSnapshot().items[0]).toMatchObject({
-      id: 'bvid:BV1queue',
-      status: 'pending',
-      updatedAt: restartedAt,
-      progress: undefined,
-      errorMessage: undefined
-    })
+    expect(queue.getSnapshot()).toEqual(createSnapshot({ items: [] }))
+    expect(transcribe).not.toHaveBeenCalled()
+    expect(saveArchiveVersion).not.toHaveBeenCalled()
+    expect(store.current()).toEqual([])
+  })
 
-    await flushMicrotasks()
-    await flushMicrotasks()
-
-    expect(transcribe).toHaveBeenCalledWith(expect.objectContaining({ id: 'bvid:BV1queue' }), expect.any(Function))
-    expect(saveArchiveVersion).toHaveBeenCalledWith(
-      expect.objectContaining<Partial<VideoNote>>({
-        id: 'bvid:BV1queue',
-        transcript: createTranscript('resumed transcript')
-      }),
-      ''
+  it('cancels a running job with an abort signal and does not continue failed processing', async () => {
+    let runningSignal: AbortSignal | undefined
+    const running = createDeferred<{ transcript: TranscriptSegment[]; transcriptSource: 'audio' }>()
+    const transcribe = vi.fn(
+      (
+        _request: VideoAudioTranscriptionRequest,
+        _progress: (progress: never) => void,
+        signal?: AbortSignal
+      ) => {
+        runningSignal = signal
+        return running.promise
+      }
     )
-    expect(queue.getSnapshot().items[0]).toMatchObject({
-      status: 'completed',
-      progress: { step: 'queue-completed' }
+    const saveArchiveVersion = vi.fn()
+    const queue = createVideoTranscriptionQueue({
+      loadItems: createStore().load,
+      saveItems: vi.fn(),
+      transcribe,
+      saveArchiveVersion,
+      now: () => '2026-06-25T00:00:00.000Z'
     })
-    expect(queue.getSnapshot().items[1].status).toBe('running')
 
-    second.resolve({ transcript: createTranscript('second transcript'), transcriptSource: 'audio' })
+    queue.enqueue(createRequest())
+    await flushMicrotasks()
+
+    expect(queue.getSnapshot().items[0]).toMatchObject({ status: 'running' })
+    const canceled = queue.cancel('bvid:BV1queue')
+
+    expect(runningSignal?.aborted).toBe(true)
+    expect(canceled.items[0]).toMatchObject({ status: 'canceled' })
+
+    running.reject(new Error('Process canceled.'))
+    await flushMicrotasks()
+
+    expect(queue.getSnapshot().items[0]).toMatchObject({ status: 'canceled' })
+    expect(saveArchiveVersion).not.toHaveBeenCalled()
+    expect(queue.getSnapshot().sessionCompletedCount).toBe(0)
+  })
+
+  it('does not abort the running job when canceling a pending job', async () => {
+    let runningSignal: AbortSignal | undefined
+    const running = createDeferred<{ transcript: TranscriptSegment[]; transcriptSource: 'audio' }>()
+    const transcribe = vi.fn(
+      (
+        _request: VideoAudioTranscriptionRequest,
+        _progress: (progress: never) => void,
+        signal?: AbortSignal
+      ) => {
+        runningSignal = signal
+        return running.promise
+      }
+    )
+    const queue = createVideoTranscriptionQueue({
+      loadItems: createStore().load,
+      saveItems: vi.fn(),
+      transcribe,
+      saveArchiveVersion: vi.fn(),
+      now: () => '2026-06-25T00:00:00.000Z'
+    })
+
+    queue.enqueue(createRequest())
+    queue.enqueue(createRequest({ bvid: 'BV2queue', title: 'Second', url: 'https://www.bilibili.com/video/BV2queue' }))
+    await flushMicrotasks()
+
+    queue.cancel('bvid:BV2queue')
+
+    expect(runningSignal?.aborted).toBe(false)
+    expect(queue.getSnapshot().items.map((item) => item.status)).toEqual(['running', 'canceled'])
+
+    running.resolve({ transcript: createTranscript('first'), transcriptSource: 'audio' })
     await flushMicrotasks()
   })
 
@@ -383,6 +442,33 @@ describe('video transcription queue', () => {
     await flushMicrotasks()
 
     expect(queue.getSnapshot().items.map((item) => item.status)).toEqual(['failed', 'completed'])
+    expect(queue.getSnapshot().sessionCompletedCount).toBe(1)
+  })
+
+  it('resets the completed session count when a new app-process queue is created', async () => {
+    const firstQueue = createVideoTranscriptionQueue({
+      loadItems: createStore().load,
+      saveItems: vi.fn(),
+      transcribe: vi.fn().mockResolvedValue({
+        transcript: createTranscript('completed before restart'),
+        transcriptSource: 'audio'
+      }),
+      saveArchiveVersion: vi.fn()
+    })
+    firstQueue.enqueue(createRequest())
+    await flushMicrotasks()
+    await flushMicrotasks()
+
+    expect(firstQueue.getSnapshot().sessionCompletedCount).toBe(1)
+
+    const restartedQueue = createVideoTranscriptionQueue({
+      loadItems: createStore().load,
+      saveItems: vi.fn(),
+      transcribe: vi.fn(),
+      saveArchiveVersion: vi.fn()
+    })
+
+    expect(restartedQueue.getSnapshot().sessionCompletedCount).toBe(0)
   })
 
   it('does not duplicate a video that is already pending or running', async () => {

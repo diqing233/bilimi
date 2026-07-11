@@ -311,10 +311,26 @@ describe('FloatingAssistantApp', () => {
       )
     })
 
-    render(<FloatingAssistantApp />)
+    const { container } = render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByLabelText('DeepSeek状态'))
     expect(screen.getByRole('tab', { name: '设置' })).toHaveAttribute('aria-selected', 'true')
+    const settingsJump = screen.getByRole<HTMLSelectElement>('combobox', { name: '设置项' })
+    expect(settingsJump).toHaveValue('deepseek')
+
+    const settingsBody = container.querySelector<HTMLElement>('.assistant-settings__body')
+    const diagnosticsSection = screen.getByRole('group', { name: '诊断' })
+    const deepSeekSection = screen.getByRole('group', { name: 'DeepSeek' })
+    expect(settingsBody).not.toBeNull()
+    vi.spyOn(settingsBody!, 'getBoundingClientRect').mockReturnValue({ top: 100 } as DOMRect)
+    container.querySelectorAll<HTMLElement>('[data-settings-section]').forEach((section) => {
+      vi.spyOn(section, 'getBoundingClientRect').mockReturnValue({ top: 1000 } as DOMRect)
+    })
+    vi.mocked(diagnosticsSection.getBoundingClientRect).mockReturnValue({ top: -200 } as DOMRect)
+    vi.mocked(deepSeekSection.getBoundingClientRect).mockReturnValue({ top: 126 } as DOMRect)
+    fireEvent.scroll(settingsBody!)
+
+    expect(settingsJump).toHaveValue('deepseek')
 
     fireEvent.click(screen.getByLabelText('转写音频状态'))
     expect(screen.getByRole('tab', { name: '札记' })).toHaveAttribute('aria-selected', 'true')
@@ -887,6 +903,51 @@ describe('FloatingAssistantApp', () => {
     const transcriptionStatus = screen.getByLabelText('转写音频状态')
     expect(transcriptionStatus).toHaveAttribute('data-tone', 'idle')
     expect(transcriptionStatus).not.toHaveTextContent('转写失败')
+  })
+
+  it('shows the completed transcription count from the current app session while idle', async () => {
+    installDesktopApi({
+      loadVideoAudioTranscriptionQueue: vi.fn().mockResolvedValue({
+        items: [],
+        sessionCompletedCount: 3
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('暂无转写 · 完成 3')
+    )
+    const transcriptionStatus = screen.getByLabelText('转写音频状态')
+    expect(transcriptionStatus).toHaveAttribute(
+      'title',
+      '本次启动已完成 3 个转写，文稿已保存到档案库。'
+    )
+
+    fireEvent.click(transcriptionStatus)
+    expect(screen.getByRole('tab', { name: '札记' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByRole('region', { name: '全局档案库' })).not.toBeInTheDocument()
+  })
+
+  it('restores the session completed count after the renderer is rebuilt', async () => {
+    const loadVideoAudioTranscriptionQueue = vi.fn().mockResolvedValue({
+      items: [],
+      sessionCompletedCount: 2
+    })
+    installDesktopApi({ loadVideoAudioTranscriptionQueue })
+
+    const app = render(<FloatingAssistantApp />)
+    await waitFor(() =>
+      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('暂无转写 · 完成 2')
+    )
+
+    app.unmount()
+    render(<FloatingAssistantApp />)
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('暂无转写 · 完成 2')
+    )
+    expect(loadVideoAudioTranscriptionQueue).toHaveBeenCalledTimes(2)
   })
 
   it('guides the user to log in and back up ledgers instead of waiting for action', async () => {
@@ -2958,7 +3019,11 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存 DeepSeek' }))
 
     await waitFor(() => expect(saveDeepSeekApiKey).toHaveBeenCalledWith('sk-test'))
-    expect(screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥').value).toBe('sk-test')
+    await waitFor(() => {
+      const apiKeyInput = screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥')
+      expect(apiKeyInput.value).toBe('')
+      expect(apiKeyInput).toHaveAttribute('placeholder', '已保存 · 系统加密保护')
+    })
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2977,8 +3042,8 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '测试 DeepSeek' }))
 
-    await waitFor(() => expect(saveDeepSeekApiKey).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledOnce())
+    expect(saveDeepSeekApiKey).toHaveBeenCalledOnce()
     expect(clearDeepSeekApiKey).not.toHaveBeenCalled()
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
@@ -3019,6 +3084,83 @@ describe('FloatingAssistantApp', () => {
       )
     )
     await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent('DeepSeek 设置已重置。'))
+  })
+
+  it('preserves the DeepSeek key draft when key saving fails', async () => {
+    const saveDeepSeekApiKey = vi.fn().mockRejectedValue(new Error('keychain unavailable'))
+    installDesktopApi({
+      saveDeepSeekApiKey,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.change(screen.getByLabelText('DeepSeek API 密钥'), {
+      target: { value: 'sk-draft' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存 DeepSeek' }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('全局提示')).toHaveTextContent('DeepSeek 密钥保存失败，请重试。')
+    )
+    expect(screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥').value).toBe('sk-draft')
+  })
+
+  it('preserves the DeepSeek key draft when preference saving fails after the key is saved', async () => {
+    const savePreferences = vi.fn().mockRejectedValue(new Error('store unavailable'))
+    installDesktopApi({
+      savePreferences,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.change(screen.getByLabelText('DeepSeek API 密钥'), {
+      target: { value: 'sk-draft' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存 DeepSeek' }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('全局提示')).toHaveTextContent(
+        'DeepSeek 密钥已保存，但其他设置保存失败，请重试。'
+      )
+    )
+    expect(screen.getByLabelText<HTMLInputElement>('DeepSeek API 密钥').value).toBe('sk-draft')
+  })
+
+  it('shows a recoverable DeepSeek key field error when saved status cannot be read', async () => {
+    installDesktopApi({
+      loadDeepSeekApiKeyStatus: vi.fn().mockRejectedValue(new Error('credential store unavailable')),
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    const apiKeyInput = await screen.findByLabelText<HTMLInputElement>('DeepSeek API 密钥')
+
+    await waitFor(() => expect(apiKeyInput).toHaveAttribute('placeholder', '无法读取 · 请重新填写'))
+    expect(apiKeyInput).toHaveAttribute('aria-invalid', 'true')
   })
 
   it('persists the DeepSeek auto-summary toggle as soon as it changes', async () => {
@@ -3383,6 +3525,58 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByText('「三分钟讲清机器学习科普教程」已开始转写。')).toBeInTheDocument()
   })
 
+  it('keeps a freshly enqueued transcription visible when an older queue load resolves empty', async () => {
+    const initialQueueLoad = createDeferred<{ items: [] }>()
+    const generateVideoNoteFromAudio = vi.fn()
+    const enqueueCurrentVideoAudioTranscription = vi.fn().mockResolvedValue({
+      activeItemId: 'bvid:BV1note',
+      items: [
+        {
+          id: 'bvid:BV1note',
+          url: 'https://www.bilibili.com/video/BV1note',
+          title: '三分钟讲清机器学习科普教程',
+          bvid: 'BV1note',
+          status: 'running',
+          createdAt: '2026-06-25T00:00:00.000Z',
+          updatedAt: '2026-06-25T00:00:00.000Z',
+          progress: {
+            step: 'transcribing-segment',
+            segmentIndex: 1,
+            segmentCount: 3,
+            percent: 42,
+            message: 'Transcribing segment 1 of 3.'
+          }
+        }
+      ]
+    })
+    installDesktopApi({
+      generateVideoNoteFromAudio,
+      enqueueCurrentVideoAudioTranscription,
+      loadVideoAudioTranscriptionQueue: vi.fn().mockReturnValue(initialQueueLoad.promise)
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+
+    await waitFor(() => expect(enqueueCurrentVideoAudioTranscription).toHaveBeenCalledOnce())
+    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写 43% · 排队 0')
+    expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent(
+      '三分钟讲清机器学习科普教程'
+    )
+
+    await act(async () => {
+      initialQueueLoad.resolve({ items: [] })
+      await initialQueueLoad.promise
+    })
+
+    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写 43% · 排队 0')
+    expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent(
+      '三分钟讲清机器学习科普教程'
+    )
+  })
+
   it('clears the stale no-video alert after a later audio transcription enqueue succeeds', async () => {
     let snapshotChanged: (() => void) | undefined
     const generateVideoNoteFromAudio = vi.fn()
@@ -3620,6 +3814,9 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).toHaveTextContent(
       '机器学习需要数据和模型。'
     )
+
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+    expect(screen.getByRole('button', { name: '生成中...' })).toBeDisabled()
   })
 
   it('shows queued transcription work in the transcription status light', async () => {
@@ -3656,6 +3853,56 @@ describe('FloatingAssistantApp', () => {
     const transcriptionStatus = screen.getByLabelText('转写音频状态')
     expect(transcriptionStatus).toHaveTextContent('转写排队 2')
     expect(transcriptionStatus).toHaveAttribute('title', '还有 2 个转写任务等待处理。')
+  })
+
+  it('shows transcription progress together with the pending queue count', async () => {
+    installDesktopApi({
+      loadVideoAudioTranscriptionQueue: vi.fn().mockResolvedValue({
+        activeItemId: 'bvid:BV1running',
+        sessionCompletedCount: 1,
+        items: [
+          {
+            id: 'bvid:BV1running',
+            url: 'https://www.bilibili.com/video/BV1running',
+            title: '正在转写的教程',
+            bvid: 'BV1running',
+            status: 'running',
+            createdAt: '2026-06-25T00:00:00.000Z',
+            updatedAt: '2026-06-25T00:01:00.000Z',
+            progress: {
+              step: 'transcribing-segment',
+              percent: 42,
+              message: 'Transcribing segment.'
+            }
+          },
+          {
+            id: 'bvid:BV2pending',
+            url: 'https://www.bilibili.com/video/BV2pending',
+            title: '排队教程一',
+            bvid: 'BV2pending',
+            status: 'pending',
+            createdAt: '2026-06-25T00:02:00.000Z',
+            updatedAt: '2026-06-25T00:02:00.000Z'
+          },
+          {
+            id: 'bvid:BV3pending',
+            url: 'https://www.bilibili.com/video/BV3pending',
+            title: '排队教程二',
+            bvid: 'BV3pending',
+            status: 'pending',
+            createdAt: '2026-06-25T00:03:00.000Z',
+            updatedAt: '2026-06-25T00:03:00.000Z'
+          }
+        ]
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写 50% · 排队 2')
+    )
+    expect(screen.getByLabelText('转写音频状态')).not.toHaveTextContent('完成 1')
   })
 
   it('keeps the note archive open when a background transcription draft arrives in sidebar mode', async () => {
@@ -3854,7 +4101,8 @@ describe('FloatingAssistantApp', () => {
             completedAt: '2026-06-25T00:01:00.000Z',
             archiveNoteId: note.id
           }
-        ]
+        ],
+        sessionCompletedCount: 1
       })
     })
 
@@ -3863,7 +4111,7 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByLabelText('全局提示')).toHaveTextContent(
       '转写完成，文稿已保存到档案库'
     )
-    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写完成')
+    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('暂无转写 · 完成 1')
     expect(screen.queryByRole('tabpanel', { name: /无时间线文稿/ })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('tab', { name: '札记' }))

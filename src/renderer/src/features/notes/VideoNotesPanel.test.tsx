@@ -307,6 +307,47 @@ describe('VideoNotesPanel', () => {
     expect(screen.getByText('请点击生成总结，让 DeepSeek 基于文稿生成精准总结。')).toBeInTheDocument()
   })
 
+  it('disables summary generation while an external DeepSeek summary task is running', () => {
+    const onGeneratePoster = vi.fn()
+    const { rerender } = renderPanel({
+      deepSeekEnabled: true,
+      deepSeekSummaryGenerating: true,
+      onGeneratePoster
+    })
+
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+
+    const generateButton = screen.getByRole('button', { name: '生成中...' })
+    expect(generateButton).toBeDisabled()
+    fireEvent.click(generateButton)
+    expect(onGeneratePoster).not.toHaveBeenCalled()
+
+    rerender(
+      <VideoNotesPanel
+        note={sampleNote}
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+        deepSeekEnabled={true}
+        deepSeekSummaryGenerating={false}
+        onGeneratePoster={onGeneratePoster}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: '生成总结' })).not.toBeDisabled()
+  })
+
+  it('restores summary generation after a failed request', async () => {
+    const onGeneratePoster = vi.fn().mockRejectedValue(new Error('DeepSeek unavailable.'))
+    renderPanel({ deepSeekEnabled: true, onGeneratePoster })
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+
+    fireEvent.click(screen.getByRole('button', { name: '生成总结' }))
+
+    expect(await screen.findByText('DeepSeek unavailable.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '生成总结' })).not.toBeDisabled()
+  })
+
   it('generates DeepSeek summary from an explicit current-note action', async () => {
     const poster: NotePosterSummary = {
       title: 'Learning Machine Models',

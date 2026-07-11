@@ -39,6 +39,7 @@ describe('audio segmenter', () => {
   it('returns ordered segment files with offsets', async () => {
     const runProcess = vi.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 })
     const listFiles = vi.fn().mockResolvedValue(['segment-001.mp3', 'segment-000.mp3'])
+    const signal = new AbortController().signal
 
     await expect(
       segmentAudioForTranscription({
@@ -48,12 +49,14 @@ describe('audio segmenter', () => {
         segmentSeconds: 600,
         durationSeconds: 900,
         runProcess,
-        listFiles
+        listFiles,
+        signal
       })
     ).resolves.toEqual([
       { path: 'C:/tmp/segments/segment-000.mp3', offsetSeconds: 0 },
       { path: 'C:/tmp/segments/segment-001.mp3', offsetSeconds: 600 }
     ])
+    expect(runProcess).toHaveBeenCalledWith('C:/tools/ffmpeg.exe', expect.any(Array), { signal })
   })
 
   it('includes ffmpeg diagnostics and input size when segmenting fails', async () => {

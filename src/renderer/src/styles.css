@@ -2373,8 +2373,11 @@ body[data-floating-window="true"],
 .video-notes__queue-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
+}
+.video-notes__queue li > div:first-child,
+.video-notes__queue-actions {
+  justify-content: space-between;
 }
 .video-notes__queue li > div:first-child strong {
   min-width: 0;
@@ -2402,7 +2405,7 @@ body[data-floating-window="true"],
   font-size: 12px;
   font-weight: 700;
 }
-.video-notes__queue-selector select {
+.video-notes__queue-selector > button {
   appearance: none;
   width: 24px;
   min-width: 24px;
@@ -2414,6 +2417,13 @@ body[data-floating-window="true"],
   color: transparent;
   cursor: pointer;
   font: inherit;
+}
+.video-notes__queue-selector select {
+  appearance: none;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0;
 }
 .video-notes__queue-selector::after {
   content: "";
@@ -2427,8 +2437,61 @@ body[data-floating-window="true"],
   transform: translateY(-62%) rotate(45deg);
   pointer-events: none;
 }
-.video-notes__queue-selector select option {
+.video-notes__queue-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 4;
+  display: grid;
+  min-width: min(280px, calc(100vw - 32px));
+  max-width: 320px;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid rgba(31, 99, 181, 0.22);
+  border-radius: 6px;
+  background: rgba(255, 254, 253, 0.98);
+  box-shadow: 0 8px 22px rgba(31, 99, 181, 0.16);
+  padding: 4px;
+}
+.video-notes__queue-menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 28px;
+  border-radius: 4px;
   color: var(--porcelain-text);
+  cursor: pointer;
+  padding: 4px 6px;
+}
+.video-notes__queue-menu-row:hover,
+.video-notes__queue-menu-row:focus-visible,
+.video-notes__queue-menu-row[aria-current="true"] {
+  background: rgba(31, 99, 181, 0.08);
+  outline: none;
+}
+.video-notes__queue-menu-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.video-notes__queue-row-action,
+.video-notes__queue-progress-cancel {
+  border: 1px solid rgba(31, 99, 181, 0.22);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--porcelain-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  padding: 3px 6px;
+  white-space: nowrap;
+}
+.video-notes__queue-progress-cancel {
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 .video-notes__queue-progress progress {
   width: 100%;

@@ -442,7 +442,10 @@ export type DeepSeekTaskKind =
   | 'pet-chat'
   | 'connection-test'
 
-export type DeepSeekKeyStatus = { configured: boolean }
+export type DeepSeekKeyStatus = {
+  configured: boolean
+  protection: 'encrypted' | 'plaintext' | 'error' | 'unavailable'
+}
 
 export type DeepSeekConnectionTestResult = { ok: boolean; message: string }
 
@@ -553,4 +556,5 @@ export type VideoAudioTranscriptionQueueItem = VideoAudioTranscriptionRequest & 
 export type VideoAudioTranscriptionQueueSnapshot = {
   items: VideoAudioTranscriptionQueueItem[]
   activeItemId?: string
+  sessionCompletedCount: number
 }
