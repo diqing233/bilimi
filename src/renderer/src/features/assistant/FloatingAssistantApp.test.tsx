@@ -1895,6 +1895,97 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent('诊断完成。'))
   })
 
+  it('marks DeepSeek as connected when settings diagnostics succeeds', async () => {
+    const runStartupDiagnostics = vi.fn().mockResolvedValue({
+      ok: true,
+      checkedAt: '2026-07-03T00:00:00.000Z',
+      items: [
+        {
+          id: 'deepseek',
+          label: 'DeepSeek 连接',
+          status: 'ok',
+          message: 'DeepSeek 连接成功。'
+        }
+      ]
+    })
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true,
+            deepseekApiKeyStored: true,
+            deepseekModel: 'deepseek-v4-pro',
+            deepseekBaseUrl: 'https://api.yunshulink.com/v1'
+          })
+        })
+      ),
+      runStartupDiagnostics
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 待测试')
+    fireEvent.click(screen.getByRole('button', { name: '运行诊断' }))
+
+    await waitFor(() => expect(runStartupDiagnostics).toHaveBeenCalledOnce())
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 已连接')
+    )
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute('data-tone', 'ok')
+  })
+
+  it.each([
+    {
+      configured: false,
+      expectedLabel: 'DeepSeek 待配置',
+      expectedTone: 'warn'
+    },
+    {
+      configured: true,
+      expectedLabel: 'DeepSeek 连接失败',
+      expectedTone: 'error'
+    }
+  ])(
+    'maps unsuccessful DeepSeek diagnostics from configured=$configured to the status light',
+    async ({ configured, expectedLabel, expectedTone }) => {
+      const runStartupDiagnostics = vi.fn().mockResolvedValue({
+        ok: false,
+        checkedAt: '2026-07-03T00:00:00.000Z',
+        items: [
+          {
+            id: 'deepseek',
+            label: 'DeepSeek 连接',
+            status: 'warning',
+            message: 'DeepSeek 当前不可用。'
+          }
+        ]
+      })
+      installDesktopApi({
+        requestAssistantSnapshot: vi.fn().mockResolvedValue(
+          createSnapshot({
+            preferences: createPreferences({
+              deepseekEnabled: true,
+              deepseekApiKeyStored: configured
+            })
+          })
+        ),
+        runStartupDiagnostics
+      })
+
+      render(<FloatingAssistantApp />)
+
+      fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+      fireEvent.click(screen.getByRole('button', { name: '运行诊断' }))
+
+      await waitFor(() => expect(runStartupDiagnostics).toHaveBeenCalledOnce())
+      await waitFor(() =>
+        expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent(expectedLabel)
+      )
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute('data-tone', expectedTone)
+    }
+  )
+
   it('can collapse and expand long settings diagnostics', async () => {
     const runStartupDiagnostics = vi.fn().mockResolvedValue({
       ok: true,
@@ -2646,6 +2737,128 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
+  it('synchronizes externally changed DeepSeek settings when sidebar width is unchanged', async () => {
+    let notifyPreferencesChanged: ((preferences: AssistantPreferences) => void) | undefined
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true,
+            deepseekApiKeyStored: true
+          })
+        })
+      ),
+      onAssistantPreferencesChanged: vi.fn((callback) => {
+        notifyPreferencesChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    expect(screen.getByLabelText('DeepSeek 模型')).toHaveValue('deepseek-v4-flash')
+    expect(screen.getByLabelText('DeepSeek 服务地址')).toHaveValue('https://api.deepseek.com')
+
+    act(() => {
+      notifyPreferencesChanged?.(
+        createPreferences({
+          deepseekEnabled: true,
+          deepseekApiKeyStored: true,
+          deepseekModel: 'deepseek-v4-pro',
+          deepseekBaseUrl: 'https://api.yunshulink.com/v1',
+          assistantSidebarWidthPx: null
+        })
+      )
+    })
+
+    expect(screen.getByLabelText('DeepSeek 模型')).toHaveValue('deepseek-v4-pro')
+    expect(screen.getByLabelText('DeepSeek 服务地址')).toHaveValue(
+      'https://api.yunshulink.com/v1'
+    )
+  })
+
+  it('merges external DeepSeek settings into a pending local preference save', async () => {
+    let notifyPreferencesChanged: ((preferences: AssistantPreferences) => void) | undefined
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    installDesktopApi({
+      savePreferences,
+      onAssistantPreferencesChanged: vi.fn((callback) => {
+        notifyPreferencesChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('radio', { name: '默认投 2 枚硬币' }))
+
+    act(() => {
+      notifyPreferencesChanged?.(
+        createPreferences({
+          deepseekEnabled: true,
+          deepseekApiKeyStored: true,
+          deepseekModel: 'deepseek-v4-pro',
+          deepseekBaseUrl: 'https://api.yunshulink.com/v1'
+        })
+      )
+    })
+
+    expect(screen.getByLabelText('DeepSeek 模型')).toHaveValue('deepseek-v4-pro')
+    expect(screen.getByLabelText('DeepSeek 服务地址')).toHaveValue(
+      'https://api.yunshulink.com/v1'
+    )
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          defaultCoinCount: 2,
+          deepseekModel: 'deepseek-v4-pro',
+          deepseekBaseUrl: 'https://api.yunshulink.com/v1'
+        })
+      )
+    )
+  })
+
+  it('merges externally changed structured preferences into a pending local save', async () => {
+    let notifyPreferencesChanged: ((preferences: AssistantPreferences) => void) | undefined
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    installDesktopApi({
+      savePreferences,
+      onAssistantPreferencesChanged: vi.fn((callback) => {
+        notifyPreferencesChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('radio', { name: '默认投 2 枚硬币' }))
+    const externallyChangedLedgers = createDefaultFavoriteLedgers().map((ledger, index) =>
+      index === 0 ? { ...ledger, displayName: 'bilimi·外部更新' } : ledger
+    )
+
+    act(() => {
+      notifyPreferencesChanged?.(
+        createPreferences({
+          favoriteLedgers: externallyChangedLedgers
+        })
+      )
+    })
+
+    await waitFor(() =>
+      expect(savePreferences).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          defaultCoinCount: 2,
+          favoriteLedgers: expect.arrayContaining([
+            expect.objectContaining({ displayName: 'bilimi·外部更新' })
+          ])
+        })
+      )
+    )
+  })
+
   it('updates a pending review action settings save when the sidebar is resized before debounce drains', async () => {
     let notifyPreferencesChanged: ((preferences: AssistantPreferences) => void) | undefined
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
@@ -3170,6 +3383,26 @@ describe('FloatingAssistantApp', () => {
       )
     )
     await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent('DeepSeek 设置已重置。'))
+  })
+
+  it('falls back to the desktop clipboard when browser clipboard writing fails', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('window is not focused'))
+    const writeClipboardText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText }
+    })
+    installDesktopApi({ writeClipboardText })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek' }))
+    fireEvent.click(screen.getByRole('button', { name: '复制推荐模型' }))
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('deepseek-v4-pro'))
+    await waitFor(() => expect(writeClipboardText).toHaveBeenCalledWith('deepseek-v4-pro'))
+    expect(screen.getByLabelText('全局提示')).toHaveTextContent('已复制推荐模型。')
   })
 
   it('preserves the DeepSeek key draft when key saving fails', async () => {

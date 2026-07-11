@@ -606,6 +606,18 @@ function deepSeekKeyFieldStatusFromKeyStatus(status: unknown): DeepSeekKeyFieldS
   return deepSeekKeyStatusUsesPlainStorage(status) ? 'savedPlain' : 'savedSecure'
 }
 
+function arePreferenceValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) {
+    return true
+  }
+
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') {
+    return false
+  }
+
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
 export function FloatingAssistantApp({
   mode = 'floating',
   activeTab: controlledActiveTab,
@@ -623,6 +635,7 @@ export function FloatingAssistantApp({
     createInitialAssistantPreferences()
   )
   const preferencesRef = useRef(preferences)
+  const committedPreferencesRef = useRef(preferences)
   const [favoriteLedgerStatus, setFavoriteLedgerStatus] = useState<FavoriteLedgerStatus | null>(null)
   const [uncontrolledActiveTab, setUncontrolledActiveTab] =
     useState<AssistantWorkspaceTab>('review')
@@ -926,6 +939,9 @@ export function FloatingAssistantApp({
         const nextPreferences = snapshotArrivedSoonAfterLocalChange
           ? currentPreferences
           : snapshotPreferences
+        if (!snapshotArrivedSoonAfterLocalChange) {
+          committedPreferencesRef.current = snapshotPreferences
+        }
         preferencesRef.current = nextPreferences
         return nextPreferences
       })
@@ -942,6 +958,7 @@ export function FloatingAssistantApp({
         const fallback = createFallbackSnapshot()
         snapshotRef.current = fallback
         setSnapshot(fallback)
+        committedPreferencesRef.current = fallback.preferences
         preferencesRef.current = fallback.preferences
         setPreferences(fallback.preferences)
         setFavoriteLedgerStatus(fallback.favoriteLedgerStatus)
@@ -1025,15 +1042,19 @@ export function FloatingAssistantApp({
 
   useEffect(() => {
     return window.bilimiDesktop?.onAssistantPreferencesChanged?.((nextPreferences) => {
-      const nextSidebarWidthPx =
-        createInitialAssistantPreferences(nextPreferences).assistantSidebarWidthPx
+      const normalizedNextPreferences = createInitialAssistantPreferences(nextPreferences)
 
       setPreferences((currentPreferences) => {
         const inFlightPreferenceSave = inFlightPreferenceSaveRef.current
+        const saveScheduler = preferenceSaveSchedulerRef.current
+        const hasActiveLocalPreferenceSave =
+          Boolean(inFlightPreferenceSave) || Boolean(saveScheduler?.hasActiveSave())
         const isStaleInFlightSidebarWidth =
           Boolean(inFlightPreferenceSave) &&
-          inFlightPreferenceSave?.preferences.assistantSidebarWidthPx === nextSidebarWidthPx &&
-          currentPreferences.assistantSidebarWidthPx !== nextSidebarWidthPx &&
+          inFlightPreferenceSave?.preferences.assistantSidebarWidthPx ===
+            normalizedNextPreferences.assistantSidebarWidthPx &&
+          currentPreferences.assistantSidebarWidthPx !==
+            normalizedNextPreferences.assistantSidebarWidthPx &&
           lastPreferenceChangeAt.current > inFlightPreferenceSave.startedAt
 
         if (isStaleInFlightSidebarWidth) {
@@ -1041,28 +1062,30 @@ export function FloatingAssistantApp({
           return currentPreferences
         }
 
-        if (currentPreferences.assistantSidebarWidthPx === nextSidebarWidthPx) {
-          preferencesRef.current = currentPreferences
-          return currentPreferences
+        const comparisonPreferences = committedPreferencesRef.current
+        committedPreferencesRef.current = normalizedNextPreferences
+
+        if (!hasActiveLocalPreferenceSave) {
+          lastPreferenceChangeAt.current = Date.now()
+          preferencesRef.current = normalizedNextPreferences
+          return normalizedNextPreferences
         }
 
-        const mergedPreferences = createInitialAssistantPreferences({
-          ...currentPreferences,
-          assistantSidebarWidthPx: nextSidebarWidthPx
-        })
+        const mergedEntries = (
+          Object.keys(normalizedNextPreferences) as Array<keyof AssistantPreferences>
+        ).map((key) => [
+          key,
+          arePreferenceValuesEqual(currentPreferences[key], comparisonPreferences[key])
+            ? normalizedNextPreferences[key]
+            : currentPreferences[key]
+        ])
+        const mergedPreferences = createInitialAssistantPreferences(
+          Object.fromEntries(mergedEntries) as Partial<AssistantPreferences>
+        )
         lastPreferenceChangeAt.current = Date.now()
         preferencesRef.current = mergedPreferences
-        const saveScheduler = preferenceSaveSchedulerRef.current
-        const updatePendingSidebarWidth = (pendingPreferences: AssistantPreferences) =>
-          createInitialAssistantPreferences({
-            ...pendingPreferences,
-            assistantSidebarWidthPx: nextSidebarWidthPx
-          })
 
-        if (
-          !saveScheduler?.updatePending(updatePendingSidebarWidth) &&
-          saveScheduler?.hasActiveSave()
-        ) {
+        if (!saveScheduler?.updatePending(() => mergedPreferences) && saveScheduler?.hasActiveSave()) {
           saveScheduler.schedule(mergedPreferences)
         }
         return mergedPreferences
@@ -1197,6 +1220,7 @@ export function FloatingAssistantApp({
             const newerLocalChangeExists = lastPreferenceChangeAt.current > saveStartedAt
 
             if (!newerLocalChangeExists) {
+              committedPreferencesRef.current = savedPreferences
               preferencesRef.current = savedPreferences
 
               if (mounted.current) {
@@ -1618,14 +1642,34 @@ export function FloatingAssistantApp({
   }
 
   async function copyDeepSeekRecommendation(value: string, label: string) {
-    try {
-      await navigator.clipboard.writeText(value)
+    let copied = false
+
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(value)
+        copied = true
+      } catch {
+        // Electron's Web Clipboard API can reject when the window is not focused.
+      }
+    }
+
+    if (!copied && window.bilimiDesktop?.writeClipboardText) {
+      try {
+        await window.bilimiDesktop.writeClipboardText(value)
+        copied = true
+      } catch {
+        copied = false
+      }
+    }
+
+    if (copied) {
       setGlobalFeedback(`已复制${label}。`)
       tellPet('success', `${label}已复制好啦。`)
-    } catch {
-      setGlobalFeedback(`${label}复制失败，请手动复制。`)
-      tellPet('error', `${label}复制失败，请主人手动复制。`)
+      return
     }
+
+    setGlobalFeedback(`${label}复制失败，请手动复制。`)
+    tellPet('error', `${label}复制失败，请主人手动复制。`)
   }
 
   function createCurrentPageDiagnosticItem(): StartupDiagnosticItem {
@@ -1665,6 +1709,15 @@ export function FloatingAssistantApp({
       const nextReport = {
         ...report,
         items: [...report.items, createCurrentPageDiagnosticItem()]
+      }
+      const deepSeekDiagnostic = report.items.find((item) => item.id === 'deepseek')
+
+      if (deepSeekDiagnostic?.status === 'ok') {
+        setDeepSeekConnectionStatus('connected')
+      } else if (deepSeekDiagnostic) {
+        setDeepSeekConnectionStatus(
+          preferencesRef.current.deepseekApiKeyStored ? 'failed' : 'pending'
+        )
       }
 
       setSettingsDiagnosticReport(nextReport)
