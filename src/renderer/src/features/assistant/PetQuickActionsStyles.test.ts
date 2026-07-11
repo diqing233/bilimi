@@ -38,7 +38,10 @@ describe('pet quick action styles', () => {
     expectStyleSnippet('max-width: min(270px, calc(var(--floating-pet-host-width) - 8px));')
     expectStyleSnippet('.palace-maid-pet__bubble[data-chat-open="true"] { left: 50%; bottom: calc(var(--floating-pet-size) + 10px); width: min(270px, calc(var(--floating-pet-host-width) - 8px));')
     expectStyleSnippet('overflow-y: auto;')
-    expectStyleSnippet('.palace-maid-pet__chat-field, .palace-maid-pet__chat button[type="submit"] { flex-shrink: 0;')
+    expectStyleSnippet(
+      '.palace-maid-pet__chat-compose, .palace-maid-pet__chat button[type="submit"] { flex-shrink: 0;'
+    )
+    expectStyleSnippet('.palace-maid-pet__chat-compose { display: flex; gap: 5px; align-items: end;')
     expect(compactStyles).not.toContain('width: min(300px, calc(var(--floating-pet-host-width) - 8px));')
     expect(compactStyles).not.toContain('width: min(255px, calc(var(--floating-pet-host-width) - 8px));')
     expect(compactStyles).not.toContain('max-width: calc(var(--floating-pet-host-width) - 8px);')

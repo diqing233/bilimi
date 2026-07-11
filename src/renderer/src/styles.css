@@ -996,6 +996,13 @@ body[data-floating-window="true"],
 .palace-maid-pet__chat-field {
   display: grid;
   gap: 3px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.palace-maid-pet__chat-compose {
+  display: flex;
+  gap: 5px;
+  align-items: end;
   flex: none;
 }
 .palace-maid-pet__chat-field input {
@@ -1009,9 +1016,8 @@ body[data-floating-window="true"],
   font: inherit;
 }
 .palace-maid-pet__chat button[type="submit"] {
-  justify-self: end;
   flex: none;
-  padding: 4px 8px;
+  padding: 4px 7px;
   border: 1px solid rgba(31, 99, 181, 0.28);
   border-radius: 6px;
   background: rgba(31, 99, 181, 0.1);
@@ -1023,7 +1029,7 @@ body[data-floating-window="true"],
   cursor: not-allowed;
   opacity: 0.56;
 }
-.palace-maid-pet__chat-field,
+.palace-maid-pet__chat-compose,
 .palace-maid-pet__chat button[type="submit"] {
   flex-shrink: 0;
 }

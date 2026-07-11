@@ -17,20 +17,79 @@ export type PetHoverShortcut = {
   id: PetHoverShortcutId
   label: string
   title: string
+  description: string
   action?: AssistantAction
   intent: 'video-action' | 'workspace'
 }
 
 export const PET_HOVER_SHORTCUTS: PetHoverShortcut[] = [
-  { id: 'like', label: '赏', title: '轻赏此条', action: '赏', intent: 'video-action' },
-  { id: 'favorite', label: '藏', title: '归入内库', action: '藏', intent: 'video-action' },
-  { id: 'coin', label: '赐', title: '投币厚赏', action: '赐', intent: 'video-action' },
-  { id: 'comment', label: '表', title: '拟奏短评', action: '表', intent: 'video-action' },
-  { id: 'assistant', label: '咪', title: '打开小咪', intent: 'workspace' },
-  { id: 'transcribe', label: '转', title: '转写音频', intent: 'workspace' },
-  { id: 'library', label: '库', title: '打开档案库', intent: 'workspace' },
-  { id: 'prepare-ledgers', label: '备', title: '备齐册目', intent: 'workspace' },
-  { id: 'organize-old-favorites', label: '整', title: '整理旧藏', intent: 'workspace' }
+  {
+    id: 'like',
+    label: '赏',
+    title: '轻赏此条',
+    description: '一键点赞，并归类收藏到 bilimi',
+    action: '赏',
+    intent: 'video-action'
+  },
+  {
+    id: 'favorite',
+    label: '藏',
+    title: '归入内库',
+    description: '一键归类收藏，不点赞不投币',
+    action: '藏',
+    intent: 'video-action'
+  },
+  {
+    id: 'coin',
+    label: '赐',
+    title: '投币厚赏',
+    description: '一键三连',
+    action: '赐',
+    intent: 'video-action'
+  },
+  {
+    id: 'comment',
+    label: '表',
+    title: '拟奏短评',
+    description: '一键弹幕',
+    action: '表',
+    intent: 'video-action'
+  },
+  {
+    id: 'assistant',
+    label: '咪',
+    title: '打开小咪',
+    description: '打开小咪功能窗口',
+    intent: 'workspace'
+  },
+  {
+    id: 'transcribe',
+    label: '转',
+    title: '转写音频',
+    description: '将当前视频音频加入本地转写队列',
+    intent: 'workspace'
+  },
+  {
+    id: 'library',
+    label: '库',
+    title: '打开档案库',
+    description: '打开档案库，查看已保存的札记',
+    intent: 'workspace'
+  },
+  {
+    id: 'prepare-ledgers',
+    label: '备',
+    title: '备齐册目',
+    description: '创建或补齐 bilimi 专属收藏夹',
+    intent: 'workspace'
+  },
+  {
+    id: 'organize-old-favorites',
+    label: '整',
+    title: '整理旧藏',
+    description: '打开掌库，开始整理旧藏',
+    intent: 'workspace'
+  }
 ]
 
 export const DEFAULT_PET_HOVER_SHORTCUTS: PetHoverShortcutId[] = [

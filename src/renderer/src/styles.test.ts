@@ -416,6 +416,9 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain('cursor: nwse-resize;')
     expect(normalizedStyles).not.toContain('right: 7px;\n  bottom: 7px;')
     expect(normalizedStyles).not.toContain('.palace-maid-pet__bubble span {\n  -webkit-line-clamp: 2;')
+    expectStyleSnippet('.palace-maid-pet__chat-compose { display: flex; gap: 5px; align-items: end;')
+    expectStyleSnippet('.palace-maid-pet__chat-field { display: grid; gap: 3px; flex: 1 1 auto;')
+    expectStyleSnippet('.palace-maid-pet__chat button[type="submit"] { flex: none; padding: 4px 7px;')
   })
 
   it('uses compact spacing for the review panel', () => {
