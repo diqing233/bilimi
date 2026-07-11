@@ -24,6 +24,14 @@ function createDeferred<T>() {
   return { promise, resolve, reject }
 }
 
+function getLocalCommentChoices(): HTMLButtonElement[] {
+  return Array.from(
+    screen.getByRole('dialog', { name: '小咪推荐评论' }).querySelectorAll<HTMLButtonElement>(
+      '.assistant-dialog__comment-choice'
+    )
+  )
+}
+
 function confirmOldFavoriteExecution() {
   fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
   const dialog = screen.getByRole('alertdialog', { name: '确认开始整理？' })
@@ -2062,9 +2070,10 @@ describe('FloatingAssistantApp', () => {
     expect(screen.queryByLabelText('评论方向')).not.toBeInTheDocument()
     expect(generateDeepSeek).not.toHaveBeenCalled()
     expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
-    const choices = screen.getAllByRole('button', { name: /内容挺有收获|信息量很足|这类内容很实用/ })
+    const choices = getLocalCommentChoices()
     expect(choices).toHaveLength(3)
     expect(choices[0]).not.toHaveTextContent(/小咪|主人|特派|再接再厉/)
+    expect(choices.every((choice) => choice.textContent?.includes('李老师讲AI'))).toBe(true)
 
     fireEvent.click(choices[0])
 
@@ -2140,9 +2149,8 @@ describe('FloatingAssistantApp', () => {
 
     await waitFor(() => expect(generateDeepSeek).toHaveBeenCalledOnce())
     expect(screen.queryByLabelText('评论方向')).not.toBeInTheDocument()
-    const choices = await screen.findAllByRole('button', {
-      name: /内容挺有收获|信息量很足|这类内容很实用/
-    })
+    await screen.findByRole('dialog', { name: '小咪推荐评论' })
+    const choices = getLocalCommentChoices()
     expect(choices).toHaveLength(3)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 
@@ -2177,7 +2185,7 @@ describe('FloatingAssistantApp', () => {
 
     expect(generateDeepSeek).not.toHaveBeenCalled()
     expect(await screen.findByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
-    const choices = screen.getAllByRole('button', { name: /内容挺有收获|信息量很足|这类内容很实用/ })
+    const choices = getLocalCommentChoices()
     expect(choices).toHaveLength(3)
 
     fireEvent.click(choices[0])
@@ -2794,7 +2802,7 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /表.*拟奏短评/ }))
     expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /内容挺有收获/ }))
+    fireEvent.click(getLocalCommentChoices()[0])
 
     await waitFor(() =>
       expect(runAssistantAction).toHaveBeenCalledWith(
@@ -2888,7 +2896,7 @@ describe('FloatingAssistantApp', () => {
         expect(runAssistantAction).toHaveBeenCalledWith(
           '表',
           expect.objectContaining({
-            commentDraft: '信息量很足，值得多看几遍消化一下。',
+            commentDraft: expect.stringContaining('李老师讲AI'),
             submitComment: true
           })
         )
