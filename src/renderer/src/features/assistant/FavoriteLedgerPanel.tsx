@@ -19,7 +19,17 @@ import type {
   FavoriteLedgerRuleType,
   FavoriteLedgerSaveOptions
 } from '@shared/types'
-import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type Dispatch,
+  type DragEvent,
+  type MouseEvent,
+  type SetStateAction
+} from 'react'
 import type { FavoriteLedgerCandidate } from '../favorites/favoriteLedgerInsights'
 import {
   createFavoriteLedgerPreview,
@@ -50,6 +60,14 @@ import { AssistantActionButton } from './AssistantActionButton'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
 
+type OldFavoriteStatusTone = 'idle' | 'ok' | 'warn' | 'error' | 'running'
+
+type OldFavoriteStatusSnapshot = {
+  label: string
+  message: string
+  tone: OldFavoriteStatusTone
+}
+
 type FavoriteLedgerPanelProps = {
   ledgers: FavoriteLedger[]
   missingLedgerIds: string[]
@@ -64,11 +82,7 @@ type FavoriteLedgerPanelProps = {
   }) => Promise<FavoriteLedgerPreview>
   onExecuteOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
   onOldFavoriteExecutionStateChange?: (state: 'running' | 'finished') => void
-  onOldFavoriteStatusUpdate?: (status: {
-    label: string
-    message: string
-    tone: 'idle' | 'ok' | 'warn' | 'error' | 'running'
-  }) => void
+  onOldFavoriteStatusUpdate?: (status: OldFavoriteStatusSnapshot) => void
   onOldFavoriteStageFeedback?: (message: string) => void
   onOldFavoriteAcknowledged?: () => void
   onOpenOldFavoriteVideo?: (url: string) => void
@@ -125,6 +139,54 @@ type ArchivePreviewHistorySnapshot = {
   archivePlanState: DeepSeekArchiveRunSnapshot
   selectedCandidateKeys: string[]
   draftLedgers: FavoriteLedger[]
+}
+
+const oldFavoriteRuntimeSession = new Map<string, unknown>()
+const oldFavoriteRuntimeSessionListeners = new Set<() => void>()
+let oldFavoriteDeepSeekCancelRequested = false
+
+export function resetOldFavoriteRuntimeSession() {
+  oldFavoriteRuntimeSession.clear()
+  oldFavoriteDeepSeekCancelRequested = false
+  oldFavoriteRuntimeSessionListeners.forEach((listener) => listener())
+}
+
+function useOldFavoriteRuntimeState<T>(
+  key: string,
+  initialValue: T | (() => T)
+): [T, Dispatch<SetStateAction<T>>] {
+  if (!oldFavoriteRuntimeSession.has(key)) {
+    oldFavoriteRuntimeSession.set(
+      key,
+      typeof initialValue === 'function' ? (initialValue as () => T)() : initialValue
+    )
+  }
+
+  const value = useSyncExternalStore(
+    useCallback((listener) => {
+      oldFavoriteRuntimeSessionListeners.add(listener)
+      return () => oldFavoriteRuntimeSessionListeners.delete(listener)
+    }, []),
+    useCallback(() => oldFavoriteRuntimeSession.get(key) as T, [key]),
+    useCallback(() => oldFavoriteRuntimeSession.get(key) as T, [key])
+  )
+  const setValue = useCallback<Dispatch<SetStateAction<T>>>(
+    (nextValue) => {
+      const currentValue = oldFavoriteRuntimeSession.get(key) as T
+      const resolvedValue =
+        typeof nextValue === 'function'
+          ? (nextValue as (current: T) => T)(currentValue)
+          : nextValue
+      if (Object.is(currentValue, resolvedValue)) {
+        return
+      }
+      oldFavoriteRuntimeSession.set(key, resolvedValue)
+      oldFavoriteRuntimeSessionListeners.forEach((listener) => listener())
+    },
+    [key]
+  )
+
+  return [value, setValue]
 }
 
 const OLD_FAVORITE_APPEND_DELAY_MS = { min: 1200, max: 3000 }
@@ -1364,38 +1426,54 @@ export function FavoriteLedgerPanel({
   const [activeLedgerIndex, setActiveLedgerIndex] = useState<number | null>(null)
   const [activeLedgerSavedSnapshot, setActiveLedgerSavedSnapshot] =
     useState<ReturnType<typeof ledgerEditorSnapshot> | null>(null)
-  const [preview, setPreview] = useState<FavoriteLedgerPreview | null>(null)
-  const [baseScanPreview, setBaseScanPreview] = useState<FavoriteLedgerPreview | null>(null)
+  const [preview, setPreview] = useOldFavoriteRuntimeState<FavoriteLedgerPreview | null>('preview', null)
+  const [baseScanPreview, setBaseScanPreview] =
+    useOldFavoriteRuntimeState<FavoriteLedgerPreview | null>('baseScanPreview', null)
   const [reorganizedProtectedAids, setReorganizedProtectedAids] = useState<Set<number>>(new Set())
   const [protectedReorganizationConfirming, setProtectedReorganizationConfirming] = useState(false)
   const [abnormalProtectionReorganizationConfirming, setAbnormalProtectionReorganizationConfirming] = useState(false)
   const [selectedDefaultLedgerIds, setSelectedDefaultLedgerIds] = useState<Set<string>>(
     () => new Set(ledgers.filter((ledger) => ledger.enabled && ledger.isDefault).map((ledger) => ledger.id))
   )
-  const [selectedCandidateKeys, setSelectedCandidateKeys] = useState<Set<string>>(new Set())
-  const [archivePlanState, setArchivePlanState] = useState<FavoriteArchivePlanState | null>(null)
+  const [selectedCandidateKeys, setSelectedCandidateKeys] = useOldFavoriteRuntimeState<Set<string>>(
+    'selectedCandidateKeys',
+    () => new Set()
+  )
+  const [archivePlanState, setArchivePlanState] =
+    useOldFavoriteRuntimeState<FavoriteArchivePlanState | null>('archivePlanState', null)
   const [pendingUnclassifiedDecision, setPendingUnclassifiedDecision] =
     useState<PendingUnclassifiedDecision | null>(null)
   const [selectedOldFavoriteSourceFolderTitles, setSelectedOldFavoriteSourceFolderTitles] =
-    useState<Set<string>>(new Set())
+    useOldFavoriteRuntimeState<Set<string>>('selectedOldFavoriteSourceFolderTitles', () => new Set())
   const [oldFavoriteExecutionProgress, setOldFavoriteExecutionProgress] = useState<{
     completed: number
     total: number
   } | null>(null)
-  const [deepSeekArchiveMode, setDeepSeekArchiveMode] =
-    useState<DeepSeekArchiveMode>('low-confidence-and-unclassified')
+  const [deepSeekArchiveMode, setDeepSeekArchiveMode] = useOldFavoriteRuntimeState<DeepSeekArchiveMode>(
+    'deepSeekArchiveMode',
+    'low-confidence-and-unclassified'
+  )
   const [deepSeekArchiveScopeOpen, setDeepSeekArchiveScopeOpen] = useState(false)
-  const [deepSeekArchiveRunning, setDeepSeekArchiveRunning] = useState(false)
-  const [deepSeekArchiveStatus, setDeepSeekArchiveStatus] = useState('')
-  const [deepSeekArchiveSuggestionCount, setDeepSeekArchiveSuggestionCount] = useState(0)
+  const [deepSeekArchiveRunning, setDeepSeekArchiveRunning] =
+    useOldFavoriteRuntimeState('deepSeekArchiveRunning', false)
+  const [deepSeekArchiveStatus, setDeepSeekArchiveStatus] =
+    useOldFavoriteRuntimeState('deepSeekArchiveStatus', '')
+  const [deepSeekArchiveSuggestionCount, setDeepSeekArchiveSuggestionCount] =
+    useOldFavoriteRuntimeState('deepSeekArchiveSuggestionCount', 0)
   const [deepSeekArchiveProgress, setDeepSeekArchiveProgress] =
-    useState<DeepSeekArchiveProgress | null>(null)
-  const [archivePreviewAlertMessages, setArchivePreviewAlertMessages] = useState<string[]>([])
+    useOldFavoriteRuntimeState<DeepSeekArchiveProgress | null>('deepSeekArchiveProgress', null)
+  const [oldFavoriteRuntimeStatus, setOldFavoriteRuntimeStatus] =
+    useOldFavoriteRuntimeState<OldFavoriteStatusSnapshot | null>('oldFavoriteRuntimeStatus', null)
+  const [archivePreviewAlertMessages, setArchivePreviewAlertMessages] =
+    useOldFavoriteRuntimeState<string[]>('archivePreviewAlertMessages', [])
   const [deepSeekArchiveRunSnapshot, setDeepSeekArchiveRunSnapshot] =
-    useState<DeepSeekArchiveRunSnapshot | null>(null)
-  const [archiveUndoStack, setArchiveUndoStack] = useState<ArchivePreviewHistorySnapshot[]>([])
-  const [archiveRedoStack, setArchiveRedoStack] = useState<ArchivePreviewHistorySnapshot[]>([])
-  const [latestArchiveChange, setLatestArchiveChange] = useState<ArchivePreviewLatestChange | null>(null)
+    useOldFavoriteRuntimeState<DeepSeekArchiveRunSnapshot | null>('deepSeekArchiveRunSnapshot', null)
+  const [archiveUndoStack, setArchiveUndoStack] =
+    useOldFavoriteRuntimeState<ArchivePreviewHistorySnapshot[]>('archiveUndoStack', [])
+  const [archiveRedoStack, setArchiveRedoStack] =
+    useOldFavoriteRuntimeState<ArchivePreviewHistorySnapshot[]>('archiveRedoStack', [])
+  const [latestArchiveChange, setLatestArchiveChange] =
+    useOldFavoriteRuntimeState<ArchivePreviewLatestChange | null>('latestArchiveChange', null)
   const [manualArchiveMoveFocus, setManualArchiveMoveFocus] =
     useState<ArchivePreviewManualMoveFocus | null>(null)
 
@@ -1452,9 +1530,12 @@ export function FavoriteLedgerPanel({
   const [busy, setBusy] = useState(false)
   const [draggedLedgerId, setDraggedLedgerId] = useState<string | null>(null)
   const [dragTargetLedgerId, setDragTargetLedgerId] = useState<string | null>(null)
-  const [ledgerListExpanded, setLedgerListExpanded] = useState(false)
-  const [oldFavoriteStep, setOldFavoriteStep] = useState<OldFavoriteGuideStep>('scan')
-  const [oldFavoriteGuideMode, setOldFavoriteGuideMode] = useState<OldFavoriteGuideMode>('organize')
+  const [ledgerListExpanded, setLedgerListExpanded] =
+    useOldFavoriteRuntimeState('ledgerListExpanded', false)
+  const [oldFavoriteStep, setOldFavoriteStep] =
+    useOldFavoriteRuntimeState<OldFavoriteGuideStep>('oldFavoriteStep', 'scan')
+  const [oldFavoriteGuideMode, setOldFavoriteGuideMode] =
+    useOldFavoriteRuntimeState<OldFavoriteGuideMode>('oldFavoriteGuideMode', 'organize')
   const [tagCandidatesExpanded, setTagCandidatesExpanded] = useState(false)
   const [ledgerHintExpanded, setLedgerHintExpanded] = useState(false)
   const [oldFavoriteGuideHintExpanded, setOldFavoriteGuideHintExpanded] = useState(false)
@@ -1489,6 +1570,26 @@ export function FavoriteLedgerPanel({
     finishLedgerDrag()
   }, [ledgers])
 
+  useEffect(() => {
+    if (!oldFavoriteRuntimeStatus) {
+      return
+    }
+
+    onOldFavoriteStatusUpdate?.(oldFavoriteRuntimeStatus)
+  }, [oldFavoriteRuntimeStatus])
+
+  useEffect(() => {
+    if (!deepSeekArchiveProgress || !deepSeekArchiveRunning) {
+      return
+    }
+
+    setOldFavoriteRuntimeStatus({
+      label: `DeepSeek整理 ${deepSeekArchiveProgress.completedVideos}/${deepSeekArchiveProgress.totalVideos}`,
+      message: 'DeepSeek 正在辅助整理旧藏。',
+      tone: 'running'
+    })
+  }, [deepSeekArchiveProgress, deepSeekArchiveRunning, setOldFavoriteRuntimeStatus])
+
   function oldFavoriteOrganizationLocked() {
     return oldFavoriteExecuting || oldFavoriteExecutionAwaitingAcknowledgement || oldFavoriteExecutionConfirming
   }
@@ -1509,6 +1610,13 @@ export function FavoriteLedgerPanel({
     setArchivePlanState(null)
     setPendingUnclassifiedDecision(null)
     clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
+    setSelectedCandidateKeys(new Set())
+    setSelectedOldFavoriteSourceFolderTitles(new Set())
+    setDeepSeekArchiveRunning(false)
+    setDeepSeekArchiveStatus('')
+    setDeepSeekArchiveSuggestionCount(0)
+    setOldFavoriteRuntimeStatus(null)
+    setLedgerListExpanded(false)
     setOldFavoriteStep('scan')
     onOldFavoriteAcknowledged?.()
   }
@@ -2661,6 +2769,7 @@ export function FavoriteLedgerPanel({
     }
 
     const chunks = chunkDeepSeekArchiveRequest(request)
+    oldFavoriteDeepSeekCancelRequested = false
     setDeepSeekArchiveRunning(true)
     setDeepSeekArchiveStatus('DeepSeek 正在整理旧藏...')
     setDeepSeekArchiveSuggestionCount(0)
@@ -2670,7 +2779,7 @@ export function FavoriteLedgerPanel({
       currentChunk: 1,
       totalChunks: chunks.length
     })
-    onOldFavoriteStatusUpdate?.({
+    setOldFavoriteRuntimeStatus({
       label: `DeepSeek整理 0/${request.videos.length}`,
       message: 'DeepSeek 正在辅助整理旧藏。',
       tone: 'running'
@@ -2684,6 +2793,9 @@ export function FavoriteLedgerPanel({
       let completedVideos = 0
 
       for (const [chunkIndex, chunk] of chunks.entries()) {
+        if (oldFavoriteDeepSeekCancelRequested) {
+          break
+        }
         setDeepSeekArchiveProgress({
           completedVideos,
           totalVideos: request.videos.length,
@@ -2693,6 +2805,9 @@ export function FavoriteLedgerPanel({
 
         try {
           const result = await onOrganizeOldFavoritesWithDeepSeek(deepSeekArchiveMode, chunk)
+          if (oldFavoriteDeepSeekCancelRequested) {
+            break
+          }
           if (!result || result.kind !== 'favorite-archive-organize' || !Array.isArray(result.results)) {
             results.push(...failedDeepSeekArchiveRows(chunk, 'DeepSeek 返回格式无效。'))
             continue
@@ -2711,11 +2826,21 @@ export function FavoriteLedgerPanel({
           currentChunk: Math.min(chunkIndex + 1, chunks.length),
           totalChunks: chunks.length
         })
-        onOldFavoriteStatusUpdate?.({
+        setOldFavoriteRuntimeStatus({
           label: `DeepSeek整理 ${completedVideos}/${request.videos.length}`,
           message: 'DeepSeek 正在辅助整理旧藏。',
           tone: 'running'
         })
+      }
+
+      if (oldFavoriteDeepSeekCancelRequested) {
+        setDeepSeekArchiveStatus('DeepSeek 整理已取消。')
+        setOldFavoriteRuntimeStatus({
+          label: `整理已取消 ${completedVideos}/${request.videos.length}`,
+          message: 'DeepSeek 整理已取消，可继续检查当前归档预览。',
+          tone: 'warn'
+        })
+        return
       }
 
       const applied = applyDeepSeekArchiveResults({
@@ -2745,7 +2870,7 @@ export function FavoriteLedgerPanel({
         ].filter((message): message is string => Boolean(message))
       )
       const markDeepSeekArchiveReady = () => {
-        onOldFavoriteStatusUpdate?.({
+        setOldFavoriteRuntimeStatus({
           label: `整理待确认 ${request.videos.length}`,
           message: 'DeepSeek 整理完成，请确认执行。',
           tone: 'warn'
@@ -2781,6 +2906,15 @@ export function FavoriteLedgerPanel({
     } finally {
       setDeepSeekArchiveRunning(false)
     }
+  }
+
+  function cancelDeepSeekArchiveOrganization() {
+    if (!deepSeekArchiveRunning || oldFavoriteDeepSeekCancelRequested) {
+      return
+    }
+
+    oldFavoriteDeepSeekCancelRequested = true
+    setDeepSeekArchiveStatus('正在取消 DeepSeek 整理...')
   }
 
   function archivePlanHasPreviewChanges(state: FavoriteArchivePlanState) {
@@ -4448,6 +4582,15 @@ export function FavoriteLedgerPanel({
                             >
                               {deepSeekArchiveRunning ? '整理中...' : 'DeepSeek 整理'}
                             </button>
+                            {deepSeekArchiveRunning ? (
+                              <button
+                                type="button"
+                                aria-label="取消 DeepSeek 整理"
+                                onClick={cancelDeepSeekArchiveOrganization}
+                              >
+                                取消
+                              </button>
+                            ) : null}
                           </div>
                         </div>
                         {deepSeekArchiveAvailable ? null : (

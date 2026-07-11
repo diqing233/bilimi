@@ -10,6 +10,7 @@ import type {
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { FloatingAssistantApp } from './FloatingAssistantApp'
+import { resetOldFavoriteRuntimeSession } from './FavoriteLedgerPanel'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
 import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
 import { publishDeepSeekTask } from './deepSeekTaskSignal'
@@ -346,6 +347,7 @@ describe('FloatingAssistantApp', () => {
     '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
 
   beforeEach(() => {
+    resetOldFavoriteRuntimeSession()
     window.localStorage.clear()
     window.sessionStorage.clear()
   })
@@ -1009,6 +1011,217 @@ describe('FloatingAssistantApp', () => {
 
     act(() => snapshotChanged?.())
     await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledOnce())
+  })
+
+  it('keeps the DeepSeek archive preview and progress after switching assistant tabs', async () => {
+    const deepSeekOrganization = createDeferred<
+      Awaited<ReturnType<NonNullable<Window['bilimiDesktop']['generateDeepSeek']>>>
+    >()
+    const generateDeepSeek = vi.fn(() => deepSeekOrganization.promise)
+    installDesktopApi({
+      generateDeepSeek,
+      scanOldFavorites: vi.fn().mockResolvedValue({
+        items: [
+          {
+            aid: 901,
+            title: 'AI 工具链教程',
+            sourceFolderTitle: '默认收藏夹',
+            targetLedgerId: 'knowledge',
+            targetFolderId: '9001',
+            targetDisplayName: 'bilimi·学吧你就',
+            reviewRequired: false,
+            alreadyInTarget: false,
+            selected: true,
+            originalSuggestedLedgerIds: ['knowledge'],
+            currentTargetLedgerIds: ['knowledge'],
+            selectedTargetLedgerIds: ['knowledge'],
+            lowConfidence: true
+          }
+        ],
+        skippedSourceFolderTitles: []
+      }),
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true,
+            deepseekApiKeyStored: true
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp mode="sidebar" />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '掌库' }))
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    selectDeepSeekArchiveScope('DeepSeek 进行二次整理')
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+
+    expect(await screen.findByText('DeepSeek 正在整理旧藏...')).toBeInTheDocument()
+    expect(screen.getByText('AI 工具链教程')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'DeepSeek 整理进度' })).toHaveAttribute(
+      'aria-valuenow',
+      '0'
+    )
+
+    fireEvent.click(screen.getByRole('tab', { name: '批阅' }))
+    fireEvent.click(screen.getByRole('tab', { name: '札记' }))
+    fireEvent.click(screen.getByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('tab', { name: '掌库' }))
+
+    expect(screen.getByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    expect(screen.getByText('AI 工具链教程')).toBeInTheDocument()
+    expect(screen.getByText('DeepSeek 正在整理旧藏...')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'DeepSeek 整理进度' })).toHaveAttribute(
+      'aria-valuenow',
+      '0'
+    )
+    expect(screen.getByLabelText('整理状态')).toHaveTextContent('DeepSeek整理 0/1')
+
+    await act(async () => {
+      deepSeekOrganization.resolve({
+        kind: 'favorite-archive-organize',
+        results: [],
+        keywordSuggestions: []
+      })
+    })
+
+    expect(await screen.findByText('DeepSeek 整理完成：0 条已应用。')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('整理状态')).toHaveTextContent('整理待确认 1'))
+  })
+
+  it('restores the old favorite archive session after the sidebar assistant remounts', async () => {
+    const deepSeekOrganization = createDeferred<
+      Awaited<ReturnType<NonNullable<Window['bilimiDesktop']['generateDeepSeek']>>>
+    >()
+    const generateDeepSeek = vi.fn(() => deepSeekOrganization.promise)
+    installDesktopApi({
+      generateDeepSeek,
+      scanOldFavorites: vi.fn().mockResolvedValue({
+        items: [
+          {
+            aid: 902,
+            title: '需要恢复的旧藏',
+            sourceFolderTitle: '默认收藏夹',
+            targetLedgerId: 'knowledge',
+            targetFolderId: '9001',
+            targetDisplayName: 'bilimi·学吧你就',
+            reviewRequired: false,
+            alreadyInTarget: false,
+            selected: true,
+            originalSuggestedLedgerIds: ['knowledge'],
+            currentTargetLedgerIds: ['knowledge'],
+            selectedTargetLedgerIds: ['knowledge'],
+            lowConfidence: true
+          }
+        ],
+        skippedSourceFolderTitles: []
+      }),
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true,
+            deepseekApiKeyStored: true
+          })
+        })
+      )
+    })
+
+    const firstApp = render(<FloatingAssistantApp mode="sidebar" />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '掌库' }))
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    expect(await screen.findByText('DeepSeek 正在整理旧藏...')).toBeInTheDocument()
+
+    firstApp.unmount()
+    render(<FloatingAssistantApp mode="sidebar" activeTab="ledger" />)
+
+    expect(await screen.findByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    expect(screen.getByText('需要恢复的旧藏')).toBeInTheDocument()
+    expect(screen.getByText('DeepSeek 正在整理旧藏...')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'DeepSeek 整理进度' })).toHaveAttribute(
+      'aria-valuenow',
+      '0'
+    )
+    expect(screen.getByLabelText('整理状态')).toHaveTextContent('DeepSeek整理 0/1')
+
+    await act(async () => {
+      deepSeekOrganization.resolve({
+        kind: 'favorite-archive-organize',
+        results: [],
+        keywordSuggestions: []
+      })
+    })
+
+    expect(await screen.findByText('DeepSeek 整理完成：0 条已应用。')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('整理状态')).toHaveTextContent('整理待确认 1'))
+  })
+
+  it('keeps the canceled DeepSeek archive status after the sidebar assistant remounts', async () => {
+    const deepSeekOrganization = createDeferred<
+      Awaited<ReturnType<NonNullable<Window['bilimiDesktop']['generateDeepSeek']>>>
+    >()
+    const generateDeepSeek = vi.fn(() => deepSeekOrganization.promise)
+    installDesktopApi({
+      generateDeepSeek,
+      scanOldFavorites: vi.fn().mockResolvedValue({
+        items: Array.from({ length: 21 }, (_, index) => ({
+          aid: 930 + index,
+          title: `可恢复取消旧藏 ${index + 1}`,
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'bilimi·学吧你就',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          originalSuggestedLedgerIds: ['knowledge'],
+          currentTargetLedgerIds: ['knowledge'],
+          selectedTargetLedgerIds: ['knowledge'],
+          lowConfidence: true
+        })),
+        skippedSourceFolderTitles: []
+      }),
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true,
+            deepseekApiKeyStored: true
+          })
+        })
+      )
+    })
+
+    const firstApp = render(<FloatingAssistantApp mode="sidebar" />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '掌库' }))
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    expect(await screen.findByText('DeepSeek 正在整理旧藏...')).toBeInTheDocument()
+
+    firstApp.unmount()
+    render(<FloatingAssistantApp mode="sidebar" activeTab="ledger" />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '取消 DeepSeek 整理' }))
+    expect(screen.getByText('正在取消 DeepSeek 整理...')).toBeInTheDocument()
+
+    await act(async () => {
+      deepSeekOrganization.resolve({
+        kind: 'favorite-archive-organize',
+        results: [],
+        keywordSuggestions: []
+      })
+    })
+
+    expect(await screen.findByText('DeepSeek 整理已取消。')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('整理状态')).toHaveTextContent('整理已取消 0/21'))
   })
 
   it('validates the saved DeepSeek connection again after it is disabled and re-enabled', async () => {

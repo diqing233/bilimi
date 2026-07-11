@@ -3732,13 +3732,13 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__archive-history-actions {
   width: 100%;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   align-items: center;
 }
 .favorite-ledger-panel__archive-history-select {
-  flex: 0 0 auto;
+  grid-column: 1 / -1;
   position: relative;
   display: flex;
   align-items: center;
@@ -3785,8 +3785,8 @@ body[data-floating-window="true"],
   pointer-events: none;
 }
 .favorite-ledger-panel__archive-history-button {
-  flex: 1 1 112px;
-  min-width: 112px;
+  width: 100%;
+  min-width: 0;
   min-height: 32px;
   padding: 6px 10px;
   font-weight: 800;

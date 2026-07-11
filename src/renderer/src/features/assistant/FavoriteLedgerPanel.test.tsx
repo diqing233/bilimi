@@ -2,11 +2,15 @@
 import { DEEPSEEK_CONSTRAINT_MARKER } from '@shared/favoriteLedgerConstraints'
 import type { DeepSeekGenerateResult, FavoriteLedger } from '@shared/types'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
-import { FavoriteLedgerPanel } from './FavoriteLedgerPanel'
+import { FavoriteLedgerPanel, resetOldFavoriteRuntimeSession } from './FavoriteLedgerPanel'
 
 describe('FavoriteLedgerPanel', () => {
+  beforeEach(() => {
+    resetOldFavoriteRuntimeSession()
+  })
+
   const safetyNote =
     '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
 
@@ -5998,16 +6002,63 @@ describe('FavoriteLedgerPanel', () => {
       '100'
     )
     expect(onOldFavoriteStatusUpdate).toHaveBeenCalledWith({
-      label: 'DeepSeek整理 21/21',
-      message: 'DeepSeek 正在辅助整理旧藏。',
-      tone: 'running'
-    })
-    expect(onOldFavoriteStatusUpdate).toHaveBeenCalledWith({
       label: '整理待确认 21',
       message: 'DeepSeek 整理完成，请确认执行。',
       tone: 'warn'
     })
     expect(onOldFavoriteStageFeedback).toHaveBeenCalledWith('DeepSeek 整理完成，请确认执行')
+  })
+
+  it('cancels DeepSeek archive organization before starting the next batch', async () => {
+    let resolveFirstBatch!: (result: DeepSeekGenerateResult) => void
+    const onOrganizeOldFavoritesWithDeepSeek = vi.fn(
+      () =>
+        new Promise<DeepSeekGenerateResult>((resolve) => {
+          resolveFirstBatch = resolve
+        })
+    )
+    const onScanOldFavorites = vi.fn().mockResolvedValue({
+      items: Array.from({ length: 21 }, (_, index) => ({
+        aid: 1200 + index,
+        title: `可取消旧藏 ${index + 1}`,
+        sourceFolderTitle: '默认收藏夹',
+        targetLedgerId: 'inbox',
+        targetFolderId: '9008',
+        targetDisplayName: 'bilimi·暂存',
+        reviewRequired: false,
+        alreadyInTarget: false,
+        selected: false,
+        originalSuggestedLedgerIds: [],
+        currentTargetLedgerIds: [],
+        selectedTargetLedgerIds: [],
+        lowConfidence: true
+      })),
+      skippedSourceFolderTitles: []
+    } satisfies FavoriteLedgerPreview)
+
+    await openArchivePreview({
+      deepSeekArchiveAvailable: true,
+      onScanOldFavorites,
+      onOrganizeOldFavoritesWithDeepSeek
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    await waitFor(() => expect(onOrganizeOldFavoritesWithDeepSeek).toHaveBeenCalledOnce())
+    fireEvent.click(screen.getByRole('button', { name: '取消 DeepSeek 整理' }))
+
+    expect(screen.getByText('正在取消 DeepSeek 整理...')).toBeInTheDocument()
+
+    await act(async () => {
+      resolveFirstBatch({
+        kind: 'favorite-archive-organize',
+        results: [],
+        keywordSuggestions: []
+      })
+    })
+
+    expect(onOrganizeOldFavoritesWithDeepSeek).toHaveBeenCalledOnce()
+    expect(await screen.findByText('DeepSeek 整理已取消。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'DeepSeek 整理' })).toBeEnabled()
   })
 
   it('applies DeepSeek archive results with displacement notice and reverts the whole run', async () => {
