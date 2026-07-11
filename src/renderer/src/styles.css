@@ -2046,8 +2046,8 @@ body[data-floating-window="true"],
   border-radius: var(--porcelain-radius-control);
   background: linear-gradient(
     180deg,
-    rgba(255, 254, 253, 0.98),
-    rgba(220, 238, 255, 0.98)
+    rgba(255, 254, 253, 0.99),
+    rgba(247, 251, 255, 0.99)
   );
   overflow: hidden;
   transition:
@@ -2153,8 +2153,8 @@ body[data-floating-window="true"],
   text-align: left;
   background: linear-gradient(
     180deg,
-    rgba(255, 254, 253, 0.98),
-    rgba(220, 238, 255, 0.98)
+    rgba(255, 254, 253, 0.99),
+    rgba(247, 251, 255, 0.99)
   );
   transition:
     background 120ms ease,

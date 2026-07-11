@@ -437,7 +437,7 @@ describe('renderer porcelain theme styles', () => {
       '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 56px; gap: 0; align-items: stretch; border: 1px solid rgba(31, 99, 181, 0.22);'
     )
     expectStyleSnippet(
-      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 56px; gap: 0; align-items: stretch; border: 1px solid rgba(31, 99, 181, 0.22); border-radius: var(--porcelain-radius-control); background: linear-gradient('
+      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 56px; gap: 0; align-items: stretch; border: 1px solid rgba(31, 99, 181, 0.22); border-radius: var(--porcelain-radius-control); background: linear-gradient( 180deg, rgba(255, 254, 253, 0.99), rgba(247, 251, 255, 0.99) );'
     )
     expectStyleSnippet(
       '.memorial-panel__action-card--with-setting:hover, .memorial-panel__action-card--with-setting:focus-within { border-color: rgba(31, 99, 181, 0.5); background: linear-gradient( 180deg, rgba(255, 254, 253, 1), rgba(220, 238, 255, 1) ); box-shadow: 0 8px 16px rgba(31, 99, 181, 0.14); transform: translateY(-1px);'
@@ -468,6 +468,9 @@ describe('renderer porcelain theme styles', () => {
     )
     expect(normalizedStyles).toContain('rgba(220, 238, 255, 0.98)')
     expect(normalizedStyles).toContain('rgba(220, 238, 255, 1)')
+    expectStyleSnippet(
+      '.assistant-action-button { min-height: 62px; display: grid; grid-template-columns: 58px minmax(0, 1fr); grid-template-areas: "mark label" "mark desc"; align-items: center; gap: 3px 8px; border-radius: 6px; text-align: left; background: linear-gradient( 180deg, rgba(255, 254, 253, 0.99), rgba(247, 251, 255, 0.99) );'
+    )
     expect(normalizedStyles).toContain('padding: 0 15px 0 7px;\n  text-align: left;\n  text-align-last: left;')
     expect(normalizedStyles).toContain('grid-template-columns: 58px minmax(0, 1fr);')
     expectStyleSnippet('grid-template-areas: "mark label" "mark desc";')
