@@ -326,6 +326,18 @@ export function VideoNotesPanel({
     }
   }, [queueItems.length])
 
+  useEffect(() => {
+    if (!/已开始转写|已加入队列/u.test(statusMessage)) return
+
+    const canceledItem = queueItems
+      .filter((item) => item.status === 'canceled' && statusMessage.includes(item.title))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0]
+
+    if (canceledItem) {
+      setStatusMessage(`已取消「${canceledItem.title}」的转写。`)
+    }
+  }, [queueItems, statusMessage])
+
   function setResultTab(tab: VideoNotesResultTab | null): void {
     if (controlledActiveResultTab === undefined) {
       setUncontrolledActiveResultTab(tab)
@@ -739,7 +751,7 @@ export function VideoNotesPanel({
           <dt>BV</dt>
           <dd>{sourceBvid ?? '待识别'}</dd>
           <dt>链接</dt>
-          <dd>{sourceUrl ?? '待转写后补齐'}</dd>
+          <dd>{sourceUrl ?? (isQueuePreviewActive ? '待转写后补齐' : '待识别')}</dd>
         </dl>
       </section>
 

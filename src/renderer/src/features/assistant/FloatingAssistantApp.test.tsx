@@ -3596,6 +3596,55 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByText('「三分钟讲清机器学习科普教程」已开始转写。')).toBeInTheDocument()
   })
 
+  it('replaces the global queued feedback after canceling the active transcription', async () => {
+    const runningQueue = {
+      activeItemId: 'bvid:BV1note',
+      items: [
+        {
+          id: 'bvid:BV1note',
+          url: 'https://www.bilibili.com/video/BV1note',
+          title: '三分钟讲清机器学习科普教程',
+          bvid: 'BV1note',
+          status: 'running',
+          createdAt: '2026-06-25T00:00:00.000Z',
+          updatedAt: '2026-06-25T00:00:00.000Z',
+          progress: {
+            step: 'transcribing-segment',
+            message: 'Transcribing segment 1/2.',
+            segmentIndex: 1,
+            segmentCount: 2
+          }
+        }
+      ]
+    } as const
+    const canceledQueue = {
+      items: [
+        {
+          ...runningQueue.items[0],
+          status: 'canceled',
+          updatedAt: '2026-06-25T00:01:00.000Z'
+        }
+      ]
+    } as const
+    const enqueueCurrentVideoAudioTranscription = vi.fn().mockResolvedValue(runningQueue)
+    const cancelVideoAudioTranscription = vi.fn().mockResolvedValue(canceledQueue)
+    installDesktopApi({ enqueueCurrentVideoAudioTranscription, cancelVideoAudioTranscription })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+
+    await waitFor(() => expect(enqueueCurrentVideoAudioTranscription).toHaveBeenCalledOnce())
+    expect(screen.getByLabelText('全局提示')).toHaveTextContent('已加入转写队列')
+
+    fireEvent.click(await screen.findByRole('button', { name: '取消转写' }))
+
+    await waitFor(() => expect(cancelVideoAudioTranscription).toHaveBeenCalledWith('bvid:BV1note'))
+    expect(screen.getByLabelText('全局提示')).toHaveTextContent('已取消转写')
+    expect(screen.getByLabelText('全局提示')).not.toHaveTextContent('已加入转写队列')
+  })
+
   it('keeps a freshly enqueued transcription visible when an older queue load resolves empty', async () => {
     const initialQueueLoad = createDeferred<{ items: [] }>()
     const generateVideoNoteFromAudio = vi.fn()

@@ -1897,9 +1897,18 @@ export function FloatingAssistantApp({
   }
 
   async function cancelQueuedVideoAudioTranscription(id: string) {
+    const previousItem = transcriptionQueueRef.current.items.find((item) => item.id === id)
     const snapshot = await window.bilimiDesktop?.cancelVideoAudioTranscription?.(id)
     if (snapshot) {
       applyTranscriptionQueueSnapshot(snapshot)
+      const canceledItem = snapshot.items.find((item) => item.id === id && item.status === 'canceled')
+      if (
+        canceledItem &&
+        (previousItem?.status === 'pending' || previousItem?.status === 'running')
+      ) {
+        setGlobalFeedback('已取消转写')
+        tellPet('done', `已取消「${canceledItem.title}」的转写。`)
+      }
     }
   }
 
