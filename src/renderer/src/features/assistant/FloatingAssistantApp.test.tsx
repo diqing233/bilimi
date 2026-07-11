@@ -3464,6 +3464,58 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByText('「三分钟讲清机器学习科普教程」已开始转写。')).toBeInTheDocument()
   })
 
+  it('keeps a freshly enqueued transcription visible when an older queue load resolves empty', async () => {
+    const initialQueueLoad = createDeferred<{ items: [] }>()
+    const generateVideoNoteFromAudio = vi.fn()
+    const enqueueCurrentVideoAudioTranscription = vi.fn().mockResolvedValue({
+      activeItemId: 'bvid:BV1note',
+      items: [
+        {
+          id: 'bvid:BV1note',
+          url: 'https://www.bilibili.com/video/BV1note',
+          title: '三分钟讲清机器学习科普教程',
+          bvid: 'BV1note',
+          status: 'running',
+          createdAt: '2026-06-25T00:00:00.000Z',
+          updatedAt: '2026-06-25T00:00:00.000Z',
+          progress: {
+            step: 'transcribing-segment',
+            segmentIndex: 1,
+            segmentCount: 3,
+            percent: 42,
+            message: 'Transcribing segment 1 of 3.'
+          }
+        }
+      ]
+    })
+    installDesktopApi({
+      generateVideoNoteFromAudio,
+      enqueueCurrentVideoAudioTranscription,
+      loadVideoAudioTranscriptionQueue: vi.fn().mockReturnValue(initialQueueLoad.promise)
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+
+    await waitFor(() => expect(enqueueCurrentVideoAudioTranscription).toHaveBeenCalledOnce())
+    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写 43%')
+    expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent(
+      '三分钟讲清机器学习科普教程'
+    )
+
+    await act(async () => {
+      initialQueueLoad.resolve({ items: [] })
+      await initialQueueLoad.promise
+    })
+
+    expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写 43%')
+    expect(screen.getByRole('region', { name: '转写状态' })).toHaveTextContent(
+      '三分钟讲清机器学习科普教程'
+    )
+  })
+
   it('clears the stale no-video alert after a later audio transcription enqueue succeeds', async () => {
     let snapshotChanged: (() => void) | undefined
     const generateVideoNoteFromAudio = vi.fn()

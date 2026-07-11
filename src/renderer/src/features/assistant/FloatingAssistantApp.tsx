@@ -670,6 +670,7 @@ export function FloatingAssistantApp({
     items: [],
     sessionCompletedCount: 0
   })
+  const transcriptionQueueRevisionRef = useRef(0)
   const workspaceRequestsEnabledRef = useRef(workspaceRequestsEnabled)
   const activeTab = controlledActiveTab ?? uncontrolledActiveTab
   const [activeView, setActiveView] = useState<AssistantWorkspaceView>(activeTab)
@@ -1038,13 +1039,18 @@ export function FloatingAssistantApp({
     )
   }
 
+  function applyTranscriptionQueueSnapshot(snapshot: VideoAudioTranscriptionQueueSnapshot) {
+    transcriptionQueueRevisionRef.current += 1
+    transcriptionQueueRef.current = snapshot
+    setTranscriptionQueue(snapshot)
+  }
+
   useEffect(() => {
     return window.bilimiDesktop?.onVideoAudioTranscriptionQueueChanged?.((snapshot) => {
       const hadRunning = transcriptionQueueRef.current.items.some((item) => item.status === 'running')
       const hasRunning = snapshot.items.some((item) => item.status === 'running')
 
-      transcriptionQueueRef.current = snapshot
-      setTranscriptionQueue(snapshot)
+      applyTranscriptionQueueSnapshot(snapshot)
       if (hasRunning) {
         clearCurrentVideoMissingFeedback()
       }
@@ -1830,12 +1836,16 @@ export function FloatingAssistantApp({
   }
 
   async function loadVideoAudioTranscriptionQueue() {
+    const startedAtRevision = transcriptionQueueRevisionRef.current
     const snapshot = (await window.bilimiDesktop?.loadVideoAudioTranscriptionQueue?.()) ?? {
       items: [],
       sessionCompletedCount: 0
     }
-    transcriptionQueueRef.current = snapshot
-    setTranscriptionQueue(snapshot)
+    if (startedAtRevision !== transcriptionQueueRevisionRef.current) {
+      return transcriptionQueueRef.current
+    }
+
+    applyTranscriptionQueueSnapshot(snapshot)
     return snapshot
   }
 
@@ -1861,8 +1871,7 @@ export function FloatingAssistantApp({
     const nextQueue = await window.bilimiDesktop.enqueueCurrentVideoAudioTranscription?.(options)
 
     if (nextQueue) {
-      transcriptionQueueRef.current = nextQueue
-      setTranscriptionQueue(nextQueue)
+      applyTranscriptionQueueSnapshot(nextQueue)
       clearCurrentVideoMissingFeedback()
     }
     return nextQueue
@@ -1871,16 +1880,14 @@ export function FloatingAssistantApp({
   async function cancelQueuedVideoAudioTranscription(id: string) {
     const snapshot = await window.bilimiDesktop?.cancelVideoAudioTranscription?.(id)
     if (snapshot) {
-      transcriptionQueueRef.current = snapshot
-      setTranscriptionQueue(snapshot)
+      applyTranscriptionQueueSnapshot(snapshot)
     }
   }
 
   async function retryQueuedVideoAudioTranscription(id: string) {
     const snapshot = await window.bilimiDesktop?.retryVideoAudioTranscription?.(id)
     if (snapshot) {
-      transcriptionQueueRef.current = snapshot
-      setTranscriptionQueue(snapshot)
+      applyTranscriptionQueueSnapshot(snapshot)
     }
   }
 
