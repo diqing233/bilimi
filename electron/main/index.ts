@@ -45,6 +45,7 @@ import { FloatingMenuController } from './floatingMenuController'
 import { FloatingSealDragController } from './floatingSealDragController'
 import { createMainWindowOptions } from './mainWindowOptions'
 import { restoreMainWindowDefaultLayoutSize } from './mainWindowLayout'
+import { installMainWindowDisplayLayout } from './mainWindowDisplayLayout'
 import {
   createCloseConfirmationOptions,
   installMainWindowControlReactions
@@ -640,6 +641,7 @@ function createMainWindow() {
   const win = new BrowserWindow(
     createMainWindowOptions(createPreloadScriptPath(__dirname), workAreaSize)
   )
+  const disposeDisplayLayout = installMainWindowDisplayLayout(win, screen)
 
   mainWindow = win
   keepMainWindowTitle(win)
@@ -668,6 +670,7 @@ function createMainWindow() {
   })
   installWindowOpenRouting(win)
   win.on('closed', () => {
+    disposeDisplayLayout()
     if (mainWindow === win) {
       mainWindow = null
     }
