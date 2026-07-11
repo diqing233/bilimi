@@ -784,6 +784,9 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('.assistant-settings__actions button:focus-visible')
     expect(normalizedStyles).toContain('.assistant-settings__deepseek-recommendation')
     expectStyleSnippet(
+      '.assistant-settings__recommendation-divider { border-top: 1px dashed rgba(31, 99, 181, 0.28); padding-top: 4px;'
+    )
+    expectStyleSnippet(
       '.assistant-settings__copy-row { display: flex; align-items: center; gap: 6px;'
     )
     expectStyleSnippet(

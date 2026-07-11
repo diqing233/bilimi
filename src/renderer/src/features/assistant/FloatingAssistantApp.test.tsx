@@ -3321,9 +3321,16 @@ describe('FloatingAssistantApp', () => {
     )
     expect(screen.getByText('致谢 云枢智元')).toBeInTheDocument()
     expect(screen.getByText('大模型 Token 中转，低至官方价 2 折起')).toBeInTheDocument()
-    expect(screen.getByText(/令牌分组请选择 deepseek（限时特价）/)).toBeInTheDocument()
+    expect(screen.getByText(/令牌分组请选择 deepseek（官方）/)).toBeInTheDocument()
+    expect(screen.queryByText(/限时特价/)).not.toBeInTheDocument()
     expect(screen.getByText('推荐模型：deepseek-v4-pro')).toBeInTheDocument()
     expect(screen.getByText('服务器地址：https://api.yunshulink.com/v1')).toBeInTheDocument()
+    expect(screen.getByText('推荐模型：deepseek-v4-pro').closest('p')).toHaveClass(
+      'assistant-settings__recommendation-divider'
+    )
+    expect(screen.getByText('服务器地址：https://api.yunshulink.com/v1').closest('p')).toHaveClass(
+      'assistant-settings__recommendation-divider'
+    )
     expect(
       screen.getByText('开启后可使用批阅短评、札记总结、宠物对话和辅助整理。关闭后相关功能入口会提示先开启。')
     ).toBeInTheDocument()

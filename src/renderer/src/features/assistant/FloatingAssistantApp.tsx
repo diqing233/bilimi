@@ -2745,8 +2745,8 @@ export function FloatingAssistantApp({
                         官网：https://yunshulink.com/
                       </a>
                     </p>
-                    <p>API 密钥：创建令牌后，令牌分组请选择 deepseek（限时特价），复制密钥到这里使用。</p>
-                    <p className="assistant-settings__copy-row">
+                    <p>API 密钥：创建令牌后，令牌分组请选择 deepseek（官方），复制密钥到这里使用。</p>
+                    <p className="assistant-settings__copy-row assistant-settings__recommendation-divider">
                       <span>推荐模型：deepseek-v4-pro</span>
                       <button
                         className="assistant-settings__copy-button"
@@ -2757,7 +2757,7 @@ export function FloatingAssistantApp({
                         复制
                       </button>
                     </p>
-                    <p className="assistant-settings__copy-row">
+                    <p className="assistant-settings__copy-row assistant-settings__recommendation-divider">
                       <span>服务器地址：https://api.yunshulink.com/v1</span>
                       <button
                         className="assistant-settings__copy-button"
