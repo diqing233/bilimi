@@ -2230,6 +2230,11 @@ export function FloatingAssistantApp({
   }
 
   function jumpToStatusArea(tab: AssistantWorkspaceTab) {
+    if (tab === 'settings') {
+      openSettingsSection('deepseek')
+      return
+    }
+
     setActiveTab(tab)
   }
 

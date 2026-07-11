@@ -315,6 +315,9 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByLabelText('DeepSeek状态'))
     expect(screen.getByRole('tab', { name: '设置' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '设置项' })).toHaveValue(
+      'deepseek'
+    )
 
     fireEvent.click(screen.getByLabelText('转写音频状态'))
     expect(screen.getByRole('tab', { name: '札记' })).toHaveAttribute('aria-selected', 'true')
