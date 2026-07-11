@@ -1463,14 +1463,18 @@ export default function App() {
           }
         })
       }
-      publishDeepSeekTask('classification')
+      const finishDeepSeekTask = publishDeepSeekTask({
+        id: `classification:${videoContentContext.bvid ?? videoContentContext.aid ?? 'video'}:${Date.now()}:${Math.random()}`,
+        kind: 'classification',
+        detail: `分类二判：${videoContentContext.title || '当前视频'}`
+      })
       const reviewPromise = window.bilimiDesktop
         .generateDeepSeek(reviewRequest)
         .then((reviewResult): DailyClassificationReviewResult | undefined =>
           reviewResult?.kind === 'favorite-daily-classify-review' ? reviewResult : undefined
         )
         .catch(() => undefined)
-        .finally(() => publishDeepSeekTask(null))
+        .finally(finishDeepSeekTask)
       const reviewBeforeAction = await waitForDailyReviewBeforeAction(reviewPromise)
 
       if (reviewBeforeAction.status === 'pending') {
@@ -1851,8 +1855,18 @@ export default function App() {
           return rejudgeOldFavorite(request.item)
         case 'execute-old-favorite-plan':
           return executeOldFavoritePlan(request.items)
-        case 'organize-old-favorites-with-deepseek':
-          return window.bilimiDesktop?.generateDeepSeek?.(request.request) ?? null
+        case 'organize-old-favorites-with-deepseek': {
+          const finishDeepSeekTask = publishDeepSeekTask({
+            id: `archive-organize-runtime:${Date.now()}:${Math.random()}`,
+            kind: 'archive-organize',
+            detail: '旧藏整理：正在分析当前批次'
+          })
+          try {
+            return (await window.bilimiDesktop?.generateDeepSeek?.(request.request)) ?? null
+          } finally {
+            finishDeepSeekTask()
+          }
+        }
         default:
           throw new Error('Unknown assistant runtime request.')
       }

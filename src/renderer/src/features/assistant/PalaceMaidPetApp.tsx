@@ -70,6 +70,7 @@ export function PalaceMaidPetApp() {
   const petClickStreak = useRef({ count: 0, lastAt: 0 })
   const suppressNextClick = useRef(false)
   const chatTailRef = useRef<HTMLSpanElement | null>(null)
+  const chatOpenRef = useRef(false)
   const [pressed, setPressed] = useState(false)
   const [resizeControlsVisible, setResizeControlsVisible] = useState(false)
   const [hoverShortcutsVisible, setHoverShortcutsVisible] = useState(false)
@@ -134,9 +135,19 @@ export function PalaceMaidPetApp() {
   function scheduleIdleGreeting() {
     if (idleGreetingTimeout.current !== null) {
       window.clearTimeout(idleGreetingTimeout.current)
+      idleGreetingTimeout.current = null
+    }
+
+    if (chatOpenRef.current) {
+      return
     }
 
     idleGreetingTimeout.current = window.setTimeout(() => {
+      if (chatOpenRef.current) {
+        idleGreetingTimeout.current = null
+        return
+      }
+
       showLocalPetHint('hint', pickPetLine(PET_IDLE_GREETINGS))
       idleGreetingTimeout.current = null
       scheduleIdleGreeting()
@@ -218,6 +229,7 @@ export function PalaceMaidPetApp() {
   }, [])
 
   useEffect(() => {
+    chatOpenRef.current = chatOpen
     scheduleIdleGreeting()
 
     return () => {
@@ -226,7 +238,7 @@ export function PalaceMaidPetApp() {
         idleGreetingTimeout.current = null
       }
     }
-  }, [])
+  }, [chatOpen])
 
   function enterInteractiveRegion() {
     interactiveHoverCount.current += 1
@@ -615,6 +627,7 @@ export function PalaceMaidPetApp() {
   function openPetChat() {
     setClosePromptVisible(false)
     clearHoverPreview()
+    chatOpenRef.current = true
     setChatOpen(true)
   }
 
@@ -637,7 +650,11 @@ export function PalaceMaidPetApp() {
     setChatDraft('')
     setChatBusy(true)
     setChatError('')
-    publishDeepSeekTask('pet-chat')
+    const finishDeepSeekTask = publishDeepSeekTask({
+      id: `pet-chat:${Date.now()}:${Math.random()}`,
+      kind: 'pet-chat',
+      detail: '宠物对话：正在生成小咪回复'
+    })
 
     try {
       const result = await window.bilimiDesktop?.generateDeepSeek?.({
@@ -657,7 +674,7 @@ export function PalaceMaidPetApp() {
     } catch (error) {
       setChatError(error instanceof Error ? error.message : '小咪现在还答不上来。')
     } finally {
-      publishDeepSeekTask(null)
+      finishDeepSeekTask()
       setChatBusy(false)
     }
   }

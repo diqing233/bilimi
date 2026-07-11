@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { FloatingAssistantApp } from './FloatingAssistantApp'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
 import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
+import { publishDeepSeekTask } from './deepSeekTaskSignal'
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -1935,6 +1936,85 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute('data-tone', 'ok')
   })
 
+  it('keeps local audio transcription out of the DeepSeek work list', async () => {
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({ deepseekEnabled: true, deepseekApiKeyStored: true })
+        })
+      ),
+      loadVideoAudioTranscriptionQueue: vi.fn().mockResolvedValue({
+        activeItemId: 'bvid:BV-local',
+        items: [
+          {
+            id: 'bvid:BV-local',
+            url: 'https://www.bilibili.com/video/BV-local',
+            title: '只在本地转写的视频',
+            bvid: 'BV-local',
+            status: 'running',
+            createdAt: '2026-07-11T00:00:00.000Z',
+            updatedAt: '2026-07-11T00:01:00.000Z',
+            progress: {
+              step: 'transcribing-segment',
+              message: 'Transcribing audio.',
+              segmentIndex: 1,
+              segmentCount: 2
+            }
+          }
+        ]
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('转写音频状态')).toHaveAttribute(
+        'title',
+        expect.stringContaining('只在本地转写的视频')
+      )
+    )
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 待测试')
+    expect(screen.getByLabelText('DeepSeek状态')).not.toHaveAttribute(
+      'title',
+      expect.stringContaining('只在本地转写的视频')
+    )
+  })
+
+  it('lists a transcription queue item only after DeepSeek summary generation starts', async () => {
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({ deepseekEnabled: true, deepseekApiKeyStored: true })
+        })
+      ),
+      loadVideoAudioTranscriptionQueue: vi.fn().mockResolvedValue({
+        activeItemId: 'bvid:BV-summary',
+        items: [
+          {
+            id: 'bvid:BV-summary',
+            url: 'https://www.bilibili.com/video/BV-summary',
+            title: '正在总结的视频',
+            bvid: 'BV-summary',
+            status: 'running',
+            createdAt: '2026-07-11T00:00:00.000Z',
+            updatedAt: '2026-07-11T00:01:00.000Z',
+            progress: { step: 'summarizing-deepseek', message: 'Generating DeepSeek summary.' }
+          }
+        ]
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 工作中')
+    )
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
+      'title',
+      expect.stringContaining('文稿总结：正在总结的视频')
+    )
+  })
+
   it.each([
     {
       configured: false,
@@ -2399,11 +2479,11 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByTestId('review-action-comment'))
 
-    await waitFor(() => expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('生成评论中'))
+    await waitFor(() => expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 工作中'))
     expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute('data-tone', 'running')
     expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
       'title',
-      'DeepSeek 正在生成趣评候选。'
+      expect.stringContaining('趣评生成：三分钟讲清机器学习科普教程')
     )
 
     commentGeneration.resolve({
@@ -2776,6 +2856,98 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByLabelText('DeepSeek 服务地址')).toHaveValue(
       'https://api.yunshulink.com/v1'
     )
+  })
+
+  it('lists concurrent DeepSeek work without clearing unrelated tasks', async () => {
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({ deepseekEnabled: true, deepseekApiKeyStored: true })
+        })
+      )
+    })
+    render(<FloatingAssistantApp />)
+    await screen.findByLabelText('DeepSeek状态')
+
+    const finishClassification = publishDeepSeekTask({
+      id: 'classification:video',
+      kind: 'classification',
+      detail: '分类二判：当前视频'
+    })
+    const finishArchive = publishDeepSeekTask({
+      id: 'archive:round',
+      kind: 'archive-organize',
+      detail: '旧藏整理：第 2 / 5 批'
+    })
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
+        'title',
+        expect.stringContaining('分类二判：当前视频')
+      )
+    )
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
+      'title',
+      expect.stringContaining('旧藏整理：第 2 / 5 批')
+    )
+
+    finishClassification()
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).not.toHaveAttribute(
+        'title',
+        expect.stringContaining('分类二判：当前视频')
+      )
+    )
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 工作中')
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveAttribute(
+      'title',
+      expect.stringContaining('旧藏整理：第 2 / 5 批')
+    )
+
+    finishArchive()
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 待测试')
+    )
+  })
+
+  it('keeps local and cross-window DeepSeek tasks visible together', async () => {
+    const commentGeneration = createDeferred<
+      Awaited<ReturnType<NonNullable<Window['bilimiDesktop']['generateDeepSeek']>>>
+    >()
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true,
+            deepseekApiKeyStored: true,
+            deepseekCommentEnabled: true,
+            commentSubmitMode: 'choose'
+          })
+        })
+      ),
+      generateDeepSeek: vi.fn(() => commentGeneration.promise)
+    })
+    render(<FloatingAssistantApp />)
+    fireEvent.click(await screen.findByTestId('review-action-comment'))
+
+    const finishClassification = publishDeepSeekTask({
+      id: 'classification:other-window',
+      kind: 'classification',
+      detail: '分类二判：另一条视频'
+    })
+
+    await waitFor(() => {
+      const title = screen.getByLabelText('DeepSeek状态').getAttribute('title') ?? ''
+      expect(title).toContain('趣评生成：三分钟讲清机器学习科普教程')
+      expect(title).toContain('分类二判：另一条视频')
+    })
+
+    finishClassification()
+    commentGeneration.resolve({
+      kind: 'review-comment',
+      comments: ['AI comment one', 'AI comment two', 'AI comment three']
+    })
+    await screen.findByText('AI comment one')
   })
 
   it('does not resave a DeepSeek preference broadcast that acknowledges the active save', async () => {
@@ -3427,6 +3599,55 @@ describe('FloatingAssistantApp', () => {
       )
     )
     await waitFor(() => expect(screen.getByLabelText('全局提示')).toHaveTextContent('DeepSeek 设置已重置。'))
+  })
+
+  it('keeps the edited model when saving the API key broadcasts older preferences', async () => {
+    let notifyPreferencesChanged: ((preferences: AssistantPreferences) => void) | undefined
+    const savedPreferences: AssistantPreferences[] = []
+    const oldPreferences = createPreferences({
+      deepseekEnabled: true,
+      deepseekApiKeyStored: false,
+      deepseekModel: 'deepseek-v4-flash',
+      deepseekBaseUrl: 'https://api.yunshulink.com/v1'
+    })
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({ preferences: oldPreferences })
+      ),
+      onAssistantPreferencesChanged: vi.fn((callback) => {
+        notifyPreferencesChanged = callback
+        return vi.fn()
+      }),
+      saveDeepSeekApiKey: vi.fn().mockImplementation(async () => {
+        notifyPreferencesChanged?.(
+          createPreferences({ ...oldPreferences, deepseekApiKeyStored: true })
+        )
+        return { configured: true, protection: 'encrypted' as const }
+      }),
+      savePreferences: vi.fn().mockImplementation(async (preferences: AssistantPreferences) => {
+        savedPreferences.push(preferences)
+        return preferences
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.change(screen.getByLabelText('DeepSeek API 密钥'), {
+      target: { value: 'sk-shared' }
+    })
+    fireEvent.change(screen.getByLabelText('DeepSeek 模型'), {
+      target: { value: 'deepseek-v4-pro' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存并测试' }))
+
+    await waitFor(() => expect(savedPreferences.length).toBeGreaterThan(0))
+    expect(savedPreferences.at(-1)).toEqual(
+      expect.objectContaining({
+        deepseekApiKeyStored: true,
+        deepseekModel: 'deepseek-v4-pro'
+      })
+    )
+    expect(screen.getByLabelText('DeepSeek 模型')).toHaveValue('deepseek-v4-pro')
   })
 
   it('falls back to the desktop clipboard when browser clipboard writing fails', async () => {

@@ -442,6 +442,12 @@ export type DeepSeekTaskKind =
   | 'pet-chat'
   | 'connection-test'
 
+export type DeepSeekTask = {
+  id: string
+  kind: DeepSeekTaskKind
+  detail?: string
+}
+
 export type DeepSeekKeyStatus = {
   configured: boolean
   protection: 'encrypted' | 'plaintext' | 'error' | 'unavailable'
