@@ -3611,6 +3611,28 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByText('「三分钟讲清机器学习科普教程」已开始转写。')).toBeInTheDocument()
   })
 
+  it('keeps the settings scroll position when enabling DeepSeek expands its settings downward', async () => {
+    let restoreExpandedScroll: FrameRequestCallback | undefined
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      restoreExpandedScroll = callback
+      return 1
+    })
+    const { container } = render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    const settingsBody = container.querySelector<HTMLElement>('.assistant-settings__body')
+    expect(settingsBody).not.toBeNull()
+    settingsBody!.scrollTop = 240
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek' }))
+    await waitFor(() => expect(screen.getByLabelText('DeepSeek API 密钥')).toBeInTheDocument())
+
+    settingsBody!.scrollTop = 620
+    expect(restoreExpandedScroll).toBeTypeOf('function')
+    act(() => restoreExpandedScroll?.(performance.now()))
+    expect(settingsBody!.scrollTop).toBe(240)
+  })
+
   it('keeps saved settings but marks DeepSeek disconnected when the merged test fails', async () => {
     const testDeepSeekConnection = vi.fn().mockResolvedValue({
       ok: false,

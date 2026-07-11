@@ -1391,6 +1391,7 @@ export function FloatingAssistantApp({
   }
 
   function toggleDeepSeekEnabled(enabled: boolean) {
+    const previousScrollTop = enabled ? settingsBodyRef.current?.scrollTop : undefined
     updateDeepSeekPreference(
       enabled
         ? {
@@ -1402,6 +1403,14 @@ export function FloatingAssistantApp({
         : { deepseekEnabled: false },
       { persist: true }
     )
+
+    if (previousScrollTop !== undefined) {
+      window.requestAnimationFrame(() => {
+        if (settingsBodyRef.current) {
+          settingsBodyRef.current.scrollTop = previousScrollTop
+        }
+      })
+    }
   }
 
   function jumpToSettingsSection(section: SettingsJumpValue) {

@@ -5105,7 +5105,12 @@ body[data-floating-window="true"],
 }
 .assistant-settings__group--deepseek .assistant-settings__actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.assistant-settings__group--deepseek .assistant-settings__actions button {
+  font-size: 12px;
+  white-space: nowrap;
+  min-width: 0;
 }
 .assistant-settings__actions button {
   border: 1px solid rgba(31, 99, 181, 0.3);

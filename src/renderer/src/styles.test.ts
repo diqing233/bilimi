@@ -771,7 +771,12 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain(
       '.assistant-settings__group--deepseek .assistant-settings__actions'
     )
-    expect(normalizedStyles).toContain('grid-template-columns: repeat(3, minmax(0, 1fr));')
+    expectStyleSnippet(
+      '.assistant-settings__group--deepseek .assistant-settings__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));'
+    )
+    expectStyleSnippet(
+      '.assistant-settings__group--deepseek .assistant-settings__actions button { font-size: 12px; white-space: nowrap;'
+    )
     expect(normalizedStyles).toContain('.assistant-settings__actions button:active')
     expect(normalizedStyles).toContain('.assistant-settings__actions button:focus-visible')
     expect(normalizedStyles).toContain('.assistant-settings__deepseek-recommendation')
