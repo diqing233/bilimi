@@ -517,6 +517,9 @@ describe('FavoriteLedgerPanel', () => {
     expect(dialog).toHaveTextContent('当前勾选来源中全部已整理的 1 条')
     expect(dialog).toHaveTextContent('按当前规则重新计算，不受以前分类限制')
     expect(dialog).toHaveTextContent('用户原有普通收藏不会改变')
+    expect(allReorganizeButton.closest('.favorite-ledger-panel__protected-summary')).toContainElement(dialog)
+    expect(allReorganizeButton.compareDocumentPosition(dialog) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(dialog.compareDocumentPosition(metrics) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     fireEvent.click(within(dialog).getByRole('button', { name: '继续重新整理' }))
 
     expect(screen.getByText('已重新纳入 1')).toBeInTheDocument()
@@ -587,6 +590,11 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '重新整理状态有变化的 2 条' }))
     const dialog = screen.getByRole('alertdialog', { name: '确认重新整理状态有变化的视频？' })
+    const changedStatusButton = screen.getByRole('button', { name: '重新整理状态有变化的 2 条' })
+    const archiveHealthMetrics = screen.getByLabelText('原归档状态')
+    expect(changedStatusButton.closest('.favorite-ledger-panel__protected-summary')).toContainElement(dialog)
+    expect(changedStatusButton.compareDocumentPosition(dialog) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(dialog.compareDocumentPosition(archiveHealthMetrics) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(dialog).toHaveTextContent('2 条')
     expect(dialog).toHaveTextContent('当前勾选来源')
     expect(dialog).toHaveTextContent('用户原有普通收藏不会改变')

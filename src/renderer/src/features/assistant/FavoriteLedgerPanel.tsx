@@ -4176,6 +4176,23 @@ export function FavoriteLedgerPanel({
                     >
                       重新整理全部已整理视频 {selectedProtectedOldFavorites.length} 条
                     </button>
+                    {protectedReorganizationConfirming ? (
+                      <div
+                        className="favorite-ledger-panel__execution-dialog favorite-ledger-panel__execution-dialog--inline"
+                        role="alertdialog"
+                        aria-modal="true"
+                        aria-label="确认重新整理已整理收藏？"
+                      >
+                        <h4>确认重新整理已整理收藏？</h4>
+                        <p>
+                          将把当前勾选来源中全部已整理的 {selectedProtectedOldFavorites.length} 条重新加入本轮判断，按当前规则重新计算，不受以前分类限制。用户原有普通收藏不会改变。
+                        </p>
+                        <div className="favorite-ledger-panel__execution-dialog-actions">
+                          <button type="button" onClick={() => setProtectedReorganizationConfirming(false)}>取消</button>
+                          <button type="button" onClick={confirmProtectedReorganization}>继续重新整理</button>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 <div className="favorite-ledger-panel__guide-metrics">
@@ -4226,6 +4243,23 @@ export function FavoriteLedgerPanel({
                             >
                               重新整理状态有变化的 {selectedAbnormalProtectedOldFavorites.length} 条
                             </button>
+                            {abnormalProtectionReorganizationConfirming ? (
+                              <div
+                                className="favorite-ledger-panel__execution-dialog favorite-ledger-panel__execution-dialog--inline"
+                                role="alertdialog"
+                                aria-modal="true"
+                                aria-label="确认重新整理状态有变化的视频？"
+                              >
+                                <h4>确认重新整理状态有变化的视频？</h4>
+                                <p>
+                                  将把当前勾选来源中仅保留部分原归档或已不在原归档的 {selectedAbnormalProtectedOldFavorites.length} 条重新加入本轮判断，并按当前启用的收藏夹规则重新整理。用户原有普通收藏不会改变。
+                                </p>
+                                <div className="favorite-ledger-panel__execution-dialog-actions">
+                                  <button type="button" onClick={() => setAbnormalProtectionReorganizationConfirming(false)}>取消</button>
+                                  <button type="button" onClick={confirmAbnormalProtectedReorganization}>继续重新整理</button>
+                                </div>
+                              </div>
+                            ) : null}
                           </>
                         ) : (
                           <small>之前已经确认整理的收藏，本轮不会重新判断，也不会改变原来的归档。</small>
@@ -4247,40 +4281,6 @@ export function FavoriteLedgerPanel({
                   </>
                 ) : null}
               </section>
-              {abnormalProtectionReorganizationConfirming ? (
-                <div
-                  className="favorite-ledger-panel__execution-dialog"
-                  role="alertdialog"
-                  aria-modal="true"
-                  aria-label="确认重新整理状态有变化的视频？"
-                >
-                  <h4>确认重新整理状态有变化的视频？</h4>
-                  <p>
-                    将把当前勾选来源中仅保留部分原归档或已不在原归档的 {selectedAbnormalProtectedOldFavorites.length} 条重新加入本轮判断，并按当前启用的收藏夹规则重新整理。用户原有普通收藏不会改变。
-                  </p>
-                  <div className="favorite-ledger-panel__execution-dialog-actions">
-                    <button type="button" onClick={() => setAbnormalProtectionReorganizationConfirming(false)}>取消</button>
-                    <button type="button" onClick={confirmAbnormalProtectedReorganization}>继续重新整理</button>
-                  </div>
-                </div>
-              ) : null}
-              {protectedReorganizationConfirming ? (
-                <div
-                  className="favorite-ledger-panel__execution-dialog"
-                  role="alertdialog"
-                  aria-modal="true"
-                  aria-label="确认重新整理已整理收藏？"
-                >
-                  <h4>确认重新整理已整理收藏？</h4>
-                  <p>
-                    将把当前勾选来源中全部已整理的 {selectedProtectedOldFavorites.length} 条重新加入本轮判断，按当前规则重新计算，不受以前分类限制。用户原有普通收藏不会改变。
-                  </p>
-                  <div className="favorite-ledger-panel__execution-dialog-actions">
-                    <button type="button" onClick={() => setProtectedReorganizationConfirming(false)}>取消</button>
-                    <button type="button" onClick={confirmProtectedReorganization}>继续重新整理</button>
-                  </div>
-                </div>
-              ) : null}
               {preview.insights ? (
                 <>
                   <hr className="favorite-ledger-panel__step-divider" aria-hidden="true" />

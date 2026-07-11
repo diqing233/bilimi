@@ -4027,12 +4027,15 @@ body[data-floating-window="true"],
 }
 
 .favorite-ledger-panel__protected-summary {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 6px;
   color: var(--porcelain-muted);
+}
+
+.favorite-ledger-panel__protected-summary small {
+  min-width: 0;
 }
 
 .favorite-ledger-panel__reconciliation-delta {
@@ -4041,6 +4044,7 @@ body[data-floating-window="true"],
 }
 
 .favorite-ledger-panel__protected-summary button {
+  justify-self: end;
   min-height: 28px;
   padding: 4px 8px;
 }
@@ -4062,7 +4066,10 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__insights,
 .favorite-ledger-panel__candidates {
   display: grid;
-  gap: 8px;
+  gap: 6px;
+}
+.favorite-ledger-panel__insights h4 {
+  margin: 0;
 }
 .favorite-ledger-panel__step-divider {
   border: 0;
@@ -4486,6 +4493,10 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__execution-dialog h4,
 .favorite-ledger-panel__execution-dialog p {
   margin: 0;
+}
+.favorite-ledger-panel__execution-dialog--inline {
+  grid-column: 1 / -1;
+  margin-top: 0;
 }
 .favorite-ledger-panel__execution-dialog-actions {
   display: grid;
