@@ -6,7 +6,6 @@ import type {
   VideoNoteArchiveVersion
 } from '@shared/types'
 import {
-  createNotePosterText,
   createNotePosterCopyParts,
   createPlainTranscriptText,
   searchVideoNoteArchives
@@ -28,7 +27,10 @@ type VideoNoteArchivePanelProps = {
   onDeleteVersion: (archiveId: string, versionId: string) => Promise<void>
   deepSeekEnabled?: boolean
   onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
-  onArchivePosterSummary?: (note: VideoNote, poster: NotePosterSummary) => Promise<void>
+  onArchivePosterSummary?: (
+    note: VideoNote,
+    poster: NotePosterSummary
+  ) => Promise<VideoNoteArchiveEntry[] | void>
   selectedArchiveId?: string | null
   selectedVersionId?: string | null
   activeResultTab?: ArchiveResultTab | null
@@ -329,20 +331,21 @@ export function VideoNoteArchivePanel({
     setStatusMessage('')
     try {
       const poster = await onGeneratePoster(version.note)
-      const summaryText = createNotePosterText(poster)
-      await onArchivePosterSummary?.(version.note, poster)
-      await updateSelectedNote(
-        {
-          ...version.note,
-          overview: {
-            ...version.note.overview,
-            shortSummary: [poster.subtitle, ...poster.keyPoints].filter(Boolean),
-            keywords: poster.keywords.length > 0 ? poster.keywords : version.note.overview.keywords
-          },
-          updatedAt: new Date().toISOString()
-        },
-        summaryText
-      )
+      const archived = await onArchivePosterSummary?.(version.note, poster)
+      if (archived) {
+        const updatedArchive = archived.find((archive) => archive.id === selectedArchive?.id)
+        const latestVersion = updatedArchive?.versions.at(-1)
+        setLocalArchives(archived)
+        if (updatedArchive && latestVersion) {
+          setArchiveSelection({
+            archiveId: updatedArchive.id,
+            versionId: latestVersion.id,
+            activeResultTab: 'summary'
+          })
+        }
+      } else {
+        throw new Error('DeepSeek 总结未能保存为新版本。')
+      }
       setStatusMessage('DeepSeek 总结已生成。')
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : 'DeepSeek 总结生成失败。')

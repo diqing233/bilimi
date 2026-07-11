@@ -2126,6 +2126,8 @@ export function FloatingAssistantApp({
     if (archives) {
       setVideoNoteArchives(archives)
     }
+
+    return archives
   }
 
   async function loadVideoNoteArchives({ silent = false } = {}) {

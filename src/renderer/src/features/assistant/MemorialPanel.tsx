@@ -51,7 +51,10 @@ type MemorialPanelProps = {
   onCancelQueuedVideoAudioTranscription?: (id: string) => void
   onRetryQueuedVideoAudioTranscription?: (id: string) => void
   onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
-  onArchivePosterSummary?: (note: VideoNote, poster: NotePosterSummary) => Promise<void>
+  onArchivePosterSummary?: (
+    note: VideoNote,
+    poster: NotePosterSummary
+  ) => Promise<VideoNoteArchiveEntry[] | void>
   onSaveVideoNote: (note: VideoNote) => Promise<void>
   onChangeVideoNote?: (note: VideoNote) => void
   onOpenVideoNoteArchive?: () => void

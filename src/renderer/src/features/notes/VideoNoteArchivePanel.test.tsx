@@ -450,9 +450,20 @@ describe('VideoNoteArchivePanel', () => {
       auditChecklistText: '- 文稿：已读取'
     }
     const onGeneratePoster = vi.fn().mockResolvedValue(poster)
-    const onArchivePosterSummary = vi.fn().mockResolvedValue(undefined)
+    const originalArchives = createArchives()
+    const nextArchives = appendVideoNoteArchiveVersion(
+      originalArchives,
+      createNote({ updatedAt: '2026-06-17T02:00:00.000Z' }),
+      '2026-06-17T02:00:00.000Z',
+      '## 精准总结\n\n### 归档总结\n基于已有文稿生成'
+    )
+    const onArchivePosterSummary = vi.fn().mockResolvedValue(nextArchives)
 
-    renderArchivePanel({ onGeneratePoster, onArchivePosterSummary })
+    renderArchivePanel({
+      archives: originalArchives,
+      onGeneratePoster,
+      onArchivePosterSummary
+    })
 
     fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
     fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
@@ -463,6 +474,86 @@ describe('VideoNoteArchivePanel', () => {
     })))
     expect(onArchivePosterSummary).toHaveBeenCalledWith(expect.any(Object), poster)
     expect(await screen.findByText('归档总结')).toBeInTheDocument()
+  })
+
+  it('switches to the newly archived version after regenerating a summary', async () => {
+    const originalSummary = '## 精准总结\n\n### 旧总结'
+    const originalArchives = appendVideoNoteArchiveVersion(
+      [],
+      createNote(),
+      '2026-06-17T00:00:00.000Z',
+      originalSummary
+    )
+    const poster: NotePosterSummary = {
+      title: '新总结',
+      subtitle: '重新生成的内容',
+      keyPoints: ['保留历史版本'],
+      keywords: ['档案'],
+      prompt: 'regenerated archive poster'
+    }
+    const nextArchives = appendVideoNoteArchiveVersion(
+      originalArchives,
+      createNote({ updatedAt: '2026-06-17T01:00:00.000Z' }),
+      '2026-06-17T01:00:00.000Z',
+      '## 精准总结\n\n### 新总结\n重新生成的内容'
+    )
+    const onArchivePosterSummary = vi.fn().mockResolvedValue(nextArchives)
+    const onUpdateVersion = vi.fn().mockResolvedValue(undefined)
+
+    renderArchivePanel({
+      archives: originalArchives,
+      onGeneratePoster: vi.fn().mockResolvedValue(poster),
+      onArchivePosterSummary,
+      onUpdateVersion
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+    fireEvent.click(screen.getByRole('button', { name: '重新总结' }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('历史版本')).toHaveValue(
+        'bvid:BV1note:version:2026-06-17T01:00:00.000Z'
+      )
+    )
+    expect(screen.getByText('新总结')).toBeInTheDocument()
+    expect(onUpdateVersion).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText('历史版本'), {
+      target: { value: 'bvid:BV1note:version:2026-06-17T00:00:00.000Z' }
+    })
+    expect(screen.getByText('旧总结')).toBeInTheDocument()
+  })
+
+  it('keeps the current summary unchanged when archiving a regenerated version fails', async () => {
+    const originalSummary = '## 精准总结\n\n### 旧总结'
+    const originalArchives = appendVideoNoteArchiveVersion(
+      [],
+      createNote(),
+      '2026-06-17T00:00:00.000Z',
+      originalSummary
+    )
+    const onUpdateVersion = vi.fn().mockResolvedValue(undefined)
+
+    renderArchivePanel({
+      archives: originalArchives,
+      onGeneratePoster: vi.fn().mockResolvedValue({
+        title: '新总结',
+        subtitle: '不应覆盖旧版本',
+        keyPoints: ['归档失败'],
+        keywords: ['档案'],
+        prompt: 'failed archive poster'
+      }),
+      onArchivePosterSummary: vi.fn().mockResolvedValue(undefined),
+      onUpdateVersion
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+    fireEvent.click(screen.getByRole('button', { name: '重新总结' }))
+
+    expect(await screen.findByText('旧总结')).toBeInTheDocument()
+    expect(onUpdateVersion).not.toHaveBeenCalled()
   })
 
   it('saves archive memo and starred state while keeping them filterable', async () => {

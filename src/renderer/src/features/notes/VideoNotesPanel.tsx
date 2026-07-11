@@ -39,7 +39,10 @@ type VideoNotesPanelProps = {
   onCancelQueuedVideoAudioTranscription?: (id: string) => void
   onRetryQueuedVideoAudioTranscription?: (id: string) => void
   onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
-  onArchivePosterSummary?: (note: VideoNote, poster: NotePosterSummary) => Promise<void>
+  onArchivePosterSummary?: (
+    note: VideoNote,
+    poster: NotePosterSummary
+  ) => Promise<VideoNoteArchiveEntry[] | void>
   onOpenArchive?: () => void
   archivedSummaryText?: string
   deepSeekEnabled?: boolean
