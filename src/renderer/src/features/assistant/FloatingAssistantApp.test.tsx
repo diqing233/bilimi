@@ -1011,6 +1011,134 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledOnce())
   })
 
+  it('validates the saved DeepSeek connection again after it is disabled and re-enabled', async () => {
+    const startupConnectionTest = createDeferred<{
+      ok: boolean
+      message: string
+      requestedModel: string
+      responseModel: string
+    }>()
+    const reenabledConnectionTest = createDeferred<{
+      ok: boolean
+      message: string
+      requestedModel: string
+      responseModel: string
+    }>()
+    const testDeepSeekConnection = vi
+      .fn()
+      .mockReturnValueOnce(startupConnectionTest.promise)
+      .mockReturnValueOnce(reenabledConnectionTest.promise)
+    const connectionResult = {
+      ok: true,
+      message: 'DeepSeek connection succeeded.',
+      requestedModel: 'deepseek-v4-pro',
+      responseModel: 'deepseek-v4-pro'
+    }
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true,
+            deepseekApiKeyStored: true,
+            deepseekModel: 'deepseek-v4-pro'
+          })
+        })
+      ),
+      testDeepSeekConnection
+    })
+
+    render(<FloatingAssistantApp mode="sidebar" />)
+
+    await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledOnce())
+    startupConnectionTest.resolve(connectionResult)
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 已连接')
+    )
+
+    fireEvent.click(screen.getByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek' }))
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 未启用')
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek' }))
+
+    await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledTimes(2))
+    expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 验证中')
+
+    reenabledConnectionTest.resolve(connectionResult)
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 已连接')
+    )
+  })
+
+  it('does not validate DeepSeek when it is enabled without a saved key', async () => {
+    const testDeepSeekConnection = vi.fn()
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: false,
+            deepseekApiKeyStored: false
+          })
+        })
+      ),
+      testDeepSeekConnection
+    })
+
+    render(<FloatingAssistantApp mode="sidebar" />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek' }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 待配置')
+    )
+    expect(testDeepSeekConnection).not.toHaveBeenCalled()
+  })
+
+  it('does not duplicate an in-flight validation when DeepSeek is quickly disabled and re-enabled', async () => {
+    const connectionTest = createDeferred<{
+      ok: boolean
+      message: string
+      requestedModel: string
+      responseModel: string
+    }>()
+    const testDeepSeekConnection = vi.fn().mockReturnValue(connectionTest.promise)
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true,
+            deepseekApiKeyStored: true,
+            deepseekModel: 'deepseek-v4-pro'
+          })
+        })
+      ),
+      testDeepSeekConnection
+    })
+
+    render(<FloatingAssistantApp mode="sidebar" />)
+
+    await waitFor(() => expect(testDeepSeekConnection).toHaveBeenCalledOnce())
+    fireEvent.click(screen.getByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '启用 DeepSeek' }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 验证中')
+    )
+    expect(testDeepSeekConnection).toHaveBeenCalledOnce()
+
+    connectionTest.resolve({
+      ok: true,
+      message: 'DeepSeek connection succeeded.',
+      requestedModel: 'deepseek-v4-pro',
+      responseModel: 'deepseek-v4-pro'
+    })
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 已连接')
+    )
+  })
+
   it.each([
     {
       deepseekEnabled: false,

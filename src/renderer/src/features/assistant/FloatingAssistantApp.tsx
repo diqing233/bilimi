@@ -624,6 +624,7 @@ export function FloatingAssistantApp({
   const lastRuntimeFeedbackId = useRef<number | undefined>(undefined)
   const runtimeFeedbackSnapshotLoaded = useRef(false)
   const startupDeepSeekValidationAttempted = useRef(false)
+  const deepSeekConnectionValidationInFlight = useRef(false)
   const snapshotLoadQueue = useRef<Promise<void>>(Promise.resolve())
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences()
@@ -1065,6 +1066,7 @@ export function FloatingAssistantApp({
       mode !== 'sidebar' ||
       !snapshot ||
       startupDeepSeekValidationAttempted.current ||
+      deepSeekConnectionValidationInFlight.current ||
       !preferences.deepseekEnabled ||
       !preferences.deepseekApiKeyStored ||
       !window.bilimiDesktop?.testDeepSeekConnection
@@ -1073,6 +1075,7 @@ export function FloatingAssistantApp({
     }
 
     startupDeepSeekValidationAttempted.current = true
+    deepSeekConnectionValidationInFlight.current = true
     const finishDeepSeekTask = startDeepSeekTask({
       id: 'startup-connection-test',
       kind: 'connection-test',
@@ -1087,7 +1090,10 @@ export function FloatingAssistantApp({
       .catch(() => {
         setDeepSeekConnectionStatus('failed')
       })
-      .finally(finishDeepSeekTask)
+      .finally(() => {
+        deepSeekConnectionValidationInFlight.current = false
+        finishDeepSeekTask()
+      })
   }, [mode, preferences.deepseekApiKeyStored, preferences.deepseekEnabled, snapshot])
 
   useEffect(() => {
@@ -1482,6 +1488,11 @@ export function FloatingAssistantApp({
 
   function toggleDeepSeekEnabled(enabled: boolean) {
     const previousScrollTop = enabled ? settingsBodyRef.current?.scrollTop : undefined
+
+    if (!enabled) {
+      startupDeepSeekValidationAttempted.current = false
+    }
+
     updateDeepSeekPreference(
       enabled && !preferencesRef.current.deepseekFeatureDefaultsInitialized
         ? {
