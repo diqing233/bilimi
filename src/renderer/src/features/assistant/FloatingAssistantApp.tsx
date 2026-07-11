@@ -1558,9 +1558,14 @@ export function FloatingAssistantApp({
       }
       const result = await window.bilimiDesktop.testDeepSeekConnection()
       const statusMessage = localizeDeepSeekStatusMessage(result.message)
+      const modelStatus = result.ok
+        ? `请求模型：${result.requestedModel ?? preferencesRef.current.deepseekModel}；服务端返回模型：${result.responseModel ?? '未披露'}。`
+        : ''
       setDeepSeekConnectionStatus(result.ok ? 'connected' : 'failed')
       setGlobalFeedback(
-        result.ok ? statusMessage : `配置已保存，但连接测试失败：${statusMessage}`
+        result.ok
+          ? `${statusMessage}${modelStatus}`
+          : `配置已保存，但连接测试失败：${statusMessage}`
       )
       tellPet(result.ok ? 'success' : 'error', statusMessage)
     } catch {

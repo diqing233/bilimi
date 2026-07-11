@@ -4162,6 +4162,36 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
+  it('shows both the requested model and the model reported by the service after testing', async () => {
+    installDesktopApi({
+      testDeepSeekConnection: vi.fn().mockResolvedValue({
+        ok: true,
+        message: 'DeepSeek connection succeeded.',
+        requestedModel: 'deepseek-v4-pro',
+        responseModel: 'deepseek-v4-pro-20260701'
+      }),
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true,
+            deepseekApiKeyStored: true,
+            deepseekModel: 'deepseek-v4-pro'
+          })
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+    fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存并测试' }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('全局提示')).toHaveTextContent(
+        'DeepSeek 连接成功。请求模型：deepseek-v4-pro；服务端返回模型：deepseek-v4-pro-20260701。'
+      )
+    )
+  })
+
   it('does not reset DeepSeek settings when confirmation is cancelled', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
     const { clearDeepSeekApiKey, savePreferences } = installDesktopApi({

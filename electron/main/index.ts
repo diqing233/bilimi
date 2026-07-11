@@ -590,6 +590,7 @@ let videoTranscriptionQueue:
   | null = null
 
 async function testDeepSeekConnectionForPreferences(preferences: AssistantPreferences) {
+  let responseModel: string | undefined
   try {
     await generateDeepSeekResult({
       config: {
@@ -601,16 +602,28 @@ async function testDeepSeekConnectionForPreferences(preferences: AssistantPrefer
       request: {
         kind: 'pet-chat',
         messages: [{ role: 'user', content: 'Reply with OK.' }]
+      },
+      onResponseMetadata: (metadata) => {
+        responseModel = metadata.model
       }
     })
 
-    return { ok: true, message: 'DeepSeek connection succeeded.' }
+    return {
+      ok: true,
+      message: 'DeepSeek connection succeeded.',
+      requestedModel: preferences.deepseekModel,
+      responseModel
+    }
   } catch (error) {
     if (error instanceof DeepSeekServiceError) {
-      return { ok: false, message: error.message }
+      return { ok: false, message: error.message, requestedModel: preferences.deepseekModel }
     }
 
-    return { ok: false, message: 'DeepSeek connection failed.' }
+    return {
+      ok: false,
+      message: 'DeepSeek connection failed.',
+      requestedModel: preferences.deepseekModel
+    }
   }
 }
 

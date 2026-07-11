@@ -745,6 +745,33 @@ describe('DeepSeek main service', () => {
     ).resolves.toEqual({ kind: 'pet-chat', message: 'Thanks for sharing this page.' })
   })
 
+  it('reports the model name returned by the API response', async () => {
+    const onResponseMetadata = vi.fn()
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: vi.fn().mockResolvedValue(
+        JSON.stringify({
+          model: 'deepseek-v4-pro-20260701',
+          choices: [{ message: { content: 'OK' } }]
+        })
+      )
+    })
+
+    await generateDeepSeekResult({
+      config: baseConfig,
+      request: {
+        kind: 'pet-chat',
+        messages: [{ role: 'user', content: 'hello' }]
+      },
+      fetchImpl,
+      onResponseMetadata
+    })
+
+    expect(onResponseMetadata).toHaveBeenCalledWith({ model: 'deepseek-v4-pro-20260701' })
+  })
+
   it('passes cancellation signals to fetch without adding timeout options', async () => {
     const fetchImpl = createJsonFetch('ok')
     const controller = new AbortController()

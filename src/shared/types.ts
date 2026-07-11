@@ -453,7 +453,12 @@ export type DeepSeekKeyStatus = {
   protection: 'encrypted' | 'plaintext' | 'error' | 'unavailable'
 }
 
-export type DeepSeekConnectionTestResult = { ok: boolean; message: string }
+export type DeepSeekConnectionTestResult = {
+  ok: boolean
+  message: string
+  requestedModel?: string
+  responseModel?: string
+}
 
 export type StartupDiagnosticStatus = 'ok' | 'warning' | 'error'
 
