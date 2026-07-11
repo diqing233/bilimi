@@ -507,7 +507,7 @@ describe('FavoriteLedgerPanel', () => {
     const allReorganizeButton = screen.getByRole('button', { name: '重新整理全部已整理视频 1 条' })
     const metrics = screen.getByText('共扫描').closest('.favorite-ledger-panel__guide-metrics')
     expect(screen.getByText(/当前勾选来源中的全部已整理视频/)).toBeInTheDocument()
-    expect(screen.getByText('仍在原归档').closest('article')).toHaveTextContent('1')
+    expect(screen.queryByLabelText('原归档状态')).not.toBeInTheDocument()
     expect(basicDataHeading.compareDocumentPosition(allReorganizeButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(allReorganizeButton.compareDocumentPosition(metrics) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.queryByText('默认来源已整理')).not.toBeInTheDocument()
@@ -519,7 +519,6 @@ describe('FavoriteLedgerPanel', () => {
     expect(dialog).toHaveTextContent('用户原有普通收藏不会改变')
     expect(allReorganizeButton.closest('.favorite-ledger-panel__protected-summary')).toContainElement(dialog)
     expect(allReorganizeButton.compareDocumentPosition(dialog) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(dialog.compareDocumentPosition(metrics) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     fireEvent.click(within(dialog).getByRole('button', { name: '继续重新整理' }))
 
     expect(screen.getByText('已重新纳入 1')).toBeInTheDocument()
@@ -584,13 +583,17 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('仅保留部分归档').closest('article')).toHaveTextContent('1')
     expect(screen.getByText('已不在原归档').closest('article')).toHaveTextContent('1')
     expect(screen.getByText(/原归档状态发生变化/)).toBeInTheDocument()
-    expect(screen.getByText(/仍在原归档表示视频仍位于全部原归档收藏夹/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '重新整理状态有变化的 2 条' })).toBeInTheDocument()
+    expect(screen.queryByText(/仍在原归档表示视频仍位于全部原归档收藏夹/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/仅保留部分归档表示只剩部分位置/)).not.toBeInTheDocument()
+    const changedStatusButton = screen.getByRole('button', { name: '重新整理状态有变化的 2 条' })
+    expect(changedStatusButton).toHaveAttribute(
+      'title',
+      '原归档是上次整理时记录的视频所在收藏夹。状态变化表示视频已不完全在原位置中；为避免覆盖你的手动调整，本轮先跳过，点击后重新纳入整理。'
+    )
     expect(screen.getByRole('button', { name: '重新整理全部已整理视频 3 条' })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '重新整理状态有变化的 2 条' }))
+    fireEvent.click(changedStatusButton)
     const dialog = screen.getByRole('alertdialog', { name: '确认重新整理状态有变化的视频？' })
-    const changedStatusButton = screen.getByRole('button', { name: '重新整理状态有变化的 2 条' })
     const archiveHealthMetrics = screen.getByLabelText('原归档状态')
     expect(changedStatusButton.closest('.favorite-ledger-panel__protected-summary')).toContainElement(dialog)
     expect(changedStatusButton.compareDocumentPosition(dialog) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()

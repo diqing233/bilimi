@@ -130,6 +130,8 @@ type ArchivePreviewHistorySnapshot = {
 const OLD_FAVORITE_APPEND_DELAY_MS = { min: 1200, max: 3000 }
 const OLD_FAVORITE_COOLDOWN_DELAY_MS = { min: 15000, max: 45000 }
 const OLD_FAVORITE_COOLDOWN_EVERY = 25
+const OLD_FAVORITE_ARCHIVE_HEALTH_HINT =
+  '原归档是上次整理时记录的视频所在收藏夹。状态变化表示视频已不完全在原位置中；为避免覆盖你的手动调整，本轮先跳过，点击后重新纳入整理。'
 
 function splitKeywords(value: string) {
   return value
@@ -3197,6 +3199,7 @@ export function FavoriteLedgerPanel({
     ),
     [selectedProtectedOldFavorites]
   )
+  const hasSelectedAbnormalProtectedOldFavorites = selectedAbnormalProtectedOldFavorites.length > 0
   const activeOldFavoriteCount = baseScanPreview?.items.length ?? preview?.items.length ?? 0
   const totalScannedOldFavoriteCount =
     baseScanPreview?.scanContext?.totalUniqueVideos ??
@@ -4221,7 +4224,7 @@ export function FavoriteLedgerPanel({
                     <strong>{skippedSourceFolderCount}</strong>
                   </article>
                 </div>
-                {preview.scanContext && protectedOldFavoriteCount > 0 ? (
+                {preview.scanContext && (reorganizedProtectedAids.size > 0 || hasSelectedAbnormalProtectedOldFavorites) ? (
                   <div className="favorite-ledger-panel__protected-summary">
                     {reorganizedProtectedAids.size > 0 ? (
                       <>
@@ -4230,7 +4233,7 @@ export function FavoriteLedgerPanel({
                       </>
                     ) : (
                       <>
-                        {protectedArchiveHealthCounts.incomplete > 0 || protectedArchiveHealthCounts.invalid > 0 ? (
+                        {hasSelectedAbnormalProtectedOldFavorites ? (
                           <>
                             <small>
                               发现 {selectedAbnormalProtectedOldFavorites.length} 条视频的原归档状态发生变化。为避免覆盖你的手动调整，本轮暂不处理。
@@ -4238,6 +4241,7 @@ export function FavoriteLedgerPanel({
                             <button
                               type="button"
                               aria-label={`重新整理状态有变化的 ${selectedAbnormalProtectedOldFavorites.length} 条`}
+                              title={OLD_FAVORITE_ARCHIVE_HEALTH_HINT}
                               disabled={selectedAbnormalProtectedOldFavorites.length === 0}
                               onClick={() => setAbnormalProtectionReorganizationConfirming(true)}
                             >
@@ -4261,24 +4265,17 @@ export function FavoriteLedgerPanel({
                               </div>
                             ) : null}
                           </>
-                        ) : (
-                          <small>之前已经确认整理的收藏，本轮不会重新判断，也不会改变原来的归档。</small>
-                        )}
+                        ) : null}
                       </>
                     )}
                   </div>
                 ) : null}
-                {preview.scanContext && protectedOldFavoriteCount > 0 ? (
-                  <>
-                    <div className="favorite-ledger-panel__guide-metrics" aria-label="原归档状态">
-                      <article><span>仍在原归档</span><strong>{protectedArchiveHealthCounts.complete}</strong></article>
-                      <article><span>仅保留部分归档</span><strong>{protectedArchiveHealthCounts.incomplete}</strong></article>
-                      <article><span>已不在原归档</span><strong>{protectedArchiveHealthCounts.invalid}</strong></article>
-                    </div>
-                    <small className="favorite-ledger-panel__step-note">
-                      仍在原归档表示视频仍位于全部原归档收藏夹；仅保留部分归档表示只剩部分位置；已不在原归档表示原来的归档位置均已移除。
-                    </small>
-                  </>
+                {preview.scanContext && hasSelectedAbnormalProtectedOldFavorites ? (
+                  <div className="favorite-ledger-panel__guide-metrics" aria-label="原归档状态">
+                    <article><span>仍在原归档</span><strong>{protectedArchiveHealthCounts.complete}</strong></article>
+                    <article><span>仅保留部分归档</span><strong>{protectedArchiveHealthCounts.incomplete}</strong></article>
+                    <article><span>已不在原归档</span><strong>{protectedArchiveHealthCounts.invalid}</strong></article>
+                  </div>
                 ) : null}
               </section>
               {preview.insights ? (
