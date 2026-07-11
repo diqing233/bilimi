@@ -1366,6 +1366,7 @@ export function FavoriteLedgerPanel({
   const [baseScanPreview, setBaseScanPreview] = useState<FavoriteLedgerPreview | null>(null)
   const [reorganizedProtectedAids, setReorganizedProtectedAids] = useState<Set<number>>(new Set())
   const [protectedReorganizationConfirming, setProtectedReorganizationConfirming] = useState(false)
+  const [abnormalProtectionReorganizationConfirming, setAbnormalProtectionReorganizationConfirming] = useState(false)
   const [selectedDefaultLedgerIds, setSelectedDefaultLedgerIds] = useState<Set<string>>(
     () => new Set(ledgers.filter((ledger) => ledger.enabled && ledger.isDefault).map((ledger) => ledger.id))
   )
@@ -1502,6 +1503,7 @@ export function FavoriteLedgerPanel({
     setBaseScanPreview(null)
     setReorganizedProtectedAids(new Set())
     setProtectedReorganizationConfirming(false)
+    setAbnormalProtectionReorganizationConfirming(false)
     setArchivePlanState(null)
     setPendingUnclassifiedDecision(null)
     clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
@@ -2171,6 +2173,7 @@ export function FavoriteLedgerPanel({
       setBaseScanPreview(normalizedPreview)
       setReorganizedProtectedAids(new Set())
       setProtectedReorganizationConfirming(false)
+      setAbnormalProtectionReorganizationConfirming(false)
       setArchivePlanState(createArchivePlanStateFromPreviewItems(normalizedPreview.items, nextCandidateKeys))
       clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
       setPendingUnclassifiedDecision(null)
@@ -3168,6 +3171,13 @@ export function FavoriteLedgerPanel({
     return Array.from(sourceFolderCounts, ([name, count]) => ({ name, count }))
   }, [baseScanPreview, preview])
   const protectedOldFavoriteCount = baseScanPreview?.scanContext?.protectedVideos.length ?? 0
+  const protectedArchiveHealthCounts = useMemo(() => {
+    const counts = { complete: 0, incomplete: 0, invalid: 0 }
+    for (const item of baseScanPreview?.scanContext?.protectedVideos ?? []) {
+      counts[item.archiveHealth ?? 'complete'] += 1
+    }
+    return counts
+  }, [baseScanPreview])
   const selectedProtectedOldFavorites = useMemo(
     () =>
       (baseScanPreview?.scanContext?.protectedVideos ?? []).filter(
@@ -3178,6 +3188,12 @@ export function FavoriteLedgerPanel({
           )
       ),
     [baseScanPreview, reorganizedProtectedAids, selectedOldFavoriteSourceFolderTitles]
+  )
+  const selectedAbnormalProtectedOldFavorites = useMemo(
+    () => selectedProtectedOldFavorites.filter((item) =>
+      item.archiveHealth === 'incomplete' || item.archiveHealth === 'invalid'
+    ),
+    [selectedProtectedOldFavorites]
   )
   const activeOldFavoriteCount = baseScanPreview?.items.length ?? preview?.items.length ?? 0
   const totalScannedOldFavoriteCount =
@@ -3226,6 +3242,14 @@ export function FavoriteLedgerPanel({
     for (const item of selectedProtectedOldFavorites) next.add(item.aid)
     setReorganizedProtectedAids(next)
     setProtectedReorganizationConfirming(false)
+    applyProtectedReorganization(next)
+  }
+
+  function confirmAbnormalProtectedReorganization() {
+    const next = new Set(reorganizedProtectedAids)
+    for (const item of selectedAbnormalProtectedOldFavorites) next.add(item.aid)
+    setReorganizedProtectedAids(next)
+    setAbnormalProtectionReorganizationConfirming(false)
     applyProtectedReorganization(next)
   }
 
@@ -4174,7 +4198,21 @@ export function FavoriteLedgerPanel({
                       </>
                     ) : (
                       <>
-                        <small>之前已经确认整理的收藏，本轮不会重新判断，也不会改变原来的归档。</small>
+                        {protectedArchiveHealthCounts.incomplete > 0 || protectedArchiveHealthCounts.invalid > 0 ? (
+                          <>
+                            <small>异常收藏仍受保护，本轮不会自动调整，建议重新整理。</small>
+                            <button
+                              type="button"
+                              aria-label="重新整理异常收藏"
+                              disabled={selectedAbnormalProtectedOldFavorites.length === 0}
+                              onClick={() => setAbnormalProtectionReorganizationConfirming(true)}
+                            >
+                              重新整理异常收藏 {selectedAbnormalProtectedOldFavorites.length}
+                            </button>
+                          </>
+                        ) : (
+                          <small>之前已经确认整理的收藏，本轮不会重新判断，也不会改变原来的归档。</small>
+                        )}
                         <button
                           type="button"
                           aria-label="重新整理这些收藏"
@@ -4187,7 +4225,31 @@ export function FavoriteLedgerPanel({
                     )}
                   </div>
                 ) : null}
+                {preview.scanContext && protectedOldFavoriteCount > 0 ? (
+                  <div className="favorite-ledger-panel__guide-metrics" aria-label="归档保护状态">
+                    <article><span>归档完整</span><strong>{protectedArchiveHealthCounts.complete}</strong></article>
+                    <article><span>归档不完整</span><strong>{protectedArchiveHealthCounts.incomplete}</strong></article>
+                    <article><span>归档已失效</span><strong>{protectedArchiveHealthCounts.invalid}</strong></article>
+                  </div>
+                ) : null}
               </section>
+              {abnormalProtectionReorganizationConfirming ? (
+                <div
+                  className="favorite-ledger-panel__execution-dialog"
+                  role="alertdialog"
+                  aria-modal="true"
+                  aria-label="确认重新整理异常收藏？"
+                >
+                  <h4>确认重新整理异常收藏？</h4>
+                  <p>
+                    将把当前来源中归档不完整或已失效的 {selectedAbnormalProtectedOldFavorites.length} 条重新加入本轮判断，并按当前启用的账册规则重新整理。用户原有普通收藏不会改变。
+                  </p>
+                  <div className="favorite-ledger-panel__execution-dialog-actions">
+                    <button type="button" onClick={() => setAbnormalProtectionReorganizationConfirming(false)}>取消</button>
+                    <button type="button" onClick={confirmAbnormalProtectedReorganization}>继续重新整理</button>
+                  </div>
+                </div>
+              ) : null}
               {protectedReorganizationConfirming ? (
                 <div
                   className="favorite-ledger-panel__execution-dialog"

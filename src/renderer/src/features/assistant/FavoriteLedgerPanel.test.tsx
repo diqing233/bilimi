@@ -523,6 +523,70 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.queryByText('默认来源已整理')).not.toBeInTheDocument()
   })
 
+  it('reports archive health and reintroduces only abnormal protected favorites', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.scanContext = {
+      accountMid: '42',
+      totalUniqueVideos: 5,
+      activeSourceFolders: [],
+      protectedVideos: [
+        {
+          aid: 801,
+          title: '归档完整',
+          sourceFolderIds: ['source-1'],
+          sourceFolderTitles: ['默认收藏夹'],
+          currentBilimiFolderIds: ['9001'],
+          protectedForIncrementalScan: true,
+          archiveHealth: 'complete'
+        },
+        {
+          aid: 802,
+          title: '归档不完整',
+          sourceFolderIds: ['source-1'],
+          sourceFolderTitles: ['默认收藏夹'],
+          currentBilimiFolderIds: ['9001'],
+          protectedForIncrementalScan: true,
+          archiveHealth: 'incomplete'
+        },
+        {
+          aid: 803,
+          title: '归档已失效',
+          sourceFolderIds: ['source-1'],
+          sourceFolderTitles: ['默认收藏夹'],
+          currentBilimiFolderIds: [],
+          protectedForIncrementalScan: true,
+          archiveHealth: 'invalid'
+        }
+      ],
+      managedFolders: [
+        { id: '9001', title: 'bilimi·知识学习', ledgerId: 'knowledge', isInbox: false }
+      ],
+      targetMembership: { '9001': [801, 802] },
+      multiArchiveMode: 'off'
+    }
+    renderPanel({ onScanOldFavorites: vi.fn().mockResolvedValue(preview) })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+
+    expect(screen.getByText('归档完整').closest('article')).toHaveTextContent('1')
+    expect(screen.getByText('归档不完整').closest('article')).toHaveTextContent('1')
+    expect(screen.getByText('归档已失效').closest('article')).toHaveTextContent('1')
+    expect(screen.getByText(/异常收藏仍受保护/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重新整理异常收藏' })).toHaveTextContent('2')
+    expect(screen.getByRole('button', { name: '重新整理这些收藏' })).toHaveTextContent('3')
+
+    fireEvent.click(screen.getByRole('button', { name: '重新整理异常收藏' }))
+    const dialog = screen.getByRole('alertdialog', { name: '确认重新整理异常收藏？' })
+    expect(dialog).toHaveTextContent('2 条')
+    fireEvent.click(within(dialog).getByRole('button', { name: '继续重新整理' }))
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+
+    expect(screen.getAllByText('归档不完整').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('归档已失效').length).toBeGreaterThan(0)
+    expect(screen.queryByText('归档完整')).not.toBeInTheDocument()
+  })
+
   it('executes a protected multi-target reorganization as one reconciled video plan', async () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
       if (ledger.id === 'knowledge') return { ...ledger, bilibiliFolderId: '9001' }

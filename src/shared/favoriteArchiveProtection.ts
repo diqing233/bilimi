@@ -12,7 +12,10 @@ export type FavoriteArchiveSourceVideo = {
   sourceFolderTitles?: string[]
   currentBilimiFolderIds?: string[]
   protectedForIncrementalScan?: boolean
+  archiveHealth?: FavoriteArchiveProtectionHealth
 }
+
+export type FavoriteArchiveProtectionHealth = 'complete' | 'incomplete' | 'invalid'
 
 export type FavoriteArchiveSourceFolder = {
   id: string
@@ -117,10 +120,10 @@ export function partitionFavoriteArchiveSources(args: {
     }
   }
 
-  const protectedKeys = new Set(
+  const protectionRecordsByAid = new Map(
     normalizeFavoriteArchiveProtectionRecords(args.protectionRecords)
       .filter((record) => record.accountMid === args.accountMid)
-      .map((record) => record.aid)
+      .map((record) => [record.aid, record] as const)
   )
   const membershipByAid = new Map<number, string[]>()
   for (const folder of args.managedFolders) {
@@ -133,22 +136,41 @@ export function partitionFavoriteArchiveSources(args: {
   const activeVideos: FavoriteArchiveSourceVideo[] = []
   const initializedProtectionRecords: FavoriteArchiveProtectionRecord[] = []
   for (const video of videosByAid.values()) {
+    const protectionRecord = protectionRecordsByAid.get(video.aid)
     const currentBilimiFolderIds = Array.from(new Set(membershipByAid.get(video.aid) ?? []))
     const nonInboxFolders = args.managedFolders.filter(
       (folder) => !folder.isInbox && currentBilimiFolderIds.includes(folder.id)
     )
     const initializeExistingMembership = args.initializeExistingMembership !== false
     const protectedForIncrementalScan =
-      protectedKeys.has(video.aid) || (initializeExistingMembership && nonInboxFolders.length > 0)
+      Boolean(protectionRecord) || (initializeExistingMembership && nonInboxFolders.length > 0)
+    let archiveHealth: FavoriteArchiveProtectionHealth | undefined
+    if (protectionRecord) {
+      const historicalTargets = protectionRecord.targetLedgerIds.length > 0
+        ? protectionRecord.targetLedgerIds.map((ledgerId) => ({ ledgerId }))
+        : protectionRecord.targetFolderIds.map((folderId) => ({ folderId }))
+      const matchingTargets = historicalTargets.filter((target) => {
+        const currentFolders = target.ledgerId
+          ? args.managedFolders.filter((folder) => folder.ledgerId === target.ledgerId)
+          : args.managedFolders.filter((folder) => folder.id === target.folderId)
+        return currentFolders.some((folder) => currentBilimiFolderIds.includes(folder.id))
+      }).length
+      archiveHealth = matchingTargets === historicalTargets.length && historicalTargets.length > 0
+        ? 'complete'
+        : matchingTargets > 0
+          ? 'incomplete'
+          : 'invalid'
+    }
     const nextVideo = {
       ...video,
       currentBilimiFolderIds,
-      protectedForIncrementalScan
+      protectedForIncrementalScan,
+      archiveHealth
     }
 
     if (protectedForIncrementalScan) {
       protectedVideos.push(nextVideo)
-      if (initializeExistingMembership && !protectedKeys.has(video.aid) && nonInboxFolders.length > 0) {
+      if (initializeExistingMembership && !protectionRecord && nonInboxFolders.length > 0) {
         initializedProtectionRecords.push({
           accountMid: args.accountMid,
           aid: video.aid,

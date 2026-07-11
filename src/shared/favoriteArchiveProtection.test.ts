@@ -171,4 +171,127 @@ describe('favorite archive protection records', () => {
       })
     ])
   })
+
+  it('classifies protected archive health by stable ledger membership', () => {
+    const partition = partitionFavoriteArchiveSources({
+      accountMid: '42',
+      initializeExistingMembership: false,
+      sourceFolders: [
+        {
+          id: 'source-1',
+          title: '默认收藏夹',
+          videos: [
+            { aid: 11, title: '完整' },
+            { aid: 12, title: '不完整' },
+            { aid: 13, title: '已失效' },
+            { aid: 14, title: '收藏夹重建' },
+            { aid: 15, title: '账册已删除' }
+          ]
+        }
+      ],
+      managedFolders: [
+        { id: 'new-knowledge', title: 'bilimi·知识', ledgerId: 'knowledge', isInbox: false },
+        { id: 'game-folder', title: 'bilimi·游戏', ledgerId: 'game', isInbox: false }
+      ],
+      targetMembership: {
+        'new-knowledge': [11, 12, 14],
+        'game-folder': [11]
+      },
+      protectionRecords: [
+        {
+          accountMid: '42',
+          aid: 11,
+          targetLedgerIds: ['knowledge', 'game'],
+          targetFolderIds: ['old-knowledge', 'game-folder'],
+          completedAt: '2026-07-10T00:00:00.000Z'
+        },
+        {
+          accountMid: '42',
+          aid: 12,
+          targetLedgerIds: ['knowledge', 'game'],
+          targetFolderIds: ['old-knowledge', 'game-folder'],
+          completedAt: '2026-07-10T00:00:00.000Z'
+        },
+        {
+          accountMid: '42',
+          aid: 13,
+          targetLedgerIds: ['knowledge'],
+          targetFolderIds: ['old-knowledge'],
+          completedAt: '2026-07-10T00:00:00.000Z'
+        },
+        {
+          accountMid: '42',
+          aid: 14,
+          targetLedgerIds: ['knowledge'],
+          targetFolderIds: ['old-knowledge'],
+          completedAt: '2026-07-10T00:00:00.000Z'
+        },
+        {
+          accountMid: '42',
+          aid: 15,
+          targetLedgerIds: ['deleted-ledger'],
+          targetFolderIds: ['deleted-folder'],
+          completedAt: '2026-07-10T00:00:00.000Z'
+        }
+      ]
+    })
+
+    expect(partition.protectedVideos.map(({ aid, archiveHealth }) => [aid, archiveHealth])).toEqual([
+      [11, 'complete'],
+      [12, 'incomplete'],
+      [13, 'invalid'],
+      [14, 'complete'],
+      [15, 'invalid']
+    ])
+  })
+
+  it('falls back to historical folder ids for legacy records without ledger ids', () => {
+    const partition = partitionFavoriteArchiveSources({
+      accountMid: '42',
+      initializeExistingMembership: false,
+      sourceFolders: [
+        { id: 'source-1', title: '默认收藏夹', videos: [{ aid: 16, title: '旧记录' }] }
+      ],
+      managedFolders: [
+        { id: 'legacy-folder', title: 'bilimi·旧分类', isInbox: false }
+      ],
+      targetMembership: { 'legacy-folder': [16] },
+      protectionRecords: [
+        {
+          accountMid: '42',
+          aid: 16,
+          targetLedgerIds: [],
+          targetFolderIds: ['legacy-folder'],
+          completedAt: '2026-07-10T00:00:00.000Z'
+        }
+      ]
+    })
+
+    expect(partition.protectedVideos[0].archiveHealth).toBe('complete')
+  })
+
+  it('does not fall back to historical folder ids when a stable ledger id exists', () => {
+    const partition = partitionFavoriteArchiveSources({
+      accountMid: '42',
+      initializeExistingMembership: false,
+      sourceFolders: [
+        { id: 'source-1', title: '默认收藏夹', videos: [{ aid: 17, title: '账册不匹配' }] }
+      ],
+      managedFolders: [
+        { id: 'old-knowledge', title: 'bilimi·其他', ledgerId: 'other', isInbox: false }
+      ],
+      targetMembership: { 'old-knowledge': [17] },
+      protectionRecords: [
+        {
+          accountMid: '42',
+          aid: 17,
+          targetLedgerIds: ['knowledge'],
+          targetFolderIds: ['old-knowledge'],
+          completedAt: '2026-07-10T00:00:00.000Z'
+        }
+      ]
+    })
+
+    expect(partition.protectedVideos[0].archiveHealth).toBe('invalid')
+  })
 })
