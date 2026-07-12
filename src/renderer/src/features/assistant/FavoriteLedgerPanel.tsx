@@ -57,8 +57,20 @@ import {
 import { createCorrectionDraft } from '../recommendation/correctionLearning'
 import { classifyVideoContent } from '../recommendation/videoClassifier'
 import { AssistantActionButton } from './AssistantActionButton'
+import {
+  bindOldFavoriteRuntimeAccount,
+  getOldFavoriteRuntimeValue,
+  hasOldFavoriteRuntimeHandler,
+  invokeOldFavoriteRuntimeHandler,
+  registerOldFavoriteRuntimeHandler,
+  resetOldFavoriteRuntimeSession,
+  setOldFavoriteRuntimeValue,
+  subscribeOldFavoriteRuntime
+} from './oldFavoriteRuntimeSession'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
+
+export { resetOldFavoriteRuntimeSession } from './oldFavoriteRuntimeSession'
 
 type OldFavoriteStatusTone = 'idle' | 'ok' | 'warn' | 'error' | 'running'
 
@@ -67,6 +79,8 @@ type OldFavoriteStatusSnapshot = {
   message: string
   tone: OldFavoriteStatusTone
 }
+
+type OldFavoriteExecutionPhase = 'idle' | 'running' | 'awaiting-acknowledgement'
 
 type FavoriteLedgerPanelProps = {
   ledgers: FavoriteLedger[]
@@ -141,47 +155,20 @@ type ArchivePreviewHistorySnapshot = {
   draftLedgers: FavoriteLedger[]
 }
 
-const oldFavoriteRuntimeSession = new Map<string, unknown>()
-const oldFavoriteRuntimeSessionListeners = new Set<() => void>()
-let oldFavoriteDeepSeekCancelRequested = false
-
-export function resetOldFavoriteRuntimeSession() {
-  oldFavoriteRuntimeSession.clear()
-  oldFavoriteDeepSeekCancelRequested = false
-  oldFavoriteRuntimeSessionListeners.forEach((listener) => listener())
-}
-
 function useOldFavoriteRuntimeState<T>(
   key: string,
   initialValue: T | (() => T)
 ): [T, Dispatch<SetStateAction<T>>] {
-  if (!oldFavoriteRuntimeSession.has(key)) {
-    oldFavoriteRuntimeSession.set(
-      key,
-      typeof initialValue === 'function' ? (initialValue as () => T)() : initialValue
-    )
-  }
+  getOldFavoriteRuntimeValue(key, initialValue)
 
   const value = useSyncExternalStore(
-    useCallback((listener) => {
-      oldFavoriteRuntimeSessionListeners.add(listener)
-      return () => oldFavoriteRuntimeSessionListeners.delete(listener)
-    }, []),
-    useCallback(() => oldFavoriteRuntimeSession.get(key) as T, [key]),
-    useCallback(() => oldFavoriteRuntimeSession.get(key) as T, [key])
+    subscribeOldFavoriteRuntime,
+    useCallback(() => getOldFavoriteRuntimeValue(key, initialValue), [initialValue, key]),
+    useCallback(() => getOldFavoriteRuntimeValue(key, initialValue), [initialValue, key])
   )
   const setValue = useCallback<Dispatch<SetStateAction<T>>>(
     (nextValue) => {
-      const currentValue = oldFavoriteRuntimeSession.get(key) as T
-      const resolvedValue =
-        typeof nextValue === 'function'
-          ? (nextValue as (current: T) => T)(currentValue)
-          : nextValue
-      if (Object.is(currentValue, resolvedValue)) {
-        return
-      }
-      oldFavoriteRuntimeSession.set(key, resolvedValue)
-      oldFavoriteRuntimeSessionListeners.forEach((listener) => listener())
+      setOldFavoriteRuntimeValue(key, nextValue)
     },
     [key]
   )
@@ -1421,7 +1408,10 @@ export function FavoriteLedgerPanel({
   favoriteArchiveMultiMode = 'off',
   organizeOldFavoritesRequestSignal = 0
 }: FavoriteLedgerPanelProps) {
-  const [draftLedgers, setDraftLedgers] = useState<FavoriteLedger[]>(ledgers)
+  const [draftLedgers, setDraftLedgers] = useOldFavoriteRuntimeState<FavoriteLedger[]>(
+    'draftLedgers',
+    () => ledgers.map(cloneArchiveDraftLedger)
+  )
   const [activeLedgerId, setActiveLedgerId] = useState<string | null>(null)
   const [activeLedgerIndex, setActiveLedgerIndex] = useState<number | null>(null)
   const [activeLedgerSavedSnapshot, setActiveLedgerSavedSnapshot] =
@@ -1429,7 +1419,8 @@ export function FavoriteLedgerPanel({
   const [preview, setPreview] = useOldFavoriteRuntimeState<FavoriteLedgerPreview | null>('preview', null)
   const [baseScanPreview, setBaseScanPreview] =
     useOldFavoriteRuntimeState<FavoriteLedgerPreview | null>('baseScanPreview', null)
-  const [reorganizedProtectedAids, setReorganizedProtectedAids] = useState<Set<number>>(new Set())
+  const [reorganizedProtectedAids, setReorganizedProtectedAids] =
+    useOldFavoriteRuntimeState<Set<number>>('reorganizedProtectedAids', () => new Set())
   const [protectedReorganizationConfirming, setProtectedReorganizationConfirming] = useState(false)
   const [abnormalProtectionReorganizationConfirming, setAbnormalProtectionReorganizationConfirming] = useState(false)
   const [selectedDefaultLedgerIds, setSelectedDefaultLedgerIds] = useState<Set<string>>(
@@ -1445,10 +1436,11 @@ export function FavoriteLedgerPanel({
     useState<PendingUnclassifiedDecision | null>(null)
   const [selectedOldFavoriteSourceFolderTitles, setSelectedOldFavoriteSourceFolderTitles] =
     useOldFavoriteRuntimeState<Set<string>>('selectedOldFavoriteSourceFolderTitles', () => new Set())
-  const [oldFavoriteExecutionProgress, setOldFavoriteExecutionProgress] = useState<{
-    completed: number
-    total: number
-  } | null>(null)
+  const [oldFavoriteExecutionProgress, setOldFavoriteExecutionProgress] =
+    useOldFavoriteRuntimeState<{
+      completed: number
+      total: number
+    } | null>('oldFavoriteExecutionProgress', null)
   const [deepSeekArchiveMode, setDeepSeekArchiveMode] = useOldFavoriteRuntimeState<DeepSeekArchiveMode>(
     'deepSeekArchiveMode',
     'low-confidence-and-unclassified'
@@ -1523,9 +1515,11 @@ export function FavoriteLedgerPanel({
     setArchiveUndoStack((current) => [...current, createArchivePreviewHistorySnapshot(state)])
     setArchiveRedoStack([])
   }
-  const [oldFavoriteExecuting, setOldFavoriteExecuting] = useState(false)
-  const [oldFavoriteExecutionAwaitingAcknowledgement, setOldFavoriteExecutionAwaitingAcknowledgement] =
-    useState(false)
+  const [oldFavoriteExecutionPhase, setOldFavoriteExecutionPhase] =
+    useOldFavoriteRuntimeState<OldFavoriteExecutionPhase>('oldFavoriteExecutionPhase', 'idle')
+  const oldFavoriteExecuting = oldFavoriteExecutionPhase === 'running'
+  const oldFavoriteExecutionAwaitingAcknowledgement =
+    oldFavoriteExecutionPhase === 'awaiting-acknowledgement'
   const [oldFavoriteExecutionConfirming, setOldFavoriteExecutionConfirming] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<string | null>(null)
@@ -1562,7 +1556,9 @@ export function FavoriteLedgerPanel({
     return JSON.stringify(ledgerEditorSnapshot(activeLedger)) !== JSON.stringify(activeLedgerSavedSnapshot)
   }, [activeLedger, activeLedgerSavedSnapshot])
   useEffect(() => {
-    setDraftLedgers(ledgers)
+    if (!preview) {
+      setDraftLedgers(ledgers.map(cloneArchiveDraftLedger))
+    }
     setSelectedDefaultLedgerIds(
       new Set(ledgers.filter((ledger) => ledger.enabled && ledger.isDefault).map((ledger) => ledger.id))
     )
@@ -1571,6 +1567,26 @@ export function FavoriteLedgerPanel({
     setActiveLedgerSavedSnapshot(null)
     finishLedgerDrag()
   }, [ledgers])
+
+  useEffect(() => {
+    if (!onOldFavoriteStageFeedback) {
+      return
+    }
+    return registerOldFavoriteRuntimeHandler(
+      'onOldFavoriteStageFeedback',
+      onOldFavoriteStageFeedback
+    )
+  }, [onOldFavoriteStageFeedback])
+
+  useEffect(() => {
+    if (!onDeepSeekArchiveKeywordSuggestions) {
+      return
+    }
+    return registerOldFavoriteRuntimeHandler(
+      'onDeepSeekArchiveKeywordSuggestions',
+      onDeepSeekArchiveKeywordSuggestions
+    )
+  }, [onDeepSeekArchiveKeywordSuggestions])
 
   useEffect(() => {
     if (!oldFavoriteRuntimeStatus) {
@@ -1601,7 +1617,7 @@ export function FavoriteLedgerPanel({
   }
 
   function acknowledgeOldFavoriteExecution() {
-    setOldFavoriteExecutionAwaitingAcknowledgement(false)
+    setOldFavoriteExecutionPhase('idle')
     setOldFavoriteExecutionConfirming(false)
     setOldFavoriteExecutionProgress(null)
     setPreview(null)
@@ -1618,6 +1634,7 @@ export function FavoriteLedgerPanel({
     setDeepSeekArchiveStatus('')
     setDeepSeekArchiveSuggestionCount(0)
     setOldFavoriteRuntimeStatus(null)
+    setDraftLedgers(ledgers.map(cloneArchiveDraftLedger))
     setLedgerListExpanded(false)
     setOldFavoriteStep('scan')
     onOldFavoriteAcknowledged?.()
@@ -2275,9 +2292,18 @@ export function FavoriteLedgerPanel({
         return
       }
 
+      const accountChanged = bindOldFavoriteRuntimeAccount(
+        nextPreview.scanContext?.accountMid ?? ''
+      )
+      const scanDraftLedgers = accountChanged
+        ? ledgers.map(cloneArchiveDraftLedger)
+        : draftLedgers
+      if (accountChanged) {
+        setDraftLedgers(scanDraftLedgers)
+      }
       const normalizedPreview = {
         ...nextPreview,
-        items: normalizeOldFavoritePreviewItems(nextPreview.items, draftLedgers)
+        items: normalizeOldFavoritePreviewItems(nextPreview.items, scanDraftLedgers)
       }
 
       const nextCandidateKeys = recommendedCandidateKeysForPreview(normalizedPreview)
@@ -2306,7 +2332,7 @@ export function FavoriteLedgerPanel({
       )
       setSelectedDefaultLedgerIds((current) => {
         const next = new Set(current)
-        for (const ledger of draftLedgers) {
+        for (const ledger of scanDraftLedgers) {
           if (ledger.isDefault && nextRecommendedLedgerIds.has(ledger.id)) {
             next.add(ledger.id)
           }
@@ -2315,7 +2341,7 @@ export function FavoriteLedgerPanel({
       })
       if (mode === 'setup') {
         const nextLedgers = mergeDefaultLedgers(
-          draftLedgers.map((ledger) =>
+          scanDraftLedgers.map((ledger) =>
             nextRecommendedLedgerIds.has(ledger.id) ? { ...ledger, enabled: true } : ledger
           )
         )
@@ -2347,7 +2373,7 @@ export function FavoriteLedgerPanel({
         message: scanMessage,
         tone: 'warn'
       })
-      onOldFavoriteStageFeedback?.(scanFeedbackMessage)
+      invokeOldFavoriteRuntimeHandler('onOldFavoriteStageFeedback', scanFeedbackMessage)
     } catch (error) {
       setPreview(null)
       setBaseScanPreview(null)
@@ -2771,7 +2797,11 @@ export function FavoriteLedgerPanel({
     }
 
     const chunks = chunkDeepSeekArchiveRequest(request)
-    oldFavoriteDeepSeekCancelRequested = false
+    const deepSeekArchiveRunId = Symbol('deepSeekArchiveRun')
+    const isCurrentDeepSeekArchiveRun = () =>
+      getOldFavoriteRuntimeValue<symbol | null>('deepSeekArchiveRunId', null) ===
+      deepSeekArchiveRunId
+    setOldFavoriteRuntimeValue('deepSeekArchiveRunId', deepSeekArchiveRunId)
     setDeepSeekArchiveCancelRequested(false)
     setDeepSeekArchiveRunning(true)
     setDeepSeekArchiveStatus('DeepSeek 正在整理旧藏...')
@@ -2796,7 +2826,10 @@ export function FavoriteLedgerPanel({
       let completedVideos = 0
 
       for (const [chunkIndex, chunk] of chunks.entries()) {
-        if (oldFavoriteDeepSeekCancelRequested) {
+        if (!isCurrentDeepSeekArchiveRun()) {
+          return
+        }
+        if (getOldFavoriteRuntimeValue('deepSeekArchiveCancelRequested', false)) {
           break
         }
         setDeepSeekArchiveProgress({
@@ -2808,7 +2841,10 @@ export function FavoriteLedgerPanel({
 
         try {
           const result = await onOrganizeOldFavoritesWithDeepSeek(deepSeekArchiveMode, chunk)
-          if (oldFavoriteDeepSeekCancelRequested) {
+          if (!isCurrentDeepSeekArchiveRun()) {
+            return
+          }
+          if (getOldFavoriteRuntimeValue('deepSeekArchiveCancelRequested', false)) {
             break
           }
           if (!result || result.kind !== 'favorite-archive-organize' || !Array.isArray(result.results)) {
@@ -2819,6 +2855,9 @@ export function FavoriteLedgerPanel({
           results.push(...result.results)
           keywordSuggestions.push(...(result.keywordSuggestions ?? []))
         } catch (error) {
+          if (!isCurrentDeepSeekArchiveRun()) {
+            return
+          }
           results.push(...failedDeepSeekArchiveRows(chunk, errorMessage(error)))
         }
 
@@ -2836,7 +2875,10 @@ export function FavoriteLedgerPanel({
         })
       }
 
-      if (oldFavoriteDeepSeekCancelRequested) {
+      if (!isCurrentDeepSeekArchiveRun()) {
+        return
+      }
+      if (getOldFavoriteRuntimeValue('deepSeekArchiveCancelRequested', false)) {
         setDeepSeekArchiveStatus('DeepSeek 整理已取消。')
         setOldFavoriteRuntimeStatus({
           label: `整理已取消 ${completedVideos}/${request.videos.length}`,
@@ -2878,15 +2920,24 @@ export function FavoriteLedgerPanel({
           message: 'DeepSeek 整理完成，请确认执行。',
           tone: 'warn'
         })
-        onOldFavoriteStageFeedback?.('DeepSeek 整理完成，请确认执行')
+        invokeOldFavoriteRuntimeHandler(
+          'onOldFavoriteStageFeedback',
+          'DeepSeek 整理完成，请确认执行'
+        )
       }
 
       const keywordSuggestionCount = keywordSuggestions.length
       if (keywordSuggestionCount > 0) {
-        onDeepSeekArchiveKeywordSuggestions?.(keywordSuggestions)
+        const hasKeywordSuggestionHandler = hasOldFavoriteRuntimeHandler(
+          'onDeepSeekArchiveKeywordSuggestions'
+        )
+        invokeOldFavoriteRuntimeHandler(
+          'onDeepSeekArchiveKeywordSuggestions',
+          keywordSuggestions
+        )
         setDeepSeekArchiveSuggestionCount(keywordSuggestionCount)
         setDeepSeekArchiveStatus(
-          onDeepSeekArchiveKeywordSuggestions
+          hasKeywordSuggestionHandler
             ? `DeepSeek 返回 ${keywordSuggestionCount} 条关键词建议，已加入设置里的建议列表。`
             : `DeepSeek 返回 ${keywordSuggestionCount} 条关键词建议，暂未写入设置，可稍后处理。`
         )
@@ -2905,19 +2956,30 @@ export function FavoriteLedgerPanel({
       setDeepSeekArchiveStatus(`DeepSeek 整理完成：${applied.stats.successCount} 条已应用。`)
       markDeepSeekArchiveReady()
     } catch (error) {
-      setDeepSeekArchiveStatus(error instanceof Error ? error.message : 'DeepSeek 整理失败。')
+      if (!isCurrentDeepSeekArchiveRun()) {
+        return
+      }
+      const failureMessage = error instanceof Error ? error.message : 'DeepSeek 整理失败。'
+      setDeepSeekArchiveStatus(failureMessage)
+      setOldFavoriteRuntimeStatus({
+        label: 'DeepSeek整理失败',
+        message: failureMessage,
+        tone: 'error'
+      })
     } finally {
-      setDeepSeekArchiveRunning(false)
-      setDeepSeekArchiveCancelRequested(false)
+      if (isCurrentDeepSeekArchiveRun()) {
+        setDeepSeekArchiveRunning(false)
+        setDeepSeekArchiveCancelRequested(false)
+        setOldFavoriteRuntimeValue('deepSeekArchiveRunId', null)
+      }
     }
   }
 
   function cancelDeepSeekArchiveOrganization() {
-    if (!deepSeekArchiveRunning || oldFavoriteDeepSeekCancelRequested) {
+    if (!deepSeekArchiveRunning || deepSeekArchiveCancelRequested) {
       return
     }
 
-    oldFavoriteDeepSeekCancelRequested = true
     setDeepSeekArchiveCancelRequested(true)
     setDeepSeekArchiveStatus('正在取消 DeepSeek 整理...')
   }
@@ -3136,6 +3198,10 @@ export function FavoriteLedgerPanel({
       return
     }
 
+    if (getOldFavoriteRuntimeValue<OldFavoriteExecutionPhase>('oldFavoriteExecutionPhase', 'idle') !== 'idle') {
+      return
+    }
+
     if (
       preview.scanContext &&
       preview.scanContext.multiArchiveMode !== favoriteArchiveMultiMode
@@ -3144,9 +3210,8 @@ export function FavoriteLedgerPanel({
       return
     }
 
-    setOldFavoriteExecuting(true)
+    setOldFavoriteExecutionPhase('running')
     setOldFavoriteExecutionConfirming(false)
-    setOldFavoriteExecutionAwaitingAcknowledgement(false)
     setOldFavoriteExecutionProgress(null)
     setSaveStatus(null)
     setStatus('正在整理中，请耐心等待。')
@@ -3185,10 +3250,12 @@ export function FavoriteLedgerPanel({
         )
       ) {
         setStatus(`当前设置最多允许 ${targetLimit} 个 Bilimi 收藏夹，请调整后再确认。`)
+        setOldFavoriteExecutionPhase('idle')
         return
       }
       if (selectedItems.length === 0) {
         setStatus('收藏夹已同步，请重新扫描旧藏后再确认整理。')
+        setOldFavoriteExecutionPhase('idle')
         return
       }
 
@@ -3252,7 +3319,7 @@ export function FavoriteLedgerPanel({
           ? `本次整理已结束，${results.length - failedCount} 条成功，${partialCount} 条部分完成，${completeFailureCount} 条失败。`
           : '本次整理已结束。'
       )
-      setOldFavoriteExecutionAwaitingAcknowledgement(true)
+      setOldFavoriteExecutionPhase('awaiting-acknowledgement')
       const finalStatus = paused
         ? { label: '整理已暂停', message: '本次整理已暂停，请稍后再继续。', tone: 'warn' as const }
         : failedCount > 0
@@ -3268,15 +3335,13 @@ export function FavoriteLedgerPanel({
       onOldFavoriteExecutionStateChange?.('finished')
     } catch (error) {
       setStatus(`整理旧藏未完成：${errorMessage(error)}`)
-      setOldFavoriteExecutionAwaitingAcknowledgement(true)
+      setOldFavoriteExecutionPhase('awaiting-acknowledgement')
       onOldFavoriteStatusUpdate?.({
         label: '整理失败',
         message: `整理旧藏未完成：${errorMessage(error)}`,
         tone: 'error'
       })
       onOldFavoriteExecutionStateChange?.('finished')
-    } finally {
-      setOldFavoriteExecuting(false)
     }
   }
 

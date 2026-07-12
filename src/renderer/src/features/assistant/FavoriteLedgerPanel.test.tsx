@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
 import { FavoriteLedgerPanel, resetOldFavoriteRuntimeSession } from './FavoriteLedgerPanel'
+import { bindOldFavoriteRuntimeAccount } from './oldFavoriteRuntimeSession'
 
 describe('FavoriteLedgerPanel', () => {
   beforeEach(() => {
@@ -538,6 +539,84 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '恢复保护' }))
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     expect(screen.queryByText('默认来源已整理')).not.toBeInTheDocument()
+  })
+
+  it('restores protected reorganization progress after remount', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.scanContext = {
+      accountMid: '42',
+      totalUniqueVideos: 3,
+      activeSourceFolders: [
+        {
+          id: 'source-1',
+          title: '默认收藏夹',
+          videos: preview.items.map((item) => ({
+            aid: item.aid,
+            title: item.title,
+            description: item.description,
+            tags: item.tags,
+            sourceFolderIds: ['source-1'],
+            sourceFolderTitles: ['默认收藏夹'],
+            currentBilimiFolderIds: []
+          }))
+        }
+      ],
+      protectedVideos: [
+        {
+          aid: 801,
+          title: '需要恢复进度的已整理视频',
+          tags: ['游戏'],
+          sourceFolderIds: ['source-1'],
+          sourceFolderTitles: ['默认收藏夹'],
+          currentBilimiFolderIds: ['9002'],
+          protectedForIncrementalScan: true
+        }
+      ],
+      managedFolders: [
+        { id: '9002', title: 'bilimi·游戏专区', ledgerId: 'game', isInbox: false }
+      ],
+      targetMembership: { '9002': [801] },
+      multiArchiveMode: 'off'
+    }
+    const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
+    const first = renderPanel({ onScanOldFavorites })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '重新整理全部已整理视频 1 条' }))
+    fireEvent.click(
+      within(screen.getByRole('alertdialog', { name: '确认重新整理已整理收藏？' })).getByRole(
+        'button',
+        { name: '继续重新整理' }
+      )
+    )
+    expect(screen.getByText('已重新纳入 1')).toBeInTheDocument()
+
+    first.unmount()
+    renderPanel({ onScanOldFavorites })
+
+    expect(screen.getByText('已重新纳入 1')).toBeInTheDocument()
+  })
+
+  it('restores edited draft ledger keywords after remount', async () => {
+    const onScanOldFavorites = vi.fn().mockResolvedValue(createArchivePreviewFixture())
+    const first = renderPanel({ onScanOldFavorites })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+
+    fireEvent.click(screen.getByRole('button', { name: '知识学习' }))
+    let editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
+    fireEvent.change(editor.getByLabelText('关键词'), {
+      target: { value: '热更新保留词' }
+    })
+
+    first.unmount()
+    renderPanel({ onScanOldFavorites })
+    fireEvent.click(screen.getByRole('button', { name: '知识学习' }))
+    editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
+
+    expect(editor.getByLabelText('关键词')).toHaveValue('热更新保留词')
   })
 
   it('reports archive health and reintroduces only abnormal protected favorites', async () => {
@@ -3850,6 +3929,47 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
+  it('keeps real archive execution locked after remount', async () => {
+    let resolveExecution!: (value: {
+      ok: boolean
+      steps: string[]
+      missingTargets: string[]
+      message: string
+    }) => void
+    const execution = new Promise<{
+      ok: boolean
+      steps: string[]
+      missingTargets: string[]
+      message: string
+    }>((resolve) => {
+      resolveExecution = resolve
+    })
+    const onExecuteOldFavoritePlan = vi.fn(() => execution)
+    const first = await openArchivePreview({ onExecuteOldFavoritePlan })
+
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    confirmOldFavoriteExecution()
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce())
+
+    first.unmount()
+    renderPanel({ onExecuteOldFavoritePlan })
+
+    const runningButton = screen.getByRole('button', { name: '整理中' })
+    expect(runningButton).toBeDisabled()
+    fireEvent.click(runningButton)
+    expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce()
+
+    await act(async () => {
+      resolveExecution({
+        ok: true,
+        steps: ['api:ledger:append:701'],
+        missingTargets: [],
+        message: 'done'
+      })
+      await execution
+    })
+  })
+
   it('keeps old favorite organization locked until the completion acknowledgement', async () => {
     const preview = {
       items: [
@@ -6012,7 +6132,140 @@ describe('FavoriteLedgerPanel', () => {
     expect(onOldFavoriteStageFeedback).toHaveBeenCalledWith('DeepSeek 整理完成，请确认执行')
   })
 
-  it('cancels DeepSeek archive organization before starting the next batch', async () => {
+  it('delivers DeepSeek completion callbacks to the latest remounted panel', async () => {
+    let resolveDeepSeek!: (result: DeepSeekGenerateResult) => void
+    const onOrganizeOldFavoritesWithDeepSeek = vi.fn(
+      () =>
+        new Promise<DeepSeekGenerateResult>((resolve) => {
+          resolveDeepSeek = resolve
+        })
+    )
+    const staleStageFeedback = vi.fn()
+    const latestStageFeedback = vi.fn()
+    const staleKeywordSuggestions = vi.fn()
+    const latestKeywordSuggestions = vi.fn()
+    const first = await openArchivePreview({
+      deepSeekArchiveAvailable: true,
+      onOrganizeOldFavoritesWithDeepSeek,
+      onOldFavoriteStageFeedback: staleStageFeedback,
+      onDeepSeekArchiveKeywordSuggestions: staleKeywordSuggestions
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    await waitFor(() => expect(onOrganizeOldFavoritesWithDeepSeek).toHaveBeenCalledOnce())
+    staleStageFeedback.mockClear()
+    first.unmount()
+    renderPanel({
+      deepSeekArchiveAvailable: true,
+      onOrganizeOldFavoritesWithDeepSeek,
+      onOldFavoriteStageFeedback: latestStageFeedback,
+      onDeepSeekArchiveKeywordSuggestions: latestKeywordSuggestions
+    })
+
+    await act(async () => {
+      resolveDeepSeek({
+        kind: 'favorite-archive-organize',
+        results: [],
+        keywordSuggestions: [
+          {
+            id: 'suggestion-after-remount',
+            action: 'add-keyword',
+            ledgerId: 'knowledge',
+            keyword: 'AI 工具',
+            reason: '补充常用关键词',
+            source: 'deepseek',
+            status: 'pending',
+            createdAt: '2026-07-12T00:00:00.000Z'
+          }
+        ]
+      })
+    })
+
+    await waitFor(() =>
+      expect(latestStageFeedback).toHaveBeenCalledWith('DeepSeek 整理完成，请确认执行')
+    )
+    expect(latestKeywordSuggestions).toHaveBeenCalledOnce()
+    expect(staleStageFeedback).not.toHaveBeenCalled()
+    expect(staleKeywordSuggestions).not.toHaveBeenCalled()
+  })
+
+  it('ignores a stale DeepSeek completion after the runtime account changes', async () => {
+    let resolveDeepSeek!: (result: DeepSeekGenerateResult) => void
+    const onOrganizeOldFavoritesWithDeepSeek = vi.fn(
+      () =>
+        new Promise<DeepSeekGenerateResult>((resolve) => {
+          resolveDeepSeek = resolve
+        })
+    )
+    const onOldFavoriteStageFeedback = vi.fn()
+
+    await openArchivePreview({
+      deepSeekArchiveAvailable: true,
+      onOrganizeOldFavoritesWithDeepSeek,
+      onOldFavoriteStageFeedback
+    })
+    bindOldFavoriteRuntimeAccount('42')
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    await waitFor(() => expect(onOrganizeOldFavoritesWithDeepSeek).toHaveBeenCalledOnce())
+    onOldFavoriteStageFeedback.mockClear()
+
+    act(() => {
+      bindOldFavoriteRuntimeAccount('99')
+    })
+    await act(async () => {
+      resolveDeepSeek({
+        kind: 'favorite-archive-organize',
+        results: [],
+        keywordSuggestions: []
+      })
+    })
+
+    expect(onOldFavoriteStageFeedback).not.toHaveBeenCalled()
+    expect(screen.queryByText(/DeepSeek 整理完成/)).not.toBeInTheDocument()
+  })
+
+  it('clears the running status when DeepSeek archive organization fails', async () => {
+    const onOldFavoriteStatusUpdate = vi.fn()
+    const onDeepSeekArchiveKeywordSuggestions = vi.fn(() => {
+      throw new Error('建议列表写入失败')
+    })
+    const onOrganizeOldFavoritesWithDeepSeek = vi.fn().mockResolvedValue({
+      kind: 'favorite-archive-organize',
+      results: [],
+      keywordSuggestions: [
+        {
+          id: 'suggestion-1',
+          action: 'add-keyword',
+          ledgerId: 'knowledge',
+          keyword: 'AI 工具',
+          reason: '补充常用关键词',
+          source: 'deepseek',
+          status: 'pending',
+          createdAt: '2026-07-12T00:00:00.000Z'
+        }
+      ]
+    } satisfies DeepSeekGenerateResult)
+
+    await openArchivePreview({
+      deepSeekArchiveAvailable: true,
+      onOrganizeOldFavoritesWithDeepSeek,
+      onDeepSeekArchiveKeywordSuggestions,
+      onOldFavoriteStatusUpdate
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+
+    await waitFor(() =>
+      expect(onOldFavoriteStatusUpdate).toHaveBeenLastCalledWith({
+        label: 'DeepSeek整理失败',
+        message: '建议列表写入失败',
+        tone: 'error'
+      })
+    )
+    expect(screen.getByText('建议列表写入失败')).toBeInTheDocument()
+  })
+
+  it('cancels DeepSeek archive organization after remount before starting the next batch', async () => {
     let resolveFirstBatch!: (result: DeepSeekGenerateResult) => void
     const onOrganizeOldFavoritesWithDeepSeek = vi.fn(
       () =>
@@ -6039,7 +6292,7 @@ describe('FavoriteLedgerPanel', () => {
       skippedSourceFolderTitles: []
     } satisfies FavoriteLedgerPreview)
 
-    const { container } = await openArchivePreview({
+    const first = await openArchivePreview({
       deepSeekArchiveAvailable: true,
       onScanOldFavorites,
       onOrganizeOldFavoritesWithDeepSeek
@@ -6047,6 +6300,12 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
     await waitFor(() => expect(onOrganizeOldFavoritesWithDeepSeek).toHaveBeenCalledOnce())
+    first.unmount()
+    const { container } = renderPanel({
+      deepSeekArchiveAvailable: true,
+      onScanOldFavorites,
+      onOrganizeOldFavoritesWithDeepSeek
+    })
     expect(
       container.querySelectorAll('.favorite-ledger-panel__deepseek-archive-run-button')
     ).toHaveLength(1)
