@@ -5,6 +5,8 @@ type VersionedValue = {
   value: unknown
 }
 
+const ACCOUNT_INDEPENDENT_KEYS = new Set(['deepSeekConnectionStatus'])
+
 export class OldFavoriteRuntimeStore {
   private readonly values = new Map<string, VersionedValue>()
   private accountMid = ''
@@ -38,7 +40,11 @@ export class OldFavoriteRuntimeStore {
       return false
     }
 
-    this.values.clear()
+    for (const key of this.values.keys()) {
+      if (!ACCOUNT_INDEPENDENT_KEYS.has(key)) {
+        this.values.delete(key)
+      }
+    }
     this.accountMid = normalized
     return true
   }

@@ -45,7 +45,7 @@ import {
 } from '../state/preferenceSaveScheduler'
 import { CommentChooser } from './CommentChooser'
 import { CommentIntentDialog } from './CommentIntentDialog'
-import { FavoriteLedgerPanel } from './FavoriteLedgerPanel'
+import { FavoriteLedgerPanel, type OldFavoriteStatusSnapshot } from './FavoriteLedgerPanel'
 import { MemorialPanel } from './MemorialPanel'
 import type { VideoNotesResultTab } from '../notes/VideoNotesPanel'
 import {
@@ -61,6 +61,11 @@ import type { AssistantSnapshot } from './assistantRuntimeTypes'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
 import { PET_COLLAPSE_FAREWELL_LINES, pickPetLine } from './petInteractionLines'
 import { publishDeepSeekTask, subscribeDeepSeekTasks } from './deepSeekTaskSignal'
+import {
+  getOldFavoriteRuntimeValue,
+  setOldFavoriteRuntimeValue,
+  subscribeOldFavoriteRuntime
+} from './oldFavoriteRuntimeSession'
 
 const CURRENT_TITLE = '等待视频加载'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
@@ -267,6 +272,20 @@ const DEEPSEEK_TASK_DEFAULT_DETAIL: Record<DeepSeekTask['kind'], string> = {
   'archive-organize': '旧藏整理',
   'pet-chat': '宠物对话',
   'connection-test': '连接测试'
+}
+
+function normalizeDeepSeekConnectionStatus(value: unknown): DeepSeekConnectionStatus {
+  return value === 'connected' || value === 'failed' ? value : 'pending'
+}
+
+function globalStatusFromOldFavorite(status: OldFavoriteStatusSnapshot | null): GlobalStatusItem | null {
+  return status
+    ? {
+        label: status.label,
+        detail: status.message,
+        tone: status.tone
+      }
+    : null
 }
 
 function favoriteLedgerBackupGap(ledgers: FavoriteLedger[]) {
@@ -663,7 +682,11 @@ export function FloatingAssistantApp({
   const [deepSeekKeyFieldStatus, setDeepSeekKeyFieldStatus] =
     useState<DeepSeekKeyFieldStatus>('unsaved')
   const [deepSeekConnectionStatus, setDeepSeekConnectionStatus] =
-    useState<DeepSeekConnectionStatus>('pending')
+    useState<DeepSeekConnectionStatus>(() =>
+      normalizeDeepSeekConnectionStatus(
+        getOldFavoriteRuntimeValue('deepSeekConnectionStatus', 'pending')
+      )
+    )
   const [settingsDiagnosticReport, setSettingsDiagnosticReport] =
     useState<StartupDiagnosticReport | null>(null)
   const [settingsDiagnosticRunning, setSettingsDiagnosticRunning] = useState(false)
@@ -673,12 +696,22 @@ export function FloatingAssistantApp({
   const [settingsKeywordSuggestionView, setSettingsKeywordSuggestionView] =
     useState<'pending' | 'processed'>('pending')
   const [settingsJumpValue, setSettingsJumpValue] = useState<SettingsJumpValue>('diagnostics')
-  const [globalFeedbackMessage, setGlobalFeedbackMessage] = useState('')
+  const [globalFeedbackMessage, setGlobalFeedbackMessage] = useState(() =>
+    getOldFavoriteRuntimeValue('sharedOperationFeedback', '')
+  )
   const [localDeepSeekTasks, setLocalDeepSeekTasks] = useState<DeepSeekTask[]>([])
   const [remoteDeepSeekTasks, setRemoteDeepSeekTasks] = useState<DeepSeekTask[]>([])
   const [oldFavoriteExecutionState, setOldFavoriteExecutionState] =
     useState<'idle' | 'running' | 'finished'>('idle')
-  const [oldFavoriteGlobalStatus, setOldFavoriteGlobalStatus] = useState<GlobalStatusItem | null>(null)
+  const [oldFavoriteGlobalStatus, setOldFavoriteGlobalStatus] = useState<GlobalStatusItem | null>(
+    () =>
+      globalStatusFromOldFavorite(
+        getOldFavoriteRuntimeValue<OldFavoriteStatusSnapshot | null>(
+          'oldFavoriteRuntimeStatus',
+          null
+        )
+      )
+  )
   const settingsBodyRef = useRef<HTMLDivElement | null>(null)
   const mounted = useRef(false)
   const lastPreferenceChangeAt = useRef(0)
@@ -918,7 +951,13 @@ export function FloatingAssistantApp({
     const trimmed = message.trim()
     if (trimmed) {
       setGlobalFeedbackMessage(trimmed)
+      setOldFavoriteRuntimeValue('sharedOperationFeedback', trimmed)
     }
+  }
+
+  function publishDeepSeekConnectionStatus(status: DeepSeekConnectionStatus) {
+    setDeepSeekConnectionStatus(status)
+    setOldFavoriteRuntimeValue('deepSeekConnectionStatus', status)
   }
 
   function setActiveTab(tab: AssistantWorkspaceTab, options?: { view?: AssistantWorkspaceView }) {
@@ -1029,6 +1068,25 @@ export function FloatingAssistantApp({
   }, [])
 
   useEffect(() => {
+    return subscribeOldFavoriteRuntime(() => {
+      setDeepSeekConnectionStatus(
+        normalizeDeepSeekConnectionStatus(
+          getOldFavoriteRuntimeValue('deepSeekConnectionStatus', 'pending')
+        )
+      )
+      setOldFavoriteGlobalStatus(
+        globalStatusFromOldFavorite(
+          getOldFavoriteRuntimeValue<OldFavoriteStatusSnapshot | null>(
+            'oldFavoriteRuntimeStatus',
+            null
+          )
+        )
+      )
+      setGlobalFeedbackMessage(getOldFavoriteRuntimeValue('sharedOperationFeedback', ''))
+    })
+  }, [])
+
+  useEffect(() => {
     let cancelled = false
 
     async function loadDeepSeekKeyFieldStatus() {
@@ -1099,10 +1157,10 @@ export function FloatingAssistantApp({
       : Promise.resolve())
       .then(() => window.bilimiDesktop!.testDeepSeekConnection!())
       .then((result) => {
-        setDeepSeekConnectionStatus(result.ok ? 'connected' : 'failed')
+        publishDeepSeekConnectionStatus(result.ok ? 'connected' : 'failed')
       })
       .catch(() => {
-        setDeepSeekConnectionStatus('failed')
+        publishDeepSeekConnectionStatus('failed')
       })
       .finally(() => {
         deepSeekConnectionValidationInFlight.current = false
@@ -1492,7 +1550,7 @@ export function FloatingAssistantApp({
       'deepseekModel' in patch ||
       'deepseekBaseUrl' in patch
     ) {
-      setDeepSeekConnectionStatus('pending')
+      publishDeepSeekConnectionStatus('pending')
     }
 
     if (options.persist) {
@@ -1654,7 +1712,7 @@ export function FloatingAssistantApp({
       const modelStatus = result.ok
         ? `请求模型：${result.requestedModel ?? preferencesRef.current.deepseekModel}；服务端返回模型：${result.responseModel ?? '未披露'}。`
         : ''
-      setDeepSeekConnectionStatus(result.ok ? 'connected' : 'failed')
+      publishDeepSeekConnectionStatus(result.ok ? 'connected' : 'failed')
       setGlobalFeedback(
         result.ok
           ? `${statusMessage}${modelStatus}`
@@ -1663,7 +1721,7 @@ export function FloatingAssistantApp({
       tellPet(result.ok ? 'success' : 'error', statusMessage)
     } catch {
       const statusMessage = '配置已保存，但连接测试失败：DeepSeek 连接失败。'
-      setDeepSeekConnectionStatus('failed')
+      publishDeepSeekConnectionStatus('failed')
       setGlobalFeedback(statusMessage)
       tellPet('error', statusMessage)
     } finally {
@@ -1696,7 +1754,7 @@ export function FloatingAssistantApp({
       await persistPreferences(nextPreferences)
       setDeepSeekApiKeyDraft('')
       setDeepSeekKeyFieldStatus('unsaved')
-      setDeepSeekConnectionStatus('pending')
+      publishDeepSeekConnectionStatus('pending')
       setGlobalFeedback('DeepSeek 设置已重置。')
       tellPet('success', 'DeepSeek 设置已经重置，小咪回到本地提示模式啦。')
     } catch {
@@ -1733,7 +1791,7 @@ export function FloatingAssistantApp({
     setDeepSeekKeyFieldStatus('unsaved')
     await window.bilimiDesktop?.clearDeepSeekApiKey?.()
     await persistPreferences(nextPreferences)
-    setDeepSeekConnectionStatus('pending')
+    publishDeepSeekConnectionStatus('pending')
     setSettingsDiagnosticMessage('')
     setGlobalFeedback('设置已经恢复默认。')
     tellPet('success', '设置已经恢复默认，小咪重新整理好啦。')
@@ -1824,9 +1882,9 @@ export function FloatingAssistantApp({
       const deepSeekDiagnostic = report.items.find((item) => item.id === 'deepseek')
 
       if (deepSeekDiagnostic?.status === 'ok') {
-        setDeepSeekConnectionStatus('connected')
+        publishDeepSeekConnectionStatus('connected')
       } else if (deepSeekDiagnostic) {
-        setDeepSeekConnectionStatus(
+        publishDeepSeekConnectionStatus(
           preferencesRef.current.deepseekApiKeyStored ? 'failed' : 'pending'
         )
       }
@@ -1875,7 +1933,7 @@ export function FloatingAssistantApp({
         throw new Error('Comment generation failed.')
       }
 
-      setDeepSeekConnectionStatus('connected')
+      publishDeepSeekConnectionStatus('connected')
       setAiCommentDrafts(result.comments)
       setCommentIntentOpen(false)
       submitOrChooseCommentDrafts(result.comments)
@@ -2168,7 +2226,7 @@ export function FloatingAssistantApp({
         throw new Error('Poster generation failed.')
       }
 
-      setDeepSeekConnectionStatus('connected')
+      publishDeepSeekConnectionStatus('connected')
       tellPet('success', 'DeepSeek 总结做好啦。')
       return result.poster
     } finally {
@@ -2371,7 +2429,7 @@ export function FloatingAssistantApp({
     try {
       const result = await window.bilimiDesktop?.generateDeepSeek?.(request)
       if (result) {
-        setDeepSeekConnectionStatus('connected')
+        publishDeepSeekConnectionStatus('connected')
       }
       tellPet(
         result?.kind === 'favorite-archive-organize' ? 'success' : 'error',
@@ -2814,7 +2872,7 @@ export function FloatingAssistantApp({
                       aria-invalid={deepSeekKeyFieldStatus === 'unreadable' ? 'true' : undefined}
                       onChange={(event) => {
                         setDeepSeekApiKeyDraft(event.currentTarget.value)
-                        setDeepSeekConnectionStatus('pending')
+                        publishDeepSeekConnectionStatus('pending')
                       }}
                     />
                   </label>

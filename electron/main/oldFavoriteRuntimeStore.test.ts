@@ -21,4 +21,18 @@ describe('OldFavoriteRuntimeStore', () => {
     expect(store.bindAccount('99')).toBe(true)
     expect(store.get('deepSeekArchiveRunning', false)).toMatchObject({ revision: 0, value: false })
   })
+
+  it('preserves global DeepSeek connection state when the signed-in account changes', () => {
+    const store = new OldFavoriteRuntimeStore()
+    store.bindAccount('42')
+    store.set('deepSeekConnectionStatus', 'connected', 0)
+    store.set('oldFavoriteRuntimeStatus', { label: '旧藏待整理 3' }, 0)
+
+    expect(store.bindAccount('99')).toBe(true)
+    expect(store.get('deepSeekConnectionStatus', 'pending')).toMatchObject({
+      revision: 1,
+      value: 'connected'
+    })
+    expect(store.get('oldFavoriteRuntimeStatus', null)).toMatchObject({ revision: 0, value: null })
+  })
 })

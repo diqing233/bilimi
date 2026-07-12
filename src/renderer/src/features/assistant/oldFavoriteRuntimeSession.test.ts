@@ -82,4 +82,53 @@ describe('oldFavoriteRuntimeSession', () => {
     expect(session.setOldFavoriteRuntimeValue('deepSeekArchiveRunning', true)).toBe(false)
     expect(session.getOldFavoriteRuntimeValue('deepSeekArchiveRunning', false)).toBe(true)
   })
+
+  it('keeps global DeepSeek connection state when the account binding resets old favorites', async () => {
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        bindOldFavoriteRuntimeAccount: vi.fn().mockReturnValue(true)
+      }
+    })
+    const session = await import('./oldFavoriteRuntimeSession')
+    session.resetOldFavoriteRuntimeSession()
+    session.setOldFavoriteRuntimeValue('deepSeekConnectionStatus', 'connected')
+    session.setOldFavoriteRuntimeValue('oldFavoriteRuntimeStatus', {
+      label: '旧藏待整理 3'
+    })
+
+    expect(session.bindOldFavoriteRuntimeAccount('99')).toBe(true)
+    expect(session.getOldFavoriteRuntimeValue('deepSeekConnectionStatus', 'pending')).toBe(
+      'connected'
+    )
+    expect(session.getOldFavoriteRuntimeValue('oldFavoriteRuntimeStatus', null)).toBeNull()
+  })
+
+  it('keeps global DeepSeek connection state when another window broadcasts an account reset', async () => {
+    let runtimeChanged: Parameters<
+      NonNullable<Window['bilimiDesktop']['onOldFavoriteRuntimeChanged']>
+    >[0] | undefined
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        onOldFavoriteRuntimeChanged: vi.fn((callback) => {
+          runtimeChanged = callback
+          return vi.fn()
+        })
+      }
+    })
+    const session = await import('./oldFavoriteRuntimeSession')
+    session.resetOldFavoriteRuntimeSession()
+    session.setOldFavoriteRuntimeValue('deepSeekConnectionStatus', 'connected')
+    session.setOldFavoriteRuntimeValue('oldFavoriteRuntimeStatus', {
+      label: '旧藏待整理 3'
+    })
+
+    runtimeChanged?.({ type: 'reset', accountMid: '99' })
+
+    expect(session.getOldFavoriteRuntimeValue('deepSeekConnectionStatus', 'pending')).toBe(
+      'connected'
+    )
+    expect(session.getOldFavoriteRuntimeValue('oldFavoriteRuntimeStatus', null)).toBeNull()
+  })
 })

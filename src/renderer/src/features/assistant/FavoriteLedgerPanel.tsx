@@ -78,7 +78,7 @@ export { resetOldFavoriteRuntimeSession } from './oldFavoriteRuntimeSession'
 
 type OldFavoriteStatusTone = 'idle' | 'ok' | 'warn' | 'error' | 'running'
 
-type OldFavoriteStatusSnapshot = {
+export type OldFavoriteStatusSnapshot = {
   label: string
   message: string
   tone: OldFavoriteStatusTone
@@ -1694,6 +1694,15 @@ export function FavoriteLedgerPanel({
     onOldFavoriteStatusUpdate?.(oldFavoriteRuntimeStatus)
   }, [oldFavoriteRuntimeStatus])
 
+  function publishOldFavoriteStatus(status: OldFavoriteStatusSnapshot) {
+    setOldFavoriteRuntimeStatus(status)
+  }
+
+  function publishOldFavoriteStageFeedback(message: string) {
+    setOldFavoriteRuntimeValue('sharedOperationFeedback', message)
+    invokeOldFavoriteRuntimeHandler('onOldFavoriteStageFeedback', message)
+  }
+
   useEffect(() => {
     if (!deepSeekArchiveProgress || !deepSeekArchiveRunning) {
       return
@@ -2370,7 +2379,7 @@ export function FavoriteLedgerPanel({
     clearDeepSeekArchiveRunSnapshot()
     setOldFavoriteExecutionProgress(null)
     setStatus('正在扫描旧藏，请稍候。')
-    onOldFavoriteStatusUpdate?.({
+    publishOldFavoriteStatus({
       label: '旧藏扫描中',
       message: '正在扫描旧藏，请稍候。',
       tone: 'running'
@@ -2388,7 +2397,7 @@ export function FavoriteLedgerPanel({
         setPendingUnclassifiedDecision(null)
         const failureMessage = `整理旧藏未完成：${nextPreview.message || '请稍后重试。'}`
         setStatus(failureMessage)
-        onOldFavoriteStatusUpdate?.({
+        publishOldFavoriteStatus({
           label: '扫描失败',
           message: failureMessage,
           tone: 'error'
@@ -2472,12 +2481,12 @@ export function FavoriteLedgerPanel({
           ? `旧藏扫描完成，发现 ${scannedCount} 条待备册`
           : `旧藏扫描完成，发现 ${normalizedPreview.items.length} 条待整理`
       setStatus(scanMessage)
-      onOldFavoriteStatusUpdate?.({
+      publishOldFavoriteStatus({
         label: mode === 'setup' ? `旧藏待备册 ${scannedCount}` : `旧藏待整理 ${normalizedPreview.items.length}`,
         message: scanMessage,
         tone: 'warn'
       })
-      invokeOldFavoriteRuntimeHandler('onOldFavoriteStageFeedback', scanFeedbackMessage)
+      publishOldFavoriteStageFeedback(scanFeedbackMessage)
     } catch (error) {
       setPreview(null)
       setBaseScanPreview(null)
@@ -2487,7 +2496,7 @@ export function FavoriteLedgerPanel({
       setPendingUnclassifiedDecision(null)
       const failureMessage = `整理旧藏未完成：${errorMessage(error)}`
       setStatus(failureMessage)
-      onOldFavoriteStatusUpdate?.({
+      publishOldFavoriteStatus({
         label: '扫描失败',
         message: failureMessage,
         tone: 'error'
@@ -2887,7 +2896,7 @@ export function FavoriteLedgerPanel({
     if (!deepSeekArchiveAvailable) {
       const message = '请先到设置开启 DeepSeek 后再使用辅助整理。'
       setDeepSeekArchiveStatus(message)
-      invokeOldFavoriteRuntimeHandler('onOldFavoriteStageFeedback', message)
+      publishOldFavoriteStageFeedback(message)
       return
     }
 
@@ -3039,10 +3048,7 @@ export function FavoriteLedgerPanel({
           message: 'DeepSeek 整理完成，请确认执行。',
           tone: 'warn'
         })
-        invokeOldFavoriteRuntimeHandler(
-          'onOldFavoriteStageFeedback',
-          'DeepSeek 整理完成，请确认执行'
-        )
+        publishOldFavoriteStageFeedback('DeepSeek 整理完成，请确认执行')
       }
 
       setDeepSeekArchiveResultSummary({
@@ -3414,7 +3420,7 @@ export function FavoriteLedgerPanel({
       }
 
       setOldFavoriteExecutionProgress({ completed: 0, total: selectedItems.length })
-      onOldFavoriteStatusUpdate?.({
+      publishOldFavoriteStatus({
         label: `确认执行 0/${selectedItems.length}`,
         message: '正在确认执行旧藏整理。',
         tone: 'running'
@@ -3428,7 +3434,7 @@ export function FavoriteLedgerPanel({
           successfulTargetKeys.add(archivePlanTargetKey(item))
         }
         setOldFavoriteExecutionProgress({ completed: index + 1, total: selectedItems.length })
-        onOldFavoriteStatusUpdate?.({
+        publishOldFavoriteStatus({
           label: `确认执行 ${index + 1}/${selectedItems.length}`,
           message: '正在确认执行旧藏整理。',
           tone: 'running'
@@ -3489,14 +3495,12 @@ export function FavoriteLedgerPanel({
               tone: 'warn' as const
             }
         : { label: '整理完成', message: '本次整理已结束。', tone: 'ok' as const }
-      onOldFavoriteStatusUpdate?.({
-        ...finalStatus
-      })
+      publishOldFavoriteStatus(finalStatus)
       onOldFavoriteExecutionStateChange?.('finished')
     } catch (error) {
       setStatus(`整理旧藏未完成：${errorMessage(error)}`)
       setOldFavoriteExecutionPhase('awaiting-acknowledgement')
-      onOldFavoriteStatusUpdate?.({
+      publishOldFavoriteStatus({
         label: '整理失败',
         message: `整理旧藏未完成：${errorMessage(error)}`,
         tone: 'error'

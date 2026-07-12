@@ -14,6 +14,7 @@ import { resetOldFavoriteRuntimeSession } from './FavoriteLedgerPanel'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
 import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
 import { publishDeepSeekTask } from './deepSeekTaskSignal'
+import { setOldFavoriteRuntimeValue as publishOldFavoriteRuntimeValue } from './oldFavoriteRuntimeSession'
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -5667,5 +5668,135 @@ describe('FloatingAssistantApp', () => {
       tone: 'done',
       message: '主人，收好啦，这支视频已经进 bilimi 分册了。'
     })
+  })
+
+  it('mirrors a DeepSeek connection result published by another window', async () => {
+    let runtimeChanged: Parameters<
+      NonNullable<Window['bilimiDesktop']['onOldFavoriteRuntimeChanged']>
+    >[0] | undefined
+    const testDeepSeekConnection = vi.fn()
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({
+            deepseekEnabled: true,
+            deepseekApiKeyStored: true
+          })
+        })
+      ),
+      getOldFavoriteRuntimeSnapshot: vi.fn((key, initialValue) => ({
+        key,
+        revision: 0,
+        value: initialValue,
+        accountMid: '42'
+      })),
+      onOldFavoriteRuntimeChanged: vi.fn((callback) => {
+        runtimeChanged = callback
+        return vi.fn()
+      }),
+      testDeepSeekConnection
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 待测试')
+    )
+
+    act(() => {
+      runtimeChanged?.({
+        key: 'deepSeekConnectionStatus',
+        revision: 1,
+        value: 'connected',
+        accountMid: '42'
+      })
+    })
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('DeepSeek状态')).toHaveTextContent('DeepSeek 已连接')
+    )
+    expect(testDeepSeekConnection).not.toHaveBeenCalled()
+  })
+
+  it('publishes old favorite scan status and feedback for other windows', async () => {
+    const runtimeValues = new Map<string, { revision: number; value: unknown }>()
+    const setOldFavoriteRuntimeValue = vi.fn(
+      (key: string, value: unknown, expectedRevision: number) => {
+        const next = { revision: expectedRevision + 1, value }
+        runtimeValues.set(key, next)
+        return {
+          key,
+          revision: next.revision,
+          value,
+          accountMid: '42',
+          accepted: true
+        }
+      }
+    )
+    const scanOldFavorites = vi.fn().mockResolvedValue({
+      items: [
+        {
+          aid: 902,
+          title: '跨窗口整理状态',
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerId: 'knowledge',
+          targetFolderId: '9001',
+          targetDisplayName: 'bilimi·学吧你就',
+          reviewRequired: false,
+          alreadyInTarget: false,
+          selected: true,
+          originalSuggestedLedgerIds: ['knowledge'],
+          currentTargetLedgerIds: ['knowledge'],
+          selectedTargetLedgerIds: ['knowledge'],
+          lowConfidence: false
+        }
+      ],
+      skippedSourceFolderTitles: []
+    } satisfies FavoriteLedgerPreview)
+    installDesktopApi({
+      scanOldFavorites,
+      getOldFavoriteRuntimeSnapshot: vi.fn((key, initialValue) => {
+        const stored = runtimeValues.get(key)
+        return {
+          key,
+          revision: stored?.revision ?? 0,
+          value: stored?.value ?? initialValue,
+          accountMid: '42'
+        }
+      }),
+      setOldFavoriteRuntimeValue
+    })
+
+    render(<FloatingAssistantApp />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '掌库' }))
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    await waitFor(() => expect(scanOldFavorites).toHaveBeenCalledOnce())
+    await waitFor(() =>
+      expect(setOldFavoriteRuntimeValue).toHaveBeenCalledWith(
+        'oldFavoriteRuntimeStatus',
+        expect.objectContaining({ label: '旧藏待整理 1', tone: 'warn' }),
+        expect.any(Number)
+      )
+    )
+    expect(setOldFavoriteRuntimeValue).toHaveBeenCalledWith(
+      'sharedOperationFeedback',
+      '旧藏扫描完成，发现 1 条待整理',
+      expect.any(Number)
+    )
+
+    act(() => {
+      publishOldFavoriteRuntimeValue('oldFavoriteRuntimeStatus', {
+        label: '确认执行 75/237',
+        message: '正在确认执行旧藏整理。',
+        tone: 'running'
+      })
+    })
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('整理状态')).toHaveTextContent('确认执行 75/237')
+    )
+    expect(screen.getByLabelText('整理状态')).toHaveAttribute('data-tone', 'running')
   })
 })

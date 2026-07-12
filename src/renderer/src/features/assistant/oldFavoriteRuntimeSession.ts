@@ -8,6 +8,7 @@ type OldFavoriteRuntimeStore = {
 }
 
 const GLOBAL_KEY = '__bilimiOldFavoriteRuntimeSession__' as const
+const ACCOUNT_INDEPENDENT_KEYS = new Set(['deepSeekConnectionStatus'])
 
 type OldFavoriteRuntimeGlobal = typeof globalThis & {
   [GLOBAL_KEY]?: OldFavoriteRuntimeStore
@@ -36,6 +37,15 @@ function notifyRuntimeListeners(store: OldFavoriteRuntimeStore) {
   store.listeners.forEach((listener) => listener())
 }
 
+function clearAccountScopedRuntime(store: OldFavoriteRuntimeStore) {
+  for (const key of store.values.keys()) {
+    if (!ACCOUNT_INDEPENDENT_KEYS.has(key)) {
+      store.values.delete(key)
+      store.revisions.delete(key)
+    }
+  }
+}
+
 function ensureBridgeSubscription(store: OldFavoriteRuntimeStore) {
   if (store.bridgeSubscribed || typeof window === 'undefined') {
     return
@@ -49,8 +59,7 @@ function ensureBridgeSubscription(store: OldFavoriteRuntimeStore) {
   store.bridgeSubscribed = true
   subscribe((message) => {
     if ('type' in message && message.type === 'reset') {
-      store.values.clear()
-      store.revisions.clear()
+      clearAccountScopedRuntime(store)
       store.accountMid = message.accountMid
       notifyRuntimeListeners(store)
       return
@@ -125,8 +134,7 @@ export function bindOldFavoriteRuntimeAccount(accountMid: string): boolean {
   const store = getStore()
   const bridgeChanged = window.bilimiDesktop?.bindOldFavoriteRuntimeAccount?.(normalizedAccountMid)
   if (bridgeChanged) {
-    store.values.clear()
-    store.revisions.clear()
+    clearAccountScopedRuntime(store)
     store.accountMid = normalizedAccountMid
     notifyRuntimeListeners(store)
     return true
@@ -136,8 +144,7 @@ export function bindOldFavoriteRuntimeAccount(accountMid: string): boolean {
     return false
   }
 
-  store.values.clear()
-  store.revisions.clear()
+  clearAccountScopedRuntime(store)
   store.accountMid = normalizedAccountMid
   notifyRuntimeListeners(store)
   return true
