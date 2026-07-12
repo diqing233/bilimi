@@ -4,11 +4,20 @@ import {
   confirmCorrectionDrafts,
   createCorrectionDraft,
   discardCorrectionDrafts,
+  isArchiveAdjustmentRecordableSource,
   normalizeCorrectionRecords,
   normalizeKeywordSuggestions
 } from './correctionLearning'
 
 describe('correctionLearning', () => {
+  it('records only card transfers and DeepSeek archive divergences', () => {
+    expect(isArchiveAdjustmentRecordableSource('transfer')).toBe(true)
+    expect(isArchiveAdjustmentRecordableSource('deepseek')).toBe(true)
+    expect(isArchiveAdjustmentRecordableSource('user')).toBe(false)
+    expect(isArchiveAdjustmentRecordableSource('classifier')).toBe(false)
+    expect(isArchiveAdjustmentRecordableSource('rejudge')).toBe(false)
+  })
+
   it('keeps preview corrections as drafts until execution confirms them', () => {
     const draft = createCorrectionDraft({
       aid: 1,

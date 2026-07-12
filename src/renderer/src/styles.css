@@ -917,16 +917,6 @@ body[data-floating-window="true"],
   overflow-y: auto;
   --pet-bubble-offset-x: -50%;
 }
-.palace-maid-pet-shell[data-workspace-side="right"] .palace-maid-pet__bubble {
-  left: 4px;
-  right: auto;
-  transform: none;
-}
-.palace-maid-pet-shell[data-workspace-side="left"] .palace-maid-pet__bubble {
-  left: auto;
-  right: 4px;
-  transform: none;
-}
 .palace-maid-pet__close-prompt {
   position: absolute;
   left: 50%;
@@ -3922,13 +3912,16 @@ body[data-floating-window="true"],
   line-height: 1.45;
 }
 .favorite-ledger-panel__deepseek-archive-status {
-  color: var(--porcelain-deep);
+  overflow: hidden;
+  color: var(--porcelain-muted);
   font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .favorite-ledger-panel__deepseek-result {
   position: relative;
-  width: fit-content;
-  max-width: 100%;
+  width: 100%;
+  min-width: 0;
 }
 .favorite-ledger-panel__deepseek-result-trigger {
   min-height: 0;
@@ -3939,12 +3932,6 @@ body[data-floating-window="true"],
   background: transparent;
   text-align: left;
   cursor: help;
-}
-.favorite-ledger-panel__deepseek-result-trigger strong {
-  color: #18794e;
-}
-.favorite-ledger-panel__deepseek-result-trigger span {
-  color: #9a6700;
 }
 .favorite-ledger-panel__deepseek-result-tooltip {
   position: absolute;
@@ -3976,9 +3963,10 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__deepseek-archive-progress-copy {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: space-between;
   gap: 8px;
+  overflow: hidden;
   color: var(--porcelain-muted);
   font-size: 12px;
   font-weight: 700;
@@ -4467,7 +4455,7 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__preview-controls {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: 74px minmax(0, 1fr);
   justify-content: stretch;
   align-items: center;
   gap: 6px;
@@ -4496,7 +4484,7 @@ body[data-floating-window="true"],
   background: rgba(255, 255, 255, 0.72);
 }
 .favorite-ledger-panel__target-select {
-  width: min(178px, 100%);
+  width: 74px;
   min-width: 0;
   min-height: 28px;
   border: 1px solid rgba(31, 99, 181, 0.24);

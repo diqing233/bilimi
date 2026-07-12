@@ -47,8 +47,7 @@ describe('pet quick action styles', () => {
     expect(compactStyles).not.toContain('width: min(320px, calc(100vw - 8px));')
     expect(compactStyles).not.toContain('max-width: calc(100vw - 8px);')
     expectStyleSnippet('--pet-bubble-offset-x: -50%;')
-    expectStyleSnippet('.palace-maid-pet-shell[data-workspace-side="right"] .palace-maid-pet__bubble { left: 4px; right: auto; transform: none;')
-    expectStyleSnippet('.palace-maid-pet-shell[data-workspace-side="left"] .palace-maid-pet__bubble { left: auto; right: 4px; transform: none;')
+    expect(compactStyles).not.toContain('data-workspace-side')
     expectStyleSnippet('width: 270px; max-width: 270px;')
     expectStyleSnippet(
       '.palace-maid-pet__resize-controls { position: absolute; right: 34px; bottom: 2px;'

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_PET_HOVER_SHORTCUTS,
   normalizePetHoverShortcuts,
-  PET_HOVER_SHORTCUT_LIMIT
+  PET_HOVER_SHORTCUT_LIMIT,
+  PET_SORTABLE_HOVER_SHORTCUTS
 } from './petHoverShortcuts'
 
 describe('pet hover shortcuts', () => {
@@ -28,5 +29,24 @@ describe('pet hover shortcuts', () => {
 
   it('keeps an explicit empty custom shortcut list empty', () => {
     expect(normalizePetHoverShortcuts([])).toEqual([])
+  })
+
+  it('keeps only quick video actions, transcribing, and the library as configurable choices', () => {
+    expect(PET_SORTABLE_HOVER_SHORTCUTS.map((shortcut) => shortcut.id)).toEqual([
+      'like',
+      'favorite',
+      'coin',
+      'comment',
+      'transcribe',
+      'library'
+    ])
+    expect(
+      normalizePetHoverShortcuts([
+        'prepare-ledgers',
+        'organize-old-favorites',
+        'library',
+        'favorite'
+      ])
+    ).toEqual(['library', 'favorite'])
   })
 })

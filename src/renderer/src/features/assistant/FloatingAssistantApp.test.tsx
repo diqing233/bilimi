@@ -56,6 +56,7 @@ function createPreferences(overrides: Partial<AssistantPreferences> = {}): Assis
     favoriteArchiveProtectionRecords: [],
     favoriteCorrectionLearningEnabled: true,
     favoriteCorrectionLearningClassificationEnabled: true,
+    favoriteAdjustmentRecordsVersion: 1,
     favoriteCorrectionRecords: [],
     favoriteKeywordSuggestions: [],
     defaultCoinCount: 1,
@@ -1578,10 +1579,10 @@ describe('FloatingAssistantApp', () => {
 
     expect(screen.getByRole('group', { name: '整理策略' })).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: '积极整理' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: '记录纠错参考' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '记录归档调整' })).toBeChecked()
     expect(screen.queryByRole('checkbox', { name: '纠错学习参与分类' })).not.toBeInTheDocument()
     expect(screen.getByText('DeepSeek 建议（0）')).toBeInTheDocument()
-    expect(screen.getByText('纠错参考记录（0）')).toBeInTheDocument()
+    expect(screen.getByText('归档调整记录（0）')).toBeInTheDocument()
   })
 
   it('renders the settings jump select instead of fixed section buttons', async () => {
@@ -1646,7 +1647,7 @@ describe('FloatingAssistantApp', () => {
       '批阅动作',
       '关闭设置'
     ])
-    expect(await screen.findByText('纠错参考记录（1）')).toBeInTheDocument()
+    expect(await screen.findByText('归档调整记录（1）')).toBeInTheDocument()
     expect(screen.getByText('DeepSeek 建议（1）')).toBeInTheDocument()
 
     const diagnosticsSection = screen.getByRole('group', { name: '诊断' })
@@ -1736,7 +1737,7 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
     fireEvent.click(screen.getByRole('radio', { name: '均衡整理' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: '记录纠错参考' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '记录归档调整' }))
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenLastCalledWith(
@@ -1869,8 +1870,11 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByText(/标签：旅行/)).toBeInTheDocument()
     expect(screen.getByText(/UP：旅行UP/)).toBeInTheDocument()
     expect(screen.getByText(/命中关键词：攻略/)).toBeInTheDocument()
+    expect(screen.getAllByText('调整方式：DeepSeek 整理')).toHaveLength(2)
+    expect(screen.getByText('发生位置：归档预览')).toBeInTheDocument()
+    expect(screen.getByText(/调整前：游戏专区；调整后：生活日常/)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /删除纠错 东京旅行攻略/ }))
+    fireEvent.click(screen.getByRole('button', { name: /删除调整 东京旅行攻略/ }))
 
     expect(screen.queryByText('东京旅行攻略')).not.toBeInTheDocument()
     await waitFor(() =>
@@ -1886,7 +1890,7 @@ describe('FloatingAssistantApp', () => {
       )
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '清空纠错记录' }))
+    fireEvent.click(screen.getByRole('button', { name: '清空调整记录' }))
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenLastCalledWith(
@@ -2267,7 +2271,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
 
     expect(screen.getByText('东京旅行攻略')).toBeInTheDocument()
-    expect(screen.getByText(/原建议：游戏专区/)).toBeInTheDocument()
+    expect(screen.getByText(/调整前：游戏专区/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /展开纠错 东京旅行攻略/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /收起纠错 东京旅行攻略/ })).not.toBeInTheDocument()
   })
@@ -2327,7 +2331,7 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
 
-    expect(screen.getByRole('list', { name: '纠错参考记录' })).toHaveClass(
+    expect(screen.getByRole('list', { name: '归档调整记录' })).toHaveClass(
       'assistant-settings__record-track'
     )
     expect(screen.getByRole('list', { name: '待处理 DeepSeek 建议' })).toHaveClass(
@@ -3922,6 +3926,8 @@ describe('FloatingAssistantApp', () => {
     expect(within(shortcutGroup).getByRole('button', { name: '表 拟奏短评 第 3 位' })).toHaveTextContent('3')
     expect(within(shortcutGroup).getByRole('button', { name: '转 转写音频 第 4 位' })).toHaveTextContent('4')
     expect(within(shortcutGroup).getByRole('button', { name: '库 打开档案库' })).toBeDisabled()
+    expect(within(shortcutGroup).queryByRole('button', { name: /备 备齐册目/ })).not.toBeInTheDocument()
+    expect(within(shortcutGroup).queryByRole('button', { name: /整 整理旧藏/ })).not.toBeInTheDocument()
 
     fireEvent.click(within(shortcutGroup).getByRole('checkbox', { name: '显示打开小咪按钮' }))
 
@@ -4535,7 +4541,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
-    fireEvent.change(screen.getByLabelText('调整分类 星铁剧情解析'), {
+    fireEvent.change(screen.getByLabelText('转移 星铁剧情解析'), {
       target: { value: 'game' }
     })
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))

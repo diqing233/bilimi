@@ -297,6 +297,16 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
+  it('keeps DeepSeek archive feedback on one stable muted line', () => {
+    expectStyleSnippet(
+      '.favorite-ledger-panel__deepseek-archive-status { overflow: hidden; color: var(--porcelain-muted); font-weight: 700; text-overflow: ellipsis; white-space: nowrap;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__deepseek-result { position: relative; width: 100%; min-width: 0;'
+    )
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__deepseek-result-trigger strong')
+  })
+
   it('frames the assistant workspace chrome while keeping tab buttons defined', () => {
     expectStyleSnippet('.floating-assistant-chrome { min-width: 0; display: grid; grid-template-rows: auto auto; border: 1px solid rgba(31, 99, 181, 0.28); border-radius: 8px; background: rgba(247, 251, 255, 0.72); box-shadow: 0 1px 3px rgba(7, 26, 51, 0.08); overflow: hidden;')
     expectStyleSnippet('.floating-assistant-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; padding: 8px 8px 7px; border-bottom: 1px dashed #d1e6fb;')
@@ -367,6 +377,7 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain('padding: 16px 16px 18px;')
     expect(normalizedStyles).toContain('.palace-maid-pet {\n  width: var(--floating-pet-size);\n  height: var(--floating-pet-size);')
     expect(normalizedStyles).toContain('.palace-maid-pet__bubble {\n  position: absolute;\n  left: 50%;')
+    expect(normalizedStyles).not.toContain('data-workspace-side')
     expect(normalizedStyles).toContain('left: 50%;\n  bottom: calc(var(--floating-pet-size) + 10px);')
     expect(normalizedStyles).not.toContain('top: 1px;')
     expect(normalizedStyles).toContain('max-width: 270px;')
@@ -737,7 +748,8 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__preview-row--pending .favorite-ledger-panel__preview-video { border-color: rgba(31, 99, 181, 0.14); border-left-color: rgba(31, 99, 181, 0.14); background: rgba(255, 255, 255, 0.74);')
     expectStyleSnippet('.favorite-ledger-panel__preview-video-meta { display: grid; gap: 3px; min-width: 0;')
     expectStyleSnippet('.favorite-ledger-panel__preview-video-meta small { min-width: 0; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;')
-    expectStyleSnippet('.favorite-ledger-panel__preview-controls { display: grid; grid-template-columns: auto minmax(0, 1fr);')
+    expectStyleSnippet('.favorite-ledger-panel__preview-controls { display: grid; grid-template-columns: 74px minmax(0, 1fr);')
+    expectStyleSnippet('.favorite-ledger-panel__target-select { width: 74px;')
     expect(normalizedStyles).not.toContain(".favorite-ledger-panel__preview-videos article[data-latest-change='true'] {\n  outline:")
     expectStyleSnippet('.favorite-ledger-panel__preview-delta-row { min-width: 0; min-height: 28px; display: flex; align-items: center; justify-content: flex-start; border-radius: var(--porcelain-radius-control);')
     expectStyleSnippet('border-left: 2px solid rgba(155, 54, 66, 0.68); background: rgba(255, 232, 235, 0.82); color: var(--porcelain-error);')

@@ -94,6 +94,9 @@ function createFakeStore(
     favoriteCorrectionLearningClassificationEnabled:
       initial.favoriteCorrectionLearningClassificationEnabled ??
       DEFAULT_ASSISTANT_PREFERENCES.favoriteCorrectionLearningClassificationEnabled,
+    favoriteAdjustmentRecordsVersion:
+      initial.favoriteAdjustmentRecordsVersion ??
+      DEFAULT_ASSISTANT_PREFERENCES.favoriteAdjustmentRecordsVersion,
     favoriteCorrectionRecords:
       initial.favoriteCorrectionRecords ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteCorrectionRecords,
     favoriteArchiveProtectionRecords:
@@ -419,6 +422,7 @@ describe('assistant preference store helpers', () => {
       favoriteArchiveStrategy: 'balanced',
       favoriteCorrectionLearningEnabled: false,
       favoriteCorrectionLearningClassificationEnabled: false,
+      favoriteAdjustmentRecordsVersion: 1,
       favoriteCorrectionRecords: [
         {
           id: 'record-1',
@@ -450,7 +454,7 @@ describe('assistant preference store helpers', () => {
       defaultCoinCount: 2,
       commentSubmitMode: 'random',
       petStyle: 'classic',
-      petHoverShortcuts: ['favorite', 'library', 'prepare-ledgers', 'organize-old-favorites'],
+      petHoverShortcuts: ['favorite', 'library'],
       hidePetDuringVideoFullscreen: true,
       preferenceCounts: {
         story: 4,
@@ -494,7 +498,7 @@ describe('assistant preference store helpers', () => {
       defaultCoinCount: 2,
       commentSubmitMode: 'random',
       petStyle: 'classic',
-      petHoverShortcuts: ['favorite', 'library', 'prepare-ledgers', 'organize-old-favorites'],
+      petHoverShortcuts: ['favorite', 'library'],
       hidePetDuringVideoFullscreen: true,
       preferenceCounts: {
         story: 4,
@@ -654,7 +658,7 @@ describe('assistant preference store helpers', () => {
     })
   })
 
-  it('normalizes persisted pet hover shortcuts to four valid entries', () => {
+  it('drops retired shortcuts before capping persisted pet hover shortcuts', () => {
     const store = createFakeStore({
       petHoverShortcuts: [
         'favorite',
@@ -670,8 +674,7 @@ describe('assistant preference store helpers', () => {
     expect(loadAssistantPreferences(store).petHoverShortcuts).toEqual([
       'favorite',
       'library',
-      'prepare-ledgers',
-      'organize-old-favorites'
+      'comment'
     ])
 
     saveAssistantPreferences(store, {

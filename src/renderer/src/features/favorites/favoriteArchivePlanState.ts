@@ -1,6 +1,11 @@
 import type { FavoriteLedger, FavoriteLedgerClassificationDiagnostic } from '@shared/types'
 
-export type FavoriteArchivePlanChangeSource = 'classifier' | 'user' | 'deepseek' | 'rejudge'
+export type FavoriteArchivePlanChangeSource =
+  | 'classifier'
+  | 'user'
+  | 'transfer'
+  | 'deepseek'
+  | 'rejudge'
 
 export type FavoriteArchivePlanItemState = {
   itemKey: string

@@ -818,13 +818,10 @@ describe('PalaceMaidPetApp', () => {
         anchor: { screenX: 720, screenY: 460 }
       })
     )
-    expect(container.querySelector('.palace-maid-pet-shell')).toHaveAttribute(
-      'data-workspace-side',
-      'left'
-    )
+    expect(container.querySelector('.palace-maid-pet-shell')).not.toHaveAttribute('data-workspace-side')
   })
 
-  it('aligns the bubble left when a left-side pet opens the workspace on its right', async () => {
+  it('keeps the bubble centered when the workspace opens on either side', async () => {
     const assistantShortcutPreferences = createPreferences({
       petHoverShortcuts: ['like', 'coin'],
       showPetAssistantShortcut: true
@@ -844,10 +841,7 @@ describe('PalaceMaidPetApp', () => {
       screenY: 460
     })
 
-    expect(container.querySelector('.palace-maid-pet-shell')).toHaveAttribute(
-      'data-workspace-side',
-      'right'
-    )
+    expect(container.querySelector('.palace-maid-pet-shell')).not.toHaveAttribute('data-workspace-side')
   })
 
   it('hides the standalone assistant shortcut when the preference is disabled', async () => {
@@ -1020,7 +1014,7 @@ describe('PalaceMaidPetApp', () => {
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
 
-  it('prepares ledgers directly from the 备 hover shortcut without opening another page', async () => {
+  it('drops the retired 备 hover shortcut from legacy preferences', async () => {
     const api = installDesktopApi({
       loadPreferences: vi.fn().mockResolvedValue(
         createPreferences({
@@ -1032,14 +1026,12 @@ describe('PalaceMaidPetApp', () => {
     render(<PalaceMaidPetApp />)
 
     fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
-    fireEvent.click(await screen.findByRole('button', { name: '备' }))
-
-    await waitFor(() => expect(api.ensureFavoriteLedgers).toHaveBeenCalledOnce())
-    expect(screen.getByText('册目已备齐。')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '备' })).not.toBeInTheDocument()
+    expect(api.ensureFavoriteLedgers).not.toHaveBeenCalled()
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
 
-  it('opens the note archive for 库 and the ledger for 整 shortcuts', async () => {
+  it('opens the note archive for 库 and drops the retired 整 shortcut', async () => {
     const api = installDesktopApi({
       openFloatingAssistantWorkspace: vi.fn().mockResolvedValue(undefined),
       loadPreferences: vi.fn().mockResolvedValue(
@@ -1053,18 +1045,15 @@ describe('PalaceMaidPetApp', () => {
 
     fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
     fireEvent.click(await screen.findByRole('button', { name: '库' }))
-    fireEvent.click(await screen.findByRole('button', { name: '整' }))
 
     await waitFor(() =>
-      expect(api.openFloatingAssistantWorkspace).toHaveBeenNthCalledWith(1, {
+      expect(api.openFloatingAssistantWorkspace).toHaveBeenCalledWith({
         tab: 'notes',
         openNoteArchive: true
       })
     )
-    expect(api.openFloatingAssistantWorkspace).toHaveBeenNthCalledWith(2, {
-      tab: 'ledger',
-      organizeOldFavorites: true
-    })
+    expect(api.openFloatingAssistantWorkspace).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: '整' })).not.toBeInTheDocument()
   })
 
   it('explains hover shortcuts with their actual effect and restores the previous bubble', async () => {
@@ -1124,9 +1113,7 @@ describe('PalaceMaidPetApp', () => {
     ['like', '赏', '赏：一键点赞，并归类收藏到 bilimi'],
     ['favorite', '藏', '藏：一键归类收藏，不点赞不投币'],
     ['transcribe', '转', '转：将当前视频音频加入本地转写队列'],
-    ['library', '库', '库：打开档案库，查看已保存的札记'],
-    ['prepare-ledgers', '备', '备：创建或补齐 bilimi 专属收藏夹'],
-    ['organize-old-favorites', '整', '整：打开掌库，开始整理旧藏']
+    ['library', '库', '库：打开档案库，查看已保存的札记']
   ] as const)(
     'explains the %s shortcut with its actual effect',
     async (shortcutId, buttonName, description) => {
@@ -1335,10 +1322,12 @@ describe('PalaceMaidPetApp', () => {
         createPreferences({
           petHoverShortcuts: [
             'favorite',
-            'library',
             'prepare-ledgers',
+            'library',
             'organize-old-favorites',
-            'comment'
+            'comment',
+            'coin',
+            'like'
           ]
         })
       )
@@ -1351,9 +1340,11 @@ describe('PalaceMaidPetApp', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: '藏' })).toBeInTheDocument())
     expect(screen.getAllByTestId('pet-hover-shortcut')).toHaveLength(4)
     expect(screen.getByRole('button', { name: '库' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '备' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '整' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '表' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '表' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '赐' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '备' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '整' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '赏' })).not.toBeInTheDocument()
   })
 
   it('allows the configured hover shortcut list to be empty', async () => {

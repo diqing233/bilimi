@@ -353,6 +353,7 @@ describe('assistant state', () => {
       favoriteCorrectionLearningEnabled: true,
       favoriteCorrectionLearningClassificationEnabled: true,
       favoriteCorrectionRecords: [],
+      favoriteAdjustmentRecordsVersion: 1,
       favoriteArchiveProtectionRecords: [],
       favoriteKeywordSuggestions: []
     })
@@ -362,6 +363,7 @@ describe('assistant state', () => {
         favoriteArchiveStrategy: 'balanced',
         favoriteCorrectionLearningEnabled: false,
         favoriteCorrectionLearningClassificationEnabled: false,
+        favoriteAdjustmentRecordsVersion: 1,
         favoriteCorrectionRecords: [
           {
             id: 'record-1',
@@ -412,6 +414,7 @@ describe('assistant state', () => {
     expect(
       createInitialAssistantPreferences({
         favoriteArchiveStrategy: 'reckless' as never,
+        favoriteAdjustmentRecordsVersion: 1,
         favoriteCorrectionRecords: [
           null,
           {
@@ -439,6 +442,35 @@ describe('assistant state', () => {
       ],
       favoriteKeywordSuggestions: []
     })
+  })
+
+  it('clears legacy correction records once before the adjustment-record schema is enabled', () => {
+    const legacyRecord = {
+      id: 'legacy-record',
+      aid: 1,
+      title: '旧记录',
+      userLedgerIds: ['game'],
+      source: 'user',
+      feedbackType: 'strong-correction',
+      sourceScene: 'archive-preview',
+      tags: [],
+      matchedKeywords: [],
+      createdAt: '2026-07-05T00:00:00.000Z'
+    } as const
+
+    expect(
+      createInitialAssistantPreferences({ favoriteCorrectionRecords: [legacyRecord] } as never)
+    ).toMatchObject({
+      favoriteAdjustmentRecordsVersion: 1,
+      favoriteCorrectionRecords: []
+    })
+
+    expect(
+      createInitialAssistantPreferences({
+        favoriteAdjustmentRecordsVersion: 1,
+        favoriteCorrectionRecords: [legacyRecord]
+      } as never).favoriteCorrectionRecords
+    ).toHaveLength(1)
   })
 
   it('normalizes favorite archive protection records from persisted preferences', () => {

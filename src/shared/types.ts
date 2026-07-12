@@ -118,6 +118,17 @@ export type FavoriteCorrectionRecord = {
   confirmedAt?: string
 }
 
+export type OldFavoriteRuntimeSnapshot = {
+  key: string
+  revision: number
+  value: unknown
+  accountMid: string
+}
+
+export type OldFavoriteRuntimeSetResult = OldFavoriteRuntimeSnapshot & {
+  accepted: boolean
+}
+
 export type FavoriteKeywordSuggestion = {
   id: string
   action: FavoriteKeywordSuggestionAction
@@ -182,6 +193,7 @@ export type AssistantPreferences = {
   favoriteArchiveStrategy: FavoriteArchiveStrategy
   favoriteCorrectionLearningEnabled: boolean
   favoriteCorrectionLearningClassificationEnabled: boolean
+  favoriteAdjustmentRecordsVersion: 1
   favoriteCorrectionRecords: FavoriteCorrectionRecord[]
   favoriteArchiveProtectionRecords?: FavoriteArchiveProtectionRecord[]
   favoriteArchiveProtectionInitializedAccountMids?: string[]

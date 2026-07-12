@@ -58,6 +58,7 @@ import { installFloatingSealWhiteStripFix } from './floatingSealWhiteStripFix'
 import { createFloatingSealWindowOptions } from './floatingSealWindowOptions'
 import { toggleFloatingAssistantFromSeal } from './floatingMenuToggleFlow'
 import { FLOATING_ASSISTANT_SIZE } from './floatingAssistantWindowSize'
+import { OldFavoriteRuntimeStore } from './oldFavoriteRuntimeStore'
 import {
   configureFloatingMenuWindow,
   createFloatingMenuWindowOptions
@@ -379,6 +380,16 @@ function createFloatingAssistantWindow() {
 const floatingAssistantController = new FloatingMenuController(createFloatingAssistantWindow, {
   prepareWindow: positionFloatingAssistantWindow
 })
+
+const oldFavoriteRuntimeStore = new OldFavoriteRuntimeStore()
+
+function broadcastOldFavoriteRuntimeSnapshot(snapshot: unknown) {
+  for (const target of BrowserWindow.getAllWindows()) {
+    if (!target.isDestroyed()) {
+      target.webContents.send('old-favorite-runtime:changed', snapshot)
+    }
+  }
+}
 
 function sendFloatingAssistantWorkspaceWhenReady(
   target: BrowserWindow,
@@ -765,6 +776,31 @@ function getVideoTranscriptionQueue() {
 }
 
 function registerAssistantPreferenceHandlers() {
+  ipcMain.on('old-favorite-runtime:get', (event, key: string, initialValue: unknown) => {
+    event.returnValue = oldFavoriteRuntimeStore.get(key, initialValue)
+  })
+  ipcMain.on(
+    'old-favorite-runtime:set',
+    (event, key: string, value: unknown, expectedRevision: number) => {
+      const result = oldFavoriteRuntimeStore.set(key, value, expectedRevision)
+      event.returnValue = result
+      if (result.accepted) {
+        broadcastOldFavoriteRuntimeSnapshot(result)
+      }
+    }
+  )
+  ipcMain.on('old-favorite-runtime:bind-account', (event, accountMid: string) => {
+    const changed = oldFavoriteRuntimeStore.bindAccount(accountMid)
+    event.returnValue = changed
+    if (changed) {
+      broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: accountMid.trim() })
+    }
+  })
+  ipcMain.on('old-favorite-runtime:reset', (event) => {
+    oldFavoriteRuntimeStore.reset()
+    event.returnValue = true
+    broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: '' })
+  })
   ipcMain.handle('assistant:load-preferences', () => loadAssistantPreferences())
   ipcMain.handle('clipboard:write-text', (_event, text: string) => {
     clipboard.writeText(text)
@@ -932,10 +968,6 @@ function registerAssistantPreferenceHandlers() {
       const assistant = floatingAssistantController.open()
       positionFloatingAssistantWindow(assistant, payload.anchor)
       sendFloatingAssistantWorkspaceWhenReady(assistant, payload)
-
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        sendFloatingAssistantWorkspaceWhenReady(mainWindow, payload)
-      }
     }
   )
   ipcMain.handle('floating-assistant:snapshot', () =>

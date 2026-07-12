@@ -223,6 +223,22 @@ describe('AssistantSidebar', () => {
     )
   })
 
+  it('keeps an expanded sidebar on its own page when the pet opens another workspace', async () => {
+    const api = installDesktopApi()
+    render(<AssistantSidebar />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
+    act(() => {
+      api.openWorkspace({ tab: 'ledger', organizeOldFavorites: true })
+    })
+
+    expect(screen.getByRole('tab', { name: '札记' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toHaveAttribute(
+      'data-collapsed',
+      'false'
+    )
+  })
+
   it('loads, drags, persists, and resets a bounded sidebar width', async () => {
     const api = installDesktopApi({
       preferences: createInitialAssistantPreferences({

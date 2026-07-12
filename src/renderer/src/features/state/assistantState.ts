@@ -150,7 +150,11 @@ export function createInitialAssistantPreferences(
       typeof persisted?.favoriteCorrectionLearningClassificationEnabled === 'boolean'
         ? persisted.favoriteCorrectionLearningClassificationEnabled
         : true,
-    favoriteCorrectionRecords: normalizeCorrectionRecords(persisted?.favoriteCorrectionRecords),
+    favoriteAdjustmentRecordsVersion: 1,
+    favoriteCorrectionRecords:
+      persisted?.favoriteAdjustmentRecordsVersion === 1
+        ? normalizeCorrectionRecords(persisted.favoriteCorrectionRecords)
+        : [],
     favoriteArchiveProtectionRecords: normalizeFavoriteArchiveProtectionRecords(
       persisted?.favoriteArchiveProtectionRecords
     ),

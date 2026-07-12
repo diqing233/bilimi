@@ -12,6 +12,8 @@ import type {
   StartupDiagnosticReport,
   PendingFavoriteQueueItem,
   PendingFavoriteQueueStatus,
+  OldFavoriteRuntimeSetResult,
+  OldFavoriteRuntimeSnapshot,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionQueueSnapshot,
   VideoAudioTranscriptionRequest,
@@ -55,6 +57,17 @@ type BilimiDesktopApi = {
   moveFloatingSealBy?: (deltaX: number, deltaY: number) => Promise<void>
   moveFloatingSealTo?: (screenX: number, screenY: number) => void
   notifyAssistantSnapshotChanged?: () => void
+  getOldFavoriteRuntimeSnapshot?: (key: string, initialValue: unknown) => OldFavoriteRuntimeSnapshot
+  setOldFavoriteRuntimeValue?: (
+    key: string,
+    value: unknown,
+    expectedRevision: number
+  ) => OldFavoriteRuntimeSetResult
+  bindOldFavoriteRuntimeAccount?: (accountMid: string) => boolean
+  resetOldFavoriteRuntime?: () => boolean
+  onOldFavoriteRuntimeChanged?: (
+    callback: (snapshot: OldFavoriteRuntimeSnapshot | { type: 'reset'; accountMid: string }) => void
+  ) => () => void
   onAssistantPreferencesChanged?: (callback: (preferences: AssistantPreferences) => void) => () => void
   onAssistantPetStateChanged?: (callback: (state: AssistantPetState) => void) => () => void
   onAssistantPetHintChanged?: (callback: (hint: AssistantPetHint) => void) => () => void

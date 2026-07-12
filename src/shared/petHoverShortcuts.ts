@@ -100,12 +100,14 @@ export const DEFAULT_PET_HOVER_SHORTCUTS: PetHoverShortcutId[] = [
 ]
 
 const PET_HOVER_SHORTCUT_IDS = new Set(PET_HOVER_SHORTCUTS.map((shortcut) => shortcut.id))
-const PET_SORTABLE_HOVER_SHORTCUT_IDS = new Set(
-  PET_HOVER_SHORTCUTS.filter((shortcut) => shortcut.id !== 'assistant').map((shortcut) => shortcut.id)
-)
-
 export const PET_SORTABLE_HOVER_SHORTCUTS = PET_HOVER_SHORTCUTS.filter(
-  (shortcut) => shortcut.id !== 'assistant'
+  (shortcut) =>
+    shortcut.id !== 'assistant' &&
+    shortcut.id !== 'prepare-ledgers' &&
+    shortcut.id !== 'organize-old-favorites'
+)
+const PET_SORTABLE_HOVER_SHORTCUT_IDS = new Set(
+  PET_SORTABLE_HOVER_SHORTCUTS.map((shortcut) => shortcut.id)
 )
 
 export function hasLegacyAssistantHoverShortcut(value: unknown): boolean {

@@ -61,6 +61,7 @@ export type AssistantPreferences = {
   favoriteArchiveStrategy: FavoriteArchiveStrategy
   favoriteCorrectionLearningEnabled: boolean
   favoriteCorrectionLearningClassificationEnabled: boolean
+  favoriteAdjustmentRecordsVersion: 1
   favoriteCorrectionRecords: FavoriteCorrectionRecord[]
   favoriteArchiveProtectionRecords: FavoriteArchiveProtectionRecord[]
   favoriteArchiveProtectionInitializedAccountMids: string[]
@@ -126,6 +127,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   favoriteArchiveStrategy: 'aggressive',
   favoriteCorrectionLearningEnabled: true,
   favoriteCorrectionLearningClassificationEnabled: true,
+  favoriteAdjustmentRecordsVersion: 1,
   favoriteCorrectionRecords: [],
   favoriteArchiveProtectionRecords: [],
   favoriteArchiveProtectionInitializedAccountMids: [],
@@ -376,7 +378,11 @@ export function loadAssistantPreferences(
       store.has?.('favoriteCorrectionLearningClassificationEnabled') === false
         ? true
         : Boolean(store.get('favoriteCorrectionLearningClassificationEnabled')),
-    favoriteCorrectionRecords: normalizeFavoriteCorrectionRecords(store.get('favoriteCorrectionRecords')),
+    favoriteAdjustmentRecordsVersion: 1,
+    favoriteCorrectionRecords:
+      store.get('favoriteAdjustmentRecordsVersion') === 1
+        ? normalizeFavoriteCorrectionRecords(store.get('favoriteCorrectionRecords'))
+        : [],
     favoriteArchiveProtectionRecords: normalizeFavoriteArchiveProtectionRecords(
       store.get('favoriteArchiveProtectionRecords')
     ),
@@ -458,7 +464,11 @@ export function saveAssistantPreferences(
     favoriteCorrectionLearningClassificationEnabled: Boolean(
       preferences.favoriteCorrectionLearningClassificationEnabled
     ),
-    favoriteCorrectionRecords: normalizeFavoriteCorrectionRecords(preferences.favoriteCorrectionRecords),
+    favoriteAdjustmentRecordsVersion: 1,
+    favoriteCorrectionRecords:
+      preferences.favoriteAdjustmentRecordsVersion === 1
+        ? normalizeFavoriteCorrectionRecords(preferences.favoriteCorrectionRecords)
+        : [],
     favoriteArchiveProtectionRecords: normalizeFavoriteArchiveProtectionRecords(
       preferences.favoriteArchiveProtectionRecords
     ),

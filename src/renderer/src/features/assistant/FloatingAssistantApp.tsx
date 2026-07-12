@@ -339,7 +339,15 @@ const KEYWORD_SUGGESTION_ACTION_LABELS: Record<FavoriteKeywordSuggestion['action
 }
 
 const FAVORITE_CORRECTION_LEARNING_HELP =
-  '确认整理后，记录“原建议”和“你实际选择”的差异，作为回看分类边界的参考；记录本身不会直接影响本地分类。'
+  '记录卡片“转移”和 DeepSeek 改变系统原建议后实际执行成功的归档调整；系统自动批量迁移不会登记。'
+
+function archiveAdjustmentMethodLabel(record: FavoriteCorrectionRecord): string {
+  return record.source === 'user' ? '用户手动' : 'DeepSeek 整理'
+}
+
+function archiveAdjustmentSceneLabel(record: FavoriteCorrectionRecord): string {
+  return record.sourceScene === 'archive-preview' ? '归档预览' : '日常收藏'
+}
 
 const KEYWORD_SUGGESTION_STATUS_LABELS: Record<FavoriteKeywordSuggestionStatus, string> = {
   pending: '待处理',
@@ -2943,7 +2951,7 @@ export function FloatingAssistantApp({
                     })
                   }
                 />
-                <span>记录纠错参考</span>
+                <span>记录归档调整</span>
               </label>
               <small
                 className="assistant-settings__option-help"
@@ -2958,20 +2966,20 @@ export function FloatingAssistantApp({
               ) : null}
               <div className="assistant-settings__subsection assistant-settings__subsection--records">
                 <div className="assistant-settings__subsection-heading">
-                  <strong>纠错参考记录（{preferences.favoriteCorrectionRecords.length}）</strong>
+                  <strong>归档调整记录（{preferences.favoriteCorrectionRecords.length}）</strong>
                   <button
                     type="button"
                     onClick={clearCorrectionRecords}
                     disabled={preferences.favoriteCorrectionRecords.length === 0}
                   >
-                    清空纠错记录
+                    清空调整记录
                   </button>
                 </div>
                 {preferences.favoriteCorrectionRecords.length > 0 ? (
                   <div
                     className="assistant-settings__record-track assistant-settings__learning-list"
                     role="list"
-                    aria-label="纠错参考记录"
+                    aria-label="归档调整记录"
                   >
                     {preferences.favoriteCorrectionRecords.map(
                       (record: FavoriteCorrectionRecord) => {
@@ -2984,7 +2992,7 @@ export function FloatingAssistantApp({
                             getLedgerDisplayName(preferences.favoriteLedgers, ledgerId)
                           )
                         )
-                        const summaryText = `原建议：${originalLedger}；用户选择：${userLedgers}；时间：${formatSettingsDate(record.confirmedAt ?? record.createdAt)}`
+                        const summaryText = `调整前：${originalLedger}；调整后：${userLedgers}；时间：${formatSettingsDate(record.confirmedAt ?? record.createdAt)}`
 
                         return (
                           <article
@@ -3000,7 +3008,7 @@ export function FloatingAssistantApp({
                               <span className="assistant-settings__learning-actions">
                                 <button
                                   type="button"
-                                  aria-label={`删除纠错 ${record.title}`}
+                                  aria-label={`删除调整 ${record.title}`}
                                   onClick={() => deleteCorrectionRecord(record.id)}
                                 >
                                   删除
@@ -3010,7 +3018,8 @@ export function FloatingAssistantApp({
                             <div className="assistant-settings__learning-detail">
                               <span title={record.author?.trim() || '未记录'}>UP：{record.author?.trim() || '未记录'}</span>
                               <span title={joinSettingValues(record.tags)}>标签：{joinSettingValues(record.tags)}</span>
-                              <span title={record.sourceScene}>来源场景：{record.sourceScene}</span>
+                              <span title={archiveAdjustmentMethodLabel(record)}>调整方式：{archiveAdjustmentMethodLabel(record)}</span>
+                              <span title={archiveAdjustmentSceneLabel(record)}>发生位置：{archiveAdjustmentSceneLabel(record)}</span>
                               <span title={record.sourceFolderTitle?.trim() || '未记录'}>来源收藏夹：{record.sourceFolderTitle?.trim() || '未记录'}</span>
                               <span title={joinSettingValues(record.matchedKeywords)}>命中关键词：{joinSettingValues(record.matchedKeywords)}</span>
                               <span title={String(record.score ?? '未记录')}>匹配分：{record.score ?? '未记录'}</span>
@@ -3024,7 +3033,7 @@ export function FloatingAssistantApp({
                   </div>
                 ) : (
                   <p className="assistant-settings__empty">
-                    暂无纠错参考。确认整理时如果实际选择不同于原建议，会记录在这里；记录本身不会直接影响本地分类。
+                    暂无归档调整记录。卡片转移和已执行的 DeepSeek 调整会记录在这里，系统自动批量迁移不会登记。
                   </p>
                 )}
               </div>

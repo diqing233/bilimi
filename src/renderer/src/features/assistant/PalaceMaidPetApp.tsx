@@ -36,9 +36,6 @@ const PET_SIZE_MAX_PX = 164
 const PET_SIZE_DEFAULT_PX = 148
 const PET_HOVER_GRID_SIZE_THRESHOLD_PX = 116
 const PET_LONG_HOVER_DELAY_MS = 5_000
-const FLOATING_PET_HOST_WIDTH_PX = 336
-const FLOATING_ASSISTANT_WIDTH_PX = 460
-const FLOATING_ASSISTANT_GAP_PX = 12
 const DEEPSEEK_CHAT_DISABLED_MESSAGE =
   '主人，想要跟小咪交流的话去设置开启DeepSeek支持吧'
 const DEEPSEEK_PET_CHAT_DISABLED_MESSAGE =
@@ -62,8 +59,6 @@ type DragState = {
   started: boolean
   longPress: boolean
 }
-
-type FloatingAssistantSide = 'left' | 'right'
 
 export function PalaceMaidPetApp() {
   const dragState = useRef<DragState | null>(null)
@@ -94,7 +89,6 @@ export function PalaceMaidPetApp() {
   const [petHint, setPetHint] = useState<AssistantPetHint | null>(null)
   const [hoverPreview, setHoverPreview] = useState<AssistantPetHint | null>(null)
   const [closePromptVisible, setClosePromptVisible] = useState(false)
-  const [workspaceSide, setWorkspaceSide] = useState<FloatingAssistantSide | null>(null)
   const visiblePetState = hoverPreview?.tone ?? petHint?.tone ?? petState
   const stateView = createPetStateView(visiblePetState)
   const bubbleMessage = hoverPreview?.message ?? petHint?.message ?? stateView.bubble
@@ -514,11 +508,6 @@ export function PalaceMaidPetApp() {
   }
 
   function openFloatingWorkspace(payload: FloatingAssistantWorkspaceRequest) {
-    const anchorX = payload.anchor?.screenX ?? window.screenX + window.innerWidth / 2
-    const availableLeft = window.screen.availLeft || 0
-    const requiredLeftSpace =
-      FLOATING_PET_HOST_WIDTH_PX / 2 + FLOATING_ASSISTANT_WIDTH_PX + FLOATING_ASSISTANT_GAP_PX * 2
-    setWorkspaceSide(anchorX - availableLeft >= requiredLeftSpace ? 'left' : 'right')
     void window.bilimiDesktop?.openFloatingAssistantWorkspace?.(payload)
   }
 
@@ -699,7 +688,6 @@ export function PalaceMaidPetApp() {
     <main
       className="palace-maid-pet-shell"
       aria-label="bilimi 小咪"
-      data-workspace-side={workspaceSide ?? undefined}
       style={{ '--floating-pet-size': `${petSize}px` } as CSSProperties}
     >
       <button

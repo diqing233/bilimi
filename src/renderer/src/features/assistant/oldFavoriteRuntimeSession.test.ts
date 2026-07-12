@@ -1,9 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 describe('oldFavoriteRuntimeSession', () => {
+  const originalDesktopApi = Object.getOwnPropertyDescriptor(window, 'bilimiDesktop')
+
   afterEach(async () => {
     const session = await import('./oldFavoriteRuntimeSession')
     session.resetOldFavoriteRuntimeSession()
+    if (originalDesktopApi) {
+      Object.defineProperty(window, 'bilimiDesktop', originalDesktopApi)
+    } else {
+      delete window.bilimiDesktop
+    }
   })
 
   it('reuses the same store after the module is reloaded', async () => {
@@ -47,5 +54,32 @@ describe('oldFavoriteRuntimeSession', () => {
     expect(firstHandler).not.toHaveBeenCalled()
     expect(latestHandler).toHaveBeenCalledOnce()
     expect(latestHandler).toHaveBeenCalledWith('整理完成')
+  })
+
+  it('returns false and refreshes local state when the main process rejects a stale write', async () => {
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        getOldFavoriteRuntimeSnapshot: vi.fn().mockReturnValue({
+          key: 'deepSeekArchiveRunning',
+          revision: 0,
+          value: false,
+          accountMid: '42'
+        }),
+        setOldFavoriteRuntimeValue: vi.fn().mockReturnValue({
+          key: 'deepSeekArchiveRunning',
+          revision: 1,
+          value: true,
+          accountMid: '42',
+          accepted: false
+        })
+      }
+    })
+    const session = await import('./oldFavoriteRuntimeSession')
+    session.resetOldFavoriteRuntimeSession()
+    expect(session.getOldFavoriteRuntimeValue('deepSeekArchiveRunning', false)).toBe(false)
+
+    expect(session.setOldFavoriteRuntimeValue('deepSeekArchiveRunning', true)).toBe(false)
+    expect(session.getOldFavoriteRuntimeValue('deepSeekArchiveRunning', false)).toBe(true)
   })
 })
