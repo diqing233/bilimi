@@ -2643,6 +2643,46 @@ describe('FloatingAssistantApp', () => {
   })
 
   it.each([
+    [
+      /赏.*轻赏此条/,
+      '赏',
+      '已点赞，归类存入 bilimi·搞笑杂谈。',
+      '主人，做好啦～已点赞，归类存入「bilimi·搞笑杂谈」。'
+    ],
+    [
+      /藏.*归入内库/,
+      '藏',
+      '已归类存入 bilimi·搞笑杂谈。',
+      '主人，收好啦～已归类存入「bilimi·搞笑杂谈」。'
+    ],
+    [
+      /赐.*投币厚赏/,
+      '赐',
+      '已一键三连，归类存入 bilimi·搞笑杂谈。',
+      '厚赏完成～已一键三连，替主人归类存入「bilimi·搞笑杂谈」。'
+    ]
+  ])(
+    'reports the saved ledgers in the pet success hint for %s',
+    async (buttonName, _action, resultMessage, expectedPetMessage) => {
+      const setAssistantPetHint = vi.fn()
+      installDesktopApi({
+        setAssistantPetHint,
+        runAssistantAction: vi.fn().mockResolvedValue(createResult(resultMessage))
+      })
+
+      render(<FloatingAssistantApp />)
+      fireEvent.click(await screen.findByRole('button', { name: buttonName }))
+
+      await waitFor(() =>
+        expect(setAssistantPetHint).toHaveBeenLastCalledWith({
+          tone: 'done',
+          message: expectedPetMessage
+        })
+      )
+    }
+  )
+
+  it.each([
     [/赏.*轻赏此条/, '主人，当前还没打开视频，小咪不能帮这条点喜欢。'],
     [/藏.*归入内库/, '主人，当前还没打开视频，小咪不能把这条归入 bilimi。'],
     [/赐.*投币厚赏/, '主人，当前还没打开视频，小咪不能给这条投币。'],

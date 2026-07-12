@@ -11,6 +11,7 @@ import {
   searchVideoNoteArchives
 } from '@shared/videoNoteArchive'
 import { CopySplitButton } from './CopySplitButton'
+import { formatDeepSeekErrorMessage } from '../assistant/deepSeekErrorMessage'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 
 type VideoNoteArchivePanelProps = {
@@ -348,7 +349,7 @@ export function VideoNoteArchivePanel({
       }
       setStatusMessage('DeepSeek 总结已生成。')
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : 'DeepSeek 总结生成失败。')
+      setStatusMessage(formatDeepSeekErrorMessage(error, 'DeepSeek 总结生成失败。'))
     } finally {
       setSummaryGenerating(false)
     }

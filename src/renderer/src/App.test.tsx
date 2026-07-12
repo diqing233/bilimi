@@ -1519,12 +1519,11 @@ describe('App runtime integration', () => {
       })
     )
     await waitFor(() =>
-      expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith(
-        expect.objectContaining({
-          tone: 'happy',
-          message: expect.stringContaining('DeepSeek 后台已改归 bilimi·游戏专区')
-        })
-      )
+      expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith({
+        tone: 'happy',
+        message:
+          '主人，DeepSeek重新判断有调整哦～已从「bilimi·生活日常」改存到「bilimi·游戏专区」。'
+      })
     )
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
@@ -1737,7 +1736,9 @@ describe('App runtime integration', () => {
           : ledger
       )
     })
-    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({ generateDeepSeek })
+    const { desktopApi, notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({
+      generateDeepSeek
+    })
     notifyPreferencesChanged(preferences)
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string) => Promise<unknown>
@@ -1765,6 +1766,10 @@ describe('App runtime integration', () => {
         runtimeFeedback: 'DeepSeek 二判完成：与本地判断一致，保留在「bilimi·生活日常」。'
       })
     )
+    expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith({
+      tone: 'happy',
+      message: '主人，DeepSeek复核过啦～与原建议一致，存入「bilimi·生活日常」。'
+    })
   })
 
   it('keeps local favorite state and skips confirmed learning when delayed DeepSeek adjustment fails', async () => {
@@ -1871,12 +1876,11 @@ describe('App runtime integration', () => {
       })
     )
     await waitFor(() =>
-      expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith(
-        expect.objectContaining({
-          tone: 'error',
-          message: expect.stringContaining('请稍后重试或手动整理')
-        })
-      )
+      expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith({
+        tone: 'error',
+        message:
+          '主人，DeepSeek重新判断建议改存到「bilimi·游戏专区」，但调整没有成功，目前仍在「bilimi·生活日常」。'
+      })
     )
     expect(savePreferences).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1999,12 +2003,11 @@ describe('App runtime integration', () => {
       })
     )
     await waitFor(() =>
-      expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith(
-        expect.objectContaining({
-          tone: 'error',
-          message: expect.stringContaining('webview gone')
-        })
-      )
+      expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith({
+        tone: 'error',
+        message:
+          '主人，DeepSeek重新判断建议改存到「bilimi·游戏专区」，但调整没有成功，目前仍在「bilimi·生活日常」。'
+      })
     )
     expect(savePreferences).toHaveBeenCalledWith(
       expect.objectContaining({

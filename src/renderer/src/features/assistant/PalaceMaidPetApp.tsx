@@ -486,6 +486,59 @@ export function PalaceMaidPetApp() {
     }
   }
 
+  async function runPetCommentShortcut() {
+    let commentDraft = ''
+    let usedLocalFallback = true
+
+    if (preferences.deepseekEnabled && preferences.deepseekCommentEnabled) {
+      const finishDeepSeekTask = publishDeepSeekTask({
+        id: `pet-comment:${Date.now()}:${Math.random()}`,
+        kind: 'comment',
+        detail: '宠物快捷短评：正在生成候选'
+      })
+
+      try {
+        const snapshot = await window.bilimiDesktop?.requestAssistantSnapshot?.()
+        const result = snapshot
+          ? await window.bilimiDesktop?.generateDeepSeek?.({
+              kind: 'review-comment',
+              intent: '',
+              title: snapshot.videoTitle,
+              author: snapshot.videoContentContext.author,
+              description: snapshot.videoContentContext.description,
+              tags: snapshot.videoContentContext.tags ?? [],
+              classification: snapshot.videoContentContext.category ?? ''
+            })
+          : undefined
+
+        if (result?.kind === 'review-comment' && result.comments.length > 0) {
+          const index = Math.floor(Math.random() * result.comments.length)
+          commentDraft = result.comments[index]
+          usedLocalFallback = false
+        }
+      } catch {
+        usedLocalFallback = true
+      } finally {
+        finishDeepSeekTask()
+      }
+    }
+
+    const result = await window.bilimiDesktop?.runFloatingMenuAction?.('表', {
+      submitComment: true,
+      ...(commentDraft ? { commentDraft } : {})
+    })
+
+    if (!usedLocalFallback || result?.ok === false) {
+      return result
+    }
+
+    return {
+      ...result,
+      ok: result?.ok ?? true,
+      message: `DeepSeek 短评未生成，已改用本地短评。${result?.message?.trim() ?? ''}`
+    }
+  }
+
   function createWorkspaceAnchor(event?: ReactMouseEvent<HTMLButtonElement>) {
     if (!event || (!event.screenX && !event.screenY)) {
       return undefined
@@ -575,8 +628,8 @@ export function PalaceMaidPetApp() {
 
     if (shortcut.intent === 'video-action' && shortcut.action === '表') {
       void runShortcutWithPetResult(
-        '主人，小咪随机拟一条弹幕直接发送。',
-        () => window.bilimiDesktop?.runFloatingMenuAction?.('表', { submitComment: true }),
+        '主人，小咪正在结合这支视频拟一条弹幕。',
+        runPetCommentShortcut,
         '弹幕已发送，没有看到请检查弹幕开关是否开启'
       )
       return

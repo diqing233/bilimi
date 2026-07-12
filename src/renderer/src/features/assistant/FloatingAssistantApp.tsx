@@ -233,6 +233,36 @@ const ACTION_SUCCESS_HINTS: Record<AssistantAction, string> = {
   阅: '已阅登记完成，主人可以继续看下一支啦。'
 }
 
+function createActionSuccessHint(action: AssistantAction, resultMessage: string): string {
+  const agreedTarget = resultMessage.match(/与本地判断一致，保留在「([^」]+)」/)?.[1]
+  if (agreedTarget) {
+    return `主人，DeepSeek复核过啦～与原建议一致，存入「${agreedTarget}」。`
+  }
+
+  const adjustedTargets = resultMessage.match(/建议从「([^」]+)」改归「([^」]+)」，已按二判结果执行/)
+  if (adjustedTargets) {
+    return `主人，DeepSeek重新判断有调整哦～已从「${adjustedTargets[1]}」改存到「${adjustedTargets[2]}」。`
+  }
+
+  const targetLabel = resultMessage.match(/归类存入\s+([^\n。]+)/)?.[1]?.trim()
+
+  if (!targetLabel) return ACTION_SUCCESS_HINTS[action]
+
+  if (action === '赏') {
+    return `主人，做好啦～已点赞，归类存入「${targetLabel}」。`
+  }
+
+  if (action === '藏') {
+    return `主人，收好啦～已归类存入「${targetLabel}」。`
+  }
+
+  if (action === '赐') {
+    return `厚赏完成～已一键三连，替主人归类存入「${targetLabel}」。`
+  }
+
+  return ACTION_SUCCESS_HINTS[action]
+}
+
 const ACTION_ERROR_HINTS: Record<AssistantAction, string> = {
   赏: '点赞归册没完成，小咪这次没有拿到更具体的原因。',
   藏: '收藏归册没完成，小咪这次没有拿到更具体的原因。',
@@ -503,7 +533,7 @@ function createPetHintMessage(message: string) {
     return '主人，小咪已经同步到这里啦。'
   }
 
-  if (/^(主人|小咪)/.test(trimmed)) {
+  if (/^(主人|小咪|厚赏完成)/.test(trimmed)) {
     return trimmed
   }
 
@@ -2004,7 +2034,9 @@ export function FloatingAssistantApp({
       setGlobalFeedback(result.message)
       tellPet(
         result.ok ? 'done' : 'error',
-        result.ok ? ACTION_SUCCESS_HINTS[action] : createActionErrorHint(action, result)
+        result.ok
+          ? createActionSuccessHint(action, result.message)
+          : createActionErrorHint(action, result)
       )
       window.bilimiDesktop?.setAssistantPetState?.(result.ok ? 'done' : 'error')
     } catch (error) {

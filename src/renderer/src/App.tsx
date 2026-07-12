@@ -1494,9 +1494,18 @@ export default function App() {
           deepSeekCorrection = correction
         } else {
           const localNames = ledgerNames(localTargetLedgerIds)
-          resultMessagePrefix = reviewBeforeAction.result && !reviewBeforeAction.result.invalid
+          const reviewAgreed = Boolean(
+            reviewBeforeAction.result && !reviewBeforeAction.result.invalid
+          )
+          resultMessagePrefix = reviewAgreed
             ? `DeepSeek 二判完成：与本地判断一致，保留在「${localNames}」。`
             : `DeepSeek 二判未完成，本次沿用本地判断「${localNames}」。`
+          if (reviewAgreed) {
+            window.bilimiDesktop?.setAssistantPetHint?.({
+              tone: 'happy',
+              message: `主人，DeepSeek复核过啦～与原建议一致，存入「${localNames}」。`
+            })
+          }
         }
       }
     }
@@ -1634,11 +1643,18 @@ export default function App() {
 
           if (!correction) {
             const localNames = ledgerNames(localTargetLedgerIds)
+            const reviewAgreed = Boolean(reviewResult && !reviewResult.invalid)
             publishRuntimeFeedback(
-              reviewResult && !reviewResult.invalid
+              reviewAgreed
                 ? `DeepSeek 二判完成：与本地判断一致，保留在「${localNames}」。`
                 : `DeepSeek 二判未完成，本次沿用本地判断「${localNames}」。`
             )
+            if (reviewAgreed) {
+              window.bilimiDesktop?.setAssistantPetHint?.({
+                tone: 'happy',
+                message: `主人，DeepSeek复核过啦～与原建议一致，存入「${localNames}」。`
+              })
+            }
             return
           }
 
@@ -1694,7 +1710,7 @@ export default function App() {
             )
             window.bilimiDesktop?.setAssistantPetHint?.({
               tone: 'error',
-              message: `DeepSeek 建议改归 ${targetNames}，但后台调整失败：${adjustmentResult.message} 请稍后重试或手动整理。`
+              message: `主人，DeepSeek重新判断建议改存到「${targetNames}」，但调整没有成功，目前仍在「${ledgerNames(localTargetLedgerIds)}」。`
             })
             return
           }
@@ -1711,7 +1727,7 @@ export default function App() {
           )
           window.bilimiDesktop?.setAssistantPetHint?.({
             tone: 'happy',
-            message: `DeepSeek 后台已改归 ${targetNames}：${correction.reason}`
+            message: `主人，DeepSeek重新判断有调整哦～已从「${ledgerNames(localTargetLedgerIds)}」改存到「${targetNames}」。`
           })
         })()
       }

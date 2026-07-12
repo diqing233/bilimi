@@ -173,6 +173,42 @@ describe('DeepSeek main service', () => {
     })
   })
 
+  it('accepts a concise summary for a very short transcript without fabricating long-form fields', async () => {
+    const shortNote = {
+      ...createNote(),
+      transcript: [
+        { start: 0, end: 3, text: '挑战充气城堡时，半夜突然被放气。' },
+        { start: 3, end: 6, text: '参与者发现后立刻寻找出口。' }
+      ]
+    }
+
+    await expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: { kind: 'note-poster', note: shortNote },
+        fetchImpl: createJsonFetch(
+          JSON.stringify({
+            title: '半夜城堡放气挑战',
+            subtitle: '参与者在突发放气后寻找安全出口',
+            keyPoints: ['充气城堡半夜突然放气，参与者立即寻找出口。'],
+            keywords: ['充气城堡', '挑战']
+          })
+        )
+      })
+    ).resolves.toEqual({
+      kind: 'note-poster',
+      poster: {
+        title: '半夜城堡放气挑战',
+        subtitle: '参与者在突发放气后寻找安全出口',
+        keyPoints: ['充气城堡半夜突然放气，参与者立即寻找出口。'],
+        keywords: ['充气城堡', '挑战'],
+        prompt: '',
+        polishedTranscriptText: '挑战充气城堡时，半夜突然被放气。\n\n参与者发现后立刻寻找出口。',
+        auditChecklistText: '- 充气城堡半夜突然放气，参与者立即寻找出口。'
+      }
+    })
+  })
+
   it('parses favorite archive organization JSON and normalizes keyword suggestions', async () => {
     const fetchImpl = createJsonFetch(
       JSON.stringify({
@@ -695,7 +731,7 @@ describe('DeepSeek main service', () => {
     await expect(
       generateDeepSeekResult({
         config: baseConfig,
-        request: { kind: 'note-poster', note: createNote() },
+        request: { kind: 'note-poster', note: createLongTranscriptNote() },
         fetchImpl: createJsonFetch(
           JSON.stringify({
             title: '世界树很大',
@@ -706,12 +742,15 @@ describe('DeepSeek main service', () => {
           })
         )
       })
-    ).rejects.toMatchObject({ code: 'invalid-output' })
+    ).rejects.toMatchObject({
+      code: 'invalid-output',
+      message: expect.stringContaining('DeepSeek 总结内容不完整')
+    })
 
     await expect(
       generateDeepSeekResult({
         config: baseConfig,
-        request: { kind: 'note-poster', note: createNote() },
+        request: { kind: 'note-poster', note: createLongTranscriptNote() },
         fetchImpl: createJsonFetch(
           JSON.stringify({
             title: '世界树很大',

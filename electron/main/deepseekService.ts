@@ -194,6 +194,17 @@ function isUsefulNoteKeyPoint(value: string): boolean {
   return normalized.length >= 24
 }
 
+function isUsefulShortNoteKeyPoint(value: string): boolean {
+  return value.replace(/\s+/g, '').length >= 8
+}
+
+function createTranscriptText(note: VideoNote): string {
+  return selectTranscriptForSummary(note)
+    .map((segment) => segment.text.trim())
+    .filter(Boolean)
+    .join('\n\n')
+}
+
 function parseJsonContent(content: string): unknown {
   const trimmed = content.trim()
 
@@ -614,20 +625,39 @@ function parseResult(
     const prompt = typeof parsed.prompt === 'string' ? parsed.prompt.trim() : ''
     const keyPoints = coerceStringArray(parsed.keyPoints, 8)
     const keywords = coerceStringArray(parsed.keywords, 8)
-    const polishedTranscriptText =
+    const sourceTranscriptText = createTranscriptText(request.note)
+    const shortNote = sourceTranscriptText.replace(/\s+/g, '').length < 200
+    const parsedPolishedTranscriptText =
       typeof parsed.polishedTranscriptText === 'string' ? parsed.polishedTranscriptText.trim() : ''
-    const auditChecklistText =
+    const parsedAuditChecklistText =
       typeof parsed.auditChecklistText === 'string' ? parsed.auditChecklistText.trim() : ''
+    const polishedTranscriptText =
+      parsedPolishedTranscriptText || (shortNote ? sourceTranscriptText : '')
+    const auditChecklistText =
+      parsedAuditChecklistText ||
+      (shortNote && keyPoints.length > 0
+        ? keyPoints.map((point) => `- ${point}`).join('\n')
+        : '')
+    const minimumKeyPointCount = shortNote ? 1 : 2
+    const usefulKeyPoint = shortNote ? isUsefulShortNoteKeyPoint : isUsefulNoteKeyPoint
+    const invalidReasons: string[] = []
 
-    if (
-      !title ||
-      !subtitle ||
-      keyPoints.length < 2 ||
-      !polishedTranscriptText ||
-      !auditChecklistText ||
-      !keyPoints.every(isUsefulNoteKeyPoint)
-    ) {
-      throw new DeepSeekServiceError('invalid-output', 'DeepSeek did not return a usable poster.')
+    if (!title) invalidReasons.push('缺少标题')
+    if (!subtitle) invalidReasons.push('缺少主旨')
+    if (keyPoints.length < minimumKeyPointCount) {
+      invalidReasons.push(`核心内容少于 ${minimumKeyPointCount} 条`)
+    }
+    if (keyPoints.some((point) => !usefulKeyPoint(point))) {
+      invalidReasons.push(shortNote ? '核心内容过短' : '核心内容缺少有效细节')
+    }
+    if (!polishedTranscriptText) invalidReasons.push('缺少精修文稿')
+    if (!auditChecklistText) invalidReasons.push('缺少内容核对清单')
+
+    if (invalidReasons.length > 0) {
+      throw new DeepSeekServiceError(
+        'invalid-output',
+        `DeepSeek 总结内容不完整：${invalidReasons.join('、')}。`
+      )
     }
 
     return {

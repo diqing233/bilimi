@@ -918,7 +918,104 @@ describe('PalaceMaidPetApp', () => {
     await waitFor(() =>
       expect(api.runFloatingMenuAction).toHaveBeenCalledWith('表', { submitComment: true })
     )
+    expect(
+      screen.getByText('DeepSeek 短评未生成，已改用本地短评。')
+    ).toBeInTheDocument()
     expect(api.openAssistant).not.toHaveBeenCalled()
+    expect(api.openFloatingAssistantWorkspace).not.toHaveBeenCalled()
+  })
+
+  it('labels the local fallback when DeepSeek pet comment generation fails', async () => {
+    const preferences = createPreferences({
+      deepseekEnabled: true,
+      deepseekCommentEnabled: true,
+      petHoverShortcuts: ['comment']
+    })
+    const runFloatingMenuAction = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['danmaku:trusted-enter'],
+      missingTargets: [],
+      message: '弹幕已发送。'
+    })
+    const api = installDesktopApi({
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(createSnapshot({ preferences })),
+      generateDeepSeek: vi.fn().mockRejectedValue(new Error('DeepSeek 输出无效。')),
+      runFloatingMenuAction
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
+    fireEvent.click(await screen.findByRole('button', { name: '表' }))
+
+    await waitFor(() =>
+      expect(runFloatingMenuAction).toHaveBeenCalledWith('表', { submitComment: true })
+    )
+    expect(
+      screen.getByText('DeepSeek 短评未生成，已改用本地短评。弹幕已发送。')
+    ).toBeInTheDocument()
+    expect(api.generateDeepSeek).toHaveBeenCalledOnce()
+  })
+
+  it('uses DeepSeek for the pet comment shortcut when the feature is enabled', async () => {
+    const preferences = createPreferences({
+      deepseekEnabled: true,
+      deepseekCommentEnabled: true,
+      petHoverShortcuts: ['comment']
+    })
+    const generateDeepSeek = vi.fn().mockResolvedValue({
+      kind: 'review-comment',
+      comments: ['DeepSeek 短评一', 'DeepSeek 短评二', 'DeepSeek 短评三']
+    })
+    const runFloatingMenuAction = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: ['danmaku:trusted-enter'],
+      missingTargets: [],
+      message: '弹幕已发送。'
+    })
+    const api = installDesktopApi({
+      openFloatingAssistantWorkspace: vi.fn().mockResolvedValue(undefined),
+      loadPreferences: vi.fn().mockResolvedValue(preferences),
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences,
+          videoTitle: '挑战充气城堡度过一晚',
+          videoContentContext: {
+            title: '挑战充气城堡度过一晚',
+            author: '我是E嗨',
+            description: '半夜突然放气的挑战',
+            tags: ['挑战', '充气城堡'],
+            category: '搞笑'
+          }
+        })
+      ),
+      generateDeepSeek,
+      runFloatingMenuAction
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
+    fireEvent.click(await screen.findByRole('button', { name: '表' }))
+
+    await waitFor(() =>
+      expect(generateDeepSeek).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'review-comment',
+          title: '挑战充气城堡度过一晚',
+          author: '我是E嗨',
+          description: '半夜突然放气的挑战',
+          tags: ['挑战', '充气城堡']
+        })
+      )
+    )
+    await waitFor(() =>
+      expect(runFloatingMenuAction).toHaveBeenCalledWith('表', {
+        submitComment: true,
+        commentDraft: expect.stringMatching(/^DeepSeek 短评[一二三]$/)
+      })
+    )
     expect(api.openFloatingAssistantWorkspace).not.toHaveBeenCalled()
   })
 
@@ -990,7 +1087,11 @@ describe('PalaceMaidPetApp', () => {
       expect(api.runFloatingMenuAction).toHaveBeenCalledWith('表', { submitComment: true })
     )
     expect(api.openFloatingAssistantWorkspace).not.toHaveBeenCalled()
-    expect(screen.getByText('弹幕已发送，没有看到请检查弹幕开关是否开启')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'DeepSeek 短评未生成，已改用本地短评。弹幕已发送，没有看到请检查弹幕开关是否开启'
+      )
+    ).toBeInTheDocument()
     expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'done')
   })
 

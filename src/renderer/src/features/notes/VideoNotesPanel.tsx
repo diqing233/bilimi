@@ -16,6 +16,7 @@ import {
   createPolishedTranscriptText
 } from '@shared/videoNoteArchive'
 import { AssistantActionButton } from '../assistant/AssistantActionButton'
+import { formatDeepSeekErrorMessage } from '../assistant/deepSeekErrorMessage'
 import { CopySplitButton } from './CopySplitButton'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
@@ -438,7 +439,7 @@ export function VideoNotesPanel({
       })
       setStatusMessage('DeepSeek 总结已生成。')
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'DeepSeek 总结生成失败。')
+      setErrorMessage(formatDeepSeekErrorMessage(error, 'DeepSeek 总结生成失败。'))
     } finally {
       setPosterGenerating(false)
     }
