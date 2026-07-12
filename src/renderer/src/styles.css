@@ -3775,6 +3775,10 @@ body[data-floating-window="true"],
   cursor: pointer;
   overflow: hidden;
 }
+.favorite-ledger-panel__archive-history-select-control option {
+  color: var(--porcelain-deep);
+  background: #ffffff;
+}
 .favorite-ledger-panel__archive-history-select-control::after {
   content: "";
   position: absolute;

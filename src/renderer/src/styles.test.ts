@@ -263,6 +263,9 @@ describe('renderer porcelain theme styles', () => {
       '.favorite-ledger-panel__archive-history-select-control select { appearance: none; width: 100%; min-width: 0; min-height: 30px; color: transparent; text-indent: 100%;'
     )
     expectStyleSnippet(
+      '.favorite-ledger-panel__archive-history-select-control option { color: var(--porcelain-deep); background: #ffffff;'
+    )
+    expectStyleSnippet(
       '.favorite-ledger-panel__archive-history-select-control::after { content: ""; position: absolute; z-index: 1; left: 50%; top: 50%;'
     )
     expectStyleSnippet(
