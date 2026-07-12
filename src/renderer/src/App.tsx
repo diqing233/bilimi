@@ -77,6 +77,7 @@ export const VIDEO_FULLSCREEN_PET_CLOSE_DELAY_MS = 900
 const IS_TEST_RUNTIME = import.meta.env.MODE === 'test'
 const DAILY_DEEPSEEK_PRE_ACTION_WAIT_MS = IS_TEST_RUNTIME ? 0 : 1200
 const DAILY_DEEPSEEK_BACKGROUND_TIMEOUT_MS = IS_TEST_RUNTIME ? 50 : 60_000
+const AUTOMATED_PAGE_HINT_COOLDOWN_MS = 750
 let browserTabIdIndex = 0
 const NO_CURRENT_VIDEO_RESULT: AssistantAutomationResult = {
   ok: false,
@@ -492,6 +493,7 @@ export default function App() {
   const activeTabChangeMounted = useRef(false)
   const lastPetVideoKey = useRef<string | undefined>(undefined)
   const assistantRuntimeFeedbackRef = useRef<{ id: number; message: string } | undefined>(undefined)
+  const suppressPageInteractionHintsUntilRef = useRef(0)
   const petHiddenForVideoFullscreen = useRef(false)
   const videoFullscreenPetCloseTimer = useRef<number | null>(null)
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
@@ -1536,23 +1538,29 @@ export default function App() {
         message: '页面已切换，本次操作未执行。'
       }
     }
-    let result = await executeAssistantAction({
-      action,
-      favoritesFolderName: preferences.favoritesFolderName,
-      runScript,
-      runVisualFallback,
-      runTrustedDanmakuSubmitFallback,
-      favoriteApiFallbackEnabled: options?.pageClickOnly !== true,
-      coinCount: options?.coinCount ?? (action === '赐' ? preferences.defaultCoinCount : undefined),
-      commentDraft,
-      submitComment:
-        options?.submitComment ??
-        (action === '表' ? preferences.commentSubmitMode === 'random' : undefined),
-      favoriteLedgers: preferences.favoriteLedgers,
-      targetLedgerId,
-      targetLedgerIds,
-      resultMessagePrefix: undefined
-    })
+    let result: AssistantAutomationResult
+    suppressPageInteractionHintsUntilRef.current = Number.POSITIVE_INFINITY
+    try {
+      result = await executeAssistantAction({
+        action,
+        favoritesFolderName: preferences.favoritesFolderName,
+        runScript,
+        runVisualFallback,
+        runTrustedDanmakuSubmitFallback,
+        favoriteApiFallbackEnabled: options?.pageClickOnly !== true,
+        coinCount: options?.coinCount ?? (action === '赐' ? preferences.defaultCoinCount : undefined),
+        commentDraft,
+        submitComment:
+          options?.submitComment ??
+          (action === '表' ? preferences.commentSubmitMode === 'random' : undefined),
+        favoriteLedgers: preferences.favoriteLedgers,
+        targetLedgerId,
+        targetLedgerIds,
+        resultMessagePrefix: undefined
+      })
+    } finally {
+      suppressPageInteractionHintsUntilRef.current = Date.now() + AUTOMATED_PAGE_HINT_COOLDOWN_MS
+    }
 
     if (preActionCorrectionTargets) {
       resultMessagePrefix = result.ok
@@ -1982,6 +1990,9 @@ export default function App() {
               onOpenInTab={openInternalTab}
               onHtmlFullscreenChange={handleHtmlFullscreenChange}
               onPageInteractionHint={(message) => {
+                if (Date.now() < suppressPageInteractionHintsUntilRef.current) {
+                  return
+                }
                 window.bilimiDesktop?.setAssistantPetHint?.({ tone: 'hint', message })
               }}
               onReady={handleWebviewReady}

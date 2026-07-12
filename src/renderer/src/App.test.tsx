@@ -579,6 +579,119 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('suppresses page interaction hints caused by assistant actions, then restores manual hints', async () => {
+    vi.useFakeTimers()
+
+    try {
+      let resolveAction:
+        | ((result: AssistantAutomationResult) => void)
+        | undefined
+      const { desktopApi, requestRuntimeDirect } = renderAppWithRuntimeBridge()
+      const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+        executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+      }
+      const executeJavaScript = vi.fn(async (script: string) => {
+        if (isLedgerStatusScript(script)) {
+          return emptyLedgerStatus()
+        }
+
+        if (script.includes('document.cookie')) {
+          return 'DedeUserID=42; bili_jct=csrf'
+        }
+
+        if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
+          return {
+            title: '自动点赞提示去重测试',
+            pageText: '小咪执行赏时会自动点赞并收藏。'
+          }
+        }
+
+        return new Promise<AssistantAutomationResult>((resolve) => {
+          resolveAction = resolve
+        })
+      })
+      Object.assign(webview, { executeJavaScript })
+
+      act(() => {
+        webview.dispatchEvent(
+          new CustomEvent('did-navigate-in-page', {
+            detail: {
+              url: 'https://www.bilibili.com/video/BV1automatedhint'
+            }
+          })
+        )
+      })
+      ;(desktopApi.setAssistantPetHint as ReturnType<typeof vi.fn>).mockClear()
+
+      let actionPromise: Promise<AssistantRuntimeResponsePayload> | undefined
+      await act(async () => {
+        actionPromise = requestRuntimeDirect({
+          id: 'run-action-with-page-hints',
+          type: 'run-action',
+          action: '赏',
+          options: { pageClickOnly: true }
+        })
+        for (let index = 0; index < 10 && !resolveAction; index += 1) {
+          await Promise.resolve()
+        }
+      })
+      expect(resolveAction).toBeTypeOf('function')
+
+      act(() => {
+        webview.dispatchEvent(
+          new CustomEvent('page-title-updated', {
+            detail: {
+              title: `__BILIMI_PET_HINT__:${encodeURIComponent(
+                '小咪看到主人点赞啦，喜欢就要亮出来～'
+              )}`
+            }
+          })
+        )
+      })
+      expect(desktopApi.setAssistantPetHint).not.toHaveBeenCalled()
+
+      await act(async () => {
+        resolveAction?.({
+          ok: true,
+          steps: ['like', 'favorite'],
+          missingTargets: [],
+          message: '点赞归册已完成。'
+        })
+        await actionPromise
+      })
+
+      act(() => {
+        webview.dispatchEvent(
+          new CustomEvent('page-title-updated', {
+            detail: {
+              title: `__BILIMI_PET_HINT__:${encodeURIComponent('小咪帮主人记着：好东西要收好。')}`
+            }
+          })
+        )
+      })
+      expect(desktopApi.setAssistantPetHint).not.toHaveBeenCalled()
+
+      act(() => {
+        vi.advanceTimersByTime(1_000)
+        webview.dispatchEvent(
+          new CustomEvent('page-title-updated', {
+            detail: {
+              title: `__BILIMI_PET_HINT__:${encodeURIComponent(
+                '小咪看到主人点赞啦，喜欢就要亮出来～'
+              )}`
+            }
+          })
+        )
+      })
+      expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith({
+        tone: 'hint',
+        message: '小咪看到主人点赞啦，喜欢就要亮出来～'
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('opens danmaku composer with Enter before pasting through the visible player bar', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
