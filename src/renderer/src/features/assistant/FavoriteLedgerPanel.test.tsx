@@ -284,6 +284,9 @@ describe('FavoriteLedgerPanel', () => {
       expect(helpButton).not.toHaveTextContent(/[\^v]/)
       expect(helpButton.querySelectorAll('.favorite-ledger-panel__help-arrow')).toHaveLength(2)
     }
+
+    expect(ledgerHelpButton.getAttribute('title')?.split('\n')).toHaveLength(3)
+    expect(oldFavoriteHelpButton.getAttribute('title')?.split('\n')).toHaveLength(5)
   })
 
   it('keeps the first-use backup note out of the ledger panel body', () => {
@@ -1646,11 +1649,11 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
 
-    const guideHint = /请主人从左到右查阅完成本轮整理/
+    const guideHint = /请从左到右完成本轮整理/
     expect(screen.queryByText(guideHint)).not.toBeInTheDocument()
 
     const helpButton = screen.getByRole('button', { name: '展开整理旧藏说明' })
-    expect(helpButton).toHaveAttribute('title', expect.stringContaining('请主人从左到右查阅完成本轮整理'))
+    expect(helpButton).toHaveAttribute('title', expect.stringContaining('请从左到右完成本轮整理\n'))
     fireEvent.click(helpButton)
 
     const guide = screen.getByText(guideHint)
@@ -2450,14 +2453,19 @@ describe('FavoriteLedgerPanel', () => {
     expect(within(headerActions as HTMLElement).getByRole('button', { name: '同步' })).toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
     const ledgerHelpButton = within(ledgerRegion).getByRole('button', { name: '展开收藏夹说明' })
+    const ledgerHelpTitle = [
+      '自定义你的 bilimi 收藏夹',
+      '点击收藏名字可以编辑，添加好后点击【同步】即可更新到 B 站',
+      '取消勾选再点击同步，也会删除对应的 bilimi 收藏夹'
+    ].join('\n')
     expect(ledgerHelpButton).toHaveAttribute(
       'title',
-      '自定义你的bilimi收藏夹，点击收藏名字可以进行编辑，添加好后点击【同步】即可更新到b站；取消勾选再点击同步，也会删除对应的 bilimi 收藏夹。'
+      ledgerHelpTitle
     )
     expect(ledgerRegion.querySelector('.favorite-ledger-panel__sync-hint')).not.toBeInTheDocument()
     fireEvent.click(ledgerHelpButton)
     expect(ledgerRegion.querySelector('.favorite-ledger-panel__sync-hint')).toHaveTextContent(
-      '自定义你的bilimi收藏夹，点击收藏名字可以进行编辑，添加好后点击【同步】即可更新到b站；取消勾选再点击同步，也会删除对应的 bilimi 收藏夹。'
+      '自定义你的 bilimi 收藏夹 点击收藏名字可以编辑，添加好后点击【同步】即可更新到 B 站 取消勾选再点击同步，也会删除对应的 bilimi 收藏夹'
     )
     const syncHint = ledgerRegion.querySelector('.favorite-ledger-panel__sync-hint')
     expect(syncHint).toHaveTextContent(

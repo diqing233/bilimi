@@ -446,12 +446,20 @@ function saveStatusMessage(result: AssistantAutomationResult | void) {
 const COLLAPSED_LEDGER_COUNT = 15
 const COLLAPSED_TAG_CANDIDATE_COUNT = 12
 const EXPANDED_TAG_CANDIDATE_COUNT = 24
-const LEDGER_SYNC_HINT =
-  '自定义你的bilimi收藏夹，点击收藏名字可以进行编辑，添加好后点击【同步】即可更新到b站；取消勾选再点击同步，也会删除对应的 bilimi 收藏夹。'
+const LEDGER_SYNC_HINT = [
+  '自定义你的 bilimi 收藏夹',
+  '点击收藏名字可以编辑，添加好后点击【同步】即可更新到 B 站',
+  '取消勾选再点击同步，也会删除对应的 bilimi 收藏夹'
+].join('\n')
 const BACKUP_COMPLETE_MESSAGE =
   '小咪备册已完成，主人可以再增加自己想要的收藏夹，点击同步即可'
-const OLD_FAVORITE_GUIDE_HINT =
-  '请主人从左到右查阅完成本轮整理：①在扫描概览勾选要整理的收藏夹（默认全选）；②在推荐收藏夹勾选想新建的收藏夹；③在归档预览里检查分类结果，可启用 DeepSeek 辅助调整④最后确认执行并查看进度，完成后点“好的”结束本轮整理哦'
+const OLD_FAVORITE_GUIDE_HINT = [
+  '请从左到右完成本轮整理',
+  '① 扫描概览：勾选要整理的收藏夹（默认全选）',
+  '② 推荐收藏夹：勾选想新建的收藏夹',
+  '③ 归档预览：检查分类结果，可启用 DeepSeek 辅助调整',
+  '④ 确认执行：查看进度，完成后点“好的”结束'
+].join('\n')
 const OLD_FAVORITE_EXECUTION_NOTICE =
   '开始整理后，本轮将按当前预览追加到 bilimi 收藏夹，执行中不能再更改。原收藏不会被删除、移动或取消。'
 const OLD_FAVORITE_EXECUTION_CONFIRM_MESSAGE =
