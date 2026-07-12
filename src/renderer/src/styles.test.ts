@@ -251,16 +251,19 @@ describe('renderer porcelain theme styles', () => {
       '.favorite-ledger-panel__archive-history-actions { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-items: center;'
     )
     expectStyleSnippet(
-      '.favorite-ledger-panel__archive-history-select { grid-column: 1 / -1; position: relative;'
+      '.favorite-ledger-panel__archive-history-select { grid-column: 1 / -1;'
     )
     expectStyleSnippet(
-      '.favorite-ledger-panel__archive-history-select select { appearance: none; flex: 0 0 32px; width: 32px;'
+      '.favorite-ledger-panel__archive-history-select-control { position: relative; flex: 0 0 32px; width: 32px;'
     )
     expectStyleSnippet(
-      '.favorite-ledger-panel__archive-history-select select { appearance: none; flex: 0 0 32px; width: 32px; max-width: 32px; min-width: 32px; min-height: 30px; color: transparent; text-indent: 100%;'
+      '.favorite-ledger-panel__archive-history-select-control select { appearance: none; width: 100%;'
     )
     expectStyleSnippet(
-      '.favorite-ledger-panel__archive-history-select::after { content: ""; position: absolute; left: 16px; top: 50%;'
+      '.favorite-ledger-panel__archive-history-select-control select { appearance: none; width: 100%; min-width: 0; min-height: 30px; color: transparent; text-indent: 100%;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__archive-history-select-control::after { content: ""; position: absolute; z-index: 1; left: 50%; top: 50%;'
     )
     expectStyleSnippet(
       'transform: translate(-50%, -50%) rotate(45deg); pointer-events: none;'
@@ -705,7 +708,8 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__archive-tool-card { display: grid; gap: 8px;')
     expectStyleSnippet('.favorite-ledger-panel__archive-tool-divider { height: 1px; border-top: 1px dashed rgba(31, 99, 181, 0.3);')
     expectStyleSnippet('.favorite-ledger-panel__archive-history-actions { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));')
-    expectStyleSnippet('.favorite-ledger-panel__archive-history-select { grid-column: 1 / -1; position: relative; display: flex; align-items: center;')
+    expectStyleSnippet('.favorite-ledger-panel__archive-history-select { grid-column: 1 / -1; display: flex; align-items: center;')
+    expectStyleSnippet('.favorite-ledger-panel__archive-history-select-control { position: relative; flex: 0 0 32px; width: 32px;')
     expectStyleSnippet('.favorite-ledger-panel__archive-history-button { width: 100%; min-width: 0; min-height: 32px;')
     expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-actions { flex: 1 1 176px; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;')
     expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-scope > button { min-width: 84px; display: inline-flex; align-items: center; justify-content: center; gap: 4px;')

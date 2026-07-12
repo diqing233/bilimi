@@ -236,6 +236,9 @@ describe('FavoriteLedgerPanel', () => {
     const undoButton = within(historyTools).getByRole('button', { name: '撤销本次改动' })
     const redoButton = within(historyTools).getByRole('button', { name: '恢复本次改动' })
 
+    expect(historySelect.parentElement).toHaveClass(
+      'favorite-ledger-panel__archive-history-select-control'
+    )
     expect(historySelect.compareDocumentPosition(undoButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(undoButton.compareDocumentPosition(redoButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })

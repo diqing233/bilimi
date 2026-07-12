@@ -4651,25 +4651,27 @@ export function FavoriteLedgerPanel({
                         <div className="favorite-ledger-panel__archive-history-actions">
                           <label className="favorite-ledger-panel__archive-history-select">
                             <span>改动记录</span>
-                            <select
-                              aria-label="改动记录"
-                              disabled={!latestArchiveChange}
-                              value=""
-                              onChange={(event) => {
-                                if (event.currentTarget.value === 'latest') {
-                                  jumpToLatestArchiveChange()
-                                }
-                              }}
-                            >
-                              {!latestArchiveChange ? (
-                                <option value="">暂无改动记录</option>
-                              ) : (
-                                <>
-                                  <option value="">最近改动</option>
-                                  <option value="latest">{archiveChangeRecordOptionText(latestArchiveChange)}</option>
-                                </>
-                              )}
-                            </select>
+                            <span className="favorite-ledger-panel__archive-history-select-control">
+                              <select
+                                aria-label="改动记录"
+                                disabled={!latestArchiveChange}
+                                value=""
+                                onChange={(event) => {
+                                  if (event.currentTarget.value === 'latest') {
+                                    jumpToLatestArchiveChange()
+                                  }
+                                }}
+                              >
+                                {!latestArchiveChange ? (
+                                  <option value="">暂无改动记录</option>
+                                ) : (
+                                  <>
+                                    <option value="">最近改动</option>
+                                    <option value="latest">{archiveChangeRecordOptionText(latestArchiveChange)}</option>
+                                  </>
+                                )}
+                              </select>
+                            </span>
                           </label>
                           <button
                             type="button"
