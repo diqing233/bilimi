@@ -297,30 +297,16 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.queryByText(safetyNote)).not.toBeInTheDocument()
   })
 
-  it('lets the change-history dropdown jump to the latest changed archive card', async () => {
-    const scrollIntoView = vi.fn()
-    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
-    HTMLElement.prototype.scrollIntoView = scrollIntoView
+  it('shows the current and initial states in archive change history', async () => {
+    const { container } = await openArchivePreview()
+    fireEvent.change(screen.getByLabelText('转移 AI 效率工具实战'), {
+      target: { value: 'game' }
+    })
 
-    try {
-      const { container } = await openArchivePreview()
-      fireEvent.change(screen.getByLabelText('转移 AI 效率工具实战'), {
-        target: { value: 'game' }
-      })
-
-      const historySelect = screen.getByRole('combobox', { name: '改动记录' })
-      expect(within(historySelect).getByRole('option', { name: /最近一次改动：AI 效率工具实战/ })).toBeInTheDocument()
-      expect(within(historySelect).queryByRole('option', { name: '选择改动记录' })).not.toBeInTheDocument()
-
-      fireEvent.change(historySelect, {
-        target: { value: 'latest' }
-      })
-
-      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' })
-      expect(getPreviewArticle(container, /AI 效率工具实战/)).toHaveAttribute('data-latest-change', 'true')
-    } finally {
-      HTMLElement.prototype.scrollIntoView = originalScrollIntoView
-    }
+    const historySelect = screen.getByRole('combobox', { name: '改动记录' })
+    expect(within(historySelect).getByRole('option', { name: /当前状态：最近一次改动：AI 效率工具实战/ })).toBeInTheDocument()
+    expect(within(historySelect).getByRole('option', { name: '归档预览初始状态' })).toBeInTheDocument()
+    expect(getPreviewArticle(container, /AI 效率工具实战/)).toHaveAttribute('data-latest-change', 'true')
   })
 
   it('focuses the destination archive group and resets affected horizontal preview tracks after a manual move', async () => {
@@ -1733,6 +1719,67 @@ describe('FavoriteLedgerPanel', () => {
       '暂时不知道放哪'
     )
     expect(screen.getByRole('button', { name: '恢复本次改动' })).toBeDisabled()
+  })
+
+  it('lists archive changes and rolls back directly to a selected history state', async () => {
+    await openArchivePreview()
+
+    fireEvent.change(screen.getByLabelText('转移 AI 效率工具实战'), {
+      target: { value: 'game' }
+    })
+    fireEvent.change(screen.getByLabelText('转移 暂时不知道放哪'), {
+      target: { value: 'music' }
+    })
+
+    const historySelect = screen.getByRole('combobox', { name: '改动记录' })
+    expect(within(historySelect).getByRole('option', { name: '归档预览初始状态' })).toBeInTheDocument()
+    expect(within(historySelect).getByRole('option', { name: '最近一次改动：AI 效率工具实战' })).toBeInTheDocument()
+    expect(within(historySelect).getByRole('option', { name: '最近一次改动：暂时不知道放哪' })).toBeInTheDocument()
+
+    fireEvent.change(historySelect, { target: { value: 'change:0' } })
+
+    expect(screen.getByRole('group', { name: 'bilimi·游戏专区 1 条' })).toHaveTextContent(
+      'AI 效率工具实战'
+    )
+    expect(screen.getByRole('group', { name: /未匹配到合适分类 1 条/ })).toHaveTextContent(
+      '暂时不知道放哪'
+    )
+    expect(screen.queryByRole('group', { name: 'bilimi·音乐舞台 1 条' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '恢复本次改动' })).toBeEnabled()
+
+    fireEvent.change(screen.getByLabelText('转移 暂时不知道放哪'), {
+      target: { value: 'inbox' }
+    })
+
+    expect(screen.getByRole('button', { name: '恢复本次改动' })).toBeDisabled()
+  })
+
+  it('rolls archive history back to the initial preview state', async () => {
+    await openArchivePreview()
+
+    fireEvent.change(screen.getByLabelText('转移 AI 效率工具实战'), {
+      target: { value: 'game' }
+    })
+    fireEvent.change(screen.getByLabelText('转移 暂时不知道放哪'), {
+      target: { value: 'music' }
+    })
+
+    fireEvent.change(screen.getByRole('combobox', { name: '改动记录' }), {
+      target: { value: 'initial' }
+    })
+
+    expect(screen.getByRole('group', { name: 'bilimi·知识学习 1 条' })).toHaveTextContent(
+      'AI 效率工具实战'
+    )
+    expect(screen.getByRole('group', { name: /未匹配到合适分类 1 条/ })).toHaveTextContent(
+      '暂时不知道放哪'
+    )
+    expect(screen.getByRole('button', { name: '撤销本次改动' })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: '恢复本次改动' }))
+    expect(screen.getByRole('group', { name: 'bilimi·游戏专区 1 条' })).toHaveTextContent(
+      'AI 效率工具实战'
+    )
   })
 
   it('toggles the old favorite guide hint from the heading help button', async () => {
@@ -6572,18 +6619,22 @@ describe('FavoriteLedgerPanel', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
 
-    const summary = await screen.findByRole('button', {
-      name: 'DeepSeek 整理结果：1 条已应用，1 条未应用'
-    })
+    const summary = await screen.findByRole('status', { name: 'DeepSeek 整理结果' })
     expect(summary).toHaveTextContent('DeepSeek 整理完成：已应用 1 条，未应用 1 条')
     expect(summary).toHaveAttribute('title', 'DeepSeek 整理完成：已应用 1 条，未应用 1 条')
-    fireEvent.click(summary)
-    const detail = screen.getByRole('tooltip')
+    const detailsButton = screen.getByRole('button', { name: '查看 DeepSeek 整理结果详情' })
+    fireEvent.click(detailsButton)
+    const detail = screen.getByRole('region', { name: '本次 DeepSeek 整理结果' })
     expect(detail).toHaveTextContent('本次 DeepSeek 整理结果')
     expect(detail).toHaveTextContent('共处理 2 条视频')
     expect(detail).toHaveTextContent('已采用 DeepSeek 建议并更新归档预览，尚未操作 B 站收藏夹。')
     expect(detail).toHaveTextContent('未采用 DeepSeek 建议，继续保持整理前的归档状态。')
     expect(detail).toHaveTextContent('保持未分类：1 条')
+    expect(detailsButton).toHaveAttribute('aria-expanded', 'true')
+
+    fireEvent.click(detailsButton)
+    expect(screen.queryByRole('region', { name: '本次 DeepSeek 整理结果' })).not.toBeInTheDocument()
+    expect(detailsButton).toHaveAttribute('aria-expanded', 'false')
   })
 
   it('resets affected horizontal preview tracks without vertically focusing after DeepSeek moves archive cards', async () => {

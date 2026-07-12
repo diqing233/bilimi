@@ -567,43 +567,47 @@ export function VideoNotesPanel({
 
     return (
       <section className="video-notes__queue" aria-label="转写状态">
-        <div className="video-notes__panel-header">
-          <strong>{statusLabel}：{visibleQueueItem.title}</strong>
-          <div className="video-notes__queue-selector" title={queueDetailsTitle}>
+        <div className="video-notes__queue-header">
+          <div className="video-notes__queue-summary">
             <span>本次完成：{sessionCompletedCount} 个</span>
-            <span title={queueDetailsTitle}>排队中：{queuedItemCount} 个</span>
-            <button
-              type="button"
-              aria-label="切换队列视频"
-              aria-haspopup="menu"
-              aria-expanded={queueMenuOpen}
-              title={queueDetailsTitle}
-              onClick={() => setQueueMenuOpen((open) => !open)}
-            />
-            {queueMenuOpen ? (
-              <div className="video-notes__queue-menu" role="menu" aria-label="切换队列视频">
-                {queueItems.map((item) => (
-                  <div
-                    key={item.id}
-                    role="menuitem"
-                    tabIndex={0}
-                    className="video-notes__queue-menu-row"
-                    aria-current={item.id === visibleQueueItem.id ? 'true' : undefined}
-                    onClick={() => selectQueueItem(item.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        selectQueueItem(item.id)
-                      }
-                    }}
-                  >
-                    <span>{createQueueItemOptionLabel(item)}</span>
-                    {renderQueueItemAction(item)}
-                  </div>
-                ))}
-              </div>
-            ) : null}
+            <div className="video-notes__queue-selector" title={queueDetailsTitle}>
+              <span title={queueDetailsTitle}>排队中：{queuedItemCount} 个</span>
+              <button
+                type="button"
+                aria-label="切换队列视频"
+                aria-haspopup="menu"
+                aria-expanded={queueMenuOpen}
+                title={queueDetailsTitle}
+                onClick={() => setQueueMenuOpen((open) => !open)}
+              />
+              {queueMenuOpen ? (
+                <div className="video-notes__queue-menu" role="menu" aria-label="切换队列视频">
+                  {queueItems.map((item) => (
+                    <div
+                      key={item.id}
+                      role="menuitem"
+                      tabIndex={0}
+                      className="video-notes__queue-menu-row"
+                      aria-current={item.id === visibleQueueItem.id ? 'true' : undefined}
+                      onClick={() => selectQueueItem(item.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          selectQueueItem(item.id)
+                        }
+                      }}
+                    >
+                      <span>{createQueueItemOptionLabel(item)}</span>
+                      {renderQueueItemAction(item)}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </div>
+          <strong className="video-notes__queue-title" title={`${statusLabel}：${visibleQueueItem.title}`}>
+            {statusLabel}：{visibleQueueItem.title}
+          </strong>
         </div>
         {renderQueueItemProgress(visibleQueueItem)}
       </section>

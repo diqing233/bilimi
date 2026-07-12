@@ -302,8 +302,11 @@ describe('renderer porcelain theme styles', () => {
       '.favorite-ledger-panel__deepseek-archive-status { overflow: hidden; color: var(--porcelain-muted); font-weight: 700; text-overflow: ellipsis; white-space: nowrap;'
     )
     expectStyleSnippet(
-      '.favorite-ledger-panel__deepseek-result { position: relative; width: 100%; min-width: 0;'
+      '.favorite-ledger-panel__deepseek-result { width: 100%; min-width: 0;'
     )
+    expectStyleSnippet('.favorite-ledger-panel__deepseek-result-details { display: grid;')
+    expectStyleSnippet('.favorite-ledger-panel button.favorite-ledger-panel__deepseek-result-toggle { display: inline-flex;')
+    expectStyleSnippet('.favorite-ledger-panel button.favorite-ledger-panel__deepseek-result-toggle:hover:not(:disabled), .favorite-ledger-panel button.favorite-ledger-panel__deepseek-result-toggle:focus-visible:not(:disabled) { border-color: transparent; background: transparent;')
     expect(normalizedStyles).not.toContain('.favorite-ledger-panel__deepseek-result-trigger strong')
   })
 
@@ -573,7 +576,10 @@ describe('renderer porcelain theme styles', () => {
     )
     expectStyleSnippet('.video-notes__result-tabs button { display: grid; grid-template-rows: auto auto; align-content: start; gap: 2px; height: 66px; min-height: 66px; min-width: 0; box-sizing: border-box; padding: 6px 8px;')
     expectStyleSnippet('.video-notes__result-tabs small { display: -webkit-box; overflow: hidden; color: inherit; opacity: 0.78; line-height: 1.18; -webkit-box-orient: vertical; -webkit-line-clamp: 2; text-overflow: ellipsis;')
-    expectStyleSnippet('.video-notes__queue-selector { position: relative; top: -2px; display: inline-flex; flex: 0 0 auto; align-self: flex-start; align-items: center;')
+    expectStyleSnippet('.video-notes__queue-header { display: grid; gap: 4px;')
+    expectStyleSnippet('.video-notes__queue-summary { display: flex; align-items: center; justify-content: space-between;')
+    expectStyleSnippet('.video-notes__queue-title { display: -webkit-box; overflow: hidden;')
+    expectStyleSnippet('.video-notes__queue-selector { position: relative; display: inline-flex; flex: 0 0 auto; align-items: center;')
     expectStyleSnippet('.video-notes__queue-selector select { appearance: none; width: 24px; min-width: 24px; height: 24px; padding: 0;')
     expectStyleSnippet('.video-notes__queue-selector::after { content: ""; position: absolute; right: 8px; top: 50%; width: 6px; height: 6px; border-right: 1.5px solid rgba(31, 99, 181, 0.72); border-bottom: 1.5px solid rgba(31, 99, 181, 0.72); transform: translateY(-62%) rotate(45deg); pointer-events: none;')
     expect(normalizedStyles).toContain(
@@ -748,8 +754,8 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__preview-row--pending .favorite-ledger-panel__preview-video { border-color: rgba(31, 99, 181, 0.14); border-left-color: rgba(31, 99, 181, 0.14); background: rgba(255, 255, 255, 0.74);')
     expectStyleSnippet('.favorite-ledger-panel__preview-video-meta { display: grid; gap: 3px; min-width: 0;')
     expectStyleSnippet('.favorite-ledger-panel__preview-video-meta small { min-width: 0; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;')
-    expectStyleSnippet('.favorite-ledger-panel__preview-controls { display: grid; grid-template-columns: 74px minmax(0, 1fr);')
-    expectStyleSnippet('.favorite-ledger-panel__target-select { width: 74px;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-controls { display: grid; grid-template-columns: 60px minmax(0, 1fr);')
+    expectStyleSnippet('.favorite-ledger-panel__target-select { width: 60px; min-width: 0; min-height: 24px;')
     expect(normalizedStyles).not.toContain(".favorite-ledger-panel__preview-videos article[data-latest-change='true'] {\n  outline:")
     expectStyleSnippet('.favorite-ledger-panel__preview-delta-row { min-width: 0; min-height: 28px; display: flex; align-items: center; justify-content: flex-start; border-radius: var(--porcelain-radius-control);')
     expectStyleSnippet('border-left: 2px solid rgba(155, 54, 66, 0.68); background: rgba(255, 232, 235, 0.82); color: var(--porcelain-error);')

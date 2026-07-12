@@ -1551,6 +1551,10 @@ export function FavoriteLedgerPanel({
     useOldFavoriteRuntimeState<ArchivePreviewHistorySnapshot[]>('archiveUndoStack', [])
   const [archiveRedoStack, setArchiveRedoStack] =
     useOldFavoriteRuntimeState<ArchivePreviewHistorySnapshot[]>('archiveRedoStack', [])
+  const [archiveUndoChanges, setArchiveUndoChanges] =
+    useOldFavoriteRuntimeState<ArchivePreviewLatestChange[]>('archiveUndoChanges', [])
+  const [archiveRedoChanges, setArchiveRedoChanges] =
+    useOldFavoriteRuntimeState<ArchivePreviewLatestChange[]>('archiveRedoChanges', [])
   const [latestArchiveChange, setLatestArchiveChange] =
     useOldFavoriteRuntimeState<ArchivePreviewLatestChange | null>('latestArchiveChange', null)
   const [manualArchiveMoveFocus, setManualArchiveMoveFocus] =
@@ -1563,6 +1567,8 @@ export function FavoriteLedgerPanel({
     if (options.resetHistory) {
       setArchiveUndoStack([])
       setArchiveRedoStack([])
+      setArchiveUndoChanges([])
+      setArchiveRedoChanges([])
       setLatestArchiveChange(null)
     }
   }
@@ -1596,9 +1602,14 @@ export function FavoriteLedgerPanel({
     return restoredState
   }
 
-  function recordArchivePreviewHistory(state: FavoriteArchivePlanState) {
+  function recordArchivePreviewHistory(
+    state: FavoriteArchivePlanState,
+    change: ArchivePreviewLatestChange
+  ) {
     setArchiveUndoStack((current) => [...current, createArchivePreviewHistorySnapshot(state)])
     setArchiveRedoStack([])
+    setArchiveUndoChanges((current) => [...current, change])
+    setArchiveRedoChanges([])
   }
   const [oldFavoriteExecutionPhase, setOldFavoriteExecutionPhase] =
     useOldFavoriteRuntimeState<OldFavoriteExecutionPhase>('oldFavoriteExecutionPhase', 'idle')
@@ -2083,7 +2094,7 @@ export function FavoriteLedgerPanel({
         return current
       }
 
-      recordArchivePreviewHistory(previousStateForChange)
+      recordArchivePreviewHistory(previousStateForChange, latestChange)
       setLatestArchiveChange(latestChange)
       setArchivePreviewAlertMessages(
         [archiveChangeAlertSummary(latestChange)].filter((message): message is string => Boolean(message))
@@ -2194,7 +2205,7 @@ export function FavoriteLedgerPanel({
       return
     }
 
-    recordArchivePreviewHistory(archivePlanState)
+    recordArchivePreviewHistory(archivePlanState, latestChange)
     setArchivePlanState(nextState)
     setLatestArchiveChange(latestChange)
     setArchivePreviewAlertMessages(
@@ -2689,11 +2700,9 @@ export function FavoriteLedgerPanel({
       return
     }
 
-    if (archivePlanState && archivePlanHasPreviewChanges(nextState)) {
-      recordArchivePreviewHistory(archivePlanState)
-    }
     const latestChange = archivePlanState ? latestArchiveChangeBetween(archivePlanState, nextState) : null
     if (latestChange) {
+      recordArchivePreviewHistory(archivePlanState!, latestChange)
       setLatestArchiveChange(latestChange)
     }
     clearDeepSeekArchiveRunSnapshot()
@@ -3008,7 +3017,9 @@ export function FavoriteLedgerPanel({
         batchReason: 'DeepSeek 批量整理',
         forceBatch: true
       })
-      recordArchivePreviewHistory(archivePlanState)
+      if (deepSeekArchiveChange) {
+        recordArchivePreviewHistory(archivePlanState, deepSeekArchiveChange)
+      }
       setArchivePlanState(applied.state)
       updatePreviewFromArchivePlan(applied.state)
       setLatestArchiveChange(deepSeekArchiveChange)
@@ -3110,11 +3121,16 @@ export function FavoriteLedgerPanel({
     }
 
     const previousSnapshot = archiveUndoStack[archiveUndoStack.length - 1]
+    const undoneChange = archiveUndoChanges[archiveUndoChanges.length - 1]
     const currentSnapshot = createArchivePreviewHistorySnapshot(archivePlanState)
-    const revertedState = restoreArchivePreviewHistorySnapshot(previousSnapshot)
+    restoreArchivePreviewHistorySnapshot(previousSnapshot)
     setArchiveUndoStack((current) => current.slice(0, -1))
     setArchiveRedoStack((current) => [...current, currentSnapshot])
-    setLatestArchiveChange(latestArchiveChangeBetween(archivePlanState, revertedState))
+    setArchiveUndoChanges((current) => current.slice(0, -1))
+    if (undoneChange) {
+      setArchiveRedoChanges((current) => [...current, undoneChange])
+    }
+    setLatestArchiveChange(archiveUndoChanges[archiveUndoChanges.length - 2] ?? null)
     setDeepSeekArchiveRunSnapshot(null)
     setArchivePreviewAlertMessages([])
     setPendingUnclassifiedDecision(null)
@@ -3126,11 +3142,47 @@ export function FavoriteLedgerPanel({
     }
 
     const nextSnapshot = archiveRedoStack[archiveRedoStack.length - 1]
+    const restoredChange = archiveRedoChanges[archiveRedoChanges.length - 1]
     const currentSnapshot = createArchivePreviewHistorySnapshot(archivePlanState)
-    const restoredState = restoreArchivePreviewHistorySnapshot(nextSnapshot)
+    restoreArchivePreviewHistorySnapshot(nextSnapshot)
     setArchiveRedoStack((current) => current.slice(0, -1))
     setArchiveUndoStack((current) => [...current, currentSnapshot])
-    setLatestArchiveChange(latestArchiveChangeBetween(archivePlanState, restoredState))
+    setArchiveRedoChanges((current) => current.slice(0, -1))
+    if (restoredChange) {
+      setArchiveUndoChanges((current) => [...current, restoredChange])
+    }
+    setLatestArchiveChange(restoredChange ?? null)
+    setPendingUnclassifiedDecision(null)
+  }
+
+  function rollbackArchivePreviewHistory(targetChangeIndex: number) {
+    if (!archivePlanState || deepSeekArchiveRunning) {
+      return
+    }
+
+    const appliedChangeCount = archiveUndoChanges.length
+    const keepCount = targetChangeIndex + 1
+    if (keepCount < 0 || keepCount >= appliedChangeCount) {
+      return
+    }
+
+    const removedSnapshots = archiveUndoStack.slice(keepCount)
+    const targetSnapshot = removedSnapshots[0]
+    if (!targetSnapshot) {
+      return
+    }
+
+    const currentSnapshot = createArchivePreviewHistorySnapshot(archivePlanState)
+    const futureSnapshots = [...removedSnapshots.slice(1), currentSnapshot].reverse()
+    const futureChanges = archiveUndoChanges.slice(keepCount).reverse()
+    restoreArchivePreviewHistorySnapshot(targetSnapshot)
+    setArchiveUndoStack(archiveUndoStack.slice(0, keepCount))
+    setArchiveUndoChanges(archiveUndoChanges.slice(0, keepCount))
+    setArchiveRedoStack([...archiveRedoStack, ...futureSnapshots])
+    setArchiveRedoChanges([...archiveRedoChanges, ...futureChanges])
+    setLatestArchiveChange(archiveUndoChanges[keepCount - 1] ?? null)
+    setDeepSeekArchiveRunSnapshot(null)
+    setArchivePreviewAlertMessages([])
     setPendingUnclassifiedDecision(null)
   }
 
@@ -3163,7 +3215,7 @@ export function FavoriteLedgerPanel({
       return
     }
 
-    recordArchivePreviewHistory(archivePlanState)
+    recordArchivePreviewHistory(archivePlanState, latestChange)
     setArchivePlanState(nextState)
     setLatestArchiveChange(latestChange)
     setArchivePreviewAlertMessages(
@@ -3269,6 +3321,7 @@ export function FavoriteLedgerPanel({
         setArchivePlanState(nextState)
         const latestChange = latestArchiveChangeBetween(archivePlanState, nextState)
         if (latestChange) {
+          recordArchivePreviewHistory(archivePlanState, latestChange)
           setLatestArchiveChange(latestChange)
         }
       }
@@ -4070,16 +4123,6 @@ export function FavoriteLedgerPanel({
     return { sourceLedgerId, targetLedgerId, resetLedgerIds: uniqueLedgerIds(resetLedgerIds) }
   }
 
-  function jumpToLatestArchiveChange() {
-    if (latestArchiveChange?.kind !== 'single') {
-      return
-    }
-
-    document
-      .querySelector<HTMLElement>('[data-latest-change="true"]')
-      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }
-
   function renderOldFavoritePreviewMeta(item: FavoriteLedgerPreviewItem, target?: FavoriteLedgerPreviewTarget) {
     const allTagsText = oldFavoriteTagsText(item)
     const visibleTagsText = oldFavoriteVisibleTagsText(item)
@@ -4861,22 +4904,38 @@ export function FavoriteLedgerPanel({
                           将发送标题、UP、标签、简介、来源收藏夹、当前建议和 bilimi 册目信息给 DeepSeek。
                         </p>
                         {deepSeekArchiveResultSummary ? (
-                          <div
-                            className="favorite-ledger-panel__deepseek-result"
-                            data-open={deepSeekArchiveSummaryOpen ? 'true' : 'false'}
-                          >
-                            <button
-                              type="button"
-                              className="favorite-ledger-panel__deepseek-archive-status favorite-ledger-panel__deepseek-result-trigger"
-                              aria-label={`DeepSeek 整理结果：${deepSeekArchiveResultSummary.successCount} 条已应用，${deepSeekArchiveResultSummary.failedCount} 条未应用`}
+                          <div className="favorite-ledger-panel__deepseek-result">
+                            <div
+                              className="favorite-ledger-panel__deepseek-result-summary"
+                              role="status"
+                              aria-label="DeepSeek 整理结果"
                               title={`DeepSeek 整理完成：已应用 ${deepSeekArchiveResultSummary.successCount} 条，未应用 ${deepSeekArchiveResultSummary.failedCount} 条`}
-                              aria-expanded={deepSeekArchiveSummaryOpen}
-                              onClick={() => setDeepSeekArchiveSummaryOpen((open) => !open)}
                             >
-                              DeepSeek 整理完成：已应用 {deepSeekArchiveResultSummary.successCount} 条，未应用{' '}
-                              {deepSeekArchiveResultSummary.failedCount} 条
-                            </button>
-                            <div className="favorite-ledger-panel__deepseek-result-tooltip" role="tooltip">
+                              <span>
+                                DeepSeek 整理完成：已应用 {deepSeekArchiveResultSummary.successCount} 条，未应用{' '}
+                                {deepSeekArchiveResultSummary.failedCount} 条
+                              </span>
+                              <button
+                                type="button"
+                                className="favorite-ledger-panel__deepseek-result-toggle"
+                                aria-label={`${deepSeekArchiveSummaryOpen ? '收起' : '查看'} DeepSeek 整理结果详情`}
+                                aria-expanded={deepSeekArchiveSummaryOpen}
+                                onClick={() => setDeepSeekArchiveSummaryOpen((open) => !open)}
+                              >
+                                <span>详情</span>
+                                <span
+                                  className="favorite-ledger-panel__deepseek-result-arrow"
+                                  data-open={deepSeekArchiveSummaryOpen ? 'true' : 'false'}
+                                  aria-hidden="true"
+                                />
+                              </button>
+                            </div>
+                            {deepSeekArchiveSummaryOpen ? (
+                              <div
+                                className="favorite-ledger-panel__deepseek-result-details"
+                                role="region"
+                                aria-label="本次 DeepSeek 整理结果"
+                              >
                               <strong>本次 DeepSeek 整理结果</strong>
                               <span>
                                 共处理 {deepSeekArchiveResultSummary.successCount + deepSeekArchiveResultSummary.failedCount} 条视频。
@@ -4892,7 +4951,8 @@ export function FavoriteLedgerPanel({
                               {deepSeekArchiveNonApplicationRows.map(([label, count]) => (
                                 <span key={label}>{label}：{count} 条</span>
                               ))}
-                            </div>
+                              </div>
+                            ) : null}
                           </div>
                         ) : null}
                         {deepSeekArchiveStatus && deepSeekArchiveStatus !== deepSeekArchiveResultStatusText ? (
@@ -4948,20 +5008,34 @@ export function FavoriteLedgerPanel({
                             <span className="favorite-ledger-panel__archive-history-select-control">
                               <select
                                 aria-label="改动记录"
-                                disabled={!latestArchiveChange}
+                                disabled={archiveUndoChanges.length === 0}
                                 value=""
                                 onChange={(event) => {
-                                  if (event.currentTarget.value === 'latest') {
-                                    jumpToLatestArchiveChange()
+                                  if (event.currentTarget.value === 'initial') {
+                                    rollbackArchivePreviewHistory(-1)
+                                    return
+                                  }
+                                  if (event.currentTarget.value.startsWith('change:')) {
+                                    rollbackArchivePreviewHistory(Number(event.currentTarget.value.slice(7)))
                                   }
                                 }}
                               >
-                                {!latestArchiveChange ? (
+                                {archiveUndoChanges.length === 0 ? (
                                   <option value="">暂无改动记录</option>
                                 ) : (
                                   <>
-                                    <option value="">最近改动</option>
-                                    <option value="latest">{archiveChangeRecordOptionText(latestArchiveChange)}</option>
+                                    <option value="">
+                                      当前状态：{archiveChangeRecordOptionText(archiveUndoChanges[archiveUndoChanges.length - 1])}
+                                    </option>
+                                    {[...archiveUndoChanges]
+                                      .map((change, index) => ({ change, index }))
+                                      .reverse()
+                                      .map(({ change, index }) => (
+                                        <option key={`archive-change-${index}`} value={`change:${index}`}>
+                                          {archiveChangeRecordOptionText(change)}
+                                        </option>
+                                      ))}
+                                    <option value="initial">归档预览初始状态</option>
                                   </>
                                 )}
                               </select>

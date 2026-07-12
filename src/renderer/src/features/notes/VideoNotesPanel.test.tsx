@@ -299,6 +299,9 @@ describe('VideoNotesPanel', () => {
     const queueStatus = screen.getByRole('region', { name: '转写状态' })
     expect(queueStatus).toHaveTextContent('正在转写：正在跑的视频')
     expect(queueStatus).toHaveTextContent('排队中：0 个')
+    const queueHeader = queueStatus.querySelector('.video-notes__queue-header')
+    expect(queueHeader?.children[0]).toHaveClass('video-notes__queue-summary')
+    expect(queueHeader?.children[1]).toHaveClass('video-notes__queue-title')
 
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
 
