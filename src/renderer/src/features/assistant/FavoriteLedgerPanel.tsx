@@ -52,6 +52,7 @@ import {
   buildDeepSeekArchiveRequest,
   createDeepSeekArchiveSnapshot,
   revertDeepSeekArchiveRun,
+  type DeepSeekArchiveNonApplicationCounts,
   type DeepSeekArchiveRunSnapshot
 } from '../favorites/deepseekArchiveOrganizer'
 import { createCorrectionDraft } from '../recommendation/correctionLearning'
@@ -78,6 +79,17 @@ type OldFavoriteStatusSnapshot = {
   label: string
   message: string
   tone: OldFavoriteStatusTone
+}
+
+type DeepSeekArchiveResultSummary = {
+  successCount: number
+  failedCount: number
+  nonApplicationCounts: DeepSeekArchiveNonApplicationCounts
+}
+
+type ArchiveMultiModeChange = {
+  from: FavoriteArchiveMultiMode
+  to: FavoriteArchiveMultiMode
 }
 
 type OldFavoriteExecutionPhase = 'idle' | 'running' | 'awaiting-acknowledgement'
@@ -776,6 +788,60 @@ function createArchivePlanStateFromPreviewItems(
   )
 }
 
+function mergeArchivePlanAfterModeRefresh(
+  refreshedState: FavoriteArchivePlanState,
+  currentState: FavoriteArchivePlanState | null,
+  targetLimit: number
+): FavoriteArchivePlanState {
+  if (!currentState) {
+    return refreshedState
+  }
+
+  return {
+    ...refreshedState,
+    items: refreshedState.items.map((item) => {
+      const currentItem = currentState.items.find((candidate) => candidate.itemKey === item.itemKey)
+      if (
+        !currentItem?.userModified ||
+        currentItem.selectedTargetLedgerIds.length > targetLimit
+      ) {
+        return item
+      }
+
+      return {
+        ...item,
+        currentTargetLedgerIds: [...currentItem.currentTargetLedgerIds],
+        selectedTargetLedgerIds: [...currentItem.selectedTargetLedgerIds],
+        userModified: true,
+        lastChangeSource: currentItem.lastChangeSource
+      }
+    })
+  }
+}
+
+function applyArchivePlanToPreviewItems(
+  items: FavoriteLedgerPreviewItem[],
+  state: FavoriteArchivePlanState,
+  ledgers: FavoriteLedger[]
+) {
+  return items.map((item) => {
+    const planItem = state.items.find((candidate) => candidate.itemKey === archivePlanItemKey(item))
+    if (!planItem) {
+      return item
+    }
+
+    return normalizeOldFavoritePreviewItem(
+      {
+        ...item,
+        originalSuggestedLedgerIds: [...planItem.originalSuggestedLedgerIds],
+        currentTargetLedgerIds: [...planItem.currentTargetLedgerIds],
+        selectedTargetLedgerIds: [...planItem.selectedTargetLedgerIds]
+      },
+      ledgers
+    )
+  })
+}
+
 function rejudgedCurrentArchiveLedgerIds(item: FavoriteLedgerPreviewItem) {
   const explicitCurrentLedgerIds = Array.isArray(item.currentTargetLedgerIds)
     ? uniqueLedgerIds(item.currentTargetLedgerIds)
@@ -959,6 +1025,21 @@ function deepSeekArchiveMultiLimit(mode: FavoriteArchiveMultiMode): 1 | 2 | 3 {
   if (mode === 'three') return 3
   if (mode === 'two') return 2
   return 1
+}
+
+function favoriteArchiveMultiModeLabel(mode: FavoriteArchiveMultiMode) {
+  const limit = deepSeekArchiveMultiLimit(mode)
+  return limit === 1 ? '单收藏夹' : `最多 ${limit} 个`
+}
+
+function emptyDeepSeekNonApplicationCounts(): DeepSeekArchiveNonApplicationCounts {
+  return {
+    'kept-unclassified': 0,
+    'unavailable-target': 0,
+    'invalid-result': 0,
+    'unmatched-video': 0,
+    'request-failed': 0
+  }
 }
 
 function lowConfidenceDetailText(item: FavoriteLedgerPreviewItem) {
@@ -1460,6 +1541,9 @@ export function FavoriteLedgerPanel({
     useOldFavoriteRuntimeState('deepSeekArchiveCancelRequested', false)
   const [deepSeekArchiveStatus, setDeepSeekArchiveStatus] =
     useOldFavoriteRuntimeState('deepSeekArchiveStatus', '')
+  const [deepSeekArchiveResultSummary, setDeepSeekArchiveResultSummary] =
+    useOldFavoriteRuntimeState<DeepSeekArchiveResultSummary | null>('deepSeekArchiveResultSummary', null)
+  const [deepSeekArchiveSummaryOpen, setDeepSeekArchiveSummaryOpen] = useState(false)
   const [deepSeekArchiveSuggestionCount, setDeepSeekArchiveSuggestionCount] =
     useOldFavoriteRuntimeState('deepSeekArchiveSuggestionCount', 0)
   const [deepSeekArchiveProgress, setDeepSeekArchiveProgress] =
@@ -1529,6 +1613,8 @@ export function FavoriteLedgerPanel({
   const oldFavoriteExecutionAwaitingAcknowledgement =
     oldFavoriteExecutionPhase === 'awaiting-acknowledgement'
   const [oldFavoriteExecutionConfirming, setOldFavoriteExecutionConfirming] = useState(false)
+  const [archiveMultiModeChange, setArchiveMultiModeChange] =
+    useOldFavoriteRuntimeState<ArchiveMultiModeChange | null>('archiveMultiModeChange', null)
   const [status, setStatus] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -1640,7 +1726,10 @@ export function FavoriteLedgerPanel({
     setSelectedOldFavoriteSourceFolderTitles(new Set())
     setDeepSeekArchiveRunning(false)
     setDeepSeekArchiveStatus('')
+    setDeepSeekArchiveResultSummary(null)
+    setDeepSeekArchiveSummaryOpen(false)
     setDeepSeekArchiveSuggestionCount(0)
+    setArchiveMultiModeChange(null)
     setOldFavoriteRuntimeStatus(null)
     setDraftLedgers(ledgers.map(cloneArchiveDraftLedger))
     setLedgerListExpanded(false)
@@ -2271,6 +2360,9 @@ export function FavoriteLedgerPanel({
   ) {
     setBusy(true)
     setSaveStatus(null)
+    setArchiveMultiModeChange(null)
+    setDeepSeekArchiveResultSummary(null)
+    setDeepSeekArchiveSummaryOpen(false)
     clearDeepSeekArchiveRunSnapshot()
     setOldFavoriteExecutionProgress(null)
     setStatus('正在扫描旧藏，请稍候。')
@@ -2780,6 +2872,7 @@ export function FavoriteLedgerPanel({
       reason: '',
       lowConfidence: true,
       invalid: true,
+      failureKind: 'request-failed',
       errorMessage: message
     }))
   }
@@ -2812,6 +2905,8 @@ export function FavoriteLedgerPanel({
     setOldFavoriteRuntimeValue('deepSeekArchiveRunId', deepSeekArchiveRunId)
     setDeepSeekArchiveCancelRequested(false)
     setDeepSeekArchiveRunning(true)
+    setDeepSeekArchiveResultSummary(null)
+    setDeepSeekArchiveSummaryOpen(false)
     setDeepSeekArchiveStatus('DeepSeek 正在整理旧藏...')
     setDeepSeekArchiveSuggestionCount(0)
     setDeepSeekArchiveProgress({
@@ -2934,6 +3029,15 @@ export function FavoriteLedgerPanel({
         )
       }
 
+      setDeepSeekArchiveResultSummary({
+        successCount: applied.stats.successCount,
+        failedCount: applied.stats.failedCount,
+        nonApplicationCounts: applied.nonApplicationCounts
+      })
+      setDeepSeekArchiveStatus(
+        `${applied.stats.successCount} 条已应用，${applied.stats.failedCount} 条未应用`
+      )
+
       const keywordSuggestionCount = keywordSuggestions.length
       if (keywordSuggestionCount > 0) {
         const hasKeywordSuggestionHandler = hasOldFavoriteRuntimeHandler(
@@ -2952,22 +3056,14 @@ export function FavoriteLedgerPanel({
         markDeepSeekArchiveReady()
         return
       }
-
-      if (applied.stats.failedCount > 0) {
-        setDeepSeekArchiveStatus(
-          `DeepSeek 整理完成：${applied.stats.successCount} 条已应用，${applied.stats.failedCount} 条失败。`
-        )
-        markDeepSeekArchiveReady()
-        return
-      }
-
-      setDeepSeekArchiveStatus(`DeepSeek 整理完成：${applied.stats.successCount} 条已应用。`)
       markDeepSeekArchiveReady()
     } catch (error) {
       if (!isCurrentDeepSeekArchiveRun()) {
         return
       }
       const failureMessage = error instanceof Error ? error.message : 'DeepSeek 整理失败。'
+      setDeepSeekArchiveResultSummary(null)
+      setDeepSeekArchiveSummaryOpen(false)
       setDeepSeekArchiveStatus(failureMessage)
       setOldFavoriteRuntimeStatus({
         label: 'DeepSeek整理失败',
@@ -3210,14 +3306,6 @@ export function FavoriteLedgerPanel({
       return
     }
 
-    if (
-      preview.scanContext &&
-      preview.scanContext.multiArchiveMode !== favoriteArchiveMultiMode
-    ) {
-      setStatus('后台收藏夹数量设置已变化，请重新扫描后确认。')
-      return
-    }
-
     setOldFavoriteExecutionPhase('running')
     setOldFavoriteExecutionConfirming(false)
     setOldFavoriteExecutionProgress(null)
@@ -3252,9 +3340,7 @@ export function FavoriteLedgerPanel({
       const targetLimit = deepSeekArchiveMultiLimit(favoriteArchiveMultiMode)
       if (
         selectedItems.some(
-          (item) =>
-            item.reorganizeProtected &&
-            (item.desiredTargetFolderIds?.length ?? 0) > targetLimit
+          (item) => item.reorganizeProtected && (item.desiredTargetFolderIds?.length ?? 0) > targetLimit
         )
       ) {
         setStatus(`当前设置最多允许 ${targetLimit} 个 Bilimi 收藏夹，请调整后再确认。`)
@@ -3331,11 +3417,17 @@ export function FavoriteLedgerPanel({
       const finalStatus = paused
         ? { label: '整理已暂停', message: '本次整理已暂停，请稍后再继续。', tone: 'warn' as const }
         : failedCount > 0
-        ? {
-            label: '整理未完全成功',
-            message: `本次整理已结束，${results.length - failedCount} 条成功，${partialCount} 条部分完成，${completeFailureCount} 条失败。`,
-            tone: 'error' as const
-          }
+        ? partialCount > 0 || failedCount === results.length
+          ? {
+              label: '整理未完全成功',
+              message: `本次整理已结束，${results.length - failedCount} 条成功，${partialCount} 条部分完成，${completeFailureCount} 条失败。`,
+              tone: 'error' as const
+            }
+          : {
+              label: '整理有遗漏',
+              message: `本次整理已结束，${results.length - failedCount} 条成功，${completeFailureCount} 条未完成。`,
+              tone: 'warn' as const
+            }
         : { label: '整理完成', message: '本次整理已结束。', tone: 'ok' as const }
       onOldFavoriteStatusUpdate?.({
         ...finalStatus
@@ -3436,6 +3528,68 @@ export function FavoriteLedgerPanel({
     return Array.from(folders.values())
   }
 
+  useEffect(() => {
+    const context = preview?.scanContext ?? baseScanPreview?.scanContext
+    if (!context || context.multiArchiveMode === favoriteArchiveMultiMode) {
+      return
+    }
+
+    const previousMode = context.multiArchiveMode
+    const nextContext = {
+      ...context,
+      multiArchiveMode: favoriteArchiveMultiMode
+    }
+    const createPreview = (sourceFolders: FavoriteSourceFolder[]) => {
+      const rebuilt = createFavoriteLedgerPreview({
+        ledgers: draftLedgers,
+        sourceFolders,
+        targetMembership: context.targetMembership,
+        skippedSourceFolderTitles: preview?.skippedSourceFolderTitles,
+        scanDiagnostics: preview?.scanDiagnostics,
+        multiArchiveMode: favoriteArchiveMultiMode
+      })
+      return {
+        ...rebuilt,
+        scanContext: nextContext,
+        items: normalizeOldFavoritePreviewItems(rebuilt.items, draftLedgers)
+      }
+    }
+
+    const rebuiltBasePreview = createPreview(context.activeSourceFolders)
+    const rebuiltPreview = createPreview([
+      ...context.activeSourceFolders,
+      ...protectedVideosAsSourceFolders(reorganizedProtectedAids)
+    ])
+    const refreshedState = createArchivePlanStateFromPreviewItems(
+      rebuiltPreview.items,
+      selectedCandidateKeys
+    )
+    const mergedState = mergeArchivePlanAfterModeRefresh(
+      refreshedState,
+      archivePlanState,
+      deepSeekArchiveMultiLimit(favoriteArchiveMultiMode)
+    )
+
+    rebuiltPreview.items = applyArchivePlanToPreviewItems(
+      rebuiltPreview.items,
+      mergedState,
+      draftLedgers
+    )
+    setBaseScanPreview(rebuiltBasePreview)
+    setPreview(rebuiltPreview)
+    setArchivePlanState(mergedState)
+    setArchiveMultiModeChange({ from: previousMode, to: favoriteArchiveMultiMode })
+    setDeepSeekArchiveResultSummary(null)
+    setDeepSeekArchiveSummaryOpen(false)
+    setDeepSeekArchiveStatus('')
+    clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
+    setStatus(
+      `归档预览已按“${favoriteArchiveMultiModeLabel(favoriteArchiveMultiMode)}${
+        deepSeekArchiveMultiLimit(favoriteArchiveMultiMode) === 1 ? '' : '收藏夹'
+      }”更新。`
+    )
+  }, [favoriteArchiveMultiMode, preview?.scanContext?.multiArchiveMode])
+
   function applyProtectedReorganization(aids: Set<number>) {
     const context = baseScanPreview?.scanContext
     if (!context) return
@@ -3443,9 +3597,9 @@ export function FavoriteLedgerPanel({
       ledgers: draftLedgers,
       sourceFolders: [...context.activeSourceFolders, ...protectedVideosAsSourceFolders(aids)],
       targetMembership: context.targetMembership,
-      multiArchiveMode: context.multiArchiveMode
+      multiArchiveMode: favoriteArchiveMultiMode
     })
-    nextPreview.scanContext = context
+    nextPreview.scanContext = { ...context, multiArchiveMode: favoriteArchiveMultiMode }
     const normalizedPreview = {
       ...nextPreview,
       items: normalizeOldFavoritePreviewItems(nextPreview.items, draftLedgers)
@@ -3496,6 +3650,15 @@ export function FavoriteLedgerPanel({
         ledgers: archiveExecutionLedgers
       }),
     [archiveExecutionLedgers, archivePlanState, selectableOldFavoriteItems]
+  )
+  const selectedOldFavoriteVideoCount = useMemo(
+    () =>
+      new Set(
+        selectedOldFavoritePlanItems.map(
+          (item) => `${item.sourceFolderTitle}:${item.aid}`
+        )
+      ).size,
+    [selectedOldFavoritePlanItems]
   )
   const protectedReconciliationSummary = useMemo(() => {
     let addCount = 0
@@ -3622,6 +3785,18 @@ export function FavoriteLedgerPanel({
   const deepSeekArchiveProgressValue = deepSeekArchiveProgress
     ? deepSeekArchiveProgressPercent(deepSeekArchiveProgress)
     : 0
+  const deepSeekArchiveNonApplicationRows = deepSeekArchiveResultSummary
+    ? [
+        ['保持未分类', deepSeekArchiveResultSummary.nonApplicationCounts['kept-unclassified']],
+        ['目标分类不可用', deepSeekArchiveResultSummary.nonApplicationCounts['unavailable-target']],
+        ['返回信息不完整', deepSeekArchiveResultSummary.nonApplicationCounts['invalid-result']],
+        ['无法匹配原视频', deepSeekArchiveResultSummary.nonApplicationCounts['unmatched-video']],
+        ['请求失败', deepSeekArchiveResultSummary.nonApplicationCounts['request-failed']]
+      ].filter((entry): entry is [string, number] => Number(entry[1]) > 0)
+    : []
+  const deepSeekArchiveResultStatusText = deepSeekArchiveResultSummary
+    ? `${deepSeekArchiveResultSummary.successCount} 条已应用，${deepSeekArchiveResultSummary.failedCount} 条未应用`
+    : ''
   const allPreviewScopedPendingItemsStaged =
     previewScopedPendingItems.length > 0 &&
     previewScopedPendingItems.every((item) => {
@@ -3908,14 +4083,10 @@ export function FavoriteLedgerPanel({
         <small title={allTagsText || visibleTagsText}>标签：{visibleTagsText}</small>
         <small title={confidenceTitle}>{confidenceText}</small>
         {target?.alreadyInTarget ? <small title="已在目标">已在目标</small> : null}
-        {item.reorganizeProtected ? (
+        {item.reorganizeProtected && (addedFolderNames.length > 0 || removedFolderNames.length > 0) ? (
           <span className="favorite-ledger-panel__reconciliation-delta">
             {addedFolderNames.length > 0 ? <small>将加入：{addedFolderNames.join('、')}</small> : null}
             {removedFolderNames.length > 0 ? <small>将移出：{removedFolderNames.join('、')}</small> : null}
-            {addedFolderNames.length === 0 && removedFolderNames.length === 0 ? (
-              <small>保持当前 Bilimi 归档</small>
-            ) : null}
-            <small>普通收藏：保持不变</small>
           </span>
         ) : null}
       </span>
@@ -4683,7 +4854,41 @@ export function FavoriteLedgerPanel({
                         <p className="favorite-ledger-panel__deepseek-archive-hint">
                           将发送标题、UP、标签、简介、来源收藏夹、当前建议和 bilimi 册目信息给 DeepSeek。
                         </p>
-                        {deepSeekArchiveStatus ? (
+                        {deepSeekArchiveResultSummary ? (
+                          <div
+                            className="favorite-ledger-panel__deepseek-result"
+                            data-open={deepSeekArchiveSummaryOpen ? 'true' : 'false'}
+                          >
+                            <button
+                              type="button"
+                              className="favorite-ledger-panel__deepseek-archive-status favorite-ledger-panel__deepseek-result-trigger"
+                              aria-label={`DeepSeek 整理结果：${deepSeekArchiveResultSummary.successCount} 条已应用，${deepSeekArchiveResultSummary.failedCount} 条未应用`}
+                              aria-expanded={deepSeekArchiveSummaryOpen}
+                              onClick={() => setDeepSeekArchiveSummaryOpen((open) => !open)}
+                            >
+                              <strong>{deepSeekArchiveResultSummary.successCount} 条已应用</strong>，
+                              <span>{deepSeekArchiveResultSummary.failedCount} 条未应用</span>
+                            </button>
+                            <div className="favorite-ledger-panel__deepseek-result-tooltip" role="tooltip">
+                              <strong>本次 DeepSeek 整理结果</strong>
+                              <span>
+                                共处理 {deepSeekArchiveResultSummary.successCount + deepSeekArchiveResultSummary.failedCount} 条视频。
+                              </span>
+                              <span>
+                                <b>已应用 {deepSeekArchiveResultSummary.successCount} 条：</b>
+                                已采用 DeepSeek 建议并更新归档预览，尚未操作 B 站收藏夹。
+                              </span>
+                              <span>
+                                <b>未应用 {deepSeekArchiveResultSummary.failedCount} 条：</b>
+                                未采用 DeepSeek 建议，继续保持整理前的归档状态。
+                              </span>
+                              {deepSeekArchiveNonApplicationRows.map(([label, count]) => (
+                                <span key={label}>{label}：{count} 条</span>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                        {deepSeekArchiveStatus && deepSeekArchiveStatus !== deepSeekArchiveResultStatusText ? (
                           <p className="favorite-ledger-panel__deepseek-archive-status" role="status">
                             {deepSeekArchiveStatus}
                           </p>
@@ -4957,6 +5162,16 @@ export function FavoriteLedgerPanel({
               >
                 <h4>确认开始整理？</h4>
                 <p>{OLD_FAVORITE_EXECUTION_CONFIRM_MESSAGE}</p>
+                <p>
+                  本次将整理 {selectedOldFavoriteVideoCount} 条视频，每条视频最多存入{' '}
+                  {deepSeekArchiveMultiLimit(favoriteArchiveMultiMode)} 个 Bilimi 收藏夹。
+                </p>
+                {archiveMultiModeChange ? (
+                  <p className="favorite-ledger-panel__execution-dialog-change-note">
+                    收藏夹数量设置已从“{favoriteArchiveMultiModeLabel(archiveMultiModeChange.from)}”调整为“
+                    {favoriteArchiveMultiModeLabel(archiveMultiModeChange.to)}”，归档预览已按新设置更新。
+                  </p>
+                ) : null}
                 <div className="favorite-ledger-panel__execution-dialog-actions">
                   <button
                     type="button"

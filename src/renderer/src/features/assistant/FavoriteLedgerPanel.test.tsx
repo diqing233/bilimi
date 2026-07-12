@@ -185,6 +185,8 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
     const dialog = screen.getByRole('alertdialog', { name: '确认开始整理？' })
     expect(dialog).toHaveTextContent('小咪提醒：主人要开始整理吗？开始后就不能再调整了哦！')
+    expect(dialog).toHaveTextContent('本次将整理 1 条视频，每条视频最多存入 1 个 Bilimi 收藏夹。')
+    expect(dialog).not.toHaveTextContent('收藏夹数量设置已从')
     expect(screen.queryByRole('heading', { name: '确认执行' })).not.toBeInTheDocument()
     expect(screen.queryByText('已选择 1 条归档任务')).not.toBeInTheDocument()
     expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
@@ -870,7 +872,8 @@ describe('FavoriteLedgerPanel', () => {
     const item = (await screen.findByText('需要迁移归档')).closest('article')!
     expect(within(item).getByText('将加入：bilimi·游戏专区')).toBeInTheDocument()
     expect(within(item).getByText('将移出：bilimi·知识学习')).toBeInTheDocument()
-    expect(within(item).getByText('普通收藏：保持不变')).toBeInTheDocument()
+    expect(within(item).queryByText('普通收藏：保持不变')).not.toBeInTheDocument()
+    expect(within(item).queryByText('保持当前 Bilimi 归档')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
     expect(screen.getByText('重新整理 1 条：1 条将加入，1 条将移出，0 条保持当前 Bilimi 归档。')).toBeInTheDocument()
@@ -924,6 +927,32 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
+  it('uses a warning status when some videos were not processed but no partial operation occurred', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.items = [preview.items[0], { ...preview.items[0], aid: 703, title: '遗漏的视频' }]
+    const onExecuteOldFavoritePlan = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, steps: [], missingTargets: [], completedItems: [], message: 'done' })
+      .mockResolvedValueOnce({ ok: false, steps: [], missingTargets: [], completedItems: [], message: 'failed' })
+    const onOldFavoriteStatusUpdate = vi.fn()
+    renderPanel({
+      onScanOldFavorites: vi.fn().mockResolvedValue(preview),
+      onExecuteOldFavoritePlan,
+      onOldFavoriteStatusUpdate
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    confirmOldFavoriteExecution()
+
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(2))
+    expect(onOldFavoriteStatusUpdate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ label: '整理有遗漏', tone: 'warn' })
+    )
+  })
+
   it('protects a normal video only after every selected target completes successfully', async () => {
     const preview = createArchivePreviewFixture()
     preview.scanContext = {
@@ -974,19 +1003,43 @@ describe('FavoriteLedgerPanel', () => {
   })
 
 
-  it('requires a rescan when the target-count setting changed after scanning', async () => {
+  it('refreshes the preview locally when the target-count setting changed after scanning', async () => {
     const preview = createArchivePreviewFixture()
     preview.scanContext = {
       accountMid: '42',
       totalUniqueVideos: 2,
-      activeSourceFolders: [],
+      activeSourceFolders: [
+        {
+          id: 'source-1',
+          title: '默认收藏夹',
+          videos: preview.items.map((item) => ({
+            aid: item.aid,
+            title: item.title,
+            author: item.author,
+            description: item.description,
+            tags: item.tags,
+            sourceFolderIds: ['source-1'],
+            sourceFolderTitles: ['默认收藏夹']
+          }))
+        }
+      ],
       protectedVideos: [],
       managedFolders: [],
       targetMembership: {},
       multiArchiveMode: 'off'
     }
-    const onExecuteOldFavoritePlan = vi.fn()
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'knowledge' ? { ...ledger, bilibiliFolderId: '9001' } : ledger
+    )
+    const onExecuteOldFavoritePlan = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: [],
+      missingTargets: [],
+      completedItems: [],
+      message: 'done'
+    })
     renderPanel({
+      ledgers,
       favoriteArchiveMultiMode: 'two',
       onScanOldFavorites: vi.fn().mockResolvedValue(preview),
       onExecuteOldFavoritePlan
@@ -994,13 +1047,20 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
-    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
-    confirmOldFavoriteExecution()
-
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      '后台收藏夹数量设置已变化，请重新扫描后确认。'
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    await waitFor(() =>
+      expect(screen.getByText('归档预览已按“最多 2 个收藏夹”更新。')).toBeInTheDocument()
     )
-    expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
+    const dialog = screen.getByRole('alertdialog', { name: '确认开始整理？' })
+    expect(dialog).toHaveTextContent('本次将整理 1 条视频，每条视频最多存入 2 个 Bilimi 收藏夹。')
+    expect(dialog).toHaveTextContent(
+      '收藏夹数量设置已从“单收藏夹”调整为“最多 2 个”，归档预览已按新设置更新。'
+    )
+    fireEvent.click(within(dialog).getByRole('button', { name: '开始整理' }))
+
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalled())
   })
 
   it('toggles matched archive cards by clicking the card body', async () => {
@@ -6415,6 +6475,51 @@ describe('FavoriteLedgerPanel', () => {
       '暂时不知道放哪'
     )
     expect(screen.queryByRole('group', { name: 'bilimi·游戏 2 条' })).not.toBeInTheDocument()
+  })
+
+  it('explains both applied and unapplied DeepSeek archive results from the whole status line', async () => {
+    const onOrganizeOldFavoritesWithDeepSeek = vi.fn().mockResolvedValue({
+      kind: 'favorite-archive-organize',
+      results: [
+        {
+          aid: 701,
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerIds: ['knowledge'],
+          keepOriginal: false,
+          reason: '继续归入知识学习。',
+          confidence: 0.91,
+          lowConfidence: false
+        },
+        {
+          aid: 702,
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerIds: ['未分类'],
+          keepOriginal: false,
+          reason: '没有明确适合的分类。',
+          confidence: 0.6,
+          lowConfidence: true
+        }
+      ],
+      keywordSuggestions: []
+    } satisfies DeepSeekGenerateResult)
+
+    await openArchivePreview({
+      deepSeekArchiveAvailable: true,
+      onOrganizeOldFavoritesWithDeepSeek
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+
+    const summary = await screen.findByRole('button', {
+      name: 'DeepSeek 整理结果：1 条已应用，1 条未应用'
+    })
+    expect(summary).toHaveTextContent('1 条已应用，1 条未应用')
+    fireEvent.click(summary)
+    const detail = screen.getByRole('tooltip')
+    expect(detail).toHaveTextContent('本次 DeepSeek 整理结果')
+    expect(detail).toHaveTextContent('共处理 2 条视频')
+    expect(detail).toHaveTextContent('已采用 DeepSeek 建议并更新归档预览，尚未操作 B 站收藏夹。')
+    expect(detail).toHaveTextContent('未采用 DeepSeek 建议，继续保持整理前的归档状态。')
+    expect(detail).toHaveTextContent('保持未分类：1 条')
   })
 
   it('resets affected horizontal preview tracks without vertically focusing after DeepSeek moves archive cards', async () => {

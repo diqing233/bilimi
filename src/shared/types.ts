@@ -359,6 +359,7 @@ export type DeepSeekArchiveVideoResult = {
   lowConfidence: boolean
   secondPassChanged?: boolean
   invalid?: boolean
+  failureKind?: 'invalid-result' | 'request-failed'
   errorMessage?: string
 }
 

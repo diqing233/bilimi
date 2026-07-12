@@ -1088,7 +1088,9 @@ describe('FloatingAssistantApp', () => {
       })
     })
 
-    expect(await screen.findByText('DeepSeek 整理完成：0 条已应用。')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: 'DeepSeek 整理结果：0 条已应用，0 条未应用' })
+    ).toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText('整理状态')).toHaveTextContent('整理待确认 1'))
   })
 
@@ -1158,7 +1160,9 @@ describe('FloatingAssistantApp', () => {
       })
     })
 
-    expect(await screen.findByText('DeepSeek 整理完成：0 条已应用。')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('button', { name: 'DeepSeek 整理结果：0 条已应用，0 条未应用' })
+    ).toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText('整理状态')).toHaveTextContent('整理待确认 1'))
   })
 

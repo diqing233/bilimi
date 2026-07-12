@@ -105,7 +105,7 @@ describe('PalaceMaidPetApp', () => {
   it('restores the main Bilimi window when clicked', async () => {
     const api = installDesktopApi()
 
-    render(<PalaceMaidPetApp />)
+    const { container } = render(<PalaceMaidPetApp />)
 
     fireEvent.click(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
 
@@ -804,7 +804,7 @@ describe('PalaceMaidPetApp', () => {
       loadPreferences: vi.fn().mockResolvedValue(assistantShortcutPreferences)
     })
 
-    render(<PalaceMaidPetApp />)
+    const { container } = render(<PalaceMaidPetApp />)
 
     fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
     fireEvent.click(await screen.findByRole('button', { name: '打开小咪' }), {
@@ -817,6 +817,36 @@ describe('PalaceMaidPetApp', () => {
         tab: 'review',
         anchor: { screenX: 720, screenY: 460 }
       })
+    )
+    expect(container.querySelector('.palace-maid-pet-shell')).toHaveAttribute(
+      'data-workspace-side',
+      'left'
+    )
+  })
+
+  it('aligns the bubble left when a left-side pet opens the workspace on its right', async () => {
+    const assistantShortcutPreferences = createPreferences({
+      petHoverShortcuts: ['like', 'coin'],
+      showPetAssistantShortcut: true
+    })
+    installDesktopApi({
+      openFloatingAssistantWorkspace: vi.fn().mockResolvedValue(undefined),
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({ preferences: assistantShortcutPreferences })
+      ),
+      loadPreferences: vi.fn().mockResolvedValue(assistantShortcutPreferences)
+    })
+
+    const { container } = render(<PalaceMaidPetApp />)
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
+    fireEvent.click(await screen.findByRole('button', { name: '打开小咪' }), {
+      screenX: 100,
+      screenY: 460
+    })
+
+    expect(container.querySelector('.palace-maid-pet-shell')).toHaveAttribute(
+      'data-workspace-side',
+      'right'
     )
   })
 

@@ -34,9 +34,8 @@ describe('pet quick action styles', () => {
       '.palace-maid-pet__bubble[data-chat-open="true"] { left: 50%; bottom: calc(var(--floating-pet-size) + 10px);'
     )
     expectStyleSnippet('.palace-maid-pet__bubble { position: absolute; left: 50%; bottom: calc(var(--floating-pet-size) + 10px);')
-    expectStyleSnippet('width: min(270px, calc(var(--floating-pet-host-width) - 8px));')
-    expectStyleSnippet('max-width: min(270px, calc(var(--floating-pet-host-width) - 8px));')
-    expectStyleSnippet('.palace-maid-pet__bubble[data-chat-open="true"] { left: 50%; bottom: calc(var(--floating-pet-size) + 10px); width: min(270px, calc(var(--floating-pet-host-width) - 8px));')
+    expectStyleSnippet('width: 270px; max-width: 270px;')
+    expectStyleSnippet('.palace-maid-pet__bubble[data-chat-open="true"] { left: 50%; bottom: calc(var(--floating-pet-size) + 10px); width: 270px;')
     expectStyleSnippet('overflow-y: auto;')
     expectStyleSnippet(
       '.palace-maid-pet__chat-compose, .palace-maid-pet__chat button[type="submit"] { flex-shrink: 0;'
@@ -48,6 +47,9 @@ describe('pet quick action styles', () => {
     expect(compactStyles).not.toContain('width: min(320px, calc(100vw - 8px));')
     expect(compactStyles).not.toContain('max-width: calc(100vw - 8px);')
     expectStyleSnippet('--pet-bubble-offset-x: -50%;')
+    expectStyleSnippet('.palace-maid-pet-shell[data-workspace-side="right"] .palace-maid-pet__bubble { left: 4px; right: auto; transform: none;')
+    expectStyleSnippet('.palace-maid-pet-shell[data-workspace-side="left"] .palace-maid-pet__bubble { left: auto; right: 4px; transform: none;')
+    expectStyleSnippet('width: 270px; max-width: 270px;')
     expectStyleSnippet(
       '.palace-maid-pet__resize-controls { position: absolute; right: 34px; bottom: 2px;'
     )
