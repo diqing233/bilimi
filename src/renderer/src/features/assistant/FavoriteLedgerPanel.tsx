@@ -999,16 +999,6 @@ function isPreviewScopedPendingItem(item: FavoriteLedgerPreviewItem) {
   )
 }
 
-function pendingReasonText(item: FavoriteLedgerPreviewItem) {
-  if (item.reviewRequired) {
-    return '需要复核'
-  }
-  if (item.targetLedgerId === 'inbox') {
-    return '暂无明确归档目标'
-  }
-  return '需要进一步判断'
-}
-
 function oldFavoriteAuthorText(item: FavoriteLedgerPreviewItem) {
   return item.author?.trim() || '未知'
 }
@@ -3928,8 +3918,27 @@ export function FavoriteLedgerPanel({
   function oldFavoriteArchiveWasModified(item: FavoriteLedgerPreviewItem) {
     return !sameLedgerIds(
       originalArchiveLedgerIdsForOldFavoriteItem(item),
-      currentArchiveLedgerIdsForOldFavoriteItem(item).filter((ledgerId) => ledgerId !== 'inbox')
+      currentArchiveLedgerIdsForOldFavoriteItem(item)
     )
+  }
+
+  function archiveSourceNoticeAreaLedgerIds(item: FavoriteLedgerPreviewItem) {
+    const originalLedgerIds = originalArchiveLedgerIdsForOldFavoriteItem(item)
+    const currentLedgerIds = currentArchiveLedgerIdsForOldFavoriteItem(item)
+    const addedLedgerIds = currentLedgerIds.filter((ledgerId) => !originalLedgerIds.includes(ledgerId))
+
+    if (addedLedgerIds.length > 0) {
+      return addedLedgerIds
+    }
+
+    return currentLedgerIds.length > 0 ? currentLedgerIds : ['unclassified']
+  }
+
+  function currentArchivePositionText(item: FavoriteLedgerPreviewItem) {
+    const currentLedgerIds = currentArchiveLedgerIdsForOldFavoriteItem(item)
+    return currentLedgerIds.length > 0
+      ? currentLedgerIds.map(archiveLedgerDisplayName).join('、')
+      : '未分类'
   }
 
   function archiveLedgerDisplayName(ledgerId: string) {
@@ -4060,21 +4069,6 @@ export function FavoriteLedgerPanel({
     const visibleTagsText = oldFavoriteVisibleTagsText(item)
     const confidenceTitle = lowConfidenceDetailText(item)
     const confidenceText = classificationConfidenceText(item)
-    const currentBilimiFolderIds = uniqueLedgerIds(item.currentBilimiFolderIds ?? [])
-    const desiredLedgerIds = uniqueLedgerIds(item.currentTargetLedgerIds ?? [])
-    const desiredFolders = desiredLedgerIds
-      .map((ledgerId) => draftLedgers.find((ledger) => ledger.id === ledgerId))
-      .filter((ledger): ledger is FavoriteLedger => Boolean(ledger?.bilibiliFolderId))
-    const desiredFolderIds = desiredFolders.map((ledger) => ledger.bilibiliFolderId ?? '')
-    const addedFolderNames = desiredFolders
-      .filter((ledger) => !currentBilimiFolderIds.includes(ledger.bilibiliFolderId ?? ''))
-      .map((ledger) => ledger.displayName)
-    const removedFolderNames = currentBilimiFolderIds
-      .filter((folderId) => !desiredFolderIds.includes(folderId))
-      .map(
-        (folderId) =>
-          preview?.scanContext?.managedFolders.find((folder) => folder.id === folderId)?.title ?? folderId
-      )
 
     return (
       <span className="favorite-ledger-panel__preview-video-meta">
@@ -4083,12 +4077,6 @@ export function FavoriteLedgerPanel({
         <small title={allTagsText || visibleTagsText}>标签：{visibleTagsText}</small>
         <small title={confidenceTitle}>{confidenceText}</small>
         {target?.alreadyInTarget ? <small title="已在目标">已在目标</small> : null}
-        {item.reorganizeProtected && (addedFolderNames.length > 0 || removedFolderNames.length > 0) ? (
-          <span className="favorite-ledger-panel__reconciliation-delta">
-            {addedFolderNames.length > 0 ? <small>将加入：{addedFolderNames.join('、')}</small> : null}
-            {removedFolderNames.length > 0 ? <small>将移出：{removedFolderNames.join('、')}</small> : null}
-          </span>
-        ) : null}
       </span>
     )
   }
@@ -4129,27 +4117,23 @@ export function FavoriteLedgerPanel({
             <option value="unclassified">未分类</option>
           </select>
         </label>
-        {renderLatestArchiveChangeNotice(item, areaLedgerId)}
+        {renderOriginalArchiveSourceNotice(item, areaLedgerId)}
       </div>
     )
   }
 
-  function renderLatestArchiveChangeNotice(item: FavoriteLedgerPreviewItem, areaLedgerId: string) {
-    const itemChange = latestArchiveChange?.itemChanges[archivePlanItemKey(item)]
-    if (!itemChange) {
-      return null
-    }
-    const planItem = archivePlanState?.items.find((candidate) => candidate.itemKey === archivePlanItemKey(item))
-    const primaryAreaLedgerId =
-      planItem?.currentTargetLedgerIds[0] ??
-      currentArchiveLedgerIdsForOldFavoriteItem(item)[0] ??
-      'unclassified'
-    if (primaryAreaLedgerId !== areaLedgerId) {
+  function renderOriginalArchiveSourceNotice(item: FavoriteLedgerPreviewItem, areaLedgerId: string) {
+    if (
+      !oldFavoriteArchiveWasModified(item) ||
+      !archiveSourceNoticeAreaLedgerIds(item).includes(areaLedgerId)
+    ) {
       return null
     }
 
-    const message = `来自 ${itemChange.previousTargetText}`
-    const detail = `最近改动：从【${itemChange.previousTargetText}】移到【${itemChange.nextTargetText}】。`
+    const originalPosition = originalArchiveSuggestionText(item)
+    const currentPosition = currentArchivePositionText(item)
+    const message = `来自 ${originalPosition}`
+    const detail = `整理前位置：【${originalPosition}】；当前位置：【${currentPosition}】。`
 
     return (
       <small className="favorite-ledger-panel__preview-delta-row">
@@ -5036,7 +5020,6 @@ export function FavoriteLedgerPanel({
                             >
                               {renderOldFavoriteVideoTitle(item)}
                               {renderOldFavoritePreviewMeta(item)}
-                              <small>{pendingReasonText(item)}</small>
                             </div>
                             {renderOldFavoriteArchiveControls(item, 'unclassified')}
                           </article>

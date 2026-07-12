@@ -4140,11 +4140,6 @@ body[data-floating-window="true"],
   min-width: 0;
 }
 
-.favorite-ledger-panel__reconciliation-delta {
-  display: grid;
-  gap: 2px;
-}
-
 .favorite-ledger-panel__protected-summary button {
   justify-self: end;
   min-height: 28px;
@@ -4526,9 +4521,9 @@ body[data-floating-window="true"],
   align-items: center;
   justify-content: flex-start;
   border-radius: var(--porcelain-radius-control);
-  border-left: 2px solid rgba(232, 132, 31, 0.78);
-  background: rgba(255, 241, 219, 0.72);
-  color: rgb(148, 81, 17);
+  border-left: 2px solid rgba(155, 54, 66, 0.68);
+  background: rgba(255, 232, 235, 0.82);
+  color: var(--porcelain-error);
   font-size: 11px;
   font-weight: 800;
   line-height: 1.35;
@@ -4541,7 +4536,7 @@ body[data-floating-window="true"],
   width: 100%;
   min-width: 0;
   overflow: hidden;
-  color: rgb(145, 82, 21);
+  color: var(--porcelain-error);
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;

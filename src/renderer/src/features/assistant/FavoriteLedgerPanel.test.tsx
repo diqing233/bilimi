@@ -419,7 +419,7 @@ describe('FavoriteLedgerPanel', () => {
     }
   })
 
-  it('shows only the latest archive move notice in orange preview styling', async () => {
+  it('shows original archive source notices for every manually moved card', async () => {
     const { container } = await openArchivePreview()
 
     fireEvent.change(screen.getByLabelText('调整分类 AI 效率工具实战'), {
@@ -429,20 +429,51 @@ describe('FavoriteLedgerPanel', () => {
       target: { value: 'inbox' }
     })
 
-    const latestArticle = getPreviewArticle(container, /暂时不知道放哪/)
-    expect(container.querySelectorAll('.favorite-ledger-panel__preview-delta-row')).toHaveLength(1)
-    expect(within(latestArticle).getByText('来自 未分类')).toHaveClass(
+    const knowledgeArticle = getPreviewArticle(container, /AI 效率工具实战/)
+    const unclassifiedArticle = getPreviewArticle(container, /暂时不知道放哪/)
+    expect(container.querySelectorAll('.favorite-ledger-panel__preview-delta-row')).toHaveLength(2)
+    expect(within(knowledgeArticle).getByText('来自 bilimi·知识学习')).toHaveClass(
       'favorite-ledger-panel__preview-delta'
     )
-    expect(within(latestArticle).getByText('来自 未分类')).toHaveAttribute(
-      'title',
-      '最近改动：从【未分类】移到【bilimi·暂存】。'
+    expect(within(unclassifiedArticle).getByText('来自 未分类')).toHaveClass(
+      'favorite-ledger-panel__preview-delta'
     )
-    expect(within(latestArticle).queryByRole('button', { name: '撤销' })).not.toBeInTheDocument()
+    expect(within(unclassifiedArticle).getByText('来自 未分类')).toHaveAttribute(
+      'title',
+      '整理前位置：【未分类】；当前位置：【bilimi·暂存】。'
+    )
+    expect(within(unclassifiedArticle).queryByRole('button', { name: '撤销' })).not.toBeInTheDocument()
     expect(getPreviewArticle(container, /AI 效率工具实战/)).not.toHaveAttribute(
       'data-latest-change',
       'true'
     )
+  })
+
+  it('keeps the round-start source after the same card moves repeatedly and clears it at origin', async () => {
+    const { container } = await openArchivePreview()
+
+    fireEvent.change(screen.getByLabelText('调整分类 AI 效率工具实战'), {
+      target: { value: 'game' }
+    })
+    fireEvent.change(screen.getByLabelText('调整分类 AI 效率工具实战'), {
+      target: { value: 'movie-tv' }
+    })
+
+    const movedArticle = getPreviewArticle(container, /AI 效率工具实战/)
+    expect(within(movedArticle).getByText('来自 bilimi·知识学习')).toHaveAttribute(
+      'title',
+      '整理前位置：【bilimi·知识学习】；当前位置：【bilimi·影视动漫】。'
+    )
+
+    fireEvent.change(screen.getByLabelText('调整分类 AI 效率工具实战'), {
+      target: { value: 'knowledge' }
+    })
+
+    expect(
+      within(getPreviewArticle(container, /AI 效率工具实战/)).queryByText(
+        '来自 bilimi·知识学习'
+      )
+    ).not.toBeInTheDocument()
   })
 
   it('reports old favorite scan results to the global feedback owner while keeping the local message', async () => {
@@ -807,7 +838,7 @@ describe('FavoriteLedgerPanel', () => {
     ])
   })
 
-  it('records complete protected reorganization results and shows Bilimi reconciliation deltas', async () => {
+  it('records complete protected reorganization results without showing reconciliation details in cards', async () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
       if (ledger.id === 'knowledge') return { ...ledger, bilibiliFolderId: '9001' }
       if (ledger.id === 'game') return { ...ledger, bilibiliFolderId: '9002' }
@@ -870,8 +901,8 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
 
     const item = (await screen.findByText('需要迁移归档')).closest('article')!
-    expect(within(item).getByText('将加入：bilimi·游戏专区')).toBeInTheDocument()
-    expect(within(item).getByText('将移出：bilimi·知识学习')).toBeInTheDocument()
+    expect(within(item).queryByText('将加入：bilimi·游戏专区')).not.toBeInTheDocument()
+    expect(within(item).queryByText('将移出：bilimi·知识学习')).not.toBeInTheDocument()
     expect(within(item).queryByText('普通收藏：保持不变')).not.toBeInTheDocument()
     expect(within(item).queryByText('保持当前 Bilimi 归档')).not.toBeInTheDocument()
 
@@ -1174,6 +1205,7 @@ describe('FavoriteLedgerPanel', () => {
     const pendingGroup = screen.getByRole('group', { name: '未匹配到合适分类 1 条' })
     expect(pendingGroup).toBeInTheDocument()
     expect(within(pendingGroup).getByText('真正待分类')).toBeInTheDocument()
+    expect(within(pendingGroup).queryByText('暂无明确归档目标')).not.toBeInTheDocument()
     expect(within(pendingGroup).queryByText('已经对号入座')).not.toBeInTheDocument()
     expect(within(pendingGroup).queryByText('自动归档视频')).not.toBeInTheDocument()
     expect(screen.getByRole('group', { name: 'bilimi·学吧你就 1 条' })).toBeInTheDocument()
@@ -1235,6 +1267,7 @@ describe('FavoriteLedgerPanel', () => {
       'title',
       '当前分类比第二候选高 0.08、标题只命中弱关键词、标签不足'
     )
+    expect(within(unmatchedGroup).queryByText('暂无明确归档目标')).not.toBeInTheDocument()
     fireEvent.click(within(unmatchedGroup).getByRole('button', { name: '打开视频来源 没有命中分类的旧藏' }))
     expect(onOpenOldFavoriteVideo).toHaveBeenCalledWith('https://www.bilibili.com/video/av601')
     expect(container.querySelector('.favorite-ledger-panel__preview-video')).not.toHaveAttribute(
@@ -1538,12 +1571,14 @@ describe('FavoriteLedgerPanel', () => {
     )
 
     expect(screen.queryByRole('group', { name: 'bilimi·学习 1 条' })).not.toBeInTheDocument()
-    expect(screen.getByRole('group', { name: 'bilimi·影视 1 条' })).toHaveTextContent(
-      '多目标改其中一个'
+    const movieGroup = screen.getByRole('group', { name: 'bilimi·影视 1 条' })
+    const gameGroup = screen.getByRole('group', { name: 'bilimi·游戏 1 条' })
+    expect(movieGroup).toHaveTextContent('多目标改其中一个')
+    expect(getPreviewArticle(movieGroup, /多目标改其中一个/)).toHaveTextContent(
+      '来自 bilimi·学习、bilimi·游戏'
     )
-    expect(screen.getByRole('group', { name: 'bilimi·游戏 1 条' })).toHaveTextContent(
-      '多目标改其中一个'
-    )
+    expect(gameGroup).toHaveTextContent('多目标改其中一个')
+    expect(getPreviewArticle(gameGroup, /多目标改其中一个/)).not.toHaveTextContent('来自')
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
     expect(screen.getByText('已选择 2 条归档任务')).toBeInTheDocument()
   })
@@ -3608,7 +3643,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getAllByText('机器学习科普教程')).toHaveLength(2)
     expect(screen.getByRole('group', { name: 'Bilimi路AI效率工坊 1 条' })).toBeInTheDocument()
     expect(screen.getByText('标题党软广避雷')).toBeInTheDocument()
-    expect(screen.getByText(/需要复核/)).toBeInTheDocument()
+    expect(screen.queryByText(/需要复核/)).not.toBeInTheDocument()
     expect(screen.queryByText('已经归档的视频')).not.toBeInTheDocument()
     const knowledgeGroup = screen.getByRole('group', { name: 'Bilimi路知识 1 条' })
     const knowledgeVideo = getPreviewVideoButton(knowledgeGroup, /机器学习科普教程/)
