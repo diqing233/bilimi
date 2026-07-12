@@ -617,6 +617,34 @@ describe('PalaceMaidPetApp', () => {
     )
   })
 
+  it('finishes an active desktop drag when pointer capture is cancelled', () => {
+    const api = installDesktopApi()
+
+    render(<PalaceMaidPetApp />)
+
+    const pet = screen.getByRole('button', { name: '打开 bilimi，小咪在这里' })
+
+    fireEvent.pointerDown(pet, {
+      clientX: 10,
+      clientY: 10,
+      screenX: 110,
+      screenY: 210,
+      pointerId: 1
+    })
+    fireEvent.pointerMove(pet, {
+      clientX: 28,
+      clientY: 22,
+      screenX: 128,
+      screenY: 222,
+      pointerId: 1
+    })
+    fireEvent.pointerCancel(pet, { pointerId: 1 })
+
+    expect(api.startFloatingSealDrag).toHaveBeenCalledWith(110, 210)
+    expect(api.finishFloatingSealDrag).toHaveBeenCalledOnce()
+    expect(pet).toHaveAttribute('data-pressed', 'false')
+  })
+
   it('keeps a long press still until the pointer moves far enough to drag', () => {
     vi.useFakeTimers()
     const api = installDesktopApi()

@@ -21,6 +21,12 @@ type OverlayPosition = {
   top: number
 }
 
+export type FloatingAssistantSide = 'left' | 'right'
+
+type FloatingAssistantBounds = Bounds & {
+  side: FloatingAssistantSide
+}
+
 const DEFAULT_GAP = 12
 const FLOATING_SEAL_FIXED_SIZE = { width: 336, height: 380 }
 const FLOATING_SEAL_MIN_SIZE = { width: 260, height: 168 }
@@ -39,6 +45,31 @@ function normalizePadding(padding: number | EdgePadding): EdgePadding {
         left: padding
       }
     : padding
+}
+
+function chooseFloatingAssistantSide({
+  leftAvailable,
+  rightAvailable,
+  workspaceWidth,
+  currentSide
+}: {
+  leftAvailable: number
+  rightAvailable: number
+  workspaceWidth: number
+  currentSide?: FloatingAssistantSide
+}): FloatingAssistantSide {
+  const leftFits = leftAvailable >= workspaceWidth
+  const rightFits = rightAvailable >= workspaceWidth
+
+  if (leftFits !== rightFits) {
+    return leftFits ? 'left' : 'right'
+  }
+
+  if (leftAvailable === rightAvailable) {
+    return currentSide ?? 'left'
+  }
+
+  return leftAvailable > rightAvailable ? 'left' : 'right'
 }
 
 export function createFloatingSealDragPosition({
@@ -264,34 +295,41 @@ export function createFloatingAssistantBounds({
   sealBounds,
   workspaceSize,
   workArea,
+  currentSide,
   gap = DEFAULT_GAP
 }: {
   sealBounds: Bounds
   workspaceSize: Size
   workArea: Bounds
+  currentSide?: FloatingAssistantSide
   gap?: number
-}): Bounds {
-  const width = Math.min(workspaceSize.width, Math.max(0, workArea.width - gap * 2))
+}): FloatingAssistantBounds {
   const height = Math.min(workspaceSize.height, Math.max(0, workArea.height - gap * 2))
   const minX = workArea.x + gap
-  const maxX = workArea.x + workArea.width - width - gap
+  const maxRight = workArea.x + workArea.width - gap
   const minY = workArea.y + gap
   const maxY = workArea.y + workArea.height - height - gap
-  const leftOfSeal = sealBounds.x - width - gap
-  const rightOfSeal = sealBounds.x + sealBounds.width + gap
-  const centeredX = sealBounds.x + Math.round((sealBounds.width - width) / 2)
-  const preferredX =
-    leftOfSeal >= minX
-      ? leftOfSeal
-      : rightOfSeal + width <= workArea.x + workArea.width - gap
-        ? rightOfSeal
-        : centeredX
+  const leftAvailable = Math.max(0, sealBounds.x - gap - minX)
+  const rightStart = sealBounds.x + sealBounds.width + gap
+  const rightAvailable = Math.max(0, maxRight - rightStart)
+  const side = chooseFloatingAssistantSide({
+    leftAvailable,
+    rightAvailable,
+    workspaceWidth: workspaceSize.width,
+    currentSide
+  })
+  const width = Math.min(
+    workspaceSize.width,
+    side === 'left' ? leftAvailable : rightAvailable
+  )
+  const x = side === 'left' ? sealBounds.x - gap - width : rightStart
   const centeredY = sealBounds.y + Math.round((sealBounds.height - height) / 2)
 
   return {
-    x: clamp(Math.round(preferredX), minX, Math.max(minX, maxX)),
+    x: Math.round(x),
     y: clamp(Math.round(centeredY), minY, Math.max(minY, maxY)),
     width,
-    height
+    height,
+    side
   }
 }

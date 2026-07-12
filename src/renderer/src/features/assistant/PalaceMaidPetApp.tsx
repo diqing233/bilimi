@@ -718,14 +718,7 @@ export function PalaceMaidPetApp() {
           event.currentTarget.releasePointerCapture?.(event.pointerId)
           finishDrag()
         }}
-        onPointerCancel={() => {
-          dragState.current = null
-          if (longPressTimeout.current !== null) {
-            window.clearTimeout(longPressTimeout.current)
-            longPressTimeout.current = null
-          }
-          setPressed(false)
-        }}
+        onPointerCancel={finishDrag}
         onPointerLeave={() => {
           const currentDrag = dragState.current
 

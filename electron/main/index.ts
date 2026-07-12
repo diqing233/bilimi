@@ -70,6 +70,7 @@ import {
   createFloatingSealDragPosition,
   createFloatingVisualBounds
 } from './floatingSealGeometry'
+import type { FloatingAssistantSide } from './floatingSealGeometry'
 import { createPreloadScriptPath } from './preloadPath'
 import { createRendererFilePath } from './rendererPath'
 import { transcribeCurrentVideoAudio } from './videoTranscriptionService'
@@ -128,6 +129,7 @@ let mainTray: Tray | null = null
 let appQuitting = false
 let enforceFloatingSealWindowBounds: (() => void) | null = null
 let assistantPetState: AssistantPetState = 'idle'
+let floatingAssistantSide: FloatingAssistantSide | undefined
 
 function openUrlInRendererTab(win: BrowserWindow, url: string) {
   if (!url || win.isDestroyed()) {
@@ -205,22 +207,24 @@ function getFloatingMenuBounds() {
 }
 
 function getFloatingAssistantBounds(anchor?: FloatingAssistantWorkspaceRequest['anchor']) {
-  const sealHostBounds = anchor
-    ? { x: anchor.screenX, y: anchor.screenY, width: 0, height: 0 }
-    : floatingSealWindow?.getBounds() ?? getFloatingSealBounds()
-  const display = screen.getDisplayMatching(sealHostBounds)
-  const sealVisualBounds = anchor
-    ? sealHostBounds
-    : createFloatingVisualBounds({
-        hostBounds: sealHostBounds,
-        padding: FLOATING_SEAL_HOST_PADDING
-      })
-
-  return createFloatingAssistantBounds({
-    sealBounds: sealVisualBounds,
+  const liveSealHostBounds =
+    floatingSealWindow && !floatingSealWindow.isDestroyed()
+      ? floatingSealWindow.getBounds()
+      : null
+  const sealHostBounds = liveSealHostBounds ?? getFloatingSealBounds()
+  const displayTarget =
+    liveSealHostBounds ??
+    (anchor ? { x: anchor.screenX, y: anchor.screenY, width: 0, height: 0 } : sealHostBounds)
+  const display = screen.getDisplayMatching(displayTarget)
+  const { side, ...bounds } = createFloatingAssistantBounds({
+    sealBounds: sealHostBounds,
     workspaceSize: FLOATING_ASSISTANT_SIZE,
-    workArea: display.workArea
+    workArea: display.workArea,
+    currentSide: floatingAssistantSide
   })
+
+  floatingAssistantSide = side
+  return bounds
 }
 
 function positionFloatingAssistantWindow(
@@ -245,22 +249,19 @@ function createFloatingSealWindow() {
   setFloatingSealMouseTransparency(seal, true)
   seal.removeMenu()
 
-  // Windows 透明窗口失活�?DWM 会把原生帧渲染成白条，移动窗口可强制重新合成�?
+  // Moving the transparent window forces Windows DWM to recompose stale inactive frames.
   const disposeWhiteStripFix =
     process.platform === 'win32' ? installFloatingSealWhiteStripFix(seal) : null
 
-  // 源头修：剥掉 WS_CAPTION，让 DWM 不进�?inactive frame 绘制路径，并�?
-  // DWMWA_NCRENDERING_POLICY 设为 DWMNCRP_DISABLED 作纵深防御�?
-  // 本窗口已无任何依赖标题栏的功能（resizable/hasShadow/min/max/thickFrame 全关），
-  // 剥它在功能上零损失。nudge 仍兜底直到确认稳定�?
+  // Strip WS_CAPTION and disable DWM non-client rendering to avoid the inactive-frame path.
+  // The pet window does not rely on title-bar behavior; the nudge remains as a fallback.
   if (process.platform === 'win32') {
     installFloatingSealCaptionStrip(seal, {
-      // node:child_process spawn 的多重载在我们的窄接口下不直接命中，做一次显式擦除�?
+      // Erase overloaded child_process.spawn signatures for the narrow caption-strip interface.
       spawn: spawn as unknown as NonNullable<
         Parameters<typeof installFloatingSealCaptionStrip>[1]
       >['spawn'],
-      // 暂时把日志接�?console，方便实测期确认 PS 调用真的在跑、有�?spawn 错误�?
-      // 稳定后再换回 noop�?
+      // Keep diagnostics visible while the PowerShell caption-strip path is validated.
       logger: (message, error) => {
         if (error) {
           console.warn('[floatingSeal]', message, error)
@@ -367,6 +368,7 @@ function createFloatingAssistantWindow() {
   assistant.removeMenu()
   assistant.on('closed', () => {
     floatingAssistantController.clearIfCurrent(assistant)
+    floatingAssistantSide = undefined
   })
 
   loadRendererWindow(assistant, FLOATING_ASSISTANT_QUERY)
@@ -537,7 +539,6 @@ function startFloatingSealDrag(screenX: number, screenY: number) {
   }
 
   closeFloatingMenuWindow()
-  closeFloatingAssistantWindow()
   resetFloatingSealWindowBounds()
   floatingSealDragController.start({ x: screenX, y: screenY })
 }
@@ -575,6 +576,12 @@ function moveFloatingSealTo(screenX: number, screenY: number) {
 
 function finishFloatingSealDrag() {
   floatingSealDragController.finish()
+
+  const assistant = floatingAssistantController.getWindow()
+
+  if (assistant && !assistant.isDestroyed() && assistant.isVisible()) {
+    positionFloatingAssistantWindow(assistant)
+  }
 }
 
 function restoreMainWindowForPet() {

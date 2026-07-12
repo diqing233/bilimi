@@ -217,7 +217,7 @@ describe('floating assistant geometry', () => {
         workArea: { x: 0, y: 0, width: 1920, height: 1080 },
         gap: 12
       })
-    ).toEqual({ x: 1328, y: 266, width: 360, height: 560 })
+    ).toEqual({ x: 1328, y: 266, width: 360, height: 560, side: 'left' })
   })
 
   it('flips the assistant workspace to the right when the seal is near the left edge', () => {
@@ -228,10 +228,10 @@ describe('floating assistant geometry', () => {
         workArea: { x: 0, y: 0, width: 1920, height: 1080 },
         gap: 12
       })
-    ).toEqual({ x: 120, y: 266, width: 360, height: 560 })
+    ).toEqual({ x: 120, y: 266, width: 360, height: 560, side: 'right' })
   })
 
-  it('keeps the assistant workspace inside a small work area', () => {
+  it('shrinks the assistant workspace into the wider side of a small work area', () => {
     expect(
       createFloatingAssistantBounds({
         sealBounds: { x: 300, y: 330, width: 72, height: 72 },
@@ -239,6 +239,54 @@ describe('floating assistant geometry', () => {
         workArea: { x: 0, y: 0, width: 420, height: 480 },
         gap: 12
       })
-    ).toEqual({ x: 48, y: 12, width: 360, height: 456 })
+    ).toEqual({ x: 12, y: 12, width: 276, height: 456, side: 'left' })
+  })
+
+  it('never crosses the pet protection gap when neither side fits the standard width', () => {
+    const sealBounds = { x: 260, y: 300, width: 160, height: 220 }
+    const result = createFloatingAssistantBounds({
+      sealBounds,
+      workspaceSize: { width: 460, height: 680 },
+      workArea: { x: 0, y: 0, width: 700, height: 760 },
+      gap: 12
+    })
+
+    expect(result).toEqual({ x: 432, y: 68, width: 256, height: 680, side: 'right' })
+    expect(result.x).toBeGreaterThanOrEqual(sealBounds.x + sealBounds.width + 12)
+  })
+
+  it('keeps the current side when both sides have equal space', () => {
+    expect(
+      createFloatingAssistantBounds({
+        sealBounds: { x: 440, y: 300, width: 120, height: 220 },
+        workspaceSize: { width: 360, height: 560 },
+        workArea: { x: 0, y: 0, width: 1000, height: 800 },
+        currentSide: 'right',
+        gap: 12
+      })
+    ).toEqual({ x: 572, y: 130, width: 360, height: 560, side: 'right' })
+  })
+
+  it('flips an existing assistant to the newly wider side after the pet moves', () => {
+    expect(
+      createFloatingAssistantBounds({
+        sealBounds: { x: 80, y: 300, width: 160, height: 220 },
+        workspaceSize: { width: 460, height: 680 },
+        workArea: { x: 0, y: 0, width: 1200, height: 800 },
+        currentSide: 'left',
+        gap: 12
+      })
+    ).toEqual({ x: 252, y: 70, width: 460, height: 680, side: 'right' })
+  })
+
+  it('keeps the side-constrained assistant inside a display with negative coordinates', () => {
+    expect(
+      createFloatingAssistantBounds({
+        sealBounds: { x: -400, y: 400, width: 336, height: 380 },
+        workspaceSize: { width: 460, height: 680 },
+        workArea: { x: -1920, y: 0, width: 1920, height: 1040 },
+        gap: 12
+      })
+    ).toEqual({ x: -872, y: 250, width: 460, height: 680, side: 'left' })
   })
 })
