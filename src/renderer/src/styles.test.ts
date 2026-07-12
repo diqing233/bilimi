@@ -260,7 +260,10 @@ describe('renderer porcelain theme styles', () => {
       '.favorite-ledger-panel__archive-history-select select { appearance: none; flex: 0 0 32px; width: 32px; max-width: 32px; min-width: 32px; min-height: 30px; color: transparent; text-indent: 100%;'
     )
     expectStyleSnippet(
-      '.favorite-ledger-panel__archive-history-select::after { content: ""; position: absolute; right: 11px; top: 50%;'
+      '.favorite-ledger-panel__archive-history-select::after { content: ""; position: absolute; left: 16px; top: 50%;'
+    )
+    expectStyleSnippet(
+      'transform: translate(-50%, -50%) rotate(45deg); pointer-events: none;'
     )
     expectStyleSnippet(
       '.favorite-ledger-panel__archive-history-button { width: 100%; min-width: 0;'
