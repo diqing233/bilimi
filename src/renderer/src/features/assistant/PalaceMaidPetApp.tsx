@@ -50,6 +50,14 @@ const PET_SHORTCUT_NO_VIDEO_HINTS: Partial<Record<PetHoverShortcut['id'], string
   transcribe: '主人，当前还没打开视频，小咪不能帮这条转写音频。'
 }
 
+const PET_SHORTCUT_WORKING_HINTS: Partial<Record<PetHoverShortcut['id'], string>> = {
+  like: '好哒主人，小咪去点赞，再收进合适的册目里～',
+  favorite: '好哒主人，小咪这就收进合适的册目里～',
+  coin: '收到～小咪去一键三连，再替主人归好类～',
+  comment: '小咪正在读视频内容，马上替主人想一句～',
+  transcribe: '好哒主人，小咪正在听视频，马上替主人整理成文字～'
+}
+
 type DragState = {
   startClientX: number
   startClientY: number
@@ -607,7 +615,7 @@ export function PalaceMaidPetApp() {
 
     if (shortcut.id === 'transcribe') {
       void runShortcutWithPetResult(
-        '小咪已经把转写加入队列，主人不用打开别的页面。',
+        PET_SHORTCUT_WORKING_HINTS.transcribe ?? '小咪正在整理视频内容。',
         async () => {
           const queue = await window.bilimiDesktop?.enqueueCurrentVideoAudioTranscription?.()
           return queue ? { ok: true, message: '已加入转写队列，小咪会按顺序处理。' } : null
@@ -628,7 +636,7 @@ export function PalaceMaidPetApp() {
 
     if (shortcut.intent === 'video-action' && shortcut.action === '表') {
       void runShortcutWithPetResult(
-        '主人，小咪正在结合这支视频拟一条弹幕。',
+        PET_SHORTCUT_WORKING_HINTS.comment ?? '小咪正在拟一条弹幕。',
         runPetCommentShortcut,
         '弹幕已发送，没有看到请检查弹幕开关是否开启'
       )
@@ -638,7 +646,7 @@ export function PalaceMaidPetApp() {
     if (shortcut.intent === 'video-action' && shortcut.action) {
       const action = shortcut.action
       void runShortcutWithPetResult(
-        `主人，小咪这就去办「${shortcut.label}」。`,
+        PET_SHORTCUT_WORKING_HINTS[shortcut.id] ?? `主人，小咪正在处理「${shortcut.label}」。`,
         () => window.bilimiDesktop?.runFloatingMenuAction?.(action),
         `「${shortcut.label}」已经处理好了。`
       )

@@ -760,6 +760,72 @@ describe('PalaceMaidPetApp', () => {
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['like', '赏', '好哒主人，小咪去点赞，再收进合适的册目里～'],
+    ['favorite', '藏', '好哒主人，小咪这就收进合适的册目里～'],
+    ['coin', '赐', '收到～小咪去一键三连，再替主人归好类～']
+  ] as const)('describes the real %s action in a natural working hint', async (shortcutId, label, hint) => {
+    const api = installDesktopApi({
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          petHoverShortcuts: [shortcutId]
+        })
+      ),
+      runFloatingMenuAction: vi.fn(() => new Promise(() => {}))
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
+    fireEvent.click(await screen.findByRole('button', { name: label }))
+
+    expect(await screen.findByText(hint)).toBeInTheDocument()
+    expect(api.runFloatingMenuAction).toHaveBeenCalledWith(label)
+  })
+
+  it('uses a natural working hint while 小咪 prepares a video comment', async () => {
+    installDesktopApi({
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          petHoverShortcuts: ['comment'],
+          deepseekEnabled: true,
+          deepseekApiKeyStored: true,
+          deepseekCommentEnabled: true
+        })
+      ),
+      generateDeepSeek: vi.fn(() => new Promise(() => {}))
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
+    fireEvent.click(await screen.findByRole('button', { name: '表' }))
+
+    expect(
+      await screen.findByText('小咪正在读视频内容，马上替主人想一句～')
+    ).toBeInTheDocument()
+  })
+
+  it('uses a natural working hint while 小咪 queues video transcription', async () => {
+    installDesktopApi({
+      loadPreferences: vi.fn().mockResolvedValue(
+        createPreferences({
+          petHoverShortcuts: ['transcribe']
+        })
+      ),
+      enqueueCurrentVideoAudioTranscription: vi.fn(() => new Promise(() => {}))
+    })
+
+    render(<PalaceMaidPetApp />)
+
+    fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
+    fireEvent.click(await screen.findByRole('button', { name: '转' }))
+
+    expect(
+      await screen.findByText('好哒主人，小咪正在听视频，马上替主人整理成文字～')
+    ).toBeInTheDocument()
+  })
+
   it('opens the floating assistant workspace from the 咪 hover shortcut', async () => {
     const openFloatingAssistantWorkspace = vi.fn().mockResolvedValue(undefined)
     const assistantShortcutPreferences = createPreferences({
