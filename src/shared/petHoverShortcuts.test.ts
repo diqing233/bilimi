@@ -31,14 +31,13 @@ describe('pet hover shortcuts', () => {
     expect(normalizePetHoverShortcuts([])).toEqual([])
   })
 
-  it('keeps only quick video actions, transcribing, and the library as configurable choices', () => {
+  it('keeps only quick video actions and transcribing as configurable choices', () => {
     expect(PET_SORTABLE_HOVER_SHORTCUTS.map((shortcut) => shortcut.id)).toEqual([
       'like',
       'favorite',
       'coin',
       'comment',
-      'transcribe',
-      'library'
+      'transcribe'
     ])
     expect(
       normalizePetHoverShortcuts([
@@ -47,6 +46,6 @@ describe('pet hover shortcuts', () => {
         'library',
         'favorite'
       ])
-    ).toEqual(['library', 'favorite'])
+    ).toEqual(['favorite'])
   })
 })

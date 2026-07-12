@@ -443,14 +443,6 @@ export function PalaceMaidPetApp() {
     return shortcut.intent === 'video-action' || shortcut.id === 'transcribe'
   }
 
-  function letsFloatingAssistantHandleCurrentVideoCheck(shortcut: PetHoverShortcut) {
-    return (
-      shortcut.intent === 'video-action' &&
-      shortcut.action === '表' &&
-      preferences.commentSubmitMode !== 'random'
-    )
-  }
-
   function getNoVideoHint(shortcut: PetHoverShortcut) {
     return PET_SHORTCUT_NO_VIDEO_HINTS[shortcut.id] ?? '主人，当前还没打开视频，小咪不能帮这个忙。'
   }
@@ -467,9 +459,7 @@ export function PalaceMaidPetApp() {
     if (shortcut.id === 'comment') {
       previewHoverHint(
         'hint',
-        preferences.commentSubmitMode === 'random'
-          ? '表：一键弹幕，当前会随机生成一条并直接发送'
-          : '表：一键弹幕，当前会生成 3 条候选，选择后发送'
+        '表：一键弹幕，随机生成一条并直接发送，不改变设置'
       )
       return
     }
@@ -531,11 +521,7 @@ export function PalaceMaidPetApp() {
     clearHoverPreview()
     const anchor = createWorkspaceAnchor(event)
 
-    if (
-      requiresCurrentVideo(shortcut) &&
-      !letsFloatingAssistantHandleCurrentVideoCheck(shortcut) &&
-      !(await hasCurrentVideo())
-    ) {
+    if (requiresCurrentVideo(shortcut) && !(await hasCurrentVideo())) {
       showLocalPetHint('error', getNoVideoHint(shortcut))
       return
     }
@@ -588,21 +574,11 @@ export function PalaceMaidPetApp() {
     }
 
     if (shortcut.intent === 'video-action' && shortcut.action === '表') {
-      if (preferences.commentSubmitMode === 'random') {
-        void runShortcutWithPetResult(
-          '主人，小咪随机拟一条弹幕直接发送。',
-          () => window.bilimiDesktop?.runFloatingMenuAction?.('表'),
-          '弹幕已发送，没有看到请检查弹幕开关是否开启'
-        )
-        return
-      }
-
-      showLocalPetHint('happy', '主人，小咪打开短评三选一小窗口啦。')
-      openFloatingWorkspace({
-        action: '表',
-        anchor,
-        tab: 'review'
-      })
+      void runShortcutWithPetResult(
+        '主人，小咪随机拟一条弹幕直接发送。',
+        () => window.bilimiDesktop?.runFloatingMenuAction?.('表', { submitComment: true }),
+        '弹幕已发送，没有看到请检查弹幕开关是否开启'
+      )
       return
     }
 

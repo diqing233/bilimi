@@ -889,7 +889,7 @@ describe('PalaceMaidPetApp', () => {
     expect(shortcuts).toHaveAttribute('data-layout', 'grid')
   })
 
-  it('opens the floating comment chooser for 表 without expanding the main sidebar', async () => {
+  it('sends a random 表 directly without changing choose-mode settings', async () => {
     const api = installDesktopApi({
       openAssistant: vi.fn().mockResolvedValue(undefined),
       openFloatingAssistantWorkspace: vi.fn().mockResolvedValue(undefined),
@@ -916,16 +916,13 @@ describe('PalaceMaidPetApp', () => {
     fireEvent.click(await screen.findByRole('button', { name: '表' }))
 
     await waitFor(() =>
-      expect(api.openFloatingAssistantWorkspace).toHaveBeenCalledWith({
-        action: '表',
-        tab: 'review'
-      })
+      expect(api.runFloatingMenuAction).toHaveBeenCalledWith('表', { submitComment: true })
     )
     expect(api.openAssistant).not.toHaveBeenCalled()
-    expect(api.runFloatingMenuAction).not.toHaveBeenCalledWith('表')
+    expect(api.openFloatingAssistantWorkspace).not.toHaveBeenCalled()
   })
 
-  it('opens the floating comment chooser in choose mode and lets it handle a missing video', async () => {
+  it('keeps choose-mode settings while blocking a pet 表 shortcut without a video', async () => {
     const api = installDesktopApi({
       openFloatingAssistantWorkspace: vi.fn().mockResolvedValue(undefined),
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
@@ -953,14 +950,14 @@ describe('PalaceMaidPetApp', () => {
     fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
     fireEvent.click(await screen.findByRole('button', { name: '表' }))
 
-    await waitFor(() =>
-      expect(api.openFloatingAssistantWorkspace).toHaveBeenCalledWith({
-        action: '表',
-        tab: 'review'
-      })
-    )
+    expect(
+      await screen.findByText('主人，当前还没打开视频，小咪不能帮这条拟短评。')
+    ).toBeInTheDocument()
+    expect(api.openFloatingAssistantWorkspace).not.toHaveBeenCalled()
     expect(api.runFloatingMenuAction).not.toHaveBeenCalled()
-    expect(screen.queryByText('暂无视频')).not.toBeInTheDocument()
+    expect(
+      (await api.loadPreferences()).commentSubmitMode
+    ).toBe('choose')
   })
 
   it('sends 表 directly from the pet shortcut when random danmaku mode is enabled', async () => {
@@ -989,7 +986,9 @@ describe('PalaceMaidPetApp', () => {
     fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
     fireEvent.click(await screen.findByRole('button', { name: '表' }))
 
-    await waitFor(() => expect(api.runFloatingMenuAction).toHaveBeenCalledWith('表'))
+    await waitFor(() =>
+      expect(api.runFloatingMenuAction).toHaveBeenCalledWith('表', { submitComment: true })
+    )
     expect(api.openFloatingAssistantWorkspace).not.toHaveBeenCalled()
     expect(screen.getByText('弹幕已发送，没有看到请检查弹幕开关是否开启')).toBeInTheDocument()
     expect(screen.getByTestId('mock-layered-pet')).toHaveAttribute('data-pet-state', 'done')
@@ -1031,7 +1030,7 @@ describe('PalaceMaidPetApp', () => {
     expect(api.restoreMainWindowFromPet).not.toHaveBeenCalled()
   })
 
-  it('opens the note archive for 库 and drops the retired 整 shortcut', async () => {
+  it('drops the retired 库 and 整 shortcuts from legacy preferences', async () => {
     const api = installDesktopApi({
       openFloatingAssistantWorkspace: vi.fn().mockResolvedValue(undefined),
       loadPreferences: vi.fn().mockResolvedValue(
@@ -1044,16 +1043,9 @@ describe('PalaceMaidPetApp', () => {
     render(<PalaceMaidPetApp />)
 
     fireEvent.pointerEnter(screen.getByRole('button', { name: '打开 bilimi，小咪在这里' }))
-    fireEvent.click(await screen.findByRole('button', { name: '库' }))
-
-    await waitFor(() =>
-      expect(api.openFloatingAssistantWorkspace).toHaveBeenCalledWith({
-        tab: 'notes',
-        openNoteArchive: true
-      })
-    )
-    expect(api.openFloatingAssistantWorkspace).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: '库' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '整' })).not.toBeInTheDocument()
+    expect(api.openFloatingAssistantWorkspace).not.toHaveBeenCalled()
   })
 
   it('explains hover shortcuts with their actual effect and restores the previous bubble', async () => {
@@ -1083,7 +1075,7 @@ describe('PalaceMaidPetApp', () => {
     fireEvent.pointerEnter(commentButton)
 
     expect(
-      screen.getByText('表：一键弹幕，当前会生成 3 条候选，选择后发送')
+      screen.getByText('表：一键弹幕，随机生成一条并直接发送，不改变设置')
     ).toBeInTheDocument()
   })
 
@@ -1105,15 +1097,14 @@ describe('PalaceMaidPetApp', () => {
 
     fireEvent.pointerEnter(screen.getByRole('button', { name: '表' }))
     expect(
-      screen.getByText('表：一键弹幕，当前会随机生成一条并直接发送')
+      screen.getByText('表：一键弹幕，随机生成一条并直接发送，不改变设置')
     ).toBeInTheDocument()
   })
 
   it.each([
     ['like', '赏', '赏：一键点赞，并归类收藏到 bilimi'],
     ['favorite', '藏', '藏：一键归类收藏，不点赞不投币'],
-    ['transcribe', '转', '转：将当前视频音频加入本地转写队列'],
-    ['library', '库', '库：打开档案库，查看已保存的札记']
+    ['transcribe', '转', '转：将当前视频音频加入本地转写队列']
   ] as const)(
     'explains the %s shortcut with its actual effect',
     async (shortcutId, buttonName, description) => {
@@ -1339,12 +1330,12 @@ describe('PalaceMaidPetApp', () => {
 
     await waitFor(() => expect(screen.getByRole('button', { name: '藏' })).toBeInTheDocument())
     expect(screen.getAllByTestId('pet-hover-shortcut')).toHaveLength(4)
-    expect(screen.getByRole('button', { name: '库' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '表' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '赐' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '赏' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '库' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '备' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '整' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '赏' })).not.toBeInTheDocument()
   })
 
   it('allows the configured hover shortcut list to be empty', async () => {

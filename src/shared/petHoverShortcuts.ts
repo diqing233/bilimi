@@ -50,8 +50,8 @@ export const PET_HOVER_SHORTCUTS: PetHoverShortcut[] = [
   {
     id: 'comment',
     label: '表',
-    title: '拟奏短评',
-    description: '一键弹幕',
+    title: '随机弹幕',
+    description: '随机生成一条并直接发送，不改变设置',
     action: '表',
     intent: 'video-action'
   },
@@ -103,6 +103,7 @@ const PET_HOVER_SHORTCUT_IDS = new Set(PET_HOVER_SHORTCUTS.map((shortcut) => sho
 export const PET_SORTABLE_HOVER_SHORTCUTS = PET_HOVER_SHORTCUTS.filter(
   (shortcut) =>
     shortcut.id !== 'assistant' &&
+    shortcut.id !== 'library' &&
     shortcut.id !== 'prepare-ledgers' &&
     shortcut.id !== 'organize-old-favorites'
 )

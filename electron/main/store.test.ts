@@ -454,7 +454,7 @@ describe('assistant preference store helpers', () => {
       defaultCoinCount: 2,
       commentSubmitMode: 'random',
       petStyle: 'classic',
-      petHoverShortcuts: ['favorite', 'library'],
+      petHoverShortcuts: ['favorite'],
       hidePetDuringVideoFullscreen: true,
       preferenceCounts: {
         story: 4,
@@ -498,7 +498,7 @@ describe('assistant preference store helpers', () => {
       defaultCoinCount: 2,
       commentSubmitMode: 'random',
       petStyle: 'classic',
-      petHoverShortcuts: ['favorite', 'library'],
+      petHoverShortcuts: ['favorite'],
       hidePetDuringVideoFullscreen: true,
       preferenceCounts: {
         story: 4,
@@ -673,7 +673,6 @@ describe('assistant preference store helpers', () => {
 
     expect(loadAssistantPreferences(store).petHoverShortcuts).toEqual([
       'favorite',
-      'library',
       'comment'
     ])
 

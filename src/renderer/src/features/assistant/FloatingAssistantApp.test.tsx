@@ -3923,9 +3923,9 @@ describe('FloatingAssistantApp', () => {
     expect(within(shortcutGroup).getByRole('button', { name: '赏 轻赏此条 第 1 位' })).toHaveTextContent('1')
     expect(within(shortcutGroup).getByRole('button', { name: '赐 投币厚赏 第 2 位' })).toHaveTextContent('2')
     expect(within(shortcutGroup).queryByRole('button', { name: /咪 打开小咪/ })).not.toBeInTheDocument()
-    expect(within(shortcutGroup).getByRole('button', { name: '表 拟奏短评 第 3 位' })).toHaveTextContent('3')
+    expect(within(shortcutGroup).getByRole('button', { name: '表 随机弹幕 第 3 位' })).toHaveTextContent('3')
     expect(within(shortcutGroup).getByRole('button', { name: '转 转写音频 第 4 位' })).toHaveTextContent('4')
-    expect(within(shortcutGroup).getByRole('button', { name: '库 打开档案库' })).toBeDisabled()
+    expect(within(shortcutGroup).queryByRole('button', { name: /库 打开档案库/ })).not.toBeInTheDocument()
     expect(within(shortcutGroup).queryByRole('button', { name: /备 备齐册目/ })).not.toBeInTheDocument()
     expect(within(shortcutGroup).queryByRole('button', { name: /整 整理旧藏/ })).not.toBeInTheDocument()
 
@@ -3949,12 +3949,12 @@ describe('FloatingAssistantApp', () => {
       )
     )
 
-    fireEvent.click(within(shortcutGroup).getByRole('button', { name: '库 打开档案库' }))
+    fireEvent.click(within(shortcutGroup).getByRole('button', { name: '藏 归入内库' }))
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
-          petHoverShortcuts: ['like', 'coin', 'comment', 'library']
+          petHoverShortcuts: ['like', 'coin', 'comment', 'favorite']
         })
       )
     )
@@ -3969,7 +3969,7 @@ describe('FloatingAssistantApp', () => {
 
     const shortcutGroup = screen.getByRole('group', { name: '宠物快捷操作' })
     fireEvent.click(within(shortcutGroup).getByRole('button', { name: '转 转写音频 第 4 位' }))
-    fireEvent.click(within(shortcutGroup).getByRole('button', { name: '表 拟奏短评 第 3 位' }))
+    fireEvent.click(within(shortcutGroup).getByRole('button', { name: '表 随机弹幕 第 3 位' }))
     fireEvent.click(within(shortcutGroup).getByRole('button', { name: '赐 投币厚赏 第 2 位' }))
     fireEvent.click(within(shortcutGroup).getByRole('button', { name: '赏 轻赏此条 第 1 位' }))
 

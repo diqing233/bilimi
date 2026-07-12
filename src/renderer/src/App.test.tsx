@@ -729,7 +729,7 @@ describe('App runtime integration', () => {
     expect((result.steps ?? []).filter((step) => step === 'player:playback:stable')).toHaveLength(2)
   })
 
-  it('generates a random local danmaku draft for direct 表 runtime actions', async () => {
+  it('generates and sends a random danmaku when a direct 表 action overrides choose mode', async () => {
     const random = vi.spyOn(Math, 'random').mockReturnValue(0)
     const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
@@ -787,7 +787,7 @@ describe('App runtime integration', () => {
     })
 
     try {
-      notifyPreferencesChanged(createAppPreferences({ commentSubmitMode: 'random' }))
+      notifyPreferencesChanged(createAppPreferences({ commentSubmitMode: 'choose' }))
       act(() => {
         webview.dispatchEvent(
           new CustomEvent('did-navigate-in-page', {
@@ -801,7 +801,8 @@ describe('App runtime integration', () => {
       const result = await requestRuntime({
         id: 'run-random-danmaku',
         type: 'run-action',
-        action: '表'
+        action: '表',
+        options: { submitComment: true }
       })
 
       expect(writeText).toHaveBeenCalledWith(expect.stringContaining('李老师'))
