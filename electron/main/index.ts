@@ -57,6 +57,7 @@ import { setFloatingSealMouseTransparency } from './floatingSealMouseTransparenc
 import { installFloatingSealWhiteStripFix } from './floatingSealWhiteStripFix'
 import { createFloatingSealWindowOptions } from './floatingSealWindowOptions'
 import { toggleFloatingAssistantFromSeal } from './floatingMenuToggleFlow'
+import { FLOATING_ASSISTANT_SIZE } from './floatingAssistantWindowSize'
 import {
   configureFloatingMenuWindow,
   createFloatingMenuWindowOptions
@@ -120,7 +121,6 @@ const FLOATING_SEAL_QUERY = { window: 'floating-seal' }
 const FLOATING_MENU_VISUAL_SIZE = { width: 184, height: 248 }
 const FLOATING_MENU_SHADOW_PADDING = 28
 const FLOATING_MENU_QUERY = { window: 'floating-menu' }
-const FLOATING_ASSISTANT_SIZE = { width: 460, height: 680 }
 const FLOATING_ASSISTANT_QUERY = { window: 'floating-assistant' }
 
 let mainWindow: BrowserWindow | null = null
