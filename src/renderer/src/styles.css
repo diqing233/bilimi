@@ -3842,6 +3842,16 @@ body[data-floating-window="true"],
   font-size: 12px;
   padding: 4px 8px;
 }
+.favorite-ledger-panel__deepseek-archive-run-button {
+  width: 104px;
+  min-width: 104px;
+  text-align: center;
+}
+.favorite-ledger-panel__deepseek-archive-run-button[data-action='cancel'] {
+  border-color: rgba(155, 54, 66, 0.42);
+  background: rgba(255, 247, 248, 0.94);
+  color: var(--porcelain-error);
+}
 .favorite-ledger-panel__deepseek-archive-scope > button {
   min-width: 84px;
   display: inline-flex;

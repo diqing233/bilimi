@@ -286,6 +286,12 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet(
       '.favorite-ledger-panel__deepseek-archive-scope > button, .favorite-ledger-panel__deepseek-archive-heading button { white-space: nowrap;'
     )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__deepseek-archive-run-button { width: 104px; min-width: 104px;'
+    )
+    expectStyleSnippet(
+      ".favorite-ledger-panel__deepseek-archive-run-button[data-action='cancel'] { border-color: rgba(155, 54, 66, 0.42);"
+    )
   })
 
   it('frames the assistant workspace chrome while keeping tab buttons defined', () => {

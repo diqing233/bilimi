@@ -6039,7 +6039,7 @@ describe('FavoriteLedgerPanel', () => {
       skippedSourceFolderTitles: []
     } satisfies FavoriteLedgerPreview)
 
-    await openArchivePreview({
+    const { container } = await openArchivePreview({
       deepSeekArchiveAvailable: true,
       onScanOldFavorites,
       onOrganizeOldFavoritesWithDeepSeek
@@ -6047,9 +6047,13 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
     await waitFor(() => expect(onOrganizeOldFavoritesWithDeepSeek).toHaveBeenCalledOnce())
-    fireEvent.click(screen.getByRole('button', { name: '取消 DeepSeek 整理' }))
+    expect(
+      container.querySelectorAll('.favorite-ledger-panel__deepseek-archive-run-button')
+    ).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: '取消整理' }))
 
     expect(screen.getByText('正在取消 DeepSeek 整理...')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '取消中...' })).toBeDisabled()
 
     await act(async () => {
       resolveFirstBatch({

@@ -1207,10 +1207,17 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByText('DeepSeek 正在整理旧藏...')).toBeInTheDocument()
 
     firstApp.unmount()
+    const secondApp = render(<FloatingAssistantApp mode="sidebar" activeTab="ledger" />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '取消整理' }))
+    expect(screen.getByText('正在取消 DeepSeek 整理...')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '取消中...' })).toBeDisabled()
+
+    secondApp.unmount()
     render(<FloatingAssistantApp mode="sidebar" activeTab="ledger" />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '取消 DeepSeek 整理' }))
-    expect(screen.getByText('正在取消 DeepSeek 整理...')).toBeInTheDocument()
+    expect(await screen.findByText('正在取消 DeepSeek 整理...')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '取消中...' })).toBeDisabled()
 
     await act(async () => {
       deepSeekOrganization.resolve({

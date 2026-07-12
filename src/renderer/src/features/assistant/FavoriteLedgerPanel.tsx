@@ -1456,6 +1456,8 @@ export function FavoriteLedgerPanel({
   const [deepSeekArchiveScopeOpen, setDeepSeekArchiveScopeOpen] = useState(false)
   const [deepSeekArchiveRunning, setDeepSeekArchiveRunning] =
     useOldFavoriteRuntimeState('deepSeekArchiveRunning', false)
+  const [deepSeekArchiveCancelRequested, setDeepSeekArchiveCancelRequested] =
+    useOldFavoriteRuntimeState('deepSeekArchiveCancelRequested', false)
   const [deepSeekArchiveStatus, setDeepSeekArchiveStatus] =
     useOldFavoriteRuntimeState('deepSeekArchiveStatus', '')
   const [deepSeekArchiveSuggestionCount, setDeepSeekArchiveSuggestionCount] =
@@ -2770,6 +2772,7 @@ export function FavoriteLedgerPanel({
 
     const chunks = chunkDeepSeekArchiveRequest(request)
     oldFavoriteDeepSeekCancelRequested = false
+    setDeepSeekArchiveCancelRequested(false)
     setDeepSeekArchiveRunning(true)
     setDeepSeekArchiveStatus('DeepSeek 正在整理旧藏...')
     setDeepSeekArchiveSuggestionCount(0)
@@ -2905,6 +2908,7 @@ export function FavoriteLedgerPanel({
       setDeepSeekArchiveStatus(error instanceof Error ? error.message : 'DeepSeek 整理失败。')
     } finally {
       setDeepSeekArchiveRunning(false)
+      setDeepSeekArchiveCancelRequested(false)
     }
   }
 
@@ -2914,6 +2918,7 @@ export function FavoriteLedgerPanel({
     }
 
     oldFavoriteDeepSeekCancelRequested = true
+    setDeepSeekArchiveCancelRequested(true)
     setDeepSeekArchiveStatus('正在取消 DeepSeek 整理...')
   }
 
@@ -3589,7 +3594,6 @@ export function FavoriteLedgerPanel({
     oldFavoriteTagCandidates.every((candidate) => selectedCandidateKeys.has(candidateKey(candidate)))
   const deepSeekArchiveDisabled =
     oldFavoriteGuideMode === 'setup' ||
-    deepSeekArchiveRunning ||
     !archivePlanState ||
     !deepSeekArchiveAvailable ||
     !onOrganizeOldFavoritesWithDeepSeek
@@ -4577,20 +4581,25 @@ export function FavoriteLedgerPanel({
                             {renderDeepSeekArchiveScopeMenu()}
                             <button
                               type="button"
-                              disabled={deepSeekArchiveDisabled}
-                              onClick={() => void organizeOldFavoritesWithDeepSeek()}
+                              className="favorite-ledger-panel__deepseek-archive-run-button"
+                              data-action={deepSeekArchiveRunning ? 'cancel' : 'organize'}
+                              disabled={
+                                deepSeekArchiveRunning
+                                  ? deepSeekArchiveCancelRequested
+                                  : deepSeekArchiveDisabled
+                              }
+                              onClick={() =>
+                                deepSeekArchiveRunning
+                                  ? cancelDeepSeekArchiveOrganization()
+                                  : void organizeOldFavoritesWithDeepSeek()
+                              }
                             >
-                              {deepSeekArchiveRunning ? '整理中...' : 'DeepSeek 整理'}
+                              {deepSeekArchiveCancelRequested
+                                ? '取消中...'
+                                : deepSeekArchiveRunning
+                                  ? '取消整理'
+                                  : 'DeepSeek 整理'}
                             </button>
-                            {deepSeekArchiveRunning ? (
-                              <button
-                                type="button"
-                                aria-label="取消 DeepSeek 整理"
-                                onClick={cancelDeepSeekArchiveOrganization}
-                              >
-                                取消
-                              </button>
-                            ) : null}
                           </div>
                         </div>
                         {deepSeekArchiveAvailable ? null : (
