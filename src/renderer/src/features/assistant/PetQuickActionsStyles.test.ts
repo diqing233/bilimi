@@ -34,17 +34,21 @@ describe('pet quick action styles', () => {
       '.palace-maid-pet__bubble[data-chat-open="true"] { left: 50%; bottom: calc(var(--floating-pet-size) + 10px);'
     )
     expectStyleSnippet('.palace-maid-pet__bubble { position: absolute; left: 50%; bottom: calc(var(--floating-pet-size) + 10px);')
-    expectStyleSnippet('width: min(270px, calc(var(--floating-pet-host-width) - 8px));')
-    expectStyleSnippet('max-width: min(270px, calc(var(--floating-pet-host-width) - 8px));')
-    expectStyleSnippet('.palace-maid-pet__bubble[data-chat-open="true"] { left: 50%; bottom: calc(var(--floating-pet-size) + 10px); width: min(270px, calc(var(--floating-pet-host-width) - 8px));')
+    expectStyleSnippet('width: 270px; max-width: 270px;')
+    expectStyleSnippet('.palace-maid-pet__bubble[data-chat-open="true"] { left: 50%; bottom: calc(var(--floating-pet-size) + 10px); width: 270px;')
     expectStyleSnippet('overflow-y: auto;')
-    expectStyleSnippet('.palace-maid-pet__chat-field, .palace-maid-pet__chat button[type="submit"] { flex-shrink: 0;')
+    expectStyleSnippet(
+      '.palace-maid-pet__chat-compose, .palace-maid-pet__chat button[type="submit"] { flex-shrink: 0;'
+    )
+    expectStyleSnippet('.palace-maid-pet__chat-compose { display: flex; gap: 5px; align-items: end;')
     expect(compactStyles).not.toContain('width: min(300px, calc(var(--floating-pet-host-width) - 8px));')
     expect(compactStyles).not.toContain('width: min(255px, calc(var(--floating-pet-host-width) - 8px));')
     expect(compactStyles).not.toContain('max-width: calc(var(--floating-pet-host-width) - 8px);')
     expect(compactStyles).not.toContain('width: min(320px, calc(100vw - 8px));')
     expect(compactStyles).not.toContain('max-width: calc(100vw - 8px);')
     expectStyleSnippet('--pet-bubble-offset-x: -50%;')
+    expect(compactStyles).not.toContain('data-workspace-side')
+    expectStyleSnippet('width: 270px; max-width: 270px;')
     expectStyleSnippet(
       '.palace-maid-pet__resize-controls { position: absolute; right: 34px; bottom: 2px;'
     )

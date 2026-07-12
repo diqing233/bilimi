@@ -4,7 +4,7 @@ import type {
   DeepSeekArchiveMode,
   DeepSeekGenerateRequest,
   DeepSeekGenerateResult,
-  DeepSeekTaskKind,
+  DeepSeekTask,
   FavoriteCorrectionRecord,
   FavoriteArchiveProtectionRecord,
   AssistantPreferences,
@@ -60,7 +60,7 @@ import type { AssistantPetHint } from './petState'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
 import { PET_COLLAPSE_FAREWELL_LINES, pickPetLine } from './petInteractionLines'
-import { publishDeepSeekTask, subscribeDeepSeekTask } from './deepSeekTaskSignal'
+import { publishDeepSeekTask, subscribeDeepSeekTasks } from './deepSeekTaskSignal'
 
 const CURRENT_TITLE = '等待视频加载'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
@@ -252,6 +252,7 @@ const TAB_HINTS: Record<AssistantWorkspaceTab, string> = {
 }
 
 type GlobalStatusTone = 'ok' | 'warn' | 'error' | 'running' | 'idle'
+type DeepSeekConnectionStatus = 'pending' | 'connected' | 'failed'
 
 type GlobalStatusItem = {
   label: string
@@ -259,37 +260,13 @@ type GlobalStatusItem = {
   tone: GlobalStatusTone
 }
 
-const DEEPSEEK_TASK_STATUS: Record<DeepSeekTaskKind, GlobalStatusItem> = {
-  comment: {
-    label: '生成评论中',
-    detail: 'DeepSeek 正在生成趣评候选。',
-    tone: 'running'
-  },
-  classification: {
-    label: '二判中',
-    detail: 'DeepSeek 正在复核分类。',
-    tone: 'running'
-  },
-  summary: {
-    label: '总结中',
-    detail: 'DeepSeek 正在生成文稿总结。',
-    tone: 'running'
-  },
-  'archive-organize': {
-    label: '整理中',
-    detail: 'DeepSeek 正在辅助整理旧藏。',
-    tone: 'running'
-  },
-  'pet-chat': {
-    label: '对话中',
-    detail: 'DeepSeek 正在生成小咪回复。',
-    tone: 'running'
-  },
-  'connection-test': {
-    label: '测试中',
-    detail: 'DeepSeek 正在测试连接。',
-    tone: 'running'
-  }
+const DEEPSEEK_TASK_DEFAULT_DETAIL: Record<DeepSeekTask['kind'], string> = {
+  comment: '趣评生成',
+  classification: '分类二判',
+  summary: '文稿总结',
+  'archive-organize': '旧藏整理',
+  'pet-chat': '宠物对话',
+  'connection-test': '连接测试'
 }
 
 function favoriteLedgerBackupGap(ledgers: FavoriteLedger[]) {
@@ -362,7 +339,15 @@ const KEYWORD_SUGGESTION_ACTION_LABELS: Record<FavoriteKeywordSuggestion['action
 }
 
 const FAVORITE_CORRECTION_LEARNING_HELP =
-  '确认整理后，记录“原建议”和“你实际选择”的差异，作为回看分类边界的参考；记录本身不会直接影响本地分类。'
+  '记录卡片“转移”和 DeepSeek 改变系统原建议后实际执行成功的归档调整；系统自动批量迁移不会登记。'
+
+function archiveAdjustmentMethodLabel(record: FavoriteCorrectionRecord): string {
+  return record.source === 'user' ? '用户手动' : 'DeepSeek 整理'
+}
+
+function archiveAdjustmentSceneLabel(record: FavoriteCorrectionRecord): string {
+  return record.sourceScene === 'archive-preview' ? '归档预览' : '日常收藏'
+}
 
 const KEYWORD_SUGGESTION_STATUS_LABELS: Record<FavoriteKeywordSuggestionStatus, string> = {
   pending: '待处理',
@@ -399,23 +384,40 @@ function formatSettingsDate(value?: string) {
   })
 }
 
-function formatDeepSeekFeatureList(preferences: AssistantPreferences): string {
-  if (!preferences.deepseekEnabled || !preferences.deepseekApiKeyStored) {
-    return [
-      'DeepSeek 未连接。',
-      `趣评生成：${preferences.deepseekCommentEnabled ? '开启' : '关闭'}`,
-      `自动总结：${preferences.deepseekAutoSummaryEnabled ? '开启' : '关闭'}`,
-      `宠物对话：${preferences.deepseekPetChatEnabled ? '开启' : '关闭'}`,
-      `辅助整理：${preferences.deepseekDailyClassificationEnabled ? '开启' : '关闭'}`
-    ].join('\n')
-  }
+function formatDeepSeekFeatureLines(preferences: AssistantPreferences): string[] {
+  const reviewMode =
+    preferences.deepseekDailyClassificationMode === 'low-confidence-only'
+      ? '仅不太稳'
+      : '全部归类'
 
   return [
-    'DeepSeek 已连接。',
-    `趣评生成：${preferences.deepseekCommentEnabled ? '开启' : '关闭'}，拟奏短评会生成候选。`,
-    `自动总结：${preferences.deepseekAutoSummaryEnabled ? '开启' : '关闭'}，转写后生成文稿总结。`,
-    `宠物对话：${preferences.deepseekPetChatEnabled ? '开启' : '关闭'}，小咪可使用 DeepSeek 对话。`,
-    `辅助整理：${preferences.deepseekDailyClassificationEnabled ? '开启' : '关闭'}，代批和旧藏整理会复核分类。`
+    preferences.deepseekCommentEnabled
+      ? '趣味评论：开启，会生成候选弹幕，可复制发布为评论。'
+      : '趣味评论：关闭，不会生成候选弹幕。',
+    preferences.deepseekAutoSummaryEnabled
+      ? '自动总结：开启，会在视频转写后生成文稿总结。'
+      : '自动总结：关闭，不会在视频转写后生成文稿总结。',
+    preferences.deepseekPetChatEnabled
+      ? '宠物对话：开启，小咪会调用 DeepSeek 对话。'
+      : '宠物对话：关闭，小咪不会调用 DeepSeek 对话。',
+    preferences.deepseekDailyClassificationEnabled
+      ? `批阅辅助：开启（${reviewMode}），会用 DeepSeek 复核批阅分类。`
+      : '批阅辅助：关闭，不会使用 DeepSeek 复核批阅分类。',
+    preferences.deepseekArchiveOrganizationEnabled
+      ? '旧藏整理：开启，可在归档预览中手动执行 DeepSeek 整理。'
+      : '旧藏整理：关闭，无法在归档预览中执行 DeepSeek 整理。'
+  ]
+}
+
+function formatDeepSeekFeatureList(preferences: AssistantPreferences): string {
+  return [
+    preferences.deepseekEnabled && preferences.deepseekApiKeyStored
+      ? 'DeepSeek 已连接。'
+      : 'DeepSeek 未连接。',
+    ...(preferences.deepseekEnabled && preferences.deepseekApiKeyStored
+      ? [`当前模型：${preferences.deepseekModel || '未配置'}`]
+      : []),
+    ...formatDeepSeekFeatureLines(preferences)
   ].join('\n')
 }
 
@@ -542,7 +544,7 @@ function localizeDeepSeekStatusMessage(message: string): string {
   }
 
   return message
-    .replace(/^DeepSeek API request failed:/, 'DeepSeek API 请求失败：')
+    .replace(/^DeepSeek API request failed:\s*/, 'DeepSeek API 请求失败：')
     .replace(/^DeepSeek response did not include any content\.$/, 'DeepSeek 响应没有返回内容。')
     .replace(/^DeepSeek response could not be parsed\.$/, 'DeepSeek 响应解析失败。')
     .replace(/^DeepSeek response schema was invalid\.$/, 'DeepSeek 响应格式无效。')
@@ -605,6 +607,18 @@ function deepSeekKeyFieldStatusFromKeyStatus(status: unknown): DeepSeekKeyFieldS
   return deepSeekKeyStatusUsesPlainStorage(status) ? 'savedPlain' : 'savedSecure'
 }
 
+function arePreferenceValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) {
+    return true
+  }
+
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') {
+    return false
+  }
+
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
 export function FloatingAssistantApp({
   mode = 'floating',
   activeTab: controlledActiveTab,
@@ -617,11 +631,15 @@ export function FloatingAssistantApp({
   const snapshotRef = useRef<AssistantSnapshot | null>(null)
   const lastRuntimeFeedbackId = useRef<number | undefined>(undefined)
   const runtimeFeedbackSnapshotLoaded = useRef(false)
+  const startupDeepSeekValidationAttempted = useRef(false)
+  const deepSeekConnectionValidationInFlight = useRef(false)
+  const deepSeekConnectionValidationSaveRequired = useRef(false)
   const snapshotLoadQueue = useRef<Promise<void>>(Promise.resolve())
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences()
   )
   const preferencesRef = useRef(preferences)
+  const committedPreferencesRef = useRef(preferences)
   const [favoriteLedgerStatus, setFavoriteLedgerStatus] = useState<FavoriteLedgerStatus | null>(null)
   const [uncontrolledActiveTab, setUncontrolledActiveTab] =
     useState<AssistantWorkspaceTab>('review')
@@ -644,7 +662,8 @@ export function FloatingAssistantApp({
   const [deepSeekApiKeyDraft, setDeepSeekApiKeyDraft] = useState('')
   const [deepSeekKeyFieldStatus, setDeepSeekKeyFieldStatus] =
     useState<DeepSeekKeyFieldStatus>('unsaved')
-  const [deepSeekStatusMessage, setDeepSeekStatusMessage] = useState('')
+  const [deepSeekConnectionStatus, setDeepSeekConnectionStatus] =
+    useState<DeepSeekConnectionStatus>('pending')
   const [settingsDiagnosticReport, setSettingsDiagnosticReport] =
     useState<StartupDiagnosticReport | null>(null)
   const [settingsDiagnosticRunning, setSettingsDiagnosticRunning] = useState(false)
@@ -655,7 +674,8 @@ export function FloatingAssistantApp({
     useState<'pending' | 'processed'>('pending')
   const [settingsJumpValue, setSettingsJumpValue] = useState<SettingsJumpValue>('diagnostics')
   const [globalFeedbackMessage, setGlobalFeedbackMessage] = useState('')
-  const [deepSeekTask, setDeepSeekTask] = useState<DeepSeekTaskKind | null>(null)
+  const [localDeepSeekTasks, setLocalDeepSeekTasks] = useState<DeepSeekTask[]>([])
+  const [remoteDeepSeekTasks, setRemoteDeepSeekTasks] = useState<DeepSeekTask[]>([])
   const [oldFavoriteExecutionState, setOldFavoriteExecutionState] =
     useState<'idle' | 'running' | 'finished'>('idle')
   const [oldFavoriteGlobalStatus, setOldFavoriteGlobalStatus] = useState<GlobalStatusItem | null>(null)
@@ -692,8 +712,9 @@ export function FloatingAssistantApp({
     if (runningItem) {
       const percent = formatGlobalProgressPercent(runningItem.progress)
       const pendingCount = transcriptionQueue.items.filter((item) => item.status === 'pending').length
+      const progressLabel = percent === null ? '转写中' : `转写 ${percent}%`
       return {
-        label: `${percent === null ? '转写中' : `转写 ${percent}%`} · 排队 ${pendingCount}`,
+        label: pendingCount > 0 ? `${progressLabel} · 排队 ${pendingCount}` : progressLabel,
         detail: `${runningItem.title} 正在转写${pendingCount > 0 ? `，排队 ${pendingCount} 个` : ''}`,
         tone: 'running'
       }
@@ -710,8 +731,8 @@ export function FloatingAssistantApp({
 
     if (transcriptionQueue.sessionCompletedCount > 0) {
       return {
-        label: `暂无转写 · 完成 ${transcriptionQueue.sessionCompletedCount}`,
-        detail: `本次启动已完成 ${transcriptionQueue.sessionCompletedCount} 个转写，文稿已保存到档案库。`,
+        label: `暂无转写 · 成功 ${transcriptionQueue.sessionCompletedCount}`,
+        detail: `本次启动已成功转写 ${transcriptionQueue.sessionCompletedCount} 个视频，文稿已保存到档案库。`,
         tone: 'ok'
       }
     }
@@ -724,31 +745,81 @@ export function FloatingAssistantApp({
   }, [transcriptionQueue])
 
   const globalDeepSeekStatus = useMemo<GlobalStatusItem>(() => {
-    if (!preferences.deepseekEnabled || !preferences.deepseekApiKeyStored) {
+    if (!preferences.deepseekEnabled) {
       return {
-        label: 'DeepSeek 未连',
+        label: 'DeepSeek 未启用',
+        detail: formatDeepSeekFeatureList(preferences),
+        tone: 'idle'
+      }
+    }
+
+    if (!preferences.deepseekApiKeyStored) {
+      return {
+        label: 'DeepSeek 待配置',
         detail: formatDeepSeekFeatureList(preferences),
         tone: 'warn'
       }
     }
 
-    if (deepSeekTask) {
-      return DEEPSEEK_TASK_STATUS[deepSeekTask]
-    }
-
-    const runningDeepSeekItem = transcriptionQueue.items.find(
-      (item) => item.status === 'running' && item.progress?.step === 'summarizing-deepseek'
+    const backgroundSummaryTasks: DeepSeekTask[] = transcriptionQueue.items
+      .filter((item) => item.status === 'running' && item.progress?.step === 'summarizing-deepseek')
+      .map((item) => ({
+        id: `transcription-summary:${item.id}`,
+        kind: 'summary',
+        detail: `文稿总结：${item.title}`
+      }))
+    const activeDeepSeekTasks = [
+      ...localDeepSeekTasks,
+      ...remoteDeepSeekTasks,
+      ...backgroundSummaryTasks
+    ].filter(
+      (task, index, tasks) => tasks.findIndex((candidate) => candidate.id === task.id) === index
     )
-    if (runningDeepSeekItem) {
+    if (activeDeepSeekTasks.length > 0) {
+      const validatingConnection = activeDeepSeekTasks.every(
+        (task) => task.kind === 'connection-test'
+      )
       return {
-        label: 'DeepSeek 总结中',
-        detail: `${runningDeepSeekItem.title} 正在生成 DeepSeek 总结。`,
+        label: validatingConnection ? 'DeepSeek 验证中' : 'DeepSeek 工作中',
+        detail: [
+          validatingConnection ? 'DeepSeek 验证中' : 'DeepSeek 工作中',
+          `当前模型：${preferences.deepseekModel || '未配置'}`,
+          `正在执行 ${activeDeepSeekTasks.length} 项任务：`,
+          ...activeDeepSeekTasks.map(
+            (task) => `• ${task.detail?.trim() || DEEPSEEK_TASK_DEFAULT_DETAIL[task.kind]}`
+          ),
+          '',
+          ...formatDeepSeekFeatureLines(preferences)
+        ].join('\n'),
         tone: 'running'
       }
     }
 
+    if (deepSeekConnectionStatus === 'failed') {
+      return {
+        label: 'DeepSeek 连接失败',
+        detail: [
+          '配置已保存，但最近一次真实连接测试失败，请检查密钥、模型和服务地址。',
+          ...formatDeepSeekFeatureLines(preferences)
+        ].join('\n'),
+        tone: 'error'
+      }
+    }
+
+    if (deepSeekConnectionStatus === 'pending') {
+      return {
+        label: 'DeepSeek 待测试',
+        detail: [
+          '配置已保存，尚未完成本次运行的连接验证。',
+          `当前模型：${preferences.deepseekModel || '未配置'}`,
+          ...formatDeepSeekFeatureLines(preferences)
+        ].join('\n'),
+        tone: 'warn'
+      }
+    }
+
     return {
-      label: 'DeepSeek 已连',
+      label: 'DeepSeek 已连接',
       detail: formatDeepSeekFeatureList(preferences),
       tone: 'ok'
     }
@@ -757,9 +828,14 @@ export function FloatingAssistantApp({
     preferences.deepseekAutoSummaryEnabled,
     preferences.deepseekCommentEnabled,
     preferences.deepseekDailyClassificationEnabled,
+    preferences.deepseekArchiveOrganizationEnabled,
+    preferences.deepseekDailyClassificationMode,
     preferences.deepseekEnabled,
+    preferences.deepseekModel,
     preferences.deepseekPetChatEnabled,
-    deepSeekTask,
+    deepSeekConnectionStatus,
+    localDeepSeekTasks,
+    remoteDeepSeekTasks,
     transcriptionQueue
   ])
 
@@ -829,9 +905,13 @@ export function FloatingAssistantApp({
     })
   }
 
-  function updateDeepSeekTask(task: DeepSeekTaskKind | null) {
-    setDeepSeekTask(task)
-    publishDeepSeekTask(task)
+  function startDeepSeekTask(task: DeepSeekTask) {
+    setLocalDeepSeekTasks((tasks) => [...tasks.filter((current) => current.id !== task.id), task])
+    const finishBroadcast = publishDeepSeekTask(task)
+    return () => {
+      setLocalDeepSeekTasks((tasks) => tasks.filter((current) => current.id !== task.id))
+      finishBroadcast()
+    }
   }
 
   function setGlobalFeedback(message: string) {
@@ -895,6 +975,9 @@ export function FloatingAssistantApp({
         const nextPreferences = snapshotArrivedSoonAfterLocalChange
           ? currentPreferences
           : snapshotPreferences
+        if (!snapshotArrivedSoonAfterLocalChange) {
+          committedPreferencesRef.current = snapshotPreferences
+        }
         preferencesRef.current = nextPreferences
         return nextPreferences
       })
@@ -911,6 +994,7 @@ export function FloatingAssistantApp({
         const fallback = createFallbackSnapshot()
         snapshotRef.current = fallback
         setSnapshot(fallback)
+        committedPreferencesRef.current = fallback.preferences
         preferencesRef.current = fallback.preferences
         setPreferences(fallback.preferences)
         setFavoriteLedgerStatus(fallback.favoriteLedgerStatus)
@@ -941,7 +1025,7 @@ export function FloatingAssistantApp({
   }, [workspaceRequestsEnabled])
 
   useEffect(() => {
-    return subscribeDeepSeekTask(setDeepSeekTask)
+    return subscribeDeepSeekTasks(setRemoteDeepSeekTasks)
   }, [])
 
   useEffect(() => {
@@ -987,6 +1071,46 @@ export function FloatingAssistantApp({
   }, [loadSnapshot])
 
   useEffect(() => {
+    if (
+      mode !== 'sidebar' ||
+      !snapshot ||
+      startupDeepSeekValidationAttempted.current ||
+      deepSeekConnectionValidationInFlight.current ||
+      !preferences.deepseekEnabled ||
+      !preferences.deepseekApiKeyStored ||
+      !window.bilimiDesktop?.testDeepSeekConnection
+    ) {
+      return
+    }
+
+    startupDeepSeekValidationAttempted.current = true
+    deepSeekConnectionValidationInFlight.current = true
+    const finishDeepSeekTask = startDeepSeekTask({
+      id: 'startup-connection-test',
+      kind: 'connection-test',
+      detail: '连接验证：启动时自动检查'
+    })
+
+    const saveBeforeValidation = deepSeekConnectionValidationSaveRequired.current
+    deepSeekConnectionValidationSaveRequired.current = false
+
+    void (saveBeforeValidation
+      ? persistPreferences(preferencesRef.current)
+      : Promise.resolve())
+      .then(() => window.bilimiDesktop!.testDeepSeekConnection!())
+      .then((result) => {
+        setDeepSeekConnectionStatus(result.ok ? 'connected' : 'failed')
+      })
+      .catch(() => {
+        setDeepSeekConnectionStatus('failed')
+      })
+      .finally(() => {
+        deepSeekConnectionValidationInFlight.current = false
+        finishDeepSeekTask()
+      })
+  }, [mode, preferences.deepseekApiKeyStored, preferences.deepseekEnabled, snapshot])
+
+  useEffect(() => {
     return window.bilimiDesktop?.onAssistantSnapshotChanged?.(() => {
       void loadSnapshot({ resetVideoNote: true })
     })
@@ -994,15 +1118,19 @@ export function FloatingAssistantApp({
 
   useEffect(() => {
     return window.bilimiDesktop?.onAssistantPreferencesChanged?.((nextPreferences) => {
-      const nextSidebarWidthPx =
-        createInitialAssistantPreferences(nextPreferences).assistantSidebarWidthPx
+      const normalizedNextPreferences = createInitialAssistantPreferences(nextPreferences)
 
       setPreferences((currentPreferences) => {
         const inFlightPreferenceSave = inFlightPreferenceSaveRef.current
+        const saveScheduler = preferenceSaveSchedulerRef.current
+        const hasActiveLocalPreferenceSave =
+          Boolean(inFlightPreferenceSave) || Boolean(saveScheduler?.hasActiveSave())
         const isStaleInFlightSidebarWidth =
           Boolean(inFlightPreferenceSave) &&
-          inFlightPreferenceSave?.preferences.assistantSidebarWidthPx === nextSidebarWidthPx &&
-          currentPreferences.assistantSidebarWidthPx !== nextSidebarWidthPx &&
+          inFlightPreferenceSave?.preferences.assistantSidebarWidthPx ===
+            normalizedNextPreferences.assistantSidebarWidthPx &&
+          currentPreferences.assistantSidebarWidthPx !==
+            normalizedNextPreferences.assistantSidebarWidthPx &&
           lastPreferenceChangeAt.current > inFlightPreferenceSave.startedAt
 
         if (isStaleInFlightSidebarWidth) {
@@ -1010,29 +1138,41 @@ export function FloatingAssistantApp({
           return currentPreferences
         }
 
-        if (currentPreferences.assistantSidebarWidthPx === nextSidebarWidthPx) {
-          preferencesRef.current = currentPreferences
-          return currentPreferences
+        const comparisonPreferences = committedPreferencesRef.current
+        committedPreferencesRef.current = normalizedNextPreferences
+
+        if (!hasActiveLocalPreferenceSave) {
+          lastPreferenceChangeAt.current = Date.now()
+          preferencesRef.current = normalizedNextPreferences
+          return normalizedNextPreferences
         }
 
-        const mergedPreferences = createInitialAssistantPreferences({
-          ...currentPreferences,
-          assistantSidebarWidthPx: nextSidebarWidthPx
-        })
+        const mergedEntries = (
+          Object.keys(normalizedNextPreferences) as Array<keyof AssistantPreferences>
+        ).map((key) => [
+          key,
+          arePreferenceValuesEqual(currentPreferences[key], comparisonPreferences[key])
+            ? normalizedNextPreferences[key]
+            : currentPreferences[key]
+        ])
+        const mergedPreferences = createInitialAssistantPreferences(
+          Object.fromEntries(mergedEntries) as Partial<AssistantPreferences>
+        )
         lastPreferenceChangeAt.current = Date.now()
         preferencesRef.current = mergedPreferences
-        const saveScheduler = preferenceSaveSchedulerRef.current
-        const updatePendingSidebarWidth = (pendingPreferences: AssistantPreferences) =>
-          createInitialAssistantPreferences({
-            ...pendingPreferences,
-            assistantSidebarWidthPx: nextSidebarWidthPx
-          })
 
-        if (
-          !saveScheduler?.updatePending(updatePendingSidebarWidth) &&
-          saveScheduler?.hasActiveSave()
-        ) {
-          saveScheduler.schedule(mergedPreferences)
+        const hasUnsavedMergedChanges = !arePreferenceValuesEqual(
+          mergedPreferences,
+          normalizedNextPreferences
+        )
+
+        if (hasUnsavedMergedChanges) {
+          if (
+            !saveScheduler?.updatePending(() => mergedPreferences) &&
+            saveScheduler?.hasActiveSave()
+          ) {
+            saveScheduler.schedule(mergedPreferences)
+          }
         }
         return mergedPreferences
       })
@@ -1166,6 +1306,7 @@ export function FloatingAssistantApp({
             const newerLocalChangeExists = lastPreferenceChangeAt.current > saveStartedAt
 
             if (!newerLocalChangeExists) {
+              committedPreferencesRef.current = savedPreferences
               preferencesRef.current = savedPreferences
 
               if (mounted.current) {
@@ -1346,23 +1487,51 @@ export function FloatingAssistantApp({
 
     applyPreferenceSnapshot(nextPreferences)
 
+    if (
+      'deepseekEnabled' in patch ||
+      'deepseekModel' in patch ||
+      'deepseekBaseUrl' in patch
+    ) {
+      setDeepSeekConnectionStatus('pending')
+    }
+
     if (options.persist) {
       getPreferenceSaveScheduler().schedule(nextPreferences)
     }
   }
 
   function toggleDeepSeekEnabled(enabled: boolean) {
+    const previousScrollTop = enabled ? settingsBodyRef.current?.scrollTop : undefined
+
+    if (!enabled) {
+      startupDeepSeekValidationAttempted.current = false
+    } else {
+      deepSeekConnectionValidationSaveRequired.current = true
+    }
+
     updateDeepSeekPreference(
-      enabled
+      enabled && !preferencesRef.current.deepseekFeatureDefaultsInitialized
         ? {
             deepseekEnabled: true,
             deepseekCommentEnabled: true,
             deepseekAutoSummaryEnabled: true,
-            deepseekPetChatEnabled: true
+            deepseekPetChatEnabled: true,
+            deepseekDailyClassificationEnabled: true,
+            deepseekArchiveOrganizationEnabled: true,
+            deepseekDailyClassificationMode: 'all',
+            deepseekFeatureDefaultsInitialized: true
           }
-        : { deepseekEnabled: false },
+        : { deepseekEnabled: enabled },
       { persist: true }
     )
+
+    if (previousScrollTop !== undefined) {
+      window.requestAnimationFrame(() => {
+        if (settingsBodyRef.current) {
+          settingsBodyRef.current.scrollTop = previousScrollTop
+        }
+      })
+    }
   }
 
   function jumpToSettingsSection(section: SettingsJumpValue) {
@@ -1404,9 +1573,10 @@ export function FloatingAssistantApp({
     }
   }
 
-  async function saveDeepSeekSettings(): Promise<boolean> {
+  async function saveDeepSeekSettings(options: { announceSuccess?: boolean } = {}): Promise<boolean> {
     const keyDraft = deepSeekApiKeyDraft.trim()
-    let nextPreferences = preferencesRef.current
+    const settingsSnapshot = preferencesRef.current
+    let nextPreferences = settingsSnapshot
     let keyWasSaved = false
 
     tellPet('progress', '小咪正在保存 DeepSeek 设置。')
@@ -1431,7 +1601,7 @@ export function FloatingAssistantApp({
         keyWasSaved = true
         setDeepSeekKeyFieldStatus(deepSeekKeyFieldStatusFromKeyStatus(keyStatus))
         nextPreferences = createInitialAssistantPreferences({
-          ...preferencesRef.current,
+          ...settingsSnapshot,
           deepseekApiKeyStored: deepSeekKeyStatusConfigured(keyStatus)
         })
       }
@@ -1454,12 +1624,14 @@ export function FloatingAssistantApp({
       setDeepSeekApiKeyDraft('')
     }
 
-    setGlobalFeedback('DeepSeek 设置已保存。')
-    tellPet('success', 'DeepSeek 设置保存好啦。')
+    if (options.announceSuccess !== false) {
+      setGlobalFeedback('DeepSeek 设置已保存。')
+      tellPet('success', 'DeepSeek 设置保存好啦。')
+    }
     return true
   }
 
-  async function testDeepSeekConnection() {
+  async function saveAndTestDeepSeekConnection() {
     if (!window.bilimiDesktop?.testDeepSeekConnection) {
       setGlobalFeedback('DeepSeek 测试功能未加载，请重启应用后再试。')
       tellPet('error', 'DeepSeek 测试功能还没加载好。')
@@ -1467,43 +1639,70 @@ export function FloatingAssistantApp({
     }
 
     tellPet('progress', '小咪正在测试 DeepSeek 连接。')
-    updateDeepSeekTask('connection-test')
+    const finishDeepSeekTask = startDeepSeekTask({
+      id: `connection-test:${Date.now()}:${Math.random()}`,
+      kind: 'connection-test',
+      detail: '连接测试：当前配置'
+    })
     try {
-      const saved = await saveDeepSeekSettings()
+      const saved = await saveDeepSeekSettings({ announceSuccess: false })
       if (!saved) {
         return
       }
       const result = await window.bilimiDesktop.testDeepSeekConnection()
       const statusMessage = localizeDeepSeekStatusMessage(result.message)
-      setDeepSeekStatusMessage(statusMessage)
-      setGlobalFeedback(statusMessage)
+      const modelStatus = result.ok
+        ? `请求模型：${result.requestedModel ?? preferencesRef.current.deepseekModel}；服务端返回模型：${result.responseModel ?? '未披露'}。`
+        : ''
+      setDeepSeekConnectionStatus(result.ok ? 'connected' : 'failed')
+      setGlobalFeedback(
+        result.ok
+          ? `${statusMessage}${modelStatus}`
+          : `配置已保存，但连接测试失败：${statusMessage}`
+      )
       tellPet(result.ok ? 'success' : 'error', statusMessage)
+    } catch {
+      const statusMessage = '配置已保存，但连接测试失败：DeepSeek 连接失败。'
+      setDeepSeekConnectionStatus('failed')
+      setGlobalFeedback(statusMessage)
+      tellPet('error', statusMessage)
     } finally {
-      updateDeepSeekTask(null)
+      finishDeepSeekTask()
     }
   }
 
   async function resetDeepSeekSettings() {
+    if (!window.confirm('重置会关闭 DeepSeek 并删除已保存的 API 密钥，确定继续吗？')) {
+      return
+    }
+
     const nextPreferences = createInitialAssistantPreferences({
       ...preferencesRef.current,
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
-      deepseekCommentEnabled: false,
-      deepseekAutoSummaryEnabled: false,
-      deepseekPetChatEnabled: false,
-      deepseekDailyClassificationEnabled: false,
+      deepseekCommentEnabled: true,
+      deepseekAutoSummaryEnabled: true,
+      deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: true,
+      deepseekArchiveOrganizationEnabled: true,
+      deepseekFeatureDefaultsInitialized: true,
       deepseekDailyClassificationMode: 'all',
       deepseekModel: DEFAULT_DEEPSEEK_MODEL,
       deepseekBaseUrl: DEFAULT_DEEPSEEK_BASE_URL
     })
 
-    setDeepSeekApiKeyDraft('')
-    setDeepSeekKeyFieldStatus('unsaved')
-    await window.bilimiDesktop?.clearDeepSeekApiKey?.()
-    await persistPreferences(nextPreferences)
-    setDeepSeekStatusMessage('')
-    setGlobalFeedback('DeepSeek 设置已重置。')
-    tellPet('success', 'DeepSeek 设置已经重置，小咪回到本地提示模式啦。')
+    try {
+      await window.bilimiDesktop?.clearDeepSeekApiKey?.()
+      await persistPreferences(nextPreferences)
+      setDeepSeekApiKeyDraft('')
+      setDeepSeekKeyFieldStatus('unsaved')
+      setDeepSeekConnectionStatus('pending')
+      setGlobalFeedback('DeepSeek 设置已重置。')
+      tellPet('success', 'DeepSeek 设置已经重置，小咪回到本地提示模式啦。')
+    } catch {
+      setGlobalFeedback('DeepSeek 设置重置失败，请重试。')
+      tellPet('error', 'DeepSeek 设置重置失败，请重试。')
+    }
   }
 
   async function resetAssistantSettings() {
@@ -1518,10 +1717,12 @@ export function FloatingAssistantApp({
       videoAudioTranscriptionThreadLimit: 'unlimited',
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
-      deepseekCommentEnabled: false,
-      deepseekAutoSummaryEnabled: false,
-      deepseekPetChatEnabled: false,
-      deepseekDailyClassificationEnabled: false,
+      deepseekCommentEnabled: true,
+      deepseekAutoSummaryEnabled: true,
+      deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: true,
+      deepseekArchiveOrganizationEnabled: true,
+      deepseekFeatureDefaultsInitialized: true,
       deepseekDailyClassificationMode: 'all',
       deepseekModel: DEFAULT_DEEPSEEK_MODEL,
       deepseekBaseUrl: DEFAULT_DEEPSEEK_BASE_URL,
@@ -1532,7 +1733,7 @@ export function FloatingAssistantApp({
     setDeepSeekKeyFieldStatus('unsaved')
     await window.bilimiDesktop?.clearDeepSeekApiKey?.()
     await persistPreferences(nextPreferences)
-    setDeepSeekStatusMessage('')
+    setDeepSeekConnectionStatus('pending')
     setSettingsDiagnosticMessage('')
     setGlobalFeedback('设置已经恢复默认。')
     tellPet('success', '设置已经恢复默认，小咪重新整理好啦。')
@@ -1552,14 +1753,34 @@ export function FloatingAssistantApp({
   }
 
   async function copyDeepSeekRecommendation(value: string, label: string) {
-    try {
-      await navigator.clipboard.writeText(value)
+    let copied = false
+
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(value)
+        copied = true
+      } catch {
+        // Electron's Web Clipboard API can reject when the window is not focused.
+      }
+    }
+
+    if (!copied && window.bilimiDesktop?.writeClipboardText) {
+      try {
+        await window.bilimiDesktop.writeClipboardText(value)
+        copied = true
+      } catch {
+        copied = false
+      }
+    }
+
+    if (copied) {
       setGlobalFeedback(`已复制${label}。`)
       tellPet('success', `${label}已复制好啦。`)
-    } catch {
-      setGlobalFeedback(`${label}复制失败，请手动复制。`)
-      tellPet('error', `${label}复制失败，请主人手动复制。`)
+      return
     }
+
+    setGlobalFeedback(`${label}复制失败，请手动复制。`)
+    tellPet('error', `${label}复制失败，请主人手动复制。`)
   }
 
   function createCurrentPageDiagnosticItem(): StartupDiagnosticItem {
@@ -1600,6 +1821,15 @@ export function FloatingAssistantApp({
         ...report,
         items: [...report.items, createCurrentPageDiagnosticItem()]
       }
+      const deepSeekDiagnostic = report.items.find((item) => item.id === 'deepseek')
+
+      if (deepSeekDiagnostic?.status === 'ok') {
+        setDeepSeekConnectionStatus('connected')
+      } else if (deepSeekDiagnostic) {
+        setDeepSeekConnectionStatus(
+          preferencesRef.current.deepseekApiKeyStored ? 'failed' : 'pending'
+        )
+      }
 
       setSettingsDiagnosticReport(nextReport)
       setSettingsDiagnosticsExpanded(true)
@@ -1624,7 +1854,11 @@ export function FloatingAssistantApp({
   async function generateCommentDrafts(intent = '') {
     setCommentIntentBusy(true)
     setCommentIntentError('')
-    updateDeepSeekTask('comment')
+    const finishDeepSeekTask = startDeepSeekTask({
+      id: `comment:${Date.now()}:${Math.random()}`,
+      kind: 'comment',
+      detail: `趣评生成：${resolvedVideoTitle}`
+    })
 
     try {
       const result = await window.bilimiDesktop?.generateDeepSeek?.({
@@ -1641,6 +1875,7 @@ export function FloatingAssistantApp({
         throw new Error('Comment generation failed.')
       }
 
+      setDeepSeekConnectionStatus('connected')
       setAiCommentDrafts(result.comments)
       setCommentIntentOpen(false)
       submitOrChooseCommentDrafts(result.comments)
@@ -1649,7 +1884,7 @@ export function FloatingAssistantApp({
       setCommentIntentOpen(false)
       submitOrChooseCommentDrafts(commentDrafts)
     } finally {
-      updateDeepSeekTask(null)
+      finishDeepSeekTask()
       setCommentIntentBusy(false)
     }
   }
@@ -1897,9 +2132,18 @@ export function FloatingAssistantApp({
   }
 
   async function cancelQueuedVideoAudioTranscription(id: string) {
+    const previousItem = transcriptionQueueRef.current.items.find((item) => item.id === id)
     const snapshot = await window.bilimiDesktop?.cancelVideoAudioTranscription?.(id)
     if (snapshot) {
       applyTranscriptionQueueSnapshot(snapshot)
+      const canceledItem = snapshot.items.find((item) => item.id === id && item.status === 'canceled')
+      if (
+        canceledItem &&
+        (previousItem?.status === 'pending' || previousItem?.status === 'running')
+      ) {
+        setGlobalFeedback('已取消转写')
+        tellPet('done', `已取消「${canceledItem.title}」的转写。`)
+      }
     }
   }
 
@@ -1912,7 +2156,11 @@ export function FloatingAssistantApp({
 
   async function generateNotePoster(note: VideoNote) {
     tellPet('progress', '小咪正在整理 DeepSeek 总结。')
-    updateDeepSeekTask('summary')
+    const finishDeepSeekTask = startDeepSeekTask({
+      id: `summary:${note.id}:${Date.now()}:${Math.random()}`,
+      kind: 'summary',
+      detail: `文稿总结：${note.source.title}`
+    })
     try {
       const result = await window.bilimiDesktop?.generateDeepSeek?.({ kind: 'note-poster', note })
       if (!result || result.kind !== 'note-poster') {
@@ -1920,10 +2168,11 @@ export function FloatingAssistantApp({
         throw new Error('Poster generation failed.')
       }
 
+      setDeepSeekConnectionStatus('connected')
       tellPet('success', 'DeepSeek 总结做好啦。')
       return result.poster
     } finally {
-      updateDeepSeekTask(null)
+      finishDeepSeekTask()
     }
   }
 
@@ -1936,6 +2185,8 @@ export function FloatingAssistantApp({
     if (archives) {
       setVideoNoteArchives(archives)
     }
+
+    return archives
   }
 
   async function loadVideoNoteArchives({ silent = false } = {}) {
@@ -2112,9 +2363,16 @@ export function FloatingAssistantApp({
     request: DeepSeekGenerateRequest
   ): Promise<DeepSeekGenerateResult | null | undefined> {
     tellPet('progress', '小咪正在请 DeepSeek 整理旧藏。')
-    updateDeepSeekTask('archive-organize')
+    const finishDeepSeekTask = startDeepSeekTask({
+      id: `archive-organize:${Date.now()}:${Math.random()}`,
+      kind: 'archive-organize',
+      detail: '旧藏整理：正在分析当前批次'
+    })
     try {
       const result = await window.bilimiDesktop?.generateDeepSeek?.(request)
+      if (result) {
+        setDeepSeekConnectionStatus('connected')
+      }
       tellPet(
         result?.kind === 'favorite-archive-organize' ? 'success' : 'error',
         result?.kind === 'favorite-archive-organize'
@@ -2123,7 +2381,7 @@ export function FloatingAssistantApp({
       )
       return result
     } finally {
-      updateDeepSeekTask(null)
+      finishDeepSeekTask()
     }
   }
 
@@ -2298,6 +2556,7 @@ export function FloatingAssistantApp({
               className="floating-assistant-global-status__feedback"
               aria-label="全局提示"
               aria-live="polite"
+              title={displayedGlobalFeedbackMessage}
             >
               {displayedGlobalFeedbackMessage}
             </p>
@@ -2342,7 +2601,7 @@ export function FloatingAssistantApp({
             deepSeekArchiveAvailable={
               preferences.deepseekEnabled &&
               preferences.deepseekApiKeyStored &&
-              preferences.deepseekDailyClassificationEnabled
+              preferences.deepseekArchiveOrganizationEnabled
             }
             onOrganizeOldFavoritesWithDeepSeek={organizeOldFavoritesWithDeepSeek}
             onDeepSeekArchiveKeywordSuggestions={mergeDeepSeekArchiveKeywordSuggestions}
@@ -2495,7 +2754,24 @@ export function FloatingAssistantApp({
                       />
                       <span>宠物对话</span>
                     </label>
-                    <label title="在整理旧藏时，用 DeepSeek 帮忙判断视频适合放到哪个收藏夹。">
+                    <label title="允许在归档预览中手动使用 DeepSeek 整理旧藏。">
+                      <input
+                        type="checkbox"
+                        checked={preferences.deepseekArchiveOrganizationEnabled}
+                        onChange={(event) =>
+                          updateDeepSeekPreference(
+                            {
+                              deepseekArchiveOrganizationEnabled: event.currentTarget.checked
+                            },
+                            { persist: true }
+                          )
+                        }
+                      />
+                      <span>旧藏整理</span>
+                    </label>
+                  </div>
+                  <div className="assistant-settings__deepseek-review-control">
+                    <label title="让 DeepSeek 复核日常批阅的分类结果。">
                       <input
                         type="checkbox"
                         checked={preferences.deepseekDailyClassificationEnabled}
@@ -2508,43 +2784,27 @@ export function FloatingAssistantApp({
                           )
                         }
                       />
-                      <span>辅助整理</span>
+                      <span>批阅辅助</span>
                     </label>
+                    <select
+                      aria-label="批阅辅助范围"
+                      disabled={!preferences.deepseekDailyClassificationEnabled}
+                      value={preferences.deepseekDailyClassificationMode}
+                      onChange={(event) =>
+                        updateDeepSeekPreference(
+                          {
+                            deepseekDailyClassificationMode: event.currentTarget.value as
+                              | 'all'
+                              | 'low-confidence-only'
+                          },
+                          { persist: true }
+                        )
+                      }
+                    >
+                      <option value="all">全部归类</option>
+                      <option value="low-confidence-only">仅不太稳</option>
+                    </select>
                   </div>
-                  {preferences.deepseekDailyClassificationEnabled ? (
-                    <div className="assistant-settings__deepseek-switches assistant-settings__deepseek-switches--nested">
-                      <label title="所有归档建议都交给 DeepSeek 再判断一遍，更细但更慢。">
-                        <input
-                          type="radio"
-                          name="deepseek-daily-classification-mode"
-                          checked={preferences.deepseekDailyClassificationMode === 'all'}
-                          onChange={() =>
-                            updateDeepSeekPreference(
-                              { deepseekDailyClassificationMode: 'all' },
-                              { persist: true }
-                            )
-                          }
-                        />
-                        <span>全部归类</span>
-                      </label>
-                      <label title="只让 DeepSeek 处理不太确定的归档建议，速度更快。">
-                        <input
-                          type="radio"
-                          name="deepseek-daily-classification-mode"
-                          checked={
-                            preferences.deepseekDailyClassificationMode === 'low-confidence-only'
-                          }
-                          onChange={() =>
-                            updateDeepSeekPreference(
-                              { deepseekDailyClassificationMode: 'low-confidence-only' },
-                              { persist: true }
-                            )
-                          }
-                        />
-                        <span>仅不太稳</span>
-                      </label>
-                    </div>
-                  ) : null}
                   <label>
                     <span>DeepSeek API 密钥</span>
                     <input
@@ -2552,7 +2812,10 @@ export function FloatingAssistantApp({
                       value={deepSeekApiKeyDraft}
                       placeholder={DEEPSEEK_KEY_STATUS_LABELS[deepSeekKeyFieldStatus]}
                       aria-invalid={deepSeekKeyFieldStatus === 'unreadable' ? 'true' : undefined}
-                      onChange={(event) => setDeepSeekApiKeyDraft(event.currentTarget.value)}
+                      onChange={(event) => {
+                        setDeepSeekApiKeyDraft(event.currentTarget.value)
+                        setDeepSeekConnectionStatus('pending')
+                      }}
                     />
                   </label>
                   <label>
@@ -2576,13 +2839,26 @@ export function FloatingAssistantApp({
                     />
                   </label>
                   <div className="assistant-settings__actions">
-                    <button type="button" onClick={() => void saveDeepSeekSettings()}>
-                      保存 DeepSeek
+                    <button
+                      type="button"
+                      disabled={[...localDeepSeekTasks, ...remoteDeepSeekTasks].some(
+                        (task) => task.kind === 'connection-test'
+                      )}
+                      onClick={() => void saveAndTestDeepSeekConnection()}
+                    >
+                      {[...localDeepSeekTasks, ...remoteDeepSeekTasks].some(
+                        (task) => task.kind === 'connection-test'
+                      )
+                        ? '保存测试中'
+                        : '保存并测试'}
                     </button>
-                    <button type="button" onClick={() => void testDeepSeekConnection()}>
-                      测试 DeepSeek
-                    </button>
-                    <button type="button" onClick={() => void resetDeepSeekSettings()}>
+                    <button
+                      type="button"
+                      disabled={[...localDeepSeekTasks, ...remoteDeepSeekTasks].some(
+                        (task) => task.kind === 'connection-test'
+                      )}
+                      onClick={() => void resetDeepSeekSettings()}
+                    >
                       重置 DeepSeek
                     </button>
                   </div>
@@ -2594,20 +2870,38 @@ export function FloatingAssistantApp({
                         官网：https://yunshulink.com/
                       </a>
                     </p>
-                    <p>API 密钥：创建令牌后，令牌分组请选择 deepseek（限时特价），复制密钥到这里使用。</p>
+                    <p>API 密钥：创建令牌后，令牌分组请选择 deepseek（官方），复制密钥到这里使用。</p>
+                    <p className="assistant-settings__recommendation-divider">推荐模型：</p>
                     <p className="assistant-settings__copy-row">
-                      <span>推荐模型：deepseek-v4-pro</span>
+                      <span>（日常便宜）deepseek-v4-flash</span>
                       <button
                         className="assistant-settings__copy-button"
                         type="button"
-                        aria-label="复制推荐模型"
-                        onClick={() => void copyDeepSeekRecommendation('deepseek-v4-pro', '推荐模型')}
+                        aria-label="复制日常便宜模型"
+                        onClick={() =>
+                          void copyDeepSeekRecommendation('deepseek-v4-flash', '日常便宜模型')
+                        }
                       >
                         复制
                       </button>
                     </p>
                     <p className="assistant-settings__copy-row">
-                      <span>服务器地址：https://api.yunshulink.com/v1</span>
+                      <span>（精准略贵）deepseek-v4-pro</span>
+                      <button
+                        className="assistant-settings__copy-button"
+                        type="button"
+                        aria-label="复制精准略贵模型"
+                        onClick={() =>
+                          void copyDeepSeekRecommendation('deepseek-v4-pro', '精准略贵模型')
+                        }
+                      >
+                        复制
+                      </button>
+                    </p>
+                    <p className="assistant-settings__recommendation-divider">
+                      <span>服务器地址：</span>
+                      <span className="assistant-settings__copy-row assistant-settings__copy-row--inline">
+                        <span>https://api.yunshulink.com/v1</span>
                       <button
                         className="assistant-settings__copy-button"
                         type="button"
@@ -2621,6 +2915,7 @@ export function FloatingAssistantApp({
                       >
                         复制
                       </button>
+                      </span>
                     </p>
                   </aside>
                 </>
@@ -2656,7 +2951,7 @@ export function FloatingAssistantApp({
                     })
                   }
                 />
-                <span>记录纠错参考</span>
+                <span>记录归档调整</span>
               </label>
               <small
                 className="assistant-settings__option-help"
@@ -2671,20 +2966,20 @@ export function FloatingAssistantApp({
               ) : null}
               <div className="assistant-settings__subsection assistant-settings__subsection--records">
                 <div className="assistant-settings__subsection-heading">
-                  <strong>纠错参考记录（{preferences.favoriteCorrectionRecords.length}）</strong>
+                  <strong>归档调整记录（{preferences.favoriteCorrectionRecords.length}）</strong>
                   <button
                     type="button"
                     onClick={clearCorrectionRecords}
                     disabled={preferences.favoriteCorrectionRecords.length === 0}
                   >
-                    清空纠错记录
+                    清空调整记录
                   </button>
                 </div>
                 {preferences.favoriteCorrectionRecords.length > 0 ? (
                   <div
                     className="assistant-settings__record-track assistant-settings__learning-list"
                     role="list"
-                    aria-label="纠错参考记录"
+                    aria-label="归档调整记录"
                   >
                     {preferences.favoriteCorrectionRecords.map(
                       (record: FavoriteCorrectionRecord) => {
@@ -2697,7 +2992,7 @@ export function FloatingAssistantApp({
                             getLedgerDisplayName(preferences.favoriteLedgers, ledgerId)
                           )
                         )
-                        const summaryText = `原建议：${originalLedger}；用户选择：${userLedgers}；时间：${formatSettingsDate(record.confirmedAt ?? record.createdAt)}`
+                        const summaryText = `调整前：${originalLedger}；调整后：${userLedgers}；时间：${formatSettingsDate(record.confirmedAt ?? record.createdAt)}`
 
                         return (
                           <article
@@ -2713,7 +3008,7 @@ export function FloatingAssistantApp({
                               <span className="assistant-settings__learning-actions">
                                 <button
                                   type="button"
-                                  aria-label={`删除纠错 ${record.title}`}
+                                  aria-label={`删除调整 ${record.title}`}
                                   onClick={() => deleteCorrectionRecord(record.id)}
                                 >
                                   删除
@@ -2723,7 +3018,8 @@ export function FloatingAssistantApp({
                             <div className="assistant-settings__learning-detail">
                               <span title={record.author?.trim() || '未记录'}>UP：{record.author?.trim() || '未记录'}</span>
                               <span title={joinSettingValues(record.tags)}>标签：{joinSettingValues(record.tags)}</span>
-                              <span title={record.sourceScene}>来源场景：{record.sourceScene}</span>
+                              <span title={archiveAdjustmentMethodLabel(record)}>调整方式：{archiveAdjustmentMethodLabel(record)}</span>
+                              <span title={archiveAdjustmentSceneLabel(record)}>发生位置：{archiveAdjustmentSceneLabel(record)}</span>
                               <span title={record.sourceFolderTitle?.trim() || '未记录'}>来源收藏夹：{record.sourceFolderTitle?.trim() || '未记录'}</span>
                               <span title={joinSettingValues(record.matchedKeywords)}>命中关键词：{joinSettingValues(record.matchedKeywords)}</span>
                               <span title={String(record.score ?? '未记录')}>匹配分：{record.score ?? '未记录'}</span>
@@ -2737,7 +3033,7 @@ export function FloatingAssistantApp({
                   </div>
                 ) : (
                   <p className="assistant-settings__empty">
-                    暂无纠错参考。确认整理时如果实际选择不同于原建议，会记录在这里；记录本身不会直接影响本地分类。
+                    暂无归档调整记录。卡片转移和已执行的 DeepSeek 调整会记录在这里，系统自动批量迁移不会登记。
                   </p>
                 )}
               </div>
@@ -3166,7 +3462,9 @@ export function FloatingAssistantApp({
                 deepSeekCommentEnabled={preferences.deepseekCommentEnabled}
                 deepSeekAutoSummaryEnabled={preferences.deepseekAutoSummaryEnabled}
                 deepSeekSummaryGenerating={
-                  deepSeekTask === 'summary' ||
+                  [...localDeepSeekTasks, ...remoteDeepSeekTasks].some(
+                    (task) => task.kind === 'summary'
+                  ) ||
                   transcriptionQueue.items.some(
                     (item) =>
                       item.status === 'running' &&

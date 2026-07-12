@@ -14,6 +14,14 @@ function getActionButton(action: keyof typeof ACTION_BUTTON_NAMES) {
   return screen.getByRole('button', { name: ACTION_BUTTON_NAMES[action] })
 }
 
+function getLocalCommentChoices(): HTMLButtonElement[] {
+  return Array.from(
+    screen.getByRole('dialog', { name: '小咪推荐评论' }).querySelectorAll<HTMLButtonElement>(
+      '.assistant-dialog__comment-choice'
+    )
+  )
+}
+
 describe('AssistantOverlay', () => {
   it('starts the folded seal inside the left safe area instead of hugging the right edge', () => {
     render(<AssistantOverlay />)
@@ -514,7 +522,8 @@ describe('AssistantOverlay', () => {
     fireEvent.click(getActionButton('表'))
 
     expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '看完感觉不错，感谢分享。' })).toBeInTheDocument()
+    expect(getLocalCommentChoices()).toHaveLength(3)
+    expect(getLocalCommentChoices().every((choice) => choice.textContent?.includes('早八观察员'))).toBe(true)
 
     fireEvent.click(getActionButton('藏'))
 
@@ -574,11 +583,10 @@ describe('AssistantOverlay', () => {
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
     fireEvent.click(getActionButton('表'))
 
-    const draft = '看完感觉不错，感谢分享。'
-
     expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: draft }))
+    const draft = getLocalCommentChoices()[0].textContent ?? ''
+    fireEvent.click(getLocalCommentChoices()[0])
 
     await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
     expect(runScript.mock.calls[0][0]).toContain(draft)
@@ -624,8 +632,7 @@ describe('AssistantOverlay', () => {
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
     fireEvent.click(getActionButton('表'))
 
-    const draft = '看完感觉不错，感谢分享。'
-    fireEvent.click(screen.getByRole('button', { name: draft }))
+    fireEvent.click(getLocalCommentChoices()[0])
 
     await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
     expect(runScript.mock.calls[0][0]).toContain('"submitComment":true')
@@ -678,7 +685,7 @@ describe('AssistantOverlay', () => {
       await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
       expect(screen.queryByText('小咪拟好三条，主人点一条就发送。')).not.toBeInTheDocument()
       expect(runScript.mock.calls[0][0]).toContain('"submitComment":true')
-      expect(runScript.mock.calls[0][0]).toContain('这期挺用心的，支持一下。')
+      expect(runScript.mock.calls[0][0]).toContain('早八观察员')
     } finally {
       randomSpy.mockRestore()
     }

@@ -150,7 +150,11 @@ export function createInitialAssistantPreferences(
       typeof persisted?.favoriteCorrectionLearningClassificationEnabled === 'boolean'
         ? persisted.favoriteCorrectionLearningClassificationEnabled
         : true,
-    favoriteCorrectionRecords: normalizeCorrectionRecords(persisted?.favoriteCorrectionRecords),
+    favoriteAdjustmentRecordsVersion: 1,
+    favoriteCorrectionRecords:
+      persisted?.favoriteAdjustmentRecordsVersion === 1
+        ? normalizeCorrectionRecords(persisted.favoriteCorrectionRecords)
+        : [],
     favoriteArchiveProtectionRecords: normalizeFavoriteArchiveProtectionRecords(
       persisted?.favoriteArchiveProtectionRecords
     ),
@@ -172,20 +176,25 @@ export function createInitialAssistantPreferences(
     deepseekApiKeyStored: Boolean(persisted?.deepseekApiKeyStored),
     deepseekCommentEnabled: normalizeDeepSeekFeatureToggle(
       persisted?.deepseekCommentEnabled,
-      persisted?.deepseekEnabled
+      true
     ),
     deepseekAutoSummaryEnabled: normalizeDeepSeekFeatureToggle(
       persisted?.deepseekAutoSummaryEnabled,
-      persisted?.deepseekEnabled
+      true
     ),
     deepseekPetChatEnabled: normalizeDeepSeekFeatureToggle(
       persisted?.deepseekPetChatEnabled,
-      persisted?.deepseekEnabled
+      true
     ),
     deepseekDailyClassificationEnabled:
       typeof persisted?.deepseekDailyClassificationEnabled === 'boolean'
         ? persisted.deepseekDailyClassificationEnabled
-        : false,
+        : true,
+    deepseekArchiveOrganizationEnabled:
+      typeof persisted?.deepseekArchiveOrganizationEnabled === 'boolean'
+        ? persisted.deepseekArchiveOrganizationEnabled
+        : true,
+    deepseekFeatureDefaultsInitialized: Boolean(persisted?.deepseekFeatureDefaultsInitialized),
     deepseekDailyClassificationMode: normalizeDeepSeekDailyClassificationMode(
       persisted?.deepseekDailyClassificationMode
     ),

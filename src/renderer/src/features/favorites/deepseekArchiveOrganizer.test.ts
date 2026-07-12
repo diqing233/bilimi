@@ -152,11 +152,76 @@ describe('deepseekArchiveOrganizer', () => {
       []
     ])
     expect(applied.stats).toEqual({ successCount: 1, failedCount: 3, truncatedCount: 1 })
+    expect(applied.nonApplicationCounts).toEqual({
+      'kept-unclassified': 1,
+      'unavailable-target': 1,
+      'invalid-result': 0,
+      'unmatched-video': 1,
+      'request-failed': 0
+    })
     expect(applied.redDisplacementMessages).toEqual([
       expect.stringContaining('DeepSeek 整理：bilimi·游戏专区 + bilimi·生活日常 超过 1 个目标')
     ])
     expect(applied.messages).toEqual(expect.arrayContaining([expect.stringContaining('不可用目标 music')]))
     expect(state.items[1].selectedTargetLedgerIds).toEqual(['game'])
+  })
+
+  it('separates invalid model output from request failures', () => {
+    const state = createArchivePlanState([
+      {
+        aid: 1,
+        title: '模型格式错误',
+        sourceFolderTitle: '默认收藏夹',
+        originalSuggestedLedgerIds: [],
+        currentTargetLedgerIds: [],
+        selectedTargetLedgerIds: [],
+        userModified: false
+      },
+      {
+        aid: 2,
+        title: '请求失败',
+        sourceFolderTitle: '默认收藏夹',
+        originalSuggestedLedgerIds: [],
+        currentTargetLedgerIds: [],
+        selectedTargetLedgerIds: [],
+        userModified: false
+      }
+    ])
+
+    const applied = applyDeepSeekArchiveResults({
+      state,
+      ledgers,
+      enabledLedgerIds: ['life-interest', 'game'],
+      multiArchiveLimit: 1,
+      results: [
+        {
+          aid: 1,
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerIds: [],
+          keepOriginal: false,
+          reason: '',
+          lowConfidence: true,
+          invalid: true,
+          errorMessage: 'DeepSeek result row is invalid: invalid confidence.'
+        },
+        {
+          aid: 2,
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerIds: [],
+          keepOriginal: false,
+          reason: '',
+          lowConfidence: true,
+          invalid: true,
+          failureKind: 'request-failed',
+          errorMessage: 'DeepSeek API request failed: 503'
+        }
+      ]
+    })
+
+    expect(applied.nonApplicationCounts).toMatchObject({
+      'invalid-result': 1,
+      'request-failed': 1
+    })
   })
 
   it('applies one duplicate aid row by source folder title without changing the other row', () => {

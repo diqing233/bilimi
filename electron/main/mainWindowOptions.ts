@@ -38,9 +38,10 @@ function resolveMinimumDimension({
   workAreaCap: number
 }) {
   const targetMin = workArea < regularMin + 120 ? compactMin : regularMin
-  const upperBound = Math.max(absoluteMin, workAreaCap)
+  const effectiveFloor = workArea < absoluteMin ? Math.max(1, workAreaCap) : absoluteMin
+  const upperBound = Math.max(effectiveFloor, workAreaCap)
 
-  return clampDimension(targetMin, absoluteMin, upperBound)
+  return clampDimension(targetMin, effectiveFloor, upperBound)
 }
 
 export function resolveMainWindowSizing(workAreaSize?: MainWindowWorkAreaSize) {

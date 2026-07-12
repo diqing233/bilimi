@@ -253,7 +253,7 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
           onActiveTabChange={setActiveTab}
           onRequestCollapse={collapseSidebar}
           onOpenInTab={onOpenInTab}
-          workspaceRequestsEnabled={!collapsed}
+          workspaceRequestsEnabled={false}
         />
       </div>
     </aside>

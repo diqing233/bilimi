@@ -118,6 +118,17 @@ export type FavoriteCorrectionRecord = {
   confirmedAt?: string
 }
 
+export type OldFavoriteRuntimeSnapshot = {
+  key: string
+  revision: number
+  value: unknown
+  accountMid: string
+}
+
+export type OldFavoriteRuntimeSetResult = OldFavoriteRuntimeSnapshot & {
+  accepted: boolean
+}
+
 export type FavoriteKeywordSuggestion = {
   id: string
   action: FavoriteKeywordSuggestionAction
@@ -182,6 +193,7 @@ export type AssistantPreferences = {
   favoriteArchiveStrategy: FavoriteArchiveStrategy
   favoriteCorrectionLearningEnabled: boolean
   favoriteCorrectionLearningClassificationEnabled: boolean
+  favoriteAdjustmentRecordsVersion: 1
   favoriteCorrectionRecords: FavoriteCorrectionRecord[]
   favoriteArchiveProtectionRecords?: FavoriteArchiveProtectionRecord[]
   favoriteArchiveProtectionInitializedAccountMids?: string[]
@@ -196,6 +208,8 @@ export type AssistantPreferences = {
   deepseekAutoSummaryEnabled: boolean
   deepseekPetChatEnabled: boolean
   deepseekDailyClassificationEnabled: boolean
+  deepseekArchiveOrganizationEnabled: boolean
+  deepseekFeatureDefaultsInitialized: boolean
   deepseekDailyClassificationMode: 'all' | 'low-confidence-only'
   deepseekModel: string
   deepseekBaseUrl: string
@@ -357,6 +371,7 @@ export type DeepSeekArchiveVideoResult = {
   lowConfidence: boolean
   secondPassChanged?: boolean
   invalid?: boolean
+  failureKind?: 'invalid-result' | 'request-failed'
   errorMessage?: string
 }
 
@@ -442,12 +457,23 @@ export type DeepSeekTaskKind =
   | 'pet-chat'
   | 'connection-test'
 
+export type DeepSeekTask = {
+  id: string
+  kind: DeepSeekTaskKind
+  detail?: string
+}
+
 export type DeepSeekKeyStatus = {
   configured: boolean
   protection: 'encrypted' | 'plaintext' | 'error' | 'unavailable'
 }
 
-export type DeepSeekConnectionTestResult = { ok: boolean; message: string }
+export type DeepSeekConnectionTestResult = {
+  ok: boolean
+  message: string
+  requestedModel?: string
+  responseModel?: string
+}
 
 export type StartupDiagnosticStatus = 'ok' | 'warning' | 'error'
 

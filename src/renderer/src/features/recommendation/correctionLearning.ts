@@ -59,6 +59,12 @@ const VALID_CORRECTION_SOURCE_SCENES = new Set<FavoriteCorrectionRecord['sourceS
   'daily-favorite'
 ])
 
+export function isArchiveAdjustmentRecordableSource(
+  source: 'classifier' | 'user' | 'transfer' | 'deepseek' | 'rejudge'
+): boolean {
+  return source === 'transfer' || source === 'deepseek'
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }

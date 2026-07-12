@@ -23,6 +23,7 @@ type DeepSeekMessage = {
 }
 
 type DeepSeekChoiceResponse = {
+  model?: string
   choices?: Array<{ message?: { content?: string } }>
 }
 
@@ -677,6 +678,7 @@ export async function generateDeepSeekResult(options: {
   request: DeepSeekGenerateRequest
   fetchImpl?: typeof fetch
   signal?: AbortSignal
+  onResponseMetadata?: (metadata: { model?: string }) => void
 }): Promise<DeepSeekGenerateResult> {
   const apiKey = options.config.apiKey.trim()
   if (!options.config.enabled || !apiKey) {
@@ -720,6 +722,10 @@ export async function generateDeepSeekResult(options: {
   } catch {
     throw new DeepSeekServiceError('invalid-output', 'DeepSeek returned invalid response JSON.')
   }
+
+  options.onResponseMetadata?.({
+    model: typeof payload.model === 'string' && payload.model.trim() ? payload.model.trim() : undefined
+  })
 
   const content = payload.choices?.[0]?.message?.content
   if (typeof content !== 'string') {

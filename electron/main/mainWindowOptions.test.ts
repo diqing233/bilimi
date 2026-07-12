@@ -50,6 +50,20 @@ describe('createMainWindowOptions', () => {
     })
   })
 
+  it('relaxes the absolute minimum inside extreme logical work areas', () => {
+    const options = createMainWindowOptions('C:/bilimi/out/preload/index.mjs', {
+      width: 900,
+      height: 560
+    })
+
+    expect(options).toMatchObject({
+      width: 828,
+      height: 515,
+      minWidth: 828,
+      minHeight: 515
+    })
+  })
+
   it('leaves enough initial browser width beside the embedded assistant sidebar', () => {
     const options = createMainWindowOptions('C:/bilimi/out/preload/index.mjs')
     const embeddedSidebarWidth = 430

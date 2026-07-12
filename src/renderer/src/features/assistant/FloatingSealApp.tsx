@@ -131,10 +131,7 @@ export function FloatingSealApp() {
           event.currentTarget.releasePointerCapture?.(event.pointerId)
           finishDrag()
         }}
-        onPointerCancel={() => {
-          dragState.current = null
-          setPressed(false)
-        }}
+        onPointerCancel={finishDrag}
         onMouseDown={(event) => {
           if (window.PointerEvent) {
             return

@@ -804,7 +804,7 @@ describe('App runtime integration', () => {
         action: '表'
       })
 
-      expect(writeText).toHaveBeenCalledWith('内容挺有收获，值得之后再回来慢慢看。')
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining('李老师'))
       expect(result).toEqual(
         expect.objectContaining({
           ok: true,

@@ -139,7 +139,7 @@ describe('assistant state', () => {
     })
   })
 
-  it('creates disabled DeepSeek preferences by default', () => {
+  it('creates DeepSeek child features enabled by default while keeping the master switch off', () => {
     expect(createInitialAssistantPreferences()).toMatchObject({
       bilibiliOperationMode: 'api-assisted',
       favoriteArchiveMultiMode: 'off',
@@ -147,9 +147,12 @@ describe('assistant state', () => {
       commentSubmitMode: 'choose',
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
-      deepseekCommentEnabled: false,
-      deepseekAutoSummaryEnabled: false,
-      deepseekPetChatEnabled: false,
+      deepseekCommentEnabled: true,
+      deepseekAutoSummaryEnabled: true,
+      deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: true,
+      deepseekArchiveOrganizationEnabled: true,
+      deepseekFeatureDefaultsInitialized: false,
       deepseekModel: 'deepseek-v4-flash',
       deepseekBaseUrl: 'https://api.deepseek.com',
       closeBehavior: 'minimize-to-tray',
@@ -173,11 +176,13 @@ describe('assistant state', () => {
     })
   })
 
-  it('keeps new DeepSeek feature switches off by default while inheriting legacy enabled settings', () => {
+  it('preserves explicit DeepSeek child switches and migrates legacy settings to enabled', () => {
     expect(createInitialAssistantPreferences()).toMatchObject({
       deepseekEnabled: false,
-      deepseekCommentEnabled: false,
-      deepseekPetChatEnabled: false
+      deepseekCommentEnabled: true,
+      deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: true,
+      deepseekArchiveOrganizationEnabled: true
     })
 
     expect(createInitialAssistantPreferences({ deepseekEnabled: true })).toMatchObject({
@@ -191,12 +196,16 @@ describe('assistant state', () => {
       createInitialAssistantPreferences({
         deepseekEnabled: true,
         deepseekCommentEnabled: false,
-        deepseekPetChatEnabled: true
+        deepseekPetChatEnabled: true,
+        deepseekDailyClassificationEnabled: false,
+        deepseekArchiveOrganizationEnabled: false
       })
     ).toMatchObject({
       deepseekEnabled: true,
       deepseekCommentEnabled: false,
-      deepseekPetChatEnabled: true
+      deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: false,
+      deepseekArchiveOrganizationEnabled: false
     })
   })
 
@@ -344,6 +353,7 @@ describe('assistant state', () => {
       favoriteCorrectionLearningEnabled: true,
       favoriteCorrectionLearningClassificationEnabled: true,
       favoriteCorrectionRecords: [],
+      favoriteAdjustmentRecordsVersion: 1,
       favoriteArchiveProtectionRecords: [],
       favoriteKeywordSuggestions: []
     })
@@ -353,6 +363,7 @@ describe('assistant state', () => {
         favoriteArchiveStrategy: 'balanced',
         favoriteCorrectionLearningEnabled: false,
         favoriteCorrectionLearningClassificationEnabled: false,
+        favoriteAdjustmentRecordsVersion: 1,
         favoriteCorrectionRecords: [
           {
             id: 'record-1',
@@ -403,6 +414,7 @@ describe('assistant state', () => {
     expect(
       createInitialAssistantPreferences({
         favoriteArchiveStrategy: 'reckless' as never,
+        favoriteAdjustmentRecordsVersion: 1,
         favoriteCorrectionRecords: [
           null,
           {
@@ -430,6 +442,35 @@ describe('assistant state', () => {
       ],
       favoriteKeywordSuggestions: []
     })
+  })
+
+  it('clears legacy correction records once before the adjustment-record schema is enabled', () => {
+    const legacyRecord = {
+      id: 'legacy-record',
+      aid: 1,
+      title: '旧记录',
+      userLedgerIds: ['game'],
+      source: 'user',
+      feedbackType: 'strong-correction',
+      sourceScene: 'archive-preview',
+      tags: [],
+      matchedKeywords: [],
+      createdAt: '2026-07-05T00:00:00.000Z'
+    } as const
+
+    expect(
+      createInitialAssistantPreferences({ favoriteCorrectionRecords: [legacyRecord] } as never)
+    ).toMatchObject({
+      favoriteAdjustmentRecordsVersion: 1,
+      favoriteCorrectionRecords: []
+    })
+
+    expect(
+      createInitialAssistantPreferences({
+        favoriteAdjustmentRecordsVersion: 1,
+        favoriteCorrectionRecords: [legacyRecord]
+      } as never).favoriteCorrectionRecords
+    ).toHaveLength(1)
   })
 
   it('normalizes favorite archive protection records from persisted preferences', () => {

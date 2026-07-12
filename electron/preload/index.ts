@@ -12,6 +12,8 @@ import type {
   StartupDiagnosticReport,
   PendingFavoriteQueueItem,
   PendingFavoriteQueueStatus,
+  OldFavoriteRuntimeSetResult,
+  OldFavoriteRuntimeSnapshot,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionQueueSnapshot,
   VideoAudioTranscriptionRequest,
@@ -62,6 +64,30 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   moveFloatingSealTo: (screenX: number, screenY: number) =>
     ipcRenderer.send('floating-seal:move-to', screenX, screenY),
   notifyAssistantSnapshotChanged: () => ipcRenderer.send('floating-assistant:snapshot-changed'),
+  getOldFavoriteRuntimeSnapshot: (key: string, initialValue: unknown) =>
+    ipcRenderer.sendSync('old-favorite-runtime:get', key, initialValue) as OldFavoriteRuntimeSnapshot,
+  setOldFavoriteRuntimeValue: (key: string, value: unknown, expectedRevision: number) =>
+    ipcRenderer.sendSync(
+      'old-favorite-runtime:set',
+      key,
+      value,
+      expectedRevision
+    ) as OldFavoriteRuntimeSetResult,
+  bindOldFavoriteRuntimeAccount: (accountMid: string) =>
+    ipcRenderer.sendSync('old-favorite-runtime:bind-account', accountMid) as boolean,
+  resetOldFavoriteRuntime: () =>
+    ipcRenderer.sendSync('old-favorite-runtime:reset') as boolean,
+  onOldFavoriteRuntimeChanged: (
+    callback: (snapshot: OldFavoriteRuntimeSnapshot | { type: 'reset'; accountMid: string }) => void
+  ) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      snapshot: OldFavoriteRuntimeSnapshot | { type: 'reset'; accountMid: string }
+    ) => callback(snapshot)
+
+    ipcRenderer.on('old-favorite-runtime:changed', listener)
+    return () => ipcRenderer.removeListener('old-favorite-runtime:changed', listener)
+  },
   onAssistantPetStateChanged: (callback: (state: AssistantPetState) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, state: AssistantPetState) => callback(state)
 

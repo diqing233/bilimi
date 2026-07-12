@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Split DeepSeek organization into independent review assistance and manual old-favorite organization controls, added per-feature main-process enforcement, and made first-use/reset child-feature defaults consistent.
+- Updated DeepSeek status-light explanations, model recommendations, compact review mode selection, adjacent server-address copy action, and transcription success wording.
+
 - Added archive-health checks for protected old favorites, including incomplete/invalid counts and an explicit abnormal-only reorganization action.
 
 - Allowed old-favorite organization rounds with zero archive tasks to end directly from the confirmation page without sending an archive request.

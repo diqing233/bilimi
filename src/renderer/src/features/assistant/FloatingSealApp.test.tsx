@@ -177,6 +177,37 @@ describe('FloatingSealApp', () => {
     expect(toggleFloatingAssistant).not.toHaveBeenCalled()
   })
 
+  it('finishes the desktop drag when pointer capture is cancelled', () => {
+    const finishFloatingSealDrag = vi.fn()
+    const startFloatingSealDrag = vi.fn()
+
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        version: '0.1.0',
+        finishFloatingSealDrag,
+        startFloatingSealDrag
+      }
+    })
+
+    render(<FloatingSealApp />)
+
+    const seal = screen.getByRole('button', { name: '打开小咪助手' })
+
+    fireEvent.pointerDown(seal, {
+      clientX: 40,
+      clientY: 40,
+      screenX: 140,
+      screenY: 240,
+      pointerId: 7
+    })
+    fireEvent.pointerCancel(seal, { pointerId: 7 })
+
+    expect(startFloatingSealDrag).toHaveBeenCalledWith(140, 240)
+    expect(finishFloatingSealDrag).toHaveBeenCalledOnce()
+    expect(seal).toHaveAttribute('data-pressed', 'false')
+  })
+
   it('marks the seal as pressed only during a click gesture', () => {
     const toggleFloatingAssistant = vi.fn()
 

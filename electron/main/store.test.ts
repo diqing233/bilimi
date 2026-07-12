@@ -94,6 +94,9 @@ function createFakeStore(
     favoriteCorrectionLearningClassificationEnabled:
       initial.favoriteCorrectionLearningClassificationEnabled ??
       DEFAULT_ASSISTANT_PREFERENCES.favoriteCorrectionLearningClassificationEnabled,
+    favoriteAdjustmentRecordsVersion:
+      initial.favoriteAdjustmentRecordsVersion ??
+      DEFAULT_ASSISTANT_PREFERENCES.favoriteAdjustmentRecordsVersion,
     favoriteCorrectionRecords:
       initial.favoriteCorrectionRecords ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteCorrectionRecords,
     favoriteArchiveProtectionRecords:
@@ -351,25 +354,33 @@ describe('assistant preference store helpers', () => {
     expect(saved.favoriteArchiveProtectionInitializedAccountMids).toEqual(['7'])
   })
 
-  it('defaults and persists DeepSeek daily classification preferences', () => {
+  it('defaults and persists independent DeepSeek organization preferences', () => {
     const store = createFakeStore()
     delete (store.snapshot as Record<string, unknown>).deepseekDailyClassificationEnabled
     delete (store.snapshot as Record<string, unknown>).deepseekDailyClassificationMode
+    delete (store.snapshot as Record<string, unknown>).deepseekArchiveOrganizationEnabled
+    delete (store.snapshot as Record<string, unknown>).deepseekFeatureDefaultsInitialized
 
     expect(loadAssistantPreferences(store)).toMatchObject({
-      deepseekDailyClassificationEnabled: false,
-      deepseekDailyClassificationMode: 'all'
+      deepseekDailyClassificationEnabled: true,
+      deepseekDailyClassificationMode: 'all',
+      deepseekArchiveOrganizationEnabled: true,
+      deepseekFeatureDefaultsInitialized: false
     })
 
     const saved = saveAssistantPreferences(store, {
       ...DEFAULT_ASSISTANT_PREFERENCES,
       deepseekDailyClassificationEnabled: true,
-      deepseekDailyClassificationMode: 'low-confidence-only'
+      deepseekDailyClassificationMode: 'low-confidence-only',
+      deepseekArchiveOrganizationEnabled: false,
+      deepseekFeatureDefaultsInitialized: true
     })
 
     expect(saved).toMatchObject({
       deepseekDailyClassificationEnabled: true,
-      deepseekDailyClassificationMode: 'low-confidence-only'
+      deepseekDailyClassificationMode: 'low-confidence-only',
+      deepseekArchiveOrganizationEnabled: false,
+      deepseekFeatureDefaultsInitialized: true
     })
   })
 
@@ -411,6 +422,7 @@ describe('assistant preference store helpers', () => {
       favoriteArchiveStrategy: 'balanced',
       favoriteCorrectionLearningEnabled: false,
       favoriteCorrectionLearningClassificationEnabled: false,
+      favoriteAdjustmentRecordsVersion: 1,
       favoriteCorrectionRecords: [
         {
           id: 'record-1',
@@ -442,7 +454,7 @@ describe('assistant preference store helpers', () => {
       defaultCoinCount: 2,
       commentSubmitMode: 'random',
       petStyle: 'classic',
-      petHoverShortcuts: ['favorite', 'library', 'prepare-ledgers', 'organize-old-favorites'],
+      petHoverShortcuts: ['favorite', 'library'],
       hidePetDuringVideoFullscreen: true,
       preferenceCounts: {
         story: 4,
@@ -486,7 +498,7 @@ describe('assistant preference store helpers', () => {
       defaultCoinCount: 2,
       commentSubmitMode: 'random',
       petStyle: 'classic',
-      petHoverShortcuts: ['favorite', 'library', 'prepare-ledgers', 'organize-old-favorites'],
+      petHoverShortcuts: ['favorite', 'library'],
       hidePetDuringVideoFullscreen: true,
       preferenceCounts: {
         story: 4,
@@ -646,7 +658,7 @@ describe('assistant preference store helpers', () => {
     })
   })
 
-  it('normalizes persisted pet hover shortcuts to four valid entries', () => {
+  it('drops retired shortcuts before capping persisted pet hover shortcuts', () => {
     const store = createFakeStore({
       petHoverShortcuts: [
         'favorite',
@@ -662,8 +674,7 @@ describe('assistant preference store helpers', () => {
     expect(loadAssistantPreferences(store).petHoverShortcuts).toEqual([
       'favorite',
       'library',
-      'prepare-ledgers',
-      'organize-old-favorites'
+      'comment'
     ])
 
     saveAssistantPreferences(store, {

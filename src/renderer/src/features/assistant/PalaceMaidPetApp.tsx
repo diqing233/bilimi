@@ -23,6 +23,7 @@ import {
   pickPetLine
 } from './petInteractionLines'
 import { publishDeepSeekTask } from './deepSeekTaskSignal'
+import type { FloatingAssistantWorkspaceRequest } from './assistantRuntimeTypes'
 
 const DRAG_THRESHOLD_PX = 5
 const LONG_PRESS_SUPPRESSION_MS = 350
@@ -34,6 +35,7 @@ const PET_SIZE_MIN_PX = 100
 const PET_SIZE_MAX_PX = 164
 const PET_SIZE_DEFAULT_PX = 148
 const PET_HOVER_GRID_SIZE_THRESHOLD_PX = 116
+const PET_LONG_HOVER_DELAY_MS = 5_000
 const DEEPSEEK_CHAT_DISABLED_MESSAGE =
   '主人，想要跟小咪交流的话去设置开启DeepSeek支持吧'
 const DEEPSEEK_PET_CHAT_DISABLED_MESSAGE =
@@ -64,10 +66,12 @@ export function PalaceMaidPetApp() {
   const idleGreetingTimeout = useRef<number | null>(null)
   const resizeControlsHideTimeout = useRef<number | null>(null)
   const hoverShortcutsHideTimeout = useRef<number | null>(null)
+  const petLongHoverTimeout = useRef<number | null>(null)
   const interactiveHoverCount = useRef(0)
   const petClickStreak = useRef({ count: 0, lastAt: 0 })
   const suppressNextClick = useRef(false)
   const chatTailRef = useRef<HTMLSpanElement | null>(null)
+  const chatOpenRef = useRef(false)
   const [pressed, setPressed] = useState(false)
   const [resizeControlsVisible, setResizeControlsVisible] = useState(false)
   const [hoverShortcutsVisible, setHoverShortcutsVisible] = useState(false)
@@ -83,10 +87,11 @@ export function PalaceMaidPetApp() {
   const [chatBusy, setChatBusy] = useState(false)
   const [chatError, setChatError] = useState('')
   const [petHint, setPetHint] = useState<AssistantPetHint | null>(null)
+  const [hoverPreview, setHoverPreview] = useState<AssistantPetHint | null>(null)
   const [closePromptVisible, setClosePromptVisible] = useState(false)
-  const visiblePetState = petHint?.tone ?? petState
+  const visiblePetState = hoverPreview?.tone ?? petHint?.tone ?? petState
   const stateView = createPetStateView(visiblePetState)
-  const bubbleMessage = petHint?.message ?? stateView.bubble
+  const bubbleMessage = hoverPreview?.message ?? petHint?.message ?? stateView.bubble
   const deepSeekChatEnabled =
     preferences.deepseekEnabled &&
     preferences.deepseekApiKeyStored &&
@@ -99,12 +104,51 @@ export function PalaceMaidPetApp() {
     setPetHint({ tone, message })
   }
 
+  function previewHoverHint(tone: AssistantPetHint['tone'], message: string) {
+    setHoverPreview({ tone, message })
+  }
+
+  function clearHoverPreview() {
+    setHoverPreview(null)
+  }
+
+  function clearPetLongHoverTimeout() {
+    if (petLongHoverTimeout.current !== null) {
+      window.clearTimeout(petLongHoverTimeout.current)
+      petLongHoverTimeout.current = null
+    }
+  }
+
+  function previewPetHover() {
+    clearPetLongHoverTimeout()
+    previewHoverHint('hint', '小咪：打开/唤醒 bilimi~可拖拽移动，右键聊天或关闭')
+    petLongHoverTimeout.current = window.setTimeout(() => {
+      previewHoverHint('hint', '嘿嘿主人，想要小咪做点什么吗~')
+      petLongHoverTimeout.current = null
+    }, PET_LONG_HOVER_DELAY_MS)
+  }
+
+  function clearPetHoverPreview() {
+    clearPetLongHoverTimeout()
+    clearHoverPreview()
+  }
+
   function scheduleIdleGreeting() {
     if (idleGreetingTimeout.current !== null) {
       window.clearTimeout(idleGreetingTimeout.current)
+      idleGreetingTimeout.current = null
+    }
+
+    if (chatOpenRef.current) {
+      return
     }
 
     idleGreetingTimeout.current = window.setTimeout(() => {
+      if (chatOpenRef.current) {
+        idleGreetingTimeout.current = null
+        return
+      }
+
       showLocalPetHint('hint', pickPetLine(PET_IDLE_GREETINGS))
       idleGreetingTimeout.current = null
       scheduleIdleGreeting()
@@ -161,6 +205,7 @@ export function PalaceMaidPetApp() {
     function hideClosePrompt() {
       setClosePromptVisible(false)
       setChatOpen(false)
+      clearPetHoverPreview()
     }
 
     window.addEventListener('blur', hideClosePrompt)
@@ -178,12 +223,14 @@ export function PalaceMaidPetApp() {
       if (hoverShortcutsHideTimeout.current !== null) {
         window.clearTimeout(hoverShortcutsHideTimeout.current)
       }
+      clearPetLongHoverTimeout()
       window.bilimiDesktop?.setFloatingSealMouseTransparent?.(true)
       window.removeEventListener('blur', hideClosePrompt)
     }
   }, [])
 
   useEffect(() => {
+    chatOpenRef.current = chatOpen
     scheduleIdleGreeting()
 
     return () => {
@@ -192,7 +239,7 @@ export function PalaceMaidPetApp() {
         idleGreetingTimeout.current = null
       }
     }
-  }, [])
+  }, [chatOpen])
 
   function enterInteractiveRegion() {
     interactiveHoverCount.current += 1
@@ -376,6 +423,7 @@ export function PalaceMaidPetApp() {
 
   function restoreMainWindow() {
     setClosePromptVisible(false)
+    clearPetHoverPreview()
     setClickReactionSignal((signal) => signal + 1)
     const hint = getRestorePetHint()
     showLocalPetHint(hint.tone, hint.message)
@@ -408,7 +456,25 @@ export function PalaceMaidPetApp() {
   }
 
   function explainHoverShortcut(shortcut: PetHoverShortcut) {
-    showLocalPetHint('hint', `${shortcut.label}：${shortcut.title}`)
+    if (shortcut.id === 'coin') {
+      previewHoverHint(
+        'hint',
+        `${shortcut.label}：一键三连，当前将投 ${preferences.defaultCoinCount} 枚硬币`
+      )
+      return
+    }
+
+    if (shortcut.id === 'comment') {
+      previewHoverHint(
+        'hint',
+        preferences.commentSubmitMode === 'random'
+          ? '表：一键弹幕，当前会随机生成一条并直接发送'
+          : '表：一键弹幕，当前会生成 3 条候选，选择后发送'
+      )
+      return
+    }
+
+    previewHoverHint('hint', `${shortcut.label}：${shortcut.description}`)
   }
 
   async function runShortcutWithPetResult(
@@ -441,13 +507,18 @@ export function PalaceMaidPetApp() {
     }
   }
 
+  function openFloatingWorkspace(payload: FloatingAssistantWorkspaceRequest) {
+    void window.bilimiDesktop?.openFloatingAssistantWorkspace?.(payload)
+  }
+
   function openAssistantShortcut(event?: ReactMouseEvent<HTMLButtonElement>) {
     dragState.current = null
     setPressed(false)
     setClosePromptVisible(false)
+    clearHoverPreview()
     const anchor = createWorkspaceAnchor(event)
     showLocalPetHint('happy', '主人，小咪把小窗口打开啦。')
-    void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'review', anchor })
+    openFloatingWorkspace({ tab: 'review', anchor })
   }
 
   async function runHoverShortcut(
@@ -457,6 +528,7 @@ export function PalaceMaidPetApp() {
     dragState.current = null
     setPressed(false)
     setClosePromptVisible(false)
+    clearHoverPreview()
     const anchor = createWorkspaceAnchor(event)
 
     if (
@@ -470,13 +542,13 @@ export function PalaceMaidPetApp() {
 
     if (shortcut.id === 'assistant') {
       showLocalPetHint('happy', '主人，小咪把小窗口打开啦。')
-      void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({ tab: 'review', anchor })
+      openFloatingWorkspace({ tab: 'review', anchor })
       return
     }
 
     if (shortcut.id === 'library') {
       showLocalPetHint('happy', '主人，小咪打开档案库啦。')
-      void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({
+      openFloatingWorkspace({
         tab: 'notes',
         anchor,
         openNoteArchive: true
@@ -486,7 +558,7 @@ export function PalaceMaidPetApp() {
 
     if (shortcut.id === 'organize-old-favorites') {
       showLocalPetHint('happy', '主人，小咪切到掌库啦，旧藏整理从这里开始。')
-      void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({
+      openFloatingWorkspace({
         tab: 'ledger',
         anchor,
         organizeOldFavorites: true
@@ -526,7 +598,7 @@ export function PalaceMaidPetApp() {
       }
 
       showLocalPetHint('happy', '主人，小咪打开短评三选一小窗口啦。')
-      void window.bilimiDesktop?.openFloatingAssistantWorkspace?.({
+      openFloatingWorkspace({
         action: '表',
         anchor,
         tab: 'review'
@@ -559,6 +631,8 @@ export function PalaceMaidPetApp() {
 
   function openPetChat() {
     setClosePromptVisible(false)
+    clearHoverPreview()
+    chatOpenRef.current = true
     setChatOpen(true)
   }
 
@@ -581,7 +655,11 @@ export function PalaceMaidPetApp() {
     setChatDraft('')
     setChatBusy(true)
     setChatError('')
-    publishDeepSeekTask('pet-chat')
+    const finishDeepSeekTask = publishDeepSeekTask({
+      id: `pet-chat:${Date.now()}:${Math.random()}`,
+      kind: 'pet-chat',
+      detail: '宠物对话：正在生成小咪回复'
+    })
 
     try {
       const result = await window.bilimiDesktop?.generateDeepSeek?.({
@@ -601,7 +679,7 @@ export function PalaceMaidPetApp() {
     } catch (error) {
       setChatError(error instanceof Error ? error.message : '小咪现在还答不上来。')
     } finally {
-      publishDeepSeekTask(null)
+      finishDeepSeekTask()
       setChatBusy(false)
     }
   }
@@ -616,7 +694,6 @@ export function PalaceMaidPetApp() {
         className="palace-maid-pet"
         type="button"
         aria-label="打开 bilimi，小咪在这里"
-        title="打开 bilimi，小咪在这里"
         data-pet-state={stateView.state}
         data-pressed={pressed ? 'true' : 'false'}
         onClick={(event) => {
@@ -646,14 +723,7 @@ export function PalaceMaidPetApp() {
           event.currentTarget.releasePointerCapture?.(event.pointerId)
           finishDrag()
         }}
-        onPointerCancel={() => {
-          dragState.current = null
-          if (longPressTimeout.current !== null) {
-            window.clearTimeout(longPressTimeout.current)
-            longPressTimeout.current = null
-          }
-          setPressed(false)
-        }}
+        onPointerCancel={finishDrag}
         onPointerLeave={() => {
           const currentDrag = dragState.current
 
@@ -665,12 +735,14 @@ export function PalaceMaidPetApp() {
           }
           scheduleHideResizeControls()
           scheduleHideHoverShortcuts()
+          clearPetHoverPreview()
           leaveInteractiveRegion()
         }}
         onPointerEnter={() => {
           enterInteractiveRegion()
           showResizeControls()
           showHoverShortcuts()
+          previewPetHover()
         }}
       >
         <span className="palace-maid-pet__halo" aria-hidden="true" />
@@ -702,19 +774,18 @@ export function PalaceMaidPetApp() {
             className="palace-maid-pet__hover-shortcut"
             type="button"
             aria-label={shortcut.label}
-            title={shortcut.title}
             data-testid="pet-hover-shortcut"
             onClick={(event) => {
               event.preventDefault()
               event.stopPropagation()
               void runHoverShortcut(shortcut, event)
             }}
-            onFocus={() => explainHoverShortcut(shortcut)}
             onPointerDown={(event) => {
               event.stopPropagation()
               setPressed(false)
             }}
             onPointerEnter={() => explainHoverShortcut(shortcut)}
+            onPointerLeave={clearHoverPreview}
           >
             {shortcut.label}
           </button>
@@ -724,18 +795,17 @@ export function PalaceMaidPetApp() {
             className="palace-maid-pet__assistant-shortcut"
             type="button"
             aria-label="打开小咪"
-            title="打开小咪"
             onClick={(event) => {
               event.preventDefault()
               event.stopPropagation()
               openAssistantShortcut(event)
             }}
-            onFocus={() => showLocalPetHint('hint', '咪：打开小咪')}
             onPointerDown={(event) => {
               event.stopPropagation()
               setPressed(false)
             }}
-            onPointerEnter={() => showLocalPetHint('hint', '咪：打开小咪')}
+            onPointerEnter={() => previewHoverHint('hint', '咪：打开小咪功能窗口')}
+            onPointerLeave={clearHoverPreview}
           >
             咪
           </button>
@@ -753,6 +823,13 @@ export function PalaceMaidPetApp() {
             className="palace-maid-pet__quick-action"
             type="button"
             onClick={openPetChat}
+            onPointerEnter={() =>
+              previewHoverHint(
+                'working',
+                '对话宠物：打开输入框，和小咪聊天（需启用 DeepSeek）'
+              )
+            }
+            onPointerLeave={clearHoverPreview}
           >
             对话宠物
           </button>
@@ -760,6 +837,8 @@ export function PalaceMaidPetApp() {
             className="palace-maid-pet__quick-action"
             type="button"
             onClick={closePetFromPrompt}
+            onPointerEnter={() => previewHoverHint('error', '关闭宠物：主人要关闭小咪吗？')}
+            onPointerLeave={clearHoverPreview}
           >
             关闭宠物
           </button>
@@ -798,19 +877,21 @@ export function PalaceMaidPetApp() {
             {chatError ? <span role="alert">{chatError}</span> : null}
             {deepSeekChatEnabled ? (
               <>
-                <label className="palace-maid-pet__chat-field">
-                  <span>和小咪说话</span>
-                  <input
-                    value={chatDraft}
-                    onChange={(event) => {
-                      setChatDraft(event.target.value)
-                    }}
-                    disabled={chatBusy}
-                  />
-                </label>
-                <button type="submit" disabled={chatBusy || !chatDraft.trim()}>
-                  发送
-                </button>
+                <span className="palace-maid-pet__chat-compose">
+                  <label className="palace-maid-pet__chat-field">
+                    <span>和小咪说话</span>
+                    <input
+                      value={chatDraft}
+                      onChange={(event) => {
+                        setChatDraft(event.target.value)
+                      }}
+                      disabled={chatBusy}
+                    />
+                  </label>
+                  <button type="submit" disabled={chatBusy || !chatDraft.trim()}>
+                    发送
+                  </button>
+                </span>
               </>
             ) : (
               <span className="palace-maid-pet__chat-disabled" role="status">
@@ -840,7 +921,6 @@ export function PalaceMaidPetApp() {
           className="palace-maid-pet__resize-step"
           type="button"
           aria-label="缩小小咪"
-          title="缩小小咪"
           onClick={(event) => {
             event.preventDefault()
             event.stopPropagation()
@@ -850,6 +930,8 @@ export function PalaceMaidPetApp() {
             event.stopPropagation()
             setPressed(false)
           }}
+          onPointerEnter={() => previewHoverHint('hint', '缩小：缩小小咪的显示尺寸')}
+          onPointerLeave={clearHoverPreview}
         >
           -
         </button>
@@ -857,7 +939,6 @@ export function PalaceMaidPetApp() {
           className="palace-maid-pet__resize-step"
           type="button"
           aria-label="放大小咪"
-          title="放大小咪"
           onClick={(event) => {
             event.preventDefault()
             event.stopPropagation()
@@ -867,6 +948,8 @@ export function PalaceMaidPetApp() {
             event.stopPropagation()
             setPressed(false)
           }}
+          onPointerEnter={() => previewHoverHint('hint', '放大：放大小咪的显示尺寸')}
+          onPointerLeave={clearHoverPreview}
         >
           +
         </button>

@@ -184,6 +184,64 @@ describe('VideoNotesPanel', () => {
     expect(await screen.findByText('「当前视频」已开始转写。')).toBeInTheDocument()
   })
 
+  it('replaces the started transcription message when the queued video is canceled', async () => {
+    const runningQueue: VideoAudioTranscriptionQueueSnapshot = {
+      activeItemId: 'bvid:BV-current',
+      items: [
+        {
+          id: 'bvid:BV-current',
+          url: 'https://www.bilibili.com/video/BV-current',
+          title: '当前视频',
+          bvid: 'BV-current',
+          status: 'running',
+          createdAt: '2026-06-25T00:00:00.000Z',
+          updatedAt: '2026-06-25T00:00:00.000Z'
+        }
+      ]
+    }
+    const canceledQueue: VideoAudioTranscriptionQueueSnapshot = {
+      items: [
+        {
+          ...runningQueue.items[0],
+          status: 'canceled',
+          updatedAt: '2026-06-25T00:01:00.000Z'
+        }
+      ]
+    }
+    const onEnqueueTranscription = vi.fn().mockResolvedValue(runningQueue)
+    const onCancelQueuedVideoAudioTranscription = vi.fn()
+    const { rerender } = renderPanel({
+      note: null,
+      currentVideoTitle: '当前视频',
+      onTranscribeAudio: vi.fn(),
+      onEnqueueTranscription,
+      onCancelQueuedVideoAudioTranscription,
+      transcriptionQueue: { items: [] }
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+
+    expect(await screen.findByText('「当前视频」已开始转写。')).toBeInTheDocument()
+
+    rerender(
+      <VideoNotesPanel
+        note={null}
+        currentVideoTitle="当前视频"
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+        onTranscribeAudio={vi.fn()}
+        onEnqueueTranscription={onEnqueueTranscription}
+        onCancelQueuedVideoAudioTranscription={onCancelQueuedVideoAudioTranscription}
+        transcriptionQueue={canceledQueue}
+      />
+    )
+
+    expect(screen.queryByText('「当前视频」已开始转写。')).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('已取消「当前视频」的转写。')
+    expect(screen.getByText('链接').nextElementSibling).toHaveTextContent('待识别')
+  })
+
   it('uses the primary transcription action to enqueue when another video is already running', async () => {
     const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
     const onEnqueueTranscription = vi.fn().mockResolvedValue({

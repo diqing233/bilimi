@@ -24,6 +24,18 @@ export type DeepSeekArchiveApplyStats = {
   truncatedCount: number
 }
 
+export type DeepSeekArchiveNonApplicationReason =
+  | 'kept-unclassified'
+  | 'unavailable-target'
+  | 'invalid-result'
+  | 'unmatched-video'
+  | 'request-failed'
+
+export type DeepSeekArchiveNonApplicationCounts = Record<
+  DeepSeekArchiveNonApplicationReason,
+  number
+>
+
 export type ApplyDeepSeekArchiveResultsArgs = {
   state: FavoriteArchivePlanState
   ledgers: FavoriteLedger[]
@@ -37,6 +49,7 @@ export type ApplyDeepSeekArchiveResultsResult = {
   stats: DeepSeekArchiveApplyStats
   messages: string[]
   redDisplacementMessages: string[]
+  nonApplicationCounts: DeepSeekArchiveNonApplicationCounts
 }
 
 function cloneItem(item: FavoriteArchivePlanItemState): FavoriteArchivePlanItemState {
@@ -129,19 +142,42 @@ function selectTargets(args: {
   item: FavoriteArchivePlanItemState
   result: DeepSeekArchiveVideoResult
   validEnabledLedgerIds: Set<string>
-}): { ok: true; targets: string[]; attemptedTargets: string[] } | { ok: false; message: string } {
+}):
+  | { ok: true; targets: string[]; attemptedTargets: string[] }
+  | { ok: false; message: string; reason: DeepSeekArchiveNonApplicationReason } {
   const rawTargets = uniqueLedgerIds(args.result.targetLedgerIds)
 
-  if (rawTargets.length === 0 || rawTargets.some(isUnclassifiedTarget) || rawTargets.includes('inbox')) {
+  if (rawTargets.some(isUnclassifiedTarget)) {
     return {
       ok: false,
-      message: `DeepSeek 整理失败：不可用目标 ${rawTargets.length > 0 ? rawTargets.join(', ') : '空目标'}`
+      message: `DeepSeek 未应用：保持未分类 ${rawTargets.join(', ')}`,
+      reason: 'kept-unclassified'
+    }
+  }
+
+  if (rawTargets.length === 0) {
+    return {
+      ok: false,
+      message: 'DeepSeek 未应用：返回信息不完整（空目标）',
+      reason: 'invalid-result'
+    }
+  }
+
+  if (rawTargets.includes('inbox')) {
+    return {
+      ok: false,
+      message: 'DeepSeek 未应用：不可用目标 inbox',
+      reason: 'unavailable-target'
     }
   }
 
   const invalidTargets = rawTargets.filter((ledgerId) => !args.validEnabledLedgerIds.has(ledgerId))
   if (invalidTargets.length > 0) {
-    return { ok: false, message: `DeepSeek 整理失败：不可用目标 ${invalidTargets.join(', ')}` }
+    return {
+      ok: false,
+      message: `DeepSeek 未应用：不可用目标 ${invalidTargets.join(', ')}`,
+      reason: 'unavailable-target'
+    }
   }
 
   const keptTargets = args.result.keepOriginal ? args.item.selectedTargetLedgerIds : []
@@ -220,26 +256,52 @@ export function applyDeepSeekArchiveResults(
   }
   const messages: string[] = []
   const redDisplacementMessages: string[] = []
+  const nonApplicationCounts: DeepSeekArchiveNonApplicationCounts = {
+    'kept-unclassified': 0,
+    'unavailable-target': 0,
+    'invalid-result': 0,
+    'unmatched-video': 0,
+    'request-failed': 0
+  }
+
+  function recordNonApplication(reason: DeepSeekArchiveNonApplicationReason) {
+    stats.failedCount += 1
+    nonApplicationCounts[reason] += 1
+  }
 
   for (const result of args.results) {
-    if (!isApplicableResult(result, nextState)) {
-      stats.failedCount += 1
+    if (result.targetLedgerIds.some(isUnclassifiedTarget)) {
+      recordNonApplication('kept-unclassified')
+      messages.push(`DeepSeek 未应用：${result.aid ?? '未知视频'} 保持未分类`)
+      continue
+    }
+
+    if (result.invalid) {
+      recordNonApplication(result.failureKind === 'request-failed' ? 'request-failed' : 'invalid-result')
       messages.push(
-        `DeepSeek 整理失败：${result.aid ?? '未知视频'} ${result.errorMessage ?? '结果无效或视频不存在'}`
+        `DeepSeek 未应用：${result.aid ?? '未知视频'} ${result.errorMessage ?? '返回信息不完整'}`
+      )
+      continue
+    }
+
+    if (!isApplicableResult(result, nextState)) {
+      recordNonApplication('unmatched-video')
+      messages.push(
+        `DeepSeek 未应用：${result.aid ?? '未知视频'} ${result.errorMessage ?? '无法匹配原视频'}`
       )
       continue
     }
 
     const item = findItemForResult(nextState, result)
     if (!item) {
-      stats.failedCount += 1
-      messages.push(`DeepSeek 整理失败：${result.aid} 结果无效或视频不存在`)
+      recordNonApplication('unmatched-video')
+      messages.push(`DeepSeek 未应用：${result.aid} 无法匹配原视频`)
       continue
     }
 
     const selected = selectTargets({ item, result, validEnabledLedgerIds })
     if (!selected.ok) {
-      stats.failedCount += 1
+      recordNonApplication(selected.reason)
       messages.push(selected.message)
       continue
     }
@@ -272,7 +334,8 @@ export function applyDeepSeekArchiveResults(
     state: nextState,
     stats,
     messages,
-    redDisplacementMessages
+    redDisplacementMessages,
+    nonApplicationCounts
   }
 }
 
