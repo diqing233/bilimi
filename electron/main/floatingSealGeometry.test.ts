@@ -209,6 +209,16 @@ describe('floating menu geometry', () => {
 })
 
 describe('floating assistant geometry', () => {
+  it('uses a 2px safety gap around the pet and screen edges by default', () => {
+    expect(
+      createFloatingAssistantBounds({
+        sealBounds: { x: 16, y: 500, width: 92, height: 92 },
+        workspaceSize: { width: 360, height: 560 },
+        workArea: { x: 0, y: 0, width: 1920, height: 1080 }
+      })
+    ).toEqual({ x: 110, y: 266, width: 360, height: 560, side: 'right' })
+  })
+
   it('places the assistant workspace to the left of a right-side seal', () => {
     expect(
       createFloatingAssistantBounds({

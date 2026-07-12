@@ -28,6 +28,7 @@ type FloatingAssistantBounds = Bounds & {
 }
 
 const DEFAULT_GAP = 12
+const FLOATING_ASSISTANT_GAP = 2
 const FLOATING_SEAL_FIXED_SIZE = { width: 336, height: 380 }
 const FLOATING_SEAL_MIN_SIZE = { width: 260, height: 168 }
 const FLOATING_SEAL_MAX_SIZE = { width: 680, height: 560 }
@@ -296,7 +297,7 @@ export function createFloatingAssistantBounds({
   workspaceSize,
   workArea,
   currentSide,
-  gap = DEFAULT_GAP
+  gap = FLOATING_ASSISTANT_GAP
 }: {
   sealBounds: Bounds
   workspaceSize: Size
