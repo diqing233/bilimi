@@ -228,6 +228,66 @@ describe('FavoriteLedgerPanel', () => {
     vi.useRealTimers()
   })
 
+  it('shows a stable waiting label when persisted tag progress is incomplete', async () => {
+    vi.useFakeTimers()
+    let resolveScan!: (preview: FavoriteLedgerPreview) => void
+    const onReadOldFavoriteTagEnrichment = vi.fn().mockResolvedValue({
+      sourceFolders: [],
+      scanProgress: {
+        basic: { completed: 0, total: 0, status: 'running' },
+        tags: { pending: 0, status: 'paused' }
+      }
+    })
+    renderPanel({
+      onSaveLedgers: vi.fn().mockResolvedValue({ ok: true, steps: [], missingTargets: [], message: 'saved' }),
+      onScanOldFavorites: vi.fn(() => new Promise((resolve) => { resolveScan = resolve })),
+      onReadOldFavoriteTagEnrichment
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await act(async () => { vi.advanceTimersByTime(1600); await Promise.resolve() })
+
+    expect(screen.getByText('正在统计缺失标签')).toBeInTheDocument()
+    expect(screen.queryByText(/undefined/)).not.toBeInTheDocument()
+    await act(async () => {
+      resolveScan({ items: [], skippedSourceFolderTitles: [] })
+      await Promise.resolve()
+    })
+    vi.useRealTimers()
+  })
+
+  it('does not let an older polling snapshot replace completed tag progress', async () => {
+    vi.useFakeTimers()
+    const preview = createArchivePreviewFixture()
+    preview.scanProgress = {
+      basic: { completed: 1, total: 1, status: 'complete' },
+      tags: { completed: 1, total: 1, pending: 0, cacheHits: 0, succeeded: 1, failed: 0, status: 'complete' }
+    }
+    let resolvePoll!: (value: unknown) => void
+    let resolveScan!: (preview: FavoriteLedgerPreview) => void
+    const onReadOldFavoriteTagEnrichment = vi.fn(() => new Promise((resolve) => { resolvePoll = resolve }))
+    renderPanel({ onScanOldFavorites: vi.fn(() => new Promise((resolve) => { resolveScan = resolve })), onReadOldFavoriteTagEnrichment })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await act(async () => { vi.advanceTimersByTime(1600); await Promise.resolve() })
+    await act(async () => { resolveScan(preview); await Promise.resolve() })
+    await act(async () => {
+      resolvePoll({
+        sourceFolders: [],
+        scanProgress: {
+          basic: { completed: 1, total: 1, status: 'complete' },
+          tags: { pending: 1, status: 'running' }
+        }
+      })
+      await Promise.resolve()
+    })
+
+    expect(screen.getAllByText('1 / 1')).toHaveLength(2)
+    expect(screen.queryByText('正在统计缺失标签')).not.toBeInTheDocument()
+    expect(screen.queryByText(/标签仍在后台补取/)).not.toBeInTheDocument()
+    vi.useRealTimers()
+  })
+
   it('uses a compact archive selector without visible helper labels', async () => {
     const { container } = await openArchivePreview()
 

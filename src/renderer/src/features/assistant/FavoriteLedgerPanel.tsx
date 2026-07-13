@@ -23,6 +23,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   type Dispatch,
@@ -1629,6 +1630,8 @@ export function FavoriteLedgerPanel({
   const [saveStatus, setSaveStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [basicScanRunning, setBasicScanRunning] = useState(false)
+  const scanGenerationRef = useRef(0)
+  const scanStartingRef = useRef(false)
   const [draggedLedgerId, setDraggedLedgerId] = useState<string | null>(null)
   const [dragTargetLedgerId, setDragTargetLedgerId] = useState<string | null>(null)
   const [ledgerListExpanded, setLedgerListExpanded] =
@@ -1660,16 +1663,68 @@ export function FavoriteLedgerPanel({
 
     return JSON.stringify(ledgerEditorSnapshot(activeLedger)) !== JSON.stringify(activeLedgerSavedSnapshot)
   }, [activeLedger, activeLedgerSavedSnapshot])
+  const normalizedScanProgress = useCallback((scanProgress: FavoriteLedgerPreview['scanProgress']) => {
+    if (!scanProgress) return undefined
+    const numberOrZero = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0
+    return {
+      basic: {
+        completed: numberOrZero(scanProgress.basic?.completed),
+        total: numberOrZero(scanProgress.basic?.total),
+        status: scanProgress.basic?.status ?? 'running'
+      },
+      tags: {
+        completed: numberOrZero(scanProgress.tags?.completed),
+        total: numberOrZero(scanProgress.tags?.total),
+        pending: numberOrZero(scanProgress.tags?.pending),
+        cacheHits: numberOrZero(scanProgress.tags?.cacheHits),
+        succeeded: numberOrZero(scanProgress.tags?.succeeded),
+        failed: numberOrZero(scanProgress.tags?.failed),
+        status: scanProgress.tags?.status ?? 'idle'
+      }
+    } as NonNullable<FavoriteLedgerPreview['scanProgress']>
+  }, [])
+  const mergeScanProgress = useCallback((
+    current: FavoriteLedgerPreview['scanProgress'],
+    incoming: FavoriteLedgerPreview['scanProgress']
+  ) => {
+    const next = normalizedScanProgress(incoming)
+    const previous = normalizedScanProgress(current)
+    if (!next) return previous
+    if (!previous) return next
+    const basic =
+      previous.basic.status === 'complete' && next.basic.status !== 'complete' ||
+      next.basic.completed < previous.basic.completed || next.basic.total < previous.basic.total
+        ? previous.basic
+        : next.basic
+    const tags =
+      previous.tags.status === 'complete' && next.tags.status !== 'complete' ||
+      next.tags.completed < previous.tags.completed || next.tags.total < previous.tags.total
+        ? previous.tags
+        : next.tags
+    return { basic, tags }
+  }, [normalizedScanProgress])
+  const applyTagEnrichmentAction = useCallback((action: 'pause' | 'resume' | 'cancel') => {
+    if (!onReadOldFavoriteTagEnrichment) return
+    const scanGeneration = scanGenerationRef.current
+    void onReadOldFavoriteTagEnrichment(action).then((snapshot) => {
+      if (scanGeneration !== scanGenerationRef.current) return
+      setPreview((current) => current
+        ? { ...current, scanProgress: mergeScanProgress(current.scanProgress, snapshot.scanProgress) }
+        : current)
+    })
+  }, [mergeScanProgress, onReadOldFavoriteTagEnrichment])
   useEffect(() => {
     if (!onReadOldFavoriteTagEnrichment || !preview || (!basicScanRunning && (preview.scanProgress?.tags.pending ?? 0) <= 0)) {
       return
     }
     const interval = window.setInterval(() => {
+      const scanGeneration = scanGenerationRef.current
       void onReadOldFavoriteTagEnrichment('read').then((snapshot) => {
+        if (scanGeneration !== scanGenerationRef.current) return
         setPreview((current) => {
           if (!current) return current
           if (basicScanRunning) {
-            return { ...current, scanProgress: snapshot.scanProgress }
+            return { ...current, scanProgress: mergeScanProgress(current.scanProgress, snapshot.scanProgress) }
           }
           const rebuilt = createFavoriteLedgerPreview({
             ledgers: draftLedgers,
@@ -1694,12 +1749,12 @@ export function FavoriteLedgerPanel({
             mergedVisibleItems = applyArchivePlanToPreviewItems(normalized, mergedState, draftLedgers)
             return mergedState
           })
-          return { ...rebuilt, items: mergedVisibleItems, scanProgress: snapshot.scanProgress, scanContext: current.scanContext }
+          return { ...rebuilt, items: mergedVisibleItems, scanProgress: mergeScanProgress(current.scanProgress, snapshot.scanProgress), scanContext: current.scanContext }
         })
       }).catch(() => undefined)
     }, 1500)
     return () => window.clearInterval(interval)
-  }, [basicScanRunning, draftLedgers, favoriteArchiveMultiMode, onReadOldFavoriteTagEnrichment, preview, selectedCandidateKeys])
+  }, [basicScanRunning, draftLedgers, favoriteArchiveMultiMode, mergeScanProgress, onReadOldFavoriteTagEnrichment, preview, selectedCandidateKeys])
 
   useEffect(() => {
     if (!preview) {
@@ -1829,6 +1884,8 @@ export function FavoriteLedgerPanel({
 
     setOldFavoriteGuideMode('organize')
     setOldFavoriteStep('scan')
+    scanGenerationRef.current += 1
+    scanStartingRef.current = true
     setBasicScanRunning(true)
     setPreview({
       items: [],
@@ -2430,6 +2487,8 @@ export function FavoriteLedgerPanel({
   async function scanOldFavorites(
     mode: 'setup' | 'organize' = 'organize'
   ) {
+    if (!scanStartingRef.current) scanGenerationRef.current += 1
+    scanStartingRef.current = false
     setBusy(true)
     setBasicScanRunning(true)
     setOldFavoriteStep('scan')
@@ -4671,13 +4730,13 @@ export function FavoriteLedgerPanel({
                     value={preview.scanProgress?.tags.completed ?? 0}
                   />
                   <strong>
-                    {preview.scanProgress
-                      ? `${preview.scanProgress.tags.completed} / ${preview.scanProgress.tags.total}`
+                    {(preview.scanProgress?.tags.completed ?? null) !== null && (preview.scanProgress?.tags.total ?? 0) > 0
+                      ? `${preview.scanProgress?.tags.completed ?? 0} / ${preview.scanProgress?.tags.total ?? 0}`
                       : '正在统计缺失标签'}
                   </strong>
                 </div>
               </div>
-              {preview.scanProgress?.tags.status !== 'complete' && !basicScanRunning ? (
+              {(preview.scanProgress?.tags.pending ?? 0) > 0 && ['running', 'paused'].includes(preview.scanProgress?.tags.status ?? '') && !basicScanRunning ? (
                 <div className="favorite-ledger-panel__scan-enrichment-status">
                   <p className="favorite-ledger-panel__scan-warning">
                     视频信息已扫描完成，可以查看和调整整理结果。标签仍在后台补取，建议等待扫描结束后再执行。
@@ -4685,11 +4744,11 @@ export function FavoriteLedgerPanel({
                   {onReadOldFavoriteTagEnrichment ? (
                     <div>
                       {preview.scanProgress?.tags.status === 'paused' ? (
-                        <button type="button" onClick={() => void onReadOldFavoriteTagEnrichment('resume').then((snapshot) => setPreview((current) => current ? { ...current, scanProgress: snapshot.scanProgress } : current))}>继续补取</button>
+                        <button type="button" onClick={() => applyTagEnrichmentAction('resume')}>继续补取</button>
                       ) : (
-                        <button type="button" onClick={() => void onReadOldFavoriteTagEnrichment('pause').then((snapshot) => setPreview((current) => current ? { ...current, scanProgress: snapshot.scanProgress } : current))}>暂停补取</button>
+                        <button type="button" onClick={() => applyTagEnrichmentAction('pause')}>暂停补取</button>
                       )}
-                      <button type="button" onClick={() => void onReadOldFavoriteTagEnrichment('cancel').then((snapshot) => setPreview((current) => current ? { ...current, scanProgress: snapshot.scanProgress } : current))}>取消标签补取</button>
+                      <button type="button" onClick={() => applyTagEnrichmentAction('cancel')}>取消标签补取</button>
                     </div>
                   ) : null}
                 </div>

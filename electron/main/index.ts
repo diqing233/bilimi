@@ -86,7 +86,8 @@ import { resolveMediaToolPaths } from './mediaToolPaths'
 import { runStartupDiagnostics } from './startupDiagnostics'
 import { BILIMI_SESSION_PARTITION } from '../../src/shared/constants'
 import { createNotePosterText } from '../../src/shared/videoNoteArchive'
-import { configureAppIdentity } from './appIdentity'
+import { configureAppIdentity, configureDevelopmentUserData } from './appIdentity'
+import { installSingleInstanceGuard } from './singleInstance'
 import type {
   AssistantAction,
   AssistantAutomationResult,
@@ -722,6 +723,7 @@ function createMainWindow() {
     prepareToExitLauncher: () => {
       appQuitting = true
     },
+    quitApplication: () => app.quit(),
     savePreferencePatch: saveAssistantPreferencePatch,
     sendPetHint: sendAssistantPetHint,
     showCloseConfirmation: () =>
@@ -1104,12 +1106,15 @@ function registerAssistantPreferenceHandlers() {
   })
 }
 
+configureDevelopmentUserData(app, { isPackaged: app.isPackaged })
 configureAppIdentity(app)
+const singleInstanceGuard = installSingleInstanceGuard(app, () => mainWindow)
 
-app.whenReady().then(() => {
+if (singleInstanceGuard) app.whenReady().then(() => {
   getVideoTranscriptionQueue()
   registerAssistantPreferenceHandlers()
   createMainWindow()
+  if (singleInstanceGuard.hasPendingFocus()) singleInstanceGuard.focusMainWindow()
   createFloatingSealWindow()
 })
 

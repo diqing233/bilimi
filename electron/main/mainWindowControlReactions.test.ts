@@ -163,6 +163,7 @@ describe('installMainWindowControlReactions', () => {
     const random = vi.spyOn(Math, 'random').mockReturnValue(0)
     const window = createTestWindow()
     const closeAssistantPet = vi.fn()
+    const quitApplication = vi.fn()
     const sendPetHint = vi.fn<(hint: AssistantPetHint) => void>()
     const closeEvent = { preventDefault: vi.fn() }
 
@@ -176,6 +177,7 @@ describe('installMainWindowControlReactions', () => {
           }) as never,
         minimizeToTray: vi.fn(),
         prepareToExitLauncher: vi.fn(),
+        quitApplication,
         savePreferencePatch: vi.fn(),
         sendPetHint,
         showCloseConfirmation: vi.fn(),
@@ -190,6 +192,7 @@ describe('installMainWindowControlReactions', () => {
         message: '那小咪先退场啦，主人下次见。'
       })
       expect(closeAssistantPet).not.toHaveBeenCalled()
+      expect(quitApplication).toHaveBeenCalledOnce()
       expect(window.close).not.toHaveBeenCalled()
 
       vi.advanceTimersByTime(MAIN_WINDOW_CLOSE_FAREWELL_DELAY_MS)
@@ -233,6 +236,7 @@ describe('installMainWindowControlReactions', () => {
     const random = vi.spyOn(Math, 'random').mockReturnValue(0)
     const window = createTestWindow()
     const closeAssistantPet = vi.fn()
+    const quitApplication = vi.fn()
     const sendPetHint = vi.fn<(hint: AssistantPetHint) => void>()
     const savePreferencePatch = vi.fn()
     const closeEvent = { preventDefault: vi.fn() }
@@ -247,6 +251,7 @@ describe('installMainWindowControlReactions', () => {
           }) as never,
         minimizeToTray: vi.fn(),
         prepareToExitLauncher: vi.fn(),
+        quitApplication,
         savePreferencePatch,
         sendPetHint,
         showCloseConfirmation: () => ({ response: 1, checkboxChecked: true }),
@@ -265,7 +270,8 @@ describe('installMainWindowControlReactions', () => {
         tone: 'sleepy',
         message: '那小咪先退场啦，主人下次见。'
       })
-      expect(window.close).toHaveBeenCalledOnce()
+      expect(window.close).not.toHaveBeenCalled()
+      expect(quitApplication).toHaveBeenCalledOnce()
 
       vi.advanceTimersByTime(MAIN_WINDOW_CLOSE_FAREWELL_DELAY_MS)
 
