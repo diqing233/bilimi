@@ -4,6 +4,7 @@ import { createPreferenceSaveScheduler } from './preferenceSaveScheduler'
 type TestPreferences = {
   defaultCoinCount: 1 | 2
   commentSubmitMode: 'choose' | 'random'
+  sidebarWidth?: number | null
 }
 
 function createDeferred<T>() {
@@ -81,5 +82,59 @@ describe('createPreferenceSaveScheduler', () => {
     expect(saved).toEqual({ defaultCoinCount: 2, commentSubmitMode: 'choose' })
     expect(save).toHaveBeenCalledTimes(1)
     vi.useRealTimers()
+  })
+
+  it('updates a pending save without starting another debounce', async () => {
+    vi.useFakeTimers()
+    try {
+      const save = vi.fn(async (preferences: TestPreferences) => preferences)
+      const scheduler = createPreferenceSaveScheduler<TestPreferences>({
+        delayMs: 250,
+        save
+      })
+
+      scheduler.schedule({ defaultCoinCount: 2, commentSubmitMode: 'random', sidebarWidth: null })
+      expect(scheduler.updatePending((preferences) => ({ ...preferences, sidebarWidth: 420 }))).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(249)
+      expect(save).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(1)
+      expect(save).toHaveBeenCalledWith({
+        defaultCoinCount: 2,
+        commentSubmitMode: 'random',
+        sidebarWidth: 420
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reports active work while a save is queued or in flight', async () => {
+    vi.useFakeTimers()
+    try {
+      const first = createDeferred<TestPreferences>()
+      const save = vi
+        .fn<(_: TestPreferences) => Promise<TestPreferences>>()
+        .mockReturnValueOnce(first.promise)
+      const scheduler = createPreferenceSaveScheduler<TestPreferences>({
+        delayMs: 250,
+        save
+      })
+
+      expect(scheduler.hasActiveSave()).toBe(false)
+      scheduler.schedule({ defaultCoinCount: 2, commentSubmitMode: 'random' })
+      expect(scheduler.hasActiveSave()).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(250)
+      expect(scheduler.hasActiveSave()).toBe(true)
+
+      first.resolve({ defaultCoinCount: 2, commentSubmitMode: 'random' })
+      await vi.runOnlyPendingTimersAsync()
+      await first.promise
+      expect(scheduler.hasActiveSave()).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -1,4 +1,16 @@
-import { app, BrowserWindow, clipboard, ipcMain, screen, session } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  Menu,
+  Tray,
+  clipboard,
+  dialog,
+  ipcMain,
+  nativeImage,
+  screen,
+  session,
+  safeStorage
+} from 'electron'
 import { spawn } from 'node:child_process'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -32,7 +44,12 @@ import { sendAssistantOpenWhenReady } from './assistantOpenSignal'
 import { FloatingMenuController } from './floatingMenuController'
 import { FloatingSealDragController } from './floatingSealDragController'
 import { createMainWindowOptions } from './mainWindowOptions'
-import { installMainWindowControlReactions } from './mainWindowControlReactions'
+import { restoreMainWindowDefaultLayoutSize } from './mainWindowLayout'
+import { installMainWindowDisplayLayout } from './mainWindowDisplayLayout'
+import {
+  createCloseConfirmationOptions,
+  installMainWindowControlReactions
+} from './mainWindowControlReactions'
 import { restoreMainWindowFromPet } from './mainWindowRestore'
 import { installFixedFloatingSealBoundsGuard } from './floatingSealBoundsGuard'
 import { installFloatingSealCaptionStrip } from './floatingSealCaptionStrip'
@@ -40,6 +57,8 @@ import { setFloatingSealMouseTransparency } from './floatingSealMouseTransparenc
 import { installFloatingSealWhiteStripFix } from './floatingSealWhiteStripFix'
 import { createFloatingSealWindowOptions } from './floatingSealWindowOptions'
 import { toggleFloatingAssistantFromSeal } from './floatingMenuToggleFlow'
+import { FLOATING_ASSISTANT_SIZE } from './floatingAssistantWindowSize'
+import { OldFavoriteRuntimeStore } from './oldFavoriteRuntimeStore'
 import {
   configureFloatingMenuWindow,
   createFloatingMenuWindowOptions
@@ -53,11 +72,13 @@ import {
   createFloatingSealDragPosition,
   createFloatingVisualBounds
 } from './floatingSealGeometry'
+import type { FloatingAssistantSide } from './floatingSealGeometry'
 import { createPreloadScriptPath } from './preloadPath'
 import { createRendererFilePath } from './rendererPath'
 import { transcribeCurrentVideoAudio } from './videoTranscriptionService'
 import { createVideoTranscriptionQueue } from './videoTranscriptionQueue'
 import { DeepSeekServiceError, generateDeepSeekResult } from './deepseekService'
+import { assertDeepSeekRequestEnabled } from './deepseekFeatureAccess'
 import { resolveMediaToolPaths } from './mediaToolPaths'
 import { runStartupDiagnostics } from './startupDiagnostics'
 import { BILIMI_SESSION_PARTITION } from '../../src/shared/constants'
@@ -76,6 +97,7 @@ import type {
   VideoNote
 } from '../../src/shared/types'
 import type {
+  AssistantRuntimeRequestInput,
   AssistantRuntimeRequest,
   AssistantSnapshot,
   FloatingAssistantActionOptions,
@@ -100,13 +122,15 @@ const FLOATING_SEAL_QUERY = { window: 'floating-seal' }
 const FLOATING_MENU_VISUAL_SIZE = { width: 184, height: 248 }
 const FLOATING_MENU_SHADOW_PADDING = 28
 const FLOATING_MENU_QUERY = { window: 'floating-menu' }
-const FLOATING_ASSISTANT_SIZE = { width: 460, height: 680 }
 const FLOATING_ASSISTANT_QUERY = { window: 'floating-assistant' }
 
 let mainWindow: BrowserWindow | null = null
 let floatingSealWindow: BrowserWindow | null = null
+let mainTray: Tray | null = null
+let appQuitting = false
 let enforceFloatingSealWindowBounds: (() => void) | null = null
 let assistantPetState: AssistantPetState = 'idle'
+let floatingAssistantSide: FloatingAssistantSide | undefined
 
 function openUrlInRendererTab(win: BrowserWindow, url: string) {
   if (!url || win.isDestroyed()) {
@@ -184,22 +208,24 @@ function getFloatingMenuBounds() {
 }
 
 function getFloatingAssistantBounds(anchor?: FloatingAssistantWorkspaceRequest['anchor']) {
-  const sealHostBounds = anchor
-    ? { x: anchor.screenX, y: anchor.screenY, width: 0, height: 0 }
-    : floatingSealWindow?.getBounds() ?? getFloatingSealBounds()
-  const display = screen.getDisplayMatching(sealHostBounds)
-  const sealVisualBounds = anchor
-    ? sealHostBounds
-    : createFloatingVisualBounds({
-        hostBounds: sealHostBounds,
-        padding: FLOATING_SEAL_HOST_PADDING
-      })
-
-  return createFloatingAssistantBounds({
-    sealBounds: sealVisualBounds,
+  const liveSealHostBounds =
+    floatingSealWindow && !floatingSealWindow.isDestroyed()
+      ? floatingSealWindow.getBounds()
+      : null
+  const sealHostBounds = liveSealHostBounds ?? getFloatingSealBounds()
+  const displayTarget =
+    liveSealHostBounds ??
+    (anchor ? { x: anchor.screenX, y: anchor.screenY, width: 0, height: 0 } : sealHostBounds)
+  const display = screen.getDisplayMatching(displayTarget)
+  const { side, ...bounds } = createFloatingAssistantBounds({
+    sealBounds: sealHostBounds,
     workspaceSize: FLOATING_ASSISTANT_SIZE,
-    workArea: display.workArea
+    workArea: display.workArea,
+    currentSide: floatingAssistantSide
   })
+
+  floatingAssistantSide = side
+  return bounds
 }
 
 function positionFloatingAssistantWindow(
@@ -224,22 +250,19 @@ function createFloatingSealWindow() {
   setFloatingSealMouseTransparency(seal, true)
   seal.removeMenu()
 
-  // Windows 透明窗口失活�?DWM 会把原生帧渲染成白条，移动窗口可强制重新合成�?
+  // Moving the transparent window forces Windows DWM to recompose stale inactive frames.
   const disposeWhiteStripFix =
     process.platform === 'win32' ? installFloatingSealWhiteStripFix(seal) : null
 
-  // 源头修：剥掉 WS_CAPTION，让 DWM 不进�?inactive frame 绘制路径，并�?
-  // DWMWA_NCRENDERING_POLICY 设为 DWMNCRP_DISABLED 作纵深防御�?
-  // 本窗口已无任何依赖标题栏的功能（resizable/hasShadow/min/max/thickFrame 全关），
-  // 剥它在功能上零损失。nudge 仍兜底直到确认稳定�?
+  // Strip WS_CAPTION and disable DWM non-client rendering to avoid the inactive-frame path.
+  // The pet window does not rely on title-bar behavior; the nudge remains as a fallback.
   if (process.platform === 'win32') {
     installFloatingSealCaptionStrip(seal, {
-      // node:child_process spawn 的多重载在我们的窄接口下不直接命中，做一次显式擦除�?
+      // Erase overloaded child_process.spawn signatures for the narrow caption-strip interface.
       spawn: spawn as unknown as NonNullable<
         Parameters<typeof installFloatingSealCaptionStrip>[1]
       >['spawn'],
-      // 暂时把日志接�?console，方便实测期确认 PS 调用真的在跑、有�?spawn 错误�?
-      // 稳定后再换回 noop�?
+      // Keep diagnostics visible while the PowerShell caption-strip path is validated.
       logger: (message, error) => {
         if (error) {
           console.warn('[floatingSeal]', message, error)
@@ -346,6 +369,7 @@ function createFloatingAssistantWindow() {
   assistant.removeMenu()
   assistant.on('closed', () => {
     floatingAssistantController.clearIfCurrent(assistant)
+    floatingAssistantSide = undefined
   })
 
   loadRendererWindow(assistant, FLOATING_ASSISTANT_QUERY)
@@ -356,6 +380,16 @@ function createFloatingAssistantWindow() {
 const floatingAssistantController = new FloatingMenuController(createFloatingAssistantWindow, {
   prepareWindow: positionFloatingAssistantWindow
 })
+
+const oldFavoriteRuntimeStore = new OldFavoriteRuntimeStore()
+
+function broadcastOldFavoriteRuntimeSnapshot(snapshot: unknown) {
+  for (const target of BrowserWindow.getAllWindows()) {
+    if (!target.isDestroyed()) {
+      target.webContents.send('old-favorite-runtime:changed', snapshot)
+    }
+  }
+}
 
 function sendFloatingAssistantWorkspaceWhenReady(
   target: BrowserWindow,
@@ -414,6 +448,67 @@ function closeAssistantPetWindow() {
   floatingSealWindow.close()
 }
 
+function restoreMainWindowFromTray() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    mainWindow = createMainWindow()
+    return
+  }
+
+  if (mainWindow.isMinimized()) {
+    mainWindow.restore()
+  }
+
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+function getTrayIconPath() {
+  return process.platform === 'win32'
+    ? join(__dirname, '../../build/icon.ico')
+    : join(__dirname, '../../electron/assets/bilimi-avatar.png')
+}
+
+function ensureMainTray() {
+  if (mainTray) {
+    return mainTray
+  }
+
+  const icon = nativeImage.createFromPath(getTrayIconPath())
+  mainTray = new Tray(icon)
+  mainTray.setToolTip('bilimi')
+  mainTray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: '\u6253\u5f00 bilimi',
+        click: restoreMainWindowFromTray
+      },
+      {
+        label: '\u9000\u51fa bilimi',
+        click: () => {
+          appQuitting = true
+          app.quit()
+        }
+      }
+    ])
+  )
+  mainTray.on('double-click', restoreMainWindowFromTray)
+
+  return mainTray
+}
+
+function minimizeMainWindowToTray() {
+  ensureMainTray()
+  mainWindow?.hide()
+}
+
+function saveAssistantPreferencePatch(patch: Partial<AssistantPreferences>) {
+  const saved = saveAssistantPreferences(getDesktopStore(), {
+    ...loadAssistantPreferences(getDesktopStore()),
+    ...patch
+  })
+  sendAssistantPreferencesChanged(saved)
+}
+
 function setFloatingSealWindowMouseTransparent(transparent: boolean) {
   if (!floatingSealWindow || floatingSealWindow.isDestroyed()) {
     return
@@ -455,7 +550,6 @@ function startFloatingSealDrag(screenX: number, screenY: number) {
   }
 
   closeFloatingMenuWindow()
-  closeFloatingAssistantWindow()
   resetFloatingSealWindowBounds()
   floatingSealDragController.start({ x: screenX, y: screenY })
 }
@@ -493,6 +587,12 @@ function moveFloatingSealTo(screenX: number, screenY: number) {
 
 function finishFloatingSealDrag() {
   floatingSealDragController.finish()
+
+  const assistant = floatingAssistantController.getWindow()
+
+  if (assistant && !assistant.isDestroyed() && assistant.isVisible()) {
+    positionFloatingAssistantWindow(assistant)
+  }
 }
 
 function restoreMainWindowForPet() {
@@ -509,27 +609,40 @@ let videoTranscriptionQueue:
   | null = null
 
 async function testDeepSeekConnectionForPreferences(preferences: AssistantPreferences) {
+  let responseModel: string | undefined
   try {
     await generateDeepSeekResult({
       config: {
         enabled: preferences.deepseekEnabled,
-        apiKey: loadDeepSeekApiKey(getDesktopStore()),
+        apiKey: loadDeepSeekApiKey(getDesktopStore(), safeStorage),
         model: preferences.deepseekModel,
         baseUrl: preferences.deepseekBaseUrl
       },
       request: {
         kind: 'pet-chat',
         messages: [{ role: 'user', content: 'Reply with OK.' }]
+      },
+      onResponseMetadata: (metadata) => {
+        responseModel = metadata.model
       }
     })
 
-    return { ok: true, message: 'DeepSeek connection succeeded.' }
+    return {
+      ok: true,
+      message: 'DeepSeek connection succeeded.',
+      requestedModel: preferences.deepseekModel,
+      responseModel
+    }
   } catch (error) {
     if (error instanceof DeepSeekServiceError) {
-      return { ok: false, message: error.message }
+      return { ok: false, message: error.message, requestedModel: preferences.deepseekModel }
     }
 
-    return { ok: false, message: 'DeepSeek connection failed.' }
+    return {
+      ok: false,
+      message: 'DeepSeek connection failed.',
+      requestedModel: preferences.deepseekModel
+    }
   }
 }
 
@@ -546,9 +659,7 @@ function ensureMainWindowForAssistantRuntime() {
   return mainWindow
 }
 
-function requestMainAssistantRuntime<TPayload>(
-  request: Omit<AssistantRuntimeRequest, 'id'>
-): Promise<TPayload> {
+function requestMainAssistantRuntime<TPayload>(request: AssistantRuntimeRequestInput): Promise<TPayload> {
   return requestAssistantRuntimeWhenReady<TPayload>({
     createRequestId: createAssistantRuntimeRequestId,
     request,
@@ -558,17 +669,40 @@ function requestMainAssistantRuntime<TPayload>(
 }
 
 function createMainWindow() {
-  const win = new BrowserWindow(createMainWindowOptions(createPreloadScriptPath(__dirname)))
+  const { workAreaSize } = screen.getPrimaryDisplay()
+  const win = new BrowserWindow(
+    createMainWindowOptions(createPreloadScriptPath(__dirname), workAreaSize)
+  )
+  const disposeDisplayLayout = installMainWindowDisplayLayout(win, screen)
 
   mainWindow = win
   keepMainWindowTitle(win)
   installMainWindowControlReactions({
     closeAssistantPet: closeAssistantPetWindow,
+    getPreferences: () =>
+      appQuitting
+        ? {
+            ...loadAssistantPreferences(getDesktopStore()),
+            closeBehavior: 'exit-launcher',
+            confirmBeforeExit: false
+          }
+        : loadAssistantPreferences(getDesktopStore()),
+    minimizeToTray: minimizeMainWindowToTray,
+    prepareToExitLauncher: () => {
+      appQuitting = true
+    },
+    savePreferencePatch: saveAssistantPreferencePatch,
     sendPetHint: sendAssistantPetHint,
+    showCloseConfirmation: () =>
+      dialog.showMessageBox(win, createCloseConfirmationOptions()).then((result) => ({
+        response: result.response,
+        checkboxChecked: result.checkboxChecked
+      })),
     window: win
   })
   installWindowOpenRouting(win)
   win.on('closed', () => {
+    disposeDisplayLayout()
     if (mainWindow === win) {
       mainWindow = null
     }
@@ -598,7 +732,7 @@ function getVideoTranscriptionQueue() {
       saveItems: (items) => {
         saveVideoAudioTranscriptionQueue(getDesktopStore(), items)
       },
-      transcribe: async (request, progress) => {
+      transcribe: async (request, progress, signal) => {
         const tempDir = await mkdtemp(join(tmpdir(), 'bilimi-transcribe-'))
         const sourceSession = session.fromPartition(BILIMI_SESSION_PARTITION)
         const preferences = loadAssistantPreferences(getDesktopStore())
@@ -608,19 +742,22 @@ function getVideoTranscriptionQueue() {
           session: sourceSession,
           tempDir,
           progress,
-          threadLimit: preferences.videoAudioTranscriptionThreadLimit
+          threadLimit: preferences.videoAudioTranscriptionThreadLimit,
+          signal
         })
       },
-      summarizeNote: async (note) => {
+      summarizeNote: async (note, signal) => {
         const preferences = loadAssistantPreferences(getDesktopStore())
+        assertDeepSeekRequestEnabled(preferences, 'note-poster')
         const result = await generateDeepSeekResult({
           config: {
             enabled: preferences.deepseekEnabled,
-            apiKey: loadDeepSeekApiKey(getDesktopStore()),
+            apiKey: loadDeepSeekApiKey(getDesktopStore(), safeStorage),
             model: preferences.deepseekModel,
             baseUrl: preferences.deepseekBaseUrl
           },
-          request: { kind: 'note-poster', note }
+          request: { kind: 'note-poster', note },
+          signal
         })
 
         if (result.kind !== 'note-poster') {
@@ -639,6 +776,31 @@ function getVideoTranscriptionQueue() {
 }
 
 function registerAssistantPreferenceHandlers() {
+  ipcMain.on('old-favorite-runtime:get', (event, key: string, initialValue: unknown) => {
+    event.returnValue = oldFavoriteRuntimeStore.get(key, initialValue)
+  })
+  ipcMain.on(
+    'old-favorite-runtime:set',
+    (event, key: string, value: unknown, expectedRevision: number) => {
+      const result = oldFavoriteRuntimeStore.set(key, value, expectedRevision)
+      event.returnValue = result
+      if (result.accepted) {
+        broadcastOldFavoriteRuntimeSnapshot(result)
+      }
+    }
+  )
+  ipcMain.on('old-favorite-runtime:bind-account', (event, accountMid: string) => {
+    const changed = oldFavoriteRuntimeStore.bindAccount(accountMid)
+    event.returnValue = changed
+    if (changed) {
+      broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: accountMid.trim() })
+    }
+  })
+  ipcMain.on('old-favorite-runtime:reset', (event) => {
+    oldFavoriteRuntimeStore.reset()
+    event.returnValue = true
+    broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: '' })
+  })
   ipcMain.handle('assistant:load-preferences', () => loadAssistantPreferences())
   ipcMain.handle('clipboard:write-text', (_event, text: string) => {
     clipboard.writeText(text)
@@ -648,10 +810,16 @@ function registerAssistantPreferenceHandlers() {
     sendAssistantPreferencesChanged(saved)
     return saved
   })
+  ipcMain.handle('layout:restore-default-size', () => {
+    const win = ensureMainWindowForAssistantRuntime()
+    const display = screen.getDisplayMatching(win.getBounds())
+
+    restoreMainWindowDefaultLayoutSize(win, display.workAreaSize)
+  })
   ipcMain.handle('startup:diagnose', () =>
     runStartupDiagnostics({
       resolveMediaToolPaths,
-      loadDeepSeekApiKeyStatus: () => loadDeepSeekApiKeyStatus(getDesktopStore()),
+      loadDeepSeekApiKeyStatus: () => loadDeepSeekApiKeyStatus(getDesktopStore(), safeStorage),
       testDeepSeekConnection: () =>
         testDeepSeekConnectionForPreferences(loadAssistantPreferences(getDesktopStore()))
     })
@@ -666,9 +834,9 @@ function registerAssistantPreferenceHandlers() {
     (_event, aid: number, status: PendingFavoriteQueueStatus) =>
       updatePendingFavoriteQueueItemStatus(getDesktopStore(), aid, status)
   )
-  ipcMain.handle('deepseek:key-status', () => loadDeepSeekApiKeyStatus(getDesktopStore()))
+  ipcMain.handle('deepseek:key-status', () => loadDeepSeekApiKeyStatus(getDesktopStore(), safeStorage))
   ipcMain.handle('deepseek:save-key', (_event, apiKey: string) => {
-    const status = saveDeepSeekApiKey(getDesktopStore(), apiKey)
+    const status = saveDeepSeekApiKey(getDesktopStore(), apiKey, safeStorage)
     sendAssistantPreferencesChanged(loadAssistantPreferences(getDesktopStore()))
     return status
   })
@@ -680,10 +848,12 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.handle('deepseek:generate', (_event, request: DeepSeekGenerateRequest) => {
     const preferences = loadAssistantPreferences(getDesktopStore())
 
+    assertDeepSeekRequestEnabled(preferences, request.kind)
+
     return generateDeepSeekResult({
       config: {
         enabled: preferences.deepseekEnabled,
-        apiKey: loadDeepSeekApiKey(getDesktopStore()),
+        apiKey: loadDeepSeekApiKey(getDesktopStore(), safeStorage),
         model: preferences.deepseekModel,
         baseUrl: preferences.deepseekBaseUrl
       },
@@ -703,8 +873,8 @@ function registerAssistantPreferenceHandlers() {
   )
   ipcMain.handle(
     'video-note-archives:update-version',
-    (_event, archiveId: string, versionId: string, note: VideoNote) =>
-      updateVideoNoteArchiveVersion(getDesktopStore(), archiveId, versionId, note)
+    (_event, archiveId: string, versionId: string, note: VideoNote, summaryText?: string) =>
+      updateVideoNoteArchiveVersion(getDesktopStore(), archiveId, versionId, note, summaryText)
   )
   ipcMain.handle('video-note-archives:delete-entry', (_event, archiveId: string) =>
     deleteVideoNoteArchiveEntry(getDesktopStore(), archiveId)
@@ -798,10 +968,6 @@ function registerAssistantPreferenceHandlers() {
       const assistant = floatingAssistantController.open()
       positionFloatingAssistantWindow(assistant, payload.anchor)
       sendFloatingAssistantWorkspaceWhenReady(assistant, payload)
-
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        sendFloatingAssistantWorkspaceWhenReady(mainWindow, payload)
-      }
     }
   )
   ipcMain.handle('floating-assistant:snapshot', () =>
@@ -902,11 +1068,16 @@ function registerAssistantPreferenceHandlers() {
 configureAppIdentity(app)
 
 app.whenReady().then(() => {
+  getVideoTranscriptionQueue()
   registerAssistantPreferenceHandlers()
   createMainWindow()
   createFloatingSealWindow()
 })
 
+app.on('before-quit', () => {
+  appQuitting = true
+})
+
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  if (appQuitting && process.platform !== 'darwin') app.quit()
 })

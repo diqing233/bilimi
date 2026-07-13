@@ -1,24 +1,37 @@
 import type { AssistantPetHint } from '../../src/renderer/src/features/assistant/petState'
+import type { AssistantPreferences } from './store'
+import {
+  createCloseConfirmationOptions,
+  resolveMainWindowCloseAction,
+  type CloseConfirmationResult
+} from './mainWindowCloseBehavior'
 
 export const MAIN_WINDOW_CLOSE_FAREWELL_DELAY_MS = 900
 
 type MainWindowControlTarget = {
   close: () => void
-  on: (
-    eventName: 'minimize' | 'restore' | 'maximize' | 'unmaximize' | 'close',
-    handler: (...args: unknown[]) => void
-  ) => void
+  hide: () => void
+  on(eventName: 'minimize', handler: (...args: unknown[]) => void): unknown
+  on(eventName: 'restore', handler: (...args: unknown[]) => void): unknown
+  on(eventName: 'maximize', handler: (...args: unknown[]) => void): unknown
+  on(eventName: 'unmaximize', handler: (...args: unknown[]) => void): unknown
+  on(eventName: 'close', handler: (...args: unknown[]) => void): unknown
 }
 
 type MainWindowControlReactionsOptions = {
   closeAssistantPet: () => void
+  getPreferences: () => AssistantPreferences
+  minimizeToTray: () => void
+  prepareToExitLauncher: () => void
+  savePreferencePatch: (patch: Partial<AssistantPreferences>) => void
   sendPetHint: (hint: AssistantPetHint) => void
+  showCloseConfirmation: () => CloseConfirmationResult | Promise<CloseConfirmationResult>
   window: MainWindowControlTarget
 }
 
 const MINIMIZE_LINES = [
   '那小咪先收起来啦，等你回来。',
-  '主人去忙吧，小咪待会儿见。',
+  '小咪先在旁边待命啦，主人随时找我~',
   '小咪先安静一下，主人回来再叫我。'
 ]
 
@@ -52,10 +65,56 @@ function pickLine(lines: string[]) {
 
 export function installMainWindowControlReactions({
   closeAssistantPet,
+  getPreferences,
+  minimizeToTray,
+  prepareToExitLauncher,
+  savePreferencePatch,
   sendPetHint,
+  showCloseConfirmation,
   window
 }: MainWindowControlReactionsOptions) {
   let closeAssistantPetAfterFarewell = false
+  let allowNativeClose = false
+
+  function farewellAndClosePet() {
+    if (closeAssistantPetAfterFarewell) {
+      return
+    }
+
+    closeAssistantPetAfterFarewell = true
+    sendPetHint({
+      tone: 'sleepy',
+      message: pickLine(CLOSE_LINES)
+    })
+
+    setTimeout(() => {
+      closeAssistantPet()
+    }, MAIN_WINDOW_CLOSE_FAREWELL_DELAY_MS)
+  }
+
+  function executeCloseAction(
+    action: ReturnType<typeof resolveMainWindowCloseAction>,
+    options: { closeAfterExit?: boolean } = {}
+  ) {
+    if ('preferencePatch' in action && action.preferencePatch) {
+      savePreferencePatch(action.preferencePatch)
+    }
+
+    if (action.kind === 'minimize-to-tray') {
+      minimizeToTray()
+      return
+    }
+
+    if (action.kind === 'exit-launcher') {
+      prepareToExitLauncher()
+      farewellAndClosePet()
+
+      if (options.closeAfterExit) {
+        allowNativeClose = true
+        window.close()
+      }
+    }
+  }
 
   window.on('minimize', () => {
     sendPetHint({
@@ -85,19 +144,31 @@ export function installMainWindowControlReactions({
     })
   })
 
-  window.on('close', () => {
-    if (closeAssistantPetAfterFarewell) {
+  window.on('close', (event: { preventDefault?: () => void } = {}) => {
+    if (allowNativeClose) {
       return
     }
 
-    closeAssistantPetAfterFarewell = true
-    sendPetHint({
-      tone: 'sleepy',
-      message: pickLine(CLOSE_LINES)
-    })
+    const action = resolveMainWindowCloseAction({ preferences: getPreferences() })
 
-    setTimeout(() => {
-      closeAssistantPet()
-    }, MAIN_WINDOW_CLOSE_FAREWELL_DELAY_MS)
+    if (action.kind === 'confirm-before-exit') {
+      event.preventDefault?.()
+      void Promise.resolve(showCloseConfirmation()).then((confirmation) => {
+        const confirmedAction = resolveMainWindowCloseAction({
+          preferences: getPreferences(),
+          confirmation
+        })
+        executeCloseAction(confirmedAction, { closeAfterExit: true })
+      })
+      return
+    }
+
+    if (action.kind === 'minimize-to-tray' || action.kind === 'cancel') {
+      event.preventDefault?.()
+    }
+
+    executeCloseAction(action)
   })
 }
+
+export { createCloseConfirmationOptions }

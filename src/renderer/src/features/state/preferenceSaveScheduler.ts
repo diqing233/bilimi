@@ -5,7 +5,9 @@ type PreferenceSaveSchedulerOptions<TPreferences> = {
 
 export type PreferenceSaveScheduler<TPreferences> = {
   flush: () => Promise<TPreferences | null>
+  hasActiveSave: () => boolean
   schedule: (preferences: TPreferences) => void
+  updatePending: (updater: (preferences: TPreferences) => TPreferences) => boolean
 }
 
 export function createPreferenceSaveScheduler<TPreferences>({
@@ -60,10 +62,23 @@ export function createPreferenceSaveScheduler<TPreferences>({
     }, delayMs)
   }
 
+  function updatePending(updater: (preferences: TPreferences) => TPreferences) {
+    if (!pending) {
+      return false
+    }
+
+    pending = updater(pending)
+    return true
+  }
+
+  function hasActiveSave() {
+    return Boolean(timer || inFlight || pending)
+  }
+
   async function flush() {
     clearTimer()
     return drain()
   }
 
-  return { flush, schedule }
+  return { flush, hasActiveSave, schedule, updatePending }
 }

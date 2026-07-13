@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { VideoNote, VideoNoteArchiveEntry } from '@shared/types'
+import type { NotePosterSummary, VideoNote, VideoNoteArchiveEntry } from '@shared/types'
 import { appendVideoNoteArchiveVersion } from '@shared/videoNoteArchive'
 import { VideoNoteArchivePanel } from './VideoNoteArchivePanel'
 
@@ -74,12 +74,28 @@ function renderArchivePanel(overrides: Partial<React.ComponentProps<typeof Video
       onUpdateVersion={vi.fn()}
       onDeleteEntry={vi.fn()}
       onDeleteVersion={vi.fn()}
+      deepSeekEnabled={true}
+      onGeneratePoster={vi.fn()}
+      onArchivePosterSummary={vi.fn()}
       {...overrides}
     />
   )
 }
 
 describe('VideoNoteArchivePanel', () => {
+  it('marks the return-to-notes control as the archive primary navigation action', () => {
+    renderArchivePanel()
+
+    const returnButton = screen.getByRole('button', { name: '返回 小咪 札记' })
+
+    expect(returnButton).toHaveClass('video-note-archive__return-button')
+    expect(within(returnButton).getByText('返回')).toHaveClass('video-note-archive__return-label')
+    expect(within(returnButton).getByText('札记')).toHaveClass('video-note-archive__return-label')
+    expect(within(returnButton).getByRole('img', { name: '小咪' })).toHaveClass(
+      'video-note-archive__return-pet'
+    )
+  })
+
   it('renders searchable archive list before showing selected video detail', () => {
     renderArchivePanel()
 
@@ -91,7 +107,7 @@ describe('VideoNoteArchivePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
 
     expect(screen.queryByText('第二版纯文稿。')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('tab', { name: '无时间线文稿' }))
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
 
     expect(screen.getByText('第二版纯文稿。')).toBeInTheDocument()
     expect(screen.queryByLabelText('批注标题')).not.toBeInTheDocument()
@@ -108,7 +124,87 @@ describe('VideoNoteArchivePanel', () => {
 
     expect(screen.getByRole('article', { name: '机器学习入门' })).toBeInTheDocument()
     expect(screen.getByRole('tablist', { name: '档案文稿' })).toBeInTheDocument()
-    expect(screen.queryByText('纯文稿连续阅读，提供复制全文。')).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveTextContent(
+      '纯文稿连续阅读，提供复制全文。'
+    )
+    expect(screen.getByRole('tab', { name: /带时间线文稿/ })).toHaveTextContent(
+      '按时间段阅读，提供复制全文。'
+    )
+    expect(screen.getByRole('tab', { name: /DeepSeek 总结/ })).toHaveTextContent(
+      '更丰富精细的结构化摘要，提供复制全文。'
+    )
+    expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveAttribute(
+      'title',
+      '无时间线文稿：纯文稿连续阅读，提供复制全文。'
+    )
+    expect(screen.getByRole('tab', { name: /带时间线文稿/ })).toHaveAttribute(
+      'title',
+      '带时间线文稿：按时间段阅读，提供复制全文。'
+    )
+    expect(screen.getByRole('tab', { name: /DeepSeek 总结/ })).toHaveAttribute(
+      'title',
+      'DeepSeek 总结：更丰富精细的结构化摘要，提供复制全文。'
+    )
+  })
+
+  it('keeps the archive detail compact until a transcript tab is expanded', () => {
+    renderArchivePanel()
+    const archive = screen.getByRole('region', { name: '全局档案库' })
+
+    expect(archive).toHaveAttribute('data-result-expanded', 'false')
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    expect(archive).toHaveAttribute('data-result-expanded', 'false')
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+    expect(archive).toHaveAttribute('data-result-expanded', 'true')
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+    expect(archive).toHaveAttribute('data-result-expanded', 'false')
+  })
+
+  it('marks only the clicked archive video as expanded in the list', () => {
+    renderArchivePanel()
+
+    const machineLearningButton = screen.getByRole('button', { name: /机器学习入门/ })
+    const reactButton = screen.getByRole('button', { name: /React 状态管理/ })
+
+    expect(within(machineLearningButton).getByText('详情')).toBeInTheDocument()
+    expect(within(reactButton).getByText('详情')).toBeInTheDocument()
+
+    fireEvent.click(machineLearningButton)
+
+    expect(within(machineLearningButton).getByText('已展开')).toBeInTheDocument()
+    expect(within(reactButton).getByText('详情')).toBeInTheDocument()
+
+    fireEvent.click(reactButton)
+
+    expect(within(machineLearningButton).getByText('详情')).toBeInTheDocument()
+    expect(within(reactButton).getByText('已展开')).toBeInTheDocument()
+  })
+
+  it('collapses the selected archive detail when clicking the same video again', () => {
+    renderArchivePanel()
+
+    const archiveButton = screen.getByRole('button', { name: /机器学习入门/ })
+    fireEvent.click(archiveButton)
+
+    expect(screen.getByRole('article', { name: '机器学习入门' })).toBeInTheDocument()
+
+    fireEvent.click(archiveButton)
+
+    expect(screen.queryByRole('article', { name: '机器学习入门' })).not.toBeInTheDocument()
+  })
+
+  it('restores the previously selected archive detail when reopened with saved selection', () => {
+    const archives = createArchives()
+    renderArchivePanel({
+      archives,
+      selectedArchiveId: archives[0].id,
+      selectedVersionId: archives[0].versions.at(-1)?.id ?? null
+    })
+
+    const archiveButton = screen.getByRole('button', { name: /机器学习入门/ })
+
+    expect(screen.getByRole('article', { name: '机器学习入门' })).toBeInTheDocument()
+    expect(within(archiveButton).getByText('已展开')).toBeInTheDocument()
   })
 
   it('searches title, author, bvid, transcript and summary text', () => {
@@ -161,8 +257,46 @@ describe('VideoNoteArchivePanel', () => {
       target: { value: 'bvid:BV1note:version:2026-06-17T00:00:00.000Z' }
     })
 
-    fireEvent.click(screen.getByRole('tab', { name: '无时间线文稿' }))
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
     expect(screen.getByText(/先介绍机器学习的基本概念/)).toBeInTheDocument()
+  })
+
+  it('collapses an open archive transcript tab when clicked again', () => {
+    renderArchivePanel()
+
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+    expect(screen.getByText('第二版纯文稿。')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+
+    expect(screen.queryByText('第二版纯文稿。')).not.toBeInTheDocument()
+  })
+
+  it('opens source from the underlined title and more menu, and deletes versions inline', async () => {
+    const onOpenSource = vi.fn()
+    const onDeleteVersion = vi.fn().mockResolvedValue(undefined)
+    renderArchivePanel({ onOpenSource, onDeleteVersion })
+
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('link', { name: '机器学习入门' }))
+    expect(onOpenSource).toHaveBeenCalledWith('https://www.bilibili.com/video/BV1note')
+
+    fireEvent.click(screen.getByRole('button', { name: '更多档案操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '打开视频来源' }))
+    expect(onOpenSource).toHaveBeenCalledTimes(2)
+
+    fireEvent.click(screen.getByRole('button', { name: '展开历史版本' }))
+    fireEvent.click(screen.getByRole('button', { name: /删除版本 v1/ }))
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+
+    await waitFor(() =>
+      expect(onDeleteVersion).toHaveBeenCalledWith(
+        expect.any(String),
+        'bvid:BV1note:version:2026-06-17T00:00:00.000Z'
+      )
+    )
+    expect(screen.queryByRole('button', { name: '删除当前版本' })).not.toBeInTheDocument()
   })
 
   it('opens the memo editor directly below the version controls', () => {
@@ -173,14 +307,55 @@ describe('VideoNoteArchivePanel', () => {
 
     const detail = screen.getByRole('article', { name: /\u673a\u5668\u5b66\u4e60/ })
     const controls = detail.querySelector('.video-note-archive__version-controls')
+    const header = detail.querySelector('header')
     const editor = screen.getByLabelText('\u5907\u6ce8')
-    const actions = detail.querySelector('.video-note-archive__actions')
 
     expect(controls).not.toBeNull()
-    expect(controls?.nextElementSibling).toBe(editor)
-    expect(editor.compareDocumentPosition(actions as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING
-    )
+    expect(header?.contains(controls)).toBe(true)
+    expect(header?.nextElementSibling).toBe(editor)
+    expect(detail.querySelector('.video-note-archive__actions')).toBeNull()
+  })
+
+  it('keeps archive detail title, metadata and version controls in compact adjacent rows', () => {
+    renderArchivePanel()
+
+    fireEvent.click(screen.getByRole('button', { name: /BV1note/ }))
+
+    const detail = screen.getByRole('article', { name: /\u673a\u5668\u5b66\u4e60/ })
+    const titleRow = detail.querySelector('.video-note-archive__detail-title-row')
+    const metadataRow = detail.querySelector('.video-note-archive__detail-meta')
+    const versionRow = detail.querySelector('.video-note-archive__version-controls')
+    const title = screen.getByRole('link', { name: /\u673a\u5668\u5b66\u4e60/ })
+    const moreButton = screen.getByRole('button', { name: /\u66f4\u591a.*\u64cd\u4f5c/ })
+
+    expect(titleRow).not.toBeNull()
+    expect(metadataRow).not.toBeNull()
+    expect(versionRow).not.toBeNull()
+    expect(titleRow?.contains(title)).toBe(true)
+    expect(titleRow?.contains(moreButton)).toBe(true)
+    expect(titleRow?.nextElementSibling).toBe(metadataRow)
+    expect(metadataRow?.nextElementSibling).toBe(versionRow)
+    expect(metadataRow).toHaveTextContent('BV1note')
+    expect(metadataRow).toHaveTextContent('2')
+  })
+
+  it('keeps whole-archive deletion in the more menu and version deletion inside version rows', () => {
+    renderArchivePanel()
+
+    fireEvent.click(screen.getByRole('button', { name: /BV1note/ }))
+    fireEvent.click(screen.getByRole('button', { name: /\u66f4\u591a.*\u64cd\u4f5c/ }))
+
+    const moreMenu = screen.getByRole('menu')
+    expect(within(moreMenu).getByRole('menuitem', { name: /\u6253\u5f00.*\u6765\u6e90/ })).toBeInTheDocument()
+    expect(within(moreMenu).getByRole('menuitem', { name: /\u5220\u9664.*\u89c6\u9891.*\u6863\u6848/ })).toBeInTheDocument()
+    expect(within(moreMenu).queryByRole('menuitem', { name: /\u5220\u9664\u7248\u672c/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /\u66f4\u591a.*\u64cd\u4f5c/ }))
+    fireEvent.click(screen.getByRole('button', { name: /\u5c55\u5f00.*\u5386\u53f2\u7248\u672c/ }))
+
+    const versionMenu = screen.getByRole('listbox')
+    expect(within(versionMenu).getAllByRole('button', { name: /\u5220\u9664.*v\d/ })).toHaveLength(2)
+    expect(within(versionMenu).queryByRole('button', { name: /\u5220\u9664.*\u89c6\u9891.*\u6863\u6848/ })).not.toBeInTheDocument()
   })
 
   it('copies transcript and summary text', async () => {
@@ -193,11 +368,11 @@ describe('VideoNoteArchivePanel', () => {
     renderArchivePanel()
 
     fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
-    fireEvent.click(screen.getByRole('tab', { name: '无时间线文稿' }))
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
     fireEvent.click(screen.getByRole('button', { name: '复制' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('第二版纯文稿。'))
 
-    fireEvent.click(screen.getByRole('tab', { name: 'DeepSeek 总结' }))
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
     expect(screen.getByText('暂无 DeepSeek 总结。')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '复制全文' }))
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(''))
@@ -236,7 +411,7 @@ describe('VideoNoteArchivePanel', () => {
     renderArchivePanel({ archives })
 
     fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
-    fireEvent.click(screen.getByRole('tab', { name: 'DeepSeek 总结' }))
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
 
     const splitButton = screen.getByRole('group', { name: '档案 DeepSeek 复制' })
     fireEvent.click(within(splitButton).getByRole('button', { name: '复制全文' }))
@@ -262,6 +437,123 @@ describe('VideoNoteArchivePanel', () => {
         ].join('\n')
       )
     )
+  })
+
+  it('generates a DeepSeek summary for an archived transcript without retranscribing', async () => {
+    const poster: NotePosterSummary = {
+      title: '归档总结',
+      subtitle: '基于已有文稿生成',
+      keyPoints: ['不需要重新转写'],
+      keywords: ['档案'],
+      prompt: 'archive poster',
+      polishedTranscriptText: '## 精修文稿\n\n第二版纯文稿。',
+      auditChecklistText: '- 文稿：已读取'
+    }
+    const onGeneratePoster = vi.fn().mockResolvedValue(poster)
+    const originalArchives = createArchives()
+    const nextArchives = appendVideoNoteArchiveVersion(
+      originalArchives,
+      createNote({ updatedAt: '2026-06-17T02:00:00.000Z' }),
+      '2026-06-17T02:00:00.000Z',
+      '## 精准总结\n\n### 归档总结\n基于已有文稿生成'
+    )
+    const onArchivePosterSummary = vi.fn().mockResolvedValue(nextArchives)
+
+    renderArchivePanel({
+      archives: originalArchives,
+      onGeneratePoster,
+      onArchivePosterSummary
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+    fireEvent.click(screen.getByRole('button', { name: '生成总结' }))
+
+    await waitFor(() => expect(onGeneratePoster).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'bvid:BV1note'
+    })))
+    expect(onArchivePosterSummary).toHaveBeenCalledWith(expect.any(Object), poster)
+    expect(await screen.findByText('归档总结')).toBeInTheDocument()
+  })
+
+  it('switches to the newly archived version after regenerating a summary', async () => {
+    const originalSummary = '## 精准总结\n\n### 旧总结'
+    const originalArchives = appendVideoNoteArchiveVersion(
+      [],
+      createNote(),
+      '2026-06-17T00:00:00.000Z',
+      originalSummary
+    )
+    const poster: NotePosterSummary = {
+      title: '新总结',
+      subtitle: '重新生成的内容',
+      keyPoints: ['保留历史版本'],
+      keywords: ['档案'],
+      prompt: 'regenerated archive poster'
+    }
+    const nextArchives = appendVideoNoteArchiveVersion(
+      originalArchives,
+      createNote({ updatedAt: '2026-06-17T01:00:00.000Z' }),
+      '2026-06-17T01:00:00.000Z',
+      '## 精准总结\n\n### 新总结\n重新生成的内容'
+    )
+    const onArchivePosterSummary = vi.fn().mockResolvedValue(nextArchives)
+    const onUpdateVersion = vi.fn().mockResolvedValue(undefined)
+
+    renderArchivePanel({
+      archives: originalArchives,
+      onGeneratePoster: vi.fn().mockResolvedValue(poster),
+      onArchivePosterSummary,
+      onUpdateVersion
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+    fireEvent.click(screen.getByRole('button', { name: '重新总结' }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText('历史版本')).toHaveValue(
+        'bvid:BV1note:version:2026-06-17T01:00:00.000Z'
+      )
+    )
+    expect(screen.getByText('新总结')).toBeInTheDocument()
+    expect(onUpdateVersion).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText('历史版本'), {
+      target: { value: 'bvid:BV1note:version:2026-06-17T00:00:00.000Z' }
+    })
+    expect(screen.getByText('旧总结')).toBeInTheDocument()
+  })
+
+  it('keeps the current summary unchanged when archiving a regenerated version fails', async () => {
+    const originalSummary = '## 精准总结\n\n### 旧总结'
+    const originalArchives = appendVideoNoteArchiveVersion(
+      [],
+      createNote(),
+      '2026-06-17T00:00:00.000Z',
+      originalSummary
+    )
+    const onUpdateVersion = vi.fn().mockResolvedValue(undefined)
+
+    renderArchivePanel({
+      archives: originalArchives,
+      onGeneratePoster: vi.fn().mockResolvedValue({
+        title: '新总结',
+        subtitle: '不应覆盖旧版本',
+        keyPoints: ['归档失败'],
+        keywords: ['档案'],
+        prompt: 'failed archive poster'
+      }),
+      onArchivePosterSummary: vi.fn().mockResolvedValue(undefined),
+      onUpdateVersion
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+    fireEvent.click(screen.getByRole('button', { name: '重新总结' }))
+
+    expect(await screen.findByText('旧总结')).toBeInTheDocument()
+    expect(onUpdateVersion).not.toHaveBeenCalled()
   })
 
   it('saves archive memo and starred state while keeping them filterable', async () => {
@@ -351,10 +643,11 @@ describe('VideoNoteArchivePanel', () => {
     renderArchivePanel({ onOpenSource, onDeleteEntry, onDeleteVersion })
 
     fireEvent.click(screen.getByRole('button', { name: /机器学习入门/ }))
-    fireEvent.click(screen.getByRole('button', { name: '打开来源' }))
+    fireEvent.click(screen.getByRole('link', { name: '机器学习入门' }))
     expect(onOpenSource).toHaveBeenCalledWith('https://www.bilibili.com/video/BV1note')
 
-    fireEvent.click(screen.getByRole('button', { name: '删除当前版本' }))
+    fireEvent.click(screen.getByRole('button', { name: '展开历史版本' }))
+    fireEvent.click(screen.getByRole('button', { name: /删除版本 v2/ }))
     const versionDialog = screen.getByRole('dialog', { name: '确认删除' })
     fireEvent.click(within(versionDialog).getByRole('button', { name: '确认删除' }))
     await waitFor(() =>
@@ -364,7 +657,8 @@ describe('VideoNoteArchivePanel', () => {
       )
     )
 
-    fireEvent.click(screen.getByRole('button', { name: '删除视频档案' }))
+    fireEvent.click(screen.getByRole('button', { name: '更多档案操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '删除视频档案' }))
     const entryDialog = screen.getByRole('dialog', { name: '确认删除' })
     fireEvent.click(within(entryDialog).getByRole('button', { name: '确认删除' }))
     await waitFor(() => expect(onDeleteEntry).toHaveBeenCalledWith('bvid:BV1note'))

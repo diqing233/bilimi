@@ -1,4 +1,5 @@
 import type {
+  AssistantRuntimeRequestInput,
   AssistantRuntimeRequest,
   AssistantRuntimeResponsePayload
 } from '../../src/renderer/src/features/assistant/assistantRuntimeTypes'
@@ -23,9 +24,7 @@ type AssistantRuntimeResponseBus = {
   ) => void
 }
 
-type AssistantRuntimeRequestInput = Omit<AssistantRuntimeRequest, 'id'>
-
-const QUICK_RUNTIME_REQUEST_TIMEOUT_MS = 8000
+const QUICK_RUNTIME_REQUEST_TIMEOUT_MS = 60 * 1000
 const ACTION_RUNTIME_REQUEST_TIMEOUT_MS = 60 * 1000
 const LONG_RUNTIME_REQUEST_TIMEOUT_MS = 30 * 60 * 1000
 
@@ -100,7 +99,7 @@ export function requestAssistantRuntimeWhenReady<TPayload>({
 }
 
 export function createAssistantRuntimeTimeoutMs(request: AssistantRuntimeRequestInput): number {
-  if (request.type === 'run-action') {
+  if (request.type === 'run-action' || request.type === 'enqueue-current-video-audio') {
     return ACTION_RUNTIME_REQUEST_TIMEOUT_MS
   }
 

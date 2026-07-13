@@ -22,6 +22,48 @@ describe('createMainWindowOptions', () => {
     )
   })
 
+  it('caps the initial size for a high-scale 2K logical work area', () => {
+    const options = createMainWindowOptions('C:/bilimi/out/preload/index.mjs', {
+      width: 1280,
+      height: 720
+    })
+
+    expect(options).toMatchObject({
+      width: 1177,
+      height: 662,
+      minWidth: 1080,
+      minHeight: 660
+    })
+  })
+
+  it('keeps minimum dimensions inside very small logical work areas', () => {
+    const options = createMainWindowOptions('C:/bilimi/out/preload/index.mjs', {
+      width: 1024,
+      height: 640
+    })
+
+    expect(options).toMatchObject({
+      width: 960,
+      height: 600,
+      minWidth: 960,
+      minHeight: 600
+    })
+  })
+
+  it('relaxes the absolute minimum inside extreme logical work areas', () => {
+    const options = createMainWindowOptions('C:/bilimi/out/preload/index.mjs', {
+      width: 900,
+      height: 560
+    })
+
+    expect(options).toMatchObject({
+      width: 828,
+      height: 515,
+      minWidth: 828,
+      minHeight: 515
+    })
+  })
+
   it('leaves enough initial browser width beside the embedded assistant sidebar', () => {
     const options = createMainWindowOptions('C:/bilimi/out/preload/index.mjs')
     const embeddedSidebarWidth = 430

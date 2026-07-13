@@ -173,6 +173,465 @@ describe('DeepSeek main service', () => {
     })
   })
 
+  it('accepts a concise summary for a very short transcript without fabricating long-form fields', async () => {
+    const shortNote = {
+      ...createNote(),
+      transcript: [
+        { start: 0, end: 3, text: '挑战充气城堡时，半夜突然被放气。' },
+        { start: 3, end: 6, text: '参与者发现后立刻寻找出口。' }
+      ]
+    }
+
+    await expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: { kind: 'note-poster', note: shortNote },
+        fetchImpl: createJsonFetch(
+          JSON.stringify({
+            title: '半夜城堡放气挑战',
+            subtitle: '参与者在突发放气后寻找安全出口',
+            keyPoints: ['充气城堡半夜突然放气，参与者立即寻找出口。'],
+            keywords: ['充气城堡', '挑战']
+          })
+        )
+      })
+    ).resolves.toEqual({
+      kind: 'note-poster',
+      poster: {
+        title: '半夜城堡放气挑战',
+        subtitle: '参与者在突发放气后寻找安全出口',
+        keyPoints: ['充气城堡半夜突然放气，参与者立即寻找出口。'],
+        keywords: ['充气城堡', '挑战'],
+        prompt: '',
+        polishedTranscriptText: '挑战充气城堡时，半夜突然被放气。\n\n参与者发现后立刻寻找出口。',
+        auditChecklistText: '- 充气城堡半夜突然放气，参与者立即寻找出口。'
+      }
+    })
+  })
+
+  it('parses favorite archive organization JSON and normalizes keyword suggestions', async () => {
+    const fetchImpl = createJsonFetch(
+      JSON.stringify({
+        results: [
+          {
+            aid: 1,
+            sourceFolderTitle: '默认收藏夹',
+            targetLedgerIds: ['life-interest'],
+            keepOriginal: false,
+            reason: '旅行攻略语义更接近日常生活',
+            confidence: 0.86,
+            lowConfidence: false,
+            secondPassChanged: true
+          }
+        ],
+        keywordSuggestions: [
+          {
+            action: 'replace-with-combination',
+            ledgerId: 'game',
+            keyword: '攻略',
+            replacement: '游戏攻略',
+            reason: '裸攻略容易误分旅行内容'
+          }
+        ]
+      })
+    )
+
+    await expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: {
+          kind: 'favorite-archive-organize',
+          mode: 'all',
+          videos: [
+            {
+              aid: 1,
+              title: '东京旅行攻略',
+              sourceFolderTitle: '默认收藏夹',
+              originalSuggestedLedgerIds: [],
+              currentTargetLedgerIds: [],
+              selectedTargetLedgerIds: []
+            }
+          ],
+          ledgers: [
+            {
+              id: 'life-interest',
+              displayName: 'bilimi·生活日常',
+              keywords: ['旅行攻略'],
+              enabled: true,
+              deepSeekConstraint: '只收真实出行经验，不收游戏攻略。'
+            }
+          ],
+          multiArchiveLimit: 1
+        } as unknown as DeepSeekGenerateRequest,
+        fetchImpl
+      })
+    ).resolves.toMatchObject({
+      kind: 'favorite-archive-organize',
+      results: [
+        {
+          aid: 1,
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerIds: ['life-interest'],
+          keepOriginal: false,
+          reason: '旅行攻略语义更接近日常生活',
+          confidence: 0.86,
+          lowConfidence: false,
+          secondPassChanged: true
+        }
+      ],
+      keywordSuggestions: [
+        {
+          id: 'deepseek:game:replace-with-combination:攻略:游戏攻略',
+          action: 'replace-with-combination',
+          ledgerId: 'game',
+          keyword: '攻略',
+          replacement: '游戏攻略',
+          reason: '裸攻略容易误分旅行内容',
+          source: 'deepseek',
+          status: 'pending'
+        }
+      ]
+    })
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
+      messages: Array<{ role: string; content: string }>
+    }
+    const systemMessage = body.messages.find((message) => message.role === 'system')?.content ?? ''
+
+    expect(systemMessage).toContain('only output existing enabled bilimi ledgers')
+    expect(systemMessage).toContain('未分类')
+    expect(systemMessage).toContain('choose the closest existing enabled ledger')
+    expect(systemMessage).toContain('keywordSuggestions')
+    expect(systemMessage).toContain('Use 未分类 only as a last resort')
+    expect(systemMessage).toContain('cannot create folders')
+    expect(systemMessage).toContain('cannot directly edit keywords')
+    expect(systemMessage).toContain('deepSeekConstraint')
+    expect(systemMessage).toContain('must use it as folder-specific decision guidance')
+    expect(systemMessage).toContain('Return JSON only')
+    expect(body.messages.find((message) => message.role === 'user')?.content).toContain(
+      '只收真实出行经验，不收游戏攻略。'
+    )
+  })
+
+  it('marks archive unclassified results invalid when a meaningful video only lacks an exact category', async () => {
+    const result = await generateDeepSeekResult({
+      config: baseConfig,
+      request: {
+        kind: 'favorite-archive-organize',
+        mode: 'unclassified-only',
+        videos: [
+          {
+            aid: 77,
+            title: '【一气看完】喜欢文本位的可以跑进来了。',
+            tags: ['爽文', '大女主', '小说推文', '文本位', '宝藏小说'],
+            sourceFolderTitle: '默认收藏夹',
+            originalSuggestedLedgerIds: [],
+            currentTargetLedgerIds: [],
+            selectedTargetLedgerIds: []
+          }
+        ],
+        ledgers: [
+          {
+            id: 'movie-tv',
+            displayName: 'bilimi·影视动漫',
+            keywords: ['影视剧情', '角色分析'],
+            enabled: true
+          },
+          {
+            id: 'entertainment',
+            displayName: 'bilimi·搞笑杂谈',
+            keywords: ['娱乐', '杂谈'],
+            enabled: true
+          }
+        ],
+        multiArchiveLimit: 1
+      },
+      fetchImpl: createJsonFetch(
+        JSON.stringify({
+          results: [
+            {
+              aid: 77,
+              sourceFolderTitle: '默认收藏夹',
+              targetLedgerIds: ['unclassified'],
+              keepOriginal: false,
+              reason: '没有小说推文这个精确分类。',
+              confidence: 0.7,
+              lowConfidence: false
+            }
+          ],
+          keywordSuggestions: []
+        })
+      )
+    })
+
+    expect(result).toMatchObject({
+      kind: 'favorite-archive-organize',
+      results: [
+        {
+          aid: 77,
+          invalid: true,
+          errorMessage: expect.stringContaining('closest existing enabled ledger')
+        }
+      ]
+    })
+  })
+
+  it('marks archive rows invalid when confidence is missing without dropping usable rows', async () => {
+    const result = await generateDeepSeekResult({
+      config: baseConfig,
+      request: {
+        kind: 'favorite-archive-organize',
+        mode: 'all',
+        videos: [],
+        ledgers: [],
+        multiArchiveLimit: 1
+      },
+      fetchImpl: createJsonFetch(
+        JSON.stringify({
+          results: [
+            {
+              aid: 1,
+              targetLedgerIds: ['life-interest'],
+              keepOriginal: false,
+              reason: '旅行攻略',
+              lowConfidence: false
+            },
+            {
+              aid: 2,
+              targetLedgerIds: ['game'],
+              keepOriginal: false,
+              reason: '游戏攻略',
+              confidence: 0.9,
+              lowConfidence: false
+            }
+          ],
+          keywordSuggestions: []
+        })
+      )
+    })
+
+    expect(result).toMatchObject({
+      kind: 'favorite-archive-organize',
+      results: [
+        {
+          aid: 1,
+          invalid: true,
+          errorMessage: expect.stringContaining('invalid confidence')
+        },
+        {
+          aid: 2,
+          targetLedgerIds: ['game']
+        }
+      ]
+    })
+    expect(result.kind === 'favorite-archive-organize' ? result.results[1].invalid : true).toBeUndefined()
+  })
+
+  it('parses daily favorite classification review JSON and filters unusable targets', async () => {
+    const fetchImpl = createJsonFetch(
+      JSON.stringify({
+        targetLedgerIds: ['life-interest', 'disabled-ledger'],
+        corrected: true,
+        reason: '旅行攻略应归入生活日常，不是游戏攻略。',
+        confidence: 0.82,
+        keywordSuggestions: [
+          {
+            action: 'replace-with-combination',
+            ledgerId: 'game',
+            keyword: '攻略',
+            replacement: '游戏攻略',
+            reason: '裸攻略容易误判旅行内容'
+          }
+        ]
+      })
+    )
+
+    await expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: {
+          kind: 'favorite-daily-classify-review',
+          video: {
+            aid: 701,
+            title: '大阪地铁换乘攻略',
+            author: '旅行研究所',
+            description: '交通路线与避坑',
+            tags: ['旅行', '攻略'],
+            category: '生活',
+            pageText: '大阪地铁换乘攻略'
+          },
+          localClassification: {
+            targetLedgerIds: ['game'],
+            primaryLedgerId: 'game',
+            displayNames: ['bilimi·游戏'],
+            reason: '本地命中攻略',
+            diagnostics: [
+              {
+                ledgerId: 'game',
+                score: 4,
+                runnerUpLedgerId: 'life-interest',
+                runnerUpScore: 3.5,
+                scoreGap: 0.5,
+                confidence: 'low',
+                lowConfidence: true,
+                matchedKeywords: ['攻略'],
+                strongSignals: [],
+                weakSignals: ['攻略'],
+                entityAliases: [],
+                conceptClusters: [],
+                positiveRules: [],
+                negativeRules: []
+              }
+            ]
+          },
+          ledgers: [
+            {
+              id: 'game',
+              displayName: 'bilimi·游戏',
+              keywords: ['游戏攻略'],
+              enabled: true
+            },
+            {
+              id: 'life-interest',
+              displayName: 'bilimi·生活日常',
+              keywords: ['旅行攻略'],
+              enabled: true
+            },
+            {
+              id: 'disabled-ledger',
+              displayName: '停用',
+              keywords: [],
+              enabled: false
+            }
+          ]
+        },
+        fetchImpl
+      })
+    ).resolves.toMatchObject({
+      kind: 'favorite-daily-classify-review',
+      targetLedgerIds: ['life-interest'],
+      corrected: true,
+      reason: '旅行攻略应归入生活日常，不是游戏攻略。',
+      confidence: 0.82,
+      keywordSuggestions: [
+        {
+          id: 'deepseek:game:replace-with-combination:攻略:游戏攻略',
+          source: 'deepseek',
+          status: 'pending'
+        }
+      ]
+    })
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
+      messages: Array<{ role: string; content: string }>
+    }
+    const systemMessage = body.messages.find((message) => message.role === 'system')?.content ?? ''
+
+    expect(systemMessage).toContain('existing enabled bilimi ledgers')
+    expect(systemMessage).toContain('unclassified')
+    expect(systemMessage).toContain('choose the closest existing enabled ledger')
+    expect(systemMessage).toContain('keywordSuggestions')
+    expect(systemMessage).toContain('JSON only')
+    expect(systemMessage).toContain('keywordSuggestions are only pending suggestions')
+  })
+
+  it('marks daily inbox results invalid when a meaningful video only lacks an exact category', async () => {
+    await expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: {
+          kind: 'favorite-daily-classify-review',
+          video: {
+            aid: 88,
+            title: '【一气看完】喜欢文本位的可以跑进来了。',
+            tags: ['爽文', '大女主', '小说推文', '文本位', '宝藏小说']
+          },
+          localClassification: {
+            targetLedgerIds: [],
+            primaryLedgerId: 'inbox',
+            displayNames: ['bilimi·暂存'],
+            reason: '本地没有命中精确分类',
+            diagnostics: []
+          },
+          ledgers: [
+            {
+              id: 'movie-tv',
+              displayName: 'bilimi·影视动漫',
+              keywords: ['影视剧情', '角色分析'],
+              enabled: true
+            },
+            {
+              id: 'entertainment',
+              displayName: 'bilimi·搞笑杂谈',
+              keywords: ['娱乐', '杂谈'],
+              enabled: true
+            },
+            {
+              id: 'inbox',
+              displayName: 'bilimi·暂存',
+              keywords: [],
+              enabled: true
+            }
+          ]
+        },
+        fetchImpl: createJsonFetch(
+          JSON.stringify({
+            targetLedgerIds: ['inbox'],
+            corrected: false,
+            reason: '没有小说推文这个精确分类。',
+            confidence: 0.7,
+            keywordSuggestions: []
+          })
+        )
+      })
+    ).resolves.toMatchObject({
+      kind: 'favorite-daily-classify-review',
+      invalid: true,
+      errorMessage: expect.stringContaining('closest existing enabled ledger')
+    })
+  })
+
+  it('marks daily classification review invalid when confidence or targets are unusable', async () => {
+    await expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: {
+          kind: 'favorite-daily-classify-review',
+          video: { aid: 702, title: '疑难视频', tags: [] },
+          localClassification: {
+            targetLedgerIds: ['game'],
+            primaryLedgerId: 'game',
+            displayNames: ['bilimi·游戏'],
+            diagnostics: []
+          },
+          ledgers: [
+            {
+              id: 'game',
+              displayName: 'bilimi·游戏',
+              keywords: ['游戏'],
+              enabled: true
+            }
+          ]
+        },
+        fetchImpl: createJsonFetch(
+          JSON.stringify({
+            targetLedgerIds: ['unknown-ledger'],
+            corrected: true,
+            reason: '目标不可用',
+            confidence: 1.4,
+            keywordSuggestions: []
+          })
+        )
+      })
+    ).resolves.toMatchObject({
+      kind: 'favorite-daily-classify-review',
+      targetLedgerIds: [],
+      corrected: false,
+      invalid: true,
+      errorMessage: expect.stringContaining('invalid confidence')
+    })
+  })
+
   it('asks DeepSeek to polish the transcript before creating a faithful Chinese summary', async () => {
     const fetchImpl = createJsonFetch(
       JSON.stringify({
@@ -272,7 +731,7 @@ describe('DeepSeek main service', () => {
     await expect(
       generateDeepSeekResult({
         config: baseConfig,
-        request: { kind: 'note-poster', note: createNote() },
+        request: { kind: 'note-poster', note: createLongTranscriptNote() },
         fetchImpl: createJsonFetch(
           JSON.stringify({
             title: '世界树很大',
@@ -283,12 +742,15 @@ describe('DeepSeek main service', () => {
           })
         )
       })
-    ).rejects.toMatchObject({ code: 'invalid-output' })
+    ).rejects.toMatchObject({
+      code: 'invalid-output',
+      message: expect.stringContaining('DeepSeek 总结内容不完整')
+    })
 
     await expect(
       generateDeepSeekResult({
         config: baseConfig,
-        request: { kind: 'note-poster', note: createNote() },
+        request: { kind: 'note-poster', note: createLongTranscriptNote() },
         fetchImpl: createJsonFetch(
           JSON.stringify({
             title: '世界树很大',
@@ -320,6 +782,55 @@ describe('DeepSeek main service', () => {
         fetchImpl
       })
     ).resolves.toEqual({ kind: 'pet-chat', message: 'Thanks for sharing this page.' })
+  })
+
+  it('reports the model name returned by the API response', async () => {
+    const onResponseMetadata = vi.fn()
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: vi.fn().mockResolvedValue(
+        JSON.stringify({
+          model: 'deepseek-v4-pro-20260701',
+          choices: [{ message: { content: 'OK' } }]
+        })
+      )
+    })
+
+    await generateDeepSeekResult({
+      config: baseConfig,
+      request: {
+        kind: 'pet-chat',
+        messages: [{ role: 'user', content: 'hello' }]
+      },
+      fetchImpl,
+      onResponseMetadata
+    })
+
+    expect(onResponseMetadata).toHaveBeenCalledWith({ model: 'deepseek-v4-pro-20260701' })
+  })
+
+  it('passes cancellation signals to fetch without adding timeout options', async () => {
+    const fetchImpl = createJsonFetch('ok')
+    const controller = new AbortController()
+
+    await generateDeepSeekResult({
+      config: baseConfig,
+      request: {
+        kind: 'pet-chat',
+        messages: [{ role: 'user', content: 'hello' }]
+      },
+      fetchImpl,
+      signal: controller.signal
+    })
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.deepseek.com/chat/completions',
+      expect.objectContaining({ signal: controller.signal })
+    )
+    expect(fetchImpl.mock.calls[0]?.[1]).not.toHaveProperty('timeoutMs')
+    expect(fetchImpl.mock.calls[0]?.[1]).not.toHaveProperty('timeout')
   })
 
   it('teaches pet chat enough bilimi product context to answer user questions', async () => {

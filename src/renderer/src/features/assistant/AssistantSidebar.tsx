@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import {
   ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX,
-  clampAssistantSidebarWidthPx
+  clampAssistantSidebarWidthPx,
+  getAssistantSidebarDefaultWidthPx
 } from '@shared/assistantSidebarWidth'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import { FloatingAssistantApp } from './FloatingAssistantApp'
@@ -90,6 +91,16 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
   }, [])
 
   useEffect(() => {
+    return window.bilimiDesktop?.onAssistantPreferencesChanged?.((preferences) => {
+      setSidebarWidthPx(
+        preferences.assistantSidebarWidthPx === null
+          ? null
+          : clampAssistantSidebarWidthPx(preferences.assistantSidebarWidthPx, window.innerWidth)
+      )
+    })
+  }, [])
+
+  useEffect(() => {
     if (sidebarWidthPx === null) {
       return
     }
@@ -168,7 +179,8 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
 
     event.preventDefault()
     const startWidth =
-      latestSidebarWidthPx.current ?? clampAssistantSidebarWidthPx(ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX, window.innerWidth)
+      latestSidebarWidthPx.current ??
+      clampAssistantSidebarWidthPx(getAssistantSidebarDefaultWidthPx(window.innerWidth), window.innerWidth)
 
     dragState.current = {
       startClientX: event.clientX,
@@ -241,7 +253,7 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
           onActiveTabChange={setActiveTab}
           onRequestCollapse={collapseSidebar}
           onOpenInTab={onOpenInTab}
-          workspaceRequestsEnabled={!collapsed}
+          workspaceRequestsEnabled={false}
         />
       </div>
     </aside>

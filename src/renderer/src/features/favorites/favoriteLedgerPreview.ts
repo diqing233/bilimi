@@ -1,4 +1,3 @@
-import type { FavoriteLedger } from '@shared/types'
 import {
   createFavoriteLedgerInsights,
   type FavoriteLedgerCandidate,
@@ -9,12 +8,29 @@ import {
   planFavoriteArchiveTargets,
   type FavoriteArchiveTarget
 } from '../recommendation/archivePlanning'
-import type { FavoriteArchiveMultiMode, FavoriteLedger } from '@shared/types'
+import { parseFavoriteLedgerRules } from '@shared/favoriteLedgerConstraints'
+import type {
+  FavoriteArchiveMultiMode,
+  FavoriteArchiveStrategy,
+  FavoriteLedger,
+  FavoriteLedgerClassificationDiagnostic
+} from '@shared/types'
+import type {
+  FavoriteArchiveManagedFolder,
+  FavoriteArchiveSourceVideo
+} from '@shared/favoriteArchiveProtection'
 
 export type FavoriteSourceVideo = VideoContentContext & {
   aid: number
   title: string
   category?: string
+  sourceFolderIds?: string[]
+  sourceFolderTitles?: string[]
+  currentBilimiFolderIds?: string[]
+  protectedForIncrementalScan?: boolean
+  reorganizeProtected?: boolean
+  desiredTargetFolderIds?: string[]
+  desiredTargetLedgerIds?: string[]
 }
 
 export type FavoriteSourceFolder = {
@@ -39,6 +55,11 @@ export type FavoriteLedgerPreviewItem = {
   pageText?: string
   category?: string
   sourceFolderTitle: string
+  sourceFolderIds: string[]
+  sourceFolderTitles: string[]
+  currentBilimiFolderIds: string[]
+  protectedForIncrementalScan?: boolean
+  reorganizeProtected?: boolean
   targetLedgerId: string
   targetFolderId: string
   targetDisplayName: string
@@ -48,6 +69,12 @@ export type FavoriteLedgerPreviewItem = {
   selectedCandidateTarget?: boolean
   candidateTargets?: FavoriteLedgerPreviewCandidateTarget[]
   targets?: FavoriteLedgerPreviewTarget[]
+  originalSuggestedLedgerIds: string[]
+  currentTargetLedgerIds: string[]
+  selectedTargetLedgerIds: string[]
+  classificationDiagnostic?: FavoriteLedgerClassificationDiagnostic
+  lowConfidence: boolean
+  originalSuggestionLabel?: string
 }
 
 export type FavoriteLedgerPreviewCandidateTarget = {
@@ -77,6 +104,15 @@ export type FavoriteLedgerPreview = {
   skippedSourceFolderTitles: string[]
   scanDiagnostics?: FavoriteLedgerScanDiagnostics
   insights?: FavoriteLedgerInsights
+  scanContext?: {
+    accountMid: string
+    totalUniqueVideos: number
+    activeSourceFolders: FavoriteSourceFolder[]
+    protectedVideos: FavoriteArchiveSourceVideo[]
+    managedFolders: FavoriteArchiveManagedFolder[]
+    targetMembership: Record<string, number[]>
+    multiArchiveMode: FavoriteArchiveMultiMode
+  }
 }
 
 export function createFavoriteLedgerPreview(args: {
@@ -86,6 +122,7 @@ export function createFavoriteLedgerPreview(args: {
   skippedSourceFolderTitles?: string[]
   scanDiagnostics?: FavoriteLedgerScanDiagnostics
   multiArchiveMode?: FavoriteArchiveMultiMode
+  archiveStrategy?: FavoriteArchiveStrategy
 }): FavoriteLedgerPreview {
   const skippedSourceFolderTitles = args.skippedSourceFolderTitles ?? []
   const items: FavoriteLedgerPreviewItem[] = []
@@ -100,7 +137,8 @@ export function createFavoriteLedgerPreview(args: {
       const archiveTargets = planFavoriteArchiveTargets({
         context: video,
         ledgers: args.ledgers,
-        multiArchiveMode: args.multiArchiveMode ?? 'off'
+        multiArchiveMode: args.multiArchiveMode ?? 'off',
+        archiveStrategy: args.archiveStrategy
       })
       const primaryArchiveTarget = archiveTargets[0]
       const targetLedger = args.ledgers.find(
@@ -116,12 +154,8 @@ export function createFavoriteLedgerPreview(args: {
         targetMembership: args.targetMembership
       })
       const alreadyInTarget =
-        alreadyInSpecificTarget || (targetLedger?.id === 'inbox' && alreadyInManagedLedger)
-      const selected =
-        Boolean(targetFolderId) &&
-        targetLedger?.id !== 'inbox' &&
-        !alreadyInTarget &&
-        !classification.reviewRequired
+        !video.reorganizeProtected &&
+        (alreadyInSpecificTarget || (targetLedger?.id === 'inbox' && alreadyInManagedLedger))
       const candidateTargets = candidateTargetsForVideo(video, insights.candidateLedgers)
       const targets = previewTargetsForVideo({
         video,
@@ -133,8 +167,17 @@ export function createFavoriteLedgerPreview(args: {
         reviewRequired: classification.reviewRequired,
         candidateTargets,
         archiveTargets,
-        alreadyInManagedLedger
+        alreadyInManagedLedger,
+        reorganizeProtected: video.reorganizeProtected
       })
+      const originalSuggestedLedgerIds = archiveTargets.map((target) => target.ledgerId)
+      const selectedTargetLedgerIds = targets
+        .filter((target) => target.selected && target.ledgerId !== 'inbox')
+        .map((target) => target.ledgerId)
+      const currentTargetLedgerIds = [...selectedTargetLedgerIds]
+      const classificationDiagnostic =
+        primaryArchiveTarget?.diagnostic ?? classification.diagnostic
+      const lowConfidence = Boolean(classificationDiagnostic?.lowConfidence)
 
       items.push({
         aid: video.aid,
@@ -145,14 +188,25 @@ export function createFavoriteLedgerPreview(args: {
         pageText: video.pageText,
         category: video.category,
         sourceFolderTitle: folder.title,
+        sourceFolderIds: video.sourceFolderIds ?? [folder.id],
+        sourceFolderTitles: video.sourceFolderTitles ?? [folder.title],
+        currentBilimiFolderIds: video.currentBilimiFolderIds ?? [],
+        protectedForIncrementalScan: video.protectedForIncrementalScan,
+        reorganizeProtected: video.reorganizeProtected,
         targetLedgerId: classification.ledgerId,
         targetFolderId,
         targetDisplayName: targetLedger?.displayName ?? classification.displayName,
         reviewRequired: classification.reviewRequired,
         alreadyInTarget,
-        selected,
+        selected: selectedTargetLedgerIds.length > 0,
         candidateTargets,
-        targets
+        targets,
+        originalSuggestedLedgerIds,
+        currentTargetLedgerIds,
+        selectedTargetLedgerIds,
+        classificationDiagnostic,
+        lowConfidence,
+        originalSuggestionLabel: archiveTargets.map((target) => target.displayName).join('、')
       })
     }
   }
@@ -176,6 +230,7 @@ function previewTargetsForVideo(args: {
   candidateTargets: FavoriteLedgerPreviewCandidateTarget[]
   archiveTargets: FavoriteArchiveTarget[]
   alreadyInManagedLedger: boolean
+  reorganizeProtected?: boolean
 }): FavoriteLedgerPreviewTarget[] {
   const targets: FavoriteLedgerPreviewTarget[] = []
   const targetLedgerIds = new Set<string>()
@@ -199,8 +254,9 @@ function previewTargetsForVideo(args: {
     const selected =
       Boolean(folderId) &&
       archiveTarget.ledgerId !== 'inbox' &&
-      !alreadyInTarget &&
-      !args.reviewRequired
+      (!alreadyInTarget || args.reorganizeProtected) &&
+      !args.reviewRequired &&
+      archiveTarget.selectedByStrategy
     pushTarget({
       ledgerId: archiveTarget.ledgerId,
       folderId,
@@ -224,7 +280,7 @@ function previewTargetsForVideo(args: {
         keywords: suggestedLedger.keywords,
         ruleType: suggestedLedger.ruleType,
         alreadyInTarget,
-        selected: Boolean(folderId) && !alreadyInTarget
+        selected: false
       })
     }
   }
@@ -278,7 +334,7 @@ function ledgerMatchesVideo(ledger: FavoriteLedger, video: FavoriteSourceVideo) 
     return false
   }
 
-  return ruleMatchesVideo(ledger.ruleType, ledger.keywords, video)
+  return ruleMatchesVideo(ledger.ruleType, parseFavoriteLedgerRules(ledger).localKeywords, video)
 }
 
 function candidateKey(candidate: FavoriteLedgerCandidate) {
@@ -315,6 +371,10 @@ function ruleMatchesVideo(
   keywords: string[],
   video: FavoriteSourceVideo
 ) {
+  if (ruleType === 'deepseek') {
+    return false
+  }
+
   const normalizedKeywords = keywords.map(normalize).filter(Boolean)
   if (!normalizedKeywords.length) {
     return false

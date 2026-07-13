@@ -1,7 +1,11 @@
 import type {
+  DeepSeekArchiveVideoResult,
+  DeepSeekDailyClassificationReviewResult,
   DeepSeekErrorCode,
   DeepSeekGenerateRequest,
   DeepSeekGenerateResult,
+  FavoriteKeywordSuggestion,
+  FavoriteKeywordSuggestionAction,
   NotePosterSummary,
   VideoNote
 } from '../../src/shared/types'
@@ -19,10 +23,20 @@ type DeepSeekMessage = {
 }
 
 type DeepSeekChoiceResponse = {
+  model?: string
   choices?: Array<{ message?: { content?: string } }>
 }
 
 const REVIEW_COMMENT_CHARACTER_LIMIT = 100
+
+const VALID_KEYWORD_SUGGESTION_ACTIONS = new Set<FavoriteKeywordSuggestionAction>([
+  'add-keyword',
+  'remove-keyword',
+  'downgrade-to-weak',
+  'replace-with-combination',
+  'add-entity-alias',
+  'add-concept-variant'
+])
 
 const BILIMI_PET_CHAT_CONTEXT = [
   'You are 小咪, the warm desktop pet assistant inside bilimi. Reply naturally, briefly, and in the user language.',
@@ -66,6 +80,10 @@ function trimJsonPayload<T>(items: T[], maxLength: number): T[] {
   return selected
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
 function selectTranscriptForSummary(note: VideoNote): VideoNote['transcript'] {
   const transcript = note.transcript.filter((segment) => Boolean(segment.text.trim()))
   if (transcript.length <= 30) {
@@ -100,9 +118,91 @@ function coerceStringArray(value: unknown, limit: number): string[] {
     : []
 }
 
+function isUnclassifiedLedgerId(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  return (
+    normalized === 'inbox' ||
+    normalized === 'unclassified' ||
+    normalized === '未分类' ||
+    normalized === '未整理'
+  )
+}
+
+function hasMeaningfulVideoSignal(video: {
+  title?: string
+  author?: string
+  description?: string
+  pageText?: string
+  tags?: string[]
+  category?: string
+}): boolean {
+  return [
+    video.title,
+    video.author,
+    video.description,
+    video.pageText,
+    video.category,
+    ...(video.tags ?? [])
+  ].some((value) => typeof value === 'string' && value.trim().length >= 2)
+}
+
+function explainsUnclassifiedLastResort(reason: string): boolean {
+  const normalized = reason.trim().toLowerCase()
+  return [
+    '空信息',
+    '无有效信息',
+    '信息不足',
+    '无法判断',
+    '无法归类',
+    '不可分类',
+    '广告',
+    '垃圾',
+    '风险',
+    '违规',
+    '不适合任何',
+    '都不适合',
+    '全部不适合',
+    'no useful information',
+    'insufficient information',
+    'unsafe',
+    'spam',
+    'risk'
+  ].some((keyword) => normalized.includes(keyword))
+}
+
+function shouldRejectUnclassifiedForMeaningfulVideo(args: {
+  targetLedgerIds: string[]
+  reason: string
+  video?: {
+    title?: string
+    author?: string
+    description?: string
+    pageText?: string
+    tags?: string[]
+    category?: string
+  }
+}): boolean {
+  return (
+    args.targetLedgerIds.some(isUnclassifiedLedgerId) &&
+    Boolean(args.video && hasMeaningfulVideoSignal(args.video)) &&
+    !explainsUnclassifiedLastResort(args.reason)
+  )
+}
+
 function isUsefulNoteKeyPoint(value: string): boolean {
   const normalized = value.replace(/\s+/g, '')
   return normalized.length >= 24
+}
+
+function isUsefulShortNoteKeyPoint(value: string): boolean {
+  return value.replace(/\s+/g, '').length >= 8
+}
+
+function createTranscriptText(note: VideoNote): string {
+  return selectTranscriptForSummary(note)
+    .map((segment) => segment.text.trim())
+    .filter(Boolean)
+    .join('\n\n')
 }
 
 function parseJsonContent(content: string): unknown {
@@ -133,6 +233,254 @@ function summarizeNote(note: VideoNote): string {
     annotations: note.annotations.slice(0, 12),
     userMemo: note.userMemo
   })
+}
+
+function invalidArchiveResult(
+  row: Record<string, unknown> | undefined,
+  errorMessage: string
+): DeepSeekArchiveVideoResult {
+  const aid = typeof row?.aid === 'number' && Number.isFinite(row.aid) ? row.aid : undefined
+  const sourceFolderTitle =
+    typeof row?.sourceFolderTitle === 'string' && row.sourceFolderTitle.trim()
+      ? row.sourceFolderTitle.trim()
+      : undefined
+  return {
+    aid,
+    sourceFolderTitle,
+    targetLedgerIds: coerceStringArray(row?.targetLedgerIds, 3),
+    keepOriginal: row?.keepOriginal === true,
+    reason: typeof row?.reason === 'string' ? row.reason.trim() : '',
+    lowConfidence: row?.lowConfidence === true,
+    secondPassChanged: row?.secondPassChanged === true,
+    invalid: true,
+    errorMessage
+  }
+}
+
+function findArchiveRequestVideo(
+  request: Extract<DeepSeekGenerateRequest, { kind: 'favorite-archive-organize' }>,
+  aid: number | undefined,
+  sourceFolderTitle: string | undefined
+) {
+  if (aid === undefined) {
+    return undefined
+  }
+
+  const matches = request.videos.filter(
+    (video) =>
+      video.aid === aid &&
+      (!sourceFolderTitle || video.sourceFolderTitle.trim() === sourceFolderTitle)
+  )
+  return matches.length === 1 ? matches[0] : request.videos.find((video) => video.aid === aid)
+}
+
+function parseArchiveResultRow(
+  request: Extract<DeepSeekGenerateRequest, { kind: 'favorite-archive-organize' }>,
+  row: unknown
+): DeepSeekArchiveVideoResult {
+  if (!isRecord(row)) {
+    return invalidArchiveResult(undefined, 'DeepSeek returned a non-object result row.')
+  }
+
+  const aid = typeof row.aid === 'number' && Number.isFinite(row.aid) ? row.aid : undefined
+  const sourceFolderTitle =
+    typeof row.sourceFolderTitle === 'string' && row.sourceFolderTitle.trim()
+      ? row.sourceFolderTitle.trim()
+      : undefined
+  const targetLedgerIds = coerceStringArray(row.targetLedgerIds, 3)
+  const reason = typeof row.reason === 'string' ? row.reason.trim() : ''
+  const confidence =
+    typeof row.confidence === 'number' && Number.isFinite(row.confidence) ? row.confidence : undefined
+  const invalidReasons: string[] = []
+
+  if (aid === undefined) {
+    invalidReasons.push('invalid aid')
+  }
+  if (!Array.isArray(row.targetLedgerIds) || targetLedgerIds.length === 0) {
+    invalidReasons.push('invalid targetLedgerIds')
+  }
+  if (confidence === undefined || confidence < 0 || confidence > 1) {
+    invalidReasons.push('invalid confidence')
+  }
+  if (!reason) {
+    invalidReasons.push('invalid reason')
+  }
+  if (
+    shouldRejectUnclassifiedForMeaningfulVideo({
+      targetLedgerIds,
+      reason,
+      video: findArchiveRequestVideo(request, aid, sourceFolderTitle)
+    })
+  ) {
+    invalidReasons.push('unclassified target should choose the closest existing enabled ledger')
+  }
+
+  const result: DeepSeekArchiveVideoResult = {
+    aid,
+    sourceFolderTitle,
+    targetLedgerIds,
+    keepOriginal: row.keepOriginal === true,
+    reason,
+    confidence,
+    lowConfidence: row.lowConfidence === true,
+    secondPassChanged: row.secondPassChanged === true
+  }
+
+  if (invalidReasons.length > 0) {
+    return {
+      ...result,
+      invalid: true,
+      errorMessage: `DeepSeek result row is invalid: ${invalidReasons.join(', ')}.`
+    }
+  }
+
+  return result
+}
+
+function enabledLedgerIdsForRequest(request: DeepSeekGenerateRequest): Set<string> {
+  if (
+    request.kind !== 'favorite-archive-organize' &&
+    request.kind !== 'favorite-daily-classify-review'
+  ) {
+    return new Set()
+  }
+
+  return new Set(
+    request.ledgers
+      .filter((ledger) => ledger.enabled || ledger.id === 'inbox')
+      .map((ledger) => ledger.id)
+  )
+}
+
+function normalizeKeywordSuggestionId(input: {
+  action: FavoriteKeywordSuggestionAction
+  ledgerId?: string
+  keyword?: string
+  replacement?: string
+}) {
+  return [
+    'deepseek',
+    input.ledgerId ?? 'none',
+    input.action,
+    input.keyword ?? '',
+    input.replacement ?? ''
+  ].join(':')
+}
+
+function normalizeArchiveKeywordSuggestions(value: unknown): FavoriteKeywordSuggestion[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const createdAt = new Date().toISOString()
+
+  return value.flatMap((suggestion) => {
+    if (
+      !isRecord(suggestion) ||
+      !VALID_KEYWORD_SUGGESTION_ACTIONS.has(suggestion.action as FavoriteKeywordSuggestionAction) ||
+      typeof suggestion.reason !== 'string' ||
+      !suggestion.reason.trim()
+    ) {
+      return []
+    }
+
+    const normalized: FavoriteKeywordSuggestion = {
+      id: normalizeKeywordSuggestionId({
+        action: suggestion.action as FavoriteKeywordSuggestionAction,
+        ledgerId: typeof suggestion.ledgerId === 'string' ? suggestion.ledgerId.trim() : undefined,
+        keyword: typeof suggestion.keyword === 'string' ? suggestion.keyword.trim() : undefined,
+        replacement:
+          typeof suggestion.replacement === 'string' ? suggestion.replacement.trim() : undefined
+      }),
+      action: suggestion.action as FavoriteKeywordSuggestionAction,
+      ledgerId: typeof suggestion.ledgerId === 'string' ? suggestion.ledgerId.trim() : undefined,
+      keyword: typeof suggestion.keyword === 'string' ? suggestion.keyword.trim() : undefined,
+      replacement:
+        typeof suggestion.replacement === 'string' ? suggestion.replacement.trim() : undefined,
+      reason: suggestion.reason.trim(),
+      source: 'deepseek',
+      status: 'pending',
+      createdAt
+    }
+
+    return [normalized]
+  })
+}
+
+function invalidDailyClassificationReviewResult(
+  row: Record<string, unknown>,
+  targetLedgerIds: string[],
+  reason: string,
+  errorMessage: string
+): DeepSeekDailyClassificationReviewResult {
+  return {
+    targetLedgerIds,
+    corrected: false,
+    reason,
+    confidence:
+      typeof row.confidence === 'number' && Number.isFinite(row.confidence)
+        ? row.confidence
+        : undefined,
+    keywordSuggestions: normalizeArchiveKeywordSuggestions(row.keywordSuggestions),
+    invalid: true,
+    errorMessage
+  }
+}
+
+function parseDailyClassificationReviewResult(
+  request: Extract<DeepSeekGenerateRequest, { kind: 'favorite-daily-classify-review' }>,
+  content: string
+): DeepSeekGenerateResult {
+  const parsed = parseJsonContent(content)
+  const row = isRecord(parsed) ? parsed : {}
+  const allowedLedgerIds = enabledLedgerIdsForRequest(request)
+  const targetLedgerIds = coerceStringArray(row.targetLedgerIds, 3).filter((ledgerId) =>
+    allowedLedgerIds.has(ledgerId)
+  )
+  const confidence =
+    typeof row.confidence === 'number' && Number.isFinite(row.confidence) ? row.confidence : undefined
+  const reason = typeof row.reason === 'string' ? row.reason.trim() : ''
+  const invalidReasons: string[] = []
+
+  if (!Array.isArray(row.targetLedgerIds) || targetLedgerIds.length === 0) {
+    invalidReasons.push('invalid targetLedgerIds')
+  }
+  if (confidence === undefined || confidence < 0 || confidence > 1) {
+    invalidReasons.push('invalid confidence')
+  }
+  if (!reason) {
+    invalidReasons.push('invalid reason')
+  }
+  if (
+    shouldRejectUnclassifiedForMeaningfulVideo({
+      targetLedgerIds,
+      reason,
+      video: request.video
+    })
+  ) {
+    invalidReasons.push('unclassified target should choose the closest existing enabled ledger')
+  }
+
+  if (invalidReasons.length > 0) {
+    return {
+      kind: 'favorite-daily-classify-review',
+      ...invalidDailyClassificationReviewResult(
+        row,
+        targetLedgerIds,
+        reason,
+        `DeepSeek daily classification review is invalid: ${invalidReasons.join(', ')}.`
+      )
+    }
+  }
+
+  return {
+    kind: 'favorite-daily-classify-review',
+    targetLedgerIds,
+    corrected: row.corrected === true,
+    reason,
+    confidence,
+    keywordSuggestions: normalizeArchiveKeywordSuggestions(row.keywordSuggestions)
+  }
 }
 
 function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
@@ -173,6 +521,62 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
       {
         role: 'user',
         content: summarizeNote(request.note)
+      }
+    ]
+  }
+
+  if (request.kind === 'favorite-archive-organize') {
+    return [
+      {
+        role: 'system',
+        content: [
+          'You organize Bilibili favorite archive preview rows for bilimi.',
+          'You may only output existing enabled bilimi ledgers from the provided ledger list, or 未分类 when the video should not be archived.',
+          'When no exact ledger exists but the video has meaningful topic signals, choose the closest existing enabled ledger instead of 未分类.',
+          'Use 未分类 only as a last resort for empty, unsafe, spammy, or genuinely unclassifiable videos; if you choose it, explain why no existing ledger fits.',
+          'When choosing a closest existing ledger for a missing exact topic, include keywordSuggestions only for the final chosen ledger.',
+          'If a ledger has deepSeekConstraint, you must use it as folder-specific decision guidance. It is not a keyword list; do not classify a video only because a word appears inside the constraint text.',
+          'You cannot create folders and cannot directly edit keywords; keywordSuggestions are only pending suggestions for the user to review.',
+          'Echo sourceFolderTitle from each input video in every result so duplicate aid rows from different source folders can be applied to the intended row.',
+          'Respect multiArchiveLimit for targetLedgerIds. Use keepOriginal only when the current targets should remain alongside the suggested targets.',
+          'Return JSON only: {"results":[{"aid":1,"sourceFolderTitle":"默认收藏夹","targetLedgerIds":["ledger-id"],"keepOriginal":false,"reason":"","confidence":0.8,"lowConfidence":false,"secondPassChanged":false}],"keywordSuggestions":[{"action":"replace-with-combination","ledgerId":"game","keyword":"攻略","replacement":"游戏攻略","reason":""}]}'
+        ].join(' ')
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          mode: request.mode,
+          multiArchiveLimit: request.multiArchiveLimit,
+          ledgers: request.ledgers,
+          videos: request.videos
+        })
+      }
+    ]
+  }
+
+  if (request.kind === 'favorite-daily-classify-review') {
+    return [
+      {
+        role: 'system',
+        content: [
+          'You review one daily Bilibili favorite classification for bilimi before the real action executes.',
+          'You may only output existing enabled bilimi ledgers from the provided ledger list, or inbox/unclassified when the video should stay unclassified.',
+          'When no exact ledger exists but the video has meaningful topic signals, choose the closest existing enabled ledger instead of inbox/unclassified.',
+          'Use inbox/unclassified only as a last resort for empty, unsafe, spammy, or genuinely unclassifiable videos; if you choose it, explain why no existing ledger fits.',
+          'When choosing a closest existing ledger for a missing exact topic, include keywordSuggestions only for the final chosen ledger.',
+          'If a ledger has deepSeekConstraint, use it as folder-specific decision guidance. It is not a keyword list; do not classify a video only because a word appears inside the constraint text.',
+          'Do not create folders and do not directly edit keywords; keywordSuggestions are only pending suggestions for the user to review.',
+          'Set corrected=true only when the local classification should be replaced before executing. If local targets are correct, echo them and set corrected=false.',
+          'Return JSON only: {"targetLedgerIds":["ledger-id"],"corrected":false,"reason":"","confidence":0.8,"keywordSuggestions":[{"action":"replace-with-combination","ledgerId":"game","keyword":"攻略","replacement":"游戏攻略","reason":""}]}'
+        ].join(' ')
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          video: request.video,
+          localClassification: request.localClassification,
+          ledgers: request.ledgers.filter((ledger) => ledger.enabled || ledger.id === 'inbox')
+        })
       }
     ]
   }
@@ -221,20 +625,39 @@ function parseResult(
     const prompt = typeof parsed.prompt === 'string' ? parsed.prompt.trim() : ''
     const keyPoints = coerceStringArray(parsed.keyPoints, 8)
     const keywords = coerceStringArray(parsed.keywords, 8)
-    const polishedTranscriptText =
+    const sourceTranscriptText = createTranscriptText(request.note)
+    const shortNote = sourceTranscriptText.replace(/\s+/g, '').length < 200
+    const parsedPolishedTranscriptText =
       typeof parsed.polishedTranscriptText === 'string' ? parsed.polishedTranscriptText.trim() : ''
-    const auditChecklistText =
+    const parsedAuditChecklistText =
       typeof parsed.auditChecklistText === 'string' ? parsed.auditChecklistText.trim() : ''
+    const polishedTranscriptText =
+      parsedPolishedTranscriptText || (shortNote ? sourceTranscriptText : '')
+    const auditChecklistText =
+      parsedAuditChecklistText ||
+      (shortNote && keyPoints.length > 0
+        ? keyPoints.map((point) => `- ${point}`).join('\n')
+        : '')
+    const minimumKeyPointCount = shortNote ? 1 : 2
+    const usefulKeyPoint = shortNote ? isUsefulShortNoteKeyPoint : isUsefulNoteKeyPoint
+    const invalidReasons: string[] = []
 
-    if (
-      !title ||
-      !subtitle ||
-      keyPoints.length < 2 ||
-      !polishedTranscriptText ||
-      !auditChecklistText ||
-      !keyPoints.every(isUsefulNoteKeyPoint)
-    ) {
-      throw new DeepSeekServiceError('invalid-output', 'DeepSeek did not return a usable poster.')
+    if (!title) invalidReasons.push('缺少标题')
+    if (!subtitle) invalidReasons.push('缺少主旨')
+    if (keyPoints.length < minimumKeyPointCount) {
+      invalidReasons.push(`核心内容少于 ${minimumKeyPointCount} 条`)
+    }
+    if (keyPoints.some((point) => !usefulKeyPoint(point))) {
+      invalidReasons.push(shortNote ? '核心内容过短' : '核心内容缺少有效细节')
+    }
+    if (!polishedTranscriptText) invalidReasons.push('缺少精修文稿')
+    if (!auditChecklistText) invalidReasons.push('缺少内容核对清单')
+
+    if (invalidReasons.length > 0) {
+      throw new DeepSeekServiceError(
+        'invalid-output',
+        `DeepSeek 总结内容不完整：${invalidReasons.join('、')}。`
+      )
     }
 
     return {
@@ -251,6 +674,27 @@ function parseResult(
     }
   }
 
+  if (request.kind === 'favorite-archive-organize') {
+    const parsed = parseJsonContent(content) as {
+      results?: unknown
+      keywordSuggestions?: unknown
+    }
+
+    if (!Array.isArray(parsed.results)) {
+      throw new DeepSeekServiceError('invalid-output', 'DeepSeek did not return archive results.')
+    }
+
+    return {
+      kind: 'favorite-archive-organize',
+      results: parsed.results.map((row) => parseArchiveResultRow(request, row)),
+      keywordSuggestions: normalizeArchiveKeywordSuggestions(parsed.keywordSuggestions)
+    }
+  }
+
+  if (request.kind === 'favorite-daily-classify-review') {
+    return parseDailyClassificationReviewResult(request, content)
+  }
+
   const message = trimTo(content, 220)
   if (!message) {
     throw new DeepSeekServiceError('invalid-output', 'DeepSeek returned an empty chat response.')
@@ -263,6 +707,8 @@ export async function generateDeepSeekResult(options: {
   config: DeepSeekConfig
   request: DeepSeekGenerateRequest
   fetchImpl?: typeof fetch
+  signal?: AbortSignal
+  onResponseMetadata?: (metadata: { model?: string }) => void
 }): Promise<DeepSeekGenerateResult> {
   const apiKey = options.config.apiKey.trim()
   if (!options.config.enabled || !apiKey) {
@@ -279,6 +725,7 @@ export async function generateDeepSeekResult(options: {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json'
       },
+      signal: options.signal,
       body: JSON.stringify({
         model: options.config.model,
         messages: buildMessages(options.request),
@@ -305,6 +752,10 @@ export async function generateDeepSeekResult(options: {
   } catch {
     throw new DeepSeekServiceError('invalid-output', 'DeepSeek returned invalid response JSON.')
   }
+
+  options.onResponseMetadata?.({
+    model: typeof payload.model === 'string' && payload.model.trim() ? payload.model.trim() : undefined
+  })
 
   const content = payload.choices?.[0]?.message?.content
   if (typeof content !== 'string') {

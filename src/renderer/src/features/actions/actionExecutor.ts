@@ -21,6 +21,7 @@ type ExecuteAssistantActionArgs = {
   favoriteLedgers: FavoriteLedger[]
   targetLedgerId: string
   targetLedgerIds?: string[]
+  resultMessagePrefix?: string
 }
 
 const DOM_SCRIPT_TIMEOUT_MS = 15_000
@@ -28,6 +29,52 @@ const TRUSTED_DANMAKU_TARGETS = ['danmaku-field', 'danmaku-fill', 'danmaku-focus
 
 function usesFavorite(action: AssistantAction): boolean {
   return action === '赏' || action === '赐' || action === '藏'
+}
+
+function favoriteTargetLabel(args: ExecuteAssistantActionArgs): string {
+  const targetLedgerIds =
+    args.targetLedgerIds && args.targetLedgerIds.length > 0
+      ? args.targetLedgerIds
+      : [args.targetLedgerId]
+  const targetNames = targetLedgerIds
+    .map((ledgerId) => args.favoriteLedgers.find((ledger) => ledger.id === ledgerId)?.displayName)
+    .filter((name): name is string => Boolean(name?.trim()))
+  const uniqueTargetNames = Array.from(new Set(targetNames))
+
+  return uniqueTargetNames.length > 0
+    ? uniqueTargetNames.join('、')
+    : args.favoritesFolderName.trim() || 'bilimi 收藏夹'
+}
+
+function favoriteSuccessMessage(args: ExecuteAssistantActionArgs): string {
+  const targetLabel = favoriteTargetLabel(args)
+
+  if (args.action === '赏') {
+    return `已点赞，归类存入 ${targetLabel}。`
+  }
+
+  if (args.action === '赐') {
+    return `已一键三连，归类存入 ${targetLabel}。`
+  }
+
+  return `已归类存入 ${targetLabel}。`
+}
+
+function formatActionResultMessage(
+  args: ExecuteAssistantActionArgs,
+  result: AssistantAutomationResult
+): AssistantAutomationResult {
+  const message = result.ok && usesFavorite(args.action) ? favoriteSuccessMessage(args) : result.message
+  const prefix = args.resultMessagePrefix?.trim()
+
+  if (!prefix) {
+    return { ...result, message }
+  }
+
+  return {
+    ...result,
+    message: message ? `${prefix}\n${message}` : prefix
+  }
 }
 
 function shouldUseFavoriteApi(result: AssistantAutomationResult, action: AssistantAction): boolean {
@@ -111,7 +158,7 @@ async function runScriptWithTimeout(
             ok: false,
             steps: ['dom:timeout'],
             missingTargets: ['favorite-timeout'],
-            message: '页面脚本执行超时，已切换到屏幕兜底。'
+            message: '页面响应较慢，已尝试屏幕操作。'
           })
         }, DOM_SCRIPT_TIMEOUT_MS)
       })
@@ -170,6 +217,11 @@ function skipFavoriteApiFallback(
 }
 
 export async function executeAssistantAction(args: ExecuteAssistantActionArgs) {
+  const result = await executeAssistantActionCore(args)
+  return formatActionResultMessage(args, result)
+}
+
+async function executeAssistantActionCore(args: ExecuteAssistantActionArgs) {
   if (args.action === '阅') {
     return { ok: true, steps: [], missingTargets: [], message: '此折已阅。' }
   }

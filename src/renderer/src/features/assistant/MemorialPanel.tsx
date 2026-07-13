@@ -1,13 +1,16 @@
 import type {
   AssistantAction,
+  AssistantPreferences,
+  CommentSubmitMode,
   RecommendationLabel,
   NotePosterSummary,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionQueueSnapshot,
-  VideoNote
+  VideoNote,
+  VideoNoteArchiveEntry
 } from '@shared/types'
-import { useEffect, useState } from 'react'
-import { VideoNotesPanel } from '../notes/VideoNotesPanel'
+import { useEffect, useState, type SyntheticEvent } from 'react'
+import { VideoNotesPanel, type VideoNotesResultTab } from '../notes/VideoNotesPanel'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
@@ -26,9 +29,16 @@ type MemorialPanelProps = {
   deepSeekEnabled?: boolean
   deepSeekCommentEnabled?: boolean
   deepSeekAutoSummaryEnabled?: boolean
+  deepSeekSummaryGenerating?: boolean
+  defaultCoinCount?: 1 | 2
+  commentSubmitMode?: CommentSubmitMode
+  onPreferenceChange?: (patch: Partial<AssistantPreferences>) => void
+  videoNotesResultTab?: VideoNotesResultTab | null
+  onVideoNotesResultTabChange?: (tab: VideoNotesResultTab | null) => void
   videoCategory?: string
   videoTitle: string
   videoAuthor?: string
+  hasCurrentVideo?: boolean
   onAction: (action: AssistantAction) => void
   onClose: () => void
   onGenerateVideoNote: () => Promise<VideoNote | null>
@@ -41,12 +51,16 @@ type MemorialPanelProps = {
   onCancelQueuedVideoAudioTranscription?: (id: string) => void
   onRetryQueuedVideoAudioTranscription?: (id: string) => void
   onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
-  onArchivePosterSummary?: (note: VideoNote, poster: NotePosterSummary) => Promise<void>
+  onArchivePosterSummary?: (
+    note: VideoNote,
+    poster: NotePosterSummary
+  ) => Promise<VideoNoteArchiveEntry[] | void>
   onSaveVideoNote: (note: VideoNote) => Promise<void>
   onChangeVideoNote?: (note: VideoNote) => void
   onOpenVideoNoteArchive?: () => void
   videoNote: VideoNote | null
   videoNoteArchivedSummaryText?: string
+  videoNoteArchives?: VideoNoteArchiveEntry[]
   videoNoteLoading: boolean
   transcriptionProgress?: VideoAudioTranscriptionProgress | null
   transcriptionQueue?: VideoAudioTranscriptionQueueSnapshot
@@ -62,6 +76,16 @@ type MemorialPanelProps = {
   showTabs?: boolean
   closeLabel?: string
   showCloseButton?: boolean
+}
+
+const COIN_SETTING_TITLES: Record<1 | 2, string> = {
+  1: '默认投 1 枚硬币（再点一次可补投 1 枚）',
+  2: '默认投 2 枚硬币'
+}
+
+const COMMENT_SETTING_TITLES: Record<CommentSubmitMode, string> = {
+  random: '随机生成一条并直接发送',
+  choose: '生成 3 条候选，选择后发送（也可以复制后发评论）'
 }
 
 const ACTIONS: Array<{
@@ -139,15 +163,26 @@ function localizeFeedbackMessage(message: string) {
   )
 }
 
+function stopActionEvent(event: SyntheticEvent) {
+  event.stopPropagation()
+}
+
 export function MemorialPanel({
   recommendation,
   commentDrafts,
   deepSeekEnabled = false,
   deepSeekCommentEnabled = deepSeekEnabled,
   deepSeekAutoSummaryEnabled = false,
+  deepSeekSummaryGenerating = false,
+  defaultCoinCount = 1,
+  commentSubmitMode = 'choose',
+  onPreferenceChange,
+  videoNotesResultTab,
+  onVideoNotesResultTabChange,
   videoCategory = '解闷小品',
   videoTitle,
   videoAuthor,
+  hasCurrentVideo = true,
   onAction,
   onClose,
   onGenerateVideoNote,
@@ -162,6 +197,7 @@ export function MemorialPanel({
   onOpenVideoNoteArchive,
   videoNote,
   videoNoteArchivedSummaryText = '',
+  videoNoteArchives = [],
   videoNoteLoading,
   transcriptionProgress,
   transcriptionQueue,
@@ -174,6 +210,7 @@ export function MemorialPanel({
   showCloseButton = true
 }: MemorialPanelProps) {
   const feedbackRole = feedback?.tone === 'error' ? 'alert' : 'status'
+  const authorLabel = videoAuthor?.trim() || '待识别'
   const [activePanelTab, setActivePanelTab] = useState<MemorialPanelTab>(initialTab)
 
   useEffect(() => {
@@ -207,35 +244,97 @@ export function MemorialPanel({
           <div className="memorial-panel__body">
             <aside className="memorial-panel__meta">
               <p title={videoTitle}>{videoTitle}</p>
-              <p>{videoCategory}</p>
-              <p>签语：{recommendation.badge}</p>
+              {hasCurrentVideo ? (
+                <>
+                  <p>UP 主：{authorLabel}</p>
+                  <p>小咪准备归类到：{videoCategory}</p>
+                </>
+              ) : (
+                <>
+                  <p>UP 主会显示在这里</p>
+                  <p>小咪会在这里展示视频的预归类位置</p>
+                </>
+              )}
               {recommendation.hint ? (
                 <p className="memorial-panel__recommendation-summary">{recommendation.hint}</p>
               ) : null}
-              <p className="memorial-panel__deepseek-status">
-                {deepSeekEnabled && deepSeekCommentEnabled
-                  ? 'DeepSeek 已开启，表会生成三条有趣视频评论。'
-                  : 'DeepSeek 未开启，表会推荐三条默认评论。'}
-              </p>
             </aside>
             <div className="memorial-panel__actions" role="group" aria-label="批阅动作">
-              {ACTIONS.map(({ action, testId, label, description, icon, iconAlt }) => (
-                <AssistantActionButton
-                  key={action}
-                  type="button"
-                  data-testid={testId}
-                  disabled={actionsLocked}
-                  aria-label={`${action} ${label} ${description}`}
-                  aria-busy={runningAction === action}
-                  onClick={() => void onAction(action)}
-                  icon={icon}
-                  iconAlt={iconAlt}
-                  badge={action}
-                  label={label}
-                  description={description}
-                >
-                </AssistantActionButton>
-              ))}
+              {ACTIONS.map(({ action, testId, label, description, icon, iconAlt }) => {
+                const quickSetting =
+                  action === '赐' ? (
+                    <label
+                      className="memorial-panel__action-setting"
+                      onClick={stopActionEvent}
+                      onPointerDown={stopActionEvent}
+                      onKeyDown={stopActionEvent}
+                    >
+                      <select
+                        aria-label="投币厚赏参数"
+                        title={COIN_SETTING_TITLES[defaultCoinCount]}
+                        value={defaultCoinCount}
+                        onChange={(event) => {
+                          event.stopPropagation()
+                          onPreferenceChange?.({
+                            defaultCoinCount: Number(event.currentTarget.value) as 1 | 2
+                          })
+                        }}
+                      >
+                        <option value={1}>一枚</option>
+                        <option value={2}>两枚</option>
+                      </select>
+                    </label>
+                  ) : action === '表' ? (
+                    <label
+                      className="memorial-panel__action-setting"
+                      onClick={stopActionEvent}
+                      onPointerDown={stopActionEvent}
+                      onKeyDown={stopActionEvent}
+                    >
+                      <select
+                        aria-label="拟奏短评参数"
+                        title={COMMENT_SETTING_TITLES[commentSubmitMode]}
+                        value={commentSubmitMode}
+                        onChange={(event) => {
+                          event.stopPropagation()
+                          onPreferenceChange?.({
+                            commentSubmitMode: event.currentTarget.value as CommentSubmitMode
+                          })
+                        }}
+                      >
+                        <option value="random">随机</option>
+                        <option value="choose">选择</option>
+                      </select>
+                    </label>
+                  ) : null
+
+                return (
+                  <div
+                    key={action}
+                    className={[
+                      'memorial-panel__action-card',
+                      quickSetting ? 'memorial-panel__action-card--with-setting' : ''
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
+                    <AssistantActionButton
+                      type="button"
+                      data-testid={testId}
+                      disabled={actionsLocked}
+                      aria-label={`${action} ${label} ${description}`}
+                      aria-busy={runningAction === action}
+                      onClick={() => void onAction(action)}
+                      icon={icon}
+                      iconAlt={iconAlt}
+                      badge={action}
+                      label={label}
+                      description={description}
+                    />
+                    {quickSetting}
+                  </div>
+                )
+              })}
             </div>
           </div>
         ) : (
@@ -247,16 +346,22 @@ export function MemorialPanel({
             onGenerate={onGenerateVideoNote}
             onTranscribeAudio={onTranscribeVideoAudio}
             onEnqueueTranscription={onEnqueueVideoAudioTranscription}
+            onCancelQueuedVideoAudioTranscription={onCancelQueuedVideoAudioTranscription}
+            onRetryQueuedVideoAudioTranscription={onRetryQueuedVideoAudioTranscription}
             onGeneratePoster={onGeneratePoster}
             onArchivePosterSummary={onArchivePosterSummary}
             onSave={onSaveVideoNote}
             onChange={onChangeVideoNote}
             onOpenArchive={onOpenVideoNoteArchive}
             archivedSummaryText={videoNoteArchivedSummaryText}
+            archivedNotes={videoNoteArchives}
             deepSeekEnabled={deepSeekEnabled}
             deepSeekAutoSummaryEnabled={deepSeekAutoSummaryEnabled}
+            deepSeekSummaryGenerating={deepSeekSummaryGenerating}
             transcriptionProgress={transcriptionProgress}
             transcriptionQueue={transcriptionQueue}
+            activeResultTab={videoNotesResultTab}
+            onActiveResultTabChange={onVideoNotesResultTabChange}
           />
         )}
         {feedback ? (
@@ -267,7 +372,7 @@ export function MemorialPanel({
           >
             <p>{localizeFeedbackMessage(feedback.message)}</p>
             {feedback.steps.length > 0 ? (
-              <details open className="memorial-panel__log">
+              <details className="memorial-panel__log">
                 <summary>执行日志</summary>
                 <ol>
                   {feedback.steps.map((step, index) => (

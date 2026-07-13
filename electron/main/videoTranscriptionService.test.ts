@@ -18,7 +18,12 @@ describe('video transcription service', () => {
         },
         session: { cookies: { get: vi.fn().mockResolvedValue([]) } },
         tempDir: 'C:/tmp/job',
-        resolveTools: () => ({ ytdlpPath: 'yt-dlp', ffmpegPath: 'ffmpeg' }),
+        resolveTools: () => ({
+          ytdlpPath: 'yt-dlp',
+          ffmpegPath: 'ffmpeg',
+          whisperCliPath: 'whisper-cli',
+          whisperModelPath: 'ggml-model.bin'
+        }),
         exportCookies: vi.fn().mockResolvedValue({ path: 'C:/tmp/cookies.txt', cookieCount: 1 }),
         downloadAudio: vi.fn().mockResolvedValue({ audioPath: 'C:/tmp/audio.m4a' }),
         segmentAudio: vi.fn().mockResolvedValue([
@@ -58,6 +63,46 @@ describe('video transcription service', () => {
     expect(cleanup).toHaveBeenCalledWith('C:/tmp/job')
   })
 
+  it('passes cancellation signals to owned long-running steps', async () => {
+    const signal = new AbortController().signal
+    const downloadAudio = vi.fn().mockResolvedValue({ audioPath: 'C:/tmp/audio.m4a' })
+    const segmentAudio = vi.fn().mockResolvedValue([{ path: 'C:/tmp/segment-000.mp3', offsetSeconds: 0 }])
+    const transcribeSegment = vi.fn().mockResolvedValue([{ start: 0, end: 2, text: 'segment' }])
+    const getAudioDuration = vi.fn().mockResolvedValue(120)
+
+    await transcribeCurrentVideoAudio({
+      request: {
+        url: 'https://www.bilibili.com/video/BV1demo',
+        title: 'Demo'
+      },
+      session: { cookies: { get: vi.fn().mockResolvedValue([]) } },
+      tempDir: 'C:/tmp/job',
+      resolveTools: () => ({
+        ytdlpPath: 'yt-dlp',
+        ffmpegPath: 'ffmpeg',
+        whisperCliPath: 'whisper-cli',
+        whisperModelPath: 'ggml-model.bin'
+      }),
+      exportCookies: vi.fn().mockResolvedValue({ path: 'C:/tmp/cookies.txt', cookieCount: 1 }),
+      downloadAudio,
+      segmentAudio,
+      transcribeSegment,
+      getAudioDuration,
+      cleanup: vi.fn().mockResolvedValue(undefined),
+      signal
+    })
+
+    expect(downloadAudio).toHaveBeenCalledWith(expect.objectContaining({ signal }))
+    expect(getAudioDuration).toHaveBeenCalledWith('C:/tmp/audio.m4a', 'ffmpeg', signal)
+    expect(segmentAudio).toHaveBeenCalledWith(expect.objectContaining({ signal }))
+    expect(transcribeSegment).toHaveBeenCalledWith({
+      path: 'C:/tmp/segment-000.mp3',
+      offsetSeconds: 0,
+      threadLimit: 'unlimited',
+      signal
+    })
+  })
+
   it('cleans up when download fails', async () => {
     const cleanup = vi.fn().mockResolvedValue(undefined)
 
@@ -69,7 +114,12 @@ describe('video transcription service', () => {
         },
         session: { cookies: { get: vi.fn().mockResolvedValue([]) } },
         tempDir: 'C:/tmp/job',
-        resolveTools: () => ({ ytdlpPath: 'yt-dlp', ffmpegPath: 'ffmpeg' }),
+        resolveTools: () => ({
+          ytdlpPath: 'yt-dlp',
+          ffmpegPath: 'ffmpeg',
+          whisperCliPath: 'whisper-cli',
+          whisperModelPath: 'ggml-model.bin'
+        }),
         exportCookies: vi.fn().mockResolvedValue({ path: 'C:/tmp/cookies.txt', cookieCount: 1 }),
         downloadAudio: vi.fn().mockRejectedValue(new Error('Audio download failed.')),
         segmentAudio: vi.fn(),

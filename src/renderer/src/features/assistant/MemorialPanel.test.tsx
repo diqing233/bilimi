@@ -1,5 +1,5 @@
 ﻿import type { RecommendationLabel } from '@shared/types'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { MemorialPanel } from './MemorialPanel'
 
@@ -9,6 +9,54 @@ const inboxRecommendation: RecommendationLabel = {
 }
 
 describe('MemorialPanel', () => {
+  it('shows the current video author and classification in the meta card', () => {
+    render(
+      <MemorialPanel
+        recommendation={{ badge: '可藏', summary: '适合归到影视动漫。' }}
+        commentDrafts={['先留一评。']}
+        videoCategory="影视动漫"
+        videoTitle="测试稿件"
+        videoAuthor="电影观察员"
+        hasCurrentVideo={true}
+        onAction={vi.fn()}
+        onClose={vi.fn()}
+        onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
+        onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
+        videoNote={null}
+        videoNoteLoading={false}
+      />
+    )
+
+    expect(screen.getByText('UP 主：电影观察员')).toBeInTheDocument()
+    expect(screen.getByText('小咪准备归类到：影视动漫')).toBeInTheDocument()
+    expect(screen.queryByText('小咪的批阅签语：可藏')).not.toBeInTheDocument()
+  })
+
+  it('shows 小咪 placeholder wording in the meta card when the current page is not a video', () => {
+    render(
+      <MemorialPanel
+        recommendation={{ badge: '可藏', summary: '适合归到影视动漫。' }}
+        commentDrafts={['先留一评。']}
+        videoCategory="影视动漫"
+        videoTitle="哔哩哔哩首页"
+        hasCurrentVideo={false}
+        onAction={vi.fn()}
+        onClose={vi.fn()}
+        onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
+        onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
+        videoNote={null}
+        videoNoteLoading={false}
+      />
+    )
+
+    expect(screen.getByText('哔哩哔哩首页')).toBeInTheDocument()
+    expect(screen.getByText('UP 主会显示在这里')).toBeInTheDocument()
+    expect(screen.getByText('小咪会在这里展示视频的预归类位置')).toBeInTheDocument()
+    expect(screen.queryByText('小咪会在这里给出批阅建议')).not.toBeInTheDocument()
+    expect(screen.queryByText('小咪准备归类到：影视动漫')).not.toBeInTheDocument()
+    expect(screen.queryByText('小咪的批阅签语：可藏')).not.toBeInTheDocument()
+  })
+
   it('omits the temporary-review copy, guidance box and red verdict block from the review panel', () => {
     render(
       <MemorialPanel
@@ -72,7 +120,7 @@ describe('MemorialPanel', () => {
     )
   })
 
-  it('shows whether DeepSeek will generate comments or use default suggestions', () => {
+  it('does not render static DeepSeek comment capability copy in the review content area', () => {
     const props = {
       recommendation: inboxRecommendation,
       commentDrafts: ['先留一评。'],
@@ -87,15 +135,11 @@ describe('MemorialPanel', () => {
     }
     const { rerender } = render(<MemorialPanel {...props} deepSeekEnabled={false} />)
 
-    expect(screen.getByText('DeepSeek 未开启，表会推荐三条默认评论。')).toHaveClass(
-      'memorial-panel__deepseek-status'
-    )
+    expect(screen.queryByText(/DeepSeek .*表会.*评论/)).not.toBeInTheDocument()
 
     rerender(<MemorialPanel {...props} deepSeekEnabled={true} />)
 
-    expect(screen.getByText('DeepSeek 已开启，表会生成三条有趣视频评论。')).toHaveClass(
-      'memorial-panel__deepseek-status'
-    )
+    expect(screen.queryByText(/DeepSeek .*表会.*评论/)).not.toBeInTheDocument()
   })
 
   it('shows the recommendation summary as the visible classification hint', () => {
@@ -123,7 +167,7 @@ describe('MemorialPanel', () => {
     )
   })
 
-  it('localizes missing automation targets in feedback', () => {
+  it('localizes missing automation targets in feedback and keeps the execution log collapsed', () => {
     render(
       <MemorialPanel
         recommendation={inboxRecommendation}
@@ -139,7 +183,7 @@ describe('MemorialPanel', () => {
         feedback={{
           tone: 'error',
           message: '尚有 like 未能寻见。',
-          steps: [],
+          steps: ['already-liked', 'favorite:add'],
           missingTargets: ['like']
         }}
       />
@@ -147,6 +191,7 @@ describe('MemorialPanel', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('未得：点赞按钮')
     expect(screen.queryByText('未得：like')).not.toBeInTheDocument()
+    expect(screen.getByText('执行日志').closest('details')).not.toHaveAttribute('open')
   })
 
   it('passes the current video author into the notes panel', () => {
@@ -169,5 +214,125 @@ describe('MemorialPanel', () => {
     )
 
     expect(screen.getByText('UP').nextElementSibling).toHaveTextContent('李老师讲AI')
+  })
+
+  it('passes transcription queue cancel and retry actions into the notes panel', () => {
+    const onCancelQueuedVideoAudioTranscription = vi.fn()
+    const onRetryQueuedVideoAudioTranscription = vi.fn()
+
+    render(
+      <MemorialPanel
+        recommendation={inboxRecommendation}
+        commentDrafts={['先留一评。']}
+        videoCategory="待分拣"
+        videoTitle="测试稿件"
+        onAction={vi.fn()}
+        onClose={vi.fn()}
+        onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
+        onTranscribeVideoAudio={vi.fn().mockResolvedValue(null)}
+        onEnqueueVideoAudioTranscription={vi.fn().mockResolvedValue(null)}
+        onCancelQueuedVideoAudioTranscription={onCancelQueuedVideoAudioTranscription}
+        onRetryQueuedVideoAudioTranscription={onRetryQueuedVideoAudioTranscription}
+        onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
+        videoNote={null}
+        videoNoteLoading={false}
+        initialTab="notes"
+        transcriptionQueue={{
+          activeItemId: 'bvid:BV1note',
+          sessionCompletedCount: 1,
+          items: [
+            {
+              id: 'bvid:BV1note',
+              url: 'https://www.bilibili.com/video/BV1note',
+              title: 'Running video',
+              bvid: 'BV1note',
+              status: 'running',
+              createdAt: '2026-06-25T00:01:00.000Z',
+              updatedAt: '2026-06-25T00:02:00.000Z',
+              progress: {
+                step: 'transcribing-segment',
+                message: 'Transcribing segment 1/2.',
+                segmentIndex: 1,
+                segmentCount: 2
+              }
+            },
+            {
+              id: 'bvid:BV2note',
+              url: 'https://www.bilibili.com/video/BV2note',
+              title: 'Failed video',
+              bvid: 'BV2note',
+              status: 'failed',
+              createdAt: '2026-06-25T00:03:00.000Z',
+              updatedAt: '2026-06-25T00:04:00.000Z',
+              errorMessage: 'Audio download failed.'
+            }
+          ]
+        }}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '取消转写' }))
+    fireEvent.click(screen.getByRole('button', { name: '切换队列视频' }))
+    fireEvent.click(screen.getByRole('button', { name: '重试 Failed video' }))
+
+    expect(onCancelQueuedVideoAudioTranscription).toHaveBeenCalledWith('bvid:BV1note')
+    expect(onRetryQueuedVideoAudioTranscription).toHaveBeenCalledWith('bvid:BV2note')
+  })
+
+  it('attaches narrow coin and comment menus to their action buttons without firing actions', () => {
+    const onPreferenceChange = vi.fn()
+    const onAction = vi.fn()
+
+    render(
+      <MemorialPanel
+        recommendation={inboxRecommendation}
+        commentDrafts={['先留一评。']}
+        videoCategory="待分拣"
+        videoTitle="测试稿件"
+        onAction={onAction}
+        onClose={vi.fn()}
+        onGenerateVideoNote={vi.fn().mockResolvedValue(null)}
+        onSaveVideoNote={vi.fn().mockResolvedValue(undefined)}
+        videoNote={null}
+        videoNoteLoading={false}
+        defaultCoinCount={1}
+        commentSubmitMode="random"
+        onPreferenceChange={onPreferenceChange}
+      />
+    )
+
+    expect(screen.queryByText('投币数量')).not.toBeInTheDocument()
+    expect(screen.queryByText('评论发送方式')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('投币厚赏参数')).toHaveValue('1')
+    expect(screen.getByLabelText('拟奏短评参数')).toHaveValue('random')
+    expect(screen.getByLabelText('投币厚赏参数')).toHaveDisplayValue('一枚')
+    expect(screen.getByLabelText('拟奏短评参数')).toHaveDisplayValue('随机')
+    expect(screen.getByLabelText('投币厚赏参数')).toHaveAttribute(
+      'title',
+      '默认投 1 枚硬币（再点一次可补投 1 枚）'
+    )
+    expect(screen.getByLabelText('拟奏短评参数')).toHaveAttribute('title', '随机生成一条并直接发送')
+    expect(screen.getByTestId('review-action-coin')).not.toContainElement(
+      screen.getByLabelText('投币厚赏参数')
+    )
+    expect(screen.getByTestId('review-action-comment')).not.toContainElement(
+      screen.getByLabelText('拟奏短评参数')
+    )
+    expect(screen.getByTestId('review-action-coin').parentElement).toBe(
+      screen.getByLabelText('投币厚赏参数').parentElement?.parentElement
+    )
+    expect(screen.getByTestId('review-action-comment').parentElement).toBe(
+      screen.getByLabelText('拟奏短评参数').parentElement?.parentElement
+    )
+    expect(screen.getByTestId('review-action-coin').parentElement).toHaveClass(
+      'memorial-panel__action-card--with-setting'
+    )
+
+    fireEvent.change(screen.getByLabelText('投币厚赏参数'), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText('拟奏短评参数'), { target: { value: 'choose' } })
+
+    expect(onPreferenceChange).toHaveBeenCalledWith({ defaultCoinCount: 2 })
+    expect(onPreferenceChange).toHaveBeenCalledWith({ commentSubmitMode: 'choose' })
+    expect(onAction).not.toHaveBeenCalled()
   })
 })

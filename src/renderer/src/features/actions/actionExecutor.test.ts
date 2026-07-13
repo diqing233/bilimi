@@ -37,6 +37,7 @@ describe('executeAssistantAction', () => {
     expect(result.steps).toEqual(
       expect.arrayContaining(['favorite:open', 'favorite', 'api:favorite:list', 'api:favorite:add'])
     )
+    expect(result.message).toBe('已归类存入 bilimi·影视动漫。')
   })
 
   it('passes multiple planned Bilimi archive targets to the API confirmation layer', async () => {
@@ -67,6 +68,40 @@ describe('executeAssistantAction', () => {
     expect(runScript).toHaveBeenCalledTimes(2)
     expect(runScript.mock.calls[1][0]).toContain('"targetLedgerIds":["movie-tv","game"]')
     expect(result.ok).toBe(true)
+  })
+
+  it('prefixes the automation result message when a pre-action review adjusted the target', async () => {
+    const runScript = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['favorite:open', 'favorite:folder', 'favorite'],
+        missingTargets: [],
+        message: '收藏已入库。'
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['api:favorite:list', 'api:favorite:add'],
+        missingTargets: [],
+        message: '已用 B 站接口归入 bilimi 收藏夹。'
+      })
+
+    const result = await executeAssistantAction({
+      action: '藏',
+      runScript,
+      favoritesFolderName: 'bilimi 内库',
+      favoriteLedgers,
+      targetLedgerId: 'life-interest',
+      targetLedgerIds: ['life-interest'],
+      resultMessagePrefix: 'DeepSeek 建议改归 bilimi·生活日常：旅行攻略更匹配。'
+    })
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        message: 'DeepSeek 建议改归 bilimi·生活日常：旅行攻略更匹配。\n已归类存入 bilimi·生活日常。'
+      })
+    )
   })
 
   it('runs 点赞 + 收藏 for 赏', async () => {
@@ -100,6 +135,7 @@ describe('executeAssistantAction', () => {
     expect(result.steps).toEqual(
       expect.arrayContaining(['like', 'favorite', 'api:favorite:list', 'api:favorite:add'])
     )
+    expect(result.message).toBe('已点赞，归类存入 bilimi·影视动漫。')
   })
 
   it('falls back to visual favorite automation when DOM creation cannot find targets', async () => {
@@ -251,6 +287,7 @@ describe('executeAssistantAction', () => {
     expect(result.steps).toEqual(
       expect.arrayContaining(['favorite', 'coin:confirm', 'api:favorite:list', 'api:favorite:add'])
     )
+    expect(result.message).toBe('已一键三连，归类存入 bilimi·影视动漫。')
   })
 
   it('uses shortcut-driven visual favorite automation instead of the API when page clicks only are requested', async () => {
@@ -329,7 +366,7 @@ describe('executeAssistantAction', () => {
       ok: true,
       steps: ['like', 'favorite:open', 'favorite:folder', 'favorite'],
       missingTargets: [],
-      message: '轻赏已入内库。'
+      message: '已点赞，归类存入 bilimi·影视动漫。'
     })
   })
 
@@ -436,6 +473,43 @@ describe('executeAssistantAction', () => {
         expect.arrayContaining(['dom:timeout', 'visual:favorite:open'])
       )
       expect(result.missingTargets).toEqual(['visual-create-folder'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the 15-second page fallback threshold and reports a friendly message', async () => {
+    vi.useFakeTimers()
+
+    const runScript = vi.fn(
+      () =>
+        new Promise<never>(() => {
+          // Simulates a page script that never settles.
+        })
+    )
+
+    try {
+      let settled = false
+      const resultPromise = executeAssistantAction({
+        action: '表',
+        runScript,
+        favoritesFolderName: 'bilimi 内库',
+        favoriteLedgers,
+        targetLedgerId: 'movie-tv'
+      }).then((result) => {
+        settled = true
+        return result
+      })
+
+      await vi.advanceTimersByTimeAsync(14_999)
+      expect(settled).toBe(false)
+
+      await vi.advanceTimersByTimeAsync(1)
+      await expect(resultPromise).resolves.toMatchObject({
+        ok: false,
+        steps: ['dom:timeout'],
+        message: '页面响应较慢，已尝试屏幕操作。'
+      })
     } finally {
       vi.useRealTimers()
     }

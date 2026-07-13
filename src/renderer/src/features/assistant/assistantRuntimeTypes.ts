@@ -2,6 +2,9 @@ import type {
   AssistantAction,
   AssistantAutomationResult,
   AssistantPreferences,
+  DeepSeekArchiveMode,
+  DeepSeekGenerateRequest,
+  DeepSeekGenerateResult,
   FavoriteArchiveMultiMode,
   FavoriteLedger,
   FavoriteLedgerSaveOptions,
@@ -18,6 +21,8 @@ export type AssistantSnapshot = {
   videoContentContext: VideoContentContext
   videoTitle: string
   activeTabUrl?: string
+  runtimeFeedback?: string
+  runtimeFeedbackId?: number
 }
 
 export type FloatingAssistantActionOptions = {
@@ -61,6 +66,18 @@ export type AssistantRuntimeRequest =
     }
   | { id: string; type: 'rejudge-old-favorite'; item: FavoriteLedgerPreviewItem }
   | { id: string; type: 'execute-old-favorite-plan'; items: FavoriteLedgerPreviewItem[] }
+  | {
+      id: string
+      type: 'organize-old-favorites-with-deepseek'
+      mode: DeepSeekArchiveMode
+      request: DeepSeekGenerateRequest
+    }
+
+export type AssistantRuntimeRequestInput = AssistantRuntimeRequest extends infer Request
+  ? Request extends { id: string }
+    ? Omit<Request, 'id'>
+    : never
+  : never
 
 export type AssistantRuntimeResponsePayload =
   | AssistantSnapshot
@@ -68,6 +85,7 @@ export type AssistantRuntimeResponsePayload =
   | FavoriteLedgerStatus
   | FavoriteLedgerPreview
   | FavoriteLedgerPreviewItem
+  | DeepSeekGenerateResult
   | VideoAudioTranscriptionQueueSnapshot
   | VideoNote
   | VideoNote[]

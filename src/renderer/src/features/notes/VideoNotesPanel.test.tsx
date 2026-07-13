@@ -80,7 +80,7 @@ describe('VideoNotesPanel', () => {
     expect(onGenerate).not.toHaveBeenCalled()
   })
 
-  it('keeps transcript result panels closed until audio transcription starts', async () => {
+  it('keeps transcript result panels closed after audio transcription completes until the user opens them', async () => {
     const onTranscribeAudio = vi.fn().mockResolvedValue(sampleNote)
     const { rerender } = renderPanel({ note: null, onTranscribeAudio })
 
@@ -104,10 +104,46 @@ describe('VideoNotesPanel', () => {
     )
     expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveAttribute(
       'aria-selected',
-      'true'
+      'false'
     )
-    expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).toHaveTextContent(
-      '先介绍机器学习的基本概念。'
+    expect(screen.queryByRole('tabpanel', { name: /无时间线文稿/ })).not.toBeInTheDocument()
+  })
+
+  it('lets users collapse transcript result tabs and keeps the panel collapsed across rerenders', () => {
+    const { rerender } = renderPanel()
+
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+    expect(screen.getByRole('tabpanel', { name: /无时间线文稿/ })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: /无时间线文稿/ }))
+    expect(screen.queryByRole('tabpanel', { name: /无时间线文稿/ })).not.toBeInTheDocument()
+
+    rerender(
+      <VideoNotesPanel
+        note={sampleNote}
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+      />
+    )
+
+    expect(screen.queryByRole('tabpanel', { name: /无时间线文稿/ })).not.toBeInTheDocument()
+  })
+
+  it('keeps full result tab descriptions available as hover tooltips', () => {
+    renderPanel()
+
+    expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveAttribute(
+      'title',
+      '无时间线文稿：纯文稿连续阅读，提供复制全文。'
+    )
+    expect(screen.getByRole('tab', { name: /带时间线文稿/ })).toHaveAttribute(
+      'title',
+      '带时间线文稿：按时间段阅读，提供复制全文。'
+    )
+    expect(screen.getByRole('tab', { name: /DeepSeek 总结/ })).toHaveAttribute(
+      'title',
+      'DeepSeek 总结：更丰富精细的结构化摘要，提供复制全文。'
     )
   })
 
@@ -140,7 +176,70 @@ describe('VideoNotesPanel', () => {
 
     await waitFor(() => expect(onEnqueueTranscription).toHaveBeenCalledOnce())
     expect(onTranscribeAudio).not.toHaveBeenCalled()
+    expect(screen.getByRole('tab', { name: /无时间线文稿/ })).toHaveAttribute(
+      'aria-selected',
+      'false'
+    )
+    expect(screen.queryByRole('tabpanel', { name: /无时间线文稿/ })).not.toBeInTheDocument()
     expect(await screen.findByText('「当前视频」已开始转写。')).toBeInTheDocument()
+  })
+
+  it('replaces the started transcription message when the queued video is canceled', async () => {
+    const runningQueue: VideoAudioTranscriptionQueueSnapshot = {
+      activeItemId: 'bvid:BV-current',
+      items: [
+        {
+          id: 'bvid:BV-current',
+          url: 'https://www.bilibili.com/video/BV-current',
+          title: '当前视频',
+          bvid: 'BV-current',
+          status: 'running',
+          createdAt: '2026-06-25T00:00:00.000Z',
+          updatedAt: '2026-06-25T00:00:00.000Z'
+        }
+      ]
+    }
+    const canceledQueue: VideoAudioTranscriptionQueueSnapshot = {
+      items: [
+        {
+          ...runningQueue.items[0],
+          status: 'canceled',
+          updatedAt: '2026-06-25T00:01:00.000Z'
+        }
+      ]
+    }
+    const onEnqueueTranscription = vi.fn().mockResolvedValue(runningQueue)
+    const onCancelQueuedVideoAudioTranscription = vi.fn()
+    const { rerender } = renderPanel({
+      note: null,
+      currentVideoTitle: '当前视频',
+      onTranscribeAudio: vi.fn(),
+      onEnqueueTranscription,
+      onCancelQueuedVideoAudioTranscription,
+      transcriptionQueue: { items: [] }
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+
+    expect(await screen.findByText('「当前视频」已开始转写。')).toBeInTheDocument()
+
+    rerender(
+      <VideoNotesPanel
+        note={null}
+        currentVideoTitle="当前视频"
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+        onTranscribeAudio={vi.fn()}
+        onEnqueueTranscription={onEnqueueTranscription}
+        onCancelQueuedVideoAudioTranscription={onCancelQueuedVideoAudioTranscription}
+        transcriptionQueue={canceledQueue}
+      />
+    )
+
+    expect(screen.queryByText('「当前视频」已开始转写。')).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('已取消「当前视频」的转写。')
+    expect(screen.getByText('链接').nextElementSibling).toHaveTextContent('待识别')
   })
 
   it('uses the primary transcription action to enqueue when another video is already running', async () => {
@@ -197,8 +296,12 @@ describe('VideoNotesPanel', () => {
     })
 
     expect(screen.queryByRole('button', { name: '加入队列' })).not.toBeInTheDocument()
-    expect(screen.getByText('正在转写：正在跑的视频')).toBeInTheDocument()
-    expect(screen.getByText('排队中：0 个')).toBeInTheDocument()
+    const queueStatus = screen.getByRole('region', { name: '转写状态' })
+    expect(queueStatus).toHaveTextContent('正在转写：正在跑的视频')
+    expect(queueStatus).toHaveTextContent('排队中：0 个')
+    const queueHeader = queueStatus.querySelector('.video-notes__queue-header')
+    expect(queueHeader?.children[0]).toHaveClass('video-notes__queue-summary')
+    expect(queueHeader?.children[1]).toHaveClass('video-notes__queue-title')
 
     fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
 
@@ -241,6 +344,69 @@ describe('VideoNotesPanel', () => {
     fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
     expect(screen.getAllByText('请先到设置启用 DeepSeek 后再生成总结。').length).toBeGreaterThan(0)
     expect(onGeneratePoster).not.toHaveBeenCalled()
+  })
+
+  it('enables DeepSeek summary generation immediately after DeepSeek is turned on', () => {
+    const onGeneratePoster = vi.fn()
+    const { rerender } = renderPanel({ deepSeekEnabled: false, onGeneratePoster })
+
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+    expect(screen.getByRole('button', { name: '生成总结' })).toBeDisabled()
+
+    rerender(
+      <VideoNotesPanel
+        note={sampleNote}
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+        deepSeekEnabled={true}
+        onGeneratePoster={onGeneratePoster}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: '生成总结' })).not.toBeDisabled()
+    expect(screen.getByText('请点击生成总结，让 DeepSeek 基于文稿生成精准总结。')).toBeInTheDocument()
+  })
+
+  it('disables summary generation while an external DeepSeek summary task is running', () => {
+    const onGeneratePoster = vi.fn()
+    const { rerender } = renderPanel({
+      deepSeekEnabled: true,
+      deepSeekSummaryGenerating: true,
+      onGeneratePoster
+    })
+
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+
+    const generateButton = screen.getByRole('button', { name: '生成中...' })
+    expect(generateButton).toBeDisabled()
+    fireEvent.click(generateButton)
+    expect(onGeneratePoster).not.toHaveBeenCalled()
+
+    rerender(
+      <VideoNotesPanel
+        note={sampleNote}
+        isLoading={false}
+        onGenerate={vi.fn()}
+        onSave={vi.fn()}
+        deepSeekEnabled={true}
+        deepSeekSummaryGenerating={false}
+        onGeneratePoster={onGeneratePoster}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: '生成总结' })).not.toBeDisabled()
+  })
+
+  it('restores summary generation after a failed request', async () => {
+    const onGeneratePoster = vi.fn().mockRejectedValue(new Error('DeepSeek unavailable.'))
+    renderPanel({ deepSeekEnabled: true, onGeneratePoster })
+    fireEvent.click(screen.getByRole('tab', { name: /DeepSeek 总结/ }))
+
+    fireEvent.click(screen.getByRole('button', { name: '生成总结' }))
+
+    expect(await screen.findByText('DeepSeek unavailable.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '生成总结' })).not.toBeDisabled()
   })
 
   it('generates DeepSeek summary from an explicit current-note action', async () => {

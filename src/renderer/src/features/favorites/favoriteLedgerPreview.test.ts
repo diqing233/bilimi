@@ -3,6 +3,72 @@ import { describe, expect, it } from 'vitest'
 import { createFavoriteLedgerPreview } from './favoriteLedgerPreview'
 
 describe('createFavoriteLedgerPreview', () => {
+  it('keeps review-required suggested ledgers unselected when the real target is inbox', () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
+      if (ledger.id === 'knowledge') {
+        return { ...ledger, enabled: false, bilibiliFolderId: '9001' }
+      }
+      if (ledger.id === 'inbox') {
+        return { ...ledger, bilibiliFolderId: '9008' }
+      }
+      return ledger
+    })
+
+    const preview = createFavoriteLedgerPreview({
+      ledgers,
+      sourceFolders: [
+        {
+          id: '1',
+          title: 'Default favorites',
+          videos: [{ aid: 11, title: '随便看看', tags: ['学习'] }]
+        }
+      ],
+      targetMembership: {}
+    })
+
+    expect(preview.items[0]).toMatchObject({
+      targetLedgerId: 'inbox',
+      reviewRequired: true,
+      selected: false,
+      sourceFolderIds: ['1'],
+      sourceFolderTitles: ['Default favorites'],
+      currentBilimiFolderIds: [],
+      currentTargetLedgerIds: [],
+      selectedTargetLedgerIds: []
+    })
+    expect(preview.items[0].targets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ledgerId: 'knowledge',
+          folderId: '9001',
+          selected: false
+        })
+      ])
+    )
+  })
+
+  it('stores original suggestions, current targets, selected targets, and low-confidence diagnostics', () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'knowledge' ? { ...ledger, bilibiliFolderId: '9001' } : ledger
+    )
+    const preview = createFavoriteLedgerPreview({
+      ledgers,
+      sourceFolders: [{ id: '1', title: '默认收藏夹', videos: [{ aid: 1, title: '教程入门' }] }],
+      targetMembership: {},
+      archiveStrategy: 'conservative'
+    })
+
+    expect(preview.items[0]).toMatchObject({
+      originalSuggestedLedgerIds: expect.any(Array),
+      currentTargetLedgerIds: expect.any(Array),
+      selectedTargetLedgerIds: [],
+      lowConfidence: true
+    })
+    expect(preview.items[0].classificationDiagnostic).toMatchObject({
+      lowConfidence: true
+    })
+  })
+
   it('keeps Bilimi-managed folders as selectable source folders for second-pass organizing', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
       ledger.id === 'knowledge' ? { ...ledger, bilibiliFolderId: '9001' } : ledger

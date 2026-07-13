@@ -1,4 +1,3 @@
-import type { Session } from 'electron'
 import { rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type {
@@ -10,16 +9,14 @@ import type {
 } from '../../src/shared/types'
 import { downloadVideoAudio } from './audioDownload'
 import { segmentAudioForTranscription, type AudioSegment } from './audioSegmenter'
-import { exportBilibiliCookiesToFile } from './bilibiliCookieExport'
+import { exportBilibiliCookiesToFile, type CookieSessionLike } from './bilibiliCookieExport'
 import { resolveMediaToolPaths } from './mediaToolPaths'
 import { transcribeAudioSegmentWithLocalWhisper } from './localWhisperTranscription'
 import { runProcess } from './audioDownload'
 
-type ServiceSessionLike = Pick<Session, 'cookies'>
-
 type ServiceDeps = {
   request: VideoAudioTranscriptionRequest
-  session: ServiceSessionLike
+  session: CookieSessionLike
   tempDir: string
   progress?: (progress: VideoAudioTranscriptionProgress) => void
   resolveTools?: typeof resolveMediaToolPaths
@@ -30,10 +27,12 @@ type ServiceDeps = {
     path: string
     offsetSeconds: number
     threadLimit?: VideoAudioTranscriptionThreadLimit
+    signal?: AbortSignal
   }) => Promise<TranscriptSegment[]>
-  getAudioDuration?: (path: string, ffmpegPath?: string) => Promise<number>
+  getAudioDuration?: (path: string, ffmpegPath?: string, signal?: AbortSignal) => Promise<number>
   cleanup?: (path: string) => Promise<void>
   threadLimit?: VideoAudioTranscriptionThreadLimit
+  signal?: AbortSignal
 }
 
 function normalizePath(path: string): string {
@@ -53,16 +52,24 @@ function createFfprobePath(ffmpegPath: string): string {
   return normalizePath(join(dirname(ffmpegPath), executable))
 }
 
-export async function getAudioDurationSeconds(path: string, ffmpegPath = 'ffmpeg'): Promise<number> {
-  const result = await runProcess(createFfprobePath(ffmpegPath), [
-    '-v',
-    'error',
-    '-show_entries',
-    'format=duration',
-    '-of',
-    'default=noprint_wrappers=1:nokey=1',
-    path
-  ])
+export async function getAudioDurationSeconds(
+  path: string,
+  ffmpegPath = 'ffmpeg',
+  signal?: AbortSignal
+): Promise<number> {
+  const result = await runProcess(
+    createFfprobePath(ffmpegPath),
+    [
+      '-v',
+      'error',
+      '-show_entries',
+      'format=duration',
+      '-of',
+      'default=noprint_wrappers=1:nokey=1',
+      path
+    ],
+    { signal }
+  )
   const duration = Number.parseFloat(result.stdout.trim())
 
   if (result.exitCode !== 0 || !Number.isFinite(duration) || duration <= 0) {
@@ -88,7 +95,8 @@ export async function transcribeCurrentVideoAudio({
   transcribeSegment,
   getAudioDuration = getAudioDurationSeconds,
   cleanup = defaultCleanup,
-  threadLimit = 'unlimited'
+  threadLimit = 'unlimited',
+  signal
 }: ServiceDeps): Promise<VideoAudioTranscriptionResult> {
   try {
     emit(progress, { step: 'preparing-session', message: 'Preparing current login session.' })
@@ -99,11 +107,13 @@ export async function transcribeCurrentVideoAudio({
         path: string
         offsetSeconds: number
         threadLimit?: VideoAudioTranscriptionThreadLimit
+        signal?: AbortSignal
       }) =>
         transcribeAudioSegmentWithLocalWhisper({
           ...input,
           cliPath: tools.whisperCliPath,
-          modelPath: tools.whisperModelPath
+          modelPath: tools.whisperModelPath,
+          signal
         }))
     const cookieExport = await exportCookies({ session, tempDir })
 
@@ -113,16 +123,18 @@ export async function transcribeCurrentVideoAudio({
       ytdlpPath: tools.ytdlpPath,
       url: request.url,
       cookiePath: cookieExport.path,
-      outputTemplate
+      outputTemplate,
+      signal
     })
 
     emit(progress, { step: 'preparing-segments', message: 'Preparing audio segments.' })
-    const durationSeconds = await getAudioDuration(audioPath, tools.ffmpegPath)
+    const durationSeconds = await getAudioDuration(audioPath, tools.ffmpegPath, signal)
     const segments = await segmentAudio({
       ffmpegPath: tools.ffmpegPath,
       inputPath: audioPath,
       outputDir: tempDir,
-      durationSeconds
+      durationSeconds,
+      signal
     })
 
     const transcript: TranscriptSegment[] = []
@@ -138,7 +150,8 @@ export async function transcribeCurrentVideoAudio({
         ...(await transcribeAudioSegment({
           path: segment.path,
           offsetSeconds: segment.offsetSeconds,
-          threadLimit
+          threadLimit,
+          ...(signal ? { signal } : {})
         }))
       )
     }

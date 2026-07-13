@@ -1,6 +1,33 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 - 2026-07-13
+
+- Promoted the current Windows desktop application to the first stable `1.0.0` release.
+- Replaced the application, executable, installer, taskbar, tray, and runtime icon assets with the new full-square Xiaomiao artwork, including a complete 16-256 px Windows ICO ladder.
+- Fixed the Windows installer artifact name as `bilimi.Setup.1.0.0.exe` for stable GitHub Release links.
+- Rewrote the README as a complete Chinese user manual covering every current page, workflow, state, limitation, privacy boundary, troubleshooting path, and release command.
+- Verified development, production preview, packaged resources, the NSIS installer, and an installed Windows application against the release checklist.
+
+- Split DeepSeek organization into independent review assistance and manual old-favorite organization controls, added per-feature main-process enforcement, and made first-use/reset child-feature defaults consistent.
+- Updated DeepSeek status-light explanations, model recommendations, compact review mode selection, adjacent server-address copy action, and transcription success wording.
+
+- Added archive-health checks for protected old favorites, including incomplete/invalid counts and an explicit abnormal-only reorganization action.
+
+- Allowed old-favorite organization rounds with zero archive tasks to end directly from the confirmation page without sending an archive request.
+- Reordered settings so organization strategy follows DeepSeek and close settings appear last in both navigation and page content.
+- Refined assistant status lights so long-running scan, DeepSeek, transcription queue, and old-favorite organization states stay visible without occupying the realtime feedback line.
+- Updated the in-app browser tab strip so multiple open video tabs compress before horizontal scrolling, without leading tab icons.
+- Improved old-favorite archive preview with stronger local classification, editable and reversible target choices, optional DeepSeek-assisted organization, and safer correction/keyword learning settings.
+- Added incremental protection for completed old-favorite organization, with source-scoped reorganization that safely reconciles only Bilimi-managed folders to the configured target limit.
+- Added DeepSeek constraint favorite ledgers so enabled folders can provide AI-only classification guidance without affecting local keyword matching.
+- Scoped classification learning so only DeepSeek produces reviewable keyword suggestions, while correction records are kept as reference evidence instead of direct local-classification inputs.
+- Locked the default favorite categories to keyword rules while keeping names and keywords editable, with a warning when non-staging defaults lose all local keywords.
+- Split DeepSeek constraints into a dedicated one-line editor field for keyword, UP, and tag favorite ledgers.
+- Added batch archive-preview change summaries and card-level source notices for DeepSeek moves, staging moves, and generated-ledger selections, with undo/redo preserving generated ledger choices.
+- Kept the note archive's opened video detail visible when returning from review or a folded assistant session, while avoiding restore after a new app session.
+- Added close settings for minimizing to the system tray or exiting bilimi, with an optional remembered confirmation choice before direct exit.
+- Preserved DeepSeek API key secrecy in settings by clearing saved drafts, showing only saved/readable status, and keeping failed-save drafts recoverable.
+- Clarified transcription queue scope: user cancellation remains, restart archives recoverable drafts before clearing unfinished queue work, session completion count is visible, and fixed automatic timeouts are not included.
 
 ## 0.1.1 - 2026-07-05
 

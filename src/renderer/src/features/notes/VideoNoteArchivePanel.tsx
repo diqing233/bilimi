@@ -1,11 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { VideoNote, VideoNoteArchiveEntry, VideoNoteArchiveVersion } from '@shared/types'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type {
+  NotePosterSummary,
+  VideoNote,
+  VideoNoteArchiveEntry,
+  VideoNoteArchiveVersion
+} from '@shared/types'
 import {
   createNotePosterCopyParts,
   createPlainTranscriptText,
   searchVideoNoteArchives
 } from '@shared/videoNoteArchive'
 import { CopySplitButton } from './CopySplitButton'
+import { formatDeepSeekErrorMessage } from '../assistant/deepSeekErrorMessage'
+import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 
 type VideoNoteArchivePanelProps = {
   archives: VideoNoteArchiveEntry[]
@@ -14,18 +21,35 @@ type VideoNoteArchivePanelProps = {
   onUpdateVersion: (
     archiveId: string,
     versionId: string,
-    note: VideoNote
+    note: VideoNote,
+    summaryText?: string
   ) => Promise<VideoNoteArchiveEntry[] | void>
   onDeleteEntry: (archiveId: string) => Promise<void>
   onDeleteVersion: (archiveId: string, versionId: string) => Promise<void>
+  deepSeekEnabled?: boolean
+  onGeneratePoster?: (note: VideoNote) => Promise<NotePosterSummary>
+  onArchivePosterSummary?: (
+    note: VideoNote,
+    poster: NotePosterSummary
+  ) => Promise<VideoNoteArchiveEntry[] | void>
+  selectedArchiveId?: string | null
+  selectedVersionId?: string | null
+  activeResultTab?: ArchiveResultTab | null
+  onSelectionChange?: (selection: VideoNoteArchiveSelection) => void
 }
 
 type ArchiveResultTab = 'plain' | 'timed' | 'summary'
 
-const archiveResultTabs: Array<{ id: ArchiveResultTab; label: string }> = [
-  { id: 'plain', label: '无时间线文稿' },
-  { id: 'timed', label: '带时间线文稿' },
-  { id: 'summary', label: 'DeepSeek 总结' }
+export type VideoNoteArchiveSelection = {
+  archiveId: string | null
+  versionId: string | null
+  activeResultTab: ArchiveResultTab | null
+}
+
+const archiveResultTabs: Array<{ id: ArchiveResultTab; label: string; description: string }> = [
+  { id: 'plain', label: '无时间线文稿', description: '纯文稿连续阅读，提供复制全文。' },
+  { id: 'timed', label: '带时间线文稿', description: '按时间段阅读，提供复制全文。' },
+  { id: 'summary', label: 'DeepSeek 总结', description: '更丰富精细的结构化摘要，提供复制全文。' }
 ]
 
 type PendingDelete =
@@ -55,29 +79,64 @@ function createTimedTranscriptText(note: VideoNote): string {
     .join('\n\n')
 }
 
+function extractMarkdownHeading(text: string): string {
+  const lines = text.split('\n').map((line) => line.trim())
+  return (
+    lines.find((line) => /^###\s+/.test(line))?.replace(/^###\s+/, '').trim() ??
+    lines.find((line) => /^##\s+/.test(line))?.replace(/^##\s+/, '').trim() ??
+    ''
+  )
+}
+
 export function VideoNoteArchivePanel({
   archives,
   onClose,
   onOpenSource,
   onUpdateVersion,
   onDeleteEntry,
-  onDeleteVersion
+  onDeleteVersion,
+  deepSeekEnabled = false,
+  onGeneratePoster,
+  onArchivePosterSummary,
+  selectedArchiveId: controlledSelectedArchiveId,
+  selectedVersionId: controlledSelectedVersionId,
+  activeResultTab: controlledActiveResultTab,
+  onSelectionChange
 }: VideoNoteArchivePanelProps): React.JSX.Element {
+  const archiveRootRef = useRef<HTMLElement | null>(null)
   const [localArchives, setLocalArchives] = useState<VideoNoteArchiveEntry[]>(archives)
   const [query, setQuery] = useState('')
   const [hasMemo, setHasMemo] = useState(false)
   const [hasStarred, setHasStarred] = useState(false)
-  const [selectedArchiveId, setSelectedArchiveId] = useState<string | null>(null)
-  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null)
-  const [activeResultTab, setActiveResultTab] = useState<ArchiveResultTab | null>(null)
+  const [uncontrolledSelectedArchiveId, setUncontrolledSelectedArchiveId] =
+    useState<string | null>(null)
+  const [uncontrolledSelectedVersionId, setUncontrolledSelectedVersionId] =
+    useState<string | null>(null)
+  const [uncontrolledActiveResultTab, setUncontrolledActiveResultTab] =
+    useState<ArchiveResultTab | null>(null)
   const [memoOpen, setMemoOpen] = useState(false)
   const [memoDraft, setMemoDraft] = useState('')
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
   const [statusMessage, setStatusMessage] = useState('')
+  const [versionMenuOpen, setVersionMenuOpen] = useState(false)
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false)
+  const [summaryGenerating, setSummaryGenerating] = useState(false)
   const filteredArchives = useMemo(
     () => searchVideoNoteArchives(localArchives, { query, hasMemo, hasStarred }),
     [localArchives, hasMemo, hasStarred, query]
   )
+  const selectedArchiveId =
+    controlledSelectedArchiveId !== undefined
+      ? controlledSelectedArchiveId
+      : uncontrolledSelectedArchiveId
+  const selectedVersionId =
+    controlledSelectedVersionId !== undefined
+      ? controlledSelectedVersionId
+      : uncontrolledSelectedVersionId
+  const activeResultTab =
+    controlledActiveResultTab !== undefined
+      ? controlledActiveResultTab
+      : uncontrolledActiveResultTab
   const selectedArchive =
     localArchives.find((archive) => archive.id === selectedArchiveId) ?? null
   const selectedVersion =
@@ -85,31 +144,72 @@ export function VideoNoteArchivePanel({
     selectedArchive?.versions.at(-1) ??
     null
 
+  function setArchiveSelection(selection: VideoNoteArchiveSelection): void {
+    if (controlledSelectedArchiveId === undefined) {
+      setUncontrolledSelectedArchiveId(selection.archiveId)
+    }
+    if (controlledSelectedVersionId === undefined) {
+      setUncontrolledSelectedVersionId(selection.versionId)
+    }
+    if (controlledActiveResultTab === undefined) {
+      setUncontrolledActiveResultTab(selection.activeResultTab)
+    }
+    onSelectionChange?.(selection)
+  }
+
   useEffect(() => {
     setLocalArchives(archives)
   }, [archives])
 
   useEffect(() => {
     if (selectedArchiveId && !selectedArchive) {
-      setSelectedArchiveId(null)
-      setSelectedVersionId(null)
+      if (localArchives.length === 0) {
+        return
+      }
+      setArchiveSelection({ archiveId: null, versionId: null, activeResultTab: null })
       return
     }
 
     if (selectedArchive && !selectedVersion) {
-      setSelectedVersionId(selectedArchive.versions.at(-1)?.id ?? null)
+      setArchiveSelection({
+        archiveId: selectedArchive.id,
+        versionId: selectedArchive.versions.at(-1)?.id ?? null,
+        activeResultTab
+      })
     }
-  }, [selectedArchive, selectedArchiveId, selectedVersion])
+  }, [activeResultTab, selectedArchive, selectedArchiveId, selectedVersion])
 
   useEffect(() => {
     setMemoDraft(selectedVersion?.note.userMemo ?? '')
   }, [selectedVersion?.id, selectedVersion?.note.userMemo])
 
+  useEffect(() => {
+    if (!selectedArchive) {
+      return
+    }
+
+    archiveRootRef.current
+      ?.querySelector<HTMLElement>('.video-note-archive__list button[aria-pressed="true"]')
+      ?.scrollIntoView?.({ block: 'nearest' })
+  }, [selectedArchive])
+
   function selectArchive(archive: VideoNoteArchiveEntry): void {
-    setSelectedArchiveId(archive.id)
-    setSelectedVersionId(archive.versions.at(-1)?.id ?? null)
-    setActiveResultTab(null)
+    if (selectedArchiveId === archive.id) {
+      setArchiveSelection({ archiveId: null, versionId: null, activeResultTab: null })
+      setMemoOpen(false)
+      setVersionMenuOpen(false)
+      setMoreMenuOpen(false)
+      return
+    }
+
+    setArchiveSelection({
+      archiveId: archive.id,
+      versionId: archive.versions.at(-1)?.id ?? null,
+      activeResultTab: null
+    })
     setMemoOpen(false)
+    setVersionMenuOpen(false)
+    setMoreMenuOpen(false)
   }
 
   async function copyText(value: string, message: string): Promise<void> {
@@ -124,15 +224,45 @@ export function VideoNoteArchivePanel({
 
     if (pendingDelete.type === 'entry') {
       await onDeleteEntry(pendingDelete.archiveId)
+      setLocalArchives((current) =>
+        current.filter((archive) => archive.id !== pendingDelete.archiveId)
+      )
+      setArchiveSelection({ archiveId: null, versionId: null, activeResultTab: null })
     } else {
       await onDeleteVersion(pendingDelete.archiveId, pendingDelete.versionId)
+      setLocalArchives((current) =>
+        current
+          .map((archive) =>
+            archive.id === pendingDelete.archiveId
+              ? {
+                  ...archive,
+                  versions: archive.versions.filter(
+                    (version) => version.id !== pendingDelete.versionId
+                  )
+                }
+              : archive
+          )
+          .filter((archive) => archive.versions.length > 0)
+      )
+
+      if (selectedVersionId === pendingDelete.versionId) {
+        const remainingVersion =
+          selectedArchive?.versions.find((version) => version.id !== pendingDelete.versionId) ??
+          null
+        setArchiveSelection({
+          archiveId: selectedArchiveId,
+          versionId: remainingVersion?.id ?? null,
+          activeResultTab
+        })
+      }
     }
 
     setPendingDelete(null)
   }
 
-  async function updateSelectedNote(note: VideoNote): Promise<void> {
+  async function updateSelectedNote(note: VideoNote, summaryText?: string): Promise<void> {
     if (!selectedArchive || !selectedVersion) return
+    const nextSummaryText = summaryText ?? selectedVersion.summaryText
 
     const nextArchives = localArchives.map((archive) =>
       archive.id === selectedArchive.id
@@ -145,7 +275,7 @@ export function VideoNoteArchivePanel({
                     ...version,
                     note,
                     plainTranscript: createPlainTranscriptText(note),
-                    summaryText: selectedVersion.summaryText
+                    summaryText: nextSummaryText
                   }
                 : version
             ),
@@ -154,7 +284,11 @@ export function VideoNoteArchivePanel({
         : archive
     )
     setLocalArchives(nextArchives)
-    await onUpdateVersion(selectedArchive.id, selectedVersion.id, note)
+    if (summaryText === undefined) {
+      await onUpdateVersion(selectedArchive.id, selectedVersion.id, note)
+    } else {
+      await onUpdateVersion(selectedArchive.id, selectedVersion.id, note, summaryText)
+    }
   }
 
   function saveMemoDraft(): void {
@@ -178,6 +312,49 @@ export function VideoNoteArchivePanel({
     })
   }
 
+  function toggleResultTab(tab: ArchiveResultTab): void {
+    setArchiveSelection({
+      archiveId: selectedArchiveId,
+      versionId: selectedVersionId,
+      activeResultTab: activeResultTab === tab ? null : tab
+    })
+  }
+
+  async function generateSummary(version: VideoNoteArchiveVersion): Promise<void> {
+    if (!deepSeekEnabled) {
+      setStatusMessage('请先到设置启用 DeepSeek 后再生成总结。')
+      return
+    }
+
+    if (!onGeneratePoster || summaryGenerating) return
+
+    setSummaryGenerating(true)
+    setStatusMessage('')
+    try {
+      const poster = await onGeneratePoster(version.note)
+      const archived = await onArchivePosterSummary?.(version.note, poster)
+      if (archived) {
+        const updatedArchive = archived.find((archive) => archive.id === selectedArchive?.id)
+        const latestVersion = updatedArchive?.versions.at(-1)
+        setLocalArchives(archived)
+        if (updatedArchive && latestVersion) {
+          setArchiveSelection({
+            archiveId: updatedArchive.id,
+            versionId: latestVersion.id,
+            activeResultTab: 'summary'
+          })
+        }
+      } else {
+        throw new Error('DeepSeek 总结未能保存为新版本。')
+      }
+      setStatusMessage('DeepSeek 总结已生成。')
+    } catch (error) {
+      setStatusMessage(formatDeepSeekErrorMessage(error, 'DeepSeek 总结生成失败。'))
+    } finally {
+      setSummaryGenerating(false)
+    }
+  }
+
   function renderResultTabs(): React.JSX.Element {
     return (
       <div
@@ -185,19 +362,25 @@ export function VideoNoteArchivePanel({
         role="tablist"
         aria-label="档案文稿"
       >
-        {archiveResultTabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={activeResultTab === tab.id}
-            aria-controls={'video-note-archive-' + tab.id}
-            id={'video-note-archive-tab-' + tab.id}
-            onClick={() => setActiveResultTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
+        {archiveResultTabs.map((tab) => {
+          const tooltip = `${tab.label}：${tab.description}`
+
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={activeResultTab === tab.id}
+              aria-controls={'video-note-archive-' + tab.id}
+              id={'video-note-archive-tab-' + tab.id}
+              title={tooltip}
+              onClick={() => toggleResultTab(tab.id)}
+            >
+              <strong>{tab.label}</strong>
+              <small>{tab.description}</small>
+            </button>
+          )
+        })}
       </div>
     )
   }
@@ -220,6 +403,8 @@ export function VideoNoteArchivePanel({
     const copyTextValue = copyTextByTab[activeResultTab]
     const deepSeekCopyParts =
       activeResultTab === 'summary' ? createNotePosterCopyParts(version.summaryText) : null
+    const canGenerateSummary = activeResultTab === 'summary' && version.plainTranscript.trim()
+    const summaryButtonLabel = version.summaryText.trim() ? '重新总结' : '生成总结'
 
     return (
       <section
@@ -231,108 +416,146 @@ export function VideoNoteArchivePanel({
         <div className="video-notes__panel-header">
           <strong>{titleByTab[activeResultTab]}</strong>
           {activeResultTab === 'summary' ? (
-            <CopySplitButton
-              groupLabel="档案 DeepSeek 复制"
-              buttonLabel="复制全文"
-              menuLabel="更多复制"
-              text={copyTextValue}
-              message="全文已复制"
-              onCopy={copyText}
-              options={[
-                {
-                  id: 'polished',
-                  label: '复制精修文',
-                  text: deepSeekCopyParts?.polishedTranscriptText ?? '',
-                  message: '精修文稿已复制',
-                  disabled: !deepSeekCopyParts?.polishedTranscriptText
-                },
-                {
-                  id: 'summary',
-                  label: '复制总结',
-                  text: deepSeekCopyParts?.summaryText ?? '',
-                  message: '总结已复制',
-                  disabled: !deepSeekCopyParts?.summaryText
-                }
-              ]}
-            />
+            <>
+              <button
+                type="button"
+                className="video-notes__summary-generate"
+                disabled={!canGenerateSummary || summaryGenerating || !deepSeekEnabled}
+                onClick={() => void generateSummary(version)}
+              >
+                {summaryGenerating ? '生成中...' : summaryButtonLabel}
+              </button>
+              <CopySplitButton
+                groupLabel="档案 DeepSeek 复制"
+                buttonLabel="复制全文"
+                menuLabel="更多复制"
+                text={copyTextValue}
+                message="全文已复制"
+                onCopy={copyText}
+                options={[
+                  {
+                    id: 'polished',
+                    label: '复制精修文',
+                    text: deepSeekCopyParts?.polishedTranscriptText ?? '',
+                    message: '精修文稿已复制',
+                    disabled: !deepSeekCopyParts?.polishedTranscriptText
+                  },
+                  {
+                    id: 'summary',
+                    label: '复制总结',
+                    text: deepSeekCopyParts?.summaryText ?? '',
+                    message: '总结已复制',
+                    disabled: !deepSeekCopyParts?.summaryText
+                  }
+                ]}
+              />
+            </>
           ) : (
             <button type="button" onClick={() => void copyText(copyTextValue, '全文已复制')}>
               复制
             </button>
           )}
         </div>
-        {activeResultTab === 'timed' ? (
-          <ol aria-label="带时间线文稿">
-            {version.note.transcript.map((segment, index) => (
-              <li key={String(segment.start ?? 'unknown') + '-' + index}>
-                <time>{formatTimestamp(segment.start)}</time>
-                <p>{segment.text}</p>
-              </li>
-            ))}
-          </ol>
-        ) : activeResultTab === 'summary' ? (
-          <pre>{version.summaryText || '暂无 DeepSeek 总结。'}</pre>
-        ) : (
-          <div className="video-notes__plain-text">
-            {version.plainTranscript || '暂无文稿。'}
-          </div>
-        )}
+        <div className="video-notes__result-body">
+          {activeResultTab === 'timed' ? (
+            <ol aria-label="带时间线文稿">
+              {version.note.transcript.map((segment, index) => (
+                <li key={String(segment.start ?? 'unknown') + '-' + index}>
+                  <time>{formatTimestamp(segment.start)}</time>
+                  <p>{segment.text}</p>
+                </li>
+              ))}
+            </ol>
+          ) : activeResultTab === 'summary' ? (
+            version.summaryText ? (
+              <>
+                {extractMarkdownHeading(version.summaryText) ? (
+                  <h4>{extractMarkdownHeading(version.summaryText)}</h4>
+                ) : null}
+                <pre>{version.summaryText}</pre>
+              </>
+            ) : deepSeekEnabled ? (
+              <p>
+                <span>暂无 DeepSeek 总结。</span>
+                <span>已有文稿，可以点击生成总结。</span>
+              </p>
+            ) : (
+              <p>请先到设置启用 DeepSeek 后再生成总结。</p>
+            )
+          ) : (
+            <div className="video-notes__plain-text">
+              {version.plainTranscript || '暂无文稿。'}
+            </div>
+          )}
+        </div>
       </section>
     )
   }
 
   return (
-    <section className="video-note-archive" aria-label="全局档案库">
-      <header className="video-note-archive__header">
-        <div>
-          <span>全局档案库</span>
-          <h2>所有视频历史</h2>
+    <section
+      ref={archiveRootRef}
+      className="video-note-archive"
+      aria-label="全局档案库"
+      data-result-expanded={activeResultTab ? 'true' : 'false'}
+    >
+      <div className="video-note-archive__history-card">
+        <header className="video-note-archive__header">
+          <div>
+            <span>全局档案库</span>
+            <h2>所有视频历史</h2>
+          </div>
+          <button
+            type="button"
+            className="video-note-archive__return-button"
+            onClick={onClose}
+          >
+            <span className="video-note-archive__return-label">返回</span>
+            <img className="video-note-archive__return-pet" src={idlePetUrl} alt="小咪" />
+            <span className="video-note-archive__return-label">札记</span>
+          </button>
+        </header>
+
+        <div className="video-note-archive__toolbar">
+          <label>
+            搜索档案
+            <input
+              type="search"
+              role="searchbox"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className="video-note-archive__star-button video-note-archive__star-filter"
+            aria-label="星标"
+            aria-pressed={hasStarred}
+            title="星标"
+            onClick={() => setHasStarred((current) => !current)}
+          >
+            ⭐
+          </button>
+          <button
+            type="button"
+            className="video-note-archive__memo-filter"
+            aria-pressed={hasMemo}
+            onClick={() => setHasMemo((current) => !current)}
+          >
+            已备注
+          </button>
         </div>
-        <button type="button" onClick={onClose}>
-          返回札记
-        </button>
-      </header>
 
-      <div className="video-note-archive__toolbar">
-        <label>
-          搜索档案
-          <input
-            type="search"
-            role="searchbox"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </label>
-        <button
-          type="button"
-          className="video-note-archive__star-button video-note-archive__star-filter"
-          aria-label="星标"
-          aria-pressed={hasStarred}
-          title="星标"
-          onClick={() => setHasStarred((current) => !current)}
-        >
-          ⭐
-        </button>
-        <button
-          type="button"
-          className="video-note-archive__memo-filter"
-          aria-pressed={hasMemo}
-          onClick={() => setHasMemo((current) => !current)}
-        >
-          已备注
-        </button>
-      </div>
-
-      <div className="video-note-archive__body">
         <ul className="video-note-archive__list" aria-label="视频列表">
           {filteredArchives.length > 0 ? (
             filteredArchives.map((archive) => {
               const latestVersion = getLatestVersion(archive)
+              const isSelected = archive.id === selectedArchive?.id
               return (
                 <li key={archive.id}>
                   <button
                     type="button"
-                    aria-pressed={archive.id === selectedArchive?.id}
+                    aria-pressed={isSelected}
                     onClick={() => selectArchive(archive)}
                   >
                     <strong>{archive.source.title}</strong>
@@ -342,6 +565,9 @@ export function VideoNoteArchivePanel({
                       {archive.versions.some((version) => version.note.starred) ? ' · 已星标' : ''}
                     </small>
                     <small>{latestVersion ? latestVersion.createdAt : archive.updatedAt}</small>
+                    <span className="video-note-archive__list-state">
+                      {isSelected ? '已展开' : '详情'}
+                    </span>
                   </button>
                 </li>
               )
@@ -350,22 +576,90 @@ export function VideoNoteArchivePanel({
             <p>没有匹配的档案。</p>
           )}
         </ul>
+      </div>
 
-        {selectedArchive && selectedVersion ? (
-          <article className="video-note-archive__detail" aria-label={selectedArchive.source.title}>
+      {selectedArchive && selectedVersion ? (
+        <article className="video-note-archive__detail" aria-label={selectedArchive.source.title}>
             <header>
-              <h3>{selectedArchive.source.title}</h3>
-              <p>
-                {selectedArchive.source.author ?? '未署名'} · {selectedArchive.source.bvid ?? '未识别'}
+              <div className="video-note-archive__detail-title-row">
+                <h3>
+                  <a
+                    href={selectedArchive.source.url}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      onOpenSource(selectedArchive.source.url)
+                    }}
+                  >
+                    {selectedArchive.source.title}
+                  </a>
+                </h3>
+                <div className="video-note-archive__more">
+                  <button
+                    type="button"
+                    aria-label="更多档案操作"
+                    aria-haspopup="menu"
+                    aria-expanded={moreMenuOpen}
+                    onClick={() => setMoreMenuOpen((open) => !open)}
+                  >
+                    ⋯
+                  </button>
+                  {moreMenuOpen ? (
+                    <div className="video-note-archive__menu" role="menu">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMoreMenuOpen(false)
+                          onOpenSource(selectedArchive.source.url)
+                        }}
+                      >
+                        打开视频来源
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMoreMenuOpen(false)
+                          setPendingDelete({ type: 'entry', archiveId: selectedArchive.id })
+                        }}
+                      >
+                        删除视频档案
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <p className="video-note-archive__detail-meta">
+                {selectedArchive.source.author ?? '未知作者'} · {selectedArchive.source.bvid ?? '未识别'} ·{' '}
+                {selectedArchive.versions.length} 次转写
               </p>
-            </header>
-
-            <div className="video-note-archive__version-controls">
-              <label>
-                历史版本
+              <div className="video-note-archive__version-controls">
+              <div className="video-note-archive__version-picker">
+                <span id="video-note-archive-version-label">历史版本</span>
+                <button
+                  type="button"
+                  aria-label="展开历史版本"
+                  aria-haspopup="listbox"
+                  aria-expanded={versionMenuOpen}
+                  onClick={() => setVersionMenuOpen((open) => !open)}
+                >
+                  {formatVersionLabel(
+                    selectedVersion,
+                    selectedArchive.versions.findIndex((version) => version.id === selectedVersion.id)
+                  )}
+                  <span aria-hidden="true">▾</span>
+                </button>
                 <select
+                  className="video-note-archive__version-native"
+                  aria-label="历史版本"
                   value={selectedVersion.id}
-                  onChange={(event) => setSelectedVersionId(event.target.value)}
+                  onChange={(event) =>
+                    setArchiveSelection({
+                      archiveId: selectedArchive.id,
+                      versionId: event.target.value,
+                      activeResultTab
+                    })
+                  }
                 >
                   {selectedArchive.versions.map((version, index) => (
                     <option key={version.id} value={version.id}>
@@ -373,7 +667,48 @@ export function VideoNoteArchivePanel({
                     </option>
                   ))}
                 </select>
-              </label>
+                {versionMenuOpen ? (
+                  <div className="video-note-archive__version-menu" role="listbox">
+                    {selectedArchive.versions.map((version, index) => (
+                      <div
+                        key={version.id}
+                        className="video-note-archive__version-row"
+                        role="option"
+                        aria-selected={version.id === selectedVersion.id}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setArchiveSelection({
+                              archiveId: selectedArchive.id,
+                              versionId: version.id,
+                              activeResultTab
+                            })
+                            setVersionMenuOpen(false)
+                          }}
+                        >
+                          {formatVersionLabel(version, index)}
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`删除版本 v${index + 1}`}
+                          disabled={selectedArchive.versions.length <= 1}
+                          onClick={() => {
+                            setVersionMenuOpen(false)
+                            setPendingDelete({
+                              type: 'version',
+                              archiveId: selectedArchive.id,
+                              versionId: version.id
+                            })
+                          }}
+                        >
+                          删除
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
               <button
                 type="button"
                 className="video-note-archive__star-button"
@@ -388,6 +723,7 @@ export function VideoNoteArchivePanel({
                 备注
               </button>
             </div>
+            </header>
 
             {memoOpen ? (
               <section className="video-note-archive__editor" aria-label="备注">
@@ -402,40 +738,15 @@ export function VideoNoteArchivePanel({
               </section>
             ) : null}
 
-            <div className="video-note-archive__actions">
-              <button type="button" onClick={() => onOpenSource(selectedArchive.source.url)}>
-                打开来源
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setPendingDelete({
-                    type: 'version',
-                    archiveId: selectedArchive.id,
-                    versionId: selectedVersion.id
-                  })
-                }
-              >
-                删除当前版本
-              </button>
-              <button
-                type="button"
-                onClick={() => setPendingDelete({ type: 'entry', archiveId: selectedArchive.id })}
-              >
-                删除视频档案
-              </button>
-            </div>
-
             {renderResultTabs()}
             {renderActiveResult(selectedVersion)}
 
-          </article>
-        ) : (
-          <section className="video-note-archive__detail">
-            <p>请选择上方档案查看文稿、备注和星标。</p>
-          </section>
-        )}
-      </div>
+        </article>
+      ) : (
+        <section className="video-note-archive__detail">
+          <p>请选择上方档案查看文稿、备注和星标。</p>
+        </section>
+      )}
 
       {statusMessage ? <p role="status">{statusMessage}</p> : null}
 

@@ -14,9 +14,10 @@ type QueueDeps = {
   saveItems: (items: VideoAudioTranscriptionQueueItem[]) => void
   transcribe: (
     request: VideoAudioTranscriptionRequest,
-    progress: (progress: VideoAudioTranscriptionProgress) => void
+    progress: (progress: VideoAudioTranscriptionProgress) => void,
+    signal?: AbortSignal
   ) => Promise<VideoAudioTranscriptionResult>
-  summarizeNote?: (note: VideoNote) => Promise<string>
+  summarizeNote?: (note: VideoNote, signal?: AbortSignal) => Promise<string>
   saveArchiveVersion: (note: VideoNote, summaryText: string) => unknown
   now?: () => string
   onSnapshot?: (snapshot: VideoAudioTranscriptionQueueSnapshot) => void
@@ -56,29 +57,15 @@ function createNoteFromQueueItem(
   })
 }
 
-function snapshotFromItems(items: VideoAudioTranscriptionQueueItem[]): VideoAudioTranscriptionQueueSnapshot {
+function snapshotFromItems(
+  items: VideoAudioTranscriptionQueueItem[],
+  sessionCompletedCount: number
+): VideoAudioTranscriptionQueueSnapshot {
   return {
     items,
-    activeItemId: items.find((item) => item.status === 'running')?.id
+    activeItemId: items.find((item) => item.status === 'running')?.id,
+    sessionCompletedCount
   }
-}
-
-function restoreUnfinishedItems(
-  items: VideoAudioTranscriptionQueueItem[],
-  getRestoredAt: () => string
-): VideoAudioTranscriptionQueueItem[] {
-  return items.map((item) =>
-    item.status === 'running'
-      ? {
-          ...item,
-          status: 'pending',
-          updatedAt: getRestoredAt(),
-          startedAt: undefined,
-          progress: undefined,
-          errorMessage: undefined
-        }
-      : item
-  )
 }
 
 export function createVideoTranscriptionQueue({
@@ -90,11 +77,17 @@ export function createVideoTranscriptionQueue({
   now = () => new Date().toISOString(),
   onSnapshot
 }: QueueDeps): VideoTranscriptionQueue {
-  let items = restoreUnfinishedItems(loadItems(), now)
+  let items = loadItems()
+  if (items.length > 0) {
+    items = []
+    saveItems(items)
+  }
+  let sessionCompletedCount = 0
   let processing = false
+  let activeController: AbortController | undefined
 
   function publish(): VideoAudioTranscriptionQueueSnapshot {
-    const snapshot = snapshotFromItems(items)
+    const snapshot = snapshotFromItems(items, sessionCompletedCount)
     saveItems(items)
     onSnapshot?.(snapshot)
     return snapshot
@@ -118,6 +111,7 @@ export function createVideoTranscriptionQueue({
     }
 
     processing = true
+    activeController = new AbortController()
     updateItem(next.id, (item) => ({
       ...item,
       status: 'running',
@@ -130,13 +124,15 @@ export function createVideoTranscriptionQueue({
     try {
       const runningItem = items.find((item) => item.id === next.id) ?? next
       const result = await transcribe(runningItem, (progress) => {
+        if (items.find((item) => item.id === runningItem.id)?.status !== 'running') return
         updateItem(runningItem.id, (item) => ({
           ...item,
           progress,
           updatedAt: now()
         }))
         publish()
-      })
+      }, activeController.signal)
+      if (items.find((item) => item.id === runningItem.id)?.status !== 'running') return
       const completedAt = now()
       const note = createNoteFromQueueItem(runningItem, result.transcript, completedAt)
       updateItem(runningItem.id, (item) => ({
@@ -148,6 +144,7 @@ export function createVideoTranscriptionQueue({
       publish()
 
       let summaryText = ''
+      let summaryErrorMessage: string | undefined
       if (runningItem.summarizeWithDeepSeek && summarizeNote) {
         updateItem(runningItem.id, (item) => ({
           ...item,
@@ -156,8 +153,14 @@ export function createVideoTranscriptionQueue({
           updatedAt: now()
         }))
         publish()
-        summaryText = await summarizeNote(note)
+        try {
+          summaryText = await summarizeNote(note, activeController.signal)
+        } catch (error) {
+          if (items.find((item) => item.id === runningItem.id)?.status !== 'running') return
+          summaryErrorMessage = createErrorMessage(error)
+        }
       }
+      if (items.find((item) => item.id === runningItem.id)?.status !== 'running') return
 
       updateItem(runningItem.id, (item) => ({
         ...item,
@@ -175,9 +178,11 @@ export function createVideoTranscriptionQueue({
         archiveNoteId: note.id,
         draftNote: undefined,
         progress: { step: 'queue-completed', message: 'Queued transcription completed.' },
-        errorMessage: undefined
+        errorMessage: summaryErrorMessage
       }))
+      sessionCompletedCount += 1
     } catch (error) {
+      if (items.find((item) => item.id === next.id)?.status !== 'running') return
       const failedAt = now()
       updateItem(next.id, (item) => ({
         ...item,
@@ -187,6 +192,7 @@ export function createVideoTranscriptionQueue({
       }))
     } finally {
       processing = false
+      activeController = undefined
       publish()
       void processNext()
     }
@@ -223,8 +229,9 @@ export function createVideoTranscriptionQueue({
   }
 
   function cancel(id: string): VideoAudioTranscriptionQueueSnapshot {
+    const wasRunning = items.some((item) => item.id === id && item.status === 'running')
     updateItem(id, (item) =>
-      item.status === 'pending'
+      item.status === 'pending' || item.status === 'running'
         ? {
             ...item,
             status: 'canceled',
@@ -232,6 +239,9 @@ export function createVideoTranscriptionQueue({
           }
         : item
     )
+    if (wasRunning && items.some((item) => item.id === id && item.status === 'canceled')) {
+      activeController?.abort()
+    }
 
     return publish()
   }
@@ -261,7 +271,7 @@ export function createVideoTranscriptionQueue({
   }
 
   return {
-    getSnapshot: () => snapshotFromItems(items),
+    getSnapshot: () => snapshotFromItems(items, sessionCompletedCount),
     enqueue,
     cancel,
     retry

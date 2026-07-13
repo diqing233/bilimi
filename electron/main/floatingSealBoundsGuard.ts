@@ -16,7 +16,8 @@ type FixedFloatingSealBoundsTarget = {
 
 type FixedFloatingSealBoundsGuardTarget = FixedFloatingSealBoundsTarget & {
   isDestroyed: () => boolean
-  on: (eventName: 'resize' | 'show', listener: () => void) => void
+  on(eventName: 'resize', listener: () => void): unknown
+  on(eventName: 'show', listener: () => void): unknown
 }
 
 export function enforceFixedFloatingSealBounds(target: FixedFloatingSealBoundsTarget) {

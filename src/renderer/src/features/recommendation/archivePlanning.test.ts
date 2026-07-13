@@ -149,4 +149,122 @@ describe('planFavoriteArchiveTargets', () => {
       }).map((target) => target.ledgerId)
     ).toEqual(['custom-genshin', 'custom-mihoyo', 'game'])
   })
+
+  it('applies archive strategy to default selected state', () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'knowledge' ? { ...ledger, bilibiliFolderId: '9001' } : ledger
+    )
+
+    const lowSignal = { title: '教程入门' }
+
+    expect(
+      planFavoriteArchiveTargets({
+        context: lowSignal,
+        ledgers,
+        multiArchiveMode: 'off',
+        archiveStrategy: 'aggressive'
+      })[0]?.selectedByStrategy
+    ).toBe(true)
+
+    expect(
+      planFavoriteArchiveTargets({
+        context: lowSignal,
+        ledgers,
+        multiArchiveMode: 'off',
+        archiveStrategy: 'conservative'
+      })[0]?.selectedByStrategy
+    ).toBe(false)
+  })
+
+  it('uses sufficient score gap for balanced strategy selection', () => {
+    const target = planFavoriteArchiveTargets({
+      context: { title: '现场翻唱舞台演奏' },
+      ledgers: createDefaultFavoriteLedgers(),
+      multiArchiveMode: 'off',
+      archiveStrategy: 'balanced'
+    })[0]
+
+    expect(target?.ledgerId).toBe('music')
+    expect(target?.diagnostic?.scoreGap).toBeGreaterThanOrEqual(2.5)
+    expect(target?.selectedByStrategy).toBe(true)
+  })
+
+  it('keeps balanced strategy unselected when strong defaults are ambiguous', () => {
+    const targets = planFavoriteArchiveTargets({
+      context: { title: '摄影构图调色 翻唱演奏舞台' },
+      ledgers: createDefaultFavoriteLedgers(),
+      multiArchiveMode: 'two',
+      archiveStrategy: 'balanced'
+    })
+
+    expect(targets.map((target) => target.ledgerId)).toEqual(['creative-aesthetic', 'music'])
+    expect(targets[0]?.diagnostic?.scoreGap).toBe(0)
+    expect(targets[0]?.selectedByStrategy).toBe(false)
+    expect(targets[1]?.diagnostic?.scoreGap).toBe(0)
+    expect(targets[1]?.selectedByStrategy).toBe(false)
+  })
+
+  it('uses the strongest competing score for default diagnostics even after custom targets', () => {
+    const ledgers = [
+      {
+        id: 'custom-topic',
+        displayName: 'bilimi·专题',
+        keywords: ['专题'],
+        enabled: true,
+        priority: -30,
+        bilibiliFolderId: 'custom-folder',
+        isDefault: false
+      },
+      ...createDefaultFavoriteLedgers()
+    ]
+
+    const targets = planFavoriteArchiveTargets({
+      context: { title: '专题 摄影构图调色 翻唱演奏舞台' },
+      ledgers,
+      multiArchiveMode: 'three',
+      archiveStrategy: 'balanced'
+    })
+    const creative = targets.find((target) => target.ledgerId === 'creative-aesthetic')
+    const music = targets.find((target) => target.ledgerId === 'music')
+
+    expect(targets[0]?.ledgerId).toBe('custom-topic')
+    expect(creative?.diagnostic?.runnerUpScore).toBe(creative?.diagnostic?.score)
+    expect(creative?.diagnostic?.scoreGap).toBe(0)
+    expect(creative?.selectedByStrategy).toBe(false)
+    expect(music?.diagnostic?.runnerUpScore).toBe(music?.diagnostic?.score)
+    expect(music?.diagnostic?.scoreGap).toBe(0)
+    expect(music?.selectedByStrategy).toBe(false)
+  })
+
+  it('carries diagnostics and strategy selection for custom targets', () => {
+    const ledgers = [
+      {
+        id: 'custom-tag-guide',
+        displayName: 'bilimi·攻略合集',
+        keywords: ['攻略'],
+        enabled: true,
+        priority: -20,
+        bilibiliFolderId: 'custom-folder',
+        isDefault: false,
+        ruleType: 'tag' as const
+      },
+      ...createDefaultFavoriteLedgers()
+    ]
+
+    const target = planFavoriteArchiveTargets({
+      context: { title: '专题整理', tags: ['攻略'] },
+      ledgers,
+      multiArchiveMode: 'off',
+      archiveStrategy: 'conservative'
+    })[0]
+
+    expect(target).toMatchObject({
+      ledgerId: 'custom-tag-guide',
+      selectedByStrategy: true,
+      diagnostic: expect.objectContaining({
+        confidence: 'high',
+        matchedKeywords: ['攻略']
+      })
+    })
+  })
 })

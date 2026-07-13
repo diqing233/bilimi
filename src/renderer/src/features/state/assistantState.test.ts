@@ -139,19 +139,24 @@ describe('assistant state', () => {
     })
   })
 
-  it('creates disabled DeepSeek preferences by default', () => {
+  it('creates DeepSeek child features enabled by default while keeping the master switch off', () => {
     expect(createInitialAssistantPreferences()).toMatchObject({
       bilibiliOperationMode: 'api-assisted',
       favoriteArchiveMultiMode: 'off',
-      defaultCoinCount: 1,
-      commentSubmitMode: 'random',
+      defaultCoinCount: 2,
+      commentSubmitMode: 'choose',
       deepseekEnabled: false,
       deepseekApiKeyStored: false,
-      deepseekCommentEnabled: false,
-      deepseekAutoSummaryEnabled: false,
-      deepseekPetChatEnabled: false,
+      deepseekCommentEnabled: true,
+      deepseekAutoSummaryEnabled: true,
+      deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: true,
+      deepseekArchiveOrganizationEnabled: true,
+      deepseekFeatureDefaultsInitialized: false,
       deepseekModel: 'deepseek-v4-flash',
       deepseekBaseUrl: 'https://api.deepseek.com',
+      closeBehavior: 'minimize-to-tray',
+      confirmBeforeExit: true,
       videoAudioTranscriptionThreadLimit: 'unlimited'
     })
     expect(createInitialAssistantPreferences()).not.toHaveProperty(
@@ -159,11 +164,25 @@ describe('assistant state', () => {
     )
   })
 
-  it('keeps new DeepSeek feature switches off by default while inheriting legacy enabled settings', () => {
+  it('preserves persisted coin and comment choices', () => {
+    expect(
+      createInitialAssistantPreferences({
+        defaultCoinCount: 1,
+        commentSubmitMode: 'random'
+      })
+    ).toMatchObject({
+      defaultCoinCount: 1,
+      commentSubmitMode: 'random'
+    })
+  })
+
+  it('preserves explicit DeepSeek child switches and migrates legacy settings to enabled', () => {
     expect(createInitialAssistantPreferences()).toMatchObject({
       deepseekEnabled: false,
-      deepseekCommentEnabled: false,
-      deepseekPetChatEnabled: false
+      deepseekCommentEnabled: true,
+      deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: true,
+      deepseekArchiveOrganizationEnabled: true
     })
 
     expect(createInitialAssistantPreferences({ deepseekEnabled: true })).toMatchObject({
@@ -177,12 +196,28 @@ describe('assistant state', () => {
       createInitialAssistantPreferences({
         deepseekEnabled: true,
         deepseekCommentEnabled: false,
-        deepseekPetChatEnabled: true
+        deepseekPetChatEnabled: true,
+        deepseekDailyClassificationEnabled: false,
+        deepseekArchiveOrganizationEnabled: false
       })
     ).toMatchObject({
       deepseekEnabled: true,
       deepseekCommentEnabled: false,
-      deepseekPetChatEnabled: true
+      deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: false,
+      deepseekArchiveOrganizationEnabled: false
+    })
+  })
+
+  it('hydrates explicitly cleared DeepSeek model and service address as empty strings', () => {
+    expect(
+      createInitialAssistantPreferences({
+        deepseekModel: '',
+        deepseekBaseUrl: ''
+      })
+    ).toMatchObject({
+      deepseekModel: '',
+      deepseekBaseUrl: ''
     })
   })
 
@@ -191,7 +226,7 @@ describe('assistant state', () => {
       createInitialAssistantPreferences({
         bilibiliOperationMode: 'unsupported' as never,
         deepseekAutoSummaryEnabled: true,
-        deepseekModel: '',
+        deepseekModel: 42 as never,
         deepseekBaseUrl: 'bad-url',
         videoAudioTranscriptionThreadLimit: 8 as never
       } as Partial<ReturnType<typeof createInitialAssistantPreferences>>)
@@ -201,6 +236,31 @@ describe('assistant state', () => {
       deepseekModel: 'deepseek-v4-flash',
       deepseekBaseUrl: 'https://api.deepseek.com',
       videoAudioTranscriptionThreadLimit: 'unlimited'
+    })
+  })
+
+  it('normalizes main window close behavior preferences', () => {
+    expect(createInitialAssistantPreferences()).toMatchObject({
+      closeBehavior: 'minimize-to-tray',
+      confirmBeforeExit: true
+    })
+    expect(
+      createInitialAssistantPreferences({
+        closeBehavior: 'exit-launcher',
+        confirmBeforeExit: false
+      })
+    ).toMatchObject({
+      closeBehavior: 'exit-launcher',
+      confirmBeforeExit: false
+    })
+    expect(
+      createInitialAssistantPreferences({
+        closeBehavior: 'close-app' as never,
+        confirmBeforeExit: undefined
+      })
+    ).toMatchObject({
+      closeBehavior: 'minimize-to-tray',
+      confirmBeforeExit: true
     })
   })
 
@@ -244,7 +304,7 @@ describe('assistant state', () => {
         commentSubmitMode: 'surprise' as never
       })
     ).toMatchObject({
-      defaultCoinCount: 1,
+      defaultCoinCount: 2,
       commentSubmitMode: 'choose'
     })
     expect(createInitialAssistantPreferences({ commentSubmitMode: 'manual' as never })).toMatchObject({
@@ -285,5 +345,166 @@ describe('assistant state', () => {
     ).toMatchObject({
       favoriteArchiveMultiMode: 'off'
     })
+  })
+
+  it('hydrates correction learning preferences and defaults', () => {
+    expect(createInitialAssistantPreferences()).toMatchObject({
+      favoriteArchiveStrategy: 'aggressive',
+      favoriteCorrectionLearningEnabled: true,
+      favoriteCorrectionLearningClassificationEnabled: true,
+      favoriteCorrectionRecords: [],
+      favoriteAdjustmentRecordsVersion: 1,
+      favoriteArchiveProtectionRecords: [],
+      favoriteKeywordSuggestions: []
+    })
+
+    expect(
+      createInitialAssistantPreferences({
+        favoriteArchiveStrategy: 'balanced',
+        favoriteCorrectionLearningEnabled: false,
+        favoriteCorrectionLearningClassificationEnabled: false,
+        favoriteAdjustmentRecordsVersion: 1,
+        favoriteCorrectionRecords: [
+          {
+            id: 'record-1',
+            aid: 1,
+            title: '东京旅行攻略',
+            originalLedgerId: 'game',
+            userLedgerIds: ['life-interest'],
+            source: 'user',
+            feedbackType: 'strong-correction',
+            sourceScene: 'archive-preview',
+            tags: ['旅行'],
+            matchedKeywords: [],
+            createdAt: '2026-07-05T00:00:00.000Z',
+            confirmedAt: '2026-07-05T00:01:00.000Z'
+          }
+        ],
+        favoriteKeywordSuggestions: [
+          {
+            id: 'suggestion-1',
+            action: 'add-keyword',
+            ledgerId: 'life-interest',
+            keyword: '旅行',
+            reason: '用户纠正',
+            source: 'user',
+            status: 'pending',
+            createdAt: '2026-07-05T00:00:00.000Z'
+          }
+        ]
+      })
+    ).toMatchObject({
+      favoriteArchiveStrategy: 'balanced',
+      favoriteCorrectionLearningEnabled: false,
+      favoriteCorrectionLearningClassificationEnabled: false,
+      favoriteCorrectionRecords: [
+        expect.objectContaining({
+          id: 'record-1',
+          userLedgerIds: ['life-interest']
+        })
+      ],
+      favoriteKeywordSuggestions: [
+        expect.objectContaining({
+          id: 'suggestion-1',
+          action: 'add-keyword'
+        })
+      ]
+    })
+
+    expect(
+      createInitialAssistantPreferences({
+        favoriteArchiveStrategy: 'reckless' as never,
+        favoriteAdjustmentRecordsVersion: 1,
+        favoriteCorrectionRecords: [
+          null,
+          {
+            id: 'trim-record',
+            aid: 1,
+            title: 'trim',
+            userLedgerIds: [123, ' ', 'game'],
+            source: 'user',
+            feedbackType: 'strong-correction',
+            sourceScene: 'archive-preview',
+            tags: [],
+            matchedKeywords: [],
+            createdAt: '2026-07-05T00:00:00.000Z',
+            confirmedAt: '2026-07-05T00:00:00.000Z'
+          }
+        ] as never,
+        favoriteKeywordSuggestions: [null, 'bad'] as never
+      })
+    ).toMatchObject({
+      favoriteArchiveStrategy: 'aggressive',
+      favoriteCorrectionRecords: [
+        expect.objectContaining({
+          userLedgerIds: ['game']
+        })
+      ],
+      favoriteKeywordSuggestions: []
+    })
+  })
+
+  it('clears legacy correction records once before the adjustment-record schema is enabled', () => {
+    const legacyRecord = {
+      id: 'legacy-record',
+      aid: 1,
+      title: '旧记录',
+      userLedgerIds: ['game'],
+      source: 'user',
+      feedbackType: 'strong-correction',
+      sourceScene: 'archive-preview',
+      tags: [],
+      matchedKeywords: [],
+      createdAt: '2026-07-05T00:00:00.000Z'
+    } as const
+
+    expect(
+      createInitialAssistantPreferences({ favoriteCorrectionRecords: [legacyRecord] } as never)
+    ).toMatchObject({
+      favoriteAdjustmentRecordsVersion: 1,
+      favoriteCorrectionRecords: []
+    })
+
+    expect(
+      createInitialAssistantPreferences({
+        favoriteAdjustmentRecordsVersion: 1,
+        favoriteCorrectionRecords: [legacyRecord]
+      } as never).favoriteCorrectionRecords
+    ).toHaveLength(1)
+  })
+
+  it('normalizes favorite archive protection records from persisted preferences', () => {
+    expect(
+      createInitialAssistantPreferences({
+        favoriteArchiveProtectionRecords: [
+          {
+            accountMid: '42',
+            aid: 7,
+            targetLedgerIds: ['game', 'game'],
+            targetFolderIds: ['9001', '9001'],
+            completedAt: '2026-07-10T00:00:00.000Z'
+          },
+          { accountMid: '', aid: 8 } as never
+        ]
+      }).favoriteArchiveProtectionRecords
+    ).toEqual([
+      {
+        accountMid: '42',
+        aid: 7,
+        targetLedgerIds: ['game'],
+        targetFolderIds: ['9001'],
+        completedAt: '2026-07-10T00:00:00.000Z'
+      }
+    ])
+    expect(createInitialAssistantPreferences().favoriteArchiveProtectionRecords).toEqual([])
+  })
+
+  it('normalizes accounts that completed the legacy favorite archive migration', () => {
+    expect(
+      createInitialAssistantPreferences({
+        favoriteArchiveProtectionInitializedAccountMids: ['42', '42', ' ', '99']
+      }).favoriteArchiveProtectionInitializedAccountMids
+    ).toEqual(['42', '99'])
+    expect(createInitialAssistantPreferences().favoriteArchiveProtectionInitializedAccountMids).toEqual([])
   })
 })

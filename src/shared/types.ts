@@ -26,7 +26,7 @@ export type DefaultFavoriteLedgerId =
 
 export type FavoriteLedgerId = string
 export type RecommendationKind = FavoriteLedgerId
-export type FavoriteLedgerRuleType = 'keyword' | 'author' | 'tag'
+export type FavoriteLedgerRuleType = 'keyword' | 'author' | 'tag' | 'deepseek'
 
 export type FavoriteLedger = {
   id: FavoriteLedgerId
@@ -46,6 +46,7 @@ export type FavoriteLedgerSaveOptions = {
 export type FavoriteArchiveMultiMode = 'off' | 'two' | 'three'
 export type CommentSubmitMode = 'choose' | 'random'
 export type VideoAudioTranscriptionThreadLimit = 'unlimited' | 1 | 2 | 4
+export type MainWindowCloseBehavior = 'minimize-to-tray' | 'exit-launcher'
 
 export type PendingFavoriteQueueSource = 'old-favorite-scan' | 'new-favorite'
 
@@ -79,6 +80,81 @@ export type FavoriteLedgerClassification = {
   reviewRequired: boolean
   suggestedLedgerId?: FavoriteLedgerId
   suggestedDisplayName?: string
+  diagnostic?: FavoriteLedgerClassificationDiagnostic
+}
+
+export type FavoriteArchiveStrategy = 'aggressive' | 'balanced' | 'conservative'
+
+export type ClassificationConfidenceLevel = 'high' | 'medium' | 'low'
+
+export type FavoriteCorrectionSource = 'user' | 'deepseek' | 'user-confirmed-deepseek' | 'classifier'
+export type FavoriteCorrectionFeedbackType = 'strong-correction' | 'weak-negative'
+export type FavoriteKeywordSuggestionAction =
+  | 'add-keyword'
+  | 'remove-keyword'
+  | 'downgrade-to-weak'
+  | 'replace-with-combination'
+  | 'add-entity-alias'
+  | 'add-concept-variant'
+export type FavoriteKeywordSuggestionStatus = 'pending' | 'accepted' | 'ignored' | 'deleted'
+
+export type FavoriteCorrectionRecord = {
+  id: string
+  aid: number
+  title: string
+  originalLedgerId?: FavoriteLedgerId
+  userLedgerIds: FavoriteLedgerId[]
+  source: FavoriteCorrectionSource
+  feedbackType: FavoriteCorrectionFeedbackType
+  sourceScene: 'archive-preview' | 'daily-favorite'
+  sourceFolderTitle?: string
+  author?: string
+  tags: string[]
+  matchedKeywords: string[]
+  score?: number
+  confidence?: ClassificationConfidenceLevel
+  scoreGap?: number
+  createdAt: string
+  confirmedAt?: string
+}
+
+export type OldFavoriteRuntimeSnapshot = {
+  key: string
+  revision: number
+  value: unknown
+  accountMid: string
+}
+
+export type OldFavoriteRuntimeSetResult = OldFavoriteRuntimeSnapshot & {
+  accepted: boolean
+}
+
+export type FavoriteKeywordSuggestion = {
+  id: string
+  action: FavoriteKeywordSuggestionAction
+  ledgerId?: FavoriteLedgerId
+  keyword?: string
+  replacement?: string
+  reason: string
+  source: FavoriteCorrectionSource
+  status: FavoriteKeywordSuggestionStatus
+  createdAt: string
+}
+
+export type FavoriteLedgerClassificationDiagnostic = {
+  score: number
+  runnerUpLedgerId?: FavoriteLedgerId
+  runnerUpScore?: number
+  scoreGap: number
+  confidence: ClassificationConfidenceLevel
+  lowConfidence: boolean
+  matchedKeywords: string[]
+  strongSignals: string[]
+  weakSignals: string[]
+  entityAliases: string[]
+  conceptClusters: string[]
+  positiveRules: string[]
+  negativeRules: string[]
 }
 
 export type FavoriteLedgerStatus = {
@@ -86,6 +162,14 @@ export type FavoriteLedgerStatus = {
   ledgers: FavoriteLedger[]
   missingLedgerIds: FavoriteLedgerId[]
   message: string
+}
+
+export type FavoriteArchiveProtectionRecord = {
+  accountMid: string
+  aid: number
+  targetLedgerIds: string[]
+  targetFolderIds: string[]
+  completedAt: string
 }
 
 export type RecommendationLabel = {
@@ -100,9 +184,20 @@ export type AssistantPreferences = {
   ledgerPromptDismissed: boolean
   petStyle: 'big-head' | 'classic'
   petHoverShortcuts: PetHoverShortcutId[]
+  showPetAssistantShortcut: boolean
   hidePetDuringVideoFullscreen: boolean
+  closeBehavior: MainWindowCloseBehavior
+  confirmBeforeExit: boolean
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode
+  favoriteArchiveStrategy: FavoriteArchiveStrategy
+  favoriteCorrectionLearningEnabled: boolean
+  favoriteCorrectionLearningClassificationEnabled: boolean
+  favoriteAdjustmentRecordsVersion: 1
+  favoriteCorrectionRecords: FavoriteCorrectionRecord[]
+  favoriteArchiveProtectionRecords?: FavoriteArchiveProtectionRecord[]
+  favoriteArchiveProtectionInitializedAccountMids?: string[]
+  favoriteKeywordSuggestions: FavoriteKeywordSuggestion[]
   defaultCoinCount: 1 | 2
   commentSubmitMode: CommentSubmitMode
   videoAudioTranscriptionThreadLimit: VideoAudioTranscriptionThreadLimit
@@ -112,6 +207,10 @@ export type AssistantPreferences = {
   deepseekCommentEnabled: boolean
   deepseekAutoSummaryEnabled: boolean
   deepseekPetChatEnabled: boolean
+  deepseekDailyClassificationEnabled: boolean
+  deepseekArchiveOrganizationEnabled: boolean
+  deepseekFeatureDefaultsInitialized: boolean
+  deepseekDailyClassificationMode: 'all' | 'low-confidence-only'
   deepseekModel: string
   deepseekBaseUrl: string
   permissionOnboardingCompleted: boolean
@@ -232,6 +331,83 @@ export type NotePosterSummary = {
   auditChecklistText?: string
 }
 
+export type DeepSeekArchiveMode =
+  | 'all'
+  | 'classified-only'
+  | 'unclassified-only'
+  | 'low-confidence-and-unclassified'
+
+export type DeepSeekArchiveVideoInput = {
+  aid: number
+  title: string
+  author?: string
+  description?: string
+  tags?: string[]
+  category?: string
+  sourceFolderTitle: string
+  originalSuggestedLedgerIds: FavoriteLedgerId[]
+  currentTargetLedgerIds: FavoriteLedgerId[]
+  selectedTargetLedgerIds: FavoriteLedgerId[]
+  lowConfidence?: boolean
+  classificationDiagnostic?: FavoriteLedgerClassificationDiagnostic
+}
+
+export type DeepSeekArchiveLedgerInput = {
+  id: FavoriteLedgerId
+  displayName: string
+  keywords: string[]
+  deepSeekConstraint?: string
+  ruleType?: FavoriteLedgerRuleType
+  enabled: boolean
+}
+
+export type DeepSeekArchiveVideoResult = {
+  aid?: number
+  sourceFolderTitle?: string
+  targetLedgerIds: FavoriteLedgerId[]
+  keepOriginal: boolean
+  reason: string
+  confidence?: number
+  lowConfidence: boolean
+  secondPassChanged?: boolean
+  invalid?: boolean
+  failureKind?: 'invalid-result' | 'request-failed'
+  errorMessage?: string
+}
+
+export type DeepSeekDailyVideoContext = {
+  aid?: number
+  title?: string
+  author?: string
+  description?: string
+  pageText?: string
+  tags?: string[]
+  category?: string
+}
+
+export type DeepSeekDailyClassificationDiagnosticInput =
+  FavoriteLedgerClassificationDiagnostic & {
+    ledgerId: FavoriteLedgerId
+  }
+
+export type DeepSeekDailyClassificationInput = {
+  targetLedgerIds: FavoriteLedgerId[]
+  primaryLedgerId: FavoriteLedgerId
+  displayNames: string[]
+  reason?: string
+  diagnostics: DeepSeekDailyClassificationDiagnosticInput[]
+}
+
+export type DeepSeekDailyClassificationReviewResult = {
+  targetLedgerIds: FavoriteLedgerId[]
+  corrected: boolean
+  reason: string
+  confidence?: number
+  keywordSuggestions: FavoriteKeywordSuggestion[]
+  invalid?: boolean
+  errorMessage?: string
+}
+
 export type DeepSeekGenerateRequest =
   | {
       kind: 'review-comment'
@@ -248,15 +424,56 @@ export type DeepSeekGenerateRequest =
       messages: DeepSeekChatMessage[]
       context?: { title?: string; pageText?: string }
     }
+  | {
+      kind: 'favorite-archive-organize'
+      mode: DeepSeekArchiveMode
+      videos: DeepSeekArchiveVideoInput[]
+      ledgers: DeepSeekArchiveLedgerInput[]
+      multiArchiveLimit: 1 | 2 | 3
+    }
+  | {
+      kind: 'favorite-daily-classify-review'
+      video: DeepSeekDailyVideoContext
+      localClassification: DeepSeekDailyClassificationInput
+      ledgers: DeepSeekArchiveLedgerInput[]
+    }
 
 export type DeepSeekGenerateResult =
   | { kind: 'review-comment'; comments: string[] }
   | { kind: 'note-poster'; poster: NotePosterSummary }
   | { kind: 'pet-chat'; message: string }
+  | {
+      kind: 'favorite-archive-organize'
+      results: DeepSeekArchiveVideoResult[]
+      keywordSuggestions: FavoriteKeywordSuggestion[]
+    }
+  | ({ kind: 'favorite-daily-classify-review' } & DeepSeekDailyClassificationReviewResult)
 
-export type DeepSeekKeyStatus = { configured: boolean }
+export type DeepSeekTaskKind =
+  | 'comment'
+  | 'classification'
+  | 'summary'
+  | 'archive-organize'
+  | 'pet-chat'
+  | 'connection-test'
 
-export type DeepSeekConnectionTestResult = { ok: boolean; message: string }
+export type DeepSeekTask = {
+  id: string
+  kind: DeepSeekTaskKind
+  detail?: string
+}
+
+export type DeepSeekKeyStatus = {
+  configured: boolean
+  protection: 'encrypted' | 'plaintext' | 'error' | 'unavailable'
+}
+
+export type DeepSeekConnectionTestResult = {
+  ok: boolean
+  message: string
+  requestedModel?: string
+  responseModel?: string
+}
 
 export type StartupDiagnosticStatus = 'ok' | 'warning' | 'error'
 
@@ -365,4 +582,5 @@ export type VideoAudioTranscriptionQueueItem = VideoAudioTranscriptionRequest & 
 export type VideoAudioTranscriptionQueueSnapshot = {
   items: VideoAudioTranscriptionQueueItem[]
   activeItemId?: string
+  sessionCompletedCount: number
 }

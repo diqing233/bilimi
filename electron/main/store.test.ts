@@ -4,6 +4,7 @@ import {
   loadVideoNotes,
   loadVideoNoteArchives,
   loadAssistantPreferences,
+  loadDeepSeekApiKey,
   loadDeepSeekApiKeyStatus,
   saveVideoNoteArchiveVersion,
   updateVideoNoteArchiveVersion,
@@ -55,6 +56,17 @@ function createStoreNote(id = 'bvid:BV1store'): VideoNote {
   }
 }
 
+function createSafeStorage({ available = true, failDecrypt = false } = {}) {
+  return {
+    isEncryptionAvailable: () => available,
+    encryptString: (value: string) => Buffer.from('encrypted:' + value, 'utf8'),
+    decryptString: (value: Buffer) => {
+      if (failDecrypt) throw new Error('decrypt failed')
+      return value.toString('utf8').replace(/^encrypted:/u, '')
+    }
+  }
+}
+
 function createFakeStore(
   initial: Partial<DesktopStoreState> = {}
 ): AssistantStoreLike & { setCalls: unknown[]; snapshot: DesktopStoreState } {
@@ -68,10 +80,33 @@ function createFakeStore(
     hidePetDuringVideoFullscreen:
       initial.hidePetDuringVideoFullscreen ??
       DEFAULT_ASSISTANT_PREFERENCES.hidePetDuringVideoFullscreen,
+    closeBehavior: initial.closeBehavior ?? DEFAULT_ASSISTANT_PREFERENCES.closeBehavior,
+    confirmBeforeExit: initial.confirmBeforeExit ?? DEFAULT_ASSISTANT_PREFERENCES.confirmBeforeExit,
     bilibiliOperationMode:
       initial.bilibiliOperationMode ?? DEFAULT_ASSISTANT_PREFERENCES.bilibiliOperationMode,
     favoriteArchiveMultiMode:
       initial.favoriteArchiveMultiMode ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteArchiveMultiMode,
+    favoriteArchiveStrategy:
+      initial.favoriteArchiveStrategy ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteArchiveStrategy,
+    favoriteCorrectionLearningEnabled:
+      initial.favoriteCorrectionLearningEnabled ??
+      DEFAULT_ASSISTANT_PREFERENCES.favoriteCorrectionLearningEnabled,
+    favoriteCorrectionLearningClassificationEnabled:
+      initial.favoriteCorrectionLearningClassificationEnabled ??
+      DEFAULT_ASSISTANT_PREFERENCES.favoriteCorrectionLearningClassificationEnabled,
+    favoriteAdjustmentRecordsVersion:
+      initial.favoriteAdjustmentRecordsVersion ??
+      DEFAULT_ASSISTANT_PREFERENCES.favoriteAdjustmentRecordsVersion,
+    favoriteCorrectionRecords:
+      initial.favoriteCorrectionRecords ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteCorrectionRecords,
+    favoriteArchiveProtectionRecords:
+      initial.favoriteArchiveProtectionRecords ??
+      DEFAULT_ASSISTANT_PREFERENCES.favoriteArchiveProtectionRecords,
+    favoriteArchiveProtectionInitializedAccountMids:
+      initial.favoriteArchiveProtectionInitializedAccountMids ??
+      DEFAULT_ASSISTANT_PREFERENCES.favoriteArchiveProtectionInitializedAccountMids,
+    favoriteKeywordSuggestions:
+      initial.favoriteKeywordSuggestions ?? DEFAULT_ASSISTANT_PREFERENCES.favoriteKeywordSuggestions,
     defaultCoinCount: initial.defaultCoinCount ?? DEFAULT_ASSISTANT_PREFERENCES.defaultCoinCount,
     commentSubmitMode:
       initial.commentSubmitMode ?? DEFAULT_ASSISTANT_PREFERENCES.commentSubmitMode,
@@ -85,8 +120,16 @@ function createFakeStore(
       initial.deepseekAutoSummaryEnabled ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekAutoSummaryEnabled,
     deepseekPetChatEnabled:
       initial.deepseekPetChatEnabled ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekPetChatEnabled,
+    deepseekDailyClassificationEnabled:
+      initial.deepseekDailyClassificationEnabled ??
+      DEFAULT_ASSISTANT_PREFERENCES.deepseekDailyClassificationEnabled,
+    deepseekDailyClassificationMode:
+      initial.deepseekDailyClassificationMode ??
+      DEFAULT_ASSISTANT_PREFERENCES.deepseekDailyClassificationMode,
     deepseekModel: initial.deepseekModel ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
     deepseekBaseUrl: initial.deepseekBaseUrl ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl,
+    showPetAssistantShortcut:
+      initial.showPetAssistantShortcut ?? DEFAULT_ASSISTANT_PREFERENCES.showPetAssistantShortcut,
     permissionOnboardingCompleted:
       initial.permissionOnboardingCompleted ??
       DEFAULT_ASSISTANT_PREFERENCES.permissionOnboardingCompleted,
@@ -96,12 +139,25 @@ function createFakeStore(
       initial.videoAudioTranscriptionThreadLimit ??
       DEFAULT_ASSISTANT_PREFERENCES.videoAudioTranscriptionThreadLimit,
     deepseekApiKey: initial.deepseekApiKey ?? '',
+    deepseekApiKeyEncrypted: initial.deepseekApiKeyEncrypted ?? '',
     videoNotes: initial.videoNotes ?? [],
     videoNoteArchives: initial.videoNoteArchives ?? [],
     pendingFavoriteQueue: initial.pendingFavoriteQueue ?? [],
     videoAudioTranscriptionQueue: initial.videoAudioTranscriptionQueue ?? []
   }
   const setCalls: unknown[] = []
+  const set: AssistantStoreLike['set'] = (
+    keyOrValues: Partial<DesktopStoreState> | keyof DesktopStoreState,
+    value?: DesktopStoreState[keyof DesktopStoreState]
+  ) => {
+    setCalls.push(keyOrValues)
+    if (typeof keyOrValues === 'object') {
+      Object.assign(snapshot, keyOrValues)
+      return
+    }
+
+    Object.assign(snapshot, { [keyOrValues]: value })
+  }
 
   return {
     setCalls,
@@ -112,15 +168,7 @@ function createFakeStore(
     has(key) {
       return Object.prototype.hasOwnProperty.call(snapshot, key)
     },
-    set(key, value) {
-      setCalls.push(key)
-      if (typeof key === 'object') {
-        Object.assign(snapshot, key)
-        return
-      }
-
-      Object.assign(snapshot, { [key]: value })
-    }
+    set
   }
 }
 
@@ -150,10 +198,190 @@ describe('assistant preference store helpers', () => {
     expect(loadAssistantPreferences(store).permissionOnboardingCompleted).toBe(false)
   })
 
-  it('defaults comment submission to random direct sending in persisted preferences', () => {
+  it('defaults missing action preferences to two coins and comment choice mode', () => {
+    const store = createFakeStore()
+    delete (store.snapshot as Partial<DesktopStoreState>).defaultCoinCount
+    delete (store.snapshot as Partial<DesktopStoreState>).commentSubmitMode
+
+    expect(loadAssistantPreferences(store)).toMatchObject({
+      defaultCoinCount: 2,
+      commentSubmitMode: 'choose'
+    })
+  })
+
+  it('preserves persisted action preferences from existing users', () => {
+    const store = createFakeStore({
+      defaultCoinCount: 1,
+      commentSubmitMode: 'random'
+    })
+
+    expect(loadAssistantPreferences(store)).toMatchObject({
+      defaultCoinCount: 1,
+      commentSubmitMode: 'random'
+    })
+  })
+
+  it('defaults close behavior to tray minimization with exit confirmation enabled', () => {
+    const store = createFakeStore()
+    delete (store.snapshot as Partial<DesktopStoreState>).closeBehavior
+    delete (store.snapshot as Partial<DesktopStoreState>).confirmBeforeExit
+
+    expect(loadAssistantPreferences(store)).toMatchObject({
+      closeBehavior: 'minimize-to-tray',
+      confirmBeforeExit: true
+    })
+  })
+
+  it('persists the main window close behavior preferences', () => {
     const store = createFakeStore()
 
-    expect(loadAssistantPreferences(store).commentSubmitMode).toBe('random')
+    const saved = saveAssistantPreferences(store, {
+      ...DEFAULT_ASSISTANT_PREFERENCES,
+      closeBehavior: 'exit-launcher',
+      confirmBeforeExit: false
+    })
+
+    expect(saved).toMatchObject({
+      closeBehavior: 'exit-launcher',
+      confirmBeforeExit: false
+    })
+    expect(store.snapshot).toMatchObject({
+      closeBehavior: 'exit-launcher',
+      confirmBeforeExit: false
+    })
+  })
+
+  it('migrates the assistant pet shortcut into its standalone toggle', () => {
+    const store = createFakeStore({
+      petHoverShortcuts: ['like', 'assistant', 'coin', 'comment', 'transcribe']
+    })
+
+    expect(loadAssistantPreferences(store)).toMatchObject({
+      petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
+      showPetAssistantShortcut: true
+    })
+  })
+
+  it('defaults the standalone assistant pet shortcut toggle to visible', () => {
+    const store = createFakeStore()
+    delete (store.snapshot as Partial<DesktopStoreState>).showPetAssistantShortcut
+
+    expect(loadAssistantPreferences(store).showPetAssistantShortcut).toBe(true)
+  })
+
+  it('defaults correction learning preferences for legacy stores', () => {
+    const store = createFakeStore()
+    delete (store.snapshot as Partial<DesktopStoreState>).favoriteArchiveStrategy
+    delete (store.snapshot as Partial<DesktopStoreState>).favoriteCorrectionLearningEnabled
+    delete (store.snapshot as Partial<DesktopStoreState>).favoriteCorrectionLearningClassificationEnabled
+    delete (store.snapshot as Partial<DesktopStoreState>).favoriteCorrectionRecords
+    delete (store.snapshot as Partial<DesktopStoreState>).favoriteKeywordSuggestions
+
+    expect(loadAssistantPreferences(store)).toMatchObject({
+      favoriteArchiveStrategy: 'aggressive',
+      favoriteCorrectionLearningEnabled: true,
+      favoriteCorrectionLearningClassificationEnabled: true,
+      favoriteCorrectionRecords: [],
+      favoriteKeywordSuggestions: []
+    })
+  })
+
+  it('loads and saves normalized favorite archive protection records', () => {
+    const store = createFakeStore({
+      favoriteArchiveProtectionRecords: [
+        {
+          accountMid: '42',
+          aid: 7,
+          targetLedgerIds: ['game', 'game'],
+          targetFolderIds: ['9001', '9001'],
+          completedAt: '2026-07-10T00:00:00.000Z'
+        },
+        { accountMid: '', aid: 8 } as never
+      ]
+    })
+
+    expect(loadAssistantPreferences(store).favoriteArchiveProtectionRecords).toEqual([
+      {
+        accountMid: '42',
+        aid: 7,
+        targetLedgerIds: ['game'],
+        targetFolderIds: ['9001'],
+        completedAt: '2026-07-10T00:00:00.000Z'
+      }
+    ])
+
+    const saved = saveAssistantPreferences(store, {
+      ...DEFAULT_ASSISTANT_PREFERENCES,
+      favoriteArchiveProtectionRecords: [
+        {
+          accountMid: '42',
+          aid: 9,
+          targetLedgerIds: ['knowledge', 'knowledge'],
+          targetFolderIds: ['9002'],
+          completedAt: '2026-07-10T01:00:00.000Z'
+        }
+      ]
+    })
+
+    expect(saved.favoriteArchiveProtectionRecords).toEqual([
+      {
+        accountMid: '42',
+        aid: 9,
+        targetLedgerIds: ['knowledge'],
+        targetFolderIds: ['9002'],
+        completedAt: '2026-07-10T01:00:00.000Z'
+      }
+    ])
+  })
+
+  it('defaults favorite archive protection records for legacy stores', () => {
+    const store = createFakeStore()
+    delete (store.snapshot as Partial<DesktopStoreState>).favoriteArchiveProtectionRecords
+
+    expect(loadAssistantPreferences(store).favoriteArchiveProtectionRecords).toEqual([])
+  })
+
+  it('normalizes accounts that completed the legacy favorite archive migration', () => {
+    const store = createFakeStore({
+      favoriteArchiveProtectionInitializedAccountMids: ['42', '42', ' ', '99']
+    })
+
+    expect(loadAssistantPreferences(store).favoriteArchiveProtectionInitializedAccountMids).toEqual(['42', '99'])
+    const saved = saveAssistantPreferences(store, {
+      ...DEFAULT_ASSISTANT_PREFERENCES,
+      favoriteArchiveProtectionInitializedAccountMids: ['7', '7', ' ']
+    })
+    expect(saved.favoriteArchiveProtectionInitializedAccountMids).toEqual(['7'])
+  })
+
+  it('defaults and persists independent DeepSeek organization preferences', () => {
+    const store = createFakeStore()
+    delete (store.snapshot as Record<string, unknown>).deepseekDailyClassificationEnabled
+    delete (store.snapshot as Record<string, unknown>).deepseekDailyClassificationMode
+    delete (store.snapshot as Record<string, unknown>).deepseekArchiveOrganizationEnabled
+    delete (store.snapshot as Record<string, unknown>).deepseekFeatureDefaultsInitialized
+
+    expect(loadAssistantPreferences(store)).toMatchObject({
+      deepseekDailyClassificationEnabled: true,
+      deepseekDailyClassificationMode: 'all',
+      deepseekArchiveOrganizationEnabled: true,
+      deepseekFeatureDefaultsInitialized: false
+    })
+
+    const saved = saveAssistantPreferences(store, {
+      ...DEFAULT_ASSISTANT_PREFERENCES,
+      deepseekDailyClassificationEnabled: true,
+      deepseekDailyClassificationMode: 'low-confidence-only',
+      deepseekArchiveOrganizationEnabled: false,
+      deepseekFeatureDefaultsInitialized: true
+    })
+
+    expect(saved).toMatchObject({
+      deepseekDailyClassificationEnabled: true,
+      deepseekDailyClassificationMode: 'low-confidence-only',
+      deepseekArchiveOrganizationEnabled: false,
+      deepseekFeatureDefaultsInitialized: true
+    })
   })
 
   it('loads favorite ledgers and first-open prompt state with preferences', () => {
@@ -191,10 +419,42 @@ describe('assistant preference store helpers', () => {
       ledgerPromptDismissed: false,
       bilibiliOperationMode: 'page-visual',
       favoriteArchiveMultiMode: 'two',
+      favoriteArchiveStrategy: 'balanced',
+      favoriteCorrectionLearningEnabled: false,
+      favoriteCorrectionLearningClassificationEnabled: false,
+      favoriteAdjustmentRecordsVersion: 1,
+      favoriteCorrectionRecords: [
+        {
+          id: 'record-1',
+          aid: 1,
+          title: '东京旅行攻略',
+          originalLedgerId: 'game',
+          userLedgerIds: ['life-interest'],
+          source: 'user',
+          feedbackType: 'strong-correction',
+          sourceScene: 'archive-preview',
+          tags: ['旅行'],
+          matchedKeywords: [],
+          createdAt: '2026-07-05T00:00:00.000Z',
+          confirmedAt: '2026-07-05T00:01:00.000Z'
+        }
+      ],
+      favoriteKeywordSuggestions: [
+        {
+          id: 'suggestion-1',
+          action: 'add-keyword',
+          ledgerId: 'life-interest',
+          keyword: '旅行',
+          reason: '用户纠正',
+          source: 'user',
+          status: 'pending',
+          createdAt: '2026-07-05T00:00:00.000Z'
+        }
+      ],
       defaultCoinCount: 2,
       commentSubmitMode: 'random',
       petStyle: 'classic',
-      petHoverShortcuts: ['favorite', 'library', 'prepare-ledgers', 'organize-old-favorites'],
+      petHoverShortcuts: ['favorite'],
       hidePetDuringVideoFullscreen: true,
       preferenceCounts: {
         story: 4,
@@ -205,8 +465,11 @@ describe('assistant preference store helpers', () => {
       deepseekCommentEnabled: true,
       deepseekAutoSummaryEnabled: false,
       deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: true,
+      deepseekDailyClassificationMode: 'low-confidence-only',
       deepseekModel: 'deepseek-reasoner',
       deepseekBaseUrl: 'https://deepseek.example',
+      showPetAssistantShortcut: false,
       permissionOnboardingCompleted: true,
       assistantSidebarWidthPx: 360,
       videoAudioTranscriptionThreadLimit: 2
@@ -217,10 +480,25 @@ describe('assistant preference store helpers', () => {
       ledgerPromptDismissed: false,
       bilibiliOperationMode: 'page-visual',
       favoriteArchiveMultiMode: 'two',
+      favoriteArchiveStrategy: 'balanced',
+      favoriteCorrectionLearningEnabled: false,
+      favoriteCorrectionLearningClassificationEnabled: false,
+      favoriteCorrectionRecords: [
+        expect.objectContaining({
+          id: 'record-1',
+          userLedgerIds: ['life-interest']
+        })
+      ],
+      favoriteKeywordSuggestions: [
+        expect.objectContaining({
+          id: 'suggestion-1',
+          action: 'add-keyword'
+        })
+      ],
       defaultCoinCount: 2,
       commentSubmitMode: 'random',
       petStyle: 'classic',
-      petHoverShortcuts: ['favorite', 'library', 'prepare-ledgers', 'organize-old-favorites'],
+      petHoverShortcuts: ['favorite'],
       hidePetDuringVideoFullscreen: true,
       preferenceCounts: {
         story: 4,
@@ -229,8 +507,11 @@ describe('assistant preference store helpers', () => {
       deepseekEnabled: true,
       deepseekCommentEnabled: true,
       deepseekPetChatEnabled: true,
+      deepseekDailyClassificationEnabled: true,
+      deepseekDailyClassificationMode: 'low-confidence-only',
       deepseekModel: 'deepseek-reasoner',
       deepseekBaseUrl: 'https://deepseek.example',
+      showPetAssistantShortcut: false,
       permissionOnboardingCompleted: true,
       assistantSidebarWidthPx: 360,
       videoAudioTranscriptionThreadLimit: 2
@@ -264,6 +545,24 @@ describe('assistant preference store helpers', () => {
       defaultCoinCount: 9 as never,
       commentSubmitMode: 'manual' as never,
       favoriteArchiveMultiMode: 'many' as never,
+      favoriteArchiveStrategy: 'reckless' as never,
+      favoriteCorrectionRecords: [
+        null,
+        {
+          id: 'trim-record',
+          aid: 1,
+          title: 'trim',
+          userLedgerIds: [123, ' ', 'game'],
+          source: 'user',
+          feedbackType: 'strong-correction',
+          sourceScene: 'archive-preview',
+          tags: [],
+          matchedKeywords: [],
+          createdAt: '2026-07-05T00:00:00.000Z',
+          confirmedAt: '2026-07-05T00:00:00.000Z'
+        }
+      ] as never,
+      favoriteKeywordSuggestions: [null, 'bad'] as never,
       assistantSidebarWidthPx: 999 as never,
       videoAudioTranscriptionThreadLimit: 9 as never
     })
@@ -272,6 +571,13 @@ describe('assistant preference store helpers', () => {
       commentSubmitMode: 'choose',
       defaultCoinCount: 1,
       favoriteArchiveMultiMode: 'off',
+      favoriteArchiveStrategy: 'aggressive',
+      favoriteCorrectionRecords: [
+        expect.objectContaining({
+          userLedgerIds: ['game']
+        })
+      ],
+      favoriteKeywordSuggestions: [],
       petStyle: 'big-head',
       assistantSidebarWidthPx: 486,
       videoAudioTranscriptionThreadLimit: 'unlimited'
@@ -304,6 +610,28 @@ describe('assistant preference store helpers', () => {
     expect(store.snapshot.deepseekApiKey).toBe('')
   })
 
+  it('preserves cleared DeepSeek model and service address preferences', () => {
+    const store = createFakeStore({
+      deepseekModel: 'deepseek-chat',
+      deepseekBaseUrl: 'https://api.deepseek.local'
+    })
+
+    const saved = saveAssistantPreferences(store, {
+      ...DEFAULT_ASSISTANT_PREFERENCES,
+      deepseekModel: '',
+      deepseekBaseUrl: ''
+    })
+
+    expect(saved).toMatchObject({
+      deepseekModel: '',
+      deepseekBaseUrl: ''
+    })
+    expect(loadAssistantPreferences(store)).toMatchObject({
+      deepseekModel: '',
+      deepseekBaseUrl: ''
+    })
+  })
+
   it('loads DeepSeek feature toggles with legacy inheritance', () => {
     const legacyStore = createFakeStore({
       deepseekEnabled: true
@@ -330,7 +658,7 @@ describe('assistant preference store helpers', () => {
     })
   })
 
-  it('normalizes persisted pet hover shortcuts to four valid entries', () => {
+  it('drops retired shortcuts before capping persisted pet hover shortcuts', () => {
     const store = createFakeStore({
       petHoverShortcuts: [
         'favorite',
@@ -345,9 +673,7 @@ describe('assistant preference store helpers', () => {
 
     expect(loadAssistantPreferences(store).petHoverShortcuts).toEqual([
       'favorite',
-      'library',
-      'prepare-ledgers',
-      'organize-old-favorites'
+      'comment'
     ])
 
     saveAssistantPreferences(store, {
@@ -360,12 +686,67 @@ describe('assistant preference store helpers', () => {
 
   it('saves and clears the DeepSeek API key status', () => {
     const store = createFakeStore()
+    const safeStorage = createSafeStorage()
 
-    expect(loadDeepSeekApiKeyStatus(store)).toEqual({ configured: false })
-    expect(saveDeepSeekApiKey(store, 'sk-test')).toEqual({ configured: true })
-    expect(loadDeepSeekApiKeyStatus(store)).toEqual({ configured: true })
-    expect(clearDeepSeekApiKey(store)).toEqual({ configured: false })
-    expect(loadDeepSeekApiKeyStatus(store)).toEqual({ configured: false })
+    expect(loadDeepSeekApiKeyStatus(store, safeStorage)).toEqual({
+      configured: false,
+      protection: 'unavailable'
+    })
+    expect(saveDeepSeekApiKey(store, 'sk-test', safeStorage)).toEqual({
+      configured: true,
+      protection: 'encrypted'
+    })
+    expect(loadDeepSeekApiKey(store, safeStorage)).toBe('sk-test')
+    expect(store.snapshot.deepseekApiKey).toBe('')
+    expect(store.snapshot.deepseekApiKeyEncrypted).toBeTruthy()
+    expect(loadDeepSeekApiKeyStatus(store, safeStorage)).toEqual({
+      configured: true,
+      protection: 'encrypted'
+    })
+    expect(clearDeepSeekApiKey(store)).toEqual({ configured: false, protection: 'unavailable' })
+    expect(loadDeepSeekApiKeyStatus(store, safeStorage)).toEqual({
+      configured: false,
+      protection: 'unavailable'
+    })
+  })
+
+  it('falls back to plaintext DeepSeek API key status when encryption is unavailable', () => {
+    const store = createFakeStore()
+    const safeStorage = createSafeStorage({ available: false })
+
+    expect(saveDeepSeekApiKey(store, 'sk-plain', safeStorage)).toEqual({
+      configured: true,
+      protection: 'plaintext'
+    })
+    expect(loadDeepSeekApiKey(store, safeStorage)).toBe('sk-plain')
+    expect(loadDeepSeekApiKeyStatus(store, safeStorage)).toEqual({
+      configured: true,
+      protection: 'plaintext'
+    })
+  })
+
+  it('migrates legacy plaintext DeepSeek API keys into encrypted storage', () => {
+    const store = createFakeStore({ deepseekApiKey: 'sk-legacy' })
+    const safeStorage = createSafeStorage()
+
+    expect(loadDeepSeekApiKeyStatus(store, safeStorage)).toEqual({
+      configured: true,
+      protection: 'encrypted'
+    })
+    expect(store.snapshot.deepseekApiKey).toBe('')
+    expect(loadDeepSeekApiKey(store, safeStorage)).toBe('sk-legacy')
+  })
+
+  it('reports unreadable encrypted DeepSeek API keys as an error state', () => {
+    const safeStorage = createSafeStorage()
+    const encrypted = safeStorage.encryptString('sk-broken').toString('base64')
+    const store = createFakeStore({ deepseekApiKeyEncrypted: encrypted })
+
+    expect(loadDeepSeekApiKeyStatus(store, createSafeStorage({ failDecrypt: true }))).toEqual({
+      configured: false,
+      protection: 'error'
+    })
+    expect(loadDeepSeekApiKey(store, createSafeStorage({ failDecrypt: true }))).toBe('')
   })
 
   it('reflects DeepSeek API key presence in loaded assistant preferences', () => {
@@ -572,7 +953,48 @@ describe('video audio transcription queue store helpers', () => {
     expect(loadVideoAudioTranscriptionQueue(store)).toEqual([])
   })
 
-  it('saves queue items, drops completed history, and normalizes interrupted running jobs on load', () => {
+  it('recovers draft notes from stale failed jobs and resets the queue on load', () => {
+    const draftNote = createStoreNote('bvid:BV1queue')
+    const failedItem: VideoAudioTranscriptionQueueItem = {
+      id: 'bvid:BV1queue',
+      url: 'https://www.bilibili.com/video/BV1queue',
+      title: 'Queue video',
+      bvid: 'BV1queue',
+      status: 'failed',
+      createdAt: '2026-06-25T00:00:00.000Z',
+      updatedAt: '2026-06-25T00:01:00.000Z',
+      progress: { step: 'summarizing-deepseek', message: 'Generating DeepSeek summary.' },
+      errorMessage: 'DeepSeek is not configured.',
+      draftNote
+    }
+    const pendingItem: VideoAudioTranscriptionQueueItem = {
+      id: 'bvid:BV2queue',
+      url: 'https://www.bilibili.com/video/BV2queue',
+      title: 'Second queue video',
+      bvid: 'BV2queue',
+      status: 'pending',
+      createdAt: '2026-06-25T00:02:00.000Z',
+      updatedAt: '2026-06-25T00:02:00.000Z'
+    }
+    const store = createFakeStore()
+
+    saveVideoAudioTranscriptionQueue(store, [failedItem, pendingItem])
+
+    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([])
+    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual([])
+    expect(store.snapshot.videoNoteArchives).toHaveLength(1)
+    expect(store.snapshot.videoNoteArchives[0]).toMatchObject({
+      id: 'bvid:BV1queue',
+      versions: [
+        expect.objectContaining({
+          note: draftNote,
+          summaryText: ''
+        })
+      ]
+    })
+  })
+
+  it('resets stale running, pending, and completed queue items on load', () => {
     const runningItem: VideoAudioTranscriptionQueueItem = {
       id: 'bvid:BV1queue',
       url: 'https://www.bilibili.com/video/BV1queue',
@@ -611,13 +1033,7 @@ describe('video audio transcription queue store helpers', () => {
       pendingItem,
       completedItem
     ])
-    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([
-      {
-        ...runningItem,
-        status: 'failed',
-        errorMessage: 'bilimi was closed before this transcription finished.'
-      },
-      pendingItem
-    ])
+    expect(loadVideoAudioTranscriptionQueue(store)).toEqual([])
+    expect(store.snapshot.videoAudioTranscriptionQueue).toEqual([])
   })
 })

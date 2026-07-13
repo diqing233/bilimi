@@ -12,6 +12,7 @@ function createTestWindow() {
 
   return {
     close: vi.fn(),
+    hide: vi.fn(),
     emit(eventName: WindowEventName, ...args: unknown[]) {
       for (const handler of handlers.get(eventName) ?? []) {
         handler(...args)
@@ -32,7 +33,16 @@ describe('installMainWindowControlReactions', () => {
     try {
       installMainWindowControlReactions({
         closeAssistantPet: vi.fn(),
+        getPreferences: () =>
+          ({
+            closeBehavior: 'exit-launcher',
+            confirmBeforeExit: false
+          }) as never,
+        minimizeToTray: vi.fn(),
+        prepareToExitLauncher: vi.fn(),
+        savePreferencePatch: vi.fn(),
         sendPetHint,
+        showCloseConfirmation: vi.fn(),
         window
       })
 
@@ -47,6 +57,38 @@ describe('installMainWindowControlReactions', () => {
     }
   })
 
+  it('uses the standby wording for the second native minimize line', () => {
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.34)
+    const window = createTestWindow()
+    const sendPetHint = vi.fn()
+
+    try {
+      installMainWindowControlReactions({
+        closeAssistantPet: vi.fn(),
+        getPreferences: () =>
+          ({
+            closeBehavior: 'exit-launcher',
+            confirmBeforeExit: false
+          }) as never,
+        minimizeToTray: vi.fn(),
+        prepareToExitLauncher: vi.fn(),
+        savePreferencePatch: vi.fn(),
+        sendPetHint,
+        showCloseConfirmation: vi.fn(),
+        window
+      })
+
+      window.emit('minimize')
+
+      expect(sendPetHint).toHaveBeenCalledWith({
+        tone: 'sleepy',
+        message: '小咪先在旁边待命啦，主人随时找我~'
+      })
+    } finally {
+      random.mockRestore()
+    }
+  })
+
   it('welcomes the owner back when the taskbar restores a minimized window', () => {
     const random = vi.spyOn(Math, 'random').mockReturnValue(0)
     const window = createTestWindow()
@@ -55,7 +97,16 @@ describe('installMainWindowControlReactions', () => {
     try {
       installMainWindowControlReactions({
         closeAssistantPet: vi.fn(),
+        getPreferences: () =>
+          ({
+            closeBehavior: 'exit-launcher',
+            confirmBeforeExit: false
+          }) as never,
+        minimizeToTray: vi.fn(),
+        prepareToExitLauncher: vi.fn(),
+        savePreferencePatch: vi.fn(),
         sendPetHint,
+        showCloseConfirmation: vi.fn(),
         window
       })
 
@@ -78,7 +129,16 @@ describe('installMainWindowControlReactions', () => {
     try {
       installMainWindowControlReactions({
         closeAssistantPet: vi.fn(),
+        getPreferences: () =>
+          ({
+            closeBehavior: 'exit-launcher',
+            confirmBeforeExit: false
+          }) as never,
+        minimizeToTray: vi.fn(),
+        prepareToExitLauncher: vi.fn(),
+        savePreferencePatch: vi.fn(),
         sendPetHint,
+        showCloseConfirmation: vi.fn(),
         window
       })
 
@@ -109,7 +169,16 @@ describe('installMainWindowControlReactions', () => {
     try {
       installMainWindowControlReactions({
         closeAssistantPet,
+        getPreferences: () =>
+          ({
+            closeBehavior: 'exit-launcher',
+            confirmBeforeExit: false
+          }) as never,
+        minimizeToTray: vi.fn(),
+        prepareToExitLauncher: vi.fn(),
+        savePreferencePatch: vi.fn(),
         sendPetHint,
+        showCloseConfirmation: vi.fn(),
         window
       })
 
@@ -127,6 +196,80 @@ describe('installMainWindowControlReactions', () => {
 
       expect(closeAssistantPet).toHaveBeenCalledOnce()
       expect(window.close).not.toHaveBeenCalled()
+    } finally {
+      random.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('prevents the native close and hides the project window when tray minimization is configured', () => {
+    const window = createTestWindow()
+    const minimizeToTray = vi.fn()
+    const closeEvent = { preventDefault: vi.fn() }
+
+    installMainWindowControlReactions({
+      closeAssistantPet: vi.fn(),
+      getPreferences: () =>
+        ({
+          closeBehavior: 'minimize-to-tray',
+          confirmBeforeExit: true
+        }) as never,
+      minimizeToTray,
+      prepareToExitLauncher: vi.fn(),
+      savePreferencePatch: vi.fn(),
+      sendPetHint: vi.fn(),
+      showCloseConfirmation: vi.fn(),
+      window
+    })
+
+    window.emit('close', closeEvent)
+
+    expect(closeEvent.preventDefault).toHaveBeenCalledOnce()
+    expect(minimizeToTray).toHaveBeenCalledOnce()
+  })
+
+  it('confirms exit and remembers direct exit only after the owner confirms that action', async () => {
+    vi.useFakeTimers()
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0)
+    const window = createTestWindow()
+    const closeAssistantPet = vi.fn()
+    const sendPetHint = vi.fn<(hint: AssistantPetHint) => void>()
+    const savePreferencePatch = vi.fn()
+    const closeEvent = { preventDefault: vi.fn() }
+
+    try {
+      installMainWindowControlReactions({
+        closeAssistantPet,
+        getPreferences: () =>
+          ({
+            closeBehavior: 'exit-launcher',
+            confirmBeforeExit: true
+          }) as never,
+        minimizeToTray: vi.fn(),
+        prepareToExitLauncher: vi.fn(),
+        savePreferencePatch,
+        sendPetHint,
+        showCloseConfirmation: () => ({ response: 1, checkboxChecked: true }),
+        window
+      })
+
+      window.emit('close', closeEvent)
+      await Promise.resolve()
+
+      expect(closeEvent.preventDefault).toHaveBeenCalledOnce()
+      expect(savePreferencePatch).toHaveBeenCalledWith({
+        closeBehavior: 'exit-launcher',
+        confirmBeforeExit: false
+      })
+      expect(sendPetHint).toHaveBeenCalledWith({
+        tone: 'sleepy',
+        message: '那小咪先退场啦，主人下次见。'
+      })
+      expect(window.close).toHaveBeenCalledOnce()
+
+      vi.advanceTimersByTime(MAIN_WINDOW_CLOSE_FAREWELL_DELAY_MS)
+
+      expect(closeAssistantPet).toHaveBeenCalledOnce()
     } finally {
       random.mockRestore()
       vi.useRealTimers()

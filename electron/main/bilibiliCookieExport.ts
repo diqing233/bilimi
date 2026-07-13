@@ -3,8 +3,9 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 type CookieLike = {
-  domain: string
+  domain?: string
   hostOnly?: boolean
+  httpOnly?: boolean
   name: string
   path?: string
   secure?: boolean
@@ -13,9 +14,9 @@ type CookieLike = {
   expirationDate?: number
 }
 
-type CookieSessionLike = {
+export type CookieSessionLike = {
   cookies: {
-    get: (filter: { domain: string }) => Promise<CookieLike[]>
+    get: (filter: { domain: string }) => Promise<readonly CookieLike[]>
   }
 }
 
@@ -23,11 +24,11 @@ function normalizePath(path: string): string {
   return path.replace(/\\/g, '/')
 }
 
-function isBilibiliCookie(cookie: CookieLike): boolean {
-  return cookie.domain === 'bilibili.com' || cookie.domain.endsWith('.bilibili.com')
+function isBilibiliCookie(cookie: CookieLike): cookie is CookieLike & { domain: string } {
+  return cookie.domain === 'bilibili.com' || cookie.domain?.endsWith('.bilibili.com') === true
 }
 
-export function createBilibiliCookieExportText(cookies: CookieLike[]): string {
+export function createBilibiliCookieExportText(cookies: readonly CookieLike[]): string {
   const lines = ['# Netscape HTTP Cookie File']
 
   for (const cookie of cookies.filter(isBilibiliCookie)) {

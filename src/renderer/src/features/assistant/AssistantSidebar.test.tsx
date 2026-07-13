@@ -1,5 +1,5 @@
 ﻿import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   AssistantSidebar,
   ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX,
@@ -7,10 +7,20 @@ import {
 } from './AssistantSidebar'
 import { createInitialAssistantPreferences } from '../state/assistantState'
 
+function setWindowInnerWidth(width: number) {
+  Object.defineProperty(window, 'innerWidth', {
+    configurable: true,
+    value: width
+  })
+}
+
 function installDesktopApi({
   preferences = createInitialAssistantPreferences()
 }: { preferences?: ReturnType<typeof createInitialAssistantPreferences> } = {}) {
   let openAssistantCallback: (() => void) | undefined
+  let preferencesChangedCallback:
+    | ((preferences: ReturnType<typeof createInitialAssistantPreferences>) => void)
+    | undefined
   let storedPreferences = preferences
   const openWorkspaceCallbacks: Array<
     Parameters<NonNullable<Window['bilimiDesktop']['onOpenFloatingAssistantWorkspace']>>[0]
@@ -29,6 +39,10 @@ function installDesktopApi({
         return vi.fn()
       }),
       onAssistantSnapshotChanged: vi.fn(),
+      onAssistantPreferencesChanged: vi.fn((callback) => {
+        preferencesChangedCallback = callback
+        return vi.fn()
+      }),
       requestAssistantSnapshot: vi.fn().mockResolvedValue(undefined),
       savePreferences: vi.fn(async (nextPreferences) => {
         storedPreferences = createInitialAssistantPreferences(nextPreferences)
@@ -56,6 +70,11 @@ function installDesktopApi({
 
   return {
     openAssistant: () => openAssistantCallback?.(),
+    notifyPreferencesChanged: (
+      nextPreferences: ReturnType<typeof createInitialAssistantPreferences>
+    ) => {
+      preferencesChangedCallback?.(nextPreferences)
+    },
     openWorkspace: (
       payload: Parameters<
         NonNullable<Window['bilimiDesktop']['onOpenFloatingAssistantWorkspace']>
@@ -73,15 +92,29 @@ function installDesktopApi({
 }
 
 describe('assistant sidebar width helpers', () => {
+  beforeEach(() => {
+    setWindowInnerWidth(1366)
+  })
+
   it('keeps resized widths within practical bounds for the current window', () => {
     expect(clampAssistantSidebarWidthPx(260, 1280)).toBe(320)
     expect(clampAssistantSidebarWidthPx(360, 1280)).toBe(360)
     expect(clampAssistantSidebarWidthPx(900, 1280)).toBe(486)
     expect(clampAssistantSidebarWidthPx(900, 1920)).toBe(486)
   })
+
+  it('allows narrower sidebars on compact logical windows', () => {
+    expect(clampAssistantSidebarWidthPx(260, 1080)).toBe(272)
+    expect(clampAssistantSidebarWidthPx(260, 1180)).toBe(288)
+    expect(clampAssistantSidebarWidthPx(260, 1280)).toBe(320)
+  })
 })
 
 describe('AssistantSidebar', () => {
+  beforeEach(() => {
+    setWindowInnerWidth(1366)
+  })
+
   it('opens by default with the 批阅 tab selected', async () => {
     installDesktopApi()
 
@@ -190,6 +223,22 @@ describe('AssistantSidebar', () => {
     )
   })
 
+  it('keeps an expanded sidebar on its own page when the pet opens another workspace', async () => {
+    const api = installDesktopApi()
+    render(<AssistantSidebar />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: '札记' }))
+    act(() => {
+      api.openWorkspace({ tab: 'ledger', organizeOldFavorites: true })
+    })
+
+    expect(screen.getByRole('tab', { name: '札记' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('complementary', { name: 'bilimi 侧边栏' })).toHaveAttribute(
+      'data-collapsed',
+      'false'
+    )
+  })
+
   it('loads, drags, persists, and resets a bounded sidebar width', async () => {
     const api = installDesktopApi({
       preferences: createInitialAssistantPreferences({
@@ -227,6 +276,44 @@ describe('AssistantSidebar', () => {
       )
     )
     expect(ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX).toBe(384)
+  })
+
+  it('re-clamps saved sidebar width when the current window is compact', async () => {
+    setWindowInnerWidth(1080)
+    installDesktopApi({
+      preferences: createInitialAssistantPreferences({
+        assistantSidebarWidthPx: 486
+      })
+    })
+
+    render(<AssistantSidebar />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'bilimi 侧边栏' })
+
+    await act(async () => undefined)
+
+    expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '410px' })
+  })
+
+  it('returns to the stylesheet default width when preferences clear the saved layout width', async () => {
+    const api = installDesktopApi({
+      preferences: createInitialAssistantPreferences({
+        assistantSidebarWidthPx: 360
+      })
+    })
+
+    render(<AssistantSidebar />)
+
+    const sidebar = screen.getByRole('complementary', { name: 'bilimi 侧边栏' })
+
+    await act(async () => undefined)
+    expect(sidebar).toHaveStyle({ '--assistant-sidebar-width': '360px' })
+
+    act(() => {
+      api.notifyPreferencesChanged(createInitialAssistantPreferences({ assistantSidebarWidthPx: null }))
+    })
+
+    expect(sidebar.style.getPropertyValue('--assistant-sidebar-width')).toBe('')
   })
 
   it('captures the pointer and shields webviews while resizing', async () => {

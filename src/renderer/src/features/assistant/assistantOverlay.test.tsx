@@ -14,6 +14,14 @@ function getActionButton(action: keyof typeof ACTION_BUTTON_NAMES) {
   return screen.getByRole('button', { name: ACTION_BUTTON_NAMES[action] })
 }
 
+function getLocalCommentChoices(): HTMLButtonElement[] {
+  return Array.from(
+    screen.getByRole('dialog', { name: '小咪推荐评论' }).querySelectorAll<HTMLButtonElement>(
+      '.assistant-dialog__comment-choice'
+    )
+  )
+}
+
 describe('AssistantOverlay', () => {
   it('starts the folded seal inside the left safe area instead of hugging the right edge', () => {
     render(<AssistantOverlay />)
@@ -228,7 +236,7 @@ describe('AssistantOverlay', () => {
       <AssistantOverlay
         runScript={runScript}
         favoritesFolderName="bilimi 内库"
-        storedPreferences={{
+        storedPreferences={createInitialAssistantPreferences({
           favoritesFolderName: 'bilimi 内库',
           favoriteLedgers: [],
           ledgerPromptDismissed: true,
@@ -243,7 +251,7 @@ describe('AssistantOverlay', () => {
           deepseekModel: 'deepseek-v4-flash',
           deepseekBaseUrl: 'https://api.deepseek.com',
           preferenceCounts: {}
-        }}
+        })}
       />
     )
 
@@ -259,7 +267,7 @@ describe('AssistantOverlay', () => {
       message: '轻赏已入内库。'
     })
 
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('轻赏已入内库。'))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('已点赞，归类存入 bilimi·暂存。'))
   })
 
   it('lets the user confirm create-and-favorite without triggering a like action', async () => {
@@ -332,7 +340,7 @@ describe('AssistantOverlay', () => {
         runScript={runScript}
         favoritesFolderName="bilimi 内库"
         onRecordFeedback={onRecordFeedback}
-        storedPreferences={{
+        storedPreferences={createInitialAssistantPreferences({
           favoritesFolderName: 'bilimi 内库',
           ledgerPromptDismissed: false,
           petStyle: 'big-head',
@@ -356,7 +364,7 @@ describe('AssistantOverlay', () => {
               isDefault: false
             }
           ]
-        }}
+        })}
         videoContentContext={{
           title: '稍后仔细看的视频'
         }}
@@ -439,7 +447,7 @@ describe('AssistantOverlay', () => {
         runScript={runScript}
         runVisualFallback={runVisualFallback}
         favoritesFolderName="bilimi 内库"
-        storedPreferences={{
+        storedPreferences={createInitialAssistantPreferences({
           favoritesFolderName: 'bilimi 内库',
           favoriteLedgers: [],
           ledgerPromptDismissed: true,
@@ -454,7 +462,7 @@ describe('AssistantOverlay', () => {
           deepseekModel: 'deepseek-v4-flash',
           deepseekBaseUrl: 'https://api.deepseek.com',
           preferenceCounts: {}
-        }}
+        })}
       />
     )
 
@@ -514,7 +522,8 @@ describe('AssistantOverlay', () => {
     fireEvent.click(getActionButton('表'))
 
     expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
-    expect(screen.getAllByRole('button').some((button) => button.textContent?.includes('早八观察员'))).toBe(true)
+    expect(getLocalCommentChoices()).toHaveLength(3)
+    expect(getLocalCommentChoices().every((choice) => choice.textContent?.includes('早八观察员'))).toBe(true)
 
     fireEvent.click(getActionButton('藏'))
 
@@ -574,12 +583,10 @@ describe('AssistantOverlay', () => {
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
     fireEvent.click(getActionButton('表'))
 
-    const draft =
-      '小咪替我家主人来夸早八观察员的《早八生存实录》：看得很入戏，像不小心点开了快乐开关。UP主请再接再厉，更新更多精彩视频！'
-
     expect(screen.getByText('小咪拟好三条，主人点一条就发送。')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: draft }))
+    const draft = getLocalCommentChoices()[0].textContent ?? ''
+    fireEvent.click(getLocalCommentChoices()[0])
 
     await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
     expect(runScript.mock.calls[0][0]).toContain(draft)
@@ -598,14 +605,14 @@ describe('AssistantOverlay', () => {
       <AssistantOverlay
         runScript={runScript}
         favoritesFolderName="bilimi 内库"
-        storedPreferences={{
+        storedPreferences={createInitialAssistantPreferences({
           favoritesFolderName: 'bilimi 内库',
           favoriteLedgers: [],
           ledgerPromptDismissed: true,
           petStyle: 'big-head',
           petHoverShortcuts: ['like', 'coin', 'comment', 'transcribe'],
           hidePetDuringVideoFullscreen: false,
-          bilibiliOperationMode: 'page',
+          bilibiliOperationMode: 'page-visual',
           favoriteArchiveMultiMode: 'off',
           commentSubmitMode: 'manual' as never,
           deepseekEnabled: false,
@@ -614,7 +621,7 @@ describe('AssistantOverlay', () => {
           deepseekModel: 'deepseek-v4-flash',
           deepseekBaseUrl: 'https://api.deepseek.com',
           preferenceCounts: {}
-        }}
+        })}
         videoContentContext={{
           title: '早八生存实录',
           author: '早八观察员'
@@ -625,9 +632,7 @@ describe('AssistantOverlay', () => {
     fireEvent.click(screen.getByRole('button', { name: '开折批阅' }))
     fireEvent.click(getActionButton('表'))
 
-    const draft =
-      '小咪替我家主人来夸早八观察员的《早八生存实录》：看得很入戏，像不小心点开了快乐开关。UP主请再接再厉，更新更多精彩视频！'
-    fireEvent.click(screen.getByRole('button', { name: draft }))
+    fireEvent.click(getLocalCommentChoices()[0])
 
     await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
     expect(runScript.mock.calls[0][0]).toContain('"submitComment":true')
@@ -647,7 +652,7 @@ describe('AssistantOverlay', () => {
         <AssistantOverlay
           runScript={runScript}
           favoritesFolderName="bilimi 内库"
-          storedPreferences={{
+          storedPreferences={createInitialAssistantPreferences({
             favoritesFolderName: 'bilimi 内库',
             favoriteLedgers: [],
             ledgerPromptDismissed: true,
@@ -666,7 +671,7 @@ describe('AssistantOverlay', () => {
             deepseekModel: 'deepseek-v4-flash',
             deepseekBaseUrl: 'https://api.deepseek.com',
             preferenceCounts: {}
-          }}
+          })}
           videoContentContext={{
             title: '早八生存实录',
             author: '早八观察员'
@@ -680,7 +685,7 @@ describe('AssistantOverlay', () => {
       await waitFor(() => expect(runScript).toHaveBeenCalledOnce())
       expect(screen.queryByText('小咪拟好三条，主人点一条就发送。')).not.toBeInTheDocument()
       expect(runScript.mock.calls[0][0]).toContain('"submitComment":true')
-      expect(runScript.mock.calls[0][0]).toContain('早八生存实录')
+      expect(runScript.mock.calls[0][0]).toContain('早八观察员')
     } finally {
       randomSpy.mockRestore()
     }

@@ -55,6 +55,25 @@ describe('favorite ledger model', () => {
     expect(lifeLedger?.keywords).toEqual(expect.arrayContaining(['祝福', '生活记录']))
   })
 
+  it('uses combination phrases for ambiguous default keywords', () => {
+    const ledgers = createDefaultFavoriteLedgers()
+    const game = ledgers.find((ledger) => ledger.id === 'game')
+    const movie = ledgers.find((ledger) => ledger.id === 'movie-tv')
+    const life = ledgers.find((ledger) => ledger.id === 'life-interest')
+    const knowledge = ledgers.find((ledger) => ledger.id === 'knowledge')
+
+    expect(game?.keywords).toEqual(expect.arrayContaining(['游戏攻略', '游戏剧情']))
+    expect(game?.keywords).not.toEqual(expect.arrayContaining(['攻略', '剧情']))
+    expect(movie?.keywords).toEqual(expect.arrayContaining(['影视剧情', '番剧剧情', '电影剧情']))
+    expect(movie?.keywords).not.toEqual(expect.arrayContaining(['剧情']))
+    expect(life?.keywords).toEqual(
+      expect.arrayContaining(['生活攻略', '旅行攻略', '装修攻略', '收纳技巧'])
+    )
+    expect(knowledge?.keywords).toEqual(
+      expect.arrayContaining(['知识科普', '科普常识', '冷知识', '小知识', '原理讲解'])
+    )
+  })
+
   it('orders reset defaults as broad initial ledgers and enables all of them', () => {
     const ledgers = createDefaultFavoriteLedgers()
 

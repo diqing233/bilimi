@@ -10,11 +10,15 @@ export function buildOpenLinksInAppScript(): string {
 
       window.__bilimiOpenLinksInstalled = true;
 
+      const isHttpNavigableUrl = (url) => {
+        return url.protocol === 'https:' || url.protocol === 'http:';
+      };
+
       const isBilibiliNavigableUrl = (url) => {
         return /(^|\\.)bilibili\\.com$/.test(url.hostname) && url.protocol === 'https:';
       };
 
-      const readUrlFromAnchor = (anchor) => {
+      const readUrlFromAnchor = (anchor, allowAnyHttpUrl = false) => {
         if (!anchor) {
           return null;
         }
@@ -22,10 +26,20 @@ export function buildOpenLinksInAppScript(): string {
         try {
           const url = new URL(anchor.getAttribute('href') || anchor.href, window.location.href);
 
-          return isBilibiliNavigableUrl(url) ? url.href : null;
+          if (isBilibiliNavigableUrl(url) || (allowAnyHttpUrl && isHttpNavigableUrl(url))) {
+            return url.href;
+          }
+
+          return null;
         } catch {
           return null;
         }
+      };
+
+      const hasNewPageTarget = (element) => {
+        const target = element?.getAttribute?.('target')?.trim()?.toLowerCase?.();
+
+        return Boolean(target && target !== '_self');
       };
 
       const resolveCardUrl = (target) => {
@@ -68,7 +82,7 @@ export function buildOpenLinksInAppScript(): string {
         const anchor = target?.closest?.('a[href]');
 
         if (anchor) {
-          return readUrlFromAnchor(anchor);
+          return readUrlFromAnchor(anchor, hasNewPageTarget(anchor));
         }
 
         const interactiveControl = target?.closest?.(
@@ -158,6 +172,199 @@ export function buildOpenLinksInAppScript(): string {
         }, 0);
       };
 
+      const readUrlForWindowOpen = (url) => {
+        if (url === undefined || url === null || url === '') {
+          return null;
+        }
+
+        try {
+          const parsed = new URL(String(url), window.location.href);
+
+          return isHttpNavigableUrl(parsed) ? parsed.href : null;
+        } catch {
+          return null;
+        }
+      };
+
+      const nativeOpen = window.open?.bind?.(window);
+
+      const shouldCreateDeferredWindowProxy = (url, target) => {
+        const rawUrl = url === undefined || url === null ? '' : String(url).trim();
+        const rawTarget = target === undefined || target === null ? '' : String(target).trim().toLowerCase();
+
+        return (!rawUrl || rawUrl === 'about:blank') && rawTarget !== '_self';
+      };
+
+      const createDeferredWindowProxy = () => {
+        let href = 'about:blank';
+        const locationProxy = {};
+        const windowProxy = {
+          closed: false,
+          close() {
+            this.closed = true;
+          },
+          focus() {},
+          blur() {}
+        };
+
+        Object.defineProperty(locationProxy, 'href', {
+          configurable: true,
+          get() {
+            return href;
+          },
+          set(value) {
+            const urlToOpen = readUrlForWindowOpen(value);
+
+            href = String(value || '');
+
+            if (urlToOpen) {
+              requestOpenInTab(urlToOpen);
+            }
+          }
+        });
+
+        Object.defineProperty(windowProxy, 'location', {
+          configurable: true,
+          get() {
+            return locationProxy;
+          },
+          set(value) {
+            locationProxy.href = value;
+          }
+        });
+
+        return windowProxy;
+      };
+
+      const openInBilimiTab = (url, target, features) => {
+        const urlToOpen = readUrlForWindowOpen(url);
+
+        if (urlToOpen) {
+          requestOpenInTab(urlToOpen);
+          return null;
+        }
+
+        if (shouldCreateDeferredWindowProxy(url, target)) {
+          return createDeferredWindowProxy();
+        }
+
+        return nativeOpen ? nativeOpen(url, target, features) : null;
+      };
+
+      try {
+        Object.defineProperty(window, 'open', {
+          configurable: true,
+          writable: true,
+          value: openInBilimiTab
+        });
+      } catch {
+        window.open = openInBilimiTab;
+      }
+
+      const buildGetFormUrl = (form) => {
+        if (!form || !hasNewPageTarget(form)) {
+          return null;
+        }
+
+        const method = (form.getAttribute('method') || 'get').trim().toLowerCase();
+
+        if (method && method !== 'get') {
+          return null;
+        }
+
+        try {
+          const url = new URL(form.getAttribute('action') || window.location.href, window.location.href);
+
+          if (!isHttpNavigableUrl(url)) {
+            return null;
+          }
+
+          const formData = new FormData(form);
+
+          for (const [name, value] of formData.entries()) {
+            url.searchParams.append(name, typeof value === 'string' ? value : value.name);
+          }
+
+          return url.href;
+        } catch {
+          return null;
+        }
+      };
+
+      const findSearchContainer = (target) => {
+        return (
+          target?.closest?.(
+            '.nav-search, .bili-header__search, .center-search-container, .mini-header__search, form[action*="search.bilibili.com"]'
+          ) || null
+        );
+      };
+
+      const findSearchInput = (target) => {
+        const container = findSearchContainer(target);
+        const selectors = [
+          '.nav-search-input',
+          'input[name="keyword"]',
+          'input[type="search"]',
+          'input[placeholder*="搜索"]',
+          'input[placeholder*="搜尋"]'
+        ];
+
+        for (const selector of selectors) {
+          const input = container?.querySelector?.(selector) || document.querySelector(selector);
+
+          if (input && 'value' in input) {
+            return input;
+          }
+        }
+
+        return null;
+      };
+
+      const buildBilibiliSearchUrl = (target) => {
+        const input = findSearchInput(target);
+        const keyword = String(input?.value || '').trim();
+
+        if (!keyword) {
+          return null;
+        }
+
+        const url = new URL('https://search.bilibili.com/all');
+        url.searchParams.set('keyword', keyword);
+
+        return url.href;
+      };
+
+      const resolveBilibiliSearchUrlFromButton = (target) => {
+        const control = target?.closest?.(
+          '.nav-search-btn, .search-btn, button[type="submit"], input[type="submit"], button[aria-label*="搜索"], [role="button"][aria-label*="搜索"]'
+        );
+
+        if (!control || !findSearchContainer(control)) {
+          return null;
+        }
+
+        return buildBilibiliSearchUrl(control);
+      };
+
+      const resolveBilibiliSearchUrlFromEnter = (event) => {
+        if (event.key !== 'Enter' || event.isComposing) {
+          return null;
+        }
+
+        const target = event.target;
+        const tagName = target?.tagName?.toLowerCase?.();
+
+        if (tagName !== 'input' && tagName !== 'textarea') {
+          return null;
+        }
+
+        if (!findSearchContainer(target)) {
+          return null;
+        }
+
+        return buildBilibiliSearchUrl(target);
+      };
+
       const reviewedFinishedVideoUrls = new Set();
 
       const requestVideoFinishedHint = () => {
@@ -196,12 +403,60 @@ export function buildOpenLinksInAppScript(): string {
           }
 
           const url = resolveNavigableUrl(event.target);
+          const searchUrl = resolveBilibiliSearchUrlFromButton(event.target);
 
           const petHint = resolvePetHint(event.target);
 
           if (petHint) {
             requestPetHint(petHint);
           }
+
+          if (searchUrl) {
+            event.preventDefault();
+            event.stopPropagation();
+            requestOpenInTab(searchUrl);
+            return;
+          }
+
+          if (!url) {
+            return;
+          }
+
+          event.preventDefault();
+          event.stopPropagation();
+          requestOpenInTab(url);
+        },
+        true
+      );
+
+      document.addEventListener(
+        'keydown',
+        (event) => {
+          if (event.defaultPrevented) {
+            return;
+          }
+
+          const searchUrl = resolveBilibiliSearchUrlFromEnter(event);
+
+          if (!searchUrl) {
+            return;
+          }
+
+          event.preventDefault();
+          event.stopPropagation();
+          requestOpenInTab(searchUrl);
+        },
+        true
+      );
+
+      document.addEventListener(
+        'submit',
+        (event) => {
+          if (event.defaultPrevented) {
+            return;
+          }
+
+          const url = buildGetFormUrl(event.target);
 
           if (!url) {
             return;

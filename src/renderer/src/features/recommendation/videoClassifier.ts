@@ -1,5 +1,16 @@
 import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
-import type { FavoriteLedger, FavoriteLedgerClassification } from '@shared/types'
+import { parseFavoriteLedgerRules } from '@shared/favoriteLedgerConstraints'
+import type {
+  FavoriteLedger,
+  FavoriteLedgerClassification,
+  FavoriteLedgerClassificationDiagnostic
+} from '@shared/types'
+import {
+  CONCEPT_CLUSTERS,
+  GAME_ENTITY_ALIASES,
+  WEAK_CLASSIFICATION_TERMS
+} from './classificationLexicon'
+import { normalizeClassificationText } from './classificationText'
 
 export type VideoContentContext = {
   aid?: number
@@ -19,10 +30,6 @@ const DEFAULT_LEDGER_KEYWORD_SUPPLEMENTS: Record<string, string[]> = {
   entertainment: ['鬼畜']
 }
 
-function normalize(value = '') {
-  return value.toLocaleLowerCase().replace(/\s+/g, '')
-}
-
 const FIELD_WEIGHTS = {
   title: 2,
   author: 1.5,
@@ -32,8 +39,110 @@ const FIELD_WEIGHTS = {
   tags: 3
 } as const
 
+type LedgerScore = {
+  ledger: FavoriteLedger
+  explicitScore: number
+  matchedKeywords: string[]
+  score: number
+  strongSignals: string[]
+  weakSignals: string[]
+  entityAliases: string[]
+  conceptClusters: string[]
+  positiveRules: string[]
+  negativeRules: string[]
+}
+
+type AmbiguousCombinationRule = {
+  ledgerId: string
+  contexts: string[]
+  ambiguousTerms: string[]
+  bonus: number
+  label: string
+}
+
+type ReverseConstraintRule = {
+  ledgerId: string
+  contexts: string[]
+  ambiguousTerms: string[]
+  penalty: number
+  label: string
+  when?: (text: string, score: LedgerScore) => boolean
+}
+
+const EPISODE_PATTERN = /第[一二三四五六七八九十百千万0-9]+集/
+
+const AMBIGUOUS_COMBINATION_RULES: AmbiguousCombinationRule[] = [
+  {
+    ledgerId: 'game',
+    contexts: ['游戏', '电竞', 'steam', '手游', '单机'],
+    ambiguousTerms: ['攻略', '剧情', '解说', '实况', '主线', '支线'],
+    bonus: 8,
+    label: '游戏实体/语境 + 攻略/剧情/解说/实况'
+  },
+  {
+    ledgerId: 'movie-tv',
+    contexts: ['电影', '番剧', '电视剧', '演员', '台词'],
+    ambiguousTerms: ['剧情', '名场面', '解析'],
+    bonus: 8,
+    label: '影视语境 + 剧情/名场面/解析'
+  },
+  {
+    ledgerId: 'life-interest',
+    contexts: ['旅行', '城市', '签证', '酒店', '路线', '装修', '收纳', '护肤', '健身'],
+    ambiguousTerms: ['攻略', '教程', '避坑'],
+    bonus: 8,
+    label: '生活语境 + 攻略/教程/避坑'
+  },
+  {
+    ledgerId: 'knowledge',
+    contexts: ['软件', '编程', '课程', '公开课', '原理', '科普', '数码', '工具'],
+    ambiguousTerms: ['教程', '讲解', '入门', '测评'],
+    bonus: 8,
+    label: '知识语境 + 教程/讲解/入门/测评'
+  },
+  {
+    ledgerId: 'creative-aesthetic',
+    contexts: ['摄影', '绘画', '建模', '设计', '调色'],
+    ambiguousTerms: ['教程', '入门'],
+    bonus: 8,
+    label: '创作语境 + 教程/入门'
+  }
+]
+
+const REVERSE_CONSTRAINT_RULES: ReverseConstraintRule[] = [
+  {
+    ledgerId: 'game',
+    contexts: ['旅行', '装修', '收纳', '护肤', '健身'],
+    ambiguousTerms: ['攻略'],
+    penalty: 6,
+    label: '生活语境压低裸攻略的游戏解释'
+  },
+  {
+    ledgerId: 'game',
+    contexts: ['电影', '番剧', '电视剧', '第'],
+    ambiguousTerms: ['剧情'],
+    penalty: 6,
+    label: '影视语境压低裸剧情的游戏解释'
+  },
+  {
+    ledgerId: 'movie-tv',
+    contexts: [],
+    ambiguousTerms: ['剧情'],
+    penalty: 8,
+    label: '游戏实体压低裸剧情的影视解释',
+    when: (text) => gameEntitySignalsInText(text).length > 0
+  },
+  {
+    ledgerId: 'knowledge',
+    contexts: ['消费', '护肤', '汽车', '美食', '车评', '试驾'],
+    ambiguousTerms: ['测评'],
+    penalty: 8,
+    label: '消费语境压低裸测评的知识解释'
+  }
+]
+
 function buildSearchText(context: VideoContentContext) {
-  return normalize(
+  return normalizeClassificationText(
     [
       context.title,
       context.author,
@@ -48,83 +157,204 @@ function buildSearchText(context: VideoContentContext) {
 }
 
 function matchedKeywords(text: string, keywords: string[]) {
-  return keywords.filter((keyword) => text.includes(normalize(keyword)))
+  return keywords.filter((keyword) => text.includes(normalizeClassificationText(keyword)))
 }
 
 function scoreKeywordFields(
   keywords: string[],
-  fieldTexts: Array<{ text: string; weight: number }>
+  fieldTexts: Array<{ text: string; weight: number }>,
+  options: { scoreWeakTerms?: boolean } = {}
 ) {
-  const matches: string[] = []
+  const matchedKeywords: string[] = []
   let score = 0
 
   for (const keyword of keywords) {
-    const normalizedKeyword = normalize(keyword)
+    const normalizedKeyword = normalizeClassificationText(keyword)
     const keywordScore = fieldTexts.reduce(
       (total, field) => (field.text.includes(normalizedKeyword) ? total + field.weight : total),
       0
     )
 
     if (keywordScore > 0) {
-      matches.push(keyword)
-      score += keywordScore
+      matchedKeywords.push(keyword)
+      score +=
+        options.scoreWeakTerms && WEAK_CLASSIFICATION_TERMS.includes(keyword)
+          ? 1.5
+          : keywordScore
     }
   }
 
-  return { matches, score }
+  return { matchedKeywords, score }
 }
 
 function scoreKeywords(context: VideoContentContext, keywords: string[]) {
-  return scoreKeywordFields(keywords, [
-    { text: normalize(context.title), weight: FIELD_WEIGHTS.title },
-    { text: normalize(context.author), weight: FIELD_WEIGHTS.author },
-    { text: normalize(context.description), weight: FIELD_WEIGHTS.description },
-    { text: normalize(context.pageText), weight: FIELD_WEIGHTS.pageText },
-    { text: normalize(context.category), weight: FIELD_WEIGHTS.category },
-    { text: normalize((context.tags ?? []).join(' ')), weight: FIELD_WEIGHTS.tags }
-  ])
+  return scoreKeywordFields(
+    keywords,
+    [
+      { text: normalizeClassificationText(context.title), weight: FIELD_WEIGHTS.title },
+      { text: normalizeClassificationText(context.author), weight: FIELD_WEIGHTS.author },
+      { text: normalizeClassificationText(context.description), weight: FIELD_WEIGHTS.description },
+      { text: normalizeClassificationText(context.pageText), weight: FIELD_WEIGHTS.pageText },
+      { text: normalizeClassificationText(context.category), weight: FIELD_WEIGHTS.category },
+      {
+        text: normalizeClassificationText((context.tags ?? []).join(' ')),
+        weight: FIELD_WEIGHTS.tags
+      }
+    ],
+    { scoreWeakTerms: true }
+  )
 }
 
 function scoreExplicitContextKeywords(context: VideoContentContext, keywords: string[]) {
   return scoreKeywordFields(keywords, [
-    { text: normalize(context.category), weight: FIELD_WEIGHTS.category },
-    { text: normalize((context.tags ?? []).join(' ')), weight: FIELD_WEIGHTS.tags }
+    { text: normalizeClassificationText(context.category), weight: FIELD_WEIGHTS.category },
+    { text: normalizeClassificationText((context.tags ?? []).join(' ')), weight: FIELD_WEIGHTS.tags }
   ])
 }
 
 function ledgerKeywords(ledger: FavoriteLedger) {
-  return [...ledger.keywords, ...(DEFAULT_LEDGER_KEYWORD_SUPPLEMENTS[ledger.id] ?? [])]
+  if (ledgerRuleType(ledger) === 'deepseek') {
+    return []
+  }
+
+  return [
+    ...parseFavoriteLedgerRules(ledger).localKeywords,
+    ...(DEFAULT_LEDGER_KEYWORD_SUPPLEMENTS[ledger.id] ?? [])
+  ]
 }
 
 function ledgerRuleType(ledger: FavoriteLedger) {
   return ledger.ruleType ?? 'keyword'
 }
 
-function scoreLedger(context: VideoContentContext, ledger: FavoriteLedger) {
+function weakSignalsInText(text: string) {
+  return WEAK_CLASSIFICATION_TERMS.filter((term) =>
+    text.includes(normalizeClassificationText(term))
+  )
+}
+
+function entitySignalsForLedger(text: string, ledger: FavoriteLedger) {
+  if (ledger.id !== 'game') {
+    return []
+  }
+
+  return gameEntitySignalsInText(text)
+}
+
+function gameEntitySignalsInText(text: string) {
+  return GAME_ENTITY_ALIASES.filter((entity) =>
+    entity.aliases.some((alias) => text.includes(normalizeClassificationText(alias)))
+  ).map((entity) => entity.canonical)
+}
+
+function conceptSignalsForLedger(text: string, ledger: FavoriteLedger) {
+  return CONCEPT_CLUSTERS.filter(
+    (cluster) =>
+      cluster.ledgerId === ledger.id &&
+      cluster.phrases.some(
+        (phrase) =>
+          !WEAK_CLASSIFICATION_TERMS.includes(phrase) &&
+          text.includes(normalizeClassificationText(phrase))
+      )
+  ).map((cluster) => cluster.id)
+}
+
+function hasAny(text: string, signals: string[]) {
+  return signals.some((signal) => text.includes(normalizeClassificationText(signal)))
+}
+
+function applyCombinationRules(text: string, score: LedgerScore) {
+  for (const rule of AMBIGUOUS_COMBINATION_RULES) {
+    const hasContext =
+      hasAny(text, rule.contexts) ||
+      (rule.ledgerId === 'game' && score.entityAliases.length > 0) ||
+      (rule.ledgerId === 'movie-tv' && EPISODE_PATTERN.test(text))
+    if (score.ledger.id === rule.ledgerId && hasContext && hasAny(text, rule.ambiguousTerms)) {
+      score.score += rule.bonus
+      score.strongSignals.push(rule.label)
+      score.positiveRules.push(rule.label)
+    }
+  }
+
+  for (const rule of REVERSE_CONSTRAINT_RULES) {
+    const hasContext = hasAny(text, rule.contexts) || rule.when?.(text, score)
+    if (score.ledger.id === rule.ledgerId && hasContext && hasAny(text, rule.ambiguousTerms)) {
+      score.score -= rule.penalty
+      score.negativeRules.push(rule.label)
+    }
+  }
+}
+
+function scoreLedger(context: VideoContentContext, ledger: FavoriteLedger): LedgerScore {
   const keywords = ledgerKeywords(ledger)
+  const text = buildSearchText(context)
+  const globalWeakSignals = weakSignalsInText(text)
 
   if (ledgerRuleType(ledger) === 'author') {
+    const scored = scoreKeywordFields(keywords, [
+      { text: normalizeClassificationText(context.author), weight: FIELD_WEIGHTS.author + 8 }
+    ])
     return {
+      ledger,
       explicitScore: 0,
-      ...scoreKeywordFields(keywords, [
-        { text: normalize(context.author), weight: FIELD_WEIGHTS.author + 8 }
-      ])
+      ...scored,
+      strongSignals: scored.matchedKeywords,
+      weakSignals: scored.matchedKeywords.filter((match) => globalWeakSignals.includes(match)),
+      entityAliases: [],
+      conceptClusters: [],
+      positiveRules: [],
+      negativeRules: []
     }
   }
 
   if (ledgerRuleType(ledger) === 'tag') {
+    const scored = scoreKeywordFields(keywords, [
+      {
+        text: normalizeClassificationText((context.tags ?? []).join(' ')),
+        weight: FIELD_WEIGHTS.tags + 7
+      }
+    ])
     return {
+      ledger,
       explicitScore: 0,
-      ...scoreKeywordFields(keywords, [
-        { text: normalize((context.tags ?? []).join(' ')), weight: FIELD_WEIGHTS.tags + 7 }
-      ])
+      ...scored,
+      strongSignals: scored.matchedKeywords,
+      weakSignals: scored.matchedKeywords.filter((match) => globalWeakSignals.includes(match)),
+      entityAliases: [],
+      conceptClusters: [],
+      positiveRules: [],
+      negativeRules: []
     }
   }
 
-  return {
+  const scored = {
+    ledger,
     explicitScore: scoreExplicitContextKeywords(context, keywords).score,
-    ...scoreKeywords(context, keywords)
+    ...scoreKeywords(context, keywords),
+    strongSignals: [] as string[],
+    weakSignals: globalWeakSignals,
+    entityAliases: entitySignalsForLedger(text, ledger),
+    conceptClusters: conceptSignalsForLedger(text, ledger),
+    positiveRules: [] as string[],
+    negativeRules: [] as string[]
   }
+
+  if (scored.entityAliases.length > 0) {
+    scored.score += scored.entityAliases.length * 18
+    scored.strongSignals.push(...scored.entityAliases)
+  }
+
+  if (scored.conceptClusters.length > 0) {
+    scored.score += scored.conceptClusters.length * 6
+    scored.strongSignals.push(...scored.conceptClusters)
+  }
+
+  scored.strongSignals.push(
+    ...scored.matchedKeywords.filter((match) => !globalWeakSignals.includes(match))
+  )
+  applyCombinationRules(text, scored)
+
+  return scored
 }
 
 function inboxLedger(ledgers: FavoriteLedger[]) {
@@ -134,43 +364,68 @@ function inboxLedger(ledgers: FavoriteLedger[]) {
   )
 }
 
-export function classifyVideoContent(
-  context: VideoContentContext,
-  ledgers: FavoriteLedger[] = createDefaultFavoriteLedgers()
-): FavoriteLedgerClassification {
-  const text = buildSearchText(context)
-  const inbox = inboxLedger(ledgers)
-  const riskMatches = matchedKeywords(text, RISK_KEYWORDS)
+function emptyDiagnostic(): FavoriteLedgerClassificationDiagnostic {
+  return {
+    score: 0,
+    scoreGap: 0,
+    confidence: 'low',
+    lowConfidence: true,
+    matchedKeywords: [],
+    strongSignals: [],
+    weakSignals: [],
+    entityAliases: [],
+    conceptClusters: [],
+    positiveRules: [],
+    negativeRules: []
+  }
+}
 
-  if (!text) {
-    return {
-      ledgerId: inbox.id,
-      displayName: inbox.displayName,
-      matchedKeywords: [],
-      reviewRequired: false
-    }
+function confidenceForScore(score: LedgerScore, runnerUp?: LedgerScore) {
+  const runnerUpScore = runnerUp?.score ?? 0
+  const scoreGap = score.score - runnerUpScore
+  const onlyWeakSignals =
+    score.strongSignals.length === 0 &&
+    score.weakSignals.length > 0 &&
+    score.matchedKeywords.every((match) => score.weakSignals.includes(match))
+
+  if (onlyWeakSignals || score.score < 7 || scoreGap < 2.5 || score.negativeRules.length > 0) {
+    return 'low'
   }
 
-  if (riskMatches.length > 0) {
-    return {
-      ledgerId: inbox.id,
-      displayName: inbox.displayName,
-      matchedKeywords: riskMatches,
-      reviewRequired: true
-    }
+  if (score.score >= 10 && scoreGap >= 3 && score.strongSignals.length > 0) {
+    return 'high'
   }
 
-  const scored = ledgers
+  return 'medium'
+}
+
+function diagnosticForScore(score: LedgerScore, runnerUp?: LedgerScore): FavoriteLedgerClassificationDiagnostic {
+  const confidence = confidenceForScore(score, runnerUp)
+  const runnerUpScore = runnerUp?.score
+  return {
+    score: score.score,
+    runnerUpLedgerId: runnerUp?.ledger.id,
+    runnerUpScore,
+    scoreGap: score.score - (runnerUpScore ?? 0),
+    confidence,
+    lowConfidence: confidence === 'low',
+    matchedKeywords: score.matchedKeywords,
+    strongSignals: Array.from(new Set(score.strongSignals)),
+    weakSignals: Array.from(new Set(score.weakSignals)),
+    entityAliases: Array.from(new Set(score.entityAliases)),
+    conceptClusters: Array.from(new Set(score.conceptClusters)),
+    positiveRules: Array.from(new Set(score.positiveRules)),
+    negativeRules: Array.from(new Set(score.negativeRules))
+  }
+}
+
+function rankedLedgerScores(context: VideoContentContext, ledgers: FavoriteLedger[]) {
+  return ledgers
     .filter((ledger) => ledger.id !== 'inbox')
-    .map((ledger) => {
-      return {
-        ledger,
-        ...scoreLedger(context, ledger)
-      }
-    })
+    .map((ledger) => scoreLedger(context, ledger))
     .filter(
       (entry) =>
-        entry.matches.length > 0 &&
+        entry.score > 0 &&
         (entry.ledger.enabled || (entry.ledger.isDefault && entry.explicitScore > 0))
     )
     .sort((left, right) => {
@@ -186,41 +441,121 @@ export function classifyVideoContent(
         return right.score - left.score
       }
 
-      if (right.matches.length !== left.matches.length) {
-        return right.matches.length - left.matches.length
+      if (right.matchedKeywords.length !== left.matchedKeywords.length) {
+        return right.matchedKeywords.length - left.matchedKeywords.length
       }
 
       return left.ledger.priority - right.ledger.priority
     })
+}
 
+function classificationForScore(
+  score: LedgerScore,
+  runnerUp: LedgerScore | undefined,
+  inbox: FavoriteLedger
+): FavoriteLedgerClassification {
+  const diagnostic = diagnosticForScore(score, runnerUp)
+
+  if (score.ledger.isDefault && !score.ledger.enabled) {
+    return {
+      ledgerId: inbox.id,
+      displayName: inbox.displayName,
+      matchedKeywords: score.matchedKeywords,
+      reviewRequired: true,
+      suggestedLedgerId: score.ledger.id,
+      suggestedDisplayName: score.ledger.displayName,
+      diagnostic
+    }
+  }
+
+  return {
+    ledgerId: score.ledger.id,
+    displayName: score.ledger.displayName,
+    matchedKeywords: score.matchedKeywords,
+    reviewRequired: false,
+    diagnostic
+  }
+}
+
+function strongestCompetingScore(scored: LedgerScore[], current: LedgerScore) {
+  return scored
+    .filter((entry) => entry.ledger.id !== current.ledger.id)
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score
+      }
+      if (right.matchedKeywords.length !== left.matchedKeywords.length) {
+        return right.matchedKeywords.length - left.matchedKeywords.length
+      }
+      return left.ledger.priority - right.ledger.priority
+    })[0]
+}
+
+export function classifyVideoContentCandidates(
+  context: VideoContentContext,
+  ledgers: FavoriteLedger[] = createDefaultFavoriteLedgers()
+): FavoriteLedgerClassification[] {
+  const text = buildSearchText(context)
+  const riskMatches = matchedKeywords(text, RISK_KEYWORDS)
+
+  if (!text || riskMatches.length > 0) {
+    return []
+  }
+
+  const inbox = inboxLedger(ledgers)
+  const scored = rankedLedgerScores(context, ledgers)
+
+  return scored.map((entry) => classificationForScore(entry, strongestCompetingScore(scored, entry), inbox))
+}
+
+export function classifyVideoContent(
+  context: VideoContentContext,
+  ledgers: FavoriteLedger[] = createDefaultFavoriteLedgers()
+): FavoriteLedgerClassification {
+  const text = buildSearchText(context)
+  const inbox = inboxLedger(ledgers)
+  const riskMatches = matchedKeywords(text, RISK_KEYWORDS)
+
+  if (!text) {
+    return {
+      ledgerId: inbox.id,
+      displayName: inbox.displayName,
+      matchedKeywords: [],
+      reviewRequired: false,
+      diagnostic: emptyDiagnostic()
+    }
+  }
+
+  if (riskMatches.length > 0) {
+    return {
+      ledgerId: inbox.id,
+      displayName: inbox.displayName,
+      matchedKeywords: riskMatches,
+      reviewRequired: true,
+      diagnostic: {
+        ...emptyDiagnostic(),
+        matchedKeywords: riskMatches,
+        weakSignals: riskMatches,
+        negativeRules: ['风险词进入暂存复核']
+      }
+    }
+  }
+
+  const scored = rankedLedgerScores(context, ledgers)
   const best = scored[0]
+  const runnerUp = scored[1]
 
   if (!best) {
     return {
       ledgerId: inbox.id,
       displayName: inbox.displayName,
       matchedKeywords: [],
-      reviewRequired: false
+      reviewRequired: false,
+      diagnostic: emptyDiagnostic()
     }
   }
 
-  if (best.ledger.isDefault && !best.ledger.enabled) {
-    return {
-      ledgerId: inbox.id,
-      displayName: inbox.displayName,
-      matchedKeywords: best.matches,
-      reviewRequired: true,
-      suggestedLedgerId: best.ledger.id,
-      suggestedDisplayName: best.ledger.displayName
-    }
-  }
-
-  return {
-    ledgerId: best.ledger.id,
-    displayName: best.ledger.displayName,
-    matchedKeywords: best.matches,
-    reviewRequired: false
-  }
+  return classificationForScore(best, strongestCompetingScore(scored, best) ?? runnerUp, inbox)
 }
 
 export function buildVideoContentContextScript(): string {

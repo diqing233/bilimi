@@ -12,6 +12,9 @@ export type FavoriteLedgerPreviewItem = {
   alreadyInTarget: boolean
   selected: boolean
   selectedCandidateTarget?: boolean
+  desiredTargetFolderIds?: string[]
+  currentBilimiFolderIds?: string[]
+  reorganizeProtected?: boolean
 }
 
 export type FavoriteLedgerExecutionPacingOptions = {
@@ -360,6 +363,12 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
         const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
         const listJson = await ensureApiOk(listResponse, 'favorite folder list');
         const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
+        const normalizedLedgerName = (value) => String(value ?? '').trim().replace(/^bilimi[·\\s\\-路]*/i, '').trim();
+        const ledgerByFolderId = new Map(
+          payload.ledgers
+            .filter((ledger) => ledger.bilibiliFolderId)
+            .map((ledger) => [String(ledger.bilibiliFolderId), ledger])
+        );
         const targetFolderIds = new Set(
           payload.ledgers
             .map((ledger) => ledger.bilibiliFolderId)
@@ -370,6 +379,27 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
         let fallbackSourceFolder = null;
         const skippedSourceFolderTitles = [];
         const targetMembership = {};
+        const managedFolders = folders
+          .map((folder) => {
+            const id = findFolderId(folder);
+            const title = String(folder?.title ?? '');
+            if (!id || !/^bilimi[·\\s\\-路]*/i.test(title.trim())) {
+              return null;
+            }
+            const idString = String(id);
+            const ledger = ledgerByFolderId.get(idString) ?? payload.ledgers.find(
+              (candidate) => normalizedLedgerName(candidate.displayName) === normalizedLedgerName(title)
+            );
+            return {
+              id: idString,
+              title,
+              ledgerId: ledger?.id,
+              isInbox: ledger?.id === 'inbox' || /待分类|暂存/.test(normalizedLedgerName(title))
+            };
+          })
+          .filter(Boolean);
+        const managedFolderIds = new Set(managedFolders.map((folder) => folder.id));
+        let managedFolderScanComplete = true;
         const scanDiagnostics = {
           tagDetailRequests: 0,
           tagDetailFailures: 0,
@@ -526,12 +556,15 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           try {
             videos = await readFolderVideos(folderIdString);
           } catch {
+            if (managedFolderIds.has(folderIdString)) {
+              managedFolderScanComplete = false;
+            }
             skippedSourceFolderTitles.push(String(folder?.title ?? folderIdString));
             steps.push('api:favorite:scan-source-failed:' + folderIdString);
             continue;
           }
 
-          if (targetFolderIds.has(folderIdString)) {
+          if (managedFolderIds.has(folderIdString)) {
             targetMembership[folderIdString] = videos.map((video) => video.aid);
             steps.push((payload.aid ? 'api:favorite:scan-video-target:' : 'api:favorite:scan-target:') + folderIdString);
           }
@@ -559,9 +592,12 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
 
         return {
           ok: true,
+          accountMid: String(mid),
           sourceFolders,
           skippedSourceFolderTitles,
           targetMembership,
+          managedFolders,
+          managedFolderScanComplete,
           scanDiagnostics,
           steps,
           missingTargets: [],
@@ -650,11 +686,11 @@ export function buildExecuteFavoriteLedgerPlanScript(
           };
         };
 
-        const appendItem = async (item, targetFolderId) => {
+        const changeItemFolders = async (item, addFolderIds, removeFolderIds) => {
           const body = new URLSearchParams();
-          body.set('add_media_ids', String(targetFolderId));
+          body.set('add_media_ids', addFolderIds.join(','));
           body.set('csrf', csrf);
-          body.set('del_media_ids', '');
+          body.set('del_media_ids', removeFolderIds.join(','));
           body.set('rid', String(item.aid));
           body.set('type', '2');
           body.set('platform', 'web');
@@ -671,6 +707,8 @@ export function buildExecuteFavoriteLedgerPlanScript(
           });
           await ensureApiOk(response, 'favorite ledger append');
         };
+        const appendItem = async (item, targetFolderId) =>
+          changeItemFolders(item, [String(targetFolderId)], []);
         const refreshTargetFolderId = async (targetDisplayName) => {
           const { mid } = readCredentials();
           if (!mid || !targetDisplayName) {
@@ -702,6 +740,42 @@ export function buildExecuteFavoriteLedgerPlanScript(
 
         for (let index = 0; index < executableItems.length; index += 1) {
           const item = executableItems[index];
+          if (item.reorganizeProtected && Array.isArray(item.desiredTargetFolderIds)) {
+            const desiredFolderIds = Array.from(new Set(item.desiredTargetFolderIds.map(String).filter(Boolean)));
+            const currentFolderIds = Array.from(new Set((item.currentBilimiFolderIds ?? []).map(String).filter(Boolean)));
+            if (desiredFolderIds.length === 0) {
+              continue;
+            }
+            const addedFolderIds = desiredFolderIds.filter((folderId) => !currentFolderIds.includes(folderId));
+            const removedFolderIds = currentFolderIds.filter((folderId) => !desiredFolderIds.includes(folderId));
+            try {
+              for (const folderId of addedFolderIds) {
+                await appendItem(item, folderId);
+                steps.push('api:ledger:append:' + item.aid + ':' + folderId);
+              }
+              if (removedFolderIds.length > 0) {
+                await changeItemFolders(item, [], removedFolderIds);
+                steps.push('api:ledger:remove:' + item.aid);
+              }
+              completedItems.push({
+                ...item,
+                finalFolderIds: desiredFolderIds,
+                addedFolderIds,
+                removedFolderIds
+              });
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
+              if (isProtectionFailure(errorMessage)) {
+                return protectionPausedResult(item, index, errorMessage);
+              }
+              const partial = addedFolderIds.length > 0 && steps.some((step) => step.startsWith('api:ledger:append:' + item.aid + ':'));
+              appendFailures.push({ aid: item.aid, title: item.title, message: errorMessage, partial });
+              missingTargets.push('favorite-ledger-reconcile:' + item.aid);
+              steps.push('api:ledger:reconcile-failed:' + item.aid);
+            }
+            await paceBeforeNextItem(completedItems.length, index < executableItems.length - 1);
+            continue;
+          }
           try {
             let targetFolderId = item.targetFolderId;
             if (!targetFolderId && item.selectedCandidateTarget) {
@@ -716,7 +790,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
               throw new Error(syncRequiredMessage);
             }
             await appendItem(item, targetFolderId);
-            completedItems.push(item);
+            completedItems.push({ ...item, targetFolderId: String(targetFolderId) });
             steps.push('api:ledger:append:' + item.aid);
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
@@ -735,7 +809,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
 
               steps.push('api:ledger:append-retry:' + item.aid);
               await appendItem(item, refreshedFolderId);
-              completedItems.push(item);
+              completedItems.push({ ...item, targetFolderId: String(refreshedFolderId) });
               steps.push('api:ledger:append:' + item.aid);
             } catch (retryError) {
               const retryMessage = retryError instanceof Error ? retryError.message : String(retryError || '');
@@ -765,6 +839,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
             .join('、');
           return {
             ok: false,
+            partial: appendFailures.some((failure) => failure.partial),
             steps,
             missingTargets,
             message:
@@ -784,6 +859,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
           ok: missingTargets.length === 0,
           steps,
           missingTargets,
+          completedItems,
           message: missingTargets.length === 0 ? '旧藏已归册。' : syncRequiredMessage
         };
       } catch (error) {

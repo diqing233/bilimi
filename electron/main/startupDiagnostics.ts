@@ -34,13 +34,17 @@ function normalizeFirewallRule(raw: unknown): WindowsFirewallRule {
   const candidate = raw as Record<string, unknown>
   const normalizeRuleValue = (value: unknown): number | string | undefined =>
     typeof value === 'number' || typeof value === 'string' ? value : undefined
+  const normalizeRuleText = (value: unknown): string | undefined => {
+    const normalized = normalizeRuleValue(value)
+    return normalized === undefined ? undefined : String(normalized)
+  }
 
   return {
-    action: normalizeRuleValue(candidate.Action) ?? normalizeRuleValue(candidate.action) ?? '',
+    action: normalizeRuleText(candidate.Action) ?? normalizeRuleText(candidate.action) ?? '',
     direction:
-      normalizeRuleValue(candidate.Direction) ?? normalizeRuleValue(candidate.direction) ?? '',
+      normalizeRuleText(candidate.Direction) ?? normalizeRuleText(candidate.direction) ?? '',
     displayName:
-      normalizeRuleValue(candidate.DisplayName) ?? normalizeRuleValue(candidate.displayName) ?? '',
+      normalizeRuleText(candidate.DisplayName) ?? normalizeRuleText(candidate.displayName) ?? '',
     enabled:
       typeof candidate.Enabled === 'boolean' ||
       typeof candidate.Enabled === 'number' ||

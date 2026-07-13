@@ -1,14 +1,22 @@
 import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '@shared/favoriteLedgers'
 import { normalizeAssistantSidebarWidthPx } from '@shared/assistantSidebarWidth'
 import { normalizePetHoverShortcuts } from '@shared/petHoverShortcuts'
+import {
+  normalizeFavoriteArchiveProtectionInitializedAccountMids,
+  normalizeFavoriteArchiveProtectionRecords
+} from '@shared/favoriteArchiveProtection'
 import type {
   AssistantAction,
   AssistantPreferences,
   CommentSubmitMode,
+  FavoriteArchiveStrategy,
+  FavoriteKeywordSuggestion,
   FavoriteArchiveMultiMode,
+  MainWindowCloseBehavior,
   RecommendationKind,
   VideoAudioTranscriptionThreadLimit
 } from '@shared/types'
+import { normalizeCorrectionRecords, normalizeKeywordSuggestions } from '../recommendation/correctionLearning'
 
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash'
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
@@ -44,12 +52,30 @@ export function normalizeFavoriteArchiveMultiMode(value: unknown): FavoriteArchi
   return value === 'two' || value === 'three' ? value : 'off'
 }
 
+export function normalizeFavoriteArchiveStrategy(value: unknown): FavoriteArchiveStrategy {
+  return value === 'balanced' || value === 'conservative' ? value : 'aggressive'
+}
+
+export function normalizeDeepSeekDailyClassificationMode(
+  value: unknown
+): AssistantPreferences['deepseekDailyClassificationMode'] {
+  return value === 'low-confidence-only' ? 'low-confidence-only' : 'all'
+}
+
+export function normalizeMainWindowCloseBehavior(value: unknown): MainWindowCloseBehavior {
+  return value === 'exit-launcher' ? 'exit-launcher' : 'minimize-to-tray'
+}
+
+function normalizeFavoriteKeywordSuggestions(value: unknown): FavoriteKeywordSuggestion[] {
+  return normalizeKeywordSuggestions(value)
+}
+
 export function normalizeDefaultCoinCount(value: unknown): 1 | 2 {
-  return value === 2 ? 2 : 1
+  return value === 1 ? 1 : 2
 }
 
 export function normalizeCommentSubmitMode(value: unknown): CommentSubmitMode {
-  if (value === undefined || value === 'random') {
+  if (value === 'random') {
     return 'random'
   }
 
@@ -63,12 +89,16 @@ export function normalizeVideoAudioTranscriptionThreadLimit(
 }
 
 function normalizeDeepSeekModel(value: unknown): string {
-  return typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_DEEPSEEK_MODEL
+  return typeof value === 'string' ? value.trim() : DEFAULT_DEEPSEEK_MODEL
 }
 
 function normalizeDeepSeekBaseUrl(value: unknown): string {
-  if (typeof value !== 'string' || !value.trim()) {
+  if (typeof value !== 'string') {
     return DEFAULT_DEEPSEEK_BASE_URL
+  }
+
+  if (!value.trim()) {
+    return ''
   }
 
   try {
@@ -101,9 +131,38 @@ export function createInitialAssistantPreferences(
     ledgerPromptDismissed: Boolean(persisted?.ledgerPromptDismissed),
     petStyle: normalizePetStyle(persisted?.petStyle),
     petHoverShortcuts: normalizePetHoverShortcuts(persisted?.petHoverShortcuts),
+    showPetAssistantShortcut:
+      typeof persisted?.showPetAssistantShortcut === 'boolean'
+        ? persisted.showPetAssistantShortcut
+        : true,
     hidePetDuringVideoFullscreen: Boolean(persisted?.hidePetDuringVideoFullscreen),
+    closeBehavior: normalizeMainWindowCloseBehavior(persisted?.closeBehavior),
+    confirmBeforeExit:
+      typeof persisted?.confirmBeforeExit === 'boolean' ? persisted.confirmBeforeExit : true,
     bilibiliOperationMode: normalizeBilibiliOperationMode(persisted?.bilibiliOperationMode),
     favoriteArchiveMultiMode: normalizeFavoriteArchiveMultiMode(persisted?.favoriteArchiveMultiMode),
+    favoriteArchiveStrategy: normalizeFavoriteArchiveStrategy(persisted?.favoriteArchiveStrategy),
+    favoriteCorrectionLearningEnabled:
+      typeof persisted?.favoriteCorrectionLearningEnabled === 'boolean'
+        ? persisted.favoriteCorrectionLearningEnabled
+        : true,
+    favoriteCorrectionLearningClassificationEnabled:
+      typeof persisted?.favoriteCorrectionLearningClassificationEnabled === 'boolean'
+        ? persisted.favoriteCorrectionLearningClassificationEnabled
+        : true,
+    favoriteAdjustmentRecordsVersion: 1,
+    favoriteCorrectionRecords:
+      persisted?.favoriteAdjustmentRecordsVersion === 1
+        ? normalizeCorrectionRecords(persisted.favoriteCorrectionRecords)
+        : [],
+    favoriteArchiveProtectionRecords: normalizeFavoriteArchiveProtectionRecords(
+      persisted?.favoriteArchiveProtectionRecords
+    ),
+    favoriteArchiveProtectionInitializedAccountMids:
+      normalizeFavoriteArchiveProtectionInitializedAccountMids(
+        persisted?.favoriteArchiveProtectionInitializedAccountMids
+      ),
+    favoriteKeywordSuggestions: normalizeFavoriteKeywordSuggestions(persisted?.favoriteKeywordSuggestions),
     defaultCoinCount: normalizeDefaultCoinCount(persisted?.defaultCoinCount),
     commentSubmitMode: normalizeCommentSubmitMode(persisted?.commentSubmitMode),
     videoAudioTranscriptionThreadLimit: normalizeVideoAudioTranscriptionThreadLimit(
@@ -117,15 +176,27 @@ export function createInitialAssistantPreferences(
     deepseekApiKeyStored: Boolean(persisted?.deepseekApiKeyStored),
     deepseekCommentEnabled: normalizeDeepSeekFeatureToggle(
       persisted?.deepseekCommentEnabled,
-      persisted?.deepseekEnabled
+      true
     ),
     deepseekAutoSummaryEnabled: normalizeDeepSeekFeatureToggle(
       persisted?.deepseekAutoSummaryEnabled,
-      persisted?.deepseekEnabled
+      true
     ),
     deepseekPetChatEnabled: normalizeDeepSeekFeatureToggle(
       persisted?.deepseekPetChatEnabled,
-      persisted?.deepseekEnabled
+      true
+    ),
+    deepseekDailyClassificationEnabled:
+      typeof persisted?.deepseekDailyClassificationEnabled === 'boolean'
+        ? persisted.deepseekDailyClassificationEnabled
+        : true,
+    deepseekArchiveOrganizationEnabled:
+      typeof persisted?.deepseekArchiveOrganizationEnabled === 'boolean'
+        ? persisted.deepseekArchiveOrganizationEnabled
+        : true,
+    deepseekFeatureDefaultsInitialized: Boolean(persisted?.deepseekFeatureDefaultsInitialized),
+    deepseekDailyClassificationMode: normalizeDeepSeekDailyClassificationMode(
+      persisted?.deepseekDailyClassificationMode
     ),
     deepseekModel: normalizeDeepSeekModel(persisted?.deepseekModel),
     deepseekBaseUrl: normalizeDeepSeekBaseUrl(persisted?.deepseekBaseUrl),

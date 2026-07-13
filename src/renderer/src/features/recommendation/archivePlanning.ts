@@ -1,9 +1,16 @@
 import type {
   FavoriteArchiveMultiMode,
+  FavoriteArchiveStrategy,
   FavoriteLedger,
+  FavoriteLedgerClassification,
+  FavoriteLedgerClassificationDiagnostic,
   FavoriteLedgerId
 } from '@shared/types'
-import { classifyVideoContent, type VideoContentContext } from './videoClassifier'
+import {
+  classifyVideoContent,
+  classifyVideoContentCandidates,
+  type VideoContentContext
+} from './videoClassifier'
 
 export type FavoriteArchiveTarget = {
   ledgerId: FavoriteLedgerId
@@ -12,53 +19,56 @@ export type FavoriteArchiveTarget = {
   keywords: string[]
   ruleType?: FavoriteLedger['ruleType']
   isDefault: boolean
+  diagnostic?: FavoriteLedgerClassificationDiagnostic
+  selectedByStrategy: boolean
 }
 
-function normalize(value = '') {
-  return value.toLocaleLowerCase().replace(/\s+/g, '')
-}
-
-function scoreLedger(context: VideoContentContext, ledger: FavoriteLedger) {
-  const ruleType = ledger.ruleType ?? 'keyword'
-  const fields =
-    ruleType === 'author'
-      ? [{ text: normalize(context.author), weight: 10 }]
-      : ruleType === 'tag'
-        ? [{ text: normalize((context.tags ?? []).join(' ')), weight: 10 }]
-        : [
-    { text: normalize(context.title), weight: 2 },
-    { text: normalize(context.author), weight: 1.5 },
-    { text: normalize(context.description), weight: 1 },
-    { text: normalize(context.pageText), weight: 0.5 },
-    { text: normalize(context.category), weight: 2.5 },
-    { text: normalize((context.tags ?? []).join(' ')), weight: 3 }
-  ]
-  let score = 0
-  const matchedKeywords: string[] = []
-
-  for (const keyword of ledger.keywords) {
-    const normalizedKeyword = normalize(keyword)
-    const keywordScore = fields.reduce(
-      (total, field) => (field.text.includes(normalizedKeyword) ? total + field.weight : total),
-      0
-    )
-    if (keywordScore > 0) {
-      score += keywordScore
-      matchedKeywords.push(keyword)
-    }
+function shouldSelectByStrategy(
+  classification: FavoriteLedgerClassification,
+  strategy: FavoriteArchiveStrategy
+) {
+  if (classification.ledgerId === 'inbox' || classification.reviewRequired) {
+    return false
   }
 
-  return { matchedKeywords, score }
+  if (strategy === 'aggressive') {
+    return true
+  }
+
+  const diagnostic = classification.diagnostic
+  if (!diagnostic) {
+    return strategy === 'balanced'
+  }
+
+  if (strategy === 'conservative') {
+    return diagnostic.confidence === 'high' && !diagnostic.lowConfidence
+  }
+
+  return (
+    !diagnostic.lowConfidence &&
+    (diagnostic.strongSignals.length > 0 ||
+      diagnostic.entityAliases.length > 0 ||
+      diagnostic.conceptClusters.length > 0 ||
+      diagnostic.scoreGap >= 2.5)
+  )
 }
 
-function toTarget(ledger: FavoriteLedger): FavoriteArchiveTarget {
+function toTarget(
+  ledger: FavoriteLedger,
+  options: {
+    diagnostic?: FavoriteLedgerClassificationDiagnostic
+    selectedByStrategy?: boolean
+  } = {}
+): FavoriteArchiveTarget {
   return {
     ledgerId: ledger.id,
     displayName: ledger.displayName,
     folderId: ledger.bilibiliFolderId ?? '',
     keywords: ledger.keywords,
     ruleType: ledger.ruleType,
-    isDefault: ledger.isDefault
+    isDefault: ledger.isDefault,
+    diagnostic: options.diagnostic,
+    selectedByStrategy: options.selectedByStrategy ?? true
   }
 }
 
@@ -72,49 +82,34 @@ function maxTargetCount(mode: FavoriteArchiveMultiMode) {
   return 1
 }
 
-function hasSignal(context: VideoContentContext, signals: string[]) {
-  const text = normalize(
-    [
-      context.title,
-      context.author,
-      context.description,
-      context.pageText,
-      context.category,
-      ...(context.tags ?? [])
-    ]
-      .filter(Boolean)
-      .join(' ')
-  )
-  return signals.some((signal) => text.includes(normalize(signal)))
+type ScoredArchiveLedger = {
+  ledger: FavoriteLedger
+  classification: FavoriteLedgerClassification
+  matchedKeywords: string[]
+  score: number
 }
 
-function chooseDefaultArchiveLedger(context: VideoContentContext, ledgers: FavoriteLedger[]) {
-  const defaultLedgers = ledgers.filter((ledger) => ledger.isDefault)
+function classifyArchiveCandidate(
+  classifications: FavoriteLedgerClassification[],
+  ledger: FavoriteLedger
+): ScoredArchiveLedger {
+  const classification =
+    classifications.find((candidate) => {
+      return candidate.ledgerId === ledger.id || candidate.suggestedLedgerId === ledger.id
+    }) ??
+    ({
+      ledgerId: 'inbox',
+      displayName: '',
+      matchedKeywords: [],
+      reviewRequired: false
+    } satisfies FavoriteLedgerClassification)
 
-  if (hasSignal(context, ['genshin', '原神'])) {
-    const gameLedger = defaultLedgers.find((ledger) => ledger.id === 'game')
-    if (gameLedger?.enabled) {
-      return gameLedger
-    }
+  return {
+    ledger,
+    classification,
+    matchedKeywords: classification.matchedKeywords,
+    score: classification.diagnostic?.score ?? 0
   }
-
-  const defaultClassification = classifyVideoContent(context, defaultLedgers)
-  return defaultLedgers.find((ledger) => ledger.id === defaultClassification.ledgerId)
-}
-
-function scoreDefaultArchiveLedger(context: VideoContentContext, ledger: FavoriteLedger) {
-  const scored = scoreLedger(context, ledger)
-
-  if (ledger.id === 'game' && hasSignal(context, ['genshin', '原神'])) {
-    return {
-      matchedKeywords: scored.matchedKeywords.includes('genshin')
-        ? scored.matchedKeywords
-        : ['genshin', ...scored.matchedKeywords],
-      score: Math.max(scored.score, 100)
-    }
-  }
-
-  return scored
 }
 
 function sortScoredLedgers(
@@ -140,17 +135,23 @@ export function planFavoriteArchiveTargets(args: {
   context: VideoContentContext
   ledgers: FavoriteLedger[]
   multiArchiveMode: FavoriteArchiveMultiMode
+  archiveStrategy?: FavoriteArchiveStrategy
 }): FavoriteArchiveTarget[] {
-  const fallbackDefaultLedger = chooseDefaultArchiveLedger(args.context, args.ledgers)
+  const archiveStrategy = args.archiveStrategy ?? 'aggressive'
+  const defaultClassification = classifyVideoContent(args.context, args.ledgers)
+  const defaultSelectedByStrategy = shouldSelectByStrategy(defaultClassification, archiveStrategy)
+  const candidateClassifications = classifyVideoContentCandidates(args.context, args.ledgers)
+  const fallbackDefaultLedger =
+    args.ledgers.find((ledger) => ledger.id === defaultClassification.ledgerId) ?? null
   const customMatches = args.ledgers
     .filter((ledger) => !ledger.isDefault && ledger.enabled)
-    .map((ledger) => ({ ledger, ...scoreLedger(args.context, ledger) }))
-    .filter((entry) => entry.score > 0)
+    .map((ledger) => classifyArchiveCandidate(candidateClassifications, ledger))
+    .filter((entry) => entry.classification.ledgerId === entry.ledger.id && entry.score > 0)
     .sort(sortScoredLedgers)
   const defaultMatches = args.ledgers
     .filter((ledger) => ledger.isDefault && ledger.enabled && ledger.id !== 'inbox')
-    .map((ledger) => ({ ledger, ...scoreDefaultArchiveLedger(args.context, ledger) }))
-    .filter((entry) => entry.score > 0)
+    .map((ledger) => classifyArchiveCandidate(candidateClassifications, ledger))
+    .filter((entry) => entry.classification.ledgerId === entry.ledger.id && entry.score > 0)
     .sort(sortScoredLedgers)
 
   const maxTargets = maxTargetCount(args.multiArchiveMode)
@@ -158,7 +159,16 @@ export function planFavoriteArchiveTargets(args: {
 
   if (customMatches.length > 0) {
     const customLimit = args.multiArchiveMode === 'three' ? 2 : maxTargets
-    targets.push(...customMatches.slice(0, Math.min(customLimit, maxTargets)).map((entry) => toTarget(entry.ledger)))
+    targets.push(
+      ...customMatches
+        .slice(0, Math.min(customLimit, maxTargets))
+        .map((entry) =>
+          toTarget(entry.ledger, {
+            diagnostic: entry.classification.diagnostic,
+            selectedByStrategy: shouldSelectByStrategy(entry.classification, archiveStrategy)
+          })
+        )
+    )
   }
 
   if (targets.length < maxTargets) {
@@ -167,13 +177,26 @@ export function planFavoriteArchiveTargets(args: {
       ...defaultMatches
         .filter((entry) => !existingTargetIds.has(entry.ledger.id))
         .slice(0, maxTargets - targets.length)
-        .map((entry) => toTarget(entry.ledger))
+        .map((entry) =>
+          toTarget(entry.ledger, {
+            diagnostic: entry.classification.diagnostic,
+            selectedByStrategy: shouldSelectByStrategy(entry.classification, archiveStrategy)
+          })
+        )
     )
   }
 
   if (targets.length === 0) {
     if (fallbackDefaultLedger) {
-      targets.push(toTarget(fallbackDefaultLedger))
+      targets.push(
+        toTarget(fallbackDefaultLedger, {
+          diagnostic:
+            fallbackDefaultLedger.id === defaultClassification.ledgerId
+              ? defaultClassification.diagnostic
+              : undefined,
+          selectedByStrategy: defaultSelectedByStrategy
+        })
+      )
     }
   }
 

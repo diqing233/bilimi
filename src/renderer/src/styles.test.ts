@@ -12,6 +12,23 @@ function expectStyleSnippet(snippet: string): void {
 }
 
 describe('renderer porcelain theme styles', () => {
+  it('keeps bordered controls rounded instead of square-cornered', () => {
+    expect(normalizedStyles).not.toMatch(/border-(?:top|bottom)-(?:left|right)-radius:\s*0\b/)
+
+    const roundedControlSelectors = [
+      'button',
+      'input',
+      'select',
+      'textarea',
+      '[role="button"]',
+      '[role="tab"]'
+    ]
+
+    expectStyleSnippet(
+      `${roundedControlSelectors.join(', ')} { border-radius: var(--porcelain-radius-control);`
+    )
+  })
+
   it('removes the old brown-gold palette from global UI styles', () => {
     const retiredPalette = [
       '#1f140f',
@@ -53,16 +70,42 @@ describe('renderer porcelain theme styles', () => {
     }
   })
 
+  it('places protected reorganization buttons on the line below their copy', () => {
+    expectStyleSnippet(
+      '.favorite-ledger-panel__protected-summary small { grid-column: 1 / -1; min-width: 0;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__protected-summary small + button { grid-column: 1 / -1; justify-self: start;'
+    )
+  })
+
   it('keeps the main app shell clipped to the window instead of exposing horizontal page scroll', () => {
     expect(normalizedStyles).toContain('body {\n  overflow: hidden;')
     expect(normalizedStyles).toContain('.app-shell {\n  position: relative;\n  width: 100%;')
     expect(normalizedStyles).toContain('grid-template-columns: minmax(0, 1fr) auto;')
     expect(normalizedStyles).toContain('overflow: hidden;')
+    expect(normalizedStyles).not.toContain('.app-shell {\n  transform: scale(')
+  })
+
+  it('uses compact density rules for small logical windows without scaling the whole app', () => {
+    expect(normalizedStyles).toContain('@media (max-width: 1200px), (max-height: 760px)')
+    expectStyleSnippet(
+      '@media (max-width: 1200px), (max-height: 760px) { .app-main { grid-template-rows: 38px minmax(0, 1fr);'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace { --assistant-sidebar-workspace-padding-x: 8px; gap: 6px; padding: 4px var(--assistant-sidebar-workspace-padding-x) 8px; font-size: 13px;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar { width: var(--assistant-sidebar-width, clamp(288px, 26vw, 320px));'
+    )
   })
 
   it('keeps browser tabs scrolling left of fixed refresh and collapse controls', () => {
     expect(normalizedStyles).toContain(
       '.browser-tabs {\n  display: grid;\n  grid-template-columns: minmax(0, 1fr) auto;'
+    )
+    expectStyleSnippet(
+      '.browser-tabs { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; min-width: 0; overflow: hidden; padding: 5px 0 5px 10px; border-top: 1px solid rgba(31, 99, 181, 0.06); border-bottom: 1px solid rgba(31, 99, 181, 0.18); background: linear-gradient( 180deg, rgba(226, 238, 249, 0.96), rgba(216, 232, 246, 0.96) ); box-shadow: 0 1px 2px rgba(7, 26, 51, 0.06);'
     )
     expect(normalizedStyles).toContain(
       '.browser-tabs__list {\n  min-width: 0;\n  display: flex;'
@@ -71,8 +114,51 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain(
       '.browser-tabs__controls {\n  display: grid;\n  grid-template-columns: 34px 78px;'
     )
-    expect(normalizedStyles).toContain('border-left: 1px solid rgba(7, 26, 51, 0.24);')
+    expect(normalizedStyles).toContain('border-left: 1px solid rgba(31, 99, 181, 0.16);')
     expect(normalizedStyles).toContain('.browser-tabs__collapse-slot {\n  width: 78px;')
+  })
+
+  it('compresses many open browser video tabs before falling back to horizontal scrolling', () => {
+    expectStyleSnippet(
+      '.browser-tabs__item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; flex: 1 1 168px; width: auto; min-width: 80px; max-width: 220px;'
+    )
+    expectStyleSnippet(
+      '.browser-tabs__item[data-selected="true"] { flex-basis: clamp(120px, 18vw, 220px);'
+    )
+    expectStyleSnippet(
+      '.browser-tabs__tab { min-width: 0; height: 100%; display: inline-flex; align-items: center; gap: 6px; overflow: hidden;'
+    )
+    expect(normalizedStyles).not.toContain('.browser-tabs__tab::before')
+    expectStyleSnippet(
+      '.browser-tabs__close { width: 0; min-width: 0; height: 26px; padding: 0; opacity: 0; overflow: hidden; pointer-events: none;'
+    )
+    expectStyleSnippet(
+      '.browser-tabs__item:is(:hover, :focus-within, [data-selected="true"]) .browser-tabs__close { width: 26px; opacity: 1; pointer-events: auto;'
+    )
+    expectStyleSnippet(
+      '@media (max-width: 1200px), (max-height: 760px) { .app-main { grid-template-rows: 38px minmax(0, 1fr);'
+    )
+    expectStyleSnippet(
+      '.browser-tabs__item { flex-basis: 132px; min-width: 80px; max-width: 180px; height: 28px;'
+    )
+  })
+
+  it('visually separates the app browser toolbar from the native window title bar', () => {
+    expectStyleSnippet(
+      '.browser-tabs { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; min-width: 0; overflow: hidden; padding: 5px 0 5px 10px; border-top: 1px solid rgba(31, 99, 181, 0.06); border-bottom: 1px solid rgba(31, 99, 181, 0.18); background: linear-gradient( 180deg, rgba(226, 238, 249, 0.96), rgba(216, 232, 246, 0.96) ); box-shadow: 0 1px 2px rgba(7, 26, 51, 0.06);'
+    )
+    expectStyleSnippet(
+      '.browser-tabs__item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; flex: 1 1 168px; width: auto; min-width: 80px; max-width: 220px; height: 30px; box-sizing: border-box; border: 1px solid rgba(31, 99, 181, 0.2); border-radius: 6px 6px 4px 4px; background: rgba(247, 251, 255, 0.62); box-shadow: inset 0 -1px 0 rgba(31, 99, 181, 0.08);'
+    )
+    expectStyleSnippet(
+      '.browser-tabs__item[data-selected="true"] { flex-basis: clamp(120px, 18vw, 220px); border-color: rgba(31, 99, 181, 0.42); background: rgba(255, 254, 253, 0.96); box-shadow: 0 1px 3px rgba(7, 26, 51, 0.08), inset 0 -2px 0 var(--porcelain-primary);'
+    )
+    expectStyleSnippet(
+      '.browser-tabs__controls { display: grid; grid-template-columns: 34px 78px; gap: 8px; align-items: center; height: 100%; padding: 0 0 0 8px; border-left: 1px solid rgba(31, 99, 181, 0.22); box-sizing: border-box; background: rgba(213, 230, 246, 0.44);'
+    )
+    expect(styles).not.toContain('border-top: 1px solid rgba(255, 255, 255')
+    expect(styles).not.toContain('inset 0 1px 0 rgba(255, 255, 255, 0.76)')
+    expect(styles).not.toContain('-webkit-app-region: drag')
   })
 
   it('keeps inactive browser webviews composited so switching tabs repaints correctly', () => {
@@ -101,24 +187,36 @@ describe('renderer porcelain theme styles', () => {
     expect(sidebarStyles).toContain('.assistant-sidebar__resize-shield {\n  position: fixed;')
     expect(sidebarStyles).toContain('inset: 0;\n  z-index: 2;\n  cursor: col-resize;')
     expect(sidebarStyles).toContain('.assistant-sidebar__collapse-button {\n  position: absolute;\n  top: 5px;\n  left: -82px;')
-    expect(sidebarStyles).not.toContain('top: 12px;')
+    expect(sidebarStyles).not.toContain(
+      '.assistant-sidebar__collapse-button {\n  position: absolute;\n  top: 12px;'
+    )
     expect(sidebarStyles).toContain('min-width: 66px;\n  min-height: 30px;')
     expect(sidebarStyles).toContain('grid-template-columns: 24px auto;')
     expect(sidebarStyles).toContain('.assistant-sidebar-workspace .floating-assistant-tabs {')
     expect(sidebarStyles).toContain('padding-left: 0;')
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace { --assistant-sidebar-workspace-padding-x: 12px; --assistant-sidebar-scrollbar-width: 12px; --assistant-sidebar-panel-overhang: max(var(--assistant-sidebar-workspace-padding-x), var(--assistant-sidebar-scrollbar-width)); height: 100%; min-height: 0; box-sizing: border-box; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 6px; padding: 4px var(--assistant-sidebar-workspace-padding-x) 12px;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .floating-assistant-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; padding: 7px 6px 6px;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .floating-assistant-global-status { margin-right: 0; margin-left: 0; padding-right: 0; padding-left: 0;'
+    )
     expect(sidebarStyles).toContain('.assistant-sidebar__collapse-label {\n  line-height: 1;')
     expect(sidebarStyles).toContain('.assistant-sidebar__collapse-pet {\n  width: 24px;\n  height: 24px;')
     expect(sidebarStyles).not.toContain('.assistant-sidebar[data-collapsed="true"] .assistant-sidebar__collapse-button {\n  right: 12px;\n  bottom: 12px;')
   })
 
   it('keeps the four assistant tabs equally spaced with horizontal labels', () => {
+    expectStyleSnippet('.floating-assistant-workspace { position: relative; width: min(420px, 100vw);')
     expect(normalizedStyles).toContain(
       '.floating-assistant-tabs {\n  display: grid;\n  grid-template-columns: repeat(4, minmax(0, 1fr));'
     )
     expect(normalizedStyles).toContain(
-      '.floating-assistant-tabs button {\n  width: 100%;\n  min-width: 0;\n  min-height: 36px;'
+      '.floating-assistant-tabs button {\n  width: 100%;\n  min-width: 0;\n  min-height: 38px;'
     )
-    expect(normalizedStyles).toContain('grid-template-columns: 28px max-content;')
+    expect(normalizedStyles).toContain('grid-template-columns: 22px minmax(0, auto);')
     expect(normalizedStyles).toContain('white-space: nowrap;')
     expect(normalizedStyles).toContain(
       '.floating-assistant-tabs button span {\n  min-width: 0;\n  white-space: nowrap;\n  writing-mode: horizontal-tb;'
@@ -130,7 +228,136 @@ describe('renderer porcelain theme styles', () => {
       '.floating-assistant-workspace__fold { position: absolute; right: 0; bottom: 0;'
     )
     expect(normalizedStyles).toContain(
-      '.assistant-sidebar-workspace .floating-assistant-tabs {\n  display: grid;\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 6px;\n  padding-left: 0;'
+      '.assistant-sidebar-workspace .floating-assistant-tabs {\n  display: grid;\n  grid-template-columns: repeat(4, minmax(0, 1fr));\n  gap: 5px;\n  padding: 7px 6px 6px;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .floating-assistant-tabs button { grid-template-columns: 18px minmax(0, auto); gap: 2px; min-height: 34px; padding: 0 3px; font-size: 12px; overflow: hidden;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .floating-assistant-tabs__pet { width: 18px; height: 18px; transform: scale(1.3333333333);'
+    )
+  })
+
+  it('keeps the global assistant status inside the chrome frame without an extra bottom rule', () => {
+    expectStyleSnippet('.floating-assistant-global-status { min-height: 68px; display: grid; grid-template-rows: minmax(34px, auto) 34px; gap: 0; padding: 0; border-bottom: 0; background: rgba(247, 251, 255, 0.76);')
+    expectStyleSnippet('.floating-assistant-global-status__feedback { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--porcelain-deep); padding: 7px 10px; font-size: 12px; font-weight: 700;')
+    expectStyleSnippet('.floating-assistant-global-status__lights { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));')
+    expectStyleSnippet('.floating-assistant-global-status__light { appearance: none; border: 0; background: transparent; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 4px;')
+    expectStyleSnippet('.floating-assistant-global-status__light:hover, .floating-assistant-global-status__light:focus-visible { background: rgba(220, 238, 255, 0.72); outline: none;')
+  })
+
+  it('lets archive history controls wrap instead of overlapping in the assistant sidebar', () => {
+    expectStyleSnippet(
+      '.favorite-ledger-panel__archive-history-actions { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-items: center;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__archive-history-select { grid-column: 1 / -1;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__archive-history-select-control { position: relative; flex: 0 0 32px; width: 32px;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__archive-history-select-control select { appearance: none; width: 100%;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__archive-history-select-control select { appearance: none; width: 100%; min-width: 0; min-height: 30px; color: transparent; text-indent: 100%;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__archive-history-select-control option { color: var(--porcelain-deep); background: #ffffff;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__archive-history-select-control::after { content: ""; position: absolute; z-index: 1; left: 50%; top: 50%;'
+    )
+    expectStyleSnippet(
+      'transform: translate(-50%, -50%) rotate(45deg); pointer-events: none;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__archive-history-button { width: 100%; min-width: 0;'
+    )
+  })
+
+  it('lets DeepSeek archive actions wrap instead of squeezing buttons', () => {
+    expectStyleSnippet(
+      '.favorite-ledger-panel__deepseek-archive-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__deepseek-archive-actions { flex: 1 1 176px; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__deepseek-archive-actions > button, .favorite-ledger-panel__deepseek-archive-scope { flex: 0 0 auto;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__deepseek-archive-scope > button, .favorite-ledger-panel__deepseek-archive-heading button { white-space: nowrap;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__deepseek-archive-run-button { width: 104px; min-width: 104px;'
+    )
+    expectStyleSnippet(
+      ".favorite-ledger-panel__deepseek-archive-run-button[data-action='cancel'] { border-color: rgba(155, 54, 66, 0.42);"
+    )
+  })
+
+  it('keeps DeepSeek archive feedback on one stable muted line', () => {
+    expectStyleSnippet(
+      '.favorite-ledger-panel__deepseek-archive-status { overflow: hidden; color: var(--porcelain-muted); font-weight: 700; text-overflow: ellipsis; white-space: nowrap;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__deepseek-result { width: 100%; min-width: 0;'
+    )
+    expectStyleSnippet('.favorite-ledger-panel__deepseek-result-details { display: grid;')
+    expectStyleSnippet('.favorite-ledger-panel button.favorite-ledger-panel__deepseek-result-toggle { display: inline-flex;')
+    expectStyleSnippet('.favorite-ledger-panel button.favorite-ledger-panel__deepseek-result-toggle:hover:not(:disabled), .favorite-ledger-panel button.favorite-ledger-panel__deepseek-result-toggle:focus-visible:not(:disabled) { border-color: transparent; background: transparent;')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__deepseek-result-trigger strong')
+  })
+
+  it('frames the assistant workspace chrome while keeping tab buttons defined', () => {
+    expectStyleSnippet('.floating-assistant-chrome { min-width: 0; display: grid; grid-template-rows: auto auto; border: 1px solid rgba(31, 99, 181, 0.28); border-radius: 8px; background: rgba(247, 251, 255, 0.72); box-shadow: 0 1px 3px rgba(7, 26, 51, 0.08); overflow: hidden;')
+    expectStyleSnippet('.floating-assistant-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; padding: 8px 8px 7px; border-bottom: 1px dashed #d1e6fb;')
+    expectStyleSnippet('.floating-assistant-tabs button { width: 100%; min-width: 0; min-height: 38px; display: grid; grid-template-columns: 22px minmax(0, auto); justify-content: center; align-items: center; gap: 4px; border: 1px solid #8ec0f4;')
+    expectStyleSnippet('.floating-assistant-global-status__lights { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; align-items: center; border-top: 1px dashed #d1e6fb;')
+    expectStyleSnippet('.floating-assistant-global-status__light + .floating-assistant-global-status__light { border-left: 1px dashed #d1e6fb;')
+  })
+
+  it('keeps every assistant sidebar panel stretched to the ledger frame height', () => {
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .floating-assistant-view { min-width: 0; min-height: 0; height: 100%; overflow: visible;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .memorial-panel, .assistant-sidebar-workspace .favorite-ledger-panel, .assistant-sidebar-workspace .video-note-archive, .assistant-sidebar-workspace .assistant-settings { width: 100%; height: 100%; max-height: none; box-sizing: border-box; box-shadow: none;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .memorial-panel__paper { height: 100%; max-height: none; box-sizing: border-box; overflow: auto; box-shadow: none; border: 0;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .favorite-ledger-panel, .assistant-sidebar-workspace .video-note-archive { height: 100%; box-sizing: border-box; overflow: auto;'
+    )
+  })
+
+  it('keeps assistant sidebar scrollbars in a right-side panel overhang instead of reserving content space', () => {
+    expect(normalizedStyles).not.toContain('--assistant-sidebar-scrollbar-rail')
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace { --assistant-sidebar-workspace-padding-x: 12px; --assistant-sidebar-scrollbar-width: 12px; --assistant-sidebar-panel-overhang: max(var(--assistant-sidebar-workspace-padding-x), var(--assistant-sidebar-scrollbar-width));'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .memorial-panel__paper, .assistant-sidebar-workspace .favorite-ledger-panel, .assistant-sidebar-workspace .video-note-archive { width: auto; margin-right: calc(var(--assistant-sidebar-panel-overhang) * -1);'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .floating-assistant-view { min-width: 0; min-height: 0; height: 100%; overflow: visible;'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .memorial-panel__paper { padding-right: calc(8px + var(--assistant-sidebar-panel-overhang));'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .favorite-ledger-panel, .assistant-sidebar-workspace .video-note-archive { padding-right: var(--assistant-sidebar-panel-overhang);'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .memorial-panel__paper::-webkit-scrollbar, .assistant-sidebar-workspace .favorite-ledger-panel::-webkit-scrollbar, .assistant-sidebar-workspace .video-note-archive::-webkit-scrollbar { width: var(--assistant-sidebar-scrollbar-width);'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .memorial-panel__paper::-webkit-scrollbar-track, .assistant-sidebar-workspace .favorite-ledger-panel::-webkit-scrollbar-track, .assistant-sidebar-workspace .video-note-archive::-webkit-scrollbar-track { background: rgba(220, 238, 255, 0.72);'
+    )
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .memorial-panel__paper::-webkit-scrollbar-thumb, .assistant-sidebar-workspace .favorite-ledger-panel::-webkit-scrollbar-thumb, .assistant-sidebar-workspace .video-note-archive::-webkit-scrollbar-thumb { border: 3px solid rgba(220, 238, 255, 0.72); background: rgba(31, 99, 181, 0.48);'
     )
   })
 
@@ -153,11 +380,12 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).not.toContain('padding: 16px 16px 18px;')
     expect(normalizedStyles).toContain('.palace-maid-pet {\n  width: var(--floating-pet-size);\n  height: var(--floating-pet-size);')
     expect(normalizedStyles).toContain('.palace-maid-pet__bubble {\n  position: absolute;\n  left: 50%;')
+    expect(normalizedStyles).not.toContain('data-workspace-side')
     expect(normalizedStyles).toContain('left: 50%;\n  bottom: calc(var(--floating-pet-size) + 10px);')
     expect(normalizedStyles).not.toContain('top: 1px;')
-    expect(normalizedStyles).toContain('max-width: min(270px, calc(var(--floating-pet-host-width) - 8px));')
+    expect(normalizedStyles).toContain('max-width: 270px;')
     expect(normalizedStyles).toContain('transform: translateX(var(--pet-bubble-offset-x, -50%));')
-    expect(normalizedStyles).toContain('width: min(270px, calc(var(--floating-pet-host-width) - 8px));')
+    expect(normalizedStyles).toContain('width: 270px;')
     expect(normalizedStyles).not.toContain('width: calc(var(--floating-pet-host-width) - 8px);')
     expect(normalizedStyles).not.toContain('width: calc(100vw - 8px);')
     expect(normalizedStyles).not.toContain('max-width: calc(100vw - 8px);')
@@ -190,26 +418,45 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet(
       '.palace-maid-pet__hover-shortcuts { position: absolute; left: 38px; bottom: 2px;'
     )
+    expectStyleSnippet(
+      '.palace-maid-pet__hover-shortcuts[data-assistant-shortcut="true"] { left: 34px;'
+    )
     expect(normalizedStyles).not.toContain('left: 58px;\n  bottom: 2px;')
     expectStyleSnippet(
       '.palace-maid-pet__hover-shortcuts[data-layout="fan"] .palace-maid-pet__hover-shortcut:nth-child(1) { transform: translate(12px, 0);'
     )
+    expectStyleSnippet(
+      '.palace-maid-pet__hover-shortcuts[data-assistant-shortcut="true"] .palace-maid-pet__assistant-shortcut { position: absolute; left: 42px; bottom: 50px;'
+    )
+    expectStyleSnippet(
+      '.palace-maid-pet__hover-shortcuts[data-layout="grid"] { left: 30px; bottom: 6px; grid-template-columns: repeat(2, 32px); gap: 5px;'
+    )
+    expectStyleSnippet(
+      '.palace-maid-pet__hover-shortcuts[data-layout="grid"][data-assistant-shortcut="true"] { left: 34px; bottom: 16px;'
+    )
+    expectStyleSnippet(
+      '.palace-maid-pet__hover-shortcuts[data-layout="grid"][data-assistant-shortcut="true"] .palace-maid-pet__assistant-shortcut { left: 74px; bottom: 18px;'
+    )
+    expect(normalizedStyles).toContain('.palace-maid-pet__assistant-shortcut')
     expect(normalizedStyles).not.toContain('left: 18px;\n  bottom: 50px;')
     expect(normalizedStyles).not.toContain('transform: translate(18px, -16px);')
     expectStyleSnippet('.palace-maid-pet__resize-step:active { transform: none;')
     expect(normalizedStyles).not.toContain('.palace-maid-pet__resize-handle')
     expect(normalizedStyles).not.toContain('cursor: nwse-resize;')
     expect(normalizedStyles).not.toContain('right: 7px;\n  bottom: 7px;')
-    expect(normalizedStyles).not.toContain('-webkit-line-clamp: 2;')
+    expect(normalizedStyles).not.toContain('.palace-maid-pet__bubble span {\n  -webkit-line-clamp: 2;')
+    expectStyleSnippet('.palace-maid-pet__chat-compose { display: flex; gap: 5px; align-items: end;')
+    expectStyleSnippet('.palace-maid-pet__chat-field { display: grid; gap: 3px; flex: 1 1 auto;')
+    expectStyleSnippet('.palace-maid-pet__chat button[type="submit"] { flex: none; padding: 4px 7px;')
   })
 
   it('uses compact spacing for the review panel', () => {
     expect(normalizedStyles).toContain(
-      '.memorial-panel__paper {\n  border: 1px solid rgba(31, 99, 181, 0.3);'
+      '.memorial-panel__paper {\n  border: 0;'
     )
     expect(normalizedStyles).toContain('padding: 8px 8px 46px;\n  max-height: calc(100vh - 16px);')
     expectStyleSnippet(
-      '.memorial-panel__paper { border: 1px solid rgba(31, 99, 181, 0.3); position: relative;'
+      '.memorial-panel__paper { border: 0; position: relative;'
     )
     expectStyleSnippet('.memorial-panel__paper { padding: 8px 8px 46px;')
     expectStyleSnippet(
@@ -218,6 +465,45 @@ describe('renderer porcelain theme styles', () => {
     expect(normalizedStyles).toContain('display: grid;\n  gap: 8px;')
     expect(normalizedStyles).toContain('.memorial-panel__actions {\n  display: grid;\n  grid-template-columns: 1fr;')
     expect(normalizedStyles).toContain('.assistant-action-button {\n  min-height: 62px;')
+    expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 56px; gap: 0; align-items: stretch; border: 1px solid rgba(31, 99, 181, 0.22);'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting { grid-template-columns: minmax(0, 1fr) 56px; gap: 0; align-items: stretch; border: 1px solid rgba(31, 99, 181, 0.22); border-radius: var(--porcelain-radius-control); background: linear-gradient( 180deg, rgba(255, 254, 253, 0.99), rgba(247, 251, 255, 0.99) );'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting:hover, .memorial-panel__action-card--with-setting:focus-within { border-color: rgba(31, 99, 181, 0.5); background: linear-gradient( 180deg, rgba(255, 254, 253, 1), rgba(220, 238, 255, 1) ); box-shadow: 0 8px 16px rgba(31, 99, 181, 0.14); transform: translateY(-1px);'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting .assistant-action-button { border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join) var(--porcelain-radius-join) var(--porcelain-radius-control);'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting .assistant-action-button { border-radius: var(--porcelain-radius-control) var(--porcelain-radius-join) var(--porcelain-radius-join) var(--porcelain-radius-control); border: 0; background: transparent;'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-card--with-setting .assistant-action-button:hover:not(:disabled), .memorial-panel__action-card--with-setting .assistant-action-button:focus-visible:not(:disabled) { background: transparent; box-shadow: none; transform: none;'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-setting { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; justify-self: stretch; min-width: 0; width: 56px; max-width: 56px;'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-setting select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 62px;'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-setting select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; min-height: 62px; border: 0; border-left: 1px solid rgba(31, 99, 181, 0.22);'
+    )
+    expect(normalizedStyles).toContain(
+      '.memorial-panel__action-setting select {\n  box-sizing: border-box;\n  width: 100%;\n  max-width: 100%;\n  min-width: 0;\n  min-height: 62px;\n  border: 0;\n  border-left: 1px solid rgba(31, 99, 181, 0.22);\n  border-radius: var(--porcelain-radius-join) var(--porcelain-radius-control)\n    var(--porcelain-radius-control) var(--porcelain-radius-join);\n  background: transparent;'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__action-setting select:hover, .memorial-panel__action-setting select:focus-visible { border-left-color: rgba(31, 99, 181, 0.5); background: transparent; box-shadow: none;'
+    )
+    expect(normalizedStyles).toContain('rgba(220, 238, 255, 0.98)')
+    expect(normalizedStyles).toContain('rgba(220, 238, 255, 1)')
+    expectStyleSnippet(
+      '.assistant-action-button { min-height: 62px; display: grid; grid-template-columns: 58px minmax(0, 1fr); grid-template-areas: "mark label" "mark desc"; align-items: center; gap: 3px 8px; border-radius: 6px; text-align: left; background: linear-gradient( 180deg, rgba(255, 254, 253, 0.99), rgba(247, 251, 255, 0.99) );'
+    )
+    expect(normalizedStyles).toContain('padding: 0 15px 0 7px;\n  text-align: left;\n  text-align-last: left;')
     expect(normalizedStyles).toContain('grid-template-columns: 58px minmax(0, 1fr);')
     expectStyleSnippet('grid-template-areas: "mark label" "mark desc";')
     expect(normalizedStyles).toContain(
@@ -233,11 +519,33 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet(
       '.assistant-action-button__icon strong { position: absolute; right: -2px; bottom: -1px; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 999px; background: var(--porcelain-primary); color: var(--porcelain-white);'
     )
+    expect(normalizedStyles).not.toContain('.assistant-action-button .memorial-panel__action-setting')
     expect(normalizedStyles).not.toContain('.video-notes__primary-actions strong,')
     expect(normalizedStyles).toContain('.memorial-panel__copy,\n.memorial-panel__meta,\n.memorial-panel__verdict {\n  color: var(--porcelain-text);\n  line-height: 1.5;\n  font-size: 14px;')
     expect(normalizedStyles).not.toContain('.memorial-panel__action span {\n  grid-area: label;')
     expect(normalizedStyles).toContain('.assistant-action-button__label {\n  grid-area: label;\n  min-width: 0;\n  padding-left: 4px;\n  color: var(--porcelain-text);\n  font-weight: 700;\n  font-size: 15px;\n  text-align: left;')
     expect(normalizedStyles).toContain('.assistant-action-button__description {\n  grid-area: desc;\n  min-width: 0;\n  padding-left: 4px;\n  color: var(--porcelain-muted);\n  font-size: 12px;\n  font-weight: 700;\n  text-align: left;')
+  })
+
+  it('frames review video metadata and stretches review actions to the panel width', () => {
+    expectStyleSnippet(
+      '.memorial-panel__body { margin-top: 0; margin-right: -8px; margin-left: -8px; grid-template-columns: 1fr; gap: 8px;'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__meta { box-sizing: border-box; width: 100%; border: 1px solid rgba(31, 99, 181, 0.18); background: rgba(247, 251, 255, 0.62); padding: 8px;'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__actions, .memorial-panel__action-card, .memorial-panel__actions .assistant-action-button { width: 100%; box-sizing: border-box;'
+    )
+    expect(normalizedStyles).toContain('.assistant-action-button {\n  min-height: 62px;')
+    expect(compactStyles).not.toContain('.memorial-panel__meta { height:')
+    expect(compactStyles).not.toContain('.assistant-action-button { height:')
+    expect(compactStyles).not.toContain(
+      '.memorial-panel__meta { border-top: 1px dashed'
+    )
+    expect(compactStyles).not.toContain(
+      '.memorial-panel__meta { border-top: 0; border-bottom: 1px solid'
+    )
   })
 
   it('uses compact spacing for the notes panel', () => {
@@ -252,19 +560,63 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet(
       '.video-notes__primary-actions { display: grid; grid-template-columns: 1fr; gap: 6px; align-items: center; border: 0; background: transparent; padding: 0;'
     )
+    expectStyleSnippet(
+      '.video-notes, .video-notes__source, .video-notes__primary-actions, .video-notes__result-tabs, .video-notes__primary-actions .assistant-action-button { width: 100%; box-sizing: border-box;'
+    )
+    expectStyleSnippet(
+      '.memorial-panel__paper > .video-notes { width: auto; margin-right: -8px; margin-left: -8px;'
+    )
     expect(normalizedStyles).not.toContain('.video-notes__primary-title')
     expectStyleSnippet('.assistant-action-button { min-height: 62px; display: grid; grid-template-columns: 58px minmax(0, 1fr);')
     expect(normalizedStyles).toContain(
       '.video-notes__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));\n  gap: 4px;'
     )
     expect(normalizedStyles).toContain(
-      '.video-notes__result-tabs button {\n  display: grid;\n  gap: 2px;\n  min-height: 50px;'
+      '.video-notes__result-tabs button {\n  display: grid;\n  grid-template-rows: auto auto;\n  align-content: start;\n  gap: 2px;\n  height: 66px;\n  min-height: 66px;'
+    )
+    expectStyleSnippet('.video-notes__result-tabs button { display: grid; grid-template-rows: auto auto; align-content: start; gap: 2px; height: 66px; min-height: 66px; min-width: 0; box-sizing: border-box; padding: 6px 8px;')
+    expectStyleSnippet('.video-notes__result-tabs small { display: -webkit-box; overflow: hidden; color: inherit; opacity: 0.78; line-height: 1.18; -webkit-box-orient: vertical; -webkit-line-clamp: 2; text-overflow: ellipsis;')
+    expectStyleSnippet('.video-notes__queue-header { display: grid; gap: 4px;')
+    expectStyleSnippet('.video-notes__queue-summary { display: flex; align-items: center; justify-content: space-between;')
+    expectStyleSnippet('.video-notes__queue-title { display: -webkit-box; overflow: hidden;')
+    expectStyleSnippet('.video-notes__queue-selector { position: relative; display: inline-flex; flex: 0 0 auto; align-items: center;')
+    expectStyleSnippet('.video-notes__queue-selector select { appearance: none; width: 24px; min-width: 24px; height: 24px; padding: 0;')
+    expectStyleSnippet('.video-notes__queue-selector::after { content: ""; position: absolute; right: 8px; top: 50%; width: 6px; height: 6px; border-right: 1.5px solid rgba(31, 99, 181, 0.72); border-bottom: 1.5px solid rgba(31, 99, 181, 0.72); transform: translateY(-62%) rotate(45deg); pointer-events: none;')
+    expect(normalizedStyles).toContain(
+      '.video-note-archive__result-tabs {\n  display: grid;\n  grid-template-columns: repeat(3, minmax(104px, 1fr));'
+    )
+    expectStyleSnippet(
+      '.video-note-archive__result-tabs button { width: 100%;'
+    )
+    expect(normalizedStyles).toContain(
+      '.video-note-archive__result-tabs button[aria-selected="true"],\n.memorial-panel__tabs button[aria-selected="true"],\n.video-notes [role="tab"][aria-selected="true"]'
+    )
+    expect(normalizedStyles).not.toContain('min-height: 36px;\n  height: 36px;')
+    expectStyleSnippet(
+      '.video-note-archive { display: grid; grid-template-rows: minmax(0, 1fr) auto auto; gap: 10px; min-height: 0; border: 0; background: transparent;'
+    )
+    expectStyleSnippet(
+      '.video-note-archive[data-result-expanded="true"] { grid-template-rows: minmax(0, 1.05fr) minmax(0, 0.85fr) auto;'
+    )
+    expectStyleSnippet(
+      '.video-note-archive__history-card, .video-note-archive__detail { width: 100%; box-sizing: border-box;'
+    )
+    expectStyleSnippet(
+      '.video-note-archive__history-card { display: grid; grid-template-rows: auto auto minmax(0, 1fr);'
+    )
+    expectStyleSnippet(
+      '.video-note-archive__toolbar, .video-note-archive__list { border-top: 1px dashed rgba(31, 99, 181, 0.2);'
     )
     expectStyleSnippet('.video-notes__source dd { min-width: 0; overflow-wrap: anywhere;')
     expectStyleSnippet('.video-notes__summary-result { display: grid; gap: 8px; min-width: 0;')
     expectStyleSnippet('.video-notes__summary-result pre { max-width: 100%; overflow-x: hidden; white-space: pre-wrap; overflow-wrap: anywhere;')
-    expectStyleSnippet('.video-notes__summary-section pre { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;')
-    expect(normalizedStyles).toContain('.video-notes__plain-text {\n  max-height: 160px;')
+    expectStyleSnippet('.video-notes__summary-section { display: grid; gap: 5px; min-width: 0; border-top: 1px dashed rgba(31, 99, 181, 0.18);')
+    expectStyleSnippet('.video-notes__summary-section pre { max-height: 220px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; border: 0; background: transparent;')
+    expectStyleSnippet('.video-notes__result-body { max-height: 160px; overflow: auto; border-top: 1px dashed rgba(31, 99, 181, 0.18); background: transparent;')
+    expectStyleSnippet('.video-notes__result-body ol, .video-notes__result-body pre, .video-notes__result-body .video-notes__plain-text { max-height: none; overflow: visible; border-top: 0; padding-top: 0;')
+    expectStyleSnippet('.video-note-archive__detail section { display: grid; gap: 6px; border-top: 1px dashed rgba(31, 99, 181, 0.18);')
+    expectStyleSnippet('.video-note-archive__result-panel .video-notes__result-body { border-top: 0; padding-top: 0;')
+    expect(normalizedStyles).not.toContain('.video-notes__plain-text {\n  max-height: 160px;\n  overflow: auto;\n  border: 1px solid')
     expect(normalizedStyles).toContain('.video-notes textarea {\n  min-height: 60px;')
     expect(normalizedStyles).toContain(
       '.video-notes__memo textarea[readonly] {\n  min-height: 130px;'
@@ -273,7 +625,7 @@ describe('renderer porcelain theme styles', () => {
 
   it('keeps assistant panel rows from stretching into tall empty blocks', () => {
     expect(normalizedStyles).toContain(
-      '.memorial-panel__paper {\n  border: 1px solid rgba(31, 99, 181, 0.3);'
+      '.memorial-panel__paper {\n  border: 0;'
     )
     expect(normalizedStyles).toContain('display: grid;\n  align-content: start;\n  gap: 6px;')
     expect(normalizedStyles).toContain(
@@ -286,17 +638,40 @@ describe('renderer porcelain theme styles', () => {
   })
 
   it('keeps favorite ledger status near the toolbar and ledger copy compact', () => {
+    expectStyleSnippet(
+      '.assistant-sidebar-workspace .favorite-ledger-panel { border: 0; background: transparent; padding: 0;'
+    )
     expectStyleSnippet('.favorite-ledger-panel__topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px;')
     expectStyleSnippet('.favorite-ledger-panel__topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; border: 0; background: transparent; padding: 0;')
     expectStyleSnippet('.favorite-ledger-panel__toolbar { display: grid; grid-template-columns: 1fr; width: 100%;')
+    expectStyleSnippet(
+      '.favorite-ledger-panel__topbar, .favorite-ledger-panel__toolbar, .favorite-ledger-panel__toolbar button, .favorite-ledger-panel__workspace, .favorite-ledger-panel__notice, .favorite-ledger-panel__status, .favorite-ledger-panel__checklist, .favorite-ledger-panel__editor, .favorite-ledger-panel__form, .favorite-ledger-panel__preview, .favorite-ledger-panel__chips, .favorite-ledger-panel__chip-item { width: 100%; box-sizing: border-box;'
+    )
+    expect(compactStyles).not.toContain(
+      '.favorite-ledger-panel__chip-item, .favorite-ledger-panel__category-actions { width: 100%;'
+    )
     expectStyleSnippet('.assistant-action-button:hover:not(:disabled), .assistant-action-button:focus-visible:not(:disabled) { border-color: rgba(31, 99, 181, 0.5);')
     expectStyleSnippet('.favorite-ledger-panel__safety-note { flex: 1 0 100%; color: var(--porcelain-muted); font-size: 12px;')
     expectStyleSnippet('.favorite-ledger-panel__status { margin: 6px 0 0;')
     expectStyleSnippet('.favorite-ledger-panel__sync-hint { color: var(--porcelain-muted); font-size: 12px;')
+    expectStyleSnippet('.favorite-ledger-panel__help-toggle { appearance: none; width: 14px; height: 18px;')
+    expectStyleSnippet('.favorite-ledger-panel__help-toggle { appearance: none; width: 14px; height: 18px; min-width: 14px; min-height: 18px; padding: 0; border: 0; background: transparent; box-shadow: none;')
+    expectStyleSnippet('.favorite-ledger-panel__help-toggle:hover:not(:disabled), .favorite-ledger-panel__help-toggle:focus-visible:not(:disabled) { border-color: transparent; background: transparent;')
+    expect(normalizedStyles).toContain(
+      '.favorite-ledger-panel .favorite-ledger-panel__help-toggle {\n  border: 0;'
+    )
+    expect(normalizedStyles.indexOf('.favorite-ledger-panel button,')).toBeLessThan(
+      normalizedStyles.indexOf('.favorite-ledger-panel .favorite-ledger-panel__help-toggle {')
+    )
+    expect(normalizedStyles).toContain(
+      '.favorite-ledger-panel .favorite-ledger-panel__help-toggle:hover:not(:disabled),\n.favorite-ledger-panel .favorite-ledger-panel__help-toggle:focus-visible:not(:disabled) {\n  border-color: transparent;'
+    )
+    expect(normalizedStyles.indexOf('.favorite-ledger-panel button:hover:not(:disabled):not(.assistant-action-button)')).toBeLessThan(
+      normalizedStyles.indexOf('.favorite-ledger-panel .favorite-ledger-panel__help-toggle:hover:not(:disabled)')
+    )
     expectStyleSnippet('.favorite-ledger-panel__category-actions { display: flex; flex-wrap: wrap;')
     expect(normalizedStyles).not.toContain('favorite-ledger-panel__pending-queue')
-    expectStyleSnippet('.favorite-ledger-panel__preview-row--pending { border-color: rgba(40, 95, 150, 0.35);')
-    expectStyleSnippet('.favorite-ledger-panel__pending-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));')
+    expectStyleSnippet('.favorite-ledger-panel__pending-actions { display: grid; grid-template-columns: minmax(0, 1fr);')
     expectStyleSnippet('.favorite-ledger-panel__chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));')
     expectStyleSnippet('.favorite-ledger-panel__list-toggle { display: flex; justify-content: flex-end; gap: 8px;')
     expectStyleSnippet('.favorite-ledger-panel__editor-actions { display: flex; gap: 8px;')
@@ -327,11 +702,19 @@ describe('renderer porcelain theme styles', () => {
       '.favorite-ledger-panel__guide-steps button { min-width: 0; height: 36px; min-height: 36px; padding: 0 8px; font-size: 12px; line-height: 1.2; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;'
     )
     expectStyleSnippet('.favorite-ledger-panel__guide-steps button[aria-current="step"] { border-color: rgba(31, 99, 181, 0.5);')
+    expectStyleSnippet('.favorite-ledger-panel__guide-hint { margin: 0; color: var(--porcelain-muted);')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__guide-hint {\n  margin: 0;\n  border:')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics article { display: grid; grid-template-rows: 36px 26px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics span { min-height: 36px;')
     expectStyleSnippet('.favorite-ledger-panel__guide-metrics strong { align-self: start; padding-top: 3px; font-variant-numeric: tabular-nums;')
+    expectStyleSnippet('.favorite-ledger-panel__guide-metrics[aria-label="原归档状态"] article { grid-template-rows: 60px 28px;')
+    expectStyleSnippet('.favorite-ledger-panel__guide-metrics[aria-label="原归档状态"] span { min-height: 60px;')
+    expectStyleSnippet('.favorite-ledger-panel__protected-summary { display: grid; grid-template-columns: minmax(0, 1fr); align-items: center;')
     expectStyleSnippet('.favorite-ledger-panel__scan-warning { margin: 0; color: var(--porcelain-warn);')
+    expectStyleSnippet('.favorite-ledger-panel__step-note { margin: 0; font-size: 12px; line-height: 1.45;')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__step-note {\n  margin: 0;\n  color: var(--porcelain-muted);')
+    expectStyleSnippet('.favorite-ledger-panel__step-divider { border: 0; border-top: 1px dashed rgba(31, 99, 181, 0.28);')
     expect(normalizedStyles).not.toContain('favorite-ledger-panel__scan-candidates')
     expectStyleSnippet('.favorite-ledger-panel__candidate-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));')
     expectStyleSnippet('.favorite-ledger-panel__candidates article, .favorite-ledger-panel__confirm { border: 1px solid rgba(31, 99, 181, 0.18);')
@@ -340,39 +723,109 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__candidate-list > button { grid-column: 1 / -1; justify-self: end;')
     expect(normalizedStyles).not.toContain('favorite-ledger-panel__candidate-list--detailed')
     expect(normalizedStyles).not.toContain('favorite-ledger-panel__candidate-list--compact')
-    expectStyleSnippet('.favorite-ledger-panel__preview-groups { display: grid; gap: 8px;')
-    expectStyleSnippet('.favorite-ledger-panel__preview-row { display: grid; grid-template-columns: minmax(0, 1fr);')
+    expectStyleSnippet('.favorite-ledger-panel__preview-groups { display: grid; gap: 10px; max-height: min(62vh, 720px); overflow-y: auto;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-groups { display: grid; gap: 10px; max-height: min(62vh, 720px); overflow-y: auto; min-width: 0; border: 1px solid rgba(31, 99, 181, 0.22); border-radius: var(--porcelain-radius-surface);')
+    expectStyleSnippet('.favorite-ledger-panel__preview-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-items: start; min-width: 0; border: 1px solid rgba(31, 99, 181, 0.18); border-radius: var(--porcelain-radius-surface);')
     expectStyleSnippet('.favorite-ledger-panel__preview-row header { grid-column: 1 / -1; min-width: 0;')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__preview-row header {\n  grid-column: 1 / -1;\n  position: sticky;')
     expectStyleSnippet('.favorite-ledger-panel__preview-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 8px;')
     expectStyleSnippet('.favorite-ledger-panel__preview-heading strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;')
-    expectStyleSnippet('.favorite-ledger-panel__preview-videos { grid-column: 1 / -1; display: grid; grid-auto-columns: minmax(260px, calc(100% - 12px));')
-    expectStyleSnippet('.favorite-ledger-panel__preview-video { width: 100%; min-height: 68px; height: 68px; display: grid; align-content: start; border: 1px solid rgba(31, 99, 181, 0.18);')
-    expectStyleSnippet('.favorite-ledger-panel__preview-video { width: 100%; min-height: 68px; height: 68px;')
-    expectStyleSnippet('.favorite-ledger-panel__preview-video[aria-pressed="true"] { border-color: rgba(31, 99, 181, 0.45);')
-    expectStyleSnippet('.favorite-ledger-panel__preview-video-title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-tools { display: grid; gap: 8px;')
+    expectStyleSnippet('.favorite-ledger-panel__archive-tool-card { display: grid; gap: 8px;')
+    expectStyleSnippet('.favorite-ledger-panel__archive-tool-divider { height: 1px; border-top: 1px dashed rgba(31, 99, 181, 0.3);')
+    expectStyleSnippet('.favorite-ledger-panel__archive-history-actions { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));')
+    expectStyleSnippet('.favorite-ledger-panel__archive-history-select { grid-column: 1 / -1; display: flex; align-items: center;')
+    expectStyleSnippet('.favorite-ledger-panel__archive-history-select-control { position: relative; flex: 0 0 32px; width: 32px;')
+    expectStyleSnippet('.favorite-ledger-panel__archive-history-button { width: 100%; min-width: 0; min-height: 32px;')
+    expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-actions { flex: 1 1 176px; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;')
+    expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-scope > button { min-width: 84px; display: inline-flex; align-items: center; justify-content: center; gap: 4px;')
+    expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-scope-arrow { font-size: 10px; line-height: 1;')
+    expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-scope-menu { position: absolute; z-index: 10;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-videos { grid-column: 1 / -1; display: flex; align-items: stretch; gap: 18px; min-width: 0; overflow-x: auto;')
+    expectStyleSnippet('padding: 0 12px 8px; scroll-padding-inline: 12px;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-videos article { flex: 0 0 calc(100% - 56px); min-width: 0; display: grid; grid-template-rows: minmax(116px, 1fr) auto; scroll-snap-align: start;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-videos article + article { padding-left: 0;')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__preview-videos article + article {\n  border-left: 1px dashed')
+    expectStyleSnippet('.favorite-ledger-panel__preview-video { width: 100%; min-height: 116px; display: grid; align-content: start;')
+    expectStyleSnippet('border: 1px solid rgba(31, 99, 181, 0.16); border-left: 1px solid rgba(31, 99, 181, 0.16); background: rgba(255, 255, 255, 0.72);')
+    expectStyleSnippet('.favorite-ledger-panel__preview-video[data-selected="true"] { border-color: rgba(31, 99, 181, 0.24); border-left-color: rgba(31, 99, 181, 0.58); background: rgba(220, 238, 255, 0.5);')
+    expect(normalizedStyles).not.toContain('border-right-color: rgba(31, 99, 181, 0.58);')
+    expectStyleSnippet('.favorite-ledger-panel__preview-row--pending .favorite-ledger-panel__preview-videos article { background: transparent;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-row--pending .favorite-ledger-panel__preview-video { border-color: rgba(31, 99, 181, 0.14); border-left-color: rgba(31, 99, 181, 0.14); background: rgba(255, 255, 255, 0.74);')
+    expectStyleSnippet('.favorite-ledger-panel__preview-video-meta { display: grid; gap: 3px; min-width: 0;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-video-meta small { min-width: 0; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-controls { display: grid; grid-template-columns: 60px minmax(0, 1fr);')
+    expectStyleSnippet('.favorite-ledger-panel__target-select { width: 60px; min-width: 0; min-height: 24px;')
+    expect(normalizedStyles).not.toContain(".favorite-ledger-panel__preview-videos article[data-latest-change='true'] {\n  outline:")
+    expectStyleSnippet('.favorite-ledger-panel__preview-delta-row { min-width: 0; min-height: 28px; display: flex; align-items: center; justify-content: flex-start; border-radius: var(--porcelain-radius-control);')
+    expectStyleSnippet('border-left: 2px solid rgba(155, 54, 66, 0.68); background: rgba(255, 232, 235, 0.82); color: var(--porcelain-error);')
+    expectStyleSnippet('text-align: left;')
+    expectStyleSnippet('padding: 0 6px;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-delta { display: block; width: 100%; min-width: 0; overflow: hidden; color: var(--porcelain-error);')
+    expect(normalizedStyles).not.toContain('.favorite-ledger-panel__preview-delta-action')
+    expectStyleSnippet('.favorite-ledger-panel__preview-row--pending { background: rgba(255, 255, 255, 0.56);')
+    expectStyleSnippet('.favorite-ledger-panel button.favorite-ledger-panel__preview-video-title { display: block; width: 100%;')
+    expectStyleSnippet('text-decoration: underline; text-underline-offset: 2px; cursor: pointer;')
     expectStyleSnippet('.favorite-ledger-panel__old-favorite-progress { display: grid; gap: 6px;')
     expectStyleSnippet('.favorite-ledger-panel__old-favorite-progress progress { width: 100%;')
   })
 
   it('styles the DeepSeek assistant settings group and actions', () => {
-    expectStyleSnippet('.assistant-settings > header { display: grid; grid-template-columns: minmax(0, 1fr) auto;')
+    expectStyleSnippet('.assistant-settings { display: grid; grid-template-rows: auto minmax(0, 1fr);')
+    expectStyleSnippet('.assistant-settings > header { display: grid; gap: 10px;')
+    expectStyleSnippet('.assistant-settings__title-row { display: grid; grid-template-columns: minmax(0, 1fr) auto;')
+    expectStyleSnippet('.assistant-settings__header-actions { display: flex; flex-wrap: wrap;')
+    expectStyleSnippet('justify-content: flex-end; gap: 8px;')
+    expect(normalizedStyles).not.toContain('.assistant-settings__section-buttons')
+    expectStyleSnippet('.assistant-settings__jump { display: grid; grid-template-columns: auto minmax(140px, 1fr); align-items: center;')
+    expectStyleSnippet('.assistant-settings__jump select { box-sizing: border-box; min-width: 0; min-height: 30px;')
+    expectStyleSnippet(
+      '.assistant-settings__body { min-height: 0; overflow: auto; display: grid; align-content: start; gap: 32px;'
+    )
+    expectStyleSnippet('border-top: 1px dashed rgba(31, 99, 181, 0.2); padding-top: 14px;')
+    expectStyleSnippet('margin-right: -12px; padding-right: 10px;')
+    expectStyleSnippet(
+      '.assistant-settings__body::-webkit-scrollbar { width: var(--assistant-sidebar-scrollbar-width);'
+    )
+    expectStyleSnippet(
+      '.assistant-settings__body::-webkit-scrollbar-track { background: rgba(220, 238, 255, 0.72);'
+    )
+    expectStyleSnippet(
+      '.assistant-settings__body::-webkit-scrollbar-thumb { border: 3px solid rgba(220, 238, 255, 0.72); background: rgba(31, 99, 181, 0.48);'
+    )
+    expectStyleSnippet('.assistant-settings__group { display: grid; gap: 12px;')
+    expectStyleSnippet('.assistant-settings__group legend { color: var(--porcelain-text); font-size: 14px;')
     expectStyleSnippet('.assistant-settings > header button { min-height: 30px;')
     expectStyleSnippet('.assistant-settings__diagnostics-head { display: grid; grid-template-columns: minmax(0, 1fr) auto auto;')
     expect(normalizedStyles).toContain('.assistant-settings__group--deepseek')
-    expectStyleSnippet('.assistant-settings__deepseek-switches { display: grid; gap: 8px; justify-items: start;')
+    expectStyleSnippet('.assistant-settings__deepseek-switches { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));')
     expectStyleSnippet('.assistant-settings__deepseek-switches label { display: inline-grid; grid-template-columns: auto minmax(0, 1fr);')
+    expectStyleSnippet('.assistant-settings__deepseek-switches--nested { grid-template-columns: repeat(2, minmax(0, max-content));')
+    expectStyleSnippet('.assistant-settings__deepseek-review-control { display: flex; align-items: center; flex-wrap: wrap;')
+    expectStyleSnippet('.assistant-settings__deepseek-review-control select:disabled { opacity: 0.5; cursor: not-allowed;')
+    expectStyleSnippet('.assistant-settings__group--deepseek > label:first-of-type { display: flex; padding-bottom: 8px; border-bottom: 1px dashed rgba(31, 99, 181, 0.22);')
+    expectStyleSnippet('.assistant-settings__group--deepseek > label:nth-of-type(2) { border-top: 1px dashed rgba(31, 99, 181, 0.22); padding-top: 10px;')
     expect(normalizedStyles).not.toContain('.assistant-settings__deepseek-divider')
     expect(normalizedStyles).toContain('.assistant-settings__actions')
     expect(normalizedStyles).toContain(
       '.assistant-settings__group--deepseek .assistant-settings__actions'
     )
-    expect(normalizedStyles).toContain('grid-template-columns: repeat(3, minmax(0, 1fr));')
+    expectStyleSnippet(
+      '.assistant-settings__group--deepseek .assistant-settings__actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));'
+    )
+    expectStyleSnippet(
+      '.assistant-settings__group--deepseek .assistant-settings__actions button { font-size: 12px; white-space: nowrap;'
+    )
     expect(normalizedStyles).toContain('.assistant-settings__actions button:active')
     expect(normalizedStyles).toContain('.assistant-settings__actions button:focus-visible')
     expect(normalizedStyles).toContain('.assistant-settings__deepseek-recommendation')
     expectStyleSnippet(
-      '.assistant-settings__copy-row { display: flex; align-items: center; gap: 6px;'
+      '.assistant-settings__recommendation-divider { border-top: 1px dashed rgba(31, 99, 181, 0.28); padding-top: 4px;'
     )
+    expectStyleSnippet(
+      '.assistant-settings__copy-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;'
+    )
+    expectStyleSnippet('.assistant-settings__copy-row--inline { display: inline-flex; vertical-align: middle;')
     expectStyleSnippet(
       '.assistant-settings__copy-button { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center;'
     )
@@ -388,6 +841,24 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.assistant-settings__group--archive p { margin: 0;')
   })
 
+  it('keeps correction learning and keyword suggestion settings compact', () => {
+    expectStyleSnippet('.assistant-settings__group--learning .assistant-settings__inline-options { padding-bottom: 8px; border-bottom: 1px dashed rgba(31, 99, 181, 0.22);')
+    expectStyleSnippet('.assistant-settings__subsection--records { border-top: 1px dashed rgba(31, 99, 181, 0.22); padding-top: 10px;')
+    expectStyleSnippet('.assistant-settings__record-track { display: flex; align-items: stretch; gap: 12px;')
+    expectStyleSnippet('.assistant-settings__record-card { flex: 0 0 calc(100% - 52px);')
+    expectStyleSnippet('.assistant-settings__option-help { min-width: 0; overflow: hidden; color: var(--porcelain-muted);')
+    expectStyleSnippet('.assistant-settings__learning-head { display: grid; grid-template-columns: minmax(0, 1fr) auto;')
+    expectStyleSnippet('.assistant-settings__learning-summary { min-width: 0; overflow: hidden;')
+    expectStyleSnippet('.assistant-settings__keyword-item { display: grid; grid-template-columns: minmax(0, 1fr);')
+    expectStyleSnippet('.assistant-settings__keyword-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;')
+    expectStyleSnippet('.assistant-settings__keyword-restore { min-width: 44px; min-height: 24px;')
+    expectStyleSnippet('.assistant-settings__keyword-actions button { min-height: 30px; height: 30px;')
+    expectStyleSnippet('.assistant-settings__keyword-actions button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;')
+    expect(compactStyles).not.toContain(
+      '.assistant-settings__learning-item { border: 1px solid rgba(31, 99, 181, 0.18); background: rgba(247, 251, 255, 0.64);'
+    )
+  })
+
   it('keeps the pet shortcut heading the same font size as pet settings', () => {
     expect(normalizedStyles).toContain('.assistant-settings__group legend {\n  color: var(--porcelain-text);')
     expect(normalizedStyles).not.toContain(
@@ -398,7 +869,7 @@ describe('renderer porcelain theme styles', () => {
   it('keeps sidebar review comment suggestions readable inside the workspace', () => {
     expectStyleSnippet('.memorial-panel__deepseek-status {')
     expectStyleSnippet('.assistant-dialog--comment-chooser { position: relative; box-sizing: border-box; max-height: min(52vh, 360px); padding: 12px 12px 36px; overflow: hidden;')
-    expectStyleSnippet('.assistant-dialog__comment-list { display: grid; gap: 8px; max-height: min(36vh, 232px); margin-bottom: 6px; overflow: auto;')
+    expectStyleSnippet('.assistant-dialog__comment-list { display: grid; gap: 8px; max-height: min(36vh, 232px); margin-right: -8px; padding-right: 16px; margin-bottom: 6px; overflow: auto;')
     expectStyleSnippet('.assistant-dialog__comment-row { display: block;')
     expectStyleSnippet('.assistant-dialog .assistant-dialog__comment-choice { display: inline; width: auto;')
     expectStyleSnippet('line-height: 1.55; padding: 0; white-space: normal; overflow-wrap: anywhere;')
@@ -410,4 +881,11 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.assistant-sidebar-workspace .assistant-dialog--comment-chooser { position: absolute; right: 12px; bottom: 12px; left: 12px;')
     expectStyleSnippet('width: auto; box-sizing: border-box; max-height: min(52vh, 360px);')
   })
+
+  it('does not show wait cursors for disabled controls', () => {
+    expect(normalizedStyles).not.toContain('cursor: wait')
+    expectStyleSnippet('.video-notes button:disabled { cursor: not-allowed;')
+    expectStyleSnippet('.assistant-settings__diagnostics-head button:disabled, .assistant-settings > header button:disabled { cursor: not-allowed;')
+  })
 })
+
