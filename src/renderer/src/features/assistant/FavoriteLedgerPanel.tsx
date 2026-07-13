@@ -3732,6 +3732,7 @@ export function FavoriteLedgerPanel({
         targetMembership: context.targetMembership,
         skippedSourceFolderTitles: preview?.skippedSourceFolderTitles,
         scanDiagnostics: preview?.scanDiagnostics,
+        scanProgress: preview?.scanProgress ?? baseScanPreview?.scanProgress,
         multiArchiveMode: favoriteArchiveMultiMode
       })
       return {
@@ -3783,6 +3784,9 @@ export function FavoriteLedgerPanel({
       ledgers: draftLedgers,
       sourceFolders: [...context.activeSourceFolders, ...protectedVideosAsSourceFolders(aids)],
       targetMembership: context.targetMembership,
+      skippedSourceFolderTitles: baseScanPreview?.skippedSourceFolderTitles,
+      scanDiagnostics: baseScanPreview?.scanDiagnostics,
+      scanProgress: preview?.scanProgress ?? baseScanPreview?.scanProgress,
       multiArchiveMode: favoriteArchiveMultiMode
     })
     nextPreview.scanContext = { ...context, multiArchiveMode: favoriteArchiveMultiMode }
@@ -4408,6 +4412,16 @@ export function FavoriteLedgerPanel({
     )
   }
 
+  const basicScanProgress = preview?.scanProgress?.basic
+  const hasExactBasicScanProgress = Boolean(
+    basicScanProgress &&
+    Number.isInteger(basicScanProgress.completed) &&
+    Number.isInteger(basicScanProgress.total) &&
+    basicScanProgress.completed >= 0 &&
+    basicScanProgress.total > 0 &&
+    basicScanProgress.completed <= basicScanProgress.total
+  )
+
   return (
     <section
       role="dialog"
@@ -4713,13 +4727,15 @@ export function FavoriteLedgerPanel({
                   <span>视频基本信息</span>
                   <progress
                     aria-label="视频基本信息进度"
-                    max={Math.max(preview.scanProgress?.basic.total ?? 1, 1)}
-                    value={preview.scanProgress?.basic.completed ?? (basicScanRunning ? 0 : 1)}
+                    max={hasExactBasicScanProgress ? basicScanProgress!.total : 1}
+                    value={hasExactBasicScanProgress ? basicScanProgress!.completed : (basicScanRunning ? 0 : 1)}
                   />
                   <strong>
-                    {basicScanRunning && (preview.scanProgress?.basic.total ?? 0) <= 1
+                    {!hasExactBasicScanProgress && basicScanRunning
                       ? '正在读取'
-                      : `${preview.scanProgress?.basic.completed ?? preview.items.length} / ${preview.scanProgress?.basic.total ?? preview.items.length}`}
+                      : hasExactBasicScanProgress
+                        ? `${basicScanProgress!.completed} / ${basicScanProgress!.total}`
+                        : `${preview.items.length} / ${preview.items.length}`}
                   </strong>
                 </div>
                 <div>

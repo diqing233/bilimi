@@ -139,6 +139,7 @@ export function createFavoriteLedgerPreview(args: {
   targetMembership: Record<string, number[]>
   skippedSourceFolderTitles?: string[]
   scanDiagnostics?: FavoriteLedgerScanDiagnostics
+  scanProgress?: FavoriteLedgerScanProgress
   multiArchiveMode?: FavoriteArchiveMultiMode
   archiveStrategy?: FavoriteArchiveStrategy
 }): FavoriteLedgerPreview {
@@ -233,6 +234,7 @@ export function createFavoriteLedgerPreview(args: {
     items,
     skippedSourceFolderTitles,
     scanDiagnostics: args.scanDiagnostics,
+    scanProgress: args.scanProgress,
     insights
   }
 }

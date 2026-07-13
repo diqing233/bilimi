@@ -228,6 +228,35 @@ describe('FavoriteLedgerPanel', () => {
     vi.useRealTimers()
   })
 
+  it('hides fractional basic scan counts that are not real video totals', async () => {
+    vi.useFakeTimers()
+    let resolveScan!: (preview: FavoriteLedgerPreview) => void
+    const onReadOldFavoriteTagEnrichment = vi.fn().mockResolvedValue({
+      sourceFolders: [],
+      scanProgress: {
+        basic: { completed: 0.6000000000000001, total: 9, status: 'running' },
+        tags: { completed: 0, total: 242, pending: 242, cacheHits: 0, succeeded: 0, failed: 0, status: 'running' }
+      }
+    })
+    renderPanel({
+      onSaveLedgers: vi.fn().mockResolvedValue({ ok: true, steps: [], missingTargets: [], message: 'saved' }),
+      onScanOldFavorites: vi.fn(() => new Promise((resolve) => { resolveScan = resolve })),
+      onReadOldFavoriteTagEnrichment
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await act(async () => { vi.advanceTimersByTime(1600); await Promise.resolve() })
+
+    expect(screen.getByText('正在读取')).toBeInTheDocument()
+    expect(screen.queryByText('0.6000000000000001 / 9')).not.toBeInTheDocument()
+
+    await act(async () => {
+      resolveScan({ items: [], skippedSourceFolderTitles: [] })
+      await Promise.resolve()
+    })
+    vi.useRealTimers()
+  })
+
   it('shows a stable waiting label when persisted tag progress is incomplete', async () => {
     vi.useFakeTimers()
     let resolveScan!: (preview: FavoriteLedgerPreview) => void
@@ -638,6 +667,10 @@ describe('FavoriteLedgerPanel', () => {
 
   it('shows protected counts and temporarily reintroduces only selected-source favorites', async () => {
     const preview = createArchivePreviewFixture()
+    preview.scanProgress = {
+      basic: { completed: 241, total: 241, status: 'complete' },
+      tags: { completed: 241, total: 241, pending: 0, cacheHits: 0, succeeded: 241, failed: 0, status: 'complete' }
+    }
     preview.scanContext = {
       accountMid: '42',
       totalUniqueVideos: 4,
@@ -714,6 +747,7 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(screen.getByText('已重新纳入 1')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '恢复保护' })).toBeInTheDocument()
+    expect(screen.getAllByText('241 / 241')).toHaveLength(2)
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     expect(screen.getAllByText('默认来源已整理').length).toBeGreaterThan(0)
     expect(screen.queryByText('旅行来源已整理')).not.toBeInTheDocument()
@@ -1183,6 +1217,10 @@ describe('FavoriteLedgerPanel', () => {
 
   it('refreshes the preview locally when the target-count setting changed after scanning', async () => {
     const preview = createArchivePreviewFixture()
+    preview.scanProgress = {
+      basic: { completed: 241, total: 241, status: 'complete' },
+      tags: { completed: 241, total: 241, pending: 0, cacheHits: 0, succeeded: 241, failed: 0, status: 'complete' }
+    }
     preview.scanContext = {
       accountMid: '42',
       totalUniqueVideos: 2,
@@ -1229,6 +1267,8 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() =>
       expect(screen.getByText('归档预览已按“最多 2 个收藏夹”更新。')).toBeInTheDocument()
     )
+    fireEvent.click(screen.getByRole('button', { name: '扫描概览' }))
+    expect(screen.getAllByText('241 / 241')).toHaveLength(2)
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
     fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
     const dialog = screen.getByRole('alertdialog', { name: '确认开始整理？' })

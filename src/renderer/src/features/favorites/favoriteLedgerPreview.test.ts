@@ -3,6 +3,30 @@ import { describe, expect, it } from 'vitest'
 import { createFavoriteLedgerPreview } from './favoriteLedgerPreview'
 
 describe('createFavoriteLedgerPreview', () => {
+  it('preserves completed scan progress for the rendered preview', () => {
+    const scanProgress = {
+      basic: { completed: 241, total: 241, status: 'complete' as const },
+      tags: {
+        completed: 241,
+        total: 241,
+        pending: 0,
+        cacheHits: 0,
+        succeeded: 241,
+        failed: 0,
+        status: 'complete' as const
+      }
+    }
+
+    const preview = createFavoriteLedgerPreview({
+      ledgers: createDefaultFavoriteLedgers(),
+      sourceFolders: [],
+      targetMembership: {},
+      scanProgress
+    })
+
+    expect(preview.scanProgress).toEqual(scanProgress)
+  })
+
   it('keeps review-required suggested ledgers unselected when the real target is inbox', () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
       if (ledger.id === 'knowledge') {
