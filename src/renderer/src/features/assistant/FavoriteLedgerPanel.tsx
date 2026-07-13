@@ -111,6 +111,7 @@ type FavoriteLedgerPanelProps = {
     multiArchiveMode?: FavoriteArchiveMultiMode
   }) => Promise<FavoriteLedgerPreview>
   onReadOldFavoriteTagEnrichment?: (action?: 'read' | 'pause' | 'resume' | 'cancel') => Promise<{
+    accountMid?: string
     sourceFolders: FavoriteSourceFolder[]
     scanProgress: NonNullable<FavoriteLedgerPreview['scanProgress']>
   }>
@@ -1714,13 +1715,25 @@ export function FavoriteLedgerPanel({
     })
   }, [mergeScanProgress, onReadOldFavoriteTagEnrichment])
   useEffect(() => {
-    if (!onReadOldFavoriteTagEnrichment || !preview || (!basicScanRunning && (preview.scanProgress?.tags.pending ?? 0) <= 0)) {
+    if (!onReadOldFavoriteTagEnrichment || !preview) {
       return
     }
-    const interval = window.setInterval(() => {
+    const readLatestSnapshot = (refreshProgress = true) => {
       const scanGeneration = scanGenerationRef.current
       void onReadOldFavoriteTagEnrichment('read').then((snapshot) => {
         if (scanGeneration !== scanGenerationRef.current) return
+        const previewAccountMid = preview.scanContext?.accountMid
+        if (previewAccountMid && 'accountMid' in snapshot && snapshot.accountMid !== previewAccountMid) {
+          if (snapshot.accountMid) bindOldFavoriteRuntimeAccount(snapshot.accountMid)
+          setPreview(null)
+          setBaseScanPreview(null)
+          setArchivePlanState(null)
+          setOldFavoriteRuntimeStatus(null)
+          setBasicScanRunning(false)
+          setStatus('检测到账号已切换，请重新扫描当前账号。')
+          return
+        }
+        if (!refreshProgress) return
         setPreview((current) => {
           if (!current) return current
           if (basicScanRunning) {
@@ -1752,9 +1765,20 @@ export function FavoriteLedgerPanel({
           return { ...rebuilt, items: mergedVisibleItems, scanProgress: mergeScanProgress(current.scanProgress, snapshot.scanProgress), scanContext: current.scanContext }
         })
       }).catch(() => undefined)
-    }, 1500)
+    }
+    readLatestSnapshot(false)
+    const interval = window.setInterval(readLatestSnapshot, 1500)
     return () => window.clearInterval(interval)
-  }, [basicScanRunning, draftLedgers, favoriteArchiveMultiMode, mergeScanProgress, onReadOldFavoriteTagEnrichment, preview, selectedCandidateKeys])
+  }, [
+    basicScanRunning,
+    draftLedgers,
+    favoriteArchiveMultiMode,
+    mergeScanProgress,
+    onReadOldFavoriteTagEnrichment,
+    Boolean(preview),
+    preview?.scanContext?.accountMid,
+    selectedCandidateKeys
+  ])
 
   useEffect(() => {
     if (!preview) {
@@ -2524,6 +2548,20 @@ export function FavoriteLedgerPanel({
           tone: 'error'
         })
         return
+      }
+
+      const scannedAccountMid = nextPreview.scanContext?.accountMid
+      if (scannedAccountMid && onReadOldFavoriteTagEnrichment) {
+        const currentSnapshot = await onReadOldFavoriteTagEnrichment('read').catch(() => null)
+        if (currentSnapshot && 'accountMid' in currentSnapshot && currentSnapshot.accountMid !== scannedAccountMid) {
+          setPreview(null)
+          setBaseScanPreview(null)
+          setArchivePlanState(null)
+          setOldFavoriteRuntimeStatus(null)
+          setBasicScanRunning(false)
+          setStatus('检测到账号已切换，请重新扫描当前账号。')
+          return
+        }
       }
 
       const accountChanged = bindOldFavoriteRuntimeAccount(
@@ -4419,7 +4457,8 @@ export function FavoriteLedgerPanel({
     Number.isInteger(basicScanProgress.total) &&
     basicScanProgress.completed >= 0 &&
     basicScanProgress.total > 0 &&
-    basicScanProgress.completed <= basicScanProgress.total
+    basicScanProgress.completed <= basicScanProgress.total &&
+    !(basicScanRunning && basicScanProgress.completed === 0 && basicScanProgress.total === 1)
   )
 
   return (

@@ -144,6 +144,8 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
     expect(screen.getByText('视频基本信息')).toBeInTheDocument()
     expect(screen.getByText('标签补取')).toBeInTheDocument()
+    expect(screen.getByText('正在读取')).toBeInTheDocument()
+    expect(screen.queryByText('0 / 1')).not.toBeInTheDocument()
 
     resolveScan({
       items: [],
@@ -315,6 +317,71 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.queryByText('正在统计缺失标签')).not.toBeInTheDocument()
     expect(screen.queryByText(/标签仍在后台补取/)).not.toBeInTheDocument()
     vi.useRealTimers()
+  })
+
+  it('clears a completed preview when polling detects a different signed-in account', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.scanContext = {
+      accountMid: '42',
+      totalUniqueVideos: 2,
+      activeSourceFolders: [],
+      protectedVideos: [],
+      managedFolders: [],
+      targetMembership: {},
+      multiArchiveMode: 'off'
+    }
+    preview.scanProgress = {
+      basic: { completed: 2, total: 2, status: 'complete' },
+      tags: { completed: 2, total: 2, pending: 0, cacheHits: 0, succeeded: 2, failed: 0, status: 'complete' }
+    }
+    const onReadOldFavoriteTagEnrichment = vi.fn().mockResolvedValue({
+      accountMid: '99',
+      sourceFolders: [],
+      scanProgress: {
+        basic: { completed: 0, total: 0, status: 'complete' },
+        tags: { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'complete' }
+      }
+    })
+    renderPanel({ onScanOldFavorites: vi.fn().mockResolvedValue(preview), onReadOldFavoriteTagEnrichment })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await waitFor(() => expect(onReadOldFavoriteTagEnrichment).toHaveBeenCalled())
+
+    expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
+  })
+
+  it('ignores a scan result when the signed-in account changes before it completes', async () => {
+    let resolveScan!: (preview: FavoriteLedgerPreview) => void
+    const onReadOldFavoriteTagEnrichment = vi.fn().mockResolvedValue({
+      accountMid: '99',
+      sourceFolders: [],
+      scanProgress: {
+        basic: { completed: 0, total: 0, status: 'complete' },
+        tags: { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'complete' }
+      }
+    })
+    renderPanel({
+      onSaveLedgers: vi.fn().mockResolvedValue({ ok: true, steps: [], missingTargets: [], message: 'saved' }),
+      onScanOldFavorites: vi.fn(() => new Promise((resolve) => { resolveScan = resolve })),
+      onReadOldFavoriteTagEnrichment
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+    expect(resolveScan).toBeTypeOf('function')
+    await act(async () => {
+      resolveScan({
+        items: [],
+        skippedSourceFolderTitles: [],
+        scanContext: {
+          accountMid: '42', totalUniqueVideos: 0, activeSourceFolders: [], protectedVideos: [],
+          managedFolders: [], targetMembership: {}, multiArchiveMode: 'off'
+        }
+      })
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
   })
 
   it('uses a compact archive selector without visible helper labels', async () => {

@@ -343,9 +343,24 @@ export function buildOldFavoriteTagEnrichmentScript(
 ): string {
   return `(async () => {
     const key = 'bilimi:old-favorite-tag-enrichment:v1';
+    const currentAccountMid = document.cookie
+      .split(';')
+      .map((part) => part.trim())
+      .find((part) => part.startsWith('DedeUserID='))
+      ?.slice('DedeUserID='.length) || '';
     let store;
     try { store = JSON.parse(localStorage.getItem(key) || '{}'); } catch { store = {}; }
     store.cache = store.cache && typeof store.cache === 'object' ? store.cache : {};
+    if (!currentAccountMid || store.accountMid !== currentAccountMid) {
+      store = {
+        ...(currentAccountMid ? { accountMid: currentAccountMid } : {}),
+        cache: store.cache,
+        queue: [],
+        controlRevision: Number(store.controlRevision || 0) + 1,
+        progress: { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'complete' }
+      };
+      localStorage.setItem(key, JSON.stringify(store));
+    }
     store.queue = Array.isArray(store.queue) ? store.queue : [];
     store.controlRevision = Number(store.controlRevision || 0);
     store.progress = store.progress && typeof store.progress === 'object' ? store.progress : {
@@ -469,6 +484,7 @@ export function buildOldFavoriteTagEnrichmentScript(
       }))
     }));
     return {
+      accountMid: currentAccountMid,
       sourceFolders,
       scanProgress: {
         basic: store.lastScan?.basic || { completed: 0, total: 0, status: 'complete' },
@@ -563,6 +579,15 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
         };
         const writeTagStore = (store) => localStorage.setItem(tagStoreKey, JSON.stringify(store));
         const tagStore = readTagStore();
+        if (tagStore.accountMid !== String(mid)) {
+          const reusableCache = tagStore.cache;
+          Object.keys(tagStore).forEach((key) => delete tagStore[key]);
+          tagStore.accountMid = String(mid);
+          tagStore.cache = reusableCache;
+          tagStore.queue = [];
+          tagStore.progress = { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'complete' };
+        }
+        tagStore.accountMid = String(mid);
         if (!payload.aid) {
           tagStore.controlRevision = Number(tagStore.controlRevision || 0) + 1;
           tagStore.queue = [];

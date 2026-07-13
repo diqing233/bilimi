@@ -1115,6 +1115,7 @@ export default function App() {
 
   async function readOldFavoriteTagEnrichment(action: 'read' | 'pause' | 'resume' | 'cancel' = 'read') {
     return runScript(buildOldFavoriteTagEnrichmentScript(action)) as Promise<{
+      accountMid?: string
       sourceFolders: FavoriteSourceFolder[]
       scanProgress: NonNullable<FavoriteLedgerPreview['scanProgress']>
     }>
