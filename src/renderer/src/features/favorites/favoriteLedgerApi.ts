@@ -338,6 +338,114 @@ export function buildScanOldFavoriteVideoScript(ledgers: FavoriteLedger[], aid: 
   return buildOldFavoriteScanScript({ ledgers, aid })
 }
 
+export function buildOldFavoriteTagEnrichmentScript(
+  action: 'read' | 'pause' | 'resume' | 'cancel' = 'read'
+): string {
+  return `(async () => {
+    const key = 'bilimi:old-favorite-tag-enrichment:v1';
+    let store;
+    try { store = JSON.parse(localStorage.getItem(key) || '{}'); } catch { store = {}; }
+    store.cache = store.cache && typeof store.cache === 'object' ? store.cache : {};
+    store.queue = Array.isArray(store.queue) ? store.queue : [];
+    store.controlRevision = Number(store.controlRevision || 0);
+    store.progress = store.progress && typeof store.progress === 'object' ? store.progress : {
+      completed: 0, total: store.queue.length, pending: store.queue.length,
+      cacheHits: 0, succeeded: 0, failed: 0, status: store.queue.length ? 'paused' : 'complete'
+    };
+    const readTagList = (rawTags) => (Array.isArray(rawTags) ? rawTags : [])
+      .map((tag) => String(typeof tag === 'string' ? tag : (tag?.name ?? tag?.tag_name ?? tag?.title ?? '')).trim())
+      .filter(Boolean)
+      .slice(0, 20);
+    const writeStore = () => localStorage.setItem(key, JSON.stringify(store));
+    const startWorker = () => {
+      if (window.__bilimiOldFavoriteTagWorkerRunning || !store.queue.length || store.progress.status === 'paused') return;
+      window.__bilimiOldFavoriteTagWorkerRunning = true;
+      void (async () => {
+        let consecutiveFailures = 0;
+        while (true) {
+          try { store = JSON.parse(localStorage.getItem(key) || '{}'); } catch { break; }
+          if (!Array.isArray(store.queue) || !store.queue.length || store.progress?.status === 'paused') break;
+          const aid = store.queue[0];
+          const requestRevision = store.controlRevision;
+          try {
+            await new Promise((resolve) => setTimeout(resolve, 650 + Math.floor(Math.random() * 350)));
+            const url = new URL('https://api.bilibili.com/x/tag/archive/tags');
+            url.searchParams.set('aid', String(aid));
+            const response = await fetch(url.toString(), { credentials: 'include' });
+            const json = await response.json();
+            if (!response.ok || Number(json?.code) !== 0) throw new Error(String(json?.code ?? response.status));
+            const tags = readTagList(Array.isArray(json.data) ? json.data : json.data?.tags);
+            let controlledStore;
+            try { controlledStore = JSON.parse(localStorage.getItem(key) || '{}'); } catch { controlledStore = store; }
+            if (Number(controlledStore.controlRevision || 0) !== requestRevision) {
+              controlledStore.cache = controlledStore.cache && typeof controlledStore.cache === 'object' ? controlledStore.cache : {};
+              controlledStore.cache[String(aid)] = { tags, updatedAt: Date.now() };
+              localStorage.setItem(key, JSON.stringify(controlledStore));
+              store = controlledStore;
+              continue;
+            }
+            store.cache = store.cache && typeof store.cache === 'object' ? store.cache : {};
+            store.cache[String(aid)] = { tags, updatedAt: Date.now() };
+            store.queue.shift();
+            store.progress.completed += 1;
+            store.progress.pending = store.queue.length;
+            store.progress.succeeded += 1;
+            store.progress.status = store.queue.length ? 'running' : 'complete';
+            consecutiveFailures = 0;
+            writeStore();
+          } catch (error) {
+            consecutiveFailures += 1;
+            store.progress.failed += 1;
+            const message = String(error?.message || error || '');
+            if (/(-352|-412|-509|risk|频繁|风控|too fast)/i.test(message) || consecutiveFailures >= 3) {
+              store.progress.status = 'paused';
+              writeStore();
+              break;
+            }
+            store.queue.push(store.queue.shift());
+            writeStore();
+            await new Promise((resolve) => setTimeout(resolve, Math.min(8000, 750 * (2 ** consecutiveFailures))));
+          }
+        }
+        window.__bilimiOldFavoriteTagWorkerRunning = false;
+      })();
+    };
+    window.__bilimiStartOldFavoriteTagWorker = startWorker;
+    if (${JSON.stringify(action)} === 'pause') {
+      store.controlRevision += 1;
+      store.progress.status = 'paused';
+    }
+    if (${JSON.stringify(action)} === 'resume' && store.queue.length) {
+      store.controlRevision += 1;
+      store.progress.status = 'running';
+    }
+    if (${JSON.stringify(action)} === 'cancel') {
+      store.controlRevision += 1;
+      store.queue = [];
+      store.progress.pending = 0;
+      store.progress.status = 'complete';
+    }
+    writeStore();
+    if (${JSON.stringify(action)} === 'resume') startWorker();
+    const sourceFolders = (store.lastScan?.sourceFolders || []).map((folder) => ({
+      ...folder,
+      videos: (folder.videos || []).map((video) => ({
+        ...video,
+        tags: Array.isArray(store.cache[String(video.aid)]?.tags)
+          ? store.cache[String(video.aid)].tags
+          : (video.tags || [])
+      }))
+    }));
+    return {
+      sourceFolders,
+      scanProgress: {
+        basic: store.lastScan?.basic || { completed: 0, total: 0, status: 'complete' },
+        tags: store.progress
+      }
+    };
+  })()`
+}
+
 function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: number }): string {
   const payload = scriptPayload({ ledgers: args.ledgers, aid: args.aid ?? null })
 
@@ -406,8 +514,40 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           taggedVideos: 0,
           untaggedVideos: 0
         };
-        const tagDetailCache = new Map();
-        let lastTagDetailRequestAt = 0;
+        const tagStoreKey = 'bilimi:old-favorite-tag-enrichment:v1';
+        const tagCacheMaxAgeMs = 30 * 24 * 60 * 60 * 1000;
+        const readTagStore = () => {
+          try {
+            const parsed = JSON.parse(localStorage.getItem(tagStoreKey) || '{}');
+            return {
+              ...parsed,
+              cache: parsed.cache && typeof parsed.cache === 'object' ? parsed.cache : {},
+              queue: Array.isArray(parsed.queue) ? parsed.queue.map(Number).filter(Number.isFinite) : [],
+              progress: parsed.progress && typeof parsed.progress === 'object' ? parsed.progress : {}
+            };
+          } catch {
+            return { cache: {}, queue: [], progress: {} };
+          }
+        };
+        const writeTagStore = (store) => localStorage.setItem(tagStoreKey, JSON.stringify(store));
+        const tagStore = readTagStore();
+        const missingTagAids = new Set();
+        let tagCacheHits = 0;
+        const scanFolderIds = folders.map(findFolderId).filter(Boolean).map(String);
+        const persistBasicProgress = (completed) => {
+          const latest = readTagStore();
+          latest.lastScan = {
+            ...(latest.lastScan ?? {}),
+            sourceFolders: latest.lastScan?.sourceFolders ?? [],
+            basic: {
+              completed,
+              total: scanFolderIds.length,
+              status: completed >= scanFolderIds.length ? 'complete' : 'running'
+            }
+          };
+          writeTagStore(latest);
+        };
+        if (!payload.aid) persistBasicProgress(0);
         steps.push('api:favorite:list');
 
         const buildResourceUrl = (folderId, page) => {
@@ -426,14 +566,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           return url.toString();
         };
         const wait = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs));
-        const paceTagDetailRequest = async () => {
-          const elapsed = Date.now() - lastTagDetailRequestAt;
-          if (lastTagDetailRequestAt > 0 && elapsed < 120) {
-            await wait(120 - elapsed);
-          }
-          lastTagDetailRequestAt = Date.now();
-        };
-        const readFolderVideos = async (folderId) => {
+        const readFolderVideos = async (folderId, onPageComplete = () => undefined) => {
           const videos = [];
           let page = 1;
           const cleanText = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim();
@@ -450,27 +583,25 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
                 : [];
             return readTagList(rawTags);
           };
-          const fetchDetailTags = async (aid) => {
-            if (tagDetailCache.has(aid)) {
-              return tagDetailCache.get(aid);
+          const cachedTags = (aid) => {
+            const cached = tagStore.cache[String(aid)];
+            if (!cached || !Array.isArray(cached.tags) || Date.now() - Number(cached.updatedAt || 0) > tagCacheMaxAgeMs) {
+              return null;
             }
-
+            tagCacheHits += 1;
+            return readTagList(cached.tags);
+          };
+          const fetchTagsNow = async (aid) => {
             scanDiagnostics.tagDetailRequests += 1;
             try {
-              await paceTagDetailRequest();
               const response = await fetch(buildTagUrl(aid), { credentials: 'include' });
               const json = await ensureApiOk(response, 'video tag list for ' + aid);
-              const rawTags = Array.isArray(json.data)
-                ? json.data
-                : Array.isArray(json.data?.tags)
-                  ? json.data.tags
-                  : [];
-              const tags = readTagList(rawTags);
-              tagDetailCache.set(aid, tags);
-              return tags;
+              const rawTags = Array.isArray(json.data) ? json.data : (Array.isArray(json.data?.tags) ? json.data.tags : []);
+              const nextTags = readTagList(rawTags);
+              tagStore.cache[String(aid)] = { tags: nextTags, updatedAt: Date.now() };
+              return nextTags;
             } catch {
               scanDiagnostics.tagDetailFailures += 1;
-              tagDetailCache.set(aid, []);
               return [];
             }
           };
@@ -518,7 +649,15 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
               }
 
               const tags = readTags(media);
-              const resolvedTags = tags.length > 0 ? tags : await fetchDetailTags(aid);
+              const cached = tags.length > 0 ? null : cachedTags(aid);
+              const resolvedTags = tags.length > 0
+                ? tags
+                : payload.aid
+                  ? await fetchTagsNow(aid)
+                  : (cached ?? []);
+              if (!payload.aid && tags.length === 0 && cached === null) {
+                missingTagAids.add(aid);
+              }
               if (resolvedTags.length > 0) {
                 scanDiagnostics.taggedVideos += 1;
               } else {
@@ -534,6 +673,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
               });
             }
             videos.push(...pageVideos);
+            onPageComplete(page);
 
             if (!json.data?.has_more || medias.length === 0) {
               break;
@@ -545,6 +685,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           return videos;
         };
 
+        let completedFolderCount = 0;
         for (const folder of folders) {
           const folderId = findFolderId(folder);
           if (!folderId) {
@@ -554,13 +695,19 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           const folderIdString = String(folderId);
           let videos = [];
           try {
-            videos = await readFolderVideos(folderIdString);
+            videos = await readFolderVideos(folderIdString, (page) => {
+              if (!payload.aid) {
+                persistBasicProgress(completedFolderCount + Math.min(0.9, page * 0.1));
+              }
+            });
           } catch {
             if (managedFolderIds.has(folderIdString)) {
               managedFolderScanComplete = false;
             }
             skippedSourceFolderTitles.push(String(folder?.title ?? folderIdString));
             steps.push('api:favorite:scan-source-failed:' + folderIdString);
+            completedFolderCount += 1;
+            if (!payload.aid) persistBasicProgress(completedFolderCount);
             continue;
           }
 
@@ -584,10 +731,88 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           } else if (videos.length > 0 && !fallbackSourceFolder) {
             fallbackSourceFolder = sourceFolder;
           }
+          completedFolderCount += 1;
+          if (!payload.aid) persistBasicProgress(completedFolderCount);
         }
 
         if (payload.aid && sourceFolders.length === 0 && fallbackSourceFolder) {
           sourceFolders.push(fallbackSourceFolder);
+        }
+
+        const currentMissingPopulation = new Set([...missingTagAids]);
+        const queuedAids = Array.from(currentMissingPopulation);
+        tagStore.queue = queuedAids;
+        tagStore.lastScan = {
+          sourceFolders,
+          basic: {
+            completed: sourceFolders.reduce((count, folder) => count + folder.videos.length, 0),
+            total: sourceFolders.reduce((count, folder) => count + folder.videos.length, 0),
+            status: 'complete'
+          }
+        };
+        tagStore.progress = {
+          completed: tagCacheHits,
+          total: tagCacheHits + queuedAids.length,
+          pending: queuedAids.length,
+          cacheHits: tagCacheHits,
+          succeeded: 0,
+          failed: 0,
+          status: queuedAids.length > 0 ? 'running' : 'complete'
+        };
+        writeTagStore(tagStore);
+
+        window.__bilimiStartOldFavoriteTagWorker = () => {
+          if (window.__bilimiOldFavoriteTagWorkerRunning) return;
+          const latestStore = readTagStore();
+          if (!latestStore.queue.length || latestStore.progress?.status === 'paused') return;
+          window.__bilimiOldFavoriteTagWorkerRunning = true;
+          void (async () => {
+            let consecutiveFailures = 0;
+            while (latestStore.queue.length > 0) {
+              const persisted = readTagStore();
+              if (persisted.progress?.status === 'paused') break;
+              Object.assign(latestStore, persisted);
+              const aid = latestStore.queue[0];
+              const requestRevision = Number(latestStore.controlRevision || 0);
+              try {
+                await wait(650 + Math.floor(Math.random() * 350));
+                const response = await fetch(buildTagUrl(aid), { credentials: 'include' });
+                const json = await ensureApiOk(response, 'video tag list for ' + aid);
+                const rawTags = Array.isArray(json.data) ? json.data : (Array.isArray(json.data?.tags) ? json.data.tags : []);
+                const controlledStore = readTagStore();
+                const nextTags = readTagList(rawTags);
+                if (Number(controlledStore.controlRevision || 0) !== requestRevision) {
+                  controlledStore.cache[String(aid)] = { tags: nextTags, updatedAt: Date.now() };
+                  writeTagStore(controlledStore);
+                  Object.assign(latestStore, controlledStore);
+                  continue;
+                }
+                latestStore.cache[String(aid)] = { tags: nextTags, updatedAt: Date.now() };
+                latestStore.queue.shift();
+                latestStore.progress.completed += 1;
+                latestStore.progress.pending = latestStore.queue.length;
+                latestStore.progress.succeeded += 1;
+                consecutiveFailures = 0;
+              } catch (error) {
+                consecutiveFailures += 1;
+                latestStore.progress.failed += 1;
+                const message = String(error?.message || error || '');
+                if (/(-352|-412|-509|risk|频繁|风控|too fast)/i.test(message) || consecutiveFailures >= 3) {
+                  latestStore.progress.status = 'paused';
+                  writeTagStore(latestStore);
+                  break;
+                }
+                latestStore.queue.push(latestStore.queue.shift());
+                await wait(Math.min(8000, 750 * (2 ** consecutiveFailures)));
+              }
+              latestStore.progress.status = latestStore.queue.length > 0 ? 'running' : 'complete';
+              writeTagStore(latestStore);
+            }
+            window.__bilimiOldFavoriteTagWorkerRunning = false;
+          })();
+        };
+        if (!payload.aid && queuedAids.length > 0) {
+          window.__bilimiStartOldFavoriteTagWorker();
         }
 
         return {
@@ -599,6 +824,14 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           managedFolders,
           managedFolderScanComplete,
           scanDiagnostics,
+          scanProgress: {
+            basic: {
+              completed: sourceFolders.reduce((count, folder) => count + folder.videos.length, 0),
+              total: sourceFolders.reduce((count, folder) => count + folder.videos.length, 0),
+              status: 'complete'
+            },
+            tags: tagStore.progress
+          },
           steps,
           missingTargets: [],
           message:

@@ -139,6 +139,9 @@ export function createInitialAssistantPreferences(
     closeBehavior: normalizeMainWindowCloseBehavior(persisted?.closeBehavior),
     confirmBeforeExit:
       typeof persisted?.confirmBeforeExit === 'boolean' ? persisted.confirmBeforeExit : true,
+    rememberCloseChoice:
+      typeof persisted?.rememberCloseChoice === 'boolean' ? persisted.rememberCloseChoice : false,
+    closeChoiceMigrationVersion: 1,
     bilibiliOperationMode: normalizeBilibiliOperationMode(persisted?.bilibiliOperationMode),
     favoriteArchiveMultiMode: normalizeFavoriteArchiveMultiMode(persisted?.favoriteArchiveMultiMode),
     favoriteArchiveStrategy: normalizeFavoriteArchiveStrategy(persisted?.favoriteArchiveStrategy),

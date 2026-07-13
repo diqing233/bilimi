@@ -56,6 +56,8 @@ export type AssistantPreferences = {
   hidePetDuringVideoFullscreen: boolean
   closeBehavior: MainWindowCloseBehavior
   confirmBeforeExit: boolean
+  rememberCloseChoice?: boolean
+  closeChoiceMigrationVersion?: number
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode
   favoriteArchiveStrategy: FavoriteArchiveStrategy
@@ -122,6 +124,8 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
   hidePetDuringVideoFullscreen: false,
   closeBehavior: 'minimize-to-tray',
   confirmBeforeExit: true,
+  rememberCloseChoice: false,
+  closeChoiceMigrationVersion: 1,
   bilibiliOperationMode: 'api-assisted',
   favoriteArchiveMultiMode: 'off',
   favoriteArchiveStrategy: 'aggressive',
@@ -153,6 +157,7 @@ export const DEFAULT_ASSISTANT_PREFERENCES: AssistantPreferences = {
 
 export const DEFAULT_DESKTOP_STORE_STATE: DesktopStoreState = {
   ...DEFAULT_ASSISTANT_PREFERENCES,
+  closeChoiceMigrationVersion: 0,
   deepseekApiKey: '',
   deepseekApiKeyEncrypted: '',
   videoNotes: [],
@@ -348,6 +353,11 @@ export function loadAssistantPreferences(
   const deepseekApiKey = store.get('deepseekApiKey') ?? ''
   const deepseekApiKeyEncrypted = store.get('deepseekApiKeyEncrypted') ?? ''
 
+  const closeChoiceMigrationVersion = Number(store.get('closeChoiceMigrationVersion'))
+  if (closeChoiceMigrationVersion !== 1) {
+    store.set({ rememberCloseChoice: false, closeChoiceMigrationVersion: 1 })
+  }
+
   return {
     favoritesFolderName: store.get('favoritesFolderName'),
     favoriteLedgers: normalizeFavoriteLedgers(store.get('favoriteLedgers')),
@@ -363,6 +373,9 @@ export function loadAssistantPreferences(
     closeBehavior: normalizeMainWindowCloseBehavior(store.get('closeBehavior')),
     confirmBeforeExit:
       store.has?.('confirmBeforeExit') === false ? true : Boolean(store.get('confirmBeforeExit')),
+    rememberCloseChoice:
+      closeChoiceMigrationVersion === 1 ? Boolean(store.get('rememberCloseChoice')) : false,
+    closeChoiceMigrationVersion: 1,
     bilibiliOperationMode:
       bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted',
     favoriteArchiveMultiMode:
@@ -453,6 +466,8 @@ export function saveAssistantPreferences(
     hidePetDuringVideoFullscreen: Boolean(preferences.hidePetDuringVideoFullscreen),
     closeBehavior: normalizeMainWindowCloseBehavior(preferences.closeBehavior),
     confirmBeforeExit: Boolean(preferences.confirmBeforeExit),
+    rememberCloseChoice: Boolean(preferences.rememberCloseChoice),
+    closeChoiceMigrationVersion: 1,
     bilibiliOperationMode:
       preferences.bilibiliOperationMode === 'page-visual' ? 'page-visual' : 'api-assisted',
     favoriteArchiveMultiMode:
@@ -507,6 +522,16 @@ export function saveAssistantPreferences(
   })
 
   return loadAssistantPreferences(store)
+}
+
+export function patchAssistantPreferences(
+  store: AssistantStoreLike = getDesktopStore(),
+  patch: Partial<AssistantPreferences> = {}
+): AssistantPreferences {
+  return saveAssistantPreferences(store, {
+    ...loadAssistantPreferences(store),
+    ...patch
+  })
 }
 
 export function loadDeepSeekApiKeyStatus(

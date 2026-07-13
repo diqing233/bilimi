@@ -40,14 +40,16 @@ export function AssistantSidebar({ onOpenInTab }: AssistantSidebarProps = {}) {
   async function persistSidebarWidth(widthPx: number | null) {
     const currentPreferences = await window.bilimiDesktop?.loadPreferences?.()
 
-    if (!currentPreferences || !window.bilimiDesktop?.savePreferences) {
+    if (!currentPreferences || (!window.bilimiDesktop?.patchPreferences && !window.bilimiDesktop?.savePreferences)) {
       return
     }
 
-    await window.bilimiDesktop.savePreferences({
-      ...currentPreferences,
-      assistantSidebarWidthPx: widthPx
-    })
+    if (window.bilimiDesktop.patchPreferences) {
+      await window.bilimiDesktop.patchPreferences({ assistantSidebarWidthPx: widthPx })
+      return
+    }
+
+    await window.bilimiDesktop.savePreferences({ ...currentPreferences, assistantSidebarWidthPx: widthPx })
   }
 
   function collapseSidebar() {

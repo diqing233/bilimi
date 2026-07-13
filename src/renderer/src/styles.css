@@ -4190,6 +4190,39 @@ body[data-floating-window="true"],
   font-size: 12px;
   line-height: 1.45;
 }
+.favorite-ledger-panel__scan-progress {
+  display: grid;
+  gap: 6px;
+}
+.favorite-ledger-panel__scan-progress > div {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--porcelain-muted);
+  font-size: 11px;
+}
+.favorite-ledger-panel__scan-progress progress {
+  width: 100%;
+  min-width: 0;
+}
+.favorite-ledger-panel__scan-progress strong {
+  color: var(--porcelain-deep);
+  font-variant-numeric: tabular-nums;
+}
+.favorite-ledger-panel__scan-enrichment-status {
+  display: grid;
+  gap: 5px;
+}
+.favorite-ledger-panel__scan-enrichment-status > div {
+  display: flex;
+  gap: 6px;
+}
+.favorite-ledger-panel__scan-enrichment-status button {
+  min-height: 26px;
+  padding: 3px 8px;
+  font-size: 11px;
+}
 .favorite-ledger-panel__step-title {
   margin: 0;
 }

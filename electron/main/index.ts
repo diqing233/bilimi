@@ -33,6 +33,7 @@ import {
   saveVideoNoteArchiveVersion,
   updateVideoNoteArchiveVersion,
   saveAssistantPreferences,
+  patchAssistantPreferences,
   deleteVideoNoteArchiveEntry,
   deleteVideoNoteArchiveVersion,
   saveVideoNote,
@@ -67,9 +68,11 @@ import { keepMainWindowTitle } from './windowTitleGuard'
 import {
   createFloatingAssistantBounds,
   createFloatingHostBounds,
+  createFloatingHostMovementArea,
   createInitialFloatingSealVisualBounds,
   createFloatingMenuBounds,
   createFloatingSealDragPosition,
+  createFloatingSealPositionInsideWorkArea,
   createFloatingVisualBounds
 } from './floatingSealGeometry'
 import type { FloatingAssistantSide } from './floatingSealGeometry'
@@ -129,6 +132,7 @@ let floatingSealWindow: BrowserWindow | null = null
 let mainTray: Tray | null = null
 let appQuitting = false
 let enforceFloatingSealWindowBounds: (() => void) | null = null
+let recompositeFloatingSealWindow: (() => void) | null = null
 let assistantPetState: AssistantPetState = 'idle'
 let floatingAssistantSide: FloatingAssistantSide | undefined
 
@@ -252,7 +256,23 @@ function createFloatingSealWindow() {
 
   // Moving the transparent window forces Windows DWM to recompose stale inactive frames.
   const disposeWhiteStripFix =
-    process.platform === 'win32' ? installFloatingSealWhiteStripFix(seal) : null
+    process.platform === 'win32'
+      ? installFloatingSealWhiteStripFix(seal, {
+          getWorkArea: (bounds) =>
+            createFloatingHostMovementArea({
+              visualWorkArea: screen.getDisplayMatching(bounds).workArea,
+              padding: FLOATING_SEAL_HOST_PADDING
+            })
+        })
+      : null
+  const handleFloatingSealDisplayChange = () => disposeWhiteStripFix?.recomposite()
+
+  if (disposeWhiteStripFix) {
+    recompositeFloatingSealWindow = disposeWhiteStripFix.recomposite
+    screen.on('display-metrics-changed', handleFloatingSealDisplayChange)
+    screen.on('display-added', handleFloatingSealDisplayChange)
+    screen.on('display-removed', handleFloatingSealDisplayChange)
+  }
 
   // Strip WS_CAPTION and disable DWM non-client rendering to avoid the inactive-frame path.
   // The pet window does not rely on title-bar behavior; the nudge remains as a fallback.
@@ -275,8 +295,12 @@ function createFloatingSealWindow() {
 
   seal.on('closed', () => {
     disposeWhiteStripFix?.()
+    screen.off('display-metrics-changed', handleFloatingSealDisplayChange)
+    screen.off('display-added', handleFloatingSealDisplayChange)
+    screen.off('display-removed', handleFloatingSealDisplayChange)
     floatingSealWindow = null
     enforceFloatingSealWindowBounds = null
+    recompositeFloatingSealWindow = null
   })
 
   loadRendererWindow(seal, FLOATING_SEAL_QUERY)
@@ -417,7 +441,16 @@ const floatingSealDragController = new FloatingSealDragController({
       return
     }
 
-    floatingSealWindow.setPosition(position.x, position.y)
+    const bounds = floatingSealWindow.getBounds()
+    const display = screen.getDisplayMatching({ ...position, width: bounds.width, height: bounds.height })
+    const nextPosition = createFloatingSealPositionInsideWorkArea({
+      position,
+      hostSize: bounds,
+      workArea: display.workArea,
+      padding: FLOATING_SEAL_HOST_PADDING
+    })
+
+    floatingSealWindow.setPosition(nextPosition.x, nextPosition.y)
   }
 })
 
@@ -502,10 +535,7 @@ function minimizeMainWindowToTray() {
 }
 
 function saveAssistantPreferencePatch(patch: Partial<AssistantPreferences>) {
-  const saved = saveAssistantPreferences(getDesktopStore(), {
-    ...loadAssistantPreferences(getDesktopStore()),
-    ...patch
-  })
+  const saved = patchAssistantPreferences(getDesktopStore(), patch)
   sendAssistantPreferencesChanged(saved)
 }
 
@@ -587,6 +617,7 @@ function moveFloatingSealTo(screenX: number, screenY: number) {
 
 function finishFloatingSealDrag() {
   floatingSealDragController.finish()
+  recompositeFloatingSealWindow?.()
 
   const assistant = floatingAssistantController.getWindow()
 
@@ -684,7 +715,7 @@ function createMainWindow() {
         ? {
             ...loadAssistantPreferences(getDesktopStore()),
             closeBehavior: 'exit-launcher',
-            confirmBeforeExit: false
+            rememberCloseChoice: true
           }
         : loadAssistantPreferences(getDesktopStore()),
     minimizeToTray: minimizeMainWindowToTray,
@@ -807,6 +838,11 @@ function registerAssistantPreferenceHandlers() {
   })
   ipcMain.handle('assistant:save-preferences', (_event, preferences: AssistantPreferences) => {
     const saved = saveAssistantPreferences(getDesktopStore(), preferences)
+    sendAssistantPreferencesChanged(saved)
+    return saved
+  })
+  ipcMain.handle('assistant:patch-preferences', (_event, patch: Partial<AssistantPreferences>) => {
+    const saved = patchAssistantPreferences(getDesktopStore(), patch)
     sendAssistantPreferencesChanged(saved)
     return saved
   })
@@ -1024,6 +1060,9 @@ function registerAssistantPreferenceHandlers() {
   )
   ipcMain.handle('floating-assistant:scan-old-favorites', (_event, options = {}) =>
     requestMainAssistantRuntime<FavoriteLedgerPreview>({ type: 'scan-old-favorites', ...options })
+  )
+  ipcMain.handle('floating-assistant:old-favorite-tag-enrichment', (_event, action = 'read') =>
+    requestMainAssistantRuntime({ type: 'old-favorite-tag-enrichment', action })
   )
   ipcMain.handle('floating-assistant:rejudge-old-favorite', (_event, item: FavoriteLedgerPreviewItem) =>
     requestMainAssistantRuntime<FavoriteLedgerPreviewItem>({

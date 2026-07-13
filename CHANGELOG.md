@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.1 - 2026-07-13
+
+- Preserved saved DeepSeek models and service addresses across review, archive, sidebar, exit, and restart flows by merging preference patches in the main process.
+- Reworked close handling around an explicit remembered choice, with a safe one-time migration and confirmation before resetting all settings.
+- Split old-favorite discovery from tag enrichment so large libraries expose complete basic metadata first, then update tag progress, classification, and recommendations through a resumable, rate-limited background queue.
+- Improved Windows 10 transparent Xiaomiao edge rendering and compact-display resize behavior at 125% scaling.
+- Enlarged the existing Xiaomiao application artwork by 8% while retaining its rounded background and complete Windows icon size ladder.
+
 ## 1.0.0 - 2026-07-13
 
 - Promoted the current Windows desktop application to the first stable `1.0.0` release.

@@ -46,6 +46,23 @@ export type FavoriteLedgerScanDiagnostics = {
   untaggedVideos: number
 }
 
+export type FavoriteLedgerScanProgress = {
+  basic: {
+    completed: number
+    total: number
+    status: 'running' | 'complete' | 'failed'
+  }
+  tags: {
+    completed: number
+    total: number
+    pending: number
+    cacheHits: number
+    succeeded: number
+    failed: number
+    status: 'idle' | 'running' | 'paused' | 'complete'
+  }
+}
+
 export type FavoriteLedgerPreviewItem = {
   aid: number
   title: string
@@ -103,6 +120,7 @@ export type FavoriteLedgerPreview = {
   items: FavoriteLedgerPreviewItem[]
   skippedSourceFolderTitles: string[]
   scanDiagnostics?: FavoriteLedgerScanDiagnostics
+  scanProgress?: FavoriteLedgerScanProgress
   insights?: FavoriteLedgerInsights
   scanContext?: {
     accountMid: string

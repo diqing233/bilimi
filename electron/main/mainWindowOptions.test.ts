@@ -36,6 +36,18 @@ describe('createMainWindowOptions', () => {
     })
   })
 
+  it('keeps stable compact minimums on a 1080p display at 125% scaling', () => {
+    const options = createMainWindowOptions('C:/bilimi/out/preload/index.mjs', {
+      width: 1536,
+      height: 832
+    })
+
+    expect(options).toMatchObject({
+      minWidth: 1080,
+      minHeight: 660
+    })
+  })
+
   it('keeps minimum dimensions inside very small logical work areas', () => {
     const options = createMainWindowOptions('C:/bilimi/out/preload/index.mjs', {
       width: 1024,

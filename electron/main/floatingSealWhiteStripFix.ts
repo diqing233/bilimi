@@ -31,6 +31,11 @@ type RecompositeShape = {
 type WhiteStripFixOptions = RecompositeShape & {
   schedule?: (callback: () => void, delayMs: number) => unknown
   cancel?: (timer: unknown) => void
+  getWorkArea?: (bounds: Bounds) => Bounds
+}
+
+export type FloatingSealRecomposition = (() => void) & {
+  recomposite: () => void
 }
 
 const DEFAULT_ATTEMPTS = 3
@@ -48,10 +53,26 @@ const DEFAULT_HOLD_MS = 16
  * never fights us, and we retry a few times because a single nudge can land
  * before DWM has painted the inactive frame.
  */
-export function createNudgePositions(bounds: Bounds): { nudged: Point; restored: Point } {
+export function createNudgePositions(
+  bounds: Bounds,
+  workArea?: Bounds
+): { nudged: Point; restored: Point } {
+  const clampToRange = (value: number, min: number, max: number) =>
+    Math.min(Math.max(value, min), Math.max(min, max))
+  const restored = workArea
+    ? {
+        x: clampToRange(bounds.x, workArea.x, workArea.x + workArea.width - bounds.width),
+        y: clampToRange(bounds.y, workArea.y, workArea.y + workArea.height - bounds.height)
+      }
+    : { x: bounds.x, y: bounds.y }
+  const nudgeX =
+    workArea && restored.x + bounds.width >= workArea.x + workArea.width
+      ? restored.x - 1
+      : restored.x + 1
+
   return {
-    nudged: { x: bounds.x + 1, y: bounds.y },
-    restored: { x: bounds.x, y: bounds.y }
+    nudged: { x: nudgeX, y: restored.y },
+    restored
   }
 }
 
@@ -74,12 +95,13 @@ export function createRecompositeSteps(shape: RecompositeShape = {}): Recomposit
 export function installFloatingSealWhiteStripFix(
   target: WhiteStripFixTarget,
   options: WhiteStripFixOptions = {}
-): () => void {
+): FloatingSealRecomposition {
   const schedule = options.schedule ?? ((callback, delayMs) => setTimeout(callback, delayMs))
   const cancel = options.cancel ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>))
 
   let pendingTimers: unknown[] = []
   let anchor: Point | null = null
+  let nudgeDeltaX: -1 | 1 = 1
 
   const clearPending = () => {
     for (const timer of pendingTimers) {
@@ -93,7 +115,7 @@ export function installFloatingSealWhiteStripFix(
       return
     }
 
-    target.setPosition(anchor.x + offset, anchor.y)
+    target.setPosition(anchor.x + offset * nudgeDeltaX, anchor.y)
   }
 
   const recomposite = () => {
@@ -103,7 +125,10 @@ export function installFloatingSealWhiteStripFix(
       return
     }
 
-    anchor = createNudgePositions(target.getBounds()).restored
+    const bounds = target.getBounds()
+    const positions = createNudgePositions(bounds, options.getWorkArea?.(bounds))
+    anchor = positions.restored
+    nudgeDeltaX = positions.nudged.x < positions.restored.x ? -1 : 1
 
     for (const step of createRecompositeSteps(options)) {
       const timer = schedule(() => {
@@ -121,5 +146,7 @@ export function installFloatingSealWhiteStripFix(
   target.on('blur', recomposite)
   target.on('focus', settle)
 
-  return settle
+  const dispose = settle as FloatingSealRecomposition
+  dispose.recomposite = recomposite
+  return dispose
 }

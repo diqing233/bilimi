@@ -41,6 +41,7 @@ import {
   buildEnsureFavoriteLedgersScript,
   buildExecuteFavoriteLedgerPlanScript,
   buildFavoriteLedgerStatusScript,
+  buildOldFavoriteTagEnrichmentScript,
   buildSaveFavoriteLedgersScript,
   buildScanOldFavoriteVideoScript,
   buildScanOldFavoritesScript
@@ -583,7 +584,9 @@ export default function App() {
 
     setPreferences(nextPreferences)
     if (window.bilimiDesktop?.savePreferences) {
-      const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
+      const saved = window.bilimiDesktop.patchPreferences
+        ? await window.bilimiDesktop.patchPreferences({ permissionOnboardingCompleted: true })
+        : await window.bilimiDesktop.savePreferences(nextPreferences)
       setPreferences(createInitialAssistantPreferences(saved))
     }
   }
@@ -986,7 +989,9 @@ export default function App() {
       setPreferences(nextPreferences)
 
       if (window.bilimiDesktop?.savePreferences) {
-        const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
+        const saved = window.bilimiDesktop.patchPreferences
+          ? await window.bilimiDesktop.patchPreferences({ favoriteLedgers: result.ledgers })
+          : await window.bilimiDesktop.savePreferences(nextPreferences)
         setPreferences(createInitialAssistantPreferences(saved))
       }
 
@@ -1019,6 +1024,7 @@ export default function App() {
       managedFolderScanComplete?: boolean
       skippedSourceFolderTitles?: string[]
       scanDiagnostics?: FavoriteLedgerPreview['scanDiagnostics']
+      scanProgress?: FavoriteLedgerPreview['scanProgress']
     }
 
     if (!scanResult.ok || !Array.isArray(scanResult.sourceFolders) || !scanResult.targetMembership) {
@@ -1073,7 +1079,13 @@ export default function App() {
       })
       setPreferences(nextPreferences)
       if (window.bilimiDesktop?.savePreferences) {
-        const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
+        const saved = window.bilimiDesktop.patchPreferences
+          ? await window.bilimiDesktop.patchPreferences({
+              favoriteArchiveProtectionRecords: nextPreferences.favoriteArchiveProtectionRecords,
+              favoriteArchiveProtectionInitializedAccountMids:
+                nextPreferences.favoriteArchiveProtectionInitializedAccountMids
+            })
+          : await window.bilimiDesktop.savePreferences(nextPreferences)
         setPreferences(createInitialAssistantPreferences(saved))
       }
     }
@@ -1084,6 +1096,7 @@ export default function App() {
       targetMembership: scanResult.targetMembership,
       skippedSourceFolderTitles: scanResult.skippedSourceFolderTitles,
       scanDiagnostics: scanResult.scanDiagnostics,
+      scanProgress: scanResult.scanProgress,
       multiArchiveMode
     })
 
@@ -1098,6 +1111,13 @@ export default function App() {
     }
 
     return preview
+  }
+
+  async function readOldFavoriteTagEnrichment(action: 'read' | 'pause' | 'resume' | 'cancel' = 'read') {
+    return runScript(buildOldFavoriteTagEnrichmentScript(action)) as Promise<{
+      sourceFolders: FavoriteSourceFolder[]
+      scanProgress: NonNullable<FavoriteLedgerPreview['scanProgress']>
+    }>
   }
 
   async function rejudgeOldFavorite(item: FavoriteLedgerPreviewItem): Promise<FavoriteLedgerPreviewItem> {
@@ -1629,7 +1649,13 @@ export default function App() {
       )
       setPreferences(nextPreferences)
       if (window.bilimiDesktop?.savePreferences) {
-        const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
+        const saved = window.bilimiDesktop.patchPreferences
+          ? await window.bilimiDesktop.patchPreferences({
+              preferenceCounts: nextPreferences.preferenceCounts,
+              favoriteCorrectionRecords: nextPreferences.favoriteCorrectionRecords,
+              favoriteKeywordSuggestions: nextPreferences.favoriteKeywordSuggestions
+            })
+          : await window.bilimiDesktop.savePreferences(nextPreferences)
         nextPreferences = createInitialAssistantPreferences(saved)
         setPreferences(nextPreferences)
         window.bilimiDesktop.notifyAssistantSnapshotChanged?.()
@@ -1726,7 +1752,12 @@ export default function App() {
           const correctedPreferences = applyDailyCorrectionLearning(nextPreferences, correction)
           setPreferences(correctedPreferences)
           if (window.bilimiDesktop?.savePreferences) {
-            const saved = await window.bilimiDesktop.savePreferences(correctedPreferences)
+            const saved = window.bilimiDesktop.patchPreferences
+              ? await window.bilimiDesktop.patchPreferences({
+                  favoriteCorrectionRecords: correctedPreferences.favoriteCorrectionRecords,
+                  favoriteKeywordSuggestions: correctedPreferences.favoriteKeywordSuggestions
+                })
+              : await window.bilimiDesktop.savePreferences(correctedPreferences)
             setPreferences(createInitialAssistantPreferences(saved))
             window.bilimiDesktop.notifyAssistantSnapshotChanged?.()
           }
@@ -1875,6 +1906,8 @@ export default function App() {
           return scanOldFavorites({
             multiArchiveMode: request.multiArchiveMode
           })
+        case 'old-favorite-tag-enrichment':
+          return readOldFavoriteTagEnrichment(request.action)
         case 'rejudge-old-favorite':
           return rejudgeOldFavorite(request.item)
         case 'execute-old-favorite-plan':
@@ -1902,6 +1935,7 @@ export default function App() {
     openBilibiliFavorites,
     preferences,
     readFavoriteLedgerStatus,
+    readOldFavoriteTagEnrichment,
     readCurrentVideoTime,
     readVideoContentContext,
     readVideoNoteSource,

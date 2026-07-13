@@ -435,7 +435,9 @@ export function AssistantOverlay({
     onRecordFeedback?.(kind, action)
 
     if (window.bilimiDesktop?.savePreferences) {
-      const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
+      const saved = window.bilimiDesktop.patchPreferences
+        ? await window.bilimiDesktop.patchPreferences({ preferenceCounts: nextPreferences.preferenceCounts })
+        : await window.bilimiDesktop.savePreferences(nextPreferences)
       setPreferences(createInitialAssistantPreferences(saved))
     }
   }
@@ -444,7 +446,14 @@ export function AssistantOverlay({
     setPreferences(nextPreferences)
 
     if (window.bilimiDesktop?.savePreferences) {
-      const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
+      const patch = Object.fromEntries(
+        Object.entries(nextPreferences).filter(
+          ([key, value]) => value !== preferences[key as keyof AssistantPreferences]
+        )
+      ) as Partial<AssistantPreferences>
+      const saved = window.bilimiDesktop.patchPreferences
+        ? await window.bilimiDesktop.patchPreferences(patch)
+        : await window.bilimiDesktop.savePreferences(nextPreferences)
       setPreferences(createInitialAssistantPreferences(saved))
     }
   }

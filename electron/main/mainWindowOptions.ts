@@ -11,6 +11,7 @@ const MAIN_WINDOW_REGULAR_MIN_SIZE = { width: 1280, height: 820 }
 const MAIN_WINDOW_COMPACT_MIN_SIZE = { width: 1080, height: 660 }
 const MAIN_WINDOW_ABSOLUTE_MIN_SIZE = { width: 960, height: 600 }
 const MAIN_WINDOW_WORK_AREA_RATIO = 0.92
+const MAIN_WINDOW_COMPACT_PROFILE_MAX_HEIGHT = 900
 
 export function getMainWindowIconPath(platform = process.platform): string {
   if (platform === 'win32') {
@@ -44,6 +45,21 @@ function resolveMinimumDimension({
   return clampDimension(targetMin, effectiveFloor, upperBound)
 }
 
+function resolveProfileMinimumDimension({
+  absoluteMin,
+  preferredMin,
+  workArea,
+  workAreaCap
+}: {
+  absoluteMin: number
+  preferredMin: number
+  workArea: number
+  workAreaCap: number
+}) {
+  const effectiveFloor = workArea < absoluteMin ? Math.max(1, workAreaCap) : absoluteMin
+  return clampDimension(preferredMin, effectiveFloor, Math.max(effectiveFloor, workAreaCap))
+}
+
 export function resolveMainWindowSizing(workAreaSize?: MainWindowWorkAreaSize) {
   if (!workAreaSize) {
     return {
@@ -58,13 +74,21 @@ export function resolveMainWindowSizing(workAreaSize?: MainWindowWorkAreaSize) {
     width: Math.floor(workAreaSize.width * MAIN_WINDOW_WORK_AREA_RATIO),
     height: Math.floor(workAreaSize.height * MAIN_WINDOW_WORK_AREA_RATIO)
   }
-  const minWidth = resolveMinimumDimension({
-    absoluteMin: MAIN_WINDOW_ABSOLUTE_MIN_SIZE.width,
-    compactMin: MAIN_WINDOW_COMPACT_MIN_SIZE.width,
-    regularMin: MAIN_WINDOW_REGULAR_MIN_SIZE.width,
-    workArea: workAreaSize.width,
-    workAreaCap: workAreaCap.width
-  })
+  const useCompactProfile = workAreaSize.height < MAIN_WINDOW_COMPACT_PROFILE_MAX_HEIGHT
+  const minWidth = useCompactProfile
+    ? resolveProfileMinimumDimension({
+        absoluteMin: MAIN_WINDOW_ABSOLUTE_MIN_SIZE.width,
+        preferredMin: MAIN_WINDOW_COMPACT_MIN_SIZE.width,
+        workArea: workAreaSize.width,
+        workAreaCap: workAreaCap.width
+      })
+    : resolveMinimumDimension({
+        absoluteMin: MAIN_WINDOW_ABSOLUTE_MIN_SIZE.width,
+        compactMin: MAIN_WINDOW_COMPACT_MIN_SIZE.width,
+        regularMin: MAIN_WINDOW_REGULAR_MIN_SIZE.width,
+        workArea: workAreaSize.width,
+        workAreaCap: workAreaCap.width
+      })
   const minHeight = resolveMinimumDimension({
     absoluteMin: MAIN_WINDOW_ABSOLUTE_MIN_SIZE.height,
     compactMin: MAIN_WINDOW_COMPACT_MIN_SIZE.height,

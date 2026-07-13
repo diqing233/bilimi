@@ -188,6 +188,8 @@ export type AssistantPreferences = {
   hidePetDuringVideoFullscreen: boolean
   closeBehavior: MainWindowCloseBehavior
   confirmBeforeExit: boolean
+  rememberCloseChoice?: boolean
+  closeChoiceMigrationVersion?: number
   bilibiliOperationMode: 'page-visual' | 'api-assisted'
   favoriteArchiveMultiMode: FavoriteArchiveMultiMode
   favoriteArchiveStrategy: FavoriteArchiveStrategy

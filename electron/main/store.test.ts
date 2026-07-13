@@ -14,6 +14,7 @@ import {
   saveDeepSeekApiKey,
   saveVideoNote,
   saveAssistantPreferences,
+  patchAssistantPreferences,
   loadPendingFavoriteQueue,
   savePendingFavoriteQueue,
   clearPendingFavoriteQueue,
@@ -82,6 +83,10 @@ function createFakeStore(
       DEFAULT_ASSISTANT_PREFERENCES.hidePetDuringVideoFullscreen,
     closeBehavior: initial.closeBehavior ?? DEFAULT_ASSISTANT_PREFERENCES.closeBehavior,
     confirmBeforeExit: initial.confirmBeforeExit ?? DEFAULT_ASSISTANT_PREFERENCES.confirmBeforeExit,
+    rememberCloseChoice:
+      initial.rememberCloseChoice ?? DEFAULT_ASSISTANT_PREFERENCES.rememberCloseChoice,
+    closeChoiceMigrationVersion:
+      initial.closeChoiceMigrationVersion ?? DEFAULT_ASSISTANT_PREFERENCES.closeChoiceMigrationVersion,
     bilibiliOperationMode:
       initial.bilibiliOperationMode ?? DEFAULT_ASSISTANT_PREFERENCES.bilibiliOperationMode,
     favoriteArchiveMultiMode:
@@ -126,6 +131,12 @@ function createFakeStore(
     deepseekDailyClassificationMode:
       initial.deepseekDailyClassificationMode ??
       DEFAULT_ASSISTANT_PREFERENCES.deepseekDailyClassificationMode,
+    deepseekArchiveOrganizationEnabled:
+      initial.deepseekArchiveOrganizationEnabled ??
+      DEFAULT_ASSISTANT_PREFERENCES.deepseekArchiveOrganizationEnabled,
+    deepseekFeatureDefaultsInitialized:
+      initial.deepseekFeatureDefaultsInitialized ??
+      DEFAULT_ASSISTANT_PREFERENCES.deepseekFeatureDefaultsInitialized,
     deepseekModel: initial.deepseekModel ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekModel,
     deepseekBaseUrl: initial.deepseekBaseUrl ?? DEFAULT_ASSISTANT_PREFERENCES.deepseekBaseUrl,
     showPetAssistantShortcut:
@@ -173,6 +184,21 @@ function createFakeStore(
 }
 
 describe('assistant preference store helpers', () => {
+  it('patches review preferences without overwriting a newer DeepSeek endpoint', () => {
+    const store = createFakeStore({
+      deepseekModel: 'deepseek-v4-flash',
+      deepseekBaseUrl: 'https://api.yunshulink.com/v1'
+    })
+
+    patchAssistantPreferences(store, { preferenceCounts: { funny: 3 } })
+
+    expect(loadAssistantPreferences(store)).toMatchObject({
+      preferenceCounts: { funny: 3 },
+      deepseekModel: 'deepseek-v4-flash',
+      deepseekBaseUrl: 'https://api.yunshulink.com/v1'
+    })
+  })
+
   it('loads favorites folder name and preference counts together', () => {
     const store = createFakeStore({
       favoritesFolderName: 'Bilimi Favorites',
@@ -221,15 +247,19 @@ describe('assistant preference store helpers', () => {
     })
   })
 
-  it('defaults close behavior to tray minimization with exit confirmation enabled', () => {
+  it('migrates existing close settings to ask again once', () => {
     const store = createFakeStore()
     delete (store.snapshot as Partial<DesktopStoreState>).closeBehavior
     delete (store.snapshot as Partial<DesktopStoreState>).confirmBeforeExit
+    delete (store.snapshot as Partial<DesktopStoreState>).rememberCloseChoice
+    delete (store.snapshot as Partial<DesktopStoreState>).closeChoiceMigrationVersion
 
     expect(loadAssistantPreferences(store)).toMatchObject({
       closeBehavior: 'minimize-to-tray',
-      confirmBeforeExit: true
+      rememberCloseChoice: false,
+      closeChoiceMigrationVersion: 1
     })
+    expect(store.snapshot).toMatchObject({ rememberCloseChoice: false, closeChoiceMigrationVersion: 1 })
   })
 
   it('persists the main window close behavior preferences', () => {

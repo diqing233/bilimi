@@ -88,6 +88,31 @@ export function createFloatingSealDragPosition({
   }
 }
 
+export function createFloatingSealPositionInsideWorkArea({
+  position,
+  hostSize,
+  workArea,
+  padding = 0
+}: {
+  position: Point
+  hostSize: Size
+  workArea: Bounds
+  padding?: number | EdgePadding
+}): Point {
+  const edges = normalizePadding(padding)
+  const visualWidth = Math.max(0, hostSize.width - edges.left - edges.right)
+  const visualHeight = Math.max(0, hostSize.height - edges.top - edges.bottom)
+  const minX = workArea.x - edges.left
+  const minY = workArea.y - edges.top
+  const maxX = workArea.x + Math.max(0, workArea.width - visualWidth) - edges.left
+  const maxY = workArea.y + Math.max(0, workArea.height - visualHeight) - edges.top
+
+  return {
+    x: clamp(Math.round(position.x), minX, Math.max(minX, maxX)),
+    y: clamp(Math.round(position.y), minY, Math.max(minY, maxY))
+  }
+}
+
 export function createFloatingSealResizeBounds({
   startBounds,
   startCursor,
@@ -186,6 +211,23 @@ export function createFloatingHostBounds({
     y: visualBounds.y - edges.top,
     width: visualBounds.width + edges.left + edges.right,
     height: visualBounds.height + edges.top + edges.bottom
+  }
+}
+
+export function createFloatingHostMovementArea({
+  visualWorkArea,
+  padding
+}: {
+  visualWorkArea: Bounds
+  padding: number | EdgePadding
+}): Bounds {
+  const edges = normalizePadding(padding)
+
+  return {
+    x: visualWorkArea.x - edges.left,
+    y: visualWorkArea.y - edges.top,
+    width: visualWorkArea.width + edges.left + edges.right,
+    height: visualWorkArea.height + edges.top + edges.bottom
   }
 }
 

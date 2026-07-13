@@ -4,6 +4,7 @@ import {
   APP_BUILD_ICON_PNG,
   APP_ICON_ICO_SIZES,
   APP_ICON_RESIZE_MODE,
+  APP_ICON_SUBJECT_SCALE,
   APP_ICON_SOURCE
 } from './generate-app-icon.mjs'
 
@@ -14,6 +15,11 @@ describe('app icon generation inputs', () => {
 
   it('fits the complete square mascot artwork without a fixed pixel crop', () => {
     expect(APP_ICON_RESIZE_MODE).toBe('contain-square')
+  })
+
+  it('modestly enlarges the mascot subject without changing the square artwork style', () => {
+    expect(APP_ICON_SUBJECT_SCALE).toBeGreaterThanOrEqual(1.05)
+    expect(APP_ICON_SUBJECT_SCALE).toBeLessThanOrEqual(1.1)
   })
 
   it('generates matching Electron and packaged build icons', () => {

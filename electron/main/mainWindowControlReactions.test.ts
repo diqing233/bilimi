@@ -36,7 +36,7 @@ describe('installMainWindowControlReactions', () => {
         getPreferences: () =>
           ({
             closeBehavior: 'exit-launcher',
-            confirmBeforeExit: false
+            rememberCloseChoice: true
           }) as never,
         minimizeToTray: vi.fn(),
         prepareToExitLauncher: vi.fn(),
@@ -68,7 +68,7 @@ describe('installMainWindowControlReactions', () => {
         getPreferences: () =>
           ({
             closeBehavior: 'exit-launcher',
-            confirmBeforeExit: false
+            rememberCloseChoice: true
           }) as never,
         minimizeToTray: vi.fn(),
         prepareToExitLauncher: vi.fn(),
@@ -172,7 +172,7 @@ describe('installMainWindowControlReactions', () => {
         getPreferences: () =>
           ({
             closeBehavior: 'exit-launcher',
-            confirmBeforeExit: false
+            rememberCloseChoice: true
           }) as never,
         minimizeToTray: vi.fn(),
         prepareToExitLauncher: vi.fn(),
@@ -212,7 +212,7 @@ describe('installMainWindowControlReactions', () => {
       getPreferences: () =>
         ({
           closeBehavior: 'minimize-to-tray',
-          confirmBeforeExit: true
+          rememberCloseChoice: true
         }) as never,
       minimizeToTray,
       prepareToExitLauncher: vi.fn(),
@@ -243,7 +243,7 @@ describe('installMainWindowControlReactions', () => {
         getPreferences: () =>
           ({
             closeBehavior: 'exit-launcher',
-            confirmBeforeExit: true
+            rememberCloseChoice: false
           }) as never,
         minimizeToTray: vi.fn(),
         prepareToExitLauncher: vi.fn(),
@@ -259,7 +259,7 @@ describe('installMainWindowControlReactions', () => {
       expect(closeEvent.preventDefault).toHaveBeenCalledOnce()
       expect(savePreferencePatch).toHaveBeenCalledWith({
         closeBehavior: 'exit-launcher',
-        confirmBeforeExit: false
+        rememberCloseChoice: true
       })
       expect(sendPetHint).toHaveBeenCalledWith({
         tone: 'sleepy',

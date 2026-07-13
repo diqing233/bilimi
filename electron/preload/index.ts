@@ -273,12 +273,16 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   scanOldFavorites: (options?: {
     multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']
   }) => ipcRenderer.invoke('floating-assistant:scan-old-favorites', options),
+  readOldFavoriteTagEnrichment: (action: 'read' | 'pause' | 'resume' | 'cancel' = 'read') =>
+    ipcRenderer.invoke('floating-assistant:old-favorite-tag-enrichment', action),
   rejudgeOldFavorite: (item: FavoriteLedgerPreviewItem) =>
     ipcRenderer.invoke('floating-assistant:rejudge-old-favorite', item) as Promise<FavoriteLedgerPreviewItem>,
   executeOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) =>
     ipcRenderer.invoke('floating-assistant:execute-old-favorite-plan', items),
   savePreferences: (preferences: AssistantPreferences) =>
     ipcRenderer.invoke('assistant:save-preferences', preferences) as Promise<AssistantPreferences>,
+  patchPreferences: (patch: Partial<AssistantPreferences>) =>
+    ipcRenderer.invoke('assistant:patch-preferences', patch) as Promise<AssistantPreferences>,
   restoreDefaultLayoutSize: () =>
     ipcRenderer.invoke('layout:restore-default-size') as Promise<void>,
   saveDeepSeekApiKey: (apiKey: string) =>

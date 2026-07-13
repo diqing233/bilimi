@@ -1378,7 +1378,7 @@ export function FloatingAssistantApp({
       preferenceSaveSchedulerRef.current = createPreferenceSaveScheduler<AssistantPreferences>({
         delayMs: 250,
         save: async (nextPreferences) => {
-          if (!window.bilimiDesktop?.savePreferences) {
+          if (!window.bilimiDesktop?.patchPreferences && !window.bilimiDesktop?.savePreferences) {
             return nextPreferences
           }
 
@@ -1389,7 +1389,15 @@ export function FloatingAssistantApp({
           }
 
           try {
-            const saved = await window.bilimiDesktop.savePreferences(nextPreferences)
+            const basePreferences = committedPreferencesRef.current
+            const patch = Object.fromEntries(
+              Object.entries(nextPreferences).filter(
+                ([key, value]) => value !== basePreferences[key as keyof AssistantPreferences]
+              )
+            ) as Partial<AssistantPreferences>
+            const saved = window.bilimiDesktop.patchPreferences
+              ? await window.bilimiDesktop.patchPreferences(patch)
+              : await window.bilimiDesktop.savePreferences(nextPreferences)
             const savedPreferences = createInitialAssistantPreferences(saved)
             const newerLocalChangeExists = lastPreferenceChangeAt.current > saveStartedAt
 
@@ -1533,12 +1541,12 @@ export function FloatingAssistantApp({
     persistPreferencePatch({ closeBehavior })
   }
 
-  function toggleExitConfirmation(confirmBeforeExit: boolean) {
+  function toggleRememberCloseChoice(rememberCloseChoice: boolean) {
     tellPet(
       'success',
-      confirmBeforeExit ? '退出前会先问主人一次。' : '以后点关闭会直接退出 bilimi。'
+      rememberCloseChoice ? '已记住关闭选择。' : '以后每次关闭都会询问。'
     )
-    persistPreferencePatch({ confirmBeforeExit })
+    persistPreferencePatch({ rememberCloseChoice })
   }
 
   function togglePetHoverShortcut(shortcutId: PetHoverShortcutId, selected: boolean) {
@@ -1794,11 +1802,22 @@ export function FloatingAssistantApp({
   }
 
   async function resetAssistantSettings() {
+    if (!window.confirm([
+      '确认重置全部设置？',
+      '',
+      '将恢复默认设置并清除已保存的 DeepSeek API 密钥。',
+      '视频札记、档案、收藏夹册目和已整理记录不会删除。'
+    ].join('\n'))) {
+      return
+    }
+
     const nextPreferences = createInitialAssistantPreferences({
       ...preferencesRef.current,
       petStyle: 'big-head',
       petHoverShortcuts: undefined,
       hidePetDuringVideoFullscreen: false,
+      closeBehavior: 'minimize-to-tray',
+      rememberCloseChoice: false,
       favoriteArchiveMultiMode: 'off',
       defaultCoinCount: 2,
       commentSubmitMode: 'choose',
@@ -2681,6 +2700,15 @@ export function FloatingAssistantApp({
             onSaveLedgers={saveFavoriteLedgers}
             onOpenFavoritePage={openFavoritePage}
             onScanOldFavorites={scanOldFavorites}
+            onReadOldFavoriteTagEnrichment={(action) =>
+              window.bilimiDesktop?.readOldFavoriteTagEnrichment?.(action) ?? Promise.resolve({
+                sourceFolders: [],
+                scanProgress: {
+                  basic: { completed: 0, total: 0, status: 'complete' },
+                  tags: { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'complete' }
+                }
+              })
+            }
             onExecuteOldFavoritePlan={executeOldFavoritePlan}
             onOldFavoriteExecutionStateChange={handleOldFavoriteExecutionStateChange}
             onOldFavoriteStatusUpdate={handleOldFavoriteStatusUpdate}
@@ -3512,12 +3540,11 @@ export function FloatingAssistantApp({
               <label title="关闭行为为退出启动器时生效；关闭后可在这里重新打开。">
                 <input
                   type="checkbox"
-                  checked={preferences.confirmBeforeExit}
-                  disabled={preferences.closeBehavior !== 'exit-launcher'}
-                  onChange={(event) => toggleExitConfirmation(event.currentTarget.checked)}
+                  checked={preferences.rememberCloseChoice}
+                  onChange={(event) => toggleRememberCloseChoice(event.currentTarget.checked)}
                 />
-                <span>退出前确认</span>
-                <small>点关闭弹出确认框；弹窗里的“记住选择”会同步改这里。</small>
+                <span>记住关闭选择</span>
+                <small>勾选后直接执行上方选择；未勾选时每次询问。</small>
               </label>
             </fieldset>
             </div>

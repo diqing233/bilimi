@@ -48,6 +48,10 @@ function installDesktopApi({
         storedPreferences = createInitialAssistantPreferences(nextPreferences)
         return storedPreferences
       }),
+      patchPreferences: vi.fn(async (patch) => {
+        storedPreferences = createInitialAssistantPreferences({ ...storedPreferences, ...patch })
+        return storedPreferences
+      }),
       setAssistantPetHint: vi.fn(),
       loadVideoAudioTranscriptionQueue: vi.fn().mockResolvedValue({
         activeItemId: 'bvid:BV1note',
@@ -87,6 +91,7 @@ function installDesktopApi({
       }
     },
     setAssistantPetHint: window.bilimiDesktop.setAssistantPetHint as ReturnType<typeof vi.fn>,
+    patchPreferences: window.bilimiDesktop.patchPreferences as ReturnType<typeof vi.fn>,
     savePreferences: window.bilimiDesktop.savePreferences as ReturnType<typeof vi.fn>
   }
 }
@@ -263,17 +268,14 @@ describe('AssistantSidebar', () => {
       fireEvent.pointerUp(window, { clientX: 260, pointerId: 1 })
     })
 
-    expect(api.savePreferences).toHaveBeenLastCalledWith(
-      expect.objectContaining({ assistantSidebarWidthPx: 320 })
-    )
+    expect(api.patchPreferences).toHaveBeenLastCalledWith({ assistantSidebarWidthPx: 320 })
+    expect(api.savePreferences).not.toHaveBeenCalled()
 
     fireEvent.doubleClick(resizeHandle)
 
     expect(sidebar.style.getPropertyValue('--assistant-sidebar-width')).toBe('')
     await waitFor(() =>
-      expect(api.savePreferences).toHaveBeenLastCalledWith(
-        expect.objectContaining({ assistantSidebarWidthPx: null })
-      )
+      expect(api.patchPreferences).toHaveBeenLastCalledWith({ assistantSidebarWidthPx: null })
     )
     expect(ASSISTANT_SIDEBAR_DEFAULT_WIDTH_PX).toBe(384)
   })

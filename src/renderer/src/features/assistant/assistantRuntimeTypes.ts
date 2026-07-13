@@ -64,6 +64,7 @@ export type AssistantRuntimeRequest =
       type: 'scan-old-favorites'
       multiArchiveMode?: FavoriteArchiveMultiMode
     }
+  | { id: string; type: 'old-favorite-tag-enrichment'; action?: 'read' | 'pause' | 'resume' | 'cancel' }
   | { id: string; type: 'rejudge-old-favorite'; item: FavoriteLedgerPreviewItem }
   | { id: string; type: 'execute-old-favorite-plan'; items: FavoriteLedgerPreviewItem[] }
   | {

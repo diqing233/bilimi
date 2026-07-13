@@ -109,6 +109,10 @@ type FavoriteLedgerPanelProps = {
   onScanOldFavorites: (options?: {
     multiArchiveMode?: FavoriteArchiveMultiMode
   }) => Promise<FavoriteLedgerPreview>
+  onReadOldFavoriteTagEnrichment?: (action?: 'read' | 'pause' | 'resume' | 'cancel') => Promise<{
+    sourceFolders: FavoriteSourceFolder[]
+    scanProgress: NonNullable<FavoriteLedgerPreview['scanProgress']>
+  }>
   onExecuteOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
   onOldFavoriteExecutionStateChange?: (state: 'running' | 'finished') => void
   onOldFavoriteStatusUpdate?: (status: OldFavoriteStatusSnapshot) => void
@@ -1474,6 +1478,7 @@ export function FavoriteLedgerPanel({
   onSaveLedgers,
   onOpenFavoritePage,
   onScanOldFavorites,
+  onReadOldFavoriteTagEnrichment,
   onExecuteOldFavoritePlan,
   onOldFavoriteExecutionStateChange,
   onOldFavoriteStatusUpdate,
@@ -1617,11 +1622,13 @@ export function FavoriteLedgerPanel({
   const oldFavoriteExecutionAwaitingAcknowledgement =
     oldFavoriteExecutionPhase === 'awaiting-acknowledgement'
   const [oldFavoriteExecutionConfirming, setOldFavoriteExecutionConfirming] = useState(false)
+  const [pendingTagExecutionConfirming, setPendingTagExecutionConfirming] = useState(false)
   const [archiveMultiModeChange, setArchiveMultiModeChange] =
     useOldFavoriteRuntimeState<ArchiveMultiModeChange | null>('archiveMultiModeChange', null)
   const [status, setStatus] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [basicScanRunning, setBasicScanRunning] = useState(false)
   const [draggedLedgerId, setDraggedLedgerId] = useState<string | null>(null)
   const [dragTargetLedgerId, setDragTargetLedgerId] = useState<string | null>(null)
   const [ledgerListExpanded, setLedgerListExpanded] =
@@ -1653,6 +1660,47 @@ export function FavoriteLedgerPanel({
 
     return JSON.stringify(ledgerEditorSnapshot(activeLedger)) !== JSON.stringify(activeLedgerSavedSnapshot)
   }, [activeLedger, activeLedgerSavedSnapshot])
+  useEffect(() => {
+    if (!onReadOldFavoriteTagEnrichment || !preview || (!basicScanRunning && (preview.scanProgress?.tags.pending ?? 0) <= 0)) {
+      return
+    }
+    const interval = window.setInterval(() => {
+      void onReadOldFavoriteTagEnrichment('read').then((snapshot) => {
+        setPreview((current) => {
+          if (!current) return current
+          if (basicScanRunning) {
+            return { ...current, scanProgress: snapshot.scanProgress }
+          }
+          const rebuilt = createFavoriteLedgerPreview({
+            ledgers: draftLedgers,
+            sourceFolders: snapshot.sourceFolders,
+            targetMembership: current.scanContext?.targetMembership ?? {},
+            skippedSourceFolderTitles: current.skippedSourceFolderTitles,
+            scanDiagnostics: current.scanDiagnostics,
+            multiArchiveMode: favoriteArchiveMultiMode
+          })
+          const normalized = normalizeOldFavoritePreviewItems(rebuilt.items, draftLedgers)
+          let mergedVisibleItems = normalized
+          setArchivePlanState((state) => {
+            if (!state) return state
+            const refreshed = createArchivePlanStateFromPreviewItems(normalized, selectedCandidateKeys)
+            const mergedState = {
+              ...refreshed,
+              items: refreshed.items.map((item) => {
+                const existing = state.items.find((candidate) => candidate.aid === item.aid && candidate.sourceFolderTitle === item.sourceFolderTitle)
+                return existing?.userModified ? existing : item
+              })
+            }
+            mergedVisibleItems = applyArchivePlanToPreviewItems(normalized, mergedState, draftLedgers)
+            return mergedState
+          })
+          return { ...rebuilt, items: mergedVisibleItems, scanProgress: snapshot.scanProgress, scanContext: current.scanContext }
+        })
+      }).catch(() => undefined)
+    }, 1500)
+    return () => window.clearInterval(interval)
+  }, [basicScanRunning, draftLedgers, favoriteArchiveMultiMode, onReadOldFavoriteTagEnrichment, preview, selectedCandidateKeys])
+
   useEffect(() => {
     if (!preview) {
       setDraftLedgers(ledgers.map(cloneArchiveDraftLedger))
@@ -1779,6 +1827,17 @@ export function FavoriteLedgerPanel({
       return
     }
 
+    setOldFavoriteGuideMode('organize')
+    setOldFavoriteStep('scan')
+    setBasicScanRunning(true)
+    setPreview({
+      items: [],
+      skippedSourceFolderTitles: [],
+      scanProgress: {
+        basic: { completed: 0, total: 1, status: 'running' },
+        tags: { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'idle' }
+      }
+    })
     await saveLedgers({
       includeSelectedCandidates: false,
       includeDefaultLedgers: true,
@@ -2372,6 +2431,9 @@ export function FavoriteLedgerPanel({
     mode: 'setup' | 'organize' = 'organize'
   ) {
     setBusy(true)
+    setBasicScanRunning(true)
+    setOldFavoriteStep('scan')
+    setOldFavoriteGuideMode(mode)
     setSaveStatus(null)
     setArchiveMultiModeChange(null)
     setDeepSeekArchiveResultSummary(null)
@@ -2502,6 +2564,7 @@ export function FavoriteLedgerPanel({
         tone: 'error'
       })
     } finally {
+      setBasicScanRunning(false)
       setBusy(false)
     }
   }
@@ -4574,7 +4637,7 @@ export function FavoriteLedgerPanel({
                   key={step.id}
                   type="button"
                   aria-current={oldFavoriteStep === step.id ? 'step' : undefined}
-                  disabled={deepSeekArchiveRunning && oldFavoriteStep !== step.id}
+                  disabled={(basicScanRunning && step.id !== 'scan') || (deepSeekArchiveRunning && oldFavoriteStep !== step.id)}
                   onClick={() => switchOldFavoriteStep(step.id)}
                 >
                   {step.label}
@@ -4586,6 +4649,51 @@ export function FavoriteLedgerPanel({
           {oldFavoriteStep === 'scan' ? (
             <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
               <h4 className="favorite-ledger-panel__step-title">扫描概览</h4>
+              <div className="favorite-ledger-panel__scan-progress" aria-label="旧藏扫描进度">
+                <div>
+                  <span>视频基本信息</span>
+                  <progress
+                    aria-label="视频基本信息进度"
+                    max={Math.max(preview.scanProgress?.basic.total ?? 1, 1)}
+                    value={preview.scanProgress?.basic.completed ?? (basicScanRunning ? 0 : 1)}
+                  />
+                  <strong>
+                    {basicScanRunning && (preview.scanProgress?.basic.total ?? 0) <= 1
+                      ? '正在读取'
+                      : `${preview.scanProgress?.basic.completed ?? preview.items.length} / ${preview.scanProgress?.basic.total ?? preview.items.length}`}
+                  </strong>
+                </div>
+                <div>
+                  <span>标签补取</span>
+                  <progress
+                    aria-label="标签补取进度"
+                    max={Math.max(preview.scanProgress?.tags.total ?? 1, 1)}
+                    value={preview.scanProgress?.tags.completed ?? 0}
+                  />
+                  <strong>
+                    {preview.scanProgress
+                      ? `${preview.scanProgress.tags.completed} / ${preview.scanProgress.tags.total}`
+                      : '正在统计缺失标签'}
+                  </strong>
+                </div>
+              </div>
+              {preview.scanProgress?.tags.status !== 'complete' && !basicScanRunning ? (
+                <div className="favorite-ledger-panel__scan-enrichment-status">
+                  <p className="favorite-ledger-panel__scan-warning">
+                    视频信息已扫描完成，可以查看和调整整理结果。标签仍在后台补取，建议等待扫描结束后再执行。
+                  </p>
+                  {onReadOldFavoriteTagEnrichment ? (
+                    <div>
+                      {preview.scanProgress?.tags.status === 'paused' ? (
+                        <button type="button" onClick={() => void onReadOldFavoriteTagEnrichment('resume').then((snapshot) => setPreview((current) => current ? { ...current, scanProgress: snapshot.scanProgress } : current))}>继续补取</button>
+                      ) : (
+                        <button type="button" onClick={() => void onReadOldFavoriteTagEnrichment('pause').then((snapshot) => setPreview((current) => current ? { ...current, scanProgress: snapshot.scanProgress } : current))}>暂停补取</button>
+                      )}
+                      <button type="button" onClick={() => void onReadOldFavoriteTagEnrichment('cancel').then((snapshot) => setPreview((current) => current ? { ...current, scanProgress: snapshot.scanProgress } : current))}>取消标签补取</button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {preview.insights ? (
                 <>
                   <p className="favorite-ledger-panel__step-note">
@@ -5328,7 +5436,9 @@ export function FavoriteLedgerPanel({
                         ? acknowledgeOldFavoriteExecution()
                         : selectedOldFavoritePlanItems.length === 0
                           ? acknowledgeOldFavoriteExecution()
-                          : setOldFavoriteExecutionConfirming(true)
+                          : (preview.scanProgress?.tags.pending ?? 0) > 0
+                            ? setPendingTagExecutionConfirming(true)
+                            : setOldFavoriteExecutionConfirming(true)
                     }
                   >
                     {oldFavoriteExecutionAwaitingAcknowledgement
@@ -5341,6 +5451,31 @@ export function FavoriteLedgerPanel({
                 )}
               </section>
             )
+          ) : null}
+          {pendingTagExecutionConfirming ? (
+            <div
+              className="favorite-ledger-panel__execution-dialog"
+              role="alertdialog"
+              aria-modal="true"
+              aria-label="标签尚未补齐"
+            >
+              <h4>标签尚未补齐</h4>
+              <p>还有 {preview.scanProgress?.tags.pending ?? 0} 个视频的标签正在补取，建议等待扫描结束后再执行。</p>
+              <p>使用当前结果将固定本次归档快照，之后补到的标签不会改变本轮操作。</p>
+              <div className="favorite-ledger-panel__execution-dialog-actions">
+                <button type="button" onClick={() => setPendingTagExecutionConfirming(false)}>取消</button>
+                <button type="button" onClick={() => setPendingTagExecutionConfirming(false)}>继续等待</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingTagExecutionConfirming(false)
+                    setOldFavoriteExecutionConfirming(true)
+                  }}
+                >
+                  使用当前结果执行
+                </button>
+              </div>
+            </div>
           ) : null}
         </section>
       ) : null}

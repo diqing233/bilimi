@@ -11,6 +11,7 @@ export const APP_ICON_ICO = resolve(repoRoot, 'electron/assets/bilimi.ico')
 export const APP_BUILD_ICON_PNG = resolve(repoRoot, 'build/icon.png')
 export const APP_BUILD_ICON_ICO = resolve(repoRoot, 'build/icon.ico')
 export const APP_ICON_RESIZE_MODE = 'contain-square'
+export const APP_ICON_SUBJECT_SCALE = 1.08
 
 export const APP_ICON_AVATAR_SIZE = 512
 export const APP_ICON_ICO_SIZES = [16, 24, 32, 48, 64, 128, 256]
@@ -34,12 +35,18 @@ build_png_path = Path(payload["buildPng"])
 build_ico_path = Path(payload["buildIco"])
 avatar_size = int(payload["avatarSize"])
 ico_sizes = [int(size) for size in payload["icoSizes"]]
+subject_scale = float(payload["subjectScale"])
 
 source = Image.open(source_path).convert("RGBA")
 if source.width != source.height:
     raise ValueError(f"App icon source must be square, got {source.width}x{source.height}")
 
 avatar = source.resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
+subject_size = round(avatar_size * subject_scale)
+subject = avatar.resize((subject_size, subject_size), Image.Resampling.LANCZOS)
+crop_left = (subject_size - avatar_size) // 2
+crop_top = (subject_size - avatar_size) // 2
+avatar = subject.crop((crop_left, crop_top, crop_left + avatar_size, crop_top + avatar_size))
 
 avatar_path.parent.mkdir(parents=True, exist_ok=True)
 build_png_path.parent.mkdir(parents=True, exist_ok=True)
@@ -64,6 +71,7 @@ export function generateAppIcon() {
     buildIco: APP_BUILD_ICON_ICO,
     resizeMode: APP_ICON_RESIZE_MODE,
     avatarSize: APP_ICON_AVATAR_SIZE,
+    subjectScale: APP_ICON_SUBJECT_SCALE,
     icoSizes: APP_ICON_ICO_SIZES
   }
   const result = spawnSync(resolvePythonCommand(), ['-c', buildPythonProgram(), JSON.stringify(payload)], {

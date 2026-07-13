@@ -104,6 +104,10 @@ type BilimiDesktopApi = {
   scanOldFavorites?: (options?: {
     multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']
   }) => Promise<FavoriteLedgerPreview>
+  readOldFavoriteTagEnrichment?: (action?: 'read' | 'pause' | 'resume' | 'cancel') => Promise<{
+    sourceFolders: import('./features/favorites/favoriteLedgerPreview').FavoriteSourceFolder[]
+    scanProgress: NonNullable<FavoriteLedgerPreview['scanProgress']>
+  }>
   upsertPendingFavoriteQueueItems?: (
     items: PendingFavoriteQueueItem[]
   ) => Promise<PendingFavoriteQueueItem[]>
@@ -116,6 +120,7 @@ type BilimiDesktopApi = {
     options?: FavoriteLedgerSaveOptions
   ) => Promise<AssistantAutomationResult>
   savePreferences: (preferences: AssistantPreferences) => Promise<AssistantPreferences>
+  patchPreferences?: (patch: Partial<AssistantPreferences>) => Promise<AssistantPreferences>
   restoreDefaultLayoutSize?: () => Promise<void>
   saveDeepSeekApiKey?: (apiKey: string) => Promise<DeepSeekKeyStatus>
   saveVideoNote?: (note: VideoNote) => Promise<VideoNote[]>

@@ -1685,14 +1685,14 @@ describe('FloatingAssistantApp', () => {
     ).toBeInTheDocument()
   })
 
-  it('saves close behavior and exit confirmation settings', async () => {
+  it('saves close behavior and remember-choice settings', async () => {
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
     installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
           preferences: createPreferences({
             closeBehavior: 'minimize-to-tray',
-            confirmBeforeExit: true
+            rememberCloseChoice: false
           })
         })
       ),
@@ -1705,7 +1705,8 @@ describe('FloatingAssistantApp', () => {
 
     expect(screen.getByRole('group', { name: '关闭设置' })).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: /最小化到系统托盘/ })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: /退出前确认/ })).toBeDisabled()
+    expect(screen.getByRole('checkbox', { name: /记住关闭选择/ })).toBeEnabled()
+    expect(screen.getByRole('checkbox', { name: /记住关闭选择/ })).not.toBeChecked()
 
     fireEvent.click(screen.getByRole('radio', { name: /退出启动器/ }))
 
@@ -1713,19 +1714,17 @@ describe('FloatingAssistantApp', () => {
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
           closeBehavior: 'exit-launcher',
-          confirmBeforeExit: true
+          rememberCloseChoice: false
         })
       )
     )
-    expect(screen.getByRole('checkbox', { name: /退出前确认/ })).toBeEnabled()
-
-    fireEvent.click(screen.getByRole('checkbox', { name: /退出前确认/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /记住关闭选择/ }))
 
     await waitFor(() =>
       expect(savePreferences).toHaveBeenCalledWith(
         expect.objectContaining({
           closeBehavior: 'exit-launcher',
-          confirmBeforeExit: false
+          rememberCloseChoice: true
         })
       )
     )
@@ -3151,10 +3150,17 @@ describe('FloatingAssistantApp', () => {
         })
       )
     })
+    const confirmReset = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true)
 
     render(<FloatingAssistantApp />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '设置' }))
+    fireEvent.click(screen.getByRole('button', { name: '重置设置' }))
+
+    expect(confirmReset).toHaveBeenCalledWith(expect.stringContaining('确认重置全部设置？'))
+    expect(confirmReset).toHaveBeenCalledWith(expect.stringContaining('DeepSeek API 密钥'))
+    expect(confirmReset).toHaveBeenCalledWith(expect.stringContaining('视频札记、档案、收藏夹册目'))
+    expect(clearDeepSeekApiKey).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '重置设置' }))
 
     await waitFor(() =>
