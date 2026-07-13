@@ -7,9 +7,15 @@ const BIG_HEAD_ASSET_DIR = resolve(
   __dirname,
   '../../assets/pet/blue-white-maid/character/big-head'
 )
+const CLASSIC_ASSET_DIR = resolve(
+  __dirname,
+  '../../assets/pet/blue-white-maid/character/classic'
+)
+const LEGACY_ASSET_DIR = resolve(__dirname, '../../assets/pet/blue-white-maid/character')
+const pngAlphaCache = new Map<string, ReturnType<typeof decodePngAlpha>>()
 
-function readPngMetadata(filename: string) {
-  const bytes = readFileSync(resolve(BIG_HEAD_ASSET_DIR, filename))
+function readPngMetadata(filename: string, assetDir = BIG_HEAD_ASSET_DIR) {
+  const bytes = readFileSync(resolve(assetDir, filename))
 
   return {
     width: bytes.readUInt32BE(16),
@@ -18,8 +24,7 @@ function readPngMetadata(filename: string) {
   }
 }
 
-function readPngAlpha(filename: string) {
-  const bytes = readFileSync(resolve(BIG_HEAD_ASSET_DIR, filename))
+function decodePngAlpha(bytes: Buffer) {
   const width = bytes.readUInt32BE(16)
   const height = bytes.readUInt32BE(20)
   const colorType = bytes[25]
@@ -80,11 +85,25 @@ function readPngAlpha(filename: string) {
   return { width, height, rows }
 }
 
+function readPngAlpha(filename: string, assetDir = BIG_HEAD_ASSET_DIR) {
+  const path = resolve(assetDir, filename)
+  const cached = pngAlphaCache.get(path)
+
+  if (cached) {
+    return cached
+  }
+
+  const decoded = decodePngAlpha(readFileSync(path))
+  pngAlphaCache.set(path, decoded)
+  return decoded
+}
+
 function countOpaquePixelsInBand(
   filename: string,
-  containsPixel: (x: number, y: number, width: number, height: number) => boolean
+  containsPixel: (x: number, y: number, width: number, height: number) => boolean,
+  assetDir = BIG_HEAD_ASSET_DIR
 ) {
-  const png = readPngAlpha(filename)
+  const png = readPngAlpha(filename, assetDir)
   let count = 0
 
   for (let y = 0; y < png.height; y += 1) {
@@ -98,6 +117,38 @@ function countOpaquePixelsInBand(
   }
 
   return count
+}
+
+function readOpaqueBounds(filename: string, assetDir: string) {
+  const png = readPngAlpha(filename, assetDir)
+  let minX = png.width
+  let minY = png.height
+  let maxX = -1
+  let maxY = -1
+
+  for (let y = 0; y < png.height; y += 1) {
+    const row = png.rows[y]
+
+    for (let x = 0; x < png.width; x += 1) {
+      if (row[x * 4 + 3] > 8) {
+        minX = Math.min(minX, x)
+        minY = Math.min(minY, y)
+        maxX = Math.max(maxX, x)
+        maxY = Math.max(maxY, y)
+      }
+    }
+  }
+
+  expect(maxX).toBeGreaterThanOrEqual(0)
+  expect(maxY).toBeGreaterThanOrEqual(0)
+
+  return {
+    width: maxX - minX + 1,
+    height: maxY - minY + 1,
+    centerX: (minX + maxX) / 2,
+    bottomGap: png.height - 1 - maxY,
+    canvasWidth: png.width
+  }
 }
 
 describe('big-head pet asset files', () => {
@@ -120,4 +171,35 @@ describe('big-head pet asset files', () => {
     expect(countOpaquePixelsInBand('clicked.png', (x) => x < 6)).toBe(0)
     expect(countOpaquePixelsInBand('error.png', (x, _y, width) => x >= width - 30)).toBe(0)
   })
+
+  it(
+    'adapts the new clicked illustration to every pet canvas without shifting its anchor',
+    () => {
+      const variants = [
+        { assetDir: BIG_HEAD_ASSET_DIR, width: 434, height: 461, bottomGap: 16 },
+        { assetDir: CLASSIC_ASSET_DIR, width: 512, height: 512, bottomGap: 23 },
+        { assetDir: LEGACY_ASSET_DIR, width: 512, height: 512, bottomGap: 23 }
+      ]
+
+      for (const variant of variants) {
+        expect(readPngMetadata('clicked.png', variant.assetDir)).toEqual({
+          width: variant.width,
+          height: variant.height,
+          colorType: 6
+        })
+
+        const bounds = readOpaqueBounds('clicked.png', variant.assetDir)
+
+        expect(bounds.width / bounds.height).toBeGreaterThan(0.78)
+        expect(bounds.width / bounds.height).toBeLessThan(0.82)
+        expect(Math.abs(bounds.centerX - (bounds.canvasWidth - 1) / 2)).toBeLessThanOrEqual(2)
+        expect(bounds.bottomGap).toBe(variant.bottomGap)
+      }
+
+      expect(readFileSync(resolve(CLASSIC_ASSET_DIR, 'clicked.png'))).toEqual(
+        readFileSync(resolve(LEGACY_ASSET_DIR, 'clicked.png'))
+      )
+    },
+    10_000
+  )
 })
