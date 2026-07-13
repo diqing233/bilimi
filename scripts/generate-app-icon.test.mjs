@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   APP_BUILD_ICON_ICO,
   APP_BUILD_ICON_PNG,
-  APP_ICON_CROP,
   APP_ICON_ICO_SIZES,
+  APP_ICON_RESIZE_MODE,
   APP_ICON_SOURCE
 } from './generate-app-icon.mjs'
 
@@ -12,14 +12,8 @@ describe('app icon generation inputs', () => {
     expect(APP_ICON_SOURCE).toMatch(/electron[\\/]assets[\\/]bilimi-icon-source\.png$/)
   })
 
-  it('crops a square avatar from the upper portrait area', () => {
-    expect(APP_ICON_CROP.width).toBe(APP_ICON_CROP.height)
-    expect(APP_ICON_CROP).toMatchObject({
-      left: 20,
-      top: 50,
-      width: 1120,
-      height: 1120
-    })
+  it('fits the complete square mascot artwork without a fixed pixel crop', () => {
+    expect(APP_ICON_RESIZE_MODE).toBe('contain-square')
   })
 
   it('generates matching Electron and packaged build icons', () => {

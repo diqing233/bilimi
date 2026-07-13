@@ -2,8 +2,15 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const packageJson = JSON.parse(readFileSync('package.json', 'utf8'))
+const packageLock = JSON.parse(readFileSync('package-lock.json', 'utf8'))
 
 describe('Windows installer packaging config', () => {
+  it('uses the v1.0.0 release version in package and lock metadata', () => {
+    expect(packageJson.version).toBe('1.0.0')
+    expect(packageLock.version).toBe('1.0.0')
+    expect(packageLock.packages[''].version).toBe('1.0.0')
+  })
+
   it('includes release metadata used by the Windows installer', () => {
     expect(packageJson.description).toContain('Bilibili')
     expect(packageJson.author).toBe('diqing')
@@ -25,6 +32,7 @@ describe('Windows installer packaging config', () => {
   it('uses bilimi as the packaged executable and install subfolder name', () => {
     expect(packageJson.build.executableName).toBe('bilimi')
     expect(packageJson.build.win.executableName).toBe('bilimi')
+    expect(packageJson.build.artifactName).toBe('bilimi.Setup.${version}.${ext}')
   })
 
   it('uses the locally installed Electron runtime for reproducible packaging', () => {

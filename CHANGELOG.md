@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 - 2026-07-13
+
+- Promoted the current Windows desktop application to the first stable `1.0.0` release.
+- Replaced the application, executable, installer, taskbar, tray, and runtime icon assets with the new full-square Xiaomiao artwork, including a complete 16-256 px Windows ICO ladder.
+- Fixed the Windows installer artifact name as `bilimi.Setup.1.0.0.exe` for stable GitHub Release links.
+- Rewrote the README as a complete Chinese user manual covering every current page, workflow, state, limitation, privacy boundary, troubleshooting path, and release command.
+- Verified development, production preview, packaged resources, the NSIS installer, and an installed Windows application against the release checklist.
 
 - Split DeepSeek organization into independent review assistance and manual old-favorite organization controls, added per-feature main-process enforcement, and made first-use/reset child-feature defaults consistent.
 - Updated DeepSeek status-light explanations, model recommendations, compact review mode selection, adjacent server-address copy action, and transcription success wording.
