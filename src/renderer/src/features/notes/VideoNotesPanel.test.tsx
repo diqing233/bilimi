@@ -184,6 +184,31 @@ describe('VideoNotesPanel', () => {
     expect(await screen.findByText('「当前视频」已开始转写。')).toBeInTheDocument()
   })
 
+  it('locks only the transcription button while the enqueue request is pending', async () => {
+    let resolveEnqueue!: (snapshot: VideoAudioTranscriptionQueueSnapshot) => void
+    const onEnqueueTranscription = vi.fn(() => new Promise<VideoAudioTranscriptionQueueSnapshot>((resolve) => {
+      resolveEnqueue = resolve
+    }))
+    const onOpenArchive = vi.fn()
+    renderPanel({
+      note: null,
+      onTranscribeAudio: vi.fn(),
+      onEnqueueTranscription,
+      onOpenArchive,
+      transcriptionQueue: { items: [] }
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '转写音频' }))
+
+    expect(screen.getByRole('button', { name: '正在加入...' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '档案库' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '档案库' }))
+    expect(onOpenArchive).toHaveBeenCalledOnce()
+
+    resolveEnqueue({ items: [] })
+    await waitFor(() => expect(screen.getByRole('button', { name: '转写音频' })).toBeEnabled())
+  })
+
   it('replaces the started transcription message when the queued video is canceled', async () => {
     const runningQueue: VideoAudioTranscriptionQueueSnapshot = {
       activeItemId: 'bvid:BV-current',

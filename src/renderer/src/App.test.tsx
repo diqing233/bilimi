@@ -3190,7 +3190,7 @@ describe('App runtime integration', () => {
       expect.objectContaining({
         ok: false,
         items: [],
-        message: expect.stringContaining('Bilimi 收藏夹读取不完整')
+        message: expect.stringContaining('bilimi 收藏夹读取不完整')
       })
     )
   })

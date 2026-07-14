@@ -4,6 +4,7 @@ import type { DeepSeekGenerateResult, FavoriteLedger } from '@shared/types'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
+import * as favoriteLedgerPreviewModule from '../favorites/favoriteLedgerPreview'
 import { FavoriteLedgerPanel, resetOldFavoriteRuntimeSession } from './FavoriteLedgerPanel'
 import { bindOldFavoriteRuntimeAccount } from './oldFavoriteRuntimeSession'
 
@@ -205,7 +206,68 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByText('1 / 1')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     expect(screen.getByText(preview.items[0].title).closest('.favorite-ledger-panel__preview-video')).toHaveAttribute('data-selected', 'false')
+    const callsAfterCompletion = onReadOldFavoriteTagEnrichment.mock.calls.length
+    await act(async () => { vi.advanceTimersByTime(5000); await Promise.resolve() })
+    expect(onReadOldFavoriteTagEnrichment).toHaveBeenCalledTimes(callsAfterCompletion)
     vi.useRealTimers()
+  })
+
+  it('uses the unique scanned video count in the overview metrics', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.insights = { ...preview.insights!, totalVideos: 3 }
+    preview.scanContext = {
+      accountMid: '42', totalUniqueVideos: 2, activeSourceFolders: [], protectedVideos: [],
+      managedFolders: [], targetMembership: {}, multiArchiveMode: 'off'
+    }
+    renderPanel({ onScanOldFavorites: vi.fn().mockResolvedValue(preview) })
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    const scannedMetric = screen.getByText('共扫描').closest('article')
+    expect(scannedMetric).toHaveTextContent('共扫描2')
+    expect(scannedMetric).not.toHaveTextContent('3')
+  })
+
+  it('only merges tag progress outside archive preview without rebuilding the large preview', async () => {
+    vi.useFakeTimers()
+    const preview = createArchivePreviewFixture()
+    preview.scanProgress = {
+      basic: { completed: 2, total: 2, status: 'complete' },
+      tags: { completed: 0, total: 2, pending: 2, cacheHits: 0, succeeded: 0, failed: 0, status: 'running' }
+    }
+    const createPreviewSpy = vi.spyOn(favoriteLedgerPreviewModule, 'createFavoriteLedgerPreview')
+    const onReadOldFavoriteTagEnrichment = vi.fn().mockResolvedValue({
+      sourceFolders: [],
+      scanProgress: { ...preview.scanProgress, tags: { ...preview.scanProgress.tags, completed: 1, pending: 1 } }
+    })
+    renderPanel({ onScanOldFavorites: vi.fn().mockResolvedValue(preview), onReadOldFavoriteTagEnrichment })
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await act(async () => { await Promise.resolve() })
+    createPreviewSpy.mockClear()
+
+    await act(async () => { vi.advanceTimersByTime(3200); await Promise.resolve() })
+
+    expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByText('1 / 2')).toBeInTheDocument()
+    expect(createPreviewSpy).not.toHaveBeenCalled()
+    vi.useRealTimers()
+  })
+
+  it('uses the unique scanned count in the normal organization status message', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.insights = { ...preview.insights!, totalVideos: 3 }
+    preview.scanContext = {
+      accountMid: '42', totalUniqueVideos: 2, activeSourceFolders: [], protectedVideos: [],
+      managedFolders: [], targetMembership: {}, multiArchiveMode: 'off'
+    }
+    const onOldFavoriteStatusUpdate = vi.fn()
+    renderPanel({ onScanOldFavorites: vi.fn().mockResolvedValue(preview), onOldFavoriteStatusUpdate })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    expect(await screen.findByText('已扫描 2 条旧藏，可勾选后整理。')).toBeInTheDocument()
+    expect(onOldFavoriteStatusUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      message: '已扫描 2 条旧藏，可勾选后整理。'
+    }))
   })
 
   it('polls real intermediate basic discovery progress before the scan result returns', async () => {
@@ -228,6 +290,51 @@ describe('FavoriteLedgerPanel', () => {
       await Promise.resolve()
     })
     vi.useRealTimers()
+  })
+
+  it('shows scan guidance and cancels an active scan', async () => {
+    let resolveScan!: (preview: FavoriteLedgerPreview) => void
+    const onReadOldFavoriteTagEnrichment = vi.fn().mockResolvedValue({
+      sourceFolders: [],
+      scanProgress: {
+        basic: { completed: 0, total: 0, status: 'cancelled' },
+        tags: { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'complete' }
+      }
+    })
+    const onScanOldFavorites = vi.fn(() => new Promise((resolve) => { resolveScan = resolve }))
+    renderPanel({ onScanOldFavorites, onReadOldFavoriteTagEnrichment })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await waitFor(() => expect(onScanOldFavorites).toHaveBeenCalled())
+
+    expect(screen.getByText('请耐心等待扫描完成；完成后按上方步骤从左到右，依次完成本轮整理。')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '取消旧藏扫描' }))
+
+    await waitFor(() => expect(onReadOldFavoriteTagEnrichment).toHaveBeenCalledWith('cancel-scan'))
+    expect(screen.getByRole('status')).toHaveTextContent('已取消扫描。')
+  })
+
+  it('does not start scanning after cancellation during the pre-scan sync', async () => {
+    let resolveSave!: (result: { ok: true; steps: string[]; missingTargets: string[]; message: string }) => void
+    const onSaveLedgers = vi.fn(() => new Promise((resolve) => { resolveSave = resolve }))
+    const onScanOldFavorites = vi.fn()
+    const onReadOldFavoriteTagEnrichment = vi.fn().mockResolvedValue({
+      sourceFolders: [],
+      scanProgress: {
+        basic: { completed: 0, total: 0, status: 'cancelled' },
+        tags: { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'complete' }
+      }
+    })
+    renderPanel({ onSaveLedgers, onScanOldFavorites, onReadOldFavoriteTagEnrichment })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(screen.getByRole('button', { name: '取消旧藏扫描' }))
+    await act(async () => {
+      resolveSave({ ok: true, steps: [], missingTargets: [], message: 'saved' })
+      await Promise.resolve()
+    })
+
+    expect(onScanOldFavorites).not.toHaveBeenCalled()
   })
 
   it('hides fractional basic scan counts that are not real video totals', async () => {
@@ -442,7 +549,7 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
     const dialog = screen.getByRole('alertdialog', { name: '确认开始整理？' })
     expect(dialog).toHaveTextContent('小咪提醒：主人要开始整理吗？开始后就不能再调整了哦！')
-    expect(dialog).toHaveTextContent('本次将整理 1 条视频，每条视频最多存入 1 个 Bilimi 收藏夹。')
+    expect(dialog).toHaveTextContent('本次将整理 1 条视频，每条视频最多存入 1 个 bilimi 收藏夹。')
     expect(dialog).not.toHaveTextContent('收藏夹数量设置已从')
     expect(screen.queryByRole('heading', { name: '确认执行' })).not.toBeInTheDocument()
     expect(screen.queryByText('已选择 1 条归档任务')).not.toBeInTheDocument()
@@ -1152,10 +1259,10 @@ describe('FavoriteLedgerPanel', () => {
     expect(within(item).queryByText('将加入：bilimi·游戏专区')).not.toBeInTheDocument()
     expect(within(item).queryByText('将移出：bilimi·知识学习')).not.toBeInTheDocument()
     expect(within(item).queryByText('普通收藏：保持不变')).not.toBeInTheDocument()
-    expect(within(item).queryByText('保持当前 Bilimi 归档')).not.toBeInTheDocument()
+    expect(within(item).queryByText('保持当前 bilimi 归档')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
-    expect(screen.getByText('重新整理 1 条：1 条将加入，1 条将移出，0 条保持当前 Bilimi 归档。')).toBeInTheDocument()
+    expect(screen.getByText('重新整理 1 条：1 条将加入，1 条将移出，0 条保持当前 bilimi 归档。')).toBeInTheDocument()
     expect(screen.getByText('普通收藏保持不变。')).toBeInTheDocument()
     confirmOldFavoriteExecution()
 
@@ -1339,7 +1446,7 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
     fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
     const dialog = screen.getByRole('alertdialog', { name: '确认开始整理？' })
-    expect(dialog).toHaveTextContent('本次将整理 1 条视频，每条视频最多存入 2 个 Bilimi 收藏夹。')
+    expect(dialog).toHaveTextContent('本次将整理 1 条视频，每条视频最多存入 2 个 bilimi 收藏夹。')
     expect(dialog).toHaveTextContent(
       '收藏夹数量设置已从“单收藏夹”调整为“最多 2 个”，归档预览已按新设置更新。'
     )

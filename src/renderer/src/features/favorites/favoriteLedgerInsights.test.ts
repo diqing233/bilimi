@@ -198,6 +198,35 @@ describe('createFavoriteLedgerInsights', () => {
     )
   })
 
+  it('does not recommend follow-up ledgers for deleted-account placeholders', () => {
+    const insights = createFavoriteLedgerInsights({
+      sourceFolders: [
+        {
+          id: '1',
+          title: '默认收藏夹',
+          videos: [
+            { aid: 311, title: '失效收藏一', author: '账号已注销' },
+            { aid: 312, title: '失效收藏二', author: '账号已注销' },
+            { aid: 313, title: '正常收藏一', author: '正常UP' },
+            { aid: 314, title: '正常收藏二', author: '正常UP' }
+          ]
+        }
+      ],
+      existingLedgerNames: []
+    })
+
+    expect(insights.candidateLedgers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'author', sourceName: '正常UP' })
+      ])
+    )
+    expect(insights.candidateLedgers).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'author', sourceName: '账号已注销' })
+      ])
+    )
+  })
+
   it('creates candidates for multiple high-frequency tags', () => {
     const insights = createFavoriteLedgerInsights({
       sourceFolders: [

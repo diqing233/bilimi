@@ -116,10 +116,9 @@ function buildWakeBilibiliDanmakuAfterVideoLoadScript(): string {
         return false;
       }
 
-      const existingTimers = Array.isArray(window[marker]) ? window[marker] : [];
-      for (const timer of existingTimers) {
-        window.clearTimeout(timer);
-      }
+      const existingWake = window[marker];
+      existingWake?.observer?.disconnect?.();
+      if (existingWake?.timeout) window.clearTimeout(existingWake.timeout);
 
       const wakeTargets = () => {
         window.dispatchEvent(new Event('resize'));
@@ -136,7 +135,11 @@ function buildWakeBilibiliDanmakuAfterVideoLoadScript(): string {
             '.bpx-player-dm-wrap',
             '.bilibili-player',
             '.bilibili-player-video-wrap',
-            '.bilibili-player-video-danmaku'
+            '.bilibili-player-video-danmaku',
+            '.bpx-player-dm-wrap canvas',
+            '.bpx-player-dm-wrap svg',
+            '.bpx-player-dm-wrap .b-danmaku',
+            '.bilibili-player-video-danmaku .b-danmaku'
           ].join(','))
         ];
 
@@ -162,12 +165,37 @@ function buildWakeBilibiliDanmakuAfterVideoLoadScript(): string {
         return targets.length;
       };
 
-      const delays = [0, 250, 800, 1600, 3200];
-      window[marker] = delays.map((delay) =>
-        window.setTimeout(() => {
-          window.requestAnimationFrame(wakeTargets);
-        }, delay)
-      );
+      const hasDanmakuLayer = () => Boolean(document.querySelector([
+        '.bpx-player-dm-wrap canvas',
+        '.bpx-player-dm-wrap svg',
+        '.bpx-player-dm-wrap .b-danmaku',
+        '.bilibili-player-video-danmaku .b-danmaku'
+      ].join(',')));
+      const wakeWhenReady = () => {
+        if (!hasDanmakuLayer()) return false;
+        window.requestAnimationFrame(wakeTargets);
+        return true;
+      };
+
+      if (wakeWhenReady()) {
+        window[marker] = null;
+        return true;
+      }
+
+      const root = document.querySelector('.bpx-player-container,.bilibili-player') || document.body;
+      const observer = new MutationObserver(() => {
+        if (!wakeWhenReady()) return;
+        observer.disconnect();
+        if (window[marker]?.timeout) window.clearTimeout(window[marker].timeout);
+        window[marker] = null;
+      });
+      observer.observe(root, { childList: true, subtree: true });
+      const timeout = window.setTimeout(() => {
+        observer.disconnect();
+        window.requestAnimationFrame(wakeTargets);
+        window[marker] = null;
+      }, 10000);
+      window[marker] = { observer, timeout };
 
       return true;
     })()
@@ -254,6 +282,7 @@ export function BiliWebview({
 
     const handleLeaveHtmlFullscreen = () => {
       onHtmlFullscreenChange?.(tabId, false)
+      scheduleDanmakuWake()
     }
 
     const handleTitleChange = (event: Event) => {

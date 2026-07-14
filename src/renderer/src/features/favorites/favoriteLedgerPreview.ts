@@ -44,13 +44,14 @@ export type FavoriteLedgerScanDiagnostics = {
   tagDetailFailures: number
   taggedVideos: number
   untaggedVideos: number
+  folderFailures?: Array<{ folderTitle: string; message: string }>
 }
 
 export type FavoriteLedgerScanProgress = {
   basic: {
     completed: number
     total: number
-    status: 'running' | 'complete' | 'failed'
+    status: 'running' | 'complete' | 'failed' | 'cancelled'
   }
   tags: {
     completed: number

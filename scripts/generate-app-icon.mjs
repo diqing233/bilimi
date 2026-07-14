@@ -5,13 +5,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..')
 
-export const APP_ICON_SOURCE = resolve(repoRoot, 'electron/assets/bilimi-icon-source.png')
+export const APP_ICON_SOURCE = resolve(repoRoot, 'electron/assets/bilimi-icon-approved.png')
 export const APP_ICON_AVATAR = resolve(repoRoot, 'electron/assets/bilimi-avatar.png')
 export const APP_ICON_ICO = resolve(repoRoot, 'electron/assets/bilimi.ico')
 export const APP_BUILD_ICON_PNG = resolve(repoRoot, 'build/icon.png')
 export const APP_BUILD_ICON_ICO = resolve(repoRoot, 'build/icon.ico')
-export const APP_ICON_RESIZE_MODE = 'contain-square'
-export const APP_ICON_SUBJECT_SCALE = 1.08
+export const APP_ICON_RESIZE_MODE = 'approved-artwork-direct'
+export const APP_ICON_SUBJECT_SCALE = 1
 
 export const APP_ICON_AVATAR_SIZE = 512
 export const APP_ICON_ICO_SIZES = [16, 24, 32, 48, 64, 128, 256]
@@ -38,15 +38,17 @@ ico_sizes = [int(size) for size in payload["icoSizes"]]
 subject_scale = float(payload["subjectScale"])
 
 source = Image.open(source_path).convert("RGBA")
-if source.width != source.height:
-    raise ValueError(f"App icon source must be square, got {source.width}x{source.height}")
+if source.width <= 0 or source.height <= 0:
+    raise ValueError("App icon source must have positive dimensions")
 
-avatar = source.resize((avatar_size, avatar_size), Image.Resampling.LANCZOS)
-subject_size = round(avatar_size * subject_scale)
-subject = avatar.resize((subject_size, subject_size), Image.Resampling.LANCZOS)
-crop_left = (subject_size - avatar_size) // 2
-crop_top = (subject_size - avatar_size) // 2
-avatar = subject.crop((crop_left, crop_top, crop_left + avatar_size, crop_top + avatar_size))
+if source.width != source.height:
+    raise ValueError("Approved app icon source must be square")
+
+# The approved artwork already contains the final framing, background, and outline.
+output_size = round(avatar_size * subject_scale)
+avatar = source.resize((output_size, output_size), Image.Resampling.LANCZOS)
+if output_size != avatar_size:
+    raise ValueError("Approved app icon must not be scaled a second time")
 
 avatar_path.parent.mkdir(parents=True, exist_ok=True)
 build_png_path.parent.mkdir(parents=True, exist_ok=True)

@@ -743,7 +743,7 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('.favorite-ledger-panel__deepseek-archive-scope-menu { position: absolute; z-index: 10;')
     expectStyleSnippet('.favorite-ledger-panel__preview-videos { grid-column: 1 / -1; display: flex; align-items: stretch; gap: 18px; min-width: 0; overflow-x: auto;')
     expectStyleSnippet('padding: 0 12px 8px; scroll-padding-inline: 12px;')
-    expectStyleSnippet('.favorite-ledger-panel__preview-videos article { flex: 0 0 calc(100% - 56px); min-width: 0; display: grid; grid-template-rows: minmax(116px, 1fr) auto; scroll-snap-align: start;')
+    expectStyleSnippet('.favorite-ledger-panel__preview-videos article { flex: 0 0 calc(100% - 56px); min-width: 0; display: grid; grid-template-rows: minmax(116px, 1fr) auto; content-visibility: auto; contain-intrinsic-size: auto 160px; scroll-snap-align: start;')
     expectStyleSnippet('.favorite-ledger-panel__preview-videos article + article { padding-left: 0;')
     expect(normalizedStyles).not.toContain('.favorite-ledger-panel__preview-videos article + article {\n  border-left: 1px dashed')
     expectStyleSnippet('.favorite-ledger-panel__preview-video { width: 100%; min-height: 116px; display: grid; align-content: start;')

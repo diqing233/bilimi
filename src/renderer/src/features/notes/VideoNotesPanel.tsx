@@ -233,6 +233,7 @@ export function VideoNotesPanel({
     useState<VideoNotesResultTab | null>(null)
   const [localGenerating, setLocalGenerating] = useState(false)
   const [transcribingAudio, setTranscribingAudio] = useState(false)
+  const [enqueueingTranscription, setEnqueueingTranscription] = useState(false)
   const [generateFailed, setGenerateFailed] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
@@ -351,7 +352,7 @@ export function VideoNotesPanel({
   }
 
   async function handleGenerate(): Promise<void> {
-    if (generationBusy) return
+    if (generationBusy || enqueueingTranscription) return
     if (onTranscribeAudio) {
       if (onEnqueueTranscription) {
         await handleEnqueueTranscription()
@@ -403,7 +404,8 @@ export function VideoNotesPanel({
   }
 
   async function handleEnqueueTranscription(): Promise<void> {
-    if (!onEnqueueTranscription || generationBusy) return
+    if (!onEnqueueTranscription || generationBusy || enqueueingTranscription) return
+    setEnqueueingTranscription(true)
     setStatusMessage('')
     setErrorMessage('')
     try {
@@ -422,6 +424,8 @@ export function VideoNotesPanel({
       }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : '加入转写队列失败。')
+    } finally {
+      setEnqueueingTranscription(false)
     }
   }
 
@@ -744,6 +748,11 @@ export function VideoNotesPanel({
 
   const primaryActionLabel = onTranscribeAudio ? '转写音频' : generateFailed ? '重新整理' : '整理札记'
   const primaryActionBusyLabel = onTranscribeAudio ? '转写中...' : '整理中...'
+  const displayedPrimaryActionLabel = enqueueingTranscription
+    ? '正在加入...'
+    : generationBusy
+      ? primaryActionBusyLabel
+      : primaryActionLabel
   const primaryActionDescription = onTranscribeAudio
     ? '一键转写视频音频，生成文稿自动保存在档案库'
     : '整理当前视频文稿'
@@ -766,13 +775,13 @@ export function VideoNotesPanel({
       <section className="video-notes__primary-actions" aria-label="札记主操作">
         <AssistantActionButton
           type="button"
-          aria-label={primaryActionLabel}
-          disabled={generationBusy}
+          aria-label={displayedPrimaryActionLabel}
+          disabled={generationBusy || enqueueingTranscription}
           onClick={() => void handleGenerate()}
           icon={workingPetUrl}
           iconAlt="小咪转写音频"
           badge="转"
-          label={generationBusy ? primaryActionBusyLabel : primaryActionLabel}
+          label={displayedPrimaryActionLabel}
           description={primaryActionDescription}
         />
         <AssistantActionButton

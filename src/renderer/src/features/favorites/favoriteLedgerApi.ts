@@ -339,7 +339,7 @@ export function buildScanOldFavoriteVideoScript(ledgers: FavoriteLedger[], aid: 
 }
 
 export function buildOldFavoriteTagEnrichmentScript(
-  action: 'read' | 'pause' | 'resume' | 'cancel' = 'read'
+  action: 'read' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' = 'read'
 ): string {
   return `(async () => {
     const key = 'bilimi:old-favorite-tag-enrichment:v1';
@@ -361,17 +361,43 @@ export function buildOldFavoriteTagEnrichmentScript(
       };
       localStorage.setItem(key, JSON.stringify(store));
     }
-    store.queue = Array.isArray(store.queue) ? store.queue : [];
+    store.queue = Array.isArray(store.queue)
+      ? Array.from(new Set(store.queue.map(Number).filter((aid) => Number.isFinite(aid) && aid > 0)))
+      : [];
     store.controlRevision = Number(store.controlRevision || 0);
     store.progress = store.progress && typeof store.progress === 'object' ? store.progress : {
       completed: 0, total: store.queue.length, pending: store.queue.length,
       cacheHits: 0, succeeded: 0, failed: 0, status: store.queue.length ? 'paused' : 'complete'
     };
+    const normalizeProgress = () => {
+      const nonNegativeInteger = (value) => Math.max(0, Math.floor(Number(value) || 0));
+      const total = Math.max(nonNegativeInteger(store.progress.total), store.queue.length);
+      const status = store.queue.length === 0
+        ? 'complete'
+        : store.progress.status === 'running'
+          ? 'running'
+          : 'paused';
+      const pending = status === 'complete' ? 0 : Math.min(store.queue.length, total);
+      store.progress = {
+        ...store.progress,
+        total,
+        completed: Math.min(nonNegativeInteger(store.progress.completed), total - pending),
+        pending,
+        cacheHits: nonNegativeInteger(store.progress.cacheHits),
+        succeeded: nonNegativeInteger(store.progress.succeeded),
+        failed: nonNegativeInteger(store.progress.failed),
+        status
+      };
+    };
+    normalizeProgress();
     const readTagList = (rawTags) => (Array.isArray(rawTags) ? rawTags : [])
       .map((tag) => String(typeof tag === 'string' ? tag : (tag?.name ?? tag?.tag_name ?? tag?.title ?? '')).trim())
       .filter(Boolean)
       .slice(0, 20);
-    const writeStore = () => localStorage.setItem(key, JSON.stringify(store));
+    const writeStore = () => {
+      normalizeProgress();
+      localStorage.setItem(key, JSON.stringify(store));
+    };
     const fetchWithTimeout = async (url, timeoutMs = 10000) => {
       const controller = new AbortController();
       let timeoutId;
@@ -419,12 +445,12 @@ export function buildOldFavoriteTagEnrichmentScript(
               controlledStore.cache[String(aid)] = { tags, updatedAt: Date.now() };
               localStorage.setItem(key, JSON.stringify(controlledStore));
               store = controlledStore;
-              continue;
+              break;
             }
             store.cache = store.cache && typeof store.cache === 'object' ? store.cache : {};
             store.cache[String(aid)] = { tags, updatedAt: Date.now() };
             store.queue.shift();
-            store.progress.completed += 1;
+            store.progress.completed = Math.max(store.progress.completed, store.progress.total - store.queue.length);
             store.progress.pending = store.queue.length;
             store.progress.succeeded += 1;
             store.progress.status = store.queue.length ? 'running' : 'complete';
@@ -432,6 +458,12 @@ export function buildOldFavoriteTagEnrichmentScript(
             activeAidFailures = 0;
             writeStore();
           } catch (error) {
+            let controlledStore;
+            try { controlledStore = JSON.parse(localStorage.getItem(key) || '{}'); } catch { controlledStore = store; }
+            if (Number(controlledStore.controlRevision || 0) !== Number(requestRevision || 0)) {
+              store = controlledStore;
+              break;
+            }
             activeAidFailures += 1;
             const message = String(error?.message || error || '');
             if (/(-352|-412|-509|risk|频繁|风控|too fast)/i.test(message)) {
@@ -441,7 +473,7 @@ export function buildOldFavoriteTagEnrichmentScript(
             }
             if (activeAidFailures >= 3) {
               store.queue.shift();
-              store.progress.completed += 1;
+              store.progress.completed = Math.max(store.progress.completed, store.progress.total - store.queue.length);
               store.progress.pending = store.queue.length;
               store.progress.failed += 1;
               store.progress.status = store.queue.length ? 'running' : 'complete';
@@ -471,6 +503,17 @@ export function buildOldFavoriteTagEnrichmentScript(
       store.queue = [];
       store.progress.pending = 0;
       store.progress.status = 'complete';
+    }
+    if (${JSON.stringify(action)} === 'cancel-scan') {
+      store.controlRevision += 1;
+      store.scanCancelled = true;
+      store.queue = [];
+      store.progress.pending = 0;
+      store.progress.status = 'complete';
+      store.lastScan = {
+        ...(store.lastScan || {}),
+        basic: { completed: 0, total: 0, status: 'cancelled' }
+      };
     }
     writeStore();
     if (${JSON.stringify(action)} === 'resume') startWorker();
@@ -560,7 +603,8 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           tagDetailRequests: 0,
           tagDetailFailures: 0,
           taggedVideos: 0,
-          untaggedVideos: 0
+          untaggedVideos: 0,
+          folderFailures: []
         };
         const tagStoreKey = 'bilimi:old-favorite-tag-enrichment:v1';
         const tagCacheMaxAgeMs = 30 * 24 * 60 * 60 * 1000;
@@ -590,25 +634,28 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
         tagStore.accountMid = String(mid);
         if (!payload.aid) {
           tagStore.controlRevision = Number(tagStore.controlRevision || 0) + 1;
+          tagStore.scanCancelled = false;
           tagStore.queue = [];
           tagStore.progress = { ...(tagStore.progress || {}), pending: 0, status: 'paused' };
           writeTagStore(tagStore);
         }
         const missingTagAids = new Set();
         const cacheHitAids = new Set();
-        const persistBasicProgress = () => {
+        const discoveredVideoAids = new Set();
+        const persistBasicProgress = (status = 'running') => {
           const latest = readTagStore();
           latest.lastScan = {
             ...(latest.lastScan ?? {}),
             sourceFolders: latest.lastScan?.sourceFolders ?? [],
             basic: {
-              completed: 0,
-              total: 0,
-              status: 'running'
+              completed: discoveredVideoAids.size,
+              total: Math.max(discoveredVideoAids.size, Number(latest.lastScan?.basic?.total || 0)),
+              status
             }
           };
           writeTagStore(latest);
         };
+        const scanWasCancelled = () => Boolean(readTagStore().scanCancelled);
         if (!payload.aid) persistBasicProgress();
         steps.push('api:favorite:list');
 
@@ -647,7 +694,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
               new Promise((_, reject) => {
                 timeoutId = setTimeout(() => {
                   controller.abort();
-                  reject(new Error('tag request timeout'));
+                  reject(new Error('request timeout'));
                 }, timeoutMs);
               })
             ]);
@@ -722,10 +769,20 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           };
 
           while (true) {
-            const response = await fetch(buildResourceUrl(folderId, page), {
-              credentials: 'include'
-            });
-            const json = await ensureApiOk(response, 'favorite resource list for folder ' + folderId);
+            if (!payload.aid && scanWasCancelled()) throw new Error('old favorite scan cancelled');
+            let json;
+            let lastError;
+            for (let attempt = 1; attempt <= 3; attempt += 1) {
+              try {
+                const response = await fetchWithTimeout(buildResourceUrl(folderId, page));
+                json = await ensureApiOk(response, 'favorite resource list for folder ' + folderId);
+                break;
+              } catch (error) {
+                lastError = error;
+                if (attempt < 3) await wait(40 * attempt);
+              }
+            }
+            if (!json) throw lastError || new Error('favorite resource list failed');
             const medias = Array.isArray(json.data?.medias) ? json.data.medias : [];
             const pageVideos = [];
             for (const media of medias.filter((media) => isVideoMedia(media) && !isUnavailableMedia(media))) {
@@ -760,6 +817,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
                 tags: resolvedTags,
                 category: readCategory(media)
               });
+              discoveredVideoAids.add(aid);
             }
             videos.push(...pageVideos);
             onPageComplete(page);
@@ -775,6 +833,18 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
         };
 
         for (const folder of folders) {
+          if (!payload.aid && scanWasCancelled()) {
+            return {
+              ok: false,
+              cancelled: true,
+              sourceFolders: [],
+              skippedSourceFolderTitles: [],
+              targetMembership: {},
+              steps: [...steps, 'api:favorite:scan-cancelled'],
+              missingTargets: [],
+              message: 'old favorite scan cancelled'
+            };
+          }
           const folderId = findFolderId(folder);
           if (!folderId) {
             continue;
@@ -788,11 +858,15 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
                 persistBasicProgress();
               }
             });
-          } catch {
+          } catch (error) {
             if (managedFolderIds.has(folderIdString)) {
               managedFolderScanComplete = false;
             }
             skippedSourceFolderTitles.push(String(folder?.title ?? folderIdString));
+            scanDiagnostics.folderFailures.push({
+              folderTitle: String(folder?.title ?? folderIdString),
+              message: String(error?.message || error || 'unknown error').slice(0, 160)
+            });
             steps.push('api:favorite:scan-source-failed:' + folderIdString);
             if (!payload.aid) persistBasicProgress();
             continue;
@@ -869,39 +943,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
         writeTagStore(tagStore);
 
         if (!payload.aid) {
-          while (tagStore.queue.length > 0) {
-            const aid = Number(tagStore.queue[0]);
-            let nextTags = [];
-            let resolved = false;
-            for (let attempt = 1; attempt <= 3; attempt += 1) {
-              try {
-                await paceInitialTagRequest();
-                scanDiagnostics.tagDetailRequests += 1;
-                const response = await fetchWithTimeout(buildTagUrl(aid));
-                const json = await ensureApiOk(response, 'video tag list for ' + aid);
-                const rawTags = Array.isArray(json.data) ? json.data : (Array.isArray(json.data?.tags) ? json.data.tags : []);
-                nextTags = readQueuedTagList(rawTags);
-                resolved = true;
-                break;
-              } catch {
-                if (attempt < 3) await wait(120 * attempt);
-              }
-            }
-            tagStore.queue.shift();
-            tagStore.progress.completed += 1;
-            tagStore.progress.pending = tagStore.queue.length;
-            if (resolved) {
-              tagStore.cache[String(aid)] = { tags: nextTags, updatedAt: Date.now() };
-              applyTagsToSourceFolders(aid, nextTags);
-              tagStore.progress.succeeded += 1;
-            } else {
-              scanDiagnostics.tagDetailFailures += 1;
-              tagStore.progress.failed += 1;
-            }
-            tagStore.progress.status = tagStore.queue.length > 0 ? 'running' : 'complete';
-            tagStore.lastScan.sourceFolders = sourceFolders;
-            writeTagStore(tagStore);
-          }
+          persistBasicProgress('complete');
         }
         const finalUniqueVideos = new Map();
         for (const folder of sourceFolders) {
@@ -938,7 +980,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
                   controlledStore.cache[String(aid)] = { tags: nextTags, updatedAt: Date.now() };
                   writeTagStore(controlledStore);
                   Object.assign(latestStore, controlledStore);
-                  continue;
+                  break;
                 }
                 latestStore.cache[String(aid)] = { tags: nextTags, updatedAt: Date.now() };
                 latestStore.queue.shift();
@@ -947,6 +989,11 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
                 latestStore.progress.succeeded += 1;
                 consecutiveFailures = 0;
               } catch (error) {
+                const controlledStore = readTagStore();
+                if (Number(controlledStore.controlRevision || 0) !== requestRevision) {
+                  Object.assign(latestStore, controlledStore);
+                  break;
+                }
                 consecutiveFailures += 1;
                 latestStore.progress.failed += 1;
                 const message = String(error?.message || error || '');

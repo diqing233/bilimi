@@ -1037,9 +1037,10 @@ export default function App() {
     }
 
     if (scanResult.managedFolderScanComplete === false) {
+      const failureReason = scanResult.scanDiagnostics?.folderFailures?.[0]?.message
       return {
         ok: false,
-        message: 'Bilimi 收藏夹读取不完整，请稍后重试。',
+        message: `bilimi 收藏夹读取不完整${scanResult.skippedSourceFolderTitles?.length ? `：${scanResult.skippedSourceFolderTitles.slice(0, 3).join('、')}` : ''}${failureReason ? `（${failureReason}）` : ''}，请稍后重试。`,
         items: [],
         skippedSourceFolderTitles: scanResult.skippedSourceFolderTitles ?? []
       }
@@ -1110,10 +1111,14 @@ export default function App() {
       multiArchiveMode
     }
 
+    if ((scanResult.scanProgress?.tags.pending ?? 0) > 0) {
+      void readOldFavoriteTagEnrichment('resume').catch(() => undefined)
+    }
+
     return preview
   }
 
-  async function readOldFavoriteTagEnrichment(action: 'read' | 'pause' | 'resume' | 'cancel' = 'read') {
+  async function readOldFavoriteTagEnrichment(action: 'read' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' = 'read') {
     return runScript(buildOldFavoriteTagEnrichmentScript(action)) as Promise<{
       accountMid?: string
       sourceFolders: FavoriteSourceFolder[]

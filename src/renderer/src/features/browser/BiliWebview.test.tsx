@@ -157,6 +157,29 @@ describe('BiliWebview', () => {
       webview.dispatchEvent(new Event('did-finish-load'))
     })
 
+    await vi.waitFor(() => {
+      const script = executeJavaScript.mock.calls
+        .map(([source]) => String(source))
+        .find((source) => source.includes('__bilimiWakeBilibiliDanmakuAfterVideoLoad'))
+      expect(script).toContain('MutationObserver')
+      expect(script).toContain('.bpx-player-dm-wrap')
+      expect(script).toContain('.b-danmaku')
+      expect(script).not.toContain("'.bpx-player-dm-wrap > div'")
+      expect(script).not.toContain('const delays = [0, 250, 800, 1600, 3200]')
+    })
+  })
+
+  it('wakes the danmaku layer again after leaving HTML fullscreen', async () => {
+    render(<BiliWebview active tabId="home" url="https://www.bilibili.com/video/BV1danmaku" />)
+
+    const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+    const executeJavaScript = vi.fn().mockResolvedValue(true)
+    Object.assign(webview, { executeJavaScript })
+
+    act(() => {
+      webview.dispatchEvent(new Event('leave-html-full-screen'))
+    })
+
     await vi.waitFor(() =>
       expect(executeJavaScript).toHaveBeenCalledWith(
         expect.stringContaining('__bilimiWakeBilibiliDanmakuAfterVideoLoad'),

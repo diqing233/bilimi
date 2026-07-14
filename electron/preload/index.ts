@@ -273,7 +273,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   scanOldFavorites: (options?: {
     multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']
   }) => ipcRenderer.invoke('floating-assistant:scan-old-favorites', options),
-  readOldFavoriteTagEnrichment: (action: 'read' | 'pause' | 'resume' | 'cancel' = 'read') =>
+  readOldFavoriteTagEnrichment: (action: 'read' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' = 'read') =>
     ipcRenderer.invoke('floating-assistant:old-favorite-tag-enrichment', action),
   rejudgeOldFavorite: (item: FavoriteLedgerPreviewItem) =>
     ipcRenderer.invoke('floating-assistant:rejudge-old-favorite', item) as Promise<FavoriteLedgerPreviewItem>,

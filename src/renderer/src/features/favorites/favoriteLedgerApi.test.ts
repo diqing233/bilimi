@@ -102,6 +102,44 @@ describe('favorite ledger API scripts', () => {
     expect(cancelled.scanProgress.tags).toMatchObject({ pending: 0, status: 'complete' })
   })
 
+  it('normalizes impossible persisted tag progress before returning it', async () => {
+    installCookies()
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
+      accountMid: '42', cache: {}, queue: [],
+      progress: { completed: 2431, total: 2300, pending: 99, cacheHits: 0, succeeded: 2431, failed: 0, status: 'complete' }
+    }))
+
+    const read = await window.eval(buildOldFavoriteTagEnrichmentScript('read'))
+    const stored = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+
+    expect(read.scanProgress.tags).toMatchObject({ completed: 2300, total: 2300, pending: 0, status: 'complete' })
+    expect(stored.progress).toMatchObject({ completed: 2300, total: 2300, pending: 0, status: 'complete' })
+  })
+
+  it.each(['running', 'paused'])('marks an empty persisted tag queue complete when its status is %s', async (status) => {
+    installCookies()
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
+      accountMid: '42', cache: {}, queue: [],
+      progress: { completed: 3, total: 5, pending: 2, cacheHits: 0, succeeded: 3, failed: 0, status }
+    }))
+
+    const read = await window.eval(buildOldFavoriteTagEnrichmentScript('read'))
+
+    expect(read.scanProgress.tags).toMatchObject({ completed: 3, total: 5, pending: 0, status: 'complete' })
+  })
+
+  it('pauses a non-empty persisted tag queue that was incorrectly marked complete', async () => {
+    installCookies()
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
+      accountMid: '42', cache: {}, queue: [11, 12],
+      progress: { completed: 5, total: 5, pending: 0, cacheHits: 0, succeeded: 5, failed: 0, status: 'complete' }
+    }))
+
+    const read = await window.eval(buildOldFavoriteTagEnrichmentScript('read'))
+
+    expect(read.scanProgress.tags).toMatchObject({ completed: 3, total: 5, pending: 2, status: 'paused' })
+  })
+
   it('bootstraps tag enrichment from a persisted queue after the webview restarts', async () => {
     vi.useFakeTimers()
     localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
@@ -1242,7 +1280,7 @@ describe('favorite ledger API scripts', () => {
     expect(requests.some((url) => url.includes('/x/v3/fav/resource/deal'))).toBe(false)
   })
 
-  it('returns enriched tags and unique-video progress before completing the initial scan', async () => {
+  it('queues unique videos for background tag enrichment after basic discovery', async () => {
     installCookies()
     localStorage.clear()
     const ledgers = createDefaultFavoriteLedgers().slice(0, 1)
@@ -1274,15 +1312,15 @@ describe('favorite ledger API scripts', () => {
       description: '完整简介',
       author: '老师',
       category: '知识',
-      tags: ['学习']
+      tags: []
     })
     expect(result.scanProgress).toMatchObject({
       basic: { completed: 1, total: 1, status: 'complete' },
-      tags: { completed: 1, total: 1, pending: 0, succeeded: 1, failed: 0, status: 'complete' }
+      tags: { completed: 0, total: 1, pending: 1, succeeded: 0, failed: 0, status: 'running' }
     })
-    expect(requests.filter((url) => url.includes('/x/tag/archive/tags'))).toHaveLength(1)
+    expect(requests.filter((url) => url.includes('/x/tag/archive/tags'))).toHaveLength(0)
     const persisted = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
-    expect(persisted.queue).toEqual([])
+    expect(persisted.progress.total).toBe(1)
   })
 
   it('counts current cache hits as completed tag enrichment without double-counting pending videos', async () => {
@@ -1304,8 +1342,8 @@ describe('favorite ledger API scripts', () => {
 
     const result = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
 
-    expect(result.scanProgress.tags).toMatchObject({ completed: 2, total: 2, pending: 0, cacheHits: 1, failed: 1 })
-    expect(JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}').queue).toEqual([])
+    expect(result.scanProgress.tags).toMatchObject({ completed: 1, total: 2, pending: 1, cacheHits: 1, failed: 0 })
+    expect(JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}').queue).toEqual([456])
   })
 
   it('counts a cached empty tag response as completed instead of leaving impossible progress', async () => {
@@ -1367,6 +1405,82 @@ describe('favorite ledger API scripts', () => {
     const stored = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
     expect(stored.controlRevision).toBe(5)
     expect(stored.queue).toEqual([])
+  })
+
+  it('stops an older worker before it can consume a replacement scan queue', async () => {
+    vi.useFakeTimers()
+    installCookies()
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
+      accountMid: '42',
+      cache: {}, queue: [999], controlRevision: 4,
+      progress: { completed: 0, total: 1, pending: 1, cacheHits: 0, succeeded: 0, failed: 0, status: 'paused' }
+    }))
+    let resolveOldRequest!: (response: Response) => void
+    let resolveNewRequest!: (response: Response) => void
+    const oldRequest = new Promise<Response>((resolve) => { resolveOldRequest = resolve })
+    const newRequest = new Promise<Response>((resolve) => { resolveNewRequest = resolve })
+    let newAidRequests = 0
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) return Response.json({ code: 0, data: { list: [{ id: 101, title: '默认收藏夹' }] } })
+      if (url.includes('/x/v3/fav/resource/list')) return Response.json({ code: 0, data: { medias: [{ id: 123, title: '新扫描', type: 2 }], has_more: false } })
+      if (url.includes('aid=999')) return oldRequest
+      if (url.includes('aid=123')) {
+        newAidRequests += 1
+        return newRequest
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    await window.eval(buildOldFavoriteTagEnrichmentScript('resume'))
+    await vi.advanceTimersByTimeAsync(1_000)
+    const scanPromise = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    await vi.advanceTimersByTimeAsync(1_000)
+    resolveOldRequest(Response.json({ code: 0, data: [{ tag_name: '旧标签' }] }))
+    await vi.advanceTimersByTimeAsync(1_000)
+    await scanPromise
+    await window.eval(buildOldFavoriteTagEnrichmentScript('resume'))
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(newAidRequests).toBe(1)
+    resolveNewRequest(Response.json({ code: 0, data: [{ tag_name: '新标签' }] }))
+    await vi.runAllTimersAsync()
+
+    const stored = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+    expect(stored.progress).toMatchObject({ completed: 1, total: 1, pending: 0, status: 'complete' })
+    vi.useRealTimers()
+  })
+
+  it('does not restore an older queue when its pending tag request rejects after a replacement scan', async () => {
+    vi.useFakeTimers()
+    installCookies()
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
+      accountMid: '42',
+      cache: {}, queue: [999], controlRevision: 4,
+      progress: { completed: 0, total: 1, pending: 1, cacheHits: 0, succeeded: 0, failed: 0, status: 'paused' }
+    }))
+    let rejectOldRequest!: (error: Error) => void
+    const oldRequest = new Promise<Response>((_, reject) => { rejectOldRequest = reject })
+    let oldAidRequests = 0
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) return Response.json({ code: 0, data: { list: [{ id: 101, title: '默认收藏夹' }] } })
+      if (url.includes('/x/v3/fav/resource/list')) return Response.json({ code: 0, data: { medias: [{ id: 123, title: '新扫描', type: 2, tags: ['新标签'] }], has_more: false } })
+      if (url.includes('aid=999')) {
+        oldAidRequests += 1
+        return oldRequest
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    await window.eval(buildOldFavoriteTagEnrichmentScript('resume'))
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(oldAidRequests).toBe(1)
+    await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    rejectOldRequest(new Error('-412'))
+    await vi.advanceTimersByTimeAsync(1)
+
+    const stored = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+    expect(stored.queue).toEqual([])
+    expect(stored.progress).toMatchObject({ completed: 1, total: 1, pending: 0, status: 'complete' })
+    vi.useRealTimers()
   })
 
   it('persists intermediate basic discovery progress after each resource page', async () => {
@@ -1589,7 +1703,7 @@ describe('favorite ledger API scripts', () => {
     expect(result.managedFolderScanComplete).toBe(false)
   })
 
-  it('fetches missing old favorite tags before returning the archive preview', async () => {
+  it('returns basic favorites before background tag enrichment finishes', async () => {
     installCookies()
     localStorage.clear()
     const ledgers = createDefaultFavoriteLedgers().slice(0, 1)
@@ -1644,16 +1758,18 @@ describe('favorite ledger API scripts', () => {
     expect(result.sourceFolders[0].videos[0]).toMatchObject({
       aid: 123,
       title: '角色配队',
-      tags: ['原神', '攻略']
+      tags: []
     })
-    expect(requests.some((url) => url.includes('/x/tag/archive/tags') && url.includes('aid=123'))).toBe(true)
-    expect(result.scanProgress.tags).toMatchObject({ completed: 1, total: 1, pending: 0, status: 'complete' })
+    expect(result.scanProgress.tags).toMatchObject({ completed: 0, total: 1, pending: 1, status: 'running' })
+
+    expect(requests.some((url) => url.includes('/x/tag/archive/tags') && url.includes('aid=123'))).toBe(false)
   })
 
-  it('retries missing tags and reports a terminal failure without leaving the scan pending', async () => {
+  it('retries a transient favorite folder page failure before marking the scan incomplete', async () => {
     installCookies()
     localStorage.clear()
     const ledgers = createDefaultFavoriteLedgers().slice(0, 1)
+    let resourceAttempts = 0
 
     vi.stubGlobal(
       'fetch',
@@ -1668,6 +1784,10 @@ describe('favorite ledger API scripts', () => {
         }
 
         if (url.includes('/x/v3/fav/resource/list')) {
+          resourceAttempts += 1
+          if (resourceAttempts === 1) {
+            return Response.json({ code: -500, message: 'temporary failure' })
+          }
           return Response.json({
             code: 0,
             data: {
@@ -1685,13 +1805,6 @@ describe('favorite ledger API scripts', () => {
           })
         }
 
-        if (url.includes('/x/tag/archive/tags') && url.includes('aid=123')) {
-          return new Response('<!DOCTYPE html><html><body>risk control</body></html>', {
-            headers: { 'content-type': 'text/html;charset=utf-8' },
-            status: 200
-          })
-        }
-
         throw new Error(`Unexpected request: ${url}`)
       })
     )
@@ -1699,17 +1812,8 @@ describe('favorite ledger API scripts', () => {
     const result = await window.eval(buildScanOldFavoritesScript(ledgers))
 
     expect(result.ok).toBe(true)
-    expect(result.sourceFolders[0].videos[0]).toMatchObject({
-      aid: 123,
-      tags: []
-    })
-    expect(result.scanDiagnostics).toMatchObject({
-      tagDetailRequests: 3,
-      tagDetailFailures: 1,
-      taggedVideos: 0,
-      untaggedVideos: 1
-    })
-    expect(result.scanProgress.tags).toMatchObject({ completed: 1, pending: 0, failed: 1, status: 'complete' })
+    expect(result.managedFolderScanComplete).toBe(true)
+    expect(resourceAttempts).toBe(2)
   })
 
   it('refreshes one old favorite video with latest tags and target membership without appending favorites', async () => {

@@ -166,6 +166,10 @@ function hasExistingLedger(displayName: string, existingLedgerNames: string[]): 
   return existingLedgerNames.some((name) => normalizeManagedLedgerName(name) === normalizedDisplayName)
 }
 
+function isDeletedAccountPlaceholder(value: string): boolean {
+  return new Set(['账号已注销', '用户已注销', 'UP主已注销']).has(cleanText(value))
+}
+
 function normalizeManagedLedgerName(displayName: string): string {
   return isBilimiManagedLedgerName(displayName)
     ? `${BILIMI_LEDGER_PREFIX}${stripBilimiLedgerPrefix(displayName)}`
@@ -235,7 +239,7 @@ function buildAuthorCandidates(
   totalVideos: number
 ): FavoriteLedgerCandidate[] {
   return topAuthors
-    .filter((author) => author.count >= 2)
+    .filter((author) => author.count >= 2 && !isDeletedAccountPlaceholder(author.name))
     .slice(0, 3)
     .map((author) => ({
       kind: 'author' as const,

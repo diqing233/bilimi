@@ -110,7 +110,7 @@ type FavoriteLedgerPanelProps = {
   onScanOldFavorites: (options?: {
     multiArchiveMode?: FavoriteArchiveMultiMode
   }) => Promise<FavoriteLedgerPreview>
-  onReadOldFavoriteTagEnrichment?: (action?: 'read' | 'pause' | 'resume' | 'cancel') => Promise<{
+  onReadOldFavoriteTagEnrichment?: (action?: 'read' | 'pause' | 'resume' | 'cancel' | 'cancel-scan') => Promise<{
     accountMid?: string
     sourceFolders: FavoriteSourceFolder[]
     scanProgress: NonNullable<FavoriteLedgerPreview['scanProgress']>
@@ -806,10 +806,14 @@ function mergeArchivePlanAfterModeRefresh(
     return refreshedState
   }
 
+  const currentItemsByKey = new Map(
+    currentState.items.map((item) => [item.itemKey, item])
+  )
+
   return {
     ...refreshedState,
     items: refreshedState.items.map((item) => {
-      const currentItem = currentState.items.find((candidate) => candidate.itemKey === item.itemKey)
+      const currentItem = currentItemsByKey.get(item.itemKey)
       if (
         !currentItem?.userModified ||
         currentItem.selectedTargetLedgerIds.length > targetLimit
@@ -833,8 +837,11 @@ function applyArchivePlanToPreviewItems(
   state: FavoriteArchivePlanState,
   ledgers: FavoriteLedger[]
 ) {
+  const planItemsByKey = new Map(
+    state.items.map((item) => [item.itemKey, item])
+  )
   return items.map((item) => {
-    const planItem = state.items.find((candidate) => candidate.itemKey === archivePlanItemKey(item))
+    const planItem = planItemsByKey.get(archivePlanItemKey(item))
     if (!planItem) {
       return item
     }
@@ -1633,6 +1640,8 @@ export function FavoriteLedgerPanel({
   const [basicScanRunning, setBasicScanRunning] = useState(false)
   const scanGenerationRef = useRef(0)
   const scanStartingRef = useRef(false)
+  const lastSuccessfulPreviewRef = useRef<FavoriteLedgerPreview | null>(null)
+  const tagEnrichmentSnapshotSignatureRef = useRef('')
   const [draggedLedgerId, setDraggedLedgerId] = useState<string | null>(null)
   const [dragTargetLedgerId, setDragTargetLedgerId] = useState<string | null>(null)
   const [ledgerListExpanded, setLedgerListExpanded] =
@@ -1714,10 +1723,27 @@ export function FavoriteLedgerPanel({
         : current)
     })
   }, [mergeScanProgress, onReadOldFavoriteTagEnrichment])
+  const cancelOldFavoriteScan = useCallback(() => {
+    if (!basicScanRunning || !onReadOldFavoriteTagEnrichment) return
+    scanGenerationRef.current += 1
+    scanStartingRef.current = false
+    setBasicScanRunning(false)
+    setBusy(false)
+    setPreview(lastSuccessfulPreviewRef.current)
+    setBaseScanPreview(lastSuccessfulPreviewRef.current)
+    setStatus('已取消扫描。')
+    publishOldFavoriteStatus({ label: '扫描已取消', message: '已取消扫描。', tone: 'idle' })
+    void onReadOldFavoriteTagEnrichment('cancel-scan').catch(() => undefined)
+  }, [basicScanRunning, onReadOldFavoriteTagEnrichment, publishOldFavoriteStatus])
   useEffect(() => {
     if (!onReadOldFavoriteTagEnrichment || !preview) {
       return
     }
+    const tagProgress = preview.scanProgress?.tags
+    const tagEnrichmentComplete =
+      !basicScanRunning &&
+      tagProgress?.status === 'complete' &&
+      (tagProgress.pending ?? 0) === 0
     const readLatestSnapshot = (refreshProgress = true) => {
       const scanGeneration = scanGenerationRef.current
       void onReadOldFavoriteTagEnrichment('read').then((snapshot) => {
@@ -1734,10 +1760,18 @@ export function FavoriteLedgerPanel({
           return
         }
         if (!refreshProgress) return
+        const snapshotSignature = JSON.stringify([
+          'accountMid' in snapshot ? snapshot.accountMid : '',
+          normalizedScanProgress(snapshot.scanProgress),
+          oldFavoriteStep
+        ])
+        if (snapshotSignature === tagEnrichmentSnapshotSignatureRef.current) return
+        tagEnrichmentSnapshotSignatureRef.current = snapshotSignature
         setPreview((current) => {
           if (!current) return current
-          if (basicScanRunning) {
-            return { ...current, scanProgress: mergeScanProgress(current.scanProgress, snapshot.scanProgress) }
+          const mergedScanProgress = mergeScanProgress(current.scanProgress, snapshot.scanProgress)
+          if (basicScanRunning || oldFavoriteStep !== 'preview') {
+            return { ...current, scanProgress: mergedScanProgress }
           }
           const rebuilt = createFavoriteLedgerPreview({
             ledgers: draftLedgers,
@@ -1752,19 +1786,26 @@ export function FavoriteLedgerPanel({
           setArchivePlanState((state) => {
             if (!state) return state
             const refreshed = createArchivePlanStateFromPreviewItems(normalized, selectedCandidateKeys)
+            const currentItemsByKey = new Map(
+              state.items.map((item) => [item.itemKey, item])
+            )
             const mergedState = {
               ...refreshed,
               items: refreshed.items.map((item) => {
-                const existing = state.items.find((candidate) => candidate.aid === item.aid && candidate.sourceFolderTitle === item.sourceFolderTitle)
+                const existing = currentItemsByKey.get(item.itemKey)
                 return existing?.userModified ? existing : item
               })
             }
             mergedVisibleItems = applyArchivePlanToPreviewItems(normalized, mergedState, draftLedgers)
             return mergedState
           })
-          return { ...rebuilt, items: mergedVisibleItems, scanProgress: mergeScanProgress(current.scanProgress, snapshot.scanProgress), scanContext: current.scanContext }
+          return { ...rebuilt, items: mergedVisibleItems, scanProgress: mergedScanProgress, scanContext: current.scanContext }
         })
       }).catch(() => undefined)
+    }
+    if (tagEnrichmentComplete) {
+      if (oldFavoriteStep === 'preview') readLatestSnapshot(true)
+      return
     }
     readLatestSnapshot(false)
     const interval = window.setInterval(readLatestSnapshot, 1500)
@@ -1774,9 +1815,13 @@ export function FavoriteLedgerPanel({
     draftLedgers,
     favoriteArchiveMultiMode,
     mergeScanProgress,
+    normalizedScanProgress,
     onReadOldFavoriteTagEnrichment,
+    oldFavoriteStep,
     Boolean(preview),
     preview?.scanContext?.accountMid,
+    preview?.scanProgress?.tags.pending,
+    preview?.scanProgress?.tags.status,
     selectedCandidateKeys
   ])
 
@@ -1925,6 +1970,7 @@ export function FavoriteLedgerPanel({
       pendingMessage: '正在同步整理旧藏需要的主收藏...',
       saveOptions: { deleteDisabled: false },
       onSuccess: async () => {
+        if (!scanStartingRef.current) return
         await scanOldFavorites()
       }
     })
@@ -2513,6 +2559,8 @@ export function FavoriteLedgerPanel({
   ) {
     if (!scanStartingRef.current) scanGenerationRef.current += 1
     scanStartingRef.current = false
+    tagEnrichmentSnapshotSignatureRef.current = ''
+    const scanGeneration = scanGenerationRef.current
     setBusy(true)
     setBasicScanRunning(true)
     setOldFavoriteStep('scan')
@@ -2533,6 +2581,7 @@ export function FavoriteLedgerPanel({
       const nextPreview = await onScanOldFavorites({
         multiArchiveMode: favoriteArchiveMultiMode
       })
+      if (scanGeneration !== scanGenerationRef.current) return
       if (nextPreview.ok === false) {
         setPreview(null)
         setBaseScanPreview(null)
@@ -2581,6 +2630,7 @@ export function FavoriteLedgerPanel({
       const nextCandidateKeys = recommendedCandidateKeysForPreview(normalizedPreview)
       setPreview(normalizedPreview)
       setBaseScanPreview(normalizedPreview)
+      lastSuccessfulPreviewRef.current = normalizedPreview
       setReorganizedProtectedAids(new Set())
       setProtectedReorganizationConfirming(false)
       setAbnormalProtectionReorganizationConfirming(false)
@@ -2630,11 +2680,14 @@ export function FavoriteLedgerPanel({
           ) ?? [])
         ])
       )
-      const scannedCount = normalizedPreview.insights?.totalVideos ?? normalizedPreview.items.length
+      const scannedCount =
+        normalizedPreview.scanContext?.totalUniqueVideos ??
+        normalizedPreview.insights?.totalVideos ??
+        normalizedPreview.items.length
       const scanMessage =
         mode === 'setup'
           ? `已扫描 ${scannedCount} 条旧藏，可勾选库房后同步。`
-          : `已扫描 ${normalizedPreview.items.length} 条旧藏，可勾选后整理。`
+          : `已扫描 ${scannedCount} 条旧藏，可勾选后整理。`
       const scanFeedbackMessage =
         mode === 'setup'
           ? `旧藏扫描完成，发现 ${scannedCount} 条待备册`
@@ -3569,7 +3622,7 @@ export function FavoriteLedgerPanel({
           (item) => item.reorganizeProtected && (item.desiredTargetFolderIds?.length ?? 0) > targetLimit
         )
       ) {
-        setStatus(`当前设置最多允许 ${targetLimit} 个 Bilimi 收藏夹，请调整后再确认。`)
+        setStatus(`当前设置最多允许 ${targetLimit} 个 bilimi 收藏夹，请调整后再确认。`)
         setOldFavoriteExecutionPhase('idle')
         return
       }
@@ -4458,7 +4511,8 @@ export function FavoriteLedgerPanel({
     basicScanProgress.completed >= 0 &&
     basicScanProgress.total > 0 &&
     basicScanProgress.completed <= basicScanProgress.total &&
-    !(basicScanRunning && basicScanProgress.completed === 0 && basicScanProgress.total === 1)
+    !(basicScanRunning && basicScanProgress.completed === 0 && basicScanProgress.total === 1) &&
+    (basicScanProgress.status === 'complete' || basicScanProgress.completed < basicScanProgress.total)
   )
 
   return (
@@ -4506,9 +4560,12 @@ export function FavoriteLedgerPanel({
       ) : null}
 
       {status || saveStatus ? (
-        <p className="favorite-ledger-panel__status" role="status">
-          {status ?? saveStatus}
-        </p>
+        <div className="favorite-ledger-panel__status" role="status">
+          <span>{status ?? saveStatus}</span>
+          {basicScanRunning ? (
+            <button type="button" aria-label="取消旧藏扫描" onClick={cancelOldFavoriteScan}>取消</button>
+          ) : null}
+        </div>
       ) : null}
 
       <div className="favorite-ledger-panel__workspace">
@@ -4761,6 +4818,9 @@ export function FavoriteLedgerPanel({
           {oldFavoriteStep === 'scan' ? (
             <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
               <h4 className="favorite-ledger-panel__step-title">扫描概览</h4>
+              <p className="favorite-ledger-panel__scan-guidance">
+                请耐心等待扫描完成；完成后按上方步骤从左到右，依次完成本轮整理。
+              </p>
               <div className="favorite-ledger-panel__scan-progress" aria-label="旧藏扫描进度">
                 <div>
                   <span>视频基本信息</span>
@@ -4771,7 +4831,9 @@ export function FavoriteLedgerPanel({
                   />
                   <strong>
                     {!hasExactBasicScanProgress && basicScanRunning
-                      ? '正在读取'
+                      ? Number.isInteger(basicScanProgress?.completed) && (basicScanProgress?.completed ?? 0) > 0
+                        ? `已读取 ${basicScanProgress!.completed}`
+                        : '正在读取'
                       : hasExactBasicScanProgress
                         ? `${basicScanProgress!.completed} / ${basicScanProgress!.total}`
                         : `${preview.items.length} / ${preview.items.length}`}
@@ -4858,7 +4920,7 @@ export function FavoriteLedgerPanel({
                 <div className="favorite-ledger-panel__guide-metrics">
                   <article>
                     <span>共扫描</span>
-                    <strong>{preview.insights?.totalVideos ?? preview.items.length}</strong>
+                    <strong>{totalScannedOldFavoriteCount}</strong>
                   </article>
                   <article>
                     <span>可自动归档</span>
@@ -5470,7 +5532,7 @@ export function FavoriteLedgerPanel({
                 <p>{OLD_FAVORITE_EXECUTION_CONFIRM_MESSAGE}</p>
                 <p>
                   本次将整理 {selectedOldFavoriteVideoCount} 条视频，每条视频最多存入{' '}
-                  {deepSeekArchiveMultiLimit(favoriteArchiveMultiMode)} 个 Bilimi 收藏夹。
+                  {deepSeekArchiveMultiLimit(favoriteArchiveMultiMode)} 个 bilimi 收藏夹。
                 </p>
                 {archiveMultiModeChange ? (
                   <p className="favorite-ledger-panel__execution-dialog-change-note">
@@ -5515,7 +5577,7 @@ export function FavoriteLedgerPanel({
                     <>
                       <p>
                         重新整理 {protectedReconciliationSummary.total} 条：{protectedReconciliationSummary.addCount} 条将加入，
-                        {protectedReconciliationSummary.removeCount} 条将移出，{protectedReconciliationSummary.unchangedCount} 条保持当前 Bilimi 归档。
+                        {protectedReconciliationSummary.removeCount} 条将移出，{protectedReconciliationSummary.unchangedCount} 条保持当前 bilimi 归档。
                       </p>
                       <p>普通收藏保持不变。</p>
                     </>

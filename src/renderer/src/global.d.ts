@@ -104,7 +104,7 @@ type BilimiDesktopApi = {
   scanOldFavorites?: (options?: {
     multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']
   }) => Promise<FavoriteLedgerPreview>
-  readOldFavoriteTagEnrichment?: (action?: 'read' | 'pause' | 'resume' | 'cancel') => Promise<{
+  readOldFavoriteTagEnrichment?: (action?: 'read' | 'pause' | 'resume' | 'cancel' | 'cancel-scan') => Promise<{
     accountMid?: string
     sourceFolders: import('./features/favorites/favoriteLedgerPreview').FavoriteSourceFolder[]
     scanProgress: NonNullable<FavoriteLedgerPreview['scanProgress']>
