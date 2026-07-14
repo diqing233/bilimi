@@ -6,6 +6,9 @@ import type {
 
 type AssistantRuntimeTarget = {
   isDestroyed: () => boolean
+  isRuntimeReady: () => boolean
+  onceRuntimeReady: (callback: () => void) => void
+  removeRuntimeReadyListener: (callback: () => void) => void
   webContents: {
     isLoading: () => boolean
     once: (event: 'did-finish-load', callback: () => void) => void
@@ -22,6 +25,26 @@ type AssistantRuntimeResponseBus = {
     event: 'assistant-runtime:response',
     callback: (_event: unknown, response: AssistantRuntimeResponse) => void
   ) => void
+}
+
+export function installAssistantRuntimeReadinessLifecycle(
+  win: {
+    webContents: {
+      id: number
+      on: (event: 'did-start-loading' | 'destroyed', callback: () => void) => void
+    }
+  },
+  handlers: {
+    clearReady: (webContentsId: number) => void
+    clearWaiters: (webContentsId: number) => void
+  }
+) {
+  const webContentsId = win.webContents.id
+  win.webContents.on('did-start-loading', () => handlers.clearReady(webContentsId))
+  win.webContents.on('destroyed', () => {
+    handlers.clearReady(webContentsId)
+    handlers.clearWaiters(webContentsId)
+  })
 }
 
 const QUICK_RUNTIME_REQUEST_TIMEOUT_MS = 60 * 1000
@@ -57,8 +80,11 @@ export function requestAssistantRuntimeWhenReady<TPayload>({
   const runtimeRequest = { id, ...request } as AssistantRuntimeRequest
 
   return new Promise((resolve, reject) => {
+    let settled = false
     const timeout = setTimeout(() => {
+      settled = true
       responseBus.removeListener('assistant-runtime:response', handleResponse)
+      target.removeRuntimeReadyListener(sendRequest)
       reject(new Error('Assistant runtime request timed out.'))
     }, timeoutMs)
 
@@ -68,6 +94,7 @@ export function requestAssistantRuntimeWhenReady<TPayload>({
         return
       }
 
+      settled = true
       clearTimeout(timeout)
 
       if (!response.ok) {
@@ -79,9 +106,17 @@ export function requestAssistantRuntimeWhenReady<TPayload>({
     }
 
     function sendRequest() {
+      if (settled) return
+      target.removeRuntimeReadyListener(sendRequest)
       if (target.isDestroyed()) {
+        settled = true
         clearTimeout(timeout)
         reject(new Error('Assistant runtime target was destroyed.'))
+        return
+      }
+
+      if (!target.isRuntimeReady()) {
+        target.onceRuntimeReady(sendRequest)
         return
       }
 

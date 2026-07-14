@@ -13,6 +13,7 @@ import type {
   VideoNote
 } from '@shared/types'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
+import type { OldFavoriteBatchCommitToken } from '../favorites/favoriteLedgerApi'
 import type { VideoContentContext } from '../recommendation/videoClassifier'
 
 export type AssistantSnapshot = {
@@ -64,7 +65,8 @@ export type AssistantRuntimeRequest =
       type: 'scan-old-favorites'
       multiArchiveMode?: FavoriteArchiveMultiMode
     }
-  | { id: string; type: 'old-favorite-tag-enrichment'; action?: 'read' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' }
+  | { id: string; type: 'commit-old-favorite-batch'; token: OldFavoriteBatchCommitToken }
+  | { id: string; type: 'old-favorite-tag-enrichment'; action?: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' }
   | { id: string; type: 'rejudge-old-favorite'; item: FavoriteLedgerPreviewItem }
   | { id: string; type: 'execute-old-favorite-plan'; items: FavoriteLedgerPreviewItem[] }
   | {
@@ -92,4 +94,13 @@ export type AssistantRuntimeResponsePayload =
   | VideoNote[]
   | number
   | boolean
+  | OldFavoriteBatchCommitResult
   | null
+
+export type OldFavoriteBatchCommitResult = {
+  ok: boolean
+  committed: boolean
+  stale?: boolean
+  code?: string
+  message?: string
+}

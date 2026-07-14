@@ -3575,6 +3575,8 @@ body[data-floating-window="true"],
   display: grid;
   grid-template-columns: minmax(0, 1fr) 28px;
   gap: 4px;
+  height: 46px;
+  align-items: stretch;
   cursor: grab;
   transition:
     transform 140ms ease,
@@ -3605,19 +3607,24 @@ body[data-floating-window="true"],
   border-color: rgba(31, 99, 181, 0.5);
 }
 .favorite-ledger-panel__chip-item > button:first-child {
+  display: -webkit-box;
+  height: 46px;
   min-width: 0;
-  min-height: 34px;
   border-radius: 5px;
   color: var(--porcelain-text);
   font-weight: 700;
   line-height: 1.2;
   text-align: center;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
   overflow-wrap: anywhere;
 }
 .favorite-ledger-panel__chip-action {
   min-width: 28px;
   width: 28px;
-  min-height: 34px;
+  height: 46px;
   padding: 0;
   border-radius: 5px;
   font-weight: 800;
@@ -4259,6 +4266,65 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__insights h4 {
   margin: 0;
+}
+.favorite-ledger-panel__source-table {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+  min-width: 0;
+}
+.favorite-ledger-panel__source-note {
+  margin: 0 0 2px;
+  color: var(--porcelain-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.favorite-ledger-panel__source-header,
+.favorite-ledger-panel__source-row-content {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 52px minmax(76px, auto);
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+.favorite-ledger-panel__source-header {
+  color: var(--porcelain-deep);
+  font-size: 11px;
+  font-weight: 700;
+}
+.favorite-ledger-panel__source-header > span:nth-last-child(-n + 2),
+.favorite-ledger-panel__source-count {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.favorite-ledger-panel__source-list {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.favorite-ledger-panel__source-row {
+  min-width: 0;
+}
+.favorite-ledger-panel__source-row-content {
+  width: 100%;
+  color: inherit;
+  font-size: 12px;
+}
+.favorite-ledger-panel__source-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.favorite-ledger-panel__source-header--bilimi,
+.favorite-ledger-panel__source-row--bilimi {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 52px;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
 }
 .favorite-ledger-panel__step-divider {
   border: 0;

@@ -57,8 +57,9 @@ import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
 import type { AssistantPetHint } from './petState'
-import type { AssistantSnapshot } from './assistantRuntimeTypes'
+import type { AssistantSnapshot, OldFavoriteBatchCommitResult } from './assistantRuntimeTypes'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
+import type { OldFavoriteBatchCommitToken } from '../favorites/favoriteLedgerApi'
 import { PET_COLLAPSE_FAREWELL_LINES, pickPetLine } from './petInteractionLines'
 import { publishDeepSeekTask, subscribeDeepSeekTasks } from './deepSeekTaskSignal'
 import {
@@ -316,6 +317,15 @@ function globalStatusFromOldFavorite(status: OldFavoriteStatusSnapshot | null): 
         tone: status.tone
       }
     : null
+}
+
+function sameGlobalStatus(left: GlobalStatusItem | null, right: GlobalStatusItem | null) {
+  return left === right || Boolean(
+    left && right &&
+    left.label === right.label &&
+    left.detail === right.detail &&
+    left.tone === right.tone
+  )
 }
 
 function favoriteLedgerBackupGap(ledgers: FavoriteLedger[]) {
@@ -1104,13 +1114,14 @@ export function FloatingAssistantApp({
           getOldFavoriteRuntimeValue('deepSeekConnectionStatus', 'pending')
         )
       )
-      setOldFavoriteGlobalStatus(
-        globalStatusFromOldFavorite(
+      const nextOldFavoriteStatus = globalStatusFromOldFavorite(
           getOldFavoriteRuntimeValue<OldFavoriteStatusSnapshot | null>(
             'oldFavoriteRuntimeStatus',
             null
           )
         )
+      setOldFavoriteGlobalStatus((current) =>
+        sameGlobalStatus(current, nextOldFavoriteStatus) ? current : nextOldFavoriteStatus
       )
       setGlobalFeedbackMessage(getOldFavoriteRuntimeValue('sharedOperationFeedback', ''))
     })
@@ -2450,6 +2461,32 @@ export function FloatingAssistantApp({
     return preview
   }
 
+  const readOldFavoriteTagEnrichment = useCallback((action: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan') =>
+    window.bilimiDesktop?.readOldFavoriteTagEnrichment?.(action) ?? Promise.resolve({
+      sourceFolders: [],
+      scanProgress: {
+        basic: { completed: 0, total: 0, status: 'complete' as const },
+        tags: { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'complete' as const }
+      }
+    }), [])
+
+  const commitOldFavoriteBatchCheckpoint = useCallback(async (
+    token: OldFavoriteBatchCommitToken
+  ): Promise<AssistantAutomationResult> => {
+    const result: OldFavoriteBatchCommitResult =
+      await window.bilimiDesktop?.commitOldFavoriteBatchCheckpoint?.(token) ?? {
+        ok: false,
+        committed: false,
+        message: '旧藏批次检查点通道尚未就绪。'
+      }
+    return {
+      ok: result.ok && result.committed,
+      steps: [],
+      missingTargets: [],
+      message: result.message ?? (result.committed ? '旧藏批次检查点已保存。' : '旧藏批次检查点保存失败。')
+    }
+  }, [])
+
   async function executeOldFavoritePlan(
     items: FavoriteLedgerPreviewItem[]
   ): Promise<AssistantAutomationResult> {
@@ -2700,15 +2737,8 @@ export function FloatingAssistantApp({
             onSaveLedgers={saveFavoriteLedgers}
             onOpenFavoritePage={openFavoritePage}
             onScanOldFavorites={scanOldFavorites}
-            onReadOldFavoriteTagEnrichment={(action) =>
-              window.bilimiDesktop?.readOldFavoriteTagEnrichment?.(action) ?? Promise.resolve({
-                sourceFolders: [],
-                scanProgress: {
-                  basic: { completed: 0, total: 0, status: 'complete' },
-                  tags: { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'complete' }
-                }
-              })
-            }
+            onReadOldFavoriteTagEnrichment={readOldFavoriteTagEnrichment}
+            onCommitOldFavoriteBatchCheckpoint={commitOldFavoriteBatchCheckpoint}
             onExecuteOldFavoritePlan={executeOldFavoritePlan}
             onOldFavoriteExecutionStateChange={handleOldFavoriteExecutionStateChange}
             onOldFavoriteStatusUpdate={handleOldFavoriteStatusUpdate}

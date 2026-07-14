@@ -58,23 +58,35 @@ function sharedScriptHelpers(): string {
       csrf: readCookie('bili_jct'),
       mid: readCookie('DedeUserID')
     });
+    const createApiError = (message, metadata = {}) => Object.assign(new Error(message), {
+      bilimiApiError: true,
+      ...metadata
+    });
     const ensureApiOk = async (response, label = 'Bilibili API') => {
       const contentType = response.headers?.get?.('content-type') || '';
       const bodyText = await response.text();
       const trimmedBody = bodyText.trim();
       if (/html/i.test(contentType) || /^<!doctype html/i.test(trimmedBody) || /^<html/i.test(trimmedBody)) {
-        throw new Error(label + ' returned HTML instead of JSON. Please log in to Bilibili again or retry later.');
+        throw createApiError(label + ' returned HTML instead of JSON. Please log in to Bilibili again or retry later.', {
+          kind: 'html', httpStatus: Number(response.status || 0)
+        });
       }
 
       let json = null;
       try {
         json = bodyText ? JSON.parse(bodyText) : null;
       } catch {
-        throw new Error(label + ' returned a non-JSON response.');
+        throw createApiError(label + ' returned a non-JSON response.', {
+          kind: 'non-json', httpStatus: Number(response.status || 0)
+        });
       }
 
       if (!response.ok || !json || json.code !== 0) {
-        throw new Error(label + ' failed: ' + (json?.message || response.statusText || 'Bilibili API request failed'));
+        throw createApiError(label + ' failed: ' + (json?.message || response.statusText || 'Bilibili API request failed'), {
+          kind: !response.ok ? 'http' : 'api',
+          httpStatus: Number(response.status || 0),
+          apiCode: Number(json?.code)
+        });
       }
       return json;
     };
@@ -338,8 +350,25 @@ export function buildScanOldFavoriteVideoScript(ledgers: FavoriteLedger[], aid: 
   return buildOldFavoriteScanScript({ ledgers, aid })
 }
 
+export type OldFavoriteBatchCursor = {
+  accountMid: string
+  folderId: string
+  nextPage: number
+  folderOrder: string[]
+}
+
+export type OldFavoriteBatchCommitToken = {
+  version: 1
+  accountMid: string
+  scanRunId: string
+  folderOrder: string[]
+  expectedCurrentCursor: OldFavoriteBatchCursor | null
+  nextCursor: OldFavoriteBatchCursor | null
+  seenAids: number[]
+}
+
 export function buildOldFavoriteTagEnrichmentScript(
-  action: 'read' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' = 'read'
+  action: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' = 'read'
 ): string {
   return `(async () => {
     const key = 'bilimi:old-favorite-tag-enrichment:v1';
@@ -354,7 +383,7 @@ export function buildOldFavoriteTagEnrichmentScript(
     if (!currentAccountMid || store.accountMid !== currentAccountMid) {
       store = {
         ...(currentAccountMid ? { accountMid: currentAccountMid } : {}),
-        cache: store.cache,
+        cache: {},
         queue: [],
         controlRevision: Number(store.controlRevision || 0) + 1,
         progress: { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'complete' }
@@ -389,7 +418,9 @@ export function buildOldFavoriteTagEnrichmentScript(
         status
       };
     };
+    const progressBeforeNormalization = JSON.stringify(store.progress);
     normalizeProgress();
+    const progressWasNormalized = JSON.stringify(store.progress) !== progressBeforeNormalization;
     const readTagList = (rawTags) => (Array.isArray(rawTags) ? rawTags : [])
       .map((tag) => String(typeof tag === 'string' ? tag : (tag?.name ?? tag?.tag_name ?? tag?.title ?? '')).trim())
       .filter(Boolean)
@@ -435,8 +466,22 @@ export function buildOldFavoriteTagEnrichmentScript(
             const url = new URL('https://api.bilibili.com/x/tag/archive/tags');
             url.searchParams.set('aid', String(aid));
             const response = await fetchWithTimeout(url.toString());
-            const json = await response.json();
-            if (!response.ok || Number(json?.code) !== 0) throw new Error(String(json?.code ?? response.status));
+            const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+            const bodyText = await response.text();
+            if (contentType.includes('text/html') || /^\s*<!doctype html|^\s*<html/i.test(bodyText)) {
+              throw Object.assign(new Error('tag request returned HTML; please log in again'), { global: true });
+            }
+            let json;
+            try { json = bodyText ? JSON.parse(bodyText) : null; } catch {
+              throw Object.assign(new Error('tag request returned invalid JSON'), { global: true });
+            }
+            const code = Number(json?.code);
+            if (!response.ok || code !== 0) {
+              const message = String(json?.message || code || response.status);
+              throw Object.assign(new Error(message), {
+                global: [-101, -352, -412, -509].includes(code) || /risk|频繁|风控|too fast|login|未登录/i.test(message)
+              });
+            }
             const tags = readTagList(Array.isArray(json.data) ? json.data : json.data?.tags);
             let controlledStore;
             try { controlledStore = JSON.parse(localStorage.getItem(key) || '{}'); } catch { controlledStore = store; }
@@ -466,7 +511,7 @@ export function buildOldFavoriteTagEnrichmentScript(
             }
             activeAidFailures += 1;
             const message = String(error?.message || error || '');
-            if (/(-352|-412|-509|risk|频繁|风控|too fast)/i.test(message)) {
+            if (error?.global || /(-101|-352|-412|-509|risk|频繁|风控|too fast|login|未登录)/i.test(message)) {
               store.progress.status = 'paused';
               writeStore();
               break;
@@ -487,6 +532,13 @@ export function buildOldFavoriteTagEnrichmentScript(
           }
         }
         window.__bilimiOldFavoriteTagWorkerRunning = false;
+        let handoffStore;
+        try { handoffStore = JSON.parse(localStorage.getItem(key) || '{}'); } catch { handoffStore = {}; }
+        if (handoffStore.progress?.status === 'running' && Array.isArray(handoffStore.queue) && handoffStore.queue.length > 0) {
+          setTimeout(() => {
+            if (!window.__bilimiOldFavoriteTagWorkerRunning) window.__bilimiStartOldFavoriteTagWorker?.();
+          }, 0);
+        }
       })();
     };
     window.__bilimiStartOldFavoriteTagWorker = startWorker;
@@ -507,17 +559,20 @@ export function buildOldFavoriteTagEnrichmentScript(
     if (${JSON.stringify(action)} === 'cancel-scan') {
       store.controlRevision += 1;
       store.scanCancelled = true;
+      if (window.__bilimiOldFavoriteScanControl) {
+        window.__bilimiOldFavoriteScanControl.cancelled = true;
+      }
       store.queue = [];
       store.progress.pending = 0;
       store.progress.status = 'complete';
       store.lastScan = {
         ...(store.lastScan || {}),
-        basic: { completed: 0, total: 0, status: 'cancelled' }
+        basic: { ...(store.lastScan?.basic || {}), status: 'cancelled', phase: 'cancelled' }
       };
     }
-    writeStore();
+    if (${JSON.stringify(action)} !== 'progress' || progressWasNormalized) writeStore();
     if (${JSON.stringify(action)} === 'resume') startWorker();
-    const sourceFolders = (store.lastScan?.sourceFolders || []).map((folder) => ({
+    const sourceFolders = ${JSON.stringify(action)} === 'progress' ? [] : (store.lastScan?.sourceFolders || []).map((folder) => ({
       ...folder,
       videos: (folder.videos || []).map((video) => ({
         ...video,
@@ -534,6 +589,128 @@ export function buildOldFavoriteTagEnrichmentScript(
         tags: store.progress
       }
     };
+  })()`
+}
+
+export function buildCommitOldFavoriteBatchCheckpointScript(
+  token: OldFavoriteBatchCommitToken
+): string {
+  return `(async () => {
+    ${sharedScriptHelpers()}
+    const token = ${scriptPayload(token)};
+    const tagStoreKey = 'bilimi:old-favorite-tag-enrichment:v1';
+    const stale = (code, message) => ({ ok: false, committed: false, stale: true, code, message });
+    const sameStrings = (left, right) =>
+      Array.isArray(left) && Array.isArray(right) &&
+      left.length === right.length && left.every((value, index) => String(value) === String(right[index]));
+    const normalizeCursor = (cursor) => {
+      if (!cursor || typeof cursor !== 'object') return null;
+      const accountMid = String(cursor.accountMid ?? '');
+      const folderId = String(cursor.folderId ?? '');
+      const nextPage = Math.max(1, Math.floor(Number(cursor.nextPage) || 0));
+      const folderOrder = Array.isArray(cursor.folderOrder) ? cursor.folderOrder.map(String) : [];
+      return accountMid && folderId && nextPage > 0 && folderOrder.length > 0
+        ? { accountMid, folderId, nextPage, folderOrder }
+        : null;
+    };
+    const sameCursor = (left, right) => {
+      const normalizedLeft = normalizeCursor(left);
+      const normalizedRight = normalizeCursor(right);
+      if (!normalizedLeft || !normalizedRight) return normalizedLeft === normalizedRight;
+      return normalizedLeft.accountMid === normalizedRight.accountMid &&
+        normalizedLeft.folderId === normalizedRight.folderId &&
+        normalizedLeft.nextPage === normalizedRight.nextPage &&
+        sameStrings(normalizedLeft.folderOrder, normalizedRight.folderOrder);
+    };
+    const { mid } = readCredentials();
+    if (!mid) return stale('account-missing', 'Bilibili account is not signed in.');
+    if (
+      token?.version !== 1 ||
+      String(token.accountMid ?? '') !== String(mid) ||
+      !String(token.scanRunId ?? '') ||
+      !Array.isArray(token.folderOrder) ||
+      !Array.isArray(token.seenAids)
+    ) return stale('token-invalid', 'Old favorite batch checkpoint token is invalid.');
+
+    let store;
+    try {
+      store = JSON.parse(localStorage.getItem(tagStoreKey) || '{}');
+    } catch {
+      return stale('store-invalid', 'Old favorite batch checkpoint store is invalid.');
+    }
+    if (String(store.accountMid ?? '') !== String(mid)) {
+      return stale('account-stale', 'Old favorite batch checkpoint account changed.');
+    }
+    const latestBasic = store.lastScan?.basic;
+    if (
+      latestBasic?.status !== 'complete' ||
+      String(latestBasic?.runId ?? '') !== String(token.scanRunId)
+    ) return stale('run-stale', 'Old favorite batch checkpoint scan run changed.');
+    const latestFolderOrder = store.lastScan?.batch?.folderOrder;
+    if (!sameStrings(latestFolderOrder, token.folderOrder)) {
+      return stale('folder-order-stale', 'Old favorite folder order changed.');
+    }
+
+    const expectedCursor = normalizeCursor(token.expectedCurrentCursor);
+    const nextCursor = normalizeCursor(token.nextCursor);
+    if (token.expectedCurrentCursor && !expectedCursor) {
+      return stale('token-invalid', 'Old favorite expected checkpoint cursor is invalid.');
+    }
+    if (token.nextCursor && !nextCursor) {
+      return stale('token-invalid', 'Old favorite next checkpoint cursor is invalid.');
+    }
+    for (const cursor of [expectedCursor, nextCursor].filter(Boolean)) {
+      if (
+        cursor.accountMid !== String(mid) ||
+        !sameStrings(cursor.folderOrder, token.folderOrder)
+      ) return stale('token-invalid', 'Old favorite checkpoint cursor does not match its token.');
+    }
+
+    const seenAids = Array.from(new Set(
+      token.seenAids.map(Number).filter((aid) => Number.isFinite(aid) && aid > 0)
+    ));
+    if (seenAids.length !== new Set(token.seenAids.map(Number)).size) {
+      return stale('token-invalid', 'Old favorite checkpoint aids are invalid.');
+    }
+    const currentCursor = normalizeCursor(store.batchCursor);
+    const currentSeenAids = new Set(
+      (Array.isArray(store.batchSeenAids) ? store.batchSeenAids : [])
+        .map(Number)
+        .filter((aid) => Number.isFinite(aid) && aid > 0)
+    );
+    const alreadyContainsBatch = seenAids.every((aid) => currentSeenAids.has(aid));
+    const exhausted = token.nextCursor === null;
+    const exhaustedMarkerMatches = exhausted &&
+      String(store.batchExhausted?.accountMid ?? '') === String(mid) &&
+      String(store.batchExhausted?.scanRunId ?? '') === String(token.scanRunId) &&
+      sameStrings(store.batchExhausted?.folderOrder, token.folderOrder);
+    const alreadyCommitted = alreadyContainsBatch && (
+      exhausted ? exhaustedMarkerMatches && currentCursor === null : sameCursor(currentCursor, nextCursor)
+    );
+    if (alreadyCommitted) {
+      return { ok: true, committed: true, idempotent: true, exhausted };
+    }
+    if (!sameCursor(currentCursor, expectedCursor)) {
+      return stale('cursor-stale', 'Old favorite batch checkpoint cursor changed.');
+    }
+
+    const nextStore = {
+      ...store,
+      batchSeenAids: Array.from(new Set([...currentSeenAids, ...seenAids]))
+    };
+    if (exhausted) {
+      delete nextStore.batchCursor;
+      nextStore.batchExhausted = {
+        accountMid: String(mid),
+        scanRunId: String(token.scanRunId),
+        folderOrder: token.folderOrder.map(String)
+      };
+    } else {
+      nextStore.batchCursor = nextCursor;
+      delete nextStore.batchExhausted;
+    }
+    localStorage.setItem(tagStoreKey, JSON.stringify(nextStore));
+    return { ok: true, committed: true, idempotent: false, exhausted };
   })()`
 }
 
@@ -559,8 +736,99 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           };
         }
 
-        const listResponse = await fetch(buildListUrl(mid), { credentials: 'include' });
-        const listJson = await ensureApiOk(listResponse, 'favorite folder list');
+        const tagStoreKey = 'bilimi:old-favorite-tag-enrichment:v1';
+        let scanRevision = 0;
+        let scanRunId = '';
+        let scanControl = null;
+        if (!payload.aid) {
+          let initialStore;
+          try { initialStore = JSON.parse(localStorage.getItem(tagStoreKey) || '{}'); } catch { initialStore = {}; }
+          if (initialStore.accountMid !== String(mid)) {
+            initialStore = {
+              accountMid: String(mid),
+              cache: initialStore.cache && typeof initialStore.cache === 'object' ? initialStore.cache : {},
+              queue: [],
+              progress: { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'paused' }
+            };
+          }
+          scanRevision = Number(initialStore.controlRevision || 0) + 1;
+          scanRunId = String(Date.now()) + ':' + scanRevision + ':' + Math.random().toString(36).slice(2);
+          initialStore.accountMid = String(mid);
+          initialStore.controlRevision = scanRevision;
+          initialStore.scanCancelled = false;
+          initialStore.queue = [];
+          initialStore.progress = { ...(initialStore.progress || {}), pending: 0, status: 'paused' };
+          initialStore.lastScan = {
+            sourceFolders: [],
+            basic: { completed: 0, total: 0, status: 'running', runId: scanRunId, phase: 'listing' }
+          };
+          localStorage.setItem(tagStoreKey, JSON.stringify(initialStore));
+          scanControl = { revision: scanRevision, cancelled: false };
+          window.__bilimiOldFavoriteScanControl = scanControl;
+        }
+        const scanControlWasCancelled = () => {
+          if (payload.aid) return false;
+          return Boolean(scanControl?.cancelled) || window.__bilimiOldFavoriteScanControl !== scanControl;
+        };
+
+        const fetchJsonWithTimeout = async (url, label, timeoutMs = 10000, shouldCancel = () => false) => {
+          const controller = new AbortController();
+          let timeoutId;
+          let cancelIntervalId;
+          try {
+            return await Promise.race([
+              (async () => {
+                const response = await fetch(url, { credentials: 'include', signal: controller.signal });
+                return ensureApiOk(response, label);
+              })(),
+              new Promise((_, reject) => {
+                timeoutId = setTimeout(() => {
+                  controller.abort();
+                  reject(new Error('request timeout'));
+                }, timeoutMs);
+              }),
+              new Promise((_, reject) => {
+                cancelIntervalId = setInterval(() => {
+                  if (!shouldCancel()) return;
+                  controller.abort();
+                  reject(createApiError('scan cancelled', { kind: 'cancelled' }));
+                }, 50);
+              })
+            ]);
+          } finally {
+            clearTimeout(timeoutId);
+            clearInterval(cancelIntervalId);
+          }
+        };
+        let listJson;
+        try {
+          listJson = await fetchJsonWithTimeout(buildListUrl(mid), 'favorite folder list', 10000, scanControlWasCancelled);
+        } catch (error) {
+          if (error?.kind === 'cancelled' || scanControlWasCancelled()) {
+            return {
+              ok: false,
+              cancelled: true,
+              sourceFolders: [],
+              skippedSourceFolderTitles: [],
+              targetMembership: {},
+              steps: [...steps, 'api:favorite:scan-cancelled'],
+              missingTargets: [],
+              message: 'old favorite scan cancelled'
+            };
+          }
+          if (!payload.aid) {
+            let failedStore;
+            try { failedStore = JSON.parse(localStorage.getItem(tagStoreKey) || '{}'); } catch { failedStore = {}; }
+            if (Number(failedStore.controlRevision || 0) === scanRevision && !failedStore.scanCancelled) {
+              failedStore.lastScan = {
+                ...(failedStore.lastScan || {}),
+                basic: { ...(failedStore.lastScan?.basic || {}), status: 'failed', phase: 'failed' }
+              };
+              localStorage.setItem(tagStoreKey, JSON.stringify(failedStore));
+            }
+          }
+          throw error;
+        }
         const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
         const normalizedLedgerName = (value) => String(value ?? '').trim().replace(/^bilimi[·\\s\\-路]*/i, '').trim();
         const ledgerByFolderId = new Map(
@@ -599,6 +867,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           .filter(Boolean);
         const managedFolderIds = new Set(managedFolders.map((folder) => folder.id));
         let managedFolderScanComplete = true;
+        let managedFolderFailure = false;
         const scanDiagnostics = {
           tagDetailRequests: 0,
           tagDetailFailures: 0,
@@ -606,22 +875,40 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           untaggedVideos: 0,
           folderFailures: []
         };
-        const tagStoreKey = 'bilimi:old-favorite-tag-enrichment:v1';
         const tagCacheMaxAgeMs = 30 * 24 * 60 * 60 * 1000;
+        const normalizeTagStoreProgress = (store) => {
+          const nonNegativeInteger = (value) => Math.max(0, Math.floor(Number(value) || 0));
+          const queueLength = Array.isArray(store.queue) ? store.queue.length : 0;
+          const total = Math.max(nonNegativeInteger(store.progress?.total), queueLength);
+          const pending = Math.min(queueLength, total);
+          store.progress = {
+            ...(store.progress || {}),
+            total,
+            completed: Math.min(nonNegativeInteger(store.progress?.completed), total - pending),
+            pending,
+            cacheHits: nonNegativeInteger(store.progress?.cacheHits),
+            succeeded: nonNegativeInteger(store.progress?.succeeded),
+            failed: nonNegativeInteger(store.progress?.failed)
+          };
+          return store;
+        };
         const readTagStore = () => {
           try {
             const parsed = JSON.parse(localStorage.getItem(tagStoreKey) || '{}');
-            return {
+            return normalizeTagStoreProgress({
               ...parsed,
               cache: parsed.cache && typeof parsed.cache === 'object' ? parsed.cache : {},
               queue: Array.isArray(parsed.queue) ? parsed.queue.map(Number).filter(Number.isFinite) : [],
               progress: parsed.progress && typeof parsed.progress === 'object' ? parsed.progress : {}
-            };
+            });
           } catch {
             return { cache: {}, queue: [], progress: {} };
           }
         };
-        const writeTagStore = (store) => localStorage.setItem(tagStoreKey, JSON.stringify(store));
+        const writeTagStore = (store) => localStorage.setItem(
+          tagStoreKey,
+          JSON.stringify(normalizeTagStoreProgress(store))
+        );
         const tagStore = readTagStore();
         if (tagStore.accountMid !== String(mid)) {
           const reusableCache = tagStore.cache;
@@ -632,30 +919,50 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           tagStore.progress = { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'complete' };
         }
         tagStore.accountMid = String(mid);
-        if (!payload.aid) {
-          tagStore.controlRevision = Number(tagStore.controlRevision || 0) + 1;
-          tagStore.scanCancelled = false;
-          tagStore.queue = [];
-          tagStore.progress = { ...(tagStore.progress || {}), pending: 0, status: 'paused' };
-          writeTagStore(tagStore);
+        const batchLimit = 3000;
+        const savedBatchCursor = !payload.aid && tagStore.batchCursor?.accountMid === String(mid)
+          ? tagStore.batchCursor
+          : null;
+        const previouslyCompletedBatchAids = new Set(
+          savedBatchCursor && Array.isArray(tagStore.batchSeenAids)
+            ? tagStore.batchSeenAids.map(Number).filter(Number.isFinite)
+            : []
+        );
+        const batchAcceptedAids = new Set();
+        let nextBatchCursor = null;
+        let ordinaryFailureCursor = null;
+        let batchHasMore = false;
+        if (payload.aid) {
+          scanRevision = Number(tagStore.controlRevision || 0);
+          scanRunId = String(tagStore.lastScan?.basic?.runId || '');
         }
         const missingTagAids = new Set();
         const cacheHitAids = new Set();
         const discoveredVideoAids = new Set();
-        const persistBasicProgress = (status = 'running') => {
+        let inProgressFolderAids = new Set();
+        const persistBasicProgress = (status = 'running', location = {}) => {
           const latest = readTagStore();
+          if (Number(latest.controlRevision || 0) !== scanRevision) return;
+          const visibleAids = new Set([...discoveredVideoAids, ...inProgressFolderAids]);
+          const previousTotal = latest.lastScan?.basic?.runId === scanRunId
+            ? Number(latest.lastScan?.basic?.total || 0)
+            : 0;
           latest.lastScan = {
             ...(latest.lastScan ?? {}),
             sourceFolders: latest.lastScan?.sourceFolders ?? [],
             basic: {
-              completed: discoveredVideoAids.size,
-              total: Math.max(discoveredVideoAids.size, Number(latest.lastScan?.basic?.total || 0)),
-              status
+              completed: visibleAids.size,
+              total: Math.max(visibleAids.size, previousTotal),
+              status,
+              runId: scanRunId,
+              ...location
             }
           };
           writeTagStore(latest);
         };
-        const scanWasCancelled = () => Boolean(readTagStore().scanCancelled);
+        const scanWasCancelled = () => {
+          return scanControlWasCancelled();
+        };
         if (!payload.aid) persistBasicProgress();
         steps.push('api:favorite:list');
 
@@ -675,16 +982,22 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           return url.toString();
         };
         const wait = (delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs));
+        const waitForRetry = async (delayMs) => {
+          let remainingMs = delayMs;
+          while (remainingMs > 0) {
+            if (scanWasCancelled()) return false;
+            const sliceMs = Math.min(50, remainingMs);
+            await wait(sliceMs);
+            remainingMs -= sliceMs;
+          }
+          return !scanWasCancelled();
+        };
         let lastInitialTagRequestAt = 0;
         const paceInitialTagRequest = async () => {
           const elapsed = Date.now() - lastInitialTagRequestAt;
           if (lastInitialTagRequestAt > 0 && elapsed < 120) await wait(120 - elapsed);
           lastInitialTagRequestAt = Date.now();
         };
-        const readQueuedTagList = (rawTags) => (Array.isArray(rawTags) ? rawTags : [])
-          .map((tag) => String(typeof tag === 'string' ? tag : (tag?.name ?? tag?.tag_name ?? tag?.title ?? '')).trim())
-          .filter(Boolean)
-          .slice(0, 20);
         const fetchWithTimeout = async (url, timeoutMs = 10000) => {
           const controller = new AbortController();
           let timeoutId;
@@ -702,9 +1015,31 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
             clearTimeout(timeoutId);
           }
         };
-        const readFolderVideos = async (folderId, onPageComplete = () => undefined) => {
+        const readQueuedTagList = (rawTags) => (Array.isArray(rawTags) ? rawTags : [])
+          .map((tag) => String(typeof tag === 'string' ? tag : (tag?.name ?? tag?.tag_name ?? tag?.title ?? '')).trim())
+          .filter(Boolean)
+          .slice(0, 20);
+        const isRetryableResourceError = (error) => {
+          if (error?.kind === 'invariant') return true;
+          if (error instanceof TypeError || error?.name === 'AbortError') return true;
+          if (String(error?.message || error || '') === 'request timeout') return true;
+          const httpStatus = Number(error?.httpStatus || 0);
+          if (error?.kind === 'http') return httpStatus === 429 || httpStatus >= 500;
+          const apiCode = Number(error?.apiCode);
+          if (error?.kind === 'api') return [-500, -502, -503, -504].includes(apiCode);
+          return false;
+        };
+        const readFolderVideos = async (
+          folderId,
+          folderTitle,
+          expectedMediaCount,
+          onPageComplete = () => undefined,
+          startPage = 1,
+          applyBatchLimit = true
+        ) => {
           const videos = [];
-          let page = 1;
+          const pageChunks = [];
+          let page = startPage;
           const cleanText = (value) => String(value ?? '').replace(/\\s+/g, ' ').trim();
           const readTagName = (tag) =>
             typeof tag === 'string'
@@ -769,20 +1104,68 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           };
 
           while (true) {
-            if (!payload.aid && scanWasCancelled()) throw new Error('old favorite scan cancelled');
+            if (!payload.aid && scanWasCancelled()) return { videos, cancelled: true };
             let json;
             let lastError;
+            let attempts = 0;
             for (let attempt = 1; attempt <= 3; attempt += 1) {
+              if (!payload.aid && scanWasCancelled()) return { videos, cancelled: true };
+              attempts = attempt;
+              if (!payload.aid) persistBasicProgress('running', {
+                folderId: String(folderId), folderTitle: String(folderTitle || folderId), page, attempt, phase: 'requesting'
+              });
               try {
-                const response = await fetchWithTimeout(buildResourceUrl(folderId, page));
-                json = await ensureApiOk(response, 'favorite resource list for folder ' + folderId);
+                const candidate = await fetchJsonWithTimeout(
+                  buildResourceUrl(folderId, page),
+                  'favorite resource list for folder ' + folderId,
+                  10000,
+                  scanControlWasCancelled
+                );
+                const rawMedias = candidate.data?.medias;
+                const declaredCounts = [candidate.data?.info?.media_count, expectedMediaCount]
+                  .filter((value) => value !== null && value !== undefined);
+                const allCountsAreReliable = declaredCounts.length > 0 && declaredCounts.every(
+                  (count) => typeof count === 'number' && Number.isFinite(count) && count >= 0
+                );
+                const isReliablyEmpty = rawMedias === null && candidate.data?.has_more === false &&
+                  allCountsAreReliable && declaredCounts.every((count) => count === 0);
+                if (isReliablyEmpty) {
+                  candidate.data.medias = [];
+                } else if (!Array.isArray(rawMedias)) {
+                  throw createApiError('favorite resource list returned invalid media data', { kind: 'schema' });
+                }
+                if (candidate.data?.has_more && candidate.data.medias.length === 0) {
+                  throw createApiError('favorite resource list returned an empty page with more results', { kind: 'invariant' });
+                }
+                json = candidate;
                 break;
               } catch (error) {
                 lastError = error;
-                if (attempt < 3) await wait(40 * attempt);
+                if (!payload.aid && (error?.kind === 'cancelled' || scanWasCancelled())) {
+                  return { videos, cancelled: true };
+                }
+                if (!isRetryableResourceError(error)) break;
+                if (attempt < 3) {
+                  if (!payload.aid) persistBasicProgress('running', {
+                    folderId: String(folderId), folderTitle: String(folderTitle || folderId), page, attempt, phase: 'retrying'
+                  });
+                  if (!await waitForRetry(attempt === 1 ? 1000 : 2500)) {
+                    return { videos, cancelled: true };
+                  }
+                }
               }
             }
-            if (!json) throw lastError || new Error('favorite resource list failed');
+            if (!json) {
+              return {
+                videos,
+                failure: {
+                  failedPage: page,
+                  attempts,
+                  status: videos.length > 0 ? 'partial' : 'failed',
+                  message: String(lastError?.message || lastError || 'favorite resource list failed').slice(0, 160)
+                }
+              };
+            }
             const medias = Array.isArray(json.data?.medias) ? json.data.medias : [];
             const pageVideos = [];
             for (const media of medias.filter((media) => isVideoMedia(media) && !isUnavailableMedia(media))) {
@@ -817,33 +1200,88 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
                 tags: resolvedTags,
                 category: readCategory(media)
               });
-              discoveredVideoAids.add(aid);
             }
-            videos.push(...pageVideos);
-            onPageComplete(page);
+            const businessPageVideos = !payload.aid
+              ? pageVideos.filter((video) => !previouslyCompletedBatchAids.has(video.aid))
+              : pageVideos;
+            if (!payload.aid) {
+              const newPageAids = new Set(
+                businessPageVideos.map((video) => video.aid).filter((aid) => !batchAcceptedAids.has(aid))
+              );
+              if (applyBatchLimit && batchAcceptedAids.size + newPageAids.size > batchLimit) {
+                return {
+                  videos,
+                  pageChunks,
+                  batchBoundary: { folderId: String(folderId), nextPage: page }
+                };
+              }
+              if (applyBatchLimit) {
+                for (const aid of newPageAids) batchAcceptedAids.add(aid);
+              }
+            }
+            videos.push(...(applyBatchLimit ? businessPageVideos : pageVideos));
+            pageChunks.push({ page, videos: pageVideos });
+            if (!payload.aid && applyBatchLimit) {
+              for (const video of businessPageVideos) inProgressFolderAids.add(video.aid);
+            }
+            if (payload.aid || !scanWasCancelled()) onPageComplete(page);
 
             if (!json.data?.has_more || medias.length === 0) {
               break;
             }
 
+            if (!payload.aid && applyBatchLimit && batchAcceptedAids.size >= batchLimit) {
+              return {
+                videos,
+                pageChunks,
+                batchBoundary: { folderId: String(folderId), nextPage: page + 1 }
+              };
+            }
+
             page += 1;
           }
 
-          return videos;
+          return { videos, pageChunks };
         };
 
-        for (const folder of folders) {
+        const cancelledScanResult = () => ({
+          ok: false,
+          cancelled: true,
+          sourceFolders: [],
+          skippedSourceFolderTitles: [],
+          targetMembership: {},
+          steps: [...steps, 'api:favorite:scan-cancelled'],
+          missingTargets: [],
+          message: 'old favorite scan cancelled'
+        });
+
+        if (!payload.aid && scanWasCancelled()) return cancelledScanResult();
+
+        const currentFolderOrder = folders.map((folder) => String(findFolderId(folder) ?? '')).filter(Boolean);
+        const savedFolderOrder = Array.isArray(savedBatchCursor?.folderOrder)
+          ? savedBatchCursor.folderOrder.map(String)
+          : null;
+        const cursorOrderChanged = Boolean(
+          savedFolderOrder && (
+            savedFolderOrder.length !== currentFolderOrder.length ||
+            savedFolderOrder.some((folderId, index) => folderId !== currentFolderOrder[index])
+          )
+        );
+        const savedCursorTargetsManagedFolder = Boolean(
+          savedBatchCursor && managedFolderIds.has(String(savedBatchCursor.folderId ?? ''))
+        );
+        const savedFolderIndex = savedBatchCursor && !cursorOrderChanged && !savedCursorTargetsManagedFolder
+          ? folders.findIndex((folder) => String(findFolderId(folder) ?? '') === String(savedBatchCursor.folderId ?? ''))
+          : -1;
+        const savedBatchCursorInvalid = Boolean(
+          savedBatchCursor && (savedFolderIndex < 0 || cursorOrderChanged || savedCursorTargetsManagedFolder)
+        );
+        if (savedBatchCursorInvalid) previouslyCompletedBatchAids.clear();
+        let businessBatchClosed = false;
+        for (let folderIndex = 0; folderIndex < folders.length; folderIndex += 1) {
+          const folder = folders[folderIndex];
           if (!payload.aid && scanWasCancelled()) {
-            return {
-              ok: false,
-              cancelled: true,
-              sourceFolders: [],
-              skippedSourceFolderTitles: [],
-              targetMembership: {},
-              steps: [...steps, 'api:favorite:scan-cancelled'],
-              missingTargets: [],
-              message: 'old favorite scan cancelled'
-            };
+            return cancelledScanResult();
           }
           const folderId = findFolderId(folder);
           if (!folderId) {
@@ -851,39 +1289,93 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           }
 
           const folderIdString = String(folderId);
-          let videos = [];
-          try {
-            videos = await readFolderVideos(folderIdString, (page) => {
+          const isManagedFolder = managedFolderIds.has(folderIdString);
+          if (
+            !payload.aid &&
+            !isManagedFolder &&
+            (businessBatchClosed || (savedFolderIndex >= 0 && folderIndex < savedFolderIndex))
+          ) continue;
+          const includeInBusinessBatch = payload.aid
+            ? true
+            : !isManagedFolder && !businessBatchClosed;
+          const rawExpectedMediaCount = folder?.media_count ?? folder?.count;
+          const acceptedAidsBeforeFolder = new Set(batchAcceptedAids);
+          inProgressFolderAids = new Set();
+          const folderScan = await readFolderVideos(
+            folderIdString,
+            String(folder?.title ?? folderIdString),
+            rawExpectedMediaCount,
+            (page) => {
               if (!payload.aid) {
                 persistBasicProgress();
               }
-            });
-          } catch (error) {
-            if (managedFolderIds.has(folderIdString)) {
+            },
+            isManagedFolder
+              ? 1
+              : (savedFolderIndex === folderIndex ? Math.max(1, Number(savedBatchCursor?.nextPage) || 1) : 1),
+            !isManagedFolder
+          );
+          if (!payload.aid && scanWasCancelled()) return cancelledScanResult();
+          let videos = folderScan.videos;
+          const failure = folderScan.failure;
+
+          if (isManagedFolder && (!failure || videos.length > 0)) {
+            targetMembership[folderIdString] = videos.map((video) => video.aid);
+          }
+
+          if (failure) {
+            inProgressFolderAids = new Set();
+            if (isManagedFolder) {
               managedFolderScanComplete = false;
+              managedFolderFailure = true;
+            } else {
+              batchAcceptedAids.clear();
+              for (const aid of acceptedAidsBeforeFolder) batchAcceptedAids.add(aid);
+              if (!ordinaryFailureCursor) {
+                ordinaryFailureCursor = {
+                  accountMid: String(mid),
+                  folderId: folderIdString,
+                  nextPage: 1,
+                  folderOrder: currentFolderOrder
+                };
+                batchHasMore = true;
+              }
             }
             skippedSourceFolderTitles.push(String(folder?.title ?? folderIdString));
             scanDiagnostics.folderFailures.push({
+              folderId: folderIdString,
               folderTitle: String(folder?.title ?? folderIdString),
-              message: String(error?.message || error || 'unknown error').slice(0, 160)
+              failedPage: failure.failedPage,
+              attempts: failure.attempts,
+              status: failure.status,
+              message: failure.message,
+              retainedVideoCount: videos.length
             });
             steps.push('api:favorite:scan-source-failed:' + folderIdString);
             if (!payload.aid) persistBasicProgress();
             continue;
           }
 
-          if (managedFolderIds.has(folderIdString)) {
-            targetMembership[folderIdString] = videos.map((video) => video.aid);
+          if (isManagedFolder) {
             steps.push((payload.aid ? 'api:favorite:scan-video-target:' : 'api:favorite:scan-target:') + folderIdString);
           }
 
           const sourceFolder = {
             id: folderIdString,
             title: String(folder?.title ?? ''),
+            mediaCount: Number(folder?.media_count ?? folder?.count ?? videos.length),
+            scanFailed: false,
+            scanStatus: 'complete',
+            readVideoCount: videos.length,
             videos
           };
 
-          if (!payload.aid) {
+          if (!payload.aid && includeInBusinessBatch) {
+            for (const video of videos) discoveredVideoAids.add(video.aid);
+            inProgressFolderAids = new Set();
+          }
+
+          if (!payload.aid && includeInBusinessBatch) {
             sourceFolders.push(sourceFolder);
             steps.push('api:favorite:scan-source:' + folderIdString);
           } else if (videos.length > 0 && !targetFolderIds.has(folderIdString)) {
@@ -893,15 +1385,47 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
             fallbackSourceFolder = sourceFolder;
           }
           if (!payload.aid) persistBasicProgress();
+          if (!payload.aid && folderScan.batchBoundary) {
+            nextBatchCursor = {
+              accountMid: String(mid),
+              folderId: folderScan.batchBoundary.folderId,
+              nextPage: folderScan.batchBoundary.nextPage,
+              folderOrder: currentFolderOrder
+            };
+            batchHasMore = true;
+            businessBatchClosed = true;
+            continue;
+          }
+          if (!payload.aid && batchAcceptedAids.size >= batchLimit && folderIndex + 1 < folders.length) {
+            const nextOrdinaryFolder = folders
+              .slice(folderIndex + 1)
+              .find((candidate) => {
+                const candidateId = findFolderId(candidate);
+                return candidateId && !managedFolderIds.has(String(candidateId));
+              });
+            const nextFolderId = findFolderId(nextOrdinaryFolder);
+            if (nextFolderId) {
+              nextBatchCursor = {
+                accountMid: String(mid),
+                folderId: String(nextFolderId),
+                nextPage: 1,
+                folderOrder: currentFolderOrder
+              };
+              batchHasMore = true;
+            }
+            businessBatchClosed = true;
+          }
         }
 
         if (payload.aid && sourceFolders.length === 0 && fallbackSourceFolder) {
           sourceFolders.push(fallbackSourceFolder);
         }
+        const resumableBatchCursor = ordinaryFailureCursor ?? nextBatchCursor;
 
+        const completeSourceFolders = sourceFolders.filter((folder) => folder.scanFailed !== true);
         const uniqueVideos = new Map();
         const knownTagsByAid = new Map();
-        for (const folder of sourceFolders) {
+        for (const folder of completeSourceFolders) {
           for (const video of folder.videos) {
             if (!uniqueVideos.has(video.aid)) uniqueVideos.set(video.aid, video);
             if (Array.isArray(video.tags) && video.tags.length > 0) knownTagsByAid.set(video.aid, video.tags);
@@ -916,37 +1440,46 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
         };
         for (const [aid, tags] of knownTagsByAid) applyTagsToSourceFolders(aid, tags);
         const queuedAids = Array.from(missingTagAids).filter(
-          (aid) => !knownTagsByAid.has(aid) && !cacheHitAids.has(aid)
+          (aid) => uniqueVideos.has(aid) && !knownTagsByAid.has(aid) && !cacheHitAids.has(aid)
         );
         const initiallyCompletedTagAids = new Set(
-          Array.from(knownTagsByAid.keys())
+          Array.from(knownTagsByAid.keys()).filter((aid) => uniqueVideos.has(aid))
         );
-        for (const aid of cacheHitAids) initiallyCompletedTagAids.add(aid);
+        for (const aid of cacheHitAids) {
+          if (uniqueVideos.has(aid)) initiallyCompletedTagAids.add(aid);
+        }
+        const completedScanRunId = payload.aid ? tagStore.lastScan?.basic?.runId : scanRunId;
         tagStore.queue = queuedAids;
         tagStore.lastScan = {
           sourceFolders,
           basic: {
             completed: uniqueVideos.size,
             total: uniqueVideos.size,
-            status: 'complete'
-          }
+            status: 'complete',
+            ...(completedScanRunId ? { runId: completedScanRunId } : {})
+          },
+          ...(!payload.aid ? { batch: { folderOrder: currentFolderOrder } } : {})
         };
         tagStore.progress = {
           completed: initiallyCompletedTagAids.size,
           total: uniqueVideos.size,
           pending: queuedAids.length,
-          cacheHits: cacheHitAids.size,
+          cacheHits: Array.from(cacheHitAids).filter((aid) => uniqueVideos.has(aid)).length,
           succeeded: 0,
           failed: 0,
           status: queuedAids.length > 0 ? 'running' : 'complete'
         };
+        if (!payload.aid && savedBatchCursorInvalid) {
+          delete tagStore.batchCursor;
+          delete tagStore.batchSeenAids;
+        }
         writeTagStore(tagStore);
 
         if (!payload.aid) {
           persistBasicProgress('complete');
         }
         const finalUniqueVideos = new Map();
-        for (const folder of sourceFolders) {
+        for (const folder of completeSourceFolders) {
           for (const video of folder.videos) {
             if (!finalUniqueVideos.has(video.aid)) finalUniqueVideos.set(video.aid, video);
           }
@@ -995,12 +1528,24 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
                   break;
                 }
                 consecutiveFailures += 1;
-                latestStore.progress.failed += 1;
                 const message = String(error?.message || error || '');
-                if (/(-352|-412|-509|risk|频繁|风控|too fast)/i.test(message) || consecutiveFailures >= 3) {
+                if (/(-101|-352|-412|-509|risk|频繁|风控|too fast|login|未登录|returned HTML)/i.test(message)) {
                   latestStore.progress.status = 'paused';
                   writeTagStore(latestStore);
                   break;
+                }
+                if (consecutiveFailures >= 3) {
+                  latestStore.queue.shift();
+                  latestStore.progress.completed = Math.max(
+                    latestStore.progress.completed,
+                    latestStore.progress.total - latestStore.queue.length
+                  );
+                  latestStore.progress.pending = latestStore.queue.length;
+                  latestStore.progress.failed += 1;
+                  latestStore.progress.status = latestStore.queue.length > 0 ? 'running' : 'complete';
+                  consecutiveFailures = 0;
+                  writeTagStore(latestStore);
+                  continue;
                 }
                 latestStore.queue.push(latestStore.queue.shift());
                 await wait(Math.min(8000, 750 * (2 ** consecutiveFailures)));
@@ -1009,6 +1554,12 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
               writeTagStore(latestStore);
             }
             window.__bilimiOldFavoriteTagWorkerRunning = false;
+            const handoffStore = readTagStore();
+            if (handoffStore.progress?.status === 'running' && handoffStore.queue.length > 0) {
+              setTimeout(() => {
+                if (!window.__bilimiOldFavoriteTagWorkerRunning) window.__bilimiStartOldFavoriteTagWorker?.();
+              }, 0);
+            }
           })();
         };
         return {
@@ -1020,11 +1571,28 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           managedFolders,
           managedFolderScanComplete,
           scanDiagnostics,
+          batch: {
+            limit: batchLimit,
+            hasMore: batchHasMore,
+            ...(resumableBatchCursor ? { nextCursor: resumableBatchCursor } : {}),
+            ...(!payload.aid ? {
+              commitToken: {
+                version: 1,
+                accountMid: String(mid),
+                scanRunId: String(completedScanRunId || ''),
+                folderOrder: currentFolderOrder,
+                expectedCurrentCursor: savedBatchCursorInvalid ? null : (savedBatchCursor ?? null),
+                nextCursor: resumableBatchCursor ?? null,
+                seenAids: Array.from(uniqueVideos.keys())
+              }
+            } : {})
+          },
           scanProgress: {
             basic: {
               completed: uniqueVideos.size,
               total: uniqueVideos.size,
-              status: 'complete'
+              status: 'complete',
+              ...(completedScanRunId ? { runId: completedScanRunId } : {})
             },
             tags: tagStore.progress
           },
@@ -1115,11 +1683,10 @@ export function buildExecuteFavoriteLedgerPlanScript(
           };
         };
 
-        const changeItemFolders = async (item, addFolderIds, removeFolderIds) => {
+        const appendItemFolders = async (item, addFolderIds) => {
           const body = new URLSearchParams();
           body.set('add_media_ids', addFolderIds.join(','));
           body.set('csrf', csrf);
-          body.set('del_media_ids', removeFolderIds.join(','));
           body.set('rid', String(item.aid));
           body.set('type', '2');
           body.set('platform', 'web');
@@ -1137,7 +1704,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
           await ensureApiOk(response, 'favorite ledger append');
         };
         const appendItem = async (item, targetFolderId) =>
-          changeItemFolders(item, [String(targetFolderId)], []);
+          appendItemFolders(item, [String(targetFolderId)]);
         const refreshTargetFolderId = async (targetDisplayName) => {
           const { mid } = readCredentials();
           if (!mid || !targetDisplayName) {
@@ -1176,21 +1743,16 @@ export function buildExecuteFavoriteLedgerPlanScript(
               continue;
             }
             const addedFolderIds = desiredFolderIds.filter((folderId) => !currentFolderIds.includes(folderId));
-            const removedFolderIds = currentFolderIds.filter((folderId) => !desiredFolderIds.includes(folderId));
             try {
               for (const folderId of addedFolderIds) {
                 await appendItem(item, folderId);
                 steps.push('api:ledger:append:' + item.aid + ':' + folderId);
               }
-              if (removedFolderIds.length > 0) {
-                await changeItemFolders(item, [], removedFolderIds);
-                steps.push('api:ledger:remove:' + item.aid);
-              }
               completedItems.push({
                 ...item,
-                finalFolderIds: desiredFolderIds,
+                finalFolderIds: Array.from(new Set([...currentFolderIds, ...desiredFolderIds])),
                 addedFolderIds,
-                removedFolderIds
+                removedFolderIds: []
               });
             } catch (error) {
               const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');

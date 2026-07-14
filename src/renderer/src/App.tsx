@@ -41,10 +41,12 @@ import {
   buildEnsureFavoriteLedgersScript,
   buildExecuteFavoriteLedgerPlanScript,
   buildFavoriteLedgerStatusScript,
+  buildCommitOldFavoriteBatchCheckpointScript,
   buildOldFavoriteTagEnrichmentScript,
   buildSaveFavoriteLedgersScript,
   buildScanOldFavoriteVideoScript,
-  buildScanOldFavoritesScript
+  buildScanOldFavoritesScript,
+  type OldFavoriteBatchCommitToken
 } from './features/favorites/favoriteLedgerApi'
 import {
   createFavoriteLedgerPreview,
@@ -62,7 +64,8 @@ import { parseManualTranscript } from './features/notes/transcriptNormalizer'
 import { recordAssistantPreferenceFeedback } from './features/state/assistantState'
 import type {
   AssistantRuntimeRequest,
-  AssistantSnapshot
+  AssistantSnapshot,
+  OldFavoriteBatchCommitResult
 } from './features/assistant/assistantRuntimeTypes'
 import { AssistantSidebar } from './features/assistant/AssistantSidebar'
 import { PET_VIDEO_OPENING_LINES, pickPetLine } from './features/assistant/petInteractionLines'
@@ -1025,6 +1028,7 @@ export default function App() {
       skippedSourceFolderTitles?: string[]
       scanDiagnostics?: FavoriteLedgerPreview['scanDiagnostics']
       scanProgress?: FavoriteLedgerPreview['scanProgress']
+      batch?: FavoriteLedgerPreview['batch']
     }
 
     if (!scanResult.ok || !Array.isArray(scanResult.sourceFolders) || !scanResult.targetMembership) {
@@ -1037,19 +1041,35 @@ export default function App() {
     }
 
     if (scanResult.managedFolderScanComplete === false) {
-      const failureReason = scanResult.scanDiagnostics?.folderFailures?.[0]?.message
+      const folderFailures = scanResult.scanDiagnostics?.folderFailures ?? []
+      const managedFolderIds = new Set(
+        scanResult.managedFolders
+          ? scanResult.managedFolders.map((folder) => folder.id)
+          : preferences.favoriteLedgers
+              .map((ledger) => ledger.bilibiliFolderId)
+              .filter((folderId): folderId is string => Boolean(folderId))
+      )
+      const matchedManagedFailure = folderFailures.find((failure) =>
+        failure.folderId !== undefined && managedFolderIds.has(failure.folderId)
+      )
+      const legacyFailure = folderFailures.every((failure) => !failure.folderId)
+        ? folderFailures[0]
+        : undefined
+      const failureReason = (matchedManagedFailure ?? legacyFailure)?.message
+      const failureTitle = matchedManagedFailure?.folderTitle
       return {
         ok: false,
-        message: `bilimi 收藏夹读取不完整${scanResult.skippedSourceFolderTitles?.length ? `：${scanResult.skippedSourceFolderTitles.slice(0, 3).join('、')}` : ''}${failureReason ? `（${failureReason}）` : ''}，请稍后重试。`,
+        message: `bilimi 收藏夹读取不完整${failureTitle ? `：${failureTitle}` : ''}${failureReason ? `（${failureReason}）` : ''}，请稍后重试。`,
         items: [],
         skippedSourceFolderTitles: scanResult.skippedSourceFolderTitles ?? []
       }
     }
 
     const multiArchiveMode = options.multiArchiveMode ?? preferences.favoriteArchiveMultiMode
+    const completeSourceFolders = scanResult.sourceFolders.filter((folder) => folder.scanFailed !== true)
     const partition = partitionFavoriteArchiveSources({
       accountMid: scanResult.accountMid ?? '',
-      sourceFolders: scanResult.sourceFolders,
+      sourceFolders: completeSourceFolders,
       managedFolders: scanResult.managedFolders ?? [],
       targetMembership: scanResult.targetMembership,
       protectionRecords: preferences.favoriteArchiveProtectionRecords ?? [],
@@ -1100,10 +1120,12 @@ export default function App() {
       scanProgress: scanResult.scanProgress,
       multiArchiveMode
     })
+    preview.batch = scanResult.batch
 
     preview.scanContext = {
       accountMid: scanResult.accountMid ?? '',
       totalUniqueVideos: partition.totalUniqueVideos,
+      sourceFolders: scanResult.sourceFolders,
       activeSourceFolders: partition.activeSourceFolders,
       protectedVideos: partition.protectedVideos,
       managedFolders: scanResult.managedFolders ?? [],
@@ -1118,12 +1140,20 @@ export default function App() {
     return preview
   }
 
-  async function readOldFavoriteTagEnrichment(action: 'read' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' = 'read') {
+  async function readOldFavoriteTagEnrichment(action: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' = 'read') {
     return runScript(buildOldFavoriteTagEnrichmentScript(action)) as Promise<{
       accountMid?: string
       sourceFolders: FavoriteSourceFolder[]
       scanProgress: NonNullable<FavoriteLedgerPreview['scanProgress']>
     }>
+  }
+
+  async function commitOldFavoriteBatchCheckpoint(
+    token: OldFavoriteBatchCommitToken
+  ): Promise<OldFavoriteBatchCommitResult> {
+    return runScript(
+      buildCommitOldFavoriteBatchCheckpointScript(token)
+    ) as unknown as Promise<OldFavoriteBatchCommitResult>
   }
 
   async function rejudgeOldFavorite(item: FavoriteLedgerPreviewItem): Promise<FavoriteLedgerPreviewItem> {
@@ -1137,10 +1167,16 @@ export default function App() {
     ) as AssistantAutomationResult & {
       sourceFolders?: FavoriteSourceFolder[]
       targetMembership?: Record<string, number[]>
+      managedFolderScanComplete?: boolean
       skippedSourceFolderTitles?: string[]
     }
 
-    if (!scanResult.ok || !Array.isArray(scanResult.sourceFolders) || !scanResult.targetMembership) {
+    if (
+      !scanResult.ok ||
+      scanResult.managedFolderScanComplete === false ||
+      !Array.isArray(scanResult.sourceFolders) ||
+      !scanResult.targetMembership
+    ) {
       return item
     }
 
@@ -1912,6 +1948,8 @@ export default function App() {
           return scanOldFavorites({
             multiArchiveMode: request.multiArchiveMode
           })
+        case 'commit-old-favorite-batch':
+          return commitOldFavoriteBatchCheckpoint(request.token)
         case 'old-favorite-tag-enrichment':
           return readOldFavoriteTagEnrichment(request.action)
         case 'rejudge-old-favorite':

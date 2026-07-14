@@ -1,12 +1,14 @@
 ﻿import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FavoriteLedger } from '@shared/types'
+import * as favoriteLedgerApiModule from './favoriteLedgerApi'
 import {
   buildEnsureFavoriteLedgersScript,
   buildExecuteFavoriteLedgerPlanScript,
   buildFavoriteLedgerStatusScript,
   buildSaveFavoriteLedgersScript,
   buildOldFavoriteTagEnrichmentScript,
+  buildCommitOldFavoriteBatchCheckpointScript,
   buildScanOldFavoriteVideoScript,
   buildScanOldFavoritesScript
 } from './favoriteLedgerApi'
@@ -19,7 +21,144 @@ function installCookies() {
 }
 
 describe('favorite ledger API scripts', () => {
-  it('clears another accounts persisted scan state while preserving reusable tag cache', async () => {
+  afterEach(() => {
+    vi.clearAllTimers()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+    localStorage.clear()
+    Object.defineProperty(document, 'cookie', { configurable: true, value: '' })
+    const runtimeWindow = window as typeof window & {
+      __bilimiOldFavoriteScanControl?: unknown
+      __bilimiOldFavoriteTagWorkerRunning?: boolean
+      __bilimiStartOldFavoriteTagWorker?: () => void
+    }
+    delete runtimeWindow.__bilimiOldFavoriteScanControl
+    delete runtimeWindow.__bilimiOldFavoriteTagWorkerRunning
+    delete runtimeWindow.__bilimiStartOldFavoriteTagWorker
+  })
+
+  it('exposes an explicit old favorite batch checkpoint commit script', () => {
+    expect(typeof (
+      favoriteLedgerApiModule as typeof favoriteLedgerApiModule & {
+        buildCommitOldFavoriteBatchCheckpointScript?: unknown
+      }
+    ).buildCommitOldFavoriteBatchCheckpointScript).toBe('function')
+  })
+
+  async function scanCheckpointFixture(videoCount: number) {
+    installCookies()
+    localStorage.clear()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({
+          code: 0,
+          data: { list: [{ id: 101, title: '批次来源', media_count: videoCount }] }
+        })
+      }
+      const page = Number(new URL(url).searchParams.get('pn'))
+      const firstAid = (page - 1) * 20 + 1
+      const pageSize = Math.min(20, Math.max(0, videoCount - firstAid + 1))
+      return Response.json({
+        code: 0,
+        data: {
+          medias: Array.from({ length: pageSize }, (_, index) => ({
+            id: firstAid + index,
+            title: `第 ${firstAid + index} 条`,
+            type: 2,
+            tags: ['现成标签']
+          })),
+          has_more: firstAid + pageSize - 1 < videoCount
+        }
+      })
+    }))
+    return window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+  }
+
+  it('commits a non-terminal scan token atomically and treats an identical retry as idempotent', async () => {
+    const scanResult = await scanCheckpointFixture(3020)
+    const token = scanResult.batch.commitToken
+    const beforeCommit = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+
+    expect(token).toMatchObject({
+      version: 1,
+      accountMid: '42',
+      scanRunId: scanResult.scanProgress.basic.runId,
+      folderOrder: ['101'],
+      expectedCurrentCursor: null,
+      nextCursor: { accountMid: '42', folderId: '101', nextPage: 151, folderOrder: ['101'] }
+    })
+    expect(token.seenAids).toHaveLength(3000)
+    expect(beforeCommit.batchCursor).toBeUndefined()
+
+    const firstCommit = await window.eval(buildCommitOldFavoriteBatchCheckpointScript(token))
+    const committed = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
+    const repeatedCommit = await window.eval(buildCommitOldFavoriteBatchCheckpointScript(token))
+
+    expect(firstCommit).toMatchObject({ ok: true, committed: true, idempotent: false, exhausted: false })
+    expect(committed.batchCursor).toEqual(token.nextCursor)
+    expect(committed.batchSeenAids).toEqual(token.seenAids)
+    expect(committed.batchExhausted).toBeUndefined()
+    expect(repeatedCommit).toMatchObject({ ok: true, committed: true, idempotent: true, exhausted: false })
+    expect(setItemSpy).not.toHaveBeenCalled()
+  })
+
+  it('commits a terminal scan token as exhausted instead of deleting all checkpoint state', async () => {
+    const scanResult = await scanCheckpointFixture(1)
+    const token = scanResult.batch.commitToken
+
+    expect(token.nextCursor).toBeNull()
+    const firstCommit = await window.eval(buildCommitOldFavoriteBatchCheckpointScript(token))
+    const committed = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+    const repeatedCommit = await window.eval(buildCommitOldFavoriteBatchCheckpointScript(token))
+
+    expect(firstCommit).toMatchObject({ ok: true, committed: true, idempotent: false, exhausted: true })
+    expect(committed.batchCursor).toBeUndefined()
+    expect(committed.batchSeenAids).toEqual([1])
+    expect(committed.batchExhausted).toMatchObject({
+      accountMid: '42',
+      scanRunId: token.scanRunId,
+      folderOrder: ['101']
+    })
+    expect(repeatedCommit).toMatchObject({ ok: true, committed: true, idempotent: true, exhausted: true })
+  })
+
+  it.each([
+    ['account', (store: Record<string, unknown>) => {
+      Object.defineProperty(document, 'cookie', {
+        configurable: true,
+        value: 'bili_jct=csrf-token; DedeUserID=99'
+      })
+      return store
+    }],
+    ['completed run', (store: Record<string, any>) => ({
+      ...store,
+      lastScan: { ...store.lastScan, basic: { ...store.lastScan.basic, runId: 'newer-run' } }
+    })],
+    ['folder order', (store: Record<string, any>) => ({
+      ...store,
+      lastScan: { ...store.lastScan, batch: { ...store.lastScan.batch, folderOrder: ['changed'] } }
+    })],
+    ['committed cursor', (store: Record<string, unknown>) => ({
+      ...store,
+      batchCursor: { accountMid: '42', folderId: '101', nextPage: 2, folderOrder: ['101'] }
+    })]
+  ])('rejects a checkpoint token when the current %s no longer matches', async (_label, mutateStore) => {
+    const scanResult = await scanCheckpointFixture(1)
+    const token = scanResult.batch.commitToken
+    const originalStore = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+    const mutatedStore = mutateStore(originalStore)
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify(mutatedStore))
+
+    const result = await window.eval(buildCommitOldFavoriteBatchCheckpointScript(token))
+    const after = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+
+    expect(result).toMatchObject({ ok: false, stale: true })
+    expect(after).toEqual(mutatedStore)
+  })
+
+  it('clears another accounts persisted scan state and tag cache', async () => {
     installCookies()
     localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
       accountMid: '99',
@@ -43,7 +182,7 @@ describe('favorite ledger API scripts', () => {
         tags: { completed: 0, total: 0, pending: 0 }
       }
     })
-    expect(stored).toMatchObject({ accountMid: '42', cache: { '123': expect.any(Object) }, queue: [] })
+    expect(stored).toMatchObject({ accountMid: '42', cache: {}, queue: [] })
     expect(stored.lastScan).toBeUndefined()
   })
 
@@ -80,10 +219,10 @@ describe('favorite ledger API scripts', () => {
     expect(read.accountMid).toBe('')
     expect(read.sourceFolders).toEqual([])
     expect(read.scanProgress.tags).toMatchObject({ completed: 0, total: 0, pending: 0 })
-    installCookies()
   })
 
   it('reads and controls the persisted old favorite tag enrichment worker', async () => {
+    installCookies()
     localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
       accountMid: '42',
       cache: { '123': { tags: ['攻略'], updatedAt: Date.now() } },
@@ -116,6 +255,24 @@ describe('favorite ledger API scripts', () => {
     expect(stored.progress).toMatchObject({ completed: 2300, total: 2300, pending: 0, status: 'complete' })
   })
 
+  it('does not rewrite the persisted full scan snapshot for a read-only progress poll', async () => {
+    installCookies()
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
+      accountMid: '42', cache: {}, queue: [2],
+      progress: { completed: 1, total: 2, pending: 1, cacheHits: 0, succeeded: 1, failed: 0, status: 'running' },
+      lastScan: {
+        sourceFolders: [{ id: 'large', title: '大收藏夹', videos: Array.from({ length: 200 }, (_, index) => ({ aid: index + 1, title: `视频${index + 1}` })) }],
+        basic: { completed: 200, total: 200, status: 'complete' }
+      }
+    }))
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
+
+    const result = await window.eval(buildOldFavoriteTagEnrichmentScript('progress'))
+
+    expect(result.sourceFolders).toEqual([])
+    expect(setItemSpy).not.toHaveBeenCalled()
+  })
+
   it.each(['running', 'paused'])('marks an empty persisted tag queue complete when its status is %s', async (status) => {
     installCookies()
     localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
@@ -142,6 +299,7 @@ describe('favorite ledger API scripts', () => {
 
   it('bootstraps tag enrichment from a persisted queue after the webview restarts', async () => {
     vi.useFakeTimers()
+    installCookies()
     localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
       accountMid: '42',
       cache: {}, queue: [321], progress: { completed: 0, total: 1, pending: 1, cacheHits: 0, succeeded: 0, failed: 0, status: 'paused' }
@@ -161,6 +319,7 @@ describe('favorite ledger API scripts', () => {
 
   it('preserves the last scan snapshot while the worker persists completed tags', async () => {
     vi.useFakeTimers()
+    installCookies()
     localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
       accountMid: '42',
       cache: {}, queue: [321], controlRevision: 0,
@@ -177,6 +336,7 @@ describe('favorite ledger API scripts', () => {
 
   it('marks one resumed aid failed after three attempts and continues to the next aid', async () => {
     vi.useFakeTimers()
+    installCookies()
     localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
       accountMid: '42',
       cache: {}, queue: [1, 2], controlRevision: 0,
@@ -202,8 +362,33 @@ describe('favorite ledger API scripts', () => {
     vi.useRealTimers()
   })
 
+  it.each([
+    ['html login response', () => new Response('<!DOCTYPE html><html>login</html>', { headers: { 'content-type': 'text/html' } })],
+    ['not logged in response', () => Response.json({ code: -101, message: '账号未登录' })],
+    ['risk control response', () => Response.json({ code: -412, message: 'risk control' })]
+  ] as const)('pauses tag enrichment on a global %s', async (_label, makeResponse) => {
+    vi.useFakeTimers()
+    installCookies()
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
+      accountMid: '42', cache: {}, queue: [1, 2], controlRevision: 0,
+      progress: { completed: 0, total: 2, pending: 2, cacheHits: 0, succeeded: 0, failed: 0, status: 'paused' }
+    }))
+    const fetchMock = vi.fn(async () => makeResponse())
+    vi.stubGlobal('fetch', fetchMock)
+
+    await window.eval(buildOldFavoriteTagEnrichmentScript('resume'))
+    await vi.advanceTimersByTimeAsync(5000)
+
+    const stored = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(stored.queue).toEqual([1, 2])
+    expect(stored.progress).toMatchObject({ completed: 0, pending: 2, failed: 0, status: 'paused' })
+    vi.useRealTimers()
+  })
+
   it('does not resurrect a cancelled queue when a pending tag request finishes', async () => {
     vi.useFakeTimers()
+    installCookies()
     let resolveFetch!: (value: Response) => void
     vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { resolveFetch = resolve })))
     localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({ accountMid: '42', cache: {}, queue: [9], controlRevision: 0, progress: { completed: 0, total: 1, pending: 1, cacheHits: 0, succeeded: 0, failed: 0, status: 'paused' } }))
@@ -648,7 +833,7 @@ describe('favorite ledger API scripts', () => {
     const body = new URLSearchParams(requests[0].body)
     expect(body.get('add_media_ids')).toBe('9001')
     expect(body.get('csrf')).toBe('csrf-token')
-    expect(body.get('del_media_ids')).toBe('')
+    expect(body.has('del_media_ids')).toBe(false)
     expect(body.get('rid')).toBe('123')
     expect(body.get('type')).toBe('2')
     expect(body.get('platform')).toBe('web')
@@ -1127,7 +1312,7 @@ describe('favorite ledger API scripts', () => {
       .filter((request) => request.url.includes('/x/v3/fav/resource/deal'))
       .map((request) => new URLSearchParams(request.body))
     expect(appendBodies.map((body) => body.get('add_media_ids'))).toEqual(['9001', '9009'])
-    expect(appendBodies[1].get('del_media_ids')).toBe('')
+    expect(appendBodies[1].has('del_media_ids')).toBe(false)
   })
 
   it('scans old favorites and Bilimi target folders without moving source items', async () => {
@@ -1236,6 +1421,10 @@ describe('favorite ledger API scripts', () => {
       {
         id: '101',
         title: 'Default Favorites',
+        mediaCount: 2,
+        scanFailed: false,
+        scanStatus: 'complete',
+        readVideoCount: 2,
         videos: [
           {
             aid: 123,
@@ -1254,28 +1443,13 @@ describe('favorite ledger API scripts', () => {
             category: 'Entertainment'
           }
         ]
-      },
-      {
-        id: '9001',
-        title: ledgers[0].displayName,
-        videos: [
-          {
-            aid: 123,
-            title: 'Machine learning tutorial',
-            description: '',
-            author: '',
-            tags: ['AI', 'Tutorial'],
-            category: ''
-          }
-        ]
       }
     ])
     expect(result.targetMembership).toEqual({ '9001': [123] })
     expect(result.steps).toEqual([
       'api:favorite:list',
       'api:favorite:scan-source:101',
-      'api:favorite:scan-target:9001',
-      'api:favorite:scan-source:9001'
+      'api:favorite:scan-target:9001'
     ])
     expect(requests.some((url) => url.includes('/x/v3/fav/resource/deal'))).toBe(false)
   })
@@ -1323,6 +1497,38 @@ describe('favorite ledger API scripts', () => {
     expect(persisted.progress.total).toBe(1)
   })
 
+  it('keeps the scan worker tag progress within its total after persisted progress is corrupted', async () => {
+    vi.useFakeTimers()
+    installCookies()
+    localStorage.clear()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '默认收藏夹' }] } })
+      }
+      if (url.includes('/x/v3/fav/resource/list')) {
+        return Response.json({ code: 0, data: { medias: [{ id: 123, title: '教程', type: 2 }], has_more: false } })
+      }
+      if (url.includes('/x/tag/archive/tags')) {
+        return Response.json({ code: 0, data: [{ tag_name: '学习' }] })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    const key = 'bilimi:old-favorite-tag-enrichment:v1'
+    const corrupted = JSON.parse(localStorage.getItem(key) ?? '{}')
+    corrupted.progress = { ...corrupted.progress, completed: 10, total: 1, pending: 1, status: 'running' }
+    localStorage.setItem(key, JSON.stringify(corrupted))
+    ;(window as typeof window & { __bilimiStartOldFavoriteTagWorker?: () => void })
+      .__bilimiStartOldFavoriteTagWorker?.()
+    await vi.advanceTimersByTimeAsync(1200)
+
+    const stored = JSON.parse(localStorage.getItem(key) ?? '{}')
+    expect(stored.progress.completed).toBeLessThanOrEqual(stored.progress.total)
+    expect(stored.progress.pending).toBeLessThanOrEqual(stored.progress.total)
+    vi.useRealTimers()
+  })
+
   it('counts current cache hits as completed tag enrichment without double-counting pending videos', async () => {
     installCookies()
     localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
@@ -1344,6 +1550,33 @@ describe('favorite ledger API scripts', () => {
 
     expect(result.scanProgress.tags).toMatchObject({ completed: 1, total: 2, pending: 1, cacheHits: 1, failed: 0 })
     expect(JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}').queue).toEqual([456])
+  })
+
+  it('returns the persisted full-scan run id when every tag is already cached', async () => {
+    installCookies()
+    localStorage.clear()
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
+      accountMid: '42',
+      cache: { '123': { tags: ['已缓存'], updatedAt: Date.now() } },
+      queue: [],
+      progress: { completed: 0, total: 0, pending: 0, status: 'complete' }
+    }))
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '默认收藏夹', media_count: 1 }] } })
+      }
+      return Response.json({
+        code: 0,
+        data: { medias: [{ id: 123, title: '缓存视频', type: 2 }], has_more: false }
+      })
+    }))
+
+    const result = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    const stored = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+
+    expect(result.scanProgress.tags).toMatchObject({ completed: 1, total: 1, pending: 0, status: 'complete' })
+    expect(result.scanProgress.basic.runId).toEqual(expect.any(String))
+    expect(stored.lastScan.basic.runId).toBe(result.scanProgress.basic.runId)
   })
 
   it('counts a cached empty tag response as completed instead of leaving impossible progress', async () => {
@@ -1407,7 +1640,7 @@ describe('favorite ledger API scripts', () => {
     expect(stored.queue).toEqual([])
   })
 
-  it('stops an older worker before it can consume a replacement scan queue', async () => {
+  it('hands a replacement scan queue from an older worker to the current worker automatically', async () => {
     vi.useFakeTimers()
     installCookies()
     localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
@@ -1438,7 +1671,6 @@ describe('favorite ledger API scripts', () => {
     resolveOldRequest(Response.json({ code: 0, data: [{ tag_name: '旧标签' }] }))
     await vi.advanceTimersByTimeAsync(1_000)
     await scanPromise
-    await window.eval(buildOldFavoriteTagEnrichmentScript('resume'))
     await vi.advanceTimersByTimeAsync(1_000)
     expect(newAidRequests).toBe(1)
     resolveNewRequest(Response.json({ code: 0, data: [{ tag_name: '新标签' }] }))
@@ -1502,7 +1734,7 @@ describe('favorite ledger API scripts', () => {
     expect(finalProgress).toMatchObject({ completed: 1, total: 1, status: 'complete' })
   })
 
-  it('reconciles a protected favorite by adding every new target before removing old Bilimi targets', async () => {
+  it('keeps protected favorites append-only when desired targets are fewer than current targets', async () => {
     installCookies()
     const requests: URLSearchParams[] = []
     vi.stubGlobal(
@@ -1529,7 +1761,7 @@ describe('favorite ledger API scripts', () => {
           alreadyInTarget: false,
           selected: true,
           desiredTargetFolderIds: ['9002'],
-          currentBilimiFolderIds: ['9001'],
+          currentBilimiFolderIds: ['9001', '9003'],
           reorganizeProtected: true
         }
       ])
@@ -1540,16 +1772,15 @@ describe('favorite ledger API scripts', () => {
       completedItems: [
         expect.objectContaining({
           aid: 123,
-          finalFolderIds: ['9002'],
+          finalFolderIds: ['9001', '9003', '9002'],
           addedFolderIds: ['9002'],
-          removedFolderIds: ['9001']
+          removedFolderIds: []
         })
       ]
     })
-    expect(requests.map((body) => [body.get('add_media_ids'), body.get('del_media_ids')])).toEqual([
-      ['9002', ''],
-      ['', '9001']
-    ])
+    expect(requests).toHaveLength(1)
+    expect(requests[0].get('add_media_ids')).toBe('9002')
+    expect(requests[0].has('del_media_ids')).toBe(false)
   })
 
   it('does not remove old Bilimi targets when adding a replacement fails', async () => {
@@ -1591,19 +1822,19 @@ describe('favorite ledger API scripts', () => {
 
     expect(result.ok).toBe(false)
     expect(requests).toHaveLength(1)
-    expect(requests[0].get('del_media_ids')).toBe('')
+    expect(requests[0].has('del_media_ids')).toBe(false)
   })
 
-  it('reports partial failure when an obsolete Bilimi target cannot be removed', async () => {
+  it('never sends a removal request for obsolete protected targets', async () => {
     installCookies()
+    const requests: URLSearchParams[] = []
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
         if (url.includes('/x/v3/fav/resource/deal')) {
           const body = new URLSearchParams(init?.body?.toString())
-          return body.get('del_media_ids')
-            ? Response.json({ code: -500, message: 'remove failed', data: {} })
-            : Response.json({ code: 0, data: {} })
+          requests.push(body)
+          return Response.json({ code: 0, data: {} })
         }
         throw new Error(`Unexpected request: ${url}`)
       })
@@ -1628,7 +1859,18 @@ describe('favorite ledger API scripts', () => {
       ])
     )
 
-    expect(result).toMatchObject({ ok: false, partial: true })
+    expect(result).toMatchObject({
+      ok: true,
+      completedItems: [expect.objectContaining({
+        aid: 123,
+        finalFolderIds: ['9001', '9002'],
+        addedFolderIds: ['9002'],
+        removedFolderIds: []
+      })]
+    })
+    expect(requests).toHaveLength(1)
+    expect(requests[0].get('add_media_ids')).toBe('9002')
+    expect(requests[0].has('del_media_ids')).toBe(false)
   })
 
   it('pauses protected reconciliation when Bilibili protection is detected', async () => {
@@ -1765,6 +2007,38 @@ describe('favorite ledger API scripts', () => {
     expect(requests.some((url) => url.includes('/x/tag/archive/tags') && url.includes('aid=123'))).toBe(false)
   })
 
+  it('settles an automatically queued tag as failed after three transient worker attempts', async () => {
+    vi.useFakeTimers()
+    installCookies()
+    localStorage.clear()
+    let tagAttempts = 0
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '默认收藏夹' }] } })
+      }
+      if (url.includes('/x/v3/fav/resource/list')) {
+        return Response.json({ code: 0, data: {
+          medias: [{ id: 123, title: '无标签视频', type: 2 }], has_more: false
+        } })
+      }
+      if (url.includes('/x/tag/archive/tags')) {
+        tagAttempts += 1
+        return Response.json({ code: -500, message: 'temporary failure' })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    ;(window as typeof window & { __bilimiStartOldFavoriteTagWorker?: () => void }).__bilimiStartOldFavoriteTagWorker?.()
+    await vi.advanceTimersByTimeAsync(30_000)
+
+    const stored = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+    expect(tagAttempts).toBe(3)
+    expect(stored.queue).toEqual([])
+    expect(stored.progress).toMatchObject({ completed: 1, pending: 0, failed: 1, status: 'complete' })
+    vi.useRealTimers()
+  })
+
   it('retries a transient favorite folder page failure before marking the scan incomplete', async () => {
     installCookies()
     localStorage.clear()
@@ -1886,6 +2160,10 @@ describe('favorite ledger API scripts', () => {
       {
         id: '101',
         title: 'Default Favorites',
+        mediaCount: 1,
+        scanFailed: false,
+        scanStatus: 'complete',
+        readVideoCount: 1,
         videos: [
           {
             aid: 250,
@@ -1909,7 +2187,7 @@ describe('favorite ledger API scripts', () => {
     expect(requests.some((request) => request.url.includes('/x/v3/fav/resource/deal'))).toBe(false)
   })
 
-  it('scans Bilimi ledgers as both target membership folders and old favorite sources', async () => {
+  it('scans Bilimi ledgers as target membership without adding them to business sources', async () => {
     installCookies()
     const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
       if (ledger.id === 'inbox') {
@@ -1974,29 +2252,16 @@ describe('favorite ledger API scripts', () => {
     const result = await window.eval(buildScanOldFavoritesScript(ledgers))
 
     expect(result.ok).toBe(true)
-    expect(result.sourceFolders).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: '101', title: 'Default Favorites' }),
-        expect.objectContaining({
-          id: '9001',
-          title: 'bilimi·知识',
-          videos: [expect.objectContaining({ aid: 789, title: 'Knowledge archive tutorial' })]
-        }),
-        expect.objectContaining({
-          id: '9008',
-          title: 'bilimi·待分类',
-          videos: [expect.objectContaining({ aid: 456, title: 'Inbox tutorial' })]
-        })
-      ])
-    )
+    expect(result.sourceFolders).toEqual([
+      expect.objectContaining({ id: '101', title: 'Default Favorites' })
+    ])
     expect(result.targetMembership).toMatchObject({
       '9001': [789],
       '9008': [456]
     })
     expect(result.steps).toEqual(
       expect.arrayContaining([
-        'api:favorite:scan-source:9001',
-        'api:favorite:scan-source:9008',
+        'api:favorite:scan-target:9001',
         'api:favorite:scan-target:9008'
       ])
     )
@@ -2084,6 +2349,7 @@ describe('favorite ledger API scripts', () => {
   })
 
   it('continues scanning old favorites when one resource folder returns html', async () => {
+    vi.useFakeTimers()
     installCookies()
     const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
       ...ledger,
@@ -2098,8 +2364,8 @@ describe('favorite ledger API scripts', () => {
             code: 0,
             data: {
               list: [
-                { id: 101, title: 'Default Favorites' },
-                { id: 102, title: 'Login Redirect Favorites' }
+                { id: 101, title: 'Default Favorites', media_count: 3 },
+                { id: 102, title: 'Login Redirect Favorites', media_count: 4 }
               ]
             }
           })
@@ -2126,7 +2392,9 @@ describe('favorite ledger API scripts', () => {
       })
     )
 
-    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+    const resultPromise = window.eval(buildScanOldFavoritesScript(ledgers))
+    await vi.advanceTimersByTimeAsync(10_000)
+    const result = await resultPromise
 
     expect(result).toMatchObject({
       ok: true,
@@ -2135,6 +2403,8 @@ describe('favorite ledger API scripts', () => {
         {
           id: '101',
           title: 'Default Favorites',
+          mediaCount: 3,
+          scanFailed: false,
           videos: [expect.objectContaining({ aid: 123, title: 'Video tutorial' })]
         }
       ],
@@ -2146,5 +2416,994 @@ describe('favorite ledger API scripts', () => {
       'api:favorite:scan-source-failed:102'
     ])
     expect(result.message).toContain('skipped 1 folder')
+    expect(
+      vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes('media_id=102'))
+    ).toHaveLength(1)
+  })
+
+  it('keeps the existing scan run and revision when refreshing one old favorite video', async () => {
+    installCookies()
+    localStorage.clear()
+    const key = 'bilimi:old-favorite-tag-enrichment:v1'
+    localStorage.setItem(key, JSON.stringify({
+      accountMid: '42',
+      controlRevision: 7,
+      scanCancelled: false,
+      cache: {},
+      queue: [],
+      progress: { completed: 1, total: 1, pending: 0, status: 'complete' },
+      lastScan: {
+        sourceFolders: [],
+        basic: { completed: 1, total: 1, status: 'complete', runId: 'fixed-full-scan-run' }
+      }
+    }))
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '默认收藏夹', media_count: 1 }] } })
+      }
+      return Response.json({
+        code: 0,
+        data: {
+          medias: [{ id: 123, title: '单视频刷新', type: 2, tags: ['最新标签'] }],
+          has_more: false
+        }
+      })
+    }))
+
+    const result = await window.eval(
+      buildScanOldFavoriteVideoScript(createDefaultFavoriteLedgers().slice(0, 1), 123)
+    )
+    const stored = JSON.parse(localStorage.getItem(key) ?? '{}')
+
+    expect(result.scanProgress.basic.runId).toBe('fixed-full-scan-run')
+    expect(stored.lastScan.basic.runId).toBe('fixed-full-scan-run')
+    expect(stored.controlRevision).toBe(7)
+  })
+
+  it('retries a recoverable resource timeout three times and persists the active scan location', async () => {
+    vi.useFakeTimers()
+    installCookies()
+    localStorage.clear()
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 102, title: '番剧待看' }] } })
+      }
+      throw new Error('request timeout')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const resultPromise = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    await vi.advanceTimersByTimeAsync(1)
+    const firstRetry = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}').lastScan.basic
+    expect(firstRetry).toMatchObject({
+      folderId: '102', folderTitle: '番剧待看', page: 1, attempt: 1, phase: 'retrying'
+    })
+    expect(firstRetry.runId).toEqual(expect.any(String))
+
+    await vi.advanceTimersByTimeAsync(3_500)
+    await resultPromise
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('media_id=102'))).toHaveLength(3)
+  })
+
+  it.each(['fetch', 'body'] as const)('hard-times out a hanging favorite folder list %s', async (hangAt) => {
+    vi.useFakeTimers()
+    installCookies()
+    localStorage.clear()
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      if (hangAt === 'fetch') return new Promise<Response>(() => undefined)
+      return {
+        headers: { get: () => 'application/json' },
+        ok: true,
+        statusText: '',
+        text: () => new Promise<string>(() => undefined)
+      } as Response
+    }))
+
+    let settled = false
+    void window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+      .finally(() => { settled = true })
+    await vi.advanceTimersByTimeAsync(10_001)
+
+    expect(settled).toBe(true)
+  })
+
+  it('keeps a scan cancelled when cancellation happens while the folder list is pending', async () => {
+    installCookies()
+    localStorage.clear()
+    let resolveList!: (response: Response) => void
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return new Promise<Response>((resolve) => { resolveList = resolve })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const scanPromise = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    await vi.waitFor(() => expect(resolveList).toEqual(expect.any(Function)))
+    const pendingStore = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+    expect(pendingStore.lastScan.basic).toMatchObject({
+      runId: expect.any(String), status: 'running', phase: 'listing'
+    })
+    await window.eval(buildOldFavoriteTagEnrichmentScript('cancel-scan'))
+    resolveList(Response.json({ code: 0, data: { list: [] } }))
+
+    await expect(scanPromise).resolves.toMatchObject({ cancelled: true })
+    const finalStore = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+    expect(finalStore.scanCancelled).toBe(true)
+    expect(finalStore.lastScan.basic.status).toBe('cancelled')
+  })
+
+  it('does not let an older delayed folder list overwrite a newer completed scan', async () => {
+    installCookies()
+    localStorage.clear()
+    let listCall = 0
+    let resolveOlderList!: (response: Response) => void
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        listCall += 1
+        if (listCall === 1) return new Promise<Response>((resolve) => { resolveOlderList = resolve })
+        return Response.json({ code: 0, data: { list: [{ id: 202, title: '新扫描收藏夹' }] } })
+      }
+      if (url.includes('media_id=202')) {
+        return Response.json({ code: 0, data: { medias: [{ id: 2020, title: '新扫描视频', type: 2 }], has_more: false } })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const olderScan = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    await vi.waitFor(() => expect(resolveOlderList).toEqual(expect.any(Function)))
+    const newerResult = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    const newerStore = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+    resolveOlderList(Response.json({ code: 0, data: { list: [{ id: 101, title: '旧扫描收藏夹' }] } }))
+
+    expect(newerResult.sourceFolders[0].videos[0].aid).toBe(2020)
+    await expect(olderScan).resolves.toMatchObject({ cancelled: true })
+    const finalStore = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+    expect(finalStore.lastScan.basic.runId).toBe(newerStore.lastScan.basic.runId)
+    expect(finalStore.lastScan.sourceFolders[0].videos[0].aid).toBe(2020)
+  })
+
+  it.each(['fetch', 'body'] as const)('retries a hanging favorite resource %s three times before settling', async (hangAt) => {
+    vi.useFakeTimers()
+    installCookies()
+    localStorage.clear()
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '悬挂收藏夹' }] } })
+      }
+      if (hangAt === 'fetch') return new Promise<Response>(() => undefined)
+      return {
+        headers: { get: () => 'application/json' },
+        ok: true,
+        statusText: '',
+        text: () => new Promise<string>(() => undefined)
+      } as Response
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const resultPromise = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    await vi.advanceTimersByTimeAsync(33_501)
+    const result = await resultPromise
+
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/resource/list'))).toHaveLength(3)
+    expect(result.sourceFolders).toEqual([])
+    expect(result.scanDiagnostics.folderFailures[0]).toMatchObject({ status: 'failed', failedPage: 1 })
+  })
+
+  it.each([
+    ['HTTP 412', () => new Response('precondition failed', { status: 412 })],
+    ['API -352', () => Response.json({ code: -352, message: 'challenge required' })]
+  ] as const)('does not retry terminal resource response %s', async (_label, makeResponse) => {
+    installCookies()
+    localStorage.clear()
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '终止收藏夹' }] } })
+      }
+      return makeResponse()
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/resource/list'))).toHaveLength(1)
+    expect(result.sourceFolders).toEqual([])
+    expect(result.scanDiagnostics.folderFailures[0]).toMatchObject({ status: 'failed', failedPage: 1 })
+  })
+
+  it('fails a terminal favorite folder list once and closes its listing progress', async () => {
+    installCookies()
+    localStorage.clear()
+    const fetchMock = vi.fn(async () => new Response('precondition failed', { status: 412 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    const basic = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}').lastScan.basic
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(result).toMatchObject({ ok: false, missingTargets: ['favorite-ledger-api'] })
+    expect(basic).toMatchObject({ status: 'failed', phase: 'failed', runId: expect.any(String) })
+  })
+
+  it('accepts null medias as an empty result for a reliably declared empty folder', async () => {
+    installCookies()
+    localStorage.clear()
+    const folderId = '4037824954'
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
+      ...ledger,
+      bilibiliFolderId: folderId
+    }))
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 4037824954, title: 'bilimi·暂存', media_count: 0 }] } })
+      }
+      return Response.json({
+        code: 0,
+        data: { medias: null, has_more: false, info: { media_count: 0 } }
+      })
+    }))
+
+    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+
+    expect(result).toMatchObject({
+      ok: true,
+      managedFolderScanComplete: true,
+      targetMembership: { [folderId]: [] },
+      sourceFolders: []
+    })
+    expect(result.scanDiagnostics.folderFailures).toEqual([])
+  })
+
+  it.each([
+    ['folder count is nonzero', 1, false, 0],
+    ['response info count is nonzero', 0, false, 1],
+    ['response claims another page', 0, true, 0]
+  ] as const)('rejects null medias when %s', async (_label, folderCount, hasMore, infoCount) => {
+    installCookies()
+    localStorage.clear()
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '异常空收藏夹', media_count: folderCount }] } })
+      }
+      return Response.json({
+        code: 0,
+        data: { medias: null, has_more: hasMore, info: { media_count: infoCount } }
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/resource/list'))).toHaveLength(1)
+    expect(result.sourceFolders).toEqual([])
+    expect(result.scanDiagnostics.folderFailures[0]).toMatchObject({
+      status: 'failed', message: 'favorite resource list returned invalid media data'
+    })
+  })
+
+  it('rejects a missing medias field even when both declared counts are zero', async () => {
+    installCookies()
+    localStorage.clear()
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '字段缺失收藏夹', media_count: 0 }] } })
+      }
+      return Response.json({ code: 0, data: { has_more: false, info: { media_count: 0 } } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/resource/list'))).toHaveLength(1)
+    expect(result.sourceFolders).toEqual([])
+    expect(result.scanDiagnostics.folderFailures[0]).toMatchObject({
+      status: 'failed', message: 'favorite resource list returned invalid media data'
+    })
+  })
+
+  it.each([
+    ['both counts are unknown', undefined, undefined, null],
+    ['folder count is an empty string', '', undefined, null],
+    ['response count is whitespace', undefined, '   ', null],
+    ['folder count is false', false, undefined, null],
+    ['medias is an object', 0, 0, { id: 1 }],
+    ['medias is a string', 0, 0, '']
+  ] as const)('rejects an unreliable empty-folder response when %s', async (
+    _label,
+    folderCount,
+    infoCount,
+    medias
+  ) => {
+    installCookies()
+    localStorage.clear()
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({
+          code: 0,
+          data: { list: [{
+            id: 101,
+            title: '不可靠空收藏夹',
+            ...(folderCount === undefined ? {} : { media_count: folderCount })
+          }] }
+        })
+      }
+      return Response.json({
+        code: 0,
+        data: {
+          medias,
+          has_more: false,
+          info: infoCount === undefined ? {} : { media_count: infoCount }
+        }
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/resource/list'))).toHaveLength(1)
+    expect(result.sourceFolders).toEqual([])
+    expect(result.scanDiagnostics.folderFailures[0]).toMatchObject({
+      status: 'failed', message: 'favorite resource list returned invalid media data'
+    })
+  })
+
+  it('cancels a hanging resource request promptly without starting another attempt', async () => {
+    vi.useFakeTimers()
+    installCookies()
+    localStorage.clear()
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '悬挂收藏夹' }] } })
+      }
+      return new Promise<Response>(() => undefined)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const scanPromise = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    await vi.advanceTimersByTimeAsync(1)
+    const pendingBasic = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}').lastScan.basic
+    expect(pendingBasic).toMatchObject({ folderId: '101', page: 1, attempt: 1, phase: 'requesting' })
+    await window.eval(buildOldFavoriteTagEnrichmentScript('cancel-scan'))
+    await vi.advanceTimersByTimeAsync(100)
+
+    await expect(scanPromise).resolves.toMatchObject({ cancelled: true })
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/resource/list'))).toHaveLength(1)
+    const cancelledBasic = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}').lastScan.basic
+    expect(cancelledBasic).toMatchObject({
+      runId: pendingBasic.runId, folderId: '101', page: 1, attempt: 1, phase: 'cancelled', status: 'cancelled'
+    })
+  })
+
+  it('cancels a resource retry backoff without starting the second attempt', async () => {
+    vi.useFakeTimers()
+    installCookies()
+    localStorage.clear()
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '退避收藏夹' }] } })
+      }
+      throw new Error('request timeout')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const scanPromise = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    await vi.advanceTimersByTimeAsync(1)
+    const retryingBasic = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}').lastScan.basic
+    expect(retryingBasic).toMatchObject({ folderId: '101', page: 1, attempt: 1, phase: 'retrying' })
+    await window.eval(buildOldFavoriteTagEnrichmentScript('cancel-scan'))
+    await vi.advanceTimersByTimeAsync(1_000)
+
+    await expect(scanPromise).resolves.toMatchObject({ cancelled: true })
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/resource/list'))).toHaveLength(1)
+    const cancelledBasic = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}').lastScan.basic
+    expect(cancelledBasic).toMatchObject({
+      runId: retryingBasic.runId, folderId: '101', page: 1, attempt: 1, phase: 'cancelled', status: 'cancelled'
+    })
+  })
+
+  it('polls hanging resource cancellation without repeatedly reading the full tag store', async () => {
+    vi.useFakeTimers()
+    installCookies()
+    localStorage.clear()
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
+      accountMid: '42',
+      cache: Object.fromEntries(Array.from({ length: 2337 }, (_, index) => [String(index + 1), { tags: ['缓存'], updatedAt: 1 }]))
+    }))
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '大缓存收藏夹' }] } })
+      }
+      return new Promise<Response>(() => undefined)
+    }))
+
+    const scanPromise = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    await vi.advanceTimersByTimeAsync(1)
+    const getItemSpy = vi.spyOn(Storage.prototype, 'getItem')
+    await vi.advanceTimersByTimeAsync(500)
+
+    expect(getItemSpy.mock.calls.filter(([key]) => key === 'bilimi:old-favorite-tag-enrichment:v1')).toHaveLength(0)
+    await window.eval(buildOldFavoriteTagEnrichmentScript('cancel-scan'))
+    await vi.advanceTimersByTimeAsync(100)
+    await expect(scanPromise).resolves.toMatchObject({ cancelled: true })
+  })
+
+  it('persists page-one discoveries while page two is still pending', async () => {
+    installCookies()
+    localStorage.clear()
+    let pageTwoRequested = false
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '多页收藏夹' }] } })
+      }
+      const page = Number(new URL(url).searchParams.get('pn'))
+      if (page === 1) {
+        return Response.json({ code: 0, data: { medias: [{ id: 701, title: '第一页', type: 2 }], has_more: true } })
+      }
+      pageTwoRequested = true
+      return new Promise<Response>(() => undefined)
+    }))
+
+    const scanPromise = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    await vi.waitFor(() => expect(pageTwoRequested).toBe(true))
+    const basic = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}').lastScan.basic
+
+    expect(basic).toMatchObject({ completed: 1, total: 1, folderId: '101', page: 2, attempt: 1, phase: 'requesting' })
+    await window.eval(buildOldFavoriteTagEnrichmentScript('cancel-scan'))
+    await expect(scanPromise).resolves.toMatchObject({ cancelled: true })
+  })
+
+  it('reports a first-page folder failure with retry diagnostics and second-level backoff', async () => {
+    vi.useFakeTimers()
+    installCookies()
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1)
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 102, title: '番剧待看', media_count: 137 }] } })
+      }
+      if (url.includes('media_id=102')) throw new Error('request timeout')
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const resultPromise = window.eval(buildScanOldFavoritesScript(ledgers))
+    await vi.advanceTimersByTimeAsync(999)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('media_id=102'))).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('media_id=102'))).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(2499)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('media_id=102'))).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(1)
+    const result = await resultPromise
+
+    expect(result.sourceFolders).toEqual([])
+    expect(result.scanDiagnostics.folderFailures).toEqual([expect.objectContaining({
+      folderId: '102', folderTitle: '番剧待看', failedPage: 1, attempts: 3,
+      status: 'failed', message: 'request timeout', retainedVideoCount: 0
+    })])
+  })
+
+  it('retains successful pages when a later page fails and marks a managed scan incomplete', async () => {
+    vi.useFakeTimers()
+    installCookies()
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
+      ...ledger,
+      bilibiliFolderId: '9001'
+    }))
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 9001, title: 'bilimi·影视动漫', media_count: 45 }] } })
+      }
+      const page = Number(new URL(url).searchParams.get('pn'))
+      if (page < 3) {
+        return Response.json({
+          code: 0,
+          data: { medias: [{ id: 700 + page, title: `第 ${page} 页`, type: 2 }], has_more: true }
+        })
+      }
+      return new Response('<!DOCTYPE html><html><body>login</body></html>', {
+        headers: { 'content-type': 'text/html;charset=utf-8' }, status: 200
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const resultPromise = window.eval(buildScanOldFavoritesScript(ledgers))
+    await vi.advanceTimersByTimeAsync(3500)
+    const result = await resultPromise
+
+    expect(result.managedFolderScanComplete).toBe(false)
+    expect(result.targetMembership['9001']).toEqual([701, 702])
+    expect(result.sourceFolders).toEqual([])
+    expect(result.scanDiagnostics.folderFailures).toEqual([expect.objectContaining({
+      folderId: '9001', failedPage: 3, attempts: 1, status: 'partial', retainedVideoCount: 2
+    })])
+  })
+
+  it('keeps partial-only videos out of business totals and the tag queue', async () => {
+    vi.useFakeTimers()
+    installCookies()
+    localStorage.clear()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '课程', media_count: 40 }] } })
+      }
+      const page = Number(new URL(url).searchParams.get('pn'))
+      if (page === 1) return Response.json({ code: 0, data: { medias: [{ id: 701, title: '仅部分来源', type: 2 }], has_more: true } })
+      throw new Error('request timeout')
+    }))
+
+    const resultPromise = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    await vi.advanceTimersByTimeAsync(3500)
+    const result = await resultPromise
+    const stored = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+
+    expect(result.sourceFolders).toEqual([])
+    expect(result.scanDiagnostics.folderFailures).toEqual([expect.objectContaining({
+      folderId: '101', status: 'partial', retainedVideoCount: 1
+    })])
+    expect(result.scanProgress.basic).toMatchObject({ completed: 0, total: 0 })
+    expect(result.scanProgress.tags).toMatchObject({ completed: 0, total: 0, pending: 0 })
+    expect(result.scanDiagnostics).toMatchObject({ taggedVideos: 0, untaggedVideos: 0 })
+    expect(stored.queue).toEqual([])
+  })
+
+  it('counts an aid from a complete source once when the same aid also occurs in a partial source', async () => {
+    vi.useFakeTimers()
+    installCookies()
+    localStorage.clear()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 101, title: '部分课程', media_count: 40 },
+          { id: 102, title: '完整课程', media_count: 1 }
+        ] } })
+      }
+      const parsed = new URL(url)
+      const folderId = parsed.searchParams.get('media_id')
+      const page = Number(parsed.searchParams.get('pn'))
+      if (folderId === '101' && page > 1) throw new Error('request timeout')
+      return Response.json({ code: 0, data: {
+        medias: [{ id: 701, title: '重复视频', type: 2 }],
+        has_more: folderId === '101'
+      } })
+    }))
+
+    const resultPromise = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    await vi.advanceTimersByTimeAsync(3500)
+    const result = await resultPromise
+    const stored = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+
+    expect(result.scanProgress.basic).toMatchObject({ completed: 1, total: 1 })
+    expect(result.scanProgress.tags).toMatchObject({ total: 1, pending: 1 })
+    expect(stored.queue).toEqual([701])
+  })
+
+  it('retries an empty page that claims more results instead of treating it as complete', async () => {
+    vi.useFakeTimers()
+    installCookies()
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '异常收藏夹', media_count: 20 }] } })
+      }
+      return Response.json({ code: 0, data: { medias: [], has_more: true } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const resultPromise = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    await vi.advanceTimersByTimeAsync(3500)
+    const result = await resultPromise
+
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('media_id=101'))).toHaveLength(3)
+    expect(result.sourceFolders).toEqual([])
+    expect(result.scanDiagnostics.folderFailures[0]).toMatchObject({ status: 'failed', failedPage: 1 })
+  })
+
+  it('cancels an older scan when a newer scan advances the persisted revision', async () => {
+    installCookies()
+    localStorage.clear()
+    let resourceCall = 0
+    let resolveOlderResource!: (response: Response) => void
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '默认收藏夹' }] } })
+      }
+      resourceCall += 1
+      if (resourceCall === 1) {
+        return new Promise<Response>((resolve) => { resolveOlderResource = resolve })
+      }
+      return Response.json({ code: 0, data: { medias: [{ id: 202, title: '新扫描', type: 2 }], has_more: false } })
+    }))
+
+    const olderScan = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    await vi.waitFor(() => expect(resourceCall).toBe(1))
+    const newerScan = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    await expect(newerScan).resolves.toMatchObject({ ok: true })
+    resolveOlderResource(Response.json({ code: 0, data: { medias: [{ id: 101, title: '旧扫描', type: 2 }], has_more: false } }))
+
+    await expect(olderScan).resolves.toMatchObject({ cancelled: true, sourceFolders: [] })
+    const stored = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+    expect(stored.lastScan.basic).toMatchObject({
+      completed: 1, total: 1, status: 'complete', runId: expect.any(String)
+    })
+  })
+
+  it('returns a structured cancellation when revision changes between resource pages', async () => {
+    installCookies()
+    localStorage.clear()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '多页收藏夹' }] } })
+      }
+      queueMicrotask(() => { void window.eval(buildOldFavoriteTagEnrichmentScript('cancel-scan')) })
+      return Response.json({
+        code: 0,
+        data: { medias: [{ id: 701, title: '第一页', type: 2 }], has_more: true }
+      })
+    }))
+
+    const result = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+
+    expect(result).toMatchObject({ cancelled: true, sourceFolders: [] })
+    expect(result.steps).toContain('api:favorite:scan-cancelled')
+    expect(result.message).toBe('old favorite scan cancelled')
+  })
+
+  it('caps a completed batch at 3000 unique videos without committing its next cursor', async () => {
+    installCookies()
+    localStorage.clear()
+    const requestedPages: number[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({
+          code: 0,
+          data: { list: [{ id: 101, title: '三千零二十条收藏', media_count: 3020 }] }
+        })
+      }
+      const page = Number(new URL(url).searchParams.get('pn'))
+      requestedPages.push(page)
+      const firstAid = (page - 1) * 20 + 1
+      return Response.json({
+        code: 0,
+        data: {
+          medias: Array.from({ length: 20 }, (_, index) => ({
+            id: firstAid + index,
+            title: `第 ${firstAid + index} 条`,
+            type: 2,
+            tags: ['现成标签']
+          })),
+          has_more: page < 151
+        }
+      })
+    }))
+
+    const firstBatch = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    const firstStore = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+
+    expect(firstBatch.scanProgress.basic).toMatchObject({ completed: 3000, total: 3000, status: 'complete' })
+    expect(firstBatch.batch).toMatchObject({ limit: 3000, hasMore: true })
+    expect(firstBatch.sourceFolders[0].videos).toHaveLength(3000)
+    expect(firstBatch.batch.nextCursor).toMatchObject({ accountMid: '42', folderId: '101', nextPage: 151 })
+    expect(firstStore.batchCursor).toBeUndefined()
+    expect(firstStore.batchSeenAids).toBeUndefined()
+    expect(requestedPages.at(-1)).toBe(150)
+
+    requestedPages.length = 0
+    const secondBatch = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+
+    expect(requestedPages[0]).toBe(1)
+    expect(secondBatch.scanProgress.basic).toMatchObject({ completed: 3000, total: 3000, status: 'complete' })
+    expect(secondBatch.batch).toMatchObject({ limit: 3000, hasMore: true })
+    expect(secondBatch.sourceFolders[0].videos).toHaveLength(3000)
+  })
+
+  it('fully scans managed membership without consuming business batch capacity', async () => {
+    installCookies()
+    localStorage.clear()
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
+      ...ledger,
+      bilibiliFolderId: '9001'
+    }))
+    const observedBasicCompleted: number[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({
+          code: 0,
+          data: { list: [{ id: 9001, title: 'bilimi·影视动漫', media_count: 3040 }] }
+        })
+      }
+      const stored = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+      observedBasicCompleted.push(Number(stored.lastScan?.basic?.completed ?? 0))
+      const page = Number(new URL(url).searchParams.get('pn'))
+      const firstAid = (page - 1) * 20 + 1
+      return Response.json({
+        code: 0,
+        data: {
+          medias: Array.from({ length: 20 }, (_, index) => ({
+            id: firstAid + index,
+            title: `第 ${firstAid + index} 条`,
+            type: 2,
+            tags: ['现成标签']
+          })),
+          has_more: page < 152
+        }
+      })
+    }))
+
+    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+
+    expect(result.managedFolderScanComplete).toBe(true)
+    expect(result.targetMembership['9001']).toHaveLength(3040)
+    expect(result.sourceFolders).toEqual([])
+    expect(result.scanProgress.basic).toMatchObject({ completed: 0, total: 0, status: 'complete' })
+    expect(result.batch).toMatchObject({ limit: 3000, hasMore: false })
+    expect(Math.max(0, ...observedBasicCompleted)).toBe(0)
+  })
+
+  it('keeps all 3000 business slots when a managed folder is scanned first', async () => {
+    installCookies()
+    localStorage.clear()
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
+      ...ledger,
+      bilibiliFolderId: '9001'
+    }))
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 9001, title: 'bilimi·影视动漫', media_count: 100 },
+          { id: 101, title: '普通来源', media_count: 3000 }
+        ] } })
+      }
+      const parsed = new URL(url)
+      const folderId = parsed.searchParams.get('media_id')
+      const page = Number(parsed.searchParams.get('pn'))
+      if (folderId === '9001') {
+        const firstAid = 9000 + (page - 1) * 20
+        return Response.json({ code: 0, data: {
+          medias: Array.from({ length: 20 }, (_, index) => ({
+            id: firstAid + index, title: `已归档 ${firstAid + index}`, type: 2, tags: ['现成标签']
+          })),
+          has_more: page < 5
+        } })
+      }
+      const firstAid = (page - 1) * 20 + 1
+      return Response.json({ code: 0, data: {
+        medias: Array.from({ length: 20 }, (_, index) => ({
+          id: firstAid + index, title: `第 ${firstAid + index} 条`, type: 2, tags: ['现成标签']
+        })),
+        has_more: page < 150
+      } })
+    }))
+
+    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+
+    expect(result.targetMembership['9001']).toHaveLength(100)
+    expect(result.scanProgress.basic.completed).toBe(3000)
+    expect(result.sourceFolders).toHaveLength(1)
+    expect(result.sourceFolders[0]).toMatchObject({ id: '101' })
+    expect(result.sourceFolders[0].videos).toHaveLength(3000)
+  })
+
+  it('rescans managed folders that appear before a committed ordinary cursor', async () => {
+    installCookies()
+    localStorage.clear()
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
+      accountMid: '42',
+      cache: {},
+      queue: [],
+      progress: { completed: 0, total: 0, pending: 0, status: 'complete' },
+      batchCursor: {
+        accountMid: '42', folderId: '101', nextPage: 2, folderOrder: ['9001', '101']
+      },
+      batchSeenAids: [1]
+    }))
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
+      ...ledger,
+      bilibiliFolderId: '9001'
+    }))
+    const requestedFolderPages: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 9001, title: 'bilimi·影视动漫', media_count: 1 },
+          { id: 101, title: '普通来源', media_count: 21 }
+        ] } })
+      }
+      const parsed = new URL(url)
+      const folderId = parsed.searchParams.get('media_id') ?? ''
+      const page = parsed.searchParams.get('pn') ?? ''
+      requestedFolderPages.push(`${folderId}:${page}`)
+      if (folderId === '9001') {
+        return Response.json({ code: 0, data: {
+          medias: [{ id: 9999, title: '已归档视频', type: 2, tags: ['现成标签'] }], has_more: false
+        } })
+      }
+      return Response.json({ code: 0, data: {
+        medias: [{ id: 21, title: '续扫视频', type: 2, tags: ['现成标签'] }], has_more: false
+      } })
+    }))
+
+    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+
+    expect(requestedFolderPages).toContain('9001:1')
+    expect(requestedFolderPages).toContain('101:2')
+    expect(result.targetMembership['9001']).toEqual([9999])
+    expect(result.sourceFolders[0].videos.map((video: { aid: number }) => video.aid)).toEqual([21])
+  })
+
+  it('does not include an aid again when it reappears in a later persisted batch', async () => {
+    installCookies()
+    localStorage.clear()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 101, title: '第一批', media_count: 3000 },
+          { id: 102, title: '第二批', media_count: 20 }
+        ] } })
+      }
+      const parsed = new URL(url)
+      const folderId = parsed.searchParams.get('media_id')
+      const page = Number(parsed.searchParams.get('pn'))
+      if (folderId === '101') {
+        const firstAid = (page - 1) * 20 + 1
+        return Response.json({ code: 0, data: {
+          medias: Array.from({ length: 20 }, (_, index) => ({
+            id: firstAid + index, title: `第 ${firstAid + index} 条`, type: 2, tags: ['现成标签']
+          })),
+          has_more: page < 150
+        } })
+      }
+      return Response.json({ code: 0, data: {
+        medias: [
+          { id: 1, title: '跨收藏夹重复视频', type: 2, tags: ['现成标签'] },
+          ...Array.from({ length: 19 }, (_, index) => ({
+            id: 3001 + index, title: `第 ${3001 + index} 条`, type: 2, tags: ['现成标签']
+          }))
+        ],
+        has_more: false
+      } })
+    }))
+
+    const firstBatch = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
+      ...JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}'),
+      batchCursor: firstBatch.batch.nextCursor,
+      batchSeenAids: firstBatch.sourceFolders.flatMap(
+        (folder: { videos: Array<{ aid: number }> }) => folder.videos.map((video) => video.aid)
+      )
+    }))
+    const secondBatch = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+
+    expect(firstBatch.scanProgress.basic.completed).toBe(3000)
+    expect(secondBatch.scanProgress.basic.completed).toBe(19)
+    expect(secondBatch.sourceFolders[0].videos.map((video: { aid: number }) => video.aid)).not.toContain(1)
+  })
+
+  it('still fully scans later managed folders after an earlier source fills the business batch', async () => {
+    installCookies()
+    localStorage.clear()
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
+      ...ledger,
+      bilibiliFolderId: '9001'
+    }))
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 101, title: '普通来源', media_count: 3000 },
+          { id: 9001, title: 'bilimi·影视动漫', media_count: 1 }
+        ] } })
+      }
+      const parsed = new URL(url)
+      const folderId = parsed.searchParams.get('media_id')
+      const page = Number(parsed.searchParams.get('pn'))
+      if (folderId === '9001') {
+        return Response.json({ code: 0, data: {
+          medias: [{ id: 9999, title: '已归档视频', type: 2, tags: ['现成标签'] }], has_more: false
+        } })
+      }
+      const firstAid = (page - 1) * 20 + 1
+      return Response.json({ code: 0, data: {
+        medias: Array.from({ length: 20 }, (_, index) => ({
+          id: firstAid + index, title: `第 ${firstAid + index} 条`, type: 2, tags: ['现成标签']
+        })),
+        has_more: page < 150
+      } })
+    }))
+
+    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+
+    expect(result.scanProgress.basic.completed).toBe(3000)
+    expect(result.managedFolderScanComplete).toBe(true)
+    expect(result.targetMembership['9001']).toEqual([9999])
+  })
+
+  it('does not commit an ordinary failure cursor while retaining later successful batch work', async () => {
+    vi.useFakeTimers()
+    installCookies()
+    localStorage.clear()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 101, title: '暂时失败', media_count: 1 },
+          { id: 102, title: '成功来源', media_count: 1 }
+        ] } })
+      }
+      const folderId = new URL(url).searchParams.get('media_id')
+      if (folderId === '101') throw new Error('request timeout')
+      return Response.json({ code: 0, data: {
+        medias: [{ id: 202, title: '成功保留', type: 2, tags: ['现成标签'] }], has_more: false
+      } })
+    }))
+
+    const resultPromise = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    await vi.advanceTimersByTimeAsync(3500)
+    const result = await resultPromise
+    const store = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+
+    expect(result.sourceFolders.map((folder: { id: string }) => folder.id)).toEqual(['102'])
+    expect(result.batch.nextCursor).toMatchObject({ accountMid: '42', folderId: '101', nextPage: 1 })
+    expect(store.batchCursor).toBeUndefined()
+    expect(store.batchSeenAids).toBeUndefined()
+  })
+
+  it('invalidates a persisted cursor and seen aids when its folder no longer exists', async () => {
+    installCookies()
+    localStorage.clear()
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
+      accountMid: '42',
+      cache: {},
+      queue: [],
+      progress: { completed: 0, total: 0, pending: 0, status: 'complete' },
+      batchCursor: { accountMid: '42', folderId: '999', nextPage: 7 },
+      batchSeenAids: [1]
+    }))
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '新列表', media_count: 1 }] } })
+      }
+      return Response.json({ code: 0, data: {
+        medias: [{ id: 1, title: '不能被旧游标隐藏', type: 2, tags: ['现成标签'] }], has_more: false
+      } })
+    }))
+
+    const result = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    const store = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+
+    expect(result.scanProgress.basic.completed).toBe(1)
+    expect(result.sourceFolders[0].videos.map((video: { aid: number }) => video.aid)).toEqual([1])
+    expect(store.batchCursor).toBeUndefined()
+    expect(store.batchSeenAids).toBeUndefined()
+  })
+
+  it('invalidates a persisted cursor when the favorite folder order changes', async () => {
+    installCookies()
+    localStorage.clear()
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
+      accountMid: '42',
+      cache: {},
+      queue: [],
+      progress: { completed: 0, total: 0, pending: 0, status: 'complete' },
+      batchCursor: {
+        accountMid: '42', folderId: '102', nextPage: 1, folderOrder: ['101', '102']
+      },
+      batchSeenAids: [1]
+    }))
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 102, title: '顺序提前', media_count: 1 },
+          { id: 101, title: '顺序靠后', media_count: 1 }
+        ] } })
+      }
+      const folderId = Number(new URL(url).searchParams.get('media_id'))
+      return Response.json({ code: 0, data: {
+        medias: [{ id: folderId === 101 ? 1 : 2, title: '重新可靠扫描', type: 2, tags: ['现成标签'] }],
+        has_more: false
+      } })
+    }))
+
+    const result = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+
+    expect(result.scanProgress.basic.completed).toBe(2)
+    expect(result.sourceFolders.flatMap((folder: { videos: Array<{ aid: number }> }) => folder.videos.map((video) => video.aid)))
+      .toEqual([2, 1])
   })
 })

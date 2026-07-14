@@ -25,8 +25,10 @@ import type {
   AssistantRuntimeRequest,
   AssistantRuntimeResponsePayload,
   FloatingAssistantActionOptions,
-  FloatingAssistantWorkspaceRequest
+  FloatingAssistantWorkspaceRequest,
+  OldFavoriteBatchCommitResult
 } from '../../src/renderer/src/features/assistant/assistantRuntimeTypes'
+import type { OldFavoriteBatchCommitToken } from '../../src/renderer/src/features/favorites/favoriteLedgerApi'
 import type {
   AssistantPetHint,
   AssistantPetState
@@ -197,6 +199,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     }
 
     ipcRenderer.on('assistant-runtime:request', listener)
+    ipcRenderer.send('assistant-runtime:ready')
 
     return () => {
       ipcRenderer.removeListener('assistant-runtime:request', listener)
@@ -273,7 +276,12 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   scanOldFavorites: (options?: {
     multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']
   }) => ipcRenderer.invoke('floating-assistant:scan-old-favorites', options),
-  readOldFavoriteTagEnrichment: (action: 'read' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' = 'read') =>
+  commitOldFavoriteBatchCheckpoint: (token: OldFavoriteBatchCommitToken) =>
+    ipcRenderer.invoke(
+      'floating-assistant:commit-old-favorite-batch',
+      token
+    ) as Promise<OldFavoriteBatchCommitResult>,
+  readOldFavoriteTagEnrichment: (action: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' = 'read') =>
     ipcRenderer.invoke('floating-assistant:old-favorite-tag-enrichment', action),
   rejudgeOldFavorite: (item: FavoriteLedgerPreviewItem) =>
     ipcRenderer.invoke('floating-assistant:rejudge-old-favorite', item) as Promise<FavoriteLedgerPreviewItem>,

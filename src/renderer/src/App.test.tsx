@@ -3022,6 +3022,106 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('keeps failed source diagnostics without adding partial videos to the preview', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => script.includes(OLD_FAVORITE_SCAN_SCRIPT_MARKER)
+        ? {
+            ok: true,
+            accountMid: '42',
+            sourceFolders: [{
+              id: 'complete', title: '完整课程', scanFailed: false,
+              videos: [{ aid: 7, title: '重复视频' }, { aid: 8, title: '完整来源视频' }]
+            }],
+            managedFolders: [], managedFolderScanComplete: true, targetMembership: {},
+            skippedSourceFolderTitles: ['部分课程'],
+            scanDiagnostics: {
+              tagDetailRequests: 0, tagDetailFailures: 0, taggedVideos: 0, untaggedVideos: 0,
+              folderFailures: [{
+                folderId: 'partial', folderTitle: '部分课程', failedPage: 2, attempts: 3,
+                status: 'partial', message: '读取到一半后超时', retainedVideoCount: 2
+              }]
+            },
+            steps: [], missingTargets: [], message: 'old favorites scanned'
+          }
+        : emptyLedgerStatus())
+    })
+
+    const preview = await requestRuntime({ id: 'scan-partial-source-1', type: 'scan-old-favorites' })
+
+    expect(preview.items.map((item: { aid: number }) => item.aid).sort()).toEqual([7, 8])
+    expect(preview.scanContext.totalUniqueVideos).toBe(2)
+    expect(preview.scanContext.sourceFolders).toHaveLength(1)
+    expect(preview.scanDiagnostics.folderFailures).toEqual([
+      expect.objectContaining({ folderId: 'partial', status: 'partial', retainedVideoCount: 2 })
+    ])
+  })
+
+  it('forwards the current old-favorite batch state without mixing it into scan sources', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => script.includes(OLD_FAVORITE_SCAN_SCRIPT_MARKER)
+        ? {
+            ok: true,
+            accountMid: '42',
+            sourceFolders: [{ id: '101', title: '默认收藏夹', videos: [{ aid: 7, title: '本批视频' }] }],
+            managedFolders: [], managedFolderScanComplete: true, targetMembership: {},
+            skippedSourceFolderTitles: [],
+            batch: {
+              limit: 3000,
+              hasMore: true,
+              nextCursor: { accountMid: '42', folderId: '101', nextPage: 31 }
+            },
+            steps: [], missingTargets: [], message: 'old favorites scanned'
+          }
+        : emptyLedgerStatus())
+    })
+
+    const preview = await requestRuntime({ id: 'scan-batch-state-1', type: 'scan-old-favorites' })
+
+    expect(preview.batch).toEqual({
+      limit: 3000,
+      hasMore: true,
+      nextCursor: { accountMid: '42', folderId: '101', nextPage: 31 }
+    })
+    expect(preview.scanContext.sourceFolders).toHaveLength(1)
+  })
+
+  it('commits an old-favorite batch checkpoint through the active webview runtime', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn().mockResolvedValue({ ok: true, committed: true })
+    Object.assign(webview, { executeJavaScript })
+    const token = {
+      version: 1 as const,
+      accountMid: '42',
+      scanRunId: 'scan-run-1',
+      folderOrder: ['101'],
+      expectedCurrentCursor: null,
+      nextCursor: { accountMid: '42', folderId: '101', nextPage: 31, folderOrder: ['101'] },
+      seenAids: [7]
+    }
+
+    const result = await requestRuntime({
+      id: 'commit-old-favorite-batch-1',
+      type: 'commit-old-favorite-batch',
+      token
+    } as AssistantRuntimeRequest)
+
+    expect(result).toEqual({ ok: true, committed: true })
+    expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining('Old favorite batch checkpoint token is invalid.')
+    )
+  })
+
   it('keeps protected favorites out of the active preview and persists legacy migration records', async () => {
     const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
     const { requestRuntime } = renderAppWithRuntimeBridge({ savePreferences })
@@ -3195,6 +3295,136 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('uses scan-result managed ids to report the managed failure instead of an earlier ordinary failure', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) =>
+        script.includes(OLD_FAVORITE_SCAN_SCRIPT_MARKER)
+          ? {
+              ok: true,
+              accountMid: '42',
+              sourceFolders: [
+                { id: '101', title: '普通收藏夹', videos: [], scanFailed: true, scanStatus: 'failed' },
+                { id: '9001', title: 'bilimi·知识学习', videos: [], scanFailed: true, scanStatus: 'failed' }
+              ],
+              managedFolders: [
+                { id: '9001', title: 'bilimi·知识学习', ledgerId: 'knowledge', isInbox: false }
+              ],
+              managedFolderScanComplete: false,
+              targetMembership: {},
+              skippedSourceFolderTitles: ['普通收藏夹', 'bilimi·知识学习'],
+              scanDiagnostics: {
+                tagDetailRequests: 0,
+                tagDetailFailures: 0,
+                taggedVideos: 0,
+                untaggedVideos: 0,
+                folderFailures: [
+                  {
+                    folderId: '101', folderTitle: '普通收藏夹', failedPage: 1, attempts: 3,
+                    status: 'failed', message: '普通收藏夹读取失败', retainedVideoCount: 0
+                  },
+                  {
+                    folderId: '9001', folderTitle: 'bilimi·知识学习', failedPage: 1, attempts: 1,
+                    status: 'failed', message: '受管收藏夹返回登录页', retainedVideoCount: 0
+                  }
+                ]
+              },
+              steps: [],
+              missingTargets: [],
+              message: 'old favorites scanned'
+            }
+          : emptyLedgerStatus()
+      )
+    })
+
+    const preview = await requestRuntime({ id: 'scan-managed-failure-1', type: 'scan-old-favorites' })
+
+    expect(preview).toEqual(expect.objectContaining({ ok: false, items: [] }))
+    expect(preview.message).toContain('受管收藏夹返回登录页')
+    expect(preview.message).toContain('bilimi·知识学习')
+    expect(preview.message).not.toContain('普通收藏夹')
+  })
+
+  it('uses a generic managed-folder error when structured diagnostics only identify an ordinary failure', async () => {
+    const preferences = createAppPreferences({
+      favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) =>
+        ledger.id === 'knowledge' ? { ...ledger, bilibiliFolderId: '9001' } : ledger
+      )
+    })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge()
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) =>
+        script.includes(OLD_FAVORITE_SCAN_SCRIPT_MARKER)
+          ? {
+              ok: true,
+              sourceFolders: [],
+              managedFolderScanComplete: false,
+              targetMembership: {},
+              skippedSourceFolderTitles: ['普通收藏夹'],
+              scanDiagnostics: {
+                tagDetailRequests: 0, tagDetailFailures: 0, taggedVideos: 0, untaggedVideos: 0,
+                folderFailures: [{
+                  folderId: '101', folderTitle: '普通收藏夹', failedPage: 1, attempts: 3,
+                  status: 'failed', message: '普通收藏夹读取失败', retainedVideoCount: 0
+                }]
+              },
+              steps: [], missingTargets: [], message: 'old favorites scanned'
+            }
+          : emptyLedgerStatus()
+      )
+    })
+
+    const preview = await requestRuntime({ id: 'scan-unmatched-managed-failure-1', type: 'scan-old-favorites' })
+
+    expect(preview.message).toBe('bilimi 收藏夹读取不完整，请稍后重试。')
+  })
+
+  it('keeps the first failure message only for legacy diagnostics without folder ids', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) =>
+        script.includes(OLD_FAVORITE_SCAN_SCRIPT_MARKER)
+          ? {
+              ok: true,
+              sourceFolders: [],
+              managedFolderScanComplete: false,
+              targetMembership: {},
+              skippedSourceFolderTitles: ['旧版失败来源', '旧版后续来源'],
+              scanDiagnostics: {
+                tagDetailRequests: 0, tagDetailFailures: 0, taggedVideos: 0, untaggedVideos: 0,
+                folderFailures: [
+                  {
+                    folderTitle: '旧版失败来源', failedPage: 1, attempts: 1,
+                    status: 'failed', message: '旧版首项失败原因', retainedVideoCount: 0
+                  },
+                  {
+                    folderTitle: '旧版后续来源', failedPage: 1, attempts: 1,
+                    status: 'failed', message: '不应选择的后续原因', retainedVideoCount: 0
+                  }
+                ]
+              },
+              steps: [], missingTargets: [], message: 'old favorites scanned'
+            }
+          : emptyLedgerStatus()
+      )
+    })
+
+    const preview = await requestRuntime({ id: 'scan-legacy-managed-failure-1', type: 'scan-old-favorites' })
+
+    expect(preview.message).toContain('旧版首项失败原因')
+    expect(preview.message).not.toContain('不应选择的后续原因')
+  })
+
   it('rejudges one old favorite from fresh Bilibili scan data', async () => {
     const preferences = createAppPreferences({
       favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) => {
@@ -3274,6 +3504,38 @@ describe('App runtime integration', () => {
       })
     )
     expect(executeJavaScript).toHaveBeenCalledWith(expect.stringContaining('"aid":250'))
+  })
+
+  it('keeps the original item when a single-video refresh has incomplete managed membership', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => script.includes(OLD_FAVORITE_SCAN_SCRIPT_MARKER)
+        ? {
+            ok: true,
+            sourceFolders: [{
+              id: '101', title: '默认收藏夹',
+              videos: [{ aid: 250, title: '不完整刷新', tags: ['原神'] }]
+            }],
+            managedFolderScanComplete: false,
+            targetMembership: { '9002': [] },
+            skippedSourceFolderTitles: ['bilimi·游戏专区'],
+            steps: [], missingTargets: [], message: 'old favorite video refreshed'
+          }
+        : emptyLedgerStatus())
+    })
+    const original = {
+      aid: 250, title: '原始判断', sourceFolderTitle: '默认收藏夹',
+      targetLedgerId: 'inbox', targetFolderId: '9008', targetDisplayName: 'bilimi·暂存',
+      reviewRequired: false, alreadyInTarget: false, selected: false,
+      originalSuggestedLedgerIds: [], currentTargetLedgerIds: [], selectedTargetLedgerIds: [], lowConfidence: false
+    }
+
+    const refreshed = await requestRuntime({ id: 'rejudge-incomplete-1', type: 'rejudge-old-favorite', item: original })
+
+    expect(refreshed).toEqual(original)
   })
 
   it('does not persist unresolved old favorite items to the pending queue', async () => {

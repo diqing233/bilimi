@@ -7,6 +7,7 @@ import type {
   VideoNote,
   VideoNoteArchiveEntry
 } from '@shared/types'
+import { readFileSync } from 'node:fs'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { FloatingAssistantApp } from './FloatingAssistantApp'
@@ -15,6 +16,8 @@ import type { AssistantSnapshot } from './assistantRuntimeTypes'
 import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
 import { publishDeepSeekTask } from './deepSeekTaskSignal'
 import { setOldFavoriteRuntimeValue as publishOldFavoriteRuntimeValue } from './oldFavoriteRuntimeSession'
+
+const assistantStyles = readFileSync('src/renderer/src/styles.css', 'utf8')
 
 function createDeferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -3007,6 +3010,55 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
+  it('keeps long Chinese, unbroken English, and mixed ledger names in fixed two-line chips', async () => {
+    const longNames = [
+      'bilimi·这是一个非常非常长而且需要保持完整可访问名称的中文收藏夹',
+      'bilimi·ThisIsAnExtremelyLongUnbrokenEnglishLedgerNameThatMustNotStretchTheCard',
+      'bilimi·动画Storyboard教程2026MixedCharactersWithoutAnyNaturalBreak'
+    ]
+    const favoriteLedgers = createDefaultFavoriteLedgers().map((ledger, index) =>
+      index < longNames.length ? { ...ledger, displayName: longNames[index] } : ledger
+    )
+    installDesktopApi({
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(
+        createSnapshot({
+          preferences: createPreferences({ favoriteLedgers }),
+          favoriteLedgerStatus: {
+            ok: true,
+            ledgers: favoriteLedgers,
+            missingLedgerIds: [],
+            message: '册目查验已毕。'
+          }
+        })
+      )
+    })
+
+    render(<FloatingAssistantApp />)
+    fireEvent.click(await screen.findByRole('tab', { name: '掌库' }))
+
+    for (const displayName of longNames) {
+      const visibleName = displayName.replace(/^bilimi·/, '')
+      const nameButton = screen.getByRole('button', { name: visibleName })
+      const chip = nameButton.closest('.favorite-ledger-panel__chip-item')
+      const actionButton = within(chip as HTMLElement).getByRole('button', {
+        name: `移出同步 ${displayName}`
+      })
+
+      expect(nameButton).toHaveTextContent(visibleName)
+      expect(nameButton).toHaveAttribute('title', displayName)
+      expect(chip).toContainElement(actionButton)
+    }
+    expect(assistantStyles).toMatch(
+      /\.favorite-ledger-panel__chip-item\s*\{[^}]*height:\s*46px/s
+    )
+    expect(assistantStyles).toMatch(
+      /\.favorite-ledger-panel__chip-item\s*>\s*button:first-child\s*\{[^}]*height:\s*46px[^}]*-webkit-line-clamp:\s*2[^}]*overflow:\s*hidden/s
+    )
+    expect(assistantStyles).toMatch(
+      /\.favorite-ledger-panel__chip-action\s*\{[^}]*height:\s*46px/s
+    )
+  })
+
   it('shows the active DeepSeek task while AI comments are being generated', async () => {
     const preferences = createPreferences({
       deepseekEnabled: true,
@@ -4439,7 +4491,49 @@ describe('FloatingAssistantApp', () => {
     expect(await screen.findByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     expect(screen.getByText('动画分镜教程')).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('已扫描 1 条旧藏，可勾选后整理。')
+    const completedScanStatus = screen
+      .getByText('已扫描 1 条旧藏，可勾选后整理。')
+      .closest('.favorite-ledger-panel__status')
+    expect(completedScanStatus).toHaveAttribute('role', 'status')
+    expect(screen.queryByRole('button', { name: '刷新归档预览' })).not.toBeInTheDocument()
+    expect(screen.getByText('动画分镜教程')).toBeInTheDocument()
+  })
+
+  it('forwards old-favorite batch checkpoint commits through the desktop bridge', async () => {
+    const token = {
+      version: 1 as const,
+      accountMid: '42',
+      scanRunId: 'scan-run-1',
+      folderOrder: ['101'],
+      expectedCurrentCursor: null,
+      nextCursor: { accountMid: '42', folderId: '101', nextPage: 31, folderOrder: ['101'] },
+      seenAids: []
+    }
+    const commitOldFavoriteBatchCheckpoint = vi.fn().mockResolvedValue({
+      ok: true,
+      committed: true,
+      message: 'committed'
+    })
+    installDesktopApi({
+      commitOldFavoriteBatchCheckpoint,
+      scanOldFavorites: vi.fn().mockResolvedValue({
+        items: [],
+        skippedSourceFolderTitles: [],
+        batch: { limit: 3000, hasMore: true, nextCursor: token.nextCursor, commitToken: token }
+      } as FavoriteLedgerPreview)
+    })
+
+    render(<FloatingAssistantApp />)
+    fireEvent.click(await screen.findByRole('tab', { name: '掌库' }))
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByText('本批最多3000，完成或放弃后可继续')
+    fireEvent.click(screen.getByRole('button', { name: '放弃本批' }))
+    fireEvent.click(
+      within(screen.getByRole('alertdialog', { name: '确认放弃本批？' }))
+        .getByRole('button', { name: '确认放弃' })
+    )
+
+    await waitFor(() => expect(commitOldFavoriteBatchCheckpoint).toHaveBeenCalledWith(token))
   })
 
   it('shows preview-scoped pending classification after scanning old favorites', async () => {

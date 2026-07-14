@@ -37,6 +37,12 @@ export type FavoriteSourceFolder = {
   id: string
   title: string
   videos: FavoriteSourceVideo[]
+  mediaCount?: number
+  scanFailed?: boolean
+  scanStatus?: 'complete' | 'failed' | 'partial'
+  scanFailureMessage?: string
+  failedPage?: number
+  readVideoCount?: number
 }
 
 export type FavoriteLedgerScanDiagnostics = {
@@ -44,7 +50,15 @@ export type FavoriteLedgerScanDiagnostics = {
   tagDetailFailures: number
   taggedVideos: number
   untaggedVideos: number
-  folderFailures?: Array<{ folderTitle: string; message: string }>
+  folderFailures?: Array<{
+    folderId?: string
+    folderTitle: string
+    failedPage: number
+    attempts: number
+    status: 'failed' | 'partial'
+    message: string
+    retainedVideoCount: number
+  }>
 }
 
 export type FavoriteLedgerScanProgress = {
@@ -52,6 +66,12 @@ export type FavoriteLedgerScanProgress = {
     completed: number
     total: number
     status: 'running' | 'complete' | 'failed' | 'cancelled'
+    runId?: string
+    phase?: 'listing' | 'requesting' | 'retrying' | 'failed' | 'cancelled'
+    folderId?: string
+    folderTitle?: string
+    page?: number
+    attempt?: number
   }
   tags: {
     completed: number
@@ -123,9 +143,19 @@ export type FavoriteLedgerPreview = {
   scanDiagnostics?: FavoriteLedgerScanDiagnostics
   scanProgress?: FavoriteLedgerScanProgress
   insights?: FavoriteLedgerInsights
+  batch?: {
+    limit: number
+    hasMore: boolean
+    nextCursor?: {
+      accountMid: string
+      folderId: string
+      nextPage: number
+    }
+  }
   scanContext?: {
     accountMid: string
     totalUniqueVideos: number
+    sourceFolders?: FavoriteSourceFolder[]
     activeSourceFolders: FavoriteSourceFolder[]
     protectedVideos: FavoriteArchiveSourceVideo[]
     managedFolders: FavoriteArchiveManagedFolder[]

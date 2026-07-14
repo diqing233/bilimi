@@ -26,10 +26,12 @@ import type {
   AssistantRuntimeResponsePayload,
   AssistantSnapshot,
   FloatingAssistantActionOptions,
-  FloatingAssistantWorkspaceRequest
+  FloatingAssistantWorkspaceRequest,
+  OldFavoriteBatchCommitResult
 } from './features/assistant/assistantRuntimeTypes'
 import type { AssistantPetHint, AssistantPetState } from './features/assistant/petState'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from './features/favorites/favoriteLedgerPreview'
+import type { OldFavoriteBatchCommitToken } from './features/favorites/favoriteLedgerApi'
 
 type BilimiDesktopApi = {
   version: string
@@ -104,7 +106,10 @@ type BilimiDesktopApi = {
   scanOldFavorites?: (options?: {
     multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']
   }) => Promise<FavoriteLedgerPreview>
-  readOldFavoriteTagEnrichment?: (action?: 'read' | 'pause' | 'resume' | 'cancel' | 'cancel-scan') => Promise<{
+  commitOldFavoriteBatchCheckpoint?: (
+    token: OldFavoriteBatchCommitToken
+  ) => Promise<OldFavoriteBatchCommitResult>
+  readOldFavoriteTagEnrichment?: (action?: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan') => Promise<{
     accountMid?: string
     sourceFolders: import('./features/favorites/favoriteLedgerPreview').FavoriteSourceFolder[]
     scanProgress: NonNullable<FavoriteLedgerPreview['scanProgress']>

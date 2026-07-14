@@ -1,6 +1,7 @@
 ﻿import { describe, expect, it, vi } from 'vitest'
 import {
   createAssistantRuntimeTimeoutMs,
+  installAssistantRuntimeReadinessLifecycle,
   requestAssistantRuntimeWhenReady
 } from './assistantRuntimeSignal'
 import type { AssistantRuntimeResponse } from './assistantRuntimeSignal'
@@ -15,25 +16,39 @@ function createAutomationResult(ok: boolean): AssistantAutomationResult {
   }
 }
 
-function createRuntimeTarget(isLoading: boolean) {
+function createRuntimeTarget(isLoading: boolean, isRuntimeReady = true) {
   let finishLoad: (() => void) | undefined
+  let runtimeReady: (() => void) | undefined
   const send = vi.fn()
   const once = vi.fn((event: string, callback: () => void) => {
     if (event === 'did-finish-load') {
       finishLoad = callback
     }
   })
+  const onceRuntimeReady = vi.fn((callback: () => void) => {
+    runtimeReady = callback
+  })
+  const removeRuntimeReadyListener = vi.fn()
 
   return {
     finishLoad: () => finishLoad?.(),
+    markRuntimeReady: () => {
+      isRuntimeReady = true
+      runtimeReady?.()
+    },
     target: {
       isDestroyed: () => false,
+      isRuntimeReady: () => isRuntimeReady,
+      onceRuntimeReady,
+      removeRuntimeReadyListener,
       webContents: {
         isLoading: () => isLoading,
         once,
         send
       }
     },
+    onceRuntimeReady,
+    removeRuntimeReadyListener,
     once,
     send
   }
@@ -58,6 +73,26 @@ function createResponseBus() {
 }
 
 describe('requestAssistantRuntimeWhenReady', () => {
+  it('installs readiness reset listeners on the concrete runtime window', () => {
+    const listeners = new Map<string, () => void>()
+    const clearReady = vi.fn()
+    const clearWaiters = vi.fn()
+    const win = {
+      webContents: {
+        id: 42,
+        on: vi.fn((event: string, callback: () => void) => listeners.set(event, callback))
+      }
+    }
+
+    installAssistantRuntimeReadinessLifecycle(win, { clearReady, clearWaiters })
+
+    listeners.get('did-start-loading')?.()
+    listeners.get('destroyed')?.()
+    expect(clearReady).toHaveBeenCalledTimes(2)
+    expect(clearReady).toHaveBeenCalledWith(42)
+    expect(clearWaiters).toHaveBeenCalledWith(42)
+  })
+
   it('uses a long default timeout for long-running runtime requests', () => {
     expect(createAssistantRuntimeTimeoutMs({ type: 'generate-video-note-from-audio' })).toBe(
       30 * 60 * 1000
@@ -164,6 +199,56 @@ describe('requestAssistantRuntimeWhenReady', () => {
       id: 'req-2',
       type: 'snapshot'
     })
+  })
+
+  it('does not send a loading runtime request after it has timed out', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const { finishLoad, target, send } = createRuntimeTarget(true)
+      const bus = createResponseBus()
+      const promise = requestAssistantRuntimeWhenReady({
+        createRequestId: () => 'req-loading-timeout',
+        request: { type: 'snapshot' },
+        responseBus: bus,
+        target,
+        timeoutMs: 100
+      })
+      const rejection = expect(promise).rejects.toThrow('Assistant runtime request timed out.')
+
+      await vi.advanceTimersByTimeAsync(100)
+      await rejection
+      finishLoad()
+
+      expect(send).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('waits for the renderer runtime registration after the page has loaded', async () => {
+    const { markRuntimeReady, target, onceRuntimeReady, send } = createRuntimeTarget(false, false)
+    const bus = createResponseBus()
+    const promise = requestAssistantRuntimeWhenReady<AssistantAutomationResult>({
+      createRequestId: () => 'req-ready',
+      request: { type: 'snapshot' },
+      responseBus: bus,
+      target,
+      timeoutMs: 100
+    })
+
+    expect(send).not.toHaveBeenCalled()
+    expect(onceRuntimeReady).toHaveBeenCalledTimes(1)
+
+    markRuntimeReady()
+
+    expect(send).toHaveBeenCalledWith('assistant-runtime:request', {
+      id: 'req-ready',
+      type: 'snapshot'
+    })
+
+    bus.emitResponse({ id: 'req-ready', ok: true, payload: createAutomationResult(true) })
+    await expect(promise).resolves.toMatchObject({ ok: true })
   })
 
   it('rejects when the runtime returns an error response', async () => {

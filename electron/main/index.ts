@@ -39,7 +39,10 @@ import {
   saveVideoNote,
   type AssistantPreferences
 } from './store'
-import { requestAssistantRuntimeWhenReady } from './assistantRuntimeSignal'
+import {
+  installAssistantRuntimeReadinessLifecycle,
+  requestAssistantRuntimeWhenReady
+} from './assistantRuntimeSignal'
 import { sendAssistantSnapshotChangedToTargets } from './assistantSnapshotSignal'
 import { sendAssistantOpenWhenReady } from './assistantOpenSignal'
 import { FloatingMenuController } from './floatingMenuController'
@@ -105,8 +108,10 @@ import type {
   AssistantRuntimeRequest,
   AssistantSnapshot,
   FloatingAssistantActionOptions,
-  FloatingAssistantWorkspaceRequest
+  FloatingAssistantWorkspaceRequest,
+  OldFavoriteBatchCommitResult
 } from '../../src/renderer/src/features/assistant/assistantRuntimeTypes'
+import type { OldFavoriteBatchCommitToken } from '../../src/renderer/src/features/favorites/favoriteLedgerApi'
 import type {
   AssistantPetHint,
   AssistantPetState
@@ -691,12 +696,46 @@ function ensureMainWindowForAssistantRuntime() {
   return mainWindow
 }
 
+const assistantRuntimeReadyWebContentsIds = new Set<number>()
+const assistantRuntimeReadyWaiters = new Map<number, Set<() => void>>()
+
+function markAssistantRuntimeReady(webContentsId: number) {
+  assistantRuntimeReadyWebContentsIds.add(webContentsId)
+  const waiters = assistantRuntimeReadyWaiters.get(webContentsId)
+  assistantRuntimeReadyWaiters.delete(webContentsId)
+  for (const waiter of waiters ?? []) waiter()
+}
+
+function clearAssistantRuntimeReady(webContentsId: number) {
+  assistantRuntimeReadyWebContentsIds.delete(webContentsId)
+}
+
+function createAssistantRuntimeTarget(win: BrowserWindow) {
+  const webContentsId = win.webContents.id
+  return {
+    isDestroyed: () => win.isDestroyed(),
+    isRuntimeReady: () => assistantRuntimeReadyWebContentsIds.has(webContentsId),
+    onceRuntimeReady: (callback: () => void) => {
+      const waiters = assistantRuntimeReadyWaiters.get(webContentsId) ?? new Set()
+      waiters.add(callback)
+      assistantRuntimeReadyWaiters.set(webContentsId, waiters)
+    },
+    removeRuntimeReadyListener: (callback: () => void) => {
+      const waiters = assistantRuntimeReadyWaiters.get(webContentsId)
+      waiters?.delete(callback)
+      if (waiters?.size === 0) assistantRuntimeReadyWaiters.delete(webContentsId)
+    },
+    webContents: win.webContents
+  }
+}
+
 function requestMainAssistantRuntime<TPayload>(request: AssistantRuntimeRequestInput): Promise<TPayload> {
+  const win = ensureMainWindowForAssistantRuntime()
   return requestAssistantRuntimeWhenReady<TPayload>({
     createRequestId: createAssistantRuntimeRequestId,
     request,
     responseBus: ipcMain,
-    target: ensureMainWindowForAssistantRuntime()
+    target: createAssistantRuntimeTarget(win)
   })
 }
 
@@ -705,6 +744,10 @@ function createMainWindow() {
   const win = new BrowserWindow(
     createMainWindowOptions(createPreloadScriptPath(__dirname), workAreaSize)
   )
+  installAssistantRuntimeReadinessLifecycle(win, {
+    clearReady: clearAssistantRuntimeReady,
+    clearWaiters: (webContentsId) => assistantRuntimeReadyWaiters.delete(webContentsId)
+  })
   const disposeDisplayLayout = installMainWindowDisplayLayout(win, screen)
 
   mainWindow = win
@@ -809,6 +852,12 @@ function getVideoTranscriptionQueue() {
 }
 
 function registerAssistantPreferenceHandlers() {
+  ipcMain.on('assistant-runtime:ready', (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
+      return
+    }
+    markAssistantRuntimeReady(event.sender.id)
+  })
   ipcMain.on('old-favorite-runtime:get', (event, key: string, initialValue: unknown) => {
     event.returnValue = oldFavoriteRuntimeStore.get(key, initialValue)
   })
@@ -1062,6 +1111,14 @@ function registerAssistantPreferenceHandlers() {
   )
   ipcMain.handle('floating-assistant:scan-old-favorites', (_event, options = {}) =>
     requestMainAssistantRuntime<FavoriteLedgerPreview>({ type: 'scan-old-favorites', ...options })
+  )
+  ipcMain.handle(
+    'floating-assistant:commit-old-favorite-batch',
+    (_event, token: OldFavoriteBatchCommitToken) =>
+      requestMainAssistantRuntime<OldFavoriteBatchCommitResult>({
+        type: 'commit-old-favorite-batch',
+        token
+      })
   )
   ipcMain.handle('floating-assistant:old-favorite-tag-enrichment', (_event, action = 'read') =>
     requestMainAssistantRuntime({ type: 'old-favorite-tag-enrichment', action })
