@@ -1,7 +1,12 @@
 ﻿import { describe, expect, it } from 'vitest'
 import {
+  BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH,
   BILIMI_LEDGER_PREFIX,
   createDefaultFavoriteLedgers,
+  createRecommendedFavoriteLedgerName,
+  createRecommendedFavoriteLedgerNames,
+  favoriteLedgerNameLength,
+  favoriteLedgerNameValidation,
   favoriteLedgerNamesById,
   favoriteLedgersById,
   isBilimiManagedLedgerName,
@@ -10,6 +15,61 @@ import {
 } from './favoriteLedgers'
 
 describe('favorite ledger model', () => {
+  it('counts Unicode code points and validates the complete Bilibili ledger name', () => {
+    expect(favoriteLedgerNameLength('bilimi·honker233')).toBe(16)
+    expect(favoriteLedgerNameLength('bilimi·测试😀')).toBe(10)
+    expect(favoriteLedgerNameValidation('bilimi·1234567890123')).toEqual({
+      length: 20,
+      maxLength: BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH,
+      valid: true
+    })
+    expect(favoriteLedgerNameValidation('bilimi·12345678901234').valid).toBe(false)
+  })
+
+  it('uses the account prefix for a recommended author ledger and keeps it within 20 characters', () => {
+    expect(createRecommendedFavoriteLedgerName('honker233-小王爱马枪', [])).toBe('bilimi·honker233')
+    expect(createRecommendedFavoriteLedgerName('abcdefghijklmnop-超长账号', [])).toBe(
+      'bilimi·abcdefghijklm'
+    )
+  })
+
+  it('adds a stable short suffix when a recommended name conflicts', () => {
+    const existing = ['bilimi·honker233']
+    const first = createRecommendedFavoriteLedgerName('honker233-小王爱马枪', existing)
+    const second = createRecommendedFavoriteLedgerName('honker233-小王爱马枪', existing)
+
+    expect(first).toBe(second)
+    expect(first).not.toBe('bilimi·honker233')
+    expect(favoriteLedgerNameValidation(first).valid).toBe(true)
+  })
+
+  it('allocates conflicting recommended author names independently of candidate order', () => {
+    const forward = createRecommendedFavoriteLedgerNames(
+      ['honker233-小王爱马枪', 'honker233-另一个来源'],
+      []
+    )
+    const reverse = createRecommendedFavoriteLedgerNames(
+      ['honker233-另一个来源', 'honker233-小王爱马枪'],
+      []
+    )
+
+    expect(Object.fromEntries(forward)).toEqual(Object.fromEntries(reverse))
+    expect(new Set(forward.values())).toHaveLength(2)
+    expect(Array.from(forward.values()).every((name) => favoriteLedgerNameValidation(name).valid)).toBe(true)
+  })
+
+  it('keeps probing when the stable recommended suffix is already occupied', () => {
+    const sourceName = 'honker233-小王爱马枪'
+    const firstConflictName = createRecommendedFavoriteLedgerName(sourceName, ['bilimi·honker233'])
+    const nextConflictName = createRecommendedFavoriteLedgerName(sourceName, [
+      'bilimi·honker233',
+      firstConflictName
+    ])
+
+    expect(nextConflictName).not.toBe(firstConflictName)
+    expect(favoriteLedgerNameValidation(nextConflictName).valid).toBe(true)
+  })
+
   it('defines Bilibili-style default ledgers with stable ids', () => {
     expect(createDefaultFavoriteLedgers().map((ledger) => [ledger.id, ledger.displayName])).toEqual(
       expect.arrayContaining([

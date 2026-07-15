@@ -154,6 +154,18 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
     (async () => {
       const payload = ${payload};
       ${sharedScriptHelpers()}
+      const invalidNameLedgers = payload.ledgers.filter(
+        (ledger) => ledger.enabled && Array.from(String(ledger.displayName || '')).length > 20
+      );
+      if (invalidNameLedgers.length > 0) {
+        return {
+          ok: false,
+          ledgers: payload.ledgers,
+          steps: [],
+          missingTargets: invalidNameLedgers.map((ledger) => ledger.id),
+          message: '收藏夹名称不能超过 20 个字'
+        };
+      }
       const { csrf, mid } = readCredentials();
       if (!csrf || !mid) {
         return { ok: false, ledgers: payload.ledgers, steps: [], missingTargets: [], message: '未能读取登录凭据，无法备齐册目。' };
@@ -219,6 +231,18 @@ export function buildSaveFavoriteLedgersScript(
     (async () => {
       const payload = ${payload};
       ${sharedScriptHelpers()}
+      const invalidNameLedgers = payload.nextLedgers.filter(
+        (ledger) => ledger.enabled && Array.from(String(ledger.displayName || '')).length > 20
+      );
+      if (invalidNameLedgers.length > 0) {
+        return {
+          ok: false,
+          ledgers: payload.nextLedgers,
+          steps: [],
+          missingTargets: invalidNameLedgers.map((ledger) => ledger.id),
+          message: '收藏夹名称不能超过 20 个字'
+        };
+      }
       const { csrf, mid } = readCredentials();
       if (!csrf || !mid) {
         return {
@@ -599,6 +623,7 @@ export function buildCommitOldFavoriteBatchCheckpointScript(
     ${sharedScriptHelpers()}
     const token = ${scriptPayload(token)};
     const tagStoreKey = 'bilimi:old-favorite-tag-enrichment:v1';
+    const batchStatusKey = 'bilimi:old-favorite-batch-status:v1';
     const stale = (code, message) => ({ ok: false, committed: false, stale: true, code, message });
     const sameStrings = (left, right) =>
       Array.isArray(left) && Array.isArray(right) &&
@@ -688,6 +713,7 @@ export function buildCommitOldFavoriteBatchCheckpointScript(
       exhausted ? exhaustedMarkerMatches && currentCursor === null : sameCursor(currentCursor, nextCursor)
     );
     if (alreadyCommitted) {
+      localStorage.removeItem(batchStatusKey);
       return { ok: true, committed: true, idempotent: true, exhausted };
     }
     if (!sameCursor(currentCursor, expectedCursor)) {
@@ -710,7 +736,26 @@ export function buildCommitOldFavoriteBatchCheckpointScript(
       delete nextStore.batchExhausted;
     }
     localStorage.setItem(tagStoreKey, JSON.stringify(nextStore));
+    localStorage.removeItem(batchStatusKey);
     return { ok: true, committed: true, idempotent: false, exhausted };
+  })()`
+}
+
+export function buildReadOldFavoriteBatchStatusScript(): string {
+  return `(() => {
+    ${sharedScriptHelpers()}
+    const { mid } = readCredentials();
+    if (!mid) return { pending: false };
+    let status;
+    try {
+      status = JSON.parse(localStorage.getItem('bilimi:old-favorite-batch-status:v1') || '{}');
+    } catch {
+      return { pending: false };
+    }
+    return {
+      pending: String(status.accountMid ?? '') === String(mid) &&
+        Boolean(String(status.scanRunId ?? ''))
+    };
   })()`
 }
 
@@ -1474,6 +1519,12 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           delete tagStore.batchSeenAids;
         }
         writeTagStore(tagStore);
+        if (!payload.aid) {
+          localStorage.setItem('bilimi:old-favorite-batch-status:v1', JSON.stringify({
+            accountMid: String(mid),
+            scanRunId: String(completedScanRunId || '')
+          }));
+        }
 
         if (!payload.aid) {
           persistBasicProgress('complete');

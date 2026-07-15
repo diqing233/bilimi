@@ -66,6 +66,8 @@ export type AssistantRuntimeRequest =
       multiArchiveMode?: FavoriteArchiveMultiMode
     }
   | { id: string; type: 'commit-old-favorite-batch'; token: OldFavoriteBatchCommitToken }
+  | { id: string; type: 'read-old-favorite-batch-status' }
+  | { id: string; type: 'prepare-old-favorite-scan' }
   | { id: string; type: 'old-favorite-tag-enrichment'; action?: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' }
   | { id: string; type: 'rejudge-old-favorite'; item: FavoriteLedgerPreviewItem }
   | { id: string; type: 'execute-old-favorite-plan'; items: FavoriteLedgerPreviewItem[] }
@@ -95,6 +97,7 @@ export type AssistantRuntimeResponsePayload =
   | number
   | boolean
   | OldFavoriteBatchCommitResult
+  | { pending: boolean }
   | null
 
 export type OldFavoriteBatchCommitResult = {

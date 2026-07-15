@@ -16,6 +16,8 @@ import type {
 const LEDGER_STATUS_SCRIPT_MARKER = '/x/v3/fav/folder/created/list-all'
 const LEDGER_SAVE_SCRIPT_MARKER = '/x/v3/fav/folder/add'
 const OLD_FAVORITE_SCAN_SCRIPT_MARKER = '/x/v3/fav/resource/list'
+const OLD_FAVORITE_BATCH_STATUS_SCRIPT_MARKER = 'old-favorite-batch-status:v1'
+const OLD_FAVORITE_PREPARATION_SCRIPT_MARKER = 'bilimi-old-favorite-preparation'
 const VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER = 'pageText: readText'
 
 function isLedgerStatusScript(script: string) {
@@ -3120,6 +3122,77 @@ describe('App runtime integration', () => {
     expect(executeJavaScript).toHaveBeenCalledWith(
       expect.stringContaining('Old favorite batch checkpoint token is invalid.')
     )
+  })
+
+  it('reads the pending old-favorite batch status through a lightweight runtime request', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) =>
+      script.includes(OLD_FAVORITE_BATCH_STATUS_SCRIPT_MARKER)
+        ? { pending: true }
+        : emptyLedgerStatus()
+    )
+    Object.assign(webview, { executeJavaScript })
+
+    const result = await requestRuntime({
+      id: 'read-old-favorite-batch-status-1',
+      type: 'read-old-favorite-batch-status'
+    } as AssistantRuntimeRequest)
+
+    expect(result).toEqual({ pending: true })
+    expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining(OLD_FAVORITE_BATCH_STATUS_SCRIPT_MARKER)
+    )
+  })
+
+  it('prepares the active Bilibili page before an old-favorite scan', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) =>
+      script.includes(OLD_FAVORITE_PREPARATION_SCRIPT_MARKER)
+        ? { ready: true, hasUserId: true, hasCsrf: true }
+        : emptyLedgerStatus()
+    )
+    Object.assign(webview, { executeJavaScript })
+
+    const result = await requestRuntime({
+      id: 'prepare-old-favorite-scan-1',
+      type: 'prepare-old-favorite-scan'
+    } as AssistantRuntimeRequest)
+
+    expect(result).toMatchObject({ ok: true })
+    expect(executeJavaScript).toHaveBeenCalledWith(
+      expect.stringContaining(OLD_FAVORITE_PREPARATION_SCRIPT_MARKER),
+      true
+    )
+  })
+
+  it('fails old-favorite preparation immediately when the loaded page is signed out', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    const executeJavaScript = vi.fn(async (script: string) =>
+      script.includes(OLD_FAVORITE_PREPARATION_SCRIPT_MARKER)
+        ? { ready: true, hasUserId: false, hasCsrf: false }
+        : emptyLedgerStatus()
+    )
+    Object.assign(webview, { executeJavaScript })
+
+    const result = await requestRuntime({
+      id: 'prepare-old-favorite-scan-signed-out',
+      type: 'prepare-old-favorite-scan'
+    } as AssistantRuntimeRequest)
+
+    expect(result).toMatchObject({
+      ok: false,
+      message: 'B站登录状态已失效，请重新登录后重试。'
+    })
+    expect(executeJavaScript).toHaveBeenCalledTimes(1)
   })
 
   it('keeps protected favorites out of the active preview and persists legacy migration records', async () => {

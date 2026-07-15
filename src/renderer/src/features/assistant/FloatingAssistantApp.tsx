@@ -2487,6 +2487,17 @@ export function FloatingAssistantApp({
     }
   }, [])
 
+  const readOldFavoriteBatchStatus = useCallback(async (): Promise<{ pending: boolean }> =>
+    window.bilimiDesktop?.readOldFavoriteBatchStatus?.() ?? { pending: false }, [])
+
+  const prepareOldFavoriteScan = useCallback(async (): Promise<AssistantAutomationResult> =>
+    window.bilimiDesktop?.prepareOldFavoriteScan?.() ?? {
+      ok: true,
+      steps: ['bilibili-runtime:legacy-ready'],
+      missingTargets: [],
+      message: 'B站收藏环境已准备好。'
+    }, [])
+
   async function executeOldFavoritePlan(
     items: FavoriteLedgerPreviewItem[]
   ): Promise<AssistantAutomationResult> {
@@ -2739,6 +2750,8 @@ export function FloatingAssistantApp({
             onScanOldFavorites={scanOldFavorites}
             onReadOldFavoriteTagEnrichment={readOldFavoriteTagEnrichment}
             onCommitOldFavoriteBatchCheckpoint={commitOldFavoriteBatchCheckpoint}
+            onReadOldFavoriteBatchStatus={readOldFavoriteBatchStatus}
+            onPrepareOldFavoriteScan={prepareOldFavoriteScan}
             onExecuteOldFavoritePlan={executeOldFavoritePlan}
             onOldFavoriteExecutionStateChange={handleOldFavoriteExecutionStateChange}
             onOldFavoriteStatusUpdate={handleOldFavoriteStatusUpdate}

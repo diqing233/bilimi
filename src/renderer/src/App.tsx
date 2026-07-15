@@ -42,12 +42,17 @@ import {
   buildExecuteFavoriteLedgerPlanScript,
   buildFavoriteLedgerStatusScript,
   buildCommitOldFavoriteBatchCheckpointScript,
+  buildReadOldFavoriteBatchStatusScript,
   buildOldFavoriteTagEnrichmentScript,
   buildSaveFavoriteLedgersScript,
   buildScanOldFavoriteVideoScript,
   buildScanOldFavoritesScript,
   type OldFavoriteBatchCommitToken
 } from './features/favorites/favoriteLedgerApi'
+import {
+  prepareOldFavoriteScan as waitForOldFavoriteScanPreparation,
+  type OldFavoriteScanPreparationProbe
+} from './features/favorites/oldFavoriteScanPreparation'
 import {
   createFavoriteLedgerPreview,
   type FavoriteLedgerPreview,
@@ -1156,6 +1161,54 @@ export default function App() {
     ) as unknown as Promise<OldFavoriteBatchCommitResult>
   }
 
+  async function readOldFavoriteBatchStatus(): Promise<{ pending: boolean }> {
+    const result = await runScript(buildReadOldFavoriteBatchStatusScript()) as unknown
+    return {
+      pending: Boolean(
+        result && typeof result === 'object' && 'pending' in result && result.pending
+      )
+    }
+  }
+
+  async function prepareOldFavoriteScan(): Promise<AssistantAutomationResult> {
+    return waitForOldFavoriteScanPreparation(async (): Promise<OldFavoriteScanPreparationProbe> => {
+      const currentActiveWebview = getCurrentActiveWebview()
+      if (!currentActiveWebview?.executeJavaScript) {
+        return { status: 'waiting' }
+      }
+
+      try {
+        const readiness = await currentActiveWebview.executeJavaScript(
+          `(() => {
+            const marker = 'bilimi-old-favorite-preparation'
+            void marker
+            const cookie = String(document.cookie || '')
+            return {
+              ready: document.readyState !== 'loading',
+              hasUserId: /(?:^|;\\s*)DedeUserID=\\d+/.test(cookie),
+              hasCsrf: /(?:^|;\\s*)bili_jct=[^;]+/.test(cookie)
+            }
+          })()`,
+          true
+        ) as { ready?: boolean; hasUserId?: boolean; hasCsrf?: boolean } | null
+
+        if (!readiness?.ready) {
+          return { status: 'waiting' }
+        }
+        if (!readiness.hasUserId || !readiness.hasCsrf) {
+          return { status: 'fatal', message: 'B站登录状态已失效，请重新登录后重试。' }
+        }
+        return { status: 'ready' }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error ?? '')
+        if (/html|login|登录|风控|risk|-101|-352|-412|-509/i.test(message)) {
+          return { status: 'fatal', message }
+        }
+        return { status: 'waiting' }
+      }
+    })
+  }
+
   async function rejudgeOldFavorite(item: FavoriteLedgerPreviewItem): Promise<FavoriteLedgerPreviewItem> {
     const loginFailure = await requireBilibiliLogin()
     if (loginFailure) {
@@ -1950,6 +2003,10 @@ export default function App() {
           })
         case 'commit-old-favorite-batch':
           return commitOldFavoriteBatchCheckpoint(request.token)
+        case 'read-old-favorite-batch-status':
+          return readOldFavoriteBatchStatus()
+        case 'prepare-old-favorite-scan':
+          return prepareOldFavoriteScan()
         case 'old-favorite-tag-enrichment':
           return readOldFavoriteTagEnrichment(request.action)
         case 'rejudge-old-favorite':
@@ -1980,6 +2037,7 @@ export default function App() {
     preferences,
     readFavoriteLedgerStatus,
     readOldFavoriteTagEnrichment,
+    readOldFavoriteBatchStatus,
     readCurrentVideoTime,
     readVideoContentContext,
     readVideoNoteSource,

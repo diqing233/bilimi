@@ -281,6 +281,12 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
       'floating-assistant:commit-old-favorite-batch',
       token
     ) as Promise<OldFavoriteBatchCommitResult>,
+  readOldFavoriteBatchStatus: () =>
+    ipcRenderer.invoke('floating-assistant:read-old-favorite-batch-status') as Promise<{
+      pending: boolean
+    }>,
+  prepareOldFavoriteScan: () =>
+    ipcRenderer.invoke('floating-assistant:prepare-old-favorite-scan') as Promise<AssistantAutomationResult>,
   readOldFavoriteTagEnrichment: (action: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' = 'read') =>
     ipcRenderer.invoke('floating-assistant:old-favorite-tag-enrichment', action),
   rejudgeOldFavorite: (item: FavoriteLedgerPreviewItem) =>

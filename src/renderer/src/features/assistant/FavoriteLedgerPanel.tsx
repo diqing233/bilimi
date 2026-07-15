@@ -1,6 +1,10 @@
 ﻿import {
+  BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH,
   BILIMI_LEDGER_PREFIX,
   createDefaultFavoriteLedgers,
+  createRecommendedFavoriteLedgerName,
+  createRecommendedFavoriteLedgerNames,
+  favoriteLedgerNameValidation,
   isBilimiManagedLedgerName,
   stripBilimiLedgerPrefix
 } from '@shared/favoriteLedgers'
@@ -113,6 +117,8 @@ type FavoriteLedgerPanelProps = {
   onScanOldFavorites: (options?: {
     multiArchiveMode?: FavoriteArchiveMultiMode
   }) => Promise<FavoriteLedgerPreview>
+  onReadOldFavoriteBatchStatus?: () => Promise<{ pending: boolean }>
+  onPrepareOldFavoriteScan?: () => Promise<AssistantAutomationResult>
   onReadOldFavoriteTagEnrichment?: (action?: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan') => Promise<{
     accountMid?: string
     sourceFolders: FavoriteSourceFolder[]
@@ -444,20 +450,25 @@ function normalizeBilimiLedgerName(name: string) {
   return isBilimiManagedLedgerName(name) ? prefixedBilimiLedgerName(name) : name.trim()
 }
 
-function reorderLedgers(ledgers: FavoriteLedger[], draggedLedgerId: string, targetLedgerId: string) {
-  if (draggedLedgerId === targetLedgerId) {
+function reorderLedgers(ledgers: FavoriteLedger[], draggedLedgerKey: string, targetLedgerKey: string) {
+  if (draggedLedgerKey === targetLedgerKey) {
     return ledgers
   }
 
-  const draggedIndex = ledgers.findIndex((ledger) => ledger.id === draggedLedgerId)
-  const targetIndex = ledgers.findIndex((ledger) => ledger.id === targetLedgerId)
+  const draggedIndex = ledgers.findIndex(
+    (ledger, index) => ledgerDraftKey(ledger, index, ledgers) === draggedLedgerKey
+  )
+  const targetIndex = ledgers.findIndex(
+    (ledger, index) => ledgerDraftKey(ledger, index, ledgers) === targetLedgerKey
+  )
   if (draggedIndex < 0 || targetIndex < 0) {
     return ledgers
   }
 
   const nextLedgers = [...ledgers]
   const [draggedLedger] = nextLedgers.splice(draggedIndex, 1)
-  const nextTargetIndex = nextLedgers.findIndex((ledger) => ledger.id === targetLedgerId)
+  const targetLedger = ledgers[targetIndex]
+  const nextTargetIndex = nextLedgers.findIndex((ledger) => ledger === targetLedger)
   const insertionIndex = draggedIndex < targetIndex ? nextTargetIndex + 1 : nextTargetIndex
   nextLedgers.splice(insertionIndex, 0, draggedLedger)
   return nextLedgers
@@ -554,6 +565,21 @@ type OldFavoriteSourceFolderSummary = {
   scanFailureMessage?: string
   failedPage?: number
   readVideoCount?: number
+}
+
+type ArchiveBatchOperationProgress = {
+  phase: 'running' | 'success'
+  completed: number
+  total: number
+}
+
+function ledgerDraftKey(
+  ledger: Pick<FavoriteLedger, 'id'>,
+  index: number,
+  ledgers: Array<Pick<FavoriteLedger, 'id'>>
+) {
+  const occurrence = ledgers.slice(0, index).filter((candidate) => candidate.id === ledger.id).length
+  return `${ledger.id}::${occurrence}`
 }
 
 type OldFavoriteTagEnrichmentSnapshot = Awaited<ReturnType<
@@ -659,11 +685,43 @@ function candidateLedgerIdFromCandidate(candidate: FavoriteLedgerCandidate) {
     .replace(/^-|-$/g, '')}`
 }
 
-function candidateToFavoriteLedger(candidate: FavoriteLedgerCandidate, priority: number): FavoriteLedger {
+function recommendedCandidateDisplayName(
+  candidate: FavoriteLedgerCandidate,
+  existingDisplayNames: Iterable<string>,
+  peerCandidates: Iterable<FavoriteLedgerCandidate> = [candidate]
+) {
+  if (candidate.kind !== 'author') {
+    return candidate.displayName
+  }
+
+  const authorSourceNames = Array.from(peerCandidates)
+    .filter((peer) => peer.kind === 'author')
+    .map((peer) => peer.sourceName)
+  return createRecommendedFavoriteLedgerNames(
+    authorSourceNames.length > 0 ? authorSourceNames : [candidate.sourceName],
+    existingDisplayNames
+  ).get(candidate.sourceName) ?? createRecommendedFavoriteLedgerName(
+    candidate.sourceName,
+    existingDisplayNames
+  )
+}
+
+function candidateLedgerKeywords(candidate: FavoriteLedgerCandidate) {
+  return candidate.kind === 'author'
+    ? [candidate.sourceName, ...candidate.keywords.filter((keyword) => keyword !== candidate.sourceName)]
+    : candidate.keywords
+}
+
+function candidateToFavoriteLedger(
+  candidate: FavoriteLedgerCandidate,
+  priority: number,
+  existingDisplayNames: Iterable<string>,
+  peerCandidates: Iterable<FavoriteLedgerCandidate> = [candidate]
+): FavoriteLedger {
   return {
     id: candidateLedgerIdFromCandidate(candidate),
-    displayName: candidate.displayName,
-    keywords: candidate.keywords,
+    displayName: recommendedCandidateDisplayName(candidate, existingDisplayNames, peerCandidates),
+    keywords: candidateLedgerKeywords(candidate),
     ruleType: candidateRuleType(candidate),
     enabled: true,
     priority,
@@ -682,14 +740,27 @@ function mergeCandidateLedgers(
   selectedCandidateKeys: Set<string>
 ) {
   const nextLedgers = [...ledgers]
-  for (const candidate of preview.insights?.candidateLedgers ?? []) {
+  const candidates = preview.insights?.candidateLedgers ?? []
+  for (const candidate of candidates) {
     if (!selectedCandidateKeys.has(candidateKey(candidate))) {
       continue
     }
-    if (alreadyHasLedger(nextLedgers, candidate.displayName)) {
+    if (alreadyHasLedger(
+      nextLedgers,
+      recommendedCandidateDisplayName(
+        candidate,
+        nextLedgers.map((ledger) => ledger.displayName),
+        candidates
+      )
+    )) {
       continue
     }
-    nextLedgers.push(candidateToFavoriteLedger(candidate, (nextLedgers.length + 1) * 10))
+    nextLedgers.push(candidateToFavoriteLedger(
+      candidate,
+      (nextLedgers.length + 1) * 10,
+      nextLedgers.map((ledger) => ledger.displayName),
+      candidates
+    ))
   }
   return withSequentialPriorities(nextLedgers)
 }
@@ -1592,6 +1663,8 @@ export function FavoriteLedgerPanel({
   onSaveLedgers,
   onOpenFavoritePage,
   onScanOldFavorites,
+  onReadOldFavoriteBatchStatus,
+  onPrepareOldFavoriteScan,
   onReadOldFavoriteTagEnrichment,
   onExecuteOldFavoritePlan,
   onCommitOldFavoriteBatchCheckpoint,
@@ -1666,8 +1739,12 @@ export function FavoriteLedgerPanel({
   }, [setArchiveEditorState])
   const [activeLedgerId, setActiveLedgerId] = useState<string | null>(null)
   const [activeLedgerIndex, setActiveLedgerIndex] = useState<number | null>(null)
-  const [activeLedgerSavedSnapshot, setActiveLedgerSavedSnapshot] =
+  const [, setActiveLedgerSavedSnapshot] =
     useState<ReturnType<typeof ledgerEditorSnapshot> | null>(null)
+  const [savedLedgerSnapshots, setSavedLedgerSnapshots] = useState<Record<string, ReturnType<typeof ledgerEditorSnapshot>>>(() =>
+    Object.fromEntries(ledgers.map((ledger, index) => [ledgerDraftKey(ledger, index, ledgers), ledgerEditorSnapshot(ledger)]))
+  )
+  const [hasPendingOldFavoriteBatch, setHasPendingOldFavoriteBatch] = useState(false)
   const [preview, setPreview] = useOldFavoriteRuntimeState<FavoriteLedgerPreview | null>('preview', null)
   const [baseScanPreview, setBaseScanPreview] =
     useOldFavoriteRuntimeState<FavoriteLedgerPreview | null>('baseScanPreview', null)
@@ -1705,6 +1782,10 @@ export function FavoriteLedgerPanel({
     useOldFavoriteRuntimeState('deepSeekArchiveSuggestionCount', 0)
   const [deepSeekArchiveProgress, setDeepSeekArchiveProgress] =
     useOldFavoriteRuntimeState<DeepSeekArchiveProgress | null>('deepSeekArchiveProgress', null)
+  const [archiveBatchOperationProgress, setArchiveBatchOperationProgress] =
+    useState<ArchiveBatchOperationProgress | null>(null)
+  const archiveBatchCompletionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const archiveBatchRunning = archiveBatchOperationProgress?.phase === 'running'
   const [oldFavoriteRuntimeStatus, setOldFavoriteRuntimeStatus] =
     useOldFavoriteRuntimeState<OldFavoriteStatusSnapshot | null>('oldFavoriteRuntimeStatus', null)
   const [archivePreviewAlertMessages, setArchivePreviewAlertMessages] =
@@ -1762,6 +1843,21 @@ export function FavoriteLedgerPanel({
     }
   }
 
+  async function yieldArchiveBatchFrame() {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+  }
+
+  function finishArchiveBatchOperation(total: number) {
+    setArchiveBatchOperationProgress({ phase: 'success', completed: total, total })
+    if (archiveBatchCompletionTimerRef.current) {
+      clearTimeout(archiveBatchCompletionTimerRef.current)
+    }
+    archiveBatchCompletionTimerRef.current = setTimeout(() => {
+      setArchiveBatchOperationProgress(null)
+      archiveBatchCompletionTimerRef.current = null
+    }, 3000)
+  }
+
   function restoreArchivePreviewHistorySnapshot(snapshot: ArchivePreviewHistorySnapshot) {
     const restoredState = revertDeepSeekArchiveRun(
       archivePlanState ?? snapshot.archivePlanState,
@@ -1816,8 +1912,8 @@ export function FavoriteLedgerPanel({
   const lastSuccessfulBasePreviewRef = useRef<FavoriteLedgerPreview | null>(null)
   const lastSuccessfulArchivePlanStateRef = useRef<FavoriteArchivePlanState | null>(null)
   const latestTagEnrichmentSnapshotRef = useRef<OldFavoriteTagEnrichmentSnapshot | null>(null)
-  const [draggedLedgerId, setDraggedLedgerId] = useState<string | null>(null)
-  const [dragTargetLedgerId, setDragTargetLedgerId] = useState<string | null>(null)
+  const [draggedLedgerKey, setDraggedLedgerKey] = useState<string | null>(null)
+  const [dragTargetLedgerKey, setDragTargetLedgerKey] = useState<string | null>(null)
   const [ledgerListExpanded, setLedgerListExpanded] =
     useOldFavoriteRuntimeState('ledgerListExpanded', false)
   const [oldFavoriteStep, setOldFavoriteStep] =
@@ -1840,13 +1936,60 @@ export function FavoriteLedgerPanel({
   )
   const activeLedgerRuleType = activeLedger ? ledgerRuleType(activeLedger) : 'keyword'
   const activeLedgerDeepSeekConstraint = activeLedger ? ledgerDeepSeekConstraintText(activeLedger) : ''
+  const activeLedgerNameValidation = activeLedger
+    ? favoriteLedgerNameValidation(activeLedger.displayName)
+    : null
+  const firstInvalidLedgerIndex = useMemo(
+    () => draftLedgers.findIndex((ledger) => !favoriteLedgerNameValidation(ledger.displayName).valid),
+    [draftLedgers]
+  )
+  const ledgerHasUnsavedChanges = useCallback((ledger: FavoriteLedger, index: number) => {
+    const savedSnapshot = savedLedgerSnapshots[ledgerDraftKey(ledger, index, draftLedgers)]
+    return Boolean(
+      savedSnapshot && JSON.stringify(ledgerEditorSnapshot(ledger)) !== JSON.stringify(savedSnapshot)
+    )
+  }, [savedLedgerSnapshots])
   const activeLedgerHasUnsavedChanges = useMemo(() => {
-    if (!activeLedger) {
+    if (!activeLedger || activeLedgerIndex === null) {
       return false
     }
 
-    return JSON.stringify(ledgerEditorSnapshot(activeLedger)) !== JSON.stringify(activeLedgerSavedSnapshot)
-  }, [activeLedger, activeLedgerSavedSnapshot])
+    return ledgerHasUnsavedChanges(activeLedger, activeLedgerIndex)
+  }, [activeLedger, activeLedgerIndex, ledgerHasUnsavedChanges])
+
+  useEffect(() => {
+    setSavedLedgerSnapshots((current) => {
+      let changed = false
+      const next = { ...current }
+      draftLedgers.forEach((ledger, index) => {
+        const key = ledgerDraftKey(ledger, index, draftLedgers)
+        if (!next[key]) {
+          next[key] = ledgerEditorSnapshot(ledger)
+          changed = true
+        }
+      })
+      return changed ? next : current
+    })
+  }, [draftLedgers])
+
+  useEffect(() => {
+    if (!onReadOldFavoriteBatchStatus) return
+    let cancelled = false
+    void onReadOldFavoriteBatchStatus()
+      .then((result) => {
+        if (!cancelled) setHasPendingOldFavoriteBatch(Boolean(result.pending))
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [onReadOldFavoriteBatchStatus])
+
+  useEffect(() => () => {
+    if (archiveBatchCompletionTimerRef.current) {
+      clearTimeout(archiveBatchCompletionTimerRef.current)
+    }
+  }, [])
   const normalizedScanProgress = useCallback((scanProgress: FavoriteLedgerPreview['scanProgress']) => {
     if (!scanProgress) return undefined
     const numberOrZero = (value: unknown) => Number.isFinite(Number(value))
@@ -2020,7 +2163,11 @@ export function FavoriteLedgerPanel({
 
   useEffect(() => {
     if (!preview) {
-      setDraftLedgers(ledgers.map(cloneArchiveDraftLedger))
+      const nextDraftLedgers = ledgers.map(cloneArchiveDraftLedger)
+      setDraftLedgers(nextDraftLedgers)
+      setSavedLedgerSnapshots(Object.fromEntries(
+        nextDraftLedgers.map((ledger, index) => [ledgerDraftKey(ledger, index, nextDraftLedgers), ledgerEditorSnapshot(ledger)])
+      ))
     }
     setSelectedDefaultLedgerIds(
       new Set(ledgers.filter((ledger) => ledger.enabled && ledger.isDefault).map((ledger) => ledger.id))
@@ -2109,6 +2256,7 @@ export function FavoriteLedgerPanel({
         setStatus(`${failurePrefix}：${result.message || '批次断点提交失败。'}`)
         return false
       }
+      setHasPendingOldFavoriteBatch(false)
       return true
     } catch (error) {
       setStatus(`${failurePrefix}：${errorMessage(error)}`)
@@ -2186,6 +2334,31 @@ export function FavoriteLedgerPanel({
       return
     }
 
+    if (onPrepareOldFavoriteScan) {
+      setBusy(true)
+      setStatus('正在准备B站收藏环境，最长等待1分钟…')
+      try {
+        const prepareResult = await onPrepareOldFavoriteScan()
+        if (prepareResult.ok === false) {
+          setStatus(prepareResult.message || 'B站页面或登录状态尚未准备好，请确认登录后重试。')
+          return
+        }
+        if (onReadOldFavoriteBatchStatus) {
+          try {
+            const batchStatus = await onReadOldFavoriteBatchStatus()
+            setHasPendingOldFavoriteBatch(Boolean(batchStatus.pending))
+          } catch {
+            // Preparation succeeded, so a transient status-read failure must not block scanning.
+          }
+        }
+      } catch (error) {
+        setStatus(`B站收藏环境准备失败：${errorMessage(error)}`)
+        return
+      } finally {
+        setBusy(false)
+      }
+    }
+
     setOldFavoriteGuideMode('organize')
     setOldFavoriteStep('scan')
     scanGenerationRef.current += 1
@@ -2246,6 +2419,10 @@ export function FavoriteLedgerPanel({
     setActiveLedgerId(nextLedger.id)
     setActiveLedgerIndex(nextLedgers.length - 1)
     setActiveLedgerSavedSnapshot(ledgerEditorSnapshot(nextLedger))
+    setSavedLedgerSnapshots((current) => ({
+      ...current,
+      [ledgerDraftKey(nextLedger, nextLedgers.length - 1, nextLedgers)]: ledgerEditorSnapshot(nextLedger)
+    }))
     setLedgerListExpanded(true)
     setSaveStatus(null)
   }
@@ -2260,6 +2437,9 @@ export function FavoriteLedgerPanel({
       enabled: false
     }))
     setDraftLedgers(defaultLedgers)
+    setSavedLedgerSnapshots(Object.fromEntries(
+      defaultLedgers.map((ledger, index) => [ledgerDraftKey(ledger, index, defaultLedgers), ledgerEditorSnapshot(ledger)])
+    ))
     setSelectedDefaultLedgerIds(new Set())
     setActiveLedgerId(null)
     setActiveLedgerIndex(null)
@@ -2282,6 +2462,17 @@ export function FavoriteLedgerPanel({
       const nextLedgers = currentLedgers.filter(
         (ledger, index) => index !== ledgerIndex || !canDeleteLedger(ledger)
       )
+      if (nextLedgers.length !== currentLedgers.length) {
+        setSavedLedgerSnapshots((current) => Object.fromEntries(
+          nextLedgers.map((ledger, nextIndex) => {
+            const previousIndex = nextIndex < ledgerIndex ? nextIndex : nextIndex + 1
+            return [
+              ledgerDraftKey(ledger, nextIndex, nextLedgers),
+              current[ledgerDraftKey(currentLedgers[previousIndex], previousIndex, currentLedgers)] ?? ledgerEditorSnapshot(ledger)
+            ]
+          })
+        ))
+      }
       if (ledgerId === activeLedgerId) {
         setActiveLedgerId(null)
         setActiveLedgerIndex(null)
@@ -2292,36 +2483,29 @@ export function FavoriteLedgerPanel({
     })
   }
 
-  function toggleLedger(ledgerId: string) {
-    const ledger = draftLedgers.find((item) => item.id === ledgerId)
+  function toggleLedger(ledgerIndex: number) {
+    const ledger = draftLedgers[ledgerIndex]
+    if (!ledger) {
+      return
+    }
     if (ledger?.isDefault) {
-      toggleDefaultLedger(ledgerId)
+      toggleDefaultLedger(ledger.id)
     }
 
     setDraftLedgers(
-      draftLedgers.map((ledger) =>
-        ledger.id === ledgerId
+      draftLedgers.map((candidate, index) =>
+        index === ledgerIndex
           ? {
-              ...ledger,
-              enabled: !ledger.enabled
+              ...candidate,
+              enabled: !candidate.enabled
             }
-          : ledger
+          : candidate
       )
     )
   }
 
   function selectLedger(ledger: FavoriteLedger, ledgerIndex: number) {
-    if (activeLedgerId && activeLedgerId !== ledger.id && activeLedgerHasUnsavedChanges) {
-      setSaveStatus('当前收藏夹有未保存修改，请先保存。')
-      return
-    }
-
-    if (activeLedgerId === ledger.id && activeLedgerIndex !== ledgerIndex) {
-      if (activeLedgerHasUnsavedChanges) {
-        setSaveStatus('当前收藏夹有未保存修改，请先保存。')
-        return
-      }
-
+    if (activeLedgerId === ledger.id && activeLedgerIndex === ledgerIndex) {
       setActiveLedgerId(null)
       setActiveLedgerIndex(null)
       setActiveLedgerSavedSnapshot(null)
@@ -2330,7 +2514,9 @@ export function FavoriteLedgerPanel({
 
     setActiveLedgerId(ledger.id)
     setActiveLedgerIndex(ledgerIndex)
-    setActiveLedgerSavedSnapshot(ledgerEditorSnapshot(ledger))
+    setActiveLedgerSavedSnapshot(
+      savedLedgerSnapshots[ledgerDraftKey(ledger, ledgerIndex, draftLedgers)] ?? ledgerEditorSnapshot(ledger)
+    )
     setSaveStatus(null)
   }
   function closeActiveLedgerEditor() {
@@ -2369,8 +2555,8 @@ export function FavoriteLedgerPanel({
 
     setDraftLedgers((currentLedgers) => {
       setSaveStatus(null)
-      return currentLedgers.map((ledger) =>
-        ledger.id === activeLedger.id
+      return currentLedgers.map((ledger, index) =>
+        index === activeLedgerIndex && ledger.id === activeLedger.id
           ? {
               ...ledger,
               ...patch
@@ -2403,8 +2589,25 @@ export function FavoriteLedgerPanel({
     })
   }
 
+  function focusInvalidLedger(index = firstInvalidLedgerIndex) {
+    const ledger = index >= 0 ? draftLedgers[index] : null
+    if (!ledger) return
+    setLedgerListExpanded(true)
+    setActiveLedgerId(ledger.id)
+    setActiveLedgerIndex(index)
+    setActiveLedgerSavedSnapshot(
+      savedLedgerSnapshots[ledgerDraftKey(ledger, index, draftLedgers)] ?? ledgerEditorSnapshot(ledger)
+    )
+    const validation = favoriteLedgerNameValidation(ledger.displayName)
+    setSaveStatus(`B站收藏夹名称最多20个字，当前${validation.length}个字：${ledger.displayName}`)
+  }
+
   function saveActiveLedgerDraft() {
     if (!activeLedger || activeLedgerIndex === null) {
+      return
+    }
+    if (!favoriteLedgerNameValidation(activeLedger.displayName).valid) {
+      focusInvalidLedger(activeLedgerIndex)
       return
     }
 
@@ -2419,6 +2622,10 @@ export function FavoriteLedgerPanel({
       )
     )
     setActiveLedgerSavedSnapshot(ledgerEditorSnapshot(nextLedger))
+    setSavedLedgerSnapshots((current) => ({
+      ...current,
+      [ledgerDraftKey(nextLedger, activeLedgerIndex, draftLedgers)]: ledgerEditorSnapshot(nextLedger)
+    }))
     setStatus(null)
     const keywordWarning = defaultLedgerKeywordWarning(nextLedger)
     setSaveStatus(
@@ -2452,12 +2659,12 @@ export function FavoriteLedgerPanel({
     setAllLedgersEnabled(!draftLedgers.every(ledgerEnabled))
   }
 
-  function applyCandidateTransactions(
+  async function applyCandidateTransactions(
     candidates: FavoriteLedgerCandidate[],
     selected: boolean,
     reason: string
   ) {
-    if (deepSeekArchiveRunning) {
+    if (deepSeekArchiveRunning || archiveBatchRunning) {
       return
     }
 
@@ -2470,7 +2677,11 @@ export function FavoriteLedgerPanel({
         if (selected) {
           nextCandidateKeys.add(key)
           if (!nextLedgers.some((ledger) => ledger.id === ledgerId)) {
-            nextLedgers.push(candidateToLedger(candidate, (nextLedgers.length + 1) * 10))
+            nextLedgers.push(candidateToLedger(
+              candidate,
+              (nextLedgers.length + 1) * 10,
+              nextLedgers.map((ledger) => ledger.displayName)
+            ))
           }
         } else {
           nextCandidateKeys.delete(key)
@@ -2493,7 +2704,7 @@ export function FavoriteLedgerPanel({
     }
     let after = before
     const orderedCandidates = selected ? candidates : [...candidates].reverse()
-    for (const candidate of orderedCandidates) {
+    const operations = orderedCandidates.map((candidate) => {
       const key = candidateKey(candidate)
       const affectedItemKeys = (preview?.items ?? [])
         .filter(
@@ -2502,13 +2713,40 @@ export function FavoriteLedgerPanel({
             item.candidateTargets?.some((target) => target.candidateKey === key)
         )
         .map(archivePlanItemKey)
-      after = applyArchiveCandidateTransaction(after, {
-        candidateKey: key,
-        candidateLedgerId: candidateLedgerId(candidate),
-        candidateLedger: candidateToLedger(candidate, (after.draftLedgers.length + 1) * 10),
-        affectedItemKeys,
-        selected
-      })
+      return { candidate, key, affectedItemKeys }
+    })
+    const total = operations.reduce((count, operation) => count + operation.affectedItemKeys.length, 0)
+    const chunked = total >= 100
+    let completed = 0
+    if (chunked) {
+      setArchiveBatchOperationProgress({ phase: 'running', completed: 0, total })
+      await yieldArchiveBatchFrame()
+    }
+    for (const operation of operations) {
+      const itemKeyChunks = operation.affectedItemKeys.length > 0
+        ? Array.from(
+            { length: Math.ceil(operation.affectedItemKeys.length / 100) },
+            (_, index) => operation.affectedItemKeys.slice(index * 100, (index + 1) * 100)
+          )
+        : [[]]
+      for (const affectedItemKeys of itemKeyChunks) {
+        after = applyArchiveCandidateTransaction(after, {
+          candidateKey: operation.key,
+          candidateLedgerId: candidateLedgerId(operation.candidate),
+          candidateLedger: candidateToLedger(
+            operation.candidate,
+            (after.draftLedgers.length + 1) * 10,
+            after.draftLedgers.map((ledger) => ledger.displayName)
+          ),
+          affectedItemKeys,
+          selected
+        })
+        if (chunked) {
+          completed += affectedItemKeys.length
+          setArchiveBatchOperationProgress({ phase: 'running', completed, total })
+          if (completed < total) await yieldArchiveBatchFrame()
+        }
+      }
     }
 
     const latestChange = latestArchiveChangeBetween(before.archivePlanState, after.archivePlanState, {
@@ -2521,6 +2759,7 @@ export function FavoriteLedgerPanel({
         ...after,
         draftLedgers: withSequentialPriorities(after.draftLedgers)
       })
+      if (chunked) finishArchiveBatchOperation(total)
       return
     }
 
@@ -2541,6 +2780,7 @@ export function FavoriteLedgerPanel({
       [archiveChangeAlertSummary(latestChange)].filter((message): message is string => Boolean(message))
     )
     setLedgerListExpanded(true)
+    if (chunked) finishArchiveBatchOperation(total)
   }
 
   function setCandidateSelected(candidate: FavoriteLedgerCandidate, selected: boolean) {
@@ -2552,7 +2792,7 @@ export function FavoriteLedgerPanel({
   }
 
   function setCandidateGroupSelected(candidates: FavoriteLedgerCandidate[], selected: boolean) {
-    if (deepSeekArchiveRunning) {
+    if (deepSeekArchiveRunning || archiveBatchRunning) {
       return
     }
 
@@ -2651,11 +2891,20 @@ export function FavoriteLedgerPanel({
       : '扫描已完成。')
   }
 
-  function candidateToLedger(candidate: FavoriteLedgerCandidate, priority: number): FavoriteLedger {
+  function candidateToLedger(
+    candidate: FavoriteLedgerCandidate,
+    priority: number,
+    existingDisplayNames: Iterable<string> = draftLedgers.map((ledger) => ledger.displayName),
+    peerCandidates: Iterable<FavoriteLedgerCandidate> = preview?.insights?.candidateLedgers ?? [candidate]
+  ): FavoriteLedger {
     return {
       id: candidateLedgerId(candidate),
-      displayName: candidate.displayName,
-      keywords: candidate.keywords,
+      displayName: recommendedCandidateDisplayName(
+        candidate,
+        existingDisplayNames,
+        peerCandidates
+      ),
+      keywords: candidateLedgerKeywords(candidate),
       ruleType: candidateRuleType(candidate),
       enabled: true,
       priority,
@@ -2663,44 +2912,73 @@ export function FavoriteLedgerPanel({
     }
   }
 
-  function handleLedgerDragStart(event: DragEvent<HTMLDivElement>, ledgerId: string) {
-    setDraggedLedgerId(ledgerId)
-    setDragTargetLedgerId(null)
+  function handleLedgerDragStart(event: DragEvent<HTMLDivElement>, ledgerIndex: number) {
+    const ledger = draftLedgers[ledgerIndex]
+    if (!ledger) return
+    const ledgerKey = ledgerDraftKey(ledger, ledgerIndex, draftLedgers)
+    setDraggedLedgerKey(ledgerKey)
+    setDragTargetLedgerKey(null)
     event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', ledgerId)
+    event.dataTransfer.setData('text/plain', ledgerKey)
   }
 
-  function handleLedgerDragOver(event: DragEvent<HTMLDivElement>, targetLedgerId: string) {
+  function handleLedgerDragOver(event: DragEvent<HTMLDivElement>, targetLedgerIndex: number) {
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
-    if (!draggedLedgerId || draggedLedgerId === targetLedgerId) {
-      setDragTargetLedgerId(null)
+    const targetLedger = draftLedgers[targetLedgerIndex]
+    if (!targetLedger) return
+    const targetLedgerKey = ledgerDraftKey(targetLedger, targetLedgerIndex, draftLedgers)
+    if (!draggedLedgerKey || draggedLedgerKey === targetLedgerKey) {
+      setDragTargetLedgerKey(null)
       return
     }
 
-    if (dragTargetLedgerId === targetLedgerId) {
+    if (dragTargetLedgerKey === targetLedgerKey) {
       return
     }
 
-    setDragTargetLedgerId(targetLedgerId)
+    setDragTargetLedgerKey(targetLedgerKey)
   }
 
-  function handleLedgerDrop(event: DragEvent<HTMLDivElement>, targetLedgerId: string) {
+  function handleLedgerDrop(event: DragEvent<HTMLDivElement>, targetLedgerIndex: number) {
     event.preventDefault()
-    const sourceLedgerId = event.dataTransfer?.getData('text/plain') || draggedLedgerId
-    setDraggedLedgerId(null)
-    setDragTargetLedgerId(null)
-    if (!sourceLedgerId) {
+    const targetLedger = draftLedgers[targetLedgerIndex]
+    const targetLedgerKey = targetLedger
+      ? ledgerDraftKey(targetLedger, targetLedgerIndex, draftLedgers)
+      : null
+    const sourceLedgerKey = event.dataTransfer?.getData('text/plain') || draggedLedgerKey
+    setDraggedLedgerKey(null)
+    setDragTargetLedgerKey(null)
+    if (!sourceLedgerKey || !targetLedgerKey) {
       return
     }
 
-    setDraftLedgers((currentLedgers) => withSequentialPriorities(reorderLedgers(currentLedgers, sourceLedgerId, targetLedgerId)))
+    setDraftLedgers((currentLedgers) => {
+      const activeLedgerBeforeReorder = activeLedgerIndex === null
+        ? null
+        : currentLedgers[activeLedgerIndex] ?? null
+      const reorderedRaw = reorderLedgers(currentLedgers, sourceLedgerKey, targetLedgerKey)
+      const reordered = withSequentialPriorities(reorderedRaw)
+      if (activeLedgerBeforeReorder) {
+        setActiveLedgerIndex(reorderedRaw.findIndex((ledger) => ledger === activeLedgerBeforeReorder))
+      }
+      setSavedLedgerSnapshots((current) => Object.fromEntries(
+        reorderedRaw.map((ledger, nextIndex) => {
+          const previousIndex = currentLedgers.findIndex((candidate) => candidate === ledger)
+          const saved = previousIndex >= 0
+            ? current[ledgerDraftKey(currentLedgers[previousIndex], previousIndex, currentLedgers)]
+            : undefined
+          return [ledgerDraftKey(ledger, nextIndex, reorderedRaw), saved ?? ledgerEditorSnapshot(ledger)]
+        })
+      ))
+      return reordered
+    })
     setSaveStatus(null)
   }
 
   function finishLedgerDrag() {
-    setDraggedLedgerId(null)
-    setDragTargetLedgerId(null)
+    setDraggedLedgerKey(null)
+    setDragTargetLedgerKey(null)
   }
 
   function buildLedgersToSave(includeSelectedCandidates = true, includeDefaultLedgers = false) {
@@ -2730,11 +3008,24 @@ export function FavoriteLedgerPanel({
     )
 
     for (const candidate of includeSelectedCandidates ? selectedCandidates : []) {
-      if (alreadyHasLedger(nextLedgers, candidate.displayName)) {
+      if (nextLedgers.some((ledger) => ledger.id === candidateLedgerId(candidate))) {
+        continue
+      }
+      const displayName = recommendedCandidateDisplayName(
+        candidate,
+        nextLedgers.map((ledger) => ledger.displayName),
+        candidates
+      )
+      if (alreadyHasLedger(nextLedgers, displayName)) {
         continue
       }
 
-      nextLedgers.push(candidateToLedger(candidate, (nextLedgers.length + 1) * 10))
+      nextLedgers.push(candidateToLedger(
+        candidate,
+        (nextLedgers.length + 1) * 10,
+        nextLedgers.map((ledger) => ledger.displayName),
+        candidates
+      ))
     }
 
     return nextLedgers
@@ -2748,6 +3039,10 @@ export function FavoriteLedgerPanel({
     onSuccess?: () => Promise<void> | void
     saveOptions?: FavoriteLedgerSaveOptions
   } = {}) {
+    if (firstInvalidLedgerIndex >= 0) {
+      focusInvalidLedger(firstInvalidLedgerIndex)
+      return
+    }
     const nextLedgers = buildLedgersToSave(
       options.includeSelectedCandidates ?? true,
       options.includeDefaultLedgers ?? false
@@ -2991,11 +3286,20 @@ export function FavoriteLedgerPanel({
     }
   }
 
+  function candidateDisplayNameForDraft(candidate: FavoriteLedgerCandidate) {
+    return draftLedgers.find((ledger) => ledger.id === candidateLedgerId(candidate))?.displayName ??
+      recommendedCandidateDisplayName(
+        candidate,
+        draftLedgers.map((ledger) => ledger.displayName),
+        preview?.insights?.candidateLedgers ?? [candidate]
+      )
+  }
+
   function updateArchivePlanSelectedTargets(
     item: FavoriteLedgerPreviewItem,
     update: (planItem: FavoriteArchivePlanItemState) => string[]
   ) {
-    if (deepSeekArchiveRunning) {
+    if (deepSeekArchiveRunning || archiveBatchRunning) {
       return
     }
 
@@ -3039,8 +3343,8 @@ export function FavoriteLedgerPanel({
     })
   }
 
-  function setOldFavoriteTargetGroupSelected(group: OldFavoriteTargetGroup, selected: boolean) {
-    if (deepSeekArchiveRunning) {
+  async function setOldFavoriteTargetGroupSelected(group: OldFavoriteTargetGroup, selected: boolean) {
+    if (deepSeekArchiveRunning || archiveBatchRunning) {
       return
     }
 
@@ -3049,19 +3353,14 @@ export function FavoriteLedgerPanel({
     }
 
     const itemKeys = new Set(group.entries.map((entry) => archivePlanItemKey(entry.item)))
-    const nextState = {
-      ...archivePlanState,
-      items: archivePlanState.items.map((planItem) => {
-        if (!itemKeys.has(planItem.itemKey)) {
-          return planItem
-        }
-
+    const total = itemKeys.size
+    let nextItems: FavoriteArchivePlanItemState[]
+    if (total < 100) {
+      nextItems = archivePlanState.items.map((planItem) => {
+        if (!itemKeys.has(planItem.itemKey)) return planItem
         const selectedTargetLedgerIds = new Set(planItem.selectedTargetLedgerIds)
-        if (selected) {
-          selectedTargetLedgerIds.add(group.ledgerId)
-        } else {
-          selectedTargetLedgerIds.delete(group.ledgerId)
-        }
+        if (selected) selectedTargetLedgerIds.add(group.ledgerId)
+        else selectedTargetLedgerIds.delete(group.ledgerId)
         return {
           ...planItem,
           selectedTargetLedgerIds: Array.from(selectedTargetLedgerIds),
@@ -3069,18 +3368,47 @@ export function FavoriteLedgerPanel({
           lastChangeSource: 'user' as const
         }
       })
+    } else {
+      setArchiveBatchOperationProgress({ phase: 'running', completed: 0, total })
+      await yieldArchiveBatchFrame()
+      nextItems = [...archivePlanState.items]
+      for (let start = 0; start < nextItems.length; start += 100) {
+        const end = Math.min(start + 100, nextItems.length)
+        for (let index = start; index < end; index += 1) {
+          const planItem = nextItems[index]
+          if (!itemKeys.has(planItem.itemKey)) continue
+          const selectedTargetLedgerIds = new Set(planItem.selectedTargetLedgerIds)
+          if (selected) selectedTargetLedgerIds.add(group.ledgerId)
+          else selectedTargetLedgerIds.delete(group.ledgerId)
+          nextItems[index] = {
+            ...planItem,
+            selectedTargetLedgerIds: Array.from(selectedTargetLedgerIds),
+            userModified: true,
+            lastChangeSource: 'user' as const
+          }
+        }
+        const completed = nextItems.slice(0, end).filter((item) => itemKeys.has(item.itemKey)).length
+        setArchiveBatchOperationProgress({ phase: 'running', completed, total })
+        if (end < nextItems.length) await yieldArchiveBatchFrame()
+      }
+    }
+    const nextState = {
+      ...archivePlanState,
+      items: nextItems
     }
     const latestChange = latestArchiveChangeBetween(archivePlanState, nextState, {
       batchReason: `${selected ? '全选' : '取消全选'} ${group.displayName}`,
       forceBatch: true
     })
     if (!latestChange) {
+      if (total >= 100) setArchiveBatchOperationProgress(null)
       return
     }
     clearDeepSeekArchiveRunSnapshot()
     recordArchivePreviewHistory(archivePlanState, latestChange)
     setLatestArchiveChange(latestChange)
     setArchivePlanState(nextState)
+    if (total >= 100) finishArchiveBatchOperation(total)
   }
 
   function toggleOldFavoriteSourceFolder(sourceKey: string) {
@@ -3110,7 +3438,7 @@ export function FavoriteLedgerPanel({
         className="favorite-ledger-panel__preview-video-title"
         title={item.title}
         aria-label={`打开视频来源 ${item.title}`}
-        disabled={deepSeekArchiveRunning}
+        disabled={deepSeekArchiveRunning || archiveBatchRunning}
         onClick={() => openOldFavoriteVideo(item)}
       >
         {item.title}
@@ -3331,7 +3659,7 @@ export function FavoriteLedgerPanel({
   }
 
   function confirmPendingUnclassifiedDecision(mode: 'all' | 'current') {
-    if (deepSeekArchiveRunning) {
+    if (deepSeekArchiveRunning || archiveBatchRunning) {
       setPendingUnclassifiedDecision(null)
       return
     }
@@ -3624,7 +3952,7 @@ export function FavoriteLedgerPanel({
   }
 
   function undoArchivePreviewChanges() {
-    if (!archivePlanState || deepSeekArchiveRunning || archiveUndoStack.length === 0) {
+    if (!archivePlanState || deepSeekArchiveRunning || archiveBatchRunning || archiveUndoStack.length === 0) {
       return
     }
 
@@ -3645,7 +3973,7 @@ export function FavoriteLedgerPanel({
   }
 
   function redoArchivePreviewChanges() {
-    if (!archivePlanState || archiveRedoStack.length === 0 || deepSeekArchiveRunning) {
+    if (!archivePlanState || archiveRedoStack.length === 0 || deepSeekArchiveRunning || archiveBatchRunning) {
       return
     }
 
@@ -3664,7 +3992,7 @@ export function FavoriteLedgerPanel({
   }
 
   function rollbackArchivePreviewHistory(targetChangeIndex: number) {
-    if (!archivePlanState || deepSeekArchiveRunning) {
+    if (!archivePlanState || deepSeekArchiveRunning || archiveBatchRunning) {
       return
     }
 
@@ -3695,7 +4023,7 @@ export function FavoriteLedgerPanel({
   }
 
   function setPreviewScopedPendingItemsStaged(selected: boolean) {
-    if (deepSeekArchiveRunning || !archivePlanState) {
+    if (deepSeekArchiveRunning || archiveBatchRunning || !archivePlanState) {
       return
     }
 
@@ -3865,6 +4193,12 @@ export function FavoriteLedgerPanel({
 
   async function executeOldFavoritePlan() {
     if (!preview || deepSeekArchiveRunning) {
+      return
+    }
+
+    if (firstInvalidLedgerIndex >= 0) {
+      setOldFavoriteExecutionConfirming(false)
+      focusInvalidLedger(firstInvalidLedgerIndex)
       return
     }
 
@@ -4575,7 +4909,7 @@ export function FavoriteLedgerPanel({
       }
 
       if (event.shiftKey) {
-        if (archiveRedoStack.length === 0 || deepSeekArchiveRunning) {
+        if (archiveRedoStack.length === 0 || deepSeekArchiveRunning || archiveBatchRunning) {
           return
         }
 
@@ -4584,7 +4918,7 @@ export function FavoriteLedgerPanel({
         return
       }
 
-      if (!archivePlanState || deepSeekArchiveRunning || archiveUndoStack.length === 0) {
+      if (!archivePlanState || deepSeekArchiveRunning || archiveBatchRunning || archiveUndoStack.length === 0) {
         return
       }
 
@@ -4596,6 +4930,7 @@ export function FavoriteLedgerPanel({
     return () => document.removeEventListener('keydown', handleArchiveShortcut)
   }, [
     archivePlanState,
+    archiveBatchRunning,
     archiveRedoStack,
     archiveUndoStack,
     deepSeekArchiveRunning,
@@ -4812,7 +5147,7 @@ export function FavoriteLedgerPanel({
             data-selected={hasSelectedTarget}
             title={targetTitle}
             value=""
-            disabled={deepSeekArchiveRunning}
+            disabled={deepSeekArchiveRunning || archiveBatchRunning}
             onClick={(event) => event.stopPropagation()}
             onChange={(event) => {
               const targetLedgerId = event.currentTarget.value
@@ -4876,7 +5211,7 @@ export function FavoriteLedgerPanel({
           aria-haspopup="menu"
           aria-expanded={deepSeekArchiveScopeOpen}
           title={`当前选择：${selectedScopeLabel}`}
-          disabled={deepSeekArchiveRunning}
+          disabled={deepSeekArchiveRunning || archiveBatchRunning}
           onClick={() => setDeepSeekArchiveScopeOpen((open) => !open)}
         >
           <span>整理范围</span>
@@ -5061,13 +5396,13 @@ export function FavoriteLedgerPanel({
           />
           <AssistantActionButton
             type="button"
-            aria-label="整理旧藏"
+            aria-label={hasPendingOldFavoriteBatch ? '继续本批整理' : '整理旧藏'}
             disabled={busy}
             onClick={() => void startOrganizingOldFavorites()}
             icon={hintPetUrl}
             iconAlt="小咪整理旧藏"
             badge="整"
-            label="整理旧藏"
+            label={hasPendingOldFavoriteBatch ? '继续本批整理' : '整理旧藏'}
             description="扫描旧藏，确认后整理到 bilimi 收藏夹里"
           />
         </div>
@@ -5114,7 +5449,11 @@ export function FavoriteLedgerPanel({
             <button type="button" disabled={busy || deepSeekArchiveRunning} onClick={toggleAllLedgers}>
               {bulkToggleLabel}
             </button>
-            <button type="button" disabled={busy || deepSeekArchiveRunning} onClick={() => void saveLedgers()}>
+            <button
+              type="button"
+              disabled={busy || deepSeekArchiveRunning || firstInvalidLedgerIndex >= 0}
+              onClick={() => void saveLedgers()}
+            >
               同步
             </button>
           </div>
@@ -5129,37 +5468,40 @@ export function FavoriteLedgerPanel({
         ) : null}
         <div className="favorite-ledger-panel__chips">
           {ledgersToDisplay.map((ledger, ledgerIndex) => {
+            const draftKey = ledgerDraftKey(ledger, ledgerIndex, draftLedgers)
             const isLedgerEnabled = ledgerEnabled(ledger)
             const ledgerLabel = stripBilimiLedgerPrefix(ledger.displayName)
+            const ledgerDirty = ledgerHasUnsavedChanges(ledger, ledgerIndex)
+            const ledgerButtonLabel = `${ledgerLabel}${ledgerDirty ? '（未保存）' : ''}`
             const selectLedgerLabel = ledgerLabel || '新建收藏夹'
             return (
               <div
                 key={`${ledger.id}-${ledgerIndex}`}
                 className="favorite-ledger-panel__chip-item"
                 draggable
-                data-dragging={draggedLedgerId === ledger.id}
-                data-drop-target={dragTargetLedgerId === ledger.id}
-                onDragStart={(event) => handleLedgerDragStart(event, ledger.id)}
-                onDragOver={(event) => handleLedgerDragOver(event, ledger.id)}
-                onDrop={(event) => handleLedgerDrop(event, ledger.id)}
+                data-dragging={draggedLedgerKey === draftKey}
+                data-drop-target={dragTargetLedgerKey === draftKey}
+                onDragStart={(event) => handleLedgerDragStart(event, ledgerIndex)}
+                onDragOver={(event) => handleLedgerDragOver(event, ledgerIndex)}
+                onDrop={(event) => handleLedgerDrop(event, ledgerIndex)}
                 onDragEnd={finishLedgerDrag}
               >
                 <button
                   type="button"
-                  aria-label={ledgerLabel || `选择${selectLedgerLabel}`}
+                  aria-label={ledgerButtonLabel || `选择${selectLedgerLabel}`}
                   title={ledger.displayName}
                   aria-pressed={isLedgerEnabled}
                   data-active={activeLedger?.id === ledger.id && activeLedgerIndex === ledgerIndex}
                   onClick={() => selectLedger(ledger, ledgerIndex)}
                 >
-                  {ledgerLabel}
+                  {ledgerButtonLabel}
                 </button>
                 <button
                   type="button"
                   className="favorite-ledger-panel__chip-action"
                   aria-label={`${isLedgerEnabled ? '移出同步' : '加入同步'} ${ledger.displayName}`}
                   data-enabled={isLedgerEnabled}
-                  onClick={() => toggleLedger(ledger.id)}
+                  onClick={() => toggleLedger(ledgerIndex)}
                 >
                   {isLedgerEnabled ? '✓' : '+'}
                 </button>
@@ -5189,7 +5531,11 @@ export function FavoriteLedgerPanel({
           <div className="favorite-ledger-panel__editor-title">
             <strong>正在编辑：{activeLedger.displayName}</strong>
             <div className="favorite-ledger-panel__editor-actions">
-              <button type="button" disabled={busy} onClick={saveActiveLedgerDraft}>
+              <button
+                type="button"
+                disabled={busy || !activeLedgerNameValidation?.valid}
+                onClick={saveActiveLedgerDraft}
+              >
                 保存
               </button>
               {!activeLedger.isDefault ? (
@@ -5244,6 +5590,18 @@ export function FavoriteLedgerPanel({
               onChange={(event) => updateActiveLedgerName(event.currentTarget.value)}
             />
           )}
+          {activeLedgerNameValidation ? (
+            <div className="favorite-ledger-panel__name-validation">
+              <small data-invalid={!activeLedgerNameValidation.valid}>
+                {activeLedgerNameValidation.length}/{BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH}
+              </small>
+              {!activeLedgerNameValidation.valid ? (
+                <small role="alert">
+                  B站收藏夹名称最多20个字，当前{activeLedgerNameValidation.length}个字
+                </small>
+              ) : null}
+            </div>
+          ) : null}
         </label>
           <label>
             {ruleFieldLabel(activeLedgerRuleType)}
@@ -5335,6 +5693,28 @@ export function FavoriteLedgerPanel({
               ))}
             </nav>
           </div>
+
+          {archiveBatchOperationProgress ? (
+            <div
+              className="favorite-ledger-panel__archive-batch-progress"
+              role="status"
+              aria-label="批量移动进度"
+            >
+              {archiveBatchOperationProgress.phase === 'running' ? (
+                <>
+                  <span className="favorite-ledger-panel__spinner" aria-hidden="true" />
+                  <span>
+                    正在移动 {archiveBatchOperationProgress.total} 条
+                    {archiveBatchOperationProgress.completed > 0
+                      ? `（${archiveBatchOperationProgress.completed}/${archiveBatchOperationProgress.total}）`
+                      : ''}
+                  </span>
+                </>
+              ) : (
+                <span>已移动 {archiveBatchOperationProgress.total} 条</span>
+              )}
+            </div>
+          ) : null}
 
           {oldFavoriteStep === 'scan' ? (
             <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
@@ -5614,7 +5994,7 @@ export function FavoriteLedgerPanel({
                       type="checkbox"
                       aria-label="全选 专属 UP 追更"
                       checked={allFollowUpCandidatesSelected}
-                      disabled={deepSeekArchiveRunning || !oldFavoriteFollowUpCandidates.length}
+                      disabled={deepSeekArchiveRunning || archiveBatchRunning || !oldFavoriteFollowUpCandidates.length}
                       onChange={(event) =>
                         setCandidateGroupSelected(oldFavoriteFollowUpCandidates, event.currentTarget.checked)
                       }
@@ -5627,17 +6007,18 @@ export function FavoriteLedgerPanel({
                   oldFavoriteFollowUpCandidates.map((candidate) => {
                   const key = candidateKey(candidate)
                   const isSelected = selectedCandidateKeys.has(key)
-                  const candidateLabel = favoriteLedgerDisplayShortName(candidate.displayName)
+                  const candidateDisplayName = candidateDisplayNameForDraft(candidate)
+                  const candidateLabel = favoriteLedgerDisplayShortName(candidateDisplayName)
 
                   return (
                     <article key={`${candidate.kind}-${candidate.sourceName}`} title={candidateLabel}>
                       <label>
                         <input
                           type="checkbox"
-                          aria-label={candidate.displayName}
+                          aria-label={candidateDisplayName}
                           checked={isSelected}
                           disabled={
-                            deepSeekArchiveRunning || (!isSelected && alreadyHasLedger(ledgers, candidate.displayName))
+                            deepSeekArchiveRunning || archiveBatchRunning || (!isSelected && alreadyHasLedger(draftLedgers, candidateDisplayName))
                           }
                           onClick={() => setCandidateSelected(candidate, !isSelected)}
                           onChange={() => undefined}
@@ -5665,7 +6046,7 @@ export function FavoriteLedgerPanel({
                       type="checkbox"
                       aria-label="全选 高频标签收藏夹"
                       checked={allTagCandidatesSelected}
-                      disabled={deepSeekArchiveRunning || !oldFavoriteTagCandidates.length}
+                      disabled={deepSeekArchiveRunning || archiveBatchRunning || !oldFavoriteTagCandidates.length}
                       onChange={(event) =>
                         setCandidateGroupSelected(oldFavoriteTagCandidates, event.currentTarget.checked)
                       }
@@ -5677,18 +6058,19 @@ export function FavoriteLedgerPanel({
                 {visibleOldFavoriteTagCandidates.map((candidate) => {
                     const key = candidateKey(candidate)
                     const isSelected = selectedCandidateKeys.has(key)
-                    const candidateLabel = favoriteLedgerDisplayShortName(candidate.displayName)
+                    const candidateDisplayName = candidateDisplayNameForDraft(candidate)
+                    const candidateLabel = favoriteLedgerDisplayShortName(candidateDisplayName)
 
                     return (
                       <article key={`${candidate.kind}-${candidate.sourceName}`} title={candidateLabel}>
                         <label>
                           <input
                             type="checkbox"
-                            aria-label={candidate.displayName}
+                            aria-label={candidateDisplayName}
                             checked={isSelected}
                             disabled={
-                              deepSeekArchiveRunning ||
-                              (!isSelected && alreadyHasLedger(ledgers, candidate.displayName))
+                              deepSeekArchiveRunning || archiveBatchRunning ||
+                              (!isSelected && alreadyHasLedger(draftLedgers, candidateDisplayName))
                             }
                             onClick={() => setCandidateSelected(candidate, !isSelected)}
                             onChange={() => undefined}
@@ -5886,6 +6268,11 @@ export function FavoriteLedgerPanel({
                         <div className="favorite-ledger-panel__archive-history-actions">
                           <label className="favorite-ledger-panel__archive-history-select">
                             <span>改动记录</span>
+                            {archiveUndoChanges.length > 0 ? (
+                              <span className="favorite-ledger-panel__archive-history-current" role="status">
+                                当前状态：{archiveChangeRecordOptionText(archiveUndoChanges[archiveUndoChanges.length - 1])}
+                              </span>
+                            ) : null}
                             <span className="favorite-ledger-panel__archive-history-select-control">
                               <select
                                 aria-label="改动记录"
@@ -5905,10 +6292,8 @@ export function FavoriteLedgerPanel({
                                   <option value="">暂无改动记录</option>
                                 ) : (
                                   <>
-                                    <option value="">
-                                      当前状态：{archiveChangeRecordOptionText(archiveUndoChanges[archiveUndoChanges.length - 1])}
-                                    </option>
-                                    {[...archiveUndoChanges]
+                                    <option value="" hidden>选择要恢复的状态</option>
+                                    {archiveUndoChanges.slice(0, -1)
                                       .map((change, index) => ({ change, index }))
                                       .reverse()
                                       .map(({ change, index }) => (
@@ -5925,7 +6310,7 @@ export function FavoriteLedgerPanel({
                           <button
                             type="button"
                             className="favorite-ledger-panel__archive-history-button"
-                            disabled={deepSeekArchiveRunning || archiveUndoStack.length === 0}
+                            disabled={deepSeekArchiveRunning || archiveBatchRunning || archiveUndoStack.length === 0}
                             onClick={undoArchivePreviewChanges}
                           >
                             撤销本次改动
@@ -5933,7 +6318,7 @@ export function FavoriteLedgerPanel({
                           <button
                             type="button"
                             className="favorite-ledger-panel__archive-history-button"
-                            disabled={deepSeekArchiveRunning || archiveRedoStack.length === 0}
+                            disabled={deepSeekArchiveRunning || archiveBatchRunning || archiveRedoStack.length === 0}
                             onClick={redoArchivePreviewChanges}
                           >
                             恢复本次改动
@@ -5976,7 +6361,7 @@ export function FavoriteLedgerPanel({
                           type="checkbox"
                           aria-label="全部存入暂存"
                           checked={allPreviewScopedPendingItemsStaged}
-                          disabled={deepSeekArchiveRunning}
+                          disabled={deepSeekArchiveRunning || archiveBatchRunning}
                           onChange={(event) =>
                             setPreviewScopedPendingItemsStaged(event.currentTarget.checked)
                           }
@@ -6025,7 +6410,7 @@ export function FavoriteLedgerPanel({
                               type="checkbox"
                               aria-label={`全选 ${group.displayName}`}
                               checked={allSelected}
-                              disabled={deepSeekArchiveRunning}
+                              disabled={deepSeekArchiveRunning || archiveBatchRunning}
                               onChange={(event) =>
                                 setOldFavoriteTargetGroupSelected(group, event.currentTarget.checked)
                               }
@@ -6062,7 +6447,7 @@ export function FavoriteLedgerPanel({
                                   .join(' ')}
                                 data-selected={selected}
                                 aria-pressed={selected}
-                                aria-disabled={deepSeekArchiveRunning || target.alreadyInTarget}
+                                aria-disabled={deepSeekArchiveRunning || archiveBatchRunning || target.alreadyInTarget}
                                 onClick={() => {
                                   if (!deepSeekArchiveRunning && !target.alreadyInTarget) {
                                     toggleOldFavoriteTarget(item, group.ledgerId)
@@ -6148,7 +6533,11 @@ export function FavoriteLedgerPanel({
                   >
                     返回检查
                   </button>
-                  <button type="button" onClick={() => void executeOldFavoritePlan()}>
+                  <button
+                    type="button"
+                    disabled={firstInvalidLedgerIndex >= 0}
+                    onClick={() => void executeOldFavoritePlan()}
+                  >
                     开始整理
                   </button>
                 </div>
@@ -6159,7 +6548,11 @@ export function FavoriteLedgerPanel({
                 {oldFavoriteGuideMode === 'setup' ? (
                 <>
                   <p>确认后会把当前勾选收藏夹同步到 B 站。</p>
-                  <button type="button" disabled={busy} onClick={() => void saveLedgers()}>
+                  <button
+                    type="button"
+                    disabled={busy || firstInvalidLedgerIndex >= 0}
+                    onClick={() => void saveLedgers()}
+                  >
                     确认同步
                   </button>
                 </>
@@ -6216,7 +6609,9 @@ export function FavoriteLedgerPanel({
                       !oldFavoriteExecutionAwaitingAcknowledgement)
                     }
                     onClick={() =>
-                      oldFavoriteExecutionAwaitingAcknowledgement
+                      firstInvalidLedgerIndex >= 0
+                        ? focusInvalidLedger(firstInvalidLedgerIndex)
+                        : oldFavoriteExecutionAwaitingAcknowledgement
                         ? acknowledgeOldFavoriteExecution()
                         : selectedOldFavoritePlanItems.length === 0
                           ? preview.batch

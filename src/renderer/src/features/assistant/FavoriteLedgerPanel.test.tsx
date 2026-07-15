@@ -162,6 +162,81 @@ describe('FavoriteLedgerPanel', () => {
     }
   })
 
+  it('shows complete-name length and blocks saving or syncing names over 20 Unicode characters', async () => {
+    const onSaveLedgers = vi.fn()
+    renderPanel({ onSaveLedgers })
+
+    fireEvent.click(screen.getByRole('button', { name: '知识学习' }))
+    fireEvent.change(screen.getByLabelText('册名'), {
+      target: { value: '12345678901234' }
+    })
+
+    expect(screen.getByText('21/20')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('B站收藏夹名称最多20个字，当前21个字')
+    expect(within(screen.getByRole('region', { name: '当前收藏夹' })).getByRole('button', { name: '保存' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '同步' })).toBeDisabled()
+    expect(onSaveLedgers).not.toHaveBeenCalled()
+  })
+
+  it('clears the dirty marker after saving a valid ledger draft', () => {
+    renderPanel()
+
+    fireEvent.click(screen.getByRole('button', { name: '知识学习' }))
+    fireEvent.change(screen.getByLabelText('册名'), { target: { value: '新名称' } })
+    expect(screen.getByRole('button', { name: '新名称（未保存）' })).toBeInTheDocument()
+
+    fireEvent.click(within(screen.getByRole('region', { name: '当前收藏夹' })).getByRole('button', { name: '保存' }))
+    expect(screen.getByRole('button', { name: '新名称' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '新名称（未保存）' })).not.toBeInTheDocument()
+  })
+
+  it('prepares the Bilibili environment before saving and scanning', async () => {
+    const order: string[] = []
+    const onPrepareOldFavoriteScan = vi.fn(async () => {
+      order.push('prepare')
+      return { ok: true, steps: [], missingTargets: [] }
+    })
+    const onSaveLedgers = vi.fn(async () => {
+      order.push('save')
+      return { ok: true, steps: [], missingTargets: [] }
+    })
+    const onScanOldFavorites = vi.fn(async () => {
+      order.push('scan')
+      return createArchivePreviewFixture()
+    })
+    renderPanel({ onPrepareOldFavoriteScan, onSaveLedgers, onScanOldFavorites })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    await waitFor(() => expect(order).toEqual(['prepare', 'save', 'scan']))
+  })
+
+  it('shows a resumable batch label from persisted batch status', async () => {
+    renderPanel({
+      onReadOldFavoriteBatchStatus: vi.fn().mockResolvedValue({ pending: true })
+    })
+
+    expect(await screen.findByRole('button', { name: '继续本批整理' })).toBeInTheDocument()
+  })
+
+  it('re-reads the resumable batch status after scan preparation becomes ready', async () => {
+    const onReadOldFavoriteBatchStatus = vi.fn()
+      .mockResolvedValueOnce({ pending: false })
+      .mockResolvedValueOnce({ pending: true })
+    renderPanel({
+      onReadOldFavoriteBatchStatus,
+      onPrepareOldFavoriteScan: vi.fn().mockResolvedValue({ ok: true, steps: [], missingTargets: [] }),
+      onSaveLedgers: vi.fn().mockResolvedValue({ ok: true, steps: [], missingTargets: [] }),
+      onScanOldFavorites: vi.fn(() => new Promise<FavoriteLedgerPreview>(() => undefined))
+    })
+
+    await waitFor(() => expect(onReadOldFavoriteBatchStatus).toHaveBeenCalledOnce())
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    await waitFor(() => expect(onReadOldFavoriteBatchStatus).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('button', { name: '继续本批整理' })).toBeInTheDocument()
+  })
+
   it('keeps archive editor state in one aggregate runtime snapshot', () => {
     renderPanel()
 
@@ -537,10 +612,11 @@ describe('FavoriteLedgerPanel', () => {
     renderPanel({
       onScanOldFavorites: vi.fn().mockResolvedValue(preview),
       onExecuteOldFavoritePlan,
-      onCommitOldFavoriteBatchCheckpoint
+      onCommitOldFavoriteBatchCheckpoint,
+      onReadOldFavoriteBatchStatus: vi.fn().mockResolvedValue({ pending: true })
     })
 
-    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '继续本批整理' }))
     await screen.findByText('本批最多3000，完成或放弃后可继续')
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
     confirmOldFavoriteExecution()
@@ -589,10 +665,11 @@ describe('FavoriteLedgerPanel', () => {
     renderPanel({
       onScanOldFavorites: vi.fn().mockResolvedValue(preview),
       onExecuteOldFavoritePlan,
-      onCommitOldFavoriteBatchCheckpoint
+      onCommitOldFavoriteBatchCheckpoint,
+      onReadOldFavoriteBatchStatus: vi.fn().mockResolvedValue({ pending: true })
     })
 
-    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '继续本批整理' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
     fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
@@ -600,6 +677,8 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(onCommitOldFavoriteBatchCheckpoint).toHaveBeenCalledWith(oldFavoriteBatchCommitToken()))
     expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
     expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '整理旧藏' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '继续本批整理' })).not.toBeInTheDocument()
   })
 
   it('discards a resumable batch only after confirmation without executing archive items', async () => {
@@ -626,6 +705,8 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(onCommitOldFavoriteBatchCheckpoint).toHaveBeenCalledWith(oldFavoriteBatchCommitToken()))
     expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
     expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '整理旧藏' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '继续本批整理' })).not.toBeInTheDocument()
   })
 
   it('keeps a resumable batch when discarding fails to commit its checkpoint', async () => {
@@ -1918,7 +1999,8 @@ describe('FavoriteLedgerPanel', () => {
     })
 
     const historySelect = screen.getByRole('combobox', { name: '改动记录' })
-    expect(within(historySelect).getByRole('option', { name: /当前状态：最近一次改动：AI 效率工具实战/ })).toBeInTheDocument()
+    expect(screen.getByText(/当前状态：最近一次改动：AI 效率工具实战/)).toBeInTheDocument()
+    expect(within(historySelect).queryByRole('option', { name: /当前状态/ })).not.toBeInTheDocument()
     expect(within(historySelect).getByRole('option', { name: '归档预览初始状态' })).toBeInTheDocument()
     expect(getPreviewArticle(container, /AI 效率工具实战/)).toHaveAttribute('data-latest-change', 'true')
   })
@@ -2361,7 +2443,7 @@ describe('FavoriteLedgerPanel', () => {
 
     first.unmount()
     renderPanel({ onScanOldFavorites })
-    fireEvent.click(screen.getByRole('button', { name: '知识学习' }))
+    fireEvent.click(screen.getByRole('button', { name: '知识学习（未保存）' }))
     editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
 
     expect(editor.getByLabelText('关键词')).toHaveValue('热更新保留词')
@@ -3467,7 +3549,8 @@ describe('FavoriteLedgerPanel', () => {
     const historySelect = screen.getByRole('combobox', { name: '改动记录' })
     expect(within(historySelect).getByRole('option', { name: '归档预览初始状态' })).toBeInTheDocument()
     expect(within(historySelect).getByRole('option', { name: '最近一次改动：AI 效率工具实战' })).toBeInTheDocument()
-    expect(within(historySelect).getByRole('option', { name: '最近一次改动：暂时不知道放哪' })).toBeInTheDocument()
+    expect(within(historySelect).queryByRole('option', { name: '最近一次改动：暂时不知道放哪' })).not.toBeInTheDocument()
+    expect(screen.getByText(/当前状态：最近一次改动：暂时不知道放哪/)).toBeInTheDocument()
 
     fireEvent.change(historySelect, { target: { value: 'change:0' } })
 
@@ -3865,7 +3948,7 @@ describe('FavoriteLedgerPanel', () => {
     )
     expect(getPreviewArticle(stagingGroup, /暂存旧藏一/)).toHaveTextContent('来自 未分类')
     expect(getPreviewArticle(stagingGroup, /暂存旧藏二/)).toHaveTextContent('来自 未分类')
-    expect(screen.getByRole('combobox', { name: '改动记录' })).toHaveTextContent(
+    expect(screen.getByRole('group', { name: '归档预览改动操作' })).toHaveTextContent(
       '最近批量改动：全部存入暂存，移动 2 条'
     )
     expect(screen.getByRole('alert')).toHaveTextContent('全部存入暂存：移动 2 条')
@@ -4878,9 +4961,12 @@ describe('FavoriteLedgerPanel', () => {
     const musicItem = within(chips).getByRole('button', { name: '音乐舞台' }).closest('.favorite-ledger-panel__chip-item')!
     const knowledgeItem = within(chips).getByRole('button', { name: '知识学习' }).closest('.favorite-ledger-panel__chip-item')!
 
-    fireEvent.dragStart(musicItem, { dataTransfer: { effectAllowed: '', setData: vi.fn() } })
+    let dragPayload = ''
+    fireEvent.dragStart(musicItem, {
+      dataTransfer: { effectAllowed: '', setData: (_type: string, value: string) => { dragPayload = value } }
+    })
     fireEvent.dragOver(knowledgeItem, { dataTransfer: { dropEffect: '' } })
-    fireEvent.drop(knowledgeItem, { dataTransfer: { getData: () => 'music' } })
+    fireEvent.drop(knowledgeItem, { dataTransfer: { getData: () => dragPayload } })
 
     expect(
       Array.from(chipGrid.children).some((item) =>
@@ -4950,9 +5036,12 @@ describe('FavoriteLedgerPanel', () => {
         const musicItem = within(chips).getByRole('button', { name: '音乐舞台' }).closest('.favorite-ledger-panel__chip-item')!
     const gameItem = within(chips).getByRole('button', { name: '游戏专区' }).closest('.favorite-ledger-panel__chip-item')!
 
-    fireEvent.dragStart(musicItem, { dataTransfer: { effectAllowed: '', setData: vi.fn() } })
+    let dragPayload = ''
+    fireEvent.dragStart(musicItem, {
+      dataTransfer: { effectAllowed: '', setData: (_type: string, value: string) => { dragPayload = value } }
+    })
     fireEvent.dragOver(gameItem, { dataTransfer: { dropEffect: '' } })
-    fireEvent.drop(gameItem, { dataTransfer: { getData: () => 'music' } })
+    fireEvent.drop(gameItem, { dataTransfer: { getData: () => dragPayload } })
     fireEvent.click(screen.getByRole('button', { name: '同步' }))
 
     await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledOnce())
@@ -5104,7 +5193,7 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
   })
-  it('warns instead of switching away when the active ledger has unsaved edits', () => {
+  it('keeps each ledger draft when switching cards and marks only dirty cards', () => {
     render(
       <FavoriteLedgerPanel
         ledgers={createDefaultFavoriteLedgers()}
@@ -5123,11 +5212,14 @@ describe('FavoriteLedgerPanel', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: '知识学习' }))
 
-    expect(screen.getByText('正在编辑：bilimi·音MAD')).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('当前收藏夹有未保存修改，请先保存。')
+    expect(screen.getByText('正在编辑：bilimi·知识学习')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '音MAD（未保存）' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '音MAD（未保存）' }))
+    expect(screen.getByLabelText('册名')).toHaveValue('音MAD')
   })
 
-  it('keeps an unsaved editor open when clicking outside the editor', () => {
+  it('collapses a dirty editor without discarding its draft', () => {
     render(
       <FavoriteLedgerPanel
         ledgers={createDefaultFavoriteLedgers()}
@@ -5144,10 +5236,10 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.change(editor.getByLabelText('册名'), {
       target: { value: '音MAD' }
     })
-    fireEvent.click(screen.getByRole('dialog', { name: '掌库' }))
+    fireEvent.click(screen.getByRole('button', { name: '音MAD（未保存）' }))
 
-    expect(screen.getByText('正在编辑：bilimi·音MAD')).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('当前收藏夹有未保存修改，请先保存。')
+    expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '音MAD（未保存）' })).toBeInTheDocument()
   })
 
   it('places save before delete in the editor title and deletes only the selected duplicate-id ledger', () => {
@@ -5194,6 +5286,92 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.queryByRole('button', { name: '摄影' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '剪辑' })).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
+  })
+
+  it('updates only the selected occurrence when duplicate ledger ids exist', () => {
+    const ledgers = [
+      ...createDefaultFavoriteLedgers(),
+      {
+        id: 'custom-duplicate',
+        displayName: 'bilimi·摄影',
+        keywords: ['摄影'],
+        enabled: true,
+        priority: 100,
+        isDefault: false
+      },
+      {
+        id: 'custom-duplicate',
+        displayName: 'bilimi·剪辑',
+        keywords: ['剪辑'],
+        enabled: true,
+        priority: 110,
+        isDefault: false
+      }
+    ]
+    renderPanel({ ledgers })
+
+    fireEvent.click(screen.getByRole('button', { name: '剪辑' }))
+    fireEvent.change(screen.getByLabelText('册名'), { target: { value: '剪辑新名' } })
+
+    expect(screen.getByRole('button', { name: '摄影' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '剪辑新名（未保存）' })).toBeInTheDocument()
+  })
+
+  it('drags the selected duplicate occurrence and keeps its editor attached after reordering', () => {
+    const ledgers = [
+      ...createDefaultFavoriteLedgers(),
+      {
+        id: 'custom-duplicate',
+        displayName: 'bilimi·摄影',
+        keywords: ['摄影'],
+        enabled: true,
+        priority: 100,
+        isDefault: false
+      },
+      {
+        id: 'custom-duplicate',
+        displayName: 'bilimi·剪辑',
+        keywords: ['剪辑'],
+        enabled: true,
+        priority: 110,
+        isDefault: false
+      }
+    ]
+    renderPanel({ ledgers })
+    const chips = screen.getByRole('region', { name: '收藏夹' })
+    const editingItem = within(chips).getByRole('button', { name: '剪辑' }).closest('.favorite-ledger-panel__chip-item')!
+    const knowledgeItem = within(chips).getByRole('button', { name: '知识学习' }).closest('.favorite-ledger-panel__chip-item')!
+    let dragPayload = ''
+
+    fireEvent.click(within(chips).getByRole('button', { name: '剪辑' }))
+    fireEvent.dragStart(editingItem, {
+      dataTransfer: { effectAllowed: '', setData: (_type: string, value: string) => { dragPayload = value } }
+    })
+    fireEvent.dragOver(knowledgeItem, { dataTransfer: { dropEffect: '' } })
+    fireEvent.drop(knowledgeItem, { dataTransfer: { getData: () => dragPayload } })
+
+    const orderedNames = Array.from(chips.querySelectorAll('.favorite-ledger-panel__chip-item > button:first-child'))
+      .map((button) => button.textContent)
+    expect(orderedNames.indexOf('剪辑')).toBeLessThan(orderedNames.indexOf('知识学习'))
+    expect(orderedNames.indexOf('摄影')).toBeGreaterThan(orderedNames.indexOf('知识学习'))
+    expect(screen.getByText('正在编辑：bilimi·剪辑')).toBeInTheDocument()
+  })
+
+  it('keeps the active ledger editor attached to the same card after reordering', () => {
+    renderPanel()
+    const chips = screen.getByRole('region', { name: '收藏夹' })
+    const musicItem = within(chips).getByRole('button', { name: '音乐舞台' }).closest('.favorite-ledger-panel__chip-item')!
+    const gameItem = within(chips).getByRole('button', { name: '游戏专区' }).closest('.favorite-ledger-panel__chip-item')!
+    let dragPayload = ''
+
+    fireEvent.click(within(chips).getByRole('button', { name: '音乐舞台' }))
+    fireEvent.dragStart(musicItem, {
+      dataTransfer: { effectAllowed: '', setData: (_type: string, value: string) => { dragPayload = value } }
+    })
+    fireEvent.dragOver(gameItem, { dataTransfer: { dropEffect: '' } })
+    fireEvent.drop(gameItem, { dataTransfer: { getData: () => dragPayload } })
+
+    expect(screen.getByText('正在编辑：bilimi·音乐舞台')).toBeInTheDocument()
   })
   it('keeps the Bilimi prefix fixed while editing a managed ledger name', async () => {
     const onSaveLedgers = vi.fn()
@@ -6121,17 +6299,17 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByRole('row', { name: 'bilimi·待分类，已有 1' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
-    expect(screen.getByLabelText('bilimi·影视飓风追更')).not.toBeChecked()
+    expect(screen.getByLabelText('bilimi·影视飓风')).not.toBeChecked()
     expect(screen.queryByLabelText('bilimi·影视动漫')).not.toBeInTheDocument()
-    const authorCandidateCard = screen.getByLabelText('bilimi·影视飓风追更').closest('article')
-    expect(authorCandidateCard).toHaveAttribute('title', '影视飓风追更')
-    expect(authorCandidateCard).toHaveTextContent('影视飓风追更')
-    expect(authorCandidateCard).not.toHaveTextContent('bilimi·影视飓风追更')
+    const authorCandidateCard = screen.getByLabelText('bilimi·影视飓风').closest('article')
+    expect(authorCandidateCard).toHaveAttribute('title', '影视飓风')
+    expect(authorCandidateCard).toHaveTextContent('影视飓风')
+    expect(authorCandidateCard).not.toHaveTextContent('bilimi·影视飓风')
     expect(authorCandidateCard).toHaveTextContent('1 条适合')
     expect(authorCandidateCard).not.toHaveTextContent('固定 UP · 固定 UP')
     expect(screen.queryByText('初始收藏夹')).not.toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('全选 专属 UP 追更'))
-    expect(screen.getByLabelText('bilimi·影视飓风追更')).toBeChecked()
+    expect(screen.getByLabelText('bilimi·影视飓风')).toBeChecked()
 
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
 
@@ -7005,7 +7183,7 @@ describe('FavoriteLedgerPanel', () => {
     const photoGroup = screen.getByRole('group', { name: 'bilimi·摄影 1 条' })
     expect(photoGroup).toBeInTheDocument()
     expect(getPreviewArticle(photoGroup, /光影构图入门/)).toHaveTextContent('来自 未分类')
-    expect(screen.getByRole('combobox', { name: '改动记录' })).toHaveTextContent(
+    expect(screen.getByRole('group', { name: '归档预览改动操作' })).toHaveTextContent(
       '最近批量改动：勾选收藏夹「bilimi·摄影」，移动 1 条'
     )
     expect(screen.queryByRole('group', { name: 'bilimi·待分类 1 条' })).not.toBeInTheDocument()
@@ -7648,7 +7826,9 @@ describe('FavoriteLedgerPanel', () => {
     expect(within(candidates).queryByLabelText('bilimi·标签13')).not.toBeInTheDocument()
     expect(within(candidates).getByLabelText('全选 高频标签收藏夹')).not.toBeChecked()
     fireEvent.click(within(candidates).getByLabelText('全选 高频标签收藏夹'))
-    expect(within(candidates).getByLabelText('全选 高频标签收藏夹')).toBeChecked()
+    await waitFor(() =>
+      expect(within(candidates).getByLabelText('全选 高频标签收藏夹')).toBeChecked()
+    )
     expect(within(candidates).getByLabelText('bilimi·标签8')).toBeChecked()
     expect(within(candidates).getByLabelText('bilimi·标签12')).toBeChecked()
 
@@ -8336,7 +8516,7 @@ describe('FavoriteLedgerPanel', () => {
     )
     expect(getPreviewArticle(gameGroup, /AI 效率工具实战/)).toHaveTextContent('来自 bilimi·学习')
     expect(getPreviewArticle(gameGroup, /暂时不知道放哪/)).toHaveTextContent('来自 未分类')
-    expect(screen.getByRole('combobox', { name: '改动记录' })).toHaveTextContent(
+    expect(screen.getByRole('group', { name: '归档预览改动操作' })).toHaveTextContent(
       '最近批量改动：DeepSeek 批量整理，移动 2 条'
     )
     expect(screen.getByRole('alert')).toHaveTextContent('超过 1 个目标')
@@ -8619,5 +8799,200 @@ describe('FavoriteLedgerPanel', () => {
     expect(
       screen.getByText('建议优先填写 B 站标签里的词；标签命中权重最高，标题、分区、简介等信息会辅助判断。')
     ).toBeInTheDocument()
+  })
+
+  it('shows visible progress before publishing one large archive group move', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.items = Array.from({ length: 101 }, (_, index) => ({
+      ...preview.items[0],
+      aid: 9000 + index,
+      title: `批量视频 ${index + 1}`,
+      sourceFolderTitle: '默认收藏夹',
+      targetLedgerId: 'knowledge',
+      targetFolderId: '9001',
+      targetDisplayName: 'bilimi·知识学习',
+      originalSuggestedLedgerIds: ['knowledge'],
+      currentTargetLedgerIds: ['knowledge'],
+      selectedTargetLedgerIds: ['knowledge'],
+      candidateTargets: [{
+        ledgerId: 'knowledge',
+        folderId: '9001',
+        displayName: 'bilimi·知识学习',
+        keywords: [],
+        alreadyInTarget: false
+      }]
+    }))
+    preview.insights = {
+      ...preview.insights!,
+      totalVideos: 101,
+      sourceFolders: [{ name: '默认收藏夹', count: 101 }]
+    }
+    renderPanel({ onScanOldFavorites: vi.fn().mockResolvedValue(preview) })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /^全选 / }))
+
+    expect(screen.getByRole('status', { name: '批量移动进度' })).toHaveTextContent('正在移动 101 条')
+    expect(screen.getByRole('button', { name: '扫描概览' })).toBeEnabled()
+    expect(await screen.findByText('已移动 101 条')).toBeInTheDocument()
+  })
+
+  it('shows immediate chunked progress while selecting a candidate that affects 350 videos', async () => {
+    const preview = createArchivePreviewFixture()
+    const candidate = {
+      kind: 'tag-cluster' as const,
+      sourceName: '批量候选',
+      displayName: 'bilimi·批量候选',
+      keywords: ['批量候选'],
+      count: 350,
+      confidence: 'high' as const,
+      reason: '高频标签'
+    }
+    preview.items = Array.from({ length: 350 }, (_, index) => ({
+      ...preview.items[0],
+      aid: 12000 + index,
+      title: `候选批量视频 ${index + 1}`,
+      candidateTargets: [{
+        ledgerId: 'custom-tag-cluster-批量候选',
+        displayName: candidate.displayName,
+        keywords: candidate.keywords,
+        ruleType: 'tag' as const,
+        candidateKey: `tag-cluster:${candidate.sourceName}`,
+        alreadyInTarget: false
+      }]
+    }))
+    preview.insights = {
+      ...preview.insights!,
+      totalVideos: 350,
+      candidateLedgers: [candidate],
+      sourceFolders: [{ name: '默认收藏夹', count: 350 }]
+    }
+    renderPanel({ onScanOldFavorites: vi.fn().mockResolvedValue(preview) })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(screen.getByLabelText('bilimi·批量候选'))
+
+    expect(screen.getByRole('status', { name: '批量移动进度' })).toHaveTextContent('正在移动 350 条')
+    expect(await screen.findByText('已移动 350 条')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '撤销本次改动' }))
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    expect(screen.getByLabelText('bilimi·批量候选')).not.toBeChecked()
+  })
+
+  it('blocks Ctrl+Z and Ctrl+Shift+Z while a chunked archive move is running', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.items = Array.from({ length: 101 }, (_, index) => ({
+      ...preview.items[0],
+      aid: 13000 + index,
+      title: `快捷键批量视频 ${index + 1}`,
+      candidateTargets: [{
+        ledgerId: 'knowledge',
+        folderId: '9001',
+        displayName: 'bilimi·知识学习',
+        keywords: [],
+        alreadyInTarget: false
+      }]
+    }))
+    preview.insights = {
+      ...preview.insights!,
+      totalVideos: 101,
+      sourceFolders: [{ name: '默认收藏夹', count: 101 }]
+    }
+    const { container } = renderPanel({ onScanOldFavorites: vi.fn().mockResolvedValue(preview) })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(getPreviewVideoButton(container, /快捷键批量视频 1/))
+    fireEvent.click(screen.getByRole('checkbox', { name: /^\u5168\u9009/ }))
+    expect(screen.getByRole('status', { name: '批量移动进度' })).toHaveTextContent('正在移动 101 条')
+
+    fireEvent.keyDown(document, { key: 'z', ctrlKey: true })
+    fireEvent.keyDown(document, { key: 'Z', ctrlKey: true, shiftKey: true })
+
+    expect(getPreviewVideoButton(container, /快捷键批量视频 1/)).toHaveAttribute('aria-pressed', 'false')
+    expect(await screen.findByText('已移动 101 条')).toBeInTheDocument()
+  })
+
+  it('keeps the full author source in the UP-name field while using its account prefix as the recommended name', async () => {
+    const preview = createArchivePreviewFixture()
+    const candidate = {
+      kind: 'author' as const,
+      sourceName: 'honker233-小王爱马枪',
+      displayName: 'bilimi·honker233-小王爱马枪追更',
+      keywords: ['小王爱马枪'],
+      count: 1,
+      confidence: 'high' as const,
+      reason: '作者推荐'
+    }
+    preview.insights = { ...preview.insights!, candidateLedgers: [candidate] }
+    preview.items[0].candidateTargets = [{
+      ledgerId: 'custom-author-honker233-小王爱马枪',
+      displayName: candidate.displayName,
+      keywords: candidate.keywords,
+      ruleType: 'author',
+      candidateKey: `author:${candidate.sourceName}`,
+      alreadyInTarget: false
+    }]
+    renderPanel({ onScanOldFavorites: vi.fn().mockResolvedValue(preview) })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(screen.getByLabelText('bilimi·honker233'))
+    fireEvent.click(screen.getByRole('button', { name: 'honker233' }))
+
+    expect((screen.getByLabelText('UP 名字') as HTMLTextAreaElement).value).toContain('honker233-小王爱马枪')
+  })
+
+  it('shows stable unique names for recommended authors that share an account prefix', async () => {
+    const preview = createArchivePreviewFixture()
+    const candidates = [
+      {
+        kind: 'author' as const,
+        sourceName: 'same-account-beta',
+        displayName: 'bilimi·same-account-beta',
+        keywords: ['same-account-beta'],
+        count: 1,
+        confidence: 'high' as const,
+        reason: '作者推荐'
+      },
+      {
+        kind: 'author' as const,
+        sourceName: 'same-account-alpha',
+        displayName: 'bilimi·same-account-alpha',
+        keywords: ['same-account-alpha'],
+        count: 1,
+        confidence: 'high' as const,
+        reason: '作者推荐'
+      }
+    ]
+    preview.insights = { ...preview.insights!, candidateLedgers: candidates }
+    preview.items[0].candidateTargets = candidates.map((candidate) => ({
+      ledgerId: `custom-author-${candidate.sourceName}`,
+      displayName: candidate.displayName,
+      keywords: candidate.keywords,
+      ruleType: 'author' as const,
+      candidateKey: `author:${candidate.sourceName}`,
+      alreadyInTarget: false
+    }))
+    renderPanel({ onScanOldFavorites: vi.fn().mockResolvedValue(preview) })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    const candidateRegion = screen.getByRole('region', { name: '专属收藏夹候选' })
+    const authorNames = within(candidateRegion)
+      .getAllByRole('checkbox')
+      .map((checkbox) => checkbox.getAttribute('aria-label'))
+      .filter((label): label is string => Boolean(label?.startsWith('bilimi·same')))
+
+    expect(authorNames).toHaveLength(2)
+    expect(new Set(authorNames)).toHaveLength(2)
   })
 })

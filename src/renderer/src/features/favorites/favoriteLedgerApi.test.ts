@@ -9,6 +9,7 @@ import {
   buildSaveFavoriteLedgersScript,
   buildOldFavoriteTagEnrichmentScript,
   buildCommitOldFavoriteBatchCheckpointScript,
+  buildReadOldFavoriteBatchStatusScript,
   buildScanOldFavoriteVideoScript,
   buildScanOldFavoritesScript
 } from './favoriteLedgerApi'
@@ -93,7 +94,12 @@ describe('favorite ledger API scripts', () => {
 
     const firstCommit = await window.eval(buildCommitOldFavoriteBatchCheckpointScript(token))
     const committed = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+    localStorage.setItem('bilimi:old-favorite-batch-status:v1', JSON.stringify({
+      accountMid: token.accountMid,
+      scanRunId: token.scanRunId
+    }))
     const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
+    const removeItemSpy = vi.spyOn(Storage.prototype, 'removeItem')
     const repeatedCommit = await window.eval(buildCommitOldFavoriteBatchCheckpointScript(token))
 
     expect(firstCommit).toMatchObject({ ok: true, committed: true, idempotent: false, exhausted: false })
@@ -102,6 +108,8 @@ describe('favorite ledger API scripts', () => {
     expect(committed.batchExhausted).toBeUndefined()
     expect(repeatedCommit).toMatchObject({ ok: true, committed: true, idempotent: true, exhausted: false })
     expect(setItemSpy).not.toHaveBeenCalled()
+    expect(removeItemSpy).toHaveBeenCalledWith('bilimi:old-favorite-batch-status:v1')
+    expect(window.eval(buildReadOldFavoriteBatchStatusScript())).toEqual({ pending: false })
   })
 
   it('commits a terminal scan token as exhausted instead of deleting all checkpoint state', async () => {
@@ -122,6 +130,43 @@ describe('favorite ledger API scripts', () => {
       folderOrder: ['101']
     })
     expect(repeatedCommit).toMatchObject({ ok: true, committed: true, idempotent: true, exhausted: true })
+  })
+
+  it('reports a completed but uncommitted scan batch as pending across a page restart', async () => {
+    await scanCheckpointFixture(1)
+
+    const getItemSpy = vi.spyOn(Storage.prototype, 'getItem')
+    const firstRead = await window.eval(buildReadOldFavoriteBatchStatusScript())
+    const persistedStatus = localStorage.getItem('bilimi:old-favorite-batch-status:v1')
+
+    expect(firstRead).toEqual({ pending: true })
+    expect(persistedStatus).toContain('scanRunId')
+    expect(getItemSpy).not.toHaveBeenCalledWith('bilimi:old-favorite-tag-enrichment:v1')
+
+    const secondRead = await window.eval(buildReadOldFavoriteBatchStatusScript())
+    expect(secondRead).toEqual({ pending: true })
+  })
+
+  it.each([1, 3020])('does not report a committed %s-video batch as pending', async (videoCount) => {
+    const scanResult = await scanCheckpointFixture(videoCount)
+
+    await window.eval(buildCommitOldFavoriteBatchCheckpointScript(scanResult.batch.commitToken))
+
+    expect(window.eval(buildReadOldFavoriteBatchStatusScript())).toEqual({
+      pending: false
+    })
+  })
+
+  it('does not reveal another accounts pending scan batch', async () => {
+    await scanCheckpointFixture(1)
+    Object.defineProperty(document, 'cookie', {
+      configurable: true,
+      value: 'bili_jct=csrf-token; DedeUserID=99'
+    })
+
+    expect(window.eval(buildReadOldFavoriteBatchStatusScript())).toEqual({
+      pending: false
+    })
   })
 
   it.each([
@@ -463,6 +508,28 @@ describe('favorite ledger API scripts', () => {
     expect(requests[1].body).toContain(`title=${encodeURIComponent(ledgers[1].displayName)}`)
   })
 
+  it('rejects an overlong enabled ledger before setup can create a remote folder', async () => {
+    installCookies()
+    const overlongLedger = {
+      ...createDefaultFavoriteLedgers()[0],
+      id: 'custom-overlong-setup',
+      displayName: 'bilimi·测试测试测试测试测试测试测试',
+      bilibiliFolderId: undefined,
+      isDefault: false
+    }
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await window.eval(buildEnsureFavoriteLedgersScript([overlongLedger]))
+
+    expect(result).toMatchObject({
+      ok: false,
+      missingTargets: ['custom-overlong-setup'],
+      message: expect.stringContaining('20')
+    })
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
   it('reports setup as incomplete when created ledgers still lack folder ids', async () => {
     installCookies()
     const ledgers = createDefaultFavoriteLedgers().slice(0, 2)
@@ -570,6 +637,28 @@ describe('favorite ledger API scripts', () => {
     expect((result.ledgers as FavoriteLedger[]).find((ledger) => ledger.id === 'custom-bilimi')?.bilibiliFolderId).toBe(
       '9002'
     )
+  })
+
+  it('rejects an enabled ledger name over 20 Unicode characters before any network request', async () => {
+    installCookies()
+    const overlongLedger = {
+      ...createDefaultFavoriteLedgers()[0],
+      id: 'custom-overlong',
+      displayName: 'bilimi·12345678901234',
+      bilibiliFolderId: undefined,
+      isDefault: false
+    }
+    const fetchSpy = vi.fn()
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const result = await window.eval(buildSaveFavoriteLedgersScript([overlongLedger], []))
+
+    expect(result).toMatchObject({
+      ok: false,
+      missingTargets: ['custom-overlong'],
+      message: expect.stringContaining('20')
+    })
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
   it('recreates an enabled ledger when its stored folder id no longer exists while saving', async () => {

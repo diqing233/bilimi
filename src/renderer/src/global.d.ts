@@ -109,6 +109,8 @@ type BilimiDesktopApi = {
   commitOldFavoriteBatchCheckpoint?: (
     token: OldFavoriteBatchCommitToken
   ) => Promise<OldFavoriteBatchCommitResult>
+  readOldFavoriteBatchStatus?: () => Promise<{ pending: boolean }>
+  prepareOldFavoriteScan?: () => Promise<AssistantAutomationResult>
   readOldFavoriteTagEnrichment?: (action?: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan') => Promise<{
     accountMid?: string
     sourceFolders: import('./features/favorites/favoriteLedgerPreview').FavoriteSourceFolder[]

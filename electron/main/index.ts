@@ -1120,6 +1120,21 @@ function registerAssistantPreferenceHandlers() {
         token
       })
   )
+  ipcMain.handle('floating-assistant:read-old-favorite-batch-status', () =>
+    requestMainAssistantRuntime<{ pending: boolean }>({
+      type: 'read-old-favorite-batch-status'
+    })
+  )
+  ipcMain.handle('floating-assistant:prepare-old-favorite-scan', () =>
+    requestMainAssistantRuntime<AssistantAutomationResult>({
+      type: 'prepare-old-favorite-scan'
+    }).catch(() => ({
+      ok: false,
+      steps: [],
+      missingTargets: ['bilibili-runtime'],
+      message: 'B站页面或登录状态尚未准备好，请确认登录后重试。'
+    }))
+  )
   ipcMain.handle('floating-assistant:old-favorite-tag-enrichment', (_event, action = 'read') =>
     requestMainAssistantRuntime({ type: 'old-favorite-tag-enrichment', action })
   )
