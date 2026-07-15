@@ -931,6 +931,40 @@ describe('favorite ledger API scripts', () => {
     expect(body.get('statistics')).toBeTruthy()
   })
 
+  it('merges multiple targets for one aid into one append request with per-target completions', async () => {
+    installCookies()
+    const requests: URLSearchParams[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes('/x/v3/fav/resource/deal')) {
+        requests.push(new URLSearchParams(init?.body?.toString()))
+        return Response.json({ code: 0, data: {} })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const base = {
+      aid: 123,
+      title: '同一视频多目标',
+      sourceFolderTitle: '默认收藏夹',
+      reviewRequired: false,
+      alreadyInTarget: false,
+      selected: true
+    }
+    const result = await window.eval(buildExecuteFavoriteLedgerPlanScript([
+      { ...base, targetLedgerId: 'knowledge', targetFolderId: '9001', targetDisplayName: 'bilimi·知识' },
+      { ...base, targetLedgerId: 'movie-tv', targetFolderId: '9002', targetDisplayName: 'bilimi·影视' }
+    ]))
+
+    expect(result.ok).toBe(true)
+    expect(requests).toHaveLength(1)
+    expect(requests[0].get('add_media_ids')).toBe('9001,9002')
+    expect(requests[0].has('del_media_ids')).toBe(false)
+    expect(result.completedItems).toEqual([
+      expect.objectContaining({ aid: 123, targetLedgerId: 'knowledge', targetFolderId: '9001' }),
+      expect.objectContaining({ aid: 123, targetLedgerId: 'movie-tv', targetFolderId: '9002' })
+    ])
+  })
+
   it('paces repeated old favorite appends to avoid Bilibili protection', async () => {
     installCookies()
     const delays: number[] = []
@@ -1056,6 +1090,80 @@ describe('favorite ledger API scripts', () => {
     })
     expect(result.message).toContain('paused')
     expect(requests.filter((request) => request.url.includes('/x/v3/fav/resource/deal'))).toHaveLength(1)
+  })
+
+  it.each([
+    ['API -352', () => Response.json({ code: -352, message: 'captcha required', data: {} })],
+    ['HTTP 412', () => new Response('precondition failed', { status: 412 })]
+  ])('safely stops old favorite execution for %s', async (_label, responseFactory) => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async () => responseFactory()))
+
+    const result = await window.eval(buildExecuteFavoriteLedgerPlanScript([{
+      aid: 123,
+      title: '风控边界测试',
+      sourceFolderTitle: '默认收藏夹',
+      targetLedgerId: 'knowledge',
+      targetFolderId: '9001',
+      targetDisplayName: 'bilimi·知识',
+      reviewRequired: false,
+      alreadyInTarget: false,
+      selected: true
+    }]))
+
+    expect(result).toMatchObject({
+      ok: false,
+      paused: true,
+      missingTargets: ['favorite-ledger-protection']
+    })
+  })
+
+  it('returns completed items when a later aid fails in the same execution boundary', async () => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      const aid = new URLSearchParams(init?.body?.toString()).get('rid')
+      return aid === '123'
+        ? Response.json({ code: 0, data: {} })
+        : Response.json({ code: 62002, message: '目标不存在', data: {} })
+    }))
+
+    const item = (aid: number) => ({
+      aid,
+      title: `视频 ${aid}`,
+      sourceFolderTitle: '默认收藏夹',
+      targetLedgerId: 'knowledge',
+      targetFolderId: '9001',
+      targetDisplayName: 'bilimi·知识',
+      reviewRequired: false,
+      alreadyInTarget: false,
+      selected: true
+    })
+    const result = await window.eval(buildExecuteFavoriteLedgerPlanScript([item(123), item(456)], {
+      appendDelayMs: { min: 0, max: 0 }
+    }))
+
+    expect(result).toMatchObject({
+      ok: false,
+      partial: true,
+      completedItems: [expect.objectContaining({ aid: 123 })]
+    })
+  })
+
+  it.each(['风控', '访问受限', '安全验证'])('safely stops on the Chinese risk message %s', async (message) => {
+    installCookies()
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: -400, message, data: {} })))
+    const result = await window.eval(buildExecuteFavoriteLedgerPlanScript([{
+      aid: 123,
+      title: '中文风控提示',
+      sourceFolderTitle: '默认收藏夹',
+      targetLedgerId: 'knowledge',
+      targetFolderId: '9001',
+      targetDisplayName: 'bilimi·知识',
+      reviewRequired: false,
+      alreadyInTarget: false,
+      selected: true
+    }]))
+    expect(result).toMatchObject({ paused: true, missingTargets: ['favorite-ledger-protection'] })
   })
 
   it('asks the user to sync when confirming old favorites without a target folder id', async () => {

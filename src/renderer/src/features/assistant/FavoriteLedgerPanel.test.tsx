@@ -8,6 +8,7 @@ import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
 import * as favoriteLedgerPreviewModule from '../favorites/favoriteLedgerPreview'
 import {
   FavoriteLedgerPanel,
+  oldFavoriteExecutionAllowsPlanUpdates,
   oldFavoriteExecutionPacingFor,
   resetOldFavoriteRuntimeSession,
   waitForOldFavoriteExecutionDelay
@@ -33,7 +34,18 @@ describe('FavoriteLedgerPanel', () => {
   const safetyNote =
     '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
 
-  it('interrupts an execution pacing wait when stop is requested', async () => {
+  it.each(['running', 'pausing', 'paused', 'risk-stopped', 'awaiting-acknowledgement'] as const)(
+    'rejects late plan snapshots while execution phase is %s',
+    (phase) => {
+      expect(oldFavoriteExecutionAllowsPlanUpdates(phase)).toBe(false)
+    }
+  )
+
+  it('allows plan snapshots only while execution is idle', () => {
+    expect(oldFavoriteExecutionAllowsPlanUpdates('idle')).toBe(true)
+  })
+
+  it('interrupts an execution pacing wait when pause is requested', async () => {
     vi.useFakeTimers()
     let stopped = false
     const waiting = waitForOldFavoriteExecutionDelay(3_000, () => stopped)
@@ -56,11 +68,15 @@ describe('FavoriteLedgerPanel', () => {
       kind: 'cooldown'
     })
     expect(oldFavoriteExecutionPacingFor(51)).toEqual({
-      delayMs: { min: 800, max: 1_800 },
+      delayMs: { min: 600, max: 1_400 },
       kind: 'pace'
     })
-    expect(oldFavoriteExecutionPacingFor(100)).toEqual({
-      delayMs: { min: 15_000, max: 30_000 },
+    expect(oldFavoriteExecutionPacingFor(60)).toEqual({
+      delayMs: { min: 10_000, max: 20_000 },
+      kind: 'cooldown'
+    })
+    expect(oldFavoriteExecutionPacingFor(120)).toEqual({
+      delayMs: { min: 10_000, max: 20_000 },
       kind: 'cooldown'
     })
   })
@@ -754,7 +770,7 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
     confirmOldFavoriteExecution()
 
-    await screen.findByText('本次整理已暂停，请稍后再继续。')
+    await screen.findByText('访问受限，已安全停止。请等待 30 分钟后结束本轮并重新扫描。')
     expect(onCommitOldFavoriteBatchCheckpoint).not.toHaveBeenCalled()
   })
 
@@ -2952,10 +2968,14 @@ describe('FavoriteLedgerPanel', () => {
       if (ledger.id === 'game') return { ...ledger, bilibiliFolderId: '9002' }
       return ledger
     })
-    const onExecuteOldFavoritePlan = vi
-      .fn()
-      .mockImplementationOnce(async ([item]) => ({ ok: true, steps: [], missingTargets: [], completedItems: [item], message: 'done' }))
-      .mockImplementationOnce(async () => ({ ok: false, partial: true, steps: [], missingTargets: ['9002'], completedItems: [], message: 'failed' }))
+    const onExecuteOldFavoritePlan = vi.fn().mockImplementationOnce(async ([item]) => ({
+      ok: false,
+      partial: true,
+      steps: [],
+      missingTargets: ['9002'],
+      completedItems: [item],
+      message: 'failed'
+    }))
     const onConfirmArchiveProtections = vi.fn()
     renderPanel({
       ledgers,
@@ -2971,7 +2991,7 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
     confirmOldFavoriteExecution()
 
-    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce())
     expect(onConfirmArchiveProtections).not.toHaveBeenCalled()
   })
 
@@ -2999,6 +3019,37 @@ describe('FavoriteLedgerPanel', () => {
 
     await screen.findByText('本次整理已结束，0 条成功，0 条部分完成，1 条失败。')
     expect(onConfirmArchiveProtections).not.toHaveBeenCalled()
+  })
+
+  it('persists the refreshed target folder id after a successful append retry', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.items = [preview.items[0]]
+    preview.scanContext = {
+      accountMid: '42', totalUniqueVideos: 1, activeSourceFolders: [], protectedVideos: [],
+      managedFolders: [], targetMembership: {}, multiArchiveMode: 'off'
+    }
+    const onConfirmArchiveProtections = vi.fn()
+    renderPanel({
+      onScanOldFavorites: vi.fn().mockResolvedValue(preview),
+      onExecuteOldFavoritePlan: vi.fn().mockResolvedValue({
+        ok: true,
+        steps: ['api:ledger:append-retry:701'],
+        missingTargets: [],
+        completedItems: [{ ...preview.items[0], targetFolderId: '9999' }],
+        message: 'done'
+      }),
+      onConfirmArchiveProtections
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    confirmOldFavoriteExecution()
+
+    await waitFor(() => expect(onConfirmArchiveProtections).toHaveBeenCalledWith([
+      expect.objectContaining({ aid: 701, targetFolderIds: ['9999'] })
+    ]))
   })
 
 
@@ -3882,6 +3933,62 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
+  it('persists each correction once across pause and resume', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.items[1] = { ...preview.items[0], aid: 703, title: '第二条知识视频' }
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'game'
+        ? { ...ledger, bilibiliFolderId: '9002' }
+        : ledger.id === 'knowledge'
+          ? { ...ledger, bilibiliFolderId: '9001' }
+          : ledger
+    )
+    let resolveFirst!: (value: {
+      ok: true; steps: string[]; missingTargets: string[]
+      completedItems: FavoriteLedgerPreview['items']; message: string
+    }) => void
+    const firstRequest = new Promise<Parameters<typeof resolveFirst>[0]>((resolve) => { resolveFirst = resolve })
+    const onExecuteOldFavoritePlan = vi.fn()
+      .mockReturnValueOnce(firstRequest)
+      .mockImplementationOnce(async ([item]) => ({
+        ok: true, steps: [], missingTargets: [], completedItems: [item], message: 'done'
+      }))
+    const onConfirmArchiveCorrections = vi.fn()
+    renderPanel({
+      ledgers,
+      onScanOldFavorites: vi.fn().mockResolvedValue(preview),
+      onExecuteOldFavoritePlan,
+      onConfirmArchiveCorrections
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.change(screen.getByLabelText('转移 AI 效率工具实战'), { target: { value: 'game' } })
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    confirmOldFavoriteExecution()
+    await screen.findByRole('button', { name: '暂停整理' })
+    fireEvent.click(screen.getByRole('button', { name: '暂停整理' }))
+    await act(async () => {
+      resolveFirst({
+        ok: true, steps: [], missingTargets: [],
+        completedItems: [{ ...preview.items[0], targetLedgerId: 'game', targetFolderId: '9002' }],
+        message: 'done'
+      })
+      await firstRequest
+    })
+    await waitFor(() => expect(onConfirmArchiveCorrections).toHaveBeenCalledOnce())
+
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: '继续整理' }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000) })
+    vi.useRealTimers()
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(2))
+    await screen.findByRole('button', { name: '结束本轮' })
+    expect(onConfirmArchiveCorrections).toHaveBeenCalledOnce()
+  })
+
   it('does not confirm added archive correction targets when that target execution fails', async () => {
     const ledgers = createDefaultFavoriteLedgers().map((ledger) => {
       if (ledger.id === 'knowledge') {
@@ -3916,20 +4023,14 @@ describe('FavoriteLedgerPanel', () => {
       skippedSourceFolderTitles: []
     }
     const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
-    const onExecuteOldFavoritePlan = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        steps: ['api:ledger:append:703:knowledge'],
-        missingTargets: [],
-        message: '学习收藏夹追加成功。'
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        steps: [],
-        missingTargets: ['9002'],
-        message: '游戏收藏夹追加失败。'
-      })
+    const onExecuteOldFavoritePlan = vi.fn().mockImplementationOnce(async ([knowledge]) => ({
+      ok: false,
+      partial: true,
+      steps: ['api:ledger:append:703:knowledge'],
+      missingTargets: ['9002'],
+      completedItems: [knowledge],
+      message: '游戏收藏夹追加失败。'
+    }))
     const onConfirmArchiveCorrections = vi.fn()
 
     renderPanel({
@@ -3951,13 +4052,11 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
     confirmOldFavoriteExecution()
 
-    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(2))
-    expect(onExecuteOldFavoritePlan).toHaveBeenNthCalledWith(1, [
-      expect.objectContaining({ targetLedgerId: 'knowledge' })
-    ])
-    expect(onExecuteOldFavoritePlan).toHaveBeenNthCalledWith(2, [
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce())
+    expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ targetLedgerId: 'knowledge' }),
       expect.objectContaining({ targetLedgerId: 'game' })
-    ])
+    ]))
     expect(onConfirmArchiveCorrections).not.toHaveBeenCalled()
   })
 
@@ -5761,7 +5860,7 @@ describe('FavoriteLedgerPanel', () => {
   })
 
   it('guides old favorite organization through scan, recommended ledgers, preview, and confirmation', async () => {
-    const preview = {
+    const preview: FavoriteLedgerPreview = {
       items: [
         {
           aid: 101,
@@ -5914,22 +6013,20 @@ describe('FavoriteLedgerPanel', () => {
         })
       ])
     )
-    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(2))
-    expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce())
+    expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith(expect.arrayContaining([
       expect.objectContaining({
         aid: 101,
         targetLedgerId: 'knowledge',
         targetFolderId: '9001'
-      })
-    ])
-    expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([
+      }),
       expect.objectContaining({
         aid: 101,
         targetLedgerId: 'custom-tag-cluster-AI',
         targetFolderId: '9901',
         selectedCandidateTarget: true
       })
-    ])
+    ]))
   })
 
   it('shows the full old favorite title on hover while preview titles can be truncated', async () => {
@@ -6082,7 +6179,7 @@ describe('FavoriteLedgerPanel', () => {
   })
 
   it('stops old favorite batches when Bilibili protection pauses execution', async () => {
-    const preview = {
+    const preview: FavoriteLedgerPreview = {
       items: [
         {
           aid: 101,
@@ -6109,6 +6206,7 @@ describe('FavoriteLedgerPanel', () => {
       ],
       skippedSourceFolderTitles: []
     }
+    markPreviewAsResumableBatch(preview)
     const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
     const onExecuteOldFavoritePlan = vi.fn().mockResolvedValue({
       ok: false,
@@ -6143,13 +6241,63 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(1))
     await waitFor(() =>
       expect(container.querySelector('.favorite-ledger-panel__status')).toHaveTextContent(
-        '本次整理已暂停'
+        '访问受限，已安全停止'
       )
     )
+    expect(container.querySelector('.favorite-ledger-panel__status')).toHaveTextContent(
+      '等待 30 分钟后结束本轮并重新扫描'
+    )
+    expect(screen.queryByRole('button', { name: '继续整理' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '结束本轮' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '扫描概览' }))
+    expect(screen.getByRole('button', { name: '放弃本批' })).toBeDisabled()
   })
 
-  it('updates old favorite progress after each selected archive task', async () => {
+  it('keeps review steps clickable but locks plan edits after execution starts', async () => {
+    let resolveExecution!: (value: {
+      ok: true
+      steps: string[]
+      missingTargets: string[]
+      completedItems: FavoriteLedgerPreview['items']
+      message: string
+    }) => void
+    const execution = new Promise<Parameters<typeof resolveExecution>[0]>((resolve) => {
+      resolveExecution = resolve
+    })
+    const { container, preview } = await openArchivePreview({
+      deepSeekArchiveAvailable: true,
+      onExecuteOldFavoritePlan: vi.fn().mockReturnValue(execution)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    confirmOldFavoriteExecution()
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '暂停整理' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '扫描概览' }))
+    expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByLabelText('整理来源 默认收藏夹，共 2')).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    expect(screen.getByRole('button', { name: '推荐收藏夹' })).toHaveAttribute('aria-current', 'step')
+
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByRole('button', { name: 'DeepSeek 整理' })).toBeDisabled()
+    expect(within(getPreviewArticle(container, /AI 效率工具实战/)).getByLabelText('转移 AI 效率工具实战')).toBeDisabled()
+
+    await act(async () => {
+      resolveExecution({
+        ok: true,
+        steps: ['api:ledger:append:701'],
+        missingTargets: [],
+        completedItems: [preview.items[0]],
+        message: 'done'
+      })
+      await execution
+    })
+  })
+
+  it('merges multiple targets for one aid into one request and one progress item', async () => {
     const preview = {
       items: [
         {
@@ -6185,22 +6333,13 @@ describe('FavoriteLedgerPanel', () => {
       skippedSourceFolderTitles: []
     }
     const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
-    let resolveFirst: ((value: { ok: boolean; steps: string[]; missingTargets: string[]; message: string }) => void) | undefined
-    const firstCall = new Promise<{ ok: boolean; steps: string[]; missingTargets: string[]; message: string }>(
+    let resolveExecution: ((value: { ok: boolean; steps: string[]; missingTargets: string[]; completedItems: FavoriteLedgerPreview['items']; message: string }) => void) | undefined
+    const execution = new Promise<{ ok: boolean; steps: string[]; missingTargets: string[]; completedItems: FavoriteLedgerPreview['items']; message: string }>(
       (resolve) => {
-        resolveFirst = resolve
+        resolveExecution = resolve
       }
     )
-    let resolveSecond: ((value: { ok: boolean; steps: string[]; missingTargets: string[]; message: string }) => void) | undefined
-    const secondCall = new Promise<{ ok: boolean; steps: string[]; missingTargets: string[]; message: string }>(
-      (resolve) => {
-        resolveSecond = resolve
-      }
-    )
-    const onExecuteOldFavoritePlan = vi
-      .fn()
-      .mockReturnValueOnce(firstCall)
-      .mockReturnValueOnce(secondCall)
+    const onExecuteOldFavoritePlan = vi.fn().mockReturnValue(execution)
 
     const { container } = render(
       <FavoriteLedgerPanel
@@ -6227,51 +6366,36 @@ describe('FavoriteLedgerPanel', () => {
     )
     expect(container.querySelector('.favorite-ledger-panel__old-favorite-progress progress')).toHaveAttribute(
       'max',
-      '2'
-    )
-    expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(1)
-    expect(onExecuteOldFavoritePlan).toHaveBeenNthCalledWith(1, [
-      expect.objectContaining({ targetLedgerId: 'knowledge' })
-    ])
-
-    await act(async () => {
-      resolveFirst?.({
-        ok: true,
-        steps: ['api:ledger:append:101'],
-        missingTargets: [],
-        message: 'done'
-      })
-      await firstCall
-    })
-
-    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(2))
-    expect(container.querySelector('.favorite-ledger-panel__old-favorite-progress progress')).toHaveAttribute(
-      'value',
       '1'
     )
-    expect(onExecuteOldFavoritePlan).toHaveBeenNthCalledWith(2, [
+    expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(1)
+    expect(onExecuteOldFavoritePlan).toHaveBeenCalledWith([
+      expect.objectContaining({ targetLedgerId: 'knowledge' }),
       expect.objectContaining({ targetLedgerId: 'movie-tv' })
     ])
 
     await act(async () => {
-      resolveSecond?.({
+      resolveExecution?.({
         ok: true,
         steps: ['api:ledger:append:101'],
         missingTargets: [],
+        completedItems: [
+          { ...preview.items[0], targetLedgerId: 'knowledge', targetFolderId: '9001' },
+          { ...preview.items[0], targetLedgerId: 'movie-tv', targetFolderId: '9002' }
+        ],
         message: 'done'
       })
-      await secondCall
+      await execution
     })
 
-    await waitFor(() =>
-      expect(container.querySelector('.favorite-ledger-panel__old-favorite-progress progress')).toHaveAttribute(
-        'value',
-        '2'
-      )
+    expect(container.querySelector('.favorite-ledger-panel__old-favorite-progress progress')).toHaveAttribute(
+      'value',
+      '1'
     )
+    expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce()
   })
 
-  it('stops after the in-flight item, preserves its success, and leaves the batch pending', async () => {
+  it('pauses after the in-flight item, preserves its success, and leaves the batch pending', async () => {
     const preview = markPreviewAsResumableBatch(createArchivePreviewFixture())
     preview.items[1] = {
       ...preview.items[0],
@@ -6313,8 +6437,8 @@ describe('FavoriteLedgerPanel', () => {
     confirmOldFavoriteExecution()
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce())
 
-    fireEvent.click(screen.getByRole('button', { name: '停止整理' }))
-    expect(screen.getByRole('button', { name: '正在停止…' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '暂停整理' }))
+    expect(screen.getByRole('button', { name: '正在暂停…' })).toBeDisabled()
     await act(async () => {
       resolveFirst({
         ok: true,
@@ -6326,13 +6450,119 @@ describe('FavoriteLedgerPanel', () => {
       await firstRequest
     })
 
-    await waitFor(() => expect(screen.getByText('已停止整理：1 条成功，1 条剩余。')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('已暂停整理：1 条已完成，1 条剩余；暂停期间不会发送 B 站请求。')).toBeInTheDocument())
     expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce()
     expect(onCommitOldFavoriteBatchCheckpoint).not.toHaveBeenCalled()
     expect(onConfirmArchiveProtections).toHaveBeenCalledWith([
       expect.objectContaining({ aid: preview.items[0].aid })
     ])
+    expect(screen.getByRole('button', { name: '继续整理' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '结束本轮' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '扫描概览' }))
+    expect(screen.getByRole('button', { name: '放弃本批' })).toBeDisabled()
+  })
+
+  it('resumes from the next group after an interruptible cooldown and confirms ending a paused batch', async () => {
+    const preview = markPreviewAsResumableBatch(createArchivePreviewFixture())
+    preview.items[1] = {
+      ...preview.items[0],
+      aid: 703,
+      title: '第二条待整理旧藏'
+    }
+    let resolveFirst!: (value: {
+      ok: true
+      steps: string[]
+      missingTargets: string[]
+      completedItems: FavoriteLedgerPreview['items']
+      message: string
+    }) => void
+    const firstRequest = new Promise<Parameters<typeof resolveFirst>[0]>((resolve) => {
+      resolveFirst = resolve
+    })
+    const onExecuteOldFavoritePlan = vi.fn()
+      .mockReturnValueOnce(firstRequest)
+      .mockResolvedValueOnce({
+        ok: true,
+        steps: ['api:ledger:append:703'],
+        missingTargets: [],
+        completedItems: [preview.items[1]],
+        message: 'done'
+      })
+    const onCommitOldFavoriteBatchCheckpoint = vi.fn()
+    renderPanel({
+      onScanOldFavorites: vi.fn().mockResolvedValue(preview),
+      onExecuteOldFavoritePlan,
+      onCommitOldFavoriteBatchCheckpoint
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    confirmOldFavoriteExecution()
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce())
+    fireEvent.click(screen.getByRole('button', { name: '暂停整理' }))
+    await act(async () => {
+      resolveFirst({
+        ok: true,
+        steps: ['api:ledger:append:701'],
+        missingTargets: [],
+        completedItems: [preview.items[0]],
+        message: 'done'
+      })
+      await firstRequest
+    })
+    await screen.findByRole('button', { name: '继续整理' })
+
+    vi.spyOn(Math, 'random').mockReturnValue(0)
+    vi.useFakeTimers()
+    fireEvent.click(screen.getByRole('button', { name: '继续整理' }))
+    expect(screen.getByText('继续整理前正在安全冷却；冷却期间可再次暂停。')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '暂停整理' }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+    expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce()
+    expect(screen.getByRole('button', { name: '继续整理' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '继续整理' }))
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000) })
+    vi.useRealTimers()
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(2))
+    expect(onExecuteOldFavoritePlan).toHaveBeenLastCalledWith([
+      expect.objectContaining({ aid: 703 })
+    ])
+    expect(onCommitOldFavoriteBatchCheckpoint).toHaveBeenCalledOnce()
+
+  })
+
+  it('requires confirmation before ending a paused round and preserves its pending checkpoint', async () => {
+    const preview = markPreviewAsResumableBatch(createArchivePreviewFixture())
+    preview.items[1] = { ...preview.items[0], aid: 703, title: '第二条待整理旧藏' }
+    let resolveFirst!: (value: { ok: true; steps: string[]; missingTargets: string[]; completedItems: FavoriteLedgerPreview['items']; message: string }) => void
+    const firstRequest = new Promise<Parameters<typeof resolveFirst>[0]>((resolve) => { resolveFirst = resolve })
+    const onCommitOldFavoriteBatchCheckpoint = vi.fn()
+    renderPanel({
+      onScanOldFavorites: vi.fn().mockResolvedValue(preview),
+      onExecuteOldFavoritePlan: vi.fn().mockReturnValue(firstRequest),
+      onCommitOldFavoriteBatchCheckpoint
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    confirmOldFavoriteExecution()
+    await screen.findByRole('button', { name: '暂停整理' })
+    fireEvent.click(screen.getByRole('button', { name: '暂停整理' }))
+    await act(async () => {
+      resolveFirst({ ok: true, steps: [], missingTargets: [], completedItems: [preview.items[0]], message: 'done' })
+      await firstRequest
+    })
+
+    fireEvent.click(await screen.findByRole('button', { name: '结束本轮' }))
+    const dialog = screen.getByRole('alertdialog', { name: '确认结束本轮？' })
+    expect(dialog).toHaveTextContent('已完成 1 条，剩余 1 条')
+    expect(onCommitOldFavoriteBatchCheckpoint).not.toHaveBeenCalled()
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认结束' }))
+    expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
+    expect(onCommitOldFavoriteBatchCheckpoint).not.toHaveBeenCalled()
   })
 
   it('keeps real archive execution locked after remount', async () => {
@@ -6423,10 +6653,10 @@ describe('FavoriteLedgerPanel', () => {
     expect(container.querySelector('.favorite-ledger-panel__status')).toHaveTextContent('本次整理已结束')
 
     fireEvent.click(screen.getByRole('button', { name: '备册' }))
-    expect(container.querySelector('.favorite-ledger-panel__status')).toHaveTextContent('正在整理中，请耐心等待')
+    expect(container.querySelector('.favorite-ledger-panel__status')).toHaveTextContent('本次整理已结束')
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
-    expect(container.querySelector('.favorite-ledger-panel__status')).toHaveTextContent('正在整理中，请耐心等待')
+    expect(container.querySelector('.favorite-ledger-panel__status')).toHaveTextContent('本次整理已结束')
     expect(onScanOldFavorites).toHaveBeenCalledTimes(1)
 
     fireEvent.click(screen.getByRole('button', { name: '结束本轮' }))

@@ -103,7 +103,17 @@ type ArchiveMultiModeChange = {
   to: FavoriteArchiveMultiMode
 }
 
-type OldFavoriteExecutionPhase = 'idle' | 'running' | 'awaiting-acknowledgement'
+type OldFavoriteExecutionPhase =
+  | 'idle'
+  | 'running'
+  | 'pausing'
+  | 'paused'
+  | 'risk-stopped'
+  | 'awaiting-acknowledgement'
+
+export function oldFavoriteExecutionAllowsPlanUpdates(phase: OldFavoriteExecutionPhase) {
+  return phase === 'idle'
+}
 
 type FavoriteLedgerPanelProps = {
   ledgers: FavoriteLedger[]
@@ -157,6 +167,15 @@ type OldFavoriteExecutionResult = AssistantAutomationResult & {
       removedFolderIds?: string[]
     }
   >
+}
+
+type OldFavoriteExecutionRun = {
+  selectedItems: FavoriteLedgerPreviewItem[]
+  nextGroupIndex: number
+  results: OldFavoriteExecutionResult[]
+  successfulTargetKeys: string[]
+  persistedTargetKeys: string[]
+  confirmedAt: string
 }
 
 type ArchivePreviewLatestChange = {
@@ -218,9 +237,10 @@ const OLD_FAVORITE_APPEND_DELAY_MS = { min: 1200, max: 3000 }
 const OLD_FAVORITE_COOLDOWN_DELAY_MS = { min: 15000, max: 45000 }
 const OLD_FAVORITE_COOLDOWN_EVERY = 25
 const OLD_FAVORITE_ACCELERATED_AFTER = 50
-const OLD_FAVORITE_ACCELERATED_APPEND_DELAY_MS = { min: 800, max: 1800 }
-const OLD_FAVORITE_ACCELERATED_COOLDOWN_DELAY_MS = { min: 15000, max: 30000 }
-const OLD_FAVORITE_ACCELERATED_COOLDOWN_EVERY = 50
+const OLD_FAVORITE_ACCELERATED_APPEND_DELAY_MS = { min: 600, max: 1400 }
+const OLD_FAVORITE_ACCELERATED_COOLDOWN_DELAY_MS = { min: 10000, max: 20000 }
+const OLD_FAVORITE_ACCELERATED_COOLDOWN_EVERY = 60
+const OLD_FAVORITE_RESUME_COOLDOWN_DELAY_MS = { min: 15000, max: 30000 }
 const OLD_FAVORITE_ARCHIVE_HEALTH_HINT =
   '原归档是上次整理时记录的视频所在收藏夹。状态变化表示视频已不完全在原位置中；为避免覆盖你的手动调整，本轮先跳过，点击后重新纳入整理。'
 
@@ -1617,30 +1637,22 @@ function buildConfirmedArchiveProtectionRecords(args: {
     selectedByAid.set(item.aid, [...(selectedByAid.get(item.aid) ?? []), item])
   }
 
-  const resultsByAid = new Map<number, OldFavoriteExecutionResult[]>()
-  for (const [index, item] of args.selectedItems.entries()) {
-    const result = args.results[index]
-    if (result) {
-      resultsByAid.set(item.aid, [...(resultsByAid.get(item.aid) ?? []), result])
-    }
-  }
+  const completedItems = args.results.flatMap((result) => result.completedItems ?? [])
 
   const records: FavoriteArchiveProtectionRecord[] = []
   for (const [aid, items] of selectedByAid) {
-    const results = resultsByAid.get(aid) ?? []
-    if (results.length !== items.length || results.some((result) => result.ok !== true || result.partial)) {
-      continue
-    }
-    if (results.some((result) => !(result.completedItems ?? []).some((item) => item.aid === aid))) {
-      continue
-    }
-
-    const completedItems = results.flatMap((result) => result.completedItems ?? []).filter((item) => item.aid === aid)
+    const completedForAid = completedItems.filter((item) => item.aid === aid)
     const reorganizedItem = items.find((item) => item.reorganizeProtected)
+    const allTargetsCompleted = reorganizedItem
+      ? completedForAid.some((item) => (item.finalFolderIds ?? []).length > 0)
+      : items.every((selectedItem) => completedForAid.some((completedItem) =>
+          completedItem.targetLedgerId === selectedItem.targetLedgerId
+        ))
+    if (!allTargetsCompleted) continue
     const targetFolderIds = uniqueLedgerIds(
       reorganizedItem
-        ? completedItems.flatMap((item) => item.finalFolderIds ?? item.desiredTargetFolderIds ?? [])
-        : completedItems.flatMap((item) => item.targetFolderId ? [item.targetFolderId] : [])
+        ? completedForAid.flatMap((item) => item.finalFolderIds ?? item.desiredTargetFolderIds ?? [])
+        : completedForAid.flatMap((item) => item.targetFolderId ? [item.targetFolderId] : [])
     )
     const targetLedgerIds = uniqueLedgerIds(
       reorganizedItem
@@ -1730,6 +1742,32 @@ export function oldFavoriteExecutionPacingFor(completedCount: number): {
       : OLD_FAVORITE_APPEND_DELAY_MS,
     kind: 'pace'
   }
+}
+
+function groupOldFavoriteExecutionItems(items: FavoriteLedgerPreviewItem[]) {
+  const groups: FavoriteLedgerPreviewItem[][] = []
+  const groupByAid = new Map<number, FavoriteLedgerPreviewItem[]>()
+  for (const item of items) {
+    const group = groupByAid.get(item.aid)
+    if (group) {
+      group.push(item)
+    } else {
+      const nextGroup = [item]
+      groupByAid.set(item.aid, nextGroup)
+      groups.push(nextGroup)
+    }
+  }
+  return groups
+}
+
+function oldFavoriteResultIsRiskStop(result: OldFavoriteExecutionResult) {
+  return Boolean(
+    result.paused && (
+      result.missingTargets?.includes('favorite-ledger-protection') ||
+      result.steps?.some((step) => step.includes('protection-paused')) ||
+      /-509|-352|http\s*412|captcha|verify|risk|风控|访问受限|request too fast/i.test(result.message ?? '')
+    )
+  )
 }
 
 export function FavoriteLedgerPanel({
@@ -1965,14 +2003,20 @@ export function FavoriteLedgerPanel({
   }
   const [oldFavoriteExecutionPhase, setOldFavoriteExecutionPhase] =
     useOldFavoriteRuntimeState<OldFavoriteExecutionPhase>('oldFavoriteExecutionPhase', 'idle')
-  const oldFavoriteExecuting = oldFavoriteExecutionPhase === 'running'
+  const oldFavoriteExecuting =
+    oldFavoriteExecutionPhase === 'running' || oldFavoriteExecutionPhase === 'pausing'
+  const oldFavoriteExecutionPaused = oldFavoriteExecutionPhase === 'paused'
+  const oldFavoriteExecutionRiskStopped = oldFavoriteExecutionPhase === 'risk-stopped'
   const oldFavoriteExecutionAwaitingAcknowledgement =
-    oldFavoriteExecutionPhase === 'awaiting-acknowledgement'
+    oldFavoriteExecutionPhase === 'awaiting-acknowledgement' || oldFavoriteExecutionRiskStopped
+  const [oldFavoriteExecutionRun, setOldFavoriteExecutionRun] =
+    useOldFavoriteRuntimeState<OldFavoriteExecutionRun | null>('oldFavoriteExecutionRun', null)
   const [oldFavoriteExecutionConfirming, setOldFavoriteExecutionConfirming] = useState(false)
   const [oldFavoriteExecutionStopping, setOldFavoriteExecutionStopping] = useState(false)
   const oldFavoriteExecutionStopRequestedRef = useRef(false)
   const [pendingTagExecutionConfirming, setPendingTagExecutionConfirming] = useState(false)
   const [batchDiscardConfirming, setBatchDiscardConfirming] = useState(false)
+  const [pausedRoundEndConfirming, setPausedRoundEndConfirming] = useState(false)
   const [batchCommitBusy, setBatchCommitBusy] = useState(false)
   const [pendingTagDeepSeekConfirming, setPendingTagDeepSeekConfirming] = useState<number | null>(null)
   const [archiveMultiModeChange, setArchiveMultiModeChange] =
@@ -2153,6 +2197,7 @@ export function FavoriteLedgerPanel({
     return 'accepted' as const
   }, [preview?.scanContext?.accountMid])
   const applyTagEnrichmentAction = useCallback((action: 'pause' | 'resume' | 'cancel') => {
+    if (getOldFavoriteRuntimeValue<OldFavoriteExecutionPhase>('oldFavoriteExecutionPhase', 'idle') !== 'idle') return
     if (!onReadOldFavoriteTagEnrichment) return
     const scanGeneration = scanGenerationRef.current
     void onReadOldFavoriteTagEnrichment(action).then((snapshot) => {
@@ -2306,8 +2351,10 @@ export function FavoriteLedgerPanel({
   }, [deepSeekArchiveProgress, deepSeekArchiveRunning, setOldFavoriteRuntimeStatus])
 
   function oldFavoriteOrganizationLocked() {
-    return oldFavoriteExecuting || oldFavoriteExecutionAwaitingAcknowledgement || oldFavoriteExecutionConfirming
+    return oldFavoriteExecutionPhase !== 'idle' || oldFavoriteExecutionConfirming
   }
+
+  const oldFavoritePlanReadOnly = oldFavoriteOrganizationLocked()
 
   function showOldFavoriteOrganizationPendingMessage() {
     setStatus('正在整理中，请耐心等待。')
@@ -2350,6 +2397,11 @@ export function FavoriteLedgerPanel({
   }
 
   async function discardActiveOldFavoriteBatch() {
+    if (oldFavoriteExecutionPhase !== 'idle' || oldFavoriteExecutionRun) {
+      setBatchDiscardConfirming(false)
+      setStatus('本轮已开始执行，不能放弃或提交当前批次；请继续整理或结束本轮后重新扫描。')
+      return
+    }
     if (!await commitActiveOldFavoriteBatch('放弃本批失败')) return
     setBatchDiscardConfirming(false)
     acknowledgeOldFavoriteExecution()
@@ -2359,6 +2411,7 @@ export function FavoriteLedgerPanel({
     setOldFavoriteExecutionPhase('idle')
     setOldFavoriteExecutionConfirming(false)
     setOldFavoriteExecutionProgress(null)
+    setOldFavoriteExecutionRun(null)
     setPreview(null)
     setBaseScanPreview(null)
     setReorganizedProtectedAids(new Set())
@@ -2380,6 +2433,7 @@ export function FavoriteLedgerPanel({
     setLedgerListExpanded(false)
     setOldFavoriteStep('scan')
     setBatchDiscardConfirming(false)
+    setPausedRoundEndConfirming(false)
     onOldFavoriteAcknowledged?.()
   }
 
@@ -2821,7 +2875,7 @@ export function FavoriteLedgerPanel({
     selected: boolean,
     reason: string
   ) {
-    if (deepSeekArchiveRunning || archiveBatchRunning) {
+    if (oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning) {
       return
     }
 
@@ -2949,7 +3003,7 @@ export function FavoriteLedgerPanel({
   }
 
   function setCandidateGroupSelected(candidates: FavoriteLedgerCandidate[], selected: boolean) {
-    if (deepSeekArchiveRunning || archiveBatchRunning) {
+    if (oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning) {
       return
     }
 
@@ -2970,6 +3024,9 @@ export function FavoriteLedgerPanel({
     snapshot: OldFavoriteTagEnrichmentSnapshot,
     scanGeneration: number
   ) {
+    if (!oldFavoriteExecutionAllowsPlanUpdates(
+      getOldFavoriteRuntimeValue<OldFavoriteExecutionPhase>('oldFavoriteExecutionPhase', 'idle')
+    )) return
     if (scanGeneration !== scanGenerationRef.current) return
     const context = baseScanPreview?.scanContext ?? preview?.scanContext
     if (!context) return
@@ -3458,7 +3515,7 @@ export function FavoriteLedgerPanel({
     item: FavoriteLedgerPreviewItem,
     update: (planItem: FavoriteArchivePlanItemState) => string[]
   ) {
-    if (deepSeekArchiveRunning || archiveBatchRunning) {
+    if (oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning) {
       return
     }
 
@@ -3503,7 +3560,7 @@ export function FavoriteLedgerPanel({
   }
 
   async function setOldFavoriteTargetGroupSelected(group: OldFavoriteTargetGroup, selected: boolean) {
-    if (deepSeekArchiveRunning || archiveBatchRunning) {
+    if (oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning) {
       return
     }
 
@@ -3571,6 +3628,7 @@ export function FavoriteLedgerPanel({
   }
 
   function toggleOldFavoriteSourceFolder(sourceKey: string) {
+    if (oldFavoritePlanReadOnly) return
     setSelectedOldFavoriteSourceFolderKeys((current) => {
       const next = new Set(current)
       if (next.has(sourceKey)) {
@@ -3818,7 +3876,7 @@ export function FavoriteLedgerPanel({
   }
 
   function confirmPendingUnclassifiedDecision(mode: 'all' | 'current') {
-    if (deepSeekArchiveRunning || archiveBatchRunning) {
+    if (oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning) {
       setPendingUnclassifiedDecision(null)
       return
     }
@@ -4111,7 +4169,7 @@ export function FavoriteLedgerPanel({
   }
 
   function undoArchivePreviewChanges() {
-    if (!archivePlanState || deepSeekArchiveRunning || archiveBatchRunning || archiveUndoStack.length === 0) {
+    if (oldFavoritePlanReadOnly || !archivePlanState || deepSeekArchiveRunning || archiveBatchRunning || archiveUndoStack.length === 0) {
       return
     }
 
@@ -4132,7 +4190,7 @@ export function FavoriteLedgerPanel({
   }
 
   function redoArchivePreviewChanges() {
-    if (!archivePlanState || archiveRedoStack.length === 0 || deepSeekArchiveRunning || archiveBatchRunning) {
+    if (oldFavoritePlanReadOnly || !archivePlanState || archiveRedoStack.length === 0 || deepSeekArchiveRunning || archiveBatchRunning) {
       return
     }
 
@@ -4151,7 +4209,7 @@ export function FavoriteLedgerPanel({
   }
 
   function rollbackArchivePreviewHistory(targetChangeIndex: number) {
-    if (!archivePlanState || deepSeekArchiveRunning || archiveBatchRunning) {
+    if (oldFavoritePlanReadOnly || !archivePlanState || deepSeekArchiveRunning || archiveBatchRunning) {
       return
     }
 
@@ -4182,7 +4240,7 @@ export function FavoriteLedgerPanel({
   }
 
   function setPreviewScopedPendingItemsStaged(selected: boolean) {
-    if (deepSeekArchiveRunning || archiveBatchRunning || !archivePlanState) {
+    if (oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning || !archivePlanState) {
       return
     }
 
@@ -4350,36 +4408,185 @@ export function FavoriteLedgerPanel({
     setCandidateSelected(candidate, true)
   }
 
-  async function executeOldFavoritePlan() {
-    if (!preview || deepSeekArchiveRunning) {
-      return
+  function persistOldFavoriteExecutionRecords(run: OldFavoriteExecutionRun) {
+    const persistedTargetKeys = new Set(run.persistedTargetKeys ?? [])
+    const newSuccessfulTargetKeys = new Set(
+      run.successfulTargetKeys.filter((key) => !persistedTargetKeys.has(key))
+    )
+    const confirmedAt = run.confirmedAt || new Date().toISOString()
+    if (archivePlanState && newSuccessfulTargetKeys.size > 0) {
+      const records = buildConfirmedArchiveCorrectionRecords({
+        state: archivePlanState,
+        preview: preview!,
+        successfulTargetKeys: newSuccessfulTargetKeys,
+        confirmedAt
+      })
+      if (records.length > 0) onConfirmArchiveCorrections?.(records)
     }
+    if (preview?.scanContext) {
+      const records = buildConfirmedArchiveProtectionRecords({
+        accountMid: preview.scanContext.accountMid,
+        selectedItems: run.selectedItems,
+        results: run.results,
+        confirmedAt
+      })
+      if (records.length > 0) onConfirmArchiveProtections?.(records)
+    }
+    const nextRun = {
+      ...run,
+      confirmedAt,
+      persistedTargetKeys: [...new Set([...persistedTargetKeys, ...run.successfulTargetKeys])]
+    }
+    setOldFavoriteExecutionRun(nextRun)
+    return nextRun
+  }
 
+  async function pauseOldFavoriteExecutionRun(run: OldFavoriteExecutionRun) {
+    run = persistOldFavoriteExecutionRecords(run)
+    const total = groupOldFavoriteExecutionItems(run.selectedItems).length
+    const completed = run.nextGroupIndex
+    const remaining = Math.max(0, total - completed)
+    setOldFavoriteExecutionRun(run)
+    setOldFavoriteExecutionProgress({ completed, total })
+    setOldFavoriteExecutionPhase('paused')
+    setOldFavoriteExecutionStopping(false)
+    const message = `已暂停整理：${completed} 条已完成，${remaining} 条剩余；暂停期间不会发送 B 站请求。`
+    setStatus(message)
+    publishOldFavoriteStatus({ label: '整理已暂停', message, tone: 'warn' })
+    onOldFavoriteExecutionStateChange?.('finished')
+  }
+
+  async function runOldFavoriteExecution(run: OldFavoriteExecutionRun, resuming = false) {
+    const groups = groupOldFavoriteExecutionItems(run.selectedItems)
+    oldFavoriteExecutionStopRequestedRef.current = false
+    setOldFavoriteExecutionStopping(false)
+    setOldFavoriteExecutionPhase('running')
+    onOldFavoriteExecutionStateChange?.('running')
+    try {
+      if (resuming) {
+        setStatus('继续整理前正在安全冷却；冷却期间可再次暂停。')
+        const waited = await waitForOldFavoriteExecutionDelay(
+          randomDelayMs(OLD_FAVORITE_RESUME_COOLDOWN_DELAY_MS),
+          () => oldFavoriteExecutionStopRequestedRef.current
+        )
+        if (!waited) {
+          await pauseOldFavoriteExecutionRun(run)
+          return
+        }
+      }
+
+      for (let index = run.nextGroupIndex; index < groups.length; index += 1) {
+        if (oldFavoriteExecutionStopRequestedRef.current) {
+          await pauseOldFavoriteExecutionRun(run)
+          return
+        }
+        const group = groups[index]
+        const rawResult = (await onExecuteOldFavoritePlan(group)) as OldFavoriteExecutionResult
+        const completedItems = rawResult.ok === true
+          ? rawResult.completedItems ?? group
+          : rawResult.partial
+            ? rawResult.completedItems ?? []
+            : []
+        const result = { ...rawResult, completedItems }
+        run = {
+          ...run,
+          nextGroupIndex: index + 1,
+          results: [...run.results, result],
+          successfulTargetKeys: [
+            ...run.successfulTargetKeys,
+            ...completedItems.map(archivePlanTargetKey)
+          ]
+        }
+        setOldFavoriteExecutionRun(run)
+        setOldFavoriteExecutionProgress({ completed: index + 1, total: groups.length })
+        publishOldFavoriteStatus({
+          label: `确认执行 ${index + 1}/${groups.length}`,
+          message: '正在确认执行旧藏整理。',
+          tone: 'running'
+        })
+        if (oldFavoriteResultIsRiskStop(result) || result.paused) {
+          run = persistOldFavoriteExecutionRecords(run)
+          const message = '访问受限，已安全停止。请等待 30 分钟后结束本轮并重新扫描。'
+          setStatus(message)
+          setOldFavoriteExecutionPhase('risk-stopped')
+          setOldFavoriteExecutionStopping(false)
+          publishOldFavoriteStatus({ label: '访问受限，已安全停止', message, tone: 'error' })
+          onOldFavoriteExecutionStateChange?.('finished')
+          return
+        }
+        if (oldFavoriteExecutionStopRequestedRef.current) {
+          await pauseOldFavoriteExecutionRun(run)
+          return
+        }
+        const paced = await paceOldFavoriteExecution(
+          index + 1,
+          index < groups.length - 1,
+          () => oldFavoriteExecutionStopRequestedRef.current
+        )
+        if (!paced) {
+          await pauseOldFavoriteExecutionRun(run)
+          return
+        }
+      }
+
+      run = persistOldFavoriteExecutionRecords(run)
+      const complete =
+        run.results.length === groups.length &&
+        run.results.every((result) => result.ok === true && !result.partial && !result.paused)
+      if (complete && !await commitActiveOldFavoriteBatch('提交本批进度失败')) {
+        setOldFavoriteExecutionPhase('awaiting-acknowledgement')
+        onOldFavoriteExecutionStateChange?.('finished')
+        return
+      }
+      const failedCount = run.results.filter((result) => result.ok !== true).length
+      const partialCount = run.results.filter((result) => result.ok !== true && result.partial).length
+      const completeFailureCount = failedCount - partialCount
+      const message = failedCount > 0
+        ? `本次整理已结束，${run.results.length - failedCount} 条成功，${partialCount} 条部分完成，${completeFailureCount} 条失败。`
+        : '本次整理已结束。'
+      setStatus(message)
+      setOldFavoriteExecutionPhase('awaiting-acknowledgement')
+      const incompleteIsError = partialCount > 0 || failedCount === run.results.length
+      publishOldFavoriteStatus({
+        label: failedCount > 0
+          ? incompleteIsError ? '整理未完全成功' : '整理有遗漏'
+          : '整理完成',
+        message,
+        tone: failedCount > 0 ? incompleteIsError ? 'error' : 'warn' : 'ok'
+      })
+      setOldFavoriteExecutionStopping(false)
+      onOldFavoriteExecutionStateChange?.('finished')
+    } catch (error) {
+      const message = `整理旧藏未完成：${errorMessage(error)}`
+      setStatus(message)
+      setOldFavoriteExecutionPhase('awaiting-acknowledgement')
+      publishOldFavoriteStatus({ label: '整理失败', message, tone: 'error' })
+      onOldFavoriteExecutionStateChange?.('finished')
+    }
+  }
+
+  async function continueOldFavoriteExecution() {
+    if (!oldFavoriteExecutionPaused || !oldFavoriteExecutionRun) return
+    await runOldFavoriteExecution(oldFavoriteExecutionRun, true)
+  }
+
+  async function executeOldFavoritePlan() {
+    if (!preview || deepSeekArchiveRunning) return
     if (firstInvalidLedgerIndex >= 0) {
       setOldFavoriteExecutionConfirming(false)
       focusInvalidLedger(firstInvalidLedgerIndex)
       return
     }
-
     if (unresolvedArchiveTargetError) {
       setStatus(unresolvedArchiveTargetError)
       return
     }
-
-    if (getOldFavoriteRuntimeValue<OldFavoriteExecutionPhase>('oldFavoriteExecutionPhase', 'idle') !== 'idle') {
-      return
-    }
-
-    if (!setOldFavoriteRuntimeValue('oldFavoriteExecutionPhase', 'running')) {
-      return
-    }
+    if (getOldFavoriteRuntimeValue<OldFavoriteExecutionPhase>('oldFavoriteExecutionPhase', 'idle') !== 'idle') return
+    if (!setOldFavoriteRuntimeValue('oldFavoriteExecutionPhase', 'running')) return
     setOldFavoriteExecutionConfirming(false)
-    oldFavoriteExecutionStopRequestedRef.current = false
-    setOldFavoriteExecutionStopping(false)
     setOldFavoriteExecutionProgress(null)
     setSaveStatus(null)
     setStatus('正在整理中，请耐心等待。')
-    onOldFavoriteExecutionStateChange?.('running')
     try {
       const nextLedgers = buildLedgersToSave()
       const saveResult = await onSaveLedgers(nextLedgers)
@@ -4392,36 +4599,27 @@ export function FavoriteLedgerPanel({
       setActiveLedgerId(null)
       setActiveLedgerIndex(null)
       setActiveLedgerSavedSnapshot(null)
-
-      const saveResultWithLedgers = saveResult as
-        | (AssistantAutomationResult & { ledgers?: FavoriteLedger[] })
-        | undefined
-      const savedLedgers = Array.isArray(saveResultWithLedgers?.ledgers)
-        ? saveResultWithLedgers.ledgers
-        : nextLedgers
-      const selectedItems = (
-        archivePlanState
-          ? buildSelectedOldFavoritePlanItems({
-              state: archivePlanState,
-              items: selectableOldFavoriteItems,
-              ledgers: ledgersWithOldFavoriteTargetFolders(savedLedgers, selectableOldFavoriteItems)
-            })
-          : selectedOldFavoritePlanItems
-      )
+      const saveResultWithLedgers = saveResult as (AssistantAutomationResult & { ledgers?: FavoriteLedger[] }) | undefined
+      const savedLedgers = Array.isArray(saveResultWithLedgers?.ledgers) ? saveResultWithLedgers.ledgers : nextLedgers
+      const selectedItems = archivePlanState
+        ? buildSelectedOldFavoritePlanItems({
+            state: archivePlanState,
+            items: selectableOldFavoriteItems,
+            ledgers: ledgersWithOldFavoriteTargetFolders(savedLedgers, selectableOldFavoriteItems)
+          })
+        : selectedOldFavoritePlanItems
       const targetLimit = deepSeekArchiveMultiLimit(favoriteArchiveMultiMode)
-      const missingFolderTarget = selectedItems.find(
-        (item) => item.targetLedgerId !== 'inbox' && item.targetLedgerId !== 'unclassified' && !item.targetFolderId
+      const missingFolderTarget = selectedItems.find((item) =>
+        item.targetLedgerId !== 'inbox' && item.targetLedgerId !== 'unclassified' && !item.targetFolderId
       )
       if (missingFolderTarget) {
         setStatus(`归档目标尚未同步到 B 站：${missingFolderTarget.targetDisplayName}`)
         setOldFavoriteExecutionPhase('idle')
         return
       }
-      if (
-        selectedItems.some(
-          (item) => item.reorganizeProtected && (item.desiredTargetFolderIds?.length ?? 0) > targetLimit
-        )
-      ) {
+      if (selectedItems.some((item) =>
+        item.reorganizeProtected && (item.desiredTargetFolderIds?.length ?? 0) > targetLimit
+      )) {
         setStatus(`当前设置最多允许 ${targetLimit} 个 bilimi 收藏夹，请调整后再确认。`)
         setOldFavoriteExecutionPhase('idle')
         return
@@ -4431,120 +4629,28 @@ export function FavoriteLedgerPanel({
         setOldFavoriteExecutionPhase('idle')
         return
       }
-
-      setOldFavoriteExecutionProgress({ completed: 0, total: selectedItems.length })
+      const total = groupOldFavoriteExecutionItems(selectedItems).length
+      const run: OldFavoriteExecutionRun = {
+        selectedItems,
+        nextGroupIndex: 0,
+        results: [],
+        successfulTargetKeys: [],
+        persistedTargetKeys: [],
+        confirmedAt: new Date().toISOString()
+      }
+      setOldFavoriteExecutionRun(run)
+      setOldFavoriteExecutionProgress({ completed: 0, total })
       publishOldFavoriteStatus({
-        label: `确认执行 0/${selectedItems.length}`,
+        label: `确认执行 0/${total}`,
         message: '正在确认执行旧藏整理。',
         tone: 'running'
       })
-      const results: OldFavoriteExecutionResult[] = []
-      const successfulTargetKeys = new Set<string>()
-      for (const [index, item] of selectedItems.entries()) {
-        if (oldFavoriteExecutionStopRequestedRef.current) break
-        const result = (await onExecuteOldFavoritePlan([item])) as OldFavoriteExecutionResult
-        results.push(result)
-        if (result.ok === true) {
-          successfulTargetKeys.add(archivePlanTargetKey(item))
-        }
-        setOldFavoriteExecutionProgress({ completed: index + 1, total: selectedItems.length })
-        publishOldFavoriteStatus({
-          label: `确认执行 ${index + 1}/${selectedItems.length}`,
-          message: '正在确认执行旧藏整理。',
-          tone: 'running'
-        })
-        if (result.paused) {
-          break
-        }
-        if (oldFavoriteExecutionStopRequestedRef.current) break
-        if (!await paceOldFavoriteExecution(
-          index + 1,
-          index < selectedItems.length - 1,
-          () => oldFavoriteExecutionStopRequestedRef.current
-        )) break
-      }
-      const stopped = oldFavoriteExecutionStopRequestedRef.current
-      const batchExecutionComplete =
-        !stopped &&
-        results.length === selectedItems.length &&
-        results.every((result) => result.ok === true && !result.paused && !result.partial)
-      if (batchExecutionComplete && !await commitActiveOldFavoriteBatch('提交本批进度失败')) {
-        setOldFavoriteExecutionPhase('idle')
-        onOldFavoriteExecutionStateChange?.('finished')
-        return
-      }
-      if (archivePlanState && successfulTargetKeys.size > 0) {
-        const confirmedAt = new Date().toISOString()
-        const records = buildConfirmedArchiveCorrectionRecords({
-          state: archivePlanState,
-          preview,
-          successfulTargetKeys,
-          confirmedAt
-        })
-
-        if (records.length > 0) {
-          onConfirmArchiveCorrections?.(records)
-        }
-      }
-      if (preview.scanContext) {
-        const protectionRecords = buildConfirmedArchiveProtectionRecords({
-          accountMid: preview.scanContext.accountMid,
-          selectedItems,
-          results,
-          confirmedAt: new Date().toISOString()
-        })
-        if (protectionRecords.length > 0) {
-          onConfirmArchiveProtections?.(protectionRecords)
-        }
-      }
-      const failedCount = results.filter((result) => result.ok !== true).length
-      const partialCount = results.filter((result) => result.ok !== true && result.partial).length
-      const completeFailureCount = failedCount - partialCount
-      const paused = results.some((result) => result.paused)
-      const successfulCount = results.filter((result) => result.ok === true).length
-      const remainingCount = Math.max(0, selectedItems.length - results.length)
-      setStatus(
-        stopped
-          ? `已停止整理：${successfulCount} 条成功，${remainingCount} 条剩余。`
-          : paused
-          ? '本次整理已暂停，请稍后再继续。'
-          : failedCount > 0
-          ? `本次整理已结束，${results.length - failedCount} 条成功，${partialCount} 条部分完成，${completeFailureCount} 条失败。`
-          : '本次整理已结束。'
-      )
-      setOldFavoriteExecutionPhase('awaiting-acknowledgement')
-      const finalStatus = stopped
-        ? {
-            label: '整理已停止',
-            message: `已停止整理：${successfulCount} 条成功，${remainingCount} 条剩余。`,
-            tone: 'warn' as const
-          }
-        : paused
-        ? { label: '整理已暂停', message: '本次整理已暂停，请稍后再继续。', tone: 'warn' as const }
-        : failedCount > 0
-        ? partialCount > 0 || failedCount === results.length
-          ? {
-              label: '整理未完全成功',
-              message: `本次整理已结束，${results.length - failedCount} 条成功，${partialCount} 条部分完成，${completeFailureCount} 条失败。`,
-              tone: 'error' as const
-            }
-          : {
-              label: '整理有遗漏',
-              message: `本次整理已结束，${results.length - failedCount} 条成功，${completeFailureCount} 条未完成。`,
-              tone: 'warn' as const
-            }
-        : { label: '整理完成', message: '本次整理已结束。', tone: 'ok' as const }
-      publishOldFavoriteStatus(finalStatus)
-      setOldFavoriteExecutionStopping(false)
-      onOldFavoriteExecutionStateChange?.('finished')
+      await runOldFavoriteExecution(run)
     } catch (error) {
-      setStatus(`整理旧藏未完成：${errorMessage(error)}`)
+      const message = `整理旧藏未完成：${errorMessage(error)}`
+      setStatus(message)
       setOldFavoriteExecutionPhase('awaiting-acknowledgement')
-      publishOldFavoriteStatus({
-        label: '整理失败',
-        message: `整理旧藏未完成：${errorMessage(error)}`,
-        tone: 'error'
-      })
+      publishOldFavoriteStatus({ label: '整理失败', message, tone: 'error' })
       onOldFavoriteExecutionStateChange?.('finished')
     }
   }
@@ -4699,7 +4805,8 @@ export function FavoriteLedgerPanel({
     if (!oldFavoriteExecuting || oldFavoriteExecutionStopping) return
     oldFavoriteExecutionStopRequestedRef.current = true
     setOldFavoriteExecutionStopping(true)
-    setStatus('正在停止整理；当前请求返回后将安全结束。')
+    setOldFavoriteExecutionPhase('pausing')
+    setStatus('正在暂停整理；当前请求明确返回后将不再发送下一条。')
   }
   const selectableOldFavoriteItems = useMemo(
     () =>
@@ -4841,6 +4948,7 @@ export function FavoriteLedgerPanel({
   }
 
   function confirmProtectedReorganization() {
+    if (oldFavoritePlanReadOnly) return
     const next = new Set(reorganizedProtectedAids)
     for (const item of selectedProtectedOldFavorites) next.add(item.aid)
     setReorganizedProtectedAids(next)
@@ -4849,6 +4957,7 @@ export function FavoriteLedgerPanel({
   }
 
   function confirmAbnormalProtectedReorganization() {
+    if (oldFavoritePlanReadOnly) return
     const next = new Set(reorganizedProtectedAids)
     for (const item of selectedAbnormalProtectedOldFavorites) next.add(item.aid)
     setReorganizedProtectedAids(next)
@@ -4857,7 +4966,7 @@ export function FavoriteLedgerPanel({
   }
 
   function restoreProtectedFavorites() {
-    if (!baseScanPreview) return
+    if (oldFavoritePlanReadOnly || !baseScanPreview) return
     setReorganizedProtectedAids(new Set())
     setPreview(baseScanPreview)
     setArchivePlanState(createArchivePlanStateFromPreviewItems(baseScanPreview.items, selectedCandidateKeys))
@@ -5107,6 +5216,7 @@ export function FavoriteLedgerPanel({
     }
 
     function handleArchiveShortcut(event: KeyboardEvent) {
+      if (oldFavoritePlanReadOnly) return
       if (
         !event.ctrlKey ||
         event.altKey ||
@@ -5144,6 +5254,7 @@ export function FavoriteLedgerPanel({
     archiveUndoStack,
     deepSeekArchiveRunning,
     oldFavoriteGuideMode,
+    oldFavoritePlanReadOnly,
     oldFavoriteStep
   ])
 
@@ -5356,7 +5467,7 @@ export function FavoriteLedgerPanel({
             data-selected={hasSelectedTarget}
             title={targetTitle}
             value=""
-            disabled={deepSeekArchiveRunning || archiveBatchRunning}
+            disabled={oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning}
             onClick={(event) => event.stopPropagation()}
             onChange={(event) => {
               const targetLedgerId = event.currentTarget.value
@@ -5420,7 +5531,7 @@ export function FavoriteLedgerPanel({
           aria-haspopup="menu"
           aria-expanded={deepSeekArchiveScopeOpen}
           title={`当前选择：${selectedScopeLabel}`}
-          disabled={deepSeekArchiveRunning || archiveBatchRunning}
+          disabled={oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning}
           onClick={() => setDeepSeekArchiveScopeOpen((open) => !open)}
         >
           <span>整理范围</span>
@@ -5464,6 +5575,7 @@ export function FavoriteLedgerPanel({
   }
 
   function requestDeepSeekArchiveOrganization() {
+    if (oldFavoritePlanReadOnly) return
     const tags = preview?.scanProgress?.tags
     if (tags && (
       tags.status !== 'complete' ||
@@ -5497,7 +5609,7 @@ export function FavoriteLedgerPanel({
                 type="checkbox"
                 aria-label={`整理来源 ${folder.name}，共 ${folder.totalCount}${occurrenceSuffix}`}
                 checked={normalizedSelectedOldFavoriteSourceFolderKeys.has(folder.sourceKey)}
-                disabled={folder.scanFailed}
+                disabled={oldFavoritePlanReadOnly || folder.scanFailed}
                 onChange={() => toggleOldFavoriteSourceFolder(folder.sourceKey)}
               />
             </span>
@@ -5595,7 +5707,7 @@ export function FavoriteLedgerPanel({
           <AssistantActionButton
             type="button"
             aria-label="备册"
-            disabled={busy}
+            disabled={busy || oldFavoritePlanReadOnly}
             onClick={() => void backUpLedgersFromToolbar()}
             icon={clickedPetUrl}
             iconAlt="小咪备册"
@@ -5606,7 +5718,7 @@ export function FavoriteLedgerPanel({
           <AssistantActionButton
             type="button"
             aria-label={hasPendingOldFavoriteBatch ? '继续本批整理' : '整理旧藏'}
-            disabled={busy}
+            disabled={busy || oldFavoritePlanReadOnly}
             onClick={() => void startOrganizingOldFavorites()}
             icon={hintPetUrl}
             iconAlt="小咪整理旧藏"
@@ -5652,15 +5764,15 @@ export function FavoriteLedgerPanel({
             </button>
           </span>
           <div className="favorite-ledger-panel__category-actions">
-            <button type="button" disabled={busy || deepSeekArchiveRunning} onClick={resetLedgers}>
+            <button type="button" disabled={busy || oldFavoritePlanReadOnly || deepSeekArchiveRunning} onClick={resetLedgers}>
               重置
             </button>
-            <button type="button" disabled={busy || deepSeekArchiveRunning} onClick={toggleAllLedgers}>
+            <button type="button" disabled={busy || oldFavoritePlanReadOnly || deepSeekArchiveRunning} onClick={toggleAllLedgers}>
               {bulkToggleLabel}
             </button>
             <button
               type="button"
-              disabled={busy || deepSeekArchiveRunning || firstInvalidLedgerIndex >= 0}
+              disabled={busy || oldFavoritePlanReadOnly || deepSeekArchiveRunning || firstInvalidLedgerIndex >= 0}
               onClick={() => void saveLedgers()}
             >
               同步
@@ -5687,7 +5799,7 @@ export function FavoriteLedgerPanel({
               <div
                 key={`${ledger.id}-${ledgerIndex}`}
                 className="favorite-ledger-panel__chip-item"
-                draggable
+                draggable={!oldFavoritePlanReadOnly}
                 data-dragging={draggedLedgerKey === draftKey}
                 data-drop-target={dragTargetLedgerKey === draftKey}
                 onDragStart={(event) => handleLedgerDragStart(event, ledgerIndex)}
@@ -5701,6 +5813,7 @@ export function FavoriteLedgerPanel({
                   title={ledger.displayName}
                   aria-pressed={isLedgerEnabled}
                   data-active={activeLedger?.id === ledger.id && activeLedgerIndex === ledgerIndex}
+                  disabled={oldFavoritePlanReadOnly}
                   onClick={() => selectLedger(ledger, ledgerIndex)}
                 >
                   {ledgerButtonLabel}
@@ -5710,6 +5823,7 @@ export function FavoriteLedgerPanel({
                   className="favorite-ledger-panel__chip-action"
                   aria-label={`${isLedgerEnabled ? '移出同步' : '加入同步'} ${ledger.displayName}`}
                   data-enabled={isLedgerEnabled}
+                  disabled={oldFavoritePlanReadOnly}
                   onClick={() => toggleLedger(ledgerIndex)}
                 >
                   {isLedgerEnabled ? '✓' : '+'}
@@ -5719,14 +5833,14 @@ export function FavoriteLedgerPanel({
           })}
         </div>
         <div className="favorite-ledger-panel__list-toggle">
-          <button type="button" disabled={busy} onClick={addBlankLedger}>
+          <button type="button" disabled={busy || oldFavoritePlanReadOnly} onClick={addBlankLedger}>
             新建收藏夹
           </button>
           {canToggleLedgerList ? (
             <button
               type="button"
               aria-expanded={ledgerListExpanded}
-              disabled={busy}
+              disabled={busy || oldFavoritePlanReadOnly}
               onClick={() => setLedgerListExpanded((current) => !current)}
             >
               {ledgerListExpanded ? '折叠' : '展开'}
@@ -5744,7 +5858,7 @@ export function FavoriteLedgerPanel({
             <div className="favorite-ledger-panel__editor-actions">
               <button
                 type="button"
-                disabled={busy || !activeLedgerNameValidation?.valid}
+                disabled={busy || oldFavoritePlanReadOnly || !activeLedgerNameValidation?.valid}
                 onClick={saveActiveLedgerDraft}
               >
                 保存
@@ -5754,7 +5868,7 @@ export function FavoriteLedgerPanel({
                   type="button"
                   aria-label={`删除 ${activeLedger.displayName}`}
                   onClick={() => deleteLedger(activeLedger.id)}
-                  disabled={!canDeleteLedger(activeLedger)}
+                  disabled={oldFavoritePlanReadOnly || !canDeleteLedger(activeLedger)}
                 >
                   删除
                 </button>
@@ -5773,7 +5887,7 @@ export function FavoriteLedgerPanel({
             </span>
             <select
               aria-label="收藏夹种类"
-              disabled={activeLedger.isDefault}
+              disabled={oldFavoritePlanReadOnly || activeLedger.isDefault}
               value={activeLedgerRuleType}
               onChange={(event) => {
                 if (activeLedger.isDefault) {
@@ -5797,6 +5911,7 @@ export function FavoriteLedgerPanel({
               </span>
               <input
                 aria-label="册名"
+                disabled={oldFavoritePlanReadOnly}
                 value={stripBilimiLedgerPrefix(activeLedger.displayName)}
                 onChange={(event) => updateActiveLedgerName(event.currentTarget.value)}
               />
@@ -5804,6 +5919,7 @@ export function FavoriteLedgerPanel({
           ) : (
             <input
               aria-label="册名"
+              disabled={oldFavoritePlanReadOnly}
               value={activeLedger.displayName}
               onChange={(event) => updateActiveLedgerName(event.currentTarget.value)}
             />
@@ -5819,6 +5935,7 @@ export function FavoriteLedgerPanel({
           <label>
             {ruleFieldLabel(activeLedgerRuleType)}
             <textarea
+              disabled={oldFavoritePlanReadOnly}
               value={ledgerRuleText(activeLedger)}
               onChange={(event) =>
                 updateActiveLedger({
@@ -5837,6 +5954,7 @@ export function FavoriteLedgerPanel({
               <input
                 aria-label="DeepSeek约束"
                 type="text"
+                disabled={oldFavoritePlanReadOnly}
                 value={activeLedgerDeepSeekConstraint}
                 onChange={(event) =>
                   updateActiveLedger({
@@ -5940,7 +6058,7 @@ export function FavoriteLedgerPanel({
                   <p className="favorite-ledger-panel__step-note">本批最多3000，完成或放弃后可继续</p>
                   <button
                     type="button"
-                    disabled={batchCommitBusy || oldFavoriteExecuting}
+                    disabled={batchCommitBusy || oldFavoritePlanReadOnly}
                     onClick={() => setBatchDiscardConfirming(true)}
                   >
                     放弃本批
@@ -5988,11 +6106,11 @@ export function FavoriteLedgerPanel({
                   {onReadOldFavoriteTagEnrichment ? (
                     <div>
                       {preview.scanProgress?.tags.status === 'paused' ? (
-                        <button type="button" onClick={() => applyTagEnrichmentAction('resume')}>继续补取</button>
+                        <button type="button" disabled={oldFavoritePlanReadOnly} onClick={() => applyTagEnrichmentAction('resume')}>继续补取</button>
                       ) : (
-                        <button type="button" onClick={() => applyTagEnrichmentAction('pause')}>暂停补取</button>
+                        <button type="button" disabled={oldFavoritePlanReadOnly} onClick={() => applyTagEnrichmentAction('pause')}>暂停补取</button>
                       )}
-                      <button type="button" onClick={() => applyTagEnrichmentAction('cancel')}>取消标签补取</button>
+                      <button type="button" disabled={oldFavoritePlanReadOnly} onClick={() => applyTagEnrichmentAction('cancel')}>取消标签补取</button>
                     </div>
                   ) : null}
                 </div>
@@ -6036,7 +6154,7 @@ export function FavoriteLedgerPanel({
                     <button
                       type="button"
                       aria-label={`重新整理全部已整理视频 ${selectedProtectedOldFavorites.length} 条`}
-                      disabled={selectedProtectedOldFavorites.length === 0}
+                      disabled={oldFavoritePlanReadOnly || selectedProtectedOldFavorites.length === 0}
                       onClick={() => setProtectedReorganizationConfirming(true)}
                     >
                       重新整理全部已整理视频 {selectedProtectedOldFavorites.length} 条
@@ -6091,7 +6209,7 @@ export function FavoriteLedgerPanel({
                     {reorganizedProtectedAids.size > 0 ? (
                       <>
                         <span>已重新纳入 {reorganizedProtectedAids.size}</span>
-                        <button type="button" onClick={restoreProtectedFavorites}>恢复保护</button>
+                        <button type="button" disabled={oldFavoritePlanReadOnly} onClick={restoreProtectedFavorites}>恢复保护</button>
                       </>
                     ) : (
                       <>
@@ -6104,7 +6222,7 @@ export function FavoriteLedgerPanel({
                               type="button"
                               aria-label={`重新整理状态有变化的 ${selectedAbnormalProtectedOldFavorites.length} 条`}
                               title={OLD_FAVORITE_ARCHIVE_HEALTH_HINT}
-                              disabled={selectedAbnormalProtectedOldFavorites.length === 0}
+                              disabled={oldFavoritePlanReadOnly || selectedAbnormalProtectedOldFavorites.length === 0}
                               onClick={() => setAbnormalProtectionReorganizationConfirming(true)}
                             >
                               重新整理状态有变化的 {selectedAbnormalProtectedOldFavorites.length} 条
@@ -6154,7 +6272,7 @@ export function FavoriteLedgerPanel({
                               type="checkbox"
                               aria-label="全选扫描收藏夹"
                               checked={allOldFavoriteUserSourcesSelected}
-                              disabled={validOldFavoriteUserSourceFolders.length === 0}
+                              disabled={oldFavoritePlanReadOnly || validOldFavoriteUserSourceFolders.length === 0}
                               onChange={toggleAllOldFavoriteUserSources}
                             />
                             <span>全选</span>
@@ -6170,7 +6288,7 @@ export function FavoriteLedgerPanel({
                             <button
                               type="button"
                               className="favorite-ledger-panel__source-rescan"
-                              disabled={busy}
+                              disabled={busy || oldFavoritePlanReadOnly}
                               onClick={() => void scanOldFavorites('organize')}
                             >
                               重新扫描全部
@@ -6224,7 +6342,7 @@ export function FavoriteLedgerPanel({
                       type="checkbox"
                       aria-label="全选 专属 UP 追更"
                       checked={allFollowUpCandidatesSelected}
-                      disabled={deepSeekArchiveRunning || archiveBatchRunning || !oldFavoriteFollowUpCandidates.length}
+                      disabled={oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning || !oldFavoriteFollowUpCandidates.length}
                       onChange={(event) =>
                         setCandidateGroupSelected(oldFavoriteFollowUpCandidates, event.currentTarget.checked)
                       }
@@ -6248,7 +6366,7 @@ export function FavoriteLedgerPanel({
                           aria-label={candidateDisplayName}
                           checked={isSelected}
                           disabled={
-                            deepSeekArchiveRunning || archiveBatchRunning || (
+                            oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning || (
                               !isSelected &&
                               alreadyHasLedger(draftLedgers, candidateDisplayName) &&
                               !draftLedgers.some((ledger) =>
@@ -6284,7 +6402,7 @@ export function FavoriteLedgerPanel({
                       type="checkbox"
                       aria-label="全选 高频标签收藏夹"
                       checked={allTagCandidatesSelected}
-                      disabled={deepSeekArchiveRunning || archiveBatchRunning || !oldFavoriteTagCandidates.length}
+                      disabled={oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning || !oldFavoriteTagCandidates.length}
                       onChange={(event) =>
                         setCandidateGroupSelected(oldFavoriteTagCandidates, event.currentTarget.checked)
                       }
@@ -6307,7 +6425,7 @@ export function FavoriteLedgerPanel({
                             aria-label={candidateDisplayName}
                             checked={isSelected}
                             disabled={
-                              deepSeekArchiveRunning || archiveBatchRunning ||
+                              oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning ||
                               (!isSelected && alreadyHasLedger(draftLedgers, candidateDisplayName) &&
                                 !draftLedgers.some((ledger) =>
                                   ledger.id === candidateLedgerId(candidate) &&
@@ -6385,7 +6503,7 @@ export function FavoriteLedgerPanel({
                               disabled={
                                 deepSeekArchiveRunning
                                   ? deepSeekArchiveCancelRequested
-                                  : deepSeekArchiveDisabled
+                                  : oldFavoritePlanReadOnly || deepSeekArchiveDisabled
                               }
                               onClick={() =>
                                 deepSeekArchiveRunning
@@ -6519,7 +6637,7 @@ export function FavoriteLedgerPanel({
                             <span className="favorite-ledger-panel__archive-history-select-control">
                               <select
                                 aria-label="改动记录"
-                                disabled={archiveUndoChanges.length === 0}
+                                disabled={oldFavoritePlanReadOnly || archiveUndoChanges.length === 0}
                                 value=""
                                 onChange={(event) => {
                                   if (event.currentTarget.value === 'initial') {
@@ -6553,7 +6671,7 @@ export function FavoriteLedgerPanel({
                           <button
                             type="button"
                             className="favorite-ledger-panel__archive-history-button"
-                            disabled={deepSeekArchiveRunning || archiveBatchRunning || archiveUndoStack.length === 0}
+                            disabled={oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning || archiveUndoStack.length === 0}
                             onClick={undoArchivePreviewChanges}
                           >
                             撤销本次改动
@@ -6561,7 +6679,7 @@ export function FavoriteLedgerPanel({
                           <button
                             type="button"
                             className="favorite-ledger-panel__archive-history-button"
-                            disabled={deepSeekArchiveRunning || archiveBatchRunning || archiveRedoStack.length === 0}
+                            disabled={oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning || archiveRedoStack.length === 0}
                             onClick={redoArchivePreviewChanges}
                           >
                             恢复本次改动
@@ -6604,7 +6722,7 @@ export function FavoriteLedgerPanel({
                           type="checkbox"
                           aria-label="全部存入暂存"
                           checked={allPreviewScopedPendingItemsStaged}
-                          disabled={deepSeekArchiveRunning || archiveBatchRunning}
+                          disabled={oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning}
                           onChange={(event) =>
                             setPreviewScopedPendingItemsStaged(event.currentTarget.checked)
                           }
@@ -6653,7 +6771,7 @@ export function FavoriteLedgerPanel({
                               type="checkbox"
                               aria-label={`全选 ${group.displayName}`}
                               checked={allSelected}
-                              disabled={deepSeekArchiveRunning || archiveBatchRunning}
+                              disabled={oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning}
                               onChange={(event) =>
                                 setOldFavoriteTargetGroupSelected(group, event.currentTarget.checked)
                               }
@@ -6690,9 +6808,9 @@ export function FavoriteLedgerPanel({
                                   .join(' ')}
                                 data-selected={selected}
                                 aria-pressed={selected}
-                                aria-disabled={deepSeekArchiveRunning || archiveBatchRunning || target.alreadyInTarget}
+                                aria-disabled={oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning || target.alreadyInTarget}
                                 onClick={() => {
-                                  if (!deepSeekArchiveRunning && !target.alreadyInTarget) {
+                                  if (!oldFavoritePlanReadOnly && !deepSeekArchiveRunning && !target.alreadyInTarget) {
                                     toggleOldFavoriteTarget(item, group.ledgerId)
                                   }
                                 }}
@@ -6842,17 +6960,21 @@ export function FavoriteLedgerPanel({
                     </div>
                   ) : null}
                   <div className="favorite-ledger-panel__confirm-actions">
-                    {!oldFavoriteExecutionAwaitingAcknowledgement ? (
+                    {oldFavoriteExecuting ? (
                       <button
                         type="button"
                         disabled={batchCommitBusy || oldFavoriteExecutionStopping}
-                        onClick={oldFavoriteExecuting
-                          ? stopOldFavoriteExecution
-                          : () => setBatchDiscardConfirming(true)}
+                        onClick={stopOldFavoriteExecution}
                       >
-                        {oldFavoriteExecuting
-                          ? oldFavoriteExecutionStopping ? '正在停止…' : '停止整理'
-                          : '放弃本轮'}
+                        {oldFavoriteExecutionStopping ? '正在暂停…' : '暂停整理'}
+                      </button>
+                    ) : oldFavoriteExecutionPaused ? (
+                      <button type="button" onClick={() => setPausedRoundEndConfirming(true)}>
+                        结束本轮
+                      </button>
+                    ) : !oldFavoriteExecutionAwaitingAcknowledgement ? (
+                      <button type="button" onClick={() => setBatchDiscardConfirming(true)}>
+                        放弃本轮
                       </button>
                     ) : null}
                     <button
@@ -6868,6 +6990,8 @@ export function FavoriteLedgerPanel({
                       onClick={() =>
                         firstInvalidLedgerIndex >= 0
                           ? focusInvalidLedger(firstInvalidLedgerIndex)
+                          : oldFavoriteExecutionPaused
+                          ? void continueOldFavoriteExecution()
                           : oldFavoriteExecutionAwaitingAcknowledgement
                           ? acknowledgeOldFavoriteExecution()
                           : selectedOldFavoritePlanItems.length === 0
@@ -6881,6 +7005,8 @@ export function FavoriteLedgerPanel({
                     >
                       {oldFavoriteExecutionAwaitingAcknowledgement
                         ? '结束本轮'
+                        : oldFavoriteExecutionPaused
+                        ? '继续整理'
                         : oldFavoriteExecuting
                         ? '整理中'
                         : '确认整理'}
@@ -6890,6 +7016,25 @@ export function FavoriteLedgerPanel({
                 )}
               </section>
             )
+          ) : null}
+          {pausedRoundEndConfirming ? (
+            <div
+              className="favorite-ledger-panel__execution-dialog"
+              role="alertdialog"
+              aria-modal="true"
+              aria-label="确认结束本轮？"
+            >
+              <h4>确认结束本轮？</h4>
+              <p>
+                已完成 {oldFavoriteExecutionProgress?.completed ?? 0} 条，剩余{' '}
+                {Math.max(0, (oldFavoriteExecutionProgress?.total ?? 0) - (oldFavoriteExecutionProgress?.completed ?? 0))} 条。
+              </p>
+              <p>结束后会保留未提交的批次断点；下次必须重新扫描对账，不会继续发送 B 站请求。</p>
+              <div className="favorite-ledger-panel__execution-dialog-actions">
+                <button type="button" onClick={() => setPausedRoundEndConfirming(false)}>返回</button>
+                <button type="button" onClick={acknowledgeOldFavoriteExecution}>确认结束</button>
+              </div>
+            </div>
           ) : null}
           {batchDiscardConfirming ? (
             <div

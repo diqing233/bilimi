@@ -1830,8 +1830,14 @@ export function buildExecuteFavoriteLedgerPlanScript(
         const max = Math.max(min, Number(range?.max ?? min));
         return Math.round(min + Math.random() * (max - min));
       };
-      const isProtectionFailure = (message) =>
-        /-509|request too fast|too many|rate|frequency|frequent|captcha|verify|protection|risk/i.test(String(message || ''));
+      const isProtectionFailure = (error) => Boolean(
+        error?.riskSignal ||
+        [403, 412].includes(Number(error?.httpStatus || 0)) ||
+        [-352, -509].includes(Number(error?.apiCode || 0)) ||
+        /-509|-352|(?:http|status)?\s*412|request too fast|too many|rate|frequency|frequent|captcha|verify|protection|risk|风控|访问受限|安全验证/i.test(
+          String(error?.message || error || '')
+        )
+      );
 
       try {
         const { csrf } = readCredentials();
@@ -1839,7 +1845,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
           return { ok: false, steps, missingTargets, message: '未能读取登录凭据，无法归册。' };
         }
 
-        const executableItems = payload.items.filter((item) => {
+        const filteredItems = payload.items.filter((item) => {
           if (item.selected === false || item.alreadyInTarget === true) {
             return false;
           }
@@ -1850,6 +1856,23 @@ export function buildExecuteFavoriteLedgerPlanScript(
           }
           return true;
         });
+        const executableItems = [];
+        const normalItemsByAid = new Map();
+        for (const item of filteredItems) {
+          if (item.reorganizeProtected) {
+            executableItems.push(item);
+            continue;
+          }
+          const key = String(item.aid);
+          const grouped = normalItemsByAid.get(key);
+          if (grouped) {
+            grouped.groupedItems.push(item);
+          } else {
+            const group = { ...item, groupedItems: [item] };
+            normalItemsByAid.set(key, group);
+            executableItems.push(group);
+          }
+        }
         const protectionPausedResult = (item, index, message) => {
           appendFailures.push({ aid: item.aid, title: item.title, message });
           steps.push('api:ledger:protection-paused:' + item.aid);
@@ -1859,6 +1882,8 @@ export function buildExecuteFavoriteLedgerPlanScript(
             missingTargets: ['favorite-ledger-protection'],
             message: protectionMessage,
             paused: true,
+            partial: completedItems.length > 0,
+            completedItems,
             completedCount: completedItems.length,
             failedCount: appendFailures.length,
             remainingCount: executableItems.length - index - 1
@@ -1885,8 +1910,6 @@ export function buildExecuteFavoriteLedgerPlanScript(
           });
           await ensureApiOk(response, 'favorite ledger append');
         };
-        const appendItem = async (item, targetFolderId) =>
-          appendItemFolders(item, [String(targetFolderId)]);
         const refreshTargetFolderId = async (targetDisplayName) => {
           const { mid } = readCredentials();
           if (!mid || !targetDisplayName) {
@@ -1926,9 +1949,9 @@ export function buildExecuteFavoriteLedgerPlanScript(
             }
             const addedFolderIds = desiredFolderIds.filter((folderId) => !currentFolderIds.includes(folderId));
             try {
-              for (const folderId of addedFolderIds) {
-                await appendItem(item, folderId);
-                steps.push('api:ledger:append:' + item.aid + ':' + folderId);
+              if (addedFolderIds.length > 0) {
+                await appendItemFolders(item, addedFolderIds);
+                steps.push('api:ledger:append:' + item.aid + ':' + addedFolderIds.join(','));
               }
               completedItems.push({
                 ...item,
@@ -1938,55 +1961,66 @@ export function buildExecuteFavoriteLedgerPlanScript(
               });
             } catch (error) {
               const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
-              if (isProtectionFailure(errorMessage)) {
+              if (isProtectionFailure(error)) {
                 return protectionPausedResult(item, index, errorMessage);
               }
-              const partial = addedFolderIds.length > 0 && steps.some((step) => step.startsWith('api:ledger:append:' + item.aid + ':'));
-              appendFailures.push({ aid: item.aid, title: item.title, message: errorMessage, partial });
+              appendFailures.push({ aid: item.aid, title: item.title, message: errorMessage, partial: false });
               missingTargets.push('favorite-ledger-reconcile:' + item.aid);
               steps.push('api:ledger:reconcile-failed:' + item.aid);
             }
             await paceBeforeNextItem(completedItems.length, index < executableItems.length - 1);
             continue;
           }
+          const groupedItems = Array.isArray(item.groupedItems) ? item.groupedItems : [item];
           try {
-            let targetFolderId = item.targetFolderId;
-            if (!targetFolderId && item.selectedCandidateTarget) {
-              targetFolderId = await refreshTargetFolderId(item.targetDisplayName);
-              if (targetFolderId) {
-                steps.push('api:ledger:append-refresh:' + item.aid);
+            const resolvedItems = [];
+            for (const groupedItem of groupedItems) {
+              let targetFolderId = groupedItem.targetFolderId;
+              if (!targetFolderId && groupedItem.selectedCandidateTarget) {
+                targetFolderId = await refreshTargetFolderId(groupedItem.targetDisplayName);
+                if (targetFolderId) {
+                  steps.push('api:ledger:append-refresh:' + groupedItem.aid);
+                }
               }
+              if (!targetFolderId) {
+                missingTargets.push(groupedItem.targetLedgerId);
+                syncRequired = true;
+                throw new Error(syncRequiredMessage);
+              }
+              resolvedItems.push({ ...groupedItem, targetFolderId: String(targetFolderId) });
             }
-            if (!targetFolderId) {
-              missingTargets.push(item.targetLedgerId);
-              syncRequired = true;
-              throw new Error(syncRequiredMessage);
-            }
-            await appendItem(item, targetFolderId);
-            completedItems.push({ ...item, targetFolderId: String(targetFolderId) });
+            await appendItemFolders(item, Array.from(new Set(resolvedItems.map((entry) => entry.targetFolderId))));
+            completedItems.push(...resolvedItems);
             steps.push('api:ledger:append:' + item.aid);
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
-            if (isProtectionFailure(errorMessage)) {
+            if (isProtectionFailure(error)) {
               return protectionPausedResult(item, index, errorMessage);
             }
 
             try {
-              const refreshedFolderId = await refreshTargetFolderId(item.targetDisplayName);
-              if (!refreshedFolderId || refreshedFolderId === String(item.targetFolderId)) {
+              const refreshedItems = [];
+              let changed = false;
+              for (const groupedItem of groupedItems) {
+                const refreshedFolderId = await refreshTargetFolderId(groupedItem.targetDisplayName);
                 if (!refreshedFolderId) {
                   syncRequired = true;
+                  throw error;
                 }
+                changed ||= refreshedFolderId !== String(groupedItem.targetFolderId ?? '');
+                refreshedItems.push({ ...groupedItem, targetFolderId: String(refreshedFolderId) });
+              }
+              if (!changed) {
                 throw error;
               }
 
               steps.push('api:ledger:append-retry:' + item.aid);
-              await appendItem(item, refreshedFolderId);
-              completedItems.push({ ...item, targetFolderId: String(refreshedFolderId) });
+              await appendItemFolders(item, Array.from(new Set(refreshedItems.map((entry) => entry.targetFolderId))));
+              completedItems.push(...refreshedItems);
               steps.push('api:ledger:append:' + item.aid);
             } catch (retryError) {
               const retryMessage = retryError instanceof Error ? retryError.message : String(retryError || '');
-              if (isProtectionFailure(retryMessage)) {
+              if (isProtectionFailure(retryError)) {
                 return protectionPausedResult(item, index, retryMessage);
               }
 
@@ -2012,9 +2046,10 @@ export function buildExecuteFavoriteLedgerPlanScript(
             .join('、');
           return {
             ok: false,
-            partial: appendFailures.some((failure) => failure.partial),
+            partial: completedItems.length > 0 || appendFailures.some((failure) => failure.partial),
             steps,
             missingTargets,
+            completedItems,
             message:
               'old favorite organization partially completed: ' +
               appendCount +

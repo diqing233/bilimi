@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.3 - 2026-07-15
+
+- Locked every plan-changing old-favorite control after final confirmation while keeping scan, recommendation, and archive-preview review available.
+- Added safe pause and resume from the next unexecuted video, including interruptible cooldowns, pending-batch retention, and a confirmed “结束本轮” path.
+- Split user pauses from terminal Bilibili risk-control stops and added immediate handling for API `-509`/`-352`, HTTP `412`, captcha, verification, and Chinese risk messages.
+- Increased strictly serial old-favorite throughput after the first 50 videos and merged multiple target folders for one video into one append request without adding any delete or move behavior.
+- Preserved target-level correction and archive-protection records across grouped requests, partial results, refreshed folder IDs, and pause/resume cycles.
+
 ## 1.0.1 - 2026-07-13
 
 - Preserved saved DeepSeek models and service addresses across review, archive, sidebar, exit, and restart flows by merging preference patches in the main process.

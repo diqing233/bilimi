@@ -4573,10 +4573,7 @@ describe('FloatingAssistantApp', () => {
 
   it('keeps old favorite pet hints quiet between organization start and finish', async () => {
     const setAssistantPetHint = vi.fn()
-    const executeOldFavoritePlan = vi
-      .fn()
-      .mockResolvedValueOnce(createResult('first item done'))
-      .mockResolvedValueOnce(createResult('second item done'))
+    const executeOldFavoritePlan = vi.fn().mockResolvedValueOnce(createResult('group done'))
     installDesktopApi({
       executeOldFavoritePlan,
       scanOldFavorites: vi.fn().mockResolvedValue({
@@ -4626,11 +4623,14 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(container.querySelectorAll('.favorite-ledger-panel__guide-steps button')[3])
     confirmOldFavoriteExecution()
 
-    await waitFor(() => expect(executeOldFavoritePlan).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(executeOldFavoritePlan).toHaveBeenCalledOnce())
+    expect(executeOldFavoritePlan).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ targetLedgerId: 'knowledge' }),
+      expect.objectContaining({ targetLedgerId: 'movie-tv' })
+    ]))
     expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'working')).toBe(true)
     expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'happy')).toBe(true)
-    expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.message.includes('first item done'))).toBe(false)
-    expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.message.includes('second item done'))).toBe(false)
+    expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.message.includes('group done'))).toBe(false)
   })
 
   it('persists confirmed archive preview correction records after old favorite execution', async () => {
