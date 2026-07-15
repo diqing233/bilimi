@@ -217,6 +217,10 @@ function useOldFavoriteRuntimeState<T>(
 const OLD_FAVORITE_APPEND_DELAY_MS = { min: 1200, max: 3000 }
 const OLD_FAVORITE_COOLDOWN_DELAY_MS = { min: 15000, max: 45000 }
 const OLD_FAVORITE_COOLDOWN_EVERY = 25
+const OLD_FAVORITE_ACCELERATED_AFTER = 50
+const OLD_FAVORITE_ACCELERATED_APPEND_DELAY_MS = { min: 800, max: 1800 }
+const OLD_FAVORITE_ACCELERATED_COOLDOWN_DELAY_MS = { min: 15000, max: 30000 }
+const OLD_FAVORITE_ACCELERATED_COOLDOWN_EVERY = 50
 const OLD_FAVORITE_ARCHIVE_HEALTH_HINT =
   '原归档是上次整理时记录的视频所在收藏夹。状态变化表示视频已不完全在原位置中；为避免覆盖你的手动调整，本轮先跳过，点击后重新纳入整理。'
 
@@ -501,7 +505,7 @@ const OLD_FAVORITE_GUIDE_HINT = [
   '① 扫描概览：勾选要整理的收藏夹（默认全选）',
   '② 推荐收藏夹：勾选想新建的收藏夹',
   '③ 归档预览：检查分类结果，可启用 DeepSeek 辅助调整',
-  '④ 确认执行：查看进度，完成后点“好的”结束'
+  '④ 确认执行：查看进度，完成后点“结束本轮”'
 ].join('\n')
 const OLD_FAVORITE_EXECUTION_NOTICE =
   '开始整理后，本轮将按当前预览追加到 bilimi 收藏夹，执行中不能再更改。原收藏不会被删除、移动或取消。'
@@ -1692,13 +1696,40 @@ async function paceOldFavoriteExecution(
     return !shouldStop()
   }
 
-  const shouldCooldown = completedCount % OLD_FAVORITE_COOLDOWN_EVERY === 0
-  const delayMs = randomDelayMs(shouldCooldown ? OLD_FAVORITE_COOLDOWN_DELAY_MS : OLD_FAVORITE_APPEND_DELAY_MS)
+  const pacing = oldFavoriteExecutionPacingFor(completedCount)
+  const delayMs = randomDelayMs(pacing.delayMs)
   if (delayMs <= 0 || process.env.NODE_ENV === 'test') {
     return !shouldStop()
   }
 
   return waitForOldFavoriteExecutionDelay(delayMs, shouldStop)
+}
+
+export function oldFavoriteExecutionPacingFor(completedCount: number): {
+  delayMs: { min: number; max: number }
+  kind: 'pace' | 'cooldown'
+} {
+  const accelerated = completedCount > OLD_FAVORITE_ACCELERATED_AFTER
+  const cooldownEvery = accelerated
+    ? OLD_FAVORITE_ACCELERATED_COOLDOWN_EVERY
+    : OLD_FAVORITE_COOLDOWN_EVERY
+  const cooldown = completedCount > 0 && completedCount % cooldownEvery === 0
+
+  if (cooldown) {
+    return {
+      delayMs: accelerated
+        ? OLD_FAVORITE_ACCELERATED_COOLDOWN_DELAY_MS
+        : OLD_FAVORITE_COOLDOWN_DELAY_MS,
+      kind: 'cooldown'
+    }
+  }
+
+  return {
+    delayMs: accelerated
+      ? OLD_FAVORITE_ACCELERATED_APPEND_DELAY_MS
+      : OLD_FAVORITE_APPEND_DELAY_MS,
+    kind: 'pace'
+  }
 }
 
 export function FavoriteLedgerPanel({
@@ -6849,7 +6880,7 @@ export function FavoriteLedgerPanel({
                       }
                     >
                       {oldFavoriteExecutionAwaitingAcknowledgement
-                        ? '好的'
+                        ? '结束本轮'
                         : oldFavoriteExecuting
                         ? '整理中'
                         : '确认整理'}

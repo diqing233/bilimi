@@ -8,6 +8,7 @@ import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
 import * as favoriteLedgerPreviewModule from '../favorites/favoriteLedgerPreview'
 import {
   FavoriteLedgerPanel,
+  oldFavoriteExecutionPacingFor,
   resetOldFavoriteRuntimeSession,
   waitForOldFavoriteExecutionDelay
 } from './FavoriteLedgerPanel'
@@ -43,6 +44,25 @@ describe('FavoriteLedgerPanel', () => {
 
     await expect(waiting).resolves.toBe(false)
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('keeps the first 50 tasks conservative, then uses faster serial pacing', () => {
+    expect(oldFavoriteExecutionPacingFor(25)).toEqual({
+      delayMs: { min: 15_000, max: 45_000 },
+      kind: 'cooldown'
+    })
+    expect(oldFavoriteExecutionPacingFor(50)).toEqual({
+      delayMs: { min: 15_000, max: 45_000 },
+      kind: 'cooldown'
+    })
+    expect(oldFavoriteExecutionPacingFor(51)).toEqual({
+      delayMs: { min: 800, max: 1_800 },
+      kind: 'pace'
+    })
+    expect(oldFavoriteExecutionPacingFor(100)).toEqual({
+      delayMs: { min: 15_000, max: 30_000 },
+      kind: 'cooldown'
+    })
   })
 
   function renderPanel(overrides: Partial<Parameters<typeof FavoriteLedgerPanel>[0]> = {}) {
@@ -711,7 +731,7 @@ describe('FavoriteLedgerPanel', () => {
 
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce())
     await waitFor(() => expect(onCommitOldFavoriteBatchCheckpoint).toHaveBeenCalledWith(oldFavoriteBatchCommitToken()))
-    expect(screen.getByRole('button', { name: '好的' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '结束本轮' })).toBeInTheDocument()
   })
 
   it('does not commit a resumable batch when execution pauses or fails', async () => {
@@ -4126,7 +4146,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
     expect(onOldFavoriteAcknowledged).toHaveBeenCalledOnce()
     expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '好的' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '结束本轮' })).not.toBeInTheDocument()
   })
 
   it.skip('keeps retry judgment available for pending old favorites without a usable target', async () => {
@@ -6126,7 +6146,7 @@ describe('FavoriteLedgerPanel', () => {
         '本次整理已暂停'
       )
     )
-    expect(screen.getByRole('button', { name: '好的' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '结束本轮' })).toBeInTheDocument()
   })
 
   it('updates old favorite progress after each selected archive task', async () => {
@@ -6312,7 +6332,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(onConfirmArchiveProtections).toHaveBeenCalledWith([
       expect.objectContaining({ aid: preview.items[0].aid })
     ])
-    expect(screen.getByRole('button', { name: '好的' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '结束本轮' })).toBeInTheDocument()
   })
 
   it('keeps real archive execution locked after remount', async () => {
@@ -6399,7 +6419,7 @@ describe('FavoriteLedgerPanel', () => {
     confirmOldFavoriteExecution()
 
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce())
-    await waitFor(() => expect(screen.getByRole('button', { name: '好的' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: '结束本轮' })).toBeInTheDocument())
     expect(container.querySelector('.favorite-ledger-panel__status')).toHaveTextContent('本次整理已结束')
 
     fireEvent.click(screen.getByRole('button', { name: '备册' }))
@@ -6409,7 +6429,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(container.querySelector('.favorite-ledger-panel__status')).toHaveTextContent('正在整理中，请耐心等待')
     expect(onScanOldFavorites).toHaveBeenCalledTimes(1)
 
-    fireEvent.click(screen.getByRole('button', { name: '好的' }))
+    fireEvent.click(screen.getByRole('button', { name: '结束本轮' }))
     expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '确认整理' })).not.toBeInTheDocument()
   })
