@@ -1030,6 +1030,7 @@ export default function App() {
       targetMembership?: Record<string, number[]>
       managedFolders?: FavoriteArchiveManagedFolder[]
       managedFolderScanComplete?: boolean
+      recoveringPendingBatch?: boolean
       skippedSourceFolderTitles?: string[]
       scanDiagnostics?: FavoriteLedgerPreview['scanDiagnostics']
       scanProgress?: FavoriteLedgerPreview['scanProgress']
@@ -1062,9 +1063,10 @@ export default function App() {
         : undefined
       const failureReason = (matchedManagedFailure ?? legacyFailure)?.message
       const failureTitle = matchedManagedFailure?.folderTitle
+      const isTargetMembershipFailure = matchedManagedFailure?.operation === 'target-membership'
       return {
         ok: false,
-        message: `bilimi 收藏夹读取不完整${failureTitle ? `：${failureTitle}` : ''}${failureReason ? `（${failureReason}）` : ''}，请稍后重试。`,
+        message: `${isTargetMembershipFailure ? '目标收藏夹成员读取失败' : 'bilimi 收藏夹读取不完整'}${failureTitle ? `：${failureTitle}` : ''}${failureReason ? `（${failureReason}）` : ''}，请稍后重试。`,
         items: [],
         skippedSourceFolderTitles: scanResult.skippedSourceFolderTitles ?? []
       }
@@ -1078,9 +1080,11 @@ export default function App() {
       managedFolders: scanResult.managedFolders ?? [],
       targetMembership: scanResult.targetMembership,
       protectionRecords: preferences.favoriteArchiveProtectionRecords ?? [],
-      initializeExistingMembership: !(
-        preferences.favoriteArchiveProtectionInitializedAccountMids ?? []
-      ).includes(scanResult.accountMid ?? '')
+      initializeExistingMembership:
+        scanResult.recoveringPendingBatch === true ||
+        !(
+          preferences.favoriteArchiveProtectionInitializedAccountMids ?? []
+        ).includes(scanResult.accountMid ?? '')
     })
 
     const shouldMarkProtectionMigrationComplete =

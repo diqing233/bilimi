@@ -12,6 +12,7 @@ import type {
   AssistantRuntimeRequest,
   AssistantRuntimeResponsePayload
 } from './features/assistant/assistantRuntimeTypes'
+import type { FavoriteLedgerPreview } from './features/favorites/favoriteLedgerPreview'
 
 const LEDGER_STATUS_SCRIPT_MARKER = '/x/v3/fav/folder/created/list-all'
 const LEDGER_SAVE_SCRIPT_MARKER = '/x/v3/fav/folder/add'
@@ -3366,6 +3367,123 @@ describe('App runtime integration', () => {
         message: expect.stringContaining('bilimi 收藏夹读取不完整')
       })
     )
+  })
+
+  it('reports a target membership failure without treating the managed folder as empty', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) =>
+        script.includes(OLD_FAVORITE_SCAN_SCRIPT_MARKER)
+          ? {
+              ok: true,
+              accountMid: '42',
+              sourceFolders: [],
+              managedFolders: [{ id: '9001', title: 'bilimi·影视动漫', isInbox: false }],
+              managedFolderScanComplete: false,
+              targetMembership: {},
+              skippedSourceFolderTitles: ['bilimi·影视动漫'],
+              scanDiagnostics: {
+                tagDetailRequests: 0,
+                tagDetailFailures: 0,
+                taggedVideos: 0,
+                untaggedVideos: 0,
+                folderFailures: [{
+                  folderId: '9001', folderTitle: 'bilimi·影视动漫', failedPage: 1, attempts: 1,
+                  status: 'failed', operation: 'target-membership',
+                  message: 'managed favorite membership returned HTML instead of JSON',
+                  httpStatus: 403, contentType: 'text/html',
+                  finalUrl: 'https://passport.bilibili.com/login', redirected: true,
+                  retainedVideoCount: 0
+                }]
+              },
+              steps: [],
+              missingTargets: [],
+              message: 'old favorites scanned'
+            }
+          : emptyLedgerStatus()
+      )
+    })
+
+    const preview = await requestRuntime({
+      id: 'scan-target-membership-failure-1', type: 'scan-old-favorites'
+    }) as FavoriteLedgerPreview
+
+    expect(preview).toEqual(expect.objectContaining({ ok: false, items: [] }))
+    expect(preview.message).toContain('目标收藏夹成员读取失败：bilimi·影视动漫')
+    expect(preview.message).toContain('managed favorite membership returned HTML instead of JSON')
+  })
+
+  it('merges source metadata with managed ids and ignores target-only ids during recovery', async () => {
+    const savePreferences = vi.fn(async (nextPreferences: AssistantPreferences) => nextPreferences)
+    const preferences = createAppPreferences({
+      favoriteArchiveProtectionInitializedAccountMids: ['42'],
+      favoriteLedgers: createDefaultFavoriteLedgers().map((ledger) =>
+        ledger.id === 'knowledge' ? { ...ledger, bilibiliFolderId: '9001' } : ledger
+      )
+    })
+    const { notifyPreferencesChanged, requestRuntime } = renderAppWithRuntimeBridge({ savePreferences })
+    notifyPreferencesChanged(preferences)
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) =>
+        script.includes(OLD_FAVORITE_SCAN_SCRIPT_MARKER)
+          ? {
+              ok: true,
+              accountMid: '42',
+              sourceFolders: [{
+                id: '101',
+                title: '普通来源',
+                videos: [{
+                  aid: 7,
+                  title: '中断前已追加的视频',
+                  author: '来源 UP',
+                  tags: ['影视']
+                }]
+              }],
+              managedFolders: [{
+                id: '9001', title: 'bilimi·影视动漫', ledgerId: 'knowledge', isInbox: false
+              }],
+              managedFolderScanComplete: true,
+              recoveringPendingBatch: true,
+              targetMembership: { '9001': [7, 8] },
+              skippedSourceFolderTitles: [],
+              steps: [],
+              missingTargets: [],
+              message: 'old favorites scanned'
+            }
+          : emptyLedgerStatus()
+      )
+    })
+
+    const preview = await requestRuntime({
+      id: 'scan-managed-recovery-1', type: 'scan-old-favorites'
+    }) as FavoriteLedgerPreview
+
+    expect(preview.items).toEqual([])
+    expect(preview.scanContext?.protectedVideos).toEqual([
+      expect.objectContaining({
+        aid: 7,
+        title: '中断前已追加的视频',
+        author: '来源 UP',
+        currentBilimiFolderIds: ['9001'],
+        protectedForIncrementalScan: true
+      })
+    ])
+    expect(preview.scanContext?.protectedVideos.some((video: { aid: number }) => video.aid === 8)).toBe(false)
+    expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
+      favoriteArchiveProtectionRecords: [expect.objectContaining({
+        accountMid: '42',
+        aid: 7,
+        targetLedgerIds: ['knowledge'],
+        targetFolderIds: ['9001']
+      })],
+      favoriteArchiveProtectionInitializedAccountMids: ['42']
+    }))
   })
 
   it('uses scan-result managed ids to report the managed failure instead of an earlier ordinary failure', async () => {

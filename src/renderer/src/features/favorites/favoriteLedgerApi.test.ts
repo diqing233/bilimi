@@ -1479,14 +1479,8 @@ describe('favorite ledger API scripts', () => {
           })
         }
 
-        if (url.includes('media_id=9001')) {
-          return Response.json({
-            code: 0,
-            data: {
-              medias: [{ id: 123, title: 'Machine learning tutorial', intro: '', type: 2 }],
-              has_more: false
-            }
-          })
+        if (url.includes('/x/v3/fav/resource/ids') && url.includes('media_id=9001')) {
+          return Response.json({ code: 0, data: [{ id: 123, type: 2 }] })
         }
 
         throw new Error(`Unexpected request: ${url}`)
@@ -1984,6 +1978,170 @@ describe('favorite ledger API scripts', () => {
     expect(result).toMatchObject({ ok: false, paused: true, steps: ['api:ledger:protection-paused:123'] })
   })
 
+  it('uses lightweight ids for non-empty managed folders when full resources return HTML', async () => {
+    installCookies()
+    localStorage.clear()
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
+      accountMid: '42',
+      cache: {},
+      queue: [],
+      progress: { completed: 0, total: 0, pending: 0, status: 'complete' },
+      batchCursor: {
+        accountMid: '42', folderId: '101', nextPage: 1, folderOrder: ['101', '9001']
+      },
+      batchSeenAids: []
+    }))
+    localStorage.setItem('bilimi:old-favorite-batch-status:v1', JSON.stringify({
+      accountMid: '42',
+      scanRunId: 'interrupted-run'
+    }))
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
+      ...ledger,
+      bilibiliFolderId: '9001'
+    }))
+    const requests: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      requests.push(url)
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 101, title: '普通来源', media_count: 1 },
+          { id: 9001, title: 'bilimi·影视动漫', media_count: 1 }
+        ] } })
+      }
+      if (url.includes('/x/v3/fav/resource/ids')) {
+        return Response.json({ code: 0, data: [{ id: 7, type: 2 }] })
+      }
+
+      const parsed = new URL(url)
+      if (parsed.pathname === '/x/v3/fav/resource/list' && parsed.searchParams.get('media_id') === '101') {
+        return Response.json({ code: 0, data: {
+          medias: [{
+            id: 7,
+            title: '中断前已追加的视频',
+            intro: '普通来源仍提供完整资料',
+            upper: { name: '来源 UP' },
+            type: 2,
+            tags: ['影视']
+          }],
+          has_more: false
+        } })
+      }
+      if (parsed.pathname === '/x/v3/fav/resource/list' && parsed.searchParams.get('media_id') === '9001') {
+        return new Response('<!doctype html><html><body>risk control</body></html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html; charset=utf-8' }
+        })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+
+    expect(result.managedFolderScanComplete).toBe(true)
+    expect(result.recoveringPendingBatch).toBe(true)
+    expect(result.targetMembership).toEqual({ '9001': [7] })
+    expect(result.sourceFolders).toEqual([
+      expect.objectContaining({
+        id: '101',
+        videos: [expect.objectContaining({
+          aid: 7,
+          title: '中断前已追加的视频',
+          author: '来源 UP',
+          tags: ['影视']
+        })]
+      })
+    ])
+    expect(requests.filter((url) => url.includes('/x/v3/fav/resource/list'))).toHaveLength(1)
+    expect(requests.some((url) => url.includes('/x/v3/fav/resource/ids?media_id=9001'))).toBe(true)
+    expect(requests.some((url) => /\/resource\/deal|\/folder\/del|unfavorite|archive-confirm/i.test(url))).toBe(false)
+  })
+
+  it('fails closed with safe diagnostics when target membership returns HTML', async () => {
+    installCookies()
+    localStorage.clear()
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
+      ...ledger,
+      bilibiliFolderId: '9001'
+    }))
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 101, title: '普通来源', media_count: 0 },
+          { id: 9001, title: 'bilimi·影视动漫', media_count: 1 }
+        ] } })
+      }
+      if (url.includes('/x/v3/fav/resource/ids')) {
+        const response = new Response('<!doctype html><html><body>login risk page</body></html>', {
+          status: 403,
+          headers: { 'content-type': 'text/html; charset=utf-8' }
+        })
+        Object.defineProperties(response, {
+          url: { configurable: true, value: 'https://redirect.invalid/private/session-token?from=favorite' },
+          redirected: { configurable: true, value: true }
+        })
+        return response
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+    const failure = result.scanDiagnostics.folderFailures.find(
+      (item: { folderId?: string }) => item.folderId === '9001'
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.managedFolderScanComplete).toBe(false)
+    expect(result.targetMembership).not.toHaveProperty('9001')
+    expect(failure).toMatchObject({
+      operation: 'target-membership',
+      httpStatus: 403,
+      contentType: 'text/html; charset=utf-8',
+      finalUrl: 'https://redirect.invalid',
+      redirected: true,
+      retainedVideoCount: 0
+    })
+    expect(JSON.stringify(failure)).not.toContain('login risk page')
+    expect(localStorage.getItem('bilimi:old-favorite-batch-status:v1')).not.toBeNull()
+  })
+
+  it.each([
+    [-101, '账号未登录'],
+    [-352, '风控校验失败']
+  ])('fails closed when target membership returns API %s', async (code, message) => {
+    installCookies()
+    localStorage.clear()
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
+      ...ledger,
+      bilibiliFolderId: '9001'
+    }))
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 101, title: '普通来源', media_count: 0 },
+          { id: 9001, title: 'bilimi·影视动漫', media_count: 1 }
+        ] } })
+      }
+      if (url.includes('/x/v3/fav/resource/ids')) {
+        return Response.json({ code, message })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+
+    expect(result.managedFolderScanComplete).toBe(false)
+    expect(result.targetMembership).not.toHaveProperty('9001')
+    expect(result.scanDiagnostics.folderFailures).toEqual([
+      expect.objectContaining({
+        folderId: '9001',
+        operation: 'target-membership',
+        message: expect.stringContaining(message),
+        retainedVideoCount: 0
+      })
+    ])
+    expect(localStorage.getItem('bilimi:old-favorite-batch-status:v1')).not.toBeNull()
+  })
+
   it('scans legacy Bilimi folders and marks managed folder failures as incomplete', async () => {
     installCookies()
     const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
@@ -2010,13 +2168,10 @@ describe('favorite ledger API scripts', () => {
         if (url.includes('media_id=101')) {
           return Response.json({ code: 0, data: { medias: [], has_more: false } })
         }
-        if (url.includes('media_id=9001')) {
-          return Response.json({
-            code: 0,
-            data: { medias: [{ id: 7, title: '已整理', intro: '', type: 2 }], has_more: false }
-          })
+        if (url.includes('/x/v3/fav/resource/ids') && url.includes('media_id=9001')) {
+          return Response.json({ code: 0, data: [{ id: 7, type: 2 }] })
         }
-        if (url.includes('media_id=9009')) {
+        if (url.includes('/x/v3/fav/resource/ids') && url.includes('media_id=9009')) {
           return Response.json({ code: -500, message: 'failed' })
         }
 
@@ -2221,14 +2376,8 @@ describe('favorite ledger API scripts', () => {
           })
         }
 
-        if (url.includes('media_id=9002')) {
-          return Response.json({
-            code: 0,
-            data: {
-              medias: [{ id: 250, title: '用户刚补了标签', type: 2 }],
-              has_more: false
-            }
-          })
+        if (url.includes('/x/v3/fav/resource/ids') && url.includes('media_id=9002')) {
+          return Response.json({ code: 0, data: [{ id: 250, type: 2 }] })
         }
 
         if (url.includes('/x/tag/archive/tags') && url.includes('aid=250')) {
@@ -2314,24 +2463,12 @@ describe('favorite ledger API scripts', () => {
           })
         }
 
-        if (url.includes('media_id=9001')) {
-          return Response.json({
-            code: 0,
-            data: {
-              medias: [{ id: 789, title: 'Knowledge archive tutorial', type: 2 }],
-              has_more: false
-            }
-          })
+        if (url.includes('/x/v3/fav/resource/ids') && url.includes('media_id=9001')) {
+          return Response.json({ code: 0, data: [{ id: 789, type: 2 }] })
         }
 
-        if (url.includes('media_id=9008')) {
-          return Response.json({
-            code: 0,
-            data: {
-              medias: [{ id: 456, title: 'Inbox tutorial', tags: ['学习'], type: 2 }],
-              has_more: false
-            }
-          })
+        if (url.includes('/x/v3/fav/resource/ids') && url.includes('media_id=9008')) {
+          return Response.json({ code: 0, data: [{ id: 456, type: 2 }] })
         }
 
         throw new Error(`Unexpected request: ${url}`)
@@ -2714,7 +2851,7 @@ describe('favorite ledger API scripts', () => {
     expect(basic).toMatchObject({ status: 'failed', phase: 'failed', runId: expect.any(String) })
   })
 
-  it('accepts null medias as an empty result for a reliably declared empty folder', async () => {
+  it('accepts an empty lightweight membership result when managed folder counts are unknown', async () => {
     installCookies()
     localStorage.clear()
     const folderId = '4037824954'
@@ -2726,16 +2863,13 @@ describe('favorite ledger API scripts', () => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
         return Response.json({ code: 0, data: { list: [{ id: 4037824954, title: 'bilimi·暂存' }] } })
       }
-      return Response.json({
-        code: 0,
-        data: { medias: null, has_more: false, info: { media_count: 0 } }
-      })
+      return Response.json({ code: 0, data: [] })
     })
     vi.stubGlobal('fetch', fetchMock)
 
     const result = await window.eval(buildScanOldFavoritesScript(ledgers))
 
-    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/resource/list'))).toHaveLength(1)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/resource/ids'))).toHaveLength(1)
     expect(result).toMatchObject({
       ok: true,
       managedFolderScanComplete: true,
@@ -2812,7 +2946,7 @@ describe('favorite ledger API scripts', () => {
 
     const result = await window.eval(buildScanOldFavoritesScript(ledgers))
 
-    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/resource/list'))).toHaveLength(1)
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/resource/ids'))).toHaveLength(1)
     expect(result.managedFolderScanComplete).toBe(false)
     expect(result.targetMembership).toEqual({})
     expect(result.scanDiagnostics.folderFailures).toEqual([
@@ -3057,8 +3191,7 @@ describe('favorite ledger API scripts', () => {
     })])
   })
 
-  it('retains successful pages when a later page fails and marks a managed scan incomplete', async () => {
-    vi.useFakeTimers()
+  it('does not retain target membership when the lightweight response has invalid schema', async () => {
     installCookies()
     const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
       ...ledger,
@@ -3068,28 +3201,18 @@ describe('favorite ledger API scripts', () => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
         return Response.json({ code: 0, data: { list: [{ id: 9001, title: 'bilimi·影视动漫', media_count: 45 }] } })
       }
-      const page = Number(new URL(url).searchParams.get('pn'))
-      if (page < 3) {
-        return Response.json({
-          code: 0,
-          data: { medias: [{ id: 700 + page, title: `第 ${page} 页`, type: 2 }], has_more: true }
-        })
-      }
-      return new Response('<!DOCTYPE html><html><body>login</body></html>', {
-        headers: { 'content-type': 'text/html;charset=utf-8' }, status: 200
-      })
+      return Response.json({ code: 0, data: { ids: [{ id: 701, type: 2 }], has_more: true } })
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    const resultPromise = window.eval(buildScanOldFavoritesScript(ledgers))
-    await vi.advanceTimersByTimeAsync(3500)
-    const result = await resultPromise
+    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
 
     expect(result.managedFolderScanComplete).toBe(false)
-    expect(result.targetMembership['9001']).toEqual([701, 702])
+    expect(result.targetMembership).not.toHaveProperty('9001')
     expect(result.sourceFolders).toEqual([])
     expect(result.scanDiagnostics.folderFailures).toEqual([expect.objectContaining({
-      folderId: '9001', failedPage: 3, attempts: 1, status: 'partial', retainedVideoCount: 2
+      folderId: '9001', failedPage: 1, attempts: 1, status: 'failed',
+      operation: 'target-membership', retainedVideoCount: 0
     })])
   })
 
@@ -3287,19 +3410,9 @@ describe('favorite ledger API scripts', () => {
       }
       const stored = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
       observedBasicCompleted.push(Number(stored.lastScan?.basic?.completed ?? 0))
-      const page = Number(new URL(url).searchParams.get('pn'))
-      const firstAid = (page - 1) * 20 + 1
       return Response.json({
         code: 0,
-        data: {
-          medias: Array.from({ length: 20 }, (_, index) => ({
-            id: firstAid + index,
-            title: `第 ${firstAid + index} 条`,
-            type: 2,
-            tags: ['现成标签']
-          })),
-          has_more: page < 152
-        }
+        data: Array.from({ length: 3040 }, (_, index) => ({ id: index + 1, type: 2 }))
       })
     }))
 
@@ -3331,13 +3444,10 @@ describe('favorite ledger API scripts', () => {
       const folderId = parsed.searchParams.get('media_id')
       const page = Number(parsed.searchParams.get('pn'))
       if (folderId === '9001') {
-        const firstAid = 9000 + (page - 1) * 20
-        return Response.json({ code: 0, data: {
-          medias: Array.from({ length: 20 }, (_, index) => ({
-            id: firstAid + index, title: `已归档 ${firstAid + index}`, type: 2, tags: ['现成标签']
-          })),
-          has_more: page < 5
-        } })
+        return Response.json({
+          code: 0,
+          data: Array.from({ length: 100 }, (_, index) => ({ id: 9000 + index, type: 2 }))
+        })
       }
       const firstAid = (page - 1) * 20 + 1
       return Response.json({ code: 0, data: {
@@ -3387,9 +3497,7 @@ describe('favorite ledger API scripts', () => {
       const page = parsed.searchParams.get('pn') ?? ''
       requestedFolderPages.push(`${folderId}:${page}`)
       if (folderId === '9001') {
-        return Response.json({ code: 0, data: {
-          medias: [{ id: 9999, title: '已归档视频', type: 2, tags: ['现成标签'] }], has_more: false
-        } })
+        return Response.json({ code: 0, data: [{ id: 9999, type: 2 }] })
       }
       return Response.json({ code: 0, data: {
         medias: [{ id: 21, title: '续扫视频', type: 2, tags: ['现成标签'] }], has_more: false
@@ -3398,7 +3506,7 @@ describe('favorite ledger API scripts', () => {
 
     const result = await window.eval(buildScanOldFavoritesScript(ledgers))
 
-    expect(requestedFolderPages).toContain('9001:1')
+    expect(requestedFolderPages).toContain('9001:')
     expect(requestedFolderPages).toContain('101:2')
     expect(result.targetMembership['9001']).toEqual([9999])
     expect(result.sourceFolders[0].videos.map((video: { aid: number }) => video.aid)).toEqual([21])
@@ -3470,9 +3578,7 @@ describe('favorite ledger API scripts', () => {
       const folderId = parsed.searchParams.get('media_id')
       const page = Number(parsed.searchParams.get('pn'))
       if (folderId === '9001') {
-        return Response.json({ code: 0, data: {
-          medias: [{ id: 9999, title: '已归档视频', type: 2, tags: ['现成标签'] }], has_more: false
-        } })
+        return Response.json({ code: 0, data: [{ id: 9999, type: 2 }] })
       }
       const firstAid = (page - 1) * 20 + 1
       return Response.json({ code: 0, data: {

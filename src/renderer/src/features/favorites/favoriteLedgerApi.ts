@@ -62,13 +62,29 @@ function sharedScriptHelpers(): string {
       bilimiApiError: true,
       ...metadata
     });
+    const responseDiagnostics = (response) => {
+      let finalUrl = '';
+      try {
+        const parsed = new URL(String(response?.url || ''));
+        if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+          const trustedBilibiliHost = parsed.hostname === 'bilibili.com' || parsed.hostname.endsWith('.bilibili.com');
+          finalUrl = parsed.origin + (trustedBilibiliHost ? parsed.pathname : '');
+        }
+      } catch {}
+      return {
+        httpStatus: Number(response?.status || 0),
+        contentType: String(response?.headers?.get?.('content-type') || '').slice(0, 120),
+        finalUrl,
+        redirected: Boolean(response?.redirected)
+      };
+    };
     const ensureApiOk = async (response, label = 'Bilibili API') => {
       const contentType = response.headers?.get?.('content-type') || '';
       const bodyText = await response.text();
       const trimmedBody = bodyText.trim();
       if (/html/i.test(contentType) || /^<!doctype html/i.test(trimmedBody) || /^<html/i.test(trimmedBody)) {
         throw createApiError(label + ' returned HTML instead of JSON. Please log in to Bilibili again or retry later.', {
-          kind: 'html', httpStatus: Number(response.status || 0)
+          kind: 'html', ...responseDiagnostics(response)
         });
       }
 
@@ -77,14 +93,14 @@ function sharedScriptHelpers(): string {
         json = bodyText ? JSON.parse(bodyText) : null;
       } catch {
         throw createApiError(label + ' returned a non-JSON response.', {
-          kind: 'non-json', httpStatus: Number(response.status || 0)
+          kind: 'non-json', ...responseDiagnostics(response)
         });
       }
 
       if (!response.ok || !json || json.code !== 0) {
         throw createApiError(label + ' failed: ' + (json?.message || response.statusText || 'Bilibili API request failed'), {
           kind: !response.ok ? 'http' : 'api',
-          httpStatus: Number(response.status || 0),
+          ...responseDiagnostics(response),
           apiCode: Number(json?.code)
         });
       }
@@ -782,6 +798,14 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
         }
 
         const tagStoreKey = 'bilimi:old-favorite-tag-enrichment:v1';
+        let recoveringPendingBatch = false;
+        if (!payload.aid) {
+          try {
+            const pendingBatch = JSON.parse(localStorage.getItem('bilimi:old-favorite-batch-status:v1') || '{}');
+            recoveringPendingBatch = String(pendingBatch.accountMid ?? '') === String(mid) &&
+              Boolean(String(pendingBatch.scanRunId ?? ''));
+          } catch {}
+        }
         let scanRevision = 0;
         let scanRunId = '';
         let scanControl = null;
@@ -1019,6 +1043,11 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           url.searchParams.set('type', '0');
           url.searchParams.set('order', 'mtime');
           url.searchParams.set('platform', 'web');
+          return url.toString();
+        };
+        const buildManagedMembershipUrl = (folderId) => {
+          const url = new URL('https://api.bilibili.com/x/v3/fav/resource/ids');
+          url.searchParams.set('media_id', String(folderId));
           return url.toString();
         };
         const buildTagUrl = (aid) => {
@@ -1288,6 +1317,42 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
 
           return { videos, pageChunks };
         };
+        const readManagedFolderMembership = async (folderId) => {
+          try {
+            const json = await fetchJsonWithTimeout(
+              buildManagedMembershipUrl(folderId),
+              'managed favorite membership for folder ' + folderId,
+              10000,
+              scanControlWasCancelled
+            );
+            if (!Array.isArray(json.data)) {
+              throw createApiError('managed favorite membership returned invalid id data', { kind: 'schema' });
+            }
+            const aids = Array.from(new Set(
+              json.data
+                .filter((item) => Number(item?.type) === 2)
+                .map((item) => Number(item?.id ?? item?.aid))
+                .filter((aid) => Number.isFinite(aid) && aid > 0)
+                .filter((aid) => !payload.aid || aid === Number(payload.aid))
+            ));
+            return { videos: aids.map((aid) => ({ aid })), pageChunks: [] };
+          } catch (error) {
+            return {
+              videos: [],
+              failure: {
+                failedPage: 1,
+                attempts: 1,
+                status: 'failed',
+                operation: 'target-membership',
+                message: String(error?.message || error || 'managed favorite membership failed').slice(0, 160),
+                httpStatus: Number(error?.httpStatus || 0),
+                contentType: String(error?.contentType || '').slice(0, 120),
+                finalUrl: String(error?.finalUrl || '').slice(0, 300),
+                redirected: Boolean(error?.redirected)
+              }
+            };
+          }
+        };
 
         const cancelledScanResult = () => ({
           ok: false,
@@ -1353,7 +1418,9 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           inProgressFolderAids = new Set();
           const folderScan = isReliablyEmptyFolder
             ? { videos: [], pageChunks: [] }
-            : await readFolderVideos(
+            : isManagedFolder
+              ? await readManagedFolderMembership(folderIdString)
+              : await readFolderVideos(
                 folderIdString,
                 String(folder?.title ?? folderIdString),
                 rawExpectedMediaCount,
@@ -1362,10 +1429,8 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
                     persistBasicProgress();
                   }
                 },
-                isManagedFolder
-                  ? 1
-                  : (savedFolderIndex === folderIndex ? Math.max(1, Number(savedBatchCursor?.nextPage) || 1) : 1),
-                !isManagedFolder
+                savedFolderIndex === folderIndex ? Math.max(1, Number(savedBatchCursor?.nextPage) || 1) : 1,
+                true
               );
           if (!payload.aid && scanWasCancelled()) return cancelledScanResult();
           let videos = folderScan.videos;
@@ -1401,7 +1466,12 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
               attempts: failure.attempts,
               status: failure.status,
               message: failure.message,
-              retainedVideoCount: videos.length
+              retainedVideoCount: videos.length,
+              ...(failure.operation ? { operation: failure.operation } : {}),
+              ...(failure.httpStatus ? { httpStatus: failure.httpStatus } : {}),
+              ...(failure.contentType ? { contentType: failure.contentType } : {}),
+              ...(failure.finalUrl ? { finalUrl: failure.finalUrl } : {}),
+              ...(typeof failure.redirected === 'boolean' ? { redirected: failure.redirected } : {})
             });
             steps.push('api:favorite:scan-source-failed:' + folderIdString);
             if (!payload.aid) persistBasicProgress();
@@ -1628,6 +1698,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           targetMembership,
           managedFolders,
           managedFolderScanComplete,
+          recoveringPendingBatch,
           scanDiagnostics,
           batch: {
             limit: batchLimit,

@@ -56,8 +56,13 @@ export type FavoriteLedgerScanDiagnostics = {
     failedPage: number
     attempts: number
     status: 'failed' | 'partial'
+    operation?: 'target-membership'
     message: string
     retainedVideoCount: number
+    httpStatus?: number
+    contentType?: string
+    finalUrl?: string
+    redirected?: boolean
   }>
 }
 
