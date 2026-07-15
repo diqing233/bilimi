@@ -67,6 +67,9 @@ type BilimiDesktopApi = {
   ) => OldFavoriteRuntimeSetResult
   bindOldFavoriteRuntimeAccount?: (accountMid: string) => boolean
   resetOldFavoriteRuntime?: () => boolean
+  setOldFavoriteBackgroundRunning?: (running: boolean) => void
+  setOldFavoriteBackgroundTarget?: (webContentsId: number) => void
+  retryBilibiliSessionDirect?: () => Promise<{ mode: 'direct' }>
   onOldFavoriteRuntimeChanged?: (
     callback: (snapshot: OldFavoriteRuntimeSnapshot | { type: 'reset'; accountMid: string }) => void
   ) => () => void

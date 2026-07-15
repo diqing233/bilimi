@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.4 - 2026-07-16
+
+- Kept strictly serial old-favorite execution responsive and correctly paced when Chromium clamps background timers by measuring waits against real elapsed time.
+- Disabled background throttling only while old-favorite execution is active for the main renderer and actual Bilibili webview, restoring defaults for pauses, completion, failures, and risk-control stops without blocking Windows sleep.
+- Replaced repeated global-circuit scan failures with one safe-stop summary, folded technical details and excess ordinary failures, and made skipped folders explicit as requests that were never sent.
+- Added clear paused progress copy and moved the “结束本轮” confirmation into the existing progress card while preserving pending batch checkpoints.
+- Added an `ERR_PROXY_CONNECTION_FAILED` recovery card with reload and an explicit current-run direct retry limited to the shared Bilibili session; restart returns to Windows system network settings.
+
 ## 1.0.3 - 2026-07-15
 
 - Locked every plan-changing old-favorite control after final confirmation while keeping scan, recommendation, and archive-preview review available.

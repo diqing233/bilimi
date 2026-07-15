@@ -2604,6 +2604,7 @@ export function FloatingAssistantApp({
 
   function handleOldFavoriteExecutionStateChange(state: 'running' | 'finished') {
     setOldFavoriteExecutionState(state)
+    window.bilimiDesktop?.setOldFavoriteBackgroundRunning?.(state === 'running')
     tellPet(
       state === 'running' ? 'progress' : 'success',
       state === 'running' ? '旧藏整理中，请耐心等待。' : '本次整理已结束。'

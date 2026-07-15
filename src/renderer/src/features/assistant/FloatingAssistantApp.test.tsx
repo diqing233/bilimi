@@ -4573,9 +4573,11 @@ describe('FloatingAssistantApp', () => {
 
   it('keeps old favorite pet hints quiet between organization start and finish', async () => {
     const setAssistantPetHint = vi.fn()
+    const setOldFavoriteBackgroundRunning = vi.fn()
     const executeOldFavoritePlan = vi.fn().mockResolvedValueOnce(createResult('group done'))
     installDesktopApi({
       executeOldFavoritePlan,
+      setOldFavoriteBackgroundRunning,
       scanOldFavorites: vi.fn().mockResolvedValue({
         items: [
           {
@@ -4631,6 +4633,7 @@ describe('FloatingAssistantApp', () => {
     expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'working')).toBe(true)
     expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'happy')).toBe(true)
     expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.message.includes('group done'))).toBe(false)
+    expect(setOldFavoriteBackgroundRunning.mock.calls).toEqual([[true], [false]])
   })
 
   it('persists confirmed archive preview correction records after old favorite execution', async () => {

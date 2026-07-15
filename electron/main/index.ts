@@ -9,7 +9,8 @@ import {
   nativeImage,
   screen,
   session,
-  safeStorage
+  safeStorage,
+  webContents
 } from 'electron'
 import { spawn } from 'node:child_process'
 import { mkdtemp } from 'node:fs/promises'
@@ -63,6 +64,8 @@ import { createFloatingSealWindowOptions } from './floatingSealWindowOptions'
 import { toggleFloatingAssistantFromSeal } from './floatingMenuToggleFlow'
 import { FLOATING_ASSISTANT_SIZE } from './floatingAssistantWindowSize'
 import { OldFavoriteRuntimeStore } from './oldFavoriteRuntimeStore'
+import { OldFavoriteBackgroundRuntime } from './oldFavoriteBackgroundRuntime'
+import { BilibiliSessionProxy } from './bilibiliSessionProxy'
 import {
   configureFloatingMenuWindow,
   createFloatingMenuWindowOptions
@@ -141,6 +144,11 @@ let enforceFloatingSealWindowBounds: (() => void) | null = null
 let recompositeFloatingSealWindow: (() => void) | null = null
 let assistantPetState: AssistantPetState = 'idle'
 let floatingAssistantSide: FloatingAssistantSide | undefined
+const oldFavoriteBackgroundRuntime = new OldFavoriteBackgroundRuntime({
+  getMainWebContents: () => mainWindow?.webContents,
+  getWebContentsById: (id) => webContents.fromId(id)
+})
+const bilibiliSessionProxy = new BilibiliSessionProxy(() => session.fromPartition(BILIMI_SESSION_PARTITION))
 
 function openUrlInRendererTab(win: BrowserWindow, url: string) {
   if (!url || win.isDestroyed()) {
@@ -778,6 +786,7 @@ function createMainWindow() {
   })
   installWindowOpenRouting(win)
   win.on('closed', () => {
+    oldFavoriteBackgroundRuntime.setRunning(false)
     disposeDisplayLayout()
     if (mainWindow === win) {
       mainWindow = null
@@ -882,6 +891,23 @@ function registerAssistantPreferenceHandlers() {
     oldFavoriteRuntimeStore.reset()
     event.returnValue = true
     broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: '' })
+  })
+  ipcMain.on('old-favorite-background:set-running', (event, running: boolean) => {
+    const floatingAssistant = floatingAssistantController.getWindow()
+    const trustedSenderIds = [mainWindow?.webContents.id, floatingAssistant?.webContents.id]
+      .filter((id): id is number => typeof id === 'number')
+    if (!trustedSenderIds.includes(event.sender.id)) return
+    oldFavoriteBackgroundRuntime.setRunning(running === true)
+  })
+  ipcMain.on('old-favorite-background:set-target', (event, webContentsId: number) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) return
+    oldFavoriteBackgroundRuntime.setExecutionTarget(webContentsId)
+  })
+  ipcMain.handle('bilibili-session:retry-direct', (event) => {
+    if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
+      throw new Error('Bilibili session proxy request came from an untrusted renderer.')
+    }
+    return bilibiliSessionProxy.retryDirect()
   })
   ipcMain.handle('assistant:load-preferences', () => loadAssistantPreferences())
   ipcMain.handle('clipboard:write-text', (_event, text: string) => {

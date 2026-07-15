@@ -447,6 +447,62 @@ body[data-floating-window="true"],
   overflow: hidden;
   background: var(--porcelain-edge);
 }
+.browser-proxy-error {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 24px;
+  background: linear-gradient(180deg, rgba(220, 238, 255, 0.96), rgba(213, 230, 246, 0.98));
+  color: var(--porcelain-text);
+}
+.browser-proxy-error__card {
+  width: min(520px, 100%);
+  display: grid;
+  gap: 12px;
+  box-sizing: border-box;
+  border: 1px solid rgba(31, 99, 181, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 254, 253, 0.98);
+  box-shadow: 0 18px 44px rgba(7, 26, 51, 0.16);
+  padding: 24px;
+}
+.browser-proxy-error__card h2,
+.browser-proxy-error__card p {
+  margin: 0;
+}
+.browser-proxy-error__card p {
+  line-height: 1.6;
+}
+.browser-proxy-error__failure {
+  color: var(--porcelain-error);
+}
+.browser-proxy-error__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.browser-proxy-error__actions button {
+  min-height: 44px;
+  border: 1px solid rgba(31, 99, 181, 0.34);
+  border-radius: 6px;
+  background: var(--porcelain-deep);
+  color: var(--porcelain-surface);
+  font: inherit;
+  font-weight: 700;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.browser-proxy-error__actions button + button {
+  background: var(--porcelain-surface);
+  color: var(--porcelain-text);
+}
+.browser-proxy-error__actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
 .startup-permission {
   min-height: 100%;
   display: grid;
@@ -4232,6 +4288,25 @@ body[data-floating-window="true"],
   font-size: 12px;
   line-height: 1.45;
 }
+.favorite-ledger-panel__scan-risk-summary {
+  display: grid;
+  gap: 6px;
+}
+.favorite-ledger-panel__scan-risk-summary p,
+.favorite-ledger-panel__scan-risk-summary ul {
+  margin: 0;
+}
+.favorite-ledger-panel__scan-risk-summary summary,
+.favorite-ledger-panel__scan-failure-details summary {
+  cursor: pointer;
+  color: var(--porcelain-deep);
+  font-weight: 700;
+}
+.favorite-ledger-panel__scan-failure-details {
+  color: var(--porcelain-warn);
+  font-size: 12px;
+  line-height: 1.45;
+}
 .favorite-ledger-panel__scan-progress {
   display: grid;
   gap: 6px;
@@ -4788,6 +4863,14 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__old-favorite-progress progress {
   width: 100%;
+}
+.favorite-ledger-panel__old-favorite-progress p {
+  margin: 0;
+  line-height: 1.5;
+}
+.favorite-ledger-panel__old-favorite-progress > button,
+.favorite-ledger-panel__old-favorite-progress .favorite-ledger-panel__confirm-actions button {
+  min-height: 44px;
 }
 .favorite-ledger-panel__execution-dialog {
   display: grid;

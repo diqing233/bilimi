@@ -20,14 +20,17 @@ import {
 } from './oldFavoriteRuntimeSession'
 
 describe('FavoriteLedgerPanel', () => {
+  const nativeWindowSetTimeout = window.setTimeout
+
   beforeEach(() => {
     resetOldFavoriteRuntimeSession()
   })
 
   afterEach(() => {
     vi.clearAllTimers()
-    vi.useRealTimers()
     vi.restoreAllMocks()
+    vi.useRealTimers()
+    window.setTimeout = nativeWindowSetTimeout
     vi.unstubAllGlobals()
   })
 
@@ -56,6 +59,46 @@ describe('FavoriteLedgerPanel', () => {
 
     await expect(waiting).resolves.toBe(false)
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it.each([1_200, 3_000, 15_000, 45_000])(
+    'measures a %ims execution delay by elapsed time when background timers are clamped',
+    async (delayMs) => {
+      vi.useFakeTimers()
+      const fakeSetTimeout = window.setTimeout.bind(window)
+      const setTimeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(((handler: TimerHandler, timeout?: number, ...args: unknown[]) =>
+        fakeSetTimeout(handler, Math.max(1_000, Number(timeout ?? 0)), ...args)) as typeof window.setTimeout)
+      let resolved = false
+
+      const waiting = waitForOldFavoriteExecutionDelay(delayMs, () => false).then((result) => {
+        resolved = true
+        return result
+      })
+
+      await vi.advanceTimersByTimeAsync(delayMs + 1_000)
+
+      expect(resolved).toBe(true)
+      await expect(waiting).resolves.toBe(true)
+      expect(vi.getTimerCount()).toBe(0)
+      setTimeoutSpy.mockRestore()
+    }
+  )
+
+  it('still responds after one clamped timer while an execution delay is being paused', async () => {
+    vi.useFakeTimers()
+    const fakeSetTimeout = window.setTimeout.bind(window)
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(((handler: TimerHandler, timeout?: number, ...args: unknown[]) =>
+      fakeSetTimeout(handler, Math.max(1_000, Number(timeout ?? 0)), ...args)) as typeof window.setTimeout)
+    let stopped = false
+    const waiting = waitForOldFavoriteExecutionDelay(45_000, () => stopped)
+
+    await vi.advanceTimersByTimeAsync(100)
+    stopped = true
+    await vi.advanceTimersByTimeAsync(900)
+
+    await expect(waiting).resolves.toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+    setTimeoutSpy.mockRestore()
   })
 
   it('keeps the first 50 tasks conservative, then uses faster serial pacing', () => {
@@ -667,7 +710,7 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
 
-    const diagnostics = screen.getByRole('list', { name: '未纳入扫描的收藏夹' })
+    const diagnostics = screen.getByRole('list', { name: '普通扫描失败' })
     expect(diagnostics).toHaveTextContent(/番剧待看.*部分扫描.*第\s*3\s*页.*请求超时.*尝试\s*3\s*次.*已读取\s*40\s*条/)
     expect(diagnostics).toHaveTextContent(/课程收藏.*扫描失败.*第\s*1\s*页.*收藏明细接口返回异常页面.*尝试\s*1\s*次.*已读取\s*0\s*条/)
   })
@@ -708,14 +751,48 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
 
-    const diagnostics = screen.getByRole('list', { name: '未纳入扫描的收藏夹' })
+    const summary = screen.getByRole('alert', { name: '访问受限，扫描已安全停止' })
+    expect(summary).toHaveTextContent(/第\s*1\s*页.*安全跳过\s*1\s*个收藏夹.*未发送请求.*已读取\s*0\s*条.*30\s*分钟.*2\s*小时/)
+    const globalDetails = within(summary).getByText('查看详细信息').closest('details')
+    expect(globalDetails).not.toHaveAttribute('open')
+    expect(globalDetails).toHaveTextContent(/受限来源.*HTTP\s*412/)
+    expect(globalDetails).toHaveTextContent(/后续来源.*未发送请求/)
+
+    const diagnostics = screen.getByRole('list', { name: '普通扫描失败' })
     expect(diagnostics).toHaveTextContent(/登录来源.*登录状态失效/)
-    expect(diagnostics).toHaveTextContent(
-      /受限来源.*B站暂时限制收藏明细访问，可能是短时间扫描数量较多。已停止后续扫描，请等待 30 分钟后重试；若仍受限，请等待 2 小时/
-    )
     expect(diagnostics).toHaveTextContent(/未知页面.*收藏明细接口返回异常页面/)
-    expect(diagnostics).toHaveTextContent(/后续来源.*因全局访问限制未扫描，请等待 30 分钟后重新扫描/)
+    expect(diagnostics).not.toHaveTextContent('受限来源')
+    expect(diagnostics).not.toHaveTextContent('后续来源')
     expect(diagnostics).not.toHaveTextContent('尝试 0 次')
+  })
+
+  it('shows at most three ordinary scan failures before folding the rest', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.scanDiagnostics = {
+      tagDetailRequests: 0,
+      tagDetailFailures: 0,
+      taggedVideos: 0,
+      untaggedVideos: 0,
+      folderFailures: Array.from({ length: 5 }, (_, index) => ({
+        folderId: `failed-${index + 1}`,
+        folderTitle: `普通失败 ${index + 1}`,
+        failedPage: index + 1,
+        attempts: 3,
+        status: 'failed' as const,
+        message: 'request timeout',
+        retainedVideoCount: index
+      }))
+    }
+    renderPanel({ onScanOldFavorites: vi.fn().mockResolvedValue(preview) })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+
+    expect(within(screen.getByRole('list', { name: '普通扫描失败' })).getAllByRole('listitem')).toHaveLength(3)
+    const remaining = screen.getByText('查看其余 2 条普通失败').closest('details')
+    expect(remaining).not.toHaveAttribute('open')
+    expect(remaining).toHaveTextContent('普通失败 4')
+    expect(remaining).toHaveTextContent('普通失败 5')
   })
 
   it('commits a resumable batch only after every selected archive item succeeds', async () => {
@@ -6451,6 +6528,10 @@ describe('FavoriteLedgerPanel', () => {
     })
 
     await waitFor(() => expect(screen.getByText('已暂停整理：1 条已完成，1 条剩余；暂停期间不会发送 B 站请求。')).toBeInTheDocument())
+    const pausedProgress = screen.getByLabelText('整理旧藏进度').closest('[role="status"]') as HTMLElement
+    expect(pausedProgress).toHaveTextContent('整理已暂停 1/2')
+    expect(pausedProgress).toHaveTextContent('已完成 1 条，剩余 1 条')
+    expect(pausedProgress).toHaveTextContent('暂停期间不会发送 B 站请求')
     expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce()
     expect(onCommitOldFavoriteBatchCheckpoint).not.toHaveBeenCalled()
     expect(onConfirmArchiveProtections).toHaveBeenCalledWith([
@@ -6556,10 +6637,12 @@ describe('FavoriteLedgerPanel', () => {
       await firstRequest
     })
 
-    fireEvent.click(await screen.findByRole('button', { name: '结束本轮' }))
-    const dialog = screen.getByRole('alertdialog', { name: '确认结束本轮？' })
+    const progress = screen.getByLabelText('整理旧藏进度').closest('[role="status"]') as HTMLElement
+    fireEvent.click(await within(progress).findByRole('button', { name: '结束本轮' }))
+    const dialog = within(progress).getByRole('alertdialog', { name: '确认结束本轮？' })
     expect(dialog).toHaveTextContent('已完成 1 条，剩余 1 条')
     expect(onCommitOldFavoriteBatchCheckpoint).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '返回' })).toBeInTheDocument()
     fireEvent.click(within(dialog).getByRole('button', { name: '确认结束' }))
     expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
     expect(onCommitOldFavoriteBatchCheckpoint).not.toHaveBeenCalled()

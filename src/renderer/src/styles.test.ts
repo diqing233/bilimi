@@ -768,6 +768,11 @@ describe('renderer porcelain theme styles', () => {
     expectStyleSnippet('text-decoration: underline; text-underline-offset: 2px; cursor: pointer;')
     expectStyleSnippet('.favorite-ledger-panel__old-favorite-progress { display: grid; gap: 6px;')
     expectStyleSnippet('.favorite-ledger-panel__old-favorite-progress progress { width: 100%;')
+    expectStyleSnippet('.favorite-ledger-panel__old-favorite-progress p { margin: 0;')
+    expectStyleSnippet('.favorite-ledger-panel__old-favorite-progress > button, .favorite-ledger-panel__old-favorite-progress .favorite-ledger-panel__confirm-actions button { min-height: 44px;')
+    expectStyleSnippet('.favorite-ledger-panel__scan-risk-summary { display: grid; gap: 6px;')
+    expectStyleSnippet('.favorite-ledger-panel__scan-risk-summary p, .favorite-ledger-panel__scan-risk-summary ul { margin: 0;')
+    expectStyleSnippet('.favorite-ledger-panel__scan-risk-summary summary, .favorite-ledger-panel__scan-failure-details summary { cursor: pointer;')
   })
 
   it('styles the DeepSeek assistant settings group and actions', () => {

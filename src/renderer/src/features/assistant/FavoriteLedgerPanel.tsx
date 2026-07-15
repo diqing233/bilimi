@@ -1689,14 +1689,23 @@ export async function waitForOldFavoriteExecutionDelay(
   delayMs: number,
   shouldStop: () => boolean
 ): Promise<boolean> {
-  let remainingMs = delayMs
-  while (remainingMs > 0) {
+  const deadline = Date.now() + Math.max(0, delayMs)
+  while (Date.now() < deadline) {
     if (shouldStop()) return false
+    const remainingMs = deadline - Date.now()
     const sliceMs = Math.min(50, remainingMs)
     await wait(sliceMs)
-    remainingMs -= sliceMs
   }
   return !shouldStop()
+}
+
+function oldFavoriteScanFailureCodeDetail(failure: OldFavoriteScanFailureSummary) {
+  const codes = [
+    failure.httpStatus ? `HTTP ${failure.httpStatus}` : '',
+    Number.isFinite(failure.apiCode) ? `错误码 ${failure.apiCode}` : '',
+    failure.errorKind ? `类型 ${failure.errorKind}` : ''
+  ].filter(Boolean)
+  return codes.length > 0 ? codes.join('，') : '未返回错误码'
 }
 
 async function paceOldFavoriteExecution(
@@ -5070,6 +5079,16 @@ export function FavoriteLedgerPanel({
   const skippedSourceFolderCount = preview?.skippedSourceFolderTitles.length ?? 0
   const tagDetailFailureCount = preview?.scanDiagnostics?.tagDetailFailures ?? 0
   const folderFailures = preview?.scanDiagnostics?.folderFailures ?? []
+  const globalCircuitFailures = folderFailures.filter((failure) => failure.errorKind === 'global-circuit-open')
+  const globalCircuitTrigger = globalCircuitFailures.length > 0
+    ? folderFailures.find((failure) => failure.errorKind !== 'global-circuit-open' && failure.riskSignal)
+    : undefined
+  const ordinaryFolderFailures = folderFailures.filter(
+    (failure) => failure.errorKind !== 'global-circuit-open' && failure !== globalCircuitTrigger
+  )
+  const visibleOrdinaryFolderFailures = ordinaryFolderFailures.slice(0, 3)
+  const foldedOrdinaryFolderFailures = ordinaryFolderFailures.slice(3)
+  const globalCircuitRetainedCount = globalCircuitTrigger?.retainedVideoCount ?? 0
   const oldFavoriteCandidateCounts = useMemo(() => {
     const counts = new Map<string, number>()
     for (const item of selectableOldFavoriteItems) {
@@ -6127,21 +6146,56 @@ export function FavoriteLedgerPanel({
                       标签补取失败 {tagDetailFailureCount} 条，高频标签候选可能偏少；稍后重扫会更准。
                     </p>
                   ) : null}
-                  {folderFailures.length > 0 ? (
-                    <ul
-                      className="favorite-ledger-panel__scan-warning"
-                      aria-label="未纳入扫描的收藏夹"
+                  {globalCircuitTrigger ? (
+                    <div
+                      className="favorite-ledger-panel__scan-warning favorite-ledger-panel__scan-risk-summary"
+                      role="alert"
+                      aria-label="访问受限，扫描已安全停止"
                     >
-                      {folderFailures.map((failure) => (
+                      <strong>访问受限，扫描已安全停止</strong>
+                      <p>
+                        在第 {globalCircuitTrigger.failedPage} 页触发；后续安全跳过 {globalCircuitFailures.length} 个收藏夹，
+                        均未发送请求；已读取 {globalCircuitRetainedCount} 条。建议等待 30 分钟后重试；若仍受限，请等待 2 小时。
+                      </p>
+                      <details>
+                        <summary>查看详细信息</summary>
+                        <ul>
+                          <li>
+                            {globalCircuitTrigger.folderTitle}：第 {globalCircuitTrigger.failedPage} 页，
+                            {oldFavoriteScanFailureCodeDetail(globalCircuitTrigger)}，已读取 {globalCircuitTrigger.retainedVideoCount} 条
+                          </li>
+                          {globalCircuitFailures.map((failure) => (
+                            <li key={`${failure.folderId ?? failure.folderTitle}:circuit`}>
+                              {failure.folderTitle}：因全局访问限制安全跳过，未发送请求
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    </div>
+                  ) : null}
+                  {visibleOrdinaryFolderFailures.length > 0 ? (
+                    <ul className="favorite-ledger-panel__scan-warning" aria-label="普通扫描失败">
+                      {visibleOrdinaryFolderFailures.map((failure) => (
                         <li key={`${failure.folderId ?? failure.folderTitle}:${failure.failedPage}`}>
                           {failure.folderTitle}：{failure.status === 'partial' ? '部分扫描' : '扫描失败'}，
-                          {failure.errorKind === 'global-circuit-open'
-                            ? readableOldFavoriteScanFailure(failure)
-                            : <>第 {failure.failedPage} 页{readableOldFavoriteScanFailure(failure)}，尝试 {failure.attempts} 次</>}
+                          第 {failure.failedPage} 页{readableOldFavoriteScanFailure(failure)}，尝试 {failure.attempts} 次
                           ，已读取 {failure.retainedVideoCount} 条
                         </li>
                       ))}
                     </ul>
+                  ) : null}
+                  {foldedOrdinaryFolderFailures.length > 0 ? (
+                    <details className="favorite-ledger-panel__scan-failure-details">
+                      <summary>查看其余 {foldedOrdinaryFolderFailures.length} 条普通失败</summary>
+                      <ul aria-label="其余普通扫描失败">
+                        {foldedOrdinaryFolderFailures.map((failure) => (
+                          <li key={`${failure.folderId ?? failure.folderTitle}:${failure.failedPage}:folded`}>
+                            {failure.folderTitle}：第 {failure.failedPage} 页{readableOldFavoriteScanFailure(failure)}，
+                            尝试 {failure.attempts} 次，已读取 {failure.retainedVideoCount} 条
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
                   ) : null}
                   <hr className="favorite-ledger-panel__step-divider" aria-hidden="true" />
                 </>
@@ -6950,13 +7004,56 @@ export function FavoriteLedgerPanel({
                       aria-live="polite"
                     >
                       <strong>
-                        整理进度 {oldFavoriteExecutionProgress.completed}/{oldFavoriteExecutionProgress.total}
+                        {oldFavoriteExecutionPaused
+                          ? '整理已暂停'
+                          : oldFavoriteExecutionRiskStopped
+                            ? '访问受限，整理已安全停止'
+                            : '整理进度'}{' '}
+                        {oldFavoriteExecutionProgress.completed}/{oldFavoriteExecutionProgress.total}
                       </strong>
+                      {oldFavoriteExecutionPaused ? (
+                        <>
+                          <p>
+                            已完成 {oldFavoriteExecutionProgress.completed} 条，剩余{' '}
+                            {Math.max(0, oldFavoriteExecutionProgress.total - oldFavoriteExecutionProgress.completed)} 条
+                          </p>
+                          <p>暂停期间不会发送 B 站请求</p>
+                        </>
+                      ) : oldFavoriteExecutionRiskStopped ? (
+                        <p>风控停止后不能继续整理，只能结束本轮；不会再发送 B 站请求。</p>
+                      ) : null}
                       <progress
                         max={oldFavoriteExecutionProgress.total}
                         value={oldFavoriteExecutionProgress.completed}
                         aria-label="整理旧藏进度"
                       />
+                      {oldFavoriteExecutionPaused ? (
+                        pausedRoundEndConfirming ? (
+                          <div
+                            className="favorite-ledger-panel__execution-dialog favorite-ledger-panel__execution-dialog--inline"
+                            role="alertdialog"
+                            aria-label="确认结束本轮？"
+                          >
+                            <h4>确认结束本轮？</h4>
+                            <p>
+                              已完成 {oldFavoriteExecutionProgress.completed} 条，剩余{' '}
+                              {Math.max(0, oldFavoriteExecutionProgress.total - oldFavoriteExecutionProgress.completed)} 条。
+                            </p>
+                            <p>结束后会保留未提交的批次断点；下次必须重新扫描对账，不会继续发送 B 站请求。</p>
+                            <div className="favorite-ledger-panel__execution-dialog-actions">
+                              <button type="button" onClick={() => setPausedRoundEndConfirming(false)}>返回</button>
+                              <button type="button" onClick={acknowledgeOldFavoriteExecution}>确认结束</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="favorite-ledger-panel__confirm-actions">
+                            <button type="button" onClick={() => setPausedRoundEndConfirming(true)}>结束本轮</button>
+                            <button type="button" onClick={() => void continueOldFavoriteExecution()}>继续整理</button>
+                          </div>
+                        )
+                      ) : oldFavoriteExecutionRiskStopped ? (
+                        <button type="button" onClick={acknowledgeOldFavoriteExecution}>结束本轮</button>
+                      ) : null}
                     </div>
                   ) : null}
                   <div className="favorite-ledger-panel__confirm-actions">
@@ -6968,16 +7065,12 @@ export function FavoriteLedgerPanel({
                       >
                         {oldFavoriteExecutionStopping ? '正在暂停…' : '暂停整理'}
                       </button>
-                    ) : oldFavoriteExecutionPaused ? (
-                      <button type="button" onClick={() => setPausedRoundEndConfirming(true)}>
-                        结束本轮
-                      </button>
-                    ) : !oldFavoriteExecutionAwaitingAcknowledgement ? (
+                    ) : !oldFavoriteExecutionPaused && !oldFavoriteExecutionAwaitingAcknowledgement ? (
                       <button type="button" onClick={() => setBatchDiscardConfirming(true)}>
                         放弃本轮
                       </button>
                     ) : null}
-                    <button
+                    {!oldFavoriteExecutionPaused && !oldFavoriteExecutionRiskStopped ? <button
                       type="button"
                       disabled={
                         deepSeekArchiveRunning ||
@@ -7010,31 +7103,12 @@ export function FavoriteLedgerPanel({
                         : oldFavoriteExecuting
                         ? '整理中'
                         : '确认整理'}
-                    </button>
+                    </button> : null}
                   </div>
                 </>
                 )}
               </section>
             )
-          ) : null}
-          {pausedRoundEndConfirming ? (
-            <div
-              className="favorite-ledger-panel__execution-dialog"
-              role="alertdialog"
-              aria-modal="true"
-              aria-label="确认结束本轮？"
-            >
-              <h4>确认结束本轮？</h4>
-              <p>
-                已完成 {oldFavoriteExecutionProgress?.completed ?? 0} 条，剩余{' '}
-                {Math.max(0, (oldFavoriteExecutionProgress?.total ?? 0) - (oldFavoriteExecutionProgress?.completed ?? 0))} 条。
-              </p>
-              <p>结束后会保留未提交的批次断点；下次必须重新扫描对账，不会继续发送 B 站请求。</p>
-              <div className="favorite-ledger-panel__execution-dialog-actions">
-                <button type="button" onClick={() => setPausedRoundEndConfirming(false)}>返回</button>
-                <button type="button" onClick={acknowledgeOldFavoriteExecution}>确认结束</button>
-              </div>
-            </div>
           ) : null}
           {batchDiscardConfirming ? (
             <div

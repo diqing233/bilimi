@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { BiliWebview } from './BiliWebview'
 
@@ -200,5 +200,70 @@ describe('BiliWebview', () => {
     rerender(<BiliWebview active tabId="home" url="https://www.bilibili.com/video/BV1navigated" />)
 
     expect(webview).toHaveAttribute('src', 'https://www.bilibili.com/video/BV1initial')
+  })
+
+  it('shows a recoverable error card for ERR_PROXY_CONNECTION_FAILED', () => {
+    render(<BiliWebview active tabId="home" url="https://www.bilibili.com" />)
+    const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+    const reload = vi.fn()
+    Object.assign(webview, { reload })
+
+    act(() => {
+      webview.dispatchEvent(Object.assign(new Event('did-fail-load'), {
+        errorCode: -130,
+        errorDescription: 'ERR_PROXY_CONNECTION_FAILED',
+        isMainFrame: true
+      }))
+    })
+
+    expect(screen.getByRole('heading', { name: '系统代理连接失败' })).toBeInTheDocument()
+    expect(screen.getByText(/bilimi 默认跟随 Windows 系统网络设置/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重新加载' }))
+    expect(reload).toHaveBeenCalledOnce()
+  })
+
+  it('retries the shared Bilibili session directly only after explicit confirmation', async () => {
+    const retryBilibiliSessionDirect = vi.fn().mockResolvedValue({ mode: 'direct' as const })
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: { retryBilibiliSessionDirect }
+    })
+    render(<BiliWebview active tabId="home" url="https://www.bilibili.com" />)
+    const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+    const reload = vi.fn()
+    Object.assign(webview, { reload })
+    act(() => {
+      webview.dispatchEvent(Object.assign(new Event('did-fail-load'), {
+        errorCode: -130,
+        errorDescription: 'ERR_PROXY_CONNECTION_FAILED',
+        isMainFrame: true
+      }))
+    })
+
+    expect(retryBilibiliSessionDirect).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '本次直连重试' }))
+
+    await waitFor(() => expect(retryBilibiliSessionDirect).toHaveBeenCalledOnce())
+    expect(reload).toHaveBeenCalledOnce()
+  })
+
+  it('does not mistake non-proxy load failures or subframes for a proxy failure', () => {
+    render(<BiliWebview active tabId="home" url="https://www.bilibili.com" />)
+    const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+
+    act(() => {
+      webview.dispatchEvent(Object.assign(new Event('did-fail-load'), {
+        errorCode: -105,
+        errorDescription: 'ERR_NAME_NOT_RESOLVED',
+        isMainFrame: true
+      }))
+      webview.dispatchEvent(Object.assign(new Event('did-fail-load'), {
+        errorCode: -130,
+        errorDescription: 'ERR_PROXY_CONNECTION_FAILED',
+        isMainFrame: false
+      }))
+    })
+
+    expect(screen.queryByRole('heading', { name: '系统代理连接失败' })).not.toBeInTheDocument()
   })
 })

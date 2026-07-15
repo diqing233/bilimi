@@ -79,6 +79,12 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.sendSync('old-favorite-runtime:bind-account', accountMid) as boolean,
   resetOldFavoriteRuntime: () =>
     ipcRenderer.sendSync('old-favorite-runtime:reset') as boolean,
+  setOldFavoriteBackgroundRunning: (running: boolean) =>
+    ipcRenderer.send('old-favorite-background:set-running', running),
+  setOldFavoriteBackgroundTarget: (webContentsId: number) =>
+    ipcRenderer.send('old-favorite-background:set-target', webContentsId),
+  retryBilibiliSessionDirect: () =>
+    ipcRenderer.invoke('bilibili-session:retry-direct') as Promise<{ mode: 'direct' }>,
   onOldFavoriteRuntimeChanged: (
     callback: (snapshot: OldFavoriteRuntimeSnapshot | { type: 'reset'; accountMid: string }) => void
   ) => {

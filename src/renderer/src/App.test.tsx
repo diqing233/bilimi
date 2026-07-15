@@ -3096,6 +3096,26 @@ describe('App runtime integration', () => {
     expect(preview.scanContext.sourceFolders).toHaveLength(1)
   })
 
+  it('registers the actual active webview as the background execution target', async () => {
+    const setOldFavoriteBackgroundTarget = vi.fn()
+    const { requestRuntime } = renderAppWithRuntimeBridge({ setOldFavoriteBackgroundTarget })
+    const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+    const executeJavaScript = vi.fn(async (script: string) =>
+      script.includes('const hasUserId')
+        ? { hasUserId: true, hasCsrf: true }
+        : { ok: true, steps: [], missingTargets: [], message: 'done' }
+    )
+    Object.assign(webview, { executeJavaScript, getWebContentsId: vi.fn(() => 77) })
+
+    await requestRuntime({
+      id: 'execute-old-favorite-plan-1',
+      type: 'execute-old-favorite-plan',
+      items: []
+    })
+
+    expect(setOldFavoriteBackgroundTarget).toHaveBeenCalledWith(77)
+  })
+
   it('commits an old-favorite batch checkpoint through the active webview runtime', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
