@@ -5472,7 +5472,7 @@ export function FavoriteLedgerPanel({
             const isLedgerEnabled = ledgerEnabled(ledger)
             const ledgerLabel = stripBilimiLedgerPrefix(ledger.displayName)
             const ledgerDirty = ledgerHasUnsavedChanges(ledger, ledgerIndex)
-            const ledgerButtonLabel = `${ledgerLabel}${ledgerDirty ? '（未保存）' : ''}`
+            const ledgerButtonLabel = `${ledgerDirty ? '（未保存）' : ''}${ledgerLabel}`
             const selectLedgerLabel = ledgerLabel || '新建收藏夹'
             return (
               <div
@@ -5529,7 +5529,9 @@ export function FavoriteLedgerPanel({
       {activeLedger ? (
         <section className="favorite-ledger-panel__editor" aria-label="当前收藏夹">
           <div className="favorite-ledger-panel__editor-title">
-            <strong>正在编辑：{activeLedger.displayName}</strong>
+            <strong>
+              {activeLedgerHasUnsavedChanges ? '（未保存）' : ''}正在编辑：{activeLedger.displayName}
+            </strong>
             <div className="favorite-ledger-panel__editor-actions">
               <button
                 type="button"
@@ -5552,7 +5554,14 @@ export function FavoriteLedgerPanel({
           </div>
         <label>
           <span className="favorite-ledger-panel__name-label">
-            <span>册名</span>
+            <span className="favorite-ledger-panel__name-label-copy">
+              <span>册名</span>
+              {activeLedgerNameValidation ? (
+                <small data-invalid={!activeLedgerNameValidation.valid}>
+                  {activeLedgerNameValidation.length}/{BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH}
+                </small>
+              ) : null}
+            </span>
             <select
               aria-label="收藏夹种类"
               disabled={activeLedger.isDefault}
@@ -5590,16 +5599,11 @@ export function FavoriteLedgerPanel({
               onChange={(event) => updateActiveLedgerName(event.currentTarget.value)}
             />
           )}
-          {activeLedgerNameValidation ? (
+          {activeLedgerNameValidation && !activeLedgerNameValidation.valid ? (
             <div className="favorite-ledger-panel__name-validation">
-              <small data-invalid={!activeLedgerNameValidation.valid}>
-                {activeLedgerNameValidation.length}/{BILIBILI_FAVORITE_LEDGER_NAME_MAX_LENGTH}
+              <small role="alert">
+                B站收藏夹名称最多20个字，当前{activeLedgerNameValidation.length}个字
               </small>
-              {!activeLedgerNameValidation.valid ? (
-                <small role="alert">
-                  B站收藏夹名称最多20个字，当前{activeLedgerNameValidation.length}个字
-                </small>
-              ) : null}
             </div>
           ) : null}
         </label>

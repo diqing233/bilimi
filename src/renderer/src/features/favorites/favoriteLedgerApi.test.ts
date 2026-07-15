@@ -2722,18 +2722,20 @@ describe('favorite ledger API scripts', () => {
       ...ledger,
       bilibiliFolderId: folderId
     }))
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const fetchMock = vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
-        return Response.json({ code: 0, data: { list: [{ id: 4037824954, title: 'bilimi·暂存', media_count: 0 }] } })
+        return Response.json({ code: 0, data: { list: [{ id: 4037824954, title: 'bilimi·暂存' }] } })
       }
       return Response.json({
         code: 0,
         data: { medias: null, has_more: false, info: { media_count: 0 } }
       })
-    }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
 
     const result = await window.eval(buildScanOldFavoritesScript(ledgers))
 
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/resource/list'))).toHaveLength(1)
     expect(result).toMatchObject({
       ok: true,
       managedFolderScanComplete: true,
@@ -2743,16 +2745,98 @@ describe('favorite ledger API scripts', () => {
     expect(result.scanDiagnostics.folderFailures).toEqual([])
   })
 
+  it.each(['media_count', 'count'] as const)(
+    'skips the resource request for a managed folder reliably declared empty by folder-list %s',
+    async (countField) => {
+      installCookies()
+      localStorage.clear()
+      const folderId = '40381351854'
+      const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
+        ...ledger,
+        bilibiliFolderId: folderId
+      }))
+      const fetchMock = vi.fn(async (url: string) => {
+        if (url.includes('/x/v3/fav/folder/created/list-all')) {
+          return Response.json({
+            code: 0,
+            data: { list: [{ id: Number(folderId), title: 'bilimi·honker233', [countField]: 0 }] }
+          })
+        }
+        return new Response('<html>login or risk control</html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' }
+        })
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+
+      expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/resource/list'))).toHaveLength(0)
+      expect(result).toMatchObject({
+        ok: true,
+        managedFolderScanComplete: true,
+        targetMembership: { [folderId]: [] }
+      })
+      expect(result.scanDiagnostics.folderFailures).toEqual([])
+    }
+  )
+
+  it('does not skip a managed folder when folder-list counts conflict', async () => {
+    installCookies()
+    localStorage.clear()
+    const folderId = '40381351854'
+    const ledgers = createDefaultFavoriteLedgers().slice(0, 1).map((ledger) => ({
+      ...ledger,
+      bilibiliFolderId: folderId
+    }))
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({
+          code: 0,
+          data: {
+            list: [{
+              id: Number(folderId),
+              title: 'bilimi·honker233',
+              media_count: 0,
+              count: 1
+            }]
+          }
+        })
+      }
+      return new Response('<html>login or risk control</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' }
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await window.eval(buildScanOldFavoritesScript(ledgers))
+
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/resource/list'))).toHaveLength(1)
+    expect(result.managedFolderScanComplete).toBe(false)
+    expect(result.targetMembership).toEqual({})
+    expect(result.scanDiagnostics.folderFailures).toEqual([
+      expect.objectContaining({ folderId, status: 'failed', failedPage: 1 })
+    ])
+  })
+
   it.each([
     ['folder count is nonzero', 1, false, 0],
-    ['response info count is nonzero', 0, false, 1],
-    ['response claims another page', 0, true, 0]
+    ['response info count is nonzero', undefined, false, 1],
+    ['response claims another page', undefined, true, 0]
   ] as const)('rejects null medias when %s', async (_label, folderCount, hasMore, infoCount) => {
     installCookies()
     localStorage.clear()
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
-        return Response.json({ code: 0, data: { list: [{ id: 101, title: '异常空收藏夹', media_count: folderCount }] } })
+        return Response.json({
+          code: 0,
+          data: { list: [{
+            id: 101,
+            title: '异常空收藏夹',
+            ...(folderCount === undefined ? {} : { media_count: folderCount })
+          }] }
+        })
       }
       return Response.json({
         code: 0,
@@ -2770,12 +2854,12 @@ describe('favorite ledger API scripts', () => {
     })
   })
 
-  it('rejects a missing medias field even when both declared counts are zero', async () => {
+  it('rejects a missing medias field when only the resource response declares zero', async () => {
     installCookies()
     localStorage.clear()
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes('/x/v3/fav/folder/created/list-all')) {
-        return Response.json({ code: 0, data: { list: [{ id: 101, title: '字段缺失收藏夹', media_count: 0 }] } })
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '字段缺失收藏夹' }] } })
       }
       return Response.json({ code: 0, data: { has_more: false, info: { media_count: 0 } } })
     })
@@ -2792,11 +2876,13 @@ describe('favorite ledger API scripts', () => {
 
   it.each([
     ['both counts are unknown', undefined, undefined, null],
+    ['folder count is a numeric string', '0', undefined, null],
     ['folder count is an empty string', '', undefined, null],
+    ['folder count is null', null, undefined, null],
     ['response count is whitespace', undefined, '   ', null],
     ['folder count is false', false, undefined, null],
-    ['medias is an object', 0, 0, { id: 1 }],
-    ['medias is a string', 0, 0, '']
+    ['medias is an object', undefined, 0, { id: 1 }],
+    ['medias is a string', undefined, 0, '']
   ] as const)('rejects an unreliable empty-folder response when %s', async (
     _label,
     folderCount,

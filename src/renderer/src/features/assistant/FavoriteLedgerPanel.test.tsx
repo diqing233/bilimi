@@ -171,8 +171,11 @@ describe('FavoriteLedgerPanel', () => {
       target: { value: '12345678901234' }
     })
 
-    expect(screen.getByText('21/20')).toBeInTheDocument()
+    const nameLabel = screen.getByText('册名').closest('.favorite-ledger-panel__name-label')!
+    const lengthCounter = within(nameLabel as HTMLElement).getByText('21/20')
+    expect(lengthCounter).toHaveAttribute('data-invalid', 'true')
     expect(screen.getByRole('alert')).toHaveTextContent('B站收藏夹名称最多20个字，当前21个字')
+    expect(screen.getByRole('alert')).not.toHaveTextContent('21/20')
     expect(within(screen.getByRole('region', { name: '当前收藏夹' })).getByRole('button', { name: '保存' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '同步' })).toBeDisabled()
     expect(onSaveLedgers).not.toHaveBeenCalled()
@@ -183,11 +186,33 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '知识学习' }))
     fireEvent.change(screen.getByLabelText('册名'), { target: { value: '新名称' } })
-    expect(screen.getByRole('button', { name: '新名称（未保存）' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '（未保存）新名称' })).toBeInTheDocument()
+    expect(screen.getByText('（未保存）正在编辑：bilimi·新名称')).toBeInTheDocument()
+
+    const nameLabel = screen.getByText('册名').closest('.favorite-ledger-panel__name-label')!
+    expect(within(nameLabel as HTMLElement).getByText('10/20')).toHaveAttribute('data-invalid', 'false')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
 
     fireEvent.click(within(screen.getByRole('region', { name: '当前收藏夹' })).getByRole('button', { name: '保存' }))
     expect(screen.getByRole('button', { name: '新名称' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '新名称（未保存）' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '（未保存）新名称' })).not.toBeInTheDocument()
+    expect(screen.getByText('正在编辑：bilimi·新名称')).toBeInTheDocument()
+    expect(screen.queryByText('（未保存）正在编辑：bilimi·新名称')).not.toBeInTheDocument()
+  })
+
+  it('clears the leading dirty markers after resetting ledger drafts', () => {
+    renderPanel()
+
+    fireEvent.click(screen.getByRole('button', { name: '知识学习' }))
+    fireEvent.change(screen.getByLabelText('册名'), { target: { value: '临时名称' } })
+
+    expect(screen.getByRole('button', { name: '（未保存）临时名称' })).toBeInTheDocument()
+    expect(screen.getByText('（未保存）正在编辑：bilimi·临时名称')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '重置' }))
+
+    expect(screen.getByRole('button', { name: '知识学习' })).toBeInTheDocument()
+    expect(screen.queryByText(/（未保存）/)).not.toBeInTheDocument()
   })
 
   it('prepares the Bilibili environment before saving and scanning', async () => {
@@ -2443,7 +2468,7 @@ describe('FavoriteLedgerPanel', () => {
 
     first.unmount()
     renderPanel({ onScanOldFavorites })
-    fireEvent.click(screen.getByRole('button', { name: '知识学习（未保存）' }))
+    fireEvent.click(screen.getByRole('button', { name: '（未保存）知识学习' }))
     editor = within(screen.getByRole('region', { name: '当前收藏夹' }))
 
     expect(editor.getByLabelText('关键词')).toHaveValue('热更新保留词')
@@ -5213,9 +5238,9 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '知识学习' }))
 
     expect(screen.getByText('正在编辑：bilimi·知识学习')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '音MAD（未保存）' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '（未保存）音MAD' })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '音MAD（未保存）' }))
+    fireEvent.click(screen.getByRole('button', { name: '（未保存）音MAD' }))
     expect(screen.getByLabelText('册名')).toHaveValue('音MAD')
   })
 
@@ -5236,10 +5261,10 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.change(editor.getByLabelText('册名'), {
       target: { value: '音MAD' }
     })
-    fireEvent.click(screen.getByRole('button', { name: '音MAD（未保存）' }))
+    fireEvent.click(screen.getByRole('button', { name: '（未保存）音MAD' }))
 
     expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '音MAD（未保存）' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '（未保存）音MAD' })).toBeInTheDocument()
   })
 
   it('places save before delete in the editor title and deletes only the selected duplicate-id ledger', () => {
@@ -5314,7 +5339,7 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.change(screen.getByLabelText('册名'), { target: { value: '剪辑新名' } })
 
     expect(screen.getByRole('button', { name: '摄影' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '剪辑新名（未保存）' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '（未保存）剪辑新名' })).toBeInTheDocument()
   })
 
   it('drags the selected duplicate occurrence and keeps its editor attached after reordering', () => {

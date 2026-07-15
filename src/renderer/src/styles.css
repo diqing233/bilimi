@@ -3667,6 +3667,17 @@ body[data-floating-window="true"],
   justify-content: space-between;
   gap: 8px;
 }
+.favorite-ledger-panel__name-label-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.favorite-ledger-panel__name-label-copy small {
+  color: var(--porcelain-muted);
+}
+.favorite-ledger-panel__name-label-copy small[data-invalid="true"] {
+  color: #a84455;
+}
 .favorite-ledger-panel__name-label select {
   min-width: 128px;
   max-width: 180px;

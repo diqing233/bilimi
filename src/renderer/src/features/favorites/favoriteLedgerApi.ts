@@ -1344,22 +1344,29 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
             ? true
             : !isManagedFolder && !businessBatchClosed;
           const rawExpectedMediaCount = folder?.media_count ?? folder?.count;
+          const declaredFolderCounts = [folder?.media_count, folder?.count]
+            .filter((count) => count !== null && count !== undefined);
+          const isReliablyEmptyFolder = declaredFolderCounts.length > 0 && declaredFolderCounts.every(
+            (count) => typeof count === 'number' && Number.isFinite(count) && count >= 0 && count === 0
+          );
           const acceptedAidsBeforeFolder = new Set(batchAcceptedAids);
           inProgressFolderAids = new Set();
-          const folderScan = await readFolderVideos(
-            folderIdString,
-            String(folder?.title ?? folderIdString),
-            rawExpectedMediaCount,
-            (page) => {
-              if (!payload.aid) {
-                persistBasicProgress();
-              }
-            },
-            isManagedFolder
-              ? 1
-              : (savedFolderIndex === folderIndex ? Math.max(1, Number(savedBatchCursor?.nextPage) || 1) : 1),
-            !isManagedFolder
-          );
+          const folderScan = isReliablyEmptyFolder
+            ? { videos: [], pageChunks: [] }
+            : await readFolderVideos(
+                folderIdString,
+                String(folder?.title ?? folderIdString),
+                rawExpectedMediaCount,
+                (page) => {
+                  if (!payload.aid) {
+                    persistBasicProgress();
+                  }
+                },
+                isManagedFolder
+                  ? 1
+                  : (savedFolderIndex === folderIndex ? Math.max(1, Number(savedBatchCursor?.nextPage) || 1) : 1),
+                !isManagedFolder
+              );
           if (!payload.aid && scanWasCancelled()) return cancelledScanResult();
           let videos = folderScan.videos;
           const failure = folderScan.failure;
