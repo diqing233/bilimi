@@ -662,7 +662,11 @@ type OldFavoriteScanFailureSummary = {
 function readableOldFavoriteScanFailure(failure: OldFavoriteScanFailureSummary | string | undefined) {
   const detail = typeof failure === 'string' ? { message: failure } : (failure ?? {})
   const normalized = String(detail.message ?? '').trim()
-  if (detail.errorKind === 'global-circuit-open') return '因全局接口异常未扫描'
+  if (detail.errorKind === 'global-circuit-open') {
+    return detail.riskSignal
+      ? '因全局访问限制未扫描，请等待 30 分钟后重新扫描'
+      : '因全局接口异常未扫描'
+  }
   if (/timeout|timed out|abort/i.test(normalized)) return '请求超时'
   if (
     detail.apiCode === -101 ||
@@ -672,7 +676,9 @@ function readableOldFavoriteScanFailure(failure: OldFavoriteScanFailureSummary |
     detail.riskSignal ||
     [403, 412].includes(detail.httpStatus ?? 0) ||
     [-352, -509].includes(detail.apiCode ?? 0)
-  ) return 'B站访问受限'
+  ) {
+    return 'B站暂时限制收藏明细访问，可能是短时间扫描数量较多。已停止后续扫描，请等待 30 分钟后重试；若仍受限，请等待 2 小时'
+  }
   if (detail.errorKind === 'html' || /returned html/i.test(normalized)) {
     return '收藏明细接口返回异常页面'
   }
@@ -2494,34 +2500,113 @@ export function FavoriteLedgerPanel({
     setSaveStatus(null)
   }
 
-  function deleteLedger(ledgerId: string) {
-    setDraftLedgers((currentLedgers) => {
-      const ledgerIndex =
-        activeLedgerIndex !== null && currentLedgers[activeLedgerIndex]?.id === ledgerId
-          ? activeLedgerIndex
-          : currentLedgers.findIndex((ledger) => ledger.id === ledgerId)
-      const nextLedgers = currentLedgers.filter(
-        (ledger, index) => index !== ledgerIndex || !canDeleteLedger(ledger)
-      )
-      if (nextLedgers.length !== currentLedgers.length) {
-        setSavedLedgerSnapshots((current) => Object.fromEntries(
-          nextLedgers.map((ledger, nextIndex) => {
-            const previousIndex = nextIndex < ledgerIndex ? nextIndex : nextIndex + 1
-            return [
-              ledgerDraftKey(ledger, nextIndex, nextLedgers),
-              current[ledgerDraftKey(currentLedgers[previousIndex], previousIndex, currentLedgers)] ?? ledgerEditorSnapshot(ledger)
-            ]
-          })
-        ))
+  function rebuildOldFavoriteAfterLedgerDeletion(
+    nextLedgers: FavoriteLedger[],
+    deletedLedger: FavoriteLedger
+  ) {
+    const currentPreview = preview ?? baseScanPreview
+    const context = currentPreview?.scanContext
+    if (!currentPreview || !context) {
+      setDraftLedgers(nextLedgers)
+      return
+    }
+
+    const deletedLedgerIds = new Set(
+      nextLedgers.some((ledger) => ledger.id === deletedLedger.id) ? [] : [deletedLedger.id]
+    )
+    const deletedFolderIds = new Set(
+      deletedLedger.bilibiliFolderId ? [deletedLedger.bilibiliFolderId] : []
+    )
+    const nextTargetMembership = Object.fromEntries(
+      Object.entries(context.targetMembership).filter(([folderId]) => !deletedFolderIds.has(folderId))
+    )
+    const nextContext = {
+      ...context,
+      managedFolders: context.managedFolders.filter(
+        (folder) => !deletedLedgerIds.has(folder.ledgerId ?? '') && !deletedFolderIds.has(folder.id)
+      ),
+      targetMembership: nextTargetMembership
+    }
+    const buildPreview = (sourceFolders: FavoriteSourceFolder[]) => {
+      const rebuilt = createFavoriteLedgerPreview({
+        ledgers: nextLedgers,
+        sourceFolders,
+        targetMembership: nextTargetMembership,
+        skippedSourceFolderTitles: currentPreview.skippedSourceFolderTitles,
+        scanDiagnostics: currentPreview.scanDiagnostics,
+        scanProgress: currentPreview.scanProgress,
+        multiArchiveMode: favoriteArchiveMultiMode
+      })
+      return {
+        ...rebuilt,
+        batch: currentPreview.batch,
+        scanContext: nextContext,
+        items: normalizeOldFavoritePreviewItems(rebuilt.items, nextLedgers)
       }
-      if (ledgerId === activeLedgerId) {
-        setActiveLedgerId(null)
-        setActiveLedgerIndex(null)
-        setActiveLedgerSavedSnapshot(null)
-      }
-      setSaveStatus(null)
-      return nextLedgers
+    }
+    const rebuiltBasePreview = buildPreview(context.activeSourceFolders)
+    const rebuiltPreview = buildPreview([
+      ...context.activeSourceFolders,
+      ...protectedVideosAsSourceFolders(reorganizedProtectedAids)
+    ])
+    const knownCandidates = new Map(
+      [
+        ...(currentPreview.insights?.candidateLedgers ?? []),
+        ...(rebuiltPreview.insights?.candidateLedgers ?? [])
+      ].map((candidate) => [candidateKey(candidate), candidate])
+    )
+    const nextSelectedCandidateKeys = new Set(
+      [...selectedCandidateKeys].filter((key) => {
+        const candidate = knownCandidates.get(key)
+        return !candidate || !deletedLedgerIds.has(candidateLedgerId(candidate))
+      })
+    )
+    const nextArchivePlanState = createArchivePlanStateFromPreviewItems(
+      rebuiltPreview.items,
+      nextSelectedCandidateKeys
+    )
+
+    setArchiveEditorState({
+      archivePlanState: nextArchivePlanState,
+      selectedCandidateKeys: [...nextSelectedCandidateKeys],
+      draftLedgers: withSequentialPriorities(nextLedgers),
+      candidateSourceLedgerIdsByItemKey: {}
     })
+    setBaseScanPreview(rebuiltBasePreview)
+    setPreview(rebuiltPreview)
+    lastSuccessfulBasePreviewRef.current = rebuiltBasePreview
+    lastSuccessfulPreviewRef.current = rebuiltPreview
+    lastSuccessfulArchivePlanStateRef.current = nextArchivePlanState
+    clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
+    setPendingUnclassifiedDecision(null)
+    setStatus('本地收藏夹已删除，推荐与归档预览已更新；点击同步后才会更新 B 站。')
+  }
+
+  function deleteLedger(ledgerId: string) {
+    const ledgerIndex =
+      activeLedgerIndex !== null && draftLedgers[activeLedgerIndex]?.id === ledgerId
+        ? activeLedgerIndex
+        : draftLedgers.findIndex((ledger) => ledger.id === ledgerId)
+    const deletedLedger = draftLedgers[ledgerIndex]
+    if (!deletedLedger || !canDeleteLedger(deletedLedger)) return
+
+    const nextLedgers = draftLedgers.filter((_ledger, index) => index !== ledgerIndex)
+    setSavedLedgerSnapshots((current) => Object.fromEntries(
+      nextLedgers.map((ledger, nextIndex) => {
+        const previousIndex = nextIndex < ledgerIndex ? nextIndex : nextIndex + 1
+        return [
+          ledgerDraftKey(ledger, nextIndex, nextLedgers),
+          current[ledgerDraftKey(draftLedgers[previousIndex], previousIndex, draftLedgers)] ?? ledgerEditorSnapshot(ledger)
+        ]
+      })
+    ))
+    if (ledgerId === activeLedgerId) {
+      setActiveLedgerId(null)
+      setActiveLedgerIndex(null)
+      setActiveLedgerSavedSnapshot(null)
+    }
+    setSaveStatus(null)
+    rebuildOldFavoriteAfterLedgerDeletion(nextLedgers, deletedLedger)
   }
 
   function toggleLedger(ledgerIndex: number) {

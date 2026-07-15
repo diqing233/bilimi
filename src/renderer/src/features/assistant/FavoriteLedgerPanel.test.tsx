@@ -663,7 +663,7 @@ describe('FavoriteLedgerPanel', () => {
         {
           folderId: 'skipped', folderTitle: '后续来源', failedPage: 1, attempts: 0,
           status: 'failed', operation: 'resource-list', message: 'skipped', retainedVideoCount: 0,
-          errorKind: 'global-circuit-open'
+          errorKind: 'global-circuit-open', riskSignal: true
         }
       ]
     }
@@ -674,9 +674,11 @@ describe('FavoriteLedgerPanel', () => {
 
     const diagnostics = screen.getByRole('list', { name: '未纳入扫描的收藏夹' })
     expect(diagnostics).toHaveTextContent(/登录来源.*登录状态失效/)
-    expect(diagnostics).toHaveTextContent(/受限来源.*B站访问受限/)
+    expect(diagnostics).toHaveTextContent(
+      /受限来源.*B站暂时限制收藏明细访问，可能是短时间扫描数量较多。已停止后续扫描，请等待 30 分钟后重试；若仍受限，请等待 2 小时/
+    )
     expect(diagnostics).toHaveTextContent(/未知页面.*收藏明细接口返回异常页面/)
-    expect(diagnostics).toHaveTextContent(/后续来源.*因全局接口异常未扫描/)
+    expect(diagnostics).toHaveTextContent(/后续来源.*因全局访问限制未扫描，请等待 30 分钟后重新扫描/)
     expect(diagnostics).not.toHaveTextContent('尝试 0 次')
   })
 
@@ -5637,6 +5639,90 @@ describe('FavoriteLedgerPanel', () => {
       )
     )
     expect(screen.queryByRole('button', { name: '删除 bilimi·见闻增广' })).not.toBeInTheDocument()
+  })
+
+  it('rebuilds recommendations and removes dangling archive targets after deleting local custom ledgers', async () => {
+    const customLedgers: FavoriteLedger[] = [
+      {
+        id: 'custom-tag-cluster-明日方舟',
+        displayName: 'bilimi·明日方舟',
+        keywords: ['明日方舟'],
+        ruleType: 'tag',
+        enabled: true,
+        priority: 90,
+        isDefault: false,
+        bilibiliFolderId: '9101'
+      },
+      {
+        id: 'custom-author-honker233-小王爱马枪',
+        displayName: 'bilimi·honker233',
+        keywords: ['honker233-小王爱马枪'],
+        ruleType: 'author',
+        enabled: true,
+        priority: 100,
+        isDefault: false,
+        bilibiliFolderId: '9102'
+      }
+    ]
+    const ledgers = [...createDefaultFavoriteLedgers(), ...customLedgers]
+    const sourceFolders = [{
+      id: 'source-default',
+      title: '默认收藏夹',
+      videos: Array.from({ length: 6 }, (_, index) => ({
+        aid: 9200 + index,
+        title: `明日方舟视频 ${index + 1}`,
+        author: 'honker233-小王爱马枪',
+        tags: ['明日方舟'],
+        sourceFolderIds: ['source-default'],
+        sourceFolderTitles: ['默认收藏夹']
+      }))
+    }]
+    const preview = favoriteLedgerPreviewModule.createFavoriteLedgerPreview({
+      ledgers,
+      sourceFolders,
+      targetMembership: { '9101': [], '9102': [] }
+    })
+    preview.scanContext = {
+      accountMid: '42',
+      totalUniqueVideos: 6,
+      sourceFolders,
+      activeSourceFolders: sourceFolders,
+      protectedVideos: [],
+      managedFolders: [
+        { id: '9101', title: 'bilimi·明日方舟', ledgerId: customLedgers[0].id, isInbox: false },
+        { id: '9102', title: 'bilimi·honker233', ledgerId: customLedgers[1].id, isInbox: false }
+      ],
+      targetMembership: { '9101': [], '9102': [] },
+      multiArchiveMode: 'off'
+    }
+    renderPanel({
+      ledgers,
+      onSaveLedgers: vi.fn().mockResolvedValue({ ok: true, steps: [], missingTargets: [], message: 'saved' }),
+      onScanOldFavorites: vi.fn().mockResolvedValue(preview)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    expect(screen.queryByLabelText('bilimi·明日方舟')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('bilimi·honker233')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '明日方舟' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除 bilimi·明日方舟' }))
+    fireEvent.click(screen.getByRole('button', { name: 'honker233' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除 bilimi·honker233' }))
+
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    expect(screen.getByLabelText('bilimi·明日方舟')).toBeEnabled()
+    expect(screen.getByLabelText('bilimi·honker233')).toBeEnabled()
+    expect(screen.getByLabelText('bilimi·明日方舟')).not.toBeChecked()
+    expect(screen.getByLabelText('bilimi·honker233')).not.toBeChecked()
+
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    expect(screen.queryByRole('group', { name: /bilimi·明日方舟/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: /bilimi·honker233/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    expect(screen.queryByText(/无法解析归档目标/)).not.toBeInTheDocument()
   })
 
   it('does not render the old close-only 合卷 button', () => {
