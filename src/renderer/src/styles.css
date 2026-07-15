@@ -5594,3 +5594,20 @@ body[data-floating-window="true"],
   }
 }
 
+.favorite-ledger-panel__source-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.favorite-ledger-panel__source-heading label {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.35rem;
+}
+
+.favorite-ledger-panel__confirm-actions {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-end;
+}

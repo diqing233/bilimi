@@ -83,8 +83,12 @@ function sharedScriptHelpers(): string {
       const bodyText = await response.text();
       const trimmedBody = bodyText.trim();
       if (/html/i.test(contentType) || /^<!doctype html/i.test(trimmedBody) || /^<html/i.test(trimmedBody)) {
+        const diagnostics = responseDiagnostics(response);
+        const loginSignal = /\\/(?:login|passport)(?:\\/|$)/i.test(diagnostics.finalUrl) ||
+          /^https?:\\/\\/passport\\.bilibili\\.com(?:\\/|$)/i.test(diagnostics.finalUrl);
+        const riskSignal = /captcha|risk|访问频繁|风控|安全验证|异常请求/i.test(trimmedBody);
         throw createApiError(label + ' returned HTML instead of JSON. Please log in to Bilibili again or retry later.', {
-          kind: 'html', ...responseDiagnostics(response)
+          kind: 'html', ...diagnostics, loginSignal, riskSignal
         });
       }
 
@@ -98,10 +102,14 @@ function sharedScriptHelpers(): string {
       }
 
       if (!response.ok || !json || json.code !== 0) {
+        const apiCode = Number(json?.code);
+        const httpStatus = Number(response?.status || 0);
         throw createApiError(label + ' failed: ' + (json?.message || response.statusText || 'Bilibili API request failed'), {
           kind: !response.ok ? 'http' : 'api',
           ...responseDiagnostics(response),
-          apiCode: Number(json?.code)
+          apiCode,
+          loginSignal: apiCode === -101,
+          riskSignal: [403, 412].includes(httpStatus) || [-352, -509].includes(apiCode)
         });
       }
       return json;
@@ -1182,6 +1190,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
             let json;
             let lastError;
             let attempts = 0;
+            const requestStartedAt = Date.now();
             for (let attempt = 1; attempt <= 3; attempt += 1) {
               if (!payload.aid && scanWasCancelled()) return { videos, cancelled: true };
               attempts = attempt;
@@ -1236,7 +1245,17 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
                   failedPage: page,
                   attempts,
                   status: videos.length > 0 ? 'partial' : 'failed',
-                  message: String(lastError?.message || lastError || 'favorite resource list failed').slice(0, 160)
+                  operation: 'resource-list',
+                  message: String(lastError?.message || lastError || 'favorite resource list failed').slice(0, 160),
+                  errorKind: String(lastError?.kind || 'unknown').slice(0, 40),
+                  durationMs: Math.max(0, Date.now() - requestStartedAt),
+                  httpStatus: Number(lastError?.httpStatus || 0),
+                  apiCode: Number(lastError?.apiCode),
+                  contentType: String(lastError?.contentType || '').slice(0, 120),
+                  finalUrl: String(lastError?.finalUrl || '').slice(0, 300),
+                  redirected: Boolean(lastError?.redirected),
+                  loginSignal: Boolean(lastError?.loginSignal),
+                  riskSignal: Boolean(lastError?.riskSignal)
                 }
               };
             }
@@ -1388,6 +1407,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
         );
         if (savedBatchCursorInvalid) previouslyCompletedBatchAids.clear();
         let businessBatchClosed = false;
+        let ordinaryGlobalFailure = null;
         for (let folderIndex = 0; folderIndex < folders.length; folderIndex += 1) {
           const folder = folders[folderIndex];
           if (!payload.aid && scanWasCancelled()) {
@@ -1416,7 +1436,28 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           );
           const acceptedAidsBeforeFolder = new Set(batchAcceptedAids);
           inProgressFolderAids = new Set();
-          const folderScan = isReliablyEmptyFolder
+          const folderScan = !isManagedFolder && ordinaryGlobalFailure
+            ? {
+                videos: [],
+                pageChunks: [],
+                failure: {
+                  failedPage: 1,
+                  attempts: 0,
+                  status: 'failed',
+                  operation: 'resource-list',
+                  message: 'skipped because a global favorite resource interface failure opened the circuit',
+                  errorKind: 'global-circuit-open',
+                  durationMs: 0,
+                  httpStatus: 0,
+                  apiCode: 0,
+                  contentType: '',
+                  finalUrl: '',
+                  redirected: false,
+                  loginSignal: Boolean(ordinaryGlobalFailure.loginSignal),
+                  riskSignal: Boolean(ordinaryGlobalFailure.riskSignal)
+                }
+              }
+            : isReliablyEmptyFolder
             ? { videos: [], pageChunks: [] }
             : isManagedFolder
               ? await readManagedFolderMembership(folderIdString)
@@ -1446,6 +1487,13 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
               managedFolderScanComplete = false;
               managedFolderFailure = true;
             } else {
+              if (!ordinaryGlobalFailure && (
+                failure.errorKind === 'html' ||
+                failure.loginSignal ||
+                failure.riskSignal
+              )) {
+                ordinaryGlobalFailure = failure;
+              }
               batchAcceptedAids.clear();
               for (const aid of acceptedAidsBeforeFolder) batchAcceptedAids.add(aid);
               if (!ordinaryFailureCursor) {
@@ -1468,10 +1516,15 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
               message: failure.message,
               retainedVideoCount: videos.length,
               ...(failure.operation ? { operation: failure.operation } : {}),
+              ...(failure.errorKind ? { errorKind: failure.errorKind } : {}),
+              ...(Number.isFinite(failure.durationMs) ? { durationMs: failure.durationMs } : {}),
               ...(failure.httpStatus ? { httpStatus: failure.httpStatus } : {}),
+              ...(Number.isFinite(failure.apiCode) ? { apiCode: failure.apiCode } : {}),
               ...(failure.contentType ? { contentType: failure.contentType } : {}),
               ...(failure.finalUrl ? { finalUrl: failure.finalUrl } : {}),
-              ...(typeof failure.redirected === 'boolean' ? { redirected: failure.redirected } : {})
+              ...(typeof failure.redirected === 'boolean' ? { redirected: failure.redirected } : {}),
+              ...(typeof failure.loginSignal === 'boolean' ? { loginSignal: failure.loginSignal } : {}),
+              ...(typeof failure.riskSignal === 'boolean' ? { riskSignal: failure.riskSignal } : {})
             });
             steps.push('api:favorite:scan-source-failed:' + folderIdString);
             if (!payload.aid) persistBasicProgress();

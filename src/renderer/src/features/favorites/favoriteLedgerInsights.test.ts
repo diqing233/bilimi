@@ -227,6 +227,94 @@ describe('createFavoriteLedgerInsights', () => {
     )
   })
 
+  it('hides an author candidate when its stable ledger is already enabled under the allocated name', () => {
+    const sourceFolders: FavoriteSourceFolder[] = [{
+      id: '1',
+      title: '默认收藏夹',
+      videos: [
+        { aid: 321, title: '直播切片一', author: 'honker233-小王爱马枪' },
+        { aid: 322, title: '直播切片二', author: 'honker233-小王爱马枪' }
+      ]
+    }]
+
+    const insights = createFavoriteLedgerInsights({
+      sourceFolders,
+      existingLedgers: [{
+        id: 'custom-author-honker233-小王爱马枪',
+        displayName: 'bilimi·honker233',
+        keywords: ['honker233-小王爱马枪'],
+        ruleType: 'author',
+        enabled: true,
+        priority: 10,
+        isDefault: false,
+        bilibiliFolderId: '9001'
+      }]
+    })
+
+    expect(insights.candidateLedgers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'author', sourceName: 'honker233-小王爱马枪' })
+    ]))
+  })
+
+  it('shows a deleted author ledger again only after it is disabled and loses its remote folder id', () => {
+    const sourceFolders: FavoriteSourceFolder[] = [{
+      id: '1',
+      title: '默认收藏夹',
+      videos: [
+        { aid: 323, title: '直播切片一', author: 'honker233-小王爱马枪' },
+        { aid: 324, title: '直播切片二', author: 'honker233-小王爱马枪' }
+      ]
+    }]
+    const disabledLedger = {
+      id: 'custom-author-honker233-小王爱马枪',
+      displayName: 'bilimi·honker233',
+      keywords: ['honker233-小王爱马枪'],
+      ruleType: 'author' as const,
+      enabled: false,
+      priority: 10,
+      isDefault: false
+    }
+
+    const insights = createFavoriteLedgerInsights({ sourceFolders, existingLedgers: [disabledLedger] })
+    const stillRemote = createFavoriteLedgerInsights({
+      sourceFolders,
+      existingLedgers: [{ ...disabledLedger, bilibiliFolderId: '9001' }]
+    })
+
+    expect(insights.candidateLedgers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'author', sourceName: 'honker233-小王爱马枪' })
+    ]))
+    expect(stillRemote.candidateLedgers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'author', sourceName: 'honker233-小王爱马枪' })
+    ]))
+  })
+
+  it('continues hiding an existing tag ledger by its normalized final name', () => {
+    const insights = createFavoriteLedgerInsights({
+      sourceFolders: [{
+        id: '1',
+        title: '默认收藏夹',
+        videos: [
+          { aid: 325, title: '明日方舟攻略一', tags: ['明日方舟'] },
+          { aid: 326, title: '明日方舟攻略二', tags: ['明日方舟'] }
+        ]
+      }],
+      existingLedgers: [{
+        id: 'custom-tag-明日方舟',
+        displayName: 'bilimi·明日方舟',
+        keywords: ['明日方舟'],
+        ruleType: 'tag',
+        enabled: true,
+        priority: 10,
+        isDefault: false
+      }]
+    })
+
+    expect(insights.candidateLedgers).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'tag-cluster', sourceName: '明日方舟' })
+    ]))
+  })
+
   it('creates candidates for multiple high-frequency tags', () => {
     const insights = createFavoriteLedgerInsights({
       sourceFolders: [

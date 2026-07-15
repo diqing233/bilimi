@@ -2837,6 +2837,126 @@ describe('favorite ledger API scripts', () => {
     expect(result.scanDiagnostics.folderFailures[0]).toMatchObject({ status: 'failed', failedPage: 1 })
   })
 
+  it.each([
+    [
+      'login HTML',
+      'https://passport.bilibili.com/login?from=favorite#secret',
+      '<html><body>请登录 marker-login-body</body></html>',
+      { errorKind: 'html', loginSignal: true, riskSignal: false }
+    ],
+    [
+      'risk HTML',
+      'https://api.bilibili.com/x/v3/fav/resource/list?csrf=secret',
+      '<html><body>访问频繁，请完成 captcha marker-risk-body</body></html>',
+      { errorKind: 'html', loginSignal: false, riskSignal: true }
+    ],
+    [
+      'unknown HTML',
+      'https://unexpected.example/challenge?token=secret',
+      '<html><body>temporary upstream page marker-unknown-body</body></html>',
+      { errorKind: 'html', loginSignal: false, riskSignal: false }
+    ]
+  ] as const)('keeps safe structured diagnostics for %s without persisting response bodies', async (
+    _label,
+    responseUrl,
+    body,
+    expected
+  ) => {
+    installCookies()
+    localStorage.clear()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '诊断收藏夹' }] } })
+      }
+      return {
+        ok: true,
+        status: 200,
+        statusText: '',
+        redirected: responseUrl.includes('passport'),
+        url: responseUrl,
+        headers: { get: () => 'text/html; charset=utf-8' },
+        text: async () => body
+      } as Response
+    }))
+
+    const result = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    const failure = result.scanDiagnostics.folderFailures[0]
+    const serialized = JSON.stringify(failure)
+
+    expect(failure).toMatchObject({
+      operation: 'resource-list',
+      folderId: '101',
+      httpStatus: 200,
+      contentType: 'text/html; charset=utf-8',
+      attempts: 1,
+      ...expected
+    })
+    expect(failure.durationMs).toEqual(expect.any(Number))
+    expect(failure.finalUrl).toBe(
+      responseUrl.includes('unexpected.example')
+        ? 'https://unexpected.example'
+        : new URL(responseUrl).origin + new URL(responseUrl).pathname
+    )
+    expect(serialized).not.toContain('marker-')
+    expect(serialized).not.toContain('secret')
+    expect(serialized).not.toContain('<html')
+  })
+
+  it.each([
+    [-101, '账号未登录', { loginSignal: true, riskSignal: false }],
+    [-352, 'challenge required', { loginSignal: false, riskSignal: true }]
+  ] as const)('classifies API code %s without relying on HTML text', async (apiCode, message, signals) => {
+    installCookies()
+    localStorage.clear()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '异常来源' }] } })
+      }
+      return Response.json({ code: apiCode, message })
+    }))
+
+    const result = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+
+    expect(result.scanDiagnostics.folderFailures[0]).toMatchObject({
+      folderId: '101',
+      apiCode,
+      ...signals
+    })
+  })
+
+  it('opens a global circuit after the first obvious HTML risk failure and keeps the batch pending', async () => {
+    installCookies()
+    localStorage.clear()
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({
+          code: 0,
+          data: { list: [
+            { id: 101, title: '来源一' },
+            { id: 102, title: '来源二' },
+            { id: 103, title: '来源三' }
+          ] }
+        })
+      }
+      return new Response('<html><body>captcha 访问频繁 sensitive-body</body></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' }
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes('/x/v3/fav/resource/list'))).toHaveLength(1)
+    expect(result.scanDiagnostics.folderFailures).toEqual([
+      expect.objectContaining({ folderId: '101', errorKind: 'html', riskSignal: true }),
+      expect.objectContaining({ folderId: '102', errorKind: 'global-circuit-open', attempts: 0 }),
+      expect.objectContaining({ folderId: '103', errorKind: 'global-circuit-open', attempts: 0 })
+    ])
+    expect(result.batch).toMatchObject({ hasMore: true, nextCursor: { folderId: '101', nextPage: 1 } })
+    expect(JSON.stringify(result.scanDiagnostics)).not.toContain('sensitive-body')
+  })
+
   it('fails a terminal favorite folder list once and closes its listing progress', async () => {
     installCookies()
     localStorage.clear()

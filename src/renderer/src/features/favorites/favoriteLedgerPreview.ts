@@ -56,13 +56,18 @@ export type FavoriteLedgerScanDiagnostics = {
     failedPage: number
     attempts: number
     status: 'failed' | 'partial'
-    operation?: 'target-membership'
+    operation?: 'resource-list' | 'target-membership'
     message: string
     retainedVideoCount: number
+    errorKind?: string
+    durationMs?: number
     httpStatus?: number
+    apiCode?: number
     contentType?: string
     finalUrl?: string
     redirected?: boolean
+    loginSignal?: boolean
+    riskSignal?: boolean
   }>
 }
 
@@ -183,7 +188,7 @@ export function createFavoriteLedgerPreview(args: {
   const items: FavoriteLedgerPreviewItem[] = []
   const insights = createFavoriteLedgerInsights({
     sourceFolders: args.sourceFolders,
-    existingLedgerNames: args.ledgers.map((ledger) => ledger.displayName)
+    existingLedgers: args.ledgers
   })
 
   for (const folder of args.sourceFolders) {
@@ -398,7 +403,7 @@ function candidateKey(candidate: FavoriteLedgerCandidate) {
 }
 
 function candidateLedgerId(candidate: FavoriteLedgerCandidate) {
-  return `custom-${candidate.kind}-${candidate.sourceName
+  return candidate.id ?? `custom-${candidate.kind}-${candidate.sourceName
     .replace(/[^\p{L}\p{N}]+/gu, '-')
     .replace(/^-|-$/g, '')}`
 }

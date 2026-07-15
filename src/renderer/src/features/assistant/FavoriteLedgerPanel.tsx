@@ -425,7 +425,7 @@ function mergeDefaultLedgers(ledgers: FavoriteLedger[], enabled?: boolean) {
 }
 
 function candidateLedgerId(candidate: FavoriteLedgerCandidate) {
-  return `custom-${candidate.kind}-${candidate.sourceName
+  return candidate.id ?? `custom-${candidate.kind}-${candidate.sourceName
     .replace(/[^\p{L}\p{N}]+/gu, '-')
     .replace(/^-|-$/g, '')}`
 }
@@ -649,11 +649,33 @@ function oldFavoriteItemMatchesSource(
   return (item.sourceFolderTitles ?? [item.sourceFolderTitle]).includes(folder.name)
 }
 
-function readableOldFavoriteScanFailure(message: string | undefined) {
-  const normalized = String(message ?? '').trim()
+type OldFavoriteScanFailureSummary = {
+  message?: string
+  errorKind?: string
+  httpStatus?: number
+  apiCode?: number
+  finalUrl?: string
+  loginSignal?: boolean
+  riskSignal?: boolean
+}
+
+function readableOldFavoriteScanFailure(failure: OldFavoriteScanFailureSummary | string | undefined) {
+  const detail = typeof failure === 'string' ? { message: failure } : (failure ?? {})
+  const normalized = String(detail.message ?? '').trim()
+  if (detail.errorKind === 'global-circuit-open') return '因全局接口异常未扫描'
   if (/timeout|timed out|abort/i.test(normalized)) return '请求超时'
-  if (/html|login/i.test(normalized)) return '登录状态异常'
-  if (/(?:^|\D)-(?:352|412|509)(?:\D|$)|risk/i.test(normalized)) return 'B站访问受限'
+  if (
+    detail.apiCode === -101 ||
+    (detail.loginSignal && /\/(?:login|passport)(?:\/|$)/i.test(detail.finalUrl ?? ''))
+  ) return '登录状态失效'
+  if (
+    detail.riskSignal ||
+    [403, 412].includes(detail.httpStatus ?? 0) ||
+    [-352, -509].includes(detail.apiCode ?? 0)
+  ) return 'B站访问受限'
+  if (detail.errorKind === 'html' || /returned html/i.test(normalized)) {
+    return '收藏明细接口返回异常页面'
+  }
   return normalized.slice(0, 80) || '未知错误'
 }
 
@@ -680,9 +702,7 @@ function favoriteLedgerDisplayShortName(displayName: string) {
 }
 
 function candidateLedgerIdFromCandidate(candidate: FavoriteLedgerCandidate) {
-  return `custom-${candidate.kind}-${candidate.sourceName
-    .replace(/[^\p{L}\p{N}]+/gu, '-')
-    .replace(/^-|-$/g, '')}`
+  return candidateLedgerId(candidate)
 }
 
 function recommendedCandidateDisplayName(
@@ -1598,7 +1618,7 @@ function buildConfirmedArchiveProtectionRecords(args: {
   const records: FavoriteArchiveProtectionRecord[] = []
   for (const [aid, items] of selectedByAid) {
     const results = resultsByAid.get(aid) ?? []
-    if (results.length !== items.length || results.some((result) => result.ok === false || result.partial)) {
+    if (results.length !== items.length || results.some((result) => result.ok !== true || result.partial)) {
       continue
     }
     if (results.some((result) => !(result.completedItems ?? []).some((item) => item.aid === aid))) {
@@ -1643,18 +1663,36 @@ function wait(delayMs: number) {
   return new Promise((resolve) => setTimeout(resolve, delayMs))
 }
 
-async function paceOldFavoriteExecution(completedCount: number, hasNextItem: boolean) {
+export async function waitForOldFavoriteExecutionDelay(
+  delayMs: number,
+  shouldStop: () => boolean
+): Promise<boolean> {
+  let remainingMs = delayMs
+  while (remainingMs > 0) {
+    if (shouldStop()) return false
+    const sliceMs = Math.min(50, remainingMs)
+    await wait(sliceMs)
+    remainingMs -= sliceMs
+  }
+  return !shouldStop()
+}
+
+async function paceOldFavoriteExecution(
+  completedCount: number,
+  hasNextItem: boolean,
+  shouldStop: () => boolean
+) {
   if (!hasNextItem || completedCount <= 0) {
-    return
+    return !shouldStop()
   }
 
   const shouldCooldown = completedCount % OLD_FAVORITE_COOLDOWN_EVERY === 0
   const delayMs = randomDelayMs(shouldCooldown ? OLD_FAVORITE_COOLDOWN_DELAY_MS : OLD_FAVORITE_APPEND_DELAY_MS)
   if (delayMs <= 0 || process.env.NODE_ENV === 'test') {
-    return
+    return !shouldStop()
   }
 
-  await wait(delayMs)
+  return waitForOldFavoriteExecutionDelay(delayMs, shouldStop)
 }
 
 export function FavoriteLedgerPanel({
@@ -1894,6 +1932,8 @@ export function FavoriteLedgerPanel({
   const oldFavoriteExecutionAwaitingAcknowledgement =
     oldFavoriteExecutionPhase === 'awaiting-acknowledgement'
   const [oldFavoriteExecutionConfirming, setOldFavoriteExecutionConfirming] = useState(false)
+  const [oldFavoriteExecutionStopping, setOldFavoriteExecutionStopping] = useState(false)
+  const oldFavoriteExecutionStopRequestedRef = useRef(false)
   const [pendingTagExecutionConfirming, setPendingTagExecutionConfirming] = useState(false)
   const [batchDiscardConfirming, setBatchDiscardConfirming] = useState(false)
   const [batchCommitBusy, setBatchCommitBusy] = useState(false)
@@ -1903,6 +1943,7 @@ export function FavoriteLedgerPanel({
   const [status, setStatus] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const oldFavoriteSourceSelectAllRef = useRef<HTMLInputElement>(null)
   const [basicScanRunning, setBasicScanRunning] = useState(false)
   const scanGenerationRef = useRef(0)
   const scanStartingRef = useRef(false)
@@ -3105,6 +3146,8 @@ export function FavoriteLedgerPanel({
     setDeepSeekArchiveSummaryOpen(false)
     clearDeepSeekArchiveRunSnapshot()
     setOldFavoriteExecutionProgress(null)
+    oldFavoriteExecutionStopRequestedRef.current = false
+    setOldFavoriteExecutionStopping(false)
     setPreview((current) => current
       ? {
           ...current,
@@ -4215,6 +4258,8 @@ export function FavoriteLedgerPanel({
       return
     }
     setOldFavoriteExecutionConfirming(false)
+    oldFavoriteExecutionStopRequestedRef.current = false
+    setOldFavoriteExecutionStopping(false)
     setOldFavoriteExecutionProgress(null)
     setSaveStatus(null)
     setStatus('正在整理中，请耐心等待。')
@@ -4280,9 +4325,10 @@ export function FavoriteLedgerPanel({
       const results: OldFavoriteExecutionResult[] = []
       const successfulTargetKeys = new Set<string>()
       for (const [index, item] of selectedItems.entries()) {
+        if (oldFavoriteExecutionStopRequestedRef.current) break
         const result = (await onExecuteOldFavoritePlan([item])) as OldFavoriteExecutionResult
         results.push(result)
-        if (result.ok !== false) {
+        if (result.ok === true) {
           successfulTargetKeys.add(archivePlanTargetKey(item))
         }
         setOldFavoriteExecutionProgress({ completed: index + 1, total: selectedItems.length })
@@ -4294,11 +4340,18 @@ export function FavoriteLedgerPanel({
         if (result.paused) {
           break
         }
-        await paceOldFavoriteExecution(index + 1, index < selectedItems.length - 1)
+        if (oldFavoriteExecutionStopRequestedRef.current) break
+        if (!await paceOldFavoriteExecution(
+          index + 1,
+          index < selectedItems.length - 1,
+          () => oldFavoriteExecutionStopRequestedRef.current
+        )) break
       }
+      const stopped = oldFavoriteExecutionStopRequestedRef.current
       const batchExecutionComplete =
+        !stopped &&
         results.length === selectedItems.length &&
-        results.every((result) => result.ok !== false && !result.paused && !result.partial)
+        results.every((result) => result.ok === true && !result.paused && !result.partial)
       if (batchExecutionComplete && !await commitActiveOldFavoriteBatch('提交本批进度失败')) {
         setOldFavoriteExecutionPhase('idle')
         onOldFavoriteExecutionStateChange?.('finished')
@@ -4328,19 +4381,29 @@ export function FavoriteLedgerPanel({
           onConfirmArchiveProtections?.(protectionRecords)
         }
       }
-      const failedCount = results.filter((result) => result.ok === false).length
-      const partialCount = results.filter((result) => result.ok === false && result.partial).length
+      const failedCount = results.filter((result) => result.ok !== true).length
+      const partialCount = results.filter((result) => result.ok !== true && result.partial).length
       const completeFailureCount = failedCount - partialCount
       const paused = results.some((result) => result.paused)
+      const successfulCount = results.filter((result) => result.ok === true).length
+      const remainingCount = Math.max(0, selectedItems.length - results.length)
       setStatus(
-        paused
+        stopped
+          ? `已停止整理：${successfulCount} 条成功，${remainingCount} 条剩余。`
+          : paused
           ? '本次整理已暂停，请稍后再继续。'
           : failedCount > 0
           ? `本次整理已结束，${results.length - failedCount} 条成功，${partialCount} 条部分完成，${completeFailureCount} 条失败。`
           : '本次整理已结束。'
       )
       setOldFavoriteExecutionPhase('awaiting-acknowledgement')
-      const finalStatus = paused
+      const finalStatus = stopped
+        ? {
+            label: '整理已停止',
+            message: `已停止整理：${successfulCount} 条成功，${remainingCount} 条剩余。`,
+            tone: 'warn' as const
+          }
+        : paused
         ? { label: '整理已暂停', message: '本次整理已暂停，请稍后再继续。', tone: 'warn' as const }
         : failedCount > 0
         ? partialCount > 0 || failedCount === results.length
@@ -4356,6 +4419,7 @@ export function FavoriteLedgerPanel({
             }
         : { label: '整理完成', message: '本次整理已结束。', tone: 'ok' as const }
       publishOldFavoriteStatus(finalStatus)
+      setOldFavoriteExecutionStopping(false)
       onOldFavoriteExecutionStateChange?.('finished')
     } catch (error) {
       setStatus(`整理旧藏未完成：${errorMessage(error)}`)
@@ -4492,6 +4556,35 @@ export function FavoriteLedgerPanel({
     ),
     [normalizedSelectedOldFavoriteSourceFolderKeys, validOldFavoriteUserSourceFolders]
   )
+  const allOldFavoriteUserSourcesSelected =
+    validOldFavoriteUserSourceFolders.length > 0 &&
+    validOldFavoriteUserSourceFolders.every((folder) =>
+      normalizedSelectedOldFavoriteSourceFolderKeys.has(folder.sourceKey)
+    )
+  const someOldFavoriteUserSourcesSelected = validOldFavoriteUserSourceFolders.some((folder) =>
+    normalizedSelectedOldFavoriteSourceFolderKeys.has(folder.sourceKey)
+  )
+  useEffect(() => {
+    if (oldFavoriteSourceSelectAllRef.current) {
+      oldFavoriteSourceSelectAllRef.current.indeterminate =
+        someOldFavoriteUserSourcesSelected && !allOldFavoriteUserSourcesSelected
+    }
+  }, [allOldFavoriteUserSourcesSelected, someOldFavoriteUserSourcesSelected])
+
+  function toggleAllOldFavoriteUserSources() {
+    setSelectedOldFavoriteSourceFolderKeys(
+      allOldFavoriteUserSourcesSelected
+        ? new Set()
+        : new Set(validOldFavoriteUserSourceFolders.map((folder) => folder.sourceKey))
+    )
+  }
+
+  function stopOldFavoriteExecution() {
+    if (!oldFavoriteExecuting || oldFavoriteExecutionStopping) return
+    oldFavoriteExecutionStopRequestedRef.current = true
+    setOldFavoriteExecutionStopping(true)
+    setStatus('正在停止整理；当前请求返回后将安全结束。')
+  }
   const selectableOldFavoriteItems = useMemo(
     () =>
       preview?.items
@@ -5808,8 +5901,10 @@ export function FavoriteLedgerPanel({
                       {folderFailures.map((failure) => (
                         <li key={`${failure.folderId ?? failure.folderTitle}:${failure.failedPage}`}>
                           {failure.folderTitle}：{failure.status === 'partial' ? '部分扫描' : '扫描失败'}，
-                          第 {failure.failedPage} 页{readableOldFavoriteScanFailure(failure.message)}，
-                          重试 {failure.attempts} 次，已读取 {failure.retainedVideoCount} 条
+                          {failure.errorKind === 'global-circuit-open'
+                            ? readableOldFavoriteScanFailure(failure)
+                            : <>第 {failure.failedPage} 页{readableOldFavoriteScanFailure(failure)}，尝试 {failure.attempts} 次</>}
+                          ，已读取 {failure.retainedVideoCount} 条
                         </li>
                       ))}
                     </ul>
@@ -5934,7 +6029,22 @@ export function FavoriteLedgerPanel({
                   <hr className="favorite-ledger-panel__step-divider" aria-hidden="true" />
                   <div className="favorite-ledger-panel__insight-columns">
                     <div>
-                      <strong>扫描收藏夹</strong>
+                      <div className="favorite-ledger-panel__source-heading">
+                        <strong>扫描收藏夹</strong>
+                        {oldFavoriteGuideMode === 'organize' ? (
+                          <label>
+                            <input
+                              ref={oldFavoriteSourceSelectAllRef}
+                              type="checkbox"
+                              aria-label="全选扫描收藏夹"
+                              checked={allOldFavoriteUserSourcesSelected}
+                              disabled={validOldFavoriteUserSourceFolders.length === 0}
+                              onChange={toggleAllOldFavoriteUserSources}
+                            />
+                            <span>全选</span>
+                          </label>
+                        ) : null}
+                      </div>
                       {oldFavoriteUserSourceFolders.length > 0 ? (
                         <>
                           <p className="favorite-ledger-panel__source-note">
@@ -6022,7 +6132,15 @@ export function FavoriteLedgerPanel({
                           aria-label={candidateDisplayName}
                           checked={isSelected}
                           disabled={
-                            deepSeekArchiveRunning || archiveBatchRunning || (!isSelected && alreadyHasLedger(draftLedgers, candidateDisplayName))
+                            deepSeekArchiveRunning || archiveBatchRunning || (
+                              !isSelected &&
+                              alreadyHasLedger(draftLedgers, candidateDisplayName) &&
+                              !draftLedgers.some((ledger) =>
+                                ledger.id === candidateLedgerId(candidate) &&
+                                !ledger.enabled &&
+                                !ledger.bilibiliFolderId
+                              )
+                            )
                           }
                           onClick={() => setCandidateSelected(candidate, !isSelected)}
                           onChange={() => undefined}
@@ -6074,7 +6192,12 @@ export function FavoriteLedgerPanel({
                             checked={isSelected}
                             disabled={
                               deepSeekArchiveRunning || archiveBatchRunning ||
-                              (!isSelected && alreadyHasLedger(draftLedgers, candidateDisplayName))
+                              (!isSelected && alreadyHasLedger(draftLedgers, candidateDisplayName) &&
+                                !draftLedgers.some((ledger) =>
+                                  ledger.id === candidateLedgerId(candidate) &&
+                                  !ledger.enabled &&
+                                  !ledger.bilibiliFolderId
+                                ))
                             }
                             onClick={() => setCandidateSelected(candidate, !isSelected)}
                             onChange={() => undefined}
@@ -6602,36 +6725,51 @@ export function FavoriteLedgerPanel({
                       />
                     </div>
                   ) : null}
-                  <button
-                    type="button"
-                    disabled={
-                      deepSeekArchiveRunning ||
-                      Boolean(unresolvedArchiveTargetError) ||
-                      batchCommitBusy ||
-                      ((oldFavoriteExecuting ||
-                        oldFavoriteExecutionConfirming) &&
-                      !oldFavoriteExecutionAwaitingAcknowledgement)
-                    }
-                    onClick={() =>
-                      firstInvalidLedgerIndex >= 0
-                        ? focusInvalidLedger(firstInvalidLedgerIndex)
-                        : oldFavoriteExecutionAwaitingAcknowledgement
-                        ? acknowledgeOldFavoriteExecution()
-                        : selectedOldFavoritePlanItems.length === 0
-                          ? preview.batch
-                            ? void finishZeroTaskOldFavoriteBatch()
-                            : acknowledgeOldFavoriteExecution()
-                          : (preview.scanProgress?.tags.pending ?? 0) > 0
-                            ? setPendingTagExecutionConfirming(true)
-                            : setOldFavoriteExecutionConfirming(true)
-                    }
-                  >
-                    {oldFavoriteExecutionAwaitingAcknowledgement
-                      ? '好的'
-                      : oldFavoriteExecuting
-                      ? '整理中'
-                      : '确认整理'}
-                  </button>
+                  <div className="favorite-ledger-panel__confirm-actions">
+                    {!oldFavoriteExecutionAwaitingAcknowledgement ? (
+                      <button
+                        type="button"
+                        disabled={batchCommitBusy || oldFavoriteExecutionStopping}
+                        onClick={oldFavoriteExecuting
+                          ? stopOldFavoriteExecution
+                          : () => setBatchDiscardConfirming(true)}
+                      >
+                        {oldFavoriteExecuting
+                          ? oldFavoriteExecutionStopping ? '正在停止…' : '停止整理'
+                          : '放弃本轮'}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      disabled={
+                        deepSeekArchiveRunning ||
+                        Boolean(unresolvedArchiveTargetError) ||
+                        batchCommitBusy ||
+                        ((oldFavoriteExecuting ||
+                          oldFavoriteExecutionConfirming) &&
+                        !oldFavoriteExecutionAwaitingAcknowledgement)
+                      }
+                      onClick={() =>
+                        firstInvalidLedgerIndex >= 0
+                          ? focusInvalidLedger(firstInvalidLedgerIndex)
+                          : oldFavoriteExecutionAwaitingAcknowledgement
+                          ? acknowledgeOldFavoriteExecution()
+                          : selectedOldFavoritePlanItems.length === 0
+                            ? preview.batch
+                              ? void finishZeroTaskOldFavoriteBatch()
+                              : acknowledgeOldFavoriteExecution()
+                            : (preview.scanProgress?.tags.pending ?? 0) > 0
+                              ? setPendingTagExecutionConfirming(true)
+                              : setOldFavoriteExecutionConfirming(true)
+                      }
+                    >
+                      {oldFavoriteExecutionAwaitingAcknowledgement
+                        ? '好的'
+                        : oldFavoriteExecuting
+                        ? '整理中'
+                        : '确认整理'}
+                    </button>
+                  </div>
                 </>
                 )}
               </section>
@@ -6642,10 +6780,14 @@ export function FavoriteLedgerPanel({
               className="favorite-ledger-panel__execution-dialog"
               role="alertdialog"
               aria-modal="true"
-              aria-label="确认放弃本批？"
+              aria-label={preview?.batch ? '确认放弃本批？' : '确认放弃本轮？'}
             >
-              <h4>确认放弃本批？</h4>
-              <p>放弃后会清除本批预览和手动调整，并从下一批继续；不会执行任何归档操作。</p>
+              <h4>{preview?.batch ? '确认放弃本批？' : '确认放弃本轮？'}</h4>
+              <p>
+                {preview?.batch
+                  ? '放弃后会清除本批预览和手动调整，并从下一批继续；不会执行任何归档操作。'
+                  : '放弃后会清除本轮预览和手动调整；不会执行任何归档操作。'}
+              </p>
               <div className="favorite-ledger-panel__execution-dialog-actions">
                 <button
                   type="button"

@@ -6,7 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { StrictMode } from 'react'
 import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
 import * as favoriteLedgerPreviewModule from '../favorites/favoriteLedgerPreview'
-import { FavoriteLedgerPanel, resetOldFavoriteRuntimeSession } from './FavoriteLedgerPanel'
+import {
+  FavoriteLedgerPanel,
+  resetOldFavoriteRuntimeSession,
+  waitForOldFavoriteExecutionDelay
+} from './FavoriteLedgerPanel'
 import {
   bindOldFavoriteRuntimeAccount,
   getOldFavoriteRuntimeValue,
@@ -27,6 +31,19 @@ describe('FavoriteLedgerPanel', () => {
 
   const safetyNote =
     '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
+
+  it('interrupts an execution pacing wait when stop is requested', async () => {
+    vi.useFakeTimers()
+    let stopped = false
+    const waiting = waitForOldFavoriteExecutionDelay(3_000, () => stopped)
+
+    await vi.advanceTimersByTimeAsync(100)
+    stopped = true
+    await vi.advanceTimersByTimeAsync(50)
+
+    await expect(waiting).resolves.toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  })
 
   function renderPanel(overrides: Partial<Parameters<typeof FavoriteLedgerPanel>[0]> = {}) {
     return render(
@@ -540,7 +557,7 @@ describe('FavoriteLedgerPanel', () => {
     expect(within(screen.getByRole('row', { name: '番剧待看，总数 137' })).getByText('扫描失败')).toBeInTheDocument()
     expect(within(screen.getByRole('row', { name: '课程，总数 45' })).getByText('部分扫描')).toBeInTheDocument()
     expect(screen.getByText('第 1 页请求超时，已读取 0 条')).toBeInTheDocument()
-    expect(screen.getByText('第 3 页登录状态异常，已读取 40 条')).toBeInTheDocument()
+    expect(screen.getByText('第 3 页收藏明细接口返回异常页面，已读取 40 条')).toBeInTheDocument()
 
     const retry = screen.getByRole('button', { name: '重新扫描全部' })
     fireEvent.click(retry)
@@ -615,8 +632,52 @@ describe('FavoriteLedgerPanel', () => {
     await screen.findByRole('region', { name: '整理旧藏向导' })
 
     const diagnostics = screen.getByRole('list', { name: '未纳入扫描的收藏夹' })
-    expect(diagnostics).toHaveTextContent(/番剧待看.*部分扫描.*第\s*3\s*页.*请求超时.*重试\s*3\s*次.*已读取\s*40\s*条/)
-    expect(diagnostics).toHaveTextContent(/课程收藏.*扫描失败.*第\s*1\s*页.*登录状态异常.*重试\s*1\s*次.*已读取\s*0\s*条/)
+    expect(diagnostics).toHaveTextContent(/番剧待看.*部分扫描.*第\s*3\s*页.*请求超时.*尝试\s*3\s*次.*已读取\s*40\s*条/)
+    expect(diagnostics).toHaveTextContent(/课程收藏.*扫描失败.*第\s*1\s*页.*收藏明细接口返回异常页面.*尝试\s*1\s*次.*已读取\s*0\s*条/)
+  })
+
+  it('classifies structured source failures without treating every HTML page as logged out', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.scanDiagnostics = {
+      tagDetailRequests: 0,
+      tagDetailFailures: 0,
+      taggedVideos: 0,
+      untaggedVideos: 0,
+      folderFailures: [
+        {
+          folderId: 'login', folderTitle: '登录来源', failedPage: 1, attempts: 1,
+          status: 'failed', operation: 'resource-list', message: 'html', retainedVideoCount: 0,
+          errorKind: 'html', apiCode: -101, loginSignal: true,
+          finalUrl: 'https://passport.bilibili.com/login'
+        },
+        {
+          folderId: 'risk', folderTitle: '受限来源', failedPage: 1, attempts: 1,
+          status: 'failed', operation: 'resource-list', message: 'html', retainedVideoCount: 0,
+          errorKind: 'html', httpStatus: 412, riskSignal: true
+        },
+        {
+          folderId: 'html', folderTitle: '未知页面', failedPage: 1, attempts: 1,
+          status: 'failed', operation: 'resource-list', message: 'html', retainedVideoCount: 0,
+          errorKind: 'html'
+        },
+        {
+          folderId: 'skipped', folderTitle: '后续来源', failedPage: 1, attempts: 0,
+          status: 'failed', operation: 'resource-list', message: 'skipped', retainedVideoCount: 0,
+          errorKind: 'global-circuit-open'
+        }
+      ]
+    }
+    renderPanel({ onScanOldFavorites: vi.fn().mockResolvedValue(preview) })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+
+    const diagnostics = screen.getByRole('list', { name: '未纳入扫描的收藏夹' })
+    expect(diagnostics).toHaveTextContent(/登录来源.*登录状态失效/)
+    expect(diagnostics).toHaveTextContent(/受限来源.*B站访问受限/)
+    expect(diagnostics).toHaveTextContent(/未知页面.*收藏明细接口返回异常页面/)
+    expect(diagnostics).toHaveTextContent(/后续来源.*因全局接口异常未扫描/)
+    expect(diagnostics).not.toHaveTextContent('尝试 0 次')
   })
 
   it('commits a resumable batch only after every selected archive item succeeds', async () => {
@@ -754,6 +815,45 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(await screen.findByRole('status')).toHaveTextContent('放弃本批失败：断点已过期')
     expect(screen.getByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+  })
+
+  it('allows abandoning from confirmation even with zero tasks or an unresolved target', async () => {
+    const preview = markPreviewAsResumableBatch(createArchivePreviewFixture())
+    preview.items[0] = {
+      ...preview.items[0],
+      targetLedgerId: 'missing-ledger',
+      targetDisplayName: '已失效目标',
+      originalSuggestedLedgerIds: ['missing-ledger'],
+      currentTargetLedgerIds: ['missing-ledger'],
+      selectedTargetLedgerIds: ['missing-ledger']
+    }
+    const onCommitOldFavoriteBatchCheckpoint = vi.fn().mockResolvedValue({
+      ok: true,
+      steps: [],
+      missingTargets: [],
+      message: 'committed'
+    })
+    const onExecuteOldFavoritePlan = vi.fn()
+    renderPanel({
+      onScanOldFavorites: vi.fn().mockResolvedValue(preview),
+      onExecuteOldFavoritePlan,
+      onCommitOldFavoriteBatchCheckpoint
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+
+    expect(screen.getByText(/无法解析归档目标/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '确认整理' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '放弃本轮' }))
+    const dialog = screen.getByRole('alertdialog', { name: '确认放弃本批？' })
+    expect(dialog).toHaveTextContent('从下一批继续')
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认放弃' }))
+
+    await waitFor(() => expect(onCommitOldFavoriteBatchCheckpoint).toHaveBeenCalledOnce())
+    expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
+    expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
   })
 
   async function openArchivePreview(overrides: Partial<Parameters<typeof FavoriteLedgerPanel>[0]> = {}) {
@@ -2850,6 +2950,32 @@ describe('FavoriteLedgerPanel', () => {
     confirmOldFavoriteExecution()
 
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledTimes(2))
+    expect(onConfirmArchiveProtections).not.toHaveBeenCalled()
+  })
+
+  it('does not count an execution result with unknown success as protected or successful', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.items = [preview.items[0]]
+    preview.scanContext = {
+      accountMid: '42', totalUniqueVideos: 1, activeSourceFolders: [], protectedVideos: [],
+      managedFolders: [], targetMembership: {}, multiArchiveMode: 'off'
+    }
+    const onConfirmArchiveProtections = vi.fn()
+    renderPanel({
+      onScanOldFavorites: vi.fn().mockResolvedValue(preview),
+      onExecuteOldFavoritePlan: vi.fn().mockResolvedValue({
+        steps: [], missingTargets: [], completedItems: [preview.items[0]], message: 'unknown'
+      }),
+      onConfirmArchiveProtections
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    confirmOldFavoriteExecution()
+
+    await screen.findByText('本次整理已结束，0 条成功，0 条部分完成，1 条失败。')
     expect(onConfirmArchiveProtections).not.toHaveBeenCalled()
   })
 
@@ -6039,6 +6165,70 @@ describe('FavoriteLedgerPanel', () => {
     )
   })
 
+  it('stops after the in-flight item, preserves its success, and leaves the batch pending', async () => {
+    const preview = markPreviewAsResumableBatch(createArchivePreviewFixture())
+    preview.items[1] = {
+      ...preview.items[0],
+      aid: 703,
+      title: '第二条待整理旧藏'
+    }
+    preview.scanContext = {
+      accountMid: '42',
+      totalUniqueVideos: 2,
+      activeSourceFolders: [],
+      protectedVideos: [],
+      managedFolders: [],
+      targetMembership: {},
+      multiArchiveMode: 'off'
+    }
+    let resolveFirst!: (value: {
+      ok: true
+      steps: string[]
+      missingTargets: string[]
+      completedItems: FavoriteLedgerPreview['items']
+      message: string
+    }) => void
+    const firstRequest = new Promise<Parameters<typeof resolveFirst>[0]>((resolve) => {
+      resolveFirst = resolve
+    })
+    const onExecuteOldFavoritePlan = vi.fn().mockReturnValue(firstRequest)
+    const onCommitOldFavoriteBatchCheckpoint = vi.fn()
+    const onConfirmArchiveProtections = vi.fn()
+    renderPanel({
+      onScanOldFavorites: vi.fn().mockResolvedValue(preview),
+      onExecuteOldFavoritePlan,
+      onCommitOldFavoriteBatchCheckpoint,
+      onConfirmArchiveProtections
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    confirmOldFavoriteExecution()
+    await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce())
+
+    fireEvent.click(screen.getByRole('button', { name: '停止整理' }))
+    expect(screen.getByRole('button', { name: '正在停止…' })).toBeDisabled()
+    await act(async () => {
+      resolveFirst({
+        ok: true,
+        steps: ['api:ledger:append:701'],
+        missingTargets: [],
+        completedItems: [preview.items[0]],
+        message: 'done'
+      })
+      await firstRequest
+    })
+
+    await waitFor(() => expect(screen.getByText('已停止整理：1 条成功，1 条剩余。')).toBeInTheDocument())
+    expect(onExecuteOldFavoritePlan).toHaveBeenCalledOnce()
+    expect(onCommitOldFavoriteBatchCheckpoint).not.toHaveBeenCalled()
+    expect(onConfirmArchiveProtections).toHaveBeenCalledWith([
+      expect.objectContaining({ aid: preview.items[0].aid })
+    ])
+    expect(screen.getByRole('button', { name: '好的' })).toBeInTheDocument()
+  })
+
   it('keeps real archive execution locked after remount', async () => {
     let resolveExecution!: (value: {
       ok: boolean
@@ -6540,6 +6730,118 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
     expect(screen.getByText('已选择 2 条归档任务')).toBeInTheDocument()
+  })
+
+  it('bulk-selects only healthy user source folders and exposes the partial state', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.scanContext = {
+      accountMid: '42',
+      totalUniqueVideos: 2,
+      sourceFolders: [
+        { id: '101', title: '默认收藏夹', videos: [preview.items[0] as never], mediaCount: 1 },
+        { id: '102', title: '旅行收藏', videos: [preview.items[1] as never], mediaCount: 1 },
+        {
+          id: '103',
+          title: '失败收藏夹',
+          videos: [],
+          mediaCount: 3,
+          scanFailed: true,
+          scanStatus: 'failed',
+          scanFailureMessage: 'request timeout'
+        },
+        { id: '9001', title: 'bilimi·知识学习', videos: [], mediaCount: 1 }
+      ],
+      activeSourceFolders: [],
+      protectedVideos: [],
+      managedFolders: [],
+      targetMembership: {},
+      multiArchiveMode: 'off'
+    }
+    renderPanel({ onScanOldFavorites: vi.fn().mockResolvedValue(preview) })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+
+    const selectAll = screen.getByRole('checkbox', { name: '全选扫描收藏夹' }) as HTMLInputElement
+    expect(selectAll).toBeChecked()
+    expect(screen.getByLabelText(/^整理来源 失败收藏夹，共 /)).toBeDisabled()
+    expect(screen.queryByLabelText(/^整理来源 bilimi·知识学习，共 /)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText(/^整理来源 旅行收藏，共 /))
+    expect(selectAll).not.toBeChecked()
+    expect(selectAll.indeterminate).toBe(true)
+
+    fireEvent.click(selectAll)
+    expect(screen.getByLabelText(/^整理来源 默认收藏夹，共 /)).toBeChecked()
+    expect(screen.getByLabelText(/^整理来源 旅行收藏，共 /)).toBeChecked()
+
+    fireEvent.click(selectAll)
+    expect(screen.getByLabelText(/^整理来源 默认收藏夹，共 /)).not.toBeChecked()
+    expect(screen.getByLabelText(/^整理来源 旅行收藏，共 /)).not.toBeChecked()
+  })
+
+  it('reuses and enables a disabled local author ledger when its recommendation is selected again', async () => {
+    const disabledLedger: FavoriteLedger = {
+      id: 'custom-author-honker233-小王爱马枪',
+      displayName: 'bilimi·honker233',
+      keywords: ['honker233-小王爱马枪'],
+      ruleType: 'author',
+      enabled: false,
+      priority: 90,
+      isDefault: false
+    }
+    const preview = createArchivePreviewFixture()
+    const candidate = {
+      id: disabledLedger.id,
+      kind: 'author' as const,
+      sourceName: 'honker233-小王爱马枪',
+      displayName: 'bilimi·honker233-小王爱马枪追更',
+      keywords: ['honker233-小王爱马枪'],
+      ruleType: 'author' as const,
+      count: 2,
+      confidence: 'high' as const,
+      reason: '作者推荐'
+    }
+    preview.insights = { ...preview.insights!, candidateLedgers: [candidate] }
+    preview.items[0].candidateTargets = [{
+      candidateKey: `author:${candidate.sourceName}`,
+      ledgerId: disabledLedger.id,
+      displayName: disabledLedger.displayName,
+      keywords: candidate.keywords,
+      ruleType: 'author'
+    }]
+    preview.items[0].targets = [{
+      candidateKey: `author:${candidate.sourceName}`,
+      ledgerId: disabledLedger.id,
+      folderId: '',
+      displayName: disabledLedger.displayName,
+      keywords: candidate.keywords,
+      ruleType: 'author',
+      alreadyInTarget: false,
+      selected: false,
+      selectedCandidateTarget: true
+    }]
+    const onSaveLedgers = vi.fn().mockResolvedValue({ ok: true, steps: [], missingTargets: [], message: 'saved' })
+    renderPanel({
+      ledgers: [...createDefaultFavoriteLedgers(), disabledLedger],
+      onSaveLedgers,
+      onScanOldFavorites: vi.fn().mockResolvedValue(preview)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    const recommendation = screen.getByLabelText('bilimi·honker233')
+    expect(recommendation).toBeEnabled()
+    fireEvent.click(recommendation)
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    confirmOldFavoriteExecution()
+
+    await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledTimes(2))
+    const saved = onSaveLedgers.mock.calls.at(-1)?.[0] as FavoriteLedger[]
+    expect(saved.filter((ledger) => ledger.id === disabledLedger.id)).toEqual([
+      expect.objectContaining({ enabled: true, displayName: 'bilimi·honker233' })
+    ])
   })
 
   it('applies selected candidate ledgers to source folders that are re-enabled later', async () => {

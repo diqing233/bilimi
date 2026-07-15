@@ -1,10 +1,11 @@
 import type { FavoriteSourceFolder, FavoriteSourceVideo } from './favoriteLedgerPreview'
 import {
   BILIMI_LEDGER_PREFIX,
+  createRecommendedFavoriteLedgerName,
   isBilimiManagedLedgerName,
   stripBilimiLedgerPrefix
 } from '@shared/favoriteLedgers'
-import type { FavoriteLedgerRuleType } from '@shared/types'
+import type { FavoriteLedger, FavoriteLedgerRuleType } from '@shared/types'
 
 export type FavoriteLedgerInsightSignal = {
   name: string
@@ -20,6 +21,7 @@ export type FavoriteLedgerCandidateKind = 'author' | 'tag-cluster' | 'category' 
 export type FavoriteLedgerCandidateConfidence = 'high' | 'medium'
 
 export type FavoriteLedgerCandidate = {
+  id?: string
   kind: FavoriteLedgerCandidateKind
   sourceName: string
   displayName: string
@@ -161,9 +163,13 @@ function candidateKey(kind: FavoriteLedgerCandidateKind, sourceName: string): st
   return `${kind}:${sourceName.toLocaleLowerCase()}`
 }
 
-function hasExistingLedger(displayName: string, existingLedgerNames: string[]): boolean {
-  const normalizedDisplayName = normalizeManagedLedgerName(displayName)
-  return existingLedgerNames.some((name) => normalizeManagedLedgerName(name) === normalizedDisplayName)
+export function favoriteLedgerCandidateId(
+  kind: FavoriteLedgerCandidateKind,
+  sourceName: string
+): string {
+  return `custom-${kind}-${sourceName
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-|-$/g, '')}`
 }
 
 function isDeletedAccountPlaceholder(value: string): boolean {
@@ -174,6 +180,29 @@ function normalizeManagedLedgerName(displayName: string): string {
   return isBilimiManagedLedgerName(displayName)
     ? `${BILIMI_LEDGER_PREFIX}${stripBilimiLedgerPrefix(displayName)}`
     : displayName.trim()
+}
+
+function candidateMatchesExistingLedger(
+  candidate: FavoriteLedgerCandidate,
+  ledger: FavoriteLedger
+): boolean {
+  if (!ledger.enabled && !ledger.bilibiliFolderId) return false
+  if (ledger.id === candidate.id) return true
+
+  if (
+    candidate.kind === 'author' &&
+    ledger.ruleType === 'author' &&
+    ledger.keywords.some((keyword) => cleanText(keyword) === cleanText(candidate.sourceName))
+  ) {
+    return true
+  }
+
+  const finalDisplayName = candidate.kind === 'author'
+    ? createRecommendedFavoriteLedgerName(candidate.sourceName, [])
+    : candidate.displayName
+  const normalizedExistingName = normalizeManagedLedgerName(ledger.displayName)
+  return normalizedExistingName === normalizeManagedLedgerName(finalDisplayName) ||
+    normalizedExistingName === normalizeManagedLedgerName(candidate.displayName)
 }
 
 function confidence(count: number, totalVideos: number): FavoriteLedgerCandidateConfidence {
@@ -204,6 +233,7 @@ function buildTagClusters(videos: FavoriteSourceVideo[], totalVideos: number): F
     const keywords = keyword ? [keyword] : []
 
     return {
+      id: favoriteLedgerCandidateId('tag-cluster', tag.name),
       kind: 'tag-cluster',
       sourceName: tag.name,
       displayName: `${BILIMI_LEDGER_PREFIX}${displaySuffix}`,
@@ -224,6 +254,7 @@ function buildSeriesCandidates(
     .filter((series) => series.count >= 3)
     .slice(0, 2)
     .map((series) => ({
+      id: favoriteLedgerCandidateId('series', series.name),
       kind: 'series' as const,
       sourceName: series.name,
       displayName: `${BILIMI_LEDGER_PREFIX}${series.name}`,
@@ -242,6 +273,7 @@ function buildAuthorCandidates(
     .filter((author) => author.count >= 2 && !isDeletedAccountPlaceholder(author.name))
     .slice(0, 3)
     .map((author) => ({
+      id: favoriteLedgerCandidateId('author', author.name),
       kind: 'author' as const,
       sourceName: author.name,
       displayName: `${BILIMI_LEDGER_PREFIX}${author.name}追更`,
@@ -261,6 +293,7 @@ function buildCategoryCandidates(
     .filter((category) => category.count > 0)
     .slice(0, 3)
     .map((category) => ({
+      id: favoriteLedgerCandidateId('category', category.name),
       kind: 'category' as const,
       sourceName: category.name,
       displayName: `${BILIMI_LEDGER_PREFIX}${category.name}`,
@@ -273,7 +306,8 @@ function buildCategoryCandidates(
 
 export function createFavoriteLedgerInsights(args: {
   sourceFolders: FavoriteSourceFolder[]
-  existingLedgerNames: string[]
+  existingLedgerNames?: string[]
+  existingLedgers?: FavoriteLedger[]
 }): FavoriteLedgerInsights {
   const videos = flattenVideos(args.sourceFolders)
   const totalVideos = videos.length
@@ -315,12 +349,22 @@ export function createFavoriteLedgerInsights(args: {
     .map(({ name, count }) => ({ name, count }))
   const titleSeries = sortedSignals(titleSeriesCounts)
   const tagClusters = buildTagClusters(videos, totalVideos)
+  const existingLedgers = args.existingLedgers ?? (args.existingLedgerNames ?? []).map(
+    (displayName, index): FavoriteLedger => ({
+      id: `legacy-existing-${index}`,
+      displayName,
+      keywords: [],
+      enabled: true,
+      priority: index,
+      isDefault: false
+    })
+  )
   const candidates = [
     ...tagClusters,
     ...buildSeriesCandidates(titleSeries, totalVideos),
     ...buildCategoryCandidates(topCategories, totalVideos),
     ...buildAuthorCandidates(topAuthors, totalVideos)
-  ].filter((candidate) => !hasExistingLedger(candidate.displayName, args.existingLedgerNames))
+  ].filter((candidate) => !existingLedgers.some((ledger) => candidateMatchesExistingLedger(candidate, ledger)))
 
   return {
     totalVideos,
