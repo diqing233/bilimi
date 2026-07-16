@@ -2,6 +2,7 @@ type OldFavoriteRuntimeStore = {
   values: Map<string, unknown>
   revisions: Map<string, number>
   listeners: Set<() => void>
+  keyListeners: Map<string, Set<() => void>>
   handlers: Map<string, (...args: never[]) => unknown>
   accountMid: string
   bridgeSubscribed: boolean
@@ -20,6 +21,7 @@ function getStore(): OldFavoriteRuntimeStore {
     values: new Map(),
     revisions: new Map(),
     listeners: new Set(),
+    keyListeners: new Map(),
     handlers: new Map(),
     accountMid: '',
     bridgeSubscribed: false
@@ -33,8 +35,13 @@ function canUseMainRuntime(key: string): boolean {
   return key !== 'deepSeekArchiveRunId'
 }
 
-function notifyRuntimeListeners(store: OldFavoriteRuntimeStore) {
+function notifyRuntimeListeners(store: OldFavoriteRuntimeStore, key?: string) {
   store.listeners.forEach((listener) => listener())
+  if (key) {
+    store.keyListeners.get(key)?.forEach((listener) => listener())
+  } else {
+    store.keyListeners.forEach((listeners) => listeners.forEach((listener) => listener()))
+  }
 }
 
 function clearAccountScopedRuntime(store: OldFavoriteRuntimeStore) {
@@ -68,7 +75,7 @@ function ensureBridgeSubscription(store: OldFavoriteRuntimeStore) {
     store.values.set(message.key, message.value)
     store.revisions.set(message.key, message.revision)
     store.accountMid = message.accountMid
-    notifyRuntimeListeners(store)
+    notifyRuntimeListeners(store, message.key)
   })
 }
 
@@ -76,6 +83,17 @@ export function subscribeOldFavoriteRuntime(listener: () => void) {
   const store = getStore()
   store.listeners.add(listener)
   return () => store.listeners.delete(listener)
+}
+
+export function subscribeOldFavoriteRuntimeKey(key: string, listener: () => void) {
+  const store = getStore()
+  const listeners = store.keyListeners.get(key) ?? new Set<() => void>()
+  listeners.add(listener)
+  store.keyListeners.set(key, listeners)
+  return () => {
+    listeners.delete(listener)
+    if (listeners.size === 0) store.keyListeners.delete(key)
+  }
 }
 
 export function getOldFavoriteRuntimeValue<T>(key: string, initialValue: T | (() => T)): T {
@@ -121,8 +139,26 @@ export function setOldFavoriteRuntimeValue<T>(
   if (result?.accountMid) {
     store.accountMid = result.accountMid
   }
-  notifyRuntimeListeners(store)
+  notifyRuntimeListeners(store, key)
   return result?.accepted ?? true
+}
+
+export function setOldFavoriteTransientRuntimeValue<T>(key: string, value: T): boolean {
+  const store = getStore()
+  const currentValue = store.values.get(key) as T
+  if (Object.is(currentValue, value)) return false
+  const revision = store.revisions.get(key) ?? 0
+  store.values.set(key, value)
+  store.revisions.set(key, revision + 1)
+  notifyRuntimeListeners(store, key)
+  void window.bilimiDesktop?.setOldFavoriteRuntimeTransientValue?.(key, value, revision)
+    .then((result) => {
+      if (!result || result.accepted) return
+      store.values.set(key, result.value)
+      store.revisions.set(key, result.revision)
+      notifyRuntimeListeners(store, key)
+    })
+  return true
 }
 
 export function bindOldFavoriteRuntimeAccount(accountMid: string): boolean {
@@ -184,4 +220,5 @@ export function resetOldFavoriteRuntimeSession() {
   store.handlers.clear()
   store.accountMid = ''
   notifyRuntimeListeners(store)
+  store.keyListeners.clear()
 }

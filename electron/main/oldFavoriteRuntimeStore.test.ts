@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import { OldFavoriteRuntimeStore } from './oldFavoriteRuntimeStore'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { OldFavoriteRuntimeStore, TransientCheckpointScheduler } from './oldFavoriteRuntimeStore'
 
 describe('OldFavoriteRuntimeStore', () => {
+  afterEach(() => vi.useRealTimers())
+
   function memoryBackend() {
     const values = new Map<string, unknown>()
     return {
@@ -109,5 +111,39 @@ describe('OldFavoriteRuntimeStore', () => {
       value: 'connected'
     })
     expect(store.get('oldFavoriteRuntimeStatus', null)).toMatchObject({ revision: 0, value: null })
+  })
+
+  it('keeps high-frequency scan progress in memory until an explicit checkpoint', () => {
+    const backend = memoryBackend()
+    const store = new OldFavoriteRuntimeStore(backend)
+    store.bindAccount('42')
+    store.set('preview', { items: Array.from({ length: 2_000 }, (_, aid) => ({ aid })) }, 0)
+
+    store.setTransient('scanProgress', { completed: 25 }, 0)
+    store.setTransient('scanProgress', { completed: 26 }, 1)
+    const reopenedBeforeCheckpoint = new OldFavoriteRuntimeStore(backend)
+    reopenedBeforeCheckpoint.bindAccount('42')
+
+    expect(reopenedBeforeCheckpoint.get('scanProgress', null).value).toBeNull()
+    expect(store.checkpoint(['scanProgress'])).toBe(true)
+    const reopenedAfterCheckpoint = new OldFavoriteRuntimeStore(backend)
+    reopenedAfterCheckpoint.bindAccount('42')
+    expect(reopenedAfterCheckpoint.get('scanProgress', null).value).toEqual({ completed: 26 })
+  })
+
+  it('checkpoints continuous transient updates four seconds after the first dirty write', () => {
+    vi.useFakeTimers()
+    const checkpoint = vi.fn()
+    const scheduler = new TransientCheckpointScheduler(checkpoint, 4_000)
+
+    scheduler.markDirty('scanProgress')
+    vi.advanceTimersByTime(1_500)
+    scheduler.markDirty('scanProgress')
+    vi.advanceTimersByTime(1_500)
+    scheduler.markDirty('scanProgress')
+    vi.advanceTimersByTime(1_000)
+
+    expect(checkpoint).toHaveBeenCalledTimes(1)
+    expect(checkpoint).toHaveBeenCalledWith(['scanProgress'])
   })
 })

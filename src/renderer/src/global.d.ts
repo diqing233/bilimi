@@ -67,6 +67,11 @@ type BilimiDesktopApi = {
     value: unknown,
     expectedRevision: number
   ) => OldFavoriteRuntimeSetResult
+  setOldFavoriteRuntimeTransientValue?: (
+    key: string,
+    value: unknown,
+    expectedRevision: number
+  ) => Promise<OldFavoriteRuntimeSetResult>
   bindOldFavoriteRuntimeAccount?: (accountMid: string) => boolean
   readBilibiliAccountMid?: () => Promise<string>
   resetOldFavoriteRuntime?: () => boolean
@@ -132,6 +137,7 @@ type BilimiDesktopApi = {
   readOldFavoriteTagEnrichment?: (action?: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan') => Promise<{
     accountMid?: string
     sourceFolders: import('./features/favorites/favoriteLedgerPreview').FavoriteSourceFolder[]
+    discoveredAids?: number[]
     scanProgress: NonNullable<FavoriteLedgerPreview['scanProgress']>
   }>
   upsertPendingFavoriteQueueItems?: (

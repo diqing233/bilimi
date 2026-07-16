@@ -501,9 +501,17 @@ export function buildOldFavoriteTagEnrichmentScript(
       void (async () => {
         let activeAid = null;
         let activeAidFailures = 0;
+        let completedSinceCheckpoint = 0;
+        let lastCheckpointAt = Date.now();
+        let checkpointDirty = false;
         while (true) {
-          try { store = JSON.parse(localStorage.getItem(key) || '{}'); } catch { break; }
-          if (!Array.isArray(store.queue) || !store.queue.length || store.progress?.status === 'paused') break;
+          let controlledStore;
+          try { controlledStore = JSON.parse(localStorage.getItem(key) || '{}'); } catch { break; }
+          if (Number(controlledStore.controlRevision || 0) !== Number(store.controlRevision || 0)) {
+            store = controlledStore;
+            break;
+          }
+          if (!Array.isArray(store.queue) || !store.queue.length || controlledStore.progress?.status === 'paused') break;
           const aid = store.queue[0];
           if (activeAid !== aid) {
             activeAid = aid;
@@ -550,7 +558,14 @@ export function buildOldFavoriteTagEnrichmentScript(
             store.progress.status = store.queue.length ? 'running' : 'complete';
             activeAid = null;
             activeAidFailures = 0;
-            writeStore();
+            completedSinceCheckpoint += 1;
+            checkpointDirty = true;
+            if (store.queue.length === 0 || completedSinceCheckpoint >= 25 || Date.now() - lastCheckpointAt >= 4000) {
+              writeStore();
+              completedSinceCheckpoint = 0;
+              lastCheckpointAt = Date.now();
+              checkpointDirty = false;
+            }
           } catch (error) {
             let controlledStore;
             try { controlledStore = JSON.parse(localStorage.getItem(key) || '{}'); } catch { controlledStore = store; }
@@ -580,6 +595,7 @@ export function buildOldFavoriteTagEnrichmentScript(
             await new Promise((resolve) => setTimeout(resolve, Math.min(8000, 750 * (2 ** activeAidFailures))));
           }
         }
+        if (checkpointDirty) writeStore();
         window.__bilimiOldFavoriteTagWorkerRunning = false;
         let handoffStore;
         try { handoffStore = JSON.parse(localStorage.getItem(key) || '{}'); } catch { handoffStore = {}; }
@@ -621,6 +637,35 @@ export function buildOldFavoriteTagEnrichmentScript(
     }
     if (${JSON.stringify(action)} !== 'progress' || progressWasNormalized) writeStore();
     if (${JSON.stringify(action)} === 'resume') startWorker();
+    const progressReadCursorKey = '__bilimiOldFavoriteProgressReadCursor';
+    const readySegmentCursorKey = '__bilimiOldFavoriteReadySegmentCursor';
+    const sourceUpdateCursorKey = '__bilimiOldFavoriteSourceUpdateCursor';
+    const allDiscoveredAids = Array.isArray(store.lastScan?.discoveredAids)
+      ? store.lastScan.discoveredAids
+      : [];
+    const progressCursor = ${JSON.stringify(action)} === 'progress'
+      ? Math.max(0, Number(window[progressReadCursorKey] || 0))
+      : 0;
+    const discoveredAids = ${JSON.stringify(action)} === 'progress'
+      ? allDiscoveredAids.slice(progressCursor)
+      : allDiscoveredAids;
+    if (${JSON.stringify(action)} === 'progress') window[progressReadCursorKey] = allDiscoveredAids.length;
+    const allReadySegments = Array.isArray(store.lastScan?.readySegments) ? store.lastScan.readySegments : [];
+    const readySegmentCursor = ${JSON.stringify(action)} === 'progress'
+      ? Math.max(0, Number(window[readySegmentCursorKey] || 0))
+      : 0;
+    const readySegments = ${JSON.stringify(action)} === 'progress'
+      ? allReadySegments.slice(readySegmentCursor)
+      : allReadySegments;
+    if (${JSON.stringify(action)} === 'progress') window[readySegmentCursorKey] = allReadySegments.length;
+    const allSourceUpdates = Array.isArray(store.lastScan?.sourceUpdates) ? store.lastScan.sourceUpdates : [];
+    const sourceUpdateCursor = ${JSON.stringify(action)} === 'progress'
+      ? Math.max(0, Number(window[sourceUpdateCursorKey] || 0))
+      : 0;
+    const sourceUpdates = ${JSON.stringify(action)} === 'progress'
+      ? allSourceUpdates.slice(sourceUpdateCursor)
+      : allSourceUpdates;
+    if (${JSON.stringify(action)} === 'progress') window[sourceUpdateCursorKey] = allSourceUpdates.length;
     const sourceFolders = ${JSON.stringify(action)} === 'progress' ? [] : (store.lastScan?.sourceFolders || []).map((folder) => ({
       ...folder,
       videos: (folder.videos || []).map((video) => ({
@@ -633,6 +678,9 @@ export function buildOldFavoriteTagEnrichmentScript(
     return {
       accountMid: currentAccountMid,
       sourceFolders,
+      discoveredAids,
+      readySegments,
+      sourceUpdates,
       scanProgress: {
         basic: store.lastScan?.basic || { completed: 0, total: 0, status: 'complete' },
         tags: store.progress
@@ -841,6 +889,9 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
             basic: { completed: 0, total: 0, status: 'running', runId: scanRunId, phase: 'listing' }
           };
           localStorage.setItem(tagStoreKey, JSON.stringify(initialStore));
+          window.__bilimiOldFavoriteProgressReadCursor = 0;
+          window.__bilimiOldFavoriteReadySegmentCursor = 0;
+          window.__bilimiOldFavoriteSourceUpdateCursor = 0;
           scanControl = { revision: scanRevision, cancelled: false };
           window.__bilimiOldFavoriteScanControl = scanControl;
         }
@@ -1022,17 +1073,34 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
         const missingTagAids = new Set();
         const cacheHitAids = new Set();
         const discoveredVideoAids = new Set();
+        const streamingAidOwners = new Map();
+        const streamingSegments = [];
+        const streamingSourceUpdates = [];
+        const streamingSettlements = [];
+        let streamingSettlementTail = Promise.resolve();
+        let streamingGloballyPaused = false;
+        let streamingStopped = false;
+        let streamingOpen = null;
         let inProgressFolderAids = new Set();
+        let lastBasicCheckpointAt = -1;
         const persistBasicProgress = (status = 'running', location = {}) => {
+          const visibleAids = new Set([...discoveredVideoAids, ...inProgressFolderAids]);
+          const now = Date.now();
+          if (
+            status === 'running' &&
+            lastBasicCheckpointAt >= 0 &&
+            visibleAids.size % 2000 !== 0 &&
+            now - lastBasicCheckpointAt < 4000
+          ) return;
           const latest = readTagStore();
           if (Number(latest.controlRevision || 0) !== scanRevision) return;
-          const visibleAids = new Set([...discoveredVideoAids, ...inProgressFolderAids]);
           const previousTotal = latest.lastScan?.basic?.runId === scanRunId
             ? Number(latest.lastScan?.basic?.total || 0)
             : 0;
           latest.lastScan = {
             ...(latest.lastScan ?? {}),
             sourceFolders: latest.lastScan?.sourceFolders ?? [],
+            discoveredAids: Array.from(visibleAids),
             basic: {
               completed: visibleAids.size,
               total: Math.max(visibleAids.size, previousTotal),
@@ -1042,6 +1110,133 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
             }
           };
           writeTagStore(latest);
+          lastBasicCheckpointAt = now;
+        };
+        const persistStreamingSegments = () => {
+          const latest = readTagStore();
+          if (Number(latest.controlRevision || 0) !== scanRevision) return;
+          latest.lastScan = {
+            ...(latest.lastScan || {}),
+            readySegments: streamingSegments.filter((segment) => segment.status === 'ready'),
+            sourceUpdates: streamingSourceUpdates
+          };
+          writeTagStore(latest);
+        };
+        const settleStreamingSegment = async (segment) => {
+          const controlStopped = () => {
+            if (streamingStopped || scanWasCancelled()) return true;
+            const latest = readTagStore();
+            return Number(latest.controlRevision || 0) !== scanRevision;
+          };
+          const unresolved = segment.sourceFolders.flatMap((folder) => folder.videos)
+            .filter((video) => !Array.isArray(video.tags) || video.tags.length === 0);
+          let globallyPaused = false;
+          for (const video of unresolved) {
+            if (controlStopped()) {
+              streamingStopped = true;
+              break;
+            }
+            let settledTags = [];
+            for (let attempt = 1; attempt <= 3; attempt += 1) {
+              if (controlStopped()) {
+                streamingStopped = true;
+                break;
+              }
+              try {
+                await paceInitialTagRequest();
+                const response = await fetchWithTimeout(buildTagUrl(video.aid));
+                if (controlStopped()) {
+                  streamingStopped = true;
+                  break;
+                }
+                const json = await ensureApiOk(response, 'video tag list for ' + video.aid);
+                const rawTags = Array.isArray(json.data)
+                  ? json.data
+                  : (Array.isArray(json.data?.tags) ? json.data.tags : []);
+                settledTags = readQueuedTagList(rawTags);
+                tagStore.cache[String(video.aid)] = { tags: settledTags, updatedAt: Date.now() };
+                missingTagAids.delete(video.aid);
+                cacheHitAids.add(video.aid);
+                break;
+              } catch (error) {
+                const message = String(error?.message || error || '');
+                if (/(-101|-352|-412|-509|risk|too fast|login|returned HTML)/i.test(message)) {
+                  globallyPaused = true;
+                  streamingGloballyPaused = true;
+                  break;
+                }
+                if (attempt < 3) {
+                  await wait(Math.min(8000, 750 * (2 ** attempt)));
+                  if (controlStopped()) {
+                    streamingStopped = true;
+                    break;
+                  }
+                }
+              }
+            }
+            if (streamingStopped) break;
+            video.tags = settledTags;
+            if (globallyPaused) break;
+          }
+          segment.status = globallyPaused || streamingStopped ? 'paused' : 'ready';
+          persistStreamingSegments();
+        };
+        const enqueueStreamingSettlement = (segment) => {
+          const settlement = streamingSettlementTail.then(() => {
+            if (streamingStopped) {
+              segment.status = 'paused';
+              persistStreamingSegments();
+              return;
+            }
+            return settleStreamingSegment(segment);
+          });
+          streamingSettlementTail = settlement.catch(() => undefined);
+          streamingSettlements.push(settlement);
+        };
+        const recordStreamingVideos = (folderId, folderTitle, videos) => {
+          if (payload.aid) return;
+          for (const video of videos) {
+            const owner = streamingAidOwners.get(video.aid);
+            if (owner) {
+              const relationKey = owner.sources.join(':') + ':' + String(folderId);
+              if (!owner.sources.includes(String(folderId))) {
+                owner.sources.push(String(folderId));
+                streamingSourceUpdates.push({
+                  aid: video.aid,
+                  segmentIndex: owner.segmentIndex,
+                  folderId: String(folderId),
+                  folderTitle: String(folderTitle || folderId),
+                  relationKey
+                });
+              }
+              continue;
+            }
+            if (!streamingOpen) {
+              streamingOpen = {
+                index: streamingSegments.length,
+                status: 'running',
+                aids: [],
+                sourceFolders: []
+              };
+              streamingSegments.push(streamingOpen);
+            }
+            let sourceFolder = streamingOpen.sourceFolders.find((folder) => folder.id === String(folderId));
+            if (!sourceFolder) {
+              sourceFolder = { id: String(folderId), title: String(folderTitle || ''), videos: [] };
+              streamingOpen.sourceFolders.push(sourceFolder);
+            }
+            streamingOpen.aids.push(video.aid);
+            sourceFolder.videos.push(video);
+            streamingAidOwners.set(video.aid, {
+              segmentIndex: streamingOpen.index,
+              sources: [String(folderId)]
+            });
+            if (streamingOpen.aids.length === 2_000) {
+              streamingOpen.status = 'tagging';
+              enqueueStreamingSettlement(streamingOpen);
+              streamingOpen = null;
+            }
+          }
         };
         const scanWasCancelled = () => {
           return scanControlWasCancelled();
@@ -1322,6 +1517,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
             pageChunks.push({ page, videos: pageVideos });
             if (!payload.aid && applyBatchLimit) {
               for (const video of businessPageVideos) inProgressFolderAids.add(video.aid);
+              recordStreamingVideos(folderId, folderTitle, businessPageVideos);
             }
             if (payload.aid || !scanWasCancelled()) onPageComplete(page);
 
@@ -1603,6 +1799,13 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
         }
         const resumableBatchCursor = ordinaryFailureCursor ?? nextBatchCursor;
 
+        if (!payload.aid && streamingOpen && streamingOpen.aids.length > 0) {
+          streamingOpen.status = 'tagging';
+          if (streamingOpen.aids.length >= 1_000) enqueueStreamingSettlement(streamingOpen);
+          streamingOpen = null;
+        }
+        if (!payload.aid && streamingSettlements.length > 0) await Promise.all(streamingSettlements);
+
         const completeSourceFolders = sourceFolders.filter((folder) => folder.scanFailed !== true);
         const uniqueVideos = new Map();
         const knownTagsByAid = new Map();
@@ -1633,6 +1836,9 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
         tagStore.queue = queuedAids;
         tagStore.lastScan = {
           sourceFolders,
+          readySegments: streamingSegments.filter((segment) => segment.status === 'ready'),
+          pendingSegments: streamingSegments.filter((segment) => segment.status !== 'ready'),
+          sourceUpdates: streamingSourceUpdates,
           basic: {
             completed: uniqueVideos.size,
             total: uniqueVideos.size,
@@ -1648,7 +1854,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           cacheHits: Array.from(cacheHitAids).filter((aid) => uniqueVideos.has(aid)).length,
           succeeded: 0,
           failed: 0,
-          status: queuedAids.length > 0 ? 'running' : 'complete'
+          status: queuedAids.length > 0 ? (streamingGloballyPaused ? 'paused' : 'running') : 'complete'
         };
         if (!payload.aid && savedBatchCursorInvalid) {
           delete tagStore.batchCursor;

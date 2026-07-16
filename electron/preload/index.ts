@@ -77,6 +77,13 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
       value,
       expectedRevision
     ) as OldFavoriteRuntimeSetResult,
+  setOldFavoriteRuntimeTransientValue: (key: string, value: unknown, expectedRevision: number) =>
+    ipcRenderer.invoke(
+      'old-favorite-runtime:set-transient',
+      key,
+      value,
+      expectedRevision
+    ) as Promise<OldFavoriteRuntimeSetResult>,
   bindOldFavoriteRuntimeAccount: (accountMid: string) =>
     ipcRenderer.sendSync('old-favorite-runtime:bind-account', accountMid) as boolean,
   readBilibiliAccountMid: () => ipcRenderer.invoke('bilibili:account-mid') as Promise<string>,

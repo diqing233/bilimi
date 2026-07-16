@@ -45,8 +45,30 @@ function decodeRuntimeValue(value: unknown): unknown {
 
 const ACCOUNT_INDEPENDENT_KEYS = new Set(['deepSeekConnectionStatus'])
 
+export class TransientCheckpointScheduler {
+  private readonly dirtyKeys = new Set<string>()
+  private timer: ReturnType<typeof setTimeout> | null = null
+
+  constructor(
+    private readonly checkpoint: (keys: string[]) => void,
+    private readonly delayMs: number
+  ) {}
+
+  markDirty(key: string): void {
+    this.dirtyKeys.add(key)
+    if (this.timer) return
+    this.timer = setTimeout(() => {
+      this.timer = null
+      const keys = [...this.dirtyKeys]
+      this.dirtyKeys.clear()
+      this.checkpoint(keys)
+    }, this.delayMs)
+  }
+}
+
 export class OldFavoriteRuntimeStore {
   private readonly values = new Map<string, VersionedValue>()
+  private readonly transientKeys = new Set<string>()
   private accountMid = ''
 
   constructor(private readonly backend?: OldFavoriteRuntimeStoreBackend) {}
@@ -67,8 +89,27 @@ export class OldFavoriteRuntimeStore {
 
     const next = { revision: current.revision + 1, value }
     this.values.set(key, next)
+    this.transientKeys.delete(key)
     this.persist()
     return { ...this.snapshotFrom(key, next), accepted: true }
+  }
+
+  setTransient(key: string, value: unknown, expectedRevision: number): OldFavoriteRuntimeSetResult {
+    const current = this.values.get(key) ?? { revision: 0, value: undefined }
+    if (current.revision !== expectedRevision) {
+      return { ...this.snapshotFrom(key, current), accepted: false }
+    }
+    const next = { revision: current.revision + 1, value }
+    this.values.set(key, next)
+    this.transientKeys.add(key)
+    return { ...this.snapshotFrom(key, next), accepted: true }
+  }
+
+  checkpoint(keys: string[]): boolean {
+    let changed = false
+    for (const key of keys) changed = this.transientKeys.delete(key) || changed
+    if (changed) this.persist()
+    return changed
   }
 
   bindAccount(accountMid: string): boolean {
@@ -92,6 +133,7 @@ export class OldFavoriteRuntimeStore {
 
   reset(): void {
     this.values.clear()
+    this.transientKeys.clear()
     this.accountMid = ''
     this.backend?.set(STORE_KEY, { accounts: {}, global: {} } satisfies PersistedRuntimeState)
   }
@@ -131,6 +173,7 @@ export class OldFavoriteRuntimeStore {
   }
 
   private loadBoundAccount(): void {
+    this.transientKeys.clear()
     if (!this.backend) {
       for (const key of this.values.keys()) {
         if (!ACCOUNT_INDEPENDENT_KEYS.has(key)) this.values.delete(key)
@@ -152,6 +195,7 @@ export class OldFavoriteRuntimeStore {
     const accountValues: Record<string, VersionedValue> = {}
     const globalValues: Record<string, VersionedValue> = {}
     for (const [key, entry] of this.values) {
+      if (this.transientKeys.has(key)) continue
       if (ACCOUNT_INDEPENDENT_KEYS.has(key)) globalValues[key] = entry
       else if (this.accountMid) accountValues[key] = entry
     }

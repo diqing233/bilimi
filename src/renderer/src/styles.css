@@ -3480,24 +3480,51 @@ body[data-floating-window="true"],
 }
 
 .favorite-ledger-panel__batch-switcher {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   flex: 1 1 0;
   min-width: 0;
   max-width: 100%;
-  align-items: center;
-  justify-content: flex-end;
+  align-items: stretch;
   gap: 6px;
 }
 
 .favorite-ledger-panel__batch-switcher button,
 .favorite-ledger-panel__batch-switcher select {
-  flex: 1 1 0;
   min-width: 0;
-  max-width: 180px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+}
+.favorite-ledger-panel__batch-switcher > select[aria-label="当前整理批次"] {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  width: 100%;
+}
+.favorite-ledger-panel__batch-switcher > button {
+  grid-column: 2;
+  grid-row: 2;
+  min-height: 44px;
+  padding-inline: 12px;
+}
+.favorite-ledger-panel__batch-switcher > .favorite-ledger-panel__batch-select {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  width: 100%;
+}
+.favorite-ledger-panel__batch-switcher > .favorite-ledger-panel__segment-select {
+  grid-column: 1;
+  grid-row: 2;
+}
+.favorite-ledger-panel__batch-switcher > select[aria-label="当前性能分段"] {
+  grid-column: 1;
+  grid-row: 2;
+}
+.favorite-ledger-panel__incremental-dialog {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .favorite-ledger-panel__toolbar {
   display: grid;

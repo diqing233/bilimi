@@ -407,6 +407,27 @@ describe('favorite ledger API scripts', () => {
     vi.useRealTimers()
   })
 
+  it('checkpoints a successful tag batch once instead of serializing the full store per aid', async () => {
+    vi.useFakeTimers()
+    installCookies()
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
+      accountMid: '42', cache: {}, queue: [1, 2, 3], controlRevision: 0,
+      progress: { completed: 0, total: 3, pending: 3, cacheHits: 0, succeeded: 0, failed: 0, status: 'paused' }
+    }))
+    const writes = vi.spyOn(Storage.prototype, 'setItem')
+    vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: 0, data: [{ tag_name: '标签' }] })))
+
+    await window.eval(buildOldFavoriteTagEnrichmentScript('resume'))
+    await vi.advanceTimersByTimeAsync(5_000)
+
+    const tagStoreWrites = writes.mock.calls.filter(([key]) => key === 'bilimi:old-favorite-tag-enrichment:v1')
+    expect(tagStoreWrites).toHaveLength(2)
+    const stored = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+    expect(stored.queue).toEqual([])
+    expect(stored.progress).toMatchObject({ completed: 3, pending: 0, succeeded: 3, status: 'complete' })
+    vi.useRealTimers()
+  })
+
   it.each([
     ['html login response', () => new Response('<!DOCTYPE html><html>login</html>', { headers: { 'content-type': 'text/html' } })],
     ['not logged in response', () => Response.json({ code: -101, message: '账号未登录' })],
@@ -3903,7 +3924,7 @@ describe('favorite ledger API scripts', () => {
     await expect(scanPromise).resolves.toMatchObject({ cancelled: true })
   })
 
-  it('persists page-one discoveries while page two is still pending', async () => {
+  it('throttles page discoveries instead of rewriting the checkpoint for every page', async () => {
     installCookies()
     localStorage.clear()
     let pageTwoRequested = false
@@ -3921,9 +3942,10 @@ describe('favorite ledger API scripts', () => {
 
     const scanPromise = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
     await vi.waitFor(() => expect(pageTwoRequested).toBe(true))
-    const basic = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}').lastScan.basic
+    const checkpoint = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}').lastScan
 
-    expect(basic).toMatchObject({ completed: 1, total: 1, folderId: '101', page: 2, attempt: 1, phase: 'requesting' })
+    expect(checkpoint.basic).toMatchObject({ completed: 0, total: 0, folderId: '101', page: 1, attempt: 1, phase: 'requesting' })
+    expect(checkpoint.discoveredAids ?? []).toEqual([])
     await window.eval(buildOldFavoriteTagEnrichmentScript('cancel-scan'))
     await expect(scanPromise).resolves.toMatchObject({ cancelled: true })
   })
@@ -4150,6 +4172,264 @@ describe('favorite ledger API scripts', () => {
     expect(store.batchCursor).toBeUndefined()
     expect(store.batchSeenAids).toBeUndefined()
     expect(requestedPages.at(-1)).toBe(151)
+  })
+
+  it('publishes the first frozen 2000-video segment before the remaining scan finishes', async () => {
+    installCookies()
+    localStorage.clear()
+    let releasePage101: (() => void) | undefined
+    const page101Blocked = new Promise<void>((resolve) => { releasePage101 = resolve })
+    let reachedPage101: (() => void) | undefined
+    const page101Reached = new Promise<void>((resolve) => { reachedPage101 = resolve })
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({
+          code: 0,
+          data: { list: [{ id: 101, title: '三万条收藏', media_count: 30_000 }] }
+        })
+      }
+      const page = Number(new URL(url).searchParams.get('pn'))
+      if (page === 101) {
+        reachedPage101?.()
+        await page101Blocked
+      }
+      const firstAid = (page - 1) * 20 + 1
+      return Response.json({ code: 0, data: {
+        medias: Array.from({ length: 20 }, (_, index) => ({
+          id: firstAid + index,
+          title: `第 ${firstAid + index} 条`,
+          type: 2,
+          tags: ['现成标签']
+        })),
+        has_more: page < 1500
+      } })
+    }))
+
+    const scanPromise = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    await page101Reached
+    const firstProgress = await window.eval(buildOldFavoriteTagEnrichmentScript('progress'))
+    const secondProgress = await window.eval(buildOldFavoriteTagEnrichmentScript('progress'))
+
+    expect(firstProgress.scanProgress.basic.status).toBe('running')
+    expect(firstProgress.discoveredAids).toHaveLength(2_000)
+    expect(secondProgress.discoveredAids).toEqual([])
+    expect(firstProgress.readySegments).toHaveLength(1)
+    expect(firstProgress.readySegments[0]).toMatchObject({ index: 0, status: 'ready' })
+    expect(firstProgress.readySegments[0].aids).toHaveLength(2_000)
+    expect(firstProgress.readySegments[0].sourceFolders[0].videos).toHaveLength(2_000)
+    expect(secondProgress.readySegments).toEqual([])
+    expect(secondProgress.sourceUpdates).toEqual([])
+
+    await window.eval(buildOldFavoriteTagEnrichmentScript('cancel-scan'))
+    releasePage101?.()
+    await scanPromise
+  })
+
+  it('settles missing tags for a frozen segment while later discovery remains blocked', async () => {
+    installCookies()
+    localStorage.clear()
+    let releasePage101: (() => void) | undefined
+    const page101Blocked = new Promise<void>((resolve) => { releasePage101 = resolve })
+    let reachedPage101: (() => void) | undefined
+    const page101Reached = new Promise<void>((resolve) => { reachedPage101 = resolve })
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '流水收藏', media_count: 2020 }] } })
+      }
+      if (url.includes('/x/tag/archive/tags')) {
+        return Response.json({ code: 0, data: [{ tag_name: '后台补齐' }] })
+      }
+      const page = Number(new URL(url).searchParams.get('pn'))
+      if (page === 101) {
+        reachedPage101?.()
+        await page101Blocked
+      }
+      const firstAid = (page - 1) * 20 + 1
+      return Response.json({ code: 0, data: {
+        medias: Array.from({ length: 20 }, (_, index) => ({
+          id: firstAid + index,
+          title: `第 ${firstAid + index} 条`,
+          type: 2,
+          ...(firstAid + index === 2000 ? {} : { tags: ['现成标签'] })
+        })),
+        has_more: page < 101
+      } })
+    }))
+
+    const scanPromise = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    await page101Reached
+    let progress
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await Promise.resolve()
+      progress = await window.eval(buildOldFavoriteTagEnrichmentScript('progress'))
+      if (progress.readySegments?.length) break
+    }
+
+    expect(progress.scanProgress.basic.status).toBe('running')
+    expect(progress.readySegments).toHaveLength(1)
+    expect(progress.readySegments[0].sourceFolders[0].videos.at(-1)).toMatchObject({
+      aid: 2000,
+      tags: ['后台补齐']
+    })
+
+    await window.eval(buildOldFavoriteTagEnrichmentScript('cancel-scan'))
+    releasePage101?.()
+    await scanPromise
+  })
+
+  it('keeps the final partial segment pending until its tags reach a terminal state', async () => {
+    installCookies()
+    localStorage.clear()
+    let tagRequests = 0
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '末段收藏', media_count: 1001 }] } })
+      }
+      if (url.includes('/x/tag/archive/tags')) {
+        tagRequests += 1
+        return Response.json({ code: 0, data: [{ tag_name: '末段标签' }] })
+      }
+      return Response.json({ code: 0, data: {
+        medias: Array.from({ length: 1001 }, (_, index) => ({
+          id: index + 1, title: `第 ${index + 1} 条`, type: 2,
+          ...(index === 1000 ? {} : { tags: ['现成标签'] })
+        })),
+        has_more: false
+      } })
+    }))
+
+    await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    const progress = await window.eval(buildOldFavoriteTagEnrichmentScript('progress'))
+
+    expect(progress.readySegments).toHaveLength(1)
+    expect(progress.readySegments[0]).toMatchObject({ status: 'ready' })
+    expect(progress.readySegments[0].sourceFolders[0].videos.at(-1).tags).toEqual(['末段标签'])
+    expect(tagRequests).toBe(1)
+  })
+
+  it('does not enqueue a frozen segment aid again when its streaming tag settles at scan completion', async () => {
+    installCookies()
+    localStorage.clear()
+    let tagRequests = 0
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '完整分段', media_count: 2000 }] } })
+      }
+      if (url.includes('/x/tag/archive/tags')) {
+        tagRequests += 1
+        return Response.json({ code: 0, data: [{ tag_name: '只补一次' }] })
+      }
+      return Response.json({ code: 0, data: {
+        medias: Array.from({ length: 2000 }, (_, index) => ({
+          id: index + 1, title: `第 ${index + 1} 条`, type: 2,
+          ...(index === 1999 ? {} : { tags: ['现成标签'] })
+        })),
+        has_more: false
+      } })
+    }))
+
+    await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    const progress = await window.eval(buildOldFavoriteTagEnrichmentScript('progress'))
+    const store = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+
+    expect(tagRequests).toBe(1)
+    expect(store.queue).toEqual([])
+    expect(progress.readySegments[0].sourceFolders[0].videos.at(-1).tags).toEqual(['只补一次'])
+  })
+
+  it('keeps streaming segment tag requests on one low-speed consumer', async () => {
+    installCookies()
+    localStorage.clear()
+    let activeTagRequests = 0
+    let peakTagRequests = 0
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '双分段', media_count: 4000 }] } })
+      }
+      if (url.includes('/x/tag/archive/tags')) {
+        activeTagRequests += 1
+        peakTagRequests = Math.max(peakTagRequests, activeTagRequests)
+        await Promise.resolve()
+        activeTagRequests -= 1
+        return Response.json({ code: 0, data: [{ tag_name: '串行标签' }] })
+      }
+      return Response.json({ code: 0, data: {
+        medias: Array.from({ length: 4000 }, (_, index) => ({
+          id: index + 1, title: `第 ${index + 1} 条`, type: 2,
+          ...([1999, 3999].includes(index) ? {} : { tags: ['现成标签'] })
+        })),
+        has_more: false
+      } })
+    }))
+
+    await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+
+    expect(peakTagRequests).toBe(1)
+  })
+
+  it('pauses a streaming segment on risk control without requesting later aids or publishing ready', async () => {
+    installCookies()
+    localStorage.clear()
+    const requestedTagAids: number[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '风控分段', media_count: 2000 }] } })
+      }
+      if (url.includes('/x/tag/archive/tags')) {
+        requestedTagAids.push(Number(new URL(url).searchParams.get('aid')))
+        return Response.json({ code: -412, message: 'risk control' })
+      }
+      return Response.json({ code: 0, data: {
+        medias: Array.from({ length: 2000 }, (_, index) => ({
+          id: index + 1, title: `第 ${index + 1} 条`, type: 2,
+          ...(index < 1998 ? { tags: ['现成标签'] } : {})
+        })),
+        has_more: false
+      } })
+    }))
+
+    await window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    const progress = await window.eval(buildOldFavoriteTagEnrichmentScript('progress'))
+
+    expect(requestedTagAids).toEqual([1999])
+    expect(progress.readySegments).toEqual([])
+    expect(progress.scanProgress.tags.status).toBe('paused')
+  })
+
+  it('stops the streaming segment tail when scan cancellation lands during a tag request', async () => {
+    installCookies()
+    localStorage.clear()
+    let resolveFirstTag: ((response: Response) => void) | undefined
+    let firstTagStarted: (() => void) | undefined
+    const firstTagPending = new Promise<void>((resolve) => { firstTagStarted = resolve })
+    const requestedTagAids: number[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/x/v3/fav/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [{ id: 101, title: '可取消分段', media_count: 2000 }] } })
+      }
+      if (url.includes('/x/tag/archive/tags')) {
+        requestedTagAids.push(Number(new URL(url).searchParams.get('aid')))
+        firstTagStarted?.()
+        return new Promise<Response>((resolve) => { resolveFirstTag = resolve })
+      }
+      return Response.json({ code: 0, data: {
+        medias: Array.from({ length: 2000 }, (_, index) => ({
+          id: index + 1, title: `第 ${index + 1} 条`, type: 2,
+          ...(index < 1998 ? { tags: ['现成标签'] } : {})
+        })),
+        has_more: false
+      } })
+    }))
+
+    const scanPromise = window.eval(buildScanOldFavoritesScript(createDefaultFavoriteLedgers().slice(0, 1)))
+    await firstTagPending
+    await window.eval(buildOldFavoriteTagEnrichmentScript('cancel-scan'))
+    resolveFirstTag?.(Response.json({ code: 0, data: [{ tag_name: '过期结果' }] }))
+    await scanPromise
+    const progress = await window.eval(buildOldFavoriteTagEnrichmentScript('progress'))
+
+    expect(requestedTagAids).toEqual([1999])
+    expect(progress.readySegments).toEqual([])
   })
 
   it('fully scans managed membership without consuming business batch capacity', async () => {

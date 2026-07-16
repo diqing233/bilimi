@@ -256,7 +256,7 @@ describe('OldFavoriteSessionOrchestrator', () => {
     })
   })
 
-  it('rebuilds real 1000-2000 item segments after scan while preserving batch identity and snapshot', async () => {
+  it('freezes each 2000-item discovery segment without rebuilding earlier segments', async () => {
     const harness = createHarness()
     const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
     const started = await orchestrator.beginScan({
@@ -265,23 +265,65 @@ describe('OldFavoriteSessionOrchestrator', () => {
       now: '2026-07-16T08:00:00Z',
       snapshot: { selection: { folders: [1] }, currentStep: 'scan' }
     })
-    const aids = Array.from({ length: 3_001 }, (_, index) => index + 1)
-
-    const rebuilt = await orchestrator.completeScan(started.batch.id, aids, {
+    const first = await orchestrator.appendDiscoveredAids(
+      started.batch.id,
+      Array.from({ length: 2_000 }, (_, index) => index + 1)
+    )
+    const frozenFirst = {
+      id: first.segments[0].id,
+      index: first.segments[0].index,
+      aids: structuredClone(first.segments[0].aids)
+    }
+    const discovered = await orchestrator.appendDiscoveredAids(
+      started.batch.id,
+      Array.from({ length: 1_001 }, (_, index) => index + 2_001)
+    )
+    const rebuilt = await orchestrator.completeScan(started.batch.id, {
       statistics: { scanned: 3_001 },
       currentStep: 'preview'
     })
 
     expect(rebuilt.id).toBe(started.batch.id)
     expect(rebuilt.createdAt).toBe(started.batch.createdAt)
-    expect(rebuilt.segments.map((segment) => segment.aids.length)).toEqual([1_500, 1_500, 1])
-    expect(rebuilt.segments[0].id).toBe(started.batch.segments[0].id)
+    expect(first.segments[0]).toMatchObject({
+      aids: expect.any(Array),
+      status: 'running',
+      task: { kind: 'tag', status: 'running', requestState: 'idle' }
+    })
+    expect(first.segments[0].aids).toHaveLength(2_000)
+    expect(discovered.segments.map((segment) => segment.aids.length)).toEqual([2_000, 1_001])
+    expect(rebuilt.segments[0]).toMatchObject(frozenFirst)
+    expect(rebuilt.segments.map((segment) => segment.status)).toEqual(['ready', 'ready'])
     expect(rebuilt.snapshot).toEqual({
       selection: { folders: [1] },
       currentStep: 'preview',
       statistics: { scanned: 3_001 }
     })
     expect(harness.getState().lease).toMatchObject({ batchId: rebuilt.id, task: 'scan' })
+  })
+
+  it('marks one frozen segment ready without changing earlier manual snapshot data', async () => {
+    const harness = createHarness()
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+    const started = await orchestrator.beginScan({
+      accountMid: '42',
+      kind: 'full',
+      now: '2026-07-16T08:00:00Z',
+      snapshot: { preview: { manualDecision: 'keep-me' } }
+    })
+    const discovered = await orchestrator.appendDiscoveredAids(
+      started.batch.id,
+      Array.from({ length: 4_000 }, (_, index) => index + 1)
+    )
+
+    const settled = await orchestrator.markSegmentTagsSettled(started.batch.id, 0)
+
+    expect(settled.segments[0]).toMatchObject({ status: 'ready', task: undefined })
+    expect(settled.segments[1]).toMatchObject({
+      status: 'running',
+      task: { kind: 'tag', status: 'running' }
+    })
+    expect(settled.snapshot).toEqual({ preview: { manualDecision: 'keep-me' } })
   })
 
   it('reports why account mismatch, ended history, and another lease cannot run', async () => {
@@ -320,6 +362,22 @@ describe('OldFavoriteSessionOrchestrator', () => {
       allowed: false,
       reason: 'lease-held'
     })
+  })
+
+  it('discards an empty incremental placeholder without changing earlier batches', async () => {
+    const previous = createOldFavoriteBatch({
+      accountMid: '42', kind: 'full', aids: [1], now: '2026-07-16T07:00:00Z'
+    })
+    const harness = createHarness({ version: 1, batches: [previous], lease: null })
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+    const started = await orchestrator.beginScan({
+      accountMid: '42', kind: 'incremental', now: '2026-07-16T08:00:00Z'
+    })
+
+    await orchestrator.discardBatch(started.batch.id)
+
+    expect(harness.getState().batches).toEqual([previous])
+    expect(harness.getState().lease).toBeNull()
   })
 
   it('returns only result-unknown aids that require reconciliation', async () => {

@@ -145,4 +145,49 @@ describe('oldFavoriteRuntimeSession', () => {
     )
     expect(session.getOldFavoriteRuntimeValue('oldFavoriteRuntimeStatus', null)).toBeNull()
   })
+
+  it('notifies only listeners subscribed to the changed runtime key', async () => {
+    const session = await import('./oldFavoriteRuntimeSession')
+    session.resetOldFavoriteRuntimeSession()
+    const previewListener = vi.fn()
+    const progressListener = vi.fn()
+    session.subscribeOldFavoriteRuntimeKey('preview', previewListener)
+    session.subscribeOldFavoriteRuntimeKey('scanProgress', progressListener)
+
+    session.setOldFavoriteRuntimeValue('scanProgress', { completed: 26 })
+
+    expect(progressListener).toHaveBeenCalledOnce()
+    expect(previewListener).not.toHaveBeenCalled()
+  })
+
+  it('notifies every key subscriber when the runtime is reset', async () => {
+    const session = await import('./oldFavoriteRuntimeSession')
+    const previewListener = vi.fn()
+    const progressListener = vi.fn()
+    session.subscribeOldFavoriteRuntimeKey('preview', previewListener)
+    session.subscribeOldFavoriteRuntimeKey('scanProgress', progressListener)
+
+    session.resetOldFavoriteRuntimeSession()
+
+    expect(previewListener).toHaveBeenCalledOnce()
+    expect(progressListener).toHaveBeenCalledOnce()
+  })
+
+  it('sends lightweight progress through the async transient bridge without writing preview', async () => {
+    const setTransient = vi.fn().mockResolvedValue({
+      key: 'scanProgress', revision: 1, value: { completed: 26 }, accountMid: '42', accepted: true
+    })
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: { setOldFavoriteRuntimeTransientValue: setTransient }
+    })
+    const session = await import('./oldFavoriteRuntimeSession')
+    session.resetOldFavoriteRuntimeSession()
+
+    session.setOldFavoriteTransientRuntimeValue('scanProgress', { completed: 26 })
+    await Promise.resolve()
+
+    expect(setTransient).toHaveBeenCalledWith('scanProgress', { completed: 26 }, 0)
+    expect(session.getOldFavoriteRuntimeValue('scanProgress', null)).toEqual({ completed: 26 })
+  })
 })

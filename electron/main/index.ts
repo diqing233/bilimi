@@ -64,7 +64,7 @@ import { installFloatingSealWhiteStripFix } from './floatingSealWhiteStripFix'
 import { createFloatingSealWindowOptions } from './floatingSealWindowOptions'
 import { toggleFloatingAssistantFromSeal } from './floatingMenuToggleFlow'
 import { FLOATING_ASSISTANT_SIZE } from './floatingAssistantWindowSize'
-import { OldFavoriteRuntimeStore } from './oldFavoriteRuntimeStore'
+import { OldFavoriteRuntimeStore, TransientCheckpointScheduler } from './oldFavoriteRuntimeStore'
 import { OldFavoriteSessionStore } from './oldFavoriteSessionStore'
 import { registerOldFavoriteSessionIpc } from './oldFavoriteSessionIpc'
 import { OldFavoriteBackgroundRuntime } from './oldFavoriteBackgroundRuntime'
@@ -429,6 +429,10 @@ const desktopStoreBackend = {
 }
 const oldFavoriteRuntimeStore = new OldFavoriteRuntimeStore(desktopStoreBackend)
 const oldFavoriteSessionStore = new OldFavoriteSessionStore(desktopStoreBackend)
+const oldFavoriteRuntimeCheckpointScheduler = new TransientCheckpointScheduler(
+  (keys) => oldFavoriteRuntimeStore.checkpoint(keys),
+  4_000
+)
 
 function broadcastOldFavoriteRuntimeSnapshot(snapshot: unknown) {
   for (const target of BrowserWindow.getAllWindows()) {
@@ -908,6 +912,24 @@ function registerAssistantPreferenceHandlers() {
       if (result.accepted) {
         broadcastOldFavoriteRuntimeSnapshot(result)
       }
+    }
+  )
+  ipcMain.handle(
+    'old-favorite-runtime:set-transient',
+    (event, key: string, value: unknown, expectedRevision: number) => {
+      if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
+        throw new Error('Old favorite runtime request came from an untrusted renderer.')
+      }
+      const result = oldFavoriteRuntimeStore.setTransient(key, value, expectedRevision)
+      if (result.accepted) {
+        for (const target of BrowserWindow.getAllWindows()) {
+          if (!target.isDestroyed() && target.webContents.id !== event.sender.id) {
+            target.webContents.send('old-favorite-runtime:changed', result)
+          }
+        }
+        oldFavoriteRuntimeCheckpointScheduler.markDirty(key)
+      }
+      return result
     }
   )
   ipcMain.on('old-favorite-runtime:bind-account', (event, accountMid: string) => {

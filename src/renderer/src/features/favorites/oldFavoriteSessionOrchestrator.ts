@@ -196,22 +196,21 @@ export class OldFavoriteSessionOrchestrator {
 
   async completeScan(
     batchId: string,
-    aids: number[],
     snapshot?: OldFavoriteBatchSnapshot
   ): Promise<OldFavoriteBatch> {
     const state = await this.coordinator.load()
     const current = state.batches.find((batch) => batch.id === batchId)
     if (!current) throw new Error('Old favorite batch was not found.')
 
-    const rebuilt = createOldFavoriteBatch({
-      accountMid: current.accountMid,
-      kind: current.kind,
-      aids,
-      now: current.createdAt,
-      id: current.id,
-      snapshot: mergeSnapshot(current.snapshot, snapshot)
-    })
-    rebuilt.segments = rebuilt.segments.map((segment) => ({ ...segment, status: 'ready' }))
+    const rebuilt: OldFavoriteBatch = {
+      ...current,
+      snapshot: mergeSnapshot(current.snapshot, snapshot),
+      segments: current.segments.map((segment) => ({
+        ...segment,
+        status: 'ready',
+        task: undefined
+      }))
+    }
     const saved = await this.coordinator.save({
       ...state,
       batches: state.batches.map((batch) => (batch.id === batchId ? rebuilt : batch)),
@@ -220,6 +219,75 @@ export class OldFavoriteSessionOrchestrator {
     const persisted = saved.batches.find((batch) => batch.id === batchId)
     if (!persisted) throw new Error('Old favorite batch was not persisted.')
     return persisted
+  }
+
+  async appendDiscoveredAids(batchId: string, candidateAids: number[]): Promise<OldFavoriteBatch> {
+    const state = await this.coordinator.load()
+    const current = state.batches.find((batch) => batch.id === batchId)
+    if (!current) throw new Error('Old favorite batch was not found.')
+    const owned = new Set(current.segments.flatMap((segment) => segment.aids))
+    const pending = [...new Set(candidateAids.filter((aid) =>
+      Number.isSafeInteger(aid) && aid > 0 && !owned.has(aid)
+    ))]
+    const segments = current.segments.map((segment) => structuredClone(segment))
+    let open = segments.at(-1)
+    if (!open || open.aids.length >= 2_000) open = undefined
+    for (const aid of pending) {
+      if (!open) {
+        open = {
+          id: `${current.id}:segment:${segments.length + 1}`,
+          index: segments.length,
+          aids: [],
+          status: 'running',
+          task: { kind: 'scan', status: 'running', requestState: 'idle' }
+        }
+        segments.push(open)
+      }
+      open.aids.push(aid)
+      if (open.aids.length === 2_000) {
+        open.status = 'running'
+        open.task = { kind: 'tag', status: 'running', requestState: 'idle' }
+        open = undefined
+      }
+    }
+    const updated = { ...current, segments }
+    const saved = await this.coordinator.save({
+      ...state,
+      batches: state.batches.map((batch) => batch.id === batchId ? updated : batch),
+      lease: state.lease
+    })
+    return saved.batches.find((batch) => batch.id === batchId) ?? updated
+  }
+
+  async markSegmentTagsSettled(batchId: string, segmentIndex: number): Promise<OldFavoriteBatch> {
+    const state = await this.coordinator.load()
+    const current = state.batches.find((batch) => batch.id === batchId)
+    if (!current) throw new Error('Old favorite batch was not found.')
+    const updated = {
+      ...current,
+      segments: current.segments.map((segment) =>
+        segment.index === segmentIndex
+          ? { ...segment, status: 'ready' as const, task: undefined }
+          : segment
+      )
+    }
+    const saved = await this.coordinator.save({
+      ...state,
+      batches: state.batches.map((batch) => batch.id === batchId ? updated : batch),
+      lease: state.lease
+    })
+    return saved.batches.find((batch) => batch.id === batchId) ?? updated
+  }
+
+  async discardBatch(batchId: string): Promise<OldFavoriteSessionsState> {
+    const state = await this.coordinator.load()
+    const saved = await this.coordinator.save({
+      ...state,
+      batches: state.batches.filter((batch) => batch.id !== batchId),
+      lease: state.lease?.batchId === batchId ? null : state.lease
+    })
+    await this.coordinator.release(batchId, state.lease?.segmentId ?? '')
+    return saved
   }
 
   async canRun(

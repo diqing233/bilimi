@@ -1173,6 +1173,7 @@ export default function App() {
     return runScript(buildOldFavoriteTagEnrichmentScript(action)) as Promise<{
       accountMid?: string
       sourceFolders: FavoriteSourceFolder[]
+      discoveredAids?: number[]
       scanProgress: NonNullable<FavoriteLedgerPreview['scanProgress']>
     }>
   }
