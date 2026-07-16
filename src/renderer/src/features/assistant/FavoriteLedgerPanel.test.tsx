@@ -381,8 +381,10 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
 
-    expect(screen.getByRole('button', { name: '新增视频整理' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: '新增视频整理' }).closest('.favorite-ledger-panel__old-favorites-guide')).toBeInTheDocument())
     expect(screen.getByRole('combobox', { name: '当前整理批次' })).toHaveTextContent('当前批次')
+    expect(document.querySelector('.favorite-ledger-panel__guide-title-row .favorite-ledger-panel__batch-switcher')).toBeInTheDocument()
+    expect(document.querySelector('.favorite-ledger-panel__topbar .favorite-ledger-panel__batch-switcher')).not.toBeInTheDocument()
     expect(screen.queryByText('本批最多3000，完成或放弃后可继续')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '放弃本批' })).not.toBeInTheDocument()
   })
@@ -439,6 +441,27 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByRole('checkbox', { name: '选择 bilimi·暂存' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: '选择 bilimi·原神' })).toBeDisabled()
     expect(screen.getByText('已识别 4 个 · 2 个唯一视频受保护')).toBeInTheDocument()
+  })
+
+  it('clears the old account preview when the current account logs out', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.scanContext = {
+      accountMid: '42', sourceFolders: [], activeSourceFolders: [], protectedVideos: [],
+      managedFolders: [], targetMembership: {}, multiArchiveMode: 'off'
+    }
+    const props = {
+      currentAccountMid: '42',
+      ledgers: createDefaultFavoriteLedgers(), missingLedgerIds: [],
+      onEnsureLedgers: vi.fn(), onSaveLedgers: vi.fn(),
+      onScanOldFavorites: vi.fn().mockResolvedValue(preview), onExecuteOldFavoritePlan: vi.fn()
+    }
+    const rendered = render(<FavoriteLedgerPanel {...props} />)
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+
+    rendered.rerender(<FavoriteLedgerPanel {...props} currentAccountMid="" />)
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument())
   })
 
   it('rebuilds protected aids when only part of the unlocked managed folders remain selected', async () => {
@@ -1317,7 +1340,7 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(screen.getByText(/无法解析归档目标/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '确认整理' })).toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: '结束批次' }))
+    fireEvent.click(screen.getByRole('button', { name: '结束本轮' }))
     const dialog = screen.getByRole('alertdialog', { name: '确认结束本轮？' })
     expect(dialog).toHaveTextContent('转为历史只读')
     fireEvent.click(within(dialog).getByRole('button', { name: '确认结束' }))
@@ -6970,6 +6993,119 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.getByRole('button', { name: '结束本轮' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '扫描概览' }))
     expect(screen.queryByRole('button', { name: '放弃本批' })).not.toBeInTheDocument()
+  })
+
+  it('ignores an in-flight execution result after the signed-in account changes', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.scanContext = {
+      accountMid: '42',
+      totalUniqueVideos: 2,
+      activeSourceFolders: [],
+      protectedVideos: [],
+      managedFolders: [],
+      targetMembership: {},
+      multiArchiveMode: 'off'
+    }
+    let resolveExecution!: (value: {
+      ok: true
+      steps: string[]
+      missingTargets: string[]
+      completedItems: FavoriteLedgerPreview['items']
+      message: string
+    }) => void
+    const execution = new Promise<Parameters<typeof resolveExecution>[0]>((resolve) => {
+      resolveExecution = resolve
+    })
+    const onConfirmArchiveProtections = vi.fn()
+    const onOldFavoriteStageFeedback = vi.fn()
+    const { rerender } = render(
+      <FavoriteLedgerPanel
+        currentAccountMid="42"
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={vi.fn().mockResolvedValue(preview)}
+        onExecuteOldFavoritePlan={vi.fn().mockReturnValue(execution)}
+        onConfirmArchiveProtections={onConfirmArchiveProtections}
+        onOldFavoriteStageFeedback={onOldFavoriteStageFeedback}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    onOldFavoriteStageFeedback.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    confirmOldFavoriteExecution()
+    await screen.findByRole('button', { name: '暂停整理' })
+
+    rerender(
+      <FavoriteLedgerPanel
+        currentAccountMid="99"
+        ledgers={createDefaultFavoriteLedgers()}
+        missingLedgerIds={[]}
+        onEnsureLedgers={vi.fn()}
+        onSaveLedgers={vi.fn()}
+        onScanOldFavorites={vi.fn().mockResolvedValue(preview)}
+        onExecuteOldFavoritePlan={vi.fn().mockReturnValue(execution)}
+        onConfirmArchiveProtections={onConfirmArchiveProtections}
+        onOldFavoriteStageFeedback={onOldFavoriteStageFeedback}
+      />
+    )
+    await waitFor(() => expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument())
+
+    await act(async () => {
+      resolveExecution({
+        ok: true,
+        steps: ['api:ledger:append:701'],
+        missingTargets: [],
+        completedItems: [preview.items[0]],
+        message: 'old account completed'
+      })
+      await execution
+    })
+
+    expect(onConfirmArchiveProtections).not.toHaveBeenCalled()
+    expect(onOldFavoriteStageFeedback).not.toHaveBeenCalled()
+    expect(screen.queryByText('old account completed')).not.toBeInTheDocument()
+  })
+
+  it('does not start the frozen execution queue when the account changes during pre-execution sync', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.scanContext = {
+      accountMid: '42', totalUniqueVideos: 2, activeSourceFolders: [], protectedVideos: [],
+      managedFolders: [], targetMembership: {}, multiArchiveMode: 'off'
+    }
+    let resolveSave!: (value: { ok: true; steps: string[]; missingTargets: string[]; message: string }) => void
+    const save = new Promise<Parameters<typeof resolveSave>[0]>((resolve) => { resolveSave = resolve })
+    const onExecuteOldFavoritePlan = vi.fn()
+    const onSaveLedgers = vi.fn()
+      .mockResolvedValueOnce({ ok: true, steps: [], missingTargets: [], message: 'scan prepared' })
+      .mockReturnValueOnce(save)
+    const commonProps = {
+      ledgers: createDefaultFavoriteLedgers(),
+      missingLedgerIds: [],
+      onEnsureLedgers: vi.fn(),
+      onSaveLedgers,
+      onScanOldFavorites: vi.fn().mockResolvedValue(preview),
+      onExecuteOldFavoritePlan
+    }
+    const { rerender } = render(<FavoriteLedgerPanel currentAccountMid="42" {...commonProps} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    confirmOldFavoriteExecution()
+    await waitFor(() => expect(onSaveLedgers).toHaveBeenCalledTimes(2))
+
+    rerender(<FavoriteLedgerPanel currentAccountMid="99" {...commonProps} />)
+    await act(async () => {
+      resolveSave({ ok: true, steps: [], missingTargets: [], message: 'old account synced' })
+      await save
+    })
+
+    expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
+    expect(screen.queryByText('old account synced')).not.toBeInTheDocument()
   })
 
   it('resumes from the next group after an interruptible cooldown and confirms ending a paused batch', async () => {

@@ -68,6 +68,7 @@ type BilimiDesktopApi = {
     expectedRevision: number
   ) => OldFavoriteRuntimeSetResult
   bindOldFavoriteRuntimeAccount?: (accountMid: string) => boolean
+  readBilibiliAccountMid?: () => Promise<string>
   resetOldFavoriteRuntime?: () => boolean
   loadOldFavoriteSessions?: () => Promise<OldFavoriteSessionsState>
   saveOldFavoriteSessions?: (state: OldFavoriteSessionsState) => Promise<OldFavoriteSessionsState>

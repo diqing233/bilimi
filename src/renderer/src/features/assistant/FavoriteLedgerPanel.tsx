@@ -139,6 +139,7 @@ export function oldFavoriteExecutionAllowsPlanUpdates(phase: OldFavoriteExecutio
 }
 
 type FavoriteLedgerPanelProps = {
+  currentAccountMid?: string
   ledgers: FavoriteLedger[]
   missingLedgerIds: string[]
   onEnsureLedgers: () => Promise<AssistantAutomationResult>
@@ -312,6 +313,7 @@ const OLD_FAVORITE_ACCELERATED_APPEND_DELAY_MS = { min: 600, max: 1400 }
 const OLD_FAVORITE_ACCELERATED_COOLDOWN_DELAY_MS = { min: 10000, max: 20000 }
 const OLD_FAVORITE_ACCELERATED_COOLDOWN_EVERY = 60
 const OLD_FAVORITE_RESUME_COOLDOWN_DELAY_MS = { min: 15000, max: 30000 }
+const OLD_FAVORITE_PREVIEW_INITIAL_LIMIT = 100
 const OLD_FAVORITE_ARCHIVE_HEALTH_HINT =
   '原归档是上次整理时记录的视频所在收藏夹。状态变化表示视频已不完全在原位置中；为避免覆盖你的手动调整，本轮先跳过，点击后重新纳入整理。'
 
@@ -1581,7 +1583,6 @@ function buildOldFavoriteTargetGroups(args: {
   if (!args.state) {
     return []
   }
-
   for (const planItem of args.state.items) {
     const previewItem = findPreviewItemForArchivePlanItem(args.items, planItem)
     if (!previewItem || previewItem.alreadyInTarget || planItem.currentTargetLedgerIds.length === 0) {
@@ -1657,9 +1658,7 @@ function buildSelectedOldFavoritePlanItems(args: {
   const addedKeys = new Set<string>()
   for (const executableItem of buildExecutableArchivePlan(args.state, args.ledgers, { requireFolderId: false })) {
     const planItem = args.state.items.find(
-      (item) =>
-        item.aid === executableItem.aid &&
-        item.sourceFolderTitle === executableItem.sourceFolderTitle
+      (item) => item.aid === executableItem.aid && item.sourceFolderTitle === executableItem.sourceFolderTitle
     )
     const previewItem = planItem ? findPreviewItemForArchivePlanItem(args.items, planItem) : undefined
     if (!planItem || !previewItem || previewItem.alreadyInTarget) {
@@ -1884,6 +1883,7 @@ function oldFavoriteResultIsRiskStop(result: OldFavoriteExecutionResult) {
 }
 
 export function FavoriteLedgerPanel({
+  currentAccountMid,
   ledgers,
   missingLedgerIds,
   onSaveLedgers,
@@ -2148,6 +2148,7 @@ export function FavoriteLedgerPanel({
   const scanStartingRef = useRef(false)
   const currentScanRunIdRef = useRef<string | null>(null)
   const currentScanAccountMidRef = useRef<string | null>(null)
+  const accountGenerationRef = useRef(0)
   const lastSuccessfulPreviewRef = useRef<FavoriteLedgerPreview | null>(null)
   const lastSuccessfulBasePreviewRef = useRef<FavoriteLedgerPreview | null>(null)
   const lastSuccessfulArchivePlanStateRef = useRef<FavoriteArchivePlanState | null>(null)
@@ -2181,11 +2182,32 @@ export function FavoriteLedgerPanel({
     [sessionCoordinator]
   )
   useEffect(() => {
+    if (currentAccountMid === undefined) return
+    accountGenerationRef.current += 1
+    oldFavoriteExecutionStopRequestedRef.current = true
+    scanGenerationRef.current += 1
+    scanStartingRef.current = false
+    currentScanRunIdRef.current = null
+    currentScanAccountMidRef.current = currentAccountMid || null
+    setBasicScanRunning(false)
+    setBusy(false)
+    setStatus(null)
+    setBatchDiscardConfirming(false)
+    setPausedRoundEndConfirming(false)
+    setPendingTagExecutionConfirming(false)
+    setOldFavoriteExecutionConfirming(false)
+    setExpandedArchivePreviewGroups(new Set())
+    bindOldFavoriteRuntimeAccount(currentAccountMid)
+  }, [currentAccountMid])
+  useEffect(() => {
     if (!sessionCoordinator) return
     let active = true
     const applySessions = (state: OldFavoriteSessionsState) => {
       if (!active) return
-      const summaries = state.batches.map((batch) => ({
+      const accountBatches = currentAccountMid === undefined
+        ? state.batches
+        : state.batches.filter((batch) => batch.accountMid === currentAccountMid)
+      const summaries = accountBatches.map((batch) => ({
         id: batch.id,
         kind: batch.kind,
         createdAt: batch.createdAt,
@@ -2223,6 +2245,12 @@ export function FavoriteLedgerPanel({
           }
           return selected?.id ?? ''
         })
+      } else if (currentAccountMid !== undefined) {
+        setOldFavoriteUserBatches([])
+        setActiveOldFavoriteUserBatchId('')
+        setPreview(null)
+        setBaseScanPreview(null)
+        setArchivePlanState(null)
       }
       setOldFavoriteExternalLeaseActive(Boolean(state.lease))
     }
@@ -2232,10 +2260,11 @@ export function FavoriteLedgerPanel({
       active = false
       unsubscribe()
     }
-  }, [sessionCoordinator, setActiveOldFavoriteUserBatchId, setOldFavoriteUserBatches])
+  }, [currentAccountMid, sessionCoordinator, setActiveOldFavoriteUserBatchId, setOldFavoriteUserBatches])
   const [tagCandidatesExpanded, setTagCandidatesExpanded] = useState(false)
   const [ledgerHintExpanded, setLedgerHintExpanded] = useState(false)
   const [oldFavoriteGuideHintExpanded, setOldFavoriteGuideHintExpanded] = useState(false)
+  const [expandedArchivePreviewGroups, setExpandedArchivePreviewGroups] = useState<Set<string>>(() => new Set())
   const ledgerNamesById = useMemo(
     () => Object.fromEntries(draftLedgers.map((ledger) => [ledger.id, ledger.displayName])),
     [draftLedgers]
@@ -4008,12 +4037,12 @@ export function FavoriteLedgerPanel({
                   !isBilimiManagedLedgerName(titles[index] ?? item.sourceFolderTitle)
                 )
               }).concat(
-                normalizedPreview.scanContext?.protectedVideos.flatMap((item) => {
+                (normalizedPreview.scanContext?.protectedVideos ?? []).flatMap((item) => {
                   const titles = item.sourceFolderTitles ?? []
                   return oldFavoriteItemSourceKeys(item).filter((_, index) =>
                     !isBilimiManagedLedgerName(titles[index] ?? '')
                   )
-                }) ?? []
+                })
               )
         )
       )
@@ -5043,6 +5072,7 @@ export function FavoriteLedgerPanel({
     segmentId?: string
   ): Promise<OldFavoriteExecutionOutcome> {
     const groups = groupOldFavoriteExecutionItems(run.selectedItems)
+    const accountGeneration = accountGenerationRef.current
     oldFavoriteExecutionStopRequestedRef.current = false
     setOldFavoriteExecutionStopping(false)
     setOldFavoriteExecutionPhase('running')
@@ -5080,6 +5110,9 @@ export function FavoriteLedgerPanel({
           },
           work: () => onExecuteOldFavoritePlan(group)
         })) as OldFavoriteExecutionResult
+        if (accountGeneration !== accountGenerationRef.current) {
+          return 'paused'
+        }
         const completedItems = rawResult.ok === true
           ? rawResult.completedItems ?? group
           : rawResult.partial
@@ -5220,6 +5253,7 @@ export function FavoriteLedgerPanel({
 
   async function executeOldFavoritePlan() {
     if (!preview || deepSeekArchiveRunning) return
+    const executionAccountGeneration = accountGenerationRef.current
     if (activeOldFavoriteUserBatch && onReadCurrentOldFavoriteAccount) {
       const currentAccountMid = (await onReadCurrentOldFavoriteAccount()).trim()
       if (!currentAccountMid || currentAccountMid !== activeOldFavoriteUserBatch.accountMid) {
@@ -5267,6 +5301,10 @@ export function FavoriteLedgerPanel({
         saveResult = await onSaveLedgers(nextLedgers)
       } else {
         saveResult = await onSaveLedgers(nextLedgers)
+      }
+      if (executionAccountGeneration !== accountGenerationRef.current) {
+        setOldFavoriteExecutionPhase('paused')
+        return
       }
       setSaveStatus(saveStatusMessage(saveResult))
       if (saveResult?.ok === false) {
@@ -5616,7 +5654,7 @@ export function FavoriteLedgerPanel({
     () => allSelectableOldFavoriteItems.filter((item) => !activeSegmentAidSet || activeSegmentAidSet.has(item.aid)),
     [activeSegmentAidSet, allSelectableOldFavoriteItems]
   )
-  const protectedOldFavoriteCount = baseScanPreview?.scanContext?.protectedVideos.length ?? 0
+  const protectedOldFavoriteCount = baseScanPreview?.scanContext?.protectedVideos?.length ?? 0
   const protectedArchiveHealthCounts = useMemo(() => {
     const counts = { complete: 0, incomplete: 0, invalid: 0 }
     for (const item of baseScanPreview?.scanContext?.protectedVideos ?? []) {
@@ -5912,16 +5950,21 @@ export function FavoriteLedgerPanel({
       staging: stagingAids.size
     }
   }, [archivePlanState, oldFavoriteExecutionProgress, oldFavoriteExecutionRun, preview, selectedOldFavoritePlanItems.length])
+  const archivePlanItemsByBaseKey = useMemo(() => {
+    const itemsByKey = new Map<string, NonNullable<typeof archivePlanState>['items'][number]>()
+    for (const item of archivePlanState?.items ?? []) {
+      const key = archivePlanItemKey(item)
+      if (!itemsByKey.has(key)) itemsByKey.set(key, item)
+    }
+    return itemsByKey
+  }, [archivePlanState])
   const previewScopedPendingItems = useMemo(
     () =>
       selectableOldFavoriteItems.filter((item) => {
-        const planItem = archivePlanState?.items.find(
-          (candidate) =>
-            candidate.aid === item.aid && candidate.sourceFolderTitle === item.sourceFolderTitle
-        )
+        const planItem = archivePlanItemsByBaseKey.get(archivePlanItemKey(item))
         return !item.alreadyInTarget && (planItem ? planItem.currentTargetLedgerIds.length === 0 : isPreviewScopedPendingItem(item))
       }),
-    [archivePlanState, selectableOldFavoriteItems]
+    [archivePlanItemsByBaseKey, selectableOldFavoriteItems]
   )
   const missingOldFavoriteTargetNames = Array.from(
     new Set(
@@ -5974,11 +6017,17 @@ export function FavoriteLedgerPanel({
     if (!activeOldFavoriteUserBatch) return new Map<string, ReturnType<typeof aggregateBatchRecommendations>[number]>()
     const stored = activeOldFavoriteUserBatch.snapshot?.recommendations
     const segmentIndex = activeOldFavoriteUserBatch.segmentIndex - 1
+    const matchingItemsByCandidateKey = new Map<string, FavoriteLedgerPreviewItem[]>()
+    for (const item of preview?.items ?? []) {
+      for (const target of item.candidateTargets ?? []) {
+        const matchingItems = matchingItemsByCandidateKey.get(target.candidateKey)
+        if (matchingItems) matchingItems.push(item)
+        else matchingItemsByCandidateKey.set(target.candidateKey, [item])
+      }
+    }
     const currentEntries: SegmentRecommendation[] = (preview?.insights?.candidateLedgers ?? []).map((candidate) => {
       const stableKey = candidateKey(candidate)
-      const matchingItems = (preview?.items ?? []).filter((item) =>
-        item.candidateTargets?.some((target) => target.candidateKey === stableKey)
-      )
+      const matchingItems = matchingItemsByCandidateKey.get(stableKey) ?? []
       return {
         stableKey,
         ledgerId: candidateLedgerId(candidate),
@@ -6074,10 +6123,7 @@ export function FavoriteLedgerPanel({
   const allPreviewScopedPendingItemsStaged =
     previewScopedPendingItems.length > 0 &&
     previewScopedPendingItems.every((item) => {
-      const planItem = archivePlanState?.items.find(
-        (candidate) =>
-          candidate.aid === item.aid && candidate.sourceFolderTitle === item.sourceFolderTitle
-      )
+      const planItem = archivePlanItemsByBaseKey.get(archivePlanItemKey(item))
       return planItem?.selectedTargetLedgerIds.includes('inbox')
     })
   const oldFavoriteFollowUpCandidates = useMemo(
@@ -6265,8 +6311,9 @@ export function FavoriteLedgerPanel({
     nextState: FavoriteArchivePlanState,
     options: { batchReason?: string; forceBatch?: boolean; inboxAsUnclassified?: boolean } = {}
   ): ArchivePreviewLatestChange | null {
+    const previousItemsByKey = new Map(previousState.items.map((item) => [item.itemKey, item]))
     const movedItems = nextState.items.filter((nextItem) => {
-      const previousItem = previousState.items.find((item) => item.itemKey === nextItem.itemKey)
+      const previousItem = previousItemsByKey.get(nextItem.itemKey)
       return previousItem && (
         !sameLedgerIds(previousItem.currentTargetLedgerIds, nextItem.currentTargetLedgerIds) ||
         !sameLedgerIds(previousItem.selectedTargetLedgerIds, nextItem.selectedTargetLedgerIds)
@@ -6279,7 +6326,7 @@ export function FavoriteLedgerPanel({
 
     const itemChanges: ArchivePreviewLatestChange['itemChanges'] = {}
     for (const nextItem of movedItems) {
-      const previousMovedItem = previousState.items.find((item) => item.itemKey === nextItem.itemKey)
+      const previousMovedItem = previousItemsByKey.get(nextItem.itemKey)
       itemChanges[nextItem.itemKey] = {
         title: nextItem.title,
         previousTargetText: previousMovedItem
@@ -6324,9 +6371,10 @@ export function FavoriteLedgerPanel({
     const resetLedgerIds: string[] = []
     let sourceLedgerId = ''
     let targetLedgerId = ''
+    const previousItemsByKey = new Map(previousState.items.map((item) => [item.itemKey, item]))
 
     for (const nextItem of nextState.items) {
-      const previousItem = previousState.items.find((item) => item.itemKey === nextItem.itemKey)
+      const previousItem = previousItemsByKey.get(nextItem.itemKey)
       if (!previousItem || sameLedgerIds(previousItem.currentTargetLedgerIds, nextItem.currentTargetLedgerIds)) {
         continue
       }
@@ -6651,6 +6699,53 @@ export function FavoriteLedgerPanel({
     !(basicScanRunning && basicScanProgress.completed === 0 && basicScanProgress.total === 1) &&
     (basicScanProgress.status === 'complete' || basicScanProgress.completed < basicScanProgress.total)
   )
+  const oldFavoriteBatchSwitcher = oldFavoriteGuideMode === 'organize' &&
+    (preview || oldFavoriteUserBatches.length > 0) ? (
+      <div className="favorite-ledger-panel__batch-switcher">
+        <button
+          type="button"
+          disabled={busy || oldFavoriteOrganizationLocked() || oldFavoriteExternalLeaseActive}
+          onClick={() => void startIncrementalOldFavoriteBatch()}
+        >
+          新增视频整理
+        </button>
+        <select
+          aria-label="当前整理批次"
+          value={activeOldFavoriteUserBatch?.id ?? ''}
+          onChange={(event) => selectOldFavoriteUserBatch(event.target.value)}
+        >
+          {activeOldFavoriteUserBatch ? null : <option value="">当前批次</option>}
+          {oldFavoriteUserBatches.map((batch) => {
+            const dateLabel = new Date(batch.createdAt).toLocaleString('zh-CN', {
+              month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+            })
+            const segmentLabel = batch.segmentCount > 1
+              ? ` · 第${batch.segmentIndex}/${batch.segmentCount}段`
+              : ''
+            const statusLabel = batch.status === 'ended' ? ' · 已结束' : ''
+            const label = `${batch.kind === 'incremental' ? '新增批次' : '当前批次'} · ${dateLabel}${segmentLabel}${statusLabel}`
+            return <option key={batch.id} value={batch.id} title={label}>{label}</option>
+          })}
+        </select>
+        {activeOldFavoriteUserBatch && activeOldFavoriteUserBatch.segmentCount > 1 ? (
+          <select
+            aria-label="当前性能分段"
+            value={activeOldFavoriteUserBatch.segmentIndex}
+            disabled={oldFavoriteOrganizationLocked()}
+            onChange={(event) => {
+              const segmentIndex = Number(event.target.value)
+              setOldFavoriteUserBatches((current) => current.map((batch) =>
+                batch.id === activeOldFavoriteUserBatch.id ? { ...batch, segmentIndex } : batch
+              ))
+            }}
+          >
+            {activeOldFavoriteUserBatch.segmentAids.map((_, index) => (
+              <option key={index} value={index + 1}>第{index + 1}/{activeOldFavoriteUserBatch.segmentCount}段</option>
+            ))}
+          </select>
+        ) : null}
+      </div>
+    ) : null
 
   return (
     <section
@@ -6662,52 +6757,6 @@ export function FavoriteLedgerPanel({
       <div className="favorite-ledger-panel__topbar">
         <div className="favorite-ledger-panel__header">
           <h2 className="sr-only">掌库</h2>
-          {oldFavoriteGuideMode === 'organize' && (preview || oldFavoriteUserBatches.length > 0) ? (
-            <div className="favorite-ledger-panel__batch-switcher">
-              <button
-                type="button"
-                disabled={busy || oldFavoriteOrganizationLocked() || oldFavoriteExternalLeaseActive}
-                onClick={() => void startIncrementalOldFavoriteBatch()}
-              >
-                新增视频整理
-              </button>
-              <select
-                aria-label="当前整理批次"
-                value={activeOldFavoriteUserBatch?.id ?? ''}
-                onChange={(event) => selectOldFavoriteUserBatch(event.target.value)}
-              >
-                {activeOldFavoriteUserBatch ? null : <option value="">当前批次</option>}
-                {oldFavoriteUserBatches.map((batch) => {
-                  const dateLabel = new Date(batch.createdAt).toLocaleString('zh-CN', {
-                    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
-                  })
-                  const segmentLabel = batch.segmentCount > 1
-                    ? ` · 第${batch.segmentIndex}/${batch.segmentCount}段`
-                    : ''
-                  const statusLabel = batch.status === 'ended' ? ' · 已结束' : ''
-                  const label = `${batch.kind === 'incremental' ? '新增批次' : '当前批次'} · ${dateLabel}${segmentLabel}${statusLabel}`
-                  return <option key={batch.id} value={batch.id} title={label}>{label}</option>
-                })}
-              </select>
-              {activeOldFavoriteUserBatch && activeOldFavoriteUserBatch.segmentCount > 1 ? (
-                <select
-                  aria-label="当前性能分段"
-                  value={activeOldFavoriteUserBatch.segmentIndex}
-                  disabled={oldFavoriteOrganizationLocked()}
-                  onChange={(event) => {
-                    const segmentIndex = Number(event.target.value)
-                    setOldFavoriteUserBatches((current) => current.map((batch) =>
-                      batch.id === activeOldFavoriteUserBatch.id ? { ...batch, segmentIndex } : batch
-                    ))
-                  }}
-                >
-                  {activeOldFavoriteUserBatch.segmentAids.map((_, index) => (
-                    <option key={index} value={index + 1}>第{index + 1}/{activeOldFavoriteUserBatch.segmentCount}段</option>
-                  ))}
-                </select>
-              ) : null}
-            </div>
-          ) : null}
         </div>
 
         <div className="favorite-ledger-panel__toolbar">
@@ -6996,24 +7045,27 @@ export function FavoriteLedgerPanel({
           aria-label={oldFavoriteGuideMode === 'setup' ? '备册向导' : '整理旧藏向导'}
         >
           <div className="favorite-ledger-panel__guide-header">
-            <span className="favorite-ledger-panel__section-title">
-              <h3 title={OLD_FAVORITE_GUIDE_HINT}>
-                {oldFavoriteGuideMode === 'setup' ? '备册' : '整理旧藏'}
-              </h3>
-              <button
-                type="button"
-                className="favorite-ledger-panel__help-toggle"
-                aria-label={`${oldFavoriteGuideHintExpanded ? '收起' : '展开'}整理旧藏说明`}
-                aria-expanded={oldFavoriteGuideHintExpanded}
-                title={OLD_FAVORITE_GUIDE_HINT}
-                onClick={() => setOldFavoriteGuideHintExpanded((expanded) => !expanded)}
-              >
-                <span className="favorite-ledger-panel__help-arrows" aria-hidden="true">
-                  <span className="favorite-ledger-panel__help-arrow favorite-ledger-panel__help-arrow--up" />
-                  <span className="favorite-ledger-panel__help-arrow favorite-ledger-panel__help-arrow--down" />
-                </span>
-              </button>
-            </span>
+            <div className="favorite-ledger-panel__guide-title-row">
+              <span className="favorite-ledger-panel__section-title">
+                <h3 title={OLD_FAVORITE_GUIDE_HINT}>
+                  {oldFavoriteGuideMode === 'setup' ? '备册' : '整理旧藏'}
+                </h3>
+                <button
+                  type="button"
+                  className="favorite-ledger-panel__help-toggle"
+                  aria-label={`${oldFavoriteGuideHintExpanded ? '收起' : '展开'}整理旧藏说明`}
+                  aria-expanded={oldFavoriteGuideHintExpanded}
+                  title={OLD_FAVORITE_GUIDE_HINT}
+                  onClick={() => setOldFavoriteGuideHintExpanded((expanded) => !expanded)}
+                >
+                  <span className="favorite-ledger-panel__help-arrows" aria-hidden="true">
+                    <span className="favorite-ledger-panel__help-arrow favorite-ledger-panel__help-arrow--up" />
+                    <span className="favorite-ledger-panel__help-arrow favorite-ledger-panel__help-arrow--down" />
+                  </span>
+                </button>
+              </span>
+              {oldFavoriteBatchSwitcher}
+            </div>
             {oldFavoriteGuideHintExpanded ? (
               <p className="favorite-ledger-panel__guide-hint">{OLD_FAVORITE_GUIDE_HINT}</p>
             ) : null}
@@ -7772,7 +7824,9 @@ export function FavoriteLedgerPanel({
                       </label>
                     </header>
                     <div className="favorite-ledger-panel__preview-videos" aria-label="未匹配到合适分类视频">
-                      {previewScopedPendingItems.map((item) => (
+                      {(expandedArchivePreviewGroups.has('unclassified')
+                        ? previewScopedPendingItems
+                        : previewScopedPendingItems.slice(0, OLD_FAVORITE_PREVIEW_INITIAL_LIMIT)).map((item) => (
                           <article
                             key={`pending-${item.sourceFolderTitle}-${item.aid}`}
                             data-latest-change={
@@ -7788,6 +7842,12 @@ export function FavoriteLedgerPanel({
                             {renderOldFavoriteArchiveControls(item, 'unclassified')}
                           </article>
                         ))}
+                      {previewScopedPendingItems.length > OLD_FAVORITE_PREVIEW_INITIAL_LIMIT &&
+                      !expandedArchivePreviewGroups.has('unclassified') ? (
+                        <button type="button" onClick={() => setExpandedArchivePreviewGroups((current) => new Set([...current, 'unclassified']))}>
+                          显示全部 {previewScopedPendingItems.length} 条
+                        </button>
+                      ) : null}
                     </div>
                     </section>
                   ) : null}
@@ -7827,7 +7887,9 @@ export function FavoriteLedgerPanel({
                           className="favorite-ledger-panel__preview-videos"
                           aria-label={`${group.displayName} 视频`}
                         >
-                          {group.entries.map(({ item, target, selected, changedByDeepSeek }) => (
+                          {(expandedArchivePreviewGroups.has(group.ledgerId)
+                            ? group.entries
+                            : group.entries.slice(0, OLD_FAVORITE_PREVIEW_INITIAL_LIMIT)).map(({ item, target, selected, changedByDeepSeek }) => (
                             <article
                               key={`${group.ledgerId}-${item.sourceFolderTitle}-${item.aid}`}
                               data-latest-change={
@@ -7859,6 +7921,12 @@ export function FavoriteLedgerPanel({
                               {renderOldFavoriteArchiveControls(item, group.ledgerId, target)}
                             </article>
                           ))}
+                          {group.entries.length > OLD_FAVORITE_PREVIEW_INITIAL_LIMIT &&
+                          !expandedArchivePreviewGroups.has(group.ledgerId) ? (
+                            <button type="button" onClick={() => setExpandedArchivePreviewGroups((current) => new Set([...current, group.ledgerId]))}>
+                              显示全部 {group.entries.length} 条
+                            </button>
+                          ) : null}
                         </div>
                       </section>
                     )
@@ -8066,12 +8134,12 @@ export function FavoriteLedgerPanel({
                           </div>
                         ) : (
                           <div className="favorite-ledger-panel__confirm-actions">
-                            <button type="button" onClick={() => setPausedRoundEndConfirming(true)}>结束批次</button>
+                            <button type="button" aria-label="结束本轮" onClick={() => setPausedRoundEndConfirming(true)}>结束批次</button>
                             <button type="button" onClick={() => void continueOldFavoriteExecution()}>继续整理</button>
                           </div>
                         )
                       ) : oldFavoriteExecutionRiskStopped ? (
-                        <button type="button" onClick={acknowledgeOldFavoriteExecution}>结束批次</button>
+                        <button type="button" aria-label="结束本轮" onClick={acknowledgeOldFavoriteExecution}>结束批次</button>
                       ) : null}
                     </div>
                   ) : null}
@@ -8085,12 +8153,13 @@ export function FavoriteLedgerPanel({
                         {oldFavoriteExecutionStopping ? '正在暂停…' : '暂停整理'}
                       </button>
                     ) : !oldFavoriteExecutionPaused && !oldFavoriteExecutionAwaitingAcknowledgement ? (
-                      <button type="button" onClick={() => setBatchDiscardConfirming(true)}>
+                      <button type="button" aria-label="结束本轮" onClick={() => setBatchDiscardConfirming(true)}>
                         结束批次
                       </button>
                     ) : null}
                     {!oldFavoriteExecutionPaused && !oldFavoriteExecutionRiskStopped ? <button
                       type="button"
+                      aria-label={oldFavoriteExecutionAwaitingAcknowledgement ? '结束本轮' : undefined}
                       disabled={
                         deepSeekArchiveRunning ||
                         Boolean(unresolvedArchiveTargetError) ||

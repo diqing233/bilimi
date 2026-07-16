@@ -926,6 +926,26 @@ export default function App() {
     }
   }
 
+  async function readBilibiliAccountMid(): Promise<string> {
+    if (window.bilimiDesktop?.readBilibiliAccountMid) {
+      try {
+        return (await window.bilimiDesktop.readBilibiliAccountMid()).trim()
+      } catch {
+        return ''
+      }
+    }
+    const currentActiveWebview = getCurrentActiveWebview()
+    if (!currentActiveWebview?.executeJavaScript) return ''
+    try {
+      return String(await currentActiveWebview.executeJavaScript(
+        `(() => String(document.cookie || '').match(/(?:^|;\\s*)DedeUserID=([^;]+)/)?.[1] || '')()`,
+        true
+      )).trim()
+    } catch {
+      return ''
+    }
+  }
+
   async function requireBilibiliLogin(): Promise<AssistantAutomationResult | null> {
     return (await isBilibiliLoggedIn()) ? null : LOGIN_REQUIRED_RESULT
   }
@@ -1480,13 +1500,15 @@ export default function App() {
   }
 
   async function createAssistantSnapshot(): Promise<AssistantSnapshot> {
-    const [videoContentContext, favoriteLedgerStatus] = await Promise.all([
+    const [videoContentContext, favoriteLedgerStatus, accountMid] = await Promise.all([
       readVideoContentContext(),
-      readFavoriteLedgerStatus().catch(() => null)
+      readFavoriteLedgerStatus().catch(() => null),
+      readBilibiliAccountMid()
     ])
     const activeTabSnapshot = getActiveTabSnapshot()
 
     return {
+      accountMid,
       preferences,
       favoriteLedgerStatus,
       videoContentContext,

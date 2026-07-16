@@ -1239,6 +1239,17 @@ configureAppIdentity(app)
 const singleInstanceGuard = installSingleInstanceGuard(app, () => mainWindow)
 
 if (singleInstanceGuard) app.whenReady().then(() => {
+  let accountChangeTimer: NodeJS.Timeout | undefined
+  session.fromPartition(BILIMI_SESSION_PARTITION).cookies.on('changed', (_event, cookie) => {
+    if (cookie.name === 'DedeUserID' || cookie.name === 'bili_jct') {
+      clearTimeout(accountChangeTimer)
+      accountChangeTimer = setTimeout(notifyFloatingAssistantSnapshotChanged, 150)
+    }
+  })
+  ipcMain.handle('bilibili:account-mid', async () => {
+    const cookies = await session.fromPartition(BILIMI_SESSION_PARTITION).cookies.get({ name: 'DedeUserID' })
+    return cookies.find((cookie) => /^\d+$/.test(cookie.value))?.value ?? ''
+  })
   getVideoTranscriptionQueue()
   registerAssistantPreferenceHandlers()
   createMainWindow()

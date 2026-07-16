@@ -127,15 +127,18 @@ export function setOldFavoriteRuntimeValue<T>(
 
 export function bindOldFavoriteRuntimeAccount(accountMid: string): boolean {
   const normalizedAccountMid = accountMid.trim()
-  if (!normalizedAccountMid) {
-    return false
-  }
-
   const store = getStore()
   const bridgeChanged = window.bilimiDesktop?.bindOldFavoriteRuntimeAccount?.(normalizedAccountMid)
   if (bridgeChanged) {
     clearAccountScopedRuntime(store)
     store.accountMid = normalizedAccountMid
+    notifyRuntimeListeners(store)
+    return true
+  }
+  if (!normalizedAccountMid) {
+    if (!store.accountMid) return false
+    clearAccountScopedRuntime(store)
+    store.accountMid = ''
     notifyRuntimeListeners(store)
     return true
   }

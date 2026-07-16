@@ -74,7 +74,11 @@ export class OldFavoriteRuntimeStore {
   bindAccount(accountMid: string): boolean {
     const normalized = accountMid.trim()
     if (!normalized) {
-      return false
+      if (!this.accountMid) return false
+      this.persist()
+      this.accountMid = ''
+      this.loadBoundAccount()
+      return true
     }
     if (!this.accountMid || this.accountMid === normalized) {
       this.accountMid = normalized
@@ -136,6 +140,7 @@ export class OldFavoriteRuntimeStore {
     const persisted = this.readPersisted()
     this.values.clear()
     for (const [key, entry] of Object.entries(persisted.global)) this.values.set(key, entry)
+    if (!this.accountMid) return
     for (const [key, entry] of Object.entries(persisted.accounts[this.accountMid] ?? {})) {
       this.values.set(key, entry)
     }
