@@ -1086,6 +1086,78 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.queryByText('标签补取已完成，重新进入归档预览或点击刷新后，将按最新标签重新计算。')).not.toBeInTheDocument()
   })
 
+  it('rebuilds archive targets from enriched title, UP, category, and tags', async () => {
+    const ledgers = createDefaultFavoriteLedgers().map((ledger) =>
+      ledger.id === 'game' ? { ...ledger, bilibiliFolderId: '9002' } : ledger
+    )
+    const preview = createArchivePreviewFixture()
+    preview.items = [{
+      ...preview.items[1],
+      aid: 750,
+      title: '尚未识别',
+      author: '',
+      category: '',
+      tags: []
+    }]
+    preview.scanContext = {
+      accountMid: '42',
+      totalUniqueVideos: 1,
+      activeSourceFolders: [{ id: 'default', title: '默认收藏夹', videos: preview.items }],
+      protectedVideos: [],
+      managedFolders: [],
+      targetMembership: {},
+      multiArchiveMode: 'off'
+    }
+    preview.scanProgress = {
+      basic: { completed: 1, total: 1, status: 'complete' },
+      tags: { completed: 0, total: 1, pending: 1, cacheHits: 0, succeeded: 0, failed: 0, status: 'running' }
+    }
+    const completedSnapshot = {
+      sourceFolders: [{
+        id: 'default',
+        title: '默认收藏夹',
+        videos: [{
+          aid: 750,
+          title: '原神角色配队攻略',
+          author: '游戏研究社',
+          category: '游戏',
+          description: '手游实战',
+          tags: ['原神', '攻略']
+        }]
+      }],
+      scanProgress: {
+        basic: { completed: 1, total: 1, status: 'complete' },
+        tags: { completed: 1, total: 1, pending: 0, cacheHits: 0, succeeded: 1, failed: 0, status: 'complete' }
+      }
+    }
+    let resolveProgress!: (snapshot: typeof completedSnapshot) => void
+    const onReadOldFavoriteTagEnrichment = vi.fn((action = 'read') => action === 'progress'
+      ? new Promise<typeof completedSnapshot>((resolve) => { resolveProgress = resolve })
+      : Promise.resolve(completedSnapshot))
+    const createPreviewSpy = vi.spyOn(favoriteLedgerPreviewModule, 'createFavoriteLedgerPreview')
+
+    renderPanel({ ledgers, onScanOldFavorites: vi.fn().mockResolvedValue(preview), onReadOldFavoriteTagEnrichment })
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    expect(screen.getByText('请等待扫描结束')).toBeInTheDocument()
+
+    await act(async () => { resolveProgress(completedSnapshot); await Promise.resolve() })
+
+    await waitFor(() => expect(screen.getByRole('group', { name: 'bilimi·游戏专区 1 条' })).toBeInTheDocument())
+    expect(screen.queryByRole('group', { name: /未匹配到合适分类/ })).not.toBeInTheDocument()
+    const gameGroup = screen.getByRole('group', { name: 'bilimi·游戏专区 1 条' })
+    expect(gameGroup).toHaveTextContent('原神角色配队攻略')
+    expect(gameGroup).toHaveTextContent('UP：游戏研究社')
+    expect(createPreviewSpy).toHaveBeenCalledWith(expect.objectContaining({
+      sourceFolders: [expect.objectContaining({
+        videos: [expect.objectContaining({ category: '游戏', tags: ['原神', '攻略'] })]
+      })]
+    }))
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    expect(screen.getByText('已选择 1 条归档任务')).toBeInTheDocument()
+  })
+
   it('does not reread or rebuild an already completed stable snapshot after remount', async () => {
     const preview = createArchivePreviewFixture()
     preview.scanProgress = {
@@ -2468,10 +2540,11 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
 
-    expect(
-      screen.getByText('共扫描 4 条旧藏，其中 2 条进入本轮整理，2 条之前已整理，本轮保持原归档。')
-    ).toBeInTheDocument()
-    expect(screen.getByText('已整理跳过')).toBeInTheDocument()
+    expect(screen.getByText('已识别 4 个 · 2 个唯一视频受保护')).toBeInTheDocument()
+    expect(screen.getByText('正式工作夹保护')).toBeInTheDocument()
+    expect(screen.getByText('可执行')).toBeInTheDocument()
+    expect(screen.getByText('待复核')).toBeInTheDocument()
+    expect(screen.getByText('未匹配')).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText(/^整理来源 旅行收藏，共 /))
     const basicDataHeading = screen.getByRole('heading', { name: '基础数据' })
     const allReorganizeButton = screen.getByRole('button', { name: '重新整理全部已整理视频 1 条' })
@@ -3774,9 +3847,7 @@ describe('FavoriteLedgerPanel', () => {
       target: { value: 'game' }
     })
 
-    expect(screen.getByRole('group', { name: /未匹配到合适分类 0 条/ })).not.toHaveTextContent(
-      '暂时不知道放哪'
-    )
+    expect(screen.queryByRole('group', { name: /未匹配到合适分类 0 条/ })).not.toBeInTheDocument()
     const gameGroup = screen.getByRole('group', { name: 'bilimi·游戏专区 1 条' })
     expect(getPreviewTargetToggle(gameGroup, /暂时不知道放哪/)).toHaveAttribute(
       'aria-pressed',

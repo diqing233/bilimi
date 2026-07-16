@@ -3051,7 +3051,14 @@ export function FavoriteLedgerPanel({
       ...folder,
       videos: folder.videos.map((video) => {
         const latest = latestVideosByAid.get(video.aid)
-        return latest ? { ...video, tags: latest.tags } : video
+        return latest ? {
+          ...video,
+          title: latest.title || video.title,
+          author: latest.author ?? video.author,
+          description: latest.description ?? video.description,
+          category: latest.category ?? video.category,
+          tags: latest.tags
+        } : video
       })
     }))
     const latestActiveSourceFolders = withLatestTags(context.activeSourceFolders)
@@ -5011,15 +5018,23 @@ export function FavoriteLedgerPanel({
     ? `无法解析归档目标：${unresolvedArchiveTargetIds.join('、')}`
     : null
   const selectedOldFavoritePlanItems = useMemo(
-    () =>
-      unresolvedArchiveTargetIds.length > 0
-        ? []
-        : buildSelectedOldFavoritePlanItems({
+    () => {
+      if (unresolvedArchiveTargetIds.length > 0) return []
+      const stagingFolderIds = new Set(
+        (preview?.scanContext?.managedFolders ?? [])
+          .filter((folder) => folder.isInbox)
+          .map((folder) => folder.id)
+      )
+      return buildSelectedOldFavoritePlanItems({
             state: archivePlanState,
             items: selectableOldFavoriteItems,
             ledgers: archiveExecutionLedgers
-          }),
-    [archiveExecutionLedgers, archivePlanState, selectableOldFavoriteItems, unresolvedArchiveTargetIds]
+          }).map((item) => ({
+            ...item,
+            stagingFolderIds: (item.currentBilimiFolderIds ?? []).filter((folderId) => stagingFolderIds.has(folderId))
+          }))
+    },
+    [archiveExecutionLedgers, archivePlanState, preview?.scanContext?.managedFolders, selectableOldFavoriteItems, unresolvedArchiveTargetIds]
   )
   const selectedOldFavoriteVideoCount = useMemo(
     () =>
@@ -5070,10 +5085,14 @@ export function FavoriteLedgerPanel({
     missingOldFavoriteTargetNames.length > 0
       ? `确认整理会先同步 ${missingOldFavoriteTargetNames.join('、')} 收藏夹；同步后请重新扫描旧藏以归档到新建收藏夹。`
       : null
-  const autoSelectedOldFavoriteCount =
-    selectableOldFavoriteItems.filter((item) => item.selected && !item.alreadyInTarget && !item.reviewRequired)
-      .length ?? 0
-  const reviewRequiredOldFavoriteCount = selectableOldFavoriteItems.filter((item) => item.reviewRequired).length ?? 0
+  const autoSelectedOldFavoriteCount = new Set(
+    selectableOldFavoriteItems
+      .filter((item) => item.selected && !item.alreadyInTarget && !item.reviewRequired)
+      .map((item) => item.aid)
+  ).size
+  const reviewRequiredOldFavoriteCount = new Set(
+    selectableOldFavoriteItems.filter((item) => item.reviewRequired).map((item) => item.aid)
+  ).size
   const alreadyInTargetOldFavoriteCount =
     selectableOldFavoriteItems.filter((item) => item.alreadyInTarget).length ?? 0
   const skippedSourceFolderCount = preview?.skippedSourceFolderTitles.length ?? 0
@@ -6138,7 +6157,7 @@ export function FavoriteLedgerPanel({
                 <>
                   <p className="favorite-ledger-panel__step-note">
                     {preview.scanContext
-                      ? `共扫描 ${totalScannedOldFavoriteCount} 条旧藏，其中 ${activeOldFavoriteCount} 条进入本轮整理，${protectedOldFavoriteCount} 条之前已整理，本轮保持原归档。`
+                      ? `已识别 ${totalScannedOldFavoriteCount} 个 · ${protectedOldFavoriteCount} 个唯一视频受保护`
                       : `共扫描 ${preview.insights.totalVideos} 条旧藏，生成 ${preview.insights.candidateLedgers.length} 个候选收藏夹`}
                   </p>
                   {tagDetailFailureCount > 0 ? (
@@ -6238,19 +6257,19 @@ export function FavoriteLedgerPanel({
                     <strong>{totalScannedOldFavoriteCount}</strong>
                   </article>
                   <article>
-                    <span>可自动归档</span>
+                    <span>可执行</span>
                     <strong>{autoSelectedOldFavoriteCount}</strong>
                   </article>
                   <article>
-                    <span>需复核</span>
+                    <span>待复核</span>
                     <strong>{reviewRequiredOldFavoriteCount}</strong>
                   </article>
                   <article>
-                    <span>待分类</span>
+                    <span>未匹配</span>
                     <strong>{previewScopedPendingItems.length}</strong>
                   </article>
                   <article>
-                    <span>{preview.scanContext ? '已整理跳过' : '已存在'}</span>
+                    <span>{preview.scanContext ? '正式工作夹保护' : '已存在'}</span>
                     <strong>{preview.scanContext ? protectedOldFavoriteCount : alreadyInTargetOldFavoriteCount}</strong>
                   </article>
                   <article>
@@ -6258,6 +6277,14 @@ export function FavoriteLedgerPanel({
                     <strong>{skippedSourceFolderCount}</strong>
                   </article>
                 </div>
+                {preview.scanContext ? (
+                  <p className="favorite-ledger-panel__source-note">
+                    暂存标记为待整理，不计入保护；单个工作夹数量可能重叠，保护数量按 aid 去重。
+                  </p>
+                ) : null}
+                {oldFavoriteGuideMode === 'organize' && autoSelectedOldFavoriteCount === 0 ? (
+                  <p className="favorite-ledger-panel__scan-warning">当前没有可执行视频，请先复核或为未匹配视频选择正式工作夹。</p>
+                ) : null}
                 {preview.scanContext && (reorganizedProtectedAids.size > 0 || hasSelectedAbnormalProtectedOldFavorites) ? (
                   <div className="favorite-ledger-panel__protected-summary">
                     {reorganizedProtectedAids.size > 0 ? (
@@ -6362,7 +6389,7 @@ export function FavoriteLedgerPanel({
                         </>
                       ) : null}
                       {oldFavoriteBilimiSourceFolders.length > 0 ? (
-                        <div className="favorite-ledger-panel__source-table" role="table" aria-label="bilimi 工作夹">
+                        <div className="favorite-ledger-panel__source-table favorite-ledger-panel__source-table--bilimi" role="table" aria-label="bilimi 工作夹">
                           <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--bilimi">
                               <span role="columnheader">bilimi 工作夹</span>
                               <span role="columnheader">已有</span>
@@ -6760,12 +6787,13 @@ export function FavoriteLedgerPanel({
                 ))
               ) : (
                 <div className="favorite-ledger-panel__preview-groups">
-                  <section
-                    className="favorite-ledger-panel__preview-row favorite-ledger-panel__preview-row--pending"
-                    data-archive-ledger-id="unclassified"
-                    role="group"
-                    aria-label={`未匹配到合适分类 ${previewScopedPendingItems.length} 条`}
-                  >
+                  {previewScopedPendingItems.length > 0 ? (
+                    <section
+                      className="favorite-ledger-panel__preview-row favorite-ledger-panel__preview-row--pending"
+                      data-archive-ledger-id="unclassified"
+                      role="group"
+                      aria-label={`未匹配到合适分类 ${previewScopedPendingItems.length} 条`}
+                    >
                     <header>
                       <span className="favorite-ledger-panel__preview-heading">
                         <strong>未匹配到合适分类</strong>
@@ -6785,8 +6813,7 @@ export function FavoriteLedgerPanel({
                       </label>
                     </header>
                     <div className="favorite-ledger-panel__preview-videos" aria-label="未匹配到合适分类视频">
-                      {previewScopedPendingItems.length > 0 ? (
-                        previewScopedPendingItems.map((item) => (
+                      {previewScopedPendingItems.map((item) => (
                           <article
                             key={`pending-${item.sourceFolderTitle}-${item.aid}`}
                             data-latest-change={
@@ -6801,12 +6828,10 @@ export function FavoriteLedgerPanel({
                             </div>
                             {renderOldFavoriteArchiveControls(item, 'unclassified')}
                           </article>
-                        ))
-                      ) : (
-                        <p>暂无需要处理的旧藏。</p>
-                      )}
+                        ))}
                     </div>
-                  </section>
+                    </section>
+                  ) : null}
                   {oldFavoriteTargetGroups.map((group) => {
                     const selectedCount = group.entries.filter((entry) => entry.selected).length
                     const allSelected = group.entries.length > 0 && selectedCount === group.entries.length

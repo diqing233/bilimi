@@ -141,9 +141,21 @@ export function partitionFavoriteArchiveSources(args: {
     const nonInboxFolders = args.managedFolders.filter(
       (folder) => !folder.isInbox && currentBilimiFolderIds.includes(folder.id)
     )
+    const recordedTargetKeys = protectionRecord?.targetLedgerIds.length
+      ? protectionRecord.targetLedgerIds.map((ledgerId) => `ledger:${ledgerId}`)
+      : protectionRecord?.targetFolderIds.map((folderId) => `folder:${folderId}`) ?? []
+    const protectionRecordTargetsOnlyInbox = recordedTargetKeys.length > 0 && recordedTargetKeys.every(
+      (targetKey) => args.managedFolders.some((folder) =>
+        folder.isInbox && (
+          targetKey === `ledger:${folder.ledgerId ?? ''}` ||
+          targetKey === `folder:${folder.id}`
+        )
+      )
+    )
+    const protectionRecordTargetsFormalFolder = Boolean(protectionRecord) && !protectionRecordTargetsOnlyInbox
     const initializeExistingMembership = args.initializeExistingMembership !== false
     const protectedForIncrementalScan =
-      Boolean(protectionRecord) || (initializeExistingMembership && nonInboxFolders.length > 0)
+      protectionRecordTargetsFormalFolder || nonInboxFolders.length > 0
     let archiveHealth: FavoriteArchiveProtectionHealth | undefined
     if (protectionRecord) {
       const historicalTargets = protectionRecord.targetLedgerIds.length > 0
@@ -170,7 +182,7 @@ export function partitionFavoriteArchiveSources(args: {
 
     if (protectedForIncrementalScan) {
       protectedVideos.push(nextVideo)
-      if (initializeExistingMembership && !protectionRecord && nonInboxFolders.length > 0) {
+      if (initializeExistingMembership && !protectionRecordTargetsFormalFolder && nonInboxFolders.length > 0) {
         initializedProtectionRecords.push({
           accountMid: args.accountMid,
           aid: video.aid,

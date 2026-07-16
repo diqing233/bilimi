@@ -4397,6 +4397,10 @@ body[data-floating-window="true"],
   margin-top: 6px;
   min-width: 0;
 }
+.favorite-ledger-panel__source-table--bilimi {
+  border-top: 1px dashed rgba(31, 99, 181, 0.28);
+  padding-top: 6px;
+}
 .favorite-ledger-panel__source-note {
   margin: 0 0 2px;
   color: var(--porcelain-muted);

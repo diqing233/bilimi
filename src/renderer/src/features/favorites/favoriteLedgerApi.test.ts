@@ -965,6 +965,83 @@ describe('favorite ledger API scripts', () => {
     ])
   })
 
+  it('keeps staging when every formal destination fails', async () => {
+    installCookies()
+    const requests: URLSearchParams[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (!url.includes('/x/v3/fav/resource/deal')) throw new Error(`Unexpected request: ${url}`)
+      const body = new URLSearchParams(init?.body?.toString())
+      requests.push(body)
+      return Response.json({ code: -101, message: 'add failed' })
+    }))
+
+    const result = await window.eval(buildExecuteFavoriteLedgerPlanScript([
+      {
+        aid: 123,
+        title: '暂存迁移失败',
+        sourceFolderTitle: 'bilimi·暂存',
+        sourceFolderIds: ['9008'],
+        sourceFolderTitles: ['bilimi·暂存'],
+        currentBilimiFolderIds: ['9008'],
+        stagingFolderIds: ['9008'],
+        targetLedgerId: 'knowledge',
+        targetFolderId: '9001',
+        targetDisplayName: 'bilimi·知识',
+        reviewRequired: false,
+        alreadyInTarget: false,
+        selected: true
+      }
+    ]))
+
+    expect(result).toMatchObject({ ok: false, partial: false })
+    expect(requests).toHaveLength(1)
+    expect(requests[0].get('add_media_ids')).toBe('9001')
+    expect(requests[0].has('del_media_ids')).toBe(false)
+  })
+
+  it('removes staging after one formal destination succeeds and reports partial completion', async () => {
+    installCookies()
+    const requests: URLSearchParams[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (!url.includes('/x/v3/fav/resource/deal')) throw new Error(`Unexpected request: ${url}`)
+      const body = new URLSearchParams(init?.body?.toString())
+      requests.push(body)
+      if (body.get('add_media_ids') === '9002') {
+        return Response.json({ code: -101, message: 'second add failed' })
+      }
+      return Response.json({ code: 0, data: {} })
+    }))
+
+    const base = {
+      aid: 123,
+      title: '暂存部分迁移',
+      sourceFolderTitle: 'bilimi·暂存',
+      sourceFolderIds: ['9008', 'ordinary-1'],
+      sourceFolderTitles: ['bilimi·暂存', '我的普通收藏'],
+      currentBilimiFolderIds: ['9008'],
+      stagingFolderIds: ['9008'],
+      reviewRequired: false,
+      alreadyInTarget: false,
+      selected: true
+    }
+    const result = await window.eval(buildExecuteFavoriteLedgerPlanScript([
+      { ...base, targetLedgerId: 'knowledge', targetFolderId: '9001', targetDisplayName: 'bilimi·知识' },
+      { ...base, targetLedgerId: 'game', targetFolderId: '9002', targetDisplayName: 'bilimi·游戏' }
+    ]))
+
+    expect(result).toMatchObject({
+      ok: false,
+      partial: true,
+      completedItems: [expect.objectContaining({ aid: 123, targetFolderId: '9001' })]
+    })
+    expect(requests.map((body) => ({ add: body.get('add_media_ids'), remove: body.get('del_media_ids') }))).toEqual([
+      { add: '9001', remove: null },
+      { add: '9002', remove: null },
+      { add: null, remove: '9008' }
+    ])
+    expect(requests.some((body) => body.get('del_media_ids') === 'ordinary-1')).toBe(false)
+  })
+
   it('paces repeated old favorite appends to avoid Bilibili protection', async () => {
     installCookies()
     const delays: number[] = []

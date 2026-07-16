@@ -1910,6 +1910,26 @@ export function buildExecuteFavoriteLedgerPlanScript(
           });
           await ensureApiOk(response, 'favorite ledger append');
         };
+        const removeItemFolders = async (item, removeFolderIds) => {
+          const body = new URLSearchParams();
+          body.set('del_media_ids', removeFolderIds.join(','));
+          body.set('csrf', csrf);
+          body.set('rid', String(item.aid));
+          body.set('type', '2');
+          body.set('platform', 'web');
+          body.set('from_spmid', '');
+          body.set('spmid', '333.788.0.0');
+          body.set('statistics', JSON.stringify({ appId: 100, platform: 5 }));
+          const response = await fetch('https://api.bilibili.com/x/v3/fav/resource/deal', {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'content-type': 'application/x-www-form-urlencoded;charset=UTF-8'
+            },
+            body
+          });
+          await ensureApiOk(response, 'favorite ledger staging removal');
+        };
         const refreshTargetFolderId = async (targetDisplayName) => {
           const { mid } = readCredentials();
           if (!mid || !targetDisplayName) {
@@ -1972,6 +1992,47 @@ export function buildExecuteFavoriteLedgerPlanScript(
             continue;
           }
           const groupedItems = Array.isArray(item.groupedItems) ? item.groupedItems : [item];
+          const stagingFolderIds = Array.from(new Set(
+            groupedItems.flatMap((groupedItem) => groupedItem.stagingFolderIds ?? []).map(String).filter(Boolean)
+          ));
+          if (stagingFolderIds.length > 0) {
+            const successfulItems = [];
+            for (const groupedItem of groupedItems) {
+              try {
+                if (!groupedItem.targetFolderId) {
+                  throw new Error(syncRequiredMessage);
+                }
+                await appendItemFolders(groupedItem, [String(groupedItem.targetFolderId)]);
+                successfulItems.push(groupedItem);
+                steps.push('api:ledger:append:' + groupedItem.aid + ':' + groupedItem.targetFolderId);
+              } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
+                if (isProtectionFailure(error)) {
+                  return protectionPausedResult(item, index, errorMessage);
+                }
+                appendFailures.push({ aid: groupedItem.aid, title: groupedItem.title, message: errorMessage, partial: successfulItems.length > 0 });
+                missingTargets.push('favorite-ledger-append:' + groupedItem.aid + ':' + groupedItem.targetLedgerId);
+                steps.push('api:ledger:append-failed:' + groupedItem.aid + ':' + groupedItem.targetLedgerId);
+              }
+            }
+            if (successfulItems.length > 0) {
+              try {
+                await removeItemFolders(item, stagingFolderIds);
+                steps.push('api:ledger:staging-removed:' + item.aid);
+              } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
+                if (isProtectionFailure(error)) {
+                  return protectionPausedResult(item, index, errorMessage);
+                }
+                appendFailures.push({ aid: item.aid, title: item.title, message: errorMessage, partial: true });
+                missingTargets.push('favorite-ledger-staging-remove:' + item.aid);
+                steps.push('api:ledger:staging-remove-failed:' + item.aid);
+              }
+              completedItems.push(...successfulItems);
+            }
+            await paceBeforeNextItem(completedItems.length, index < executableItems.length - 1);
+            continue;
+          }
           try {
             const resolvedItems = [];
             for (const groupedItem of groupedItems) {

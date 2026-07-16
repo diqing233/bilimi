@@ -3280,7 +3280,7 @@ describe('App runtime integration', () => {
     )
   })
 
-  it('keeps unrecorded partial Bilimi memberships active after migration is complete', async () => {
+  it('rebuilds protection from formal Bilimi memberships after migration is complete', async () => {
     const preferences = createAppPreferences({
       favoriteArchiveProtectionInitializedAccountMids: ['42']
     })
@@ -3316,8 +3316,10 @@ describe('App runtime integration', () => {
 
     expect(preview).toEqual(
       expect.objectContaining({
-        items: [expect.objectContaining({ aid: 9, currentBilimiFolderIds: ['9001'] })],
-        scanContext: expect.objectContaining({ protectedVideos: [] })
+        items: [],
+        scanContext: expect.objectContaining({
+          protectedVideos: [expect.objectContaining({ aid: 9, currentBilimiFolderIds: ['9001'] })]
+        })
       })
     )
   })
