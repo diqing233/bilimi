@@ -727,6 +727,9 @@ export function AssistantOverlay({
                 })
               }}
               onScanOldFavorites={scanOldFavorites}
+              onReadCurrentOldFavoriteAccount={async () => String(
+                (await window.bilimiDesktop?.readOldFavoriteTagEnrichment?.('progress'))?.accountMid ?? ''
+              )}
               onExecuteOldFavoritePlan={executeOldFavoritePlan}
               favoriteArchiveMultiMode={preferences.favoriteArchiveMultiMode}
             />

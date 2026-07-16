@@ -4,9 +4,9 @@ import { configDefaults, defineConfig } from 'vitest/config'
 export default defineConfig({
   resolve: {
     alias: {
-      '@notes': resolve(__dirname, 'src/renderer/src/features/notes'),
-      '@renderer': resolve(__dirname, 'src/renderer/src'),
-      '@shared': resolve(__dirname, 'src/shared')
+      '@notes': resolve(import.meta.dirname, 'src/renderer/src/features/notes'),
+      '@renderer': resolve(import.meta.dirname, 'src/renderer/src'),
+      '@shared': resolve(import.meta.dirname, 'src/shared')
     }
   },
   test: {

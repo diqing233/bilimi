@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createBrowserSurfaceModel } from './browserSurfaceModel'
 import { buildOpenLinksInAppScript } from './linkCaptureScript'
 
@@ -26,6 +26,11 @@ type WebviewUrlEvent = Event & {
     url?: string
     title?: string
   }
+}
+
+type WebviewLoadFailureEvent = Event & {
+  errorCode?: number
+  isMainFrame?: boolean
 }
 
 function readEventUrl(event: WebviewUrlEvent): string | undefined {
@@ -217,6 +222,9 @@ export function BiliWebview({
   const initialUrl = useRef(url)
   const latestUrl = useRef(url)
   const model = useMemo(() => createBrowserSurfaceModel(initialUrl.current), [])
+  const [proxyConnectionFailed, setProxyConnectionFailed] = useState(false)
+  const [directRetrying, setDirectRetrying] = useState(false)
+  const [directRetryError, setDirectRetryError] = useState('')
 
   useEffect(() => {
     const webview = ref.current
@@ -309,10 +317,25 @@ export function BiliWebview({
       onTitleChange?.(tabId, nextTitle)
     }
 
+    const handleLoadFailure = (event: Event) => {
+      const failure = event as WebviewLoadFailureEvent
+      if (failure.isMainFrame !== false && failure.errorCode === -130) {
+        setProxyConnectionFailed(true)
+        setDirectRetryError('')
+      }
+    }
+
+    const handleLoadSuccess = () => {
+      setProxyConnectionFailed(false)
+      setDirectRetryError('')
+    }
+
     webview.addEventListener('new-window', handleNewWindow)
     webview.addEventListener('dom-ready', installLinkCapture)
     webview.addEventListener('did-finish-load', installLinkCapture)
     webview.addEventListener('did-finish-load', scheduleDanmakuWake)
+    webview.addEventListener('did-finish-load', handleLoadSuccess)
+    webview.addEventListener('did-fail-load', handleLoadFailure)
     webview.addEventListener('did-navigate', handleLocationChange)
     webview.addEventListener('did-navigate-in-page', handleLocationChange)
     webview.addEventListener('enter-html-full-screen', handleEnterHtmlFullscreen)
@@ -325,6 +348,8 @@ export function BiliWebview({
       webview.removeEventListener('dom-ready', installLinkCapture)
       webview.removeEventListener('did-finish-load', installLinkCapture)
       webview.removeEventListener('did-finish-load', scheduleDanmakuWake)
+      webview.removeEventListener('did-finish-load', handleLoadSuccess)
+      webview.removeEventListener('did-fail-load', handleLoadFailure)
       webview.removeEventListener('did-navigate', handleLocationChange)
       webview.removeEventListener('did-navigate-in-page', handleLocationChange)
       webview.removeEventListener('enter-html-full-screen', handleEnterHtmlFullscreen)
@@ -378,7 +403,24 @@ export function BiliWebview({
     }
   }, [active])
 
-  return (
+  async function retryWithoutProxy() {
+    if (!window.bilimiDesktop?.retryBilibiliSessionDirect) {
+      setDirectRetryError('当前版本无法切换 B 站连接方式，请重启 bilimi 后重试。')
+      return
+    }
+    setDirectRetrying(true)
+    setDirectRetryError('')
+    try {
+      await window.bilimiDesktop.retryBilibiliSessionDirect()
+      ref.current?.reload?.()
+    } catch (error) {
+      setDirectRetryError(`直连重试未能启动：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setDirectRetrying(false)
+    }
+  }
+
+  return (<>
     <webview
       ref={(node) => {
         ref.current = node as Electron.WebviewTag | null
@@ -391,5 +433,22 @@ export function BiliWebview({
       src={model.src}
       partition={model.partition}
     />
-  )
+    {active && proxyConnectionFailed ? (
+      <section className="browser-proxy-error" role="alert" aria-label="B 站网络连接错误">
+        <div className="browser-proxy-error__card">
+          <h2>系统代理连接失败</h2>
+          <p>bilimi 默认跟随 Windows 系统网络设置，本身不要求代理。</p>
+          <p>请先检查系统代理是否正在运行；也可以重新加载，或只在本次 bilimi 运行期间让 B 站标签直连重试。</p>
+          <p>本次直连不会修改系统代理，重启 bilimi 后会恢复跟随系统。</p>
+          {directRetryError ? <p className="browser-proxy-error__failure">{directRetryError}</p> : null}
+          <div className="browser-proxy-error__actions">
+            <button type="button" disabled={directRetrying} onClick={() => ref.current?.reload?.()}>重新加载</button>
+            <button type="button" disabled={directRetrying} onClick={() => void retryWithoutProxy()}>
+              {directRetrying ? '正在切换…' : '本次直连重试'}
+            </button>
+          </div>
+        </div>
+      </section>
+    ) : null}
+  </>)
 }

@@ -106,6 +106,7 @@ export type FavoriteLedgerPreviewItem = {
   sourceFolderIds: string[]
   sourceFolderTitles: string[]
   currentBilimiFolderIds: string[]
+  stagingFolderIds?: string[]
   protectedForIncrementalScan?: boolean
   reorganizeProtected?: boolean
   targetLedgerId: string

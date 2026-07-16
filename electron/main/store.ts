@@ -1,4 +1,5 @@
 import Store from 'electron-store'
+import type { OldFavoriteSessionsState } from '../../src/shared/oldFavoriteSessions'
 import { createDefaultFavoriteLedgers, normalizeFavoriteLedgers } from '../../src/shared/favoriteLedgers'
 import { normalizeAssistantSidebarWidthPx } from '../../src/shared/assistantSidebarWidth'
 import {
@@ -94,6 +95,8 @@ export type DesktopStoreState = AssistantPreferences & {
   videoNoteArchives: VideoNoteArchiveEntry[]
   pendingFavoriteQueue: PendingFavoriteQueueItem[]
   videoAudioTranscriptionQueue: VideoAudioTranscriptionQueueItem[]
+  oldFavoriteRuntime: unknown
+  oldFavoriteSessions: OldFavoriteSessionsState | null
 }
 
 export type AssistantStoreLike = {
@@ -163,7 +166,9 @@ export const DEFAULT_DESKTOP_STORE_STATE: DesktopStoreState = {
   videoNotes: [],
   videoNoteArchives: [],
   pendingFavoriteQueue: [],
-  videoAudioTranscriptionQueue: []
+  videoAudioTranscriptionQueue: [],
+  oldFavoriteRuntime: null,
+  oldFavoriteSessions: null
 }
 
 let desktopStore: Store<DesktopStoreState> | undefined

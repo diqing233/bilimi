@@ -1251,6 +1251,11 @@ export default function App() {
   async function executeOldFavoritePlan(
     items: FavoriteLedgerPreviewItem[]
   ): Promise<AssistantAutomationResult> {
+    const webContentsId = getCurrentActiveWebview()?.getWebContentsId?.()
+    if (typeof webContentsId === 'number') {
+      window.bilimiDesktop?.setOldFavoriteBackgroundTarget?.(webContentsId)
+    }
+
     const loginFailure = await requireBilibiliLogin()
     if (loginFailure) {
       return loginFailure

@@ -4499,41 +4499,27 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByText('动画分镜教程')).toBeInTheDocument()
   })
 
-  it('forwards old-favorite batch checkpoint commits through the desktop bridge', async () => {
-    const token = {
-      version: 1 as const,
-      accountMid: '42',
-      scanRunId: 'scan-run-1',
-      folderOrder: ['101'],
-      expectedCurrentCursor: null,
-      nextCursor: { accountMid: '42', folderId: '101', nextPage: 31, folderOrder: ['101'] },
-      seenAids: []
-    }
-    const commitOldFavoriteBatchCheckpoint = vi.fn().mockResolvedValue({
-      ok: true,
-      committed: true,
-      message: 'committed'
-    })
+  it('keeps continuous old-favorite batch controls available through the desktop bridge', async () => {
+    const scanOldFavorites = vi.fn().mockResolvedValue({
+      items: [],
+      skippedSourceFolderTitles: [],
+      scanContext: {
+        accountMid: '42', sourceFolders: [], protectedSourceFolders: [], managedFolders: [],
+        targetMembership: {}, multiArchiveMode: 'off'
+      }
+    } as FavoriteLedgerPreview)
     installDesktopApi({
-      commitOldFavoriteBatchCheckpoint,
-      scanOldFavorites: vi.fn().mockResolvedValue({
-        items: [],
-        skippedSourceFolderTitles: [],
-        batch: { limit: 3000, hasMore: true, nextCursor: token.nextCursor, commitToken: token }
-      } as FavoriteLedgerPreview)
+      scanOldFavorites
     })
 
     render(<FloatingAssistantApp />)
     fireEvent.click(await screen.findByRole('tab', { name: '掌库' }))
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
-    await screen.findByText('本批最多3000，完成或放弃后可继续')
-    fireEvent.click(screen.getByRole('button', { name: '放弃本批' }))
-    fireEvent.click(
-      within(screen.getByRole('alertdialog', { name: '确认放弃本批？' }))
-        .getByRole('button', { name: '确认放弃' })
-    )
+    await screen.findByRole('combobox', { name: '当前整理批次' })
+    expect(screen.getByRole('button', { name: '新增视频整理' })).toBeInTheDocument()
+    expect(screen.queryByText('本批最多3000，完成或放弃后可继续')).not.toBeInTheDocument()
 
-    await waitFor(() => expect(commitOldFavoriteBatchCheckpoint).toHaveBeenCalledWith(token))
+    expect(scanOldFavorites).toHaveBeenCalledOnce()
   })
 
   it('shows preview-scoped pending classification after scanning old favorites', async () => {
@@ -4573,9 +4559,11 @@ describe('FloatingAssistantApp', () => {
 
   it('keeps old favorite pet hints quiet between organization start and finish', async () => {
     const setAssistantPetHint = vi.fn()
+    const setOldFavoriteBackgroundRunning = vi.fn()
     const executeOldFavoritePlan = vi.fn().mockResolvedValueOnce(createResult('group done'))
     installDesktopApi({
       executeOldFavoritePlan,
+      setOldFavoriteBackgroundRunning,
       scanOldFavorites: vi.fn().mockResolvedValue({
         items: [
           {
@@ -4631,6 +4619,7 @@ describe('FloatingAssistantApp', () => {
     expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'working')).toBe(true)
     expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'happy')).toBe(true)
     expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.message.includes('group done'))).toBe(false)
+    expect(setOldFavoriteBackgroundRunning.mock.calls).toEqual([[true], [false]])
   })
 
   it('persists confirmed archive preview correction records after old favorite execution', async () => {

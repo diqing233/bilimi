@@ -2604,6 +2604,7 @@ export function FloatingAssistantApp({
 
   function handleOldFavoriteExecutionStateChange(state: 'running' | 'finished') {
     setOldFavoriteExecutionState(state)
+    window.bilimiDesktop?.setOldFavoriteBackgroundRunning?.(state === 'running')
     tellPet(
       state === 'running' ? 'progress' : 'success',
       state === 'running' ? '旧藏整理中，请耐心等待。' : '本次整理已结束。'
@@ -2748,6 +2749,9 @@ export function FloatingAssistantApp({
             onSaveLedgers={saveFavoriteLedgers}
             onOpenFavoritePage={openFavoritePage}
             onScanOldFavorites={scanOldFavorites}
+            onReadCurrentOldFavoriteAccount={async () =>
+              String((await readOldFavoriteTagEnrichment('progress')).accountMid ?? '')
+            }
             onReadOldFavoriteTagEnrichment={readOldFavoriteTagEnrichment}
             onCommitOldFavoriteBatchCheckpoint={commitOldFavoriteBatchCheckpoint}
             onReadOldFavoriteBatchStatus={readOldFavoriteBatchStatus}

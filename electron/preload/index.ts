@@ -14,6 +14,8 @@ import type {
   PendingFavoriteQueueStatus,
   OldFavoriteRuntimeSetResult,
   OldFavoriteRuntimeSnapshot,
+  OldFavoriteSessionsState,
+  OldFavoriteTaskKind,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionQueueSnapshot,
   VideoAudioTranscriptionRequest,
@@ -79,6 +81,35 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.sendSync('old-favorite-runtime:bind-account', accountMid) as boolean,
   resetOldFavoriteRuntime: () =>
     ipcRenderer.sendSync('old-favorite-runtime:reset') as boolean,
+  loadOldFavoriteSessions: () =>
+    ipcRenderer.invoke('old-favorite-sessions:load') as Promise<OldFavoriteSessionsState>,
+  saveOldFavoriteSessions: (state: OldFavoriteSessionsState) =>
+    ipcRenderer.invoke('old-favorite-sessions:save', state) as Promise<OldFavoriteSessionsState>,
+  claimOldFavoriteTaskLease: (
+    batchId: string,
+    segmentId: string,
+    task: OldFavoriteTaskKind,
+    accountMid: string
+  ) => ipcRenderer.invoke(
+    'old-favorite-sessions:claim-lease',
+    batchId,
+    segmentId,
+    task,
+    accountMid
+  ) as Promise<boolean>,
+  releaseOldFavoriteTaskLease: (batchId: string, segmentId: string) =>
+    ipcRenderer.invoke('old-favorite-sessions:release-lease', batchId, segmentId) as Promise<boolean>,
+  onOldFavoriteSessionsChanged: (callback: (state: OldFavoriteSessionsState) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: OldFavoriteSessionsState) => callback(state)
+    ipcRenderer.on('old-favorite-sessions:changed', listener)
+    return () => ipcRenderer.removeListener('old-favorite-sessions:changed', listener)
+  },
+  setOldFavoriteBackgroundRunning: (running: boolean) =>
+    ipcRenderer.send('old-favorite-background:set-running', running),
+  setOldFavoriteBackgroundTarget: (webContentsId: number) =>
+    ipcRenderer.send('old-favorite-background:set-target', webContentsId),
+  retryBilibiliSessionDirect: () =>
+    ipcRenderer.invoke('bilibili-session:retry-direct') as Promise<{ mode: 'direct' }>,
   onOldFavoriteRuntimeChanged: (
     callback: (snapshot: OldFavoriteRuntimeSnapshot | { type: 'reset'; accountMid: string }) => void
   ) => {

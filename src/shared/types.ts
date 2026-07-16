@@ -1,5 +1,11 @@
 import type { PetHoverShortcutId } from './petHoverShortcuts'
 
+export type {
+  OldFavoriteSessionsState,
+  OldFavoriteTaskKind,
+  OldFavoriteTaskLease
+} from './oldFavoriteSessions'
+
 export type AssistantAction = '赏' | '藏' | '赐' | '表' | '阅'
 
 export type BrowserSurfaceModel = {
@@ -224,6 +230,7 @@ export type AssistantAutomationResult = {
   steps: string[]
   missingTargets: string[]
   message: string
+  resultUnknown?: boolean
 }
 
 export type VisualAutomationContext = {
