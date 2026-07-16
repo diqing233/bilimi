@@ -41,6 +41,20 @@ describe('oldFavoriteRuntimeSession', () => {
     expect(feedbackHandler).toHaveBeenCalledWith('新账户扫描完成')
   })
 
+  it('clears visible account state when the user logs out', async () => {
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: { bindOldFavoriteRuntimeAccount: vi.fn().mockReturnValue(true) }
+    })
+    const session = await import('./oldFavoriteRuntimeSession')
+    session.resetOldFavoriteRuntimeSession()
+    session.bindOldFavoriteRuntimeAccount('42')
+    session.setOldFavoriteRuntimeValue('preview', { items: [{ aid: 1 }] })
+
+    expect(session.bindOldFavoriteRuntimeAccount('')).toBe(true)
+    expect(session.getOldFavoriteRuntimeValue('preview', null)).toBeNull()
+  })
+
   it('keeps the latest handler when a stale registration is cleaned up', async () => {
     const session = await import('./oldFavoriteRuntimeSession')
     const firstHandler = vi.fn()

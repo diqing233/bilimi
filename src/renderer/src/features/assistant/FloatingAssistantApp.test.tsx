@@ -86,6 +86,7 @@ function createSnapshot(overrides: Partial<AssistantSnapshot> = {}): AssistantSn
   const preferences = overrides.preferences ?? createPreferences()
 
   return {
+    accountMid: '42',
     preferences,
     favoriteLedgerStatus: {
       ok: true,
@@ -644,7 +645,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
-    selectDeepSeekArchiveScope('DeepSeek 进行二次整理')
+    selectDeepSeekArchiveScope('当前分段')
 
     expect(generateDeepSeek).not.toHaveBeenCalled()
     expect(screen.getByLabelText('DeepSeek状态')).not.toHaveTextContent('DeepSeek 工作中')
@@ -795,7 +796,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
-    selectDeepSeekArchiveScope('DeepSeek 进行二次整理')
+    selectDeepSeekArchiveScope('当前分段')
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
 
     await waitFor(() =>
@@ -1061,7 +1062,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
-    selectDeepSeekArchiveScope('DeepSeek 进行二次整理')
+    selectDeepSeekArchiveScope('当前分段')
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
 
     expect(await screen.findByText('DeepSeek 正在整理旧藏...')).toBeInTheDocument()
@@ -4564,6 +4565,13 @@ describe('FloatingAssistantApp', () => {
     installDesktopApi({
       executeOldFavoritePlan,
       setOldFavoriteBackgroundRunning,
+      requestAssistantSnapshot: vi.fn().mockResolvedValue(createSnapshot({
+        accountMid: undefined,
+        preferences: createPreferences({
+          favoriteLedgers: createBackedFavoriteLedgers(),
+          favoriteArchiveMultiMode: 'two'
+        })
+      })),
       scanOldFavorites: vi.fn().mockResolvedValue({
         items: [
           {
@@ -4637,8 +4645,10 @@ describe('FloatingAssistantApp', () => {
       savePreferences,
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
+          accountMid: undefined,
           preferences: createPreferences({
-            favoriteLedgers
+            favoriteLedgers,
+            favoriteArchiveMultiMode: 'two'
           })
         })
       ),

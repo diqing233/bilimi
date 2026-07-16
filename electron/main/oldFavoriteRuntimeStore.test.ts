@@ -36,8 +36,21 @@ describe('OldFavoriteRuntimeStore', () => {
 
     expect(store.bindAccount('99')).toBe(true)
     expect(store.get('deepSeekArchiveRunning', false)).toMatchObject({ revision: 0, value: false })
-    expect(store.bindAccount('42')).toBe(true)
+    store.bindAccount('42')
     expect(store.get('deepSeekArchiveRunning', false)).toMatchObject({ revision: 1, value: true })
+  })
+
+  it('detaches a logged-out window without deleting the previous account runtime', () => {
+    const backend = memoryBackend()
+    const store = new OldFavoriteRuntimeStore(backend)
+    store.bindAccount('42')
+    store.set('preview', { items: [{ aid: 1 }] }, 0)
+
+    expect(store.bindAccount('')).toBe(true)
+    expect(store.get('preview', null)).toMatchObject({ value: null, accountMid: '' })
+
+    store.bindAccount('42')
+    expect(store.get('preview', null)).toMatchObject({ value: { items: [{ aid: 1 }] }, accountMid: '42' })
   })
 
   it('restores an account runtime after the application store is recreated', () => {

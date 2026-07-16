@@ -17,6 +17,7 @@ import type { OldFavoriteBatchCommitToken } from '../favorites/favoriteLedgerApi
 import type { VideoContentContext } from '../recommendation/videoClassifier'
 
 export type AssistantSnapshot = {
+  accountMid?: string
   preferences: AssistantPreferences
   favoriteLedgerStatus: FavoriteLedgerStatus | null
   videoContentContext: VideoContentContext

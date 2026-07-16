@@ -3481,7 +3481,9 @@ body[data-floating-window="true"],
 
 .favorite-ledger-panel__batch-switcher {
   display: flex;
+  flex: 1 1 0;
   min-width: 0;
+  max-width: 100%;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
@@ -3489,6 +3491,7 @@ body[data-floating-window="true"],
 
 .favorite-ledger-panel__batch-switcher button,
 .favorite-ledger-panel__batch-switcher select {
+  flex: 1 1 0;
   min-width: 0;
   max-width: 180px;
   overflow: hidden;
@@ -4211,6 +4214,21 @@ body[data-floating-window="true"],
   display: grid;
   gap: 8px;
 }
+.favorite-ledger-panel__guide-title-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+@media (max-width: 360px) {
+  .favorite-ledger-panel__guide-title-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.favorite-ledger-panel__guide-title-row > .favorite-ledger-panel__section-title {
+  min-width: 0;
+}
 .favorite-ledger-panel__guide-hint {
   margin: 0;
   color: var(--porcelain-muted);
@@ -4467,9 +4485,11 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__source-header--bilimi,
 .favorite-ledger-panel__source-row--bilimi {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 52px;
+  grid-template-columns: 20px minmax(0, 1fr) 40px 64px;
   gap: 6px;
   align-items: center;
+  width: 100%;
+  min-height: 32px;
   min-width: 0;
 }
 .favorite-ledger-panel__step-divider {

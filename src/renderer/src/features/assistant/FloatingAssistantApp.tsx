@@ -63,6 +63,7 @@ import type { OldFavoriteBatchCommitToken } from '../favorites/favoriteLedgerApi
 import { PET_COLLAPSE_FAREWELL_LINES, pickPetLine } from './petInteractionLines'
 import { publishDeepSeekTask, subscribeDeepSeekTasks } from './deepSeekTaskSignal'
 import {
+  bindOldFavoriteRuntimeAccount,
   getOldFavoriteRuntimeValue,
   setOldFavoriteRuntimeValue,
   subscribeOldFavoriteRuntime
@@ -1032,6 +1033,9 @@ export function FloatingAssistantApp({
       }
 
       snapshotRef.current = nextSnapshot
+      if (nextSnapshot.accountMid !== undefined) {
+        bindOldFavoriteRuntimeAccount(nextSnapshot.accountMid)
+      }
       setSnapshot(nextSnapshot)
       if (!runtimeFeedbackSnapshotLoaded.current) {
         runtimeFeedbackSnapshotLoaded.current = true
@@ -2743,15 +2747,16 @@ export function FloatingAssistantApp({
 
         <div className="floating-assistant-view" hidden={activeView !== 'ledger'}>
           <FavoriteLedgerPanel
+            currentAccountMid={resolvedSnapshot.accountMid}
             ledgers={preferences.favoriteLedgers}
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? []}
             onEnsureLedgers={ensureFavoriteLedgers}
             onSaveLedgers={saveFavoriteLedgers}
             onOpenFavoritePage={openFavoritePage}
             onScanOldFavorites={scanOldFavorites}
-            onReadCurrentOldFavoriteAccount={async () =>
-              String((await readOldFavoriteTagEnrichment('progress')).accountMid ?? '')
-            }
+            onReadCurrentOldFavoriteAccount={resolvedSnapshot.accountMid !== undefined
+              ? async () => resolvedSnapshot.accountMid ?? ''
+              : undefined}
             onReadOldFavoriteTagEnrichment={readOldFavoriteTagEnrichment}
             onCommitOldFavoriteBatchCheckpoint={commitOldFavoriteBatchCheckpoint}
             onReadOldFavoriteBatchStatus={readOldFavoriteBatchStatus}

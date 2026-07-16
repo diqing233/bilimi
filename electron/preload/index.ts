@@ -79,6 +79,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ) as OldFavoriteRuntimeSetResult,
   bindOldFavoriteRuntimeAccount: (accountMid: string) =>
     ipcRenderer.sendSync('old-favorite-runtime:bind-account', accountMid) as boolean,
+  readBilibiliAccountMid: () => ipcRenderer.invoke('bilibili:account-mid') as Promise<string>,
   resetOldFavoriteRuntime: () =>
     ipcRenderer.sendSync('old-favorite-runtime:reset') as boolean,
   loadOldFavoriteSessions: () =>
