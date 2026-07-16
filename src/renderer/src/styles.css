@@ -3478,6 +3478,24 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__header {
   justify-content: space-between;
 }
+
+.favorite-ledger-panel__batch-switcher {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.favorite-ledger-panel__batch-switcher button,
+.favorite-ledger-panel__batch-switcher select {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .favorite-ledger-panel__toolbar {
   display: grid;
   grid-template-columns: 1fr;

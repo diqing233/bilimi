@@ -14,6 +14,7 @@ export type FavoriteLedgerPreviewItem = {
   selectedCandidateTarget?: boolean
   desiredTargetFolderIds?: string[]
   currentBilimiFolderIds?: string[]
+  stagingFolderIds?: string[]
   reorganizeProtected?: boolean
 }
 
@@ -907,7 +908,11 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           throw error;
         }
         const folders = Array.isArray(listJson.data?.list) ? listJson.data.list : [];
-        const normalizedLedgerName = (value) => String(value ?? '').trim().replace(/^bilimi[·\\s\\-路]*/i, '').trim();
+        const normalizedLedgerName = (value) => String(value ?? '')
+          .trim()
+          .replace(/^bilimi[·\\s\\-路]*/i, '')
+          .replace(/·[2-9]\\d*$/, '')
+          .trim();
         const ledgerByFolderId = new Map(
           payload.ledgers
             .filter((ledger) => ledger.bilibiliFolderId)
@@ -996,7 +1001,8 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           tagStore.progress = { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'complete' };
         }
         tagStore.accountMid = String(mid);
-        const batchLimit = 3000;
+        // A user batch scans to exhaustion; performance segmentation happens after discovery.
+        const batchLimit = Number.POSITIVE_INFINITY;
         const savedBatchCursor = !payload.aid && tagStore.batchCursor?.accountMid === String(mid)
           ? tagStore.batchCursor
           : null;
@@ -1838,6 +1844,9 @@ export function buildExecuteFavoriteLedgerPlanScript(
           String(error?.message || error || '')
         )
       );
+      const isUnknownWriteResult = (error) =>
+        error?.name === 'AbortError' ||
+        /abort|interrupted|networkerror|failed to fetch|load failed/i.test(String(error?.message || error || ''));
 
       try {
         const { csrf } = readCredentials();
@@ -1930,6 +1939,145 @@ export function buildExecuteFavoriteLedgerPlanScript(
           });
           await ensureApiOk(response, 'favorite ledger staging removal');
         };
+        const trimFolderTitle = (title, limit) => Array.from(String(title || '').trim()).slice(0, limit).join('');
+        const logicalFolderTitle = (title) => trimFolderTitle(String(title || '').trim().replace(/·[2-9]\d*$/, ''), 14);
+        const physicalShardNumber = (title) => {
+          const match = String(title || '').trim().match(/·([2-9]\d*)$/);
+          return match ? Number(match[1]) : 1;
+        };
+        const physicalShardTitle = (logicalTitle, shardNumber) => {
+          const base = trimFolderTitle(logicalTitle, 14);
+          if (shardNumber <= 1) return base;
+          const suffix = '·' + shardNumber;
+          return trimFolderTitle(base, 20 - Array.from(suffix).length) + suffix;
+        };
+        let remoteFolderSnapshotPromise;
+        const readRemoteFolderSnapshot = async () => {
+          if (!remoteFolderSnapshotPromise) {
+            remoteFolderSnapshotPromise = (async () => {
+              const { mid } = readCredentials();
+              if (!mid) throw createApiError('favorite folder list requires an account', { kind: 'credentials' });
+              const response = await fetch(buildListUrl(mid), { credentials: 'include' });
+              const json = await ensureApiOk(response, 'favorite folder list');
+              const folders = Array.isArray(json.data?.list) ? json.data.list : [];
+              return folders.map((folder) => ({
+                id: String(findFolderId(folder) || ''),
+                title: String(folder?.title || ''),
+                memberAids: null
+              })).filter((folder) => folder.id);
+            })();
+          }
+          return remoteFolderSnapshotPromise;
+        };
+        const readShardMembers = async (shard) => {
+          if (Array.isArray(shard.memberAids)) return shard.memberAids;
+          const url = new URL('https://api.bilibili.com/x/v3/fav/resource/ids');
+          url.searchParams.set('media_id', shard.id);
+          const response = await fetch(url.toString(), { credentials: 'include' });
+          const json = await ensureApiOk(response, 'favorite shard membership for folder ' + shard.id);
+          if (!Array.isArray(json.data)) {
+            throw createApiError('favorite shard membership returned invalid id data', { kind: 'schema' });
+          }
+          shard.memberAids = Array.from(new Set(json.data
+            .filter((entry) => Number(entry?.type) === 2)
+            .map((entry) => Number(entry?.id ?? entry?.aid))
+            .filter((aid) => Number.isFinite(aid) && aid > 0)));
+          return shard.memberAids;
+        };
+        const createPhysicalShard = async (logicalTitle, shardNumber) => {
+          const body = new URLSearchParams();
+          body.set('csrf', csrf);
+          body.set('privacy', '0');
+          body.set('title', physicalShardTitle(logicalTitle, shardNumber));
+          const response = await fetch('https://api.bilibili.com/x/v3/fav/folder/add', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+            body
+          });
+          const json = await ensureApiOk(response, 'favorite physical shard create');
+          const folderId = json.data?.id ?? json.data?.fid;
+          if (!folderId) throw createApiError('favorite physical shard create returned no folder id', { kind: 'schema' });
+          const shard = { id: String(folderId), title: physicalShardTitle(logicalTitle, shardNumber), memberAids: [] };
+          const folders = await readRemoteFolderSnapshot();
+          folders.push(shard);
+          steps.push('api:ledger:shard-created:' + shard.id);
+          return shard;
+        };
+        const resolvePhysicalTarget = async (item) => {
+          if (!/^bilimi·/i.test(String(item.targetDisplayName || '').trim())) {
+            return { state: 'ready', folderId: String(item.targetFolderId || '') };
+          }
+          let folders;
+          folders = await readRemoteFolderSnapshot();
+          const logicalTitle = logicalFolderTitle(item.targetDisplayName);
+          const shards = folders
+            .filter((folder) => logicalFolderTitle(folder.title) === logicalTitle)
+            .sort((left, right) => physicalShardNumber(left.title) - physicalShardNumber(right.title));
+          if (shards.length === 0) {
+            return { state: 'ready', folderId: String(item.targetFolderId || '') };
+          }
+          try {
+            await Promise.all(shards.map(readShardMembers));
+          } catch (error) {
+            return { state: 'membership-incomplete', error };
+          }
+          const existing = shards.find((shard) => shard.memberAids.includes(Number(item.aid)));
+          if (existing) return { state: 'already-member', folderId: existing.id };
+          let target = [...shards].reverse().find((shard) => shard.memberAids.length < 1000);
+          if (!target) {
+            try {
+              target = await createPhysicalShard(logicalTitle, Math.max(...shards.map((shard) => physicalShardNumber(shard.title))) + 1);
+            } catch (error) {
+              return { state: 'create-failed', error };
+            }
+          }
+          target.memberAids.push(Number(item.aid));
+          return { state: 'ready', folderId: target.id };
+        };
+        const resolveAllStagingFolderIds = async (item, suppliedIds) => {
+          let folders;
+          try {
+            folders = await readRemoteFolderSnapshot();
+          } catch {
+            return { state: 'ready', folderIds: suppliedIds };
+          }
+          const stagingShards = folders.filter((folder) => logicalFolderTitle(folder.title) === 'bilimi·暂存');
+          for (const shard of stagingShards) {
+            try {
+              const memberAids = await readShardMembers(shard);
+              if (memberAids.includes(Number(item.aid))) suppliedIds.push(shard.id);
+            } catch (error) {
+              return { state: 'membership-incomplete', folderIds: Array.from(new Set(suppliedIds)), error };
+            }
+          }
+          return { state: 'ready', folderIds: Array.from(new Set(suppliedIds)) };
+        };
+        const physicalTargetPausedResult = (item, index, missingTarget, message) => ({
+          ok: false,
+          paused: true,
+          partial: completedItems.length > 0,
+          steps,
+          missingTargets: [missingTarget],
+          completedItems,
+          completedCount: completedItems.length,
+          failedCount: 1,
+          remainingCount: executableItems.length - index,
+          message
+        });
+        const unknownWritePausedResult = (item, index, message) => ({
+          ok: false,
+          paused: true,
+          resultUnknown: true,
+          partial: completedItems.length > 0,
+          steps: [...steps, 'api:ledger:result-unknown:' + item.aid],
+          missingTargets: ['favorite-ledger-reconcile:' + item.aid],
+          completedItems,
+          completedCount: completedItems.length,
+          failedCount: 0,
+          remainingCount: executableItems.length - index,
+          message: 'The last favorite request has an unknown result. Reconcile before continuing: ' + message
+        });
         const refreshTargetFolderId = async (targetDisplayName) => {
           const { mid } = readCredentials();
           if (!mid || !targetDisplayName) {
@@ -1967,22 +2115,46 @@ export function buildExecuteFavoriteLedgerPlanScript(
             if (desiredFolderIds.length === 0) {
               continue;
             }
-            const addedFolderIds = desiredFolderIds.filter((folderId) => !currentFolderIds.includes(folderId));
             try {
+              let resolvedDesiredFolderIds = desiredFolderIds;
+              if (desiredFolderIds.length === 1) {
+                const resolution = await resolvePhysicalTarget(item);
+                if (resolution.state === 'membership-incomplete') {
+                  return physicalTargetPausedResult(item, index, 'favorite-ledger-membership-incomplete', 'Formal favorite membership is incomplete; execution is paused.');
+                }
+                if (resolution.state === 'create-failed') {
+                  return physicalTargetPausedResult(item, index, 'favorite-ledger-shard:' + item.targetLedgerId, 'Creating the next favorite shard failed; this target is paused.');
+                }
+                if (!resolution.folderId) throw new Error(syncRequiredMessage);
+                resolvedDesiredFolderIds = [String(resolution.folderId)];
+              }
+              const addedFolderIds = resolvedDesiredFolderIds.filter((folderId) => !currentFolderIds.includes(folderId));
               if (addedFolderIds.length > 0) {
                 await appendItemFolders(item, addedFolderIds);
                 steps.push('api:ledger:append:' + item.aid + ':' + addedFolderIds.join(','));
               }
+              const removedFolderIds = desiredFolderIds.length === 1
+                ? currentFolderIds.filter((folderId) => !resolvedDesiredFolderIds.includes(folderId))
+                : [];
+              if (removedFolderIds.length > 0) {
+                await removeItemFolders(item, removedFolderIds);
+                steps.push('api:ledger:remove:' + item.aid + ':' + removedFolderIds.join(','));
+              }
               completedItems.push({
                 ...item,
-                finalFolderIds: Array.from(new Set([...currentFolderIds, ...desiredFolderIds])),
+                finalFolderIds: desiredFolderIds.length === 1
+                  ? resolvedDesiredFolderIds
+                  : Array.from(new Set([...currentFolderIds, ...resolvedDesiredFolderIds])),
                 addedFolderIds,
-                removedFolderIds: []
+                removedFolderIds
               });
             } catch (error) {
               const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
               if (isProtectionFailure(error)) {
                 return protectionPausedResult(item, index, errorMessage);
+              }
+              if (isUnknownWriteResult(error)) {
+                return unknownWritePausedResult(item, index, errorMessage);
               }
               appendFailures.push({ aid: item.aid, title: item.title, message: errorMessage, partial: false });
               missingTargets.push('favorite-ledger-reconcile:' + item.aid);
@@ -1992,23 +2164,43 @@ export function buildExecuteFavoriteLedgerPlanScript(
             continue;
           }
           const groupedItems = Array.isArray(item.groupedItems) ? item.groupedItems : [item];
-          const stagingFolderIds = Array.from(new Set(
+          let stagingFolderIds = Array.from(new Set(
             groupedItems.flatMap((groupedItem) => groupedItem.stagingFolderIds ?? []).map(String).filter(Boolean)
           ));
+          const stagingResolution = await resolveAllStagingFolderIds(item, stagingFolderIds);
+          if (stagingResolution.state === 'membership-incomplete') {
+            return unknownWritePausedResult(item, index, 'Staging favorite membership is incomplete.');
+          }
+          stagingFolderIds = stagingResolution.folderIds;
           if (stagingFolderIds.length > 0) {
             const successfulItems = [];
             for (const groupedItem of groupedItems) {
               try {
-                if (!groupedItem.targetFolderId) {
+                const resolution = await resolvePhysicalTarget(groupedItem);
+                if (resolution.state === 'membership-incomplete') {
+                  return physicalTargetPausedResult(item, index, 'favorite-ledger-membership-incomplete', 'Formal favorite membership is incomplete; execution is paused.');
+                }
+                if (resolution.state === 'create-failed') {
+                  return physicalTargetPausedResult(item, index, 'favorite-ledger-shard:' + groupedItem.targetLedgerId, 'Creating the next favorite shard failed; this target is paused.');
+                }
+                if (resolution.state === 'already-member') {
+                  successfulItems.push({ ...groupedItem, targetFolderId: resolution.folderId });
+                  steps.push('api:ledger:already-member:' + groupedItem.aid + ':' + resolution.folderId);
+                  continue;
+                }
+                if (!resolution.folderId) {
                   throw new Error(syncRequiredMessage);
                 }
-                await appendItemFolders(groupedItem, [String(groupedItem.targetFolderId)]);
-                successfulItems.push(groupedItem);
-                steps.push('api:ledger:append:' + groupedItem.aid + ':' + groupedItem.targetFolderId);
+                await appendItemFolders(groupedItem, [resolution.folderId]);
+                successfulItems.push({ ...groupedItem, targetFolderId: resolution.folderId });
+                steps.push('api:ledger:append:' + groupedItem.aid + ':' + resolution.folderId);
               } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
                 if (isProtectionFailure(error)) {
                   return protectionPausedResult(item, index, errorMessage);
+                }
+                if (isUnknownWriteResult(error)) {
+                  return unknownWritePausedResult(item, index, errorMessage);
                 }
                 appendFailures.push({ aid: groupedItem.aid, title: groupedItem.title, message: errorMessage, partial: successfulItems.length > 0 });
                 missingTargets.push('favorite-ledger-append:' + groupedItem.aid + ':' + groupedItem.targetLedgerId);
@@ -2024,6 +2216,9 @@ export function buildExecuteFavoriteLedgerPlanScript(
                 if (isProtectionFailure(error)) {
                   return protectionPausedResult(item, index, errorMessage);
                 }
+                if (isUnknownWriteResult(error)) {
+                  return unknownWritePausedResult(item, index, errorMessage);
+                }
                 appendFailures.push({ aid: item.aid, title: item.title, message: errorMessage, partial: true });
                 missingTargets.push('favorite-ledger-staging-remove:' + item.aid);
                 steps.push('api:ledger:staging-remove-failed:' + item.aid);
@@ -2036,7 +2231,18 @@ export function buildExecuteFavoriteLedgerPlanScript(
           try {
             const resolvedItems = [];
             for (const groupedItem of groupedItems) {
-              let targetFolderId = groupedItem.targetFolderId;
+              const resolution = await resolvePhysicalTarget(groupedItem);
+              if (resolution.state === 'membership-incomplete') {
+                return physicalTargetPausedResult(item, index, 'favorite-ledger-membership-incomplete', 'Formal favorite membership is incomplete; execution is paused.');
+              }
+              if (resolution.state === 'create-failed') {
+                return physicalTargetPausedResult(item, index, 'favorite-ledger-shard:' + groupedItem.targetLedgerId, 'Creating the next favorite shard failed; this target is paused.');
+              }
+              if (resolution.state === 'already-member') {
+                resolvedItems.push({ ...groupedItem, targetFolderId: resolution.folderId, alreadyInTarget: true });
+                continue;
+              }
+              let targetFolderId = resolution.folderId || groupedItem.targetFolderId;
               if (!targetFolderId && groupedItem.selectedCandidateTarget) {
                 targetFolderId = await refreshTargetFolderId(groupedItem.targetDisplayName);
                 if (targetFolderId) {
@@ -2050,13 +2256,17 @@ export function buildExecuteFavoriteLedgerPlanScript(
               }
               resolvedItems.push({ ...groupedItem, targetFolderId: String(targetFolderId) });
             }
-            await appendItemFolders(item, Array.from(new Set(resolvedItems.map((entry) => entry.targetFolderId))));
+            const addFolderIds = Array.from(new Set(resolvedItems.filter((entry) => !entry.alreadyInTarget).map((entry) => entry.targetFolderId)));
+            if (addFolderIds.length > 0) await appendItemFolders(item, addFolderIds);
             completedItems.push(...resolvedItems);
             steps.push('api:ledger:append:' + item.aid);
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
             if (isProtectionFailure(error)) {
               return protectionPausedResult(item, index, errorMessage);
+            }
+            if (isUnknownWriteResult(error)) {
+              return unknownWritePausedResult(item, index, errorMessage);
             }
 
             try {
@@ -2083,6 +2293,9 @@ export function buildExecuteFavoriteLedgerPlanScript(
               const retryMessage = retryError instanceof Error ? retryError.message : String(retryError || '');
               if (isProtectionFailure(retryError)) {
                 return protectionPausedResult(item, index, retryMessage);
+              }
+              if (isUnknownWriteResult(retryError)) {
+                return unknownWritePausedResult(item, index, retryMessage);
               }
 
               appendFailures.push({ aid: item.aid, title: item.title, message: errorMessage });

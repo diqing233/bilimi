@@ -1,0 +1,347 @@
+import { describe, expect, it, vi } from 'vitest'
+import {
+  createOldFavoriteBatch,
+  type OldFavoriteSessionsState,
+  type OldFavoriteTaskKind
+} from '../../../../shared/oldFavoriteSessions'
+import {
+  OldFavoriteSessionOrchestrator,
+  type OldFavoriteSessionCoordinator
+} from './oldFavoriteSessionOrchestrator'
+
+function createHarness(initial: OldFavoriteSessionsState = { version: 1, batches: [], lease: null }) {
+  let state = structuredClone(initial)
+  const coordinator: OldFavoriteSessionCoordinator = {
+    load: vi.fn(async () => structuredClone(state)),
+    save: vi.fn(async (next) => {
+      state = structuredClone(next)
+      return structuredClone(state)
+    }),
+    acquire: vi.fn(async (batchId, segmentId, task, accountMid) => {
+      const batch = state.batches.find((candidate) => candidate.id === batchId)
+      if (
+        state.lease ||
+        !batch ||
+        batch.status !== 'active' ||
+        batch.accountMid !== accountMid ||
+        !batch.segments.some((segment) => segment.id === segmentId)
+      ) {
+        return false
+      }
+      state.lease = { batchId, segmentId, task }
+      return true
+    }),
+    release: vi.fn(async (batchId, segmentId) => {
+      const lease = state.lease
+      if (!lease || lease.batchId !== batchId || lease.segmentId !== segmentId) return false
+      state.lease = null
+      return true
+    })
+  }
+
+  return { coordinator, getState: () => structuredClone(state) }
+}
+
+describe('OldFavoriteSessionOrchestrator', () => {
+  it('tracks each online request and records an unknown result before releasing on rejection', async () => {
+    const batch = createOldFavoriteBatch({
+      accountMid: '42', kind: 'full', aids: [11, 12], now: '2026-07-16T08:00:00Z'
+    })
+    const harness = createHarness({ version: 1, batches: [batch], lease: null })
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+
+    await expect(orchestrator.runTrackedRequest({
+      batchId: batch.id,
+      segmentId: batch.segments[0].id,
+      task: 'execute',
+      accountMid: '42',
+      currentAid: 12,
+      checkpoint: { cursor: 1, frozenExecutionAids: [11, 12] },
+      snapshot: { currentStep: 'execution', execution: { completed: 1 } },
+      work: async () => { throw new Error('connection lost') }
+    })).rejects.toThrow('connection lost')
+
+    expect(harness.getState().lease).toBeNull()
+    expect(harness.getState().batches[0].segments[0]).toMatchObject({
+      status: 'paused',
+      task: {
+        kind: 'execute', status: 'paused', requestState: 'result-unknown', currentAid: 12
+      },
+      checkpoint: { cursor: 1, frozenExecutionAids: [11, 12] }
+    })
+  })
+
+  it('marks a tracked request idle and releases after an explicit result', async () => {
+    const batch = createOldFavoriteBatch({
+      accountMid: '42', kind: 'full', aids: [11], now: '2026-07-16T08:00:00Z'
+    })
+    const harness = createHarness({ version: 1, batches: [batch], lease: null })
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+
+    await expect(orchestrator.runTrackedRequest({
+      batchId: batch.id,
+      segmentId: batch.segments[0].id,
+      task: 'tag',
+      accountMid: '42',
+      currentAid: 11,
+      work: async () => 'done'
+    })).resolves.toBe('done')
+
+    expect(harness.getState().lease).toBeNull()
+    expect(harness.getState().batches[0].segments[0]).toMatchObject({
+      status: 'ready',
+      task: { kind: 'tag', status: 'paused', requestState: 'idle', currentAid: 11 }
+    })
+  })
+
+  it('persists a placeholder segment and claims scan before online work starts', async () => {
+    const harness = createHarness()
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+
+    const result = await orchestrator.beginScan({
+      accountMid: ' 42 ',
+      kind: 'full',
+      now: '2026-07-16T08:00:00Z',
+      snapshot: { currentStep: 'scan', selection: { folders: ['source'] } }
+    })
+
+    expect(result.acquired).toBe(true)
+    expect(result.batch.segments).toEqual([
+      expect.objectContaining({
+        id: `${result.batch.id}:segment:1`,
+        index: 0,
+        aids: [],
+        status: 'running',
+        task: { kind: 'scan', status: 'running', requestState: 'idle' }
+      })
+    ])
+    expect(harness.coordinator.save).toHaveBeenCalledBefore(
+      vi.mocked(harness.coordinator.acquire)
+    )
+    expect(harness.getState().lease).toMatchObject({ task: 'scan' })
+  })
+
+  it.each<OldFavoriteTaskKind>(['scan', 'tag', 'deepseek', 'execute', 'reconcile'])(
+    'atomically claims and always releases a %s lease around work',
+    async (task) => {
+      const batch = createOldFavoriteBatch({
+        accountMid: '42',
+        kind: 'full',
+        aids: [1],
+        now: '2026-07-16T08:00:00Z'
+      })
+      const harness = createHarness({ version: 1, batches: [batch], lease: null })
+      const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+      const work = vi.fn(async () => {
+        expect(harness.getState().lease).toMatchObject({ task })
+        if (task === 'execute') throw new Error('stop')
+        return task
+      })
+
+      if (task === 'execute') {
+        await expect(
+          orchestrator.runWithLease(batch.id, batch.segments[0].id, task, '42', work)
+        ).rejects.toThrow('stop')
+      } else {
+        await expect(
+          orchestrator.runWithLease(batch.id, batch.segments[0].id, task, '42', work)
+        ).resolves.toBe(task)
+      }
+
+      expect(harness.coordinator.acquire).toHaveBeenCalledWith(
+        batch.id,
+        batch.segments[0].id,
+        task,
+        '42'
+      )
+      expect(harness.coordinator.release).toHaveBeenCalledWith(batch.id, batch.segments[0].id)
+      expect(harness.getState().lease).toBeNull()
+    }
+  )
+
+  it('rejects work when the atomic lease claim loses the race', async () => {
+    const batch = createOldFavoriteBatch({
+      accountMid: '42',
+      kind: 'full',
+      aids: [1],
+      now: '2026-07-16T08:00:00Z'
+    })
+    const harness = createHarness({
+      version: 1,
+      batches: [batch],
+      lease: { batchId: 'other', segmentId: 'other:segment:1', task: 'tag' }
+    })
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+    const work = vi.fn()
+
+    await expect(
+      orchestrator.runWithLease(batch.id, batch.segments[0].id, 'scan', '42', work)
+    ).rejects.toThrow('Old favorite task lease is unavailable.')
+    expect(work).not.toHaveBeenCalled()
+    expect(harness.coordinator.release).not.toHaveBeenCalled()
+  })
+
+  it('updates from the latest load without overwriting a concurrently held lease', async () => {
+    const batch = createOldFavoriteBatch({
+      accountMid: '42',
+      kind: 'full',
+      aids: [11, 12],
+      now: '2026-07-16T08:00:00Z'
+    })
+    const lease = { batchId: batch.id, segmentId: batch.segments[0].id, task: 'execute' as const }
+    const harness = createHarness({ version: 1, batches: [batch], lease })
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+
+    await orchestrator.updateSegment(batch.id, batch.segments[0].id, {
+      status: 'paused',
+      task: {
+        kind: 'execute',
+        status: 'paused',
+        requestState: 'result-unknown',
+        currentAid: 12
+      },
+      checkpoint: { cursor: 7, frozenExecutionAids: [11, 12] },
+      snapshot: { currentStep: 'execution', execution: { completed: 1 } }
+    })
+
+    expect(harness.getState()).toMatchObject({
+      lease,
+      batches: [
+        {
+          snapshot: { currentStep: 'execution', execution: { completed: 1 } },
+          segments: [
+            {
+              status: 'paused',
+              task: {
+                kind: 'execute',
+                status: 'paused',
+                requestState: 'result-unknown',
+                currentAid: 12
+              },
+              checkpoint: { cursor: 7, frozenExecutionAids: [11, 12] }
+            }
+          ]
+        }
+      ]
+    })
+  })
+
+  it('partially updates task status, request state, and current aid from the latest segment', async () => {
+    const batch = createOldFavoriteBatch({
+      accountMid: '42',
+      kind: 'full',
+      aids: [11, 12],
+      now: '2026-07-16T08:00:00Z'
+    })
+    batch.segments[0].task = {
+      kind: 'tag',
+      status: 'running',
+      requestState: 'in-flight',
+      currentAid: 11
+    }
+    const harness = createHarness({ version: 1, batches: [batch], lease: null })
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+
+    await orchestrator.updateSegment(batch.id, batch.segments[0].id, {
+      taskStatus: 'paused',
+      requestState: 'result-unknown',
+      currentAid: 12
+    })
+
+    expect(harness.getState().batches[0].segments[0].task).toEqual({
+      kind: 'tag',
+      status: 'paused',
+      requestState: 'result-unknown',
+      currentAid: 12
+    })
+  })
+
+  it('rebuilds real 1000-2000 item segments after scan while preserving batch identity and snapshot', async () => {
+    const harness = createHarness()
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+    const started = await orchestrator.beginScan({
+      accountMid: '42',
+      kind: 'full',
+      now: '2026-07-16T08:00:00Z',
+      snapshot: { selection: { folders: [1] }, currentStep: 'scan' }
+    })
+    const aids = Array.from({ length: 3_001 }, (_, index) => index + 1)
+
+    const rebuilt = await orchestrator.completeScan(started.batch.id, aids, {
+      statistics: { scanned: 3_001 },
+      currentStep: 'preview'
+    })
+
+    expect(rebuilt.id).toBe(started.batch.id)
+    expect(rebuilt.createdAt).toBe(started.batch.createdAt)
+    expect(rebuilt.segments.map((segment) => segment.aids.length)).toEqual([1_500, 1_500, 1])
+    expect(rebuilt.segments[0].id).toBe(started.batch.segments[0].id)
+    expect(rebuilt.snapshot).toEqual({
+      selection: { folders: [1] },
+      currentStep: 'preview',
+      statistics: { scanned: 3_001 }
+    })
+    expect(harness.getState().lease).toMatchObject({ batchId: rebuilt.id, task: 'scan' })
+  })
+
+  it('reports why account mismatch, ended history, and another lease cannot run', async () => {
+    const batch = createOldFavoriteBatch({
+      accountMid: '42',
+      kind: 'full',
+      aids: [1],
+      now: '2026-07-16T08:00:00Z'
+    })
+    const ended = { ...structuredClone(batch), id: 'ended', status: 'ended' as const }
+    const harness = createHarness({ version: 1, batches: [batch, ended], lease: null })
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+
+    await expect(orchestrator.canRun(batch.id, batch.segments[0].id, '7')).resolves.toEqual({
+      allowed: false,
+      reason: 'account-mismatch'
+    })
+    await expect(orchestrator.canRun(ended.id, ended.segments[0].id, '42')).resolves.toEqual({
+      allowed: false,
+      reason: 'batch-ended'
+    })
+
+    await harness.coordinator.acquire(batch.id, batch.segments[0].id, 'tag', '42')
+    await expect(orchestrator.canRun(batch.id, batch.segments[0].id, '42')).resolves.toEqual({
+      allowed: true
+    })
+    const other = createOldFavoriteBatch({
+      accountMid: '42',
+      kind: 'incremental',
+      aids: [2],
+      now: '2026-07-16T09:00:00Z'
+    })
+    const state = harness.getState()
+    await harness.coordinator.save({ ...state, batches: [...state.batches, other] })
+    await expect(orchestrator.canRun(other.id, other.segments[0].id, '42')).resolves.toEqual({
+      allowed: false,
+      reason: 'lease-held'
+    })
+  })
+
+  it('returns only result-unknown aids that require reconciliation', async () => {
+    const batch = createOldFavoriteBatch({
+      accountMid: '42',
+      kind: 'full',
+      aids: [21, 22, 23],
+      now: '2026-07-16T08:00:00Z'
+    })
+    batch.segments[0].status = 'paused'
+    batch.segments[0].task = {
+      kind: 'execute',
+      status: 'paused',
+      requestState: 'result-unknown',
+      currentAid: 22
+    }
+    const harness = createHarness({ version: 1, batches: [batch], lease: null })
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+
+    await expect(orchestrator.getReconciliationAids(batch.id, '42')).resolves.toEqual([22])
+    batch.segments[0].task.requestState = 'idle'
+    await harness.coordinator.save({ version: 1, batches: [batch], lease: null })
+    await expect(orchestrator.getReconciliationAids(batch.id, '42')).resolves.toEqual([])
+  })
+})

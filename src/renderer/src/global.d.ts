@@ -14,6 +14,8 @@ import type {
   PendingFavoriteQueueStatus,
   OldFavoriteRuntimeSetResult,
   OldFavoriteRuntimeSnapshot,
+  OldFavoriteSessionsState,
+  OldFavoriteTaskKind,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionQueueSnapshot,
   VideoAudioTranscriptionRequest,
@@ -67,6 +69,18 @@ type BilimiDesktopApi = {
   ) => OldFavoriteRuntimeSetResult
   bindOldFavoriteRuntimeAccount?: (accountMid: string) => boolean
   resetOldFavoriteRuntime?: () => boolean
+  loadOldFavoriteSessions?: () => Promise<OldFavoriteSessionsState>
+  saveOldFavoriteSessions?: (state: OldFavoriteSessionsState) => Promise<OldFavoriteSessionsState>
+  claimOldFavoriteTaskLease?: (
+    batchId: string,
+    segmentId: string,
+    task: OldFavoriteTaskKind,
+    accountMid: string
+  ) => Promise<boolean>
+  releaseOldFavoriteTaskLease?: (batchId: string, segmentId: string) => Promise<boolean>
+  onOldFavoriteSessionsChanged?: (
+    callback: (state: OldFavoriteSessionsState) => void
+  ) => () => void
   setOldFavoriteBackgroundRunning?: (running: boolean) => void
   setOldFavoriteBackgroundTarget?: (webContentsId: number) => void
   retryBilibiliSessionDirect?: () => Promise<{ mode: 'direct' }>

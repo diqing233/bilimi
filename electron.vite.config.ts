@@ -6,7 +6,7 @@ export default defineConfig({
   main: {
     build: {
       rollupOptions: {
-        input: resolve(__dirname, 'electron/main/index.ts')
+        input: resolve(import.meta.dirname, 'electron/main/index.ts')
       }
     },
     plugins: [externalizeDepsPlugin()]
@@ -14,7 +14,7 @@ export default defineConfig({
   preload: {
     build: {
       rollupOptions: {
-        input: resolve(__dirname, 'electron/preload/index.ts')
+        input: resolve(import.meta.dirname, 'electron/preload/index.ts')
       }
     },
     plugins: [externalizeDepsPlugin()]
@@ -22,13 +22,13 @@ export default defineConfig({
   renderer: {
     build: {
       rollupOptions: {
-        input: resolve(__dirname, 'src/renderer/index.html')
+        input: resolve(import.meta.dirname, 'src/renderer/index.html')
       }
     },
     resolve: {
       alias: {
-        '@renderer': resolve(__dirname, 'src/renderer/src'),
-        '@shared': resolve(__dirname, 'src/shared')
+        '@renderer': resolve(import.meta.dirname, 'src/renderer/src'),
+        '@shared': resolve(import.meta.dirname, 'src/shared')
       }
     },
     plugins: [react()]

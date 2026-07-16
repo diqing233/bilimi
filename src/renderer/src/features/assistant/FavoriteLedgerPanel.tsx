@@ -9,6 +9,13 @@
   stripBilimiLedgerPrefix
 } from '@shared/favoriteLedgers'
 import { DEEPSEEK_CONSTRAINT_MARKER } from '@shared/favoriteLedgerConstraints'
+import {
+  acquireAidOwnership,
+  createOldFavoriteBatch,
+  endOldFavoriteBatch,
+  OLD_FAVORITE_SESSIONS_VERSION,
+  type OldFavoriteSessionsState
+} from '@shared/oldFavoriteSessions'
 import type {
   AssistantAutomationResult,
   DeepSeekArchiveMode,
@@ -36,7 +43,23 @@ import {
   type SetStateAction
 } from 'react'
 import type { FavoriteLedgerCandidate } from '../favorites/favoriteLedgerInsights'
-import type { OldFavoriteBatchCommitToken } from '../favorites/favoriteLedgerApi'
+import { groupFavoritePhysicalShards } from '../favorites/favoritePhysicalShards'
+import { OldFavoriteSessionOrchestrator } from '../favorites/oldFavoriteSessionOrchestrator'
+import { OldFavoriteTaskCoordinator } from '../favorites/oldFavoriteTaskCoordinator'
+import {
+  buildIncrementalBatchAids,
+  buildContinuousExecutionPlan,
+  buildManagedSelectionProtection,
+  buildSegmentProgress,
+  type CollectionSnapshotItem
+} from '../favorites/oldFavoriteBatchUiModel'
+import type { DeepSeekBatchScope } from '../favorites/oldFavoriteDeepSeekBatch'
+import {
+  applyBatchRecommendation,
+  aggregateBatchRecommendations,
+  type BatchRecommendationAdoptionState,
+  type SegmentRecommendation
+} from '../favorites/oldFavoriteRecommendations'
 import {
   createFavoriteLedgerPreview,
   type FavoriteSourceFolder,
@@ -127,6 +150,7 @@ type FavoriteLedgerPanelProps = {
   onScanOldFavorites: (options?: {
     multiArchiveMode?: FavoriteArchiveMultiMode
   }) => Promise<FavoriteLedgerPreview>
+  onReadCurrentOldFavoriteAccount?: () => Promise<string>
   onReadOldFavoriteBatchStatus?: () => Promise<{ pending: boolean }>
   onPrepareOldFavoriteScan?: () => Promise<AssistantAutomationResult>
   onReadOldFavoriteTagEnrichment?: (action?: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan') => Promise<{
@@ -135,9 +159,6 @@ type FavoriteLedgerPanelProps = {
     scanProgress: NonNullable<FavoriteLedgerPreview['scanProgress']>
   }>
   onExecuteOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
-  onCommitOldFavoriteBatchCheckpoint?: (
-    token: OldFavoriteBatchCommitToken
-  ) => Promise<{ ok?: boolean; message?: string } | void>
   onOldFavoriteExecutionStateChange?: (state: 'running' | 'finished') => void
   onOldFavoriteStatusUpdate?: (status: OldFavoriteStatusSnapshot) => void
   onOldFavoriteStageFeedback?: (message: string) => void
@@ -160,6 +181,7 @@ type FavoriteLedgerPanelProps = {
 type OldFavoriteExecutionResult = AssistantAutomationResult & {
   paused?: boolean
   partial?: boolean
+  resultUnknown?: boolean
   completedItems?: Array<
     FavoriteLedgerPreviewItem & {
       finalFolderIds?: string[]
@@ -176,6 +198,55 @@ type OldFavoriteExecutionRun = {
   successfulTargetKeys: string[]
   persistedTargetKeys: string[]
   confirmedAt: string
+}
+
+type OldFavoriteExecutionOutcome = 'completed' | 'paused' | 'failed'
+
+type OldFavoriteUserBatchSummary = {
+  id: string
+  kind: 'full' | 'incremental'
+  createdAt: string
+  accountMid: string
+  segmentIndex: number
+  segmentCount: number
+  segmentAids: number[][]
+  status: 'active' | 'ended'
+  snapshot?: {
+    preview: FavoriteLedgerPreview | null
+    baseScanPreview: FavoriteLedgerPreview | null
+    archiveEditorState: ArchiveEditorRuntimeState
+    step: OldFavoriteGuideStep
+    executionPhase: OldFavoriteExecutionPhase
+    executionRun: OldFavoriteExecutionRun | null
+    executionProgress: { completed: number; total: number } | null
+    collectionSnapshot?: CollectionSnapshotItem[]
+    recommendations?: {
+      entries: SegmentRecommendation[]
+      scannedSegmentIndexes: number[]
+      adoptedStableKeys?: string[]
+      adoptionState?: BatchRecommendationAdoptionState
+    }
+    segmentExecution?: Array<{
+      index: number
+      status: 'pending' | 'ready' | 'running' | 'completed' | 'blocked'
+      executableCount: number
+      completedCount: number
+    }>
+  }
+}
+
+function mergeBatchPreviewSnapshot(
+  current: OldFavoriteUserBatchSummary['snapshot'],
+  incoming: OldFavoriteUserBatchSummary['snapshot']
+) {
+  if (!current) return incoming
+  if (!incoming) return current
+  return {
+    ...incoming,
+    ...current,
+    recommendations: current.recommendations ?? incoming.recommendations,
+    segmentExecution: current.segmentExecution ?? incoming.segmentExecution
+  }
 }
 
 type ArchivePreviewLatestChange = {
@@ -322,14 +393,38 @@ const LEDGER_RULE_TYPE_OPTIONS: Array<{ value: FavoriteLedgerRuleType; label: st
   { value: 'deepseek', label: 'DeepSeek约束收藏夹' }
 ]
 
-const DEEPSEEK_ARCHIVE_SCOPE_OPTIONS: Array<{ value: DeepSeekArchiveMode; label: string }> = [
-  { value: 'low-confidence-and-unclassified', label: '不太稳 + 未匹配到合适分类' },
-  { value: 'all', label: 'DeepSeek 进行二次整理' },
-  { value: 'unclassified-only', label: '仅未匹配到合适分类' }
+const DEEPSEEK_ARCHIVE_SCOPE_OPTIONS: Array<{ value: DeepSeekBatchScope; label: string }> = [
+  { value: 'current-segment', label: '当前分段' },
+  { value: 'all-unmatched', label: '全批未匹配' },
+  { value: 'all-review', label: '全批待复核' },
+  { value: 'all-unmatched-and-review', label: '全批未匹配 + 待复核' }
 ]
 
-function deepSeekArchiveScopeLabel(mode: DeepSeekArchiveMode) {
-  return DEEPSEEK_ARCHIVE_SCOPE_OPTIONS.find((option) => option.value === mode)?.label ?? '不太稳 + 未匹配到合适分类'
+function deepSeekArchiveScopeLabel(mode: DeepSeekBatchScope) {
+  return DEEPSEEK_ARCHIVE_SCOPE_OPTIONS.find((option) => option.value === mode)?.label ?? '当前分段'
+}
+
+function legacyDeepSeekArchiveMode(scope: DeepSeekBatchScope): DeepSeekArchiveMode {
+  if (scope === 'current-segment') return 'all'
+  if (scope === 'all-unmatched') return 'unclassified-only'
+  return 'low-confidence-and-unclassified'
+}
+
+function deepSeekArchiveStateForScope(
+  state: FavoriteArchivePlanState,
+  scope: DeepSeekBatchScope,
+  currentSegmentAids: Set<number> | null
+): FavoriteArchivePlanState {
+  const items = state.items.filter((item) => {
+    if (item.userModified || item.lastChangeSource === 'user' || item.lastChangeSource === 'transfer') {
+      return false
+    }
+    if (scope === 'current-segment') return !currentSegmentAids || currentSegmentAids.has(item.aid)
+    if (scope === 'all-unmatched') return item.currentTargetLedgerIds.length === 0
+    if (scope === 'all-review') return Boolean(item.lowConfidence)
+    return item.lowConfidence || item.currentTargetLedgerIds.length === 0
+  })
+  return { ...state, items }
 }
 
 function ledgerRuleType(ledger: Pick<FavoriteLedger, 'ruleType'>): FavoriteLedgerRuleType {
@@ -960,6 +1055,15 @@ function normalizeOldFavoritePreviewItems(
   ledgers: FavoriteLedger[]
 ) {
   return items.map((item) => normalizeOldFavoritePreviewItem(item, ledgers))
+}
+
+function collectionSnapshotFromPreview(preview: FavoriteLedgerPreview | null): CollectionSnapshotItem[] {
+  return preview?.items.map((item) => ({
+    aid: item.aid,
+    sourceFolderIds: item.sourceFolderIds?.length
+      ? [...item.sourceFolderIds]
+      : [item.sourceFolderTitle]
+  })) ?? []
 }
 
 function archiveLedgerIdsForSelectedCandidates(
@@ -1785,11 +1889,11 @@ export function FavoriteLedgerPanel({
   onSaveLedgers,
   onOpenFavoritePage,
   onScanOldFavorites,
+  onReadCurrentOldFavoriteAccount,
   onReadOldFavoriteBatchStatus,
   onPrepareOldFavoriteScan,
   onReadOldFavoriteTagEnrichment,
   onExecuteOldFavoritePlan,
-  onCommitOldFavoriteBatchCheckpoint,
   onOldFavoriteExecutionStateChange,
   onOldFavoriteStatusUpdate,
   onOldFavoriteStageFeedback,
@@ -1881,15 +1985,20 @@ export function FavoriteLedgerPanel({
     useState<PendingUnclassifiedDecision | null>(null)
   const [selectedOldFavoriteSourceFolderKeys, setSelectedOldFavoriteSourceFolderKeys] =
     useOldFavoriteRuntimeState<Set<string>>('selectedOldFavoriteSourceFolderTitles', () => new Set())
+  const [unlockedManagedLogicalIds, setUnlockedManagedLogicalIds] =
+    useOldFavoriteRuntimeState<Set<string>>('unlockedManagedLogicalIds', () => new Set())
+  const [selectedManagedLogicalIds, setSelectedManagedLogicalIds] =
+    useOldFavoriteRuntimeState<Set<string>>('selectedManagedLogicalIds', () => new Set())
   const [oldFavoriteExecutionProgress, setOldFavoriteExecutionProgress] =
     useOldFavoriteRuntimeState<{
       completed: number
       total: number
     } | null>('oldFavoriteExecutionProgress', null)
-  const [deepSeekArchiveMode, setDeepSeekArchiveMode] = useOldFavoriteRuntimeState<DeepSeekArchiveMode>(
+  const [deepSeekBatchScope, setDeepSeekBatchScope] = useOldFavoriteRuntimeState<DeepSeekBatchScope>(
     'deepSeekArchiveMode',
-    'low-confidence-and-unclassified'
+    'current-segment'
   )
+  const deepSeekArchiveMode = legacyDeepSeekArchiveMode(deepSeekBatchScope)
   const [deepSeekArchiveScopeOpen, setDeepSeekArchiveScopeOpen] = useState(false)
   const [deepSeekArchiveRunning, setDeepSeekArchiveRunning] =
     useOldFavoriteRuntimeState('deepSeekArchiveRunning', false)
@@ -2021,12 +2130,12 @@ export function FavoriteLedgerPanel({
   const [oldFavoriteExecutionRun, setOldFavoriteExecutionRun] =
     useOldFavoriteRuntimeState<OldFavoriteExecutionRun | null>('oldFavoriteExecutionRun', null)
   const [oldFavoriteExecutionConfirming, setOldFavoriteExecutionConfirming] = useState(false)
+  const [continuousOldFavoriteExecution, setContinuousOldFavoriteExecution] = useState(false)
   const [oldFavoriteExecutionStopping, setOldFavoriteExecutionStopping] = useState(false)
   const oldFavoriteExecutionStopRequestedRef = useRef(false)
   const [pendingTagExecutionConfirming, setPendingTagExecutionConfirming] = useState(false)
   const [batchDiscardConfirming, setBatchDiscardConfirming] = useState(false)
   const [pausedRoundEndConfirming, setPausedRoundEndConfirming] = useState(false)
-  const [batchCommitBusy, setBatchCommitBusy] = useState(false)
   const [pendingTagDeepSeekConfirming, setPendingTagDeepSeekConfirming] = useState<number | null>(null)
   const [archiveMultiModeChange, setArchiveMultiModeChange] =
     useOldFavoriteRuntimeState<ArchiveMultiModeChange | null>('archiveMultiModeChange', null)
@@ -2051,6 +2160,79 @@ export function FavoriteLedgerPanel({
     useOldFavoriteRuntimeState<OldFavoriteGuideStep>('oldFavoriteStep', 'scan')
   const [oldFavoriteGuideMode, setOldFavoriteGuideMode] =
     useOldFavoriteRuntimeState<OldFavoriteGuideMode>('oldFavoriteGuideMode', 'organize')
+  const [oldFavoriteUserBatches, setOldFavoriteUserBatches] =
+    useOldFavoriteRuntimeState<OldFavoriteUserBatchSummary[]>('oldFavoriteUserBatches', [])
+  const oldFavoriteUserBatchesRef = useRef(oldFavoriteUserBatches)
+  oldFavoriteUserBatchesRef.current = oldFavoriteUserBatches
+  const [activeOldFavoriteUserBatchId, setActiveOldFavoriteUserBatchId] =
+    useOldFavoriteRuntimeState('activeOldFavoriteUserBatchId', '')
+  const [pendingOldFavoriteBatchKind, setPendingOldFavoriteBatchKind] =
+    useOldFavoriteRuntimeState<'full' | 'incremental'>('pendingOldFavoriteBatchKind', 'full')
+  const [oldFavoriteExternalLeaseActive, setOldFavoriteExternalLeaseActive] = useState(false)
+  const sessionCoordinator = useMemo(() => {
+    const desktop = window.bilimiDesktop
+    if (!desktop?.loadOldFavoriteSessions || !desktop.saveOldFavoriteSessions ||
+      !desktop.claimOldFavoriteTaskLease || !desktop.releaseOldFavoriteTaskLease ||
+      !desktop.onOldFavoriteSessionsChanged) return null
+    return new OldFavoriteTaskCoordinator()
+  }, [])
+  const sessionOrchestrator = useMemo(
+    () => sessionCoordinator ? new OldFavoriteSessionOrchestrator(sessionCoordinator) : null,
+    [sessionCoordinator]
+  )
+  useEffect(() => {
+    if (!sessionCoordinator) return
+    let active = true
+    const applySessions = (state: OldFavoriteSessionsState) => {
+      if (!active) return
+      const summaries = state.batches.map((batch) => ({
+        id: batch.id,
+        kind: batch.kind,
+        createdAt: batch.createdAt,
+        accountMid: batch.accountMid,
+        segmentIndex: Math.max(
+          1,
+          batch.segments.findIndex((segment) => segment.status !== 'ended') + 1
+        ),
+        segmentCount: Math.max(1, batch.segments.length),
+        segmentAids: batch.segments.map((segment) => segment.aids),
+        status: batch.status,
+        snapshot: batch.snapshot as OldFavoriteUserBatchSummary['snapshot']
+      } satisfies OldFavoriteUserBatchSummary))
+      if (summaries.length > 0) {
+        setOldFavoriteUserBatches((current) => summaries.map((summary) => {
+          const local = current.find((batch) => batch.id === summary.id)
+          return local
+            ? { ...summary, segmentIndex: local.segmentIndex, snapshot: mergeBatchPreviewSnapshot(local.snapshot, summary.snapshot) }
+            : summary
+        }))
+        setActiveOldFavoriteUserBatchId((current) => {
+          const selected = summaries.find((batch) => batch.id === current) ?? summaries.at(-1)
+          const currentSummary = oldFavoriteUserBatchesRef.current.find((batch) => batch.id === selected?.id)
+          if (selected?.snapshot && !currentSummary?.snapshot) {
+            if (selected.snapshot.preview !== undefined) setPreview(selected.snapshot.preview)
+            if (selected.snapshot.baseScanPreview !== undefined) setBaseScanPreview(selected.snapshot.baseScanPreview)
+            if (selected.snapshot.archiveEditorState) setArchiveEditorState(selected.snapshot.archiveEditorState)
+            if (selected.snapshot.step) setOldFavoriteStep(selected.snapshot.step)
+            if (selected.snapshot.executionPhase) setOldFavoriteExecutionPhase(selected.snapshot.executionPhase)
+            if (selected.snapshot.executionRun !== undefined) setOldFavoriteExecutionRun(selected.snapshot.executionRun)
+            if (selected.snapshot.executionProgress !== undefined) {
+              setOldFavoriteExecutionProgress(selected.snapshot.executionProgress)
+            }
+            setOldFavoriteGuideMode('organize')
+          }
+          return selected?.id ?? ''
+        })
+      }
+      setOldFavoriteExternalLeaseActive(Boolean(state.lease))
+    }
+    void sessionCoordinator.load().then(applySessions).catch(() => undefined)
+    const unsubscribe = sessionCoordinator.subscribe(applySessions)
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [sessionCoordinator, setActiveOldFavoriteUserBatchId, setOldFavoriteUserBatches])
   const [tagCandidatesExpanded, setTagCandidatesExpanded] = useState(false)
   const [ledgerHintExpanded, setLedgerHintExpanded] = useState(false)
   const [oldFavoriteGuideHintExpanded, setOldFavoriteGuideHintExpanded] = useState(false)
@@ -2066,6 +2248,130 @@ export function FavoriteLedgerPanel({
     [activeLedgerIndex, draftLedgers]
   )
   const activeLedgerRuleType = activeLedger ? ledgerRuleType(activeLedger) : 'keyword'
+  const activeOldFavoriteUserBatch = oldFavoriteUserBatches.find(
+    (batch) => batch.id === activeOldFavoriteUserBatchId
+  ) ?? oldFavoriteUserBatches.at(-1)
+  const activeOldFavoriteBatchReadOnly = activeOldFavoriteUserBatch?.status === 'ended'
+  const activeOldFavoriteSegmentId = activeOldFavoriteUserBatch
+    ? `${activeOldFavoriteUserBatch.id}:segment:${activeOldFavoriteUserBatch.segmentIndex}`
+    : ''
+  const activeOldFavoriteAccountMid = activeOldFavoriteUserBatch?.accountMid || preview?.scanContext?.accountMid || ''
+  const fullExecutionLeaseHeldRef = useRef(false)
+  const lastPersistedSessionSnapshotRef = useRef('')
+  useEffect(() => {
+    if (!sessionCoordinator || !activeOldFavoriteUserBatch || activeOldFavoriteUserBatch.status === 'ended') return
+    const persistedSnapshot = {
+      preview,
+      baseScanPreview,
+      archiveEditorState,
+      step: oldFavoriteStep,
+      executionPhase: oldFavoriteExecutionPhase,
+      executionRun: oldFavoriteExecutionRun,
+      executionProgress: oldFavoriteExecutionProgress,
+      collectionSnapshot: activeOldFavoriteUserBatch.snapshot?.collectionSnapshot,
+      recommendations: activeOldFavoriteUserBatch.snapshot?.recommendations,
+      segmentExecution: activeOldFavoriteUserBatch.snapshot?.segmentExecution
+    }
+    const signature = JSON.stringify(persistedSnapshot)
+    if (signature === lastPersistedSessionSnapshotRef.current) return
+    const timer = window.setTimeout(() => {
+      lastPersistedSessionSnapshotRef.current = signature
+      void sessionCoordinator.load().then((state) => sessionCoordinator.save({
+        ...state,
+        batches: state.batches.map((batch) => batch.id === activeOldFavoriteUserBatch.id
+          ? {
+              ...batch,
+              snapshot: { ...batch.snapshot, ...persistedSnapshot }
+            }
+          : batch)
+      })).catch(() => undefined)
+    }, 100)
+    return () => window.clearTimeout(timer)
+  }, [
+    activeOldFavoriteUserBatch,
+    archiveEditorState,
+    baseScanPreview,
+    oldFavoriteExecutionPhase,
+    oldFavoriteExecutionProgress,
+    oldFavoriteExecutionRun,
+    oldFavoriteStep,
+    preview,
+    sessionCoordinator
+  ])
+
+  async function runTrackedOldFavoriteRequest<T>(options: {
+    task: 'tag' | 'deepseek' | 'execute'
+    segmentId?: string
+    currentAid?: number
+    checkpoint?: Record<string, unknown>
+    snapshot?: Record<string, unknown>
+    work: () => Promise<T>
+  }): Promise<T> {
+    const segmentId = options.segmentId ?? activeOldFavoriteSegmentId
+    if (!sessionOrchestrator || !activeOldFavoriteUserBatch || !segmentId) {
+      return options.work()
+    }
+    const currentAccountMid = onReadCurrentOldFavoriteAccount
+      ? (await onReadCurrentOldFavoriteAccount()).trim()
+      : activeOldFavoriteAccountMid
+    if (!currentAccountMid || currentAccountMid !== activeOldFavoriteUserBatch.accountMid) {
+      throw new Error('当前 B 站账号与本批次不一致，切回原账号后才能继续。')
+    }
+    if (options.task === 'execute' && fullExecutionLeaseHeldRef.current) {
+      await sessionOrchestrator.updateSegment(activeOldFavoriteUserBatch.id, segmentId, {
+        status: 'running',
+        task: {
+          kind: 'execute', status: 'running', requestState: 'in-flight',
+          ...(options.currentAid === undefined ? {} : { currentAid: options.currentAid })
+        },
+        checkpoint: options.checkpoint,
+        snapshot: options.snapshot
+      })
+      try {
+        const result = await options.work()
+        if (result && typeof result === 'object' && 'resultUnknown' in result && result.resultUnknown === true) {
+          await sessionOrchestrator.updateSegment(activeOldFavoriteUserBatch.id, segmentId, {
+            status: 'paused', taskStatus: 'paused', requestState: 'result-unknown',
+            checkpoint: options.checkpoint, snapshot: options.snapshot
+          })
+          return result
+        }
+        await sessionOrchestrator.updateSegment(activeOldFavoriteUserBatch.id, segmentId, {
+          status: 'ready', taskStatus: 'paused', requestState: 'idle',
+          checkpoint: options.checkpoint?.cursor === undefined
+            ? options.checkpoint
+            : { ...options.checkpoint, cursor: Number(options.checkpoint.cursor) + 1 },
+          snapshot: options.snapshot?.execution && typeof options.snapshot.execution === 'object'
+            ? {
+                ...options.snapshot,
+                execution: {
+                  ...options.snapshot.execution,
+                  nextGroupIndex: Number((options.snapshot.execution as { nextGroupIndex?: number }).nextGroupIndex ?? 0) + 1
+                }
+              }
+            : options.snapshot
+        })
+        return result
+      } catch (error) {
+        await sessionOrchestrator.updateSegment(activeOldFavoriteUserBatch.id, segmentId, {
+          status: 'paused', taskStatus: 'paused', requestState: 'result-unknown',
+          checkpoint: options.checkpoint, snapshot: options.snapshot
+        })
+        throw error
+      }
+    }
+    return sessionOrchestrator.runTrackedRequest({
+      batchId: activeOldFavoriteUserBatch.id,
+      segmentId,
+      task: options.task,
+      accountMid: currentAccountMid,
+      currentAid: options.currentAid,
+      checkpoint: options.checkpoint,
+      snapshot: options.snapshot,
+      work: options.work
+    })
+  }
+
   const activeLedgerDeepSeekConstraint = activeLedger ? ledgerDeepSeekConstraintText(activeLedger) : ''
   const activeLedgerNameValidation = activeLedger
     ? favoriteLedgerNameValidation(activeLedger.displayName)
@@ -2209,7 +2515,11 @@ export function FavoriteLedgerPanel({
     if (getOldFavoriteRuntimeValue<OldFavoriteExecutionPhase>('oldFavoriteExecutionPhase', 'idle') !== 'idle') return
     if (!onReadOldFavoriteTagEnrichment) return
     const scanGeneration = scanGenerationRef.current
-    void onReadOldFavoriteTagEnrichment(action).then((snapshot) => {
+    void runTrackedOldFavoriteRequest({
+      task: 'tag',
+      snapshot: { currentStep: 'tags' },
+      work: () => onReadOldFavoriteTagEnrichment(action)
+    }).then((snapshot) => {
       if (scanGeneration !== scanGenerationRef.current) return
       if (tagSnapshotGate(scanGeneration, snapshot) !== 'accepted') return
       setPreview((current) => current
@@ -2253,7 +2563,11 @@ export function FavoriteLedgerPanel({
     }
     const pollProgress = async () => {
       try {
-        const snapshot = await onReadOldFavoriteTagEnrichment('progress')
+        const snapshot = await runTrackedOldFavoriteRequest({
+          task: 'tag',
+          snapshot: { currentStep: 'tags' },
+          work: () => onReadOldFavoriteTagEnrichment('progress')
+        })
         if (!stillCurrent() || tagSnapshotGate(scanGeneration, snapshot) !== 'accepted') return
         setPreview((current) => current
           ? (() => {
@@ -2271,7 +2585,11 @@ export function FavoriteLedgerPanel({
           scheduleNext()
           return
         }
-        const fullSnapshot = await onReadOldFavoriteTagEnrichment('read')
+        const fullSnapshot = await runTrackedOldFavoriteRequest({
+          task: 'tag',
+          snapshot: { currentStep: 'tags' },
+          work: () => onReadOldFavoriteTagEnrichment('read')
+        })
         if (!stillCurrent() || tagSnapshotGate(scanGeneration, fullSnapshot) !== 'accepted') return
         latestTagEnrichmentSnapshotRef.current = fullSnapshot
         applyCompletedTagSnapshot(fullSnapshot, scanGeneration)
@@ -2363,46 +2681,11 @@ export function FavoriteLedgerPanel({
     return oldFavoriteExecutionPhase !== 'idle' || oldFavoriteExecutionConfirming
   }
 
-  const oldFavoritePlanReadOnly = oldFavoriteOrganizationLocked()
+  const oldFavoritePlanReadOnly = oldFavoriteOrganizationLocked() || activeOldFavoriteBatchReadOnly ||
+    oldFavoriteExternalLeaseActive
 
   function showOldFavoriteOrganizationPendingMessage() {
     setStatus('正在整理中，请耐心等待。')
-  }
-
-  function activeOldFavoriteBatchCommitToken() {
-    return (preview?.batch as (NonNullable<FavoriteLedgerPreview['batch']> & {
-      commitToken?: OldFavoriteBatchCommitToken
-    }) | undefined)?.commitToken
-  }
-
-  async function commitActiveOldFavoriteBatch(failurePrefix: string) {
-    if (!preview?.batch) return true
-    const token = activeOldFavoriteBatchCommitToken()
-    if (!token || !onCommitOldFavoriteBatchCheckpoint) {
-      setStatus(`${failurePrefix}：缺少批次断点，请保留当前批次并重新扫描。`)
-      return false
-    }
-
-    setBatchCommitBusy(true)
-    try {
-      const result = await onCommitOldFavoriteBatchCheckpoint(token)
-      if (result?.ok === false) {
-        setStatus(`${failurePrefix}：${result.message || '批次断点提交失败。'}`)
-        return false
-      }
-      setHasPendingOldFavoriteBatch(false)
-      return true
-    } catch (error) {
-      setStatus(`${failurePrefix}：${errorMessage(error)}`)
-      return false
-    } finally {
-      setBatchCommitBusy(false)
-    }
-  }
-
-  async function finishZeroTaskOldFavoriteBatch() {
-    if (!await commitActiveOldFavoriteBatch('结束本批失败')) return
-    acknowledgeOldFavoriteExecution()
   }
 
   async function discardActiveOldFavoriteBatch() {
@@ -2411,12 +2694,41 @@ export function FavoriteLedgerPanel({
       setStatus('本轮已开始执行，不能放弃或提交当前批次；请继续整理或结束本轮后重新扫描。')
       return
     }
-    if (!await commitActiveOldFavoriteBatch('放弃本批失败')) return
     setBatchDiscardConfirming(false)
     acknowledgeOldFavoriteExecution()
   }
 
-  function acknowledgeOldFavoriteExecution() {
+  async function acknowledgeOldFavoriteExecution() {
+    if (activeOldFavoriteUserBatch) {
+      const endedSnapshot = {
+        preview,
+        baseScanPreview,
+        archiveEditorState,
+        step: oldFavoriteStep,
+        executionPhase: oldFavoriteExecutionPhase,
+        executionRun: oldFavoriteExecutionRun,
+        executionProgress: oldFavoriteExecutionProgress
+      }
+      setOldFavoriteUserBatches((current) => current.map((batch) =>
+        batch.id === activeOldFavoriteUserBatch.id
+          ? { ...batch, status: 'ended', snapshot: endedSnapshot }
+          : batch
+      ))
+      if (sessionCoordinator) {
+        const state = await sessionCoordinator.load()
+        const withFinalSnapshot = {
+          ...state,
+          batches: state.batches.map((batch) => batch.id === activeOldFavoriteUserBatch.id
+            ? { ...batch, snapshot: { ...batch.snapshot, ...endedSnapshot } }
+            : batch)
+        }
+        await sessionCoordinator.save(endOldFavoriteBatch(
+          withFinalSnapshot,
+          activeOldFavoriteUserBatch.id,
+          new Date().toISOString()
+        ))
+      }
+    }
     setOldFavoriteExecutionPhase('idle')
     setOldFavoriteExecutionConfirming(false)
     setOldFavoriteExecutionProgress(null)
@@ -2534,6 +2846,68 @@ export function FavoriteLedgerPanel({
     setPreview(lastSuccessfulPreviewRef.current)
     setBaseScanPreview(lastSuccessfulBasePreviewRef.current)
     setArchivePlanState(lastSuccessfulArchivePlanStateRef.current)
+  }
+
+  function selectOldFavoriteUserBatch(batchId: string) {
+    if (activeOldFavoriteUserBatch) {
+      const leavingSnapshot = {
+        preview,
+        baseScanPreview,
+        archiveEditorState,
+        step: oldFavoriteStep,
+        executionPhase: oldFavoriteExecutionPhase,
+        executionRun: oldFavoriteExecutionRun,
+        executionProgress: oldFavoriteExecutionProgress
+      }
+      setOldFavoriteUserBatches((current) => current.map((batch) =>
+        batch.id === activeOldFavoriteUserBatch.id
+          ? { ...batch, snapshot: leavingSnapshot }
+          : batch
+      ))
+    }
+    setActiveOldFavoriteUserBatchId(batchId)
+    const selectedBatch = oldFavoriteUserBatches.find((batch) => batch.id === batchId)
+    if (!selectedBatch?.snapshot) return
+    setPreview(selectedBatch.snapshot.preview)
+    setBaseScanPreview(selectedBatch.snapshot.baseScanPreview)
+    setArchiveEditorState(selectedBatch.snapshot.archiveEditorState)
+    setOldFavoriteStep(selectedBatch.snapshot.step)
+    setOldFavoriteExecutionPhase(selectedBatch.snapshot.executionPhase)
+    setOldFavoriteExecutionRun(selectedBatch.snapshot.executionRun)
+    setOldFavoriteExecutionProgress(selectedBatch.snapshot.executionProgress)
+    setOldFavoriteGuideMode('organize')
+    setPendingOldFavoriteBatchKind('full')
+  }
+
+  async function startIncrementalOldFavoriteBatch() {
+    if (oldFavoriteOrganizationLocked()) {
+      showOldFavoriteOrganizationPendingMessage()
+      return
+    }
+    if (activeOldFavoriteUserBatch) {
+      const currentSnapshot = {
+        preview,
+        baseScanPreview,
+        archiveEditorState,
+        step: oldFavoriteStep,
+        executionPhase: oldFavoriteExecutionPhase,
+        executionRun: oldFavoriteExecutionRun,
+        executionProgress: oldFavoriteExecutionProgress,
+        collectionSnapshot: collectionSnapshotFromPreview(baseScanPreview ?? preview)
+      }
+      setOldFavoriteUserBatches((current) => current.map((batch) =>
+        batch.id === activeOldFavoriteUserBatch.id
+          ? { ...batch, snapshot: currentSnapshot }
+          : batch
+      ))
+    }
+    setPreview(null)
+    setBaseScanPreview(null)
+    setArchivePlanState(null)
+    setOldFavoriteGuideMode('organize')
+    setPendingOldFavoriteBatchKind('incremental')
+    setOldFavoriteStep('scan')
+    await scanOldFavorites('organize', 'incremental')
   }
 
   useEffect(() => {
@@ -3003,12 +3377,42 @@ export function FavoriteLedgerPanel({
     if (chunked) finishArchiveBatchOperation(total)
   }
 
-  function setCandidateSelected(candidate: FavoriteLedgerCandidate, selected: boolean) {
-    applyCandidateTransactions(
+  async function setCandidateSelected(candidate: FavoriteLedgerCandidate, selected: boolean) {
+    await applyCandidateTransactions(
       [candidate],
       selected,
       `${selected ? '勾选' : '取消勾选'}收藏夹「${candidate.displayName}」`
     )
+    if (activeOldFavoriteUserBatch) {
+      const stableKey = candidateKey(candidate)
+      setOldFavoriteUserBatches((current) => current.map((batch) => {
+        if (batch.id !== activeOldFavoriteUserBatch.id) return batch
+        const recommendations = batch.snapshot?.recommendations ?? {
+          entries: [], scannedSegmentIndexes: []
+        }
+        const adopted = new Set(recommendations.adoptedStableKeys ?? [])
+        if (selected) adopted.add(stableKey)
+        else adopted.delete(stableKey)
+        const matchingEntries = recommendations.entries.filter((entry) => entry.stableKey === stableKey)
+        const adoptionState = recommendations.adoptionState && matchingEntries.length > 0
+          ? applyBatchRecommendation(recommendations.adoptionState, {
+              ...matchingEntries[0],
+              matchedAids: [...new Set(matchingEntries.flatMap((entry) => entry.matchedAids))],
+              matchedItemKeys: [...new Set(matchingEntries.flatMap((entry) => entry.matchedItemKeys))]
+            }, selected)
+          : recommendations.adoptionState
+        return {
+          ...batch,
+          snapshot: batch.snapshot ? {
+            ...batch.snapshot,
+            recommendations: { ...recommendations, adoptedStableKeys: [...adopted], adoptionState }
+          } : batch.snapshot
+        }
+      }))
+    }
+    if (!selected) {
+      setStatus('已取消批次推荐；只恢复未执行的自动分类，人工修改和已执行结果保持不变。')
+    }
   }
 
   function setCandidateGroupSelected(candidates: FavoriteLedgerCandidate[], selected: boolean) {
@@ -3316,8 +3720,10 @@ export function FavoriteLedgerPanel({
   }
 
   async function scanOldFavorites(
-    mode: 'setup' | 'organize' = 'organize'
+    mode: 'setup' | 'organize' = 'organize',
+    requestedBatchKind?: 'full' | 'incremental'
   ) {
+    let scanSession: { batchId: string; segmentId: string } | null = null
     if (!scanStartingRef.current) scanGenerationRef.current += 1
     scanStartingRef.current = false
     latestTagEnrichmentSnapshotRef.current = null
@@ -3353,11 +3759,43 @@ export function FavoriteLedgerPanel({
       tone: 'running'
     })
     try {
+      if (sessionOrchestrator && onReadCurrentOldFavoriteAccount) {
+        const currentAccountMid = (await onReadCurrentOldFavoriteAccount()).trim()
+        if (!currentAccountMid) {
+          setStatus('无法确认当前 B 站账号，请重新登录后再整理。')
+          return
+        }
+        const started = await sessionOrchestrator.beginScan({
+          accountMid: currentAccountMid,
+          kind: oldFavoriteUserBatches.length === 0 ? 'full' : (requestedBatchKind ?? pendingOldFavoriteBatchKind),
+          now: new Date().toISOString(),
+          snapshot: { currentStep: 'scan' }
+        })
+        if (!started.acquired) {
+          setStatus('另一个整理任务正在运行，请稍后继续。')
+          return
+        }
+        scanSession = {
+          batchId: started.batch.id,
+          segmentId: started.batch.segments[0].id
+        }
+        await sessionOrchestrator.updateSegment(scanSession.batchId, scanSession.segmentId, {
+          requestState: 'in-flight'
+        })
+      }
       const nextPreview = await onScanOldFavorites({
         multiArchiveMode: favoriteArchiveMultiMode
       })
       if (scanGeneration !== scanGenerationRef.current) return
       if (nextPreview.ok === false) {
+        if (scanSession && sessionOrchestrator) {
+          await sessionOrchestrator.updateSegment(scanSession.batchId, scanSession.segmentId, {
+            status: 'paused',
+            taskStatus: 'paused',
+            requestState: 'idle',
+            snapshot: { currentStep: 'scan' }
+          })
+        }
         setPreview(null)
         setBaseScanPreview(null)
         setReorganizedProtectedAids(new Set())
@@ -3379,6 +3817,14 @@ export function FavoriteLedgerPanel({
         const currentSnapshot = await onReadOldFavoriteTagEnrichment('progress').catch(() => null)
         if (scanGeneration !== scanGenerationRef.current) return
         if (currentSnapshot?.accountMid && currentSnapshot.accountMid !== scannedAccountMid) {
+          if (scanSession && sessionOrchestrator) {
+            await sessionOrchestrator.updateSegment(scanSession.batchId, scanSession.segmentId, {
+              status: 'paused',
+              taskStatus: 'paused',
+              requestState: 'idle',
+              snapshot: { currentStep: 'scan' }
+            })
+          }
           if (currentSnapshot.accountMid) bindOldFavoriteRuntimeAccount(currentSnapshot.accountMid)
           setPreview(null)
           setBaseScanPreview(null)
@@ -3406,6 +3852,100 @@ export function FavoriteLedgerPanel({
         ...nextPreview,
         items: normalizeOldFavoritePreviewItems(nextPreview.items, scanDraftLedgers)
       }
+      const batchKind = oldFavoriteUserBatches.length === 0
+        ? 'full'
+        : (requestedBatchKind ?? pendingOldFavoriteBatchKind)
+      const createdAt = new Date().toISOString()
+      const sessionState: OldFavoriteSessionsState = {
+        version: OLD_FAVORITE_SESSIONS_VERSION,
+        batches: oldFavoriteUserBatches
+          .filter((batch) => batch.status === 'active')
+          .map((batch) => createOldFavoriteBatch({
+            id: batch.id,
+            accountMid: batch.accountMid,
+            kind: batch.kind,
+            aids: batch.segmentAids.flat(),
+            now: batch.createdAt
+          })),
+        lease: null
+      }
+      const candidateAids = normalizedPreview.items.map((item) => item.aid)
+      const ownedAids = acquireAidOwnership(sessionState, scannedAccountMid ?? '', candidateAids)
+      const previousCollectionSnapshot = oldFavoriteUserBatches
+        .slice()
+        .reverse()
+        .find((batch) => batch.accountMid === scannedAccountMid && batch.id !== scanSession?.batchId)
+        ?.snapshot?.collectionSnapshot ?? []
+      const protectedAids = normalizedPreview.scanContext?.protectedVideos?.map((item) => item.aid) ?? []
+      const includedAids = batchKind === 'incremental'
+        ? buildIncrementalBatchAids({
+            previous: previousCollectionSnapshot,
+            current: collectionSnapshotFromPreview(normalizedPreview),
+            protectedAids,
+            activeOwnedAids: candidateAids.filter((aid) => !ownedAids.includes(aid))
+          })
+        : candidateAids
+      const includedAidSet = new Set(includedAids)
+      normalizedPreview.items = normalizedPreview.items.filter((item) => includedAidSet.has(item.aid))
+      const batchModel = scanSession && sessionOrchestrator
+        ? await sessionOrchestrator.completeScan(scanSession.batchId, includedAids, {
+            preview: normalizedPreview,
+            currentStep: 'preview',
+            statistics: { scanned: normalizedPreview.items.length }
+          })
+        : createOldFavoriteBatch({
+            accountMid: scannedAccountMid ?? '', kind: batchKind, aids: includedAids, now: createdAt
+          })
+      if (sessionCoordinator && !scanSession) {
+        const storedSessions = await sessionCoordinator.load()
+        await sessionCoordinator.save({
+          ...storedSessions,
+          batches: [
+            ...storedSessions.batches.filter((batch) => batch.id !== batchModel.id),
+            {
+              ...batchModel,
+              snapshot: {
+                preview: normalizedPreview,
+                currentStep: 'scan',
+                statistics: { scanned: normalizedPreview.items.length }
+              }
+            }
+          ]
+        })
+      }
+      const segmentAids = batchModel.segments.map((segment) => segment.aids)
+      const segmentCount = Math.max(1, segmentAids.length)
+      const nextBatch: OldFavoriteUserBatchSummary = {
+        id: batchModel.id,
+        kind: batchKind,
+        createdAt: batchModel.createdAt,
+        accountMid: batchModel.accountMid,
+        segmentIndex: 1,
+        segmentCount,
+        segmentAids,
+        status: 'active',
+        snapshot: {
+          preview: normalizedPreview,
+          baseScanPreview: normalizedPreview,
+          archiveEditorState,
+          step: 'scan',
+          executionPhase: 'idle',
+          executionRun: null,
+          executionProgress: null,
+          collectionSnapshot: collectionSnapshotFromPreview(normalizedPreview),
+          segmentExecution: segmentAids.map((aids, index) => ({
+            index,
+            status: 'ready' as const,
+            executableCount: normalizedPreview.items.filter((item) => aids.includes(item.aid)).length,
+            completedCount: 0
+          }))
+        }
+      }
+      setOldFavoriteUserBatches((current) => [
+        ...current.filter((batch) => batch.id !== nextBatch.id),
+        nextBatch
+      ])
+      setActiveOldFavoriteUserBatchId(batchModel.id)
 
       const nextCandidateKeys = recommendedCandidateKeysForPreview(normalizedPreview)
       setPreview(normalizedPreview)
@@ -3497,6 +4037,14 @@ export function FavoriteLedgerPanel({
       })
       publishOldFavoriteStageFeedback(scanFeedbackMessage)
     } catch (error) {
+      if (scanSession && sessionOrchestrator) {
+        await sessionOrchestrator.updateSegment(scanSession.batchId, scanSession.segmentId, {
+          status: 'paused',
+          taskStatus: 'paused',
+          requestState: 'result-unknown',
+          snapshot: { currentStep: 'scan' }
+        })
+      }
       setPreview(null)
       setBaseScanPreview(null)
       setReorganizedProtectedAids(new Set())
@@ -3511,6 +4059,9 @@ export function FavoriteLedgerPanel({
         tone: 'error'
       })
     } finally {
+      if (scanSession && sessionCoordinator) {
+        await sessionCoordinator.release(scanSession.batchId, scanSession.segmentId)
+      }
       if (scanGeneration === scanGenerationRef.current) {
         setBasicScanRunning(false)
         setBusy(false)
@@ -3968,8 +4519,13 @@ export function FavoriteLedgerPanel({
     }
 
     const multiArchiveLimit = deepSeekArchiveMultiLimit(favoriteArchiveMultiMode)
-    const request = buildDeepSeekArchiveRequest(
+    const requestState = deepSeekArchiveStateForScope(
       archivePlanState,
+      deepSeekBatchScope,
+      activeSegmentAidSet
+    )
+    const request = buildDeepSeekArchiveRequest(
+      requestState,
       archiveExecutionLedgers,
       deepSeekArchiveMode,
       multiArchiveLimit
@@ -4029,7 +4585,16 @@ export function FavoriteLedgerPanel({
         })
 
         try {
-          const result = await onOrganizeOldFavoritesWithDeepSeek(deepSeekArchiveMode, chunk)
+          const result = await runTrackedOldFavoriteRequest({
+            task: 'deepseek',
+            currentAid: chunk.videos[0]?.aid,
+            checkpoint: { cursor: chunkIndex, totalChunks: chunks.length },
+            snapshot: {
+              currentStep: 'deepseek',
+              deepSeek: { completedVideos, totalVideos: request.videos.length }
+            },
+            work: () => onOrganizeOldFavoritesWithDeepSeek(deepSeekArchiveMode, chunk)
+          })
           if (!isCurrentDeepSeekArchiveRun()) {
             return
           }
@@ -4472,7 +5037,11 @@ export function FavoriteLedgerPanel({
     onOldFavoriteExecutionStateChange?.('finished')
   }
 
-  async function runOldFavoriteExecution(run: OldFavoriteExecutionRun, resuming = false) {
+  async function runOldFavoriteExecution(
+    run: OldFavoriteExecutionRun,
+    resuming = false,
+    segmentId?: string
+  ): Promise<OldFavoriteExecutionOutcome> {
     const groups = groupOldFavoriteExecutionItems(run.selectedItems)
     oldFavoriteExecutionStopRequestedRef.current = false
     setOldFavoriteExecutionStopping(false)
@@ -4487,23 +5056,45 @@ export function FavoriteLedgerPanel({
         )
         if (!waited) {
           await pauseOldFavoriteExecutionRun(run)
-          return
+          return 'paused'
         }
       }
 
       for (let index = run.nextGroupIndex; index < groups.length; index += 1) {
         if (oldFavoriteExecutionStopRequestedRef.current) {
           await pauseOldFavoriteExecutionRun(run)
-          return
+          return 'paused'
         }
         const group = groups[index]
-        const rawResult = (await onExecuteOldFavoritePlan(group)) as OldFavoriteExecutionResult
+        const rawResult = (await runTrackedOldFavoriteRequest({
+          task: 'execute',
+          segmentId,
+          currentAid: group[0]?.aid,
+          checkpoint: {
+            cursor: index,
+            frozenExecutionAids: run.selectedItems.map((item) => item.aid)
+          },
+          snapshot: {
+            currentStep: 'execution',
+            execution: { nextGroupIndex: index, total: groups.length }
+          },
+          work: () => onExecuteOldFavoritePlan(group)
+        })) as OldFavoriteExecutionResult
         const completedItems = rawResult.ok === true
           ? rawResult.completedItems ?? group
           : rawResult.partial
             ? rawResult.completedItems ?? []
             : []
         const result = { ...rawResult, completedItems }
+        if (rawResult.resultUnknown) {
+          setOldFavoriteRuntimeValue('oldFavoriteRecoveryRequiresReconciliation', true)
+          setOldFavoriteExecutionRun(run)
+          setOldFavoriteExecutionPhase('paused')
+          setOldFavoriteExecutionStopping(false)
+          setStatus('当前请求结果未知，已暂停；继续前会先核对 B 站实际状态。')
+          onOldFavoriteExecutionStateChange?.('finished')
+          return 'paused'
+        }
         run = {
           ...run,
           nextGroupIndex: index + 1,
@@ -4528,11 +5119,11 @@ export function FavoriteLedgerPanel({
           setOldFavoriteExecutionStopping(false)
           publishOldFavoriteStatus({ label: '访问受限，已安全停止', message, tone: 'error' })
           onOldFavoriteExecutionStateChange?.('finished')
-          return
+          return 'failed'
         }
         if (oldFavoriteExecutionStopRequestedRef.current) {
           await pauseOldFavoriteExecutionRun(run)
-          return
+          return 'paused'
         }
         const paced = await paceOldFavoriteExecution(
           index + 1,
@@ -4541,19 +5132,11 @@ export function FavoriteLedgerPanel({
         )
         if (!paced) {
           await pauseOldFavoriteExecutionRun(run)
-          return
+          return 'paused'
         }
       }
 
       run = persistOldFavoriteExecutionRecords(run)
-      const complete =
-        run.results.length === groups.length &&
-        run.results.every((result) => result.ok === true && !result.partial && !result.paused)
-      if (complete && !await commitActiveOldFavoriteBatch('提交本批进度失败')) {
-        setOldFavoriteExecutionPhase('awaiting-acknowledgement')
-        onOldFavoriteExecutionStateChange?.('finished')
-        return
-      }
       const failedCount = run.results.filter((result) => result.ok !== true).length
       const partialCount = run.results.filter((result) => result.ok !== true && result.partial).length
       const completeFailureCount = failedCount - partialCount
@@ -4572,22 +5155,79 @@ export function FavoriteLedgerPanel({
       })
       setOldFavoriteExecutionStopping(false)
       onOldFavoriteExecutionStateChange?.('finished')
+      return failedCount === 0 ? 'completed' : 'failed'
     } catch (error) {
       const message = `整理旧藏未完成：${errorMessage(error)}`
       setStatus(message)
       setOldFavoriteExecutionPhase('awaiting-acknowledgement')
       publishOldFavoriteStatus({ label: '整理失败', message, tone: 'error' })
       onOldFavoriteExecutionStateChange?.('finished')
+      return 'failed'
+    } finally {
+      // Each network request owns and releases its own authoritative lease.
     }
   }
 
   async function continueOldFavoriteExecution() {
     if (!oldFavoriteExecutionPaused || !oldFavoriteExecutionRun) return
-    await runOldFavoriteExecution(oldFavoriteExecutionRun, true)
+    let reconciledRun = oldFavoriteExecutionRun
+    const requiresReconciliation = getOldFavoriteRuntimeValue(
+      'oldFavoriteRecoveryRequiresReconciliation',
+      false
+    )
+    if (requiresReconciliation) {
+      if (!onRejudgeOldFavorite) {
+        setStatus('恢复前需要核对 B 站实际状态，请等待页面和登录状态准备完成。')
+        return
+      }
+      if (!sessionCoordinator || !activeOldFavoriteUserBatch || !activeOldFavoriteSegmentId ||
+        !activeOldFavoriteAccountMid) {
+        setStatus('恢复会话尚未准备完成，请稍后重试。')
+        return
+      }
+      const currentAccountMid = onReadCurrentOldFavoriteAccount
+        ? (await onReadCurrentOldFavoriteAccount()).trim()
+        : ''
+      if (!currentAccountMid || currentAccountMid !== activeOldFavoriteUserBatch.accountMid) {
+        setStatus('当前 B 站账号与本批次不一致，切回原账号后才能恢复。')
+        return
+      }
+      const acquired = await sessionCoordinator.acquire(
+        activeOldFavoriteUserBatch.id,
+        activeOldFavoriteSegmentId,
+        'reconcile',
+        currentAccountMid
+      )
+      if (!acquired) {
+        setStatus('另一个整理任务正在运行，请稍后继续。')
+        return
+      }
+      setStatus('正在核对 B 站实际收藏状态，不会重复执行已落地请求。')
+      try {
+        const reconciledItems: FavoriteLedgerPreviewItem[] = []
+        for (const item of oldFavoriteExecutionRun.selectedItems) {
+          reconciledItems.push(await onRejudgeOldFavorite(item))
+        }
+        reconciledRun = { ...oldFavoriteExecutionRun, selectedItems: reconciledItems }
+        setOldFavoriteExecutionRun(reconciledRun)
+        setOldFavoriteRuntimeValue('oldFavoriteRecoveryRequiresReconciliation', false)
+      } finally {
+        await sessionCoordinator.release(activeOldFavoriteUserBatch.id, activeOldFavoriteSegmentId)
+      }
+    }
+    await runOldFavoriteExecution(reconciledRun, true)
   }
 
   async function executeOldFavoritePlan() {
     if (!preview || deepSeekArchiveRunning) return
+    if (activeOldFavoriteUserBatch && onReadCurrentOldFavoriteAccount) {
+      const currentAccountMid = (await onReadCurrentOldFavoriteAccount()).trim()
+      if (!currentAccountMid || currentAccountMid !== activeOldFavoriteUserBatch.accountMid) {
+        setOldFavoriteExecutionConfirming(false)
+        setStatus('当前 B 站账号与本批次不一致，切回原账号后才能执行。')
+        return
+      }
+    }
     if (firstInvalidLedgerIndex >= 0) {
       setOldFavoriteExecutionConfirming(false)
       focusInvalidLedger(firstInvalidLedgerIndex)
@@ -4605,9 +5245,36 @@ export function FavoriteLedgerPanel({
     setStatus('正在整理中，请耐心等待。')
     try {
       const nextLedgers = buildLedgersToSave()
-      const saveResult = await onSaveLedgers(nextLedgers)
+      let saveResult: AssistantAutomationResult | void
+      if (sessionCoordinator && activeOldFavoriteUserBatch && activeOldFavoriteSegmentId) {
+        const acquired = await sessionCoordinator.acquire(
+          activeOldFavoriteUserBatch.id,
+          activeOldFavoriteSegmentId,
+          'execute',
+          activeOldFavoriteUserBatch.accountMid
+        )
+        if (!acquired) {
+          setStatus('另一个整理任务正在运行，请稍后继续。')
+          setOldFavoriteExecutionPhase('idle')
+          return
+        }
+        fullExecutionLeaseHeldRef.current = true
+        await sessionOrchestrator?.updateSegment(activeOldFavoriteUserBatch.id, activeOldFavoriteSegmentId, {
+          status: 'running',
+          task: { kind: 'execute', status: 'running', requestState: 'in-flight' },
+          snapshot: { currentStep: 'execution' }
+        })
+        saveResult = await onSaveLedgers(nextLedgers)
+      } else {
+        saveResult = await onSaveLedgers(nextLedgers)
+      }
       setSaveStatus(saveStatusMessage(saveResult))
       if (saveResult?.ok === false) {
+        if (sessionOrchestrator && activeOldFavoriteUserBatch && activeOldFavoriteSegmentId) {
+          await sessionOrchestrator.updateSegment(activeOldFavoriteUserBatch.id, activeOldFavoriteSegmentId, {
+            status: 'paused', taskStatus: 'paused', requestState: 'idle'
+          })
+        }
         setStatus(saveResult.message || '收藏夹同步失败，未执行归档。')
         setOldFavoriteExecutionPhase('idle')
         return
@@ -4620,8 +5287,13 @@ export function FavoriteLedgerPanel({
       const selectedItems = archivePlanState
         ? buildSelectedOldFavoritePlanItems({
             state: archivePlanState,
-            items: selectableOldFavoriteItems,
-            ledgers: ledgersWithOldFavoriteTargetFolders(savedLedgers, selectableOldFavoriteItems)
+            items: continuousOldFavoriteExecution
+              ? allSelectableOldFavoriteItems
+              : selectableOldFavoriteItems,
+            ledgers: ledgersWithOldFavoriteTargetFolders(
+              savedLedgers,
+              continuousOldFavoriteExecution ? allSelectableOldFavoriteItems : selectableOldFavoriteItems
+            )
           })
         : selectedOldFavoritePlanItems
       const targetLimit = deepSeekArchiveMultiLimit(favoriteArchiveMultiMode)
@@ -4645,7 +5317,26 @@ export function FavoriteLedgerPanel({
         setOldFavoriteExecutionPhase('idle')
         return
       }
-      const total = groupOldFavoriteExecutionItems(selectedItems).length
+      const segmentModels = activeOldFavoriteUserBatch?.snapshot?.segmentExecution ?? []
+      const executionSegmentIndexes = activeOldFavoriteUserBatch
+        ? buildContinuousExecutionPlan(
+            segmentModels,
+            activeOldFavoriteUserBatch.segmentIndex - 1,
+            continuousOldFavoriteExecution
+          )
+        : []
+      const executionItems = executionSegmentIndexes.length > 1 && activeOldFavoriteUserBatch
+        ? executionSegmentIndexes.map((segmentIndex) => ({
+            segmentIndex,
+            items: selectedItems.filter((item) =>
+              activeOldFavoriteUserBatch.segmentAids[segmentIndex]?.includes(item.aid)
+            )
+          })).filter((segment) => segment.items.length > 0)
+        : [{ segmentIndex: activeOldFavoriteUserBatch?.segmentIndex ? activeOldFavoriteUserBatch.segmentIndex - 1 : 0, items: selectedItems }]
+      const total = executionItems.reduce(
+        (sum, segment) => sum + groupOldFavoriteExecutionItems(segment.items).length,
+        0
+      )
       const run: OldFavoriteExecutionRun = {
         selectedItems,
         nextGroupIndex: 0,
@@ -4661,13 +5352,73 @@ export function FavoriteLedgerPanel({
         message: '正在确认执行旧藏整理。',
         tone: 'running'
       })
-      await runOldFavoriteExecution(run)
+      if (executionItems.length <= 1) {
+        const outcome = await runOldFavoriteExecution(run)
+        if (outcome === 'completed' && activeOldFavoriteUserBatch && sessionOrchestrator) {
+          await sessionOrchestrator.updateSegment(
+            activeOldFavoriteUserBatch.id,
+            activeOldFavoriteSegmentId,
+            { status: 'ended', requestState: 'idle' }
+          )
+        }
+      } else {
+        let completedGroups = 0
+        for (const segment of executionItems) {
+          const segmentRun = {
+            ...run,
+            selectedItems: segment.items,
+            nextGroupIndex: 0,
+            results: [],
+            successfulTargetKeys: [],
+            persistedTargetKeys: []
+          }
+          const outcome = await runOldFavoriteExecution(
+            segmentRun,
+            false,
+            `${activeOldFavoriteUserBatch!.id}:segment:${segment.segmentIndex + 1}`
+          )
+          if (outcome !== 'completed') break
+          completedGroups += groupOldFavoriteExecutionItems(segment.items).length
+          setOldFavoriteExecutionProgress({ completed: completedGroups, total })
+          setOldFavoriteUserBatches((current) => current.map((batch) => {
+            if (batch.id !== activeOldFavoriteUserBatch?.id) return batch
+            const segmentExecution = (batch.snapshot?.segmentExecution ?? []).map((entry) =>
+              entry.index === segment.segmentIndex
+                ? { ...entry, status: 'completed' as const, completedCount: entry.executableCount }
+                : entry
+            )
+            return {
+              ...batch,
+              segmentIndex: Math.min(batch.segmentCount, segment.segmentIndex + 2),
+              snapshot: batch.snapshot ? { ...batch.snapshot, segmentExecution } : batch.snapshot
+            }
+          }))
+          if (sessionOrchestrator) {
+            await sessionOrchestrator.updateSegment(
+              activeOldFavoriteUserBatch!.id,
+              `${activeOldFavoriteUserBatch!.id}:segment:${segment.segmentIndex + 1}`,
+              { status: 'ended', requestState: 'idle' }
+            )
+          }
+        }
+      }
     } catch (error) {
+      if (fullExecutionLeaseHeldRef.current && sessionOrchestrator && activeOldFavoriteUserBatch && activeOldFavoriteSegmentId) {
+        await sessionOrchestrator.updateSegment(activeOldFavoriteUserBatch.id, activeOldFavoriteSegmentId, {
+          status: 'paused', taskStatus: 'paused', requestState: 'result-unknown'
+        })
+        setOldFavoriteRuntimeValue('oldFavoriteRecoveryRequiresReconciliation', true)
+      }
       const message = `整理旧藏未完成：${errorMessage(error)}`
       setStatus(message)
       setOldFavoriteExecutionPhase('awaiting-acknowledgement')
       publishOldFavoriteStatus({ label: '整理失败', message, tone: 'error' })
       onOldFavoriteExecutionStateChange?.('finished')
+    } finally {
+      if (fullExecutionLeaseHeldRef.current && sessionCoordinator && activeOldFavoriteUserBatch && activeOldFavoriteSegmentId) {
+        fullExecutionLeaseHeldRef.current = false
+        await sessionCoordinator.release(activeOldFavoriteUserBatch.id, activeOldFavoriteSegmentId)
+      }
     }
   }
 
@@ -4680,6 +5431,31 @@ export function FavoriteLedgerPanel({
   const sourceSummaryPreviewItems = preview?.items
   const sourceSummaryInsightFolders = preview?.insights?.sourceFolders
   const sourceSummaryProtectedVideos = baseScanPreview?.scanContext?.protectedVideos
+  const managedLogicalFolders = useMemo(() => {
+    const context = baseScanPreview?.scanContext
+    if (!context) return []
+    const grouped = groupFavoritePhysicalShards(context.managedFolders.map((folder) => ({
+      id: folder.id,
+      title: folder.title,
+      memberAids: context.targetMembership[folder.id] ?? [],
+      isInbox: folder.isInbox
+    })))
+    return grouped.map((group) => {
+      const physicalIds = group.shards.map((shard) => shard.id)
+      const firstFolder = context.managedFolders.find((folder) => physicalIds.includes(folder.id))
+      return {
+        id: firstFolder?.ledgerId || group.logicalTitle,
+        sourceKey: `managed:${firstFolder?.ledgerId || group.logicalTitle}`,
+        name: group.logicalTitle,
+        totalCount: group.memberAids.length,
+        actionableCount: group.memberAids.length,
+        physicalIds,
+        memberAids: group.memberAids,
+        shardCount: group.shardCount,
+        isInbox: group.isInbox
+      }
+    })
+  }, [baseScanPreview?.scanContext])
   const scannedOldFavoriteSourceFolders = useMemo<OldFavoriteSourceFolderSummary[]>(() => {
     if (!sourceSummaryFolders?.length) return []
     return sourceSummaryFolders.map((folder) => ({
@@ -4824,12 +5600,21 @@ export function FavoriteLedgerPanel({
     setOldFavoriteExecutionPhase('pausing')
     setStatus('正在暂停整理；当前请求明确返回后将不再发送下一条。')
   }
-  const selectableOldFavoriteItems = useMemo(
+  const activeSegmentAidSet = useMemo(() => {
+    if (!activeOldFavoriteUserBatch || activeOldFavoriteUserBatch.segmentCount <= 1) return null
+    const aids = activeOldFavoriteUserBatch?.segmentAids[activeOldFavoriteUserBatch.segmentIndex - 1]
+    return aids ? new Set(aids) : null
+  }, [activeOldFavoriteUserBatch])
+  const allSelectableOldFavoriteItems = useMemo(
     () =>
       preview?.items
         .filter((item) => selectedOldFavoriteSourceFolders.some((folder) => oldFavoriteItemMatchesSource(item, folder)))
         .map((item) => itemWithSelectedCandidateTargets(item, selectedCandidateKeys)) ?? [],
     [preview, selectedOldFavoriteSourceFolders, selectedCandidateKeys]
+  )
+  const selectableOldFavoriteItems = useMemo(
+    () => allSelectableOldFavoriteItems.filter((item) => !activeSegmentAidSet || activeSegmentAidSet.has(item.aid)),
+    [activeSegmentAidSet, allSelectableOldFavoriteItems]
   )
   const protectedOldFavoriteCount = baseScanPreview?.scanContext?.protectedVideos.length ?? 0
   const protectedArchiveHealthCounts = useMemo(() => {
@@ -4967,6 +5752,11 @@ export function FavoriteLedgerPanel({
     if (oldFavoritePlanReadOnly) return
     const next = new Set(reorganizedProtectedAids)
     for (const item of selectedProtectedOldFavorites) next.add(item.aid)
+    const formalLogicalIds = managedLogicalFolders
+      .filter((folder) => !folder.isInbox)
+      .map((folder) => folder.id)
+    setUnlockedManagedLogicalIds(new Set(formalLogicalIds))
+    setSelectedManagedLogicalIds((current) => new Set([...current, ...formalLogicalIds]))
     setReorganizedProtectedAids(next)
     setProtectedReorganizationConfirming(false)
     applyProtectedReorganization(next)
@@ -4987,14 +5777,42 @@ export function FavoriteLedgerPanel({
     setPreview(baseScanPreview)
     setArchivePlanState(createArchivePlanStateFromPreviewItems(baseScanPreview.items, selectedCandidateKeys))
   }
+
+  function applyManagedSelection(nextSelectedLogicalIds: Set<string>) {
+    const protectedAids = buildManagedSelectionProtection(
+      managedLogicalFolders.flatMap((folder) => folder.physicalIds.map((folderId) => ({
+        folderId,
+        logicalId: folder.id,
+        isStaging: folder.isInbox,
+        memberAids: baseScanPreview?.scanContext?.targetMembership[folderId] ?? []
+      }))),
+      [...nextSelectedLogicalIds]
+    )
+    const allFormalAids = new Set(managedLogicalFolders
+      .filter((folder) => !folder.isInbox)
+      .flatMap((folder) => folder.memberAids))
+    const protectedAidSet = new Set(protectedAids)
+    const nextReorganizedAids = new Set([...allFormalAids].filter((aid) => !protectedAidSet.has(aid)))
+    setSelectedManagedLogicalIds(nextSelectedLogicalIds)
+    setReorganizedProtectedAids(nextReorganizedAids)
+    applyProtectedReorganization(nextReorganizedAids)
+  }
   const oldFavoriteUserSourceFolders = useMemo(
     () => oldFavoriteSourceFolders.filter((folder) => !isBilimiManagedLedgerName(folder.name)),
     [oldFavoriteSourceFolders]
   )
-  const oldFavoriteBilimiSourceFolders = useMemo(
-    () => oldFavoriteSourceFolders.filter((folder) => isBilimiManagedLedgerName(folder.name)),
-    [oldFavoriteSourceFolders]
-  )
+  const oldFavoriteBilimiSourceFolders = useMemo(() => {
+    if (managedLogicalFolders.length > 0) return managedLogicalFolders
+    return oldFavoriteSourceFolders
+      .filter((folder) => isBilimiManagedLedgerName(folder.name))
+      .map((folder) => ({
+        ...folder,
+        physicalIds: folder.id ? [folder.id] : [],
+        memberAids: [],
+        shardCount: 1,
+        isInbox: /暂存|待分类/.test(folder.name)
+      }))
+  }, [managedLogicalFolders, oldFavoriteSourceFolders])
   const archiveExecutionLedgers = useMemo(
     () => ledgersWithOldFavoriteTargetFolders(draftLedgers, selectableOldFavoriteItems),
     [draftLedgers, selectableOldFavoriteItems]
@@ -5045,6 +5863,19 @@ export function FavoriteLedgerPanel({
       ).size,
     [selectedOldFavoritePlanItems]
   )
+  const oldFavoriteSegmentProgress = useMemo(() => {
+    if (!activeOldFavoriteUserBatch) return null
+    const segments = activeOldFavoriteUserBatch.snapshot?.segmentExecution ??
+      activeOldFavoriteUserBatch.segmentAids.map((aids, index) => ({
+        index,
+        status: 'ready' as const,
+        executableCount: index === activeOldFavoriteUserBatch.segmentIndex - 1
+          ? selectedOldFavoritePlanItems.length
+          : aids.length,
+        completedCount: 0
+      }))
+    return buildSegmentProgress(segments, activeOldFavoriteUserBatch.segmentIndex - 1)
+  }, [activeOldFavoriteUserBatch, selectedOldFavoritePlanItems.length])
   const protectedReconciliationSummary = useMemo(() => {
     let addCount = 0
     let unchangedCount = 0
@@ -5063,6 +5894,24 @@ export function FavoriteLedgerPanel({
       unchangedCount
     }
   }, [selectedOldFavoritePlanItems])
+  const oldFavoriteEndSummary = useMemo(() => {
+    const items = archivePlanState?.items ?? []
+    const failed = oldFavoriteExecutionRun?.results.filter((result) => result.ok !== true).length ?? 0
+    const completed = oldFavoriteExecutionProgress?.completed ?? 0
+    const total = oldFavoriteExecutionProgress?.total ?? selectedOldFavoritePlanItems.length
+    const stagingAids = new Set(
+      (preview?.scanContext?.managedFolders ?? [])
+        .filter((folder) => folder.isInbox)
+        .flatMap((folder) => preview?.scanContext?.targetMembership[folder.id] ?? [])
+    )
+    return {
+      unmatched: items.filter((item) => item.currentTargetLedgerIds.length === 0).length,
+      review: items.filter((item) => item.lowConfidence).length,
+      unexecuted: Math.max(0, total - completed),
+      failed,
+      staging: stagingAids.size
+    }
+  }, [archivePlanState, oldFavoriteExecutionProgress, oldFavoriteExecutionRun, preview, selectedOldFavoritePlanItems.length])
   const previewScopedPendingItems = useMemo(
     () =>
       selectableOldFavoriteItems.filter((item) => {
@@ -5121,6 +5970,34 @@ export function FavoriteLedgerPanel({
     }
     return counts
   }, [selectableOldFavoriteItems])
+  const batchRecommendationSummaries = useMemo(() => {
+    if (!activeOldFavoriteUserBatch) return new Map<string, ReturnType<typeof aggregateBatchRecommendations>[number]>()
+    const stored = activeOldFavoriteUserBatch.snapshot?.recommendations
+    const segmentIndex = activeOldFavoriteUserBatch.segmentIndex - 1
+    const currentEntries: SegmentRecommendation[] = (preview?.insights?.candidateLedgers ?? []).map((candidate) => {
+      const stableKey = candidateKey(candidate)
+      const matchingItems = (preview?.items ?? []).filter((item) =>
+        item.candidateTargets?.some((target) => target.candidateKey === stableKey)
+      )
+      return {
+        stableKey,
+        ledgerId: candidateLedgerId(candidate),
+        displayName: candidate.displayName,
+        segmentIndex,
+        matchedAids: matchingItems.map((item) => item.aid),
+        matchedItemKeys: matchingItems.map(archivePlanItemKey)
+      }
+    })
+    const entries = stored?.entries?.length ? stored.entries : currentEntries
+    const scannedSegmentIndexes = stored?.scannedSegmentIndexes?.length
+      ? stored.scannedSegmentIndexes
+      : [segmentIndex]
+    return new Map(aggregateBatchRecommendations(entries, {
+      currentSegmentIndex: segmentIndex,
+      totalSegments: activeOldFavoriteUserBatch.segmentCount,
+      scannedSegmentIndexes
+    }).map((summary) => [summary.stableKey, summary]))
+  }, [activeOldFavoriteUserBatch, preview])
   const oldFavoriteTargetGroups = useMemo(
     () => {
       const groups = buildOldFavoriteTargetGroups({
@@ -5301,6 +6178,13 @@ export function FavoriteLedgerPanel({
   }
 
   function oldFavoriteCandidateRecommendationText(candidate: FavoriteLedgerCandidate) {
+    const batchSummary = batchRecommendationSummaries.get(candidateKey(candidate))
+    if (batchSummary && activeOldFavoriteUserBatch && (
+      activeOldFavoriteUserBatch.segmentCount > 1 ||
+      Boolean(activeOldFavoriteUserBatch.snapshot?.recommendations?.entries?.length)
+    )) {
+      return `全批 ${batchSummary.uniqueMatchCount}${batchSummary.countIsFinal ? '' : '+'} · 本段 ${batchSummary.currentSegmentMatchCount} · ${batchSummary.scannedSegmentCount}/${batchSummary.totalSegments}`
+    }
     const count = oldFavoriteCandidateCounts.get(candidateKey(candidate)) ?? candidate.count
     return count > 0 ? `${count} 条适合` : '按扫描结果生成'
   }
@@ -5525,6 +6409,16 @@ export function FavoriteLedgerPanel({
             <option value="unclassified">未分类</option>
           </select>
         </label>
+        {areaLedgerId === 'unclassified' ? (
+          <button
+            type="button"
+            aria-label={`再次整理 ${item.title}`}
+            disabled={oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning}
+            onClick={() => void rejudgeOldFavorite(item)}
+          >
+            再次整理
+          </button>
+        ) : null}
         {renderOriginalArchiveSourceNotice(item, areaLedgerId)}
       </div>
     )
@@ -5553,7 +6447,7 @@ export function FavoriteLedgerPanel({
   }
 
   function renderDeepSeekArchiveScopeMenu() {
-    const selectedScopeLabel = deepSeekArchiveScopeLabel(deepSeekArchiveMode)
+    const selectedScopeLabel = deepSeekArchiveScopeLabel(deepSeekBatchScope)
 
     return (
       <div
@@ -5586,9 +6480,9 @@ export function FavoriteLedgerPanel({
                 key={option.value}
                 type="button"
                 role="menuitemradio"
-                aria-checked={deepSeekArchiveMode === option.value}
+                aria-checked={deepSeekBatchScope === option.value}
                 onClick={() => {
-                  setDeepSeekArchiveMode(option.value)
+                  setDeepSeekBatchScope(option.value)
                   setDeepSeekArchiveScopeOpen(false)
                 }}
               >
@@ -5676,17 +6570,46 @@ export function FavoriteLedgerPanel({
     )
   }
 
-  function renderOldFavoriteBilimiSourceFolder(folder: OldFavoriteSourceFolderSummary) {
-    const occurrenceSuffix = oldFavoriteSourceOccurrenceSuffix(folder, oldFavoriteBilimiSourceFolders)
+  function renderOldFavoriteBilimiSourceFolder(folder: (typeof managedLogicalFolders)[number]) {
+    const unlocked = folder.isInbox || unlockedManagedLogicalIds.has(folder.id)
+    const selected = folder.isInbox
+      ? !selectedManagedLogicalIds.has(`disabled:${folder.id}`)
+      : unlocked && selectedManagedLogicalIds.has(folder.id)
+    const shardLabel = folder.shardCount > 1 ? `，${folder.shardCount} 卷` : ''
     return (
       <li
         key={folder.sourceKey}
         role="row"
-        aria-label={`${folder.name}，已有 ${folder.totalCount}${occurrenceSuffix}`}
+        aria-label={`${folder.name}，已有 ${folder.totalCount}${shardLabel}，本轮待整理 ${selected ? folder.totalCount : 0}`}
         className="favorite-ledger-panel__source-row favorite-ledger-panel__source-row--bilimi"
       >
+        <span role="cell">
+          <input
+            type="checkbox"
+            aria-label={`选择 ${folder.name}`}
+            checked={selected}
+            disabled={oldFavoritePlanReadOnly || !unlocked}
+            onChange={(event) => {
+              if (folder.isInbox) {
+                setSelectedManagedLogicalIds((current) => {
+                  const next = new Set(current)
+                  const disabledKey = `disabled:${folder.id}`
+                  if (event.currentTarget.checked) next.delete(disabledKey)
+                  else next.add(disabledKey)
+                  return next
+                })
+                return
+              }
+              const next = new Set(selectedManagedLogicalIds)
+              if (event.currentTarget.checked) next.add(folder.id)
+              else next.delete(folder.id)
+              applyManagedSelection(next)
+            }}
+          />
+        </span>
         <span role="cell" className="favorite-ledger-panel__source-name" title={folder.name}>{folder.name}</span>
         <span role="cell" className="favorite-ledger-panel__source-count">{folder.totalCount}</span>
+        <span role="cell" className="favorite-ledger-panel__source-count">{selected ? folder.totalCount : 0}</span>
       </li>
     )
   }
@@ -5739,6 +6662,52 @@ export function FavoriteLedgerPanel({
       <div className="favorite-ledger-panel__topbar">
         <div className="favorite-ledger-panel__header">
           <h2 className="sr-only">掌库</h2>
+          {oldFavoriteGuideMode === 'organize' && (preview || oldFavoriteUserBatches.length > 0) ? (
+            <div className="favorite-ledger-panel__batch-switcher">
+              <button
+                type="button"
+                disabled={busy || oldFavoriteOrganizationLocked() || oldFavoriteExternalLeaseActive}
+                onClick={() => void startIncrementalOldFavoriteBatch()}
+              >
+                新增视频整理
+              </button>
+              <select
+                aria-label="当前整理批次"
+                value={activeOldFavoriteUserBatch?.id ?? ''}
+                onChange={(event) => selectOldFavoriteUserBatch(event.target.value)}
+              >
+                {activeOldFavoriteUserBatch ? null : <option value="">当前批次</option>}
+                {oldFavoriteUserBatches.map((batch) => {
+                  const dateLabel = new Date(batch.createdAt).toLocaleString('zh-CN', {
+                    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+                  })
+                  const segmentLabel = batch.segmentCount > 1
+                    ? ` · 第${batch.segmentIndex}/${batch.segmentCount}段`
+                    : ''
+                  const statusLabel = batch.status === 'ended' ? ' · 已结束' : ''
+                  const label = `${batch.kind === 'incremental' ? '新增批次' : '当前批次'} · ${dateLabel}${segmentLabel}${statusLabel}`
+                  return <option key={batch.id} value={batch.id} title={label}>{label}</option>
+                })}
+              </select>
+              {activeOldFavoriteUserBatch && activeOldFavoriteUserBatch.segmentCount > 1 ? (
+                <select
+                  aria-label="当前性能分段"
+                  value={activeOldFavoriteUserBatch.segmentIndex}
+                  disabled={oldFavoriteOrganizationLocked()}
+                  onChange={(event) => {
+                    const segmentIndex = Number(event.target.value)
+                    setOldFavoriteUserBatches((current) => current.map((batch) =>
+                      batch.id === activeOldFavoriteUserBatch.id ? { ...batch, segmentIndex } : batch
+                    ))
+                  }}
+                >
+                  {activeOldFavoriteUserBatch.segmentAids.map((_, index) => (
+                    <option key={index} value={index + 1}>第{index + 1}/{activeOldFavoriteUserBatch.segmentCount}段</option>
+                  ))}
+                </select>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="favorite-ledger-panel__toolbar">
@@ -6091,18 +7060,6 @@ export function FavoriteLedgerPanel({
               <p className="favorite-ledger-panel__scan-guidance">
                 请耐心等待扫描完成；完成后按上方步骤从左到右，依次完成本轮整理。
               </p>
-              {preview.batch?.hasMore ? (
-                <div className="favorite-ledger-panel__scan-enrichment-status">
-                  <p className="favorite-ledger-panel__step-note">本批最多3000，完成或放弃后可继续</p>
-                  <button
-                    type="button"
-                    disabled={batchCommitBusy || oldFavoritePlanReadOnly}
-                    onClick={() => setBatchDiscardConfirming(true)}
-                  >
-                    放弃本批
-                  </button>
-                </div>
-              ) : null}
               <div className="favorite-ledger-panel__scan-progress" aria-label="旧藏扫描进度">
                 <div>
                   <span>视频基本信息</span>
@@ -6391,8 +7348,10 @@ export function FavoriteLedgerPanel({
                       {oldFavoriteBilimiSourceFolders.length > 0 ? (
                         <div className="favorite-ledger-panel__source-table favorite-ledger-panel__source-table--bilimi" role="table" aria-label="bilimi 工作夹">
                           <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--bilimi">
+                              <span role="columnheader" aria-label="选择" />
                               <span role="columnheader">bilimi 工作夹</span>
                               <span role="columnheader">已有</span>
+                              <span role="columnheader">本轮待整理</span>
                           </div>
                           <ul role="rowgroup" className="favorite-ledger-panel__source-list">
                             {oldFavoriteBilimiSourceFolders.map(renderOldFavoriteBilimiSourceFolder)}
@@ -6960,6 +7919,23 @@ export function FavoriteLedgerPanel({
                   本次将整理 {selectedOldFavoriteVideoCount} 条视频，每条视频最多存入{' '}
                   {deepSeekArchiveMultiLimit(favoriteArchiveMultiMode)} 个 bilimi 收藏夹。
                 </p>
+                {oldFavoriteSegmentProgress ? (
+                  <>
+                    <p>
+                      当前段可执行 {oldFavoriteSegmentProgress.currentExecutableCount} · 全批可执行{' '}
+                      {oldFavoriteSegmentProgress.batchExecutableCount} · 已完成{' '}
+                      {oldFavoriteSegmentProgress.batchCompletedCount}/{oldFavoriteSegmentProgress.batchTotalCount}
+                    </p>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={continuousOldFavoriteExecution}
+                        onChange={(event) => setContinuousOldFavoriteExecution(event.currentTarget.checked)}
+                      />
+                      连续执行所有已就绪分段
+                    </label>
+                  </>
+                ) : null}
                 {archiveMultiModeChange ? (
                   <p className="favorite-ledger-panel__execution-dialog-change-note">
                     收藏夹数量设置已从“{favoriteArchiveMultiModeLabel(archiveMultiModeChange.from)}”调整为“
@@ -6999,6 +7975,23 @@ export function FavoriteLedgerPanel({
               ) : (
                 <>
                   <p>已选择 {selectedOldFavoritePlanItems.length} 条归档任务</p>
+                  {oldFavoriteSegmentProgress ? (
+                    <>
+                      <p>
+                        当前段可执行 {oldFavoriteSegmentProgress.currentExecutableCount} · 全批可执行{' '}
+                        {oldFavoriteSegmentProgress.batchExecutableCount} · 已完成{' '}
+                        {oldFavoriteSegmentProgress.batchCompletedCount}/{oldFavoriteSegmentProgress.batchTotalCount}
+                      </p>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={continuousOldFavoriteExecution}
+                          onChange={(event) => setContinuousOldFavoriteExecution(event.currentTarget.checked)}
+                        />
+                        连续执行所有已就绪分段
+                      </label>
+                    </>
+                  ) : null}
                   {selectedOldFavoritePlanItems.length === 0 ? (
                     <p>本轮没有需要执行的归档任务，点击确认整理后结束本轮整理</p>
                   ) : null}
@@ -7064,7 +8057,8 @@ export function FavoriteLedgerPanel({
                               已完成 {oldFavoriteExecutionProgress.completed} 条，剩余{' '}
                               {Math.max(0, oldFavoriteExecutionProgress.total - oldFavoriteExecutionProgress.completed)} 条。
                             </p>
-                            <p>结束后会保留未提交的批次断点；下次必须重新扫描对账，不会继续发送 B 站请求。</p>
+                            <p>未匹配 {oldFavoriteEndSummary.unmatched} · 待复核 {oldFavoriteEndSummary.review} · 未执行 {oldFavoriteEndSummary.unexecuted} · 失败 {oldFavoriteEndSummary.failed} · 暂存 {oldFavoriteEndSummary.staging}</p>
+                            <p>结束后清除恢复执行点并转为历史只读；未完成视频可在下一次完整整理中重新纳入。</p>
                             <div className="favorite-ledger-panel__execution-dialog-actions">
                               <button type="button" onClick={() => setPausedRoundEndConfirming(false)}>返回</button>
                               <button type="button" onClick={acknowledgeOldFavoriteExecution}>确认结束</button>
@@ -7072,12 +8066,12 @@ export function FavoriteLedgerPanel({
                           </div>
                         ) : (
                           <div className="favorite-ledger-panel__confirm-actions">
-                            <button type="button" onClick={() => setPausedRoundEndConfirming(true)}>结束本轮</button>
+                            <button type="button" onClick={() => setPausedRoundEndConfirming(true)}>结束批次</button>
                             <button type="button" onClick={() => void continueOldFavoriteExecution()}>继续整理</button>
                           </div>
                         )
                       ) : oldFavoriteExecutionRiskStopped ? (
-                        <button type="button" onClick={acknowledgeOldFavoriteExecution}>结束本轮</button>
+                        <button type="button" onClick={acknowledgeOldFavoriteExecution}>结束批次</button>
                       ) : null}
                     </div>
                   ) : null}
@@ -7085,14 +8079,14 @@ export function FavoriteLedgerPanel({
                     {oldFavoriteExecuting ? (
                       <button
                         type="button"
-                        disabled={batchCommitBusy || oldFavoriteExecutionStopping}
+                        disabled={oldFavoriteExecutionStopping}
                         onClick={stopOldFavoriteExecution}
                       >
                         {oldFavoriteExecutionStopping ? '正在暂停…' : '暂停整理'}
                       </button>
                     ) : !oldFavoriteExecutionPaused && !oldFavoriteExecutionAwaitingAcknowledgement ? (
                       <button type="button" onClick={() => setBatchDiscardConfirming(true)}>
-                        放弃本轮
+                        结束批次
                       </button>
                     ) : null}
                     {!oldFavoriteExecutionPaused && !oldFavoriteExecutionRiskStopped ? <button
@@ -7100,7 +8094,6 @@ export function FavoriteLedgerPanel({
                       disabled={
                         deepSeekArchiveRunning ||
                         Boolean(unresolvedArchiveTargetError) ||
-                        batchCommitBusy ||
                         ((oldFavoriteExecuting ||
                           oldFavoriteExecutionConfirming) &&
                         !oldFavoriteExecutionAwaitingAcknowledgement)
@@ -7113,16 +8106,14 @@ export function FavoriteLedgerPanel({
                           : oldFavoriteExecutionAwaitingAcknowledgement
                           ? acknowledgeOldFavoriteExecution()
                           : selectedOldFavoritePlanItems.length === 0
-                            ? preview.batch
-                              ? void finishZeroTaskOldFavoriteBatch()
-                              : acknowledgeOldFavoriteExecution()
+                            ? acknowledgeOldFavoriteExecution()
                             : (preview.scanProgress?.tags.pending ?? 0) > 0
                               ? setPendingTagExecutionConfirming(true)
                               : setOldFavoriteExecutionConfirming(true)
                       }
                     >
                       {oldFavoriteExecutionAwaitingAcknowledgement
-                        ? '结束本轮'
+                        ? '结束批次'
                         : oldFavoriteExecutionPaused
                         ? '继续整理'
                         : oldFavoriteExecuting
@@ -7140,28 +8131,23 @@ export function FavoriteLedgerPanel({
               className="favorite-ledger-panel__execution-dialog"
               role="alertdialog"
               aria-modal="true"
-              aria-label={preview?.batch ? '确认放弃本批？' : '确认放弃本轮？'}
+              aria-label="确认结束本轮？"
             >
-              <h4>{preview?.batch ? '确认放弃本批？' : '确认放弃本轮？'}</h4>
-              <p>
-                {preview?.batch
-                  ? '放弃后会清除本批预览和手动调整，并从下一批继续；不会执行任何归档操作。'
-                  : '放弃后会清除本轮预览和手动调整；不会执行任何归档操作。'}
-              </p>
+              <h4>确认结束本轮？</h4>
+              <p>未匹配 {oldFavoriteEndSummary.unmatched} · 待复核 {oldFavoriteEndSummary.review} · 未执行 {oldFavoriteEndSummary.unexecuted} · 失败 {oldFavoriteEndSummary.failed} · 暂存 {oldFavoriteEndSummary.staging}</p>
+              <p>结束后本批次转为历史只读；未执行、失败和未匹配视频可在下一次完整整理中重新纳入。</p>
               <div className="favorite-ledger-panel__execution-dialog-actions">
                 <button
                   type="button"
-                  disabled={batchCommitBusy}
                   onClick={() => setBatchDiscardConfirming(false)}
                 >
                   返回
                 </button>
                 <button
                   type="button"
-                  disabled={batchCommitBusy}
                   onClick={() => void discardActiveOldFavoriteBatch()}
                 >
-                  {batchCommitBusy ? '正在放弃' : '确认放弃'}
+                  确认结束
                 </button>
               </div>
             </div>

@@ -2749,6 +2749,9 @@ export function FloatingAssistantApp({
             onSaveLedgers={saveFavoriteLedgers}
             onOpenFavoritePage={openFavoritePage}
             onScanOldFavorites={scanOldFavorites}
+            onReadCurrentOldFavoriteAccount={async () =>
+              String((await readOldFavoriteTagEnrichment('progress')).accountMid ?? '')
+            }
             onReadOldFavoriteTagEnrichment={readOldFavoriteTagEnrichment}
             onCommitOldFavoriteBatchCheckpoint={commitOldFavoriteBatchCheckpoint}
             onReadOldFavoriteBatchStatus={readOldFavoriteBatchStatus}
