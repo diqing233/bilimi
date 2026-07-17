@@ -2,12 +2,30 @@ import { describe, expect, it, vi } from 'vitest'
 import { createOldFavoriteQuitBarrier } from './oldFavoriteQuitBarrier'
 
 describe('createOldFavoriteQuitBarrier', () => {
+  it('lets a clean unopened workspace quit immediately without prepare or flush', () => {
+    const prepare = vi.fn()
+    const flush = vi.fn()
+    const barrier = createOldFavoriteQuitBarrier({
+      shouldFlush: () => false,
+      prepare,
+      flush,
+      quit: vi.fn()
+    })
+    const event = { preventDefault: vi.fn() }
+
+    barrier(event)
+
+    expect(event.preventDefault).not.toHaveBeenCalled()
+    expect(prepare).not.toHaveBeenCalled()
+    expect(flush).not.toHaveBeenCalled()
+  })
+
   it('prevents the first quit, flushes durable state, then quits without recursion', async () => {
     let resolveFlush!: () => void
     const flush = vi.fn(() => new Promise<void>((resolve) => { resolveFlush = resolve }))
     const prepare = vi.fn()
     const quit = vi.fn()
-    const barrier = createOldFavoriteQuitBarrier({ prepare, flush, quit })
+    const barrier = createOldFavoriteQuitBarrier({ shouldFlush: () => true, prepare, flush, quit })
     const firstEvent = { preventDefault: vi.fn() }
 
     barrier(firstEvent)
@@ -31,7 +49,7 @@ describe('createOldFavoriteQuitBarrier', () => {
       .mockRejectedValueOnce(new Error('disk full'))
       .mockResolvedValueOnce(undefined)
     const quit = vi.fn()
-    const barrier = createOldFavoriteQuitBarrier({ prepare: vi.fn(), flush, quit })
+    const barrier = createOldFavoriteQuitBarrier({ shouldFlush: () => true, prepare: vi.fn(), flush, quit })
 
     barrier({ preventDefault: vi.fn() })
     await Promise.resolve()

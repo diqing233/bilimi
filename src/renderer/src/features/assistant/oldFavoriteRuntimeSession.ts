@@ -10,6 +10,7 @@ type OldFavoriteRuntimeStore = {
 
 const GLOBAL_KEY = '__bilimiOldFavoriteRuntimeSession__' as const
 const ACCOUNT_INDEPENDENT_KEYS = new Set(['deepSeekConnectionStatus'])
+const BROADCAST_ONLY_KEYS = new Set(['oldFavoriteRuntimeStatus', 'sharedOperationFeedback'])
 const RENDERER_ONLY_KEYS = new Set([
   'archiveEditorState',
   'archiveRedoChanges',
@@ -17,9 +18,12 @@ const RENDERER_ONLY_KEYS = new Set([
   'archiveUndoChanges',
   'archiveUndoStack',
   'baseScanPreview',
+  'deepSeekConnectionStatus',
   'deepSeekArchiveRunSnapshot',
   'oldFavoriteUserBatches',
-  'preview'
+  'oldFavoriteRuntimeStatus',
+  'preview',
+  'sharedOperationFeedback'
 ])
 
 type OldFavoriteRuntimeGlobal = typeof globalThis & {
@@ -43,7 +47,8 @@ function getStore(): OldFavoriteRuntimeStore {
 }
 
 function canUseMainRuntime(key: string): boolean {
-  return key !== 'deepSeekArchiveRunId' && !RENDERER_ONLY_KEYS.has(key)
+  void key
+  return false
 }
 
 function notifyRuntimeListeners(store: OldFavoriteRuntimeStore, key?: string) {
@@ -145,6 +150,13 @@ export function setOldFavoriteRuntimeValue<T>(
         store.revisions.get(key) ?? 0
       )
     : undefined
+  if (!canUseMainRuntime(key) && BROADCAST_ONLY_KEYS.has(key)) {
+    void window.bilimiDesktop?.setOldFavoriteRuntimeTransientValue?.(
+      key,
+      resolvedValue,
+      store.revisions.get(key) ?? 0
+    )
+  }
   store.values.set(key, (result?.value ?? resolvedValue) as T)
   store.revisions.set(key, result?.revision ?? (store.revisions.get(key) ?? 0) + 1)
   if (result?.accountMid) {
@@ -175,13 +187,6 @@ export function setOldFavoriteTransientRuntimeValue<T>(key: string, value: T): b
 export function bindOldFavoriteRuntimeAccount(accountMid: string): boolean {
   const normalizedAccountMid = accountMid.trim()
   const store = getStore()
-  const bridgeChanged = window.bilimiDesktop?.bindOldFavoriteRuntimeAccount?.(normalizedAccountMid)
-  if (bridgeChanged) {
-    clearAccountScopedRuntime(store)
-    store.accountMid = normalizedAccountMid
-    notifyRuntimeListeners(store)
-    return true
-  }
   if (!normalizedAccountMid) {
     if (!store.accountMid) return false
     clearAccountScopedRuntime(store)
@@ -225,7 +230,6 @@ export function hasOldFavoriteRuntimeHandler(key: string) {
 
 export function resetOldFavoriteRuntimeSession() {
   const store = getStore()
-  window.bilimiDesktop?.resetOldFavoriteRuntime?.()
   store.values.clear()
   store.revisions.clear()
   store.handlers.clear()

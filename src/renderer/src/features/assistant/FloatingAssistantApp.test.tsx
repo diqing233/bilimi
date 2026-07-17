@@ -275,6 +275,23 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
 }
 
 describe('FloatingAssistantApp', () => {
+  it('does not touch old favorite runtime before the ledger workspace is opened', async () => {
+    const getOldFavoriteRuntimeSnapshot = vi.fn((key: string, initialValue: unknown) => ({
+      key,
+      value: initialValue,
+      revision: 0,
+      accountMid: ''
+    }))
+    const loadOldFavoriteSessions = vi.fn()
+    installDesktopApi({ getOldFavoriteRuntimeSnapshot, loadOldFavoriteSessions })
+
+    render(<FloatingAssistantApp />)
+    await screen.findByRole('main', { name: 'bilimi 悬浮助手' })
+
+    expect(getOldFavoriteRuntimeSnapshot).not.toHaveBeenCalled()
+    expect(loadOldFavoriteSessions).not.toHaveBeenCalled()
+  })
+
   it('shows runtime feedback from refreshed snapshots in the global feedback area', async () => {
     let snapshotChanged: (() => void) | undefined
     const requestAssistantSnapshot = vi
@@ -2743,7 +2760,7 @@ describe('FloatingAssistantApp', () => {
 
     render(<FloatingAssistantApp />)
 
-    expect(await screen.findByText('音乐舞台')).toBeInTheDocument()
+    expect(await screen.findByText(/小咪准备归类到：音乐舞台/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /藏.*归入内库/ }))
 
     await waitFor(() =>
@@ -5776,10 +5793,14 @@ describe('FloatingAssistantApp', () => {
     const viewWrappers = container.querySelectorAll(
       '.assistant-sidebar-workspace > .floating-assistant-view'
     )
-    expect(viewWrappers).toHaveLength(3)
+    expect(viewWrappers).toHaveLength(2)
     expect(container.querySelector('.memorial-panel')?.parentElement).toHaveClass(
       'floating-assistant-view'
     )
+    fireEvent.click(screen.getByRole('tab', { name: '掌库' }))
+    await waitFor(() => expect(container.querySelector('.favorite-ledger-panel')?.parentElement).toHaveClass(
+      'floating-assistant-view'
+    ))
   })
 
   it('reports cheer and done pet states around successful sidebar actions', async () => {
@@ -5903,7 +5924,11 @@ describe('FloatingAssistantApp', () => {
           accountMid: '42'
         }
       }),
-      setOldFavoriteRuntimeValue
+      setOldFavoriteRuntimeValue,
+      setOldFavoriteRuntimeTransientValue: vi.fn(async (key, value, expectedRevision) => {
+        setOldFavoriteRuntimeValue(key, value, expectedRevision)
+        return { key, revision: expectedRevision + 1, value, accountMid: '42', accepted: true }
+      })
     })
 
     render(<FloatingAssistantApp />)

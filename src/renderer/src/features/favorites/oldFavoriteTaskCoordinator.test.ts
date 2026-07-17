@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createOldFavoriteBatch, type OldFavoriteSessionsState } from '../../../../shared/oldFavoriteSessions'
 import { OldFavoriteTaskCoordinator } from './oldFavoriteTaskCoordinator'
+import { compactOldFavoriteSessionsForIpc } from './oldFavoriteTaskCoordinator'
 
 function createState(): OldFavoriteSessionsState {
   const first = createOldFavoriteBatch({ accountMid: '42', kind: 'full', aids: [1], now: '2026-07-16T08:00:00Z' })
@@ -9,6 +10,23 @@ function createState(): OldFavoriteSessionsState {
 }
 
 describe('OldFavoriteTaskCoordinator', () => {
+  it('removes large workspace-owned snapshots before renderer-to-main IPC', () => {
+    const preview = { items: Array.from({ length: 30_000 }, (_, index) => ({ aid: index + 1 })) }
+    const compact = compactOldFavoriteSessionsForIpc({
+      version: 1,
+      lease: null,
+      batches: [{
+        id: 'batch', accountMid: '42', kind: 'full', createdAt: '2026-07-17T00:00:00Z',
+        status: 'active', segments: [],
+        snapshot: { preview, baseScanPreview: preview, currentStep: 'preview', statistics: { scanned: 30_000 } }
+      }]
+    })
+
+    expect(compact.batches[0].snapshot).toEqual({
+      currentStep: 'preview', statistics: { scanned: 30_000 }
+    })
+    expect(JSON.stringify(compact).length).toBeLessThan(1_000)
+  })
   it('uses the production desktop session API by default', async () => {
     const state = createState()
     const load = vi.fn(async () => state)

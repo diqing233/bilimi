@@ -79,6 +79,24 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
+  it('centers old favorite modals over the viewport above the assistant sidebar', () => {
+    expectStyleSnippet(
+      '.old-favorite-modal__viewport { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center;'
+    )
+    expectStyleSnippet(
+      '.old-favorite-modal__dialog { position: relative; z-index: 1; width: min(420px, calc(100vw - 32px)); max-height: calc(100vh - 32px);'
+    )
+  })
+
+  it('keeps the compact old favorite batch controls inside narrow sidebars', () => {
+    expectStyleSnippet(
+      '.favorite-ledger-panel__batch-switcher { display: flex; flex-wrap: nowrap; flex: 1 1 0; min-width: 0; max-width: 100%;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__batch-switcher button, .favorite-ledger-panel__batch-switcher select { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis;'
+    )
+  })
+
   it('keeps the main app shell clipped to the window instead of exposing horizontal page scroll', () => {
     expect(normalizedStyles).toContain('body {\n  overflow: hidden;')
     expect(normalizedStyles).toContain('.app-shell {\n  position: relative;\n  width: 100%;')

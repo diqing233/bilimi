@@ -772,6 +772,7 @@ export function FloatingAssistantApp({
   const workspaceRequestsEnabledRef = useRef(workspaceRequestsEnabled)
   const activeTab = controlledActiveTab ?? uncontrolledActiveTab
   const [activeView, setActiveView] = useState<AssistantWorkspaceView>(activeTab)
+  const [ledgerWorkspaceOpened, setLedgerWorkspaceOpened] = useState(activeTab === 'ledger')
   const [notesWorkspaceView, setNotesWorkspaceView] =
     useState<Extract<AssistantWorkspaceView, 'notes' | 'noteArchive'>>('notes')
   const [videoNotesResultTab, setVideoNotesResultTab] =
@@ -1004,6 +1005,7 @@ export function FloatingAssistantApp({
   function setActiveTab(tab: AssistantWorkspaceTab, options?: { view?: AssistantWorkspaceView }) {
     setFeedback(null)
     const nextView = options?.view ?? (tab === 'notes' ? notesWorkspaceView : tab)
+    if (nextView === 'ledger') setLedgerWorkspaceOpened(true)
     setActiveView(nextView)
     if (tab === 'notes' && (nextView === 'notes' || nextView === 'noteArchive')) {
       setNotesWorkspaceView(nextView)
@@ -2745,8 +2747,9 @@ export function FloatingAssistantApp({
           </section>
         </div>
 
-        <div className="floating-assistant-view" hidden={activeView !== 'ledger'}>
-          <FavoriteLedgerPanel
+        {ledgerWorkspaceOpened ? (
+          <div className="floating-assistant-view" hidden={activeView !== 'ledger'}>
+            <FavoriteLedgerPanel
             currentAccountMid={resolvedSnapshot.accountMid}
             ledgers={preferences.favoriteLedgers}
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? []}
@@ -2780,8 +2783,9 @@ export function FloatingAssistantApp({
             onConfirmArchiveProtections={confirmArchiveProtectionRecords}
             favoriteArchiveMultiMode={preferences.favoriteArchiveMultiMode}
             organizeOldFavoritesRequestSignal={organizeOldFavoritesRequestSignal}
-          />
-        </div>
+            />
+          </div>
+        ) : null}
 
         {activeView === 'ledger' ? null : activeView === 'settings' ? (
           <section className="assistant-settings" aria-label="助手设置">

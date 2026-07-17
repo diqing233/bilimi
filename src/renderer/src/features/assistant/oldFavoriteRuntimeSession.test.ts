@@ -90,7 +90,8 @@ describe('oldFavoriteRuntimeSession', () => {
     expect(latestHandler).toHaveBeenCalledWith('整理完成')
   })
 
-  it('returns false and refreshes local state when the main process rejects a stale write', async () => {
+  it('keeps small runtime writes in renderer memory without consulting the main process', async () => {
+    const setOldFavoriteRuntimeValue = vi.fn()
     Object.defineProperty(window, 'bilimiDesktop', {
       configurable: true,
       value: {
@@ -100,28 +101,23 @@ describe('oldFavoriteRuntimeSession', () => {
           value: false,
           accountMid: '42'
         }),
-        setOldFavoriteRuntimeValue: vi.fn().mockReturnValue({
-          key: 'deepSeekArchiveRunning',
-          revision: 1,
-          value: true,
-          accountMid: '42',
-          accepted: false
-        })
+        setOldFavoriteRuntimeValue
       }
     })
     const session = await import('./oldFavoriteRuntimeSession')
     session.resetOldFavoriteRuntimeSession()
     expect(session.getOldFavoriteRuntimeValue('deepSeekArchiveRunning', false)).toBe(false)
 
-    expect(session.setOldFavoriteRuntimeValue('deepSeekArchiveRunning', true)).toBe(false)
+    expect(session.setOldFavoriteRuntimeValue('deepSeekArchiveRunning', true)).toBe(true)
     expect(session.getOldFavoriteRuntimeValue('deepSeekArchiveRunning', false)).toBe(true)
+    expect(setOldFavoriteRuntimeValue).not.toHaveBeenCalled()
   })
 
   it('keeps global DeepSeek connection state when the account binding resets old favorites', async () => {
     Object.defineProperty(window, 'bilimiDesktop', {
       configurable: true,
       value: {
-        bindOldFavoriteRuntimeAccount: vi.fn().mockReturnValue(true)
+        bindOldFavoriteRuntimeAccount: vi.fn()
       }
     })
     const session = await import('./oldFavoriteRuntimeSession')
@@ -131,6 +127,7 @@ describe('oldFavoriteRuntimeSession', () => {
       label: '旧藏待整理 3'
     })
 
+    expect(session.bindOldFavoriteRuntimeAccount('42')).toBe(false)
     expect(session.bindOldFavoriteRuntimeAccount('99')).toBe(true)
     expect(session.getOldFavoriteRuntimeValue('deepSeekConnectionStatus', 'pending')).toBe(
       'connected'

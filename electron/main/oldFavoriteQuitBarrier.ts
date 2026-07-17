@@ -1,6 +1,7 @@
 type QuitEvent = { preventDefault(): void }
 
 export function createOldFavoriteQuitBarrier(options: {
+  shouldFlush?: () => boolean
   prepare: () => void
   flush: () => Promise<void>
   quit: () => void
@@ -10,6 +11,7 @@ export function createOldFavoriteQuitBarrier(options: {
 
   return (event: QuitEvent): void => {
     if (allowQuit) return
+    if (options.shouldFlush && !options.shouldFlush()) return
     event.preventDefault()
     if (flushing) return
     flushing = true

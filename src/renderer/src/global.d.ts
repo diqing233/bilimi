@@ -34,6 +34,7 @@ import type {
 import type { AssistantPetHint, AssistantPetState } from './features/assistant/petState'
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from './features/favorites/favoriteLedgerPreview'
 import type { OldFavoriteBatchCommitToken } from './features/favorites/favoriteLedgerApi'
+import type { OldFavoriteAccountIndex, OldFavoriteBatchDetail, OldFavoriteOverlayKind, OldFavoriteOverlayPatch } from '../../../electron/main/oldFavoriteWorkspaceTypes'
 
 type BilimiDesktopApi = {
   version: string
@@ -74,6 +75,13 @@ type BilimiDesktopApi = {
   ) => Promise<OldFavoriteRuntimeSetResult>
   bindOldFavoriteRuntimeAccount?: (accountMid: string) => boolean
   readBilibiliAccountMid?: () => Promise<string>
+  openOldFavoriteWorkspaceAccount?: (accountMid: string) => Promise<OldFavoriteAccountIndex>
+  loadOldFavoriteWorkspaceBatch?: (accountMid: string, batchId: string) => Promise<OldFavoriteBatchDetail>
+  createOldFavoriteWorkspaceBatch?: (input: { accountMid: string; kind: 'full' | 'incremental'; createdAt?: string; id?: string }) => Promise<unknown>
+  appendOldFavoriteWorkspaceChunk?: (accountMid: string, batchId: string, kind: 'base' | 'tags' | 'sources', items: unknown[]) => Promise<unknown>
+  patchOldFavoriteWorkspaceOverlay?: (accountMid: string, batchId: string, kind: OldFavoriteOverlayKind, patch: OldFavoriteOverlayPatch | OldFavoriteOverlayPatch[]) => Promise<void>
+  finalizeOldFavoriteWorkspaceBatch?: (accountMid: string, batchId: string) => Promise<unknown>
+  resetOldFavoriteWorkspaceAccount?: (accountMid: string) => Promise<void>
   resetOldFavoriteRuntime?: () => boolean
   resetOldFavoriteRuntimeAccount?: (accountMid: string) => Promise<boolean>
   loadOldFavoriteSessions?: () => Promise<OldFavoriteSessionsState>

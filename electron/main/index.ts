@@ -69,6 +69,8 @@ import { createOldFavoritePersistence } from './oldFavoritePersistence'
 import { createOldFavoriteQuitBarrier } from './oldFavoriteQuitBarrier'
 import { registerOldFavoriteSessionIpc } from './oldFavoriteSessionIpc'
 import { OldFavoriteBackgroundRuntime } from './oldFavoriteBackgroundRuntime'
+import { OldFavoriteWorkspaceService } from './oldFavoriteWorkspaceService'
+import { registerOldFavoriteWorkspaceIpc } from './oldFavoriteWorkspaceIpc'
 import { BilibiliSessionProxy } from './bilibiliSessionProxy'
 import {
   configureFloatingMenuWindow,
@@ -423,10 +425,29 @@ const floatingAssistantController = new FloatingMenuController(createFloatingAss
   prepareWindow: positionFloatingAssistantWindow
 })
 
-let oldFavoriteRuntimeStore: OldFavoriteRuntimeStore
-let oldFavoriteSessionStore: OldFavoriteSessionStore
-let oldFavoriteRuntimeCheckpointScheduler: TransientCheckpointScheduler
+let oldFavoriteRuntimeStore: OldFavoriteRuntimeStore | undefined
+let oldFavoriteSessionStore: OldFavoriteSessionStore | undefined
+let oldFavoriteRuntimeCheckpointScheduler: TransientCheckpointScheduler | undefined
 let flushOldFavoritePersistence: (() => Promise<void>) | undefined
+let oldFavoritePersistenceOpening: ReturnType<typeof createOldFavoritePersistence> | undefined
+let oldFavoritePersistenceDirty = false
+let oldFavoriteWorkspaceService: OldFavoriteWorkspaceService | undefined
+
+async function ensureOldFavoritePersistence() {
+  oldFavoritePersistenceOpening ??= createOldFavoritePersistence({
+    userDataPath: app.getPath('userData'),
+    legacyStore: getDesktopStore()
+  })
+  const persistence = await oldFavoritePersistenceOpening
+  oldFavoriteRuntimeStore ??= persistence.runtimeStore
+  oldFavoriteSessionStore ??= persistence.sessionStore
+  flushOldFavoritePersistence ??= persistence.flush
+  oldFavoriteRuntimeCheckpointScheduler ??= new TransientCheckpointScheduler(
+    (keys) => oldFavoriteRuntimeStore?.checkpoint(keys) ?? false,
+    4_000
+  )
+  return persistence
+}
 
 function broadcastOldFavoriteRuntimeSnapshot(snapshot: unknown) {
   for (const target of BrowserWindow.getAllWindows()) {
@@ -885,9 +906,10 @@ function getVideoTranscriptionQueue() {
 function registerAssistantPreferenceHandlers() {
   registerOldFavoriteSessionIpc({
     ipcMain,
-    store: oldFavoriteSessionStore,
+    getStore: async () => (await ensureOldFavoritePersistence()).sessionStore,
     isTrustedSender: isTrustedOldFavoriteSessionSender,
-    broadcast: broadcastOldFavoriteSessions
+    broadcast: broadcastOldFavoriteSessions,
+    onMutation: () => { oldFavoritePersistenceDirty = true }
   })
   ipcMain.on('assistant-runtime:ready', (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
@@ -896,12 +918,16 @@ function registerAssistantPreferenceHandlers() {
     markAssistantRuntimeReady(event.sender.id)
   })
   ipcMain.on('old-favorite-runtime:get', (event, key: string, initialValue: unknown) => {
-    event.returnValue = oldFavoriteRuntimeStore.get(key, initialValue)
+    event.returnValue = oldFavoriteRuntimeStore?.get(key, initialValue) ?? {
+      key, value: initialValue, revision: 0, accountMid: ''
+    }
   })
   ipcMain.on(
     'old-favorite-runtime:set',
     (event, key: string, value: unknown, expectedRevision: number) => {
-      const result = oldFavoriteRuntimeStore.set(key, value, expectedRevision)
+      const result = oldFavoriteRuntimeStore?.set(key, value, expectedRevision) ?? {
+        accepted: true, key, value, revision: expectedRevision + 1, accountMid: ''
+      }
       event.returnValue = result
       if (result.accepted) {
         broadcastOldFavoriteRuntimeSnapshot(result)
@@ -914,27 +940,29 @@ function registerAssistantPreferenceHandlers() {
       if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
         throw new Error('Old favorite runtime request came from an untrusted renderer.')
       }
-      const result = oldFavoriteRuntimeStore.setTransient(key, value, expectedRevision)
+      const result = oldFavoriteRuntimeStore?.setTransient(key, value, expectedRevision) ?? {
+        accepted: true, key, value, revision: expectedRevision + 1, accountMid: ''
+      }
       if (result.accepted) {
         for (const target of BrowserWindow.getAllWindows()) {
           if (!target.isDestroyed() && target.webContents.id !== event.sender.id) {
             target.webContents.send('old-favorite-runtime:changed', result)
           }
         }
-        oldFavoriteRuntimeCheckpointScheduler.markDirty(key)
+        oldFavoriteRuntimeCheckpointScheduler?.markDirty(key)
       }
       return result
     }
   )
   ipcMain.on('old-favorite-runtime:bind-account', (event, accountMid: string) => {
-    const changed = oldFavoriteRuntimeStore.bindAccount(accountMid)
+    const changed = oldFavoriteRuntimeStore?.bindAccount(accountMid) ?? false
     event.returnValue = changed
     if (changed) {
       broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: accountMid.trim() })
     }
   })
   ipcMain.on('old-favorite-runtime:reset', (event) => {
-    oldFavoriteRuntimeStore.reset()
+    oldFavoriteRuntimeStore?.reset()
     event.returnValue = true
     broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: '' })
   })
@@ -1254,26 +1282,28 @@ configureDevelopmentUserData(app, { isPackaged: app.isPackaged })
 configureAppIdentity(app)
 const singleInstanceGuard = installSingleInstanceGuard(app, () => mainWindow)
 
-if (singleInstanceGuard) app.whenReady().then(async () => {
-  const persistence = await createOldFavoritePersistence({
-    userDataPath: app.getPath('userData'),
-    legacyStore: getDesktopStore()
+if (singleInstanceGuard) app.whenReady().then(() => {
+  oldFavoriteWorkspaceService = new OldFavoriteWorkspaceService({
+    root: join(app.getPath('userData'), 'old-favorite', 'workspace-v2')
+  })
+  registerOldFavoriteWorkspaceIpc({
+    ipcMain,
+    service: oldFavoriteWorkspaceService,
+    isTrustedSender: isTrustedOldFavoriteSessionSender,
+    send: (senderId, channel, payload) => {
+      const target = webContents.fromId(senderId)
+      if (target && !target.isDestroyed()) target.send(channel, payload)
+    },
+    onMutation: () => { oldFavoritePersistenceDirty = true }
   })
   ipcMain.handle('old-favorite-runtime:reset-account', (event, accountMid: string) => {
     if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
       throw new Error('Old favorite runtime request came from an untrusted renderer.')
     }
-    const changed = oldFavoriteRuntimeStore.resetAccount(accountMid)
+    const changed = oldFavoriteRuntimeStore?.resetAccount(accountMid) ?? false
     if (changed) broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: accountMid.trim() })
     return changed
   })
-  oldFavoriteRuntimeStore = persistence.runtimeStore
-  oldFavoriteSessionStore = persistence.sessionStore
-  flushOldFavoritePersistence = persistence.flush
-  oldFavoriteRuntimeCheckpointScheduler = new TransientCheckpointScheduler(
-    (keys) => oldFavoriteRuntimeStore.checkpoint(keys),
-    4_000
-  )
   let accountChangeTimer: NodeJS.Timeout | undefined
   session.fromPartition(BILIMI_SESSION_PARTITION).cookies.on('changed', (_event, cookie) => {
     if (cookie.name === 'DedeUserID' || cookie.name === 'bili_jct') {
@@ -1293,13 +1323,22 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
 })
 
 const oldFavoriteQuitBarrier = createOldFavoriteQuitBarrier({
+  shouldFlush: () => oldFavoritePersistenceDirty,
   prepare: () => {
     appQuitting = true
     if (!oldFavoriteRuntimeStore || !oldFavoriteSessionStore) return
-    oldFavoriteRuntimeStore.prepareForShutdown()
-    oldFavoriteSessionStore.saveForShutdown(oldFavoriteSessionStore.load())
+    oldFavoriteRuntimeStore?.prepareForShutdown()
+    if (oldFavoriteSessionStore) {
+      oldFavoriteSessionStore.saveForShutdown(oldFavoriteSessionStore.load())
+    }
   },
-  flush: () => flushOldFavoritePersistence?.() ?? Promise.resolve(),
+  flush: async () => {
+    await Promise.all([
+      flushOldFavoritePersistence?.() ?? Promise.resolve(),
+      oldFavoriteWorkspaceService?.flush() ?? Promise.resolve()
+    ])
+    oldFavoritePersistenceDirty = false
+  },
   quit: () => app.quit()
 })
 app.on('before-quit', oldFavoriteQuitBarrier)

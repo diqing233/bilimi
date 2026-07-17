@@ -3,6 +3,32 @@ import type {
   OldFavoriteTaskKind
 } from '../../../../shared/oldFavoriteSessions'
 
+const WORKSPACE_SNAPSHOT_KEYS = new Set([
+  'preview',
+  'baseScanPreview',
+  'archiveEditorState',
+  'archivePlanState',
+  'segmentSnapshots',
+  'collectionSnapshot',
+  'recommendations',
+  'deepSeek',
+  'undo'
+])
+
+export function compactOldFavoriteSessionsForIpc(
+  state: OldFavoriteSessionsState
+): OldFavoriteSessionsState {
+  return {
+    ...state,
+    batches: state.batches.map((batch) => ({
+      ...batch,
+      snapshot: Object.fromEntries(
+        Object.entries(batch.snapshot).filter(([key]) => !WORKSPACE_SNAPSHOT_KEYS.has(key))
+      )
+    }))
+  }
+}
+
 export type OldFavoriteSessionsGateway = {
   load: () => Promise<OldFavoriteSessionsState>
   save: (state: OldFavoriteSessionsState) => Promise<OldFavoriteSessionsState>
@@ -75,7 +101,7 @@ export class OldFavoriteTaskCoordinator {
   }
 
   save(state: OldFavoriteSessionsState): Promise<OldFavoriteSessionsState> {
-    return this.gateway.save(state)
+    return this.gateway.save(compactOldFavoriteSessionsForIpc(state))
   }
 
   subscribe(callback: (state: OldFavoriteSessionsState) => void): () => void {

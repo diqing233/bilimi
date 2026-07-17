@@ -36,6 +36,7 @@ import type {
   AssistantPetState
 } from '../../src/renderer/src/features/assistant/petState'
 import type { FavoriteLedgerPreviewItem } from '../../src/renderer/src/features/favorites/favoriteLedgerPreview'
+import type { OldFavoriteAccountIndex, OldFavoriteBatchDetail, OldFavoriteOverlayKind, OldFavoriteOverlayPatch } from '../main/oldFavoriteWorkspaceTypes'
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
   version: '0.1.0',
@@ -87,6 +88,20 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   bindOldFavoriteRuntimeAccount: (accountMid: string) =>
     ipcRenderer.sendSync('old-favorite-runtime:bind-account', accountMid) as boolean,
   readBilibiliAccountMid: () => ipcRenderer.invoke('bilibili:account-mid') as Promise<string>,
+  openOldFavoriteWorkspaceAccount: (accountMid: string) =>
+    ipcRenderer.invoke('old-favorite-workspace:open-account', accountMid) as Promise<OldFavoriteAccountIndex>,
+  loadOldFavoriteWorkspaceBatch: (accountMid: string, batchId: string) =>
+    ipcRenderer.invoke('old-favorite-workspace:load-batch', accountMid, batchId) as Promise<OldFavoriteBatchDetail>,
+  createOldFavoriteWorkspaceBatch: (input: { accountMid: string; kind: 'full' | 'incremental'; createdAt?: string; id?: string }) =>
+    ipcRenderer.invoke('old-favorite-workspace:create-batch', input),
+  appendOldFavoriteWorkspaceChunk: (accountMid: string, batchId: string, kind: 'base' | 'tags' | 'sources', items: unknown[]) =>
+    ipcRenderer.invoke('old-favorite-workspace:append-chunk', accountMid, batchId, kind, items),
+  patchOldFavoriteWorkspaceOverlay: (accountMid: string, batchId: string, kind: OldFavoriteOverlayKind, patch: OldFavoriteOverlayPatch | OldFavoriteOverlayPatch[]) =>
+    ipcRenderer.invoke('old-favorite-workspace:patch-overlay', accountMid, batchId, kind, patch),
+  finalizeOldFavoriteWorkspaceBatch: (accountMid: string, batchId: string) =>
+    ipcRenderer.invoke('old-favorite-workspace:finalize-batch', accountMid, batchId),
+  resetOldFavoriteWorkspaceAccount: (accountMid: string) =>
+    ipcRenderer.invoke('old-favorite-workspace:reset-account', accountMid),
   resetOldFavoriteRuntime: () =>
     ipcRenderer.sendSync('old-favorite-runtime:reset') as boolean,
   resetOldFavoriteRuntimeAccount: (accountMid: string) =>
