@@ -6,6 +6,7 @@ type OldFavoriteRuntimeStore = {
   handlers: Map<string, (...args: never[]) => unknown>
   accountMid: string
   bridgeSubscribed: boolean
+  bridgeUnsubscribe?: () => void
 }
 
 const GLOBAL_KEY = '__bilimiOldFavoriteRuntimeSession__' as const
@@ -60,6 +61,10 @@ function notifyRuntimeListeners(store: OldFavoriteRuntimeStore, key?: string) {
   }
 }
 
+function notifyAllKeyListeners(store: OldFavoriteRuntimeStore) {
+  store.keyListeners.forEach((listeners) => listeners.forEach((listener) => listener()))
+}
+
 function clearAccountScopedRuntime(store: OldFavoriteRuntimeStore) {
   for (const key of store.values.keys()) {
     if (!ACCOUNT_INDEPENDENT_KEYS.has(key)) {
@@ -80,7 +85,7 @@ function ensureBridgeSubscription(store: OldFavoriteRuntimeStore) {
   }
 
   store.bridgeSubscribed = true
-  subscribe((message) => {
+  const unsubscribe = subscribe((message) => {
     if ('type' in message && message.type === 'reset') {
       clearAccountScopedRuntime(store)
       store.accountMid = message.accountMid
@@ -93,6 +98,7 @@ function ensureBridgeSubscription(store: OldFavoriteRuntimeStore) {
     store.accountMid = message.accountMid
     notifyRuntimeListeners(store, message.key)
   })
+  if (typeof unsubscribe === 'function') store.bridgeUnsubscribe = unsubscribe
 }
 
 export function subscribeOldFavoriteRuntime(listener: () => void) {
@@ -234,6 +240,10 @@ export function resetOldFavoriteRuntimeSession() {
   store.revisions.clear()
   store.handlers.clear()
   store.accountMid = ''
-  notifyRuntimeListeners(store)
+  notifyAllKeyListeners(store)
+  store.listeners.clear()
   store.keyListeners.clear()
+  store.bridgeUnsubscribe?.()
+  store.bridgeUnsubscribe = undefined
+  store.bridgeSubscribed = false
 }

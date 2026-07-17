@@ -27,6 +27,10 @@ export function registerOldFavoriteWorkspaceIpc(options: {
     assertTrusted(event)
     return options.service.loadBatch(accountMid, batchId)
   })
+  options.ipcMain.handle('old-favorite-workspace:recover-batch', (event, accountMid: string, batchId: string) => {
+    assertTrusted(event)
+    return options.service.recoverBatch(accountMid, batchId)
+  })
   options.ipcMain.handle('old-favorite-workspace:create-batch', (event, input: Parameters<OldFavoriteWorkspaceService['createBatch']>[0]) => {
     assertTrusted(event)
     options.onMutation?.()
@@ -42,6 +46,16 @@ export function registerOldFavoriteWorkspaceIpc(options: {
     assertTrusted(event)
     options.onMutation?.()
     return options.service.appendChunk(accountMid, batchId, kind, items)
+  })
+  options.ipcMain.handle('old-favorite-workspace:append-chunk-group', (
+    event,
+    accountMid: string,
+    batchId: string,
+    chunks: Parameters<OldFavoriteWorkspaceService['appendChunkGroup']>[2]
+  ) => {
+    assertTrusted(event)
+    options.onMutation?.()
+    return options.service.appendChunkGroup(accountMid, batchId, chunks)
   })
   options.ipcMain.handle('old-favorite-workspace:patch-overlay', (
     event,

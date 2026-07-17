@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { OldFavoriteBatch, OldFavoriteSessionsState } from '../../src/shared/oldFavoriteSessions'
@@ -12,7 +13,13 @@ type LegacyStore = {
 
 type BatchIndex = {
   version: 2
-  batches: Array<Pick<OldFavoriteBatch, 'id' | 'accountMid' | 'kind' | 'createdAt' | 'status'>>
+  batches: Array<Pick<OldFavoriteBatch, 'id' | 'accountMid' | 'kind' | 'createdAt' | 'status'> & {
+    storageKey?: string
+  }>
+}
+
+function batchStorageKey(batchId: string) {
+  return `batch-${createHash('sha256').update(batchId).digest('hex')}`
 }
 
 const LARGE_SNAPSHOT_KEYS = new Set([
@@ -55,28 +62,41 @@ class MemoryRuntimeBackend implements OldFavoriteRuntimeBackend {
 
 class ShardedSessionBackend implements OldFavoriteSessionStoreBackend {
   private state: OldFavoriteSessionsState
-  private persisted = new Map<string, string>()
+  private persisted = new Map<string, { serialized: string, storageKey: string }>()
   private writeTail = Promise.resolve()
+  private latestWrite = Promise.resolve()
 
-  private constructor(private readonly directory: string, state: OldFavoriteSessionsState) {
+  private constructor(
+    private readonly directory: string,
+    state: OldFavoriteSessionsState,
+    storageKeys: Map<string, string>
+  ) {
     this.state = state
-    state.batches.forEach((batch) => this.persisted.set(batch.id, JSON.stringify(batch)))
+    state.batches.forEach((batch) => this.persisted.set(batch.id, {
+      serialized: JSON.stringify(batch),
+      storageKey: storageKeys.get(batch.id) ?? batchStorageKey(batch.id)
+    }))
   }
 
   static async open(directory: string, legacy: unknown) {
     const index = await readJson<BatchIndex>(join(directory, 'index.json'))
     const batches: OldFavoriteBatch[] = []
+    const storageKeys = new Map<string, string>()
     if (index?.version === 2) {
       for (const summary of index.batches) {
-        const batch = await readJson<OldFavoriteBatch>(join(directory, 'batches', `${summary.id}.json`))
-        if (batch) batches.push(batch)
+        const storageKey = summary.storageKey ?? summary.id
+        const batch = await readJson<OldFavoriteBatch>(join(directory, 'batches', `${storageKey}.json`))
+        if (batch) {
+          batches.push(batch)
+          storageKeys.set(batch.id, storageKey)
+        }
       }
     }
     const legacyState = isSessionsState(legacy) ? legacy : null
     const state = index
       ? { version: OLD_FAVORITE_SESSIONS_VERSION, batches, lease: null }
       : legacyState ?? { version: OLD_FAVORITE_SESSIONS_VERSION, batches: [], lease: null }
-    const backend = new ShardedSessionBackend(directory, state)
+    const backend = new ShardedSessionBackend(directory, state, storageKeys)
     if (!index && legacyState) await backend.persistState(state)
     return { backend, migrated: !index && Boolean(legacyState) }
   }
@@ -87,28 +107,36 @@ class ShardedSessionBackend implements OldFavoriteSessionStoreBackend {
     if (!isSessionsState(value)) throw new Error('Old favorite session state is invalid.')
     const compact = { ...value, batches: value.batches.map(lightweightBatch) }
     this.state = compact
-    this.writeTail = this.writeTail.then(() => this.persistState(compact))
+    const next = this.writeTail.then(
+      () => this.persistState(compact),
+      () => this.persistState(compact)
+    )
+    this.writeTail = next.catch(() => undefined)
+    this.latestWrite = next
   }
 
-  flush() { return this.writeTail }
+  flush() { return this.latestWrite }
 
   private async persistState(state: OldFavoriteSessionsState) {
     const currentIds = new Set(state.batches.map((batch) => batch.id))
     for (const batch of state.batches) {
       const serialized = JSON.stringify(batch)
-      if (this.persisted.get(batch.id) === serialized) continue
-      await atomicWrite(join(this.directory, 'batches', `${batch.id}.json`), batch)
-      this.persisted.set(batch.id, serialized)
+      const existing = this.persisted.get(batch.id)
+      if (existing?.serialized === serialized) continue
+      const storageKey = existing?.storageKey ?? batchStorageKey(batch.id)
+      await atomicWrite(join(this.directory, 'batches', `${storageKey}.json`), batch)
+      this.persisted.set(batch.id, { serialized, storageKey })
     }
     for (const id of [...this.persisted.keys()]) {
       if (currentIds.has(id)) continue
-      await rm(join(this.directory, 'batches', `${id}.json`), { force: true })
+      await rm(join(this.directory, 'batches', `${this.persisted.get(id)!.storageKey}.json`), { force: true })
       this.persisted.delete(id)
     }
     const index: BatchIndex = {
       version: 2,
       batches: state.batches.map(({ id, accountMid, kind, createdAt, status }) => ({
-        id, accountMid, kind, createdAt, status
+        id, accountMid, kind, createdAt, status,
+        storageKey: this.persisted.get(id)?.storageKey ?? batchStorageKey(id)
       }))
     }
     await atomicWrite(join(this.directory, 'index.json'), index)

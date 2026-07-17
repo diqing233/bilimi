@@ -1440,7 +1440,7 @@ describe('FloatingAssistantApp', () => {
     }
   )
 
-  it('shows an idle no-transcript status when the current video has no transcription yet', async () => {
+  it('shows the latest transcription failure with its error and retry guidance', async () => {
     installDesktopApi({
       loadVideoAudioTranscriptionQueue: vi.fn().mockResolvedValue({
         items: [
@@ -1461,11 +1461,14 @@ describe('FloatingAssistantApp', () => {
     render(<FloatingAssistantApp />)
 
     await waitFor(() =>
-      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('暂无转写')
+      expect(screen.getByLabelText('转写音频状态')).toHaveTextContent('转写失败')
     )
     const transcriptionStatus = screen.getByLabelText('转写音频状态')
-    expect(transcriptionStatus).toHaveAttribute('data-tone', 'idle')
-    expect(transcriptionStatus).not.toHaveTextContent('转写失败')
+    expect(transcriptionStatus).toHaveAttribute('data-tone', 'error')
+    expect(transcriptionStatus).toHaveAttribute(
+      'title',
+      '旧视频：Audio download failed. 打开札记可重试。'
+    )
   })
 
   it('shows the completed transcription count from the current app session while idle', async () => {

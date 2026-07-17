@@ -77,9 +77,14 @@ type BilimiDesktopApi = {
   readBilibiliAccountMid?: () => Promise<string>
   openOldFavoriteWorkspaceAccount?: (accountMid: string) => Promise<OldFavoriteAccountIndex>
   loadOldFavoriteWorkspaceBatch?: (accountMid: string, batchId: string) => Promise<OldFavoriteBatchDetail>
+  recoverOldFavoriteWorkspaceBatch?: (accountMid: string, batchId: string) => Promise<{ discardedTail: string | null }>
   createOldFavoriteWorkspaceBatch?: (input: { accountMid: string; kind: 'full' | 'incremental'; createdAt?: string; id?: string }) => Promise<unknown>
   appendOldFavoriteWorkspaceChunk?: (accountMid: string, batchId: string, kind: 'base' | 'tags' | 'sources', items: unknown[]) => Promise<unknown>
+  appendOldFavoriteWorkspaceChunkGroup?: (accountMid: string, batchId: string, chunks: Record<'base' | 'tags' | 'sources', unknown[]>) => Promise<unknown>
   patchOldFavoriteWorkspaceOverlay?: (accountMid: string, batchId: string, kind: OldFavoriteOverlayKind, patch: OldFavoriteOverlayPatch | OldFavoriteOverlayPatch[]) => Promise<void>
+  markOldFavoriteWorkspaceOverlayDirty?: () => boolean
+  markOldFavoriteWorkspaceOverlayClean?: () => boolean
+  onOldFavoriteWorkspaceFlushRequested?: (callback: () => Promise<void>) => () => void
   finalizeOldFavoriteWorkspaceBatch?: (accountMid: string, batchId: string) => Promise<unknown>
   resetOldFavoriteWorkspaceAccount?: (accountMid: string) => Promise<void>
   resetOldFavoriteRuntime?: () => boolean

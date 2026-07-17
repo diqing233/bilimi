@@ -6,6 +6,7 @@ export type OldFavoriteOverlayPatch = { aid: number } & Record<string, unknown>
 
 export type OldFavoriteBatchSummary = {
   id: string
+  storageKey: string
   kind: OldFavoriteBatchKind
   createdAt: string
   status: OldFavoriteBatchStatus
@@ -24,6 +25,7 @@ export type OldFavoriteChunkRecord = {
   sequence: number
   count: number
   checksum: string
+  groupId?: string
 }
 
 export type OldFavoriteBatchManifest = OldFavoriteBatchSummary & {

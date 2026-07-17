@@ -804,6 +804,16 @@ export function FloatingAssistantApp({
       }
     }
 
+    const failedItem = transcriptionQueue.items.findLast((item) => item.status === 'failed')
+    if (failedItem) {
+      const failureReason = failedItem.errorMessage?.trim() || '转写过程中遇到未知错误。'
+      return {
+        label: '转写失败',
+        detail: `${failedItem.title}：${failureReason} 打开札记可重试。`,
+        tone: 'error'
+      }
+    }
+
     if (transcriptionQueue.sessionCompletedCount > 0) {
       return {
         label: `暂无转写 · 成功 ${transcriptionQueue.sessionCompletedCount}`,

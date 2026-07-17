@@ -42,14 +42,17 @@ export function createMediaToolPaths(input: MediaToolPathInput): MediaToolPaths 
   const whisperCliPath = normalizePath(join(toolRoot, 'whisper', whisperCliName(input.platform)))
   const whisperModelPath = normalizePath(join(toolRoot, 'whisper', 'models', 'ggml-small.bin'))
 
-  for (const path of [ytdlpPath, ffmpegPath, ffprobePath, whisperCliPath, whisperModelPath]) {
-    if (!input.exists(path)) {
-      const setupHint = input.isPackaged
-        ? 'Reinstall bilimi or rebuild the package with bundled media tools.'
-        : 'Run npm run setup:media-tools from the project root, then restart bilimi.'
+  const requiredPaths = [ytdlpPath, ffmpegPath, ffprobePath, whisperCliPath, whisperModelPath]
+  const missingPaths = requiredPaths.filter((path) => !input.exists(path))
+  if (missingPaths.length > 0) {
+    const setupHint = input.isPackaged
+      ? 'Reinstall bilimi or rebuild the package with bundled media tools.'
+      : 'Run npm run setup:media-tools from this development runtime root, then restart bilimi.'
+    const runtimeLabel = input.isPackaged ? 'Packaged resources root' : 'Development runtime root'
 
-      throw new Error(`Bundled media tool is missing: ${path}. ${setupHint}`)
-    }
+    throw new Error(
+      `Bundled media tool is missing; all missing paths:\n${missingPaths.join('\n')}\n${runtimeLabel}: ${normalizePath(root)}. ${setupHint}`
+    )
   }
 
   return { ytdlpPath, ffmpegPath, whisperCliPath, whisperModelPath }

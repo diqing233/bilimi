@@ -67,6 +67,7 @@ import { OldFavoriteRuntimeStore, TransientCheckpointScheduler } from './oldFavo
 import { OldFavoriteSessionStore } from './oldFavoriteSessionStore'
 import { createOldFavoritePersistence } from './oldFavoritePersistence'
 import { createOldFavoriteQuitBarrier } from './oldFavoriteQuitBarrier'
+import { OldFavoriteRendererFlushCoordinator } from './oldFavoriteRendererFlushCoordinator'
 import { registerOldFavoriteSessionIpc } from './oldFavoriteSessionIpc'
 import { OldFavoriteBackgroundRuntime } from './oldFavoriteBackgroundRuntime'
 import { OldFavoriteWorkspaceService } from './oldFavoriteWorkspaceService'
@@ -432,6 +433,7 @@ let flushOldFavoritePersistence: (() => Promise<void>) | undefined
 let oldFavoritePersistenceOpening: ReturnType<typeof createOldFavoritePersistence> | undefined
 let oldFavoritePersistenceDirty = false
 let oldFavoriteWorkspaceService: OldFavoriteWorkspaceService | undefined
+const oldFavoriteRendererFlushCoordinator = new OldFavoriteRendererFlushCoordinator()
 
 async function ensureOldFavoritePersistence() {
   oldFavoritePersistenceOpening ??= createOldFavoritePersistence({
@@ -1296,6 +1298,26 @@ if (singleInstanceGuard) app.whenReady().then(() => {
     },
     onMutation: () => { oldFavoritePersistenceDirty = true }
   })
+  ipcMain.on('old-favorite-workspace:renderer-dirty', (event) => {
+    if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
+      event.returnValue = false
+      return
+    }
+    oldFavoriteRendererFlushCoordinator.markDirty()
+    event.returnValue = true
+  })
+  ipcMain.on('old-favorite-workspace:renderer-flushed', (event, requestId: string, success: boolean) => {
+    if (!isTrustedOldFavoriteSessionSender(event.sender.id)) return
+    oldFavoriteRendererFlushCoordinator.complete(requestId, success)
+  })
+  ipcMain.on('old-favorite-workspace:renderer-clean', (event) => {
+    if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
+      event.returnValue = false
+      return
+    }
+    oldFavoriteRendererFlushCoordinator.markClean()
+    event.returnValue = true
+  })
   ipcMain.handle('old-favorite-runtime:reset-account', (event, accountMid: string) => {
     if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
       throw new Error('Old favorite runtime request came from an untrusted renderer.')
@@ -1323,7 +1345,7 @@ if (singleInstanceGuard) app.whenReady().then(() => {
 })
 
 const oldFavoriteQuitBarrier = createOldFavoriteQuitBarrier({
-  shouldFlush: () => oldFavoritePersistenceDirty,
+  shouldFlush: () => oldFavoritePersistenceDirty || oldFavoriteRendererFlushCoordinator.isDirty(),
   prepare: () => {
     appQuitting = true
     if (!oldFavoriteRuntimeStore || !oldFavoriteSessionStore) return
@@ -1333,6 +1355,13 @@ const oldFavoriteQuitBarrier = createOldFavoriteQuitBarrier({
     }
   },
   flush: async () => {
+    await oldFavoriteRendererFlushCoordinator.requestFlush((requestId) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('old-favorite-workspace:flush-requested', requestId)
+      } else {
+        oldFavoriteRendererFlushCoordinator.complete(requestId, false)
+      }
+    })
     await Promise.all([
       flushOldFavoritePersistence?.() ?? Promise.resolve(),
       oldFavoriteWorkspaceService?.flush() ?? Promise.resolve()

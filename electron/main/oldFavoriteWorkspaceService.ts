@@ -29,6 +29,10 @@ function checksum(value: string) {
   return createHash('sha256').update(value).digest('hex')
 }
 
+function batchStorageKey(batchId: string) {
+  return `batch-${checksum(batchId)}`
+}
+
 function encodeChunk(items: unknown[]) {
   const payload = items.map((item) => JSON.stringify(item)).join('\n') + (items.length ? '\n' : '')
   return `${payload}# sha256:${checksum(payload)}\n`
@@ -72,7 +76,13 @@ export class OldFavoriteWorkspaceService {
     const path = this.indexPath(account)
     const loaded = await this.readJson<OldFavoriteAccountIndex>(path)
     const index = loaded?.version === 2 && loaded.accountMid === account
-      ? loaded
+      ? {
+          ...loaded,
+          batches: loaded.batches.map((batch) => ({
+            ...batch,
+            storageKey: batch.storageKey ?? batch.id
+          }))
+        }
       : { version: 2, accountMid: account, batches: [] } satisfies OldFavoriteAccountIndex
     this.indexes.set(account, index)
     return structuredClone(index)
@@ -98,20 +108,23 @@ export class OldFavoriteWorkspaceService {
     }
     const summary: OldFavoriteBatchSummary = {
       id: requestedId || `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`,
+      storageKey: '',
       kind: options.kind,
       createdAt: options.createdAt ?? new Date().toISOString(),
       status: 'active'
     }
+    summary.storageKey = batchStorageKey(summary.id)
     const manifest: OldFavoriteBatchManifest = {
       version: 2,
       accountMid: account,
       ...summary,
       chunks: []
     }
+    await this.atomicWriteJson(this.manifestPath(account, summary.id), manifest)
+    const nextIndex = { ...index, batches: [...index.batches, summary] }
+    await this.atomicWriteJson(this.indexPath(account), nextIndex)
     index.batches.push(summary)
     this.manifests.set(this.batchKey(account, summary.id), manifest)
-    await this.atomicWriteJson(this.manifestPath(account, summary.id), manifest)
-    await this.atomicWriteJson(this.indexPath(account), index)
     return structuredClone(summary)
   }
 
@@ -122,34 +135,88 @@ export class OldFavoriteWorkspaceService {
     items: unknown[]
   ): Promise<OldFavoriteChunkRecord> {
     const account = validAccountMid(accountMid)
-    const manifest = await this.loadManifest(account, batchId)
-    if (manifest.status === 'archived') throw new Error('Old favorite batch is finalized.')
-    const sequence = manifest.chunks.filter((chunk) => chunk.kind === kind).length + 1
-    const file = `${kind}-${String(sequence).padStart(6, '0')}.jsonl`
-    const payload = items.map((item) => JSON.stringify(item)).join('\n') + (items.length ? '\n' : '')
-    const record: OldFavoriteChunkRecord = { file, kind, sequence, count: items.length, checksum: checksum(payload) }
-    await this.queueWrite(async () => {
+    return this.queueWrite(async () => {
+      const manifest = await this.loadManifest(account, batchId)
+      if (manifest.status === 'archived') throw new Error('Old favorite batch is finalized.')
+      const sequence = manifest.chunks.filter((chunk) => chunk.kind === kind).length + 1
+      const file = `${kind}-${String(sequence).padStart(6, '0')}.jsonl`
+      const payload = items.map((item) => JSON.stringify(item)).join('\n') + (items.length ? '\n' : '')
+      const record: OldFavoriteChunkRecord = { file, kind, sequence, count: items.length, checksum: checksum(payload) }
       await this.writeText(join(this.batchDirectory(account, batchId), file), encodeChunk(items))
       manifest.chunks.push(record)
       await this.atomicWriteJson(this.manifestPath(account, batchId), manifest)
+      return structuredClone(record)
     })
-    return structuredClone(record)
+  }
+
+  async appendChunkGroup(
+    accountMid: string,
+    batchId: string,
+    chunks: Record<OldFavoriteChunkKind, unknown[]>
+  ): Promise<OldFavoriteChunkRecord[]> {
+    const account = validAccountMid(accountMid)
+    return this.queueWrite(async () => {
+      const manifest = await this.loadManifest(account, batchId)
+      if (manifest.status === 'archived') throw new Error('Old favorite batch is finalized.')
+      const groupId = randomUUID()
+      const records = (['base', 'tags', 'sources'] as const).map((kind) => {
+        const sequence = manifest.chunks.filter((chunk) => chunk.kind === kind).length + 1
+        const file = `${kind}-${String(sequence).padStart(6, '0')}.jsonl`
+        const items = chunks[kind]
+        const payload = items.map((item) => JSON.stringify(item)).join('\n') + (items.length ? '\n' : '')
+        return { file, kind, sequence, count: items.length, checksum: checksum(payload), groupId }
+      })
+      for (const record of records) {
+        await this.writeText(
+          join(this.batchDirectory(account, batchId), record.file),
+          encodeChunk(chunks[record.kind])
+        )
+      }
+      manifest.chunks.push(...records)
+      await this.atomicWriteJson(this.manifestPath(account, batchId), manifest)
+      return structuredClone(records)
+    })
   }
 
   async finalizeBatch(accountMid: string, batchId: string): Promise<OldFavoriteBatchSummary> {
     const account = validAccountMid(accountMid)
-    const manifest = await this.loadManifest(account, batchId)
-    if (manifest.status === 'archived') throw new Error('Old favorite batch is already finalized.')
-    manifest.status = 'archived'
-    manifest.finalizedAt = new Date().toISOString()
-    const index = await this.requireIndex(account)
-    const summary = index.batches.find((item) => item.id === batchId)
-    if (!summary) throw new Error('Old favorite batch index is missing.')
-    summary.status = manifest.status
-    summary.finalizedAt = manifest.finalizedAt
-    await this.atomicWriteJson(this.manifestPath(account, batchId), manifest)
-    await this.atomicWriteJson(this.indexPath(account), index)
-    return structuredClone(summary)
+    return this.queueWrite(async () => {
+      const manifest = await this.loadManifest(account, batchId)
+      const index = await this.requireIndex(account)
+      const summaryIndex = index.batches.findIndex((item) => item.id === batchId)
+      if (summaryIndex < 0) throw new Error('Old favorite batch index is missing.')
+      const summary = index.batches[summaryIndex]
+
+      if (manifest.status === 'archived') {
+        const archivedSummary = {
+          ...summary,
+          status: 'archived' as const,
+          finalizedAt: manifest.finalizedAt
+        }
+        if (summary.status === 'archived' && summary.finalizedAt === manifest.finalizedAt) {
+          return structuredClone(archivedSummary)
+        }
+        const repairedIndex = {
+          ...index,
+          batches: index.batches.map((item, itemIndex) => itemIndex === summaryIndex ? archivedSummary : item)
+        }
+        await this.atomicWriteJson(this.indexPath(account), repairedIndex)
+        index.batches.splice(summaryIndex, 1, archivedSummary)
+        return structuredClone(archivedSummary)
+      }
+
+      const nextManifest = { ...manifest, status: 'archived' as const, finalizedAt: new Date().toISOString() }
+      const nextSummary = { ...summary, status: nextManifest.status, finalizedAt: nextManifest.finalizedAt }
+      const nextIndex = {
+        ...index,
+        batches: index.batches.map((item, itemIndex) => itemIndex === summaryIndex ? nextSummary : item)
+      }
+      await this.atomicWriteJson(this.manifestPath(account, batchId), nextManifest)
+      this.manifests.set(this.batchKey(account, batchId), nextManifest)
+      await this.atomicWriteJson(this.indexPath(account), nextIndex)
+      index.batches.splice(summaryIndex, 1, nextSummary)
+      return structuredClone(nextSummary)
+    })
   }
 
   async patchOverlay(
@@ -159,7 +226,8 @@ export class OldFavoriteWorkspaceService {
     patch: OldFavoriteOverlayPatch | OldFavoriteOverlayPatch[]
   ) {
     const account = validAccountMid(accountMid)
-    await this.loadManifest(account, batchId)
+    const manifest = await this.loadManifest(account, batchId)
+    if (manifest.status === 'archived') throw new Error('Old favorite batch is finalized.')
     const overlays = await this.loadOverlays(account, batchId)
     for (const value of Array.isArray(patch) ? patch : [patch]) {
       overlays[kind][String(value.aid)] = structuredClone(value)
@@ -173,6 +241,7 @@ export class OldFavoriteWorkspaceService {
     const detail: OldFavoriteBatchDetail = {
       summary: {
         id: manifest.id,
+        storageKey: manifest.storageKey,
         kind: manifest.kind,
         createdAt: manifest.createdAt,
         status: manifest.status,
@@ -194,13 +263,21 @@ export class OldFavoriteWorkspaceService {
     const manifest = await this.loadManifest(account, batchId)
     const tail = manifest.chunks.at(-1)
     if (!tail) return { discardedTail: null }
-    const path = join(this.batchDirectory(account, batchId), tail.file)
-    const value = await this.readText(path)
-    if (value !== null && decodeChunk(value, tail.checksum)) return { discardedTail: null }
-    await this.deletePath(path)
-    manifest.chunks.pop()
+    const records = tail.groupId
+      ? manifest.chunks.filter((chunk) => chunk.groupId === tail.groupId)
+      : [tail]
+    const validity = await Promise.all(records.map(async (record) => {
+      const value = await this.readText(join(this.batchDirectory(account, batchId), record.file))
+      return value !== null && decodeChunk(value, record.checksum) !== null
+    }))
+    if (validity.every(Boolean)) return { discardedTail: null }
+    await Promise.all(records.map((record) =>
+      this.deletePath(join(this.batchDirectory(account, batchId), record.file))
+    ))
+    const discardedFiles = new Set(records.map((record) => record.file))
+    manifest.chunks = manifest.chunks.filter((chunk) => !discardedFiles.has(chunk.file))
     await this.atomicWriteJson(this.manifestPath(account, batchId), manifest)
-    return { discardedTail: tail.file }
+    return { discardedTail: tail.groupId ? records.map((record) => record.file) : tail.file }
   }
 
   async resetAccount(accountMid: string) {
@@ -224,10 +301,15 @@ export class OldFavoriteWorkspaceService {
     const key = this.batchKey(account, batchId)
     const cached = this.manifests.get(key)
     if (cached) return cached
-    const manifest = await this.readJson<OldFavoriteBatchManifest>(this.manifestPath(account, batchId))
+    const summary = (await this.requireIndex(account)).batches.find((batch) => batch.id === batchId)
+    if (!summary) throw new Error('Old favorite batch does not exist.')
+    const manifest = await this.readJson<OldFavoriteBatchManifest>(
+      join(this.accountDirectory(account), 'batches', summary.storageKey, 'manifest.json')
+    )
     if (!manifest || manifest.version !== 2 || manifest.accountMid !== account || manifest.id !== batchId) {
       throw new Error('Old favorite batch does not exist.')
     }
+    manifest.storageKey = summary.storageKey
     this.manifests.set(key, manifest)
     return manifest
   }
@@ -245,7 +327,11 @@ export class OldFavoriteWorkspaceService {
   private batchKey(account: string, batchId: string) { return `${account}:${batchId}` }
   private accountDirectory(account: string) { return join(this.options.root, 'accounts', account) }
   private indexPath(account: string) { return join(this.accountDirectory(account), 'index.json') }
-  private batchDirectory(account: string, batchId: string) { return join(this.accountDirectory(account), 'batches', batchId) }
+  private batchDirectory(account: string, batchId: string) {
+    const storageKey = this.indexes.get(account)?.batches.find((batch) => batch.id === batchId)?.storageKey
+      ?? batchStorageKey(batchId)
+    return join(this.accountDirectory(account), 'batches', storageKey)
+  }
   private manifestPath(account: string, batchId: string) { return join(this.batchDirectory(account, batchId), 'manifest.json') }
   private overlayPath(account: string, batchId: string) { return join(this.batchDirectory(account, batchId), 'overlays.json') }
 
@@ -278,9 +364,9 @@ export class OldFavoriteWorkspaceService {
     await rm(path, { recursive, force: true })
   }
 
-  private queueWrite(work: () => Promise<void>) {
+  private queueWrite<T>(work: () => Promise<T>): Promise<T> {
     const next = this.writeTail.then(work, work)
-    this.writeTail = next.catch(() => undefined)
+    this.writeTail = next.then(() => undefined, () => undefined)
     return next
   }
 }

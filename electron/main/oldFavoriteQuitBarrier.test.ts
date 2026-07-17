@@ -44,21 +44,41 @@ describe('createOldFavoriteQuitBarrier', () => {
     expect(flush).toHaveBeenCalledOnce()
   })
 
-  it('keeps blocking quit after a failed flush so the user can retry safely', async () => {
-    const flush = vi.fn()
-      .mockRejectedValueOnce(new Error('disk full'))
-      .mockResolvedValueOnce(undefined)
+  it('does not hang exit when a dirty flush rejects', async () => {
+    const flush = vi.fn().mockRejectedValue(new Error('disk full'))
     const quit = vi.fn()
     const barrier = createOldFavoriteQuitBarrier({ shouldFlush: () => true, prepare: vi.fn(), flush, quit })
 
     barrier({ preventDefault: vi.fn() })
     await Promise.resolve()
     await Promise.resolve()
-    barrier({ preventDefault: vi.fn() })
-    await Promise.resolve()
-    await Promise.resolve()
 
-    expect(flush).toHaveBeenCalledTimes(2)
+    expect(flush).toHaveBeenCalledOnce()
     expect(quit).toHaveBeenCalledOnce()
+  })
+
+  it('stops waiting for a hung dirty flush after the short exit deadline', async () => {
+    vi.useFakeTimers()
+    try {
+      const flush = vi.fn(() => new Promise<void>(() => undefined))
+      const quit = vi.fn()
+      const barrier = createOldFavoriteQuitBarrier({
+        shouldFlush: () => true,
+        prepare: vi.fn(),
+        flush,
+        quit,
+        flushTimeoutMs: 250
+      })
+      const event = { preventDefault: vi.fn() }
+
+      barrier(event)
+      await vi.advanceTimersByTimeAsync(249)
+      expect(quit).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(1)
+      expect(quit).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

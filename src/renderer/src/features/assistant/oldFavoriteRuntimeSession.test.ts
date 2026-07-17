@@ -190,6 +190,39 @@ describe('oldFavoriteRuntimeSession', () => {
     expect(progressListener).toHaveBeenCalledOnce()
   })
 
+  it('detaches reset subscribers so later tests and remounts cannot receive stale updates', async () => {
+    const session = await import('./oldFavoriteRuntimeSession')
+    const listener = vi.fn()
+    session.subscribeOldFavoriteRuntimeKey('preview', listener)
+
+    session.resetOldFavoriteRuntimeSession()
+    session.setOldFavoriteRuntimeValue('preview', { items: [{ aid: 1 }] })
+
+    expect(listener).toHaveBeenCalledOnce()
+  })
+
+  it('unsubscribes the old desktop bridge and can attach to a replacement after reset', async () => {
+    const firstUnsubscribe = vi.fn()
+    const firstSubscribe = vi.fn().mockReturnValue(firstUnsubscribe)
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: { onOldFavoriteRuntimeChanged: firstSubscribe }
+    })
+    const session = await import('./oldFavoriteRuntimeSession')
+    session.getOldFavoriteRuntimeValue('preview', null)
+
+    session.resetOldFavoriteRuntimeSession()
+    const secondSubscribe = vi.fn().mockReturnValue(vi.fn())
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: { onOldFavoriteRuntimeChanged: secondSubscribe }
+    })
+    session.getOldFavoriteRuntimeValue('preview', null)
+
+    expect(firstUnsubscribe).toHaveBeenCalledOnce()
+    expect(secondSubscribe).toHaveBeenCalledOnce()
+  })
+
   it('sends lightweight progress through the async transient bridge without writing preview', async () => {
     const setTransient = vi.fn().mockResolvedValue({
       key: 'scanProgress', revision: 1, value: { completed: 26 }, accountMid: '42', accepted: true

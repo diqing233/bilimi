@@ -47,6 +47,7 @@ import type { FavoriteLedgerCandidate } from '../favorites/favoriteLedgerInsight
 import { groupFavoritePhysicalShards } from '../favorites/favoritePhysicalShards'
 import { OldFavoriteSessionOrchestrator } from '../favorites/oldFavoriteSessionOrchestrator'
 import { OldFavoriteTaskCoordinator } from '../favorites/oldFavoriteTaskCoordinator'
+import { OldFavoriteOverlayQueue } from '../favorites/oldFavoriteOverlayQueue'
 import {
   buildIncrementalBatchAids,
   buildContinuousExecutionPlan,
@@ -303,15 +304,135 @@ type ArchivePreviewManualMoveFocus = {
   scrollIntoView?: boolean
 }
 
-type ArchivePreviewHistorySnapshot = {
+type ArchivePreviewFullHistorySnapshot = {
+  kind?: 'full'
   archivePlanState: DeepSeekArchiveRunSnapshot
   selectedCandidateKeys: string[]
   draftLedgers: FavoriteLedger[]
   candidateSourceLedgerIdsByItemKey: FavoriteArchiveTransactionState['candidateSourceLedgerIdsByItemKey']
 }
 
+export type ArchivePreviewItemHistorySnapshot = {
+  kind: 'item'
+  itemKey: string
+  archivePlanItem: FavoriteArchivePlanItemState
+}
+
+type ArchivePreviewHistorySnapshot =
+  | ArchivePreviewFullHistorySnapshot
+  | ArchivePreviewItemHistorySnapshot
+
 type ArchiveEditorRuntimeState = Omit<FavoriteArchiveTransactionState, 'archivePlanState'> & {
   archivePlanState: FavoriteArchivePlanState | null
+}
+
+function cloneArchivePlanItem(item: FavoriteArchivePlanItemState): FavoriteArchivePlanItemState {
+  return {
+    ...item,
+    originalSuggestedLedgerIds: [...item.originalSuggestedLedgerIds],
+    currentTargetLedgerIds: [...item.currentTargetLedgerIds],
+    selectedTargetLedgerIds: [...item.selectedTargetLedgerIds]
+  }
+}
+
+export function updateSingleArchivePlanItem(
+  state: FavoriteArchivePlanState,
+  itemIndex: number,
+  update: (item: FavoriteArchivePlanItemState) => string[]
+) {
+  const previousItem = state.items[itemIndex]
+  if (!previousItem) return null
+  const selectedTargetLedgerIds = uniqueLedgerIds(update(previousItem))
+  if (
+    sameLedgerIds(previousItem.selectedTargetLedgerIds, selectedTargetLedgerIds) &&
+    previousItem.userModified &&
+    previousItem.lastChangeSource === 'user'
+  ) {
+    return null
+  }
+  const nextItem: FavoriteArchivePlanItemState = {
+    ...cloneArchivePlanItem(previousItem),
+    selectedTargetLedgerIds,
+    userModified: true,
+    lastChangeSource: 'user'
+  }
+  const items = state.items.slice()
+  items[itemIndex] = nextItem
+  return {
+    state: { ...state, items },
+    previousItem: cloneArchivePlanItem(previousItem),
+    nextItem
+  }
+}
+
+export function createArchivePreviewItemHistorySnapshot(
+  item: FavoriteArchivePlanItemState
+): ArchivePreviewItemHistorySnapshot {
+  return {
+    kind: 'item',
+    itemKey: item.itemKey,
+    archivePlanItem: cloneArchivePlanItem(item)
+  }
+}
+
+export function applyArchivePreviewHistorySnapshotToPlan(
+  state: FavoriteArchivePlanState,
+  snapshot: ArchivePreviewHistorySnapshot,
+  knownItemIndex?: number
+): FavoriteArchivePlanState {
+  if (snapshot.kind !== 'item') {
+    return revertDeepSeekArchiveRun(state, snapshot.archivePlanState)
+  }
+  const itemIndex = knownItemIndex ?? state.items.findIndex((item) => item.itemKey === snapshot.itemKey)
+  if (itemIndex < 0 || state.items[itemIndex]?.itemKey !== snapshot.itemKey) return state
+  const items = state.items.slice()
+  items[itemIndex] = cloneArchivePlanItem(snapshot.archivePlanItem)
+  return { ...state, items }
+}
+
+export function buildOldFavoriteSegmentExecution(
+  segmentAids: number[][],
+  items: Array<Pick<FavoriteLedgerPreviewItem, 'aid'>>
+) {
+  const segmentIndexByAid = new Map<number, number>()
+  segmentAids.forEach((aids, index) => {
+    for (const aid of aids) segmentIndexByAid.set(aid, index)
+  })
+  const executableCounts = Array.from({ length: segmentAids.length }, () => 0)
+  for (const item of items) {
+    const segmentIndex = segmentIndexByAid.get(item.aid)
+    if (segmentIndex !== undefined) executableCounts[segmentIndex] += 1
+  }
+  return segmentAids.map((_, index) => ({
+    index,
+    status: 'ready' as const,
+    executableCount: executableCounts[index],
+    completedCount: 0
+  }))
+}
+
+function mergePersistedOldFavoriteSources(
+  sources: Array<{ aid?: number; sourceFolderIds?: string[]; sourceFolderTitles?: string[] }>
+) {
+  const merged = new Map<number, { sourceFolderIds: string[]; sourceFolderTitles: string[] }>()
+  for (const source of sources) {
+    if (!Number.isSafeInteger(source.aid)) continue
+    const current = merged.get(source.aid!) ?? { sourceFolderIds: [], sourceFolderTitles: [] }
+    for (let index = 0; index < (source.sourceFolderIds?.length ?? 0); index += 1) {
+      const id = source.sourceFolderIds![index]
+      const existingIndex = current.sourceFolderIds.indexOf(id)
+      if (existingIndex >= 0) {
+        if (!current.sourceFolderTitles[existingIndex] && source.sourceFolderTitles?.[index]) {
+          current.sourceFolderTitles[existingIndex] = source.sourceFolderTitles[index]
+        }
+        continue
+      }
+      current.sourceFolderIds.push(id)
+      current.sourceFolderTitles.push(source.sourceFolderTitles?.[index] ?? '')
+    }
+    merged.set(source.aid!, current)
+  }
+  return merged
 }
 
 function useOldFavoriteRuntimeState<T>(
@@ -588,6 +709,29 @@ function errorMessage(error: unknown) {
     return '收藏夹数量已超过b站上限99个，小咪已经无法再生成更多收藏夹了，主人想继续使用建议适当删除几个哦'
   }
   return message
+}
+
+async function appendWorkspaceLogicalChunk(
+  accountMid: string,
+  batchId: string,
+  base: FavoriteLedgerPreviewItem[]
+) {
+  const chunks = {
+    base,
+    tags: base.map((item) => ({ aid: item.aid, tags: [...(item.tags ?? [])] })),
+    sources: base.map((item) => ({
+      aid: item.aid,
+      sourceFolderIds: [...(item.sourceFolderIds ?? [])],
+      sourceFolderTitles: [...(item.sourceFolderTitles ?? [])]
+    }))
+  }
+  if (window.bilimiDesktop?.appendOldFavoriteWorkspaceChunkGroup) {
+    await window.bilimiDesktop.appendOldFavoriteWorkspaceChunkGroup(accountMid, batchId, chunks)
+    return
+  }
+  await window.bilimiDesktop?.appendOldFavoriteWorkspaceChunk?.(accountMid, batchId, 'base', chunks.base)
+  await window.bilimiDesktop?.appendOldFavoriteWorkspaceChunk?.(accountMid, batchId, 'tags', chunks.tags)
+  await window.bilimiDesktop?.appendOldFavoriteWorkspaceChunk?.(accountMid, batchId, 'sources', chunks.sources)
 }
 
 function isBilimiLedger(ledger: FavoriteLedger) {
@@ -2225,6 +2369,13 @@ export function FavoriteLedgerPanel({
     useOldFavoriteRuntimeState<ArchivePreviewLatestChange | null>('latestArchiveChange', null)
   const [manualArchiveMoveFocus, setManualArchiveMoveFocus] =
     useState<ArchivePreviewManualMoveFocus | null>(null)
+  const archivePlanItemIndexByKey = useMemo(() => {
+    const indexes = new Map<string, number>()
+    for (let index = 0; index < (archivePlanState?.items.length ?? 0); index += 1) {
+      indexes.set(archivePlanState!.items[index].itemKey, index)
+    }
+    return indexes
+  }, [archivePlanState?.originalItemsByKey])
 
   function clearDeepSeekArchiveRunSnapshot(options: { resetHistory?: boolean } = {}) {
     setDeepSeekArchiveRunSnapshot(null)
@@ -2255,6 +2406,7 @@ export function FavoriteLedgerPanel({
     } = {}
   ): ArchivePreviewHistorySnapshot {
     return {
+      kind: 'full',
       archivePlanState: createDeepSeekArchiveSnapshot(state),
       selectedCandidateKeys: [...(values.selectedCandidateKeys ?? selectedCandidateKeys)],
       draftLedgers: (values.draftLedgers ?? draftLedgers).map(cloneArchiveDraftLedger),
@@ -2280,6 +2432,16 @@ export function FavoriteLedgerPanel({
   }
 
   function restoreArchivePreviewHistorySnapshot(snapshot: ArchivePreviewHistorySnapshot) {
+    if (snapshot.kind === 'item') {
+      if (!archivePlanState) return archivePlanState
+      const restoredState = applyArchivePreviewHistorySnapshotToPlan(
+        archivePlanState,
+        snapshot,
+        archivePlanItemIndexByKey.get(snapshot.itemKey)
+      )
+      setArchivePlanState(restoredState)
+      return restoredState
+    }
     const restoredState = revertDeepSeekArchiveRun(
       archivePlanState ?? snapshot.archivePlanState,
       snapshot.archivePlanState
@@ -2296,47 +2458,89 @@ export function FavoriteLedgerPanel({
     return restoredState
   }
 
+  function createReciprocalArchivePreviewHistorySnapshot(
+    snapshot: ArchivePreviewHistorySnapshot,
+    state: FavoriteArchivePlanState,
+    values?: Parameters<typeof createArchivePreviewHistorySnapshot>[1]
+  ): ArchivePreviewHistorySnapshot {
+    if (snapshot.kind !== 'item') return createArchivePreviewHistorySnapshot(state, values)
+    const itemIndex = archivePlanItemIndexByKey.get(snapshot.itemKey)
+    const item = itemIndex === undefined ? undefined : state.items[itemIndex]
+    return item?.itemKey === snapshot.itemKey
+      ? createArchivePreviewItemHistorySnapshot(item)
+      : createArchivePreviewHistorySnapshot(state, values)
+  }
+
+  function applyArchivePreviewHistorySnapshotToEditor(
+    editor: ArchiveEditorRuntimeState,
+    snapshot: ArchivePreviewHistorySnapshot
+  ): ArchiveEditorRuntimeState {
+    if (snapshot.kind === 'item') {
+      return editor.archivePlanState
+        ? {
+            ...editor,
+            archivePlanState: applyArchivePreviewHistorySnapshotToPlan(
+              editor.archivePlanState,
+              snapshot,
+              archivePlanItemIndexByKey.get(snapshot.itemKey)
+            )
+          }
+        : editor
+    }
+    return {
+      archivePlanState: revertDeepSeekArchiveRun(
+        editor.archivePlanState ?? snapshot.archivePlanState,
+        snapshot.archivePlanState
+      ),
+      selectedCandidateKeys: [...snapshot.selectedCandidateKeys],
+      draftLedgers: snapshot.draftLedgers.map(cloneArchiveDraftLedger),
+      candidateSourceLedgerIdsByItemKey: structuredClone(
+        snapshot.candidateSourceLedgerIdsByItemKey ?? {}
+      )
+    }
+  }
+
   function recordArchivePreviewHistory(
     state: FavoriteArchivePlanState,
     change: ArchivePreviewLatestChange,
-    values?: Parameters<typeof createArchivePreviewHistorySnapshot>[1]
+    values?: Parameters<typeof createArchivePreviewHistorySnapshot>[1],
+    itemSnapshot?: FavoriteArchivePlanItemState
   ) {
     setArchiveUndoStack((current) => [
       ...current,
-      createArchivePreviewHistorySnapshot(state, values)
+      itemSnapshot
+        ? createArchivePreviewItemHistorySnapshot(itemSnapshot)
+        : createArchivePreviewHistorySnapshot(state, values)
     ])
     setArchiveRedoStack([])
     setArchiveUndoChanges((current) => [...current, change])
     setArchiveRedoChanges([])
     if (!activeOldFavoriteUserBatch || activeOldFavoriteUserBatch.status === 'ended') return
+    window.bilimiDesktop?.markOldFavoriteWorkspaceOverlayDirty?.()
     for (const item of Object.values(change.itemChanges)) {
       const kind = item.source === 'deepseek' ? 'deepseek' : 'user'
-      workspaceOverlayQueueRef.current.set(`${kind}:${item.aid}`, {
+      workspaceOverlayQueueRef.current.enqueue(
+        activeOldFavoriteUserBatch.accountMid,
+        activeOldFavoriteUserBatch.id,
         kind,
-        patch: {
+        {
           aid: item.aid,
           currentTargetLedgerIds: item.currentTargetLedgerIds,
           selectedTargetLedgerIds: item.selectedTargetLedgerIds,
           userModified: true,
           lastChangeSource: item.source
         }
-      })
+      )
     }
     if (workspaceOverlayTimerRef.current) clearTimeout(workspaceOverlayTimerRef.current)
     workspaceOverlayTimerRef.current = setTimeout(() => {
       workspaceOverlayTimerRef.current = null
-      const queued = [...workspaceOverlayQueueRef.current.values()]
-      workspaceOverlayQueueRef.current.clear()
-      for (const kind of ['user', 'deepseek'] as const) {
-        const patches = queued.filter((item) => item.kind === kind).map((item) => item.patch)
-        if (patches.length === 0) continue
-        void window.bilimiDesktop?.patchOldFavoriteWorkspaceOverlay?.(
-          activeOldFavoriteUserBatch.accountMid,
-          activeOldFavoriteUserBatch.id,
-          kind,
-          patches
-        )
-      }
+      void flushWorkspaceOverlayQueue(
+        activeOldFavoriteUserBatch.accountMid,
+        activeOldFavoriteUserBatch.id
+      ).catch((error) => {
+        setStatus(`整理修改保存失败：${error instanceof Error ? error.message : String(error)}`)
+      })
     }, 100)
   }
   const [oldFavoriteExecutionPhase, setOldFavoriteExecutionPhase] =
@@ -2349,11 +2553,33 @@ export function FavoriteLedgerPanel({
     oldFavoriteExecutionPhase === 'awaiting-acknowledgement' || oldFavoriteExecutionRiskStopped
   const [oldFavoriteExecutionRun, setOldFavoriteExecutionRun] =
     useOldFavoriteRuntimeState<OldFavoriteExecutionRun | null>('oldFavoriteExecutionRun', null)
-  const workspaceOverlayQueueRef = useRef(new Map<string, {
-    kind: 'user' | 'deepseek'
-    patch: { aid: number } & Record<string, unknown>
-  }>())
+  const workspaceOverlayQueueRef = useRef(new OldFavoriteOverlayQueue(
+    async (accountMid, batchId, kind, patches) => {
+      if (!window.bilimiDesktop) return
+      if (!window.bilimiDesktop.patchOldFavoriteWorkspaceOverlay) throw new Error('桌面存储接口不可用。')
+      await window.bilimiDesktop.patchOldFavoriteWorkspaceOverlay(
+        accountMid, batchId, kind, patches
+      )
+    }
+  ))
+  async function flushWorkspaceOverlayQueue(accountMid?: string, batchId?: string) {
+    await workspaceOverlayQueueRef.current.flush(accountMid, batchId)
+    if (!workspaceOverlayQueueRef.current.hasPending()) {
+      window.bilimiDesktop?.markOldFavoriteWorkspaceOverlayClean?.()
+    }
+  }
   const workspaceOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => {
+    if (workspaceOverlayTimerRef.current) clearTimeout(workspaceOverlayTimerRef.current)
+    void flushWorkspaceOverlayQueue().catch(() => undefined)
+  }, [])
+  useEffect(() => window.bilimiDesktop?.onOldFavoriteWorkspaceFlushRequested?.(async () => {
+    if (workspaceOverlayTimerRef.current) {
+      clearTimeout(workspaceOverlayTimerRef.current)
+      workspaceOverlayTimerRef.current = null
+    }
+    await flushWorkspaceOverlayQueue()
+  }), [])
   const [oldFavoriteExecutionConfirming, setOldFavoriteExecutionConfirming] = useState(false)
   const [continuousOldFavoriteExecution, setContinuousOldFavoriteExecution] = useState(false)
   const [oldFavoriteExecutionStopping, setOldFavoriteExecutionStopping] = useState(false)
@@ -2373,6 +2599,8 @@ export function FavoriteLedgerPanel({
   const currentScanRunIdRef = useRef<string | null>(null)
   const currentScanAccountMidRef = useRef<string | null>(null)
   const currentScanSessionRef = useRef<{ batchId: string; kind: 'full' | 'incremental' } | null>(null)
+  const currentScanWorkspaceRef = useRef<{ accountMid: string; batchId: string } | null>(null)
+  const currentScanInitialFullRef = useRef(false)
   const accountGenerationRef = useRef(0)
   const lastSuccessfulPreviewRef = useRef<FavoriteLedgerPreview | null>(null)
   const lastSuccessfulBasePreviewRef = useRef<FavoriteLedgerPreview | null>(null)
@@ -2380,6 +2608,9 @@ export function FavoriteLedgerPanel({
   const latestTagEnrichmentSnapshotRef = useRef<OldFavoriteTagEnrichmentSnapshot | null>(null)
   const appliedStreamingSegmentIndexesRef = useRef(new Set<number>())
   const appliedStreamingSourceRelationsRef = useRef(new Set<string>())
+  const persistedStreamingSegmentIndexesRef = useRef(new Set<number>())
+  const persistedStreamingAidsRef = useRef(new Set<number>())
+  const streamingWorkspaceWriteTailRef = useRef<Promise<void>>(Promise.resolve())
   const [draggedLedgerKey, setDraggedLedgerKey] = useState<string | null>(null)
   const [dragTargetLedgerKey, setDragTargetLedgerKey] = useState<string | null>(null)
   const [ledgerListExpanded, setLedgerListExpanded] =
@@ -2783,10 +3014,17 @@ export function FavoriteLedgerPanel({
       return 'invalid' as const
     }
     const incomingRunId = snapshot.scanProgress.basic.runId?.trim() || null
+    if (
+      basicScanRunning &&
+      !currentScanRunIdRef.current &&
+      snapshot.scanProgress.basic.status === 'complete'
+    ) {
+      return 'invalid' as const
+    }
     if (!currentScanRunIdRef.current && incomingRunId) currentScanRunIdRef.current = incomingRunId
     if (currentScanRunIdRef.current && incomingRunId !== currentScanRunIdRef.current) return 'invalid' as const
     return 'accepted' as const
-  }, [preview?.scanContext?.accountMid])
+  }, [basicScanRunning, preview?.scanContext?.accountMid])
   const applyTagEnrichmentAction = useCallback((action: 'pause' | 'resume' | 'cancel') => {
     if (getOldFavoriteRuntimeValue<OldFavoriteExecutionPhase>('oldFavoriteExecutionPhase', 'idle') !== 'idle') return
     if (!onReadOldFavoriteTagEnrichment) return
@@ -2806,7 +3044,11 @@ export function FavoriteLedgerPanel({
   }, [mergeScanProgress, onReadOldFavoriteTagEnrichment, setScanProgress, tagSnapshotGate])
   const applyStreamingSnapshot = useCallback((snapshot: OldFavoriteTagEnrichmentSnapshot) => {
     for (const segment of snapshot.readySegments ?? []) {
-      if (appliedStreamingSegmentIndexesRef.current.has(segment.index)) continue
+      const workspace = currentScanWorkspaceRef.current
+      if (
+        appliedStreamingSegmentIndexesRef.current.has(segment.index) &&
+        (!workspace || persistedStreamingSegmentIndexesRef.current.has(segment.index))
+      ) continue
       appliedStreamingSegmentIndexesRef.current.add(segment.index)
       const segmentPreview = createFavoriteLedgerPreview({
         ledgers: draftLedgers,
@@ -2816,6 +3058,21 @@ export function FavoriteLedgerPanel({
         multiArchiveMode: favoriteArchiveMultiMode
       })
       const normalizedItems = normalizeOldFavoritePreviewItems(segmentPreview.items, draftLedgers)
+      const streamingPersistenceAllowed = currentScanSessionRef.current?.kind === 'full' &&
+        currentScanInitialFullRef.current
+      if (workspace && streamingPersistenceAllowed && !persistedStreamingSegmentIndexesRef.current.has(segment.index)) {
+        persistedStreamingSegmentIndexesRef.current.add(segment.index)
+        for (const aid of segment.aids) persistedStreamingAidsRef.current.add(aid)
+        streamingWorkspaceWriteTailRef.current = streamingWorkspaceWriteTailRef.current.then(async () => {
+          try {
+            await appendWorkspaceLogicalChunk(workspace.accountMid, workspace.batchId, normalizedItems)
+          } catch (error) {
+            persistedStreamingSegmentIndexesRef.current.delete(segment.index)
+            for (const aid of segment.aids) persistedStreamingAidsRef.current.delete(aid)
+            setStatus(`整理存档写入失败：${error instanceof Error ? error.message : String(error)}`)
+          }
+        })
+      }
       const nextPreview: FavoriteLedgerPreview = {
         ...segmentPreview,
         items: normalizedItems,
@@ -2884,6 +3141,28 @@ export function FavoriteLedgerPanel({
       return appliedStreamingSegmentIndexesRef.current.has(update.segmentIndex)
     })
     if (updates.length === 0) return
+    const workspace = currentScanWorkspaceRef.current
+    const streamingPersistenceAllowed = currentScanSessionRef.current?.kind === 'full' &&
+      currentScanInitialFullRef.current
+    if (workspace && streamingPersistenceAllowed) {
+      streamingWorkspaceWriteTailRef.current = streamingWorkspaceWriteTailRef.current.then(async () => {
+        try {
+          await window.bilimiDesktop?.appendOldFavoriteWorkspaceChunk?.(
+            workspace.accountMid,
+            workspace.batchId,
+            'sources',
+            updates.map((update) => ({
+              aid: update.aid,
+              sourceFolderIds: [update.folderId],
+              sourceFolderTitles: [update.folderTitle],
+              relationKey: update.relationKey
+            }))
+          )
+        } catch (error) {
+          setStatus(`来源关系保存失败：${error instanceof Error ? error.message : String(error)}`)
+        }
+      })
+    }
     setOldFavoriteUserBatches((current) => current.map((batch) => {
       const segmentSnapshots = { ...batch.snapshot?.segmentSnapshots }
       let changed = false
@@ -2923,6 +3202,10 @@ export function FavoriteLedgerPanel({
     favoriteArchiveMultiMode, preview, setActiveOldFavoriteUserBatchId, setArchiveEditorState,
     setBaseScanPreview, setOldFavoriteUserBatches, setPreview
   ])
+  const applyStreamingSnapshotRef = useRef(applyStreamingSnapshot)
+  applyStreamingSnapshotRef.current = applyStreamingSnapshot
+  const tagSnapshotGateRef = useRef(tagSnapshotGate)
+  tagSnapshotGateRef.current = tagSnapshotGate
   const cancelOldFavoriteScan = useCallback(() => {
     if (!basicScanRunning || !onReadOldFavoriteTagEnrichment) return
     scanGenerationRef.current += 1
@@ -2957,15 +3240,12 @@ export function FavoriteLedgerPanel({
     const pollProgress = async () => {
       try {
         const snapshot = await onReadOldFavoriteTagEnrichment('progress')
-        if (!stillCurrent() || tagSnapshotGate(scanGeneration, snapshot) !== 'accepted') return
-        const activeSession = currentScanSessionRef.current
-        if (activeSession?.kind === 'full' && sessionOrchestrator) {
-          const discoveredAids = snapshot.discoveredAids ?? []
-          if (discoveredAids.length > 0) {
-            await sessionOrchestrator.appendDiscoveredAids(activeSession.batchId, discoveredAids)
-          }
+        if (!stillCurrent()) return
+        if (tagSnapshotGateRef.current(scanGeneration, snapshot) !== 'accepted') {
+          scheduleNext()
+          return
         }
-        applyStreamingSnapshot(snapshot)
+        applyStreamingSnapshotRef.current(snapshot)
         setScanProgress(mergeScanProgress(scanProgressRef.current, snapshot.scanProgress))
         const tagsComplete =
           !invalidTagScanProgressPart(snapshot.scanProgress.tags) &&
@@ -2981,7 +3261,7 @@ export function FavoriteLedgerPanel({
           snapshot: { currentStep: 'tags' },
           work: () => onReadOldFavoriteTagEnrichment('read')
         })
-        if (!stillCurrent() || tagSnapshotGate(scanGeneration, fullSnapshot) !== 'accepted') return
+        if (!stillCurrent() || tagSnapshotGateRef.current(scanGeneration, fullSnapshot) !== 'accepted') return
         latestTagEnrichmentSnapshotRef.current = fullSnapshot
         applyCompletedTagSnapshot(fullSnapshot, scanGeneration)
       } catch {
@@ -2995,11 +3275,9 @@ export function FavoriteLedgerPanel({
     }
   }, [
     basicScanRunning,
-    applyStreamingSnapshot,
     mergeScanProgress,
     onReadOldFavoriteTagEnrichment,
     setScanProgress,
-    tagSnapshotGate,
     Boolean(preview),
     preview?.scanContext?.accountMid
   ])
@@ -3102,29 +3380,54 @@ export function FavoriteLedgerPanel({
         executionRun: oldFavoriteExecutionRun,
         executionProgress: oldFavoriteExecutionProgress
       }
+      try {
+        if (workspaceOverlayTimerRef.current) {
+          clearTimeout(workspaceOverlayTimerRef.current)
+          workspaceOverlayTimerRef.current = null
+        }
+        if (workspaceOverlayQueueRef.current.hasPending(
+          activeOldFavoriteUserBatch.accountMid,
+          activeOldFavoriteUserBatch.id
+        )) {
+          await flushWorkspaceOverlayQueue(
+            activeOldFavoriteUserBatch.accountMid,
+            activeOldFavoriteUserBatch.id
+          )
+        }
+        if (window.bilimiDesktop?.finalizeOldFavoriteWorkspaceBatch) {
+          await window.bilimiDesktop.finalizeOldFavoriteWorkspaceBatch(
+            activeOldFavoriteUserBatch.accountMid,
+            activeOldFavoriteUserBatch.id
+          )
+        }
+      } catch (error) {
+        setStatus(`整理结果定档失败：${error instanceof Error ? error.message : String(error)}`)
+        return
+      }
+      if (sessionCoordinator) {
+        try {
+          const state = await sessionCoordinator.load()
+          const withFinalSnapshot = {
+            ...state,
+            batches: state.batches.map((batch) => batch.id === activeOldFavoriteUserBatch.id
+              ? { ...batch, snapshot: { ...batch.snapshot, ...endedSnapshot } }
+              : batch)
+          }
+          await sessionCoordinator.save(endOldFavoriteBatch(
+            withFinalSnapshot,
+            activeOldFavoriteUserBatch.id,
+            new Date().toISOString()
+          ))
+        } catch (error) {
+          setStatus(`整理状态保存失败：${error instanceof Error ? error.message : String(error)}`)
+          return
+        }
+      }
       setOldFavoriteUserBatches((current) => current.map((batch) =>
         batch.id === activeOldFavoriteUserBatch.id
           ? { ...batch, status: 'ended', snapshot: { ...batch.snapshot, ...endedSnapshot } }
           : batch
       ))
-      if (sessionCoordinator) {
-        const state = await sessionCoordinator.load()
-        const withFinalSnapshot = {
-          ...state,
-          batches: state.batches.map((batch) => batch.id === activeOldFavoriteUserBatch.id
-            ? { ...batch, snapshot: { ...batch.snapshot, ...endedSnapshot } }
-            : batch)
-        }
-        await sessionCoordinator.save(endOldFavoriteBatch(
-          withFinalSnapshot,
-          activeOldFavoriteUserBatch.id,
-          new Date().toISOString()
-        ))
-      }
-      await window.bilimiDesktop?.finalizeOldFavoriteWorkspaceBatch?.(
-        activeOldFavoriteUserBatch.accountMid,
-        activeOldFavoriteUserBatch.id
-      ).catch(() => undefined)
     }
     setOldFavoriteExecutionPhase('idle')
     setOldFavoriteExecutionConfirming(false)
@@ -3301,6 +3604,19 @@ export function FavoriteLedgerPanel({
 
   async function selectOldFavoriteUserBatch(batchId: string) {
     if (activeOldFavoriteUserBatch) {
+      if (workspaceOverlayTimerRef.current) {
+        clearTimeout(workspaceOverlayTimerRef.current)
+        workspaceOverlayTimerRef.current = null
+      }
+      try {
+        await flushWorkspaceOverlayQueue(
+          activeOldFavoriteUserBatch.accountMid,
+          activeOldFavoriteUserBatch.id
+        )
+      } catch (error) {
+        setStatus(`整理修改保存失败：${error instanceof Error ? error.message : String(error)}`)
+        return
+      }
       const leavingSnapshot = {
         preview,
         baseScanPreview,
@@ -3320,15 +3636,58 @@ export function FavoriteLedgerPanel({
     const selectedBatch = oldFavoriteUserBatches.find((batch) => batch.id === batchId)
     let workspaceDetail: Awaited<ReturnType<NonNullable<typeof window.bilimiDesktop>['loadOldFavoriteWorkspaceBatch']>> | undefined
     if (selectedBatch?.accountMid && !selectedBatch.snapshot?.preview) {
-      workspaceDetail = await window.bilimiDesktop?.loadOldFavoriteWorkspaceBatch?.(
-        selectedBatch.accountMid,
-        selectedBatch.id
-      ).catch(() => undefined)
+      try {
+        if (selectedBatch.status === 'active') {
+          await window.bilimiDesktop?.recoverOldFavoriteWorkspaceBatch?.(
+            selectedBatch.accountMid,
+            selectedBatch.id
+          )
+        }
+        workspaceDetail = await window.bilimiDesktop?.loadOldFavoriteWorkspaceBatch?.(
+          selectedBatch.accountMid,
+          selectedBatch.id
+        )
+      } catch (error) {
+        setStatus(`整理存档恢复失败：${error instanceof Error ? error.message : String(error)}`)
+        return
+      }
     }
     if (!selectedBatch?.snapshot?.preview && workspaceDetail) {
+      const tagsByAid = new Map((workspaceDetail.tags as Array<{ aid?: number; tags?: string[] }>)
+        .filter((item) => Number.isSafeInteger(item.aid))
+        .map((item) => [item.aid!, item.tags ?? []]))
+      const sourcesByAid = mergePersistedOldFavoriteSources(workspaceDetail.sources as Array<{
+        aid?: number
+        sourceFolderIds?: string[]
+        sourceFolderTitles?: string[]
+      }>)
       const loadedPreview: FavoriteLedgerPreview = {
-        items: workspaceDetail.base as FavoriteLedgerPreviewItem[],
-        skippedSourceFolderTitles: []
+        items: (workspaceDetail.base as FavoriteLedgerPreviewItem[]).map((item) => ({
+          ...item,
+          ...(tagsByAid.has(item.aid) ? { tags: [...tagsByAid.get(item.aid)!] } : {}),
+          ...(sourcesByAid.has(item.aid) ? {
+            sourceFolderIds: [...(sourcesByAid.get(item.aid)!.sourceFolderIds ?? [])],
+            sourceFolderTitles: [...(sourcesByAid.get(item.aid)!.sourceFolderTitles ?? [])]
+          } : {})
+        })),
+        skippedSourceFolderTitles: [],
+        ...(selectedBatch.status === 'active' ? {
+          scanDiagnostics: {
+            tagDetailRequests: 0,
+            tagDetailFailures: 0,
+            taggedVideos: 0,
+            untaggedVideos: 0,
+            folderFailures: [{
+              folderTitle: '恢复中的来源成员',
+              failedPage: 0,
+              attempts: 0,
+              status: 'partial' as const,
+              operation: 'target-membership' as const,
+              message: '恢复后需要重新核对来源成员，完成前不可执行。',
+              retainedVideoCount: workspaceDetail.base.length
+            }]
+          }
+        } : {})
       }
       const loadedPlan = createArchivePlanStateFromPreviewItems(loadedPreview.items, new Set())
       const overlays = {
@@ -3351,19 +3710,31 @@ export function FavoriteLedgerPanel({
         } : item
       })
       loadedPreview.items = applyArchivePlanToPreviewItems(loadedPreview.items, loadedPlan, draftLedgers)
-      setPreview(loadedPreview)
-      setBaseScanPreview(loadedPreview)
-      setArchiveEditorState({
+      const loadedArchiveEditorState: ArchiveEditorRuntimeState = {
         archivePlanState: loadedPlan,
         selectedCandidateKeys: [],
         draftLedgers,
         candidateSourceLedgerIdsByItemKey: {}
-      })
-      setOldFavoriteStep(selectedBatch.status === 'ended' ? 'preview' :
-        (selectedBatch.snapshot?.currentStep as OldFavoriteGuideStep | undefined) ?? 'preview')
-      setOldFavoriteExecutionPhase(
-        (selectedBatch.snapshot?.executionPhase as OldFavoriteExecutionPhase | undefined) ?? 'idle'
-      )
+      }
+      const loadedSnapshot: NonNullable<OldFavoriteUserBatchSummary['snapshot']> = {
+        preview: loadedPreview,
+        baseScanPreview: loadedPreview,
+        archiveEditorState: loadedArchiveEditorState,
+        step: selectedBatch.status === 'ended' ? 'preview' :
+          (selectedBatch.snapshot?.currentStep as OldFavoriteGuideStep | undefined) ?? 'preview',
+        executionPhase: (selectedBatch.snapshot?.executionPhase as OldFavoriteExecutionPhase | undefined) ?? 'idle',
+        executionRun: null,
+        executionProgress: null,
+        collectionSnapshot: collectionSnapshotFromPreview(loadedPreview)
+      }
+      setOldFavoriteUserBatches((current) => current.map((batch) =>
+        batch.id === selectedBatch.id ? { ...batch, snapshot: loadedSnapshot } : batch
+      ))
+      setPreview(loadedPreview)
+      setBaseScanPreview(loadedPreview)
+      setArchiveEditorState(loadedArchiveEditorState)
+      setOldFavoriteStep(loadedSnapshot.step)
+      setOldFavoriteExecutionPhase(loadedSnapshot.executionPhase)
       setOldFavoriteExecutionRun(null)
       setOldFavoriteExecutionProgress(null)
       setOldFavoriteGuideMode('organize')
@@ -4227,11 +4598,17 @@ export function FavoriteLedgerPanel({
     requestedBatchKind?: 'full' | 'incremental'
   ) {
     let scanSession: { batchId: string; segmentId: string } | null = null
+    let scanAccountMid = ''
     if (!scanStartingRef.current) scanGenerationRef.current += 1
     scanStartingRef.current = false
     latestTagEnrichmentSnapshotRef.current = null
     appliedStreamingSegmentIndexesRef.current.clear()
     appliedStreamingSourceRelationsRef.current.clear()
+    persistedStreamingSegmentIndexesRef.current.clear()
+    persistedStreamingAidsRef.current.clear()
+    streamingWorkspaceWriteTailRef.current = Promise.resolve()
+    currentScanWorkspaceRef.current = null
+    currentScanInitialFullRef.current = false
     setPendingTagDeepSeekConfirming(null)
     const scanGeneration = scanGenerationRef.current
     currentScanRunIdRef.current = null
@@ -4258,15 +4635,9 @@ export function FavoriteLedgerPanel({
       message: '正在扫描旧藏，请稍候。',
       tone: 'running'
     })
-    if (onReadOldFavoriteTagEnrichment) {
-      void onReadOldFavoriteTagEnrichment('progress').then((snapshot) => {
-        if (scanGeneration !== scanGenerationRef.current) return
-        if (tagSnapshotGate(scanGeneration, snapshot) !== 'accepted') return
-        applyStreamingSnapshot(snapshot)
-        setScanProgress(mergeScanProgress(scanProgressRef.current, snapshot.scanProgress))
-      })
-    }
     try {
+      currentScanInitialFullRef.current = oldFavoriteUserBatchesRef.current.length === 0 &&
+        (requestedBatchKind ?? pendingOldFavoriteBatchKind) === 'full'
       if (sessionOrchestrator && onReadCurrentOldFavoriteAccount) {
         const currentAccountMid = (await onReadCurrentOldFavoriteAccount()).trim()
         if (!currentAccountMid) {
@@ -4288,8 +4659,53 @@ export function FavoriteLedgerPanel({
           segmentId: started.batch.segments[0].id
         }
         currentScanSessionRef.current = { batchId: started.batch.id, kind: started.batch.kind }
+        if (
+          started.batch.kind === 'full' &&
+          oldFavoriteUserBatches.length === 0 &&
+          window.bilimiDesktop?.createOldFavoriteWorkspaceBatch
+        ) {
+          await window.bilimiDesktop.createOldFavoriteWorkspaceBatch({
+            accountMid: currentAccountMid,
+            kind: started.batch.kind,
+            createdAt: started.batch.createdAt,
+            id: started.batch.id
+          })
+          currentScanWorkspaceRef.current = { accountMid: currentAccountMid, batchId: started.batch.id }
+        }
+        scanAccountMid = currentAccountMid
         await sessionOrchestrator.updateSegment(scanSession.batchId, scanSession.segmentId, {
           requestState: 'in-flight'
+        })
+      }
+      if (
+        !currentScanWorkspaceRef.current &&
+        oldFavoriteUserBatches.length === 0 &&
+        (requestedBatchKind ?? pendingOldFavoriteBatchKind) === 'full' &&
+        window.bilimiDesktop?.createOldFavoriteWorkspaceBatch
+      ) {
+        const accountMid = scanAccountMid || currentAccountMid?.trim() || ''
+        if (accountMid) {
+          const kind = oldFavoriteUserBatches.length === 0
+            ? 'full'
+            : (requestedBatchKind ?? pendingOldFavoriteBatchKind)
+          const createdAt = new Date().toISOString()
+          const batchId = `old-favorite:${accountMid}:${kind}:${createdAt.replace(/[^0-9]/g, '')}:0`
+          await window.bilimiDesktop.createOldFavoriteWorkspaceBatch({
+            accountMid, kind, createdAt, id: batchId
+          })
+          currentScanWorkspaceRef.current = { accountMid, batchId }
+        }
+      }
+      if (onReadOldFavoriteTagEnrichment) {
+        void onReadOldFavoriteTagEnrichment('progress').then((snapshot) => {
+          if (scanGeneration !== scanGenerationRef.current) return
+          if (tagSnapshotGate(scanGeneration, snapshot) !== 'accepted') return
+          applyStreamingSnapshot(snapshot)
+          setScanProgress(mergeScanProgress(scanProgressRef.current, snapshot.scanProgress))
+        }).catch((error) => {
+          if (scanGeneration === scanGenerationRef.current) {
+            setStatus(`扫描进度读取失败：${error instanceof Error ? error.message : String(error)}`)
+          }
         })
       }
       const nextPreview = await onScanOldFavorites({
@@ -4421,23 +4837,27 @@ export function FavoriteLedgerPanel({
               statistics: { scanned: normalizedPreview.items.length }
             }))
         : createOldFavoriteBatch({
-            accountMid: scannedAccountMid ?? '', kind: batchKind, aids: includedAids, now: createdAt
+            accountMid: scannedAccountMid ?? '', kind: batchKind, aids: includedAids, now: createdAt,
+            id: currentScanWorkspaceRef.current?.batchId
           })
       if (scannedAccountMid && window.bilimiDesktop?.createOldFavoriteWorkspaceBatch) {
-        await window.bilimiDesktop.createOldFavoriteWorkspaceBatch({
-          accountMid: scannedAccountMid,
-          kind: batchKind,
-          createdAt: batchModel.createdAt,
-          id: batchModel.id
-        }).catch(() => undefined)
+        await streamingWorkspaceWriteTailRef.current
+        if (!currentScanWorkspaceRef.current) {
+          await window.bilimiDesktop.createOldFavoriteWorkspaceBatch({
+            accountMid: scannedAccountMid,
+            kind: batchKind,
+            createdAt: batchModel.createdAt,
+            id: batchModel.id
+          })
+          currentScanWorkspaceRef.current = { accountMid: scannedAccountMid, batchId: batchModel.id }
+        }
         const chunkSize = 500
-        for (let offset = 0; offset < normalizedPreview.items.length; offset += chunkSize) {
-          await window.bilimiDesktop.appendOldFavoriteWorkspaceChunk?.(
-            scannedAccountMid,
-            batchModel.id,
-            'base',
-            normalizedPreview.items.slice(offset, offset + chunkSize)
-          )
+        const unpersistedItems = normalizedPreview.items.filter(
+          (item) => !persistedStreamingAidsRef.current.has(item.aid)
+        )
+        for (let offset = 0; offset < unpersistedItems.length; offset += chunkSize) {
+          const chunk = unpersistedItems.slice(offset, offset + chunkSize)
+          await appendWorkspaceLogicalChunk(scannedAccountMid, batchModel.id, chunk)
         }
       }
       if (sessionCoordinator && !scanSession) {
@@ -4531,12 +4951,7 @@ export function FavoriteLedgerPanel({
           executionRun: null,
           executionProgress: null,
           collectionSnapshot: collectionSnapshotFromPreview(normalizedPreview),
-          segmentExecution: segmentAids.map((aids, index) => ({
-            index,
-            status: 'ready' as const,
-            executableCount: normalizedPreview.items.filter((item) => aids.includes(item.aid)).length,
-            completedCount: 0
-          })),
+          segmentExecution: buildOldFavoriteSegmentExecution(segmentAids, normalizedPreview.items),
           segmentSnapshots: preservedSegmentSnapshots
         }
       }
@@ -4694,28 +5109,36 @@ export function FavoriteLedgerPanel({
       return
     }
 
-    const nextState = {
-      ...archivePlanState,
-      items: archivePlanState.items.map((planItem) =>
-        planItem.aid === item.aid && planItem.sourceFolderTitle === item.sourceFolderTitle
-          ? {
-              ...planItem,
-              selectedTargetLedgerIds: uniqueLedgerIds(update(planItem)),
-              userModified: true,
-              lastChangeSource: 'user' as const
-            }
-          : planItem
-      )
-    }
-    const latestChange = latestArchiveChangeBetween(archivePlanState, nextState)
-    if (!latestChange) {
+    const itemKey = archivePlanItemKey(item)
+    const itemIndex = archivePlanItemIndexByKey.get(itemKey)
+    if (itemIndex === undefined) return
+    const result = updateSingleArchivePlanItem(archivePlanState, itemIndex, update)
+    if (!result) {
       return
+    }
+    const latestChange: ArchivePreviewLatestChange = {
+      kind: 'single',
+      title: result.nextItem.title,
+      reason: result.nextItem.title,
+      movedCount: 1,
+      itemChanges: {
+        [result.nextItem.itemKey]: {
+          aid: result.nextItem.aid,
+          title: result.nextItem.title,
+          previousTargetText: archivePlanTargetText(result.previousItem),
+          nextTargetText: archivePlanTargetText(result.nextItem),
+          currentTargetLedgerIds: [...result.nextItem.currentTargetLedgerIds],
+          selectedTargetLedgerIds: [...result.nextItem.selectedTargetLedgerIds],
+          source: result.nextItem.lastChangeSource
+        }
+      },
+      focusItemKey: result.nextItem.itemKey
     }
 
     clearDeepSeekArchiveRunSnapshot()
-    recordArchivePreviewHistory(archivePlanState, latestChange)
+    recordArchivePreviewHistory(archivePlanState, latestChange, undefined, result.previousItem)
     setLatestArchiveChange(latestChange)
-    setArchivePlanState(nextState)
+    setArchivePlanState(result.state)
   }
 
   function toggleOldFavoriteTarget(item: FavoriteLedgerPreviewItem, ledgerId: string) {
@@ -5363,7 +5786,10 @@ export function FavoriteLedgerPanel({
 
     const previousSnapshot = archiveUndoStack[archiveUndoStack.length - 1]
     const undoneChange = archiveUndoChanges[archiveUndoChanges.length - 1]
-    const currentSnapshot = createArchivePreviewHistorySnapshot(archivePlanState)
+    const currentSnapshot = createReciprocalArchivePreviewHistorySnapshot(
+      previousSnapshot,
+      archivePlanState
+    )
     restoreArchivePreviewHistorySnapshot(previousSnapshot)
     setArchiveUndoStack((current) => current.slice(0, -1))
     setArchiveRedoStack((current) => [...current, currentSnapshot])
@@ -5384,7 +5810,10 @@ export function FavoriteLedgerPanel({
 
     const nextSnapshot = archiveRedoStack[archiveRedoStack.length - 1]
     const restoredChange = archiveRedoChanges[archiveRedoChanges.length - 1]
-    const currentSnapshot = createArchivePreviewHistorySnapshot(archivePlanState)
+    const currentSnapshot = createReciprocalArchivePreviewHistorySnapshot(
+      nextSnapshot,
+      archivePlanState
+    )
     restoreArchivePreviewHistorySnapshot(nextSnapshot)
     setArchiveRedoStack((current) => current.slice(0, -1))
     setArchiveUndoStack((current) => [...current, currentSnapshot])
@@ -5408,15 +5837,34 @@ export function FavoriteLedgerPanel({
     }
 
     const removedSnapshots = archiveUndoStack.slice(keepCount)
-    const targetSnapshot = removedSnapshots[0]
-    if (!targetSnapshot) {
+    if (removedSnapshots.length === 0) {
       return
     }
 
-    const currentSnapshot = createArchivePreviewHistorySnapshot(archivePlanState)
-    const futureSnapshots = [...removedSnapshots.slice(1), currentSnapshot].reverse()
+    let workingEditor: ArchiveEditorRuntimeState = {
+      archivePlanState,
+      selectedCandidateKeys: [...selectedCandidateKeys],
+      draftLedgers: draftLedgers.map(cloneArchiveDraftLedger),
+      candidateSourceLedgerIdsByItemKey: structuredClone(candidateSourceLedgerIdsByItemKey)
+    }
+    const futureSnapshots: ArchivePreviewHistorySnapshot[] = []
+    for (let index = removedSnapshots.length - 1; index >= 0; index -= 1) {
+      const snapshot = removedSnapshots[index]
+      futureSnapshots.push(createReciprocalArchivePreviewHistorySnapshot(
+        snapshot,
+        workingEditor.archivePlanState!,
+        {
+          selectedCandidateKeys: workingEditor.selectedCandidateKeys,
+          draftLedgers: workingEditor.draftLedgers,
+          candidateSourceLedgerIdsByItemKey: workingEditor.candidateSourceLedgerIdsByItemKey
+        }
+      ))
+      workingEditor = applyArchivePreviewHistorySnapshotToEditor(workingEditor, snapshot)
+    }
     const futureChanges = archiveUndoChanges.slice(keepCount).reverse()
-    restoreArchivePreviewHistorySnapshot(targetSnapshot)
+    if (!workingEditor.archivePlanState) return
+    updatePreviewFromArchivePlan(workingEditor.archivePlanState, workingEditor.draftLedgers)
+    setArchiveEditorState(workingEditor)
     setArchiveUndoStack(archiveUndoStack.slice(0, keepCount))
     setArchiveUndoChanges(archiveUndoChanges.slice(0, keepCount))
     setArchiveRedoStack([...archiveRedoStack, ...futureSnapshots])
@@ -6351,6 +6799,18 @@ export function FavoriteLedgerPanel({
   function applyProtectedReorganization(aids: Set<number>) {
     const context = baseScanPreview?.scanContext
     if (!context) return
+    if (activeOldFavoriteUserBatch && aids.size > 0) {
+      const ownedAids = [...aids]
+      setOldFavoriteUserBatches((current) => current.map((batch) => {
+        if (batch.id !== activeOldFavoriteUserBatch.id) return batch
+        const segmentIndex = Math.max(0, batch.segmentIndex - 1)
+        const segmentAids = batch.segmentAids.map((segment) => [...segment])
+        segmentAids[segmentIndex] = [...new Set([...(segmentAids[segmentIndex] ?? []), ...ownedAids])]
+        return { ...batch, segmentAids }
+      }))
+      void sessionOrchestrator?.appendDiscoveredAids(activeOldFavoriteUserBatch.id, ownedAids)
+        .catch((error) => setStatus(`整理归属保存失败：${error instanceof Error ? error.message : String(error)}`))
+    }
     const nextPreview = createFavoriteLedgerPreview({
       ledgers: draftLedgers,
       sourceFolders: [...context.activeSourceFolders, ...protectedVideosAsSourceFolders(aids)],

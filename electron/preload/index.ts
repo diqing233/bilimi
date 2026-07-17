@@ -92,12 +92,32 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('old-favorite-workspace:open-account', accountMid) as Promise<OldFavoriteAccountIndex>,
   loadOldFavoriteWorkspaceBatch: (accountMid: string, batchId: string) =>
     ipcRenderer.invoke('old-favorite-workspace:load-batch', accountMid, batchId) as Promise<OldFavoriteBatchDetail>,
+  recoverOldFavoriteWorkspaceBatch: (accountMid: string, batchId: string) =>
+    ipcRenderer.invoke('old-favorite-workspace:recover-batch', accountMid, batchId) as Promise<{ discardedTail: string | null }>,
   createOldFavoriteWorkspaceBatch: (input: { accountMid: string; kind: 'full' | 'incremental'; createdAt?: string; id?: string }) =>
     ipcRenderer.invoke('old-favorite-workspace:create-batch', input),
   appendOldFavoriteWorkspaceChunk: (accountMid: string, batchId: string, kind: 'base' | 'tags' | 'sources', items: unknown[]) =>
     ipcRenderer.invoke('old-favorite-workspace:append-chunk', accountMid, batchId, kind, items),
+  appendOldFavoriteWorkspaceChunkGroup: (accountMid: string, batchId: string, chunks: Record<'base' | 'tags' | 'sources', unknown[]>) =>
+    ipcRenderer.invoke('old-favorite-workspace:append-chunk-group', accountMid, batchId, chunks),
   patchOldFavoriteWorkspaceOverlay: (accountMid: string, batchId: string, kind: OldFavoriteOverlayKind, patch: OldFavoriteOverlayPatch | OldFavoriteOverlayPatch[]) =>
     ipcRenderer.invoke('old-favorite-workspace:patch-overlay', accountMid, batchId, kind, patch),
+  markOldFavoriteWorkspaceOverlayDirty: () =>
+    ipcRenderer.sendSync('old-favorite-workspace:renderer-dirty') as boolean,
+  markOldFavoriteWorkspaceOverlayClean: () =>
+    ipcRenderer.sendSync('old-favorite-workspace:renderer-clean') as boolean,
+  onOldFavoriteWorkspaceFlushRequested: (callback: () => Promise<void>) => {
+    const listener = async (_event: Electron.IpcRendererEvent, requestId: string) => {
+      try {
+        await callback()
+        ipcRenderer.send('old-favorite-workspace:renderer-flushed', requestId, true)
+      } catch {
+        ipcRenderer.send('old-favorite-workspace:renderer-flushed', requestId, false)
+      }
+    }
+    ipcRenderer.on('old-favorite-workspace:flush-requested', listener)
+    return () => ipcRenderer.removeListener('old-favorite-workspace:flush-requested', listener)
+  },
   finalizeOldFavoriteWorkspaceBatch: (accountMid: string, batchId: string) =>
     ipcRenderer.invoke('old-favorite-workspace:finalize-batch', accountMid, batchId),
   resetOldFavoriteWorkspaceAccount: (accountMid: string) =>

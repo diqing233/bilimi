@@ -5,6 +5,7 @@ export function createOldFavoriteQuitBarrier(options: {
   prepare: () => void
   flush: () => Promise<void>
   quit: () => void
+  flushTimeoutMs?: number
 }) {
   let flushing = false
   let allowQuit = false
@@ -16,11 +17,20 @@ export function createOldFavoriteQuitBarrier(options: {
     if (flushing) return
     flushing = true
     options.prepare()
-    void options.flush().then(() => {
+    let settled = false
+    const finishQuit = () => {
+      if (settled) return
+      settled = true
       allowQuit = true
       options.quit()
+    }
+    const timeout = setTimeout(finishQuit, options.flushTimeoutMs ?? 1_500)
+    void options.flush().then(() => {
+      clearTimeout(timeout)
+      finishQuit()
     }).catch(() => {
-      flushing = false
+      clearTimeout(timeout)
+      finishQuit()
     })
   }
 }

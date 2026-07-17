@@ -1,17 +1,22 @@
 ﻿import { createDefaultFavoriteLedgers } from '@shared/favoriteLedgers'
 import { DEEPSEEK_CONSTRAINT_MARKER } from '@shared/favoriteLedgerConstraints'
 import type { DeepSeekGenerateResult, FavoriteLedger } from '@shared/types'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { StrictMode } from 'react'
 import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
 import type { OldFavoriteSessionsState } from '../../../../shared/oldFavoriteSessions'
 import * as favoriteLedgerPreviewModule from '../favorites/favoriteLedgerPreview'
+import { createArchivePlanState } from '../favorites/favoriteArchivePlanState'
 import {
+  applyArchivePreviewHistorySnapshotToPlan,
+  buildOldFavoriteSegmentExecution,
+  createArchivePreviewItemHistorySnapshot,
   FavoriteLedgerPanel,
   oldFavoriteExecutionAllowsPlanUpdates,
   oldFavoriteExecutionPacingFor,
   resetOldFavoriteRuntimeSession,
+  updateSingleArchivePlanItem,
   waitForOldFavoriteExecutionDelay
 } from './FavoriteLedgerPanel'
 import {
@@ -21,6 +26,65 @@ import {
 } from './oldFavoriteRuntimeSession'
 
 describe('FavoriteLedgerPanel', () => {
+  const pendingScanResolvers = new Set<() => void>()
+  const pendingScan = <T,>() => {
+    const promise = new Promise<T>((_resolve, reject) => {
+    const release = () => {
+      pendingScanResolvers.delete(release)
+      reject(new Error('test scan cancelled'))
+    }
+    pendingScanResolvers.add(release)
+    })
+    void promise.catch(() => undefined)
+    return promise
+  }
+
+  it('updates and records one item sparsely without mapping a 30,000 item plan', () => {
+    const state = createArchivePlanState(Array.from({ length: 30_000 }, (_, index) => ({
+      aid: index + 1,
+      title: `video-${index + 1}`,
+      sourceFolderTitle: 'source',
+      originalSuggestedLedgerIds: ['knowledge'],
+      currentTargetLedgerIds: ['knowledge'],
+      selectedTargetLedgerIds: ['knowledge']
+    })))
+    const targetIndex = 29_499
+    const targetItem = state.items[targetIndex]
+    const originalMap = state.items.map
+    Object.defineProperty(state.items, 'map', {
+      configurable: true,
+      value: () => { throw new Error('single-item update must not map the full plan') }
+    })
+    const update = vi.fn(() => ['game'])
+
+    const result = updateSingleArchivePlanItem(state, targetIndex, update)
+
+    Object.defineProperty(state.items, 'map', { configurable: true, value: originalMap })
+    expect(result).not.toBeNull()
+    expect(update).toHaveBeenCalledOnce()
+    expect(result?.state.items[targetIndex]).toMatchObject({
+      aid: targetItem.aid,
+      selectedTargetLedgerIds: ['game'],
+      userModified: true,
+      lastChangeSource: 'user'
+    })
+    expect(result?.state.items[0]).toBe(state.items[0])
+
+    const undoSnapshot = createArchivePreviewItemHistorySnapshot(result!.previousItem)
+    expect(undoSnapshot).toMatchObject({
+      kind: 'item',
+      itemKey: targetItem.itemKey,
+      archivePlanItem: { selectedTargetLedgerIds: ['knowledge'] }
+    })
+    expect(undoSnapshot).not.toHaveProperty('archivePlanState')
+
+    const undone = applyArchivePreviewHistorySnapshotToPlan(result!.state, undoSnapshot, targetIndex)
+    const redoSnapshot = createArchivePreviewItemHistorySnapshot(result!.nextItem)
+    const redone = applyArchivePreviewHistorySnapshotToPlan(undone, redoSnapshot, targetIndex)
+    expect(undone.items[targetIndex].selectedTargetLedgerIds).toEqual(['knowledge'])
+    expect(redone.items[targetIndex].selectedTargetLedgerIds).toEqual(['game'])
+  })
+
   it('does not load old favorite sessions or pending state before the entry is clicked', async () => {
     const { api } = installOldFavoriteSessionBridge()
     const onReadOldFavoriteBatchStatus = vi.fn().mockResolvedValue({ pending: false })
@@ -38,7 +102,11 @@ describe('FavoriteLedgerPanel', () => {
     resetOldFavoriteRuntimeSession()
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    cleanup()
+    for (const resolve of [...pendingScanResolvers]) resolve()
+    await Promise.resolve()
+    resetOldFavoriteRuntimeSession()
     vi.clearAllTimers()
     vi.restoreAllMocks()
     vi.useRealTimers()
@@ -321,9 +389,15 @@ describe('FavoriteLedgerPanel', () => {
     const loadOldFavoriteWorkspaceBatch = vi.fn().mockResolvedValue({
       summary: { id: 'restored-batch', kind: 'full', createdAt: '2026-07-16T10:00:00.000Z', status: 'active' },
       base: preview.items,
-      tags: [], sources: [], overlays: { user: {}, deepseek: {}, execution: {} }
+      tags: [{ aid: 701, tags: ['恢复标签'] }],
+      sources: [{ aid: 701, sourceFolderIds: ['source-1'], sourceFolderTitles: ['来源一'] }],
+      overlays: { user: {}, deepseek: {}, execution: {} }
     })
-    Object.assign(window.bilimiDesktop!, { loadOldFavoriteWorkspaceBatch })
+    const recoverOldFavoriteWorkspaceBatch = vi.fn().mockResolvedValue({ discardedTail: null })
+    Object.assign(window.bilimiDesktop!, {
+      recoverOldFavoriteWorkspaceBatch,
+      loadOldFavoriteWorkspaceBatch
+    })
 
     renderPanel()
     expect(loadOldFavoriteWorkspaceBatch).not.toHaveBeenCalled()
@@ -335,7 +409,104 @@ describe('FavoriteLedgerPanel', () => {
       getOldFavoriteRuntimeValue<FavoriteLedgerPreview | null>('preview', null)?.items.map((item) => item.aid)
     ).toEqual([701, 702]))
     expect(loadOldFavoriteWorkspaceBatch).toHaveBeenCalledWith('42', 'restored-batch')
+    expect(recoverOldFavoriteWorkspaceBatch).toHaveBeenCalledWith('42', 'restored-batch')
+    expect(recoverOldFavoriteWorkspaceBatch.mock.invocationCallOrder[0]).toBeLessThan(
+      loadOldFavoriteWorkspaceBatch.mock.invocationCallOrder[0]
+    )
     expect(screen.getByRole('combobox', { name: '当前整理批次' })).toHaveValue('restored-batch')
+    expect(getOldFavoriteRuntimeValue<FavoriteLedgerPreview | null>('preview', null)?.items[0]).toMatchObject({
+      tags: ['恢复标签'], sourceFolderIds: ['source-1'], sourceFolderTitles: ['来源一']
+    })
+    expect(getOldFavoriteRuntimeValue<FavoriteLedgerPreview | null>('preview', null)?.scanDiagnostics?.folderFailures?.[0])
+      .toMatchObject({ operation: 'target-membership', status: 'partial' })
+    expect(getOldFavoriteRuntimeValue<any[]>('oldFavoriteUserBatches', [])[0]?.snapshot?.collectionSnapshot)
+      .toEqual([
+        { aid: 701, sourceFolderIds: ['source-1'] },
+        { aid: 702, sourceFolderIds: ['默认收藏夹'] }
+      ])
+  })
+
+  it('merges every persisted source relation for the same aid during workspace recovery', async () => {
+    const preview = createArchivePreviewFixture()
+    installOldFavoriteSessionBridge({
+      version: 1,
+      lease: null,
+      batches: [{
+        id: 'restored-batch', accountMid: '42', kind: 'full',
+        createdAt: '2026-07-16T10:00:00.000Z', status: 'active',
+        segments: [{ id: 'restored-batch:segment:1', index: 0, aids: [701, 702], status: 'ready' }],
+        snapshot: { currentStep: 'preview', executionPhase: 'idle' }
+      }]
+    })
+    Object.assign(window.bilimiDesktop!, {
+      recoverOldFavoriteWorkspaceBatch: vi.fn().mockResolvedValue({ discardedTail: null }),
+      loadOldFavoriteWorkspaceBatch: vi.fn().mockResolvedValue({
+        summary: { id: 'restored-batch', kind: 'full', createdAt: '2026-07-16T10:00:00.000Z', status: 'active' },
+        base: preview.items,
+        tags: [],
+        sources: [
+          { aid: 701, sourceFolderIds: ['source-1'], sourceFolderTitles: [''] },
+          { aid: 701, sourceFolderIds: ['source-1'], sourceFolderTitles: ['来源一'] },
+          { aid: 701, sourceFolderIds: ['source-2'], sourceFolderTitles: ['来源二'] }
+        ],
+        overlays: { user: {}, deepseek: {}, execution: {} }
+      })
+    })
+
+    renderPanel()
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(within(await screen.findByRole('dialog', { name: '整理旧藏' }))
+      .getByRole('button', { name: '继续上次整理' }))
+
+    await waitFor(() => expect(
+      getOldFavoriteRuntimeValue<FavoriteLedgerPreview | null>('preview', null)?.items[0]
+    ).toMatchObject({
+      sourceFolderIds: ['source-1', 'source-2'],
+      sourceFolderTitles: ['来源一', '来源二']
+    }))
+  })
+
+  it('uses the workspace collection summary after restart so an unchanged incremental scan stays empty', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.items[0].sourceFolderIds = ['source-1']
+    preview.items[0].sourceFolderTitles = ['来源一']
+    preview.items[1].sourceFolderIds = ['source-2']
+    preview.items[1].sourceFolderTitles = ['来源二']
+    preview.scanContext = {
+      accountMid: '42', totalUniqueVideos: 2,
+      sourceFolders: [{ id: 'source-1', title: '来源一', videos: preview.items }],
+      activeSourceFolders: [{ id: 'source-1', title: '来源一', videos: preview.items }],
+      protectedVideos: [], managedFolders: [], targetMembership: {}, multiArchiveMode: 'off'
+    }
+    installOldFavoriteSessionBridge({
+      version: 1,
+      lease: null,
+      batches: [{
+        id: 'restored-batch', accountMid: '42', kind: 'full',
+        createdAt: '2026-07-16T10:00:00.000Z', status: 'active',
+        segments: [{ id: 'restored-batch:segment:1', index: 0, aids: [701, 702], status: 'ready' }],
+        snapshot: { currentStep: 'preview', executionPhase: 'idle' }
+      }]
+    })
+    Object.assign(window.bilimiDesktop!, {
+      recoverOldFavoriteWorkspaceBatch: vi.fn().mockResolvedValue({ discardedTail: null }),
+      loadOldFavoriteWorkspaceBatch: vi.fn().mockResolvedValue({
+        summary: { id: 'restored-batch', kind: 'full', createdAt: '2026-07-16T10:00:00.000Z', status: 'active' },
+        base: preview.items, tags: [], sources: [],
+        overlays: { user: {}, deepseek: {}, execution: {} }
+      })
+    })
+    const onScanOldFavorites = vi.fn().mockResolvedValue(structuredClone(preview))
+    renderPanel({ onScanOldFavorites })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(within(await screen.findByRole('dialog', { name: '整理旧藏' }))
+      .getByRole('button', { name: '继续上次整理' }))
+    await waitFor(() => expect(getOldFavoriteRuntimeValue<FavoriteLedgerPreview | null>('preview', null)).not.toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: '新增视频整理' }))
+    fireEvent.click(screen.getByRole('button', { name: '创建并扫描' }))
+
+    expect(await screen.findByText('暂未发现需要新增整理的视频')).toBeInTheDocument()
   })
 
   it('persists and claims a scan session before Bilibili scanning, then completes and releases it', async () => {
@@ -1083,20 +1254,18 @@ describe('FavoriteLedgerPanel', () => {
   })
 
   it('re-reads the resumable batch status after scan preparation becomes ready', async () => {
-    const onReadOldFavoriteBatchStatus = vi.fn()
-      .mockResolvedValueOnce({ pending: false })
-      .mockResolvedValueOnce({ pending: true })
+    const onReadOldFavoriteBatchStatus = vi.fn().mockResolvedValue({ pending: true })
     renderPanel({
       onReadOldFavoriteBatchStatus,
       onPrepareOldFavoriteScan: vi.fn().mockResolvedValue({ ok: true, steps: [], missingTargets: [] }),
       onSaveLedgers: vi.fn().mockResolvedValue({ ok: true, steps: [], missingTargets: [] }),
-      onScanOldFavorites: vi.fn(() => new Promise<FavoriteLedgerPreview>(() => undefined))
+      onScanOldFavorites: vi.fn(() => pendingScan<FavoriteLedgerPreview>())
     })
 
-    await waitFor(() => expect(onReadOldFavoriteBatchStatus).toHaveBeenCalledOnce())
+    expect(onReadOldFavoriteBatchStatus).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
 
-    await waitFor(() => expect(onReadOldFavoriteBatchStatus).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(onReadOldFavoriteBatchStatus).toHaveBeenCalledOnce())
     expect(screen.getByRole('button', { name: '整理旧藏' })).toBeInTheDocument()
   })
 
@@ -1124,7 +1293,7 @@ describe('FavoriteLedgerPanel', () => {
       currentAccountMid: '42',
       onPrepareOldFavoriteScan: vi.fn().mockResolvedValue({ ok: true, steps: [], missingTargets: [] }),
       onSaveLedgers: vi.fn().mockResolvedValue({ ok: true, steps: [], missingTargets: [] }),
-      onScanOldFavorites: vi.fn(() => new Promise<FavoriteLedgerPreview>(() => undefined))
+      onScanOldFavorites: vi.fn(() => pendingScan<FavoriteLedgerPreview>())
     })
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await waitFor(() => expect(screen.getByRole('combobox', { name: '当前整理批次' })).toBeInTheDocument())
@@ -1174,11 +1343,11 @@ describe('FavoriteLedgerPanel', () => {
       }
     }
     const createOldFavoriteWorkspaceBatch = vi.fn().mockResolvedValue({ id: 'workspace-batch' })
-    const appendOldFavoriteWorkspaceChunk = vi.fn().mockResolvedValue({})
+    const appendOldFavoriteWorkspaceChunkGroup = vi.fn().mockResolvedValue([])
     Object.assign(window.bilimiDesktop!, {
       openOldFavoriteWorkspaceAccount: vi.fn().mockResolvedValue({ version: 2, accountMid: '42', batches: [] }),
       createOldFavoriteWorkspaceBatch,
-      appendOldFavoriteWorkspaceChunk
+      appendOldFavoriteWorkspaceChunkGroup
     })
     renderPanel({
       currentAccountMid: '42',
@@ -1189,10 +1358,12 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
 
-    await waitFor(() => expect(appendOldFavoriteWorkspaceChunk).toHaveBeenCalledTimes(60), { timeout: 10_000 })
+    await waitFor(() => expect(appendOldFavoriteWorkspaceChunkGroup).toHaveBeenCalledTimes(60), { timeout: 10_000 })
     expect(createOldFavoriteWorkspaceBatch).toHaveBeenCalledOnce()
-    expect(appendOldFavoriteWorkspaceChunk.mock.calls.every((call) => call[2] === 'base')).toBe(true)
-    expect(appendOldFavoriteWorkspaceChunk.mock.calls.every((call) => call[3].length === 500)).toBe(true)
+    expect(appendOldFavoriteWorkspaceChunkGroup.mock.calls.every((call) => {
+      const chunks = call[2] as Record<string, unknown[]>
+      return chunks.base.length === 500 && chunks.tags.length === 500 && chunks.sources.length === 500
+    })).toBe(true)
   }, 15_000)
 
   it('keeps archive editor state in one aggregate runtime snapshot', () => {
@@ -1636,6 +1807,7 @@ describe('FavoriteLedgerPanel', () => {
 
   it('does not commit a resumable batch when execution pauses or fails', async () => {
     const preview = markPreviewAsResumableBatch(createArchivePreviewFixture())
+    preview.batch!.hasMore = false
     const onCommitOldFavoriteBatchCheckpoint = vi.fn()
     renderPanel({
       onScanOldFavorites: vi.fn().mockResolvedValue(preview),
@@ -1698,6 +1870,7 @@ describe('FavoriteLedgerPanel', () => {
 
   it('allows abandoning from confirmation even with zero tasks or an unresolved target', async () => {
     const preview = markPreviewAsResumableBatch(createArchivePreviewFixture())
+    preview.batch!.hasMore = false
     preview.items[0] = {
       ...preview.items[0],
       targetLedgerId: 'missing-ledger',
@@ -2140,9 +2313,18 @@ describe('FavoriteLedgerPanel', () => {
         tags: { completed: 1, total: 1, pending: 0, cacheHits: 0, succeeded: 1, failed: 0, status: 'complete' as const }
       }
     }))
-    renderPanel({
+    const { api } = installOldFavoriteSessionBridge()
+    const createOldFavoriteWorkspaceBatch = vi.fn().mockResolvedValue({ id: 'workspace-batch' })
+    const appendOldFavoriteWorkspaceChunk = vi.fn().mockResolvedValue({})
+    Object.assign(api, {
+      createOldFavoriteWorkspaceBatch,
+      appendOldFavoriteWorkspaceChunk
+    })
+    const view = renderPanel({
+      currentAccountMid: '42',
+      onReadCurrentOldFavoriteAccount: vi.fn().mockResolvedValue('42'),
       onSaveLedgers: vi.fn().mockResolvedValue({ ok: true, steps: [], missingTargets: [], message: 'saved' }),
-      onScanOldFavorites: vi.fn(() => new Promise(() => undefined)),
+      onScanOldFavorites: vi.fn(() => pendingScan()),
       onReadOldFavoriteTagEnrichment
     })
 
@@ -2151,6 +2333,15 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(
       getOldFavoriteRuntimeValue<FavoriteLedgerPreview | null>('preview', null)?.items[0]?.title
     ).toBe('第一组视频'))
+    await waitFor(() => expect(appendOldFavoriteWorkspaceChunk).toHaveBeenCalledWith(
+      '42', expect.any(String), 'base', expect.arrayContaining([expect.objectContaining({ aid: 901 })])
+    ))
+    expect(appendOldFavoriteWorkspaceChunk).toHaveBeenCalledWith(
+      '42', expect.any(String), 'tags', expect.arrayContaining([expect.objectContaining({ aid: 901 })])
+    )
+    expect(appendOldFavoriteWorkspaceChunk).toHaveBeenCalledWith(
+      '42', expect.any(String), 'sources', expect.arrayContaining([expect.objectContaining({ aid: 901 })])
+    )
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
 
     expect(screen.queryByText('请等待扫描结束')).not.toBeInTheDocument()
@@ -2177,7 +2368,7 @@ describe('FavoriteLedgerPanel', () => {
     const onReadOldFavoriteTagEnrichment = vi.fn(() => Promise.resolve(snapshot()))
     renderPanel({
       onSaveLedgers: vi.fn().mockResolvedValue({ ok: true, steps: [], missingTargets: [], message: 'saved' }),
-      onScanOldFavorites: vi.fn(() => new Promise(() => undefined)),
+      onScanOldFavorites: vi.fn(() => pendingScan()),
       onReadOldFavoriteTagEnrichment
     })
 
@@ -2226,7 +2417,7 @@ describe('FavoriteLedgerPanel', () => {
     }))
     renderPanel({
       onSaveLedgers: vi.fn().mockResolvedValue({ ok: true, steps: [], missingTargets: [], message: 'saved' }),
-      onScanOldFavorites: vi.fn(() => new Promise(() => undefined)), onReadOldFavoriteTagEnrichment
+      onScanOldFavorites: vi.fn(() => pendingScan()), onReadOldFavoriteTagEnrichment
     })
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await waitFor(() => expect(getOldFavoriteRuntimeValue<FavoriteLedgerPreview | null>('preview', null)?.items[0].aid).toBe(911))
@@ -2367,7 +2558,7 @@ describe('FavoriteLedgerPanel', () => {
       sourceFolders: [],
       scanProgress: { basic: { completed: 40, total: 100, status: 'running', runId: 'new-run' }, tags: { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'idle' } }
     })
-    renderPanel({
+    const view = renderPanel({
       onSaveLedgers: vi.fn().mockResolvedValue({ ok: true, steps: [], missingTargets: [], message: 'saved' }),
       onScanOldFavorites: vi.fn(() => new Promise((resolve) => { resolveScan = resolve })),
       onReadOldFavoriteTagEnrichment
@@ -2379,6 +2570,8 @@ describe('FavoriteLedgerPanel', () => {
       resolveScan({ items: [], skippedSourceFolderTitles: [] })
       await Promise.resolve()
     })
+    view.unmount()
+    vi.clearAllTimers()
     vi.useRealTimers()
   })
 
@@ -2419,16 +2612,65 @@ describe('FavoriteLedgerPanel', () => {
       otherReturned = true
       return Promise.resolve(otherSnapshot)
     })
-    const onScanOldFavorites = vi.fn().mockResolvedValueOnce(preview).mockReturnValueOnce(new Promise(() => undefined))
+    const onScanOldFavorites = vi.fn().mockResolvedValueOnce(preview).mockReturnValueOnce(pendingScan())
     renderPanel({ onScanOldFavorites, onReadOldFavoriteTagEnrichment })
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
+    vi.useFakeTimers()
     rescanStarted = true
     fireEvent.click(screen.getByRole('button', { name: '重新扫描全部' }))
 
-    await waitFor(() => expect(otherReturned).toBe(true), { timeout: 2500 })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1600)
+      await Promise.resolve()
+    })
+    expect(otherReturned).toBe(true)
     expect(screen.queryByText('77 / 77')).not.toBeInTheDocument()
     expect(screen.getByText('10 / 100')).toBeInTheDocument()
+    vi.useRealTimers()
+  })
+
+  it('does not persist discovered aids into the full session during lightweight progress polling', async () => {
+    let poll = 0
+    const folder = {
+      id: 'first', title: '第一组来源', videos: [{ aid: 901, title: '第一组视频', tags: ['AI'] }]
+    }
+    const onReadOldFavoriteTagEnrichment = vi.fn(() => Promise.resolve({
+      accountMid: '42', sourceFolders: [], discoveredAids: poll++ === 1 ? [901] : [],
+      readySegments: [{ index: 0, status: 'ready' as const, aids: [901], sourceFolders: [folder] }],
+      sourceUpdates: [],
+      scanProgress: {
+        basic: { completed: 2000, total: 30000, status: 'running' as const, runId: 'poll-no-session-write' },
+        tags: { completed: 1, total: 1, pending: 0, cacheHits: 0, succeeded: 1, failed: 0, status: 'complete' as const }
+      }
+    }))
+    const sessionBridge = installOldFavoriteSessionBridge()
+    renderPanel({
+      currentAccountMid: '42',
+      onReadCurrentOldFavoriteAccount: vi.fn().mockResolvedValue('42'),
+      onSaveLedgers: vi.fn().mockResolvedValue({ ok: true, steps: [], missingTargets: [], message: 'saved' }),
+      onScanOldFavorites: vi.fn(() => pendingScan()),
+      onReadOldFavoriteTagEnrichment
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    await waitFor(() => expect(onReadOldFavoriteTagEnrichment).toHaveBeenCalled())
+    sessionBridge.api.saveOldFavoriteSessions.mockClear()
+    await waitFor(() => expect(onReadOldFavoriteTagEnrichment.mock.calls.length).toBeGreaterThan(1), { timeout: 2500 })
+
+    expect(sessionBridge.api.saveOldFavoriteSessions).not.toHaveBeenCalled()
+  })
+
+  it('builds 30,000-item segment execution counts in one item pass', () => {
+    const segments = Array.from({ length: 15 }, (_, segmentIndex) =>
+      Array.from({ length: 2_000 }, (_, itemIndex) => segmentIndex * 2_000 + itemIndex + 1)
+    )
+    const items = Array.from({ length: 30_000 }, (_, index) => ({ aid: index + 1 }))
+
+    expect(buildOldFavoriteSegmentExecution(segments, items)).toEqual(
+      segments.map((_, index) => ({ index, status: 'ready', executableCount: 2_000, completedCount: 0 }))
+    )
   })
 
   it('establishes a fresh run guard after cancelling the previous scan generation', async () => {
@@ -2456,7 +2698,7 @@ describe('FavoriteLedgerPanel', () => {
     const onReadOldFavoriteTagEnrichment = vi.fn(() => Promise.resolve(snapshot()))
     const onScanOldFavorites = vi.fn()
       .mockResolvedValueOnce(preview)
-      .mockReturnValue(new Promise(() => undefined))
+      .mockReturnValue(pendingScan())
     renderPanel({ onScanOldFavorites, onReadOldFavoriteTagEnrichment })
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
@@ -2524,7 +2766,7 @@ describe('FavoriteLedgerPanel', () => {
   it.each([
     ['pause', 'running', '暂停补取'],
     ['resume', 'paused', '继续补取'],
-    ['cancel', 'running', '取消标签补取']
+    ['cancel', 'running', '结束补取，使用当前结果']
   ] as const)(
     'invalidates a completed account preview when manual %s returns another account',
     async (action, tagStatus, buttonName) => {
@@ -2553,6 +2795,10 @@ describe('FavoriteLedgerPanel', () => {
       await screen.findByText('已扫描 2 条旧藏，可勾选后整理。')
 
       fireEvent.click(screen.getByRole('button', { name: buttonName }))
+      if (action === 'cancel') {
+        fireEvent.click(within(screen.getByRole('alertdialog', { name: '确认结束标签补取？' }))
+          .getByRole('button', { name: '确认结束' }))
+      }
 
       expect(await screen.findByText('检测到账号已切换，请重新扫描当前账号。')).toBeInTheDocument()
       expect(getOldFavoriteRuntimeValue('preview', null)).toBeNull()
@@ -2711,16 +2957,19 @@ describe('FavoriteLedgerPanel', () => {
         }
       })
     })
-    const onScanOldFavorites = vi.fn().mockResolvedValueOnce(preview).mockReturnValueOnce(new Promise(() => undefined))
+    const onScanOldFavorites = vi.fn().mockResolvedValueOnce(preview).mockReturnValueOnce(pendingScan())
     renderPanel({ onScanOldFavorites, onReadOldFavoriteTagEnrichment })
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
+    vi.useFakeTimers()
     rescanStarted = true
     fireEvent.click(screen.getByRole('button', { name: '重新扫描全部' }))
 
-    await waitFor(() => expect(readOtherRun).toBe(true))
+    await act(async () => { await vi.advanceTimersByTimeAsync(1600) })
+    expect(readOtherRun).toBe(false)
     expect(screen.queryByText('77 / 77')).not.toBeInTheDocument()
     expect(screen.getByText('10 / 100')).toBeInTheDocument()
+    vi.useRealTimers()
   })
 
   it.each([
@@ -2851,7 +3100,7 @@ describe('FavoriteLedgerPanel', () => {
     renderPanel({ onSaveLedgers, onScanOldFavorites, onReadOldFavoriteTagEnrichment })
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
-    fireEvent.click(screen.getByRole('button', { name: '取消旧藏扫描' }))
+    fireEvent.click(await screen.findByRole('button', { name: '取消旧藏扫描' }))
     await act(async () => {
       resolveSave({ ok: true, steps: [], missingTargets: [], message: 'saved' })
       await Promise.resolve()
@@ -4301,13 +4550,58 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(onExecuteOldFavoritePlan).toHaveBeenCalled())
   })
 
-  it('toggles matched archive cards by clicking the card body', async () => {
+  it('stores a card toggle as sparse history and restores it with undo and redo', async () => {
     const { container } = await openArchivePreview()
     const previewVideo = getPreviewVideoButton(container, /AI 效率工具实战/)
 
     expect(previewVideo).toHaveAttribute('data-selected', 'true')
     fireEvent.click(previewVideo)
     await waitFor(() => expect(previewVideo).toHaveAttribute('data-selected', 'false'))
+    expect(getOldFavoriteRuntimeValue<any[]>('archiveUndoStack', [])).toEqual([
+      expect.objectContaining({
+        kind: 'item',
+        itemKey: expect.stringContaining('701'),
+        archivePlanItem: expect.objectContaining({ selectedTargetLedgerIds: ['knowledge'] })
+      })
+    ])
+    expect(getOldFavoriteRuntimeValue<any[]>('archiveUndoStack', [])[0]).not.toHaveProperty(
+      'archivePlanState'
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '撤销本次改动' }))
+    await waitFor(() => expect(previewVideo).toHaveAttribute('data-selected', 'true'))
+    expect(getOldFavoriteRuntimeValue<any[]>('archiveRedoStack', [])[0]).toMatchObject({
+      kind: 'item',
+      archivePlanItem: { selectedTargetLedgerIds: [] }
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '恢复本次改动' }))
+    await waitFor(() => expect(previewVideo).toHaveAttribute('data-selected', 'false'))
+  })
+
+  it('rolls back across multiple sparse item changes without leaving a later item patch applied', async () => {
+    const preview = createArchivePreviewFixture()
+    preview.items.push({ ...structuredClone(preview.items[0]), aid: 703, title: '第三个已分类视频' })
+    const { container } = await openArchivePreview({
+      onScanOldFavorites: vi.fn().mockResolvedValue(preview)
+    })
+    const firstVideo = getPreviewVideoButton(container, /AI 效率工具实战/)
+    const thirdVideo = getPreviewVideoButton(container, /第三个已分类视频/)
+    const thirdInitiallySelected = thirdVideo.getAttribute('data-selected')
+
+    fireEvent.click(firstVideo)
+    await waitFor(() => expect(getOldFavoriteRuntimeValue<any[]>('archiveUndoStack', [])).toHaveLength(1))
+    fireEvent.click(getPreviewVideoButton(container, /第三个已分类视频/))
+    await waitFor(() => expect(getOldFavoriteRuntimeValue<any[]>('archiveUndoStack', [])).toHaveLength(2))
+    fireEvent.click(getPreviewVideoButton(container, /AI 效率工具实战/))
+    await waitFor(() => expect(getOldFavoriteRuntimeValue<any[]>('archiveUndoStack', [])).toHaveLength(3))
+
+    fireEvent.change(screen.getByRole('combobox', { name: '改动记录' }), {
+      target: { value: 'change:0' }
+    })
+
+    expect(firstVideo).toHaveAttribute('data-selected', 'false')
+    expect(thirdVideo).toHaveAttribute('data-selected', thirdInitiallySelected)
   })
 
   it('does not render the standalone pending queue panel', () => {
@@ -5425,7 +5719,7 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(confirmButton)
 
     expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
-    expect(onOldFavoriteAcknowledged).toHaveBeenCalledOnce()
+    await waitFor(() => expect(onOldFavoriteAcknowledged).toHaveBeenCalledOnce())
     expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '结束本轮' })).not.toBeInTheDocument()
   })
@@ -7087,7 +7381,7 @@ describe('FavoriteLedgerPanel', () => {
           selected: false
         }
       ],
-      skippedSourceFolderTitles: ['Bilimi路知识'],
+      skippedSourceFolderTitles: [],
       insights: {
         totalVideos: 3,
         topAuthors: [{ name: '效率研究所', count: 2, share: 2 / 3 }],
@@ -7140,6 +7434,8 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
 
     expect(await screen.findByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    await screen.findByText(/已扫描 .*可勾选后整理。/)
+    await waitFor(() => expect(screen.queryByRole('button', { name: '取消旧藏扫描' })).not.toBeInTheDocument())
     expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
     expect(screen.getByText('可执行')).toBeInTheDocument()
     expect(screen.getAllByText('1').length).toBeGreaterThanOrEqual(4)
@@ -7389,6 +7685,7 @@ describe('FavoriteLedgerPanel', () => {
       skippedSourceFolderTitles: []
     }
     markPreviewAsResumableBatch(preview)
+    preview.batch!.hasMore = false
     const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
     const onExecuteOldFavoritePlan = vi.fn().mockResolvedValue({
       ok: false,
@@ -7579,6 +7876,7 @@ describe('FavoriteLedgerPanel', () => {
 
   it('pauses after the in-flight item, preserves its success, and leaves the batch pending', async () => {
     const preview = markPreviewAsResumableBatch(createArchivePreviewFixture())
+    preview.batch!.hasMore = false
     preview.items[1] = {
       ...preview.items[0],
       aid: 703,
@@ -7791,6 +8089,7 @@ describe('FavoriteLedgerPanel', () => {
 
   it('resumes from the next group after an interruptible cooldown and confirms ending a paused batch', async () => {
     const preview = markPreviewAsResumableBatch(createArchivePreviewFixture())
+    preview.batch!.hasMore = false
     preview.items[1] = {
       ...preview.items[0],
       aid: 703,
@@ -7862,6 +8161,7 @@ describe('FavoriteLedgerPanel', () => {
 
   it('requires confirmation before ending a paused round and preserves its pending checkpoint', async () => {
     const preview = markPreviewAsResumableBatch(createArchivePreviewFixture())
+    preview.batch!.hasMore = false
     preview.items[1] = { ...preview.items[0], aid: 703, title: '第二条待整理旧藏' }
     let resolveFirst!: (value: { ok: true; steps: string[]; missingTargets: string[]; completedItems: FavoriteLedgerPreview['items']; message: string }) => void
     const firstRequest = new Promise<Parameters<typeof resolveFirst>[0]>((resolve) => { resolveFirst = resolve })
@@ -7885,7 +8185,7 @@ describe('FavoriteLedgerPanel', () => {
 
     const progress = screen.getByLabelText('整理旧藏进度').closest('[role="status"]') as HTMLElement
     fireEvent.click(await within(progress).findByRole('button', { name: '结束本轮' }))
-    const dialog = within(progress).getByRole('alertdialog', { name: '确认结束本轮？' })
+    const dialog = screen.getByRole('alertdialog', { name: '确认结束本轮？' })
     expect(dialog).toHaveTextContent('已完成 1 条，剩余 1 条')
     expect(onCommitOldFavoriteBatchCheckpoint).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: '返回' })).toBeInTheDocument()
@@ -8321,7 +8621,7 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认整理' }))
 
     expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
-    expect(onOldFavoriteAcknowledged).toHaveBeenCalledOnce()
+    await waitFor(() => expect(onOldFavoriteAcknowledged).toHaveBeenCalledOnce())
   })
 
   it('lets users choose which old favorite source folders to organize from the scan overview', async () => {
@@ -8808,7 +9108,7 @@ describe('FavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
 
-    expect(screen.getByRole('status')).toHaveTextContent('正在同步整理旧藏需要的主收藏...')
+    expect(await screen.findByRole('status')).toHaveTextContent('正在同步整理旧藏需要的主收藏...')
     expect(onScanOldFavorites).not.toHaveBeenCalled()
 
     await act(async () => {
@@ -10712,7 +11012,9 @@ describe('FavoriteLedgerPanel', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
-    await screen.findByRole('group', { name: 'bilimi·游戏 1 条' })
+    await waitFor(() => expect(onOrganizeOldFavoritesWithDeepSeek).toHaveBeenCalledTimes(2))
+    expect(screen.queryByRole('group', { name: 'bilimi·游戏 1 条' })).not.toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'bilimi·影视 1 条' })).toHaveTextContent('暂时不知道放哪')
     expect(screen.queryByRole('button', { name: '撤回本次 DeepSeek 整理' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '重置' }))
     expect(screen.queryByRole('button', { name: '撤回本次 DeepSeek 整理' })).not.toBeInTheDocument()

@@ -16,6 +16,7 @@ describe('registerOldFavoriteWorkspaceIpc', () => {
     const ipcMain = new FakeIpcMain()
     const service = {
       openAccount: vi.fn().mockResolvedValue({ version: 2, accountMid: '42', batches: [] }),
+      recoverBatch: vi.fn().mockResolvedValue({ discardedTail: null }),
       loadBatch: vi.fn().mockResolvedValue({ summary: { id: 'b1' }, base: [] })
     }
     registerOldFavoriteWorkspaceIpc({
@@ -27,6 +28,8 @@ describe('registerOldFavoriteWorkspaceIpc', () => {
     expect(service.openAccount).not.toHaveBeenCalled()
     await expect(ipcMain.invoke('old-favorite-workspace:open-account', 7, '42')).resolves.toMatchObject({ accountMid: '42' })
     expect(service.loadBatch).not.toHaveBeenCalled()
+    await expect(ipcMain.invoke('old-favorite-workspace:recover-batch', 7, '42', 'b1')).resolves.toEqual({ discardedTail: null })
+    expect(service.recoverBatch).toHaveBeenCalledWith('42', 'b1')
     await expect(ipcMain.invoke('old-favorite-workspace:load-batch', 7, '42', 'b1')).resolves.toMatchObject({ summary: { id: 'b1' } })
     expect(() => ipcMain.invoke('old-favorite-workspace:open-account', 99, '42')).toThrow('untrusted renderer')
   })
@@ -58,6 +61,11 @@ describe('registerOldFavoriteWorkspaceIpc', () => {
     const service = {
       createBatch: vi.fn().mockResolvedValue({ id: 'b1' }),
       appendChunk: vi.fn().mockResolvedValue({ file: 'base-000001.jsonl' }),
+      appendChunkGroup: vi.fn().mockResolvedValue([
+        { file: 'base-000002.jsonl' },
+        { file: 'tags-000001.jsonl' },
+        { file: 'sources-000001.jsonl' }
+      ]),
       patchOverlay: vi.fn().mockResolvedValue(undefined),
       finalizeBatch: vi.fn().mockResolvedValue({ id: 'b1', status: 'archived' }),
       resetAccount: vi.fn().mockResolvedValue(undefined)
@@ -71,16 +79,23 @@ describe('registerOldFavoriteWorkspaceIpc', () => {
 
     await ipcMain.invoke('old-favorite-workspace:create-batch', 7, { accountMid: '42', kind: 'full', id: 'b1' })
     await ipcMain.invoke('old-favorite-workspace:append-chunk', 7, '42', 'b1', 'base', [{ aid: 1 }])
+    const group = {
+      base: [{ aid: 2 }],
+      tags: [{ aid: 2, tags: ['tag'] }],
+      sources: [{ aid: 2, sourceFolderIds: ['source'] }]
+    }
+    await ipcMain.invoke('old-favorite-workspace:append-chunk-group', 7, '42', 'b1', group)
     await ipcMain.invoke('old-favorite-workspace:patch-overlay', 7, '42', 'b1', 'user', { aid: 1, targets: ['game'] })
     await ipcMain.invoke('old-favorite-workspace:finalize-batch', 7, '42', 'b1')
     await ipcMain.invoke('old-favorite-workspace:reset-account', 7, '42')
 
     expect(service.createBatch).toHaveBeenCalledWith({ accountMid: '42', kind: 'full', id: 'b1' })
     expect(service.appendChunk).toHaveBeenCalledWith('42', 'b1', 'base', [{ aid: 1 }])
+    expect(service.appendChunkGroup).toHaveBeenCalledWith('42', 'b1', group)
     expect(service.patchOverlay).toHaveBeenCalledWith('42', 'b1', 'user', { aid: 1, targets: ['game'] })
     expect(service.finalizeBatch).toHaveBeenCalledWith('42', 'b1')
     expect(service.resetAccount).toHaveBeenCalledWith('42')
-    expect(onMutation).toHaveBeenCalledTimes(5)
+    expect(onMutation).toHaveBeenCalledTimes(6)
     expect(ipcMain.handlers.has('old-favorite-workspace:mutate-bilibili')).toBe(false)
   })
 })

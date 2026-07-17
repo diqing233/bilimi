@@ -62,6 +62,30 @@ describe('media tool paths', () => {
     ).toThrow('npm run setup:media-tools')
   })
 
+  it('reports the actual development runtime root when its bundled tools are missing', () => {
+    let message = ''
+    try {
+      createMediaToolPaths({
+        appPath: 'C:/Users/diqing/.codex/worktrees/runtime-copy/bilimi',
+        isPackaged: false,
+        platform: 'win32',
+        resourcesPath: 'C:/unused',
+        exists: () => false
+      })
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error)
+    }
+
+    expect(message).toContain(
+      'Development runtime root: C:/Users/diqing/.codex/worktrees/runtime-copy/bilimi'
+    )
+    expect(message).toContain('/tools/win32/yt-dlp.exe')
+    expect(message).toContain('/tools/win32/ffmpeg.exe')
+    expect(message).toContain('/tools/win32/ffprobe.exe')
+    expect(message).toContain('/tools/win32/whisper/whisper-cli.exe')
+    expect(message).toContain('/tools/win32/whisper/models/ggml-small.bin')
+  })
+
   it('requires ffprobe beside ffmpeg because duration probing uses it', () => {
     expect(() =>
       createMediaToolPaths({
