@@ -35,6 +35,15 @@ export type SegmentExecutionModel = {
   completedCount: number
 }
 
+export type BatchExecutionReadiness = {
+  segments: SegmentExecutionModel[]
+  currentSegmentIndex: number
+  sourceScanComplete: boolean
+  managedMembershipComplete: boolean
+  aidOwnershipComplete: boolean
+  reconciliationComplete: boolean
+}
+
 function uniqueAids(aids: number[]) {
   return [...new Set(aids.filter((aid) => Number.isSafeInteger(aid) && aid > 0))]
 }
@@ -129,6 +138,16 @@ export function buildSegmentProgress(segments: SegmentExecutionModel[], currentS
     completedSegmentCount: segments.filter((segment) => segment.status === 'completed').length,
     totalSegmentCount: segments.length
   }
+}
+
+export function evaluateBatchExecutionReadiness(options: BatchExecutionReadiness) {
+  const current = options.segments.find((segment) => segment.index === options.currentSegmentIndex)
+  const result = { canOrganizeCurrentSegment: current?.status === 'ready' }
+  if (!options.sourceScanComplete) return { ...result, canExecute: false as const, reason: 'source-scan-incomplete' as const }
+  if (!options.managedMembershipComplete) return { ...result, canExecute: false as const, reason: 'managed-membership-incomplete' as const }
+  if (!options.aidOwnershipComplete) return { ...result, canExecute: false as const, reason: 'aid-ownership-incomplete' as const }
+  if (!options.reconciliationComplete) return { ...result, canExecute: false as const, reason: 'reconciliation-incomplete' as const }
+  return { ...result, canExecute: true as const }
 }
 
 export function findNextPendingSegmentIndex(

@@ -38,8 +38,7 @@ import {
   deleteVideoNoteArchiveEntry,
   deleteVideoNoteArchiveVersion,
   saveVideoNote,
-  type AssistantPreferences,
-  type DesktopStoreState
+  type AssistantPreferences
 } from './store'
 import {
   installAssistantRuntimeReadinessLifecycle,
@@ -66,6 +65,8 @@ import { toggleFloatingAssistantFromSeal } from './floatingMenuToggleFlow'
 import { FLOATING_ASSISTANT_SIZE } from './floatingAssistantWindowSize'
 import { OldFavoriteRuntimeStore, TransientCheckpointScheduler } from './oldFavoriteRuntimeStore'
 import { OldFavoriteSessionStore } from './oldFavoriteSessionStore'
+import { createOldFavoritePersistence } from './oldFavoritePersistence'
+import { createOldFavoriteQuitBarrier } from './oldFavoriteQuitBarrier'
 import { registerOldFavoriteSessionIpc } from './oldFavoriteSessionIpc'
 import { OldFavoriteBackgroundRuntime } from './oldFavoriteBackgroundRuntime'
 import { BilibiliSessionProxy } from './bilibiliSessionProxy'
@@ -422,17 +423,10 @@ const floatingAssistantController = new FloatingMenuController(createFloatingAss
   prepareWindow: positionFloatingAssistantWindow
 })
 
-const desktopStoreBackend = {
-  get: (key: string) => getDesktopStore().get(key as keyof DesktopStoreState),
-  set: (key: string, value: unknown) =>
-    getDesktopStore().set(key as keyof DesktopStoreState, value as never)
-}
-const oldFavoriteRuntimeStore = new OldFavoriteRuntimeStore(desktopStoreBackend)
-const oldFavoriteSessionStore = new OldFavoriteSessionStore(desktopStoreBackend)
-const oldFavoriteRuntimeCheckpointScheduler = new TransientCheckpointScheduler(
-  (keys) => oldFavoriteRuntimeStore.checkpoint(keys),
-  4_000
-)
+let oldFavoriteRuntimeStore: OldFavoriteRuntimeStore
+let oldFavoriteSessionStore: OldFavoriteSessionStore
+let oldFavoriteRuntimeCheckpointScheduler: TransientCheckpointScheduler
+let flushOldFavoritePersistence: (() => Promise<void>) | undefined
 
 function broadcastOldFavoriteRuntimeSnapshot(snapshot: unknown) {
   for (const target of BrowserWindow.getAllWindows()) {
@@ -1260,7 +1254,26 @@ configureDevelopmentUserData(app, { isPackaged: app.isPackaged })
 configureAppIdentity(app)
 const singleInstanceGuard = installSingleInstanceGuard(app, () => mainWindow)
 
-if (singleInstanceGuard) app.whenReady().then(() => {
+if (singleInstanceGuard) app.whenReady().then(async () => {
+  const persistence = await createOldFavoritePersistence({
+    userDataPath: app.getPath('userData'),
+    legacyStore: getDesktopStore()
+  })
+  ipcMain.handle('old-favorite-runtime:reset-account', (event, accountMid: string) => {
+    if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
+      throw new Error('Old favorite runtime request came from an untrusted renderer.')
+    }
+    const changed = oldFavoriteRuntimeStore.resetAccount(accountMid)
+    if (changed) broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: accountMid.trim() })
+    return changed
+  })
+  oldFavoriteRuntimeStore = persistence.runtimeStore
+  oldFavoriteSessionStore = persistence.sessionStore
+  flushOldFavoritePersistence = persistence.flush
+  oldFavoriteRuntimeCheckpointScheduler = new TransientCheckpointScheduler(
+    (keys) => oldFavoriteRuntimeStore.checkpoint(keys),
+    4_000
+  )
   let accountChangeTimer: NodeJS.Timeout | undefined
   session.fromPartition(BILIMI_SESSION_PARTITION).cookies.on('changed', (_event, cookie) => {
     if (cookie.name === 'DedeUserID' || cookie.name === 'bili_jct') {
@@ -1279,11 +1292,17 @@ if (singleInstanceGuard) app.whenReady().then(() => {
   createFloatingSealWindow()
 })
 
-app.on('before-quit', () => {
-  appQuitting = true
-  oldFavoriteRuntimeStore.prepareForShutdown()
-  oldFavoriteSessionStore.saveForShutdown(oldFavoriteSessionStore.load())
+const oldFavoriteQuitBarrier = createOldFavoriteQuitBarrier({
+  prepare: () => {
+    appQuitting = true
+    if (!oldFavoriteRuntimeStore || !oldFavoriteSessionStore) return
+    oldFavoriteRuntimeStore.prepareForShutdown()
+    oldFavoriteSessionStore.saveForShutdown(oldFavoriteSessionStore.load())
+  },
+  flush: () => flushOldFavoritePersistence?.() ?? Promise.resolve(),
+  quit: () => app.quit()
 })
+app.on('before-quit', oldFavoriteQuitBarrier)
 
 app.on('window-all-closed', () => {
   if (appQuitting && process.platform !== 'darwin') app.quit()

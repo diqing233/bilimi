@@ -44,6 +44,29 @@ function decodeRuntimeValue(value: unknown): unknown {
 }
 
 const ACCOUNT_INDEPENDENT_KEYS = new Set(['deepSeekConnectionStatus'])
+const LEGACY_WORKSPACE_KEYS = new Set([
+  'archiveEditorState',
+  'archiveRedoChanges',
+  'archiveRedoStack',
+  'archiveUndoChanges',
+  'archiveUndoStack',
+  'baseScanPreview',
+  'deepSeekArchiveRunSnapshot',
+  'oldFavoriteUserBatches',
+  'preview'
+])
+
+export function compactOldFavoriteRuntimeState(state: PersistedRuntimeState): PersistedRuntimeState {
+  return {
+    accounts: Object.fromEntries(Object.entries(state.accounts).map(([accountMid, values]) => [
+      accountMid,
+      Object.fromEntries(Object.entries(values).filter(([key]) => !LEGACY_WORKSPACE_KEYS.has(key)))
+    ])),
+    global: Object.fromEntries(
+      Object.entries(state.global).filter(([key]) => !LEGACY_WORKSPACE_KEYS.has(key))
+    )
+  }
+}
 
 export class TransientCheckpointScheduler {
   private readonly dirtyKeys = new Set<string>()
@@ -64,6 +87,13 @@ export class TransientCheckpointScheduler {
       this.checkpoint(keys)
     }, this.delayMs)
   }
+}
+
+export function isOldFavoriteRuntimeState(value: unknown): value is PersistedRuntimeState {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<PersistedRuntimeState>
+  return Boolean(candidate.accounts && typeof candidate.accounts === 'object' &&
+    candidate.global && typeof candidate.global === 'object')
 }
 
 export class OldFavoriteRuntimeStore {
@@ -138,6 +168,17 @@ export class OldFavoriteRuntimeStore {
     this.backend?.set(STORE_KEY, { accounts: {}, global: {} } satisfies PersistedRuntimeState)
   }
 
+  resetAccount(accountMid: string): boolean {
+    const normalized = accountMid.trim()
+    if (!normalized || !this.backend) return false
+    const persisted = this.readPersisted()
+    if (!(normalized in persisted.accounts)) return false
+    delete persisted.accounts[normalized]
+    this.backend.set(STORE_KEY, encodeRuntimeValue(persisted))
+    if (this.accountMid === normalized) this.loadBoundAccount()
+    return true
+  }
+
   prepareForShutdown(): void {
     const phase = this.values.get('oldFavoriteExecutionPhase')
     if (phase && ['running', 'pausing'].includes(String(phase.value))) {
@@ -192,8 +233,10 @@ export class OldFavoriteRuntimeStore {
   private persist(): void {
     if (!this.backend) return
     const persisted = this.readPersisted()
-    const accountValues: Record<string, VersionedValue> = {}
-    const globalValues: Record<string, VersionedValue> = {}
+    const accountValues: Record<string, VersionedValue> = {
+      ...(this.accountMid ? persisted.accounts[this.accountMid] : {})
+    }
+    const globalValues: Record<string, VersionedValue> = { ...persisted.global }
     for (const [key, entry] of this.values) {
       if (this.transientKeys.has(key)) continue
       if (ACCOUNT_INDEPENDENT_KEYS.has(key)) globalValues[key] = entry

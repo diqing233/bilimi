@@ -207,8 +207,9 @@ export class OldFavoriteSessionOrchestrator {
       snapshot: mergeSnapshot(current.snapshot, snapshot),
       segments: current.segments.map((segment) => ({
         ...segment,
-        status: 'ready',
-        task: undefined
+        ...(segment.task?.kind === 'scan'
+          ? { status: 'ready' as const, task: undefined }
+          : {})
       }))
     }
     const saved = await this.coordinator.save({

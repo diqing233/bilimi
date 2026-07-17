@@ -10,6 +10,17 @@ type OldFavoriteRuntimeStore = {
 
 const GLOBAL_KEY = '__bilimiOldFavoriteRuntimeSession__' as const
 const ACCOUNT_INDEPENDENT_KEYS = new Set(['deepSeekConnectionStatus'])
+const RENDERER_ONLY_KEYS = new Set([
+  'archiveEditorState',
+  'archiveRedoChanges',
+  'archiveRedoStack',
+  'archiveUndoChanges',
+  'archiveUndoStack',
+  'baseScanPreview',
+  'deepSeekArchiveRunSnapshot',
+  'oldFavoriteUserBatches',
+  'preview'
+])
 
 type OldFavoriteRuntimeGlobal = typeof globalThis & {
   [GLOBAL_KEY]?: OldFavoriteRuntimeStore
@@ -32,7 +43,7 @@ function getStore(): OldFavoriteRuntimeStore {
 }
 
 function canUseMainRuntime(key: string): boolean {
-  return key !== 'deepSeekArchiveRunId'
+  return key !== 'deepSeekArchiveRunId' && !RENDERER_ONLY_KEYS.has(key)
 }
 
 function notifyRuntimeListeners(store: OldFavoriteRuntimeStore, key?: string) {

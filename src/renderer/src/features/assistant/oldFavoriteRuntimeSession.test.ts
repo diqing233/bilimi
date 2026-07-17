@@ -1,6 +1,26 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 describe('oldFavoriteRuntimeSession', () => {
+  it('keeps large workspace snapshots in renderer memory instead of synchronous main runtime IPC', async () => {
+    const setMain = vi.fn()
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        getOldFavoriteRuntimeSnapshot: vi.fn(),
+        setOldFavoriteRuntimeValue: setMain
+      }
+    })
+    const session = await import('./oldFavoriteRuntimeSession')
+
+    session.setOldFavoriteRuntimeValue('preview', { items: [{ aid: 1 }] })
+    session.setOldFavoriteRuntimeValue('baseScanPreview', { items: [{ aid: 1 }] })
+    session.setOldFavoriteRuntimeValue('archiveEditorState', { archivePlanState: { items: [] } })
+    session.setOldFavoriteRuntimeValue('oldFavoriteUserBatches', [{ id: 'batch-1' }])
+
+    expect(setMain).not.toHaveBeenCalled()
+    expect(session.getOldFavoriteRuntimeValue<any>('preview', null).items[0].aid).toBe(1)
+  })
+
   const originalDesktopApi = Object.getOwnPropertyDescriptor(window, 'bilimiDesktop')
 
   afterEach(async () => {

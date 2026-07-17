@@ -3480,8 +3480,8 @@ body[data-floating-window="true"],
 }
 
 .favorite-ledger-panel__batch-switcher {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex-wrap: nowrap;
   flex: 1 1 0;
   min-width: 0;
   max-width: 100%;
@@ -3498,33 +3498,39 @@ body[data-floating-window="true"],
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.favorite-ledger-panel__batch-switcher > select[aria-label="当前整理批次"] {
-  grid-column: 1 / -1;
-  grid-row: 1;
-  width: 100%;
-}
 .favorite-ledger-panel__batch-switcher > button {
-  grid-column: 2;
-  grid-row: 2;
   min-height: 44px;
   padding-inline: 12px;
+  flex: 0 0 auto;
 }
 .favorite-ledger-panel__batch-switcher > .favorite-ledger-panel__batch-select {
-  grid-column: 1 / -1;
-  grid-row: 1;
-  width: 100%;
+  flex: 1 1 auto;
 }
 .favorite-ledger-panel__batch-switcher > .favorite-ledger-panel__segment-select {
-  grid-column: 1;
-  grid-row: 2;
-}
-.favorite-ledger-panel__batch-switcher > select[aria-label="当前性能分段"] {
-  grid-column: 1;
-  grid-row: 2;
+  flex: 0 1 120px;
 }
 .favorite-ledger-panel__incremental-dialog {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+.favorite-ledger-panel__modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(11, 24, 41, 0.52);
+}
+.favorite-ledger-panel__centered-modal {
+  width: min(420px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+}
+.favorite-ledger-panel__entry-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 .favorite-ledger-panel__toolbar {
   display: grid;

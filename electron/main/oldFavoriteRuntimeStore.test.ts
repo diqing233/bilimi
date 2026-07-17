@@ -1,7 +1,33 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { OldFavoriteRuntimeStore, TransientCheckpointScheduler } from './oldFavoriteRuntimeStore'
+import {
+  compactOldFavoriteRuntimeState,
+  OldFavoriteRuntimeStore,
+  TransientCheckpointScheduler
+} from './oldFavoriteRuntimeStore'
 
 describe('OldFavoriteRuntimeStore', () => {
+  it('drops legacy workspace-sized values while retaining lightweight recovery state', () => {
+    expect(compactOldFavoriteRuntimeState({
+      accounts: {
+        '42': {
+          preview: { revision: 1, value: { items: Array.from({ length: 10 }, (_, aid) => ({ aid })) } },
+          archiveEditorState: { revision: 2, value: { huge: true } },
+          scanProgress: { revision: 3, value: { basic: { completed: 25 } } },
+          oldFavoriteExecutionPhase: { revision: 4, value: 'paused' }
+        }
+      },
+      global: { deepSeekConnectionStatus: { revision: 1, value: 'connected' } }
+    })).toEqual({
+      accounts: {
+        '42': {
+          scanProgress: { revision: 3, value: { basic: { completed: 25 } }, },
+          oldFavoriteExecutionPhase: { revision: 4, value: 'paused' }
+        }
+      },
+      global: { deepSeekConnectionStatus: { revision: 1, value: 'connected' } }
+    })
+  })
+
   afterEach(() => vi.useRealTimers())
 
   function memoryBackend() {
@@ -145,5 +171,36 @@ describe('OldFavoriteRuntimeStore', () => {
 
     expect(checkpoint).toHaveBeenCalledTimes(1)
     expect(checkpoint).toHaveBeenCalledWith(['scanProgress'])
+  })
+
+  it('keeps the last durable checkpoint when another key persists during transient progress', () => {
+    const backend = memoryBackend()
+    const store = new OldFavoriteRuntimeStore(backend)
+    store.bindAccount('42')
+    store.setTransient('scanProgress', { completed: 25 }, 0)
+    store.checkpoint(['scanProgress'])
+
+    store.setTransient('scanProgress', { completed: 26 }, 1)
+    store.set('oldFavoriteRuntimeStatus', { label: '扫描中' }, 0)
+
+    const reopened = new OldFavoriteRuntimeStore(backend)
+    reopened.bindAccount('42')
+    expect(reopened.get('scanProgress', null).value).toEqual({ completed: 25 })
+  })
+
+  it('resets one account runtime without deleting another account or global state', () => {
+    const backend = memoryBackend()
+    const store = new OldFavoriteRuntimeStore(backend)
+    store.bindAccount('42')
+    store.set('oldFavoriteExecutionPhase', 'paused', 0)
+    store.bindAccount('99')
+    store.set('oldFavoriteExecutionPhase', 'idle', 0)
+    store.resetAccount('42')
+
+    const reopened = new OldFavoriteRuntimeStore(backend)
+    reopened.bindAccount('42')
+    expect(reopened.get('oldFavoriteExecutionPhase', null).value).toBeNull()
+    reopened.bindAccount('99')
+    expect(reopened.get('oldFavoriteExecutionPhase', null).value).toBe('idle')
   })
 })

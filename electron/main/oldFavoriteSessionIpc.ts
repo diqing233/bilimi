@@ -27,9 +27,10 @@ export function registerOldFavoriteSessionIpc(options: RegisterOptions): void {
     assertTrusted(event, isTrustedSender)
     return store.load()
   })
-  ipcMain.handle('old-favorite-sessions:save', (event, state: OldFavoriteSessionsState) => {
+  ipcMain.handle('old-favorite-sessions:save', async (event, state: OldFavoriteSessionsState) => {
     assertTrusted(event, isTrustedSender)
     store.save(state)
+    await store.flush()
     const saved = store.load()
     broadcast(saved)
     return saved
@@ -48,5 +49,12 @@ export function registerOldFavoriteSessionIpc(options: RegisterOptions): void {
     const released = store.releaseLease(batchId, segmentId, event.sender.id)
     if (released) broadcast(store.load())
     return released
+  })
+  ipcMain.handle('old-favorite-sessions:reset-account', async (event, accountMid: string) => {
+    assertTrusted(event, isTrustedSender)
+    const saved = store.resetAccount(accountMid)
+    await store.flush()
+    broadcast(saved)
+    return saved
   })
 }

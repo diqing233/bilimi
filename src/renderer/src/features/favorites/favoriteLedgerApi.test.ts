@@ -283,7 +283,21 @@ describe('favorite ledger API scripts', () => {
     const paused = await window.eval(buildOldFavoriteTagEnrichmentScript('pause'))
     expect(paused.scanProgress.tags.status).toBe('paused')
     const cancelled = await window.eval(buildOldFavoriteTagEnrichmentScript('cancel'))
-    expect(cancelled.scanProgress.tags).toMatchObject({ pending: 0, status: 'complete' })
+    expect(cancelled.scanProgress.tags).toMatchObject({ pending: 0, status: 'partial', terminalReason: 'cancelled' })
+  })
+
+  it('reports cancelled tag work as a partial accepted terminal instead of a normal completion', async () => {
+    installCookies()
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
+      accountMid: '42', cache: {}, queue: [11, 12], controlRevision: 0,
+      progress: { completed: 1, total: 3, pending: 2, cacheHits: 0, succeeded: 1, failed: 0, status: 'running' }
+    }))
+
+    const cancelled = await window.eval(buildOldFavoriteTagEnrichmentScript('cancel'))
+
+    expect(cancelled.scanProgress.tags).toMatchObject({
+      completed: 1, total: 3, pending: 0, status: 'partial', terminalReason: 'cancelled'
+    })
   })
 
   it('normalizes impossible persisted tag progress before returning it', async () => {
@@ -465,7 +479,7 @@ describe('favorite ledger API scripts', () => {
     await Promise.resolve()
     const stored = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
     expect(stored.queue).toEqual([])
-    expect(stored.progress.status).toBe('complete')
+    expect(stored.progress).toMatchObject({ status: 'partial', terminalReason: 'cancelled' })
     vi.useRealTimers()
   })
   it('reports missing enabled Bilimi ledgers without creating them', async () => {

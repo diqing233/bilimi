@@ -293,7 +293,7 @@ describe('OldFavoriteSessionOrchestrator', () => {
     expect(first.segments[0].aids).toHaveLength(2_000)
     expect(discovered.segments.map((segment) => segment.aids.length)).toEqual([2_000, 1_001])
     expect(rebuilt.segments[0]).toMatchObject(frozenFirst)
-    expect(rebuilt.segments.map((segment) => segment.status)).toEqual(['ready', 'ready'])
+    expect(rebuilt.segments.map((segment) => segment.status)).toEqual(['running', 'ready'])
     expect(rebuilt.snapshot).toEqual({
       selection: { folders: [1] },
       currentStep: 'preview',
@@ -324,6 +324,26 @@ describe('OldFavoriteSessionOrchestrator', () => {
       task: { kind: 'tag', status: 'running' }
     })
     expect(settled.snapshot).toEqual({ preview: { manualDecision: 'keep-me' } })
+  })
+
+  it('completes discovery without marking paused or running tag segments ready', async () => {
+    const harness = createHarness()
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+    const started = await orchestrator.beginScan({ accountMid: '42', kind: 'full', now: '2026-07-16T08:00:00Z' })
+    await orchestrator.appendDiscoveredAids(
+      started.batch.id,
+      Array.from({ length: 4_000 }, (_, index) => index + 1)
+    )
+    await orchestrator.updateSegment(started.batch.id, `${started.batch.id}:segment:1`, {
+      status: 'paused', taskStatus: 'paused'
+    })
+
+    const completed = await orchestrator.completeScan(started.batch.id)
+
+    expect(completed.segments.map((segment) => ({ status: segment.status, task: segment.task }))).toEqual([
+      { status: 'paused', task: { kind: 'tag', status: 'paused', requestState: 'idle' } },
+      { status: 'running', task: { kind: 'tag', status: 'running', requestState: 'idle' } }
+    ])
   })
 
   it('reports why account mismatch, ended history, and another lease cannot run', async () => {

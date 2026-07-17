@@ -52,6 +52,7 @@ import {
   buildContinuousExecutionPlan,
   buildManagedSelectionProtection,
   buildSegmentProgress,
+  evaluateBatchExecutionReadiness,
   type CollectionSnapshotItem
 } from '../favorites/oldFavoriteBatchUiModel'
 import type { DeepSeekBatchScope } from '../favorites/oldFavoriteDeepSeekBatch'
@@ -2357,6 +2358,10 @@ export function FavoriteLedgerPanel({
     useOldFavoriteRuntimeState<'full' | 'incremental'>('pendingOldFavoriteBatchKind', 'full')
   const [oldFavoriteExternalLeaseActive, setOldFavoriteExternalLeaseActive] = useState(false)
   const [incrementalBatchConfirmOpen, setIncrementalBatchConfirmOpen] = useState(false)
+  const [oldFavoriteEntryOpen, setOldFavoriteEntryOpen] = useState(false)
+  const [oldFavoriteResetConfirmOpen, setOldFavoriteResetConfirmOpen] = useState(false)
+  const [tagEndConfirmOpen, setTagEndConfirmOpen] = useState(false)
+  const modalCancelButtonRef = useRef<HTMLButtonElement>(null)
   const sessionCoordinator = useMemo(() => {
     const desktop = window.bilimiDesktop
     if (!desktop?.loadOldFavoriteSessions || !desktop.saveOldFavoriteSessions ||
@@ -2420,7 +2425,14 @@ export function FavoriteLedgerPanel({
             : summary
         }))
         setActiveOldFavoriteUserBatchId((current) => {
-          const selected = summaries.find((batch) => batch.id === current) ?? summaries.at(-1)
+          const selected = summaries.find((batch) => batch.id === current && batch.status !== 'ended') ??
+            summaries.filter((batch) => batch.status !== 'ended').at(-1)
+          if (!selected) {
+            setPreview(null)
+            setBaseScanPreview(null)
+            setArchivePlanState(null)
+            return ''
+          }
           const currentSummary = oldFavoriteUserBatchesRef.current.find((batch) => batch.id === selected?.id)
           if (selected?.snapshot && !currentSummary?.snapshot) {
             if (selected.snapshot.preview !== undefined) setPreview(selected.snapshot.preview)
@@ -2472,6 +2484,9 @@ export function FavoriteLedgerPanel({
     (batch) => batch.id === activeOldFavoriteUserBatchId
   ) ?? oldFavoriteUserBatches.at(-1)
   const activeOldFavoriteBatchReadOnly = activeOldFavoriteUserBatch?.status === 'ended'
+  const unfinishedOldFavoriteBatches = oldFavoriteUserBatches.filter((batch) => batch.status !== 'ended')
+  const endedOldFavoriteBatches = oldFavoriteUserBatches.filter((batch) => batch.status === 'ended')
+  const hasUnfinishedOldFavoriteArchive = hasPendingOldFavoriteBatch || unfinishedOldFavoriteBatches.length > 0
   const activeOldFavoriteSegmentId = activeOldFavoriteUserBatch
     ? `${activeOldFavoriteUserBatch.id}:segment:${activeOldFavoriteUserBatch.segmentIndex}`
     : ''
@@ -2494,47 +2509,23 @@ export function FavoriteLedgerPanel({
     setArchiveEditorState(snapshot.archiveEditorState)
   }
   const fullExecutionLeaseHeldRef = useRef(false)
-  const lastPersistedSessionSnapshotRef = useRef('')
+  const modalOpen = oldFavoriteEntryOpen || oldFavoriteResetConfirmOpen || tagEndConfirmOpen ||
+    incrementalBatchConfirmOpen || batchDiscardConfirming || pausedRoundEndConfirming
   useEffect(() => {
-    if (!sessionCoordinator || !activeOldFavoriteUserBatch || activeOldFavoriteUserBatch.status === 'ended') return
-    const persistedSnapshot = {
-      preview,
-      baseScanPreview,
-      archiveEditorState,
-      step: oldFavoriteStep,
-      executionPhase: oldFavoriteExecutionPhase,
-      executionRun: oldFavoriteExecutionRun,
-      executionProgress: oldFavoriteExecutionProgress,
-      collectionSnapshot: activeOldFavoriteUserBatch.snapshot?.collectionSnapshot,
-      recommendations: activeOldFavoriteUserBatch.snapshot?.recommendations,
-      segmentExecution: activeOldFavoriteUserBatch.snapshot?.segmentExecution
+    if (!modalOpen) return
+    modalCancelButtonRef.current?.focus()
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setOldFavoriteEntryOpen(false)
+      setOldFavoriteResetConfirmOpen(false)
+      setTagEndConfirmOpen(false)
+      setIncrementalBatchConfirmOpen(false)
+      setBatchDiscardConfirming(false)
+      setPausedRoundEndConfirming(false)
     }
-    const signature = JSON.stringify(persistedSnapshot)
-    if (signature === lastPersistedSessionSnapshotRef.current) return
-    const timer = window.setTimeout(() => {
-      lastPersistedSessionSnapshotRef.current = signature
-      void sessionCoordinator.load().then((state) => sessionCoordinator.save({
-        ...state,
-        batches: state.batches.map((batch) => batch.id === activeOldFavoriteUserBatch.id
-          ? {
-              ...batch,
-              snapshot: { ...batch.snapshot, ...persistedSnapshot }
-            }
-          : batch)
-      })).catch(() => undefined)
-    }, 100)
-    return () => window.clearTimeout(timer)
-  }, [
-    activeOldFavoriteUserBatch,
-    archiveEditorState,
-    baseScanPreview,
-    oldFavoriteExecutionPhase,
-    oldFavoriteExecutionProgress,
-    oldFavoriteExecutionRun,
-    oldFavoriteStep,
-    preview,
-    sessionCoordinator
-  ])
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [modalOpen])
 
   async function runTrackedOldFavoriteRequest<T>(options: {
     task: 'tag' | 'deepseek' | 'execute'
@@ -3073,7 +3064,7 @@ export function FavoriteLedgerPanel({
       }
       setOldFavoriteUserBatches((current) => current.map((batch) =>
         batch.id === activeOldFavoriteUserBatch.id
-          ? { ...batch, status: 'ended', snapshot: endedSnapshot }
+          ? { ...batch, status: 'ended', snapshot: { ...batch.snapshot, ...endedSnapshot } }
           : batch
       ))
       if (sessionCoordinator) {
@@ -3210,6 +3201,54 @@ export function FavoriteLedgerPanel({
     setArchivePlanState(lastSuccessfulArchivePlanStateRef.current)
   }
 
+  function requestOldFavoriteOrganization() {
+    if (hasUnfinishedOldFavoriteArchive) {
+      setOldFavoriteEntryOpen(true)
+      return
+    }
+    void startOrganizingOldFavorites()
+  }
+
+  function continueLastOldFavoriteOrganization() {
+    setOldFavoriteEntryOpen(false)
+    const latest = unfinishedOldFavoriteBatches.at(-1)
+    if (latest) selectOldFavoriteUserBatch(latest.id)
+    else void startOrganizingOldFavorites()
+  }
+
+  function showLatestOldFavoriteHistory() {
+    const latest = endedOldFavoriteBatches.at(-1)
+    if (latest) selectOldFavoriteUserBatch(latest.id)
+  }
+
+  async function resetAllOldFavoriteOrganization() {
+    setOldFavoriteResetConfirmOpen(false)
+    setOldFavoriteEntryOpen(false)
+    const accountBatchIds = new Set(oldFavoriteUserBatches
+      .filter((batch) => !currentAccountMid || batch.accountMid === currentAccountMid)
+      .map((batch) => batch.id))
+    setOldFavoriteUserBatches((current) => current.filter((batch) => !accountBatchIds.has(batch.id)))
+    setActiveOldFavoriteUserBatchId('')
+    setPreview(null)
+    setBaseScanPreview(null)
+    setArchivePlanState(null)
+    if (currentAccountMid && window.bilimiDesktop?.resetOldFavoriteSessionsAccount) {
+      await window.bilimiDesktop.resetOldFavoriteSessionsAccount(currentAccountMid)
+    } else if (sessionCoordinator && accountBatchIds.size > 0) {
+      const state = await sessionCoordinator.load()
+      await sessionCoordinator.save({
+        ...state,
+        batches: state.batches.filter((batch) => !accountBatchIds.has(batch.id)),
+        lease: state.lease && accountBatchIds.has(state.lease.batchId) ? null : state.lease
+      })
+    }
+    if (currentAccountMid) {
+      await window.bilimiDesktop?.resetOldFavoriteRuntimeAccount?.(currentAccountMid)
+    }
+    setHasPendingOldFavoriteBatch(false)
+    void startOrganizingOldFavorites()
+  }
+
   function selectOldFavoriteUserBatch(batchId: string) {
     if (activeOldFavoriteUserBatch) {
       const leavingSnapshot = {
@@ -3223,7 +3262,7 @@ export function FavoriteLedgerPanel({
       }
       setOldFavoriteUserBatches((current) => current.map((batch) =>
         batch.id === activeOldFavoriteUserBatch.id
-          ? { ...batch, snapshot: leavingSnapshot }
+          ? { ...batch, snapshot: { ...batch.snapshot, ...leavingSnapshot } }
           : batch
       ))
     }
@@ -3259,7 +3298,7 @@ export function FavoriteLedgerPanel({
       }
       setOldFavoriteUserBatches((current) => current.map((batch) =>
         batch.id === activeOldFavoriteUserBatch.id
-          ? { ...batch, snapshot: currentSnapshot }
+          ? { ...batch, snapshot: { ...batch.snapshot, ...currentSnapshot } }
           : batch
       ))
     }
@@ -5671,6 +5710,11 @@ export function FavoriteLedgerPanel({
 
   async function executeOldFavoritePlan() {
     if (!preview || deepSeekArchiveRunning) return
+    if (!oldFavoriteBatchExecutionReadiness.canExecute) {
+      setOldFavoriteExecutionConfirming(false)
+      setStatus('执行前安全核对尚未完成，请等待来源扫描、工作夹成员和分段对账完成。')
+      return
+    }
     const executionAccountGeneration = accountGenerationRef.current
     if (activeOldFavoriteUserBatch && onReadCurrentOldFavoriteAccount) {
       const currentAccountMid = (await onReadCurrentOldFavoriteAccount()).trim()
@@ -7014,6 +7058,44 @@ export function FavoriteLedgerPanel({
   const oldFavoritePreviewReady = oldFavoriteScanFlowComplete || Boolean(
     basicScanRunning && preview && appliedStreamingSegmentIndexesRef.current.size > 0
   )
+  const oldFavoriteBatchExecutionReadiness = useMemo(() => {
+    const segmentModels = activeOldFavoriteUserBatch?.snapshot?.segmentExecution ??
+      activeOldFavoriteUserBatch?.segmentAids.map((aids, index) => ({
+        index,
+        status: (appliedStreamingSegmentIndexesRef.current.size === 0 ||
+          activeOldFavoriteUserBatch.snapshot?.segmentSnapshots?.[index]?.finalReconciled)
+          ? 'ready' as const
+          : 'pending' as const,
+        executableCount: index === activeOldFavoriteUserBatch.segmentIndex - 1
+          ? selectedOldFavoritePlanItems.length
+          : aids.length,
+        completedCount: 0
+      })) ?? []
+    const managedMembershipComplete = !(preview?.scanDiagnostics?.folderFailures ?? [])
+      .some((failure) => failure.operation === 'target-membership')
+    const ownedAids = new Set(activeOldFavoriteUserBatch?.segmentAids.flat() ?? [])
+    const aidOwnershipComplete = !activeOldFavoriteUserBatch || selectedOldFavoritePlanItems.every(
+      (item) => ownedAids.has(item.aid)
+    )
+    const reconciliationComplete = appliedStreamingSegmentIndexesRef.current.size === 0 || Boolean(
+      activeOldFavoriteUserBatch?.segmentAids.every((aids, index) =>
+        aids.length === 0 || activeOldFavoriteUserBatch.snapshot?.segmentSnapshots?.[index]?.finalReconciled
+      )
+    )
+    return evaluateBatchExecutionReadiness({
+      segments: segmentModels,
+      currentSegmentIndex: (activeOldFavoriteUserBatch?.segmentIndex ?? 1) - 1,
+      sourceScanComplete: oldFavoriteScanFlowComplete,
+      managedMembershipComplete,
+      aidOwnershipComplete,
+      reconciliationComplete
+    })
+  }, [
+    activeOldFavoriteUserBatch,
+    oldFavoriteScanFlowComplete,
+    preview?.scanDiagnostics?.folderFailures,
+    selectedOldFavoritePlanItems
+  ])
   const basicScanDetailLabel = useMemo(() => {
     if (basicScanProgress?.status !== 'running') return ''
     if (basicScanProgress.phase === 'listing') return '正在读取收藏夹列表'
@@ -7133,17 +7215,49 @@ export function FavoriteLedgerPanel({
           />
           <AssistantActionButton
             type="button"
-            aria-label={hasPendingOldFavoriteBatch ? '继续本批整理' : '整理旧藏'}
+            aria-label="整理旧藏"
             disabled={busy || oldFavoritePlanReadOnly}
-            onClick={() => void startOrganizingOldFavorites()}
+            onClick={requestOldFavoriteOrganization}
             icon={hintPetUrl}
             iconAlt="小咪整理旧藏"
             badge="整"
-            label={hasPendingOldFavoriteBatch ? '继续本批整理' : '整理旧藏'}
+            label="整理旧藏"
             description="扫描旧藏，确认后整理到 bilimi 收藏夹里"
           />
+          {endedOldFavoriteBatches.length > 0 && !preview ? (
+            <button type="button" className="favorite-ledger-panel__history-trigger" onClick={showLatestOldFavoriteHistory}>
+              查看历史整理
+            </button>
+          ) : null}
         </div>
       </div>
+
+      {oldFavoriteEntryOpen ? (
+        <div className="favorite-ledger-panel__modal-backdrop">
+          <section role="dialog" aria-modal="true" aria-label="整理旧藏" className="favorite-ledger-panel__execution-dialog favorite-ledger-panel__centered-modal">
+            <h4>整理旧藏</h4>
+            <p>检测到当前账号有未结束的整理存档，请选择接下来的操作。</p>
+            <div className="favorite-ledger-panel__entry-actions">
+              <button type="button" onClick={continueLastOldFavoriteOrganization}>继续上次整理</button>
+              <button type="button" onClick={() => setOldFavoriteResetConfirmOpen(true)}>全部重新整理</button>
+              <button type="button" onClick={() => { setOldFavoriteEntryOpen(false); setIncrementalBatchConfirmOpen(true) }}>仅整理新增</button>
+              <button ref={modalCancelButtonRef} type="button" onClick={() => setOldFavoriteEntryOpen(false)}>取消</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+      {oldFavoriteResetConfirmOpen ? (
+        <div className="favorite-ledger-panel__modal-backdrop">
+          <section role="alertdialog" aria-modal="true" aria-label="确认全部重新整理？" className="favorite-ledger-panel__execution-dialog favorite-ledger-panel__centered-modal">
+            <h4>确认全部重新整理？</h4>
+            <p>这会清空当前账号全部旧藏本地整理记录（包括历史记录），且无法恢复，再从头扫描；不会修改 B 站收藏夹。</p>
+            <div className="favorite-ledger-panel__execution-dialog-actions">
+              <button ref={modalCancelButtonRef} type="button" onClick={() => setOldFavoriteResetConfirmOpen(false)}>取消</button>
+              <button type="button" onClick={() => void resetAllOldFavoriteOrganization()}>确认重置</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {missingLedgerIds.length > 0 ? (
         <p className="favorite-ledger-panel__notice">
@@ -7542,7 +7656,9 @@ export function FavoriteLedgerPanel({
                       ) : (
                         <button type="button" disabled={oldFavoritePlanReadOnly} onClick={() => applyTagEnrichmentAction('pause')}>暂停补取</button>
                       )}
-                      <button type="button" disabled={oldFavoritePlanReadOnly} onClick={() => applyTagEnrichmentAction('cancel')}>取消标签补取</button>
+                      <button type="button" disabled={oldFavoritePlanReadOnly} onClick={() => setTagEndConfirmOpen(true)}>
+                        结束补取，使用当前结果
+                      </button>
                     </div>
                   ) : null}
                 </div>
@@ -8487,21 +8603,16 @@ export function FavoriteLedgerPanel({
                       />
                       {oldFavoriteExecutionPaused ? (
                         pausedRoundEndConfirming ? (
-                          <div
-                            className="favorite-ledger-panel__execution-dialog favorite-ledger-panel__execution-dialog--inline"
-                            role="alertdialog"
-                            aria-label="确认结束本轮？"
-                          >
-                            <h4>确认结束本轮？</h4>
-                            <p>
-                              已完成 {oldFavoriteExecutionProgress.completed} 条，剩余{' '}
-                              {Math.max(0, oldFavoriteExecutionProgress.total - oldFavoriteExecutionProgress.completed)} 条。
-                            </p>
-                            <p>未匹配 {oldFavoriteEndSummary.unmatched} · 待复核 {oldFavoriteEndSummary.review} · 未执行 {oldFavoriteEndSummary.unexecuted} · 失败 {oldFavoriteEndSummary.failed} · 暂存 {oldFavoriteEndSummary.staging}</p>
-                            <p>结束后清除恢复执行点并转为历史只读；未完成视频可在下一次完整整理中重新纳入。</p>
-                            <div className="favorite-ledger-panel__execution-dialog-actions">
-                              <button type="button" onClick={() => setPausedRoundEndConfirming(false)}>返回</button>
-                              <button type="button" onClick={acknowledgeOldFavoriteExecution}>确认结束</button>
+                          <div className="favorite-ledger-panel__modal-backdrop">
+                            <div className="favorite-ledger-panel__execution-dialog favorite-ledger-panel__centered-modal" role="alertdialog" aria-modal="true" aria-label="确认结束本轮？">
+                              <h4>确认结束本轮？</h4>
+                              <p>已完成 {oldFavoriteExecutionProgress.completed} 条，剩余 {Math.max(0, oldFavoriteExecutionProgress.total - oldFavoriteExecutionProgress.completed)} 条。</p>
+                              <p>未匹配 {oldFavoriteEndSummary.unmatched} · 待复核 {oldFavoriteEndSummary.review} · 未执行 {oldFavoriteEndSummary.unexecuted} · 失败 {oldFavoriteEndSummary.failed} · 暂存 {oldFavoriteEndSummary.staging}</p>
+                              <p>结束后清除恢复执行点并转为历史只读；未完成视频可在下一次完整整理中重新纳入。</p>
+                              <div className="favorite-ledger-panel__execution-dialog-actions">
+                                <button ref={modalCancelButtonRef} type="button" onClick={() => setPausedRoundEndConfirming(false)}>返回</button>
+                                <button type="button" onClick={acknowledgeOldFavoriteExecution}>确认结束</button>
+                              </div>
                             </div>
                           </div>
                         ) : (
@@ -8566,28 +8677,32 @@ export function FavoriteLedgerPanel({
             )
           ) : null}
           {batchDiscardConfirming ? (
-            <div
-              className="favorite-ledger-panel__execution-dialog"
-              role="alertdialog"
-              aria-modal="true"
-              aria-label="确认结束本轮？"
-            >
-              <h4>确认结束本轮？</h4>
-              <p>未匹配 {oldFavoriteEndSummary.unmatched} · 待复核 {oldFavoriteEndSummary.review} · 未执行 {oldFavoriteEndSummary.unexecuted} · 失败 {oldFavoriteEndSummary.failed} · 暂存 {oldFavoriteEndSummary.staging}</p>
-              <p>结束后本批次转为历史只读；未执行、失败和未匹配视频可在下一次完整整理中重新纳入。</p>
-              <div className="favorite-ledger-panel__execution-dialog-actions">
-                <button
-                  type="button"
-                  onClick={() => setBatchDiscardConfirming(false)}
-                >
-                  返回
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void discardActiveOldFavoriteBatch()}
-                >
-                  确认结束
-                </button>
+            <div className="favorite-ledger-panel__modal-backdrop">
+              <div className="favorite-ledger-panel__execution-dialog favorite-ledger-panel__centered-modal" role="alertdialog" aria-modal="true" aria-label="确认结束本轮？">
+                <h4>确认结束本轮？</h4>
+                <p>未匹配 {oldFavoriteEndSummary.unmatched} · 待复核 {oldFavoriteEndSummary.review} · 未执行 {oldFavoriteEndSummary.unexecuted} · 失败 {oldFavoriteEndSummary.failed} · 暂存 {oldFavoriteEndSummary.staging}</p>
+                <p>结束后本批次转为历史只读；未执行、失败和未匹配视频可在下一次完整整理中重新纳入。</p>
+                <div className="favorite-ledger-panel__execution-dialog-actions">
+                  <button ref={modalCancelButtonRef} type="button" onClick={() => setBatchDiscardConfirming(false)}>返回</button>
+                  <button type="button" onClick={() => void discardActiveOldFavoriteBatch()}>确认结束</button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          {tagEndConfirmOpen ? (
+            <div className="favorite-ledger-panel__modal-backdrop">
+              <div
+                className="favorite-ledger-panel__execution-dialog favorite-ledger-panel__centered-modal"
+                role="alertdialog"
+                aria-modal="true"
+                aria-label="确认结束标签补取？"
+              >
+                <h4>确认结束标签补取？</h4>
+                <p>结束后将停止继续补取标签，并使用当前已经取得的结果；尚未补取的标签不会自动加入本批次。</p>
+                <div className="favorite-ledger-panel__execution-dialog-actions">
+                  <button ref={modalCancelButtonRef} type="button" onClick={() => setTagEndConfirmOpen(false)}>取消</button>
+                  <button type="button" onClick={() => { setTagEndConfirmOpen(false); applyTagEnrichmentAction('cancel') }}>确认结束</button>
+                </div>
               </div>
             </div>
           ) : null}

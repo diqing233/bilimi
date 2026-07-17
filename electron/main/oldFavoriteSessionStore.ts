@@ -10,18 +10,34 @@ const STORE_KEY = 'oldFavoriteSessions'
 export interface OldFavoriteSessionStoreBackend {
   get(key: string): unknown
   set(key: string, value: unknown): void
+  flush?(): Promise<void>
 }
 
 function emptyState(): OldFavoriteSessionsState {
   return { version: OLD_FAVORITE_SESSIONS_VERSION, batches: [], lease: null }
 }
 
-function isCurrentState(value: unknown): value is OldFavoriteSessionsState {
+export function isCurrentOldFavoriteSessionsState(value: unknown): value is OldFavoriteSessionsState {
   if (!value || typeof value !== 'object') {
     return false
   }
   const candidate = value as Partial<OldFavoriteSessionsState>
-  return candidate.version === OLD_FAVORITE_SESSIONS_VERSION && Array.isArray(candidate.batches)
+  return candidate.version === OLD_FAVORITE_SESSIONS_VERSION &&
+    Array.isArray(candidate.batches) &&
+    candidate.batches.every((batch) => {
+      if (!batch || typeof batch !== 'object') return false
+      const record = batch as Record<string, unknown>
+      return typeof record.id === 'string' && typeof record.accountMid === 'string' &&
+        ['full', 'incremental'].includes(String(record.kind)) && typeof record.createdAt === 'string' &&
+        ['active', 'ended'].includes(String(record.status)) && Array.isArray(record.segments) &&
+        record.segments.every((segment) => {
+          if (!segment || typeof segment !== 'object') return false
+          const item = segment as Record<string, unknown>
+          return typeof item.id === 'string' && Number.isSafeInteger(item.index) &&
+            Array.isArray(item.aids) && item.aids.every((aid) => Number.isSafeInteger(aid) && Number(aid) > 0) &&
+            ['pending', 'running', 'paused', 'ready', 'ended'].includes(String(item.status))
+        }) && Boolean(record.snapshot && typeof record.snapshot === 'object')
+    }) && (candidate.lease === null || Boolean(candidate.lease && typeof candidate.lease === 'object'))
 }
 
 export class OldFavoriteSessionStore {
@@ -29,10 +45,13 @@ export class OldFavoriteSessionStore {
 
   load(): OldFavoriteSessionsState {
     const stored = this.backend.get(STORE_KEY)
-    return isCurrentState(stored) ? structuredClone(stored) : emptyState()
+    return isCurrentOldFavoriteSessionsState(stored) ? structuredClone(stored) : emptyState()
   }
 
   save(state: OldFavoriteSessionsState): void {
+    if (!isCurrentOldFavoriteSessionsState(state)) {
+      throw new Error('Old favorite session state is invalid.')
+    }
     const current = this.load()
     const incomingIds = new Set(state.batches.map((batch) => batch.id))
     this.backend.set(STORE_KEY, structuredClone({
@@ -87,5 +106,24 @@ export class OldFavoriteSessionStore {
 
   saveForShutdown(state: OldFavoriteSessionsState): void {
     this.backend.set(STORE_KEY, structuredClone(normalizeOldFavoriteSessionsForShutdown(state)))
+  }
+
+  resetAccount(accountMid: string): OldFavoriteSessionsState {
+    const normalized = accountMid.trim()
+    const state = this.load()
+    const removedIds = new Set(
+      state.batches.filter((batch) => batch.accountMid === normalized).map((batch) => batch.id)
+    )
+    const next = {
+      ...state,
+      batches: state.batches.filter((batch) => batch.accountMid !== normalized),
+      lease: state.lease && removedIds.has(state.lease.batchId) ? null : state.lease
+    }
+    this.backend.set(STORE_KEY, structuredClone(next))
+    return next
+  }
+
+  flush(): Promise<void> {
+    return this.backend.flush?.() ?? Promise.resolve()
   }
 }

@@ -4,6 +4,7 @@ import {
   buildContinuousExecutionPlan,
   buildIncrementalBatchAids,
   buildManagedSelectionProtection,
+  evaluateBatchExecutionReadiness,
   buildSegmentProgress,
   buildSegmentRecommendationModel,
   findNextPendingSegmentIndex,
@@ -118,5 +119,20 @@ describe('oldFavoriteBatchUiModel', () => {
       { folderId: 'formal-b', logicalId: 'b', isStaging: false, memberAids: [3, 4] },
       { folderId: 'staging', logicalId: 'staging', isStaging: true, memberAids: [4, 5] }
     ], ['a'])).toEqual([3, 4])
+  })
+
+  it('allows local organization for one ready segment but requires every batch safety gate for execution', () => {
+    const segments = [
+      { index: 0, status: 'ready' as const, executableCount: 10, completedCount: 0 },
+      { index: 1, status: 'pending' as const, executableCount: 0, completedCount: 0 }
+    ]
+    expect(evaluateBatchExecutionReadiness({
+      segments, currentSegmentIndex: 0, sourceScanComplete: false,
+      managedMembershipComplete: false, aidOwnershipComplete: false, reconciliationComplete: false
+    })).toEqual({ canOrganizeCurrentSegment: true, canExecute: false, reason: 'source-scan-incomplete' })
+    expect(evaluateBatchExecutionReadiness({
+      segments, currentSegmentIndex: 0, sourceScanComplete: true,
+      managedMembershipComplete: true, aidOwnershipComplete: true, reconciliationComplete: true
+    })).toEqual({ canOrganizeCurrentSegment: true, canExecute: true })
   })
 })

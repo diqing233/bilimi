@@ -451,7 +451,7 @@ export function buildOldFavoriteTagEnrichmentScript(
       const nonNegativeInteger = (value) => Math.max(0, Math.floor(Number(value) || 0));
       const total = Math.max(nonNegativeInteger(store.progress.total), store.queue.length);
       const status = store.queue.length === 0
-        ? 'complete'
+        ? store.progress.status === 'partial' ? 'partial' : 'complete'
         : store.progress.status === 'running'
           ? 'running'
           : 'paused';
@@ -619,7 +619,8 @@ export function buildOldFavoriteTagEnrichmentScript(
       store.controlRevision += 1;
       store.queue = [];
       store.progress.pending = 0;
-      store.progress.status = 'complete';
+      store.progress.status = store.progress.completed < store.progress.total ? 'partial' : 'complete';
+      if (store.progress.status === 'partial') store.progress.terminalReason = 'cancelled';
     }
     if (${JSON.stringify(action)} === 'cancel-scan') {
       store.controlRevision += 1;

@@ -42,6 +42,13 @@ describe('OldFavoriteSessionStore', () => {
     expect(new OldFavoriteSessionStore(backend).load()).toEqual({ version: 1, batches: [], lease: null })
   })
 
+  it('rejects malformed current-version batches instead of trusting a shallow version match', () => {
+    const backend = new MemoryBackend()
+    backend.value = { version: 1, batches: [{ id: 'broken' }], lease: null }
+
+    expect(new OldFavoriteSessionStore(backend).load()).toEqual({ version: 1, batches: [], lease: null })
+  })
+
   it('normalizes running work before saving on application shutdown', () => {
     const backend = new MemoryBackend()
     const store = new OldFavoriteSessionStore(backend)
@@ -111,5 +118,22 @@ describe('OldFavoriteSessionStore', () => {
     batch.status = 'ended'
     store.save({ version: 1, batches: [batch], lease: null })
     expect(store.claimLease(batch.id, batch.segments[0].id, 'scan', '42', 101)).toBe(false)
+  })
+
+  it('resets every active and ended batch for one account without changing other accounts', () => {
+    const backend = new MemoryBackend()
+    const store = new OldFavoriteSessionStore(backend)
+    const active = createOldFavoriteBatch({ accountMid: '42', kind: 'full', aids: [1], now: '2026-07-16T08:00:00Z' })
+    const ended = createOldFavoriteBatch({ accountMid: '42', kind: 'incremental', aids: [2], now: '2026-07-16T09:00:00Z' })
+    ended.status = 'ended'
+    const other = createOldFavoriteBatch({ accountMid: '99', kind: 'full', aids: [3], now: '2026-07-16T10:00:00Z' })
+    store.save({ version: 1, batches: [active, ended, other], lease: {
+      batchId: active.id, segmentId: active.segments[0].id, task: 'scan', ownerId: 7
+    } })
+
+    store.resetAccount('42')
+
+    expect(store.load().batches).toEqual([other])
+    expect(store.load().lease).toBeNull()
   })
 })

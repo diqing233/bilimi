@@ -89,10 +89,14 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   readBilibiliAccountMid: () => ipcRenderer.invoke('bilibili:account-mid') as Promise<string>,
   resetOldFavoriteRuntime: () =>
     ipcRenderer.sendSync('old-favorite-runtime:reset') as boolean,
+  resetOldFavoriteRuntimeAccount: (accountMid: string) =>
+    ipcRenderer.invoke('old-favorite-runtime:reset-account', accountMid) as Promise<boolean>,
   loadOldFavoriteSessions: () =>
     ipcRenderer.invoke('old-favorite-sessions:load') as Promise<OldFavoriteSessionsState>,
   saveOldFavoriteSessions: (state: OldFavoriteSessionsState) =>
     ipcRenderer.invoke('old-favorite-sessions:save', state) as Promise<OldFavoriteSessionsState>,
+  resetOldFavoriteSessionsAccount: (accountMid: string) =>
+    ipcRenderer.invoke('old-favorite-sessions:reset-account', accountMid) as Promise<OldFavoriteSessionsState>,
   claimOldFavoriteTaskLease: (
     batchId: string,
     segmentId: string,
