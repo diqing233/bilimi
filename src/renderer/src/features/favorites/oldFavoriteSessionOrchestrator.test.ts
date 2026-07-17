@@ -43,6 +43,19 @@ function createHarness(initial: OldFavoriteSessionsState = { version: 1, batches
 }
 
 describe('OldFavoriteSessionOrchestrator', () => {
+  it('continues the newest active full batch instead of creating a duplicate', async () => {
+    const older = createOldFavoriteBatch({ accountMid: '42', kind: 'full', aids: [1], now: '2026-07-17T10:00:00Z', id: 'older' })
+    const newer = createOldFavoriteBatch({ accountMid: '42', kind: 'full', aids: [2], now: '2026-07-17T10:00:11Z', id: 'newer' })
+    const harness = createHarness({ version: 1, batches: [older, newer], lease: null })
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+
+    const result = await orchestrator.beginScan({ accountMid: '42', kind: 'full', now: '2026-07-17T10:01:00Z' })
+
+    expect(result.batch.id).toBe('newer')
+    expect(result.acquired).toBe(false)
+    expect(harness.coordinator.acquire).not.toHaveBeenCalled()
+    expect(harness.getState().batches.map((batch) => batch.id)).toEqual(['older', 'newer'])
+  })
   it('tracks each online request and records an unknown result before releasing on rejection', async () => {
     const batch = createOldFavoriteBatch({
       accountMid: '42', kind: 'full', aids: [11, 12], now: '2026-07-16T08:00:00Z'

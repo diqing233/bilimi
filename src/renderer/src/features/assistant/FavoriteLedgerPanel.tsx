@@ -2633,6 +2633,7 @@ export function FavoriteLedgerPanel({
   const [oldFavoriteResetConfirmOpen, setOldFavoriteResetConfirmOpen] = useState(false)
   const [tagEndConfirmOpen, setTagEndConfirmOpen] = useState(false)
   const [oldFavoriteSessionsOpened, setOldFavoriteSessionsOpened] = useState(false)
+  const [oldFavoriteRecoveryRunning, setOldFavoriteRecoveryRunning] = useState(false)
   const oldFavoriteSessionsOpeningRef = useRef<Promise<OldFavoriteSessionsState> | null>(null)
   const oldFavoriteActivatedRef = useRef(false)
   const sessionCoordinator = useMemo(() => {
@@ -2697,7 +2698,10 @@ export function FavoriteLedgerPanel({
         }))
         setActiveOldFavoriteUserBatchId((current) => {
           const selected = summaries.find((batch) => batch.id === current && batch.status !== 'ended') ??
-            summaries.filter((batch) => batch.status !== 'ended').at(-1)
+            summaries
+              .filter((batch) => batch.status !== 'ended')
+              .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+              .at(-1)
           if (!selected) {
             setPreview(null)
             setBaseScanPreview(null)
@@ -3549,17 +3553,63 @@ export function FavoriteLedgerPanel({
   }
 
   async function requestOldFavoriteOrganization() {
-    const sessions = await openOldFavoriteSessions().catch(() => null)
-    const hasLoadedUnfinishedBatch = sessions?.batches.some((batch) =>
-      batch.status !== 'ended' && (currentAccountMid === undefined || batch.accountMid === currentAccountMid)
-    ) ?? false
+    setOldFavoriteEntryOpen(false)
+    setOldFavoriteRecoveryRunning(true)
+    setStatus('正在恢复整理结果…')
+    publishOldFavoriteStatus({
+      label: '正在恢复整理结果',
+      message: '正在读取最近一次整理结果，请稍候。',
+      tone: 'running'
+    })
+    let sessions: OldFavoriteSessionsState
+    try {
+      sessions = await openOldFavoriteSessions()
+    } catch (error) {
+      setOldFavoriteRecoveryRunning(false)
+      const message = `整理存档恢复失败：${errorMessage(error)}`
+      setStatus(message)
+      publishOldFavoriteStatus({ label: '恢复失败', message, tone: 'error' })
+      return
+    }
+    const accountBatches = sessions.batches.filter((batch) =>
+      currentAccountMid === undefined || batch.accountMid === currentAccountMid
+    )
+    const latestActiveBatch = accountBatches
+      .filter((batch) => batch.status !== 'ended')
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .at(-1)
+    if (latestActiveBatch) {
+      const restored = await selectOldFavoriteUserBatch(latestActiveBatch.id, accountBatches.map((batch) => ({
+        id: batch.id,
+        kind: batch.kind,
+        createdAt: batch.createdAt,
+        accountMid: batch.accountMid,
+        segmentIndex: Math.max(1, batch.segments.findIndex((segment) => segment.status !== 'ended') + 1),
+        segmentCount: Math.max(1, batch.segments.length),
+        segmentAids: batch.segments.map((segment) => segment.aids),
+        status: batch.status,
+        snapshot: batch.snapshot as OldFavoriteUserBatchSummary['snapshot']
+      })))
+      setOldFavoriteRecoveryRunning(false)
+      if (!restored) return
+      setStatus(null)
+      const restoredCount = latestActiveBatch.segments.reduce((total, segment) => total + segment.aids.length, 0)
+      publishOldFavoriteStatus({
+        label: `旧藏待整理 ${restoredCount}`,
+        message: `已恢复最近一次整理结果，共 ${restoredCount} 条待整理。`,
+        tone: 'warn'
+      })
+      return
+    }
     let hasPendingBatch = false
     if (onReadOldFavoriteBatchStatus) {
       const result = await onReadOldFavoriteBatchStatus().catch(() => null)
       hasPendingBatch = Boolean(result?.pending)
       if (result) setHasPendingOldFavoriteBatch(hasPendingBatch)
     }
-    if (hasUnfinishedOldFavoriteArchive || hasLoadedUnfinishedBatch || hasPendingBatch) {
+    setOldFavoriteRecoveryRunning(false)
+    setStatus(null)
+    if (hasUnfinishedOldFavoriteArchive || hasPendingBatch) {
       setOldFavoriteEntryOpen(true)
       return
     }
@@ -3602,8 +3652,11 @@ export function FavoriteLedgerPanel({
     void startOrganizingOldFavorites()
   }
 
-  async function selectOldFavoriteUserBatch(batchId: string) {
-    if (activeOldFavoriteUserBatch) {
+  async function selectOldFavoriteUserBatch(
+    batchId: string,
+    availableBatches: OldFavoriteUserBatchSummary[] = oldFavoriteUserBatches
+  ): Promise<boolean> {
+    if (activeOldFavoriteUserBatch && activeOldFavoriteUserBatch.id !== batchId) {
       if (workspaceOverlayTimerRef.current) {
         clearTimeout(workspaceOverlayTimerRef.current)
         workspaceOverlayTimerRef.current = null
@@ -3615,7 +3668,7 @@ export function FavoriteLedgerPanel({
         )
       } catch (error) {
         setStatus(`整理修改保存失败：${error instanceof Error ? error.message : String(error)}`)
-        return
+        return false
       }
       const leavingSnapshot = {
         preview,
@@ -3633,7 +3686,7 @@ export function FavoriteLedgerPanel({
       ))
     }
     setActiveOldFavoriteUserBatchId(batchId)
-    const selectedBatch = oldFavoriteUserBatches.find((batch) => batch.id === batchId)
+    const selectedBatch = availableBatches.find((batch) => batch.id === batchId)
     let workspaceDetail: Awaited<ReturnType<NonNullable<typeof window.bilimiDesktop>['loadOldFavoriteWorkspaceBatch']>> | undefined
     if (selectedBatch?.accountMid && !selectedBatch.snapshot?.preview) {
       try {
@@ -3649,7 +3702,7 @@ export function FavoriteLedgerPanel({
         )
       } catch (error) {
         setStatus(`整理存档恢复失败：${error instanceof Error ? error.message : String(error)}`)
-        return
+        return false
       }
     }
     if (!selectedBatch?.snapshot?.preview && workspaceDetail) {
@@ -3739,9 +3792,9 @@ export function FavoriteLedgerPanel({
       setOldFavoriteExecutionProgress(null)
       setOldFavoriteGuideMode('organize')
       setPendingOldFavoriteBatchKind('full')
-      return
+      return true
     }
-    if (!selectedBatch?.snapshot) return
+    if (!selectedBatch?.snapshot) return false
     setPreview(selectedBatch.snapshot.preview)
     setBaseScanPreview(selectedBatch.snapshot.baseScanPreview)
     setArchiveEditorState(selectedBatch.snapshot.archiveEditorState)
@@ -3751,6 +3804,7 @@ export function FavoriteLedgerPanel({
     setOldFavoriteExecutionProgress(selectedBatch.snapshot.executionProgress)
     setOldFavoriteGuideMode('organize')
     setPendingOldFavoriteBatchKind('full')
+    return true
   }
 
   async function startIncrementalOldFavoriteBatch() {
@@ -4664,13 +4718,17 @@ export function FavoriteLedgerPanel({
           oldFavoriteUserBatches.length === 0 &&
           window.bilimiDesktop?.createOldFavoriteWorkspaceBatch
         ) {
-          await window.bilimiDesktop.createOldFavoriteWorkspaceBatch({
+          const workspaceBatch = await window.bilimiDesktop.createOldFavoriteWorkspaceBatch({
             accountMid: currentAccountMid,
             kind: started.batch.kind,
             createdAt: started.batch.createdAt,
             id: started.batch.id
           })
-          currentScanWorkspaceRef.current = { accountMid: currentAccountMid, batchId: started.batch.id }
+          const workspaceBatchId = typeof workspaceBatch === 'object' && workspaceBatch &&
+            typeof (workspaceBatch as { id?: unknown }).id === 'string'
+            ? (workspaceBatch as { id: string }).id
+            : started.batch.id
+          currentScanWorkspaceRef.current = { accountMid: currentAccountMid, batchId: workspaceBatchId }
         }
         scanAccountMid = currentAccountMid
         await sessionOrchestrator.updateSegment(scanSession.batchId, scanSession.segmentId, {
@@ -4690,10 +4748,14 @@ export function FavoriteLedgerPanel({
             : (requestedBatchKind ?? pendingOldFavoriteBatchKind)
           const createdAt = new Date().toISOString()
           const batchId = `old-favorite:${accountMid}:${kind}:${createdAt.replace(/[^0-9]/g, '')}:0`
-          await window.bilimiDesktop.createOldFavoriteWorkspaceBatch({
+          const workspaceBatch = await window.bilimiDesktop.createOldFavoriteWorkspaceBatch({
             accountMid, kind, createdAt, id: batchId
           })
-          currentScanWorkspaceRef.current = { accountMid, batchId }
+          const workspaceBatchId = typeof workspaceBatch === 'object' && workspaceBatch &&
+            typeof (workspaceBatch as { id?: unknown }).id === 'string'
+            ? (workspaceBatch as { id: string }).id
+            : batchId
+          currentScanWorkspaceRef.current = { accountMid, batchId: workspaceBatchId }
         }
       }
       if (onReadOldFavoriteTagEnrichment) {
@@ -4843,13 +4905,21 @@ export function FavoriteLedgerPanel({
       if (scannedAccountMid && window.bilimiDesktop?.createOldFavoriteWorkspaceBatch) {
         await streamingWorkspaceWriteTailRef.current
         if (!currentScanWorkspaceRef.current) {
-          await window.bilimiDesktop.createOldFavoriteWorkspaceBatch({
+          const workspaceBatch = await window.bilimiDesktop.createOldFavoriteWorkspaceBatch({
             accountMid: scannedAccountMid,
             kind: batchKind,
             createdAt: batchModel.createdAt,
             id: batchModel.id
           })
-          currentScanWorkspaceRef.current = { accountMid: scannedAccountMid, batchId: batchModel.id }
+          const workspaceBatchId = typeof workspaceBatch === 'object' && workspaceBatch &&
+            typeof (workspaceBatch as { id?: unknown }).id === 'string'
+            ? (workspaceBatch as { id: string }).id
+            : batchModel.id
+          currentScanWorkspaceRef.current = { accountMid: scannedAccountMid, batchId: workspaceBatchId }
+        }
+        const workspaceBatchId = currentScanWorkspaceRef.current.batchId
+        if (scanSession && workspaceBatchId !== batchModel.id) {
+          throw new Error('检测到另一份未结束的完整整理批次，请重新打开整理旧藏恢复该批次。')
         }
         const chunkSize = 500
         const unpersistedItems = normalizedPreview.items.filter(
@@ -4857,17 +4927,19 @@ export function FavoriteLedgerPanel({
         )
         for (let offset = 0; offset < unpersistedItems.length; offset += chunkSize) {
           const chunk = unpersistedItems.slice(offset, offset + chunkSize)
-          await appendWorkspaceLogicalChunk(scannedAccountMid, batchModel.id, chunk)
+          await appendWorkspaceLogicalChunk(scannedAccountMid, workspaceBatchId, chunk)
         }
       }
+      const persistedBatchId = currentScanWorkspaceRef.current?.batchId ?? batchModel.id
+      const persistedBatchModel = persistedBatchId === batchModel.id ? batchModel : { ...batchModel, id: persistedBatchId }
       if (sessionCoordinator && !scanSession) {
         const storedSessions = await sessionCoordinator.load()
         await sessionCoordinator.save({
           ...storedSessions,
           batches: [
-            ...storedSessions.batches.filter((batch) => batch.id !== batchModel.id),
+            ...storedSessions.batches.filter((batch) => batch.id !== persistedBatchId),
             {
-              ...batchModel,
+              ...persistedBatchModel,
               snapshot: {
                 preview: normalizedPreview,
                 currentStep: 'scan',
@@ -4883,7 +4955,7 @@ export function FavoriteLedgerPanel({
         (batch) => batch.id === `stream:${scannedAccountMid ?? ''}`
       )
       const existingStreamingBatch = oldFavoriteUserBatchesRef.current.find(
-        (batch) => batch.id === batchModel.id
+        (batch) => batch.id === persistedBatchId
       ) ?? (currentScanSessionRef.current?.batchId
         ? oldFavoriteUserBatchesRef.current.find((batch) => batch.id === currentScanSessionRef.current?.batchId)
         : transientStreamingBatch)
@@ -4934,7 +5006,7 @@ export function FavoriteLedgerPanel({
       )
       const preservedActiveSegment = preservedSegmentSnapshots[(existingStreamingBatch?.segmentIndex ?? 1) - 1]
       const nextBatch: OldFavoriteUserBatchSummary = {
-        id: batchModel.id,
+        id: persistedBatchId,
         kind: batchKind,
         createdAt: batchModel.createdAt,
         accountMid: batchModel.accountMid,
@@ -4959,7 +5031,7 @@ export function FavoriteLedgerPanel({
         ...current.filter((batch) => batch.id !== nextBatch.id && batch.id !== transientStreamingBatch?.id),
         nextBatch
       ])
-      setActiveOldFavoriteUserBatchId(batchModel.id)
+      setActiveOldFavoriteUserBatchId(persistedBatchId)
 
       const nextCandidateKeys = new Set(
         preservedActiveSegment?.archiveEditorState.selectedCandidateKeys ?? []
@@ -8142,10 +8214,17 @@ export function FavoriteLedgerPanel({
           </div>
         </section>
       ) : (
-        <div className="favorite-ledger-panel__editor-placeholder" aria-hidden="true" />
+        <p className="favorite-ledger-panel__editor-empty">选择左侧收藏夹后可查看和编辑规则。</p>
       )}
 
       </div>
+
+      {oldFavoriteBatchSwitcher && !preview ? (
+        <section className="favorite-ledger-panel__old-favorite-recovery" aria-label="整理批次">
+          {oldFavoriteBatchSwitcher}
+          {oldFavoriteRecoveryRunning ? <p role="status">正在恢复整理结果…</p> : null}
+        </section>
+      ) : null}
 
       {preview ? (
         <section

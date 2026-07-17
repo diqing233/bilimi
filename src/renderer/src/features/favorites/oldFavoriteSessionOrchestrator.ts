@@ -71,6 +71,16 @@ export class OldFavoriteSessionOrchestrator {
 
   async beginScan(options: BeginScanOptions): Promise<{ batch: OldFavoriteBatch; acquired: boolean }> {
     const accountMid = options.accountMid.trim()
+    const state = await this.coordinator.load()
+    const activeFull = options.kind === 'full'
+      ? state.batches
+          .filter((batch) => batch.accountMid === accountMid && batch.kind === 'full' && batch.status === 'active')
+          .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+          .at(-1)
+      : undefined
+    if (activeFull) {
+      return { batch: activeFull, acquired: false }
+    }
     const batch = createOldFavoriteBatch({ ...options, accountMid, aids: [] })
     const placeholder: OldFavoriteSegment = {
       id: `${batch.id}:segment:1`,
@@ -80,7 +90,6 @@ export class OldFavoriteSessionOrchestrator {
       task: { kind: 'scan', status: 'running', requestState: 'idle' }
     }
     const prepared = { ...batch, segments: [placeholder] }
-    const state = await this.coordinator.load()
     const saved = await this.coordinator.save({
       ...state,
       batches: [...state.batches, prepared],

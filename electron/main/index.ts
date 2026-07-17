@@ -431,7 +431,7 @@ let oldFavoriteSessionStore: OldFavoriteSessionStore | undefined
 let oldFavoriteRuntimeCheckpointScheduler: TransientCheckpointScheduler | undefined
 let flushOldFavoritePersistence: (() => Promise<void>) | undefined
 let oldFavoritePersistenceOpening: ReturnType<typeof createOldFavoritePersistence> | undefined
-let oldFavoritePersistenceDirty = false
+let oldFavoritePersistenceDirtyCount = 0
 let oldFavoriteWorkspaceService: OldFavoriteWorkspaceService | undefined
 const oldFavoriteRendererFlushCoordinator = new OldFavoriteRendererFlushCoordinator()
 
@@ -911,7 +911,9 @@ function registerAssistantPreferenceHandlers() {
     getStore: async () => (await ensureOldFavoritePersistence()).sessionStore,
     isTrustedSender: isTrustedOldFavoriteSessionSender,
     broadcast: broadcastOldFavoriteSessions,
-    onMutation: () => { oldFavoritePersistenceDirty = true }
+    onMutation: (dirty) => {
+      oldFavoritePersistenceDirtyCount = Math.max(0, oldFavoritePersistenceDirtyCount + (dirty ? 1 : -1))
+    }
   })
   ipcMain.on('assistant-runtime:ready', (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
@@ -1296,7 +1298,9 @@ if (singleInstanceGuard) app.whenReady().then(() => {
       const target = webContents.fromId(senderId)
       if (target && !target.isDestroyed()) target.send(channel, payload)
     },
-    onMutation: () => { oldFavoritePersistenceDirty = true }
+    onMutation: (dirty) => {
+      oldFavoritePersistenceDirtyCount = Math.max(0, oldFavoritePersistenceDirtyCount + (dirty ? 1 : -1))
+    }
   })
   ipcMain.on('old-favorite-workspace:renderer-dirty', (event) => {
     if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
@@ -1345,28 +1349,29 @@ if (singleInstanceGuard) app.whenReady().then(() => {
 })
 
 const oldFavoriteQuitBarrier = createOldFavoriteQuitBarrier({
-  shouldFlush: () => oldFavoritePersistenceDirty || oldFavoriteRendererFlushCoordinator.isDirty(),
+  shouldFlush: () => oldFavoritePersistenceDirtyCount > 0 || oldFavoriteRendererFlushCoordinator.isDirty(),
   prepare: () => {
-    appQuitting = true
-    if (!oldFavoriteRuntimeStore || !oldFavoriteSessionStore) return
-    oldFavoriteRuntimeStore?.prepareForShutdown()
-    if (oldFavoriteSessionStore) {
-      oldFavoriteSessionStore.saveForShutdown(oldFavoriteSessionStore.load())
-    }
+    if (!oldFavoriteSessionStore?.load().lease) return
+    oldFavoriteSessionStore.saveForShutdown(oldFavoriteSessionStore.load())
+    oldFavoritePersistenceDirtyCount += 1
   },
   flush: async () => {
-    await oldFavoriteRendererFlushCoordinator.requestFlush((requestId) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('old-favorite-workspace:flush-requested', requestId)
-      } else {
-        oldFavoriteRendererFlushCoordinator.complete(requestId, false)
-      }
-    })
+    appQuitting = true
+    const persistenceDirtyAtFlushStart = oldFavoritePersistenceDirtyCount
+    if (oldFavoriteRendererFlushCoordinator.isDirty()) {
+      await oldFavoriteRendererFlushCoordinator.requestFlush((requestId) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('old-favorite-workspace:flush-requested', requestId)
+        } else {
+          oldFavoriteRendererFlushCoordinator.complete(requestId, false)
+        }
+      })
+    }
     await Promise.all([
-      flushOldFavoritePersistence?.() ?? Promise.resolve(),
-      oldFavoriteWorkspaceService?.flush() ?? Promise.resolve()
+      oldFavoritePersistenceDirtyCount > 0 ? (flushOldFavoritePersistence?.() ?? Promise.resolve()) : Promise.resolve(),
+      oldFavoritePersistenceDirtyCount > 0 ? (oldFavoriteWorkspaceService?.flush() ?? Promise.resolve()) : Promise.resolve()
     ])
-    oldFavoritePersistenceDirty = false
+    oldFavoritePersistenceDirtyCount = Math.max(0, oldFavoritePersistenceDirtyCount - persistenceDirtyAtFlushStart)
   },
   quit: () => app.quit()
 })

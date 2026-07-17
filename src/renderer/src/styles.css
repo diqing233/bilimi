@@ -3604,6 +3604,26 @@ body[data-floating-window="true"],
 .favorite-ledger-panel__workspace > .favorite-ledger-panel__editor {
   margin-top: 0;
 }
+.favorite-ledger-panel__editor-empty {
+  margin: 0;
+  padding: 8px;
+  color: var(--porcelain-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.favorite-ledger-panel__old-favorite-recovery {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid rgba(31, 99, 181, 0.24);
+  background: rgba(220, 238, 255, 0.5);
+}
+.favorite-ledger-panel__old-favorite-recovery p {
+  margin: 0;
+  color: var(--porcelain-muted);
+  font-size: 12px;
+}
 .favorite-ledger-panel__category-header,
 .favorite-ledger-panel__editor-title {
   justify-content: space-between;

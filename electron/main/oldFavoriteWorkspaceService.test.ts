@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -17,6 +17,25 @@ afterEach(async () => {
 })
 
 describe('OldFavoriteWorkspaceService', () => {
+  it('reuses the newest active full batch without deleting existing duplicates', async () => {
+    const root = await createRoot()
+    const accountDirectory = join(root, 'accounts', '42')
+    await mkdir(accountDirectory, { recursive: true })
+    await writeFile(join(accountDirectory, 'index.json'), JSON.stringify({
+      version: 2,
+      accountMid: '42',
+      batches: [
+        { id: 'older', storageKey: 'older-key', kind: 'full', createdAt: '2026-07-17T10:00:00Z', status: 'active' },
+        { id: 'newer', storageKey: 'newer-key', kind: 'full', createdAt: '2026-07-17T10:00:11Z', status: 'active' }
+      ]
+    }), 'utf8')
+    const service = new OldFavoriteWorkspaceService({ root })
+
+    const result = await service.createBatch({ accountMid: '42', kind: 'full', id: 'third', createdAt: '2026-07-17T10:01:00Z' })
+
+    expect(result.id).toBe('newer')
+    expect((await service.openAccount('42')).batches.map((batch) => batch.id)).toEqual(['older', 'newer'])
+  })
   it('does no filesystem work until an account is explicitly opened', async () => {
     const root = await createRoot()
     const access = vi.fn()
@@ -296,6 +315,20 @@ describe('OldFavoriteWorkspaceService', () => {
     })
 
     expect(retried).toEqual(first)
+    expect((await service.openAccount('100')).batches).toEqual([first])
+  })
+
+  it('atomically reuses one active full batch across concurrent creation requests', async () => {
+    const root = await createRoot()
+    const service = new OldFavoriteWorkspaceService({ root })
+    await service.openAccount('100')
+
+    const [first, second] = await Promise.all([
+      service.createBatch({ accountMid: '100', kind: 'full', id: 'concurrent-a' }),
+      service.createBatch({ accountMid: '100', kind: 'full', id: 'concurrent-b' })
+    ])
+
+    expect(second.id).toBe(first.id)
     expect((await service.openAccount('100')).batches).toEqual([first])
   })
 

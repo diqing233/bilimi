@@ -95,37 +95,46 @@ export class OldFavoriteWorkspaceService {
     id?: string
   }): Promise<OldFavoriteBatchSummary> {
     const account = validAccountMid(options.accountMid)
-    const index = await this.requireIndex(account)
-    const requestedId = options.id?.trim()
-    if (requestedId) {
-      const existing = index.batches.find((batch) => batch.id === requestedId)
-      if (existing) {
-        if (existing.kind !== options.kind || (options.createdAt && existing.createdAt !== options.createdAt)) {
-          throw new Error('Old favorite batch id already belongs to another batch.')
+    return this.queueWrite(async () => {
+      const index = await this.requireIndex(account)
+      const requestedId = options.id?.trim()
+      if (requestedId) {
+        const existing = index.batches.find((batch) => batch.id === requestedId)
+        if (existing) {
+          if (existing.kind !== options.kind || (options.createdAt && existing.createdAt !== options.createdAt)) {
+            throw new Error('Old favorite batch id already belongs to another batch.')
+          }
+          return structuredClone(existing)
         }
-        return structuredClone(existing)
       }
-    }
-    const summary: OldFavoriteBatchSummary = {
-      id: requestedId || `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`,
-      storageKey: '',
-      kind: options.kind,
-      createdAt: options.createdAt ?? new Date().toISOString(),
-      status: 'active'
-    }
-    summary.storageKey = batchStorageKey(summary.id)
-    const manifest: OldFavoriteBatchManifest = {
-      version: 2,
-      accountMid: account,
-      ...summary,
-      chunks: []
-    }
-    await this.atomicWriteJson(this.manifestPath(account, summary.id), manifest)
-    const nextIndex = { ...index, batches: [...index.batches, summary] }
-    await this.atomicWriteJson(this.indexPath(account), nextIndex)
-    index.batches.push(summary)
-    this.manifests.set(this.batchKey(account, summary.id), manifest)
-    return structuredClone(summary)
+      if (options.kind === 'full') {
+        const activeFull = index.batches
+          .filter((batch) => batch.kind === 'full' && batch.status === 'active')
+          .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+          .at(-1)
+        if (activeFull) return structuredClone(activeFull)
+      }
+      const summary: OldFavoriteBatchSummary = {
+        id: requestedId || `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`,
+        storageKey: '',
+        kind: options.kind,
+        createdAt: options.createdAt ?? new Date().toISOString(),
+        status: 'active'
+      }
+      summary.storageKey = batchStorageKey(summary.id)
+      const manifest: OldFavoriteBatchManifest = {
+        version: 2,
+        accountMid: account,
+        ...summary,
+        chunks: []
+      }
+      await this.atomicWriteJson(this.manifestPath(account, summary.id), manifest)
+      const nextIndex = { ...index, batches: [...index.batches, summary] }
+      await this.atomicWriteJson(this.indexPath(account), nextIndex)
+      index.batches.push(summary)
+      this.manifests.set(this.batchKey(account, summary.id), manifest)
+      return structuredClone(summary)
+    })
   }
 
   async appendChunk(

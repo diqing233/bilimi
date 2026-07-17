@@ -13,7 +13,7 @@ type RegisterOptions = {
   getStore?: () => Promise<OldFavoriteSessionStore>
   isTrustedSender: (senderId: number) => boolean
   broadcast: (state: OldFavoriteSessionsState) => void
-  onMutation?: () => void
+  onMutation?: (dirty: boolean) => void
 }
 
 function assertTrusted(event: IpcEvent, isTrustedSender: RegisterOptions['isTrustedSender']): void {
@@ -35,45 +35,51 @@ export function registerOldFavoriteSessionIpc(options: RegisterOptions): void {
     assertTrusted(event, isTrustedSender)
     const store = await getStore()
     store.save(state)
-    options.onMutation?.()
+    options.onMutation?.(true)
     await store.flush()
+    options.onMutation?.(false)
     const saved = store.load()
     broadcast(saved)
     return saved
   })
   ipcMain.handle(
     'old-favorite-sessions:claim-lease',
-    (event, batchId: string, segmentId: string, task: OldFavoriteTaskKind, accountMid: string) => {
+    async (event, batchId: string, segmentId: string, task: OldFavoriteTaskKind, accountMid: string) => {
       assertTrusted(event, isTrustedSender)
-      const claim = (store: OldFavoriteSessionStore) => {
+      const claim = async (store: OldFavoriteSessionStore) => {
         const claimed = store.claimLease(batchId, segmentId, task, accountMid, event.sender.id)
         if (claimed) {
-          options.onMutation?.()
+          options.onMutation?.(true)
+          await store.flush()
+          options.onMutation?.(false)
           broadcast(store.load())
         }
         return claimed
       }
-      return options.store ? claim(options.store) : getStore().then(claim)
+      return claim(await getStore())
     }
   )
-  ipcMain.handle('old-favorite-sessions:release-lease', (event, batchId: string, segmentId: string) => {
+  ipcMain.handle('old-favorite-sessions:release-lease', async (event, batchId: string, segmentId: string) => {
     assertTrusted(event, isTrustedSender)
-    const release = (store: OldFavoriteSessionStore) => {
+    const release = async (store: OldFavoriteSessionStore) => {
       const released = store.releaseLease(batchId, segmentId, event.sender.id)
       if (released) {
-        options.onMutation?.()
+        options.onMutation?.(true)
+        await store.flush()
+        options.onMutation?.(false)
         broadcast(store.load())
       }
       return released
     }
-    return options.store ? release(options.store) : getStore().then(release)
+    return release(await getStore())
   })
   ipcMain.handle('old-favorite-sessions:reset-account', async (event, accountMid: string) => {
     assertTrusted(event, isTrustedSender)
     const store = await getStore()
     const saved = store.resetAccount(accountMid)
-    options.onMutation?.()
+    options.onMutation?.(true)
     await store.flush()
+    options.onMutation?.(false)
     broadcast(saved)
     return saved
   })

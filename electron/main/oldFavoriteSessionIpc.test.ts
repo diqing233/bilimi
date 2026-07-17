@@ -52,7 +52,7 @@ describe('registerOldFavoriteSessionIpc', () => {
     expect(store.load().batches).toEqual([])
   })
 
-  it('atomically claims and owner-releases the global lease and broadcasts each change', () => {
+  it('atomically claims and owner-releases the global lease and broadcasts each change', async () => {
     const ipcMain = new FakeIpcMain()
     const store = new OldFavoriteSessionStore(new MemoryBackend())
     const state = createState()
@@ -62,10 +62,10 @@ describe('registerOldFavoriteSessionIpc', () => {
     const batch = state.batches[0]
     const args = [batch.id, batch.segments[0].id, 'scan', '42']
 
-    expect(ipcMain.invoke('old-favorite-sessions:claim-lease', 7, ...args)).toBe(true)
-    expect(ipcMain.invoke('old-favorite-sessions:claim-lease', 8, ...args)).toBe(false)
-    expect(ipcMain.invoke('old-favorite-sessions:release-lease', 8, batch.id, batch.segments[0].id)).toBe(false)
-    expect(ipcMain.invoke('old-favorite-sessions:release-lease', 7, batch.id, batch.segments[0].id)).toBe(true)
+    await expect(ipcMain.invoke('old-favorite-sessions:claim-lease', 7, ...args)).resolves.toBe(true)
+    await expect(ipcMain.invoke('old-favorite-sessions:claim-lease', 8, ...args)).resolves.toBe(false)
+    await expect(ipcMain.invoke('old-favorite-sessions:release-lease', 8, batch.id, batch.segments[0].id)).resolves.toBe(false)
+    await expect(ipcMain.invoke('old-favorite-sessions:release-lease', 7, batch.id, batch.segments[0].id)).resolves.toBe(true)
     expect(broadcast).toHaveBeenCalledTimes(2)
   })
 

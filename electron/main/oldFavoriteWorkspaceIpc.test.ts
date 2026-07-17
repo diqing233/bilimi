@@ -95,7 +95,26 @@ describe('registerOldFavoriteWorkspaceIpc', () => {
     expect(service.patchOverlay).toHaveBeenCalledWith('42', 'b1', 'user', { aid: 1, targets: ['game'] })
     expect(service.finalizeBatch).toHaveBeenCalledWith('42', 'b1')
     expect(service.resetAccount).toHaveBeenCalledWith('42')
-    expect(onMutation).toHaveBeenCalledTimes(6)
+    expect(onMutation.mock.calls).toEqual([
+      [true], [false], [true], [false], [true], [false],
+      [true], [false], [true], [false], [true], [false]
+    ])
     expect(ipcMain.handlers.has('old-favorite-workspace:mutate-bilibili')).toBe(false)
+  })
+
+  it('keeps persistence dirty when a workspace write fails', async () => {
+    const ipcMain = new FakeIpcMain()
+    const onMutation = vi.fn()
+    registerOldFavoriteWorkspaceIpc({
+      ipcMain,
+      service: { createBatch: vi.fn().mockRejectedValue(new Error('disk full')) } as never,
+      isTrustedSender: () => true,
+      onMutation
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace:create-batch', 7, {
+      accountMid: '42', kind: 'full', id: 'b1'
+    })).rejects.toThrow('disk full')
+    expect(onMutation.mock.calls).toEqual([[true]])
   })
 })

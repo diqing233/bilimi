@@ -10,13 +10,19 @@ export function registerOldFavoriteWorkspaceIpc(options: {
   service: OldFavoriteWorkspaceService
   isTrustedSender: (senderId: number) => boolean
   send?: (senderId: number, channel: string, payload: unknown) => void
-  onMutation?: () => void
+  onMutation?: (dirty: boolean) => void
 }) {
   const subscriptions = new Map<number, Set<string>>()
   const assertTrusted = (event: IpcEvent) => {
     if (!options.isTrustedSender(event.sender.id)) {
       throw new Error('Old favorite workspace request came from an untrusted renderer.')
     }
+  }
+  const persistMutation = async <T>(work: () => Promise<T>): Promise<T> => {
+    options.onMutation?.(true)
+    const result = await work()
+    options.onMutation?.(false)
+    return result
   }
 
   options.ipcMain.handle('old-favorite-workspace:open-account', (event, accountMid: string) => {
@@ -33,8 +39,7 @@ export function registerOldFavoriteWorkspaceIpc(options: {
   })
   options.ipcMain.handle('old-favorite-workspace:create-batch', (event, input: Parameters<OldFavoriteWorkspaceService['createBatch']>[0]) => {
     assertTrusted(event)
-    options.onMutation?.()
-    return options.service.createBatch(input)
+    return persistMutation(() => options.service.createBatch(input))
   })
   options.ipcMain.handle('old-favorite-workspace:append-chunk', (
     event,
@@ -44,8 +49,7 @@ export function registerOldFavoriteWorkspaceIpc(options: {
     items: unknown[]
   ) => {
     assertTrusted(event)
-    options.onMutation?.()
-    return options.service.appendChunk(accountMid, batchId, kind, items)
+    return persistMutation(() => options.service.appendChunk(accountMid, batchId, kind, items))
   })
   options.ipcMain.handle('old-favorite-workspace:append-chunk-group', (
     event,
@@ -54,8 +58,7 @@ export function registerOldFavoriteWorkspaceIpc(options: {
     chunks: Parameters<OldFavoriteWorkspaceService['appendChunkGroup']>[2]
   ) => {
     assertTrusted(event)
-    options.onMutation?.()
-    return options.service.appendChunkGroup(accountMid, batchId, chunks)
+    return persistMutation(() => options.service.appendChunkGroup(accountMid, batchId, chunks))
   })
   options.ipcMain.handle('old-favorite-workspace:patch-overlay', (
     event,
@@ -65,18 +68,15 @@ export function registerOldFavoriteWorkspaceIpc(options: {
     patch: Parameters<OldFavoriteWorkspaceService['patchOverlay']>[3]
   ) => {
     assertTrusted(event)
-    options.onMutation?.()
-    return options.service.patchOverlay(accountMid, batchId, kind, patch)
+    return persistMutation(() => options.service.patchOverlay(accountMid, batchId, kind, patch))
   })
   options.ipcMain.handle('old-favorite-workspace:finalize-batch', (event, accountMid: string, batchId: string) => {
     assertTrusted(event)
-    options.onMutation?.()
-    return options.service.finalizeBatch(accountMid, batchId)
+    return persistMutation(() => options.service.finalizeBatch(accountMid, batchId))
   })
   options.ipcMain.handle('old-favorite-workspace:reset-account', (event, accountMid: string) => {
     assertTrusted(event)
-    options.onMutation?.()
-    return options.service.resetAccount(accountMid)
+    return persistMutation(() => options.service.resetAccount(accountMid))
   })
   options.ipcMain.handle('old-favorite-workspace:subscribe', (event, accountMid: string, batchId: string) => {
     assertTrusted(event)

@@ -81,4 +81,25 @@ describe('createOldFavoriteQuitBarrier', () => {
       vi.useRealTimers()
     }
   })
+
+  it('runs only the dirty lightweight prepare before a bounded flush timeout', async () => {
+    vi.useFakeTimers()
+    try {
+      const prepare = vi.fn()
+      const flush = vi.fn(() => new Promise<void>(() => undefined))
+      const quit = vi.fn()
+      const barrier = createOldFavoriteQuitBarrier({
+        shouldFlush: () => true, prepare, flush, quit, flushTimeoutMs: 100
+      })
+
+      barrier({ preventDefault: vi.fn() })
+      await vi.advanceTimersByTimeAsync(100)
+
+      expect(prepare).toHaveBeenCalledOnce()
+      expect(flush).toHaveBeenCalledOnce()
+      expect(quit).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
