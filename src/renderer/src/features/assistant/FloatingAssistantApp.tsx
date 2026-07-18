@@ -694,7 +694,8 @@ export function FloatingAssistantApp({
   const startupDeepSeekValidationAttempted = useRef(false)
   const deepSeekConnectionValidationInFlight = useRef(false)
   const deepSeekConnectionValidationSaveRequired = useRef(false)
-  const snapshotLoadQueue = useRef<Promise<void>>(Promise.resolve())
+  const snapshotLoadGeneration = useRef(0)
+  const snapshotChangeLoadScheduled = useRef(false)
   const [preferences, setPreferences] = useState<AssistantPreferences>(() =>
     createInitialAssistantPreferences()
   )
@@ -1030,12 +1031,14 @@ export function FloatingAssistantApp({
   }
 
   const loadSnapshot = useCallback(({ resetVideoNote = false } = {}) => {
-    const nextLoad = snapshotLoadQueue.current.then(async () => {
+    const loadGeneration = snapshotLoadGeneration.current + 1
+    snapshotLoadGeneration.current = loadGeneration
+    const nextLoad = (async () => {
       try {
       const nextSnapshot =
         (await window.bilimiDesktop?.requestAssistantSnapshot?.()) ?? createFallbackSnapshot()
 
-      if (!mounted.current) {
+      if (!mounted.current || loadGeneration !== snapshotLoadGeneration.current) {
         return
       }
 
@@ -1082,7 +1085,7 @@ export function FloatingAssistantApp({
         setVideoNote(null)
       }
       } catch (error) {
-        if (!mounted.current) {
+        if (!mounted.current || loadGeneration !== snapshotLoadGeneration.current) {
           return
         }
 
@@ -1100,8 +1103,7 @@ export function FloatingAssistantApp({
           missingTargets: []
         })
       }
-    })
-    snapshotLoadQueue.current = nextLoad.catch(() => undefined)
+    })()
     return nextLoad
   }, [])
 
@@ -1227,7 +1229,14 @@ export function FloatingAssistantApp({
 
   useEffect(() => {
     return window.bilimiDesktop?.onAssistantSnapshotChanged?.(() => {
-      void loadSnapshot({ resetVideoNote: true })
+      if (snapshotChangeLoadScheduled.current) return
+      snapshotChangeLoadScheduled.current = true
+      queueMicrotask(() => {
+        snapshotChangeLoadScheduled.current = false
+        if (mounted.current) {
+          void loadSnapshot({ resetVideoNote: true })
+        }
+      })
     })
   }, [loadSnapshot])
 
@@ -2515,10 +2524,11 @@ export function FloatingAssistantApp({
     }, [])
 
   async function executeOldFavoritePlan(
-    items: FavoriteLedgerPreviewItem[]
+    items: FavoriteLedgerPreviewItem[],
+    expectedAccountMid?: string
   ): Promise<AssistantAutomationResult> {
     const result =
-      (await window.bilimiDesktop?.executeOldFavoritePlan?.(items)) ??
+      (await window.bilimiDesktop?.executeOldFavoritePlan?.(items, expectedAccountMid)) ??
       createDefaultResult('旧藏已归册。')
 
     return result
@@ -2767,9 +2777,9 @@ export function FloatingAssistantApp({
             onSaveLedgers={saveFavoriteLedgers}
             onOpenFavoritePage={openFavoritePage}
             onScanOldFavorites={scanOldFavorites}
-            onReadCurrentOldFavoriteAccount={resolvedSnapshot.accountMid !== undefined
-              ? async () => resolvedSnapshot.accountMid ?? ''
-              : undefined}
+            onReadCurrentOldFavoriteAccount={async () => {
+              return (await window.bilimiDesktop?.readBilibiliAccountMid?.())?.trim() ?? ''
+            }}
             onReadOldFavoriteTagEnrichment={readOldFavoriteTagEnrichment}
             onCommitOldFavoriteBatchCheckpoint={commitOldFavoriteBatchCheckpoint}
             onReadOldFavoriteBatchStatus={readOldFavoriteBatchStatus}

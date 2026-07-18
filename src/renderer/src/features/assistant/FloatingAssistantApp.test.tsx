@@ -8,8 +8,8 @@ import type {
   VideoNoteArchiveEntry
 } from '@shared/types'
 import { readFileSync } from 'node:fs'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FloatingAssistantApp } from './FloatingAssistantApp'
 import { resetOldFavoriteRuntimeSession } from './FavoriteLedgerPanel'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
@@ -115,7 +115,7 @@ function createResult(message = '已代批。'): AssistantAutomationResult {
 }
 
 function selectDeepSeekArchiveScope(label: string) {
-  fireEvent.click(screen.getByRole('button', { name: '整理范围' }))
+  fireEvent.click(screen.getByRole('button', { name: '整理对象' }))
   fireEvent.click(screen.getByRole('menuitemradio', { name: label }))
 }
 
@@ -215,6 +215,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     ]
   })
   const loadDeepSeekApiKeyStatus = vi.fn().mockResolvedValue({ configured: true })
+  const readBilibiliAccountMid = vi.fn().mockResolvedValue('42')
   const saveOpenAiApiKey = vi.fn().mockResolvedValue({ configured: true })
   const clearOpenAiApiKey = vi.fn().mockResolvedValue({ configured: false })
   const ensureFavoriteLedgers = vi.fn().mockResolvedValue(createResult('册目已备齐。'))
@@ -244,6 +245,7 @@ function installDesktopApi(overrides: Partial<Window['bilimiDesktop']> = {}) {
     clearDeepSeekApiKey,
     testDeepSeekConnection,
     loadDeepSeekApiKeyStatus,
+    readBilibiliAccountMid,
     loadPreferences: vi.fn(),
     onAssistantSnapshotChanged,
     requestAssistantSnapshot,
@@ -324,7 +326,7 @@ describe('FloatingAssistantApp', () => {
     )
   })
 
-  it('does not replay historical runtime feedback when the assistant first mounts', async () => {
+  it('applies a refreshed snapshot before a deferred initial snapshot and ignores the late result', async () => {
     let snapshotChanged: (() => void) | undefined
     let resolveInitialSnapshot: ((snapshot: AssistantSnapshot) => void) | undefined
     const requestAssistantSnapshot = vi
@@ -336,6 +338,9 @@ describe('FloatingAssistantApp', () => {
       )
       .mockResolvedValueOnce(
         createSnapshot({
+          videoTitle: '新请求先返回的视频',
+          videoContentContext: { title: '新请求先返回的视频' },
+          activeTabUrl: 'https://www.bilibili.com/video/BV1newer',
           runtimeFeedback: 'DeepSeek 二判完成：这是一条新提示。',
           runtimeFeedbackId: 8
         })
@@ -352,19 +357,47 @@ describe('FloatingAssistantApp', () => {
     await waitFor(() => expect(requestAssistantSnapshot).toHaveBeenCalledTimes(1))
 
     act(() => snapshotChanged?.())
-    expect(requestAssistantSnapshot).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(requestAssistantSnapshot).toHaveBeenCalledTimes(2))
+
+    expect(await screen.findByText('新请求先返回的视频')).toBeInTheDocument()
 
     resolveInitialSnapshot?.(
       createSnapshot({
+        videoTitle: '迟到的旧视频',
+        videoContentContext: { title: '迟到的旧视频' },
+        activeTabUrl: 'https://www.bilibili.com/video/BV1older',
         runtimeFeedback: 'DeepSeek 二判完成：这是一条历史提示。',
         runtimeFeedbackId: 7
       })
     )
 
-    expect(await screen.findByLabelText('全局提示')).toHaveTextContent(
-      'DeepSeek 二判完成：这是一条新提示。'
-    )
+    await act(async () => Promise.resolve())
+    expect(screen.getByText('新请求先返回的视频')).toBeInTheDocument()
+    expect(screen.queryByText('迟到的旧视频')).not.toBeInTheDocument()
     expect(screen.getByLabelText('全局提示')).not.toHaveTextContent('这是一条历史提示')
+  })
+
+  it('coalesces snapshot change signals raised in the same tick', async () => {
+    let snapshotChanged: (() => void) | undefined
+    const requestAssistantSnapshot = vi.fn().mockResolvedValue(createSnapshot())
+    const desktop = installDesktopApi({
+      requestAssistantSnapshot,
+      onAssistantSnapshotChanged: vi.fn((callback: () => void) => {
+        snapshotChanged = callback
+        return vi.fn()
+      })
+    })
+
+    render(<FloatingAssistantApp />)
+    await waitFor(() => expect(requestAssistantSnapshot).toHaveBeenCalledTimes(1))
+
+    act(() => {
+      snapshotChanged?.()
+      snapshotChanged?.()
+      snapshotChanged?.()
+    })
+
+    await waitFor(() => expect(requestAssistantSnapshot).toHaveBeenCalledTimes(2))
   })
   const favoriteLedgerSafetyNote =
     '使用bilimi第一件事就是备册，生成专属收藏夹，同一个视频可以同时保存在不同的收藏夹里，小咪不会删除主人的旧收藏哦，安心使用吧'
@@ -373,6 +406,14 @@ describe('FloatingAssistantApp', () => {
     resetOldFavoriteRuntimeSession()
     window.localStorage.clear()
     window.sessionStorage.clear()
+  })
+
+  afterEach(() => {
+    cleanup()
+    resetOldFavoriteRuntimeSession()
+    vi.clearAllTimers()
+    vi.useRealTimers()
+    vi.restoreAllMocks()
   })
 
   it('responds to pet workspace requests inside the floating assistant window', async () => {
@@ -409,7 +450,7 @@ describe('FloatingAssistantApp', () => {
   })
 
   it('uses status lights as shortcuts to the related assistant area', async () => {
-    installDesktopApi({
+    const desktop = installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
           preferences: createPreferences({
@@ -446,6 +487,98 @@ describe('FloatingAssistantApp', () => {
 
     fireEvent.click(screen.getByLabelText('整理状态'))
     expect(screen.getByRole('tab', { name: '掌库' })).toHaveAttribute('aria-selected', 'true')
+    expect(desktop.scanOldFavorites).not.toHaveBeenCalled()
+  })
+
+  it('only navigates to the ledger when clicking a pending global old-favorite status', async () => {
+    const loadOldFavoriteSessions = vi.fn().mockResolvedValue({ version: 1, batches: [], lease: null })
+    const saveOldFavoriteSessions = vi.fn().mockResolvedValue({ version: 1, batches: [], lease: null })
+    const claimOldFavoriteTaskLease = vi.fn().mockResolvedValue(true)
+    const releaseOldFavoriteTaskLease = vi.fn().mockResolvedValue(true)
+    const onOldFavoriteSessionsChanged = vi.fn().mockReturnValue(vi.fn())
+    const openOldFavoriteWorkspaceAccount = vi.fn().mockResolvedValue(undefined)
+    const loadOldFavoriteWorkspaceBatch = vi.fn().mockResolvedValue(undefined)
+    const recoverOldFavoriteWorkspaceBatch = vi.fn().mockResolvedValue({ discardedTail: null })
+    const readOldFavoriteBatchStatus = vi.fn().mockResolvedValue({ pending: true })
+    const readBilibiliAccountMid = vi.fn().mockResolvedValue('42')
+    const prepareOldFavoriteScan = vi.fn().mockResolvedValue(createResult('已准备。'))
+    const scanOldFavorites = vi.fn().mockResolvedValue({ items: [], skippedSourceFolderTitles: [] })
+    const saveFavoriteLedgers = vi.fn().mockResolvedValue(createResult('掌库已同步。'))
+    const desktop = installDesktopApi({
+      loadOldFavoriteSessions,
+      saveOldFavoriteSessions,
+      claimOldFavoriteTaskLease,
+      releaseOldFavoriteTaskLease,
+      onOldFavoriteSessionsChanged,
+      openOldFavoriteWorkspaceAccount,
+      loadOldFavoriteWorkspaceBatch,
+      recoverOldFavoriteWorkspaceBatch,
+      readOldFavoriteBatchStatus,
+      readBilibiliAccountMid,
+      prepareOldFavoriteScan,
+      scanOldFavorites,
+      saveFavoriteLedgers
+    })
+    publishOldFavoriteRuntimeValue('oldFavoriteRuntimeStatus', {
+      label: '整理待确认 1',
+      message: '有 1 条旧藏待确认。',
+      tone: 'warn'
+    })
+
+    render(<FloatingAssistantApp />)
+
+    const status = await screen.findByLabelText('整理状态')
+    expect(status).toHaveTextContent('整理待确认 1')
+
+    fireEvent.click(status)
+
+    expect(screen.getByRole('tab', { name: '掌库' })).toHaveAttribute('aria-selected', 'true')
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '整理旧藏' })).not.toBeInTheDocument()
+    })
+    expect(desktop.scanOldFavorites).not.toHaveBeenCalled()
+    expect(loadOldFavoriteSessions).not.toHaveBeenCalled()
+    expect(saveOldFavoriteSessions).not.toHaveBeenCalled()
+    expect(openOldFavoriteWorkspaceAccount).not.toHaveBeenCalled()
+    expect(loadOldFavoriteWorkspaceBatch).not.toHaveBeenCalled()
+    expect(recoverOldFavoriteWorkspaceBatch).not.toHaveBeenCalled()
+    expect(readOldFavoriteBatchStatus).not.toHaveBeenCalled()
+    expect(readBilibiliAccountMid).not.toHaveBeenCalled()
+    expect(prepareOldFavoriteScan).not.toHaveBeenCalled()
+    expect(saveFavoriteLedgers).not.toHaveBeenCalled()
+  })
+
+  it('does not recover old favorites when the top status light opens the ledger', async () => {
+    const loadOldFavoriteSessions = vi.fn().mockResolvedValue({ version: 1, batches: [], lease: null })
+    const scanOldFavorites = vi.fn().mockResolvedValue({ items: [], skippedSourceFolderTitles: [] })
+    installDesktopApi({
+      loadOldFavoriteSessions,
+      saveOldFavoriteSessions: vi.fn().mockResolvedValue({ version: 1, batches: [], lease: null }),
+      claimOldFavoriteTaskLease: vi.fn().mockResolvedValue(true),
+      releaseOldFavoriteTaskLease: vi.fn().mockResolvedValue(true),
+      onOldFavoriteSessionsChanged: vi.fn().mockReturnValue(vi.fn()),
+      scanOldFavorites
+    })
+
+    render(<FloatingAssistantApp />)
+
+    await screen.findByRole('tab', { name: '批阅' })
+    fireEvent.click(screen.getByLabelText('整理状态'))
+
+    expect(loadOldFavoriteSessions).not.toHaveBeenCalled()
+    expect(scanOldFavorites).not.toHaveBeenCalled()
+  })
+
+  it('opens the ledger tab without loading old-favorite state from the ordinary tab click', async () => {
+    const loadOldFavoriteSessions = vi.fn()
+    installDesktopApi({ loadOldFavoriteSessions })
+
+    render(<FloatingAssistantApp />)
+
+    await screen.findByRole('tab', { name: '批阅' })
+    fireEvent.click(screen.getByRole('tab', { name: '掌库' }))
+
+    expect(loadOldFavoriteSessions).not.toHaveBeenCalled()
   })
 
   it('opens the note archive when a pet workspace request asks for 库', async () => {
@@ -606,7 +739,14 @@ describe('FloatingAssistantApp', () => {
     const generateDeepSeek = vi.fn(() => deepSeekOrganization.promise)
     const deepSeekResult = {
       kind: 'favorite-archive-organize',
-      results: [],
+      results: [{
+        aid: 901,
+        sourceFolderTitle: '默认收藏夹',
+        targetLedgerIds: ['knowledge'],
+        keepOriginal: false,
+        reason: '保持当前分类。',
+        lowConfidence: false
+      }],
       keywordSuggestions: [
         {
           id: 'deepseek-keyword-1',
@@ -662,7 +802,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
-    selectDeepSeekArchiveScope('当前分段')
+    selectDeepSeekArchiveScope('DeepSeek重新检查全部')
 
     expect(generateDeepSeek).not.toHaveBeenCalled()
     expect(screen.getByLabelText('DeepSeek状态')).not.toHaveTextContent('DeepSeek 工作中')
@@ -713,7 +853,14 @@ describe('FloatingAssistantApp', () => {
     const savePreferences = vi.fn().mockImplementation(async (preferences: AssistantPreferences) => preferences)
     const generateDeepSeek = vi.fn().mockResolvedValue({
       kind: 'favorite-archive-organize',
-      results: [],
+      results: [{
+        aid: 902,
+        sourceFolderTitle: '默认收藏夹',
+        targetLedgerIds: ['knowledge'],
+        keepOriginal: false,
+        reason: '保持当前分类。',
+        lowConfidence: false
+      }],
       keywordSuggestions: [
         {
           id: 'deepseek-keyword-duplicate-pending',
@@ -813,7 +960,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
-    selectDeepSeekArchiveScope('当前分段')
+    selectDeepSeekArchiveScope('DeepSeek重新检查全部')
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
 
     await waitFor(() =>
@@ -1061,7 +1208,11 @@ describe('FloatingAssistantApp', () => {
             lowConfidence: true
           }
         ],
-        skippedSourceFolderTitles: []
+        skippedSourceFolderTitles: [],
+        scanProgress: {
+          basic: { completed: 1, total: 1, status: 'complete' },
+          tags: { completed: 1, total: 1, pending: 0, cacheHits: 0, succeeded: 1, failed: 0, status: 'complete' }
+        }
       }),
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
@@ -1076,10 +1227,13 @@ describe('FloatingAssistantApp', () => {
     render(<FloatingAssistantApp mode="sidebar" />)
 
     fireEvent.click(await screen.findByRole('tab', { name: '掌库' }))
-    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    const organizeButton = await screen.findByRole('button', { name: '整理旧藏' })
+    await waitFor(() => expect(organizeButton).not.toBeDisabled())
+    fireEvent.click(organizeButton)
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
-    selectDeepSeekArchiveScope('当前分段')
+    await screen.findByText('AI 工具链教程')
+    selectDeepSeekArchiveScope('DeepSeek重新检查全部')
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
 
     expect(await screen.findByText('DeepSeek 正在整理旧藏...')).toBeInTheDocument()
@@ -1106,7 +1260,14 @@ describe('FloatingAssistantApp', () => {
     await act(async () => {
       deepSeekOrganization.resolve({
         kind: 'favorite-archive-organize',
-        results: [],
+        results: [{
+          aid: 901,
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerIds: ['knowledge'],
+          keepOriginal: false,
+          reason: '保持当前分类。',
+          lowConfidence: false
+        }],
         keywordSuggestions: []
       })
     })
@@ -1142,7 +1303,11 @@ describe('FloatingAssistantApp', () => {
             lowConfidence: true
           }
         ],
-        skippedSourceFolderTitles: []
+        skippedSourceFolderTitles: [],
+        scanProgress: {
+          basic: { completed: 1, total: 1, status: 'complete' },
+          tags: { completed: 1, total: 1, pending: 0, cacheHits: 0, succeeded: 1, failed: 0, status: 'complete' }
+        }
       }),
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
@@ -1160,6 +1325,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    await screen.findByText('需要恢复的旧藏')
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
     expect(await screen.findByText('DeepSeek 正在整理旧藏...')).toBeInTheDocument()
 
@@ -1178,7 +1344,14 @@ describe('FloatingAssistantApp', () => {
     await act(async () => {
       deepSeekOrganization.resolve({
         kind: 'favorite-archive-organize',
-        results: [],
+        results: [{
+          aid: 902,
+          sourceFolderTitle: '默认收藏夹',
+          targetLedgerIds: ['knowledge'],
+          keepOriginal: false,
+          reason: '保持当前分类。',
+          lowConfidence: false
+        }],
         keywordSuggestions: []
       })
     })
@@ -1774,7 +1947,7 @@ describe('FloatingAssistantApp', () => {
   })
 
   it('renders independent DeepSeek organization controls with a compact review mode select', async () => {
-    installDesktopApi({
+    const { savePreferences } = installDesktopApi({
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
           preferences: createPreferences({
@@ -1800,6 +1973,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(reviewToggle)
     expect(reviewMode).toBeDisabled()
     expect(archiveToggle).toBeChecked()
+    await waitFor(() => expect(savePreferences).toHaveBeenCalled())
   })
 
   it('enables every DeepSeek child feature only on the first master-switch activation', async () => {
@@ -3471,7 +3645,7 @@ describe('FloatingAssistantApp', () => {
     expect(screen.getByLabelText('DeepSeek 模型')).toHaveValue('deepseek-v4-flash')
     expect(screen.getByLabelText('DeepSeek 服务地址')).toHaveValue('https://api.deepseek.com')
 
-    act(() => {
+    await act(async () => {
       notifyPreferencesChanged?.(
         createPreferences({
           deepseekEnabled: true,
@@ -3483,10 +3657,12 @@ describe('FloatingAssistantApp', () => {
       )
     })
 
-    expect(screen.getByLabelText('DeepSeek 模型')).toHaveValue('deepseek-v4-pro')
-    expect(screen.getByLabelText('DeepSeek 服务地址')).toHaveValue(
-      'https://api.yunshulink.com/v1'
-    )
+    await waitFor(() => {
+      expect(screen.getByLabelText('DeepSeek 模型')).toHaveValue('deepseek-v4-pro')
+      expect(screen.getByLabelText('DeepSeek 服务地址')).toHaveValue(
+        'https://api.yunshulink.com/v1'
+      )
+    })
   })
 
   it('lists concurrent DeepSeek work without clearing unrelated tasks', async () => {
@@ -4578,78 +4754,6 @@ describe('FloatingAssistantApp', () => {
     expect(screen.queryByRole('region', { name: '待分类队列' })).not.toBeInTheDocument()
   })
 
-  it('keeps old favorite pet hints quiet between organization start and finish', async () => {
-    const setAssistantPetHint = vi.fn()
-    const setOldFavoriteBackgroundRunning = vi.fn()
-    const executeOldFavoritePlan = vi.fn().mockResolvedValueOnce(createResult('group done'))
-    installDesktopApi({
-      executeOldFavoritePlan,
-      setOldFavoriteBackgroundRunning,
-      requestAssistantSnapshot: vi.fn().mockResolvedValue(createSnapshot({
-        accountMid: undefined,
-        preferences: createPreferences({
-          favoriteLedgers: createBackedFavoriteLedgers(),
-          favoriteArchiveMultiMode: 'two'
-        })
-      })),
-      scanOldFavorites: vi.fn().mockResolvedValue({
-        items: [
-          {
-            aid: 101,
-            title: 'old favorite with two targets',
-            sourceFolderTitle: 'Default Favorites',
-            targetLedgerId: 'knowledge',
-            targetFolderId: '9001',
-            targetDisplayName: 'Bilimi Knowledge',
-            reviewRequired: false,
-            alreadyInTarget: false,
-            selected: true,
-            targets: [
-              {
-                ledgerId: 'knowledge',
-                folderId: '9001',
-                displayName: 'Bilimi Knowledge',
-                keywords: ['knowledge'],
-                alreadyInTarget: false,
-                selected: true
-              },
-              {
-                ledgerId: 'movie-tv',
-                folderId: '9002',
-                displayName: 'Bilimi Movie',
-                keywords: ['movie'],
-                alreadyInTarget: false,
-                selected: true
-              }
-            ]
-          }
-        ],
-        skippedSourceFolderTitles: []
-      }),
-      setAssistantPetHint
-    })
-
-    const { container } = render(<FloatingAssistantApp />)
-
-    await screen.findAllByRole('tab')
-    fireEvent.click(screen.getAllByRole('tab')[2])
-    fireEvent.click(container.querySelectorAll('.favorite-ledger-panel__toolbar button')[1])
-    await waitFor(() => expect(container.querySelector('.favorite-ledger-panel__old-favorites-guide')).toBeInTheDocument())
-    fireEvent.click(container.querySelectorAll('.favorite-ledger-panel__guide-steps button')[2])
-    fireEvent.click(container.querySelectorAll('.favorite-ledger-panel__guide-steps button')[3])
-    confirmOldFavoriteExecution()
-
-    await waitFor(() => expect(executeOldFavoritePlan).toHaveBeenCalledOnce())
-    expect(executeOldFavoritePlan).toHaveBeenCalledWith(expect.arrayContaining([
-      expect.objectContaining({ targetLedgerId: 'knowledge' }),
-      expect.objectContaining({ targetLedgerId: 'movie-tv' })
-    ]))
-    expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'working')).toBe(true)
-    expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.tone === 'happy')).toBe(true)
-    expect(setAssistantPetHint.mock.calls.some(([hint]) => hint?.message.includes('group done'))).toBe(false)
-    expect(setOldFavoriteBackgroundRunning.mock.calls).toEqual([[true], [false]])
-  })
-
   it('persists confirmed archive preview correction records after old favorite execution', async () => {
     const savePreferences = vi.fn().mockImplementation(async (preferences: AssistantPreferences) => preferences)
     const executeOldFavoritePlan = vi.fn().mockResolvedValue(createResult('old favorite done'))
@@ -4663,6 +4767,7 @@ describe('FloatingAssistantApp', () => {
     installDesktopApi({
       executeOldFavoritePlan,
       savePreferences,
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('42'),
       requestAssistantSnapshot: vi.fn().mockResolvedValue(
         createSnapshot({
           accountMid: undefined,
@@ -4690,7 +4795,11 @@ describe('FloatingAssistantApp', () => {
             lowConfidence: false
           }
         ],
-        skippedSourceFolderTitles: []
+        skippedSourceFolderTitles: [],
+        scanContext: {
+          accountMid: '42', sourceFolders: [], activeSourceFolders: [], protectedVideos: [],
+          managedFolders: [], targetMembership: {}, multiArchiveMode: 'two'
+        }
       })
     })
 

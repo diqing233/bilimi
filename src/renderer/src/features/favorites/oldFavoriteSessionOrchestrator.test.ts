@@ -56,6 +56,61 @@ describe('OldFavoriteSessionOrchestrator', () => {
     expect(harness.coordinator.acquire).not.toHaveBeenCalled()
     expect(harness.getState().batches.map((batch) => batch.id)).toEqual(['older', 'newer'])
   })
+
+  it('keeps an empty active full placeholder and creates a new full scan batch', async () => {
+    const empty = createOldFavoriteBatch({
+      accountMid: '42', kind: 'full', aids: [], now: '2026-07-17T10:00:00Z', id: 'empty'
+    })
+    const harness = createHarness({ version: 1, batches: [empty], lease: null })
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+
+    const result = await orchestrator.beginScan({
+      accountMid: '42', kind: 'full', now: '2026-07-17T10:01:00Z', id: 'replacement'
+    })
+
+    expect(result.batch.id).toBe('replacement')
+    expect(result.acquired).toBe(true)
+    expect(harness.getState().batches.map((batch) => batch.id)).toEqual(['empty', 'replacement'])
+  })
+
+  it('creates only one replacement full batch for concurrent scans after an old empty placeholder', async () => {
+    const empty = createOldFavoriteBatch({
+      accountMid: '42', kind: 'full', aids: [], now: '2026-07-17T10:00:00Z', id: 'empty'
+    })
+    const harness = createHarness({ version: 1, batches: [empty], lease: null })
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+
+    const [first, second] = await Promise.all([
+      orchestrator.beginScan({
+        accountMid: '42', kind: 'full', now: '2026-07-17T10:01:00Z', id: 'replacement-a'
+      }),
+      orchestrator.beginScan({
+        accountMid: '42', kind: 'full', now: '2026-07-17T10:01:01Z', id: 'replacement-b'
+      })
+    ])
+
+    expect(second.batch.id).toBe(first.batch.id)
+    expect(harness.getState().batches.map((batch) => batch.id)).toEqual(['empty', first.batch.id])
+  })
+
+  it('continues a persisted running full placeholder after restart', async () => {
+    const placeholder = createOldFavoriteBatch({
+      accountMid: '42', kind: 'full', aids: [], now: '2026-07-17T10:00:00Z', id: 'running-placeholder'
+    })
+    placeholder.segments = [{
+      id: 'running-placeholder:segment:1', index: 0, aids: [], status: 'running',
+      task: { kind: 'scan', status: 'running', requestState: 'idle' }
+    }]
+    const harness = createHarness({ version: 1, batches: [placeholder], lease: null })
+    const restarted = new OldFavoriteSessionOrchestrator(harness.coordinator)
+
+    const result = await restarted.beginScan({
+      accountMid: '42', kind: 'full', now: '2026-07-17T10:01:00Z', id: 'duplicate'
+    })
+
+    expect(result).toMatchObject({ batch: { id: 'running-placeholder' }, acquired: false })
+    expect(harness.getState().batches).toHaveLength(1)
+  })
   it('tracks each online request and records an unknown result before releasing on rejection', async () => {
     const batch = createOldFavoriteBatch({
       accountMid: '42', kind: 'full', aids: [11, 12], now: '2026-07-16T08:00:00Z'

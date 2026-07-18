@@ -5,6 +5,8 @@ type VersionedValue = {
   value: unknown
 }
 
+export type OldFavoriteRuntimeAccountSnapshot = Record<string, VersionedValue>
+
 type PersistedRuntimeState = {
   accounts: Record<string, Record<string, VersionedValue>>
   global: Record<string, VersionedValue>
@@ -173,10 +175,34 @@ export class OldFavoriteRuntimeStore {
     if (!normalized || !this.backend) return false
     const persisted = this.readPersisted()
     if (!(normalized in persisted.accounts)) return false
+    const previous = structuredClone(persisted)
     delete persisted.accounts[normalized]
-    this.backend.set(STORE_KEY, encodeRuntimeValue(persisted))
+    try {
+      this.backend.set(STORE_KEY, encodeRuntimeValue(persisted))
+    } catch (error) {
+      try { this.backend.set(STORE_KEY, encodeRuntimeValue(previous)) } catch { /* preserve the original failure */ }
+      throw error
+    }
     if (this.accountMid === normalized) this.loadBoundAccount()
     return true
+  }
+
+  captureAccount(accountMid: string): OldFavoriteRuntimeAccountSnapshot | null {
+    const normalized = accountMid.trim()
+    if (!normalized || !this.backend) return null
+    const persisted = this.readPersisted()
+    const account = persisted.accounts[normalized]
+    return account ? structuredClone(account) : null
+  }
+
+  restoreAccount(accountMid: string, snapshot: OldFavoriteRuntimeAccountSnapshot | null): void {
+    const normalized = accountMid.trim()
+    if (!normalized || !this.backend) return
+    const persisted = this.readPersisted()
+    if (snapshot) persisted.accounts[normalized] = structuredClone(snapshot)
+    else delete persisted.accounts[normalized]
+    this.backend.set(STORE_KEY, encodeRuntimeValue(persisted))
+    if (this.accountMid === normalized) this.loadBoundAccount()
   }
 
   prepareForShutdown(): void {

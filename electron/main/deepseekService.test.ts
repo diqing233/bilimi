@@ -313,6 +313,37 @@ describe('DeepSeek main service', () => {
     )
   })
 
+  it('sends JSON response format and a bounded output token budget for archive organization', async () => {
+    const fetchImpl = createJsonFetch(
+      JSON.stringify({
+        results: [],
+        keywordSuggestions: []
+      })
+    )
+
+    await generateDeepSeekResult({
+      config: baseConfig,
+      request: {
+        kind: 'favorite-archive-organize',
+        mode: 'all',
+        videos: [],
+        ledgers: [],
+        multiArchiveLimit: 1
+      },
+      fetchImpl
+    })
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body)) as {
+      response_format?: { type?: string }
+      max_tokens?: number
+    }
+
+    expect(body).toMatchObject({
+      response_format: { type: 'json_object' },
+      max_tokens: 4096
+    })
+  })
+
   it('marks archive unclassified results invalid when a meaningful video only lacks an exact category', async () => {
     const result = await generateDeepSeekResult({
       config: baseConfig,
@@ -856,6 +887,39 @@ describe('DeepSeek main service', () => {
     expect(systemMessage).toContain('掌库')
     expect(systemMessage).toContain('札记')
     expect(systemMessage).toContain('DeepSeek')
+  })
+
+  it('maps invalid response JSON to an identifiable invalid-output code', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: vi.fn().mockResolvedValue('not valid JSON')
+    })
+
+    await expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: {
+          kind: 'pet-chat',
+          messages: [{ role: 'user', content: 'hello' }]
+        },
+        fetchImpl
+      })
+    ).rejects.toMatchObject({ code: 'invalid-output' })
+  })
+
+  it('maps fetch failures to an identifiable network-error code', async () => {
+    await expect(
+      generateDeepSeekResult({
+        config: baseConfig,
+        request: {
+          kind: 'pet-chat',
+          messages: [{ role: 'user', content: 'hello' }]
+        },
+        fetchImpl: vi.fn().mockRejectedValue(new Error('connection refused'))
+      })
+    ).rejects.toMatchObject({ code: 'network-error' })
   })
 
   it('maps non-OK API responses to api-error', async () => {

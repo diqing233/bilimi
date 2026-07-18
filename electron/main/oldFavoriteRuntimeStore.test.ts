@@ -46,6 +46,22 @@ describe('OldFavoriteRuntimeStore', () => {
     }
   }
 
+  function writeThenFailBackend() {
+    const values = new Map<string, unknown>()
+    let failNext = false
+    return {
+      get: (key: string) => values.get(key),
+      set: (key: string, value: unknown) => {
+        values.set(key, structuredClone(value))
+        if (failNext) {
+          failNext = false
+          throw new Error('disk full')
+        }
+      },
+      failNextWrite: () => { failNext = true }
+    }
+  }
+
   it('accepts the first matching revision and rejects a stale conflicting write', () => {
     const store = new OldFavoriteRuntimeStore()
     const initial = store.get('archivePlanState', null)
@@ -200,6 +216,24 @@ describe('OldFavoriteRuntimeStore', () => {
     const reopened = new OldFavoriteRuntimeStore(backend)
     reopened.bindAccount('42')
     expect(reopened.get('oldFavoriteExecutionPhase', null).value).toBeNull()
+    reopened.bindAccount('99')
+    expect(reopened.get('oldFavoriteExecutionPhase', null).value).toBe('idle')
+  })
+
+  it('keeps the account runtime intact when reset persistence fails after writing', () => {
+    const backend = writeThenFailBackend()
+    const store = new OldFavoriteRuntimeStore(backend)
+    store.bindAccount('42')
+    store.set('oldFavoriteExecutionPhase', 'paused', 0)
+    store.bindAccount('99')
+    store.set('oldFavoriteExecutionPhase', 'idle', 0)
+    backend.failNextWrite()
+
+    expect(() => store.resetAccount('42')).toThrow('disk full')
+
+    const reopened = new OldFavoriteRuntimeStore(backend)
+    reopened.bindAccount('42')
+    expect(reopened.get('oldFavoriteExecutionPhase', null).value).toBe('paused')
     reopened.bindAccount('99')
     expect(reopened.get('oldFavoriteExecutionPhase', null).value).toBe('idle')
   })

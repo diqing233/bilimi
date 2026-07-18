@@ -102,7 +102,7 @@ describe('registerOldFavoriteWorkspaceIpc', () => {
     expect(ipcMain.handlers.has('old-favorite-workspace:mutate-bilibili')).toBe(false)
   })
 
-  it('keeps persistence dirty when a workspace write fails', async () => {
+  it('does not mark persistence dirty when a workspace write fails before completing work', async () => {
     const ipcMain = new FakeIpcMain()
     const onMutation = vi.fn()
     registerOldFavoriteWorkspaceIpc({
@@ -116,5 +116,43 @@ describe('registerOldFavoriteWorkspaceIpc', () => {
       accountMid: '42', kind: 'full', id: 'b1'
     })).rejects.toThrow('disk full')
     expect(onMutation.mock.calls).toEqual([[true]])
+  })
+
+  it('marks a workspace write dirty before awaiting the filesystem mutation', async () => {
+    const ipcMain = new FakeIpcMain()
+    let resolveWrite!: (value: { id: string }) => void
+    const onMutation = vi.fn((dirty: boolean) => dirty ? Symbol('pending-write') : undefined)
+    registerOldFavoriteWorkspaceIpc({
+      ipcMain,
+      service: { createBatch: vi.fn(() => new Promise((resolve) => { resolveWrite = resolve })) } as never,
+      isTrustedSender: () => true,
+      onMutation
+    })
+
+    const writing = ipcMain.invoke('old-favorite-workspace:create-batch', 7, {
+      accountMid: '42', kind: 'full', id: 'b1'
+    })
+
+    expect(onMutation).toHaveBeenCalledWith(true)
+    resolveWrite({ id: 'b1' })
+    await writing
+  })
+
+  it('finishes only the mutation token returned for a successful workspace write', async () => {
+    const ipcMain = new FakeIpcMain()
+    const mutation = Symbol('workspace-mutation')
+    const onMutation = vi.fn((dirty: boolean) => dirty ? mutation : undefined)
+    registerOldFavoriteWorkspaceIpc({
+      ipcMain,
+      service: { createBatch: vi.fn().mockResolvedValue({ id: 'b1' }) } as never,
+      isTrustedSender: () => true,
+      onMutation
+    })
+
+    await ipcMain.invoke('old-favorite-workspace:create-batch', 7, {
+      accountMid: '42', kind: 'full', id: 'b1'
+    })
+
+    expect(onMutation.mock.calls).toEqual([[true], [false, mutation]])
   })
 })

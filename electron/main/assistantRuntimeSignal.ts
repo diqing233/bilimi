@@ -11,17 +11,14 @@ type AssistantRuntimeTarget = {
   removeRuntimeReadyListener: (callback: () => void) => void
   webContents: {
     isLoading: () => boolean
-    once: (event: 'did-finish-load', callback: () => void) => void
+    once: (event: 'did-finish-load' | 'destroyed', callback: () => void) => void
+    removeListener: (event: 'did-finish-load' | 'destroyed', callback: () => void) => void
     send: (channel: 'assistant-runtime:request', request: AssistantRuntimeRequest) => void
   }
 }
 
 type AssistantRuntimeResponseBus = {
-  once: (
-    event: 'assistant-runtime:response',
-    callback: (_event: unknown, response: AssistantRuntimeResponse) => void
-  ) => void
-  removeListener: (
+  on: (
     event: 'assistant-runtime:response',
     callback: (_event: unknown, response: AssistantRuntimeResponse) => void
   ) => void
@@ -63,6 +60,39 @@ export type AssistantRuntimeResponse =
       error: string
     }
 
+type PendingAssistantRuntimeRequest = {
+  resolve: (payload: AssistantRuntimeResponsePayload) => void
+  reject: (error: Error) => void
+  timeout: ReturnType<typeof setTimeout>
+}
+
+const assistantRuntimeResponseBrokers = new WeakMap<
+  AssistantRuntimeResponseBus,
+  Map<string, PendingAssistantRuntimeRequest>
+>()
+
+function getAssistantRuntimeResponseBroker(responseBus: AssistantRuntimeResponseBus) {
+  const existing = assistantRuntimeResponseBrokers.get(responseBus)
+  if (existing) return existing
+
+  const pending = new Map<string, PendingAssistantRuntimeRequest>()
+  responseBus.on('assistant-runtime:response', (_event, response) => {
+    const request = pending.get(response.id)
+    if (!request) return
+
+    pending.delete(response.id)
+    clearTimeout(request.timeout)
+    if (!response.ok) {
+      request.reject(new Error(response.error))
+      return
+    }
+
+    request.resolve(response.payload)
+  })
+  assistantRuntimeResponseBrokers.set(responseBus, pending)
+  return pending
+}
+
 export function requestAssistantRuntimeWhenReady<TPayload>({
   createRequestId,
   request,
@@ -78,40 +108,54 @@ export function requestAssistantRuntimeWhenReady<TPayload>({
 }): Promise<TPayload> {
   const id = createRequestId()
   const runtimeRequest = { id, ...request } as AssistantRuntimeRequest
+  const responseBroker = getAssistantRuntimeResponseBroker(responseBus)
+  if (responseBroker.has(id)) {
+    return Promise.reject(new Error(`Duplicate assistant runtime request id: ${id}`))
+  }
 
   return new Promise((resolve, reject) => {
     let settled = false
-    const timeout = setTimeout(() => {
-      settled = true
-      responseBus.removeListener('assistant-runtime:response', handleResponse)
+    function cleanup() {
+      responseBroker.delete(id)
       target.removeRuntimeReadyListener(sendRequest)
+      target.webContents.removeListener('did-finish-load', sendRequest)
+      target.webContents.removeListener('destroyed', handleTargetDestroyed)
+    }
+
+    function handleTargetDestroyed() {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      cleanup()
+      reject(new Error('Assistant runtime target was destroyed.'))
+    }
+
+    const timeout = setTimeout(() => {
+      if (settled) return
+      settled = true
+      cleanup()
       reject(new Error('Assistant runtime request timed out.'))
     }, timeoutMs)
 
-    function handleResponse(_event: unknown, response: AssistantRuntimeResponse) {
-      if (response.id !== id) {
-        responseBus.once('assistant-runtime:response', handleResponse)
-        return
-      }
-
-      settled = true
-      clearTimeout(timeout)
-
-      if (!response.ok) {
-        reject(new Error(response.error))
-        return
-      }
-
-      resolve(response.payload as TPayload)
-    }
+    responseBroker.set(id, {
+      resolve: (payload) => {
+        settled = true
+        cleanup()
+        resolve(payload as TPayload)
+      },
+      reject: (error) => {
+        settled = true
+        cleanup()
+        reject(error)
+      },
+      timeout
+    })
 
     function sendRequest() {
       if (settled) return
       target.removeRuntimeReadyListener(sendRequest)
       if (target.isDestroyed()) {
-        settled = true
-        clearTimeout(timeout)
-        reject(new Error('Assistant runtime target was destroyed.'))
+        handleTargetDestroyed()
         return
       }
 
@@ -120,10 +164,10 @@ export function requestAssistantRuntimeWhenReady<TPayload>({
         return
       }
 
-      responseBus.once('assistant-runtime:response', handleResponse)
       target.webContents.send('assistant-runtime:request', runtimeRequest)
     }
 
+    target.webContents.once('destroyed', handleTargetDestroyed)
     if (target.webContents.isLoading()) {
       target.webContents.once('did-finish-load', sendRequest)
       return

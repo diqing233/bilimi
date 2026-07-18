@@ -14,6 +14,11 @@ import {
 export type OldFavoriteSessionCoordinator = {
   load: () => Promise<OldFavoriteSessionsState>
   save: (state: OldFavoriteSessionsState) => Promise<OldFavoriteSessionsState>
+  beginFullScan?: (
+    accountMid: string,
+    now: string,
+    snapshot?: OldFavoriteBatchSnapshot
+  ) => Promise<{ batch: OldFavoriteBatch; acquired: boolean }> | undefined
   acquire: (
     batchId: string,
     segmentId: string,
@@ -67,14 +72,41 @@ function mergeSnapshot(
 }
 
 export class OldFavoriteSessionOrchestrator {
+  private readonly replacementFullBatchIds = new Set<string>()
+  private readonly fullScanBeginTails = new Map<string, Promise<unknown>>()
+
   constructor(private readonly coordinator: OldFavoriteSessionCoordinator) {}
 
   async beginScan(options: BeginScanOptions): Promise<{ batch: OldFavoriteBatch; acquired: boolean }> {
     const accountMid = options.accountMid.trim()
+    if (options.kind === 'full') {
+      const atomicResult = await this.coordinator.beginFullScan?.(accountMid, options.now, options.snapshot)
+      if (atomicResult) return atomicResult
+      const previous = this.fullScanBeginTails.get(accountMid) ?? Promise.resolve()
+      const next = previous.then(() => this.beginScanNow(options, accountMid))
+      this.fullScanBeginTails.set(accountMid, next.catch(() => undefined))
+      return next
+    }
+    return this.beginScanNow(options, accountMid)
+  }
+
+  private async beginScanNow(
+    options: BeginScanOptions,
+    accountMid: string
+  ): Promise<{ batch: OldFavoriteBatch; acquired: boolean }> {
     const state = await this.coordinator.load()
     const activeFull = options.kind === 'full'
       ? state.batches
-          .filter((batch) => batch.accountMid === accountMid && batch.kind === 'full' && batch.status === 'active')
+          .filter((batch) =>
+            batch.accountMid === accountMid &&
+            batch.kind === 'full' &&
+            batch.status === 'active' &&
+            (batch.segments.some((segment) => segment.aids.length > 0) ||
+              batch.segments.some((segment) =>
+                segment.status === 'running' && segment.task?.kind === 'scan'
+              ) ||
+              this.replacementFullBatchIds.has(batch.id))
+          )
           .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
           .at(-1)
       : undefined
@@ -90,6 +122,7 @@ export class OldFavoriteSessionOrchestrator {
       task: { kind: 'scan', status: 'running', requestState: 'idle' }
     }
     const prepared = { ...batch, segments: [placeholder] }
+    if (options.kind === 'full') this.replacementFullBatchIds.add(prepared.id)
     const saved = await this.coordinator.save({
       ...state,
       batches: [...state.batches, prepared],

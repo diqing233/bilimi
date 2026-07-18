@@ -32,6 +32,11 @@ export function compactOldFavoriteSessionsForIpc(
 export type OldFavoriteSessionsGateway = {
   load: () => Promise<OldFavoriteSessionsState>
   save: (state: OldFavoriteSessionsState) => Promise<OldFavoriteSessionsState>
+  beginFullScan?: (
+    accountMid: string,
+    now: string,
+    snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']
+  ) => Promise<{ batch: OldFavoriteSessionsState['batches'][number]; acquired: boolean }>
   claimLease: (
     batchId: string,
     segmentId: string,
@@ -57,6 +62,7 @@ function createDesktopGateway(): OldFavoriteSessionsGateway {
   return {
     load: desktop.loadOldFavoriteSessions,
     save: desktop.saveOldFavoriteSessions,
+    beginFullScan: desktop.beginOldFavoriteFullScan,
     claimLease: desktop.claimOldFavoriteTaskLease,
     releaseLease: desktop.releaseOldFavoriteTaskLease,
     subscribe: desktop.onOldFavoriteSessionsChanged
@@ -102,6 +108,14 @@ export class OldFavoriteTaskCoordinator {
 
   save(state: OldFavoriteSessionsState): Promise<OldFavoriteSessionsState> {
     return this.gateway.save(compactOldFavoriteSessionsForIpc(state))
+  }
+
+  beginFullScan(
+    accountMid: string,
+    now: string,
+    snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']
+  ) {
+    return this.gateway.beginFullScan?.(accountMid, now, snapshot)
   }
 
   subscribe(callback: (state: OldFavoriteSessionsState) => void): () => void {

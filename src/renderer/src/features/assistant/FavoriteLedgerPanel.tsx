@@ -56,7 +56,6 @@ import {
   evaluateBatchExecutionReadiness,
   type CollectionSnapshotItem
 } from '../favorites/oldFavoriteBatchUiModel'
-import type { DeepSeekBatchScope } from '../favorites/oldFavoriteDeepSeekBatch'
 import {
   applyBatchRecommendation,
   aggregateBatchRecommendations,
@@ -96,6 +95,7 @@ import {
 import { classifyVideoContent } from '../recommendation/videoClassifier'
 import { AssistantActionButton } from './AssistantActionButton'
 import { OldFavoriteModal } from './OldFavoriteModal'
+import { classifyOldFavoriteRecoveryState } from './oldFavoriteRecoveryState'
 import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
 import {
   bindOldFavoriteRuntimeAccount,
@@ -125,6 +125,17 @@ type DeepSeekArchiveResultSummary = {
   successCount: number
   failedCount: number
   nonApplicationCounts: DeepSeekArchiveNonApplicationCounts
+  batchFailures?: DeepSeekArchiveBatchFailure[]
+}
+
+type DeepSeekArchiveBatchFailureKind = 'network-error' | 'api-error' | 'invalid-output' | 'invalid-result'
+
+type DeepSeekArchiveBatchFailure = {
+  batchIndex: number
+  affectedVideoCount: number
+  failureKind: DeepSeekArchiveBatchFailureKind
+  errorMessage: string
+  videoKeys: string[]
 }
 
 type ArchiveMultiModeChange = {
@@ -179,7 +190,10 @@ type FavoriteLedgerPanelProps = {
     }>
     scanProgress: NonNullable<FavoriteLedgerPreview['scanProgress']>
   }>
-  onExecuteOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
+  onExecuteOldFavoritePlan: (
+    items: FavoriteLedgerPreviewItem[],
+    expectedAccountMid?: string
+  ) => Promise<AssistantAutomationResult>
   onOldFavoriteExecutionStateChange?: (state: 'running' | 'finished') => void
   onOldFavoriteStatusUpdate?: (status: OldFavoriteStatusSnapshot) => void
   onOldFavoriteStageFeedback?: (message: string) => void
@@ -259,8 +273,15 @@ type OldFavoriteUserBatchSummary = {
       archiveEditorState: ArchiveEditorRuntimeState
       finalReconciled?: boolean
     }>
+    recoveryFailure?: 'empty-workspace' | 'corrupt-base' | 'corrupt-tags' | 'workspace-unreadable'
   }
 }
+
+type OldFavoriteBatchSelectionResult =
+  | { kind: 'restored'; itemCount: number }
+  | { kind: 'rescan-required' }
+  | { kind: 'failed' }
+  | { kind: 'failure-history' }
 
 function mergeBatchPreviewSnapshot(
   current: OldFavoriteUserBatchSummary['snapshot'],
@@ -546,36 +567,37 @@ const LEDGER_RULE_TYPE_OPTIONS: Array<{ value: FavoriteLedgerRuleType; label: st
   { value: 'deepseek', label: 'DeepSeek约束收藏夹' }
 ]
 
-const DEEPSEEK_ARCHIVE_SCOPE_OPTIONS: Array<{ value: DeepSeekBatchScope; label: string }> = [
-  { value: 'current-segment', label: '当前分段' },
-  { value: 'all-unmatched', label: '全批未匹配' },
-  { value: 'all-review', label: '全批待复核' },
-  { value: 'all-unmatched-and-review', label: '全批未匹配 + 待复核' }
+type DeepSeekSegmentScope = 'current-segment' | 'all-ready-segments'
+
+const DEEPSEEK_ARCHIVE_PROCESSING_OPTIONS: Array<{ value: DeepSeekArchiveMode; label: string }> = [
+  { value: 'low-confidence-and-unclassified', label: '整理不确定和【未分类】（推荐）' },
+  { value: 'unclassified-only', label: '只整理【未匹配到合适分类】' },
+  { value: 'all', label: 'DeepSeek重新检查全部' }
 ]
 
-function deepSeekArchiveScopeLabel(mode: DeepSeekBatchScope) {
-  return DEEPSEEK_ARCHIVE_SCOPE_OPTIONS.find((option) => option.value === mode)?.label ?? '当前分段'
-}
+const DEEPSEEK_ARCHIVE_SEGMENT_OPTIONS: Array<{ value: DeepSeekSegmentScope; label: string }> = [
+  { value: 'current-segment', label: '当前分段' },
+  { value: 'all-ready-segments', label: '全部已就绪分段' }
+]
 
-function legacyDeepSeekArchiveMode(scope: DeepSeekBatchScope): DeepSeekArchiveMode {
-  if (scope === 'current-segment') return 'all'
-  if (scope === 'all-unmatched') return 'unclassified-only'
-  return 'low-confidence-and-unclassified'
+function deepSeekArchiveProcessingLabel(mode: DeepSeekArchiveMode) {
+  return DEEPSEEK_ARCHIVE_PROCESSING_OPTIONS.find((option) => option.value === mode)?.label ??
+    DEEPSEEK_ARCHIVE_PROCESSING_OPTIONS[0].label
 }
 
 function deepSeekArchiveStateForScope(
   state: FavoriteArchivePlanState,
-  scope: DeepSeekBatchScope,
+  mode: DeepSeekArchiveMode,
+  segmentScope: DeepSeekSegmentScope,
   currentSegmentAids: Set<number> | null
 ): FavoriteArchivePlanState {
   const items = state.items.filter((item) => {
     if (item.userModified || item.lastChangeSource === 'user' || item.lastChangeSource === 'transfer') {
       return false
     }
-    if (currentSegmentAids && !currentSegmentAids.has(item.aid)) return false
-    if (scope === 'current-segment') return true
-    if (scope === 'all-unmatched') return item.currentTargetLedgerIds.length === 0
-    if (scope === 'all-review') return Boolean(item.lowConfidence)
+    if (segmentScope === 'current-segment' && currentSegmentAids && !currentSegmentAids.has(item.aid)) return false
+    if (mode === 'all') return true
+    if (mode === 'unclassified-only') return item.currentTargetLedgerIds.length === 0
     return item.lowConfidence || item.currentTargetLedgerIds.length === 0
   })
   return { ...state, items }
@@ -709,6 +731,10 @@ function errorMessage(error: unknown) {
     return '收藏夹数量已超过b站上限99个，小咪已经无法再生成更多收藏夹了，主人想继续使用建议适当删除几个哦'
   }
   return message
+}
+
+function isFavoriteLedgerConnectionFailure(error: unknown) {
+  return /GUEST_VIEW_MANAGER_CALL|Failed to fetch|NetworkError|net::ERR_/i.test(errorMessage(error))
 }
 
 async function appendWorkspaceLogicalChunk(
@@ -848,6 +874,7 @@ function isEditableShortcutTarget(target: EventTarget | null) {
     tagName === 'input' ||
     tagName === 'select' ||
     tagName === 'textarea' ||
+    tagName === 'button' ||
     target.isContentEditable
   )
 }
@@ -1511,6 +1538,18 @@ function applyArchivePlanToPreviewItems(
       ledgers
     )
   })
+}
+
+function emptyRecoveredOldFavoriteInsights(totalVideos: number) {
+  return {
+    totalVideos,
+    topAuthors: [],
+    topTags: [],
+    topCategories: [],
+    sourceFolders: [],
+    titleSeries: [],
+    candidateLedgers: []
+  }
 }
 
 function rejudgedCurrentArchiveLedgerIds(item: FavoriteLedgerPreviewItem) {
@@ -2328,12 +2367,27 @@ export function FavoriteLedgerPanel({
       completed: number
       total: number
     } | null>('oldFavoriteExecutionProgress', null)
-  const [deepSeekBatchScope, setDeepSeekBatchScope] = useOldFavoriteRuntimeState<DeepSeekBatchScope>(
+  const [oldFavoriteExpandedStep, setOldFavoriteExpandedStep] = useState<OldFavoriteGuideStep | null>(() => {
+    const restoredExecutionPhase = getOldFavoriteRuntimeValue<OldFavoriteExecutionPhase>(
+      'oldFavoriteExecutionPhase',
+      'idle'
+    )
+    if (restoredExecutionPhase !== 'idle') return 'confirm'
+    return getOldFavoriteRuntimeValue('deepSeekArchiveRunning', false) &&
+      getOldFavoriteRuntimeValue<OldFavoriteGuideStep>('oldFavoriteStep', 'scan') === 'preview'
+      ? 'preview'
+      : 'scan'
+  })
+  const [deepSeekArchiveMode, setDeepSeekArchiveMode] = useOldFavoriteRuntimeState<DeepSeekArchiveMode>(
     'deepSeekArchiveMode',
+    'low-confidence-and-unclassified'
+  )
+  const [deepSeekSegmentScope, setDeepSeekSegmentScope] = useOldFavoriteRuntimeState<DeepSeekSegmentScope>(
+    'deepSeekArchiveSegmentScope',
     'current-segment'
   )
-  const deepSeekArchiveMode = legacyDeepSeekArchiveMode(deepSeekBatchScope)
   const [deepSeekArchiveScopeOpen, setDeepSeekArchiveScopeOpen] = useState(false)
+  const [deepSeekArchiveScopeMenu, setDeepSeekArchiveScopeMenu] = useState<'processing' | 'segment'>('processing')
   const [deepSeekArchiveRunning, setDeepSeekArchiveRunning] =
     useOldFavoriteRuntimeState('deepSeekArchiveRunning', false)
   const [deepSeekArchiveCancelRequested, setDeepSeekArchiveCancelRequested] =
@@ -2367,6 +2421,7 @@ export function FavoriteLedgerPanel({
     useOldFavoriteRuntimeState<ArchivePreviewLatestChange[]>('archiveRedoChanges', [])
   const [latestArchiveChange, setLatestArchiveChange] =
     useOldFavoriteRuntimeState<ArchivePreviewLatestChange | null>('latestArchiveChange', null)
+  const [archiveHistoryOpen, setArchiveHistoryOpen] = useState(false)
   const [manualArchiveMoveFocus, setManualArchiveMoveFocus] =
     useState<ArchivePreviewManualMoveFocus | null>(null)
   const archivePlanItemIndexByKey = useMemo(() => {
@@ -2631,11 +2686,26 @@ export function FavoriteLedgerPanel({
   const [incrementalBatchConfirmOpen, setIncrementalBatchConfirmOpen] = useState(false)
   const [oldFavoriteEntryOpen, setOldFavoriteEntryOpen] = useState(false)
   const [oldFavoriteResetConfirmOpen, setOldFavoriteResetConfirmOpen] = useState(false)
+  const [ledgerResetConfirmOpen, setLedgerResetConfirmOpen] = useState(false)
   const [tagEndConfirmOpen, setTagEndConfirmOpen] = useState(false)
   const [oldFavoriteSessionsOpened, setOldFavoriteSessionsOpened] = useState(false)
   const [oldFavoriteRecoveryRunning, setOldFavoriteRecoveryRunning] = useState(false)
+  const [oldFavoriteRecoveryFailure, setOldFavoriteRecoveryFailure] = useState<string | null>(null)
+  const [oldFavoriteRecoveryResetConfirmOpen, setOldFavoriteRecoveryResetConfirmOpen] = useState(false)
   const oldFavoriteSessionsOpeningRef = useRef<Promise<OldFavoriteSessionsState> | null>(null)
+  const oldFavoriteOrganizationRequestRef = useRef<Promise<void> | null>(null)
   const oldFavoriteActivatedRef = useRef(false)
+  const oldFavoriteResolvedAccountMidRef = useRef(currentAccountMid?.trim() ?? '')
+  const oldFavoriteReconciliationByAccountRef = useRef(new Map<string, boolean>())
+  function setOldFavoriteReconciliationRequired(accountMid: string, required: boolean) {
+    const normalizedAccountMid = accountMid.trim()
+    if (!normalizedAccountMid) return
+    if (required) oldFavoriteReconciliationByAccountRef.current.set(normalizedAccountMid, true)
+    else oldFavoriteReconciliationByAccountRef.current.delete(normalizedAccountMid)
+    if (oldFavoriteResolvedAccountMidRef.current === normalizedAccountMid) {
+      setOldFavoriteRuntimeValue('oldFavoriteRecoveryRequiresReconciliation', required)
+    }
+  }
   const sessionCoordinator = useMemo(() => {
     const desktop = window.bilimiDesktop
     if (!desktop?.loadOldFavoriteSessions || !desktop.saveOldFavoriteSessions ||
@@ -2662,18 +2732,30 @@ export function FavoriteLedgerPanel({
     setPausedRoundEndConfirming(false)
     setOldFavoriteExecutionConfirming(false)
     oldFavoriteSessionsOpeningRef.current = null
+    oldFavoriteOrganizationRequestRef.current = null
     setOldFavoriteSessionsOpened(false)
+    setOldFavoriteRecoveryRunning(false)
+    setOldFavoriteRecoveryFailure(null)
+    setOldFavoriteRecoveryResetConfirmOpen(false)
     setExpandedArchivePreviewGroups(new Set())
+    oldFavoriteResolvedAccountMidRef.current = currentAccountMid.trim()
     bindOldFavoriteRuntimeAccount(currentAccountMid)
+    setOldFavoriteRuntimeValue(
+      'oldFavoriteRecoveryRequiresReconciliation',
+      oldFavoriteReconciliationByAccountRef.current.get(currentAccountMid.trim()) === true
+    )
   }, [currentAccountMid])
   const applyOldFavoriteSessions = useCallback((state: OldFavoriteSessionsState) => {
-      const accountBatches = currentAccountMid === undefined
+      const resolvedAccountMid = oldFavoriteResolvedAccountMidRef.current
+      const accountBatches = resolvedAccountMid
+        ? state.batches.filter((batch) => batch.accountMid === resolvedAccountMid)
+        : currentAccountMid === undefined
         ? state.batches
         : state.batches.filter((batch) => batch.accountMid === currentAccountMid)
       if (accountBatches.some((batch) => batch.segments.some(
         (segment) => segment.task?.requestState === 'result-unknown'
       ))) {
-        setOldFavoriteRuntimeValue('oldFavoriteRecoveryRequiresReconciliation', true)
+        setOldFavoriteReconciliationRequired(resolvedAccountMid || currentAccountMid || '', true)
       }
       const summaries = accountBatches.map((batch) => ({
         id: batch.id,
@@ -2745,11 +2827,12 @@ export function FavoriteLedgerPanel({
     setOldFavoriteUserBatches,
     setPreview
   ])
-  const openOldFavoriteSessions = useCallback(async () => {
+  const openOldFavoriteSessions = useCallback(async (resolvedAccountMid?: string) => {
     oldFavoriteActivatedRef.current = true
-    const accountMid = currentAccountMid?.trim() ||
+    const accountMid = resolvedAccountMid?.trim() || currentAccountMid?.trim() ||
       (onReadCurrentOldFavoriteAccount ? (await onReadCurrentOldFavoriteAccount()).trim() : '')
     if (accountMid) {
+      oldFavoriteResolvedAccountMidRef.current = accountMid
       await window.bilimiDesktop?.openOldFavoriteWorkspaceAccount?.(accountMid)
     }
     if (!sessionCoordinator) {
@@ -2764,7 +2847,7 @@ export function FavoriteLedgerPanel({
   }, [applyOldFavoriteSessions, currentAccountMid, onReadCurrentOldFavoriteAccount, sessionCoordinator])
   useEffect(() => {
     if (!oldFavoriteActivatedRef.current || currentAccountMid === undefined) return
-    void openOldFavoriteSessions()
+    void openOldFavoriteSessions(currentAccountMid)
   }, [currentAccountMid, openOldFavoriteSessions])
   useEffect(() => {
     if (!sessionCoordinator || !oldFavoriteSessionsOpened) return
@@ -2851,6 +2934,7 @@ export function FavoriteLedgerPanel({
             status: 'paused', taskStatus: 'paused', requestState: 'result-unknown',
             checkpoint: options.checkpoint, snapshot: options.snapshot
           })
+          setOldFavoriteReconciliationRequired(activeOldFavoriteUserBatch.accountMid, true)
           return result
         }
         if (result && typeof result === 'object' && 'resultUnknown' in result && result.resultUnknown === true) {
@@ -3480,13 +3564,13 @@ export function FavoriteLedgerPanel({
     })
   }
 
-  async function startOrganizingOldFavorites() {
+  async function startOrganizingOldFavorites(forceFresh = false) {
     if (oldFavoriteOrganizationLocked()) {
       showOldFavoriteOrganizationPendingMessage()
       return
     }
 
-    if (preview && oldFavoriteGuideMode === 'organize') {
+    if (!forceFresh && preview && oldFavoriteGuideMode === 'organize') {
       setLedgerListExpanded(true)
       return
     }
@@ -3532,7 +3616,7 @@ export function FavoriteLedgerPanel({
         tags: { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'idle' }
       }
     })
-    await saveLedgers({
+    const saved = await saveLedgers({
       includeSelectedCandidates: false,
       includeDefaultLedgers: true,
       pendingMessage: '正在同步整理旧藏需要的主收藏...',
@@ -3542,6 +3626,15 @@ export function FavoriteLedgerPanel({
         await scanOldFavorites()
       }
     })
+    if (!saved) {
+      scanStartingRef.current = false
+      setBasicScanRunning(false)
+      setBusy(false)
+      setPreview(null)
+      setBaseScanPreview(null)
+      setArchivePlanState(null)
+      return
+    }
     if (scanGeneration !== scanGenerationRef.current || !scanStartingRef.current) return
     scanStartingRef.current = false
     currentScanRunIdRef.current = null
@@ -3552,48 +3645,78 @@ export function FavoriteLedgerPanel({
     setArchivePlanState(lastSuccessfulArchivePlanStateRef.current)
   }
 
-  async function requestOldFavoriteOrganization() {
+  async function runOldFavoriteOrganizationRequest() {
+    if (activeOldFavoriteUserBatch?.status === 'active' && preview && oldFavoriteGuideMode === 'organize') {
+      setOldFavoriteEntryOpen(true)
+      return
+    }
     setOldFavoriteEntryOpen(false)
     setOldFavoriteRecoveryRunning(true)
+    setOldFavoriteRecoveryFailure(null)
     setStatus('正在恢复整理结果…')
     publishOldFavoriteStatus({
       label: '正在恢复整理结果',
       message: '正在读取最近一次整理结果，请稍候。',
       tone: 'running'
     })
+    const requestAccountGeneration = accountGenerationRef.current
+    const resolvedAccountMid = currentAccountMid?.trim() ||
+      (onReadCurrentOldFavoriteAccount ? (await onReadCurrentOldFavoriteAccount()).trim() : '')
+    if (!resolvedAccountMid) {
+      setOldFavoriteRecoveryRunning(false)
+      setStatus(null)
+      void startOrganizingOldFavorites()
+      return
+    }
+    oldFavoriteResolvedAccountMidRef.current = resolvedAccountMid
     let sessions: OldFavoriteSessionsState
     try {
-      sessions = await openOldFavoriteSessions()
+      sessions = await openOldFavoriteSessions(resolvedAccountMid)
     } catch (error) {
       setOldFavoriteRecoveryRunning(false)
       const message = `整理存档恢复失败：${errorMessage(error)}`
+      setOldFavoriteRecoveryFailure(message)
       setStatus(message)
       publishOldFavoriteStatus({ label: '恢复失败', message, tone: 'error' })
       return
     }
-    const accountBatches = sessions.batches.filter((batch) =>
-      currentAccountMid === undefined || batch.accountMid === currentAccountMid
-    )
+    if (requestAccountGeneration !== accountGenerationRef.current) {
+      setOldFavoriteRecoveryRunning(false)
+      return
+    }
+    const accountBatches = sessions.batches.filter((batch) => batch.accountMid === resolvedAccountMid)
+    const summaries = accountBatches.map((batch) => ({
+      id: batch.id,
+      kind: batch.kind,
+      createdAt: batch.createdAt,
+      accountMid: batch.accountMid,
+      segmentIndex: Math.max(1, batch.segments.findIndex((segment) => segment.status !== 'ended') + 1),
+      segmentCount: Math.max(1, batch.segments.length),
+      segmentAids: batch.segments.map((segment) => segment.aids),
+      status: batch.status,
+      snapshot: batch.snapshot as OldFavoriteUserBatchSummary['snapshot']
+    } satisfies OldFavoriteUserBatchSummary))
+    setOldFavoriteUserBatches(summaries)
+    oldFavoriteUserBatchesRef.current = summaries
     const latestActiveBatch = accountBatches
       .filter((batch) => batch.status !== 'ended')
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
       .at(-1)
     if (latestActiveBatch) {
-      const restored = await selectOldFavoriteUserBatch(latestActiveBatch.id, accountBatches.map((batch) => ({
-        id: batch.id,
-        kind: batch.kind,
-        createdAt: batch.createdAt,
-        accountMid: batch.accountMid,
-        segmentIndex: Math.max(1, batch.segments.findIndex((segment) => segment.status !== 'ended') + 1),
-        segmentCount: Math.max(1, batch.segments.length),
-        segmentAids: batch.segments.map((segment) => segment.aids),
-        status: batch.status,
-        snapshot: batch.snapshot as OldFavoriteUserBatchSummary['snapshot']
-      })))
+      const recoveryResult = await selectOldFavoriteUserBatch(latestActiveBatch.id, summaries, requestAccountGeneration)
+      if (requestAccountGeneration !== accountGenerationRef.current) {
+        setOldFavoriteRecoveryRunning(false)
+        return
+      }
       setOldFavoriteRecoveryRunning(false)
-      if (!restored) return
+      if (recoveryResult.kind === 'rescan-required') {
+        void startOrganizingOldFavorites(true)
+        return
+      }
+      if (recoveryResult.kind !== 'restored') return
+      setOldFavoriteRecoveryFailure(null)
       setStatus(null)
-      const restoredCount = latestActiveBatch.segments.reduce((total, segment) => total + segment.aids.length, 0)
+      const restoredCount = recoveryResult.itemCount
       publishOldFavoriteStatus({
         label: `旧藏待整理 ${restoredCount}`,
         message: `已恢复最近一次整理结果，共 ${restoredCount} 条待整理。`,
@@ -3613,7 +3736,23 @@ export function FavoriteLedgerPanel({
       setOldFavoriteEntryOpen(true)
       return
     }
-    void startOrganizingOldFavorites()
+    void startOrganizingOldFavorites(true)
+  }
+
+  function requestOldFavoriteOrganization(): Promise<void> {
+    if (oldFavoriteOrganizationRequestRef.current) {
+      return oldFavoriteOrganizationRequestRef.current
+    }
+
+    const request = runOldFavoriteOrganizationRequest()
+    oldFavoriteOrganizationRequestRef.current = request
+    const clearRequest = () => {
+      if (oldFavoriteOrganizationRequestRef.current === request) {
+        oldFavoriteOrganizationRequestRef.current = null
+      }
+    }
+    void request.then(clearRequest, clearRequest)
+    return request
   }
 
   function continueLastOldFavoriteOrganization() {
@@ -3625,37 +3764,87 @@ export function FavoriteLedgerPanel({
 
   async function resetAllOldFavoriteOrganization() {
     setOldFavoriteResetConfirmOpen(false)
-    setOldFavoriteEntryOpen(false)
+    setOldFavoriteRecoveryResetConfirmOpen(false)
+    const accountMid = currentAccountMid?.trim() ||
+      (onReadCurrentOldFavoriteAccount ? (await onReadCurrentOldFavoriteAccount()).trim() : '')
+    if (!accountMid) {
+      setStatus('无法确认当前 B 站账号，请重新登录后再整理。')
+      return
+    }
     const accountBatchIds = new Set(oldFavoriteUserBatches
-      .filter((batch) => !currentAccountMid || batch.accountMid === currentAccountMid)
+      .filter((batch) => batch.accountMid === accountMid)
       .map((batch) => batch.id))
+    try {
+      if (window.bilimiDesktop?.resetOldFavoriteAccount) {
+        await window.bilimiDesktop.resetOldFavoriteAccount(accountMid)
+      } else {
+        await window.bilimiDesktop?.resetOldFavoriteRuntimeAccount?.(accountMid)
+        if (window.bilimiDesktop?.resetOldFavoriteSessionsAccount) {
+          await window.bilimiDesktop.resetOldFavoriteSessionsAccount(accountMid)
+        } else if (sessionCoordinator && accountBatchIds.size > 0) {
+          const state = await sessionCoordinator.load()
+          await sessionCoordinator.save({
+            ...state,
+            batches: state.batches.filter((batch) => !accountBatchIds.has(batch.id)),
+            lease: state.lease && accountBatchIds.has(state.lease.batchId) ? null : state.lease
+          })
+        }
+        await window.bilimiDesktop?.resetOldFavoriteWorkspaceAccount?.(accountMid)
+      }
+    } catch (error) {
+      setStatus(`全部重新整理失败：${errorMessage(error)}`)
+      return
+    }
+    oldFavoriteSessionsOpeningRef.current = null
+    oldFavoriteOrganizationRequestRef.current = null
+    lastSuccessfulPreviewRef.current = null
+    lastSuccessfulBasePreviewRef.current = null
+    lastSuccessfulArchivePlanStateRef.current = null
+    oldFavoriteUserBatchesRef.current = []
+    setOldFavoriteRuntimeValue('oldFavoriteRecoveryRequiresReconciliation', false)
+    setOldFavoriteRuntimeValue('sharedOperationFeedback', null)
+    setOldFavoriteRuntimeStatus(null)
+    setOldFavoriteEntryOpen(false)
     setOldFavoriteUserBatches((current) => current.filter((batch) => !accountBatchIds.has(batch.id)))
     setActiveOldFavoriteUserBatchId('')
     setPreview(null)
     setBaseScanPreview(null)
     setArchivePlanState(null)
-    if (currentAccountMid && window.bilimiDesktop?.resetOldFavoriteSessionsAccount) {
-      await window.bilimiDesktop.resetOldFavoriteSessionsAccount(currentAccountMid)
-    } else if (sessionCoordinator && accountBatchIds.size > 0) {
-      const state = await sessionCoordinator.load()
-      await sessionCoordinator.save({
-        ...state,
-        batches: state.batches.filter((batch) => !accountBatchIds.has(batch.id)),
-        lease: state.lease && accountBatchIds.has(state.lease.batchId) ? null : state.lease
-      })
-    }
-    if (currentAccountMid) {
-      await window.bilimiDesktop?.resetOldFavoriteRuntimeAccount?.(currentAccountMid)
-      await window.bilimiDesktop?.resetOldFavoriteWorkspaceAccount?.(currentAccountMid)
-    }
     setHasPendingOldFavoriteBatch(false)
-    void startOrganizingOldFavorites()
+    setOldFavoriteRecoveryFailure(null)
+    void startOrganizingOldFavorites(true)
+  }
+
+  async function rescanRestoredOldFavoriteBatch() {
+    const batch = activeOldFavoriteUserBatch
+    if (!batch) {
+      await scanOldFavorites('organize')
+      return
+    }
+    try {
+      await window.bilimiDesktop?.finalizeOldFavoriteWorkspaceBatch?.(batch.accountMid, batch.id)
+      if (sessionCoordinator) {
+        const state = await sessionCoordinator.load()
+        await sessionCoordinator.save(endOldFavoriteBatch(state, batch.id, new Date().toISOString()))
+      }
+      setOldFavoriteUserBatches((current) => current.map((candidate) =>
+        candidate.id === batch.id ? { ...candidate, status: 'ended' } : candidate
+      ))
+      oldFavoriteUserBatchesRef.current = oldFavoriteUserBatchesRef.current.map((candidate) =>
+        candidate.id === batch.id ? { ...candidate, status: 'ended' } : candidate
+      )
+      setActiveOldFavoriteUserBatchId('')
+      await scanOldFavorites('organize', 'full')
+    } catch (error) {
+      setStatus(`重新扫描准备失败：${errorMessage(error)}`)
+    }
   }
 
   async function selectOldFavoriteUserBatch(
     batchId: string,
-    availableBatches: OldFavoriteUserBatchSummary[] = oldFavoriteUserBatches
-  ): Promise<boolean> {
+    availableBatches: OldFavoriteUserBatchSummary[] = oldFavoriteUserBatches,
+    expectedAccountGeneration = accountGenerationRef.current
+  ): Promise<OldFavoriteBatchSelectionResult> {
     if (activeOldFavoriteUserBatch && activeOldFavoriteUserBatch.id !== batchId) {
       if (workspaceOverlayTimerRef.current) {
         clearTimeout(workspaceOverlayTimerRef.current)
@@ -3668,7 +3857,7 @@ export function FavoriteLedgerPanel({
         )
       } catch (error) {
         setStatus(`整理修改保存失败：${error instanceof Error ? error.message : String(error)}`)
-        return false
+        return { kind: 'failed' }
       }
       const leavingSnapshot = {
         preview,
@@ -3687,6 +3876,13 @@ export function FavoriteLedgerPanel({
     }
     setActiveOldFavoriteUserBatchId(batchId)
     const selectedBatch = availableBatches.find((batch) => batch.id === batchId)
+    if (selectedBatch?.status === 'ended' && selectedBatch.snapshot?.recoveryFailure) {
+      setActiveOldFavoriteUserBatchId(activeOldFavoriteUserBatchId)
+      setStatus(selectedBatch.snapshot.recoveryFailure === 'empty-workspace'
+        ? '该批次没有可恢复的旧藏数据。'
+        : '该批次的旧藏存档已损坏，已保留记录。')
+      return { kind: 'failure-history' }
+    }
     let workspaceDetail: Awaited<ReturnType<NonNullable<typeof window.bilimiDesktop>['loadOldFavoriteWorkspaceBatch']>> | undefined
     if (selectedBatch?.accountMid && !selectedBatch.snapshot?.preview) {
       try {
@@ -3701,11 +3897,29 @@ export function FavoriteLedgerPanel({
           selectedBatch.id
         )
       } catch (error) {
-        setStatus(`整理存档恢复失败：${error instanceof Error ? error.message : String(error)}`)
-        return false
+        const message = `整理存档恢复失败：${error instanceof Error ? error.message : String(error)}`
+        setOldFavoriteRecoveryFailure(message)
+        setStatus(message)
+        publishOldFavoriteStatus({ label: '恢复失败', message, tone: 'error' })
+        return { kind: 'failed' }
       }
     }
+    if (expectedAccountGeneration !== accountGenerationRef.current) return { kind: 'failed' }
     if (!selectedBatch?.snapshot?.preview && workspaceDetail) {
+      const recoveryState = classifyOldFavoriteRecoveryState({
+        base: workspaceDetail.base as Array<{ aid?: unknown }>,
+        tags: workspaceDetail.tags as Array<{ aid?: unknown }>,
+        sources: workspaceDetail.sources as Array<{ aid?: unknown }>
+      })
+      if (recoveryState.kind === 'rescan-required' || recoveryState.kind === 'error') {
+        const message = recoveryState.reason === 'empty-workspace'
+          ? '整理存档恢复失败：该批次没有可恢复的旧藏数据。'
+          : `整理存档恢复失败：${recoveryState.reason}`
+        setOldFavoriteRecoveryFailure(message)
+        setStatus(message)
+        publishOldFavoriteStatus({ label: '恢复失败', message, tone: 'error' })
+        return { kind: 'failed' }
+      }
       const tagsByAid = new Map((workspaceDetail.tags as Array<{ aid?: number; tags?: string[] }>)
         .filter((item) => Number.isSafeInteger(item.aid))
         .map((item) => [item.aid!, item.tags ?? []]))
@@ -3714,6 +3928,15 @@ export function FavoriteLedgerPanel({
         sourceFolderIds?: string[]
         sourceFolderTitles?: string[]
       }>)
+      const tagProgress: NonNullable<FavoriteLedgerPreview['scanProgress']>['tags'] = {
+        completed: recoveryState.tagRecordCount,
+        total: recoveryState.itemCount,
+        pending: recoveryState.missingTagAids.length,
+        cacheHits: recoveryState.tagRecordCount,
+        succeeded: recoveryState.tagRecordCount,
+        failed: 0,
+        status: recoveryState.tagCoverage === 'complete' ? 'complete' : 'paused'
+      }
       const loadedPreview: FavoriteLedgerPreview = {
         items: (workspaceDetail.base as FavoriteLedgerPreviewItem[]).map((item) => ({
           ...item,
@@ -3724,12 +3947,30 @@ export function FavoriteLedgerPanel({
           } : {})
         })),
         skippedSourceFolderTitles: [],
+        scanContext: {
+          accountMid: selectedBatch.accountMid,
+          totalUniqueVideos: recoveryState.itemCount,
+          sourceFolders: [],
+          activeSourceFolders: [],
+          protectedVideos: [],
+          managedFolders: [],
+          targetMembership: {},
+          multiArchiveMode: favoriteArchiveMultiMode
+        },
+        scanProgress: {
+          basic: {
+            completed: recoveryState.itemCount,
+            total: recoveryState.itemCount,
+            status: 'complete'
+          },
+          tags: tagProgress
+        },
         ...(selectedBatch.status === 'active' ? {
           scanDiagnostics: {
-            tagDetailRequests: 0,
+            tagDetailRequests: recoveryState.tagRecordCount,
             tagDetailFailures: 0,
-            taggedVideos: 0,
-            untaggedVideos: 0,
+            taggedVideos: [...tagsByAid.values()].filter((tags) => tags.length > 0).length,
+            untaggedVideos: [...tagsByAid.values()].filter((tags) => tags.length === 0).length,
             folderFailures: [{
               folderTitle: '恢复中的来源成员',
               failedPage: 0,
@@ -3742,6 +3983,22 @@ export function FavoriteLedgerPanel({
           }
         } : {})
       }
+      const recoveredSourceFoldersByKey = new Map<string, FavoriteSourceFolder>()
+      for (const item of loadedPreview.items) {
+        const ids = item.sourceFolderIds ?? []
+        const titles = item.sourceFolderTitles ?? [item.sourceFolderTitle]
+        for (const [index, title] of titles.entries()) {
+          const id = ids[index] ?? ''
+          const key = oldFavoriteSourceKey(id || undefined, title)
+          const source = recoveredSourceFoldersByKey.get(key) ?? { id, title, videos: [] }
+          source.videos.push(item)
+          recoveredSourceFoldersByKey.set(key, source)
+        }
+      }
+      const recoveredSourceFolders = [...recoveredSourceFoldersByKey.values()]
+      loadedPreview.scanContext!.sourceFolders = recoveredSourceFolders
+      loadedPreview.scanContext!.activeSourceFolders = recoveredSourceFolders
+      loadedPreview.insights = emptyRecoveredOldFavoriteInsights(recoveryState.itemCount)
       const loadedPlan = createArchivePlanStateFromPreviewItems(loadedPreview.items, new Set())
       const overlays = {
         ...workspaceDetail.overlays.user,
@@ -3784,27 +4041,33 @@ export function FavoriteLedgerPanel({
         batch.id === selectedBatch.id ? { ...batch, snapshot: loadedSnapshot } : batch
       ))
       setPreview(loadedPreview)
+      setScanProgress(loadedPreview.scanProgress)
       setBaseScanPreview(loadedPreview)
       setArchiveEditorState(loadedArchiveEditorState)
+      setSelectedOldFavoriteSourceFolderKeys(new Set(
+        loadedPreview.items.flatMap((item) => oldFavoriteItemSourceKeys(item))
+      ))
       setOldFavoriteStep(loadedSnapshot.step)
+      setOldFavoriteExpandedStep('scan')
       setOldFavoriteExecutionPhase(loadedSnapshot.executionPhase)
       setOldFavoriteExecutionRun(null)
       setOldFavoriteExecutionProgress(null)
       setOldFavoriteGuideMode('organize')
       setPendingOldFavoriteBatchKind('full')
-      return true
+      return { kind: 'restored', itemCount: recoveryState.itemCount }
     }
-    if (!selectedBatch?.snapshot) return false
+    if (!selectedBatch?.snapshot) return { kind: 'failed' }
     setPreview(selectedBatch.snapshot.preview)
     setBaseScanPreview(selectedBatch.snapshot.baseScanPreview)
     setArchiveEditorState(selectedBatch.snapshot.archiveEditorState)
     setOldFavoriteStep(selectedBatch.status === 'ended' ? 'preview' : selectedBatch.snapshot.step)
+    setOldFavoriteExpandedStep('scan')
     setOldFavoriteExecutionPhase(selectedBatch.snapshot.executionPhase)
     setOldFavoriteExecutionRun(selectedBatch.snapshot.executionRun)
     setOldFavoriteExecutionProgress(selectedBatch.snapshot.executionProgress)
     setOldFavoriteGuideMode('organize')
     setPendingOldFavoriteBatchKind('full')
-    return true
+    return { kind: 'restored', itemCount: selectedBatch.segmentAids.flat().length }
   }
 
   async function startIncrementalOldFavoriteBatch() {
@@ -3870,7 +4133,7 @@ export function FavoriteLedgerPanel({
     setSaveStatus(null)
   }
 
-  function resetLedgers() {
+  function applyDefaultLedgerRules() {
     if (deepSeekArchiveRunning) {
       return
     }
@@ -3896,6 +4159,11 @@ export function FavoriteLedgerPanel({
     setSaveStatus(null)
   }
 
+  function resetLedgers() {
+    if (deepSeekArchiveRunning) return
+    setLedgerResetConfirmOpen(true)
+  }
+
   function rebuildOldFavoriteAfterLedgerDeletion(
     nextLedgers: FavoriteLedger[],
     deletedLedger: FavoriteLedger
@@ -3906,6 +4174,21 @@ export function FavoriteLedgerPanel({
       setDraftLedgers(nextLedgers)
       return
     }
+    const sourceFoldersForRebuild = context.activeSourceFolders.map((folder) => ({
+      ...folder,
+      videos: folder.videos.map((video) => ({
+        ...video,
+        currentBilimiFolderIds: (video.currentBilimiFolderIds ?? []).filter(
+          (folderId) => folderId !== deletedLedger.bilibiliFolderId
+        ),
+        desiredTargetFolderIds: (video.desiredTargetFolderIds ?? []).filter(
+          (folderId) => folderId !== deletedLedger.bilibiliFolderId
+        ),
+        desiredTargetLedgerIds: (video.desiredTargetLedgerIds ?? []).filter(
+          (ledgerId) => ledgerId !== deletedLedger.id
+        )
+      }))
+    }))
 
     const deletedLedgerIds = new Set(
       nextLedgers.some((ledger) => ledger.id === deletedLedger.id) ? [] : [deletedLedger.id]
@@ -3940,9 +4223,9 @@ export function FavoriteLedgerPanel({
         items: normalizeOldFavoritePreviewItems(rebuilt.items, nextLedgers)
       }
     }
-    const rebuiltBasePreview = buildPreview(context.activeSourceFolders)
+    const rebuiltBasePreview = buildPreview(sourceFoldersForRebuild)
     const rebuiltPreview = buildPreview([
-      ...context.activeSourceFolders,
+      ...sourceFoldersForRebuild,
       ...protectedVideosAsSourceFolders(reorganizedProtectedAids)
     ])
     const knownCandidates = new Map(
@@ -4359,6 +4642,7 @@ export function FavoriteLedgerPanel({
 
   function switchOldFavoriteStep(stepId: OldFavoriteGuideStep) {
     setOldFavoriteStep(stepId)
+    setOldFavoriteExpandedStep((current) => current === stepId ? null : stepId)
   }
 
   function applyCompletedTagSnapshot(
@@ -4600,10 +4884,10 @@ export function FavoriteLedgerPanel({
     pendingMessage?: string
     onSuccess?: () => Promise<void> | void
     saveOptions?: FavoriteLedgerSaveOptions
-  } = {}) {
+  } = {}): Promise<boolean> {
     if (firstInvalidLedgerIndex >= 0) {
       focusInvalidLedger(firstInvalidLedgerIndex)
-      return
+      return false
     }
     const nextLedgers = buildLedgersToSave(
       options.includeSelectedCandidates ?? true,
@@ -4639,9 +4923,12 @@ export function FavoriteLedgerPanel({
       setActiveLedgerSavedSnapshot(null)
       if (result?.ok !== false) {
         await options.onSuccess?.()
+        return true
       }
+      return false
     } catch (error) {
       setSaveStatus(`同步未完成：${errorMessage(error)}`)
+      return false
     } finally {
       setBusy(false)
     }
@@ -4690,17 +4977,20 @@ export function FavoriteLedgerPanel({
       tone: 'running'
     })
     try {
-      currentScanInitialFullRef.current = oldFavoriteUserBatchesRef.current.length === 0 &&
-        (requestedBatchKind ?? pendingOldFavoriteBatchKind) === 'full'
+      currentScanInitialFullRef.current = (requestedBatchKind ?? pendingOldFavoriteBatchKind) === 'full' &&
+        !oldFavoriteUserBatchesRef.current.some((batch) => batch.status !== 'ended')
       if (sessionOrchestrator && onReadCurrentOldFavoriteAccount) {
         const currentAccountMid = (await onReadCurrentOldFavoriteAccount()).trim()
         if (!currentAccountMid) {
           setStatus('无法确认当前 B 站账号，请重新登录后再整理。')
           return
         }
+        const requestedKind = currentScanInitialFullRef.current
+          ? 'full'
+          : (requestedBatchKind ?? pendingOldFavoriteBatchKind)
         const started = await sessionOrchestrator.beginScan({
           accountMid: currentAccountMid,
-          kind: oldFavoriteUserBatches.length === 0 ? 'full' : (requestedBatchKind ?? pendingOldFavoriteBatchKind),
+          kind: requestedKind,
           now: new Date().toISOString(),
           snapshot: { currentStep: 'scan' }
         })
@@ -4715,7 +5005,7 @@ export function FavoriteLedgerPanel({
         currentScanSessionRef.current = { batchId: started.batch.id, kind: started.batch.kind }
         if (
           started.batch.kind === 'full' &&
-          oldFavoriteUserBatches.length === 0 &&
+          currentScanInitialFullRef.current &&
           window.bilimiDesktop?.createOldFavoriteWorkspaceBatch
         ) {
           const workspaceBatch = await window.bilimiDesktop.createOldFavoriteWorkspaceBatch({
@@ -4728,6 +5018,38 @@ export function FavoriteLedgerPanel({
             typeof (workspaceBatch as { id?: unknown }).id === 'string'
             ? (workspaceBatch as { id: string }).id
             : started.batch.id
+          if (workspaceBatchId !== started.batch.id) {
+            await sessionOrchestrator.updateSegment(started.batch.id, started.batch.segments[0].id, {
+              status: 'ended', taskStatus: 'ended', requestState: 'idle'
+            })
+            if (sessionCoordinator) {
+              const state = endOldFavoriteBatch(
+                await sessionCoordinator.load(),
+                started.batch.id,
+                new Date().toISOString()
+              )
+              const orphanAlreadyIndexed = state.batches.some((batch) => batch.id === workspaceBatchId)
+              if (!orphanAlreadyIndexed) {
+                const imported = createOldFavoriteBatch({
+                  accountMid: currentAccountMid,
+                  kind: 'full',
+                  aids: [],
+                  now: typeof workspaceBatch === 'object' && workspaceBatch &&
+                    typeof (workspaceBatch as { createdAt?: unknown }).createdAt === 'string'
+                    ? (workspaceBatch as { createdAt: string }).createdAt
+                    : started.batch.createdAt,
+                  id: workspaceBatchId,
+                  snapshot: { currentStep: 'scan' }
+                })
+                await sessionCoordinator.save({ ...state, batches: [...state.batches, imported] })
+              } else {
+                await sessionCoordinator.save(state)
+              }
+              await sessionCoordinator.release(started.batch.id, started.batch.segments[0].id)
+            }
+            setStatus('检测到另一份未结束的完整整理批次，请重新打开整理旧藏恢复该批次。')
+            return
+          }
           currentScanWorkspaceRef.current = { accountMid: currentAccountMid, batchId: workspaceBatchId }
         }
         scanAccountMid = currentAccountMid
@@ -4737,15 +5059,13 @@ export function FavoriteLedgerPanel({
       }
       if (
         !currentScanWorkspaceRef.current &&
-        oldFavoriteUserBatches.length === 0 &&
+        currentScanInitialFullRef.current &&
         (requestedBatchKind ?? pendingOldFavoriteBatchKind) === 'full' &&
         window.bilimiDesktop?.createOldFavoriteWorkspaceBatch
       ) {
         const accountMid = scanAccountMid || currentAccountMid?.trim() || ''
         if (accountMid) {
-          const kind = oldFavoriteUserBatches.length === 0
-            ? 'full'
-            : (requestedBatchKind ?? pendingOldFavoriteBatchKind)
+          const kind = 'full'
           const createdAt = new Date().toISOString()
           const batchId = `old-favorite:${accountMid}:${kind}:${createdAt.replace(/[^0-9]/g, '')}:0`
           const workspaceBatch = await window.bilimiDesktop.createOldFavoriteWorkspaceBatch({
@@ -4799,7 +5119,8 @@ export function FavoriteLedgerPanel({
         return
       }
 
-      const scannedAccountMid = nextPreview.scanContext?.accountMid
+      const scannedAccountMid = nextPreview.scanContext?.accountMid?.trim() ||
+        scanAccountMid || currentAccountMid?.trim() || ''
       if (!nextPreview.scanProgress && scannedAccountMid && onReadOldFavoriteTagEnrichment) {
         const currentSnapshot = await onReadOldFavoriteTagEnrichment('progress').catch(() => null)
         if (scanGeneration !== scanGenerationRef.current) return
@@ -4825,11 +5146,9 @@ export function FavoriteLedgerPanel({
 
       const finalRunId = nextPreview.scanProgress?.basic.runId?.trim() || null
       currentScanRunIdRef.current = finalRunId
-      currentScanAccountMidRef.current = nextPreview.scanContext?.accountMid ?? null
+      currentScanAccountMidRef.current = scannedAccountMid || null
 
-      const accountChanged = bindOldFavoriteRuntimeAccount(
-        nextPreview.scanContext?.accountMid ?? ''
-      )
+      const accountChanged = bindOldFavoriteRuntimeAccount(scannedAccountMid)
       const scanDraftLedgers = accountChanged
         ? ledgers.map(cloneArchiveDraftLedger)
         : draftLedgers
@@ -4858,7 +5177,7 @@ export function FavoriteLedgerPanel({
         lease: null
       }
       const candidateAids = normalizedPreview.items.map((item) => item.aid)
-      const ownedAids = acquireAidOwnership(sessionState, scannedAccountMid ?? '', candidateAids)
+      const ownedAids = acquireAidOwnership(sessionState, scannedAccountMid, candidateAids)
       const previousCollectionSnapshot = oldFavoriteUserBatches
         .slice()
         .reverse()
@@ -4899,7 +5218,7 @@ export function FavoriteLedgerPanel({
               statistics: { scanned: normalizedPreview.items.length }
             }))
         : createOldFavoriteBatch({
-            accountMid: scannedAccountMid ?? '', kind: batchKind, aids: includedAids, now: createdAt,
+            accountMid: scannedAccountMid, kind: batchKind, aids: includedAids, now: createdAt,
             id: currentScanWorkspaceRef.current?.batchId
           })
       if (scannedAccountMid && window.bilimiDesktop?.createOldFavoriteWorkspaceBatch) {
@@ -5588,24 +5907,29 @@ export function FavoriteLedgerPanel({
     return chunks
   }
 
-  function failedDeepSeekArchiveRows(
-    request: Extract<DeepSeekGenerateRequest, { kind: 'favorite-archive-organize' }>,
-    message: string
-  ): DeepSeekArchiveVideoResult[] {
-    return request.videos.map((video) => ({
-      aid: video.aid,
-      sourceFolderTitle: video.sourceFolderTitle,
-      targetLedgerIds: [],
-      keepOriginal: false,
-      reason: '',
-      lowConfidence: true,
-      invalid: true,
-      failureKind: 'request-failed',
-      errorMessage: message
-    }))
+  function deepSeekArchiveBatchFailureKind(error: unknown): DeepSeekArchiveBatchFailureKind {
+    const code = (error as { code?: unknown })?.code
+    if (code === 'network-error' || isFavoriteLedgerConnectionFailure(error)) return 'network-error'
+    if (code === 'api-error') return 'api-error'
+    if (code === 'invalid-output') return 'invalid-output'
+    return 'invalid-result'
   }
 
-  async function organizeOldFavoritesWithDeepSeek() {
+  function safeDeepSeekArchiveErrorMessage(error: unknown) {
+    return errorMessage(error)
+      .replace(/(?:api[_-]?key|access[_-]?token|token|cookie|sessdata|bili[_-]?jct|authorization|bearer)\s*[:=]\s*[^\s,;]+/gi, (match) => {
+        const key = match.split(/[:=]/, 1)[0]
+        return `${key}=[redacted]`
+      })
+      .replace(/\bsk-[A-Za-z0-9_-]+\b/g, 'sk-[redacted]')
+      .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted]')
+      .replace(/https?:\/\/[^\s]+/gi, '[url redacted]')
+      .slice(0, 240)
+  }
+
+  async function organizeOldFavoritesWithDeepSeek(
+    retryFailures: DeepSeekArchiveBatchFailure[] | null = null
+  ) {
     if (!deepSeekArchiveAvailable) {
       const message = '请先到设置开启 DeepSeek 后再使用辅助整理。'
       setDeepSeekArchiveStatus(message)
@@ -5620,15 +5944,27 @@ export function FavoriteLedgerPanel({
     const multiArchiveLimit = deepSeekArchiveMultiLimit(favoriteArchiveMultiMode)
     const requestState = deepSeekArchiveStateForScope(
       archivePlanState,
-      deepSeekBatchScope,
+      deepSeekArchiveMode,
+      deepSeekSegmentScope,
       activeSegmentAidSet
     )
-    const request = buildDeepSeekArchiveRequest(
+    const baseRequest = buildDeepSeekArchiveRequest(
       requestState,
       archiveExecutionLedgers,
       deepSeekArchiveMode,
       multiArchiveLimit
     )
+    const retryVideoKeys = retryFailures
+      ? new Set(retryFailures.flatMap((failure) => failure.videoKeys))
+      : null
+    const request = retryVideoKeys
+      ? {
+          ...baseRequest,
+          videos: baseRequest.videos.filter((video) =>
+            retryVideoKeys.has(`${video.sourceFolderTitle}::${video.aid}`)
+          )
+        }
+      : baseRequest
 
     if (request.videos.length === 0) {
       setDeepSeekArchiveStatus('当前范围没有可整理的视频。')
@@ -5667,6 +6003,7 @@ export function FavoriteLedgerPanel({
       const snapshot = createDeepSeekArchiveSnapshot(archivePlanState)
       const results: DeepSeekArchiveVideoResult[] = []
       const keywordSuggestions: FavoriteKeywordSuggestion[] = []
+      const batchFailures: DeepSeekArchiveBatchFailure[] = []
       let completedVideos = 0
 
       for (const [chunkIndex, chunk] of chunks.entries()) {
@@ -5701,17 +6038,60 @@ export function FavoriteLedgerPanel({
             break
           }
           if (!result || result.kind !== 'favorite-archive-organize' || !Array.isArray(result.results)) {
-            results.push(...failedDeepSeekArchiveRows(chunk, 'DeepSeek 返回格式无效。'))
+            batchFailures.push({
+              batchIndex: retryFailures?.[chunkIndex]?.batchIndex ?? chunkIndex + 1,
+              affectedVideoCount: chunk.videos.length,
+              failureKind: 'invalid-output',
+              errorMessage: 'DeepSeek 返回格式无效。',
+              videoKeys: chunk.videos.map((video) => `${video.sourceFolderTitle}::${video.aid}`)
+            })
             continue
           }
 
-          results.push(...result.results)
+          const returnedAids = new Set(
+            result.results
+              .filter((row) => typeof row.aid === 'number')
+              .map((row) => row.aid)
+          )
+          const invalidRows = result.results.filter((row) => row.invalid)
+          const invalidVideoKeys = invalidRows.flatMap((row, invalidIndex) => {
+            const video = chunk.videos.find((candidate) => candidate.aid === row.aid)
+            const fallbackVideo = chunk.videos[invalidIndex]
+            const affectedVideo = video ?? fallbackVideo
+            return affectedVideo ? [`${affectedVideo.sourceFolderTitle}::${affectedVideo.aid}`] : []
+          })
+          const missingVideos = chunk.videos.filter((video) => !returnedAids.has(video.aid))
+          const failureVideoKeys = Array.from(new Set([
+            ...invalidVideoKeys,
+            ...missingVideos.map((video) => `${video.sourceFolderTitle}::${video.aid}`)
+          ]))
+          if (failureVideoKeys.length > 0) {
+            const invalidMessage = invalidRows[0]?.errorMessage ??
+              (invalidRows.length > 0 ? 'DeepSeek 返回的单条结果格式无效。' : '')
+            const missingMessage = missingVideos.length > 0
+              ? `DeepSeek 返回不完整，缺少 ${missingVideos.length} 条结果。`
+              : ''
+            batchFailures.push({
+              batchIndex: retryFailures?.[chunkIndex]?.batchIndex ?? chunkIndex + 1,
+              affectedVideoCount: failureVideoKeys.length,
+              failureKind: invalidRows.length > 0 ? 'invalid-result' : 'invalid-output',
+              errorMessage: safeDeepSeekArchiveErrorMessage([invalidMessage, missingMessage].filter(Boolean).join(' ')),
+              videoKeys: failureVideoKeys
+            })
+          }
+          results.push(...result.results.filter((row) => !row.invalid))
           keywordSuggestions.push(...(result.keywordSuggestions ?? []))
         } catch (error) {
           if (!isCurrentDeepSeekArchiveRun()) {
             return
           }
-          results.push(...failedDeepSeekArchiveRows(chunk, errorMessage(error)))
+          batchFailures.push({
+            batchIndex: retryFailures?.[chunkIndex]?.batchIndex ?? chunkIndex + 1,
+            affectedVideoCount: chunk.videos.length,
+            failureKind: deepSeekArchiveBatchFailureKind(error),
+            errorMessage: safeDeepSeekArchiveErrorMessage(error),
+            videoKeys: chunk.videos.map((video) => `${video.sourceFolderTitle}::${video.aid}`)
+          })
         }
 
         completedVideos += chunk.videos.length
@@ -5741,6 +6121,23 @@ export function FavoriteLedgerPanel({
         return
       }
 
+      const hasUsableResult = results.some((result) => !result.invalid && typeof result.aid === 'number')
+      if (batchFailures.length === chunks.length && !hasUsableResult) {
+        const affectedVideoCount = batchFailures.reduce((total, failure) => total + failure.affectedVideoCount, 0)
+        setDeepSeekArchiveRunSnapshot(null)
+        setDeepSeekArchiveResultSummary({
+          successCount: 0,
+          failedCount: affectedVideoCount,
+          nonApplicationCounts: emptyDeepSeekNonApplicationCounts(),
+          batchFailures
+        })
+        setDeepSeekArchiveSummaryOpen(false)
+        const message = `${batchFailures.length} 个批次失败，影响 ${affectedVideoCount} 条视频`
+        setDeepSeekArchiveStatus(message)
+        setOldFavoriteRuntimeStatus({ label: 'DeepSeek整理失败', message, tone: 'error' })
+        return
+      }
+
       const requestedAids = new Set(request.videos.map((video) => video.aid))
       const applied = applyDeepSeekArchiveResults({
         state: archivePlanState,
@@ -5751,6 +6148,10 @@ export function FavoriteLedgerPanel({
           typeof result.aid === 'number' && requestedAids.has(result.aid)
         )
       })
+      const batchFailureImpactCount = batchFailures.reduce(
+        (total, failure) => total + failure.affectedVideoCount,
+        0
+      )
       const deepSeekMoveFocus = archivePreviewMoveFocusBetween(archivePlanState, applied.state)
       const deepSeekArchiveChange = latestArchiveChangeBetween(archivePlanState, applied.state, {
         batchReason: 'DeepSeek 批量整理',
@@ -5772,7 +6173,15 @@ export function FavoriteLedgerPanel({
           ...applied.redDisplacementMessages
         ].filter((message): message is string => Boolean(message))
       )
+      const hasBatchFailures = batchFailures.length > 0
       const markDeepSeekArchiveReady = () => {
+        if (hasBatchFailures) {
+          const affectedVideoCount = batchFailures.reduce((total, failure) => total + failure.affectedVideoCount, 0)
+          const message = `${batchFailures.length} 个批次失败，影响 ${affectedVideoCount} 条视频`
+          setDeepSeekArchiveStatus(message)
+          setOldFavoriteRuntimeStatus({ label: 'DeepSeek整理部分失败', message, tone: 'error' })
+          return
+        }
         setOldFavoriteRuntimeStatus({
           label: `整理待确认 ${request.videos.length}`,
           message: 'DeepSeek 整理完成，请确认执行。',
@@ -5783,8 +6192,9 @@ export function FavoriteLedgerPanel({
 
       setDeepSeekArchiveResultSummary({
         successCount: applied.stats.successCount,
-        failedCount: applied.stats.failedCount,
-        nonApplicationCounts: applied.nonApplicationCounts
+        failedCount: applied.stats.failedCount + batchFailureImpactCount,
+        nonApplicationCounts: applied.nonApplicationCounts,
+        batchFailures
       })
       setDeepSeekArchiveStatus(
         `${applied.stats.successCount} 条已应用，${applied.stats.failedCount} 条未应用`
@@ -5829,6 +6239,14 @@ export function FavoriteLedgerPanel({
         setOldFavoriteRuntimeValue('deepSeekArchiveRunId', null)
       }
     }
+  }
+
+  function retryFailedDeepSeekArchiveBatches() {
+    const failures = deepSeekArchiveResultSummary?.batchFailures
+    if (!failures?.length || deepSeekArchiveRunning) {
+      return
+    }
+    void organizeOldFavoritesWithDeepSeek(failures)
   }
 
   function cancelDeepSeekArchiveOrganization() {
@@ -6206,7 +6624,7 @@ export function FavoriteLedgerPanel({
             currentStep: 'execution',
             execution: { nextGroupIndex: index, total: groups.length }
           },
-          work: () => onExecuteOldFavoritePlan(group)
+          work: () => onExecuteOldFavoritePlan(group, activeOldFavoriteUserBatch?.accountMid)
         })) as OldFavoriteExecutionResult
         if (accountGeneration !== accountGenerationRef.current) {
           return 'paused'
@@ -6218,7 +6636,7 @@ export function FavoriteLedgerPanel({
             : []
         const result = { ...rawResult, completedItems }
         if (rawResult.resultUnknown) {
-          setOldFavoriteRuntimeValue('oldFavoriteRecoveryRequiresReconciliation', true)
+          setOldFavoriteReconciliationRequired(activeOldFavoriteUserBatch.accountMid, true)
           setOldFavoriteExecutionRun(run)
           setOldFavoriteExecutionPhase('paused')
           setOldFavoriteExecutionStopping(false)
@@ -6341,7 +6759,7 @@ export function FavoriteLedgerPanel({
         }
         reconciledRun = { ...oldFavoriteExecutionRun, selectedItems: reconciledItems }
         setOldFavoriteExecutionRun(reconciledRun)
-        setOldFavoriteRuntimeValue('oldFavoriteRecoveryRequiresReconciliation', false)
+        setOldFavoriteReconciliationRequired(activeOldFavoriteUserBatch.accountMid, false)
       } finally {
         await sessionCoordinator.release(activeOldFavoriteUserBatch.id, activeOldFavoriteSegmentId)
       }
@@ -6380,6 +6798,7 @@ export function FavoriteLedgerPanel({
     setOldFavoriteExecutionProgress(null)
     setSaveStatus(null)
     setStatus('正在整理中，请耐心等待。')
+    let executionRequestsStarted = false
     try {
       const nextLedgers = buildLedgersToSave()
       let saveResult: AssistantAutomationResult | void
@@ -6458,6 +6877,7 @@ export function FavoriteLedgerPanel({
         setOldFavoriteExecutionPhase('idle')
         return
       }
+      executionRequestsStarted = true
       const segmentModels = activeOldFavoriteUserBatch?.snapshot?.segmentExecution ?? []
       const executionSegmentIndexes = activeOldFavoriteUserBatch
         ? buildContinuousExecutionPlan(
@@ -6546,13 +6966,18 @@ export function FavoriteLedgerPanel({
     } catch (error) {
       if (fullExecutionLeaseHeldRef.current && sessionOrchestrator && activeOldFavoriteUserBatch && activeOldFavoriteSegmentId) {
         await sessionOrchestrator.updateSegment(activeOldFavoriteUserBatch.id, activeOldFavoriteSegmentId, {
-          status: 'paused', taskStatus: 'paused', requestState: 'result-unknown'
+          status: 'paused', taskStatus: 'paused', requestState: executionRequestsStarted ? 'result-unknown' : 'idle'
         })
-        setOldFavoriteRuntimeValue('oldFavoriteRecoveryRequiresReconciliation', true)
+        if (executionRequestsStarted) {
+          setOldFavoriteReconciliationRequired(activeOldFavoriteUserBatch.accountMid, true)
+        }
       }
-      const message = `整理旧藏未完成：${errorMessage(error)}`
+      const connectionFailure = !executionRequestsStarted && isFavoriteLedgerConnectionFailure(error)
+      const message = connectionFailure
+        ? '连接 B 站失败，本次整理尚未开始，请刷新后重试'
+        : `整理旧藏未完成：${errorMessage(error)}`
       setStatus(message)
-      setOldFavoriteExecutionPhase('awaiting-acknowledgement')
+      setOldFavoriteExecutionPhase(executionRequestsStarted ? 'awaiting-acknowledgement' : 'idle')
       publishOldFavoriteStatus({ label: '整理失败', message, tone: 'error' })
       onOldFavoriteExecutionStateChange?.('finished')
     } finally {
@@ -7494,6 +7919,65 @@ export function FavoriteLedgerPanel({
     return `最近一次改动：${change.title}`
   }
 
+  function renderArchiveHistoryMenu() {
+    const currentChange = archiveUndoChanges.at(-1)
+    return (
+      <div className="favorite-ledger-panel__archive-history-select-control">
+        <button
+          type="button"
+          className="favorite-ledger-panel__archive-history-trigger"
+          aria-label="查看改动记录"
+          aria-expanded={archiveHistoryOpen}
+          title="查看改动记录"
+          onClick={() => setArchiveHistoryOpen((open) => !open)}
+        >
+          <span className="favorite-ledger-panel__archive-history-arrow" aria-hidden="true" />
+        </button>
+        {archiveHistoryOpen ? (
+          <div className="favorite-ledger-panel__archive-history-menu" role="menu" aria-label="改动记录">
+            {currentChange ? (
+              <button type="button" role="menuitem" disabled title={`当前状态：${archiveChangeRecordOptionText(currentChange)}`}>
+                当前状态：{archiveChangeRecordOptionText(currentChange)}
+              </button>
+            ) : (
+              <button type="button" role="menuitem" disabled title="暂无改动记录">暂无改动记录</button>
+            )}
+            {archiveUndoChanges.slice(0, -1)
+              .map((change, index) => ({ change, index }))
+              .reverse()
+              .map(({ change, index }) => (
+                <button
+                  key={`archive-change-${index}`}
+                  type="button"
+                  role="menuitem"
+                  title={archiveChangeRecordOptionText(change)}
+                  onClick={() => {
+                    setArchiveHistoryOpen(false)
+                    rollbackArchivePreviewHistory(index)
+                  }}
+                >
+                  {archiveChangeRecordOptionText(change)}
+                </button>
+              ))}
+            {archiveUndoChanges.length > 0 ? (
+              <button
+                type="button"
+                role="menuitem"
+                title="归档预览初始状态"
+                onClick={() => {
+                  setArchiveHistoryOpen(false)
+                  rollbackArchivePreviewHistory(-1)
+                }}
+              >
+                归档预览初始状态
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
   function archiveChangeAlertSummary(change: ArchivePreviewLatestChange | null) {
     if (!change || change.kind !== 'batch') {
       return null
@@ -7683,7 +8167,52 @@ export function FavoriteLedgerPanel({
   }
 
   function renderDeepSeekArchiveScopeMenu() {
-    const selectedScopeLabel = deepSeekArchiveScopeLabel(deepSeekBatchScope)
+    const selectedScopeLabel = deepSeekArchiveProcessingLabel(deepSeekArchiveMode)
+    const canChooseSegmentScope = Boolean(activeOldFavoriteUserBatch && activeOldFavoriteUserBatch.segmentCount > 1)
+
+    const renderMenu = () => deepSeekArchiveScopeMenu === 'processing' ? (
+      <div
+        className="favorite-ledger-panel__deepseek-archive-scope-menu"
+        role="menu"
+        aria-label="DeepSeek 处理对象"
+      >
+        {DEEPSEEK_ARCHIVE_PROCESSING_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="menuitemradio"
+            aria-checked={deepSeekArchiveMode === option.value}
+            onClick={() => {
+              setDeepSeekArchiveMode(option.value)
+              setDeepSeekArchiveScopeOpen(false)
+            }}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    ) : (
+      <div
+        className="favorite-ledger-panel__deepseek-archive-scope-menu"
+        role="menu"
+        aria-label="DeepSeek 分段范围"
+      >
+        {DEEPSEEK_ARCHIVE_SEGMENT_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="menuitemradio"
+            aria-checked={deepSeekSegmentScope === option.value}
+            onClick={() => {
+              setDeepSeekSegmentScope(option.value)
+              setDeepSeekArchiveScopeOpen(false)
+            }}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    )
 
     return (
       <div
@@ -7698,34 +8227,37 @@ export function FavoriteLedgerPanel({
           type="button"
           aria-haspopup="menu"
           aria-expanded={deepSeekArchiveScopeOpen}
+          aria-label="整理对象"
           title={`当前选择：${selectedScopeLabel}`}
           disabled={oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning}
-          onClick={() => setDeepSeekArchiveScopeOpen((open) => !open)}
+            onClick={() => {
+              const wasOpenForProcessing = deepSeekArchiveScopeOpen && deepSeekArchiveScopeMenu === 'processing'
+              setDeepSeekArchiveScopeMenu('processing')
+              setDeepSeekArchiveScopeOpen(!wasOpenForProcessing)
+          }}
         >
-          <span>整理范围</span>
+          <span>整理对象</span>
           <span className="favorite-ledger-panel__deepseek-archive-scope-arrow" aria-hidden="true" />
         </button>
-        {deepSeekArchiveScopeOpen ? (
-          <div
-            className="favorite-ledger-panel__deepseek-archive-scope-menu"
-            role="menu"
-            aria-label="DeepSeek 辅助整理范围"
+        {canChooseSegmentScope ? (
+          <button
+            type="button"
+            aria-haspopup="menu"
+            aria-label="分段范围"
+            aria-expanded={deepSeekArchiveScopeOpen && deepSeekArchiveScopeMenu === 'segment'}
+            title={`当前选择：${DEEPSEEK_ARCHIVE_SEGMENT_OPTIONS.find((option) => option.value === deepSeekSegmentScope)?.label ?? '当前分段'}`}
+            disabled={oldFavoritePlanReadOnly || deepSeekArchiveRunning || archiveBatchRunning}
+            onClick={() => {
+              setDeepSeekArchiveScopeMenu('segment')
+              setDeepSeekArchiveScopeOpen(true)
+            }}
           >
-            {DEEPSEEK_ARCHIVE_SCOPE_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                role="menuitemradio"
-                aria-checked={deepSeekBatchScope === option.value}
-                onClick={() => {
-                  setDeepSeekBatchScope(option.value)
-                  setDeepSeekArchiveScopeOpen(false)
-                }}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+            <span>分段范围</span>
+            <span className="favorite-ledger-panel__deepseek-archive-scope-arrow" aria-hidden="true" />
+          </button>
+        ) : null}
+        {deepSeekArchiveScopeOpen ? (
+          renderMenu()
         ) : null}
       </div>
     )
@@ -7831,6 +8363,7 @@ export function FavoriteLedgerPanel({
     (basicScanProgress.status === 'complete' || basicScanProgress.completed < basicScanProgress.total)
   )
   const oldFavoriteBatchSwitcher = oldFavoriteGuideMode === 'organize' &&
+    !oldFavoriteRecoveryRunning &&
     (preview || oldFavoriteUserBatches.length > 0) ? (
       <div className="favorite-ledger-panel__batch-switcher">
         <select
@@ -7840,7 +8373,11 @@ export function FavoriteLedgerPanel({
             ? `${activeOldFavoriteUserBatch?.kind === 'incremental' ? '新增批次' : '当前批次'} · ${new Date(activeOldFavoriteUserBatch!.createdAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}${activeOldFavoriteUserBatch!.segmentCount > 1 ? ` · 第${activeOldFavoriteUserBatch!.segmentIndex}/${activeOldFavoriteUserBatch!.segmentCount}段` : ''}${activeOldFavoriteUserBatch!.status === 'ended' ? ' · 已结束' : ''}`
             : '当前批次'}
           value={activeOldFavoriteUserBatch?.id ?? ''}
-          onChange={(event) => void selectOldFavoriteUserBatch(event.target.value)}
+          onChange={(event) => {
+            void selectOldFavoriteUserBatch(event.target.value).then((result) => {
+              if (result.kind === 'rescan-required') void startOrganizingOldFavorites(true)
+            })
+          }}
         >
           {activeOldFavoriteUserBatch ? null : <option value="">当前批次</option>}
           {oldFavoriteUserBatches.map((batch) => {
@@ -7850,18 +8387,23 @@ export function FavoriteLedgerPanel({
             const segmentLabel = batch.segmentCount > 1
               ? ` · 第${batch.segmentIndex}/${batch.segmentCount}段`
               : ''
-            const statusLabel = batch.status === 'ended' ? ' · 已结束' : ''
-            const fullLabel = `${batch.kind === 'incremental' ? '新增批次' : '扫描批次'} · ${dateLabel}${segmentLabel}${statusLabel}`
+            const executionPhase = batch.snapshot?.executionPhase
+            const statusLabel = batch.status === 'ended'
+              ? '已结束'
+              : executionPhase === 'paused' || executionPhase === 'risk-stopped' || executionPhase === 'awaiting-acknowledgement'
+                ? '已暂停'
+                : '进行中'
+            const fullLabel = `${batch.kind === 'incremental' ? '新增批次' : '扫描批次'} · ${dateLabel}${segmentLabel} · ${statusLabel}`
             const shortLabel = new Date(batch.createdAt).toLocaleString('zh-CN', {
               month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
             }).replace(/^(\d{2})\/(\d{2})\s/, '$1/$2 ')
-            return <option key={batch.id} value={batch.id} title={fullLabel}>{shortLabel}</option>
+            return <option key={batch.id} value={batch.id} title={fullLabel}>{shortLabel} · {statusLabel}</option>
           })}
         </select>
         {activeOldFavoriteUserBatch && activeOldFavoriteUserBatch.segmentCount > 1 ? (
           <select
             className="favorite-ledger-panel__segment-select"
-            aria-label="当前性能分段"
+            aria-label="当前整理分段"
             value={activeOldFavoriteUserBatch.segmentIndex}
             disabled={oldFavoriteOrganizationLocked()}
             onChange={(event) => {
@@ -7892,7 +8434,7 @@ export function FavoriteLedgerPanel({
         {!activeOldFavoriteBatchReadOnly ? <button
           type="button"
           aria-label="新增视频整理"
-          disabled={busy || oldFavoriteOrganizationLocked() || oldFavoriteExternalLeaseActive}
+            disabled={busy || oldFavoriteOrganizationLocked() || oldFavoriteExternalLeaseActive || oldFavoriteRecoveryRunning || Boolean(oldFavoriteRecoveryFailure)}
           onClick={() => setIncrementalBatchConfirmOpen(true)}
         >
           新增
@@ -7927,7 +8469,7 @@ export function FavoriteLedgerPanel({
           <AssistantActionButton
             type="button"
             aria-label="整理旧藏"
-            disabled={busy || oldFavoritePlanReadOnly}
+            disabled={busy || oldFavoriteRecoveryRunning || oldFavoritePlanReadOnly}
             onClick={() => void requestOldFavoriteOrganization()}
             icon={hintPetUrl}
             iconAlt="小咪整理旧藏"
@@ -7964,6 +8506,30 @@ export function FavoriteLedgerPanel({
           <p>这会清空当前账号全部旧藏本地整理记录（包括历史记录），且无法恢复，再从头扫描；不会修改 B 站收藏夹。</p>
         </OldFavoriteModal>
       ) : null}
+      {oldFavoriteRecoveryResetConfirmOpen ? (
+        <OldFavoriteModal
+          title="清除旧结果并重新扫描？"
+          danger
+          confirmLabel="确认清除并重新扫描"
+          onCancel={() => setOldFavoriteRecoveryResetConfirmOpen(false)}
+          onConfirm={() => void resetAllOldFavoriteOrganization()}
+        >
+          <p>这会清除当前账号全部旧藏扫描结果并从头扫描；不会修改 B 站收藏夹规则或其他账号数据。</p>
+        </OldFavoriteModal>
+      ) : null}
+      {ledgerResetConfirmOpen ? (
+        <OldFavoriteModal
+          title="重置收藏夹规则？"
+          onCancel={() => setLedgerResetConfirmOpen(false)}
+          confirmLabel="确认重置"
+          onConfirm={() => {
+            setLedgerResetConfirmOpen(false)
+            applyDefaultLedgerRules()
+          }}
+        >
+          <p>仅恢复默认收藏夹名称和分类规则，不会清除旧藏扫描结果，也不会重新扫描。</p>
+        </OldFavoriteModal>
+      ) : null}
 
       {missingLedgerIds.length > 0 ? (
         <p className="favorite-ledger-panel__notice">
@@ -7974,6 +8540,15 @@ export function FavoriteLedgerPanel({
       {status || saveStatus ? (
         <div className="favorite-ledger-panel__status" role="status">
           <span>{status ?? saveStatus}</span>
+          {oldFavoriteRecoveryFailure && !oldFavoriteRecoveryRunning ? (
+            <button
+              type="button"
+              aria-label="清除旧结果并重新扫描"
+              onClick={() => setOldFavoriteRecoveryResetConfirmOpen(true)}
+            >
+              清除旧结果并重新扫描
+            </button>
+          ) : null}
           {basicScanRunning ? (
             <button type="button" aria-label="取消旧藏扫描" onClick={cancelOldFavoriteScan}>取消</button>
           ) : null}
@@ -8251,8 +8826,8 @@ export function FavoriteLedgerPanel({
                   </span>
                 </button>
               </span>
-              {oldFavoriteBatchSwitcher}
             </div>
+            {oldFavoriteBatchSwitcher}
             {oldFavoriteGuideHintExpanded ? (
               <p className="favorite-ledger-panel__guide-hint">{OLD_FAVORITE_GUIDE_HINT}</p>
             ) : null}
@@ -8278,6 +8853,7 @@ export function FavoriteLedgerPanel({
                   key={step.id}
                   type="button"
                   aria-current={oldFavoriteStep === step.id ? 'step' : undefined}
+                  aria-expanded={oldFavoriteExpandedStep === step.id}
                   disabled={deepSeekArchiveRunning && oldFavoriteStep !== step.id}
                   onClick={() => switchOldFavoriteStep(step.id)}
                 >
@@ -8309,7 +8885,7 @@ export function FavoriteLedgerPanel({
             </div>
           ) : null}
 
-          {oldFavoriteStep === 'scan' ? (
+          {oldFavoriteExpandedStep === 'scan' ? (
             <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
               <h4 className="favorite-ledger-panel__step-title">扫描概览</h4>
               <p className="favorite-ledger-panel__scan-guidance">
@@ -8348,6 +8924,18 @@ export function FavoriteLedgerPanel({
                   </strong>
                 </div>
               </div>
+              {preview.scanDiagnostics?.folderFailures?.some((failure) => failure.operation === 'target-membership') ? (
+                <div className="favorite-ledger-panel__scan-warning">
+                  <p>恢复结果已显示；执行前需要重新核对收藏夹成员。</p>
+                  <button
+                    type="button"
+                    disabled={busy || oldFavoritePlanReadOnly}
+                    onClick={() => void rescanRestoredOldFavoriteBatch()}
+                  >
+                    重新扫描全部
+                  </button>
+                </div>
+              ) : null}
               {(scanProgress?.tags.pending ?? 0) > 0 && ['running', 'paused'].includes(scanProgress?.tags.status ?? '') && !basicScanRunning ? (
                 <div className="favorite-ledger-panel__scan-enrichment-status">
                   <p className="favorite-ledger-panel__scan-warning">
@@ -8466,7 +9054,7 @@ export function FavoriteLedgerPanel({
                     <strong>{previewScopedPendingItems.length}</strong>
                   </article>
                   <article>
-                    <span>{preview.scanContext ? '正式工作夹保护' : '已存在'}</span>
+                    <span>{preview.scanContext ? '已保护' : '已存在'}</span>
                     <strong>{preview.scanContext ? protectedOldFavoriteCount : alreadyInTargetOldFavoriteCount}</strong>
                   </article>
                   <article>
@@ -8545,12 +9133,17 @@ export function FavoriteLedgerPanel({
                           <p className="favorite-ledger-panel__source-note">
                             待整理数会排除已整理视频，并对多个收藏夹中的同一视频去重，因此数量可能较少。
                           </p>
-                          {oldFavoriteUserSourceFolders.some((folder) => folder.scanFailed) ? (
+                          {oldFavoriteUserSourceFolders.some((folder) => folder.scanFailed) ||
+                          preview.scanDiagnostics?.folderFailures?.some((failure) => failure.operation === 'target-membership') ? (
                             <button
                               type="button"
                               className="favorite-ledger-panel__source-rescan"
                               disabled={busy || oldFavoritePlanReadOnly}
-                              onClick={() => void scanOldFavorites('organize')}
+                              onClick={() => void (
+                                preview.scanDiagnostics?.folderFailures?.some((failure) => failure.operation === 'target-membership')
+                                  ? rescanRestoredOldFavoriteBatch()
+                                  : scanOldFavorites('organize')
+                              )}
                             >
                               重新扫描全部
                             </button>
@@ -8575,7 +9168,7 @@ export function FavoriteLedgerPanel({
             </section>
           ) : null}
 
-          {oldFavoriteStep === 'generated' ? (
+          {oldFavoriteExpandedStep === 'generated' ? (
             <section className="favorite-ledger-panel__candidates" aria-label="专属收藏夹候选">
               <h4 className="favorite-ledger-panel__step-title">推荐收藏夹</h4>
               <p className="favorite-ledger-panel__step-note">确认执行后，会把已勾选候选同步到 B 站收藏夹里。</p>
@@ -8709,7 +9302,7 @@ export function FavoriteLedgerPanel({
             </section>
           ) : null}
 
-          {oldFavoriteStep === 'preview' ? (
+          {oldFavoriteExpandedStep === 'preview' ? (
             <div className="favorite-ledger-panel__preview">
               {!oldFavoritePreviewReady ? (
                 <>
@@ -8783,16 +9376,19 @@ export function FavoriteLedgerPanel({
                               className="favorite-ledger-panel__deepseek-result-summary"
                               role="status"
                               aria-label="DeepSeek 整理结果"
-                              title={`DeepSeek 整理完成：已应用 ${deepSeekArchiveResultSummary.successCount} 条，未应用 ${deepSeekArchiveResultSummary.failedCount} 条`}
+                              title={deepSeekArchiveResultSummary.batchFailures?.length
+                                ? `DeepSeek 整理失败：${deepSeekArchiveResultSummary.batchFailures.length} 个批次失败，影响 ${deepSeekArchiveResultSummary.failedCount} 条视频`
+                                : `DeepSeek 整理完成：已应用 ${deepSeekArchiveResultSummary.successCount} 条，未应用 ${deepSeekArchiveResultSummary.failedCount} 条`}
                             >
                               <span>
-                                DeepSeek 整理完成：已应用 {deepSeekArchiveResultSummary.successCount} 条，未应用{' '}
-                                {deepSeekArchiveResultSummary.failedCount} 条
+                                {deepSeekArchiveResultSummary.batchFailures?.length
+                                  ? `${deepSeekArchiveResultSummary.batchFailures.length} 个批次失败，影响 ${deepSeekArchiveResultSummary.failedCount} 条视频`
+                                  : `DeepSeek 整理完成：已应用 ${deepSeekArchiveResultSummary.successCount} 条，未应用 ${deepSeekArchiveResultSummary.failedCount} 条`}
                               </span>
                               <button
                                 type="button"
                                 className="favorite-ledger-panel__deepseek-result-toggle"
-                                aria-label={`${deepSeekArchiveSummaryOpen ? '收起' : '查看'} DeepSeek 整理结果详情`}
+                                aria-label={`${deepSeekArchiveSummaryOpen ? '收起' : '查看'} DeepSeek ${deepSeekArchiveResultSummary.batchFailures?.length ? '整理失败' : '整理结果'}详情`}
                                 aria-expanded={deepSeekArchiveSummaryOpen}
                                 onClick={() => setDeepSeekArchiveSummaryOpen((open) => !open)}
                               >
@@ -8810,18 +9406,36 @@ export function FavoriteLedgerPanel({
                                 role="region"
                                 aria-label="本次 DeepSeek 整理结果"
                               >
-                              <strong>本次 DeepSeek 整理结果</strong>
-                              <span>
-                                共处理 {deepSeekArchiveResultSummary.successCount + deepSeekArchiveResultSummary.failedCount} 条视频。
-                              </span>
-                              <span>
-                                <b>已应用 {deepSeekArchiveResultSummary.successCount} 条：</b>
-                                已采用 DeepSeek 建议并更新归档预览，尚未操作 B 站收藏夹。
-                              </span>
-                              <span>
-                                <b>未应用 {deepSeekArchiveResultSummary.failedCount} 条：</b>
-                                未采用 DeepSeek 建议，继续保持整理前的归档状态。
-                              </span>
+                                <strong>{deepSeekArchiveResultSummary.batchFailures?.length ? '本次 DeepSeek 整理失败详情' : '本次 DeepSeek 整理结果'}</strong>
+                                <span>
+                                  共处理 {deepSeekArchiveResultSummary.successCount + deepSeekArchiveResultSummary.failedCount} 条视频。
+                                </span>
+                                {deepSeekArchiveResultSummary.batchFailures?.map((failure) => (
+                                  <span key={`deepseek-failure-${failure.batchIndex}`}>
+                                    第 {failure.batchIndex} 批：影响 {failure.affectedVideoCount} 条，{failure.failureKind}，{failure.errorMessage}
+                                  </span>
+                                ))}
+                                {deepSeekArchiveResultSummary.batchFailures?.length ? (
+                                  <button
+                                    type="button"
+                                    onClick={retryFailedDeepSeekArchiveBatches}
+                                    disabled={deepSeekArchiveRunning}
+                                  >
+                                    仅重试失败批次
+                                  </button>
+                                ) : null}
+                              {deepSeekArchiveResultSummary.successCount > 0 ? (
+                                <span>
+                                  <b>已应用 {deepSeekArchiveResultSummary.successCount} 条：</b>
+                                  已采用 DeepSeek 建议并更新归档预览，尚未操作 B 站收藏夹。
+                                </span>
+                              ) : null}
+                              {deepSeekArchiveResultSummary.failedCount > 0 ? (
+                                <span>
+                                  <b>未应用 {deepSeekArchiveResultSummary.failedCount} 条：</b>
+                                  未采用 DeepSeek 建议，继续保持整理前的归档状态。
+                                </span>
+                              ) : null}
                               {deepSeekArchiveNonApplicationRows.map(([label, count]) => (
                                 <span key={label}>{label}：{count} 条</span>
                               ))}
@@ -8879,44 +9493,7 @@ export function FavoriteLedgerPanel({
                         <div className="favorite-ledger-panel__archive-history-actions">
                           <label className="favorite-ledger-panel__archive-history-select">
                             <span>改动记录</span>
-                            {archiveUndoChanges.length > 0 ? (
-                              <span className="favorite-ledger-panel__archive-history-current" role="status">
-                                当前状态：{archiveChangeRecordOptionText(archiveUndoChanges[archiveUndoChanges.length - 1])}
-                              </span>
-                            ) : null}
-                            <span className="favorite-ledger-panel__archive-history-select-control">
-                              <select
-                                aria-label="改动记录"
-                                disabled={oldFavoritePlanReadOnly || archiveUndoChanges.length === 0}
-                                value=""
-                                onChange={(event) => {
-                                  if (event.currentTarget.value === 'initial') {
-                                    rollbackArchivePreviewHistory(-1)
-                                    return
-                                  }
-                                  if (event.currentTarget.value.startsWith('change:')) {
-                                    rollbackArchivePreviewHistory(Number(event.currentTarget.value.slice(7)))
-                                  }
-                                }}
-                              >
-                                {archiveUndoChanges.length === 0 ? (
-                                  <option value="">暂无改动记录</option>
-                                ) : (
-                                  <>
-                                    <option value="" hidden>选择要恢复的状态</option>
-                                    {archiveUndoChanges.slice(0, -1)
-                                      .map((change, index) => ({ change, index }))
-                                      .reverse()
-                                      .map(({ change, index }) => (
-                                        <option key={`archive-change-${index}`} value={`change:${index}`}>
-                                          {archiveChangeRecordOptionText(change)}
-                                        </option>
-                                      ))}
-                                    <option value="initial">归档预览初始状态</option>
-                                  </>
-                                )}
-                              </select>
-                            </span>
+                            {renderArchiveHistoryMenu()}
                           </label>
                           <button
                             type="button"
@@ -9080,7 +9657,7 @@ export function FavoriteLedgerPanel({
             </div>
           ) : null}
 
-          {oldFavoriteStep === 'confirm' ? (
+          {oldFavoriteExpandedStep === 'confirm' ? (
             !oldFavoriteScanFlowComplete ? (
               <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
                 <h4>确认执行</h4>
@@ -9104,7 +9681,7 @@ export function FavoriteLedgerPanel({
               ) : (
                 <>
                   <p>已选择 {selectedOldFavoritePlanItems.length} 条归档任务</p>
-                  {oldFavoriteSegmentProgress ? (
+                  {oldFavoriteSegmentProgress && activeOldFavoriteUserBatch?.segmentCount > 1 ? (
                     <>
                       <p>
                         当前段可执行 {oldFavoriteSegmentProgress.currentExecutableCount} · 全批可执行{' '}
@@ -9120,6 +9697,8 @@ export function FavoriteLedgerPanel({
                         连续执行所有已就绪分段
                       </label>
                     </>
+                  ) : oldFavoriteSegmentProgress ? (
+                    <p>本次可执行 {oldFavoriteSegmentProgress.currentExecutableCount} · 已完成 {oldFavoriteSegmentProgress.batchCompletedCount}/{oldFavoriteSegmentProgress.batchTotalCount}</p>
                   ) : null}
                   {selectedOldFavoritePlanItems.length === 0 ? (
                     <p>本轮没有需要执行的归档任务，点击确认整理后结束本轮整理</p>
@@ -9337,7 +9916,7 @@ export function FavoriteLedgerPanel({
                 本次将整理 {selectedOldFavoriteVideoCount} 条视频，每条视频最多存入{' '}
                 {deepSeekArchiveMultiLimit(favoriteArchiveMultiMode)} 个 bilimi 收藏夹。
               </p>
-              {oldFavoriteSegmentProgress ? (
+              {oldFavoriteSegmentProgress && activeOldFavoriteUserBatch?.segmentCount > 1 ? (
                 <>
                   <p>
                     当前段可执行 {oldFavoriteSegmentProgress.currentExecutableCount} · 全批可执行{' '}
@@ -9353,6 +9932,8 @@ export function FavoriteLedgerPanel({
                     连续执行所有已就绪分段
                   </label>
                 </>
+              ) : oldFavoriteSegmentProgress ? (
+                <p>本次可执行 {oldFavoriteSegmentProgress.currentExecutableCount} · 已完成 {oldFavoriteSegmentProgress.batchCompletedCount}/{oldFavoriteSegmentProgress.batchTotalCount}</p>
               ) : null}
               {archiveMultiModeChange ? (
                 <p className="favorite-ledger-panel__execution-dialog-change-note">

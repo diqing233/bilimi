@@ -122,12 +122,19 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('old-favorite-workspace:finalize-batch', accountMid, batchId),
   resetOldFavoriteWorkspaceAccount: (accountMid: string) =>
     ipcRenderer.invoke('old-favorite-workspace:reset-account', accountMid),
+  resetOldFavoriteAccount: (accountMid: string) =>
+    ipcRenderer.invoke('old-favorite-account:reset', accountMid),
   resetOldFavoriteRuntime: () =>
     ipcRenderer.sendSync('old-favorite-runtime:reset') as boolean,
   resetOldFavoriteRuntimeAccount: (accountMid: string) =>
     ipcRenderer.invoke('old-favorite-runtime:reset-account', accountMid) as Promise<boolean>,
   loadOldFavoriteSessions: () =>
     ipcRenderer.invoke('old-favorite-sessions:load') as Promise<OldFavoriteSessionsState>,
+  beginOldFavoriteFullScan: (accountMid: string, now: string, snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']) =>
+    ipcRenderer.invoke('old-favorite-sessions:begin-full-scan', accountMid, now, snapshot) as Promise<{
+      batch: OldFavoriteSessionsState['batches'][number]
+      acquired: boolean
+    }>,
   saveOldFavoriteSessions: (state: OldFavoriteSessionsState) =>
     ipcRenderer.invoke('old-favorite-sessions:save', state) as Promise<OldFavoriteSessionsState>,
   resetOldFavoriteSessionsAccount: (accountMid: string) =>
@@ -369,8 +376,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('floating-assistant:old-favorite-tag-enrichment', action),
   rejudgeOldFavorite: (item: FavoriteLedgerPreviewItem) =>
     ipcRenderer.invoke('floating-assistant:rejudge-old-favorite', item) as Promise<FavoriteLedgerPreviewItem>,
-  executeOldFavoritePlan: (items: FavoriteLedgerPreviewItem[]) =>
-    ipcRenderer.invoke('floating-assistant:execute-old-favorite-plan', items),
+  executeOldFavoritePlan: (items: FavoriteLedgerPreviewItem[], expectedAccountMid?: string) =>
+    ipcRenderer.invoke('floating-assistant:execute-old-favorite-plan', items, expectedAccountMid),
   savePreferences: (preferences: AssistantPreferences) =>
     ipcRenderer.invoke('assistant:save-preferences', preferences) as Promise<AssistantPreferences>,
   patchPreferences: (patch: Partial<AssistantPreferences>) =>

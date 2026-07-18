@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type {
   OldFavoriteAccountIndex,
@@ -57,6 +57,7 @@ export class OldFavoriteWorkspaceService {
   private overlayCache = new Map<string, OldFavoriteBatchDetail['overlays']>()
   private writeTail = Promise.resolve()
   private opened = false
+  private readonly replacementFullBatchIds = new Set<string>()
 
   constructor(private readonly options: {
     root: string
@@ -108,11 +109,18 @@ export class OldFavoriteWorkspaceService {
         }
       }
       if (options.kind === 'full') {
-        const activeFull = index.batches
+        const activeFullCandidates = index.batches
           .filter((batch) => batch.kind === 'full' && batch.status === 'active')
           .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-          .at(-1)
-        if (activeFull) return structuredClone(activeFull)
+          .reverse()
+        for (const activeFull of activeFullCandidates) {
+          const manifest = await this.loadManifest(account, activeFull.id).catch(() => null)
+          if (manifest?.scanPlaceholder ||
+            manifest?.chunks.some((chunk) => chunk.count > 0) ||
+            this.replacementFullBatchIds.has(activeFull.id)) {
+            return structuredClone(activeFull)
+          }
+        }
       }
       const summary: OldFavoriteBatchSummary = {
         id: requestedId || `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`,
@@ -126,8 +134,10 @@ export class OldFavoriteWorkspaceService {
         version: 2,
         accountMid: account,
         ...summary,
-        chunks: []
+        chunks: [],
+        scanPlaceholder: true
       }
+      if (options.kind === 'full') this.replacementFullBatchIds.add(summary.id)
       await this.atomicWriteJson(this.manifestPath(account, summary.id), manifest)
       const nextIndex = { ...index, batches: [...index.batches, summary] }
       await this.atomicWriteJson(this.indexPath(account), nextIndex)
@@ -153,6 +163,7 @@ export class OldFavoriteWorkspaceService {
       const record: OldFavoriteChunkRecord = { file, kind, sequence, count: items.length, checksum: checksum(payload) }
       await this.writeText(join(this.batchDirectory(account, batchId), file), encodeChunk(items))
       manifest.chunks.push(record)
+      manifest.scanPlaceholder = false
       await this.atomicWriteJson(this.manifestPath(account, batchId), manifest)
       return structuredClone(record)
     })
@@ -182,6 +193,7 @@ export class OldFavoriteWorkspaceService {
         )
       }
       manifest.chunks.push(...records)
+      manifest.scanPlaceholder = false
       await this.atomicWriteJson(this.manifestPath(account, batchId), manifest)
       return structuredClone(records)
     })
@@ -291,10 +303,42 @@ export class OldFavoriteWorkspaceService {
 
   async resetAccount(accountMid: string) {
     const account = validAccountMid(accountMid)
-    await this.deletePath(join(this.options.root, 'accounts', account), true)
-    this.indexes.delete(account)
-    for (const key of [...this.manifests.keys()]) if (key.startsWith(`${account}:`)) this.manifests.delete(key)
-    for (const key of [...this.overlayCache.keys()]) if (key.startsWith(`${account}:`)) this.overlayCache.delete(key)
+    return this.queueWrite(async () => {
+      const accountDirectory = join(this.options.root, 'accounts', account)
+      const transactionId = randomUUID()
+      const stagedDirectory = join(this.options.root, 'accounts', `.${account}.reset-${transactionId}`)
+      const backupDirectory = join(this.options.root, 'accounts', `.${account}.reset-backup-${transactionId}`)
+      let staged = false
+      let backedUp = false
+      try {
+        try {
+          await rename(accountDirectory, stagedDirectory)
+          staged = true
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        }
+        if (staged) {
+          await cp(stagedDirectory, backupDirectory, { recursive: true })
+          backedUp = true
+          await this.deletePath(stagedDirectory, true)
+          staged = false
+          await this.deletePath(backupDirectory, true)
+          backedUp = false
+        }
+      } catch (error) {
+        if (backedUp) {
+          await this.deletePath(accountDirectory, true).catch(() => undefined)
+          await cp(backupDirectory, accountDirectory, { recursive: true })
+          await this.deletePath(backupDirectory, true).catch(() => undefined)
+        } else if (staged) {
+          await rename(stagedDirectory, accountDirectory).catch(() => undefined)
+        }
+        throw error
+      }
+      this.indexes.delete(account)
+      for (const key of [...this.manifests.keys()]) if (key.startsWith(`${account}:`)) this.manifests.delete(key)
+      for (const key of [...this.overlayCache.keys()]) if (key.startsWith(`${account}:`)) this.overlayCache.delete(key)
+    })
   }
 
   flush() {

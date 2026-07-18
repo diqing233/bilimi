@@ -2015,10 +2015,12 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
 
 export function buildExecuteFavoriteLedgerPlanScript(
   items: FavoriteLedgerPreviewItem[],
-  pacingOptions: FavoriteLedgerExecutionPacingOptions = {}
+  pacingOptions: FavoriteLedgerExecutionPacingOptions = {},
+  expectedAccountMid = ''
 ): string {
   const payload = scriptPayload({
     items,
+    expectedAccountMid: expectedAccountMid.trim(),
     pacing: {
       appendDelayMs: pacingOptions.appendDelayMs ?? { min: 1200, max: 3000 },
       cooldownDelayMs: pacingOptions.cooldownDelayMs ?? { min: 15000, max: 45000 },
@@ -2054,11 +2056,34 @@ export function buildExecuteFavoriteLedgerPlanScript(
       const isUnknownWriteResult = (error) =>
         error?.name === 'AbortError' ||
         /abort|interrupted|networkerror|failed to fetch|load failed/i.test(String(error?.message || error || ''));
+      const accountMismatchResult = (message = 'The signed-in Bilibili account changed during execution.') => ({
+        ok: false,
+        paused: true,
+        resultUnknown: true,
+        steps,
+        missingTargets: ['bilibili-account'],
+        completedItems,
+        message
+      });
+      const assertExpectedAccount = () => {
+        if (!payload.expectedAccountMid) return;
+        const { mid } = readCredentials();
+        if (!mid || String(mid) !== String(payload.expectedAccountMid)) {
+          const error = new Error('bilibili-account-mismatch');
+          error.accountMismatch = true;
+          throw error;
+        }
+      };
 
       try {
         const { csrf } = readCredentials();
         if (!csrf) {
           return { ok: false, steps, missingTargets, message: '未能读取登录凭据，无法归册。' };
+        }
+        try {
+          assertExpectedAccount();
+        } catch (error) {
+          return accountMismatchResult();
         }
 
         const filteredItems = payload.items.filter((item) => {
@@ -2107,6 +2132,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
         };
 
         const appendItemFolders = async (item, addFolderIds) => {
+          assertExpectedAccount();
           const body = new URLSearchParams();
           body.set('add_media_ids', addFolderIds.join(','));
           body.set('csrf', csrf);
@@ -2127,6 +2153,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
           await ensureApiOk(response, 'favorite ledger append');
         };
         const removeItemFolders = async (item, removeFolderIds) => {
+          assertExpectedAccount();
           const body = new URLSearchParams();
           body.set('del_media_ids', removeFolderIds.join(','));
           body.set('csrf', csrf);
@@ -2162,6 +2189,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
         const readRemoteFolderSnapshot = async () => {
           if (!remoteFolderSnapshotPromise) {
             remoteFolderSnapshotPromise = (async () => {
+              assertExpectedAccount();
               const { mid } = readCredentials();
               if (!mid) throw createApiError('favorite folder list requires an account', { kind: 'credentials' });
               const response = await fetch(buildListUrl(mid), { credentials: 'include' });
@@ -2178,6 +2206,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
         };
         const readShardMembers = async (shard) => {
           if (Array.isArray(shard.memberAids)) return shard.memberAids;
+          assertExpectedAccount();
           const url = new URL('https://api.bilibili.com/x/v3/fav/resource/ids');
           url.searchParams.set('media_id', shard.id);
           const response = await fetch(url.toString(), { credentials: 'include' });
@@ -2192,6 +2221,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
           return shard.memberAids;
         };
         const createPhysicalShard = async (logicalTitle, shardNumber) => {
+          assertExpectedAccount();
           const body = new URLSearchParams();
           body.set('csrf', csrf);
           body.set('privacy', '0');
@@ -2236,6 +2266,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
             try {
               target = await createPhysicalShard(logicalTitle, Math.max(...shards.map((shard) => physicalShardNumber(shard.title))) + 1);
             } catch (error) {
+              if (error?.accountMismatch) throw error;
               return { state: 'create-failed', error };
             }
           }
@@ -2246,7 +2277,8 @@ export function buildExecuteFavoriteLedgerPlanScript(
           let folders;
           try {
             folders = await readRemoteFolderSnapshot();
-          } catch {
+          } catch (error) {
+            if (error?.accountMismatch) throw error;
             return { state: 'ready', folderIds: suppliedIds };
           }
           const stagingShards = folders.filter((folder) => logicalFolderTitle(folder.title) === 'bilimi·暂存');
@@ -2255,6 +2287,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
               const memberAids = await readShardMembers(shard);
               if (memberAids.includes(Number(item.aid))) suppliedIds.push(shard.id);
             } catch (error) {
+              if (error?.accountMismatch) throw error;
               return { state: 'membership-incomplete', folderIds: Array.from(new Set(suppliedIds)), error };
             }
           }
@@ -2356,6 +2389,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
                 removedFolderIds
               });
             } catch (error) {
+              if (error?.accountMismatch) return accountMismatchResult();
               const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
               if (isProtectionFailure(error)) {
                 return protectionPausedResult(item, index, errorMessage);
@@ -2402,6 +2436,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
                 successfulItems.push({ ...groupedItem, targetFolderId: resolution.folderId });
                 steps.push('api:ledger:append:' + groupedItem.aid + ':' + resolution.folderId);
               } catch (error) {
+                if (error?.accountMismatch) return accountMismatchResult();
                 const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
                 if (isProtectionFailure(error)) {
                   return protectionPausedResult(item, index, errorMessage);
@@ -2419,6 +2454,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
                 await removeItemFolders(item, stagingFolderIds);
                 steps.push('api:ledger:staging-removed:' + item.aid);
               } catch (error) {
+                if (error?.accountMismatch) return accountMismatchResult();
                 const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
                 if (isProtectionFailure(error)) {
                   return protectionPausedResult(item, index, errorMessage);
@@ -2468,6 +2504,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
             completedItems.push(...resolvedItems);
             steps.push('api:ledger:append:' + item.aid);
           } catch (error) {
+            if (error?.accountMismatch) return accountMismatchResult();
             const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
             if (isProtectionFailure(error)) {
               return protectionPausedResult(item, index, errorMessage);
@@ -2497,6 +2534,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
               completedItems.push(...refreshedItems);
               steps.push('api:ledger:append:' + item.aid);
             } catch (retryError) {
+              if (retryError?.accountMismatch) return accountMismatchResult();
               const retryMessage = retryError instanceof Error ? retryError.message : String(retryError || '');
               if (isProtectionFailure(retryError)) {
                 return protectionPausedResult(item, index, retryMessage);

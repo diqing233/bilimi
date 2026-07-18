@@ -1,7 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createOldFavoriteQuitBarrier } from './oldFavoriteQuitBarrier'
+import { createOldFavoriteQuitBarrier, shouldFlushOldFavoriteOnQuit } from './oldFavoriteQuitBarrier'
 
 describe('createOldFavoriteQuitBarrier', () => {
+  it('flushes an opened session store with a durable active lease even when dirty trackers are clean', () => {
+    const load = vi.fn().mockReturnValue({ lease: { batchId: 'batch', segmentId: 'segment' } })
+
+    expect(shouldFlushOldFavoriteOnQuit(false, false, { load })).toBe(true)
+    expect(load).toHaveBeenCalledOnce()
+  })
+
+  it('does not initialize or read an unopened session store for a clean quit', () => {
+    expect(shouldFlushOldFavoriteOnQuit(false, false, undefined)).toBe(false)
+  })
+
   it('lets a clean unopened workspace quit immediately without prepare or flush', () => {
     const prepare = vi.fn()
     const flush = vi.fn()

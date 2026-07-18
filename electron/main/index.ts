@@ -66,9 +66,14 @@ import { FLOATING_ASSISTANT_SIZE } from './floatingAssistantWindowSize'
 import { OldFavoriteRuntimeStore, TransientCheckpointScheduler } from './oldFavoriteRuntimeStore'
 import { OldFavoriteSessionStore } from './oldFavoriteSessionStore'
 import { createOldFavoritePersistence } from './oldFavoritePersistence'
-import { createOldFavoriteQuitBarrier } from './oldFavoriteQuitBarrier'
+import {
+  OldFavoritePersistenceDirtyTracker,
+  type OldFavoritePersistenceMutation
+} from './oldFavoritePersistenceDirtyTracker'
+import { createOldFavoriteQuitBarrier, shouldFlushOldFavoriteOnQuit } from './oldFavoriteQuitBarrier'
 import { OldFavoriteRendererFlushCoordinator } from './oldFavoriteRendererFlushCoordinator'
 import { registerOldFavoriteSessionIpc } from './oldFavoriteSessionIpc'
+import { resetOldFavoriteAccount } from './oldFavoriteAccountReset'
 import { OldFavoriteBackgroundRuntime } from './oldFavoriteBackgroundRuntime'
 import { OldFavoriteWorkspaceService } from './oldFavoriteWorkspaceService'
 import { registerOldFavoriteWorkspaceIpc } from './oldFavoriteWorkspaceIpc'
@@ -431,7 +436,7 @@ let oldFavoriteSessionStore: OldFavoriteSessionStore | undefined
 let oldFavoriteRuntimeCheckpointScheduler: TransientCheckpointScheduler | undefined
 let flushOldFavoritePersistence: (() => Promise<void>) | undefined
 let oldFavoritePersistenceOpening: ReturnType<typeof createOldFavoritePersistence> | undefined
-let oldFavoritePersistenceDirtyCount = 0
+const oldFavoritePersistenceDirtyTracker = new OldFavoritePersistenceDirtyTracker()
 let oldFavoriteWorkspaceService: OldFavoriteWorkspaceService | undefined
 const oldFavoriteRendererFlushCoordinator = new OldFavoriteRendererFlushCoordinator()
 
@@ -911,9 +916,36 @@ function registerAssistantPreferenceHandlers() {
     getStore: async () => (await ensureOldFavoritePersistence()).sessionStore,
     isTrustedSender: isTrustedOldFavoriteSessionSender,
     broadcast: broadcastOldFavoriteSessions,
-    onMutation: (dirty) => {
-      oldFavoritePersistenceDirtyCount = Math.max(0, oldFavoritePersistenceDirtyCount + (dirty ? 1 : -1))
+    onMutation: (dirty, mutation) => dirty
+      ? oldFavoritePersistenceDirtyTracker.beginMutation()
+      : oldFavoritePersistenceDirtyTracker.finishMutation(mutation as OldFavoritePersistenceMutation)
+  })
+  ipcMain.handle('old-favorite-account:reset', async (event, accountMid: string) => {
+    if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
+      throw new Error('Old favorite reset request came from an untrusted renderer.')
     }
+    const persistence = await ensureOldFavoritePersistence()
+    if (!oldFavoriteWorkspaceService) throw new Error('Old favorite workspace service is unavailable.')
+    const saved = await resetOldFavoriteAccount({
+      loadSessions: () => persistence.sessionStore.load(),
+      resetRuntime: (account) => {
+        const snapshot = persistence.runtimeStore.captureAccount(account)
+        persistence.runtimeStore.resetAccount(account)
+        return snapshot
+      },
+      restoreRuntime: (account, snapshot) => persistence.runtimeStore.restoreAccount(account, snapshot),
+      resetSessions: (account) => persistence.sessionStore.resetAccount(account),
+      restoreSessions: (state) => persistence.sessionStore.restore(state),
+      flushSessions: () => persistence.sessionStore.flush(),
+      resetWorkspace: (account) => oldFavoriteWorkspaceService!.resetAccount(account),
+      onMutation: {
+        begin: () => oldFavoritePersistenceDirtyTracker.beginMutation(),
+        finish: (mutation) => oldFavoritePersistenceDirtyTracker.finishMutation(mutation as OldFavoritePersistenceMutation)
+      }
+    }, accountMid)
+    broadcastOldFavoriteSessions(saved)
+    broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: accountMid.trim() })
+    return saved
   })
   ipcMain.on('assistant-runtime:ready', (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
@@ -1250,10 +1282,11 @@ function registerAssistantPreferenceHandlers() {
   )
   ipcMain.handle(
     'floating-assistant:execute-old-favorite-plan',
-    (_event, items: FavoriteLedgerPreviewItem[]) =>
+    (_event, items: FavoriteLedgerPreviewItem[], expectedAccountMid?: string) =>
       requestMainAssistantRuntime<AssistantAutomationResult>({
         type: 'execute-old-favorite-plan',
-        items
+        items,
+        expectedAccountMid
       })
   )
   ipcMain.on('floating-assistant:close', () => {
@@ -1298,9 +1331,9 @@ if (singleInstanceGuard) app.whenReady().then(() => {
       const target = webContents.fromId(senderId)
       if (target && !target.isDestroyed()) target.send(channel, payload)
     },
-    onMutation: (dirty) => {
-      oldFavoritePersistenceDirtyCount = Math.max(0, oldFavoritePersistenceDirtyCount + (dirty ? 1 : -1))
-    }
+    onMutation: (dirty, mutation) => dirty
+      ? oldFavoritePersistenceDirtyTracker.beginMutation()
+      : oldFavoritePersistenceDirtyTracker.finishMutation(mutation as OldFavoritePersistenceMutation)
   })
   ipcMain.on('old-favorite-workspace:renderer-dirty', (event) => {
     if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
@@ -1349,15 +1382,19 @@ if (singleInstanceGuard) app.whenReady().then(() => {
 })
 
 const oldFavoriteQuitBarrier = createOldFavoriteQuitBarrier({
-  shouldFlush: () => oldFavoritePersistenceDirtyCount > 0 || oldFavoriteRendererFlushCoordinator.isDirty(),
+  shouldFlush: () => shouldFlushOldFavoriteOnQuit(
+    oldFavoritePersistenceDirtyTracker.isDirty(),
+    oldFavoriteRendererFlushCoordinator.isDirty(),
+    oldFavoriteSessionStore
+  ),
   prepare: () => {
     if (!oldFavoriteSessionStore?.load().lease) return
     oldFavoriteSessionStore.saveForShutdown(oldFavoriteSessionStore.load())
-    oldFavoritePersistenceDirtyCount += 1
+    oldFavoritePersistenceDirtyTracker.beginMutation()
   },
   flush: async () => {
     appQuitting = true
-    const persistenceDirtyAtFlushStart = oldFavoritePersistenceDirtyCount
+    const persistenceDirtyAtFlushStart = oldFavoritePersistenceDirtyTracker.captureFlushCheckpoint()
     if (oldFavoriteRendererFlushCoordinator.isDirty()) {
       await oldFavoriteRendererFlushCoordinator.requestFlush((requestId) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1368,10 +1405,10 @@ const oldFavoriteQuitBarrier = createOldFavoriteQuitBarrier({
       })
     }
     await Promise.all([
-      oldFavoritePersistenceDirtyCount > 0 ? (flushOldFavoritePersistence?.() ?? Promise.resolve()) : Promise.resolve(),
-      oldFavoritePersistenceDirtyCount > 0 ? (oldFavoriteWorkspaceService?.flush() ?? Promise.resolve()) : Promise.resolve()
+      oldFavoritePersistenceDirtyTracker.isDirty() ? (flushOldFavoritePersistence?.() ?? Promise.resolve()) : Promise.resolve(),
+      oldFavoritePersistenceDirtyTracker.isDirty() ? (oldFavoriteWorkspaceService?.flush() ?? Promise.resolve()) : Promise.resolve()
     ])
-    oldFavoritePersistenceDirtyCount = Math.max(0, oldFavoritePersistenceDirtyCount - persistenceDirtyAtFlushStart)
+    oldFavoritePersistenceDirtyTracker.completeFlush(persistenceDirtyAtFlushStart)
   },
   quit: () => app.quit()
 })

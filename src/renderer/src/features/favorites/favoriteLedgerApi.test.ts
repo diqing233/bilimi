@@ -1009,6 +1009,80 @@ describe('favorite ledger API scripts', () => {
     ])
   })
 
+  it('stops before the first write when the expected account changed inside the webview', async () => {
+    installCookies()
+    Object.defineProperty(document, 'cookie', {
+      configurable: true,
+      value: 'bili_jct=csrf-token; DedeUserID=99'
+    })
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+
+    const result = await window.eval(buildExecuteFavoriteLedgerPlanScript([{
+      aid: 123,
+      title: '账号已切换',
+      sourceFolderTitle: '默认收藏夹',
+      targetLedgerId: 'knowledge',
+      targetFolderId: '9001',
+      targetDisplayName: 'bilimi·知识',
+      reviewRequired: false,
+      alreadyInTarget: false,
+      selected: true
+    }], {}, '42'))
+
+    expect(result).toMatchObject({
+      ok: false,
+      paused: true,
+      resultUnknown: true,
+      missingTargets: ['bilibili-account']
+    })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('rechecks the expected account before each write in one execution group', async () => {
+    installCookies()
+    let cookie = 'bili_jct=csrf-token; DedeUserID=42'
+    Object.defineProperty(document, 'cookie', {
+      configurable: true,
+      get: () => cookie
+    })
+    const requests: URLSearchParams[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const parsed = new URL(url)
+      if (parsed.pathname.endsWith('/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 9001, title: 'bilimi·知识' },
+          { id: 9002, title: 'bilimi·影视' }
+        ] } })
+      }
+      if (parsed.pathname.endsWith('/resource/ids')) return Response.json({ code: 0, data: [] })
+      if (parsed.pathname.endsWith('/resource/deal')) {
+        requests.push(new URLSearchParams(init?.body?.toString()))
+        cookie = 'bili_jct=csrf-token; DedeUserID=99'
+        return Response.json({ code: 0, data: {} })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildExecuteFavoriteLedgerPlanScript([{
+      aid: 123,
+      title: '一组多次写入',
+      sourceFolderTitle: '默认收藏夹',
+      targetLedgerId: 'knowledge',
+      targetFolderId: '9001',
+      targetDisplayName: '知识',
+      currentBilimiFolderIds: ['9008'],
+      desiredTargetFolderIds: ['9001'],
+      reorganizeProtected: true,
+      reviewRequired: false,
+      alreadyInTarget: false,
+      selected: true
+    }], {}, '42'))
+
+    expect(requests).toHaveLength(1)
+    expect(result).toMatchObject({ ok: false, paused: true, resultUnknown: true })
+  })
+
   it('keeps staging when every formal destination fails', async () => {
     installCookies()
     const requests: URLSearchParams[] = []

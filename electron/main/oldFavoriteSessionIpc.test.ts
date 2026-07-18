@@ -85,4 +85,99 @@ describe('registerOldFavoriteSessionIpc', () => {
     expect(result.batches).toEqual([other])
     expect(broadcast).toHaveBeenLastCalledWith(result)
   })
+
+  it('keeps the pre-reset session state when reset persistence fails', async () => {
+    const ipcMain = new FakeIpcMain()
+    const backend = new MemoryBackend()
+    const store = new OldFavoriteSessionStore(backend)
+    const state = createState()
+    const other = createOldFavoriteBatch({ accountMid: '99', kind: 'full', aids: [3], now: '2026-07-16T10:00:00Z' })
+    store.save({ ...state, batches: [...state.batches, other] })
+    backend.flush.mockRejectedValueOnce(new Error('disk full'))
+    registerOldFavoriteSessionIpc({ ipcMain, store, isTrustedSender: () => true, broadcast: vi.fn() })
+
+    await expect(ipcMain.invoke('old-favorite-sessions:reset-account', 7, '42')).rejects.toThrow('disk full')
+    expect(store.load()).toEqual({ ...state, batches: [...state.batches, other] })
+  })
+
+  it('atomically creates only one active full scan across renderer senders', async () => {
+    const ipcMain = new FakeIpcMain()
+    const store = new OldFavoriteSessionStore(new MemoryBackend())
+    registerOldFavoriteSessionIpc({
+      ipcMain, store, isTrustedSender: (id) => [7, 8].includes(id), broadcast: vi.fn()
+    })
+
+    const first = await ipcMain.invoke(
+      'old-favorite-sessions:begin-full-scan', 7, '42', '2026-07-18T08:00:00Z', { currentStep: 'scan' }
+    ) as { batch: { id: string }; acquired: boolean }
+    const second = await ipcMain.invoke(
+      'old-favorite-sessions:begin-full-scan', 8, '42', '2026-07-18T08:00:01Z', { currentStep: 'scan' }
+    ) as { batch: { id: string }; acquired: boolean }
+
+    expect(first.acquired).toBe(true)
+    expect(second).toEqual({ batch: expect.objectContaining({ id: first.batch.id }), acquired: false })
+    expect(store.load().batches.filter((batch) => batch.accountMid === '42' && batch.status === 'active')).toHaveLength(1)
+  })
+
+  it('rolls back a newly created full scan and lease when its durable flush fails', async () => {
+    const ipcMain = new FakeIpcMain()
+    const backend = new MemoryBackend()
+    backend.flush.mockRejectedValueOnce(new Error('disk full'))
+    const store = new OldFavoriteSessionStore(backend)
+    registerOldFavoriteSessionIpc({
+      ipcMain, store, isTrustedSender: () => true, broadcast: vi.fn()
+    })
+
+    await expect(ipcMain.invoke(
+      'old-favorite-sessions:begin-full-scan', 7, '42', '2026-07-18T08:00:00Z', { currentStep: 'scan' }
+    )).rejects.toThrow('disk full')
+
+    expect(store.load()).toEqual({ version: 1, batches: [], lease: null })
+    await expect(ipcMain.invoke(
+      'old-favorite-sessions:begin-full-scan', 7, '42', '2026-07-18T08:00:01Z', { currentStep: 'scan' }
+    )).resolves.toMatchObject({ acquired: true })
+  })
+
+  it('finishes only the mutation token returned for a successful session write', async () => {
+    const ipcMain = new FakeIpcMain()
+    const store = new OldFavoriteSessionStore(new MemoryBackend())
+    const mutation = Symbol('session-mutation')
+    const onMutation = vi.fn((dirty: boolean) => dirty ? mutation : undefined)
+    registerOldFavoriteSessionIpc({
+      ipcMain, store, isTrustedSender: () => true, broadcast: vi.fn(), onMutation
+    })
+
+    await ipcMain.invoke('old-favorite-sessions:save', 7, createState())
+
+    expect(onMutation.mock.calls).toEqual([[true], [false, mutation]])
+  })
+
+  it('does not mark persistence dirty when a session save fails before mutating the store', async () => {
+    const ipcMain = new FakeIpcMain()
+    const store = { save: vi.fn(() => { throw new Error('invalid state') }) }
+    const onMutation = vi.fn()
+    registerOldFavoriteSessionIpc({
+      ipcMain, store: store as never, isTrustedSender: () => true, broadcast: vi.fn(), onMutation
+    })
+
+    await expect(ipcMain.invoke('old-favorite-sessions:save', 7, createState()))
+      .rejects.toThrow('invalid state')
+    expect(onMutation).not.toHaveBeenCalled()
+  })
+
+  it('keeps persistence dirty when a mutated session store fails to flush', async () => {
+    const ipcMain = new FakeIpcMain()
+    const backend = new MemoryBackend()
+    backend.flush.mockRejectedValueOnce(new Error('disk full'))
+    const store = new OldFavoriteSessionStore(backend)
+    const mutation = Symbol('failed-flush')
+    const onMutation = vi.fn((dirty: boolean) => dirty ? mutation : undefined)
+    registerOldFavoriteSessionIpc({
+      ipcMain, store, isTrustedSender: () => true, broadcast: vi.fn(), onMutation
+    })
+
+    await expect(ipcMain.invoke('old-favorite-sessions:save', 7, createState()))
+      .rejects.toThrow('disk full')
+    expect(onMutation.mock.calls).toEqual([[true]])
+  })
 })

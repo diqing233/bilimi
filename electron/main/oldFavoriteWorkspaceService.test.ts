@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -29,12 +30,76 @@ describe('OldFavoriteWorkspaceService', () => {
         { id: 'newer', storageKey: 'newer-key', kind: 'full', createdAt: '2026-07-17T10:00:11Z', status: 'active' }
       ]
     }), 'utf8')
+    for (const [id, storageKey, createdAt] of [
+      ['older', 'older-key', '2026-07-17T10:00:00Z'],
+      ['newer', 'newer-key', '2026-07-17T10:00:11Z']
+    ]) {
+      const directory = join(accountDirectory, 'batches', storageKey)
+      await mkdir(directory, { recursive: true })
+      await writeFile(join(directory, 'manifest.json'), JSON.stringify({
+        version: 2,
+        accountMid: '42',
+        id,
+        storageKey,
+        kind: 'full',
+        createdAt,
+        status: 'active',
+        chunks: [{ file: 'base-000001.jsonl', kind: 'base', sequence: 1, count: 1, checksum: 'verified' }]
+      }), 'utf8')
+    }
     const service = new OldFavoriteWorkspaceService({ root })
 
     const result = await service.createBatch({ accountMid: '42', kind: 'full', id: 'third', createdAt: '2026-07-17T10:01:00Z' })
 
     expect(result.id).toBe('newer')
     expect((await service.openAccount('42')).batches.map((batch) => batch.id)).toEqual(['older', 'newer'])
+  })
+
+  it('keeps an empty active full manifest and creates a new full batch', async () => {
+    const root = await createRoot()
+    const accountDirectory = join(root, 'accounts', '42')
+    const batchDirectory = join(accountDirectory, 'batches', 'empty-key')
+    await mkdir(batchDirectory, { recursive: true })
+    await writeFile(join(accountDirectory, 'index.json'), JSON.stringify({
+      version: 2,
+      accountMid: '42',
+      batches: [
+        { id: 'empty', storageKey: 'empty-key', kind: 'full', createdAt: '2026-07-17T10:00:00Z', status: 'active' }
+      ]
+    }), 'utf8')
+    await writeFile(join(batchDirectory, 'manifest.json'), JSON.stringify({
+      version: 2,
+      accountMid: '42',
+      id: 'empty',
+      storageKey: 'empty-key',
+      kind: 'full',
+      createdAt: '2026-07-17T10:00:00Z',
+      status: 'active',
+      chunks: []
+    }), 'utf8')
+    const service = new OldFavoriteWorkspaceService({ root })
+
+    const result = await service.createBatch({
+      accountMid: '42', kind: 'full', id: 'replacement', createdAt: '2026-07-17T10:01:00Z'
+    })
+
+    expect(result.id).toBe('replacement')
+    expect((await service.openAccount('42')).batches.map((batch) => batch.id)).toEqual(['empty', 'replacement'])
+  })
+  it('continues an empty persisted full placeholder after restart', async () => {
+    const root = await createRoot()
+    const first = new OldFavoriteWorkspaceService({ root })
+    const placeholder = await first.createBatch({
+      accountMid: '42', kind: 'full', id: 'placeholder', createdAt: '2026-07-17T10:00:00Z'
+    })
+
+    const restarted = new OldFavoriteWorkspaceService({ root })
+    const result = await restarted.createBatch({
+      accountMid: '42', kind: 'full', id: 'duplicate', createdAt: '2026-07-17T10:01:00Z'
+    })
+
+    expect(result.id).toBe(placeholder.id)
+    expect((await restarted.openAccount('42')).batches).toHaveLength(1)
   })
   it('does no filesystem work until an account is explicitly opened', async () => {
     const root = await createRoot()
@@ -117,6 +182,20 @@ describe('OldFavoriteWorkspaceService', () => {
     await expect(service.finalizeBatch('100', batch.id)).resolves.toEqual(finalized)
     expect(access.mock.calls.some(([operation]) => operation === 'write')).toBe(false)
     await expect(service.appendChunk('100', batch.id, 'base', [{ aid: 3 }])).rejects.toThrow('finalized')
+  })
+
+  it('rejects appendChunkGroup after finalize', async () => {
+    const root = await createRoot()
+    const service = new OldFavoriteWorkspaceService({ root })
+    await service.openAccount('100')
+    const batch = await service.createBatch({ accountMid: '100', kind: 'full' })
+    await service.finalizeBatch('100', batch.id)
+
+    await expect(service.appendChunkGroup('100', batch.id, {
+      base: [{ aid: 1 }],
+      tags: [{ aid: 1, tags: ['tag'] }],
+      sources: [{ aid: 1, sourceFolderIds: ['source'] }]
+    })).rejects.toThrow('finalized')
   })
 
   it('commits base tags and sources as one logical manifest update', async () => {
@@ -318,7 +397,7 @@ describe('OldFavoriteWorkspaceService', () => {
     expect((await service.openAccount('100')).batches).toEqual([first])
   })
 
-  it('atomically reuses one active full batch across concurrent creation requests', async () => {
+  it('creates only one replacement full batch for concurrent requests', async () => {
     const root = await createRoot()
     const service = new OldFavoriteWorkspaceService({ root })
     await service.openAccount('100')
@@ -331,6 +410,30 @@ describe('OldFavoriteWorkspaceService', () => {
     expect(second.id).toBe(first.id)
     expect((await service.openAccount('100')).batches).toEqual([first])
   })
+
+  it('restores a 30,000 item batch after restart', async () => {
+    const root = await createRoot()
+    const first = new OldFavoriteWorkspaceService({ root })
+    const batch = await first.createBatch({ accountMid: '100', kind: 'full' })
+    for (let offset = 0; offset < 30_000; offset += 500) {
+      const base = Array.from({ length: 500 }, (_, index) => ({
+        aid: offset + index + 1, title: `video-${offset + index + 1}`, sourceFolderTitle: 'mock'
+      }))
+      await first.appendChunkGroup('100', batch.id, {
+        base,
+        tags: base.map((item) => ({ aid: item.aid, tags: [] })),
+        sources: base.map((item) => ({ aid: item.aid, sourceFolderIds: ['mock'] }))
+      })
+    }
+
+    const restarted = new OldFavoriteWorkspaceService({ root })
+    await restarted.openAccount('100')
+    const restored = await restarted.loadBatch('100', batch.id)
+
+    expect(restored.base).toHaveLength(30_000)
+    expect(restored.tags).toHaveLength(30_000)
+    expect(restored.sources).toHaveLength(30_000)
+  }, 20_000)
 
   it('recovers all verified chunks and drops only a corrupt tail chunk', async () => {
     const root = await createRoot()
@@ -368,6 +471,24 @@ describe('OldFavoriteWorkspaceService', () => {
     expect(detail.tags).toEqual([{ aid: 1, tags: ['later'] }])
   })
 
+  it('rejects patchOverlay after finalize without writing the overlay file', async () => {
+    const root = await createRoot()
+    const access = vi.fn()
+    const service = new OldFavoriteWorkspaceService({ root, onFileAccess: access })
+    await service.openAccount('100')
+    const batch = await service.createBatch({ accountMid: '100', kind: 'full' })
+    await service.finalizeBatch('100', batch.id)
+    access.mockClear()
+
+    await expect(service.patchOverlay('100', batch.id, 'user', {
+      aid: 1,
+      targets: ['manual']
+    })).rejects.toThrow('finalized')
+    expect(access.mock.calls.some(([operation, path]) => (
+      operation === 'write' && String(path).endsWith('overlays.json')
+    ))).toBe(false)
+  })
+
   it('removes every local layer for one account without invoking external mutations', async () => {
     const root = await createRoot()
     const mutateBilibili = vi.fn()
@@ -381,4 +502,31 @@ describe('OldFavoriteWorkspaceService', () => {
     expect(mutateBilibili).not.toHaveBeenCalled()
     expect((await service.openAccount('100')).batches).toEqual([])
   })
+
+  it('keeps the account workspace intact when reset deletion fails after removing the target', async () => {
+    const root = await createRoot()
+    let failDelete = true
+    const service = new OldFavoriteWorkspaceService({
+      root,
+      onFileAccess(operation, path) {
+        if (operation === 'delete' && failDelete) {
+          failDelete = false
+          rmSync(path, { recursive: true, force: true })
+          throw new Error('injected reset delete failure')
+        }
+      }
+    })
+    await service.openAccount('100')
+    const batch = await service.createBatch({ accountMid: '100', kind: 'full' })
+    await service.appendChunk('100', batch.id, 'base', [{ aid: 1, title: 'keep me' }])
+
+    await expect(service.resetAccount('100')).rejects.toThrow('injected reset delete failure')
+
+    const reopened = new OldFavoriteWorkspaceService({ root })
+    expect((await reopened.openAccount('100')).batches).toHaveLength(1)
+    await expect(reopened.loadBatch('100', batch.id)).resolves.toMatchObject({
+      base: [{ aid: 1, title: 'keep me' }]
+    })
+  })
+
 })

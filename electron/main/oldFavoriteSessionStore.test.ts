@@ -14,6 +14,7 @@ class MemoryBackend implements OldFavoriteSessionStoreBackend {
   }
 }
 
+
 describe('OldFavoriteSessionStore', () => {
   it('persists versioned multi-account batches through an injectable backend', () => {
     const backend = new MemoryBackend()
@@ -136,4 +137,5 @@ describe('OldFavoriteSessionStore', () => {
     expect(store.load().batches).toEqual([other])
     expect(store.load().lease).toBeNull()
   })
+
 })

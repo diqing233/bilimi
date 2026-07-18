@@ -37,7 +37,9 @@ export function OldFavoriteModal({
     scrollY.current = window.scrollY
     const previousOverflow = document.documentElement.style.overflow
     document.documentElement.style.overflow = 'hidden'
-    cancelRef.current?.focus()
+    const focusCancel = () => cancelRef.current?.focus()
+    focusCancel()
+    const focusFrame = window.requestAnimationFrame(focusCancel)
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onCancelRef.current()
       if (event.key !== 'Tab') return
@@ -59,6 +61,7 @@ export function OldFavoriteModal({
     document.addEventListener('keydown', onKeyDown)
     return () => {
       document.removeEventListener('keydown', onKeyDown)
+      window.cancelAnimationFrame(focusFrame)
       document.documentElement.style.overflow = previousOverflow
       previousFocus.current?.focus()
       if (scrollY.current !== 0) window.scrollTo?.(0, scrollY.current)

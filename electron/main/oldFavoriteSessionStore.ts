@@ -1,6 +1,9 @@
 import {
+  createOldFavoriteBatch,
   normalizeOldFavoriteSessionsForShutdown,
   OLD_FAVORITE_SESSIONS_VERSION,
+  type OldFavoriteBatch,
+  type OldFavoriteBatchSnapshot,
   type OldFavoriteTaskKind,
   type OldFavoriteSessionsState
 } from '../../src/shared/oldFavoriteSessions'
@@ -90,6 +93,55 @@ export class OldFavoriteSessionStore {
     return true
   }
 
+  beginFullScan(
+    accountMid: string,
+    now: string,
+    snapshot: OldFavoriteBatchSnapshot | undefined,
+    ownerId: number
+  ): { batch: OldFavoriteBatch; acquired: boolean } {
+    const normalizedAccountMid = accountMid.trim()
+    const state = this.load()
+    const activeFull = state.batches
+      .filter((batch) =>
+        batch.accountMid === normalizedAccountMid &&
+        batch.kind === 'full' &&
+        batch.status === 'active'
+      )
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .at(-1)
+    if (activeFull || state.lease) {
+      return { batch: activeFull ?? createOldFavoriteBatch({ accountMid: normalizedAccountMid, kind: 'full', aids: [], now }), acquired: false }
+    }
+    const batch = createOldFavoriteBatch({ accountMid: normalizedAccountMid, kind: 'full', aids: [], now, snapshot })
+    const segment = {
+      id: `${batch.id}:segment:1`,
+      index: 0,
+      aids: [] as number[],
+      status: 'running' as const,
+      task: { kind: 'scan' as const, status: 'running' as const, requestState: 'idle' as const }
+    }
+    const prepared = { ...batch, segments: [segment] }
+    this.backend.set(STORE_KEY, structuredClone({
+      ...state,
+      batches: [...state.batches, prepared],
+      lease: { batchId: prepared.id, segmentId: segment.id, task: 'scan', ownerId }
+    }))
+    return { batch: prepared, acquired: true }
+  }
+
+  rollbackFullScan(batchId: string, ownerId: number): boolean {
+    const state = this.load()
+    if (state.lease?.batchId !== batchId || state.lease.ownerId !== ownerId) return false
+    const batch = state.batches.find((candidate) => candidate.id === batchId)
+    if (!batch || batch.kind !== 'full' || batch.segments.some((segment) => segment.aids.length > 0)) return false
+    this.backend.set(STORE_KEY, structuredClone({
+      ...state,
+      batches: state.batches.filter((candidate) => candidate.id !== batchId),
+      lease: null
+    }))
+    return true
+  }
+
   releaseLease(batchId: string, segmentId: string, ownerId: number): boolean {
     const state = this.load()
     if (
@@ -121,6 +173,13 @@ export class OldFavoriteSessionStore {
     }
     this.backend.set(STORE_KEY, structuredClone(next))
     return next
+  }
+
+  restore(state: OldFavoriteSessionsState): void {
+    if (!isCurrentOldFavoriteSessionsState(state)) {
+      throw new Error('Old favorite session state is invalid.')
+    }
+    this.backend.set(STORE_KEY, structuredClone(state))
   }
 
   flush(): Promise<void> {

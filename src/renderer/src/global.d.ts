@@ -42,7 +42,10 @@ type BilimiDesktopApi = {
   closeFloatingAssistant?: () => void
   closeFloatingMenu?: () => void
   ensureFavoriteLedgers?: () => Promise<AssistantAutomationResult>
-  executeOldFavoritePlan?: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
+  executeOldFavoritePlan?: (
+    items: FavoriteLedgerPreviewItem[],
+    expectedAccountMid?: string
+  ) => Promise<AssistantAutomationResult>
   finishFloatingSealDrag?: () => void
   generateDeepSeek?: (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
   generateVideoNote?: (manualTranscript?: string) => Promise<VideoNote | null>
@@ -87,9 +90,15 @@ type BilimiDesktopApi = {
   onOldFavoriteWorkspaceFlushRequested?: (callback: () => Promise<void>) => () => void
   finalizeOldFavoriteWorkspaceBatch?: (accountMid: string, batchId: string) => Promise<unknown>
   resetOldFavoriteWorkspaceAccount?: (accountMid: string) => Promise<void>
+  resetOldFavoriteAccount?: (accountMid: string) => Promise<OldFavoriteSessionsState>
   resetOldFavoriteRuntime?: () => boolean
   resetOldFavoriteRuntimeAccount?: (accountMid: string) => Promise<boolean>
-  loadOldFavoriteSessions?: () => Promise<OldFavoriteSessionsState>
+      loadOldFavoriteSessions?: () => Promise<OldFavoriteSessionsState>
+      beginOldFavoriteFullScan?: (
+        accountMid: string,
+        now: string,
+        snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']
+      ) => Promise<{ batch: OldFavoriteSessionsState['batches'][number]; acquired: boolean }>
   saveOldFavoriteSessions?: (state: OldFavoriteSessionsState) => Promise<OldFavoriteSessionsState>
   resetOldFavoriteSessionsAccount?: (accountMid: string) => Promise<OldFavoriteSessionsState>
   claimOldFavoriteTaskLease?: (

@@ -1,5 +1,14 @@
 type QuitEvent = { preventDefault(): void }
 
+export function shouldFlushOldFavoriteOnQuit(
+  persistenceDirty: boolean,
+  rendererDirty: boolean,
+  openedSessionStore?: { load: () => { lease: unknown } }
+): boolean {
+  if (persistenceDirty || rendererDirty) return true
+  return Boolean(openedSessionStore?.load().lease)
+}
+
 export function createOldFavoriteQuitBarrier(options: {
   shouldFlush?: () => boolean
   prepare: () => void
