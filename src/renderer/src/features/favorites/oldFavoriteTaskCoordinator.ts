@@ -1,4 +1,5 @@
 import type {
+  OldFavoriteBatch,
   OldFavoriteSessionsState,
   OldFavoriteTaskKind
 } from '../../../../shared/oldFavoriteSessions'
@@ -45,6 +46,24 @@ export type OldFavoriteSessionsGateway = {
   ) => Promise<boolean>
   releaseLease: (batchId: string, segmentId: string) => Promise<boolean>
   subscribe: (callback: (state: OldFavoriteSessionsState) => void) => () => void
+}
+
+export const OLD_FAVORITE_ENDED_BATCH_WRITE_ERROR = '旧藏整理批次已结束，不能继续写入。'
+
+export type OldFavoriteWritableBatch = {
+  state: OldFavoriteSessionsState
+  batch: OldFavoriteBatch
+}
+
+export async function loadWritableOldFavoriteBatch(
+  reader: Pick<OldFavoriteSessionsGateway, 'load'>,
+  batchId: string
+): Promise<OldFavoriteWritableBatch> {
+  const state = await reader.load()
+  const batch = state.batches.find((candidate) => candidate.id === batchId)
+  if (!batch) throw new Error('Old favorite batch was not found.')
+  if (batch.status === 'ended') throw new Error(OLD_FAVORITE_ENDED_BATCH_WRITE_ERROR)
+  return { state, batch }
 }
 
 function createDesktopGateway(): OldFavoriteSessionsGateway {
@@ -104,6 +123,10 @@ export class OldFavoriteTaskCoordinator {
 
   load(): Promise<OldFavoriteSessionsState> {
     return this.gateway.load()
+  }
+
+  loadWritableBatch(batchId: string): Promise<OldFavoriteWritableBatch> {
+    return loadWritableOldFavoriteBatch(this.gateway, batchId)
   }
 
   save(state: OldFavoriteSessionsState): Promise<OldFavoriteSessionsState> {

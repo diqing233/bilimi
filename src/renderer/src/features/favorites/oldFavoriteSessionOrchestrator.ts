@@ -1,4 +1,9 @@
 import {
+  OLD_FAVORITE_ENDED_BATCH_WRITE_ERROR,
+  loadWritableOldFavoriteBatch,
+  type OldFavoriteWritableBatch
+} from './oldFavoriteTaskCoordinator'
+import {
   createOldFavoriteBatch,
   type OldFavoriteBatch,
   type OldFavoriteBatchKind,
@@ -13,6 +18,7 @@ import {
 
 export type OldFavoriteSessionCoordinator = {
   load: () => Promise<OldFavoriteSessionsState>
+  loadWritableBatch?: (batchId: string) => Promise<OldFavoriteWritableBatch>
   save: (state: OldFavoriteSessionsState) => Promise<OldFavoriteSessionsState>
   beginFullScan?: (
     accountMid: string,
@@ -76,6 +82,17 @@ export class OldFavoriteSessionOrchestrator {
   private readonly fullScanBeginTails = new Map<string, Promise<unknown>>()
 
   constructor(private readonly coordinator: OldFavoriteSessionCoordinator) {}
+
+  private loadWritableBatch(batchId: string): Promise<OldFavoriteWritableBatch> {
+    const load = this.coordinator.loadWritableBatch?.(batchId) ??
+      loadWritableOldFavoriteBatch(this.coordinator, batchId)
+    return load.then((writable) => {
+      if (writable.batch.status === 'ended') {
+        throw new Error(OLD_FAVORITE_ENDED_BATCH_WRITE_ERROR)
+      }
+      return writable
+    })
+  }
 
   async beginScan(options: BeginScanOptions): Promise<{ batch: OldFavoriteBatch; acquired: boolean }> {
     const accountMid = options.accountMid.trim()
@@ -199,7 +216,7 @@ export class OldFavoriteSessionOrchestrator {
     segmentId: string,
     update: SegmentUpdate
   ): Promise<OldFavoriteSessionsState> {
-    const state = await this.coordinator.load()
+    const { state } = await this.loadWritableBatch(batchId)
     const batches = state.batches.map((batch) => {
       if (batch.id !== batchId) return batch
       return {
@@ -240,9 +257,7 @@ export class OldFavoriteSessionOrchestrator {
     batchId: string,
     snapshot?: OldFavoriteBatchSnapshot
   ): Promise<OldFavoriteBatch> {
-    const state = await this.coordinator.load()
-    const current = state.batches.find((batch) => batch.id === batchId)
-    if (!current) throw new Error('Old favorite batch was not found.')
+    const { state, batch: current } = await this.loadWritableBatch(batchId)
 
     const rebuilt: OldFavoriteBatch = {
       ...current,
@@ -265,9 +280,7 @@ export class OldFavoriteSessionOrchestrator {
   }
 
   async appendDiscoveredAids(batchId: string, candidateAids: number[]): Promise<OldFavoriteBatch> {
-    const state = await this.coordinator.load()
-    const current = state.batches.find((batch) => batch.id === batchId)
-    if (!current) throw new Error('Old favorite batch was not found.')
+    const { state, batch: current } = await this.loadWritableBatch(batchId)
     const owned = new Set(current.segments.flatMap((segment) => segment.aids))
     const pending = [...new Set(candidateAids.filter((aid) =>
       Number.isSafeInteger(aid) && aid > 0 && !owned.has(aid)
@@ -303,9 +316,7 @@ export class OldFavoriteSessionOrchestrator {
   }
 
   async markSegmentTagsSettled(batchId: string, segmentIndex: number): Promise<OldFavoriteBatch> {
-    const state = await this.coordinator.load()
-    const current = state.batches.find((batch) => batch.id === batchId)
-    if (!current) throw new Error('Old favorite batch was not found.')
+    const { state, batch: current } = await this.loadWritableBatch(batchId)
     const updated = {
       ...current,
       segments: current.segments.map((segment) =>

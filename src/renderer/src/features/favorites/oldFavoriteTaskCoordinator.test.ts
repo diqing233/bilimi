@@ -60,6 +60,24 @@ describe('OldFavoriteTaskCoordinator', () => {
     expect(subscribe).toHaveBeenCalledOnce()
   })
 
+  it('exposes a writable-batch adapter that rejects ended history', async () => {
+    const state = createState()
+    const ended = { ...structuredClone(state.batches[0]), status: 'ended' as const }
+    const load = vi.fn(async () => ({ ...state, batches: [ended, state.batches[1]] }))
+    const coordinator = new OldFavoriteTaskCoordinator({
+      load,
+      save: async (next) => next,
+      claimLease: async () => false,
+      releaseLease: async () => false,
+      subscribe: () => () => undefined
+    })
+
+    await expect(coordinator.loadWritableBatch(ended.id)).rejects.toThrow(
+      '旧藏整理批次已结束，不能继续写入。'
+    )
+    expect(load).toHaveBeenCalledOnce()
+  })
+
   it('delegates lease claims to the main-process gateway', async () => {
     let state = createState()
     const coordinator = new OldFavoriteTaskCoordinator({

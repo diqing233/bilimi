@@ -3986,19 +3986,6 @@ body[data-floating-window="true"],
   color: var(--porcelain-deep);
   background: #ffffff;
 }
-.favorite-ledger-panel__archive-history-select-control::after {
-  content: "";
-  position: absolute;
-  z-index: 1;
-  left: 50%;
-  top: 50%;
-  width: 7px;
-  height: 7px;
-  border-right: 1.5px solid rgba(31, 99, 181, 0.72);
-  border-bottom: 1.5px solid rgba(31, 99, 181, 0.72);
-  transform: translate(-50%, -50%) rotate(45deg);
-  pointer-events: none;
-}
 .favorite-ledger-panel__archive-history-button {
   width: 100%;
   min-width: 0;

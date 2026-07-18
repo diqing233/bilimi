@@ -8,6 +8,7 @@ import {
   OldFavoriteSessionOrchestrator,
   type OldFavoriteSessionCoordinator
 } from './oldFavoriteSessionOrchestrator'
+import { OLD_FAVORITE_ENDED_BATCH_WRITE_ERROR } from './oldFavoriteTaskCoordinator'
 
 function createHarness(initial: OldFavoriteSessionsState = { version: 1, batches: [], lease: null }) {
   let state = structuredClone(initial)
@@ -450,6 +451,71 @@ describe('OldFavoriteSessionOrchestrator', () => {
       allowed: false,
       reason: 'lease-held'
     })
+  })
+
+  it.each([
+    'updateSegment',
+    'completeScan',
+    'appendDiscoveredAids',
+    'markSegmentTagsSettled'
+  ] as const)('rejects %s when the target batch has ended', async (operation) => {
+    const active = createOldFavoriteBatch({
+      accountMid: '42', kind: 'full', aids: [1], now: '2026-07-16T08:00:00Z', id: 'ended-target'
+    })
+    const ended = {
+      ...structuredClone(active),
+      status: 'ended' as const,
+      endedAt: '2026-07-16T09:00:00Z'
+    }
+    const harness = createHarness({ version: 1, batches: [ended], lease: null })
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+    const segmentId = ended.segments[0].id
+
+    const write = operation === 'updateSegment'
+      ? orchestrator.updateSegment(ended.id, segmentId, { status: 'paused' })
+      : operation === 'completeScan'
+        ? orchestrator.completeScan(ended.id, { currentStep: 'preview' })
+        : operation === 'appendDiscoveredAids'
+          ? orchestrator.appendDiscoveredAids(ended.id, [2])
+          : orchestrator.markSegmentTagsSettled(ended.id, 0)
+
+    await expect(write).rejects.toThrow('旧藏整理批次已结束，不能继续写入。')
+    expect(harness.coordinator.save).not.toHaveBeenCalled()
+    expect(harness.getState()).toEqual({ version: 1, batches: [ended], lease: null })
+  })
+
+  it.each([
+    'updateSegment',
+    'completeScan',
+    'appendDiscoveredAids',
+    'markSegmentTagsSettled'
+  ] as const)('rejects %s when an injected writable adapter returns an ended batch', async (operation) => {
+    const active = createOldFavoriteBatch({
+      accountMid: '42', kind: 'full', aids: [1], now: '2026-07-16T08:00:00Z', id: 'ended-adapter-target'
+    })
+    const ended = {
+      ...structuredClone(active),
+      status: 'ended' as const,
+      endedAt: '2026-07-16T09:00:00Z'
+    }
+    const harness = createHarness({ version: 1, batches: [ended], lease: null })
+    harness.coordinator.loadWritableBatch = vi.fn(async () => ({
+      state: harness.getState(),
+      batch: ended
+    }))
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+    const segmentId = ended.segments[0].id
+
+    const write = operation === 'updateSegment'
+      ? orchestrator.updateSegment(ended.id, segmentId, { status: 'paused' })
+      : operation === 'completeScan'
+        ? orchestrator.completeScan(ended.id, { currentStep: 'preview' })
+        : operation === 'appendDiscoveredAids'
+          ? orchestrator.appendDiscoveredAids(ended.id, [2])
+          : orchestrator.markSegmentTagsSettled(ended.id, 0)
+
+    await expect(write).rejects.toThrow(OLD_FAVORITE_ENDED_BATCH_WRITE_ERROR)
+    expect(harness.coordinator.save).not.toHaveBeenCalled()
   })
 
   it('discards an empty incremental placeholder without changing earlier batches', async () => {

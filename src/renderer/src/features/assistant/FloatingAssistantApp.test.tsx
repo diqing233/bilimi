@@ -115,7 +115,7 @@ function createResult(message = '已代批。'): AssistantAutomationResult {
 }
 
 function selectDeepSeekArchiveScope(label: string) {
-  fireEvent.click(screen.getByRole('button', { name: '整理对象' }))
+  fireEvent.click(screen.getByRole('button', { name: '整理范围' }))
   fireEvent.click(screen.getByRole('menuitemradio', { name: label }))
 }
 

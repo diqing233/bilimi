@@ -100,6 +100,15 @@ describe('renderer porcelain theme styles', () => {
     )
   })
 
+  it('keeps the closed change-history trigger free of the retired parent pseudo-arrow', () => {
+    expect(normalizedStyles).not.toContain(
+      '.favorite-ledger-panel__archive-history-select-control::after'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__archive-history-arrow { width: 7px; height: 7px;'
+    )
+  })
+
   it('keeps the main app shell clipped to the window instead of exposing horizontal page scroll', () => {
     expect(normalizedStyles).toContain('body {\n  overflow: hidden;')
     expect(normalizedStyles).toContain('.app-shell {\n  position: relative;\n  width: 100%;')
@@ -287,10 +296,7 @@ describe('renderer porcelain theme styles', () => {
       '.favorite-ledger-panel__archive-history-select-control option { color: var(--porcelain-deep); background: #ffffff;'
     )
     expectStyleSnippet(
-      '.favorite-ledger-panel__archive-history-select-control::after { content: ""; position: absolute; z-index: 1; left: 50%; top: 50%;'
-    )
-    expectStyleSnippet(
-      'transform: translate(-50%, -50%) rotate(45deg); pointer-events: none;'
+      '.favorite-ledger-panel__archive-history-trigger { width: 32px; min-width: 32px; height: 32px;'
     )
     expectStyleSnippet(
       '.favorite-ledger-panel__archive-history-button { width: 100%; min-width: 0;'
