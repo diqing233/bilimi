@@ -117,7 +117,13 @@ export function registerOldFavoriteSessionIpc(options: RegisterOptions): void {
         const before = previous.batches.find((batch) => batch.id === batchId)
         if (!before) throw new Error('Old favorite batch does not exist.')
         if (before.status === 'ended') return store.toLifecycleSnapshot(before)
+        if (previous.lease?.batchId === batchId && previous.lease.ownerId !== event.sender.id) {
+          throw new Error('Old favorite batch is owned by another window.')
+        }
         const workspaceSummary = await options.getWorkspaceBatchSummary?.(before.accountMid, batchId)
+        if (workspaceSummary?.status === 'active') {
+          throw new Error('Old favorite workspace is not finalized.')
+        }
         const authoritativeEndedAt = workspaceSummary?.status === 'archived'
           ? workspaceSummary.finalizedAt ?? endedAt
           : endedAt

@@ -10,6 +10,23 @@ function createState(): OldFavoriteSessionsState {
 }
 
 describe('OldFavoriteTaskCoordinator', () => {
+  it('fails closed when the desktop authoritative lifecycle API is incomplete', () => {
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        loadOldFavoriteSessions: vi.fn(),
+        saveOldFavoriteSessions: vi.fn(),
+        claimOldFavoriteTaskLease: vi.fn(),
+        releaseOldFavoriteTaskLease: vi.fn(),
+        onOldFavoriteSessionsChanged: vi.fn()
+      }
+    })
+
+    expect(() => new OldFavoriteTaskCoordinator()).toThrow(
+      'Old favorite authoritative lifecycle desktop API is unavailable.'
+    )
+  })
+
   it('removes large workspace-owned snapshots before renderer-to-main IPC', () => {
     const preview = { items: Array.from({ length: 30_000 }, (_, index) => ({ aid: index + 1 })) }
     const compact = compactOldFavoriteSessionsForIpc({
@@ -34,6 +51,7 @@ describe('OldFavoriteTaskCoordinator', () => {
     const claimLease = vi.fn(async () => true)
     const releaseLease = vi.fn(async () => true)
     const subscribe = vi.fn(() => () => undefined)
+    const beginFullScan = vi.fn(async () => ({ batch: state.batches[0], acquired: true }))
     const beginIncrementalScan = vi.fn(async () => ({ batch: state.batches[1], acquired: true }))
     const endBatch = vi.fn(async () => ({
       id: state.batches[0].id,
@@ -52,6 +70,7 @@ describe('OldFavoriteTaskCoordinator', () => {
       value: {
         loadOldFavoriteSessions: load,
         saveOldFavoriteSessions: save,
+        beginOldFavoriteFullScan: beginFullScan,
         beginOldFavoriteIncrementalScan: beginIncrementalScan,
         endOldFavoriteBatch: endBatch,
         discardOldFavoriteEmptyIncrementalBatch: discardEmptyIncremental,

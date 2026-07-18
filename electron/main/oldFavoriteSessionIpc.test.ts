@@ -232,6 +232,46 @@ describe('registerOldFavoriteSessionIpc', () => {
     expect(persisted.batches[0].segments.every((segment) => segment.task === undefined)).toBe(true)
   })
 
+  it('does not let another renderer end a batch while its owner holds the lease', async () => {
+    const ipcMain = new FakeIpcMain()
+    const store = new OldFavoriteSessionStore(new MemoryBackend())
+    const batch = createOldFavoriteBatch({
+      accountMid: '42', kind: 'full', aids: [1], now: '2026-07-16T08:00:00Z'
+    })
+    store.save({ version: 1, batches: [batch], lease: null })
+    expect(store.claimLease(batch.id, batch.segments[0].id, 'execute', '42', 7)).toBe(true)
+    registerOldFavoriteSessionIpc({
+      ipcMain, store, isTrustedSender: () => true, broadcast: vi.fn()
+    })
+
+    await expect(ipcMain.invoke(
+      'old-favorite-sessions:end-batch', 8, batch.id, '2026-07-16T10:00:00Z'
+    )).rejects.toThrow('owned by another window')
+    expect(store.load().batches[0].status).toBe('active')
+    expect(store.load().lease).toMatchObject({ ownerId: 7 })
+  })
+
+  it('rejects ending while the authoritative workspace is still active', async () => {
+    const ipcMain = new FakeIpcMain()
+    const store = new OldFavoriteSessionStore(new MemoryBackend())
+    const batch = createOldFavoriteBatch({
+      accountMid: '42', kind: 'full', aids: [1], now: '2026-07-16T08:00:00Z'
+    })
+    store.save({ version: 1, batches: [batch], lease: null })
+    registerOldFavoriteSessionIpc({
+      ipcMain,
+      store,
+      isTrustedSender: () => true,
+      broadcast: vi.fn(),
+      getWorkspaceBatchSummary: vi.fn().mockResolvedValue({ status: 'active' })
+    })
+
+    await expect(ipcMain.invoke(
+      'old-favorite-sessions:end-batch', 7, batch.id, '2026-07-16T10:00:00Z'
+    )).rejects.toThrow('workspace is not finalized')
+    expect(store.load().batches[0].status).toBe('active')
+  })
+
   it('serializes reset and begin so reset cannot be followed by a stale active batch', async () => {
     const ipcMain = new FakeIpcMain()
     const backend = new MemoryBackend()

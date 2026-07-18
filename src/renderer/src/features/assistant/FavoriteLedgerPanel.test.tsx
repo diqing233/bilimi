@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { StrictMode } from 'react'
 import type { FavoriteLedgerPreview } from '../favorites/favoriteLedgerPreview'
-import type { OldFavoriteSessionsState } from '../../../../shared/oldFavoriteSessions'
+import { createOldFavoriteBatch, type OldFavoriteSessionsState } from '../../../../shared/oldFavoriteSessions'
 import * as favoriteLedgerPreviewModule from '../favorites/favoriteLedgerPreview'
 import { createArchivePlanState } from '../favorites/favoriteArchivePlanState'
 import {
@@ -414,6 +414,8 @@ describe('FavoriteLedgerPanel', () => {
     const listeners = new Set<(next: OldFavoriteSessionsState) => void>()
     const api = {
       loadOldFavoriteSessions: vi.fn(async () => structuredClone(state)),
+      beginOldFavoriteFullScan: vi.fn(),
+      beginOldFavoriteIncrementalScan: vi.fn(),
       saveOldFavoriteSessions: vi.fn(async (next: OldFavoriteSessionsState) => {
         state = structuredClone({ ...next, lease: state.lease })
         listeners.forEach((listener) => listener(structuredClone(state)))
@@ -1726,18 +1728,72 @@ describe('FavoriteLedgerPanel', () => {
       protectedVideos: [], managedFolders: [], targetMembership: {}, multiArchiveMode: 'off'
     }
     const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
-    const sessionBridge = installOldFavoriteSessionBridge()
+    const previous = createOldFavoriteBatch({
+      accountMid: '42', kind: 'full', aids: [701, 702], now: '2026-07-17T09:00:00.000Z', id: 'previous'
+    })
+    previous.snapshot = { currentStep: 'preview', executionPhase: 'idle' }
+    const sessionBridge = installOldFavoriteSessionBridge({
+      version: 1, batches: [previous], lease: null
+    })
+    let incrementalSequence = 0
+    sessionBridge.api.beginOldFavoriteIncrementalScan.mockImplementation(async (accountMid: string) => {
+      const batch = createOldFavoriteBatch({
+        accountMid,
+        kind: 'incremental',
+        aids: [],
+        now: `2026-07-17T10:00:0${incrementalSequence++}.000Z`
+      })
+      batch.segments = [{
+        id: `${batch.id}:segment:1`, index: 0, aids: [], status: 'running',
+        task: { kind: 'scan', status: 'running', requestState: 'idle' }
+      }]
+      const current = sessionBridge.getState()
+      await sessionBridge.api.saveOldFavoriteSessions({
+        ...current, batches: [...current.batches, batch], lease: current.lease
+      })
+      await sessionBridge.api.claimOldFavoriteTaskLease(
+        batch.id, batch.segments[0].id, 'scan', accountMid
+      )
+      return { batch, acquired: true }
+    })
+    Object.assign(window.bilimiDesktop!, {
+      recoverOldFavoriteWorkspaceBatch: vi.fn().mockResolvedValue({ discardedTail: null }),
+      loadOldFavoriteWorkspaceBatch: vi.fn().mockResolvedValue({
+        summary: {
+          id: previous.id, kind: 'full', createdAt: previous.createdAt, status: 'active'
+        },
+        base: preview.items,
+        tags: preview.items.map((item) => ({ aid: item.aid, tags: item.tags ?? [] })),
+        sources: preview.items.map((item) => ({
+          aid: item.aid,
+          sourceFolderIds: item.sourceFolderIds ?? [item.sourceFolderTitle],
+          sourceFolderTitles: item.sourceFolderTitles ?? [item.sourceFolderTitle]
+        })),
+        overlays: { user: {}, deepseek: {}, execution: {} }
+      })
+    })
     renderPanel({
+      currentAccountMid: '42',
+      onReadCurrentOldFavoriteAccount: vi.fn().mockResolvedValue('42'),
       onScanOldFavorites
     })
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
+    await waitFor(() => expect(screen.getByRole('button', { name: '新增视频整理' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: '新增视频整理' }))
-    fireEvent.click(screen.getByRole('button', { name: '创建并扫描' }))
+    fireEvent.click(await screen.findByRole('button', { name: '创建并扫描' }))
 
     expect(await screen.findByText('暂未发现需要新增整理的视频')).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: '当前整理批次' }).querySelectorAll('option')).toHaveLength(1)
-    expect(sessionBridge.api.discardOldFavoriteEmptyIncrementalBatch).not.toHaveBeenCalled()
+    expect(sessionBridge.api.discardOldFavoriteEmptyIncrementalBatch).toHaveBeenCalledOnce()
+    expect(screen.getByRole('combobox', { name: '当前整理批次' })).toHaveValue(previous.id)
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '新增视频整理' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '新增视频整理' }))
+    fireEvent.click(await screen.findByRole('button', { name: '创建并扫描' }))
+    await waitFor(() => expect(onScanOldFavorites).toHaveBeenCalledTimes(2))
+    expect(sessionBridge.api.beginOldFavoriteIncrementalScan).toHaveBeenCalledTimes(2)
+    expect(screen.queryByText('另一个整理任务正在运行，请稍后继续。')).not.toBeInTheDocument()
   })
 
   it('merges snapshot state when switching batches instead of dropping segment archives', async () => {

@@ -81,11 +81,15 @@ function createDesktopGateway(): OldFavoriteSessionsGateway {
   if (
     !desktop.loadOldFavoriteSessions ||
     !desktop.saveOldFavoriteSessions ||
+    !desktop.beginOldFavoriteFullScan ||
+    !desktop.beginOldFavoriteIncrementalScan ||
+    !desktop.endOldFavoriteBatch ||
+    !desktop.discardOldFavoriteEmptyIncrementalBatch ||
     !desktop.claimOldFavoriteTaskLease ||
     !desktop.releaseOldFavoriteTaskLease ||
     !desktop.onOldFavoriteSessionsChanged
   ) {
-    throw new Error('Old favorite session desktop API is unavailable.')
+    throw new Error('Old favorite authoritative lifecycle desktop API is unavailable.')
   }
 
   return {
