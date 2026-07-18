@@ -507,6 +507,10 @@ describe('FloatingAssistantApp', () => {
     const desktop = installDesktopApi({
       loadOldFavoriteSessions,
       saveOldFavoriteSessions,
+      beginOldFavoriteFullScan: vi.fn(),
+      beginOldFavoriteIncrementalScan: vi.fn(),
+      endOldFavoriteBatch: vi.fn(),
+      discardOldFavoriteEmptyIncrementalBatch: vi.fn(),
       claimOldFavoriteTaskLease,
       releaseOldFavoriteTaskLease,
       onOldFavoriteSessionsChanged,
@@ -554,6 +558,10 @@ describe('FloatingAssistantApp', () => {
     installDesktopApi({
       loadOldFavoriteSessions,
       saveOldFavoriteSessions: vi.fn().mockResolvedValue({ version: 1, batches: [], lease: null }),
+      beginOldFavoriteFullScan: vi.fn(),
+      beginOldFavoriteIncrementalScan: vi.fn(),
+      endOldFavoriteBatch: vi.fn(),
+      discardOldFavoriteEmptyIncrementalBatch: vi.fn(),
       claimOldFavoriteTaskLease: vi.fn().mockResolvedValue(true),
       releaseOldFavoriteTaskLease: vi.fn().mockResolvedValue(true),
       onOldFavoriteSessionsChanged: vi.fn().mockReturnValue(vi.fn()),
