@@ -1,4 +1,9 @@
 import {
+  OLD_FAVORITE_ENDED_BATCH_WRITE_ERROR,
+  loadWritableOldFavoriteBatch,
+  type OldFavoriteWritableBatch
+} from './oldFavoriteTaskCoordinator'
+import {
   createOldFavoriteBatch,
   type OldFavoriteBatch,
   type OldFavoriteBatchKind,
@@ -13,7 +18,22 @@ import {
 
 export type OldFavoriteSessionCoordinator = {
   load: () => Promise<OldFavoriteSessionsState>
+  loadWritableBatch?: (batchId: string) => Promise<OldFavoriteWritableBatch>
   save: (state: OldFavoriteSessionsState) => Promise<OldFavoriteSessionsState>
+  beginFullScan?: (
+    accountMid: string,
+    now: string,
+    snapshot?: OldFavoriteBatchSnapshot
+  ) => Promise<{ batch: OldFavoriteBatch; acquired: boolean }> | undefined
+  beginIncrementalScan?: (
+    accountMid: string,
+    now: string,
+    snapshot?: OldFavoriteBatchSnapshot
+  ) => Promise<{ batch: OldFavoriteBatch; acquired: boolean }> | undefined
+  discardEmptyIncrementalBatch?: (
+    batchId: string,
+    accountMid: string
+  ) => Promise<{ batchId: string; accountMid: string; discarded: true }> | undefined
   acquire: (
     batchId: string,
     segmentId: string,
@@ -67,14 +87,58 @@ function mergeSnapshot(
 }
 
 export class OldFavoriteSessionOrchestrator {
+  private readonly replacementFullBatchIds = new Set<string>()
+  private readonly fullScanBeginTails = new Map<string, Promise<unknown>>()
+
   constructor(private readonly coordinator: OldFavoriteSessionCoordinator) {}
+
+  private loadWritableBatch(batchId: string): Promise<OldFavoriteWritableBatch> {
+    const load = this.coordinator.loadWritableBatch?.(batchId) ??
+      loadWritableOldFavoriteBatch(this.coordinator, batchId)
+    return load.then((writable) => {
+      if (writable.batch.status === 'ended') {
+        throw new Error(OLD_FAVORITE_ENDED_BATCH_WRITE_ERROR)
+      }
+      return writable
+    })
+  }
 
   async beginScan(options: BeginScanOptions): Promise<{ batch: OldFavoriteBatch; acquired: boolean }> {
     const accountMid = options.accountMid.trim()
+    if (options.kind === 'full') {
+      const atomicResult = await this.coordinator.beginFullScan?.(accountMid, options.now, options.snapshot)
+      if (atomicResult) return atomicResult
+      const previous = this.fullScanBeginTails.get(accountMid) ?? Promise.resolve()
+      const next = previous.then(() => this.beginScanNow(options, accountMid))
+      this.fullScanBeginTails.set(accountMid, next.catch(() => undefined))
+      return next
+    }
+    const atomicResult = await this.coordinator.beginIncrementalScan?.(
+      accountMid,
+      options.now,
+      options.snapshot
+    )
+    if (atomicResult) return atomicResult
+    return this.beginScanNow(options, accountMid)
+  }
+
+  private async beginScanNow(
+    options: BeginScanOptions,
+    accountMid: string
+  ): Promise<{ batch: OldFavoriteBatch; acquired: boolean }> {
     const state = await this.coordinator.load()
     const activeFull = options.kind === 'full'
       ? state.batches
-          .filter((batch) => batch.accountMid === accountMid && batch.kind === 'full' && batch.status === 'active')
+          .filter((batch) =>
+            batch.accountMid === accountMid &&
+            batch.kind === 'full' &&
+            batch.status === 'active' &&
+            (batch.segments.some((segment) => segment.aids.length > 0) ||
+              batch.segments.some((segment) =>
+                segment.status === 'running' && segment.task?.kind === 'scan'
+              ) ||
+              this.replacementFullBatchIds.has(batch.id))
+          )
           .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
           .at(-1)
       : undefined
@@ -90,6 +154,7 @@ export class OldFavoriteSessionOrchestrator {
       task: { kind: 'scan', status: 'running', requestState: 'idle' }
     }
     const prepared = { ...batch, segments: [placeholder] }
+    if (options.kind === 'full') this.replacementFullBatchIds.add(prepared.id)
     const saved = await this.coordinator.save({
       ...state,
       batches: [...state.batches, prepared],
@@ -166,7 +231,7 @@ export class OldFavoriteSessionOrchestrator {
     segmentId: string,
     update: SegmentUpdate
   ): Promise<OldFavoriteSessionsState> {
-    const state = await this.coordinator.load()
+    const { state } = await this.loadWritableBatch(batchId)
     const batches = state.batches.map((batch) => {
       if (batch.id !== batchId) return batch
       return {
@@ -207,9 +272,7 @@ export class OldFavoriteSessionOrchestrator {
     batchId: string,
     snapshot?: OldFavoriteBatchSnapshot
   ): Promise<OldFavoriteBatch> {
-    const state = await this.coordinator.load()
-    const current = state.batches.find((batch) => batch.id === batchId)
-    if (!current) throw new Error('Old favorite batch was not found.')
+    const { state, batch: current } = await this.loadWritableBatch(batchId)
 
     const rebuilt: OldFavoriteBatch = {
       ...current,
@@ -232,9 +295,7 @@ export class OldFavoriteSessionOrchestrator {
   }
 
   async appendDiscoveredAids(batchId: string, candidateAids: number[]): Promise<OldFavoriteBatch> {
-    const state = await this.coordinator.load()
-    const current = state.batches.find((batch) => batch.id === batchId)
-    if (!current) throw new Error('Old favorite batch was not found.')
+    const { state, batch: current } = await this.loadWritableBatch(batchId)
     const owned = new Set(current.segments.flatMap((segment) => segment.aids))
     const pending = [...new Set(candidateAids.filter((aid) =>
       Number.isSafeInteger(aid) && aid > 0 && !owned.has(aid)
@@ -270,9 +331,7 @@ export class OldFavoriteSessionOrchestrator {
   }
 
   async markSegmentTagsSettled(batchId: string, segmentIndex: number): Promise<OldFavoriteBatch> {
-    const state = await this.coordinator.load()
-    const current = state.batches.find((batch) => batch.id === batchId)
-    if (!current) throw new Error('Old favorite batch was not found.')
+    const { state, batch: current } = await this.loadWritableBatch(batchId)
     const updated = {
       ...current,
       segments: current.segments.map((segment) =>
@@ -289,7 +348,12 @@ export class OldFavoriteSessionOrchestrator {
     return saved.batches.find((batch) => batch.id === batchId) ?? updated
   }
 
-  async discardBatch(batchId: string): Promise<OldFavoriteSessionsState> {
+  async discardBatch(batchId: string, accountMid: string): Promise<OldFavoriteSessionsState> {
+    const authoritativeResult = await this.coordinator.discardEmptyIncrementalBatch?.(
+      batchId,
+      accountMid.trim()
+    )
+    if (authoritativeResult) return this.coordinator.load()
     const state = await this.coordinator.load()
     const saved = await this.coordinator.save({
       ...state,

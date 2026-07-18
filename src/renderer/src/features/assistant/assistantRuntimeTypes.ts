@@ -71,7 +71,12 @@ export type AssistantRuntimeRequest =
   | { id: string; type: 'prepare-old-favorite-scan' }
   | { id: string; type: 'old-favorite-tag-enrichment'; action?: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' }
   | { id: string; type: 'rejudge-old-favorite'; item: FavoriteLedgerPreviewItem }
-  | { id: string; type: 'execute-old-favorite-plan'; items: FavoriteLedgerPreviewItem[] }
+  | {
+      id: string
+      type: 'execute-old-favorite-plan'
+      items: FavoriteLedgerPreviewItem[]
+      expectedAccountMid?: string
+    }
   | {
       id: string
       type: 'organize-old-favorites-with-deepseek'

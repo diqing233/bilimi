@@ -10,6 +10,23 @@ function createState(): OldFavoriteSessionsState {
 }
 
 describe('OldFavoriteTaskCoordinator', () => {
+  it('fails closed when the desktop authoritative lifecycle API is incomplete', () => {
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        loadOldFavoriteSessions: vi.fn(),
+        saveOldFavoriteSessions: vi.fn(),
+        claimOldFavoriteTaskLease: vi.fn(),
+        releaseOldFavoriteTaskLease: vi.fn(),
+        onOldFavoriteSessionsChanged: vi.fn()
+      }
+    })
+
+    expect(() => new OldFavoriteTaskCoordinator()).toThrow(
+      'Old favorite authoritative lifecycle desktop API is unavailable.'
+    )
+  })
+
   it('removes large workspace-owned snapshots before renderer-to-main IPC', () => {
     const preview = { items: Array.from({ length: 30_000 }, (_, index) => ({ aid: index + 1 })) }
     const compact = compactOldFavoriteSessionsForIpc({
@@ -34,11 +51,29 @@ describe('OldFavoriteTaskCoordinator', () => {
     const claimLease = vi.fn(async () => true)
     const releaseLease = vi.fn(async () => true)
     const subscribe = vi.fn(() => () => undefined)
+    const beginFullScan = vi.fn(async () => ({ batch: state.batches[0], acquired: true }))
+    const beginIncrementalScan = vi.fn(async () => ({ batch: state.batches[1], acquired: true }))
+    const endBatch = vi.fn(async () => ({
+      id: state.batches[0].id,
+      accountMid: '42',
+      kind: 'full' as const,
+      status: 'ended' as const,
+      endedAt: '2026-07-16T10:00:00Z',
+      segmentCount: 1,
+      aidCount: 1
+    }))
+    const discardEmptyIncremental = vi.fn(async () => ({
+      batchId: state.batches[1].id, accountMid: '42', discarded: true
+    }))
     Object.defineProperty(window, 'bilimiDesktop', {
       configurable: true,
       value: {
         loadOldFavoriteSessions: load,
         saveOldFavoriteSessions: save,
+        beginOldFavoriteFullScan: beginFullScan,
+        beginOldFavoriteIncrementalScan: beginIncrementalScan,
+        endOldFavoriteBatch: endBatch,
+        discardOldFavoriteEmptyIncrementalBatch: discardEmptyIncremental,
         claimOldFavoriteTaskLease: claimLease,
         releaseOldFavoriteTaskLease: releaseLease,
         onOldFavoriteSessionsChanged: subscribe
@@ -49,15 +84,39 @@ describe('OldFavoriteTaskCoordinator', () => {
 
     await expect(coordinator.load()).resolves.toEqual(state)
     await coordinator.save(state)
+    await coordinator.beginIncrementalScan('42', '2026-07-16T09:00:00Z')
+    await coordinator.endBatch(state.batches[0].id, '2026-07-16T10:00:00Z')
+    await coordinator.discardEmptyIncrementalBatch(state.batches[1].id, '42')
     await coordinator.acquire(batch.id, batch.segments[0].id, 'scan', '42')
     await coordinator.release(batch.id, batch.segments[0].id)
     coordinator.subscribe(() => undefined)
 
     expect(load).toHaveBeenCalledOnce()
     expect(save).toHaveBeenCalledWith(state)
+    expect(beginIncrementalScan).toHaveBeenCalledWith('42', '2026-07-16T09:00:00Z', undefined)
+    expect(endBatch).toHaveBeenCalledWith(state.batches[0].id, '2026-07-16T10:00:00Z')
+    expect(discardEmptyIncremental).toHaveBeenCalledWith(state.batches[1].id, '42')
     expect(claimLease).toHaveBeenCalledWith(batch.id, batch.segments[0].id, 'scan', '42')
     expect(releaseLease).toHaveBeenCalledWith(batch.id, batch.segments[0].id)
     expect(subscribe).toHaveBeenCalledOnce()
+  })
+
+  it('exposes a writable-batch adapter that rejects ended history', async () => {
+    const state = createState()
+    const ended = { ...structuredClone(state.batches[0]), status: 'ended' as const }
+    const load = vi.fn(async () => ({ ...state, batches: [ended, state.batches[1]] }))
+    const coordinator = new OldFavoriteTaskCoordinator({
+      load,
+      save: async (next) => next,
+      claimLease: async () => false,
+      releaseLease: async () => false,
+      subscribe: () => () => undefined
+    })
+
+    await expect(coordinator.loadWritableBatch(ended.id)).rejects.toThrow(
+      '旧藏整理批次已结束，不能继续写入。'
+    )
+    expect(load).toHaveBeenCalledOnce()
   })
 
   it('delegates lease claims to the main-process gateway', async () => {

@@ -12,6 +12,7 @@ type OldFavoriteRuntimeStore = {
 const GLOBAL_KEY = '__bilimiOldFavoriteRuntimeSession__' as const
 const ACCOUNT_INDEPENDENT_KEYS = new Set(['deepSeekConnectionStatus'])
 const BROADCAST_ONLY_KEYS = new Set(['oldFavoriteRuntimeStatus', 'sharedOperationFeedback'])
+const TRANSIENT_KEYS = new Set([...BROADCAST_ONLY_KEYS, 'scanProgress'])
 const RENDERER_ONLY_KEYS = new Set([
   'archiveEditorState',
   'archiveRedoChanges',
@@ -86,13 +87,16 @@ function ensureBridgeSubscription(store: OldFavoriteRuntimeStore) {
 
   store.bridgeSubscribed = true
   const unsubscribe = subscribe((message) => {
-    if ('type' in message && message.type === 'reset') {
+    if (!('key' in message)) {
+      if (message.accountMid && store.accountMid && message.accountMid !== store.accountMid) return
       clearAccountScopedRuntime(store)
       store.accountMid = message.accountMid
       notifyRuntimeListeners(store)
       return
     }
 
+    if (store.accountMid && message.accountMid !== store.accountMid) return
+    if (message.revision <= (store.revisions.get(message.key) ?? -1)) return
     store.values.set(message.key, message.value)
     store.revisions.set(message.key, message.revision)
     store.accountMid = message.accountMid
@@ -156,7 +160,7 @@ export function setOldFavoriteRuntimeValue<T>(
         store.revisions.get(key) ?? 0
       )
     : undefined
-  if (!canUseMainRuntime(key) && BROADCAST_ONLY_KEYS.has(key)) {
+  if (!canUseMainRuntime(key) && TRANSIENT_KEYS.has(key)) {
     void window.bilimiDesktop?.setOldFavoriteRuntimeTransientValue?.(
       key,
       resolvedValue,
@@ -182,7 +186,7 @@ export function setOldFavoriteTransientRuntimeValue<T>(key: string, value: T): b
   notifyRuntimeListeners(store, key)
   void window.bilimiDesktop?.setOldFavoriteRuntimeTransientValue?.(key, value, revision)
     .then((result) => {
-      if (!result || result.accepted) return
+      if (!result || result.accepted || result.revision < (store.revisions.get(key) ?? 0)) return
       store.values.set(key, result.value)
       store.revisions.set(key, result.revision)
       notifyRuntimeListeners(store, key)

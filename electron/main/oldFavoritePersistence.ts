@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { OldFavoriteBatch, OldFavoriteSessionsState } from '../../src/shared/oldFavoriteSessions'
 import { OLD_FAVORITE_SESSIONS_VERSION } from '../../src/shared/oldFavoriteSessions'
-import { OldFavoriteRuntimeStore, type OldFavoriteRuntimeBackend } from './oldFavoriteRuntimeStore'
+import { OldFavoriteRuntimeStore, type OldFavoriteRuntimeStoreBackend } from './oldFavoriteRuntimeStore'
 import { OldFavoriteSessionStore, type OldFavoriteSessionStoreBackend } from './oldFavoriteSessionStore'
 
 type LegacyStore = {
@@ -13,6 +13,7 @@ type LegacyStore = {
 
 type BatchIndex = {
   version: 2
+  retiredBatchIds?: string[]
   batches: Array<Pick<OldFavoriteBatch, 'id' | 'accountMid' | 'kind' | 'createdAt' | 'status'> & {
     storageKey?: string
   }>
@@ -54,7 +55,7 @@ async function atomicWrite(path: string, value: unknown) {
   await rename(temporary, path)
 }
 
-class MemoryRuntimeBackend implements OldFavoriteRuntimeBackend {
+class MemoryRuntimeBackend implements OldFavoriteRuntimeStoreBackend {
   private value: unknown
   get(): unknown { return this.value }
   set(_key: string, value: unknown): void { this.value = value }
@@ -65,13 +66,16 @@ class ShardedSessionBackend implements OldFavoriteSessionStoreBackend {
   private persisted = new Map<string, { serialized: string, storageKey: string }>()
   private writeTail = Promise.resolve()
   private latestWrite = Promise.resolve()
+  private readonly retiredBatchIds: Set<string>
 
   private constructor(
     private readonly directory: string,
     state: OldFavoriteSessionsState,
-    storageKeys: Map<string, string>
+    storageKeys: Map<string, string>,
+    retiredBatchIds: readonly string[]
   ) {
     this.state = state
+    this.retiredBatchIds = new Set(retiredBatchIds)
     state.batches.forEach((batch) => this.persisted.set(batch.id, {
       serialized: JSON.stringify(batch),
       storageKey: storageKeys.get(batch.id) ?? batchStorageKey(batch.id)
@@ -96,7 +100,7 @@ class ShardedSessionBackend implements OldFavoriteSessionStoreBackend {
     const state = index
       ? { version: OLD_FAVORITE_SESSIONS_VERSION, batches, lease: null }
       : legacyState ?? { version: OLD_FAVORITE_SESSIONS_VERSION, batches: [], lease: null }
-    const backend = new ShardedSessionBackend(directory, state, storageKeys)
+    const backend = new ShardedSessionBackend(directory, state, storageKeys, index?.retiredBatchIds ?? [])
     if (!index && legacyState) await backend.persistState(state)
     return { backend, migrated: !index && Boolean(legacyState) }
   }
@@ -113,6 +117,15 @@ class ShardedSessionBackend implements OldFavoriteSessionStoreBackend {
     )
     this.writeTail = next.catch(() => undefined)
     this.latestWrite = next
+  }
+
+  getRetiredBatchIds(): readonly string[] {
+    return [...this.retiredBatchIds]
+  }
+
+  setRetiredBatchIds(ids: readonly string[]): void {
+    this.retiredBatchIds.clear()
+    for (const id of ids) if (typeof id === 'string' && id) this.retiredBatchIds.add(id)
   }
 
   flush() { return this.latestWrite }
@@ -134,6 +147,7 @@ class ShardedSessionBackend implements OldFavoriteSessionStoreBackend {
     }
     const index: BatchIndex = {
       version: 2,
+      retiredBatchIds: [...this.retiredBatchIds],
       batches: state.batches.map(({ id, accountMid, kind, createdAt, status }) => ({
         id, accountMid, kind, createdAt, status,
         storageKey: this.persisted.get(id)?.storageKey ?? batchStorageKey(id)

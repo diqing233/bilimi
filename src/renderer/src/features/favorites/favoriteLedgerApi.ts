@@ -504,6 +504,7 @@ export function buildOldFavoriteTagEnrichmentScript(
         let completedSinceCheckpoint = 0;
         let lastCheckpointAt = Date.now();
         let checkpointDirty = false;
+        try {
         while (true) {
           let controlledStore;
           try { controlledStore = JSON.parse(localStorage.getItem(key) || '{}'); } catch { break; }
@@ -526,7 +527,13 @@ export function buildOldFavoriteTagEnrichmentScript(
             const contentType = String(response.headers.get('content-type') || '').toLowerCase();
             const bodyText = await response.text();
             if (contentType.includes('text/html') || /^\s*<!doctype html|^\s*<html/i.test(bodyText)) {
-              throw Object.assign(new Error('tag request returned HTML; please log in again'), { global: true });
+              const loginSignal = /login|log in|未登录/i.test(bodyText) || /login|passport/i.test(String(response.url || ''));
+              const riskSignal = /risk|频繁|风控|too fast|captcha|安全验证/i.test(bodyText);
+              throw Object.assign(new Error('tag request returned HTML; please log in again'), {
+                global: true,
+                loginSignal,
+                riskSignal
+              });
             }
             let json;
             try { json = bodyText ? JSON.parse(bodyText) : null; } catch {
@@ -535,8 +542,14 @@ export function buildOldFavoriteTagEnrichmentScript(
             const code = Number(json?.code);
             if (!response.ok || code !== 0) {
               const message = String(json?.message || code || response.status);
+              const loginSignal = code === -101 || /login|未登录/i.test(message);
+              const riskSignal = [403, 412].includes(Number(response?.status || 0)) ||
+                [-352, -509].includes(code) || /risk|频繁|风控|too fast/i.test(message);
               throw Object.assign(new Error(message), {
-                global: [-101, -352, -412, -509].includes(code) || /risk|频繁|风控|too fast|login|未登录/i.test(message)
+                global: loginSignal || riskSignal,
+                apiCode: code,
+                loginSignal,
+                riskSignal
               });
             }
             const tags = readTagList(Array.isArray(json.data) ? json.data : json.data?.tags);
@@ -576,6 +589,13 @@ export function buildOldFavoriteTagEnrichmentScript(
             activeAidFailures += 1;
             const message = String(error?.message || error || '');
             if (error?.global || /(-101|-352|-412|-509|risk|频繁|风控|too fast|login|未登录)/i.test(message)) {
+              const apiCode = Number(error?.apiCode)
+              const loginSignal = Boolean(error?.loginSignal) || apiCode === -101 || /login|未登录/i.test(message)
+              const riskSignal = Boolean(error?.riskSignal) || [-352, -412, -509].includes(apiCode) ||
+                /risk|频繁|风控|too fast|captcha|安全验证/i.test(message)
+              store.progress.errorKind = loginSignal ? 'login' : riskSignal ? 'risk-control' : 'unknown'
+              if (Number.isFinite(apiCode)) store.progress.errorCode = apiCode
+              store.progress.errorMessage = message.slice(0, 160)
               store.progress.status = 'paused';
               writeStore();
               break;
@@ -595,14 +615,25 @@ export function buildOldFavoriteTagEnrichmentScript(
             await new Promise((resolve) => setTimeout(resolve, Math.min(8000, 750 * (2 ** activeAidFailures))));
           }
         }
-        if (checkpointDirty) writeStore();
-        window.__bilimiOldFavoriteTagWorkerRunning = false;
-        let handoffStore;
-        try { handoffStore = JSON.parse(localStorage.getItem(key) || '{}'); } catch { handoffStore = {}; }
-        if (handoffStore.progress?.status === 'running' && Array.isArray(handoffStore.queue) && handoffStore.queue.length > 0) {
-          setTimeout(() => {
-            if (!window.__bilimiOldFavoriteTagWorkerRunning) window.__bilimiStartOldFavoriteTagWorker?.();
-          }, 0);
+        } finally {
+          try {
+            if (checkpointDirty) writeStore();
+          } catch (error) {
+            try {
+              store.progress.status = 'paused';
+              store.progress.errorKind = 'unknown';
+              store.progress.errorMessage = String(error?.message || error || 'tag worker failed').slice(0, 160);
+              localStorage.setItem(key, JSON.stringify(store));
+            } catch { /* Preserve the worker release even when storage is unavailable. */ }
+          }
+          window.__bilimiOldFavoriteTagWorkerRunning = false;
+          let handoffStore;
+          try { handoffStore = JSON.parse(localStorage.getItem(key) || '{}'); } catch { handoffStore = {}; }
+          if (handoffStore.progress?.status === 'running' && Array.isArray(handoffStore.queue) && handoffStore.queue.length > 0) {
+            setTimeout(() => {
+              if (!window.__bilimiOldFavoriteTagWorkerRunning) window.__bilimiStartOldFavoriteTagWorker?.();
+            }, 0);
+          }
         }
       })();
     };
@@ -614,6 +645,9 @@ export function buildOldFavoriteTagEnrichmentScript(
     if (${JSON.stringify(action)} === 'resume' && store.queue.length) {
       store.controlRevision += 1;
       store.progress.status = 'running';
+      delete store.progress.errorKind;
+      delete store.progress.errorCode;
+      delete store.progress.errorMessage;
     }
     if (${JSON.stringify(action)} === 'cancel') {
       store.controlRevision += 1;
@@ -1080,6 +1114,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
         const streamingSettlements = [];
         let streamingSettlementTail = Promise.resolve();
         let streamingGloballyPaused = false;
+        let streamingPauseError = null;
         let streamingStopped = false;
         let streamingOpen = null;
         let inProgressFolderAids = new Set();
@@ -1162,6 +1197,15 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
               } catch (error) {
                 const message = String(error?.message || error || '');
                 if (/(-101|-352|-412|-509|risk|too fast|login|returned HTML)/i.test(message)) {
+                  const apiCode = Number(error?.apiCode);
+                  const loginSignal = Boolean(error?.loginSignal) || apiCode === -101 || /login|未登录/i.test(message);
+                  const riskSignal = Boolean(error?.riskSignal) || [-352, -412, -509].includes(apiCode) ||
+                    /risk|频繁|风控|too fast|captcha|安全验证/i.test(message);
+                  streamingPauseError = {
+                    errorKind: loginSignal ? 'login' : riskSignal ? 'risk-control' : 'unknown',
+                    ...(Number.isFinite(apiCode) ? { errorCode: apiCode } : {}),
+                    errorMessage: message.slice(0, 160)
+                  };
                   globallyPaused = true;
                   streamingGloballyPaused = true;
                   break;
@@ -1855,7 +1899,8 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           cacheHits: Array.from(cacheHitAids).filter((aid) => uniqueVideos.has(aid)).length,
           succeeded: 0,
           failed: 0,
-          status: queuedAids.length > 0 ? (streamingGloballyPaused ? 'paused' : 'running') : 'complete'
+          status: queuedAids.length > 0 ? (streamingGloballyPaused ? 'paused' : 'running') : 'complete',
+          ...(streamingPauseError || {})
         };
         if (!payload.aid && savedBatchCursorInvalid) {
           delete tagStore.batchCursor;
@@ -1890,6 +1935,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           window.__bilimiOldFavoriteTagWorkerRunning = true;
           void (async () => {
             let consecutiveFailures = 0;
+            try {
             while (latestStore.queue.length > 0) {
               const persisted = readTagStore();
               if (persisted.progress?.status === 'paused') break;
@@ -1924,6 +1970,13 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
                 consecutiveFailures += 1;
                 const message = String(error?.message || error || '');
                 if (/(-101|-352|-412|-509|risk|频繁|风控|too fast|login|未登录|returned HTML)/i.test(message)) {
+                  const apiCode = Number(error?.apiCode)
+                  const loginSignal = Boolean(error?.loginSignal) || apiCode === -101 || /login|未登录/i.test(message)
+                  const riskSignal = Boolean(error?.riskSignal) || [-352, -412, -509].includes(apiCode) ||
+                    /risk|频繁|风控|too fast|captcha|安全验证/i.test(message)
+                  latestStore.progress.errorKind = loginSignal ? 'login' : riskSignal ? 'risk-control' : 'unknown'
+                  if (Number.isFinite(apiCode)) latestStore.progress.errorCode = apiCode
+                  latestStore.progress.errorMessage = message.slice(0, 160)
                   latestStore.progress.status = 'paused';
                   writeTagStore(latestStore);
                   break;
@@ -1947,12 +2000,15 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
               latestStore.progress.status = latestStore.queue.length > 0 ? 'running' : 'complete';
               writeTagStore(latestStore);
             }
-            window.__bilimiOldFavoriteTagWorkerRunning = false;
-            const handoffStore = readTagStore();
-            if (handoffStore.progress?.status === 'running' && handoffStore.queue.length > 0) {
-              setTimeout(() => {
-                if (!window.__bilimiOldFavoriteTagWorkerRunning) window.__bilimiStartOldFavoriteTagWorker?.();
-              }, 0);
+            } finally {
+              try { writeTagStore(latestStore); } catch { /* Keep cleanup deterministic when storage fails. */ }
+              window.__bilimiOldFavoriteTagWorkerRunning = false;
+              const handoffStore = readTagStore();
+              if (handoffStore.progress?.status === 'running' && handoffStore.queue.length > 0) {
+                setTimeout(() => {
+                  if (!window.__bilimiOldFavoriteTagWorkerRunning) window.__bilimiStartOldFavoriteTagWorker?.();
+                }, 0);
+              }
             }
           })();
         };
@@ -2015,10 +2071,12 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
 
 export function buildExecuteFavoriteLedgerPlanScript(
   items: FavoriteLedgerPreviewItem[],
-  pacingOptions: FavoriteLedgerExecutionPacingOptions = {}
+  pacingOptions: FavoriteLedgerExecutionPacingOptions = {},
+  expectedAccountMid = ''
 ): string {
   const payload = scriptPayload({
     items,
+    expectedAccountMid: expectedAccountMid.trim(),
     pacing: {
       appendDelayMs: pacingOptions.appendDelayMs ?? { min: 1200, max: 3000 },
       cooldownDelayMs: pacingOptions.cooldownDelayMs ?? { min: 15000, max: 45000 },
@@ -2054,11 +2112,34 @@ export function buildExecuteFavoriteLedgerPlanScript(
       const isUnknownWriteResult = (error) =>
         error?.name === 'AbortError' ||
         /abort|interrupted|networkerror|failed to fetch|load failed/i.test(String(error?.message || error || ''));
+      const accountMismatchResult = (message = 'The signed-in Bilibili account changed during execution.') => ({
+        ok: false,
+        paused: true,
+        resultUnknown: true,
+        steps,
+        missingTargets: ['bilibili-account'],
+        completedItems,
+        message
+      });
+      const assertExpectedAccount = () => {
+        if (!payload.expectedAccountMid) return;
+        const { mid } = readCredentials();
+        if (!mid || String(mid) !== String(payload.expectedAccountMid)) {
+          const error = new Error('bilibili-account-mismatch');
+          error.accountMismatch = true;
+          throw error;
+        }
+      };
 
       try {
         const { csrf } = readCredentials();
         if (!csrf) {
           return { ok: false, steps, missingTargets, message: '未能读取登录凭据，无法归册。' };
+        }
+        try {
+          assertExpectedAccount();
+        } catch (error) {
+          return accountMismatchResult();
         }
 
         const filteredItems = payload.items.filter((item) => {
@@ -2107,6 +2188,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
         };
 
         const appendItemFolders = async (item, addFolderIds) => {
+          assertExpectedAccount();
           const body = new URLSearchParams();
           body.set('add_media_ids', addFolderIds.join(','));
           body.set('csrf', csrf);
@@ -2127,6 +2209,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
           await ensureApiOk(response, 'favorite ledger append');
         };
         const removeItemFolders = async (item, removeFolderIds) => {
+          assertExpectedAccount();
           const body = new URLSearchParams();
           body.set('del_media_ids', removeFolderIds.join(','));
           body.set('csrf', csrf);
@@ -2162,6 +2245,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
         const readRemoteFolderSnapshot = async () => {
           if (!remoteFolderSnapshotPromise) {
             remoteFolderSnapshotPromise = (async () => {
+              assertExpectedAccount();
               const { mid } = readCredentials();
               if (!mid) throw createApiError('favorite folder list requires an account', { kind: 'credentials' });
               const response = await fetch(buildListUrl(mid), { credentials: 'include' });
@@ -2178,6 +2262,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
         };
         const readShardMembers = async (shard) => {
           if (Array.isArray(shard.memberAids)) return shard.memberAids;
+          assertExpectedAccount();
           const url = new URL('https://api.bilibili.com/x/v3/fav/resource/ids');
           url.searchParams.set('media_id', shard.id);
           const response = await fetch(url.toString(), { credentials: 'include' });
@@ -2192,6 +2277,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
           return shard.memberAids;
         };
         const createPhysicalShard = async (logicalTitle, shardNumber) => {
+          assertExpectedAccount();
           const body = new URLSearchParams();
           body.set('csrf', csrf);
           body.set('privacy', '0');
@@ -2236,6 +2322,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
             try {
               target = await createPhysicalShard(logicalTitle, Math.max(...shards.map((shard) => physicalShardNumber(shard.title))) + 1);
             } catch (error) {
+              if (error?.accountMismatch) throw error;
               return { state: 'create-failed', error };
             }
           }
@@ -2246,7 +2333,8 @@ export function buildExecuteFavoriteLedgerPlanScript(
           let folders;
           try {
             folders = await readRemoteFolderSnapshot();
-          } catch {
+          } catch (error) {
+            if (error?.accountMismatch) throw error;
             return { state: 'ready', folderIds: suppliedIds };
           }
           const stagingShards = folders.filter((folder) => logicalFolderTitle(folder.title) === 'bilimi·暂存');
@@ -2255,6 +2343,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
               const memberAids = await readShardMembers(shard);
               if (memberAids.includes(Number(item.aid))) suppliedIds.push(shard.id);
             } catch (error) {
+              if (error?.accountMismatch) throw error;
               return { state: 'membership-incomplete', folderIds: Array.from(new Set(suppliedIds)), error };
             }
           }
@@ -2356,6 +2445,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
                 removedFolderIds
               });
             } catch (error) {
+              if (error?.accountMismatch) return accountMismatchResult();
               const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
               if (isProtectionFailure(error)) {
                 return protectionPausedResult(item, index, errorMessage);
@@ -2402,6 +2492,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
                 successfulItems.push({ ...groupedItem, targetFolderId: resolution.folderId });
                 steps.push('api:ledger:append:' + groupedItem.aid + ':' + resolution.folderId);
               } catch (error) {
+                if (error?.accountMismatch) return accountMismatchResult();
                 const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
                 if (isProtectionFailure(error)) {
                   return protectionPausedResult(item, index, errorMessage);
@@ -2419,6 +2510,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
                 await removeItemFolders(item, stagingFolderIds);
                 steps.push('api:ledger:staging-removed:' + item.aid);
               } catch (error) {
+                if (error?.accountMismatch) return accountMismatchResult();
                 const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
                 if (isProtectionFailure(error)) {
                   return protectionPausedResult(item, index, errorMessage);
@@ -2468,6 +2560,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
             completedItems.push(...resolvedItems);
             steps.push('api:ledger:append:' + item.aid);
           } catch (error) {
+            if (error?.accountMismatch) return accountMismatchResult();
             const errorMessage = error instanceof Error ? error.message : String(error || 'unknown error');
             if (isProtectionFailure(error)) {
               return protectionPausedResult(item, index, errorMessage);
@@ -2497,6 +2590,7 @@ export function buildExecuteFavoriteLedgerPlanScript(
               completedItems.push(...refreshedItems);
               steps.push('api:ledger:append:' + item.aid);
             } catch (retryError) {
+              if (retryError?.accountMismatch) return accountMismatchResult();
               const retryMessage = retryError instanceof Error ? retryError.message : String(retryError || '');
               if (isProtectionFailure(retryError)) {
                 return protectionPausedResult(item, index, retryMessage);

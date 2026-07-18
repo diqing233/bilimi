@@ -443,10 +443,10 @@ describe('favorite ledger API scripts', () => {
   })
 
   it.each([
-    ['html login response', () => new Response('<!DOCTYPE html><html>login</html>', { headers: { 'content-type': 'text/html' } })],
-    ['not logged in response', () => Response.json({ code: -101, message: '账号未登录' })],
-    ['risk control response', () => Response.json({ code: -412, message: 'risk control' })]
-  ] as const)('pauses tag enrichment on a global %s', async (_label, makeResponse) => {
+    ['html login response', () => new Response('<!DOCTYPE html><html>login</html>', { headers: { 'content-type': 'text/html' } }), { errorKind: 'login', errorMessage: expect.stringContaining('please log in') }],
+    ['not logged in response', () => Response.json({ code: -101, message: '账号未登录' }), { errorKind: 'login', errorCode: -101, errorMessage: '账号未登录' }],
+    ['risk control response', () => Response.json({ code: -412, message: 'risk control' }), { errorKind: 'risk-control', errorCode: -412, errorMessage: 'risk control' }]
+  ] as const)('pauses tag enrichment on a global %s', async (_label, makeResponse, metadata) => {
     vi.useFakeTimers()
     installCookies()
     localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
@@ -462,7 +462,27 @@ describe('favorite ledger API scripts', () => {
     const stored = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(stored.queue).toEqual([1, 2])
-    expect(stored.progress).toMatchObject({ completed: 0, pending: 2, failed: 0, status: 'paused' })
+    expect(stored.progress).toMatchObject({ completed: 0, pending: 2, failed: 0, status: 'paused', ...metadata })
+    vi.useRealTimers()
+  })
+
+  it('keeps invalid JSON errors classified as unknown instead of risk-control', async () => {
+    vi.useFakeTimers()
+    installCookies()
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
+      accountMid: '42', cache: {}, queue: [1, 2], controlRevision: 0,
+      progress: { completed: 0, total: 2, pending: 2, cacheHits: 0, succeeded: 0, failed: 0, status: 'paused' }
+    }))
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{not-json}', {
+      status: 200, headers: { 'content-type': 'application/json' }
+    })))
+
+    await window.eval(buildOldFavoriteTagEnrichmentScript('resume'))
+    await vi.advanceTimersByTimeAsync(5000)
+
+    const stored = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+    expect(stored.progress).toMatchObject({ status: 'paused', errorKind: 'unknown' })
+    expect(stored.progress.errorKind).not.toBe('risk-control')
     vi.useRealTimers()
   })
 
@@ -1007,6 +1027,80 @@ describe('favorite ledger API scripts', () => {
       expect.objectContaining({ aid: 123, targetLedgerId: 'knowledge', targetFolderId: '9001' }),
       expect.objectContaining({ aid: 123, targetLedgerId: 'movie-tv', targetFolderId: '9002' })
     ])
+  })
+
+  it('stops before the first write when the expected account changed inside the webview', async () => {
+    installCookies()
+    Object.defineProperty(document, 'cookie', {
+      configurable: true,
+      value: 'bili_jct=csrf-token; DedeUserID=99'
+    })
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+
+    const result = await window.eval(buildExecuteFavoriteLedgerPlanScript([{
+      aid: 123,
+      title: '账号已切换',
+      sourceFolderTitle: '默认收藏夹',
+      targetLedgerId: 'knowledge',
+      targetFolderId: '9001',
+      targetDisplayName: 'bilimi·知识',
+      reviewRequired: false,
+      alreadyInTarget: false,
+      selected: true
+    }], {}, '42'))
+
+    expect(result).toMatchObject({
+      ok: false,
+      paused: true,
+      resultUnknown: true,
+      missingTargets: ['bilibili-account']
+    })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('rechecks the expected account before each write in one execution group', async () => {
+    installCookies()
+    let cookie = 'bili_jct=csrf-token; DedeUserID=42'
+    Object.defineProperty(document, 'cookie', {
+      configurable: true,
+      get: () => cookie
+    })
+    const requests: URLSearchParams[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const parsed = new URL(url)
+      if (parsed.pathname.endsWith('/folder/created/list-all')) {
+        return Response.json({ code: 0, data: { list: [
+          { id: 9001, title: 'bilimi·知识' },
+          { id: 9002, title: 'bilimi·影视' }
+        ] } })
+      }
+      if (parsed.pathname.endsWith('/resource/ids')) return Response.json({ code: 0, data: [] })
+      if (parsed.pathname.endsWith('/resource/deal')) {
+        requests.push(new URLSearchParams(init?.body?.toString()))
+        cookie = 'bili_jct=csrf-token; DedeUserID=99'
+        return Response.json({ code: 0, data: {} })
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    }))
+
+    const result = await window.eval(buildExecuteFavoriteLedgerPlanScript([{
+      aid: 123,
+      title: '一组多次写入',
+      sourceFolderTitle: '默认收藏夹',
+      targetLedgerId: 'knowledge',
+      targetFolderId: '9001',
+      targetDisplayName: '知识',
+      currentBilimiFolderIds: ['9008'],
+      desiredTargetFolderIds: ['9001'],
+      reorganizeProtected: true,
+      reviewRequired: false,
+      alreadyInTarget: false,
+      selected: true
+    }], {}, '42'))
+
+    expect(requests).toHaveLength(1)
+    expect(result).toMatchObject({ ok: false, paused: true, resultUnknown: true })
   })
 
   it('keeps staging when every formal destination fails', async () => {
@@ -4407,7 +4501,12 @@ describe('favorite ledger API scripts', () => {
 
     expect(requestedTagAids).toEqual([1999])
     expect(progress.readySegments).toEqual([])
-    expect(progress.scanProgress.tags.status).toBe('paused')
+    expect(progress.scanProgress.tags).toMatchObject({
+      status: 'paused',
+      errorKind: 'risk-control',
+      errorCode: -412,
+      errorMessage: expect.stringContaining('risk control')
+    })
   })
 
   it('stops the streaming segment tail when scan cancellation lands during a tag request', async () => {

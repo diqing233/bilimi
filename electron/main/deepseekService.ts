@@ -729,7 +729,13 @@ export async function generateDeepSeekResult(options: {
       body: JSON.stringify({
         model: options.config.model,
         messages: buildMessages(options.request),
-        temperature: options.request.kind === 'pet-chat' ? 0.7 : 0.4
+        temperature: options.request.kind === 'pet-chat' ? 0.7 : 0.4,
+        ...(options.request.kind === 'favorite-archive-organize'
+          ? {
+              response_format: { type: 'json_object' },
+              max_tokens: 4096
+            }
+          : {})
       })
     })
   } catch (error) {

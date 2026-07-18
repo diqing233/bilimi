@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type {
   OldFavoriteAccountIndex,
@@ -57,6 +57,7 @@ export class OldFavoriteWorkspaceService {
   private overlayCache = new Map<string, OldFavoriteBatchDetail['overlays']>()
   private writeTail = Promise.resolve()
   private opened = false
+  private readonly replacementFullBatchIds = new Set<string>()
 
   constructor(private readonly options: {
     root: string
@@ -88,6 +89,31 @@ export class OldFavoriteWorkspaceService {
     return structuredClone(index)
   }
 
+  async readBatchSummary(accountMid: string, batchId: string): Promise<OldFavoriteBatchSummary | null> {
+    const account = validAccountMid(accountMid)
+    return this.queueWrite(async () => {
+      const index = await this.requireIndex(account)
+      const summary = index.batches.find((batch) => batch.id === batchId)
+      if (!summary) return null
+      const manifest = await this.loadManifest(account, batchId)
+      if (manifest.status !== 'archived') return structuredClone(summary)
+      const repaired = {
+        ...summary,
+        status: 'archived' as const,
+        finalizedAt: manifest.finalizedAt
+      }
+      if (summary.status !== repaired.status || summary.finalizedAt !== repaired.finalizedAt) {
+        const nextIndex = {
+          ...index,
+          batches: index.batches.map((item) => item.id === batchId ? repaired : item)
+        }
+        await this.atomicWriteJson(this.indexPath(account), nextIndex)
+        index.batches.splice(index.batches.findIndex((item) => item.id === batchId), 1, repaired)
+      }
+      return structuredClone(repaired)
+    })
+  }
+
   async createBatch(options: {
     accountMid: string
     kind: OldFavoriteBatchSummary['kind']
@@ -108,11 +134,28 @@ export class OldFavoriteWorkspaceService {
         }
       }
       if (options.kind === 'full') {
-        const activeFull = index.batches
+        const activeFullCandidates = index.batches
           .filter((batch) => batch.kind === 'full' && batch.status === 'active')
           .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-          .at(-1)
-        if (activeFull) return structuredClone(activeFull)
+          .reverse()
+        for (const activeFull of activeFullCandidates) {
+          const manifest = await this.loadManifest(account, activeFull.id).catch(() => null)
+          if (manifest?.status === 'archived') {
+            const repaired = { ...activeFull, status: 'archived' as const, finalizedAt: manifest.finalizedAt }
+            const nextIndex = {
+              ...index,
+              batches: index.batches.map((item) => item.id === activeFull.id ? repaired : item)
+            }
+            await this.atomicWriteJson(this.indexPath(account), nextIndex)
+            index.batches.splice(index.batches.findIndex((item) => item.id === activeFull.id), 1, repaired)
+            continue
+          }
+          if (manifest?.scanPlaceholder ||
+            manifest?.chunks.some((chunk) => chunk.count > 0) ||
+            this.replacementFullBatchIds.has(activeFull.id)) {
+            return structuredClone(activeFull)
+          }
+        }
       }
       const summary: OldFavoriteBatchSummary = {
         id: requestedId || `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`,
@@ -126,8 +169,10 @@ export class OldFavoriteWorkspaceService {
         version: 2,
         accountMid: account,
         ...summary,
-        chunks: []
+        chunks: [],
+        scanPlaceholder: true
       }
+      if (options.kind === 'full') this.replacementFullBatchIds.add(summary.id)
       await this.atomicWriteJson(this.manifestPath(account, summary.id), manifest)
       const nextIndex = { ...index, batches: [...index.batches, summary] }
       await this.atomicWriteJson(this.indexPath(account), nextIndex)
@@ -153,6 +198,7 @@ export class OldFavoriteWorkspaceService {
       const record: OldFavoriteChunkRecord = { file, kind, sequence, count: items.length, checksum: checksum(payload) }
       await this.writeText(join(this.batchDirectory(account, batchId), file), encodeChunk(items))
       manifest.chunks.push(record)
+      manifest.scanPlaceholder = false
       await this.atomicWriteJson(this.manifestPath(account, batchId), manifest)
       return structuredClone(record)
     })
@@ -182,6 +228,7 @@ export class OldFavoriteWorkspaceService {
         )
       }
       manifest.chunks.push(...records)
+      manifest.scanPlaceholder = false
       await this.atomicWriteJson(this.manifestPath(account, batchId), manifest)
       return structuredClone(records)
     })
@@ -235,13 +282,16 @@ export class OldFavoriteWorkspaceService {
     patch: OldFavoriteOverlayPatch | OldFavoriteOverlayPatch[]
   ) {
     const account = validAccountMid(accountMid)
-    const manifest = await this.loadManifest(account, batchId)
-    if (manifest.status === 'archived') throw new Error('Old favorite batch is finalized.')
-    const overlays = await this.loadOverlays(account, batchId)
-    for (const value of Array.isArray(patch) ? patch : [patch]) {
-      overlays[kind][String(value.aid)] = structuredClone(value)
-    }
-    await this.queueWrite(() => this.atomicWriteJson(this.overlayPath(account, batchId), overlays))
+    await this.queueWrite(async () => {
+      const manifest = await this.loadManifest(account, batchId)
+      if (manifest.status === 'archived') throw new Error('Old favorite batch is finalized.')
+      const overlays = structuredClone(await this.loadOverlays(account, batchId))
+      for (const value of Array.isArray(patch) ? patch : [patch]) {
+        overlays[kind][String(value.aid)] = structuredClone(value)
+      }
+      await this.atomicWriteJson(this.overlayPath(account, batchId), overlays)
+      this.overlayCache.set(this.batchKey(account, batchId), overlays)
+    })
   }
 
   async loadBatch(accountMid: string, batchId: string): Promise<OldFavoriteBatchDetail> {
@@ -269,32 +319,71 @@ export class OldFavoriteWorkspaceService {
 
   async recoverBatch(accountMid: string, batchId: string) {
     const account = validAccountMid(accountMid)
-    const manifest = await this.loadManifest(account, batchId)
-    const tail = manifest.chunks.at(-1)
-    if (!tail) return { discardedTail: null }
-    const records = tail.groupId
-      ? manifest.chunks.filter((chunk) => chunk.groupId === tail.groupId)
-      : [tail]
-    const validity = await Promise.all(records.map(async (record) => {
-      const value = await this.readText(join(this.batchDirectory(account, batchId), record.file))
-      return value !== null && decodeChunk(value, record.checksum) !== null
-    }))
-    if (validity.every(Boolean)) return { discardedTail: null }
-    await Promise.all(records.map((record) =>
-      this.deletePath(join(this.batchDirectory(account, batchId), record.file))
-    ))
-    const discardedFiles = new Set(records.map((record) => record.file))
-    manifest.chunks = manifest.chunks.filter((chunk) => !discardedFiles.has(chunk.file))
-    await this.atomicWriteJson(this.manifestPath(account, batchId), manifest)
-    return { discardedTail: tail.groupId ? records.map((record) => record.file) : tail.file }
+    return this.queueWrite(async () => {
+      const manifest = await this.loadManifest(account, batchId)
+      if (manifest.status === 'archived') return { discardedTail: null }
+      const tail = manifest.chunks.at(-1)
+      if (!tail) return { discardedTail: null }
+      const records = tail.groupId
+        ? manifest.chunks.filter((chunk) => chunk.groupId === tail.groupId)
+        : [tail]
+      const validity = await Promise.all(records.map(async (record) => {
+        const value = await this.readText(join(this.batchDirectory(account, batchId), record.file))
+        return value !== null && decodeChunk(value, record.checksum) !== null
+      }))
+      if (validity.every(Boolean)) return { discardedTail: null }
+      await Promise.all(records.map((record) =>
+        this.deletePath(join(this.batchDirectory(account, batchId), record.file))
+      ))
+      const discardedFiles = new Set(records.map((record) => record.file))
+      const nextManifest = {
+        ...manifest,
+        chunks: manifest.chunks.filter((chunk) => !discardedFiles.has(chunk.file))
+      }
+      await this.atomicWriteJson(this.manifestPath(account, batchId), nextManifest)
+      this.manifests.set(this.batchKey(account, batchId), nextManifest)
+      return { discardedTail: tail.groupId ? records.map((record) => record.file) : tail.file }
+    })
   }
 
   async resetAccount(accountMid: string) {
     const account = validAccountMid(accountMid)
-    await this.deletePath(join(this.options.root, 'accounts', account), true)
-    this.indexes.delete(account)
-    for (const key of [...this.manifests.keys()]) if (key.startsWith(`${account}:`)) this.manifests.delete(key)
-    for (const key of [...this.overlayCache.keys()]) if (key.startsWith(`${account}:`)) this.overlayCache.delete(key)
+    return this.queueWrite(async () => {
+      const accountDirectory = join(this.options.root, 'accounts', account)
+      const transactionId = randomUUID()
+      const stagedDirectory = join(this.options.root, 'accounts', `.${account}.reset-${transactionId}`)
+      const backupDirectory = join(this.options.root, 'accounts', `.${account}.reset-backup-${transactionId}`)
+      let staged = false
+      let backedUp = false
+      try {
+        try {
+          await rename(accountDirectory, stagedDirectory)
+          staged = true
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        }
+        if (staged) {
+          await cp(stagedDirectory, backupDirectory, { recursive: true })
+          backedUp = true
+          await this.deletePath(stagedDirectory, true)
+          staged = false
+          await this.deletePath(backupDirectory, true)
+          backedUp = false
+        }
+      } catch (error) {
+        if (backedUp) {
+          await this.deletePath(accountDirectory, true).catch(() => undefined)
+          await cp(backupDirectory, accountDirectory, { recursive: true })
+          await this.deletePath(backupDirectory, true).catch(() => undefined)
+        } else if (staged) {
+          await rename(stagedDirectory, accountDirectory).catch(() => undefined)
+        }
+        throw error
+      }
+      this.indexes.delete(account)
+      for (const key of [...this.manifests.keys()]) if (key.startsWith(`${account}:`)) this.manifests.delete(key)
+      for (const key of [...this.overlayCache.keys()]) if (key.startsWith(`${account}:`)) this.overlayCache.delete(key)
+    })
   }
 
   flush() {

@@ -32,6 +32,7 @@ export type OldFavoriteBatchManifest = OldFavoriteBatchSummary & {
   version: 2
   accountMid: string
   chunks: OldFavoriteChunkRecord[]
+  scanPlaceholder?: boolean
 }
 
 export type OldFavoriteBatchDetail = {

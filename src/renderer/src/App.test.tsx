@@ -194,6 +194,7 @@ describe('App runtime integration', () => {
 
   it('refreshes the active browser webview from the fixed toolbar control', async () => {
     renderAppWithRuntimeBridge()
+    await screen.findByRole('tab', { name: '批阅' })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       reload?: () => void
     }
@@ -205,45 +206,90 @@ describe('App runtime integration', () => {
     expect(reload).toHaveBeenCalledTimes(1)
   })
 
-  it('returns a floating assistant snapshot from the active webview', async () => {
+  it('returns the active tab snapshot without reading the webview', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
-    const executeJavaScript = vi.fn(async (script: string) => {
-      if (isLedgerStatusScript(script)) {
-        return emptyLedgerStatus()
-      }
-
-      if (script.includes(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER)) {
-        return {
-          title: '三分钟讲清机器学习科普教程',
-          pageText: '从原理到入门路线，适合学习收藏。'
-        }
-      }
-
-      return null
-    })
+    const executeJavaScript = vi.fn(() => new Promise<never>(() => undefined))
     Object.assign(webview, { executeJavaScript })
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: { url: 'https://www.bilibili.com/video/BV1cached' }
+        })
+      )
+      webview.dispatchEvent(
+        new CustomEvent('page-title-updated', {
+          detail: { title: '缓存中的活动视频 - 哔哩哔哩' }
+        })
+      )
+    })
 
     const snapshot = await requestRuntime({ id: 'snapshot-1', type: 'snapshot' })
 
     expect(snapshot).toEqual(
       expect.objectContaining({
-        videoTitle: '三分钟讲清机器学习科普教程',
+        activeTabUrl: 'https://www.bilibili.com/video/BV1cached',
+        videoTitle: '缓存中的活动视频',
         videoContentContext: expect.objectContaining({
-          title: '三分钟讲清机器学习科普教程'
-        }),
-        favoriteLedgerStatus: expect.objectContaining({
-          ok: true,
-          missingLedgerIds: []
+          title: '缓存中的活动视频'
         })
       })
     )
-    expect(executeJavaScript).toHaveBeenCalledWith(
-      expect.stringContaining(VIDEO_CONTENT_CONTEXT_SCRIPT_MARKER),
-      true
-    )
+    expect(executeJavaScript).not.toHaveBeenCalled()
+  })
+
+  it('invalidates the cached Bilibili account after an authenticated tab navigates', async () => {
+    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes('hasUserId')) return { hasUserId: true, hasCsrf: true }
+        if (script.includes(OLD_FAVORITE_SCAN_SCRIPT_MARKER)) {
+          return {
+            ok: true,
+            accountMid: '42',
+            sourceFolders: [],
+            managedFolders: [],
+            managedFolderScanComplete: true,
+            targetMembership: {},
+            skippedSourceFolderTitles: [],
+            steps: [],
+            missingTargets: [],
+            message: 'old favorites scanned'
+          }
+        }
+        return null
+      })
+    })
+
+    const coldSnapshot = await requestRuntime({ id: 'snapshot-account-cold', type: 'snapshot' })
+    expect(coldSnapshot).toEqual(expect.objectContaining({ accountMid: '' }))
+
+    await requestRuntime({
+      id: 'scan-account-cache',
+      type: 'scan-old-favorites'
+    })
+    const cachedSnapshot = await requestRuntime({ id: 'snapshot-account-cached', type: 'snapshot' })
+    expect(cachedSnapshot).toEqual(expect.objectContaining({ accountMid: '42' }))
+
+    act(() => {
+      webview.dispatchEvent(
+        new CustomEvent('did-navigate-in-page', {
+          detail: { url: 'https://passport.bilibili.com/login' }
+        })
+      )
+    })
+
+    const invalidatedSnapshot = await requestRuntime({
+      id: 'snapshot-account-invalidated',
+      type: 'snapshot'
+    })
+    expect(invalidatedSnapshot).toEqual(expect.objectContaining({ accountMid: '' }))
   })
 
   it('prefers the active browser tab title when page extraction returns a stale video title', async () => {
@@ -1768,7 +1814,7 @@ describe('App runtime integration', () => {
 
   it('does not run the main action when the active tab changes while context is loading', async () => {
     let resolveVideoContext: ((context: unknown) => void) | undefined
-    const { requestRuntime } = renderAppWithRuntimeBridge()
+    const { requestRuntimeDirect } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
@@ -1795,7 +1841,7 @@ describe('App runtime integration', () => {
       )
     })
 
-    const actionPromise = requestRuntime({
+    const actionPromise = requestRuntimeDirect({
       id: 'run-action-before-tab-change',
       type: 'run-action',
       action: '藏'
@@ -1808,14 +1854,18 @@ describe('App runtime integration', () => {
         })
       )
     })
-    resolveVideoContext?.({
-      aid: 711,
-      title: '加载中的原视频',
-      pageText: '加载中的原视频',
-      tags: []
+    let result: AssistantRuntimeResponsePayload | undefined
+    await act(async () => {
+      resolveVideoContext?.({
+        aid: 711,
+        title: '加载中的原视频',
+        pageText: '加载中的原视频',
+        tags: []
+      })
+      result = await actionPromise
     })
 
-    await expect(actionPromise).resolves.toEqual({
+    expect(result).toEqual({
       ok: false,
       steps: [],
       missingTargets: ['active-video-changed'],
@@ -2133,9 +2183,12 @@ describe('App runtime integration', () => {
   })
 
   it('returns the local favorite result without waiting for a hanging delayed DeepSeek review', async () => {
+    let resolveDeepSeek!: (result: DeepSeekGenerateResult) => void
     const generateDeepSeek = vi.fn<
       (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
-    >(() => new Promise(() => undefined))
+    >(() => new Promise((resolve) => {
+      resolveDeepSeek = resolve
+    }))
     const preferences = createAppPreferences({
       deepseekEnabled: true,
       deepseekApiKeyStored: true,
@@ -2152,6 +2205,7 @@ describe('App runtime integration', () => {
       loadPreferences: vi.fn().mockResolvedValue(preferences)
     })
     notifyPreferencesChanged(preferences)
+    await screen.findByRole('tab', { name: '批阅' })
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
       executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
     }
@@ -2194,14 +2248,18 @@ describe('App runtime integration', () => {
       )
     })
 
-    const result = await Promise.race([
-      requestRuntimeDirect({
+    let actionPromise!: Promise<AssistantRuntimeResponsePayload>
+    const result = await act(async () => {
+      actionPromise = requestRuntimeDirect({
         id: 'run-daily-deepseek-hang',
         type: 'run-action',
         action: '藏'
-      }),
-      new Promise((resolve) => setTimeout(() => resolve('timed-out'), 50))
-    ])
+      })
+      return Promise.race([
+        actionPromise,
+        new Promise((resolve) => setTimeout(() => resolve('timed-out'), 50))
+      ])
+    })
 
     expect(result).toEqual(
       expect.objectContaining({
@@ -2209,6 +2267,17 @@ describe('App runtime integration', () => {
         message: expect.stringContaining('已归类存入 bilimi·生活日常')
       })
     )
+    await act(async () => {
+      resolveDeepSeek({
+        kind: 'favorite-daily-classify-review',
+        targetLedgerIds: ['life-interest'],
+        corrected: false,
+        reason: '测试结束前收敛后台二判。',
+        confidence: 0.9,
+        keywordSuggestions: []
+      })
+      await actionPromise
+    })
   })
 
   it('does not run DeepSeek daily classification for non-favorite actions', async () => {
@@ -2802,6 +2871,7 @@ describe('App runtime integration', () => {
 
   it('keeps tabs independent after different URLs navigate to the same video', async () => {
     renderAppWithRuntimeBridge()
+    await screen.findByRole('tab', { name: '批阅' })
     const homeWebview = document.getElementById('bilimi-webview') as HTMLElement
 
     act(() => {
@@ -3114,6 +3184,34 @@ describe('App runtime integration', () => {
     })
 
     expect(setOldFavoriteBackgroundTarget).toHaveBeenCalledWith(77)
+  })
+
+  it('stops an old-favorite execution group before writing when the live account changed', async () => {
+    const readBilibiliAccountMid = vi.fn().mockResolvedValue('99')
+    const { requestRuntime } = renderAppWithRuntimeBridge({ readBilibiliAccountMid })
+    const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+    const executeJavaScript = vi.fn(async (script: string) =>
+      script.includes('const hasUserId')
+        ? { hasUserId: true, hasCsrf: true }
+        : { ok: true, steps: [], missingTargets: [], message: 'should not execute' }
+    )
+    Object.assign(webview, { executeJavaScript, getWebContentsId: vi.fn(() => 77) })
+
+    const result = await requestRuntime({
+      id: 'execute-old-favorite-plan-account-mismatch',
+      type: 'execute-old-favorite-plan',
+      items: [],
+      expectedAccountMid: '42'
+    }) as AssistantAutomationResult
+
+    expect(result).toMatchObject({
+      ok: false,
+      paused: true,
+      resultUnknown: true,
+      missingTargets: ['bilibili-account']
+    })
+    expect(readBilibiliAccountMid).toHaveBeenCalled()
+    expect(executeJavaScript).toHaveBeenCalledTimes(1)
   })
 
   it('commits an old-favorite batch checkpoint through the active webview runtime', async () => {

@@ -163,6 +163,70 @@ describe('oldFavoriteRuntimeSession', () => {
     expect(session.getOldFavoriteRuntimeValue('oldFavoriteRuntimeStatus', null)).toBeNull()
   })
 
+  it('ignores runtime broadcasts from another account or an older revision', async () => {
+    let runtimeChanged: Parameters<
+      NonNullable<Window['bilimiDesktop']['onOldFavoriteRuntimeChanged']>
+    >[0] | undefined
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: {
+        onOldFavoriteRuntimeChanged: vi.fn((callback) => {
+          runtimeChanged = callback
+          return vi.fn()
+        })
+      }
+    })
+    const session = await import('./oldFavoriteRuntimeSession')
+    session.resetOldFavoriteRuntimeSession()
+    session.bindOldFavoriteRuntimeAccount('42')
+    session.setOldFavoriteRuntimeValue('preview', { batchId: 'new', items: [{ aid: 2 }] })
+
+    runtimeChanged?.({
+      key: 'preview',
+      revision: 99,
+      value: { batchId: 'old-account', items: [{ aid: 1 }] },
+      accountMid: '99'
+    })
+    runtimeChanged?.({
+      key: 'preview',
+      revision: 0,
+      value: { batchId: 'old-revision', items: [{ aid: 3 }] },
+      accountMid: '42'
+    })
+    runtimeChanged?.({ type: 'reset', accountMid: '99' })
+
+    expect(session.getOldFavoriteRuntimeValue('preview', null)).toEqual({
+      batchId: 'new',
+      items: [{ aid: 2 }]
+    })
+  })
+
+  it('does not let an older transient rejection roll back a newer local progress update', async () => {
+    let rejectFirst!: (value: unknown) => void
+    const setTransient = vi.fn()
+      .mockReturnValueOnce(new Promise((resolve) => { rejectFirst = resolve }))
+      .mockResolvedValue({ accepted: true })
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: { setOldFavoriteRuntimeTransientValue: setTransient }
+    })
+    const session = await import('./oldFavoriteRuntimeSession')
+    session.resetOldFavoriteRuntimeSession()
+
+    session.setOldFavoriteTransientRuntimeValue('scanProgress', { completed: 1 })
+    session.setOldFavoriteTransientRuntimeValue('scanProgress', { completed: 2 })
+    rejectFirst({
+      key: 'scanProgress',
+      revision: 1,
+      value: { completed: 1 },
+      accountMid: '',
+      accepted: false
+    })
+    await Promise.resolve()
+
+    expect(session.getOldFavoriteRuntimeValue('scanProgress', null)).toEqual({ completed: 2 })
+  })
+
   it('notifies only listeners subscribed to the changed runtime key', async () => {
     const session = await import('./oldFavoriteRuntimeSession')
     session.resetOldFavoriteRuntimeSession()
@@ -239,5 +303,23 @@ describe('oldFavoriteRuntimeSession', () => {
 
     expect(setTransient).toHaveBeenCalledWith('scanProgress', { completed: 26 }, 0)
     expect(session.getOldFavoriteRuntimeValue('scanProgress', null)).toEqual({ completed: 26 })
+  })
+
+  it('sends a cleared transient progress value through the async bridge', async () => {
+    const setTransient = vi.fn().mockResolvedValue({
+      key: 'scanProgress', revision: 1, value: undefined, accountMid: '42', accepted: true
+    })
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: { setOldFavoriteRuntimeTransientValue: setTransient }
+    })
+    const session = await import('./oldFavoriteRuntimeSession')
+    session.resetOldFavoriteRuntimeSession()
+    session.setOldFavoriteRuntimeValue('scanProgress', { completed: 26 })
+    session.setOldFavoriteRuntimeValue('scanProgress', undefined)
+    await Promise.resolve()
+
+    expect(setTransient).toHaveBeenLastCalledWith('scanProgress', undefined, 1)
+    expect(session.getOldFavoriteRuntimeValue('scanProgress', null)).toBeUndefined()
   })
 })

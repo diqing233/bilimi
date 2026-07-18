@@ -1,4 +1,5 @@
 import type {
+  OldFavoriteBatch,
   OldFavoriteSessionsState,
   OldFavoriteTaskKind
 } from '../../../../shared/oldFavoriteSessions'
@@ -32,6 +33,21 @@ export function compactOldFavoriteSessionsForIpc(
 export type OldFavoriteSessionsGateway = {
   load: () => Promise<OldFavoriteSessionsState>
   save: (state: OldFavoriteSessionsState) => Promise<OldFavoriteSessionsState>
+  beginFullScan?: (
+    accountMid: string,
+    now: string,
+    snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']
+  ) => Promise<{ batch: OldFavoriteSessionsState['batches'][number]; acquired: boolean }>
+  beginIncrementalScan?: (
+    accountMid: string,
+    now: string,
+    snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']
+  ) => Promise<{ batch: OldFavoriteSessionsState['batches'][number]; acquired: boolean }>
+  endBatch?: (batchId: string, endedAt: string) => Promise<unknown>
+  discardEmptyIncrementalBatch?: (
+    batchId: string,
+    accountMid: string
+  ) => Promise<{ batchId: string; accountMid: string; discarded: true }>
   claimLease: (
     batchId: string,
     segmentId: string,
@@ -42,21 +58,47 @@ export type OldFavoriteSessionsGateway = {
   subscribe: (callback: (state: OldFavoriteSessionsState) => void) => () => void
 }
 
+export const OLD_FAVORITE_ENDED_BATCH_WRITE_ERROR = '旧藏整理批次已结束，不能继续写入。'
+
+export type OldFavoriteWritableBatch = {
+  state: OldFavoriteSessionsState
+  batch: OldFavoriteBatch
+}
+
+export async function loadWritableOldFavoriteBatch(
+  reader: Pick<OldFavoriteSessionsGateway, 'load'>,
+  batchId: string
+): Promise<OldFavoriteWritableBatch> {
+  const state = await reader.load()
+  const batch = state.batches.find((candidate) => candidate.id === batchId)
+  if (!batch) throw new Error('Old favorite batch was not found.')
+  if (batch.status === 'ended') throw new Error(OLD_FAVORITE_ENDED_BATCH_WRITE_ERROR)
+  return { state, batch }
+}
+
 function createDesktopGateway(): OldFavoriteSessionsGateway {
   const desktop = window.bilimiDesktop
   if (
     !desktop.loadOldFavoriteSessions ||
     !desktop.saveOldFavoriteSessions ||
+    !desktop.beginOldFavoriteFullScan ||
+    !desktop.beginOldFavoriteIncrementalScan ||
+    !desktop.endOldFavoriteBatch ||
+    !desktop.discardOldFavoriteEmptyIncrementalBatch ||
     !desktop.claimOldFavoriteTaskLease ||
     !desktop.releaseOldFavoriteTaskLease ||
     !desktop.onOldFavoriteSessionsChanged
   ) {
-    throw new Error('Old favorite session desktop API is unavailable.')
+    throw new Error('Old favorite authoritative lifecycle desktop API is unavailable.')
   }
 
   return {
     load: desktop.loadOldFavoriteSessions,
     save: desktop.saveOldFavoriteSessions,
+    beginFullScan: desktop.beginOldFavoriteFullScan,
+    beginIncrementalScan: desktop.beginOldFavoriteIncrementalScan,
+    endBatch: desktop.endOldFavoriteBatch,
+    discardEmptyIncrementalBatch: desktop.discardOldFavoriteEmptyIncrementalBatch,
     claimLease: desktop.claimOldFavoriteTaskLease,
     releaseLease: desktop.releaseOldFavoriteTaskLease,
     subscribe: desktop.onOldFavoriteSessionsChanged
@@ -100,8 +142,36 @@ export class OldFavoriteTaskCoordinator {
     return this.gateway.load()
   }
 
+  loadWritableBatch(batchId: string): Promise<OldFavoriteWritableBatch> {
+    return loadWritableOldFavoriteBatch(this.gateway, batchId)
+  }
+
   save(state: OldFavoriteSessionsState): Promise<OldFavoriteSessionsState> {
     return this.gateway.save(compactOldFavoriteSessionsForIpc(state))
+  }
+
+  beginFullScan(
+    accountMid: string,
+    now: string,
+    snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']
+  ) {
+    return this.gateway.beginFullScan?.(accountMid, now, snapshot)
+  }
+
+  beginIncrementalScan(
+    accountMid: string,
+    now: string,
+    snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']
+  ) {
+    return this.gateway.beginIncrementalScan?.(accountMid, now, snapshot)
+  }
+
+  endBatch(batchId: string, endedAt: string) {
+    return this.gateway.endBatch?.(batchId, endedAt)
+  }
+
+  discardEmptyIncrementalBatch(batchId: string, accountMid: string) {
+    return this.gateway.discardEmptyIncrementalBatch?.(batchId, accountMid)
   }
 
   subscribe(callback: (state: OldFavoriteSessionsState) => void): () => void {

@@ -35,6 +35,7 @@ import type { AssistantPetHint, AssistantPetState } from './features/assistant/p
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from './features/favorites/favoriteLedgerPreview'
 import type { OldFavoriteBatchCommitToken } from './features/favorites/favoriteLedgerApi'
 import type { OldFavoriteAccountIndex, OldFavoriteBatchDetail, OldFavoriteOverlayKind, OldFavoriteOverlayPatch } from '../../../electron/main/oldFavoriteWorkspaceTypes'
+import type { OldFavoriteBatchLifecycleSnapshot } from '../../../electron/main/oldFavoriteSessionStore'
 
 type BilimiDesktopApi = {
   version: string
@@ -42,7 +43,10 @@ type BilimiDesktopApi = {
   closeFloatingAssistant?: () => void
   closeFloatingMenu?: () => void
   ensureFavoriteLedgers?: () => Promise<AssistantAutomationResult>
-  executeOldFavoritePlan?: (items: FavoriteLedgerPreviewItem[]) => Promise<AssistantAutomationResult>
+  executeOldFavoritePlan?: (
+    items: FavoriteLedgerPreviewItem[],
+    expectedAccountMid?: string
+  ) => Promise<AssistantAutomationResult>
   finishFloatingSealDrag?: () => void
   generateDeepSeek?: (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
   generateVideoNote?: (manualTranscript?: string) => Promise<VideoNote | null>
@@ -87,9 +91,25 @@ type BilimiDesktopApi = {
   onOldFavoriteWorkspaceFlushRequested?: (callback: () => Promise<void>) => () => void
   finalizeOldFavoriteWorkspaceBatch?: (accountMid: string, batchId: string) => Promise<unknown>
   resetOldFavoriteWorkspaceAccount?: (accountMid: string) => Promise<void>
+  resetOldFavoriteAccount?: (accountMid: string) => Promise<OldFavoriteSessionsState>
   resetOldFavoriteRuntime?: () => boolean
   resetOldFavoriteRuntimeAccount?: (accountMid: string) => Promise<boolean>
-  loadOldFavoriteSessions?: () => Promise<OldFavoriteSessionsState>
+      loadOldFavoriteSessions?: () => Promise<OldFavoriteSessionsState>
+      beginOldFavoriteFullScan?: (
+        accountMid: string,
+        now: string,
+        snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']
+      ) => Promise<{ batch: OldFavoriteSessionsState['batches'][number]; acquired: boolean }>
+      beginOldFavoriteIncrementalScan?: (
+        accountMid: string,
+        now: string,
+        snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']
+      ) => Promise<{ batch: OldFavoriteSessionsState['batches'][number]; acquired: boolean }>
+      endOldFavoriteBatch?: (batchId: string, endedAt: string) => Promise<OldFavoriteBatchLifecycleSnapshot>
+      discardOldFavoriteEmptyIncrementalBatch?: (
+        batchId: string,
+        accountMid: string
+      ) => Promise<{ batchId: string; accountMid: string; discarded: true }>
   saveOldFavoriteSessions?: (state: OldFavoriteSessionsState) => Promise<OldFavoriteSessionsState>
   resetOldFavoriteSessionsAccount?: (accountMid: string) => Promise<OldFavoriteSessionsState>
   claimOldFavoriteTaskLease?: (

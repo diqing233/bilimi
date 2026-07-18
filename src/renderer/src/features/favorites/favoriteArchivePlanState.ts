@@ -109,14 +109,14 @@ export function createArchivePlanState(items: ArchivePlanItemInput[]): FavoriteA
   const originalItemsByAid: Record<number, FavoriteArchivePlanItemState> = {}
 
   for (const item of normalizedItems) {
-    originalItemsByAid[item.aid] ??= cloneItem(item)
+    originalItemsByAid[item.aid] ??= item
   }
 
   return {
-    items: normalizedItems.map(cloneItem),
+    items: normalizedItems,
     originalItemsByAid,
     originalItemsByKey: Object.fromEntries(
-      normalizedItems.map((item) => [item.itemKey, cloneItem(item)])
+      normalizedItems.map((item) => [item.itemKey, item])
     )
   }
 }

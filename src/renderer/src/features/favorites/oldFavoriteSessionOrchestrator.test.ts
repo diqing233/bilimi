@@ -8,6 +8,7 @@ import {
   OldFavoriteSessionOrchestrator,
   type OldFavoriteSessionCoordinator
 } from './oldFavoriteSessionOrchestrator'
+import { OLD_FAVORITE_ENDED_BATCH_WRITE_ERROR } from './oldFavoriteTaskCoordinator'
 
 function createHarness(initial: OldFavoriteSessionsState = { version: 1, batches: [], lease: null }) {
   let state = structuredClone(initial)
@@ -55,6 +56,61 @@ describe('OldFavoriteSessionOrchestrator', () => {
     expect(result.acquired).toBe(false)
     expect(harness.coordinator.acquire).not.toHaveBeenCalled()
     expect(harness.getState().batches.map((batch) => batch.id)).toEqual(['older', 'newer'])
+  })
+
+  it('keeps an empty active full placeholder and creates a new full scan batch', async () => {
+    const empty = createOldFavoriteBatch({
+      accountMid: '42', kind: 'full', aids: [], now: '2026-07-17T10:00:00Z', id: 'empty'
+    })
+    const harness = createHarness({ version: 1, batches: [empty], lease: null })
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+
+    const result = await orchestrator.beginScan({
+      accountMid: '42', kind: 'full', now: '2026-07-17T10:01:00Z', id: 'replacement'
+    })
+
+    expect(result.batch.id).toBe('replacement')
+    expect(result.acquired).toBe(true)
+    expect(harness.getState().batches.map((batch) => batch.id)).toEqual(['empty', 'replacement'])
+  })
+
+  it('creates only one replacement full batch for concurrent scans after an old empty placeholder', async () => {
+    const empty = createOldFavoriteBatch({
+      accountMid: '42', kind: 'full', aids: [], now: '2026-07-17T10:00:00Z', id: 'empty'
+    })
+    const harness = createHarness({ version: 1, batches: [empty], lease: null })
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+
+    const [first, second] = await Promise.all([
+      orchestrator.beginScan({
+        accountMid: '42', kind: 'full', now: '2026-07-17T10:01:00Z', id: 'replacement-a'
+      }),
+      orchestrator.beginScan({
+        accountMid: '42', kind: 'full', now: '2026-07-17T10:01:01Z', id: 'replacement-b'
+      })
+    ])
+
+    expect(second.batch.id).toBe(first.batch.id)
+    expect(harness.getState().batches.map((batch) => batch.id)).toEqual(['empty', first.batch.id])
+  })
+
+  it('continues a persisted running full placeholder after restart', async () => {
+    const placeholder = createOldFavoriteBatch({
+      accountMid: '42', kind: 'full', aids: [], now: '2026-07-17T10:00:00Z', id: 'running-placeholder'
+    })
+    placeholder.segments = [{
+      id: 'running-placeholder:segment:1', index: 0, aids: [], status: 'running',
+      task: { kind: 'scan', status: 'running', requestState: 'idle' }
+    }]
+    const harness = createHarness({ version: 1, batches: [placeholder], lease: null })
+    const restarted = new OldFavoriteSessionOrchestrator(harness.coordinator)
+
+    const result = await restarted.beginScan({
+      accountMid: '42', kind: 'full', now: '2026-07-17T10:01:00Z', id: 'duplicate'
+    })
+
+    expect(result).toMatchObject({ batch: { id: 'running-placeholder' }, acquired: false })
+    expect(harness.getState().batches).toHaveLength(1)
   })
   it('tracks each online request and records an unknown result before releasing on rejection', async () => {
     const batch = createOldFavoriteBatch({
@@ -397,6 +453,71 @@ describe('OldFavoriteSessionOrchestrator', () => {
     })
   })
 
+  it.each([
+    'updateSegment',
+    'completeScan',
+    'appendDiscoveredAids',
+    'markSegmentTagsSettled'
+  ] as const)('rejects %s when the target batch has ended', async (operation) => {
+    const active = createOldFavoriteBatch({
+      accountMid: '42', kind: 'full', aids: [1], now: '2026-07-16T08:00:00Z', id: 'ended-target'
+    })
+    const ended = {
+      ...structuredClone(active),
+      status: 'ended' as const,
+      endedAt: '2026-07-16T09:00:00Z'
+    }
+    const harness = createHarness({ version: 1, batches: [ended], lease: null })
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+    const segmentId = ended.segments[0].id
+
+    const write = operation === 'updateSegment'
+      ? orchestrator.updateSegment(ended.id, segmentId, { status: 'paused' })
+      : operation === 'completeScan'
+        ? orchestrator.completeScan(ended.id, { currentStep: 'preview' })
+        : operation === 'appendDiscoveredAids'
+          ? orchestrator.appendDiscoveredAids(ended.id, [2])
+          : orchestrator.markSegmentTagsSettled(ended.id, 0)
+
+    await expect(write).rejects.toThrow('旧藏整理批次已结束，不能继续写入。')
+    expect(harness.coordinator.save).not.toHaveBeenCalled()
+    expect(harness.getState()).toEqual({ version: 1, batches: [ended], lease: null })
+  })
+
+  it.each([
+    'updateSegment',
+    'completeScan',
+    'appendDiscoveredAids',
+    'markSegmentTagsSettled'
+  ] as const)('rejects %s when an injected writable adapter returns an ended batch', async (operation) => {
+    const active = createOldFavoriteBatch({
+      accountMid: '42', kind: 'full', aids: [1], now: '2026-07-16T08:00:00Z', id: 'ended-adapter-target'
+    })
+    const ended = {
+      ...structuredClone(active),
+      status: 'ended' as const,
+      endedAt: '2026-07-16T09:00:00Z'
+    }
+    const harness = createHarness({ version: 1, batches: [ended], lease: null })
+    harness.coordinator.loadWritableBatch = vi.fn(async () => ({
+      state: harness.getState(),
+      batch: ended
+    }))
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+    const segmentId = ended.segments[0].id
+
+    const write = operation === 'updateSegment'
+      ? orchestrator.updateSegment(ended.id, segmentId, { status: 'paused' })
+      : operation === 'completeScan'
+        ? orchestrator.completeScan(ended.id, { currentStep: 'preview' })
+        : operation === 'appendDiscoveredAids'
+          ? orchestrator.appendDiscoveredAids(ended.id, [2])
+          : orchestrator.markSegmentTagsSettled(ended.id, 0)
+
+    await expect(write).rejects.toThrow(OLD_FAVORITE_ENDED_BATCH_WRITE_ERROR)
+    expect(harness.coordinator.save).not.toHaveBeenCalled()
+  })
+
   it('discards an empty incremental placeholder without changing earlier batches', async () => {
     const previous = createOldFavoriteBatch({
       accountMid: '42', kind: 'full', aids: [1], now: '2026-07-16T07:00:00Z'
@@ -407,10 +528,48 @@ describe('OldFavoriteSessionOrchestrator', () => {
       accountMid: '42', kind: 'incremental', now: '2026-07-16T08:00:00Z'
     })
 
-    await orchestrator.discardBatch(started.batch.id)
+    harness.coordinator.discardEmptyIncrementalBatch = vi.fn(async () => {
+      const next = harness.getState()
+      await harness.coordinator.save({
+        ...next,
+        batches: next.batches.filter((batch) => batch.id !== started.batch.id),
+        lease: null
+      })
+      return { batchId: started.batch.id, accountMid: '42', discarded: true }
+    })
+
+    await orchestrator.discardBatch(started.batch.id, '42')
 
     expect(harness.getState().batches).toEqual([previous])
     expect(harness.getState().lease).toBeNull()
+    expect(harness.coordinator.discardEmptyIncrementalBatch).toHaveBeenCalledOnce()
+  })
+
+  it('does not fall back to renderer save when authoritative discard rejects', async () => {
+    const harness = createHarness()
+    harness.coordinator.discardEmptyIncrementalBatch = vi.fn().mockRejectedValue(new Error('not empty'))
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+
+    await expect(orchestrator.discardBatch('batch', '42')).rejects.toThrow('not empty')
+    expect(harness.coordinator.load).not.toHaveBeenCalled()
+    expect(harness.coordinator.save).not.toHaveBeenCalled()
+  })
+
+  it('uses the authoritative incremental scan command when it is available', async () => {
+    const incremental = createOldFavoriteBatch({
+      accountMid: '42', kind: 'incremental', aids: [], now: '2026-07-16T08:00:00Z'
+    })
+    const harness = createHarness()
+    harness.coordinator.beginIncrementalScan = vi.fn(async () => ({ batch: incremental, acquired: true }))
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+
+    await expect(orchestrator.beginScan({
+      accountMid: '42', kind: 'incremental', now: '2026-07-16T08:00:00Z'
+    })).resolves.toEqual({ batch: incremental, acquired: true })
+
+    expect(harness.coordinator.beginIncrementalScan).toHaveBeenCalledOnce()
+    expect(harness.coordinator.save).not.toHaveBeenCalled()
+    expect(harness.coordinator.acquire).not.toHaveBeenCalled()
   })
 
   it('returns only result-unknown aids that require reconciliation', async () => {

@@ -90,10 +90,22 @@ describe('renderer porcelain theme styles', () => {
 
   it('keeps the compact old favorite batch controls inside narrow sidebars', () => {
     expectStyleSnippet(
-      '.favorite-ledger-panel__batch-switcher { display: flex; flex-wrap: nowrap; flex: 1 1 0; min-width: 0; max-width: 100%;'
+      '.favorite-ledger-panel__batch-switcher { display: grid; grid-template-columns: minmax(0, 1fr) auto; flex: 1 1 100%; grid-column: 1 / -1; width: 100%; min-width: 0; max-width: 100%;'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__batch-switcher > .favorite-ledger-panel__batch-select { grid-column: 1; width: 100%; min-width: 0;'
     )
     expectStyleSnippet(
       '.favorite-ledger-panel__batch-switcher button, .favorite-ledger-panel__batch-switcher select { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis;'
+    )
+  })
+
+  it('keeps the closed change-history trigger free of the retired parent pseudo-arrow', () => {
+    expect(normalizedStyles).not.toContain(
+      '.favorite-ledger-panel__archive-history-select-control::after'
+    )
+    expectStyleSnippet(
+      '.favorite-ledger-panel__archive-history-arrow { width: 7px; height: 7px;'
     )
   })
 
@@ -284,10 +296,7 @@ describe('renderer porcelain theme styles', () => {
       '.favorite-ledger-panel__archive-history-select-control option { color: var(--porcelain-deep); background: #ffffff;'
     )
     expectStyleSnippet(
-      '.favorite-ledger-panel__archive-history-select-control::after { content: ""; position: absolute; z-index: 1; left: 50%; top: 50%;'
-    )
-    expectStyleSnippet(
-      'transform: translate(-50%, -50%) rotate(45deg); pointer-events: none;'
+      '.favorite-ledger-panel__archive-history-trigger { width: 32px; min-width: 32px; height: 32px;'
     )
     expectStyleSnippet(
       '.favorite-ledger-panel__archive-history-button { width: 100%; min-width: 0;'

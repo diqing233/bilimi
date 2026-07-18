@@ -502,6 +502,12 @@ export default function App() {
   const activeTabChangeMounted = useRef(false)
   const lastPetVideoKey = useRef<string | undefined>(undefined)
   const assistantRuntimeFeedbackRef = useRef<{ id: number; message: string } | undefined>(undefined)
+  const assistantSnapshotCacheRef = useRef<{
+    accountMid: string
+    favoriteLedgerStatus: FavoriteLedgerStatus | null
+    videoContentContext: VideoContentContext
+    videoContextUrl?: string
+  }>({ accountMid: '', favoriteLedgerStatus: null, videoContentContext: {} })
   const suppressPageInteractionHintsUntilRef = useRef(0)
   const petHiddenForVideoFullscreen = useRef(false)
   const videoFullscreenPetCloseTimer = useRef<number | null>(null)
@@ -527,6 +533,9 @@ export default function App() {
   )
 
   const selectActiveTab = useCallback((nextActiveTabId: string) => {
+    if (activeTabIdRef.current !== nextActiveTabId) {
+      assistantSnapshotCacheRef.current.accountMid = ''
+    }
     activeTabIdRef.current = nextActiveTabId
     setActiveTabId(nextActiveTabId)
   }, [])
@@ -764,6 +773,11 @@ export default function App() {
       )
 
       if (tabId === activeTabIdRef.current) {
+        assistantSnapshotCacheRef.current.accountMid = ''
+        assistantSnapshotCacheRef.current.videoContextUrl = url
+        assistantSnapshotCacheRef.current.videoContentContext = {
+          title: normalizeActiveTabVideoTitle(getActiveTabSnapshot()) ?? createTabTitle(url)
+        }
         const videoKey = readBilibiliVideoKey(url)
 
         if (videoKey && videoKey !== lastPetVideoKey.current) {
@@ -794,6 +808,11 @@ export default function App() {
       )
 
       if (tabId === activeTabIdRef.current) {
+        assistantSnapshotCacheRef.current.videoContextUrl = getActiveTabSnapshot()?.url
+        assistantSnapshotCacheRef.current.videoContentContext = {
+          ...assistantSnapshotCacheRef.current.videoContentContext,
+          title: normalizeActiveTabVideoTitle(getActiveTabSnapshot()) ?? title
+        }
         notifyAssistantSnapshotChanged()
       }
     },
@@ -818,7 +837,10 @@ export default function App() {
     const activeTabVideoTitle = normalizeActiveTabVideoTitle(activeTabSnapshot)
 
     if (!currentActiveWebview?.executeJavaScript) {
-      return { title: activeTabVideoTitle ?? activeTabSnapshot?.title }
+      const context = { title: activeTabVideoTitle ?? activeTabSnapshot?.title }
+      assistantSnapshotCacheRef.current.videoContextUrl = activeTabSnapshot?.url
+      assistantSnapshotCacheRef.current.videoContentContext = context
+      return context
     }
 
     try {
@@ -826,9 +848,15 @@ export default function App() {
         buildVideoContentContextScript(),
         true
       )) as VideoContentContext
-      return activeTabVideoTitle ? { ...context, title: activeTabVideoTitle } : context
+      const normalizedContext = activeTabVideoTitle ? { ...context, title: activeTabVideoTitle } : context
+      assistantSnapshotCacheRef.current.videoContextUrl = activeTabSnapshot?.url
+      assistantSnapshotCacheRef.current.videoContentContext = normalizedContext
+      return normalizedContext
     } catch {
-      return { title: activeTabVideoTitle ?? activeTabSnapshot?.title }
+      const context = { title: activeTabVideoTitle ?? activeTabSnapshot?.title }
+      assistantSnapshotCacheRef.current.videoContextUrl = activeTabSnapshot?.url
+      assistantSnapshotCacheRef.current.videoContentContext = context
+      return context
     }
   }
 
@@ -929,7 +957,9 @@ export default function App() {
   async function readBilibiliAccountMid(): Promise<string> {
     if (window.bilimiDesktop?.readBilibiliAccountMid) {
       try {
-        return (await window.bilimiDesktop.readBilibiliAccountMid()).trim()
+        const accountMid = (await window.bilimiDesktop.readBilibiliAccountMid()).trim()
+        assistantSnapshotCacheRef.current.accountMid = accountMid
+        return accountMid
       } catch {
         return ''
       }
@@ -937,10 +967,12 @@ export default function App() {
     const currentActiveWebview = getCurrentActiveWebview()
     if (!currentActiveWebview?.executeJavaScript) return ''
     try {
-      return String(await currentActiveWebview.executeJavaScript(
+      const accountMid = String(await currentActiveWebview.executeJavaScript(
         `(() => String(document.cookie || '').match(/(?:^|;\\s*)DedeUserID=([^;]+)/)?.[1] || '')()`,
         true
       )).trim()
+      assistantSnapshotCacheRef.current.accountMid = accountMid
+      return accountMid
     } catch {
       return ''
     }
@@ -956,6 +988,7 @@ export default function App() {
     ) as unknown as Partial<FavoriteLedgerStatus> & AssistantAutomationResult
 
     if (Array.isArray(status.ledgers) && Array.isArray(status.missingLedgerIds)) {
+      assistantSnapshotCacheRef.current.favoriteLedgerStatus = status as FavoriteLedgerStatus
       setPreferences((currentPreferences) =>
         createInitialAssistantPreferences({
           ...currentPreferences,
@@ -966,12 +999,14 @@ export default function App() {
       return status as FavoriteLedgerStatus
     }
 
-    return {
+    const fallbackStatus = {
       ok: false,
       ledgers: preferences.favoriteLedgers,
       missingLedgerIds: [],
       message: status.message
     }
+    assistantSnapshotCacheRef.current.favoriteLedgerStatus = fallbackStatus
+    return fallbackStatus
   }
 
   async function ensureFavoriteLedgers(): Promise<AssistantAutomationResult> {
@@ -1056,6 +1091,7 @@ export default function App() {
       scanProgress?: FavoriteLedgerPreview['scanProgress']
       batch?: FavoriteLedgerPreview['batch']
     }
+    assistantSnapshotCacheRef.current.accountMid = scanResult.accountMid?.trim() ?? ''
 
     if (!scanResult.ok || !Array.isArray(scanResult.sourceFolders) || !scanResult.targetMembership) {
       return {
@@ -1270,7 +1306,8 @@ export default function App() {
   }
 
   async function executeOldFavoritePlan(
-    items: FavoriteLedgerPreviewItem[]
+    items: FavoriteLedgerPreviewItem[],
+    expectedAccountMid?: string
   ): Promise<AssistantAutomationResult> {
     const webContentsId = getCurrentActiveWebview()?.getWebContentsId?.()
     if (typeof webContentsId === 'number') {
@@ -1282,7 +1319,21 @@ export default function App() {
       return loginFailure
     }
 
-    return runScript(buildExecuteFavoriteLedgerPlanScript(items))
+    if (expectedAccountMid) {
+      const currentAccountMid = await readBilibiliAccountMid()
+      if (!currentAccountMid || currentAccountMid !== expectedAccountMid.trim()) {
+        return {
+          ok: false,
+          paused: true,
+          resultUnknown: true,
+          steps: ['old-favorite:account-mismatch'],
+          missingTargets: ['bilibili-account'],
+          message: '当前 B 站账号已变化，整理已暂停；继续前需要核对实际收藏状态。'
+        }
+      }
+    }
+
+    return runScript(buildExecuteFavoriteLedgerPlanScript(items, {}, expectedAccountMid))
   }
 
   async function openBilibiliFavorites(): Promise<AssistantAutomationResult> {
@@ -1500,24 +1551,26 @@ export default function App() {
     await window.bilimiDesktop?.saveVideoNote?.(note)
   }
 
-  async function createAssistantSnapshot(): Promise<AssistantSnapshot> {
-    const [videoContentContext, favoriteLedgerStatus, accountMid] = await Promise.all([
-      readVideoContentContext(),
-      readFavoriteLedgerStatus().catch(() => null),
-      readBilibiliAccountMid()
-    ])
+  function createAssistantSnapshot(): AssistantSnapshot {
     const activeTabSnapshot = getActiveTabSnapshot()
+    const activeTabVideoTitle = normalizeActiveTabVideoTitle(activeTabSnapshot)
+    const cachedContext = assistantSnapshotCacheRef.current.videoContextUrl === activeTabSnapshot?.url
+      ? assistantSnapshotCacheRef.current.videoContentContext
+      : {}
+    const videoContentContext = activeTabVideoTitle
+      ? { ...cachedContext, title: activeTabVideoTitle }
+      : cachedContext
 
     return {
-      accountMid,
+      accountMid: assistantSnapshotCacheRef.current.accountMid,
       preferences,
-      favoriteLedgerStatus,
+      favoriteLedgerStatus: assistantSnapshotCacheRef.current.favoriteLedgerStatus,
       videoContentContext,
       activeTabUrl: activeTabSnapshot?.url,
       runtimeFeedback: assistantRuntimeFeedbackRef.current?.message,
       runtimeFeedbackId: assistantRuntimeFeedbackRef.current?.id,
       videoTitle:
-        normalizeActiveTabVideoTitle(activeTabSnapshot) ??
+        activeTabVideoTitle ??
         videoContentContext.title ??
         '等待视频加载'
     }
@@ -2044,7 +2097,7 @@ export default function App() {
         case 'rejudge-old-favorite':
           return rejudgeOldFavorite(request.item)
         case 'execute-old-favorite-plan':
-          return executeOldFavoritePlan(request.items)
+          return executeOldFavoritePlan(request.items, request.expectedAccountMid)
         case 'organize-old-favorites-with-deepseek': {
           const finishDeepSeekTask = publishDeepSeekTask({
             id: `archive-organize-runtime:${Date.now()}:${Math.random()}`,
