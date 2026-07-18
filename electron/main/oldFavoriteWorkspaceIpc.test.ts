@@ -186,4 +186,30 @@ describe('registerOldFavoriteWorkspaceIpc', () => {
     )).rejects.toThrow('disk full')
     expect(onMutation.mock.calls).toEqual([[true]])
   })
+
+  it('serializes workspace mutations through the shared lifecycle queue', async () => {
+    const ipcMain = new FakeIpcMain()
+    const order: string[] = []
+    const queueMutation = async <T>(work: () => Promise<T>) => {
+      order.push('queued')
+      const result = await work()
+      order.push('finished')
+      return result
+    }
+    const service = {
+      createBatch: vi.fn(async () => { order.push('workspace'); return { id: 'b1' } })
+    }
+    registerOldFavoriteWorkspaceIpc({
+      ipcMain,
+      service: service as never,
+      isTrustedSender: () => true,
+      queueMutation
+    })
+
+    await ipcMain.invoke('old-favorite-workspace:create-batch', 7, {
+      accountMid: '42', kind: 'full', id: 'b1'
+    })
+
+    expect(order).toEqual(['queued', 'workspace', 'finished'])
+  })
 })

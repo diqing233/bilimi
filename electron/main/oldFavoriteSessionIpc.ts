@@ -3,6 +3,8 @@ import type { OldFavoriteSessionStore } from './oldFavoriteSessionStore'
 
 type IpcEvent = { sender: { id: number } }
 
+export type OldFavoriteMutationQueue = <T>(work: () => Promise<T>) => Promise<T>
+
 export interface OldFavoriteSessionIpcMain {
   handle(channel: string, handler: (event: IpcEvent, ...args: never[]) => unknown): void
 }
@@ -14,6 +16,7 @@ type RegisterOptions = {
   isTrustedSender: (senderId: number) => boolean
   broadcast: (state: OldFavoriteSessionsState) => void
   onMutation?: (dirty: boolean, mutation?: unknown) => unknown
+  onMutationQueueReady?: (queue: OldFavoriteMutationQueue) => void
   getWorkspaceBatchSummary?: (
     accountMid: string,
     batchId: string
@@ -34,11 +37,12 @@ function finishMutation(options: RegisterOptions, mutation: unknown): void {
 export function registerOldFavoriteSessionIpc(options: RegisterOptions): void {
   const { ipcMain, isTrustedSender, broadcast } = options
   let mutationTail = Promise.resolve()
-  const queueMutation = <T>(work: () => Promise<T>): Promise<T> => {
+  const queueMutation: OldFavoriteMutationQueue = <T>(work: () => Promise<T>): Promise<T> => {
     const next = mutationTail.then(work, work)
     mutationTail = next.then(() => undefined, () => undefined)
     return next
   }
+  options.onMutationQueueReady?.(queueMutation)
   const getStore = async () => options.store ?? options.getStore?.() ??
     Promise.reject(new Error('Old favorite session store is unavailable.'))
 

@@ -4721,7 +4721,7 @@ describe('FloatingAssistantApp', () => {
     fireEvent.click(await screen.findByRole('tab', { name: '掌库' }))
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('combobox', { name: '当前整理批次' })
-    expect(screen.getByRole('button', { name: '新增视频整理' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '新增视频整理' })).not.toBeInTheDocument()
     expect(screen.queryByText('本批最多3000，完成或放弃后可继续')).not.toBeInTheDocument()
 
     expect(scanOldFavorites).toHaveBeenCalledOnce()

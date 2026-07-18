@@ -504,6 +504,7 @@ export function buildOldFavoriteTagEnrichmentScript(
         let completedSinceCheckpoint = 0;
         let lastCheckpointAt = Date.now();
         let checkpointDirty = false;
+        try {
         while (true) {
           let controlledStore;
           try { controlledStore = JSON.parse(localStorage.getItem(key) || '{}'); } catch { break; }
@@ -526,7 +527,13 @@ export function buildOldFavoriteTagEnrichmentScript(
             const contentType = String(response.headers.get('content-type') || '').toLowerCase();
             const bodyText = await response.text();
             if (contentType.includes('text/html') || /^\s*<!doctype html|^\s*<html/i.test(bodyText)) {
-              throw Object.assign(new Error('tag request returned HTML; please log in again'), { global: true });
+              const loginSignal = /login|log in|未登录/i.test(bodyText) || /login|passport/i.test(String(response.url || ''));
+              const riskSignal = /risk|频繁|风控|too fast|captcha|安全验证/i.test(bodyText);
+              throw Object.assign(new Error('tag request returned HTML; please log in again'), {
+                global: true,
+                loginSignal,
+                riskSignal
+              });
             }
             let json;
             try { json = bodyText ? JSON.parse(bodyText) : null; } catch {
@@ -535,8 +542,14 @@ export function buildOldFavoriteTagEnrichmentScript(
             const code = Number(json?.code);
             if (!response.ok || code !== 0) {
               const message = String(json?.message || code || response.status);
+              const loginSignal = code === -101 || /login|未登录/i.test(message);
+              const riskSignal = [403, 412].includes(Number(response?.status || 0)) ||
+                [-352, -509].includes(code) || /risk|频繁|风控|too fast/i.test(message);
               throw Object.assign(new Error(message), {
-                global: [-101, -352, -412, -509].includes(code) || /risk|频繁|风控|too fast|login|未登录/i.test(message)
+                global: loginSignal || riskSignal,
+                apiCode: code,
+                loginSignal,
+                riskSignal
               });
             }
             const tags = readTagList(Array.isArray(json.data) ? json.data : json.data?.tags);
@@ -576,6 +589,13 @@ export function buildOldFavoriteTagEnrichmentScript(
             activeAidFailures += 1;
             const message = String(error?.message || error || '');
             if (error?.global || /(-101|-352|-412|-509|risk|频繁|风控|too fast|login|未登录)/i.test(message)) {
+              const apiCode = Number(error?.apiCode)
+              const loginSignal = Boolean(error?.loginSignal) || apiCode === -101 || /login|未登录/i.test(message)
+              const riskSignal = Boolean(error?.riskSignal) || [-352, -412, -509].includes(apiCode) ||
+                /risk|频繁|风控|too fast|captcha|安全验证/i.test(message)
+              store.progress.errorKind = loginSignal ? 'login' : riskSignal ? 'risk-control' : 'unknown'
+              if (Number.isFinite(apiCode)) store.progress.errorCode = apiCode
+              store.progress.errorMessage = message.slice(0, 160)
               store.progress.status = 'paused';
               writeStore();
               break;
@@ -595,14 +615,25 @@ export function buildOldFavoriteTagEnrichmentScript(
             await new Promise((resolve) => setTimeout(resolve, Math.min(8000, 750 * (2 ** activeAidFailures))));
           }
         }
-        if (checkpointDirty) writeStore();
-        window.__bilimiOldFavoriteTagWorkerRunning = false;
-        let handoffStore;
-        try { handoffStore = JSON.parse(localStorage.getItem(key) || '{}'); } catch { handoffStore = {}; }
-        if (handoffStore.progress?.status === 'running' && Array.isArray(handoffStore.queue) && handoffStore.queue.length > 0) {
-          setTimeout(() => {
-            if (!window.__bilimiOldFavoriteTagWorkerRunning) window.__bilimiStartOldFavoriteTagWorker?.();
-          }, 0);
+        } finally {
+          try {
+            if (checkpointDirty) writeStore();
+          } catch (error) {
+            try {
+              store.progress.status = 'paused';
+              store.progress.errorKind = 'unknown';
+              store.progress.errorMessage = String(error?.message || error || 'tag worker failed').slice(0, 160);
+              localStorage.setItem(key, JSON.stringify(store));
+            } catch { /* Preserve the worker release even when storage is unavailable. */ }
+          }
+          window.__bilimiOldFavoriteTagWorkerRunning = false;
+          let handoffStore;
+          try { handoffStore = JSON.parse(localStorage.getItem(key) || '{}'); } catch { handoffStore = {}; }
+          if (handoffStore.progress?.status === 'running' && Array.isArray(handoffStore.queue) && handoffStore.queue.length > 0) {
+            setTimeout(() => {
+              if (!window.__bilimiOldFavoriteTagWorkerRunning) window.__bilimiStartOldFavoriteTagWorker?.();
+            }, 0);
+          }
         }
       })();
     };
@@ -614,6 +645,9 @@ export function buildOldFavoriteTagEnrichmentScript(
     if (${JSON.stringify(action)} === 'resume' && store.queue.length) {
       store.controlRevision += 1;
       store.progress.status = 'running';
+      delete store.progress.errorKind;
+      delete store.progress.errorCode;
+      delete store.progress.errorMessage;
     }
     if (${JSON.stringify(action)} === 'cancel') {
       store.controlRevision += 1;
@@ -1080,6 +1114,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
         const streamingSettlements = [];
         let streamingSettlementTail = Promise.resolve();
         let streamingGloballyPaused = false;
+        let streamingPauseError = null;
         let streamingStopped = false;
         let streamingOpen = null;
         let inProgressFolderAids = new Set();
@@ -1162,6 +1197,15 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
               } catch (error) {
                 const message = String(error?.message || error || '');
                 if (/(-101|-352|-412|-509|risk|too fast|login|returned HTML)/i.test(message)) {
+                  const apiCode = Number(error?.apiCode);
+                  const loginSignal = Boolean(error?.loginSignal) || apiCode === -101 || /login|未登录/i.test(message);
+                  const riskSignal = Boolean(error?.riskSignal) || [-352, -412, -509].includes(apiCode) ||
+                    /risk|频繁|风控|too fast|captcha|安全验证/i.test(message);
+                  streamingPauseError = {
+                    errorKind: loginSignal ? 'login' : riskSignal ? 'risk-control' : 'unknown',
+                    ...(Number.isFinite(apiCode) ? { errorCode: apiCode } : {}),
+                    errorMessage: message.slice(0, 160)
+                  };
                   globallyPaused = true;
                   streamingGloballyPaused = true;
                   break;
@@ -1855,7 +1899,8 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           cacheHits: Array.from(cacheHitAids).filter((aid) => uniqueVideos.has(aid)).length,
           succeeded: 0,
           failed: 0,
-          status: queuedAids.length > 0 ? (streamingGloballyPaused ? 'paused' : 'running') : 'complete'
+          status: queuedAids.length > 0 ? (streamingGloballyPaused ? 'paused' : 'running') : 'complete',
+          ...(streamingPauseError || {})
         };
         if (!payload.aid && savedBatchCursorInvalid) {
           delete tagStore.batchCursor;
@@ -1890,6 +1935,7 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
           window.__bilimiOldFavoriteTagWorkerRunning = true;
           void (async () => {
             let consecutiveFailures = 0;
+            try {
             while (latestStore.queue.length > 0) {
               const persisted = readTagStore();
               if (persisted.progress?.status === 'paused') break;
@@ -1924,6 +1970,13 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
                 consecutiveFailures += 1;
                 const message = String(error?.message || error || '');
                 if (/(-101|-352|-412|-509|risk|频繁|风控|too fast|login|未登录|returned HTML)/i.test(message)) {
+                  const apiCode = Number(error?.apiCode)
+                  const loginSignal = Boolean(error?.loginSignal) || apiCode === -101 || /login|未登录/i.test(message)
+                  const riskSignal = Boolean(error?.riskSignal) || [-352, -412, -509].includes(apiCode) ||
+                    /risk|频繁|风控|too fast|captcha|安全验证/i.test(message)
+                  latestStore.progress.errorKind = loginSignal ? 'login' : riskSignal ? 'risk-control' : 'unknown'
+                  if (Number.isFinite(apiCode)) latestStore.progress.errorCode = apiCode
+                  latestStore.progress.errorMessage = message.slice(0, 160)
                   latestStore.progress.status = 'paused';
                   writeTagStore(latestStore);
                   break;
@@ -1947,12 +2000,15 @@ function buildOldFavoriteScanScript(args: { ledgers: FavoriteLedger[]; aid?: num
               latestStore.progress.status = latestStore.queue.length > 0 ? 'running' : 'complete';
               writeTagStore(latestStore);
             }
-            window.__bilimiOldFavoriteTagWorkerRunning = false;
-            const handoffStore = readTagStore();
-            if (handoffStore.progress?.status === 'running' && handoffStore.queue.length > 0) {
-              setTimeout(() => {
-                if (!window.__bilimiOldFavoriteTagWorkerRunning) window.__bilimiStartOldFavoriteTagWorker?.();
-              }, 0);
+            } finally {
+              try { writeTagStore(latestStore); } catch { /* Keep cleanup deterministic when storage fails. */ }
+              window.__bilimiOldFavoriteTagWorkerRunning = false;
+              const handoffStore = readTagStore();
+              if (handoffStore.progress?.status === 'running' && handoffStore.queue.length > 0) {
+                setTimeout(() => {
+                  if (!window.__bilimiOldFavoriteTagWorkerRunning) window.__bilimiStartOldFavoriteTagWorker?.();
+                }, 0);
+              }
             }
           })();
         };

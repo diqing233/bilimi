@@ -443,10 +443,10 @@ describe('favorite ledger API scripts', () => {
   })
 
   it.each([
-    ['html login response', () => new Response('<!DOCTYPE html><html>login</html>', { headers: { 'content-type': 'text/html' } })],
-    ['not logged in response', () => Response.json({ code: -101, message: '账号未登录' })],
-    ['risk control response', () => Response.json({ code: -412, message: 'risk control' })]
-  ] as const)('pauses tag enrichment on a global %s', async (_label, makeResponse) => {
+    ['html login response', () => new Response('<!DOCTYPE html><html>login</html>', { headers: { 'content-type': 'text/html' } }), { errorKind: 'login', errorMessage: expect.stringContaining('please log in') }],
+    ['not logged in response', () => Response.json({ code: -101, message: '账号未登录' }), { errorKind: 'login', errorCode: -101, errorMessage: '账号未登录' }],
+    ['risk control response', () => Response.json({ code: -412, message: 'risk control' }), { errorKind: 'risk-control', errorCode: -412, errorMessage: 'risk control' }]
+  ] as const)('pauses tag enrichment on a global %s', async (_label, makeResponse, metadata) => {
     vi.useFakeTimers()
     installCookies()
     localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
@@ -462,7 +462,27 @@ describe('favorite ledger API scripts', () => {
     const stored = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(stored.queue).toEqual([1, 2])
-    expect(stored.progress).toMatchObject({ completed: 0, pending: 2, failed: 0, status: 'paused' })
+    expect(stored.progress).toMatchObject({ completed: 0, pending: 2, failed: 0, status: 'paused', ...metadata })
+    vi.useRealTimers()
+  })
+
+  it('keeps invalid JSON errors classified as unknown instead of risk-control', async () => {
+    vi.useFakeTimers()
+    installCookies()
+    localStorage.setItem('bilimi:old-favorite-tag-enrichment:v1', JSON.stringify({
+      accountMid: '42', cache: {}, queue: [1, 2], controlRevision: 0,
+      progress: { completed: 0, total: 2, pending: 2, cacheHits: 0, succeeded: 0, failed: 0, status: 'paused' }
+    }))
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{not-json}', {
+      status: 200, headers: { 'content-type': 'application/json' }
+    })))
+
+    await window.eval(buildOldFavoriteTagEnrichmentScript('resume'))
+    await vi.advanceTimersByTimeAsync(5000)
+
+    const stored = JSON.parse(localStorage.getItem('bilimi:old-favorite-tag-enrichment:v1') ?? '{}')
+    expect(stored.progress).toMatchObject({ status: 'paused', errorKind: 'unknown' })
+    expect(stored.progress.errorKind).not.toBe('risk-control')
     vi.useRealTimers()
   })
 
@@ -4481,7 +4501,12 @@ describe('favorite ledger API scripts', () => {
 
     expect(requestedTagAids).toEqual([1999])
     expect(progress.readySegments).toEqual([])
-    expect(progress.scanProgress.tags.status).toBe('paused')
+    expect(progress.scanProgress.tags).toMatchObject({
+      status: 'paused',
+      errorKind: 'risk-control',
+      errorCode: -412,
+      errorMessage: expect.stringContaining('risk control')
+    })
   })
 
   it('stops the streaming segment tail when scan cancellation lands during a tag request', async () => {

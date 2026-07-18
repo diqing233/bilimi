@@ -1098,6 +1098,10 @@ function invalidTagScanProgressPart(
     succeeded?: number
     failed?: number
     status?: string
+    terminalReason?: string
+    errorKind?: string
+    errorCode?: number
+    errorMessage?: string
   } | undefined
 ) {
   if (!part) return false
@@ -1106,6 +1110,16 @@ function invalidTagScanProgressPart(
     const numericValue = Number(value)
     return !Number.isFinite(numericValue) || numericValue < 0
   })
+}
+
+function oldFavoriteTagEnrichmentFinished(
+  tags: NonNullable<FavoriteLedgerPreview['scanProgress']>['tags'] | undefined
+) {
+  return Boolean(
+    tags &&
+    tags.pending === 0 &&
+    (tags.status === 'complete' || (tags.status === 'partial' && tags.terminalReason === 'cancelled'))
+  )
 }
 
 function oldFavoriteSourceKey(id: string | undefined, title: string) {
@@ -2369,6 +2383,10 @@ export function FavoriteLedgerPanel({
   const scanProgressRef = useRef(scanProgress)
   scanProgressRef.current = scanProgress
   const setScanProgress = useCallback((next: FavoriteLedgerPreview['scanProgress']) => {
+    if (next === undefined) {
+      setOldFavoriteRuntimeValue('scanProgress', undefined)
+      return
+    }
     setOldFavoriteTransientRuntimeValue('scanProgress', next)
   }, [])
   const [baseScanPreview, setBaseScanPreview] =
@@ -2711,17 +2729,22 @@ export function FavoriteLedgerPanel({
   const [pendingOldFavoriteBatchKind, setPendingOldFavoriteBatchKind] =
     useOldFavoriteRuntimeState<'full' | 'incremental'>('pendingOldFavoriteBatchKind', 'full')
   const [oldFavoriteExternalLeaseActive, setOldFavoriteExternalLeaseActive] = useState(false)
-  const [incrementalBatchConfirmOpen, setIncrementalBatchConfirmOpen] = useState(false)
   const [oldFavoriteEntryOpen, setOldFavoriteEntryOpen] = useState(false)
   const [oldFavoriteResetConfirmOpen, setOldFavoriteResetConfirmOpen] = useState(false)
+  const [oldFavoriteResetRunning, setOldFavoriteResetRunning] = useState(false)
   const [ledgerResetConfirmOpen, setLedgerResetConfirmOpen] = useState(false)
   const [tagEndConfirmOpen, setTagEndConfirmOpen] = useState(false)
   const [oldFavoriteSessionsOpened, setOldFavoriteSessionsOpened] = useState(false)
   const [oldFavoriteRecoveryRunning, setOldFavoriteRecoveryRunning] = useState(false)
   const [oldFavoriteRecoveryFailure, setOldFavoriteRecoveryFailure] = useState<string | null>(null)
   const [oldFavoriteRecoveryResetConfirmOpen, setOldFavoriteRecoveryResetConfirmOpen] = useState(false)
+  const [tagActionRunning, setTagActionRunning] = useState<'pause' | 'resume' | 'cancel' | null>(null)
+  const tagActionTokenRef = useRef(0)
+  const terminalTagScanGenerationRef = useRef<number | null>(null)
   const oldFavoriteSessionsOpeningRef = useRef<Promise<OldFavoriteSessionsState> | null>(null)
   const oldFavoriteOrganizationRequestRef = useRef<Promise<void> | null>(null)
+  const oldFavoriteResetRequestRef = useRef<Promise<void> | null>(null)
+  const oldFavoriteResetRunningRef = useRef(false)
   const oldFavoriteActivatedRef = useRef(false)
   const oldFavoriteBatchSelectionGenerationRef = useRef(0)
   const oldFavoriteIgnoredSessionBatchIdsRef = useRef(new Map<string, Set<string>>())
@@ -2790,6 +2813,7 @@ export function FavoriteLedgerPanel({
     )
   }, [currentAccountMid])
   const applyOldFavoriteSessions = useCallback((state: OldFavoriteSessionsState) => {
+      if (oldFavoriteResetRunningRef.current) return
       const resolvedAccountMid = oldFavoriteResolvedAccountMidRef.current
       const rawAccountBatches = resolvedAccountMid
         ? state.batches.filter((batch) => batch.accountMid === resolvedAccountMid)
@@ -3100,7 +3124,11 @@ export function FavoriteLedgerPanel({
         cacheHits: numberOrZero(scanProgress.tags?.cacheHits),
         succeeded: numberOrZero(scanProgress.tags?.succeeded),
         failed: numberOrZero(scanProgress.tags?.failed),
-        status: scanProgress.tags?.status ?? 'idle'
+        status: scanProgress.tags?.status ?? 'idle',
+        ...(scanProgress.tags?.terminalReason ? { terminalReason: scanProgress.tags.terminalReason } : {}),
+        ...(scanProgress.tags?.errorKind ? { errorKind: scanProgress.tags.errorKind } : {}),
+        ...(Number.isFinite(Number(scanProgress.tags?.errorCode)) ? { errorCode: Number(scanProgress.tags.errorCode) } : {}),
+        ...(scanProgress.tags?.errorMessage ? { errorMessage: scanProgress.tags.errorMessage } : {})
       }
     } as NonNullable<FavoriteLedgerPreview['scanProgress']>
   }, [])
@@ -3130,7 +3158,7 @@ export function FavoriteLedgerPanel({
           }
         : next.basic
     const tags = currentTagsInvalid ? next.tags :
-      previous.tags.status === 'complete' && next.tags.status !== 'complete' ||
+      oldFavoriteTagEnrichmentFinished(previous.tags) && !oldFavoriteTagEnrichmentFinished(next.tags) ||
       next.tags.completed < previous.tags.completed || next.tags.total < previous.tags.total
         ? previous.tags
         : next.tags
@@ -3171,23 +3199,51 @@ export function FavoriteLedgerPanel({
     return 'accepted' as const
   }, [basicScanRunning, preview?.scanContext?.accountMid])
   const applyTagEnrichmentAction = useCallback((action: 'pause' | 'resume' | 'cancel') => {
+    if (tagActionRunning) return
     if (getOldFavoriteRuntimeValue<OldFavoriteExecutionPhase>('oldFavoriteExecutionPhase', 'idle') !== 'idle') return
     if (!onReadOldFavoriteTagEnrichment) return
+    setTagActionRunning(action)
+    if (action === 'resume') {
+      setStatus('正在继续补取')
+    }
+    const actionToken = ++tagActionTokenRef.current
     const scanGeneration = scanGenerationRef.current
     void runTrackedOldFavoriteRequest({
       task: 'tag',
       snapshot: { currentStep: 'tags' },
       work: () => onReadOldFavoriteTagEnrichment(action)
     }).then((snapshot) => {
-      if (scanGeneration !== scanGenerationRef.current) return
+    if (scanGeneration !== scanGenerationRef.current) return
       if (tagSnapshotGate(scanGeneration, snapshot) !== 'accepted') return
-      setScanProgress(mergeScanProgress(scanProgressRef.current, snapshot.scanProgress))
+      const mergedProgress = mergeScanProgress(scanProgressRef.current, snapshot.scanProgress)
+      setScanProgress(mergedProgress)
+      setPreview((current) => current ? { ...current, scanProgress: mergedProgress } : current)
+      setBaseScanPreview((current) => current ? { ...current, scanProgress: mergedProgress } : current)
+      if (action === 'cancel') {
+        terminalTagScanGenerationRef.current = scanGeneration
+        applyCompletedTagSnapshot(snapshot, scanGeneration)
+      }
+      const tags = mergedProgress?.tags
+      if (!tags) return
+      if (tags.status === 'paused' && (tags.errorMessage || tags.errorCode || tags.errorKind)) {
+        setStatus(`标签补取已暂停：${tags.errorMessage ?? tags.errorKind ?? '请稍后重试'}${tags.errorCode !== undefined ? `（错误码 ${tags.errorCode}）` : ''}`)
+      } else if (tags.status === 'partial' && tags.terminalReason === 'cancelled') {
+        setStatus(`标签补取已结束，已使用当前取得的 ${tags.completed} 条结果`)
+      }
     }).catch(() => {
       if (scanGeneration !== scanGenerationRef.current) return
       setStatus('标签补取操作未完成，请稍后重试。')
+    }).finally(() => {
+      setTagActionRunning((current) => (
+        current === action && actionToken === tagActionTokenRef.current ? null : current
+      ))
     })
-  }, [mergeScanProgress, onReadOldFavoriteTagEnrichment, setScanProgress, tagSnapshotGate])
-  const applyStreamingSnapshot = useCallback((snapshot: OldFavoriteTagEnrichmentSnapshot) => {
+  }, [applyCompletedTagSnapshot, mergeScanProgress, onReadOldFavoriteTagEnrichment, setScanProgress, tagActionRunning, tagSnapshotGate])
+  const applyStreamingSnapshot = useCallback((
+    snapshot: OldFavoriteTagEnrichmentSnapshot,
+    expectedScanGeneration = scanGenerationRef.current
+  ) => {
+    if (expectedScanGeneration !== scanGenerationRef.current) return
     for (const segment of snapshot.readySegments ?? []) {
       const workspace = currentScanWorkspaceRef.current
       if (
@@ -3209,6 +3265,10 @@ export function FavoriteLedgerPanel({
         persistedStreamingSegmentIndexesRef.current.add(segment.index)
         for (const aid of segment.aids) persistedStreamingAidsRef.current.add(aid)
         streamingWorkspaceWriteTailRef.current = streamingWorkspaceWriteTailRef.current.then(async () => {
+          if (
+            expectedScanGeneration !== scanGenerationRef.current ||
+            currentScanWorkspaceRef.current?.batchId !== workspace.batchId
+          ) return
           try {
             await appendWorkspaceLogicalChunk(workspace.accountMid, workspace.batchId, normalizedItems)
           } catch (error) {
@@ -3291,6 +3351,10 @@ export function FavoriteLedgerPanel({
       currentScanInitialFullRef.current
     if (workspace && streamingPersistenceAllowed) {
       streamingWorkspaceWriteTailRef.current = streamingWorkspaceWriteTailRef.current.then(async () => {
+        if (
+          expectedScanGeneration !== scanGenerationRef.current ||
+          currentScanWorkspaceRef.current?.batchId !== workspace.batchId
+        ) return
         try {
           await window.bilimiDesktop?.appendOldFavoriteWorkspaceChunk?.(
             workspace.accountMid,
@@ -3354,9 +3418,11 @@ export function FavoriteLedgerPanel({
   const cancelOldFavoriteScan = useCallback(() => {
     if (!basicScanRunning || !onReadOldFavoriteTagEnrichment) return
     scanGenerationRef.current += 1
-    scanStartingRef.current = false
     currentScanRunIdRef.current = null
     currentScanAccountMidRef.current = null
+    scanStartingRef.current = false
+    currentScanSessionRef.current = null
+    currentScanWorkspaceRef.current = null
     setBasicScanRunning(false)
     setBusy(false)
     setPreview(lastSuccessfulPreviewRef.current)
@@ -3371,12 +3437,12 @@ export function FavoriteLedgerPanel({
     if (!scanProgress) return
     if (
       scanGenerationRef.current === 0 &&
-      scanProgress.tags.status === 'complete' &&
-      scanProgress.tags.pending === 0
+      oldFavoriteTagEnrichmentFinished(scanProgress.tags)
     ) return
     let cancelled = false
     let timeout: number | undefined
     const scanGeneration = scanGenerationRef.current
+    if (terminalTagScanGenerationRef.current === scanGeneration) return
     const stillCurrent = () => !cancelled && scanGeneration === scanGenerationRef.current
     const scheduleNext = () => {
       if (!stillCurrent()) return
@@ -3390,12 +3456,11 @@ export function FavoriteLedgerPanel({
           scheduleNext()
           return
         }
-        applyStreamingSnapshotRef.current(snapshot)
+          applyStreamingSnapshotRef.current(snapshot, scanGeneration)
         setScanProgress(mergeScanProgress(scanProgressRef.current, snapshot.scanProgress))
         const tagsComplete =
           !invalidTagScanProgressPart(snapshot.scanProgress.tags) &&
-          snapshot.scanProgress.tags.status === 'complete' &&
-          snapshot.scanProgress.tags.pending === 0
+          oldFavoriteTagEnrichmentFinished(snapshot.scanProgress.tags)
         const basicComplete = snapshot.scanProgress.basic.status === 'complete'
         if (!tagsComplete || !basicComplete) {
           scheduleNext()
@@ -3680,14 +3745,7 @@ export function FavoriteLedgerPanel({
     currentScanRunIdRef.current = null
     currentScanAccountMidRef.current = preview?.scanContext?.accountMid ?? null
     setBasicScanRunning(true)
-    setPreview({
-      items: [],
-      skippedSourceFolderTitles: [],
-      scanProgress: {
-        basic: { completed: 0, total: 1, status: 'running', phase: 'listing' },
-        tags: { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'idle' }
-      }
-    })
+    setPreview(null)
     const saved = await saveLedgers({
       includeSelectedCandidates: false,
       includeDefaultLedgers: true,
@@ -3835,12 +3893,82 @@ export function FavoriteLedgerPanel({
   }
 
   async function resetAllOldFavoriteOrganization() {
+    if (oldFavoriteResetRequestRef.current) return oldFavoriteResetRequestRef.current
+    const request = (async () => {
     setOldFavoriteResetConfirmOpen(false)
     setOldFavoriteRecoveryResetConfirmOpen(false)
+    setOldFavoriteResetRunning(true)
+    oldFavoriteResetRunningRef.current = true
+    setStatus('正在清除旧整理结果…')
+    publishOldFavoriteStatus({ label: '正在清除旧整理结果', message: '正在清除旧整理结果…', tone: 'running' })
+    scanGenerationRef.current += 1
+    accountGenerationRef.current += 1
+    oldFavoriteBatchSelectionGenerationRef.current += 1
+    scanStartingRef.current = false
+    oldFavoriteExecutionStopRequestedRef.current = true
+    currentScanRunIdRef.current = null
+    currentScanAccountMidRef.current = null
+    currentScanSessionRef.current = null
+    currentScanWorkspaceRef.current = null
+    currentScanInitialFullRef.current = false
+    latestTagEnrichmentSnapshotRef.current = null
+    appliedStreamingSegmentIndexesRef.current.clear()
+    appliedStreamingSourceRelationsRef.current.clear()
+    persistedStreamingSegmentIndexesRef.current.clear()
+    persistedStreamingAidsRef.current.clear()
+    streamingWorkspaceWriteTailRef.current = Promise.resolve()
+    if (workspaceOverlayTimerRef.current) {
+      clearTimeout(workspaceOverlayTimerRef.current)
+      workspaceOverlayTimerRef.current = null
+    }
+    if (workspaceOverlayQueueRef.current.hasPending()) {
+      await flushWorkspaceOverlayQueue().catch(() => undefined)
+    }
+    setBasicScanRunning(false)
+    setBusy(true)
+    setTagActionRunning(null)
+    setOldFavoriteRecoveryRunning(false)
+    setOldFavoriteRecoveryFailure(null)
+    setPendingTagDeepSeekConfirming(null)
+    setTagEndConfirmOpen(false)
+    setOldFavoriteExecutionConfirming(false)
+    setOldFavoriteExecutionProgress(null)
+    setOldFavoriteExecutionRun(null)
+    setOldFavoriteExecutionPhase('idle')
+    setOldFavoriteRuntimeStatus(null)
+    setDeepSeekArchiveResultSummary(null)
+    setDeepSeekArchiveSummaryOpen(false)
+    clearDeepSeekArchiveRunSnapshot({ resetHistory: true })
+    setPreview(null)
+    setBaseScanPreview(null)
+    setScanProgress(undefined)
+    setArchivePlanState(null)
+    setArchiveEditorState((current) => ({
+      ...current,
+      archivePlanState: null,
+      selectedCandidateKeys: [],
+      candidateSourceLedgerIdsByItemKey: {}
+    }))
+    setSelectedOldFavoriteSourceFolderKeys(new Set())
+    setSelectedManagedLogicalIds(new Set())
+    setUnlockedManagedLogicalIds(new Set())
+    setReorganizedProtectedAids(new Set())
+    setPendingUnclassifiedDecision(null)
+    setActiveOldFavoriteUserBatchId('')
+    setOldFavoriteUserBatches([])
+    oldFavoriteUserBatchesRef.current = []
+    oldFavoriteSessionsOpeningRef.current = null
+    oldFavoriteOrganizationRequestRef.current = null
+    lastSuccessfulPreviewRef.current = null
+    lastSuccessfulBasePreviewRef.current = null
+    lastSuccessfulArchivePlanStateRef.current = null
     const accountMid = currentAccountMid?.trim() ||
       (onReadCurrentOldFavoriteAccount ? (await onReadCurrentOldFavoriteAccount()).trim() : '')
     if (!accountMid) {
       setStatus('无法确认当前 B 站账号，请重新登录后再整理。')
+      setBusy(false)
+      setOldFavoriteResetRunning(false)
+      oldFavoriteResetRunningRef.current = false
       return
     }
     const accountBatchIds = new Set(oldFavoriteUserBatches
@@ -3873,27 +4001,32 @@ export function FavoriteLedgerPanel({
       } else {
         oldFavoriteIgnoredSessionBatchIdsRef.current.delete(accountMid)
       }
-      setStatus(`全部重新整理失败：${errorMessage(error)}`)
+      const failureMessage = `全部重新整理失败：${errorMessage(error)}`
+      setOldFavoriteRecoveryFailure(failureMessage)
+      setStatus(failureMessage)
+      setBusy(false)
+      setOldFavoriteResetRunning(false)
+      oldFavoriteResetRunningRef.current = false
       return
     }
-    oldFavoriteSessionsOpeningRef.current = null
-    oldFavoriteOrganizationRequestRef.current = null
-    lastSuccessfulPreviewRef.current = null
-    lastSuccessfulBasePreviewRef.current = null
-    lastSuccessfulArchivePlanStateRef.current = null
-    oldFavoriteUserBatchesRef.current = []
     setOldFavoriteRuntimeValue('oldFavoriteRecoveryRequiresReconciliation', false)
     setOldFavoriteRuntimeValue('sharedOperationFeedback', null)
     setOldFavoriteRuntimeStatus(null)
     setOldFavoriteEntryOpen(false)
-    setOldFavoriteUserBatches((current) => current.filter((batch) => !accountBatchIds.has(batch.id)))
-    setActiveOldFavoriteUserBatchId('')
-    setPreview(null)
-    setBaseScanPreview(null)
-    setArchivePlanState(null)
     setHasPendingOldFavoriteBatch(false)
     setOldFavoriteRecoveryFailure(null)
-    void startOrganizingOldFavorites(true)
+    setStatus('旧整理结果已清除，正在读取收藏夹列表…')
+    await startOrganizingOldFavorites(true)
+    })()
+    oldFavoriteResetRequestRef.current = request
+    try {
+      await request
+    } finally {
+      oldFavoriteResetRequestRef.current = null
+      setOldFavoriteResetRunning(false)
+      oldFavoriteResetRunningRef.current = false
+      setBusy(false)
+    }
   }
 
   async function rescanRestoredOldFavoriteBatch() {
@@ -4020,7 +4153,7 @@ export function FavoriteLedgerPanel({
         pending: recoveryState.missingTagAids.length,
         cacheHits: recoveryState.tagRecordCount,
         succeeded: recoveryState.tagRecordCount,
-        failed: 0,
+        failed: Math.max(0, recoveryState.itemCount - recoveryState.tagRecordCount - recoveryState.missingTagAids.length),
         status: recoveryState.tagCoverage === 'complete' ? 'complete' : 'paused'
       }
       const loadedPreview: FavoriteLedgerPreview = {
@@ -5030,6 +5163,9 @@ export function FavoriteLedgerPanel({
     let scanSession: { batchId: string; segmentId: string } | null = null
     let scanAccountMid = ''
     if (!scanStartingRef.current) scanGenerationRef.current += 1
+    tagActionTokenRef.current += 1
+    terminalTagScanGenerationRef.current = null
+    setTagActionRunning(null)
     scanStartingRef.current = false
     latestTagEnrichmentSnapshotRef.current = null
     appliedStreamingSegmentIndexesRef.current.clear()
@@ -5168,7 +5304,7 @@ export function FavoriteLedgerPanel({
         void onReadOldFavoriteTagEnrichment('progress').then((snapshot) => {
           if (scanGeneration !== scanGenerationRef.current) return
           if (tagSnapshotGate(scanGeneration, snapshot) !== 'accepted') return
-          applyStreamingSnapshot(snapshot)
+          applyStreamingSnapshot(snapshot, scanGeneration)
           setScanProgress(mergeScanProgress(scanProgressRef.current, snapshot.scanProgress))
         }).catch((error) => {
           if (scanGeneration === scanGenerationRef.current) {
@@ -5314,8 +5450,10 @@ export function FavoriteLedgerPanel({
             accountMid: scannedAccountMid, kind: batchKind, aids: includedAids, now: createdAt,
             id: currentScanWorkspaceRef.current?.batchId
           })
+      if (scanGeneration !== scanGenerationRef.current) return
       if (scannedAccountMid && window.bilimiDesktop?.createOldFavoriteWorkspaceBatch) {
         await streamingWorkspaceWriteTailRef.current
+        if (scanGeneration !== scanGenerationRef.current) return
         if (!currentScanWorkspaceRef.current) {
           const workspaceBatch = await window.bilimiDesktop.createOldFavoriteWorkspaceBatch({
             accountMid: scannedAccountMid,
@@ -5338,10 +5476,12 @@ export function FavoriteLedgerPanel({
           (item) => !persistedStreamingAidsRef.current.has(item.aid)
         )
         for (let offset = 0; offset < unpersistedItems.length; offset += chunkSize) {
+          if (scanGeneration !== scanGenerationRef.current) return
           const chunk = unpersistedItems.slice(offset, offset + chunkSize)
           await appendWorkspaceLogicalChunk(scannedAccountMid, workspaceBatchId, chunk)
         }
       }
+      if (scanGeneration !== scanGenerationRef.current) return
       const persistedBatchId = currentScanWorkspaceRef.current?.batchId ?? batchModel.id
       const persistedBatchModel = persistedBatchId === batchModel.id ? batchModel : { ...batchModel, id: persistedBatchId }
       if (sessionCoordinator && !scanSession) {
@@ -8379,9 +8519,9 @@ export function FavoriteLedgerPanel({
     if (oldFavoritePlanReadOnly) return
     const tags = scanProgress?.tags ?? preview?.scanProgress?.tags
     if (tags && (
-      tags.status !== 'complete' ||
+      !oldFavoriteTagEnrichmentFinished(tags) ||
       tags.pending > 0 ||
-      tags.completed < tags.total
+      (tags.status === 'complete' && tags.completed < tags.total)
     )) {
       setPendingTagDeepSeekConfirming(scanGenerationRef.current)
       return
@@ -8393,20 +8533,22 @@ export function FavoriteLedgerPanel({
   const activeSegmentFinalReconciled = activeOldFavoriteUserBatch?.snapshot?.segmentSnapshots?.[
     activeOldFavoriteUserBatch.segmentIndex - 1
   ]?.finalReconciled
-  const oldFavoriteScanFlowComplete = Boolean(
+  const oldFavoriteClassificationReady = Boolean(
     !basicScanRunning &&
     preview &&
     preview.batch?.hasMore !== true &&
-    preview.skippedSourceFolderTitles.length === 0 &&
-    !preview.scanContext?.sourceFolders?.some((folder) => folder.scanFailed) &&
     (appliedStreamingSegmentIndexesRef.current.size === 0 || activeSegmentFinalReconciled) &&
     (!scanProgress || (
       basicScanProgress?.status === 'complete' &&
-      scanProgress.tags.status === 'complete' &&
-      (scanProgress.tags.pending ?? 0) === 0
+      oldFavoriteTagEnrichmentFinished(scanProgress.tags)
     ))
   )
-  const oldFavoritePreviewReady = oldFavoriteScanFlowComplete || Boolean(
+  const oldFavoriteScanFlowComplete = Boolean(
+    oldFavoriteClassificationReady &&
+    preview?.skippedSourceFolderTitles.length === 0 &&
+    !preview.scanContext?.sourceFolders?.some((folder) => folder.scanFailed)
+  )
+  const oldFavoritePreviewReady = oldFavoriteClassificationReady || Boolean(
     basicScanRunning && preview && appliedStreamingSegmentIndexesRef.current.size > 0
   )
   const oldFavoriteBatchExecutionReadiness = useMemo(() => {
@@ -8475,6 +8617,7 @@ export function FavoriteLedgerPanel({
     (basicScanProgress.status === 'complete' || basicScanProgress.completed < basicScanProgress.total)
   )
   const oldFavoriteBatchSwitcher = oldFavoriteGuideMode === 'organize' &&
+    !basicScanRunning &&
     !oldFavoriteRecoveryRunning &&
     (preview || oldFavoriteUserBatches.length > 0) ? (
       <div className="favorite-ledger-panel__batch-switcher">
@@ -8543,16 +8686,17 @@ export function FavoriteLedgerPanel({
             ))}
           </select>
         ) : null}
-        {!activeOldFavoriteBatchReadOnly ? <button
-          type="button"
-          aria-label="新增视频整理"
-            disabled={busy || oldFavoriteOrganizationLocked() || oldFavoriteExternalLeaseActive || oldFavoriteRecoveryRunning || Boolean(oldFavoriteRecoveryFailure)}
-          onClick={() => setIncrementalBatchConfirmOpen(true)}
-        >
-          新增
-        </button> : null}
       </div>
     ) : null
+
+  const scanOverviewPreview = preview ?? {
+    items: [],
+    skippedSourceFolderTitles: [],
+    scanProgress: scanProgress ?? {
+      basic: { completed: 0, total: 0, status: 'running' as const, phase: 'listing' as const },
+      tags: { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'idle' as const }
+    }
+  }
 
   return (
     <section
@@ -8600,7 +8744,6 @@ export function FavoriteLedgerPanel({
             <>
               <button type="button" onClick={continueLastOldFavoriteOrganization}>继续上次整理</button>
               <button type="button" onClick={() => setOldFavoriteResetConfirmOpen(true)}>全部重新整理</button>
-              <button type="button" onClick={() => { setOldFavoriteEntryOpen(false); setIncrementalBatchConfirmOpen(true) }}>仅整理新增</button>
             </>
           )}
         >
@@ -8612,7 +8755,8 @@ export function FavoriteLedgerPanel({
           title="确认全部重新整理？"
           danger
           confirmLabel="确认重置"
-          onCancel={() => setOldFavoriteResetConfirmOpen(false)}
+          confirmDisabled={oldFavoriteResetRunning}
+          onCancel={() => { if (!oldFavoriteResetRunning) setOldFavoriteResetConfirmOpen(false) }}
           onConfirm={() => void resetAllOldFavoriteOrganization()}
         >
           <p>这会清空当前账号全部旧藏本地整理记录（包括历史记录），且无法恢复，再从头扫描；不会修改 B 站收藏夹。</p>
@@ -8623,7 +8767,8 @@ export function FavoriteLedgerPanel({
           title="清除旧结果并重新扫描？"
           danger
           confirmLabel="确认清除并重新扫描"
-          onCancel={() => setOldFavoriteRecoveryResetConfirmOpen(false)}
+          confirmDisabled={oldFavoriteResetRunning}
+          onCancel={() => { if (!oldFavoriteResetRunning) setOldFavoriteRecoveryResetConfirmOpen(false) }}
           onConfirm={() => void resetAllOldFavoriteOrganization()}
         >
           <p>这会清除当前账号全部旧藏扫描结果并从头扫描；不会修改 B 站收藏夹规则或其他账号数据。</p>
@@ -8913,7 +9058,7 @@ export function FavoriteLedgerPanel({
         </section>
       ) : null}
 
-      {preview ? (
+      {(preview || basicScanRunning) ? (
         <section
           className="favorite-ledger-panel__old-favorites-guide"
           aria-label={oldFavoriteGuideMode === 'setup' ? '备册向导' : '整理旧藏向导'}
@@ -8942,22 +9087,6 @@ export function FavoriteLedgerPanel({
             {oldFavoriteBatchSwitcher}
             {oldFavoriteGuideHintExpanded ? (
               <p className="favorite-ledger-panel__guide-hint">{OLD_FAVORITE_GUIDE_HINT}</p>
-            ) : null}
-            {incrementalBatchConfirmOpen ? (
-              <OldFavoriteModal
-                title="新增视频整理"
-                confirmLabel="创建并扫描"
-                onCancel={() => setIncrementalBatchConfirmOpen(false)}
-                onConfirm={() => {
-                  setIncrementalBatchConfirmOpen(false)
-                  void startIncrementalOldFavoriteBatch()
-                }}
-              >
-                <p>
-                  它会基于上次快照创建独立批次，只扫描后来新增、刚进入普通收藏夹/暂存或来源变化的视频；
-                  不修改当前批次，未匹配、失败或未执行的视频不会自动混入。
-                </p>
-              </OldFavoriteModal>
             ) : null}
             {!activeOldFavoriteBatchReadOnly ? <nav className="favorite-ledger-panel__guide-steps" aria-label="整理旧藏步骤">
               {OLD_FAVORITE_GUIDE_STEPS.map((step) => (
@@ -9016,9 +9145,11 @@ export function FavoriteLedgerPanel({
                       ? Number.isInteger(basicScanProgress?.completed) && (basicScanProgress?.completed ?? 0) > 0
                         ? `已读取 ${basicScanProgress!.completed}`
                         : '正在读取'
-                      : hasExactBasicScanProgress
+                    : hasExactBasicScanProgress
                         ? `${basicScanProgress!.completed} / ${basicScanProgress!.total}`
-                        : `${preview.items.length} / ${preview.items.length}`}
+                        : basicScanRunning
+                          ? '正在读取'
+                          : `${scanOverviewPreview.items.length} / ${scanOverviewPreview.items.length}`}
                   </strong>
                   {basicScanDetailLabel ? <small>{basicScanDetailLabel}</small> : null}
                 </div>
@@ -9036,7 +9167,7 @@ export function FavoriteLedgerPanel({
                   </strong>
                 </div>
               </div>
-              {preview.scanDiagnostics?.folderFailures?.some((failure) => failure.operation === 'target-membership') ? (
+              {preview?.scanDiagnostics?.folderFailures?.some((failure) => failure.operation === 'target-membership') ? (
                 <div className="favorite-ledger-panel__scan-warning">
                   <p>恢复结果已显示；执行前需要重新核对收藏夹成员。</p>
                   <button
@@ -9053,21 +9184,35 @@ export function FavoriteLedgerPanel({
                   <p className="favorite-ledger-panel__scan-warning">
                     视频信息已扫描完成，可以查看和调整整理结果。标签仍在后台补取，建议等待扫描结束后再执行。
                   </p>
+                  {scanProgress?.tags.status === 'paused' && (scanProgress.tags.errorMessage || scanProgress.tags.errorCode || scanProgress.tags.errorKind) ? (
+                    <p role="alert" className="favorite-ledger-panel__scan-warning">
+                      {scanProgress.tags.errorKind === 'login' ? '登录状态可能已失效，请重新登录后再继续。' : '标签补取已因风控暂停，请等待冷却后再继续。'}
+                      {scanProgress.tags.errorMessage ? ` ${scanProgress.tags.errorMessage}` : ''}
+                      {scanProgress.tags.errorCode !== undefined ? `（错误码 ${scanProgress.tags.errorCode}）` : ''}
+                    </p>
+                  ) : null}
                   {onReadOldFavoriteTagEnrichment ? (
                     <div>
                       {scanProgress?.tags.status === 'paused' ? (
-                        <button type="button" disabled={oldFavoritePlanReadOnly} onClick={() => applyTagEnrichmentAction('resume')}>继续补取</button>
+                        <button type="button" disabled={oldFavoritePlanReadOnly || tagActionRunning !== null} onClick={() => applyTagEnrichmentAction('resume')}>
+                          {tagActionRunning === 'resume' ? '正在继续补取' : '继续补取'}
+                        </button>
                       ) : (
-                        <button type="button" disabled={oldFavoritePlanReadOnly} onClick={() => applyTagEnrichmentAction('pause')}>暂停补取</button>
+                        <button type="button" disabled={oldFavoritePlanReadOnly || tagActionRunning !== null} onClick={() => applyTagEnrichmentAction('pause')}>暂停补取</button>
                       )}
-                      <button type="button" disabled={oldFavoritePlanReadOnly} onClick={() => setTagEndConfirmOpen(true)}>
+                      <button type="button" disabled={oldFavoritePlanReadOnly || tagActionRunning !== null} onClick={() => setTagEndConfirmOpen(true)}>
                         结束补取，使用当前结果
                       </button>
                     </div>
                   ) : null}
                 </div>
               ) : null}
-              {preview.insights ? (
+              {oldFavoriteTagEnrichmentFinished(scanProgress?.tags) && scanProgress?.tags.terminalReason === 'cancelled' ? (
+                <p role="status" className="favorite-ledger-panel__scan-warning">
+                  标签补取已结束，已使用当前取得的 {scanProgress.tags.completed} 条结果
+                </p>
+              ) : null}
+              {preview?.insights ? (
                 <>
                   <p className="favorite-ledger-panel__step-note">
                     {preview.scanContext
@@ -9133,7 +9278,7 @@ export function FavoriteLedgerPanel({
                   <hr className="favorite-ledger-panel__step-divider" aria-hidden="true" />
                 </>
               ) : null}
-              <section className="favorite-ledger-panel__insights" aria-label="基础数据">
+              {preview ? <section className="favorite-ledger-panel__insights" aria-label="基础数据">
                 <h4>基础数据</h4>
                 {preview.scanContext && protectedOldFavoriteCount > 0 && reorganizedProtectedAids.size === 0 ? (
                   <div className="favorite-ledger-panel__protected-summary">
@@ -9218,8 +9363,8 @@ export function FavoriteLedgerPanel({
                     <article><span>已不在原归档</span><strong>{protectedArchiveHealthCounts.invalid}</strong></article>
                   </div>
                 ) : null}
-              </section>
-              {preview.insights ? (
+              </section> : null}
+              {preview?.insights ? (
                 <>
                   <hr className="favorite-ledger-panel__step-divider" aria-hidden="true" />
                   <div className="favorite-ledger-panel__insight-columns">

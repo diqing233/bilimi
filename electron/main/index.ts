@@ -76,7 +76,7 @@ import {
   shouldFlushOldFavoriteOnQuit
 } from './oldFavoriteQuitBarrier'
 import { OldFavoriteRendererFlushCoordinator } from './oldFavoriteRendererFlushCoordinator'
-import { registerOldFavoriteSessionIpc } from './oldFavoriteSessionIpc'
+import { registerOldFavoriteSessionIpc, type OldFavoriteMutationQueue } from './oldFavoriteSessionIpc'
 import { resetOldFavoriteAccount } from './oldFavoriteAccountReset'
 import { OldFavoriteBackgroundRuntime } from './oldFavoriteBackgroundRuntime'
 import { OldFavoriteWorkspaceService } from './oldFavoriteWorkspaceService'
@@ -443,6 +443,7 @@ let oldFavoritePersistenceOpening: ReturnType<typeof createOldFavoritePersistenc
 const oldFavoritePersistenceDirtyTracker = new OldFavoritePersistenceDirtyTracker()
 let oldFavoriteWorkspaceService: OldFavoriteWorkspaceService | undefined
 const oldFavoriteRendererFlushCoordinator = new OldFavoriteRendererFlushCoordinator()
+let queueOldFavoriteSessionMutation: OldFavoriteMutationQueue | undefined
 
 async function ensureOldFavoritePersistence() {
   oldFavoritePersistenceOpening ??= createOldFavoritePersistence({
@@ -481,6 +482,12 @@ function isTrustedOldFavoriteSessionSender(senderId: number): boolean {
   return [mainWindow?.webContents.id, floatingAssistant?.webContents.id]
     .filter((id): id is number => typeof id === 'number')
     .includes(senderId)
+}
+
+function assertTrustedOldFavoriteAssistantSender(event: { sender: { id: number } }) {
+  if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
+    throw new Error('Old favorite assistant request came from an untrusted renderer.')
+  }
 }
 
 function sendFloatingAssistantWorkspaceWhenReady(
@@ -924,6 +931,9 @@ function registerAssistantPreferenceHandlers() {
       if (!oldFavoriteWorkspaceService) throw new Error('Old favorite workspace service is unavailable.')
       return oldFavoriteWorkspaceService.readBatchSummary(accountMid, batchId)
     },
+    onMutationQueueReady: (queue) => {
+      queueOldFavoriteSessionMutation = queue
+    },
     onMutation: (dirty, mutation) => dirty
       ? oldFavoritePersistenceDirtyTracker.beginMutation()
       : oldFavoritePersistenceDirtyTracker.finishMutation(mutation as OldFavoritePersistenceMutation)
@@ -934,7 +944,7 @@ function registerAssistantPreferenceHandlers() {
     }
     const persistence = await ensureOldFavoritePersistence()
     if (!oldFavoriteWorkspaceService) throw new Error('Old favorite workspace service is unavailable.')
-    const saved = await resetOldFavoriteAccount({
+    const reset = () => resetOldFavoriteAccount({
       loadSessions: () => persistence.sessionStore.load(),
       resetRuntime: (account) => {
         const snapshot = persistence.runtimeStore.captureAccount(account)
@@ -951,6 +961,7 @@ function registerAssistantPreferenceHandlers() {
         finish: (mutation) => oldFavoritePersistenceDirtyTracker.finishMutation(mutation as OldFavoritePersistenceMutation)
       }
     }, accountMid)
+    const saved = await (queueOldFavoriteSessionMutation?.(reset) ?? reset())
     broadcastOldFavoriteSessions(saved)
     broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: accountMid.trim() })
     return saved
@@ -962,6 +973,10 @@ function registerAssistantPreferenceHandlers() {
     markAssistantRuntimeReady(event.sender.id)
   })
   ipcMain.on('old-favorite-runtime:get', (event, key: string, initialValue: unknown) => {
+    if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
+      event.returnValue = { key, value: initialValue, revision: 0, accountMid: '' }
+      return
+    }
     event.returnValue = oldFavoriteRuntimeStore?.get(key, initialValue) ?? {
       key, value: initialValue, revision: 0, accountMid: ''
     }
@@ -969,6 +984,10 @@ function registerAssistantPreferenceHandlers() {
   ipcMain.on(
     'old-favorite-runtime:set',
     (event, key: string, value: unknown, expectedRevision: number) => {
+      if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
+        event.returnValue = { accepted: false, key, value, revision: expectedRevision, accountMid: '' }
+        return
+      }
       const result = oldFavoriteRuntimeStore?.set(key, value, expectedRevision) ?? {
         accepted: true, key, value, revision: expectedRevision + 1, accountMid: ''
       }
@@ -999,6 +1018,10 @@ function registerAssistantPreferenceHandlers() {
     }
   )
   ipcMain.on('old-favorite-runtime:bind-account', (event, accountMid: string) => {
+    if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
+      event.returnValue = false
+      return
+    }
     const changed = oldFavoriteRuntimeStore?.bindAccount(accountMid) ?? false
     event.returnValue = changed
     if (changed) {
@@ -1006,6 +1029,10 @@ function registerAssistantPreferenceHandlers() {
     }
   })
   ipcMain.on('old-favorite-runtime:reset', (event) => {
+    if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
+      event.returnValue = false
+      return
+    }
     oldFavoriteRuntimeStore?.reset()
     event.returnValue = true
     broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: '' })
@@ -1236,41 +1263,50 @@ function registerAssistantPreferenceHandlers() {
       summarizeWithDeepSeek: Boolean(options?.summarizeWithDeepSeek)
     })
   )
-  ipcMain.handle('floating-assistant:ensure-ledgers', () =>
-    requestMainAssistantRuntime<AssistantAutomationResult>({ type: 'ensure-ledgers' })
-  )
+  ipcMain.handle('floating-assistant:ensure-ledgers', (event) => {
+    assertTrustedOldFavoriteAssistantSender(event)
+    return requestMainAssistantRuntime<AssistantAutomationResult>({ type: 'ensure-ledgers' })
+  })
   ipcMain.handle(
     'floating-assistant:save-ledgers',
-    (_event, ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) =>
-    requestMainAssistantRuntime<AssistantAutomationResult>({
-      type: 'save-ledgers',
-      ledgers,
-      options
-    })
+    (event, ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => {
+      assertTrustedOldFavoriteAssistantSender(event)
+      return requestMainAssistantRuntime<AssistantAutomationResult>({
+        type: 'save-ledgers',
+        ledgers,
+        options
+      })
+    }
   )
-  ipcMain.handle('floating-assistant:open-bilibili-favorites', () =>
-    requestMainAssistantRuntime<AssistantAutomationResult>({
+  ipcMain.handle('floating-assistant:open-bilibili-favorites', (event) => {
+    assertTrustedOldFavoriteAssistantSender(event)
+    return requestMainAssistantRuntime<AssistantAutomationResult>({
       type: 'open-bilibili-favorites'
     })
-  )
-  ipcMain.handle('floating-assistant:scan-old-favorites', (_event, options = {}) =>
-    requestMainAssistantRuntime<FavoriteLedgerPreview>({ type: 'scan-old-favorites', ...options })
-  )
+  })
+  ipcMain.handle('floating-assistant:scan-old-favorites', (event, options = {}) => {
+    assertTrustedOldFavoriteAssistantSender(event)
+    return requestMainAssistantRuntime<FavoriteLedgerPreview>({ type: 'scan-old-favorites', ...options })
+  })
   ipcMain.handle(
     'floating-assistant:commit-old-favorite-batch',
-    (_event, token: OldFavoriteBatchCommitToken) =>
-      requestMainAssistantRuntime<OldFavoriteBatchCommitResult>({
+    (event, token: OldFavoriteBatchCommitToken) => {
+      assertTrustedOldFavoriteAssistantSender(event)
+      return requestMainAssistantRuntime<OldFavoriteBatchCommitResult>({
         type: 'commit-old-favorite-batch',
         token
       })
+    }
   )
-  ipcMain.handle('floating-assistant:read-old-favorite-batch-status', () =>
-    requestMainAssistantRuntime<{ pending: boolean }>({
+  ipcMain.handle('floating-assistant:read-old-favorite-batch-status', (event) => {
+    assertTrustedOldFavoriteAssistantSender(event)
+    return requestMainAssistantRuntime<{ pending: boolean }>({
       type: 'read-old-favorite-batch-status'
     })
-  )
-  ipcMain.handle('floating-assistant:prepare-old-favorite-scan', () =>
-    requestMainAssistantRuntime<AssistantAutomationResult>({
+  })
+  ipcMain.handle('floating-assistant:prepare-old-favorite-scan', (event) => {
+    assertTrustedOldFavoriteAssistantSender(event)
+    return requestMainAssistantRuntime<AssistantAutomationResult>({
       type: 'prepare-old-favorite-scan'
     }).catch(() => ({
       ok: false,
@@ -1278,24 +1314,28 @@ function registerAssistantPreferenceHandlers() {
       missingTargets: ['bilibili-runtime'],
       message: 'B站页面或登录状态尚未准备好，请确认登录后重试。'
     }))
-  )
-  ipcMain.handle('floating-assistant:old-favorite-tag-enrichment', (_event, action = 'read') =>
-    requestMainAssistantRuntime({ type: 'old-favorite-tag-enrichment', action })
-  )
-  ipcMain.handle('floating-assistant:rejudge-old-favorite', (_event, item: FavoriteLedgerPreviewItem) =>
-    requestMainAssistantRuntime<FavoriteLedgerPreviewItem>({
+  })
+  ipcMain.handle('floating-assistant:old-favorite-tag-enrichment', (event, action = 'read') => {
+    assertTrustedOldFavoriteAssistantSender(event)
+    return requestMainAssistantRuntime({ type: 'old-favorite-tag-enrichment', action })
+  })
+  ipcMain.handle('floating-assistant:rejudge-old-favorite', (event, item: FavoriteLedgerPreviewItem) => {
+    assertTrustedOldFavoriteAssistantSender(event)
+    return requestMainAssistantRuntime<FavoriteLedgerPreviewItem>({
       type: 'rejudge-old-favorite',
       item
     })
-  )
+  })
   ipcMain.handle(
     'floating-assistant:execute-old-favorite-plan',
-    (_event, items: FavoriteLedgerPreviewItem[], expectedAccountMid?: string) =>
-      requestMainAssistantRuntime<AssistantAutomationResult>({
+    (event, items: FavoriteLedgerPreviewItem[], expectedAccountMid?: string) => {
+      assertTrustedOldFavoriteAssistantSender(event)
+      return requestMainAssistantRuntime<AssistantAutomationResult>({
         type: 'execute-old-favorite-plan',
         items,
         expectedAccountMid
       })
+    }
   )
   ipcMain.on('floating-assistant:close', () => {
     closeFloatingAssistantWindow()
@@ -1339,6 +1379,7 @@ if (singleInstanceGuard) app.whenReady().then(() => {
       const target = webContents.fromId(senderId)
       if (target && !target.isDestroyed()) target.send(channel, payload)
     },
+    queueMutation: (work) => queueOldFavoriteSessionMutation?.(work) ?? work(),
     onMutation: (dirty, mutation) => dirty
       ? oldFavoritePersistenceDirtyTracker.beginMutation()
       : oldFavoritePersistenceDirtyTracker.finishMutation(mutation as OldFavoritePersistenceMutation)

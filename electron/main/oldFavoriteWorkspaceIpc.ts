@@ -11,6 +11,7 @@ export function registerOldFavoriteWorkspaceIpc(options: {
   isTrustedSender: (senderId: number) => boolean
   send?: (senderId: number, channel: string, payload: unknown) => void
   onMutation?: (dirty: boolean, mutation?: unknown) => unknown
+  queueMutation?: <T>(work: () => Promise<T>) => Promise<T>
 }) {
   const subscriptions = new Map<number, Set<string>>()
   const assertTrusted = (event: IpcEvent) => {
@@ -19,16 +20,19 @@ export function registerOldFavoriteWorkspaceIpc(options: {
     }
   }
   const persistMutation = async <T>(work: () => Promise<T>): Promise<T> => {
-    const mutation = options.onMutation?.(true)
-    try {
-      const result = await work()
-      if (mutation === undefined) options.onMutation?.(false)
-      else options.onMutation?.(false, mutation)
-      return result
-    } catch (error) {
-      // Keep the dirty token when a write fails; shutdown will make a bounded flush attempt.
-      throw error
+    const run = async () => {
+      const mutation = options.onMutation?.(true)
+      try {
+        const result = await work()
+        if (mutation === undefined) options.onMutation?.(false)
+        else options.onMutation?.(false, mutation)
+        return result
+      } catch (error) {
+        // Keep the dirty token when a write fails; shutdown will make a bounded flush attempt.
+        throw error
+      }
     }
+    return options.queueMutation ? options.queueMutation(run) : run()
   }
 
   options.ipcMain.handle('old-favorite-workspace:open-account', (event, accountMid: string) => {

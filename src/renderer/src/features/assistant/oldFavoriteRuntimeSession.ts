@@ -12,6 +12,7 @@ type OldFavoriteRuntimeStore = {
 const GLOBAL_KEY = '__bilimiOldFavoriteRuntimeSession__' as const
 const ACCOUNT_INDEPENDENT_KEYS = new Set(['deepSeekConnectionStatus'])
 const BROADCAST_ONLY_KEYS = new Set(['oldFavoriteRuntimeStatus', 'sharedOperationFeedback'])
+const TRANSIENT_KEYS = new Set([...BROADCAST_ONLY_KEYS, 'scanProgress'])
 const RENDERER_ONLY_KEYS = new Set([
   'archiveEditorState',
   'archiveRedoChanges',
@@ -159,7 +160,7 @@ export function setOldFavoriteRuntimeValue<T>(
         store.revisions.get(key) ?? 0
       )
     : undefined
-  if (!canUseMainRuntime(key) && BROADCAST_ONLY_KEYS.has(key)) {
+  if (!canUseMainRuntime(key) && TRANSIENT_KEYS.has(key)) {
     void window.bilimiDesktop?.setOldFavoriteRuntimeTransientValue?.(
       key,
       resolvedValue,

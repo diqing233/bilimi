@@ -90,7 +90,11 @@ export type FavoriteLedgerScanProgress = {
     cacheHits: number
     succeeded: number
     failed: number
-    status: 'idle' | 'running' | 'paused' | 'complete'
+    status: 'idle' | 'running' | 'paused' | 'complete' | 'partial'
+    terminalReason?: 'cancelled'
+    errorKind?: 'login' | 'risk-control' | 'network' | 'unknown'
+    errorCode?: number
+    errorMessage?: string
   }
 }
 

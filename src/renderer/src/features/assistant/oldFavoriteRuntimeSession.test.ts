@@ -304,4 +304,22 @@ describe('oldFavoriteRuntimeSession', () => {
     expect(setTransient).toHaveBeenCalledWith('scanProgress', { completed: 26 }, 0)
     expect(session.getOldFavoriteRuntimeValue('scanProgress', null)).toEqual({ completed: 26 })
   })
+
+  it('sends a cleared transient progress value through the async bridge', async () => {
+    const setTransient = vi.fn().mockResolvedValue({
+      key: 'scanProgress', revision: 1, value: undefined, accountMid: '42', accepted: true
+    })
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: { setOldFavoriteRuntimeTransientValue: setTransient }
+    })
+    const session = await import('./oldFavoriteRuntimeSession')
+    session.resetOldFavoriteRuntimeSession()
+    session.setOldFavoriteRuntimeValue('scanProgress', { completed: 26 })
+    session.setOldFavoriteRuntimeValue('scanProgress', undefined)
+    await Promise.resolve()
+
+    expect(setTransient).toHaveBeenLastCalledWith('scanProgress', undefined, 1)
+    expect(session.getOldFavoriteRuntimeValue('scanProgress', null)).toBeUndefined()
+  })
 })
