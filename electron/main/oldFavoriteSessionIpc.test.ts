@@ -180,4 +180,113 @@ describe('registerOldFavoriteSessionIpc', () => {
       .rejects.toThrow('disk full')
     expect(onMutation.mock.calls).toEqual([[true]])
   })
+
+  it('ends a batch through one idempotent authoritative command and returns a lightweight snapshot', async () => {
+    const ipcMain = new FakeIpcMain()
+    const backend = new MemoryBackend()
+    const store = new OldFavoriteSessionStore(backend)
+    const batch = createOldFavoriteBatch({ accountMid: '42', kind: 'full', aids: [1, 2], now: '2026-07-16T08:00:00Z' })
+    store.save({ version: 1, batches: [batch], lease: null })
+    const broadcast = vi.fn()
+    registerOldFavoriteSessionIpc({ ipcMain, store, isTrustedSender: () => true, broadcast })
+
+    const first = await ipcMain.invoke(
+      'old-favorite-sessions:end-batch', 7, batch.id, '2026-07-16T10:00:00Z'
+    ) as { id: string; status: string; endedAt: string; segmentCount: number; aidCount: number }
+    const second = await ipcMain.invoke(
+      'old-favorite-sessions:end-batch', 7, batch.id, '2026-07-16T11:00:00Z'
+    )
+
+    expect(first).toEqual({
+      id: batch.id,
+      accountMid: '42',
+      kind: 'full',
+      status: 'ended',
+      endedAt: '2026-07-16T10:00:00Z',
+      segmentCount: 1,
+      aidCount: 2
+    })
+    expect(second).toEqual(first)
+    expect(broadcast).toHaveBeenCalledTimes(1)
+  })
+
+  it('ends every segment when an authoritative batch reaches the ended state', async () => {
+    const ipcMain = new FakeIpcMain()
+    const backend = new MemoryBackend()
+    const store = new OldFavoriteSessionStore(backend)
+    const batch = createOldFavoriteBatch({
+      accountMid: '42',
+      kind: 'full',
+      aids: Array.from({ length: 2_001 }, (_, index) => index + 1),
+      now: '2026-07-16T08:00:00Z'
+    })
+    store.save({ version: 1, batches: [batch], lease: null })
+    registerOldFavoriteSessionIpc({ ipcMain, store, isTrustedSender: () => true, broadcast: vi.fn() })
+
+    await ipcMain.invoke('old-favorite-sessions:end-batch', 7, batch.id, '2026-07-16T10:00:00Z')
+
+    const persisted = backend.value as OldFavoriteSessionsState
+    expect(persisted.batches[0]).toMatchObject({ status: 'ended' })
+    expect(persisted.batches[0].segments).toHaveLength(2)
+    expect(persisted.batches[0].segments.every((segment) => segment.status === 'ended')).toBe(true)
+    expect(persisted.batches[0].segments.every((segment) => segment.task === undefined)).toBe(true)
+  })
+
+  it('serializes reset and begin so reset cannot be followed by a stale active batch', async () => {
+    const ipcMain = new FakeIpcMain()
+    const backend = new MemoryBackend()
+    const store = new OldFavoriteSessionStore(backend)
+    registerOldFavoriteSessionIpc({ ipcMain, store, isTrustedSender: () => true, broadcast: vi.fn() })
+
+    const beginning = ipcMain.invoke(
+      'old-favorite-sessions:begin-full-scan', 7, '42', '2026-07-16T10:00:00Z'
+    )
+    const resetting = ipcMain.invoke('old-favorite-sessions:reset-account', 7, '42')
+
+    await Promise.all([beginning, resetting])
+    expect(store.load().batches.filter((candidate) => candidate.accountMid === '42')).toEqual([])
+  })
+
+  it('lets an archived workspace summary force the session batch to ended without loading details', async () => {
+    const ipcMain = new FakeIpcMain()
+    const store = new OldFavoriteSessionStore(new MemoryBackend())
+    const batch = createOldFavoriteBatch({ accountMid: '42', kind: 'full', aids: [1], now: '2026-07-16T08:00:00Z' })
+    store.save({ version: 1, batches: [batch], lease: null })
+    const getWorkspaceBatchSummary = vi.fn().mockResolvedValue({
+      status: 'archived' as const,
+      finalizedAt: '2026-07-16T09:00:00Z'
+    })
+    registerOldFavoriteSessionIpc({
+      ipcMain,
+      store,
+      isTrustedSender: () => true,
+      broadcast: vi.fn(),
+      getWorkspaceBatchSummary
+    } as never)
+
+    await expect(ipcMain.invoke(
+      'old-favorite-sessions:end-batch', 7, batch.id, '2026-07-16T10:00:00Z'
+    )).resolves.toMatchObject({ status: 'ended', endedAt: '2026-07-16T09:00:00Z' })
+    expect(getWorkspaceBatchSummary).toHaveBeenCalledWith('42', batch.id)
+    expect(store.load().batches[0]).toMatchObject({ status: 'ended', endedAt: '2026-07-16T09:00:00Z' })
+  })
+
+  it('exposes an atomic incremental-scan command to both renderer senders', async () => {
+    const ipcMain = new FakeIpcMain()
+    const store = new OldFavoriteSessionStore(new MemoryBackend())
+    registerOldFavoriteSessionIpc({
+      ipcMain, store, isTrustedSender: (id) => [7, 8].includes(id), broadcast: vi.fn()
+    })
+
+    const first = await ipcMain.invoke(
+      'old-favorite-sessions:begin-incremental-scan', 7, '42', '2026-07-18T08:00:00Z', { currentStep: 'scan' }
+    ) as { batch: { id: string; kind: string }; acquired: boolean }
+    const second = await ipcMain.invoke(
+      'old-favorite-sessions:begin-incremental-scan', 8, '42', '2026-07-18T08:00:01Z', { currentStep: 'scan' }
+    ) as { batch: { id: string }; acquired: boolean }
+
+    expect(first).toMatchObject({ acquired: true, batch: { kind: 'incremental' } })
+    expect(second).toEqual({ batch: expect.objectContaining({ id: first.batch.id }), acquired: false })
+    expect(store.load().lease).toMatchObject({ batchId: first.batch.id, task: 'scan' })
+  })
 })

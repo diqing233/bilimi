@@ -31,6 +31,7 @@ import type {
   OldFavoriteBatchCommitResult
 } from '../../src/renderer/src/features/assistant/assistantRuntimeTypes'
 import type { OldFavoriteBatchCommitToken } from '../../src/renderer/src/features/favorites/favoriteLedgerApi'
+import type { OldFavoriteBatchLifecycleSnapshot } from '../main/oldFavoriteSessionStore'
 import type {
   AssistantPetHint,
   AssistantPetState
@@ -135,6 +136,13 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
       batch: OldFavoriteSessionsState['batches'][number]
       acquired: boolean
     }>,
+  beginOldFavoriteIncrementalScan: (accountMid: string, now: string, snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']) =>
+    ipcRenderer.invoke('old-favorite-sessions:begin-incremental-scan', accountMid, now, snapshot) as Promise<{
+      batch: OldFavoriteSessionsState['batches'][number]
+      acquired: boolean
+    }>,
+  endOldFavoriteBatch: (batchId: string, endedAt: string) =>
+    ipcRenderer.invoke('old-favorite-sessions:end-batch', batchId, endedAt) as Promise<OldFavoriteBatchLifecycleSnapshot>,
   saveOldFavoriteSessions: (state: OldFavoriteSessionsState) =>
     ipcRenderer.invoke('old-favorite-sessions:save', state) as Promise<OldFavoriteSessionsState>,
   resetOldFavoriteSessionsAccount: (accountMid: string) =>

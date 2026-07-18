@@ -35,6 +35,7 @@ import type { AssistantPetHint, AssistantPetState } from './features/assistant/p
 import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from './features/favorites/favoriteLedgerPreview'
 import type { OldFavoriteBatchCommitToken } from './features/favorites/favoriteLedgerApi'
 import type { OldFavoriteAccountIndex, OldFavoriteBatchDetail, OldFavoriteOverlayKind, OldFavoriteOverlayPatch } from '../../../electron/main/oldFavoriteWorkspaceTypes'
+import type { OldFavoriteBatchLifecycleSnapshot } from '../../../electron/main/oldFavoriteSessionStore'
 
 type BilimiDesktopApi = {
   version: string
@@ -99,6 +100,12 @@ type BilimiDesktopApi = {
         now: string,
         snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']
       ) => Promise<{ batch: OldFavoriteSessionsState['batches'][number]; acquired: boolean }>
+      beginOldFavoriteIncrementalScan?: (
+        accountMid: string,
+        now: string,
+        snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']
+      ) => Promise<{ batch: OldFavoriteSessionsState['batches'][number]; acquired: boolean }>
+      endOldFavoriteBatch?: (batchId: string, endedAt: string) => Promise<OldFavoriteBatchLifecycleSnapshot>
   saveOldFavoriteSessions?: (state: OldFavoriteSessionsState) => Promise<OldFavoriteSessionsState>
   resetOldFavoriteSessionsAccount?: (accountMid: string) => Promise<OldFavoriteSessionsState>
   claimOldFavoriteTaskLease?: (

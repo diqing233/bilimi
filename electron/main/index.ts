@@ -70,7 +70,11 @@ import {
   OldFavoritePersistenceDirtyTracker,
   type OldFavoritePersistenceMutation
 } from './oldFavoritePersistenceDirtyTracker'
-import { createOldFavoriteQuitBarrier, shouldFlushOldFavoriteOnQuit } from './oldFavoriteQuitBarrier'
+import {
+  createOldFavoriteQuitBarrier,
+  prepareOldFavoriteStateForShutdown,
+  shouldFlushOldFavoriteOnQuit
+} from './oldFavoriteQuitBarrier'
 import { OldFavoriteRendererFlushCoordinator } from './oldFavoriteRendererFlushCoordinator'
 import { registerOldFavoriteSessionIpc } from './oldFavoriteSessionIpc'
 import { resetOldFavoriteAccount } from './oldFavoriteAccountReset'
@@ -916,6 +920,10 @@ function registerAssistantPreferenceHandlers() {
     getStore: async () => (await ensureOldFavoritePersistence()).sessionStore,
     isTrustedSender: isTrustedOldFavoriteSessionSender,
     broadcast: broadcastOldFavoriteSessions,
+    getWorkspaceBatchSummary: async (accountMid, batchId) => {
+      if (!oldFavoriteWorkspaceService) throw new Error('Old favorite workspace service is unavailable.')
+      return oldFavoriteWorkspaceService.readBatchSummary(accountMid, batchId)
+    },
     onMutation: (dirty, mutation) => dirty
       ? oldFavoritePersistenceDirtyTracker.beginMutation()
       : oldFavoritePersistenceDirtyTracker.finishMutation(mutation as OldFavoritePersistenceMutation)
@@ -1388,9 +1396,12 @@ const oldFavoriteQuitBarrier = createOldFavoriteQuitBarrier({
     oldFavoriteSessionStore
   ),
   prepare: () => {
-    if (!oldFavoriteSessionStore?.load().lease) return
-    oldFavoriteSessionStore.saveForShutdown(oldFavoriteSessionStore.load())
-    oldFavoritePersistenceDirtyTracker.beginMutation()
+    if (!oldFavoriteSessionStore) return
+    prepareOldFavoriteStateForShutdown({
+      sessionStore: oldFavoriteSessionStore,
+      runtimeStore: oldFavoriteRuntimeStore,
+      beginMutation: () => oldFavoritePersistenceDirtyTracker.beginMutation()
+    })
   },
   flush: async () => {
     appQuitting = true

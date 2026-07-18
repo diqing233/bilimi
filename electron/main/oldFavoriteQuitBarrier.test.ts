@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createOldFavoriteQuitBarrier, shouldFlushOldFavoriteOnQuit } from './oldFavoriteQuitBarrier'
+import {
+  createOldFavoriteQuitBarrier,
+  prepareOldFavoriteStateForShutdown,
+  shouldFlushOldFavoriteOnQuit
+} from './oldFavoriteQuitBarrier'
+import { createOldFavoriteBatch, type OldFavoriteSessionsState } from '../../src/shared/oldFavoriteSessions'
 
 describe('createOldFavoriteQuitBarrier', () => {
   it('flushes an opened session store with a durable active lease even when dirty trackers are clean', () => {
@@ -7,6 +12,36 @@ describe('createOldFavoriteQuitBarrier', () => {
 
     expect(shouldFlushOldFavoriteOnQuit(false, false, { load })).toBe(true)
     expect(load).toHaveBeenCalledOnce()
+  })
+
+  it('flushes an opened session store with running segments even when no lease remains', () => {
+    const load = vi.fn().mockReturnValue({
+      lease: null,
+      batches: [{ status: 'active', segments: [{ status: 'running' }] }]
+    })
+
+    expect(shouldFlushOldFavoriteOnQuit(false, false, { load })).toBe(true)
+  })
+
+  it('prepares runtime and session state together for running work without a lease', () => {
+    const batch = createOldFavoriteBatch({ accountMid: '42', kind: 'full', aids: [1], now: '2026-07-16T08:00:00Z' })
+    batch.segments[0].status = 'running'
+    const state: OldFavoriteSessionsState = {
+      version: 1,
+      lease: null,
+      batches: [batch]
+    }
+    const sessionStore = {
+      load: vi.fn(() => state),
+      saveForShutdown: vi.fn()
+    }
+    const runtimeStore = { prepareForShutdown: vi.fn() }
+    const beginMutation = vi.fn()
+
+    expect(prepareOldFavoriteStateForShutdown({ sessionStore, runtimeStore, beginMutation })).toBe(true)
+    expect(sessionStore.saveForShutdown).toHaveBeenCalledWith(state)
+    expect(runtimeStore.prepareForShutdown).toHaveBeenCalledOnce()
+    expect(beginMutation).toHaveBeenCalledOnce()
   })
 
   it('does not initialize or read an unopened session store for a clean quit', () => {

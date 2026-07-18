@@ -86,6 +86,63 @@ describe('OldFavoriteWorkspaceService', () => {
     expect(result.id).toBe('replacement')
     expect((await service.openAccount('42')).batches.map((batch) => batch.id)).toEqual(['empty', 'replacement'])
   })
+
+  it('lets the archived manifest repair an active index through a lightweight status read', async () => {
+    const root = await createRoot()
+    const service = new OldFavoriteWorkspaceService({ root })
+    await service.openAccount('42')
+    const batch = await service.createBatch({ accountMid: '42', kind: 'full', id: 'archived-status' })
+    await service.finalizeBatch('42', batch.id)
+
+    const indexPath = join(root, 'accounts', '42', 'index.json')
+    const index = JSON.parse(await readFile(indexPath, 'utf8')) as { batches: Array<Record<string, unknown>> }
+    index.batches[0].status = 'active'
+    await writeFile(indexPath, JSON.stringify(index), 'utf8')
+
+    const access = vi.fn()
+    const restarted = new OldFavoriteWorkspaceService({ root, onFileAccess: access })
+    const statusReader = restarted as OldFavoriteWorkspaceService & {
+      readBatchSummary?: (accountMid: string, batchId: string) => Promise<{ status: string } | null>
+    }
+    expect(statusReader.readBatchSummary).toBeTypeOf('function')
+    if (!statusReader.readBatchSummary) return
+
+    await expect(statusReader.readBatchSummary('42', batch.id)).resolves.toMatchObject({ status: 'archived' })
+    expect(access.mock.calls.some(([operation, path]) => operation === 'read' && String(path).endsWith('.jsonl'))).toBe(false)
+    expect((await restarted.openAccount('42')).batches[0].status).toBe('archived')
+  })
+
+  it('does not treat an archived manifest as an active full batch during a later create', async () => {
+    const root = await createRoot()
+    const accountDirectory = join(root, 'accounts', '42')
+    const batchDirectory = join(accountDirectory, 'batches', 'archived-key')
+    await mkdir(batchDirectory, { recursive: true })
+    await writeFile(join(accountDirectory, 'index.json'), JSON.stringify({
+      version: 2,
+      accountMid: '42',
+      batches: [{ id: 'archived', storageKey: 'archived-key', kind: 'full', createdAt: '2026-07-17T10:00:00Z', status: 'active' }]
+    }), 'utf8')
+    await writeFile(join(batchDirectory, 'manifest.json'), JSON.stringify({
+      version: 2,
+      accountMid: '42',
+      id: 'archived',
+      storageKey: 'archived-key',
+      kind: 'full',
+      createdAt: '2026-07-17T10:00:00Z',
+      status: 'archived',
+      finalizedAt: '2026-07-17T11:00:00Z',
+      chunks: []
+    }), 'utf8')
+    const service = new OldFavoriteWorkspaceService({ root })
+
+    const result = await service.createBatch({ accountMid: '42', kind: 'full', id: 'new-full' })
+
+    expect(result.id).toBe('new-full')
+    expect((await service.openAccount('42')).batches).toEqual([
+      expect.objectContaining({ id: 'archived', status: 'archived', finalizedAt: '2026-07-17T11:00:00Z' }),
+      result
+    ])
+  })
   it('continues an empty persisted full placeholder after restart', async () => {
     const root = await createRoot()
     const first = new OldFavoriteWorkspaceService({ root })
@@ -487,6 +544,63 @@ describe('OldFavoriteWorkspaceService', () => {
     expect(access.mock.calls.some(([operation, path]) => (
       operation === 'write' && String(path).endsWith('overlays.json')
     ))).toBe(false)
+  })
+
+  it('serializes an in-flight overlay patch before finalizing the batch', async () => {
+    const root = await createRoot()
+    const service = new OldFavoriteWorkspaceService({ root })
+    await service.openAccount('100')
+    const batch = await service.createBatch({ accountMid: '100', kind: 'full' })
+    const internal = service as unknown as {
+      loadOverlays: (accountMid: string, batchId: string) => Promise<Record<string, Record<string, unknown>>>
+    }
+    const loadOverlays = internal.loadOverlays.bind(service)
+    let releaseOverlayLoad!: () => void
+    let markOverlayLoadStarted!: () => void
+    const overlayLoadStarted = new Promise<void>((resolve) => { markOverlayLoadStarted = resolve })
+    const overlayLoadReleased = new Promise<void>((resolve) => { releaseOverlayLoad = resolve })
+    internal.loadOverlays = async (accountMid, batchId) => {
+      markOverlayLoadStarted()
+      await overlayLoadReleased
+      return loadOverlays(accountMid, batchId)
+    }
+
+    const patching = service.patchOverlay('100', batch.id, 'user', { aid: 1, targets: ['manual'] })
+    await overlayLoadStarted
+    const finalizing = service.finalizeBatch('100', batch.id)
+    const finalizedBeforeOverlayLoad = await Promise.race([
+      finalizing.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 50))
+    ])
+    expect(finalizedBeforeOverlayLoad).toBe(false)
+    releaseOverlayLoad()
+    await Promise.all([patching, finalizing])
+
+    expect((await service.loadBatch('100', batch.id)).overlays.user).toEqual({
+      '1': { aid: 1, targets: ['manual'] }
+    })
+  })
+
+  it('does not retain a failed overlay patch in cache', async () => {
+    const root = await createRoot()
+    const service = new OldFavoriteWorkspaceService({ root })
+    await service.openAccount('100')
+    const batch = await service.createBatch({ accountMid: '100', kind: 'full' })
+    await service.patchOverlay('100', batch.id, 'user', { aid: 1, targets: ['original'] })
+
+    const internal = service as unknown as {
+      atomicWriteJson: (path: string, value: unknown) => Promise<void>
+    }
+    const originalWrite = internal.atomicWriteJson.bind(service)
+    internal.atomicWriteJson = async () => { throw new Error('disk full') }
+
+    await expect(service.patchOverlay('100', batch.id, 'user', { aid: 1, targets: ['failed'] }))
+      .rejects.toThrow('disk full')
+    internal.atomicWriteJson = originalWrite
+
+    await expect(service.loadBatch('100', batch.id)).resolves.toMatchObject({
+      overlays: { user: { '1': { aid: 1, targets: ['original'] } } }
+    })
   })
 
   it('removes every local layer for one account without invoking external mutations', async () => {

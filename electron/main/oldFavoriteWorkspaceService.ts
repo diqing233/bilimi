@@ -89,6 +89,31 @@ export class OldFavoriteWorkspaceService {
     return structuredClone(index)
   }
 
+  async readBatchSummary(accountMid: string, batchId: string): Promise<OldFavoriteBatchSummary | null> {
+    const account = validAccountMid(accountMid)
+    return this.queueWrite(async () => {
+      const index = await this.requireIndex(account)
+      const summary = index.batches.find((batch) => batch.id === batchId)
+      if (!summary) return null
+      const manifest = await this.loadManifest(account, batchId)
+      if (manifest.status !== 'archived') return structuredClone(summary)
+      const repaired = {
+        ...summary,
+        status: 'archived' as const,
+        finalizedAt: manifest.finalizedAt
+      }
+      if (summary.status !== repaired.status || summary.finalizedAt !== repaired.finalizedAt) {
+        const nextIndex = {
+          ...index,
+          batches: index.batches.map((item) => item.id === batchId ? repaired : item)
+        }
+        await this.atomicWriteJson(this.indexPath(account), nextIndex)
+        index.batches.splice(index.batches.findIndex((item) => item.id === batchId), 1, repaired)
+      }
+      return structuredClone(repaired)
+    })
+  }
+
   async createBatch(options: {
     accountMid: string
     kind: OldFavoriteBatchSummary['kind']
@@ -115,6 +140,16 @@ export class OldFavoriteWorkspaceService {
           .reverse()
         for (const activeFull of activeFullCandidates) {
           const manifest = await this.loadManifest(account, activeFull.id).catch(() => null)
+          if (manifest?.status === 'archived') {
+            const repaired = { ...activeFull, status: 'archived' as const, finalizedAt: manifest.finalizedAt }
+            const nextIndex = {
+              ...index,
+              batches: index.batches.map((item) => item.id === activeFull.id ? repaired : item)
+            }
+            await this.atomicWriteJson(this.indexPath(account), nextIndex)
+            index.batches.splice(index.batches.findIndex((item) => item.id === activeFull.id), 1, repaired)
+            continue
+          }
           if (manifest?.scanPlaceholder ||
             manifest?.chunks.some((chunk) => chunk.count > 0) ||
             this.replacementFullBatchIds.has(activeFull.id)) {
@@ -247,13 +282,16 @@ export class OldFavoriteWorkspaceService {
     patch: OldFavoriteOverlayPatch | OldFavoriteOverlayPatch[]
   ) {
     const account = validAccountMid(accountMid)
-    const manifest = await this.loadManifest(account, batchId)
-    if (manifest.status === 'archived') throw new Error('Old favorite batch is finalized.')
-    const overlays = await this.loadOverlays(account, batchId)
-    for (const value of Array.isArray(patch) ? patch : [patch]) {
-      overlays[kind][String(value.aid)] = structuredClone(value)
-    }
-    await this.queueWrite(() => this.atomicWriteJson(this.overlayPath(account, batchId), overlays))
+    await this.queueWrite(async () => {
+      const manifest = await this.loadManifest(account, batchId)
+      if (manifest.status === 'archived') throw new Error('Old favorite batch is finalized.')
+      const overlays = structuredClone(await this.loadOverlays(account, batchId))
+      for (const value of Array.isArray(patch) ? patch : [patch]) {
+        overlays[kind][String(value.aid)] = structuredClone(value)
+      }
+      await this.atomicWriteJson(this.overlayPath(account, batchId), overlays)
+      this.overlayCache.set(this.batchKey(account, batchId), overlays)
+    })
   }
 
   async loadBatch(accountMid: string, batchId: string): Promise<OldFavoriteBatchDetail> {
