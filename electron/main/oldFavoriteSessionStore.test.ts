@@ -342,4 +342,47 @@ describe('OldFavoriteSessionStore', () => {
     expect(store.load().batches.filter((batch) => batch.accountMid === '42' && batch.kind === 'incremental' && batch.status === 'active')).toHaveLength(1)
   })
 
+  it('atomically retires an empty incremental batch and prevents stale saves from reviving it', () => {
+    const backend = new MemoryBackend()
+    const store = new OldFavoriteSessionStore(backend)
+    const started = store.beginIncrementalScan('42', '2026-07-16T10:00:00Z', undefined, 7)
+    const stale = store.load()
+
+    expect(store.discardEmptyIncrementalBatch(started.batch.id, '42', 7)).toEqual({
+      batchId: started.batch.id,
+      accountMid: '42',
+      discarded: true
+    })
+    expect(store.load()).toEqual({ version: 1, batches: [], lease: null })
+
+    store.save(stale)
+    expect(new OldFavoriteSessionStore(backend).load().batches).toEqual([])
+    expect(new OldFavoriteSessionStore(backend).discardEmptyIncrementalBatch(
+      started.batch.id, '42', 7
+    )).toMatchObject({ discarded: true })
+  })
+
+  it('rejects retiring non-empty, full, ended, wrong-account, or foreign-owned batches', () => {
+    const backend = new MemoryBackend()
+    const store = new OldFavoriteSessionStore(backend)
+    const empty = store.beginIncrementalScan('42', '2026-07-16T10:00:00Z', undefined, 7)
+
+    expect(() => store.discardEmptyIncrementalBatch(empty.batch.id, '99', 7)).toThrow()
+    expect(() => store.discardEmptyIncrementalBatch(empty.batch.id, '42', 8)).toThrow()
+    expect(store.load().batches).toHaveLength(1)
+
+    expect(store.releaseLease(empty.batch.id, empty.batch.segments[0].id, 7)).toBe(true)
+    const state = store.load()
+    state.batches[0].segments[0].aids = [1]
+    store.save(state)
+    expect(() => store.discardEmptyIncrementalBatch(empty.batch.id, '42', 7)).toThrow()
+
+    const full = createOldFavoriteBatch({ accountMid: '42', kind: 'full', aids: [], now: '2026-07-16T11:00:00Z' })
+    const ended = createOldFavoriteBatch({ accountMid: '42', kind: 'incremental', aids: [], now: '2026-07-16T12:00:00Z' })
+    ended.status = 'ended'
+    store.save({ ...store.load(), batches: [...store.load().batches, full, ended] })
+    expect(() => store.discardEmptyIncrementalBatch(full.id, '42', 7)).toThrow()
+    expect(() => store.discardEmptyIncrementalBatch(ended.id, '42', 7)).toThrow()
+  })
+
 })

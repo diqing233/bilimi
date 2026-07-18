@@ -155,4 +155,35 @@ describe('registerOldFavoriteWorkspaceIpc', () => {
 
     expect(onMutation.mock.calls).toEqual([[true], [false, mutation]])
   })
+
+  it('tracks recovery writes as a bounded persistence mutation', async () => {
+    const ipcMain = new FakeIpcMain()
+    const mutation = Symbol('recovery-mutation')
+    const onMutation = vi.fn((dirty: boolean) => dirty ? mutation : undefined)
+    const service = { recoverBatch: vi.fn().mockResolvedValue({ discardedTail: 'base-000001.jsonl' }) }
+    registerOldFavoriteWorkspaceIpc({
+      ipcMain, service: service as never, isTrustedSender: () => true, onMutation
+    })
+
+    await expect(ipcMain.invoke(
+      'old-favorite-workspace:recover-batch', 7, '42', 'b1'
+    )).resolves.toEqual({ discardedTail: 'base-000001.jsonl' })
+    expect(onMutation.mock.calls).toEqual([[true], [false, mutation]])
+  })
+
+  it('keeps recovery persistence dirty when repair fails', async () => {
+    const ipcMain = new FakeIpcMain()
+    const onMutation = vi.fn()
+    registerOldFavoriteWorkspaceIpc({
+      ipcMain,
+      service: { recoverBatch: vi.fn().mockRejectedValue(new Error('disk full')) } as never,
+      isTrustedSender: () => true,
+      onMutation
+    })
+
+    await expect(ipcMain.invoke(
+      'old-favorite-workspace:recover-batch', 7, '42', 'b1'
+    )).rejects.toThrow('disk full')
+    expect(onMutation.mock.calls).toEqual([[true]])
+  })
 })

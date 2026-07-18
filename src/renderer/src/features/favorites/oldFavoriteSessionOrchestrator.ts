@@ -25,6 +25,15 @@ export type OldFavoriteSessionCoordinator = {
     now: string,
     snapshot?: OldFavoriteBatchSnapshot
   ) => Promise<{ batch: OldFavoriteBatch; acquired: boolean }> | undefined
+  beginIncrementalScan?: (
+    accountMid: string,
+    now: string,
+    snapshot?: OldFavoriteBatchSnapshot
+  ) => Promise<{ batch: OldFavoriteBatch; acquired: boolean }> | undefined
+  discardEmptyIncrementalBatch?: (
+    batchId: string,
+    accountMid: string
+  ) => Promise<{ batchId: string; accountMid: string; discarded: true }> | undefined
   acquire: (
     batchId: string,
     segmentId: string,
@@ -104,6 +113,12 @@ export class OldFavoriteSessionOrchestrator {
       this.fullScanBeginTails.set(accountMid, next.catch(() => undefined))
       return next
     }
+    const atomicResult = await this.coordinator.beginIncrementalScan?.(
+      accountMid,
+      options.now,
+      options.snapshot
+    )
+    if (atomicResult) return atomicResult
     return this.beginScanNow(options, accountMid)
   }
 
@@ -333,7 +348,12 @@ export class OldFavoriteSessionOrchestrator {
     return saved.batches.find((batch) => batch.id === batchId) ?? updated
   }
 
-  async discardBatch(batchId: string): Promise<OldFavoriteSessionsState> {
+  async discardBatch(batchId: string, accountMid: string): Promise<OldFavoriteSessionsState> {
+    const authoritativeResult = await this.coordinator.discardEmptyIncrementalBatch?.(
+      batchId,
+      accountMid.trim()
+    )
+    if (authoritativeResult) return this.coordinator.load()
     const state = await this.coordinator.load()
     const saved = await this.coordinator.save({
       ...state,

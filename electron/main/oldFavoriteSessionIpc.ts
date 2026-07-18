@@ -137,6 +137,30 @@ export function registerOldFavoriteSessionIpc(options: RegisterOptions): void {
     }
   )
   ipcMain.handle(
+    'old-favorite-sessions:discard-empty-incremental',
+    async (event, batchId: string, accountMid: string) => {
+      assertTrusted(event, isTrustedSender)
+      return queueMutation(async () => {
+        const store = await getStore()
+        const previous = store.load()
+        const result = store.discardEmptyIncrementalBatch(batchId, accountMid, event.sender.id)
+        const changed = previous.batches.some((batch) => batch.id === batchId)
+        if (!changed) return result
+        const mutation = options.onMutation?.(true)
+        try {
+          await store.flush()
+        } catch (error) {
+          store.restore(previous)
+          await store.flush().catch(() => undefined)
+          throw error
+        }
+        finishMutation(options, mutation)
+        broadcast(store.load())
+        return result
+      })
+    }
+  )
+  ipcMain.handle(
     'old-favorite-sessions:claim-lease',
     async (event, batchId: string, segmentId: string, task: OldFavoriteTaskKind, accountMid: string) => {
       assertTrusted(event, isTrustedSender)

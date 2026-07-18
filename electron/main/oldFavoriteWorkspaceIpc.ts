@@ -41,7 +41,7 @@ export function registerOldFavoriteWorkspaceIpc(options: {
   })
   options.ipcMain.handle('old-favorite-workspace:recover-batch', (event, accountMid: string, batchId: string) => {
     assertTrusted(event)
-    return options.service.recoverBatch(accountMid, batchId)
+    return persistMutation(() => options.service.recoverBatch(accountMid, batchId))
   })
   options.ipcMain.handle('old-favorite-workspace:create-batch', (event, input: Parameters<OldFavoriteWorkspaceService['createBatch']>[0]) => {
     assertTrusted(event)

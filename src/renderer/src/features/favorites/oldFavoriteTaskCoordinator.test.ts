@@ -34,11 +34,27 @@ describe('OldFavoriteTaskCoordinator', () => {
     const claimLease = vi.fn(async () => true)
     const releaseLease = vi.fn(async () => true)
     const subscribe = vi.fn(() => () => undefined)
+    const beginIncrementalScan = vi.fn(async () => ({ batch: state.batches[1], acquired: true }))
+    const endBatch = vi.fn(async () => ({
+      id: state.batches[0].id,
+      accountMid: '42',
+      kind: 'full' as const,
+      status: 'ended' as const,
+      endedAt: '2026-07-16T10:00:00Z',
+      segmentCount: 1,
+      aidCount: 1
+    }))
+    const discardEmptyIncremental = vi.fn(async () => ({
+      batchId: state.batches[1].id, accountMid: '42', discarded: true
+    }))
     Object.defineProperty(window, 'bilimiDesktop', {
       configurable: true,
       value: {
         loadOldFavoriteSessions: load,
         saveOldFavoriteSessions: save,
+        beginOldFavoriteIncrementalScan: beginIncrementalScan,
+        endOldFavoriteBatch: endBatch,
+        discardOldFavoriteEmptyIncrementalBatch: discardEmptyIncremental,
         claimOldFavoriteTaskLease: claimLease,
         releaseOldFavoriteTaskLease: releaseLease,
         onOldFavoriteSessionsChanged: subscribe
@@ -49,12 +65,18 @@ describe('OldFavoriteTaskCoordinator', () => {
 
     await expect(coordinator.load()).resolves.toEqual(state)
     await coordinator.save(state)
+    await coordinator.beginIncrementalScan('42', '2026-07-16T09:00:00Z')
+    await coordinator.endBatch(state.batches[0].id, '2026-07-16T10:00:00Z')
+    await coordinator.discardEmptyIncrementalBatch(state.batches[1].id, '42')
     await coordinator.acquire(batch.id, batch.segments[0].id, 'scan', '42')
     await coordinator.release(batch.id, batch.segments[0].id)
     coordinator.subscribe(() => undefined)
 
     expect(load).toHaveBeenCalledOnce()
     expect(save).toHaveBeenCalledWith(state)
+    expect(beginIncrementalScan).toHaveBeenCalledWith('42', '2026-07-16T09:00:00Z', undefined)
+    expect(endBatch).toHaveBeenCalledWith(state.batches[0].id, '2026-07-16T10:00:00Z')
+    expect(discardEmptyIncremental).toHaveBeenCalledWith(state.batches[1].id, '42')
     expect(claimLease).toHaveBeenCalledWith(batch.id, batch.segments[0].id, 'scan', '42')
     expect(releaseLease).toHaveBeenCalledWith(batch.id, batch.segments[0].id)
     expect(subscribe).toHaveBeenCalledOnce()

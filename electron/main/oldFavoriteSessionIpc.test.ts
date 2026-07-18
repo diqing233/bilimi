@@ -271,6 +271,45 @@ describe('registerOldFavoriteSessionIpc', () => {
     expect(store.load().batches[0]).toMatchObject({ status: 'ended', endedAt: '2026-07-16T09:00:00Z' })
   })
 
+  it('durably discards an empty incremental batch once and broadcasts the retired state', async () => {
+    const ipcMain = new FakeIpcMain()
+    const backend = new MemoryBackend()
+    const store = new OldFavoriteSessionStore(backend)
+    const started = store.beginIncrementalScan('42', '2026-07-16T10:00:00Z', undefined, 7)
+    const broadcast = vi.fn()
+    registerOldFavoriteSessionIpc({ ipcMain, store, isTrustedSender: () => true, broadcast })
+
+    await expect(ipcMain.invoke(
+      'old-favorite-sessions:discard-empty-incremental', 7, started.batch.id, '42'
+    )).resolves.toEqual({ batchId: started.batch.id, accountMid: '42', discarded: true })
+    await expect(ipcMain.invoke(
+      'old-favorite-sessions:discard-empty-incremental', 7, started.batch.id, '42'
+    )).resolves.toMatchObject({ discarded: true })
+
+    expect(store.load().batches).toEqual([])
+    expect(broadcast).toHaveBeenCalledOnce()
+  })
+
+  it('rolls back an empty incremental discard when its durable flush fails', async () => {
+    const ipcMain = new FakeIpcMain()
+    const backend = new MemoryBackend()
+    const store = new OldFavoriteSessionStore(backend)
+    const started = store.beginIncrementalScan('42', '2026-07-16T10:00:00Z', undefined, 7)
+    const previous = store.load()
+    backend.flush.mockRejectedValueOnce(new Error('disk full'))
+    const broadcast = vi.fn()
+    registerOldFavoriteSessionIpc({ ipcMain, store, isTrustedSender: () => true, broadcast })
+
+    await expect(ipcMain.invoke(
+      'old-favorite-sessions:discard-empty-incremental', 7, started.batch.id, '42'
+    )).rejects.toThrow('disk full')
+
+    expect(store.load()).toEqual(previous)
+    expect(broadcast).not.toHaveBeenCalled()
+    store.save(previous)
+    expect(store.load().batches).toHaveLength(1)
+  })
+
   it('exposes an atomic incremental-scan command to both renderer senders', async () => {
     const ipcMain = new FakeIpcMain()
     const store = new OldFavoriteSessionStore(new MemoryBackend())

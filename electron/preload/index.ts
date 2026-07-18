@@ -143,6 +143,12 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     }>,
   endOldFavoriteBatch: (batchId: string, endedAt: string) =>
     ipcRenderer.invoke('old-favorite-sessions:end-batch', batchId, endedAt) as Promise<OldFavoriteBatchLifecycleSnapshot>,
+  discardOldFavoriteEmptyIncrementalBatch: (batchId: string, accountMid: string) =>
+    ipcRenderer.invoke('old-favorite-sessions:discard-empty-incremental', batchId, accountMid) as Promise<{
+      batchId: string
+      accountMid: string
+      discarded: true
+    }>,
   saveOldFavoriteSessions: (state: OldFavoriteSessionsState) =>
     ipcRenderer.invoke('old-favorite-sessions:save', state) as Promise<OldFavoriteSessionsState>,
   resetOldFavoriteSessionsAccount: (accountMid: string) =>

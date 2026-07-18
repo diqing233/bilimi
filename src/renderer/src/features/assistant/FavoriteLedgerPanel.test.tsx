@@ -419,6 +419,34 @@ describe('FavoriteLedgerPanel', () => {
         listeners.forEach((listener) => listener(structuredClone(state)))
         return structuredClone(state)
       }),
+      endOldFavoriteBatch: vi.fn(async (batchId: string, endedAt: string) => {
+        const batch = state.batches.find((candidate) => candidate.id === batchId)
+        if (!batch) throw new Error('missing batch')
+        batch.status = 'ended'
+        batch.endedAt ??= endedAt
+        batch.segments = batch.segments.map((segment) => ({ ...segment, status: 'ended', task: undefined }))
+        if (state.lease?.batchId === batchId) state.lease = null
+        listeners.forEach((listener) => listener(structuredClone(state)))
+        return {
+          id: batch.id, accountMid: batch.accountMid, kind: batch.kind, status: 'ended' as const,
+          endedAt: batch.endedAt, segmentCount: batch.segments.length,
+          aidCount: batch.segments.reduce((total, segment) => total + segment.aids.length, 0)
+        }
+      }),
+      discardOldFavoriteEmptyIncrementalBatch: vi.fn(async (batchId: string, accountMid: string) => {
+        const batch = state.batches.find((candidate) => candidate.id === batchId)
+        if (!batch || batch.accountMid !== accountMid || batch.kind !== 'incremental' ||
+          batch.status !== 'active' || batch.segments.some((segment) => segment.aids.length > 0)) {
+          throw new Error('batch cannot be discarded')
+        }
+        state = {
+          ...state,
+          batches: state.batches.filter((candidate) => candidate.id !== batchId),
+          lease: state.lease?.batchId === batchId ? null : state.lease
+        }
+        listeners.forEach((listener) => listener(structuredClone(state)))
+        return { batchId, accountMid, discarded: true as const }
+      }),
       resetOldFavoriteSessionsAccount: vi.fn(async (accountMid: string) => {
         const removedIds = new Set(state.batches
           .filter((batch) => batch.accountMid === accountMid)
@@ -1698,7 +1726,10 @@ describe('FavoriteLedgerPanel', () => {
       protectedVideos: [], managedFolders: [], targetMembership: {}, multiArchiveMode: 'off'
     }
     const onScanOldFavorites = vi.fn().mockResolvedValue(preview)
-    renderPanel({ onScanOldFavorites })
+    const sessionBridge = installOldFavoriteSessionBridge()
+    renderPanel({
+      onScanOldFavorites
+    })
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.click(screen.getByRole('button', { name: '新增视频整理' }))
@@ -1706,6 +1737,7 @@ describe('FavoriteLedgerPanel', () => {
 
     expect(await screen.findByText('暂未发现需要新增整理的视频')).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: '当前整理批次' }).querySelectorAll('option')).toHaveLength(1)
+    expect(sessionBridge.api.discardOldFavoriteEmptyIncrementalBatch).not.toHaveBeenCalled()
   })
 
   it('merges snapshot state when switching batches instead of dropping segment archives', async () => {
@@ -6865,6 +6897,10 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '确认结束' }))
 
     await waitFor(() => expect(sessionBridge.getState().batches[0].status).toBe('ended'))
+    expect(sessionBridge.api.endOldFavoriteBatch).toHaveBeenCalledWith(
+      'batch-ended-late', expect.any(String)
+    )
+    expect(sessionBridge.api.saveOldFavoriteSessions).not.toHaveBeenCalled()
     expect(screen.getByRole('combobox', { name: '当前整理批次' })).toHaveValue('batch-ended-late')
     expect(screen.getByRole('heading', { name: '整理结果' })).toBeInTheDocument()
     expect(screen.getByText('AI 效率工具实战')).toBeInTheDocument()

@@ -528,10 +528,48 @@ describe('OldFavoriteSessionOrchestrator', () => {
       accountMid: '42', kind: 'incremental', now: '2026-07-16T08:00:00Z'
     })
 
-    await orchestrator.discardBatch(started.batch.id)
+    harness.coordinator.discardEmptyIncrementalBatch = vi.fn(async () => {
+      const next = harness.getState()
+      await harness.coordinator.save({
+        ...next,
+        batches: next.batches.filter((batch) => batch.id !== started.batch.id),
+        lease: null
+      })
+      return { batchId: started.batch.id, accountMid: '42', discarded: true }
+    })
+
+    await orchestrator.discardBatch(started.batch.id, '42')
 
     expect(harness.getState().batches).toEqual([previous])
     expect(harness.getState().lease).toBeNull()
+    expect(harness.coordinator.discardEmptyIncrementalBatch).toHaveBeenCalledOnce()
+  })
+
+  it('does not fall back to renderer save when authoritative discard rejects', async () => {
+    const harness = createHarness()
+    harness.coordinator.discardEmptyIncrementalBatch = vi.fn().mockRejectedValue(new Error('not empty'))
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+
+    await expect(orchestrator.discardBatch('batch', '42')).rejects.toThrow('not empty')
+    expect(harness.coordinator.load).not.toHaveBeenCalled()
+    expect(harness.coordinator.save).not.toHaveBeenCalled()
+  })
+
+  it('uses the authoritative incremental scan command when it is available', async () => {
+    const incremental = createOldFavoriteBatch({
+      accountMid: '42', kind: 'incremental', aids: [], now: '2026-07-16T08:00:00Z'
+    })
+    const harness = createHarness()
+    harness.coordinator.beginIncrementalScan = vi.fn(async () => ({ batch: incremental, acquired: true }))
+    const orchestrator = new OldFavoriteSessionOrchestrator(harness.coordinator)
+
+    await expect(orchestrator.beginScan({
+      accountMid: '42', kind: 'incremental', now: '2026-07-16T08:00:00Z'
+    })).resolves.toEqual({ batch: incremental, acquired: true })
+
+    expect(harness.coordinator.beginIncrementalScan).toHaveBeenCalledOnce()
+    expect(harness.coordinator.save).not.toHaveBeenCalled()
+    expect(harness.coordinator.acquire).not.toHaveBeenCalled()
   })
 
   it('returns only result-unknown aids that require reconciliation', async () => {

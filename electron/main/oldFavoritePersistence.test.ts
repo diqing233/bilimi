@@ -141,4 +141,25 @@ describe('createOldFavoritePersistence', () => {
     const index = JSON.parse(await readFile(join(userDataPath, 'old-favorite', 'v2', 'index.json'), 'utf8'))
     expect(index.retiredBatchIds).toEqual([batch.id])
   })
+
+  it('keeps a discarded empty incremental batch retired after restart', async () => {
+    const userDataPath = await mkdtemp(join(tmpdir(), 'bilimi-old-favorite-discard-tombstone-'))
+    roots.push(userDataPath)
+    const legacyStore = { get: vi.fn(() => null), set: vi.fn() }
+    const first = await createOldFavoritePersistence({ userDataPath, legacyStore })
+    const started = first.sessionStore.beginIncrementalScan(
+      '42', '2026-07-16T10:00:00Z', undefined, 7
+    )
+    const stale = first.sessionStore.load()
+
+    first.sessionStore.discardEmptyIncrementalBatch(started.batch.id, '42', 7)
+    await first.flush()
+    const reopened = await createOldFavoritePersistence({ userDataPath, legacyStore })
+    reopened.sessionStore.save(stale)
+    await reopened.flush()
+
+    expect(reopened.sessionStore.load().batches).toEqual([])
+    const index = JSON.parse(await readFile(join(userDataPath, 'old-favorite', 'v2', 'index.json'), 'utf8'))
+    expect(index.retiredBatchIds).toContain(started.batch.id)
+  })
 })

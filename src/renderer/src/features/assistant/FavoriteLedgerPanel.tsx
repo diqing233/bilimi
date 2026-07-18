@@ -3514,6 +3514,14 @@ export function FavoriteLedgerPanel({
     acknowledgeOldFavoriteExecution()
   }
 
+  async function endOldFavoriteSessionBatch(batchId: string, endedAt: string) {
+    if (!sessionCoordinator) return
+    const authoritativeResult = await sessionCoordinator.endBatch(batchId, endedAt)
+    if (authoritativeResult !== undefined) return
+    const state = await sessionCoordinator.load()
+    await sessionCoordinator.save(endOldFavoriteBatch(state, batchId, endedAt))
+  }
+
   async function acknowledgeOldFavoriteExecution() {
     if (activeOldFavoriteUserBatch) {
       const endedSnapshot = {
@@ -3551,18 +3559,7 @@ export function FavoriteLedgerPanel({
       }
       if (sessionCoordinator) {
         try {
-          const state = await sessionCoordinator.load()
-          const withFinalSnapshot = {
-            ...state,
-            batches: state.batches.map((batch) => batch.id === activeOldFavoriteUserBatch.id
-              ? { ...batch, snapshot: { ...batch.snapshot, ...endedSnapshot } }
-              : batch)
-          }
-          await sessionCoordinator.save(endOldFavoriteBatch(
-            withFinalSnapshot,
-            activeOldFavoriteUserBatch.id,
-            new Date().toISOString()
-          ))
+          await endOldFavoriteSessionBatch(activeOldFavoriteUserBatch.id, new Date().toISOString())
         } catch (error) {
           setStatus(`整理状态保存失败：${error instanceof Error ? error.message : String(error)}`)
           return
@@ -3907,10 +3904,7 @@ export function FavoriteLedgerPanel({
     }
     try {
       await window.bilimiDesktop?.finalizeOldFavoriteWorkspaceBatch?.(batch.accountMid, batch.id)
-      if (sessionCoordinator) {
-        const state = await sessionCoordinator.load()
-        await sessionCoordinator.save(endOldFavoriteBatch(state, batch.id, new Date().toISOString()))
-      }
+      await endOldFavoriteSessionBatch(batch.id, new Date().toISOString())
       setOldFavoriteUserBatches((current) => current.map((candidate) =>
         candidate.id === batch.id ? { ...candidate, status: 'ended' } : candidate
       ))
@@ -5118,11 +5112,8 @@ export function FavoriteLedgerPanel({
               status: 'ended', taskStatus: 'ended', requestState: 'idle'
             })
             if (sessionCoordinator) {
-              const state = endOldFavoriteBatch(
-                await sessionCoordinator.load(),
-                started.batch.id,
-                new Date().toISOString()
-              )
+              await endOldFavoriteSessionBatch(started.batch.id, new Date().toISOString())
+              const state = await sessionCoordinator.load()
               const orphanAlreadyIndexed = state.batches.some((batch) => batch.id === workspaceBatchId)
               if (!orphanAlreadyIndexed) {
                 const imported = createOldFavoriteBatch({
@@ -5291,7 +5282,7 @@ export function FavoriteLedgerPanel({
       normalizedPreview.items = normalizedPreview.items.filter((item) => includedAidSet.has(item.aid))
       if (batchKind === 'incremental' && includedAids.length === 0) {
         if (scanSession && sessionOrchestrator) {
-          await sessionOrchestrator.discardBatch(scanSession.batchId)
+          await sessionOrchestrator.discardBatch(scanSession.batchId, scannedAccountMid)
         }
         const previousBatch = oldFavoriteUserBatches.at(-1)
         if (previousBatch) selectOldFavoriteUserBatch(previousBatch.id)

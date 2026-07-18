@@ -38,6 +38,16 @@ export type OldFavoriteSessionsGateway = {
     now: string,
     snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']
   ) => Promise<{ batch: OldFavoriteSessionsState['batches'][number]; acquired: boolean }>
+  beginIncrementalScan?: (
+    accountMid: string,
+    now: string,
+    snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']
+  ) => Promise<{ batch: OldFavoriteSessionsState['batches'][number]; acquired: boolean }>
+  endBatch?: (batchId: string, endedAt: string) => Promise<unknown>
+  discardEmptyIncrementalBatch?: (
+    batchId: string,
+    accountMid: string
+  ) => Promise<{ batchId: string; accountMid: string; discarded: true }>
   claimLease: (
     batchId: string,
     segmentId: string,
@@ -82,6 +92,9 @@ function createDesktopGateway(): OldFavoriteSessionsGateway {
     load: desktop.loadOldFavoriteSessions,
     save: desktop.saveOldFavoriteSessions,
     beginFullScan: desktop.beginOldFavoriteFullScan,
+    beginIncrementalScan: desktop.beginOldFavoriteIncrementalScan,
+    endBatch: desktop.endOldFavoriteBatch,
+    discardEmptyIncrementalBatch: desktop.discardOldFavoriteEmptyIncrementalBatch,
     claimLease: desktop.claimOldFavoriteTaskLease,
     releaseLease: desktop.releaseOldFavoriteTaskLease,
     subscribe: desktop.onOldFavoriteSessionsChanged
@@ -139,6 +152,22 @@ export class OldFavoriteTaskCoordinator {
     snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']
   ) {
     return this.gateway.beginFullScan?.(accountMid, now, snapshot)
+  }
+
+  beginIncrementalScan(
+    accountMid: string,
+    now: string,
+    snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']
+  ) {
+    return this.gateway.beginIncrementalScan?.(accountMid, now, snapshot)
+  }
+
+  endBatch(batchId: string, endedAt: string) {
+    return this.gateway.endBatch?.(batchId, endedAt)
+  }
+
+  discardEmptyIncrementalBatch(batchId: string, accountMid: string) {
+    return this.gateway.discardEmptyIncrementalBatch?.(batchId, accountMid)
   }
 
   subscribe(callback: (state: OldFavoriteSessionsState) => void): () => void {

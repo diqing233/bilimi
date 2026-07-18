@@ -511,6 +511,98 @@ describe('OldFavoriteWorkspaceService', () => {
     expect(await readFile(corruptPath, 'utf8').catch(() => '')).toBe('')
   })
 
+  it('keeps archived batch recovery read-only even when the tail file is corrupt', async () => {
+    const root = await createRoot()
+    const service = new OldFavoriteWorkspaceService({ root })
+    await service.openAccount('100')
+    const batch = await service.createBatch({ accountMid: '100', kind: 'full' })
+    await service.appendChunk('100', batch.id, 'base', [{ aid: 1 }])
+    await service.finalizeBatch('100', batch.id)
+    const corruptPath = join(root, 'accounts', '100', 'batches', batch.storageKey, 'base-000001.jsonl')
+    await writeFile(corruptPath, '{"aid":999}\n#broken', 'utf8')
+    const before = await readFile(corruptPath, 'utf8')
+    const access = vi.fn()
+    const reopened = new OldFavoriteWorkspaceService({ root, onFileAccess: access })
+    await reopened.openAccount('100')
+    access.mockClear()
+
+    await expect(reopened.recoverBatch('100', batch.id)).resolves.toEqual({ discardedTail: null })
+
+    expect(await readFile(corruptPath, 'utf8')).toBe(before)
+    expect(access.mock.calls.some(([operation]) => operation === 'write' || operation === 'delete')).toBe(false)
+  })
+
+  it('does not mutate the manifest cache before a recovery write succeeds', async () => {
+    const root = await createRoot()
+    const first = new OldFavoriteWorkspaceService({ root })
+    await first.openAccount('100')
+    const batch = await first.createBatch({ accountMid: '100', kind: 'full' })
+    await first.appendChunk('100', batch.id, 'base', [{ aid: 1 }])
+    await first.appendChunk('100', batch.id, 'base', [{ aid: 2 }])
+    const corruptPath = join(root, 'accounts', '100', 'batches', batch.storageKey, 'base-000002.jsonl')
+    await writeFile(corruptPath, '{"aid":999}\n#broken', 'utf8')
+    let failManifestWrite = true
+    const reopened = new OldFavoriteWorkspaceService({
+      root,
+      onFileAccess(operation, path) {
+        if (operation === 'write' && failManifestWrite && path.endsWith('manifest.json.tmp')) {
+          failManifestWrite = false
+          throw new Error('injected recovery write failure')
+        }
+      }
+    })
+    await reopened.openAccount('100')
+
+    await expect(reopened.recoverBatch('100', batch.id)).rejects.toThrow('injected recovery write failure')
+    await expect(reopened.recoverBatch('100', batch.id)).resolves.toEqual({
+      discardedTail: 'base-000002.jsonl'
+    })
+    expect((await reopened.loadBatch('100', batch.id)).base).toEqual([{ aid: 1 }])
+  })
+
+  it('serializes recovery before finalization so archived state cannot race a manifest repair', async () => {
+    const root = await createRoot()
+    const service = new OldFavoriteWorkspaceService({ root })
+    await service.openAccount('100')
+    const batch = await service.createBatch({ accountMid: '100', kind: 'full' })
+    await service.appendChunk('100', batch.id, 'base', [{ aid: 1 }])
+    const corruptPath = join(root, 'accounts', '100', 'batches', batch.storageKey, 'base-000001.jsonl')
+    await writeFile(corruptPath, '{"aid":999}\n#broken', 'utf8')
+    const internals = service as unknown as {
+      readText(path: string): Promise<string | null>
+    }
+    const originalReadText = internals.readText.bind(service)
+    let releaseRead!: () => void
+    let markReadStarted!: () => void
+    const readStarted = new Promise<void>((resolve) => { markReadStarted = resolve })
+    const readGate = new Promise<void>((resolve) => { releaseRead = resolve })
+    let blocked = false
+    internals.readText = async (path: string) => {
+      if (!blocked && path === corruptPath) {
+        blocked = true
+        markReadStarted()
+        await readGate
+      }
+      return originalReadText(path)
+    }
+
+    const recovering = service.recoverBatch('100', batch.id)
+    await readStarted
+    let finalized = false
+    const finalizing = service.finalizeBatch('100', batch.id).then((result) => {
+      finalized = true
+      return result
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(finalized).toBe(false)
+    releaseRead()
+
+    await expect(recovering).resolves.toEqual({ discardedTail: 'base-000001.jsonl' })
+    await expect(finalizing).resolves.toMatchObject({ status: 'archived' })
+    expect((await service.openAccount('100')).batches[0].status).toBe('archived')
+  })
+
   it('coalesces overlay changes by aid and keeps later scan data from replacing them', async () => {
     const root = await createRoot()
     const service = new OldFavoriteWorkspaceService({ root })

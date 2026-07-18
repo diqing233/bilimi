@@ -32,6 +32,12 @@ export type OldFavoriteBatchLifecycleSnapshot = {
   aidCount: number
 }
 
+export type OldFavoriteDiscardSnapshot = {
+  batchId: string
+  accountMid: string
+  discarded: true
+}
+
 function toLifecycleSnapshot(batch: OldFavoriteBatch): OldFavoriteBatchLifecycleSnapshot {
   return {
     id: batch.id,
@@ -296,6 +302,41 @@ export class OldFavoriteSessionStore {
       lease: state.lease?.batchId === batchId ? null : state.lease
     }))
     return structuredClone(ended)
+  }
+
+  discardEmptyIncrementalBatch(
+    batchId: string,
+    accountMid: string,
+    ownerId: number
+  ): OldFavoriteDiscardSnapshot {
+    const normalizedAccountMid = accountMid.trim()
+    const state = this.load()
+    const current = state.batches.find((batch) => batch.id === batchId)
+    if (!current && this.retiredBatchIds.has(batchId)) {
+      return { batchId, accountMid: normalizedAccountMid, discarded: true }
+    }
+    if (!current) throw new Error('Old favorite batch does not exist.')
+    if (current.accountMid !== normalizedAccountMid) {
+      throw new Error('Old favorite batch belongs to another account.')
+    }
+    if (current.kind !== 'incremental' || current.status !== 'active') {
+      throw new Error('Only an active incremental batch can be discarded.')
+    }
+    if (current.segments.some((segment) => segment.aids.length > 0)) {
+      throw new Error('Only an empty incremental batch can be discarded.')
+    }
+    if (state.lease?.batchId === batchId && state.lease.ownerId !== ownerId) {
+      throw new Error('Old favorite batch is owned by another window.')
+    }
+
+    this.retiredBatchIds.add(batchId)
+    this.backend.setRetiredBatchIds?.([...this.retiredBatchIds])
+    this.backend.set(STORE_KEY, structuredClone({
+      ...state,
+      batches: state.batches.filter((batch) => batch.id !== batchId),
+      lease: state.lease?.batchId === batchId ? null : state.lease
+    }))
+    return { batchId, accountMid: normalizedAccountMid, discarded: true }
   }
 
   toLifecycleSnapshot(batch: OldFavoriteBatch): OldFavoriteBatchLifecycleSnapshot {

@@ -106,6 +106,10 @@ type BilimiDesktopApi = {
         snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']
       ) => Promise<{ batch: OldFavoriteSessionsState['batches'][number]; acquired: boolean }>
       endOldFavoriteBatch?: (batchId: string, endedAt: string) => Promise<OldFavoriteBatchLifecycleSnapshot>
+      discardOldFavoriteEmptyIncrementalBatch?: (
+        batchId: string,
+        accountMid: string
+      ) => Promise<{ batchId: string; accountMid: string; discarded: true }>
   saveOldFavoriteSessions?: (state: OldFavoriteSessionsState) => Promise<OldFavoriteSessionsState>
   resetOldFavoriteSessionsAccount?: (accountMid: string) => Promise<OldFavoriteSessionsState>
   claimOldFavoriteTaskLease?: (

@@ -319,24 +319,31 @@ export class OldFavoriteWorkspaceService {
 
   async recoverBatch(accountMid: string, batchId: string) {
     const account = validAccountMid(accountMid)
-    const manifest = await this.loadManifest(account, batchId)
-    const tail = manifest.chunks.at(-1)
-    if (!tail) return { discardedTail: null }
-    const records = tail.groupId
-      ? manifest.chunks.filter((chunk) => chunk.groupId === tail.groupId)
-      : [tail]
-    const validity = await Promise.all(records.map(async (record) => {
-      const value = await this.readText(join(this.batchDirectory(account, batchId), record.file))
-      return value !== null && decodeChunk(value, record.checksum) !== null
-    }))
-    if (validity.every(Boolean)) return { discardedTail: null }
-    await Promise.all(records.map((record) =>
-      this.deletePath(join(this.batchDirectory(account, batchId), record.file))
-    ))
-    const discardedFiles = new Set(records.map((record) => record.file))
-    manifest.chunks = manifest.chunks.filter((chunk) => !discardedFiles.has(chunk.file))
-    await this.atomicWriteJson(this.manifestPath(account, batchId), manifest)
-    return { discardedTail: tail.groupId ? records.map((record) => record.file) : tail.file }
+    return this.queueWrite(async () => {
+      const manifest = await this.loadManifest(account, batchId)
+      if (manifest.status === 'archived') return { discardedTail: null }
+      const tail = manifest.chunks.at(-1)
+      if (!tail) return { discardedTail: null }
+      const records = tail.groupId
+        ? manifest.chunks.filter((chunk) => chunk.groupId === tail.groupId)
+        : [tail]
+      const validity = await Promise.all(records.map(async (record) => {
+        const value = await this.readText(join(this.batchDirectory(account, batchId), record.file))
+        return value !== null && decodeChunk(value, record.checksum) !== null
+      }))
+      if (validity.every(Boolean)) return { discardedTail: null }
+      await Promise.all(records.map((record) =>
+        this.deletePath(join(this.batchDirectory(account, batchId), record.file))
+      ))
+      const discardedFiles = new Set(records.map((record) => record.file))
+      const nextManifest = {
+        ...manifest,
+        chunks: manifest.chunks.filter((chunk) => !discardedFiles.has(chunk.file))
+      }
+      await this.atomicWriteJson(this.manifestPath(account, batchId), nextManifest)
+      this.manifests.set(this.batchKey(account, batchId), nextManifest)
+      return { discardedTail: tail.groupId ? records.map((record) => record.file) : tail.file }
+    })
   }
 
   async resetAccount(accountMid: string) {
