@@ -26,7 +26,6 @@ build/*
 !build/icon.png
 .worktrees/
 .superpowers/
-docs/superpowers/
 out/
 
 # Downloaded local media tools
