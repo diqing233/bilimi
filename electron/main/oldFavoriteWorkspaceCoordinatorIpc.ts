@@ -15,7 +15,7 @@ type WorkspaceCommand =
   | { type: 'select-segment'; segmentId: string }
   | { type: 'undo-classification' }
   | { type: 'redo-classification' }
-  | { type: 'apply-classifications'; source: 'manual' | 'deepseek'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
+  | { type: 'apply-classifications'; source: 'manual'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
   | { type: 'freeze-segment'; segmentId: string }
   | { type: 'freeze-bilibili-execution' }
   | { type: 'execute-frozen-bilibili-plan' }
@@ -30,11 +30,12 @@ function normalizeAccountMid(value: unknown) {
 }
 
 function validAssignments(value: unknown): value is ApplyWorkspaceClassificationBatchOptions['assignments'] {
-  return Array.isArray(value) && value.every((assignment) => {
+  return Array.isArray(value) && value.length <= 2_000 && value.every((assignment) => {
     if (!assignment || typeof assignment !== 'object') return false
     const candidate = assignment as { aid?: unknown; targetLedgerIds?: unknown }
     return Number.isSafeInteger(candidate.aid) && Number(candidate.aid) > 0 &&
-      Array.isArray(candidate.targetLedgerIds) && candidate.targetLedgerIds.every((id) => typeof id === 'string' && !!id.trim())
+      Array.isArray(candidate.targetLedgerIds) && candidate.targetLedgerIds.length <= 3 &&
+      candidate.targetLedgerIds.every((id) => typeof id === 'string' && !!id.trim() && id.trim().length <= 128)
   })
 }
 
@@ -72,8 +73,8 @@ function command(value: unknown): WorkspaceCommand {
   if (candidate.type === 'resume-reconciled-bilibili-plan' && Object.keys(candidate).length === 1) {
     return { type: 'resume-reconciled-bilibili-plan' }
   }
-  if (candidate.type === 'apply-classifications' && (candidate.source === 'manual' || candidate.source === 'deepseek') && validAssignments(candidate.assignments)) {
-    return { type: 'apply-classifications', source: candidate.source, assignments: candidate.assignments }
+  if (candidate.type === 'apply-classifications' && candidate.source === 'manual' && validAssignments(candidate.assignments)) {
+    return { type: 'apply-classifications', source: 'manual', assignments: candidate.assignments }
   }
   throw new Error('Old favorite workspace command is invalid.')
 }

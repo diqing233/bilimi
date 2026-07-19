@@ -668,6 +668,22 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     ])
   })
 
+  it('rejects classification changes outside the loaded current segment', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.completeScan('100', {
+      revision: 1,
+      aids: Array.from({ length: 2_001 }, (_, index) => index + 1)
+    })
+    await coordinator.selectSegment('100', 'segment-2')
+
+    await expect(coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })).rejects.toThrow('current segment')
+  })
+
   it('loads the current baseline segment only once during workspace recovery', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

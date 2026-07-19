@@ -360,10 +360,14 @@ export class OldFavoriteWorkspaceCoordinator {
   ): Promise<OldFavoriteWorkspace> {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
+      const currentSegmentId = this.currentSegment(workspace)
+      const currentSegment = workspace.segments.find((segment) => segment.id === currentSegmentId)
+      if (!currentSegment || !options.assignments.every((assignment) => currentSegment.aids.includes(assignment.aid))) {
+        throw new Error('Old favorite workspace classifications must target the current segment.')
+      }
       const updated = applyWorkspaceClassificationBatch(workspace, options)
       if (updated === workspace) return clone(workspace)
       const entry = updated.history[updated.history.length - 1]
-      const currentSegmentId = this.currentSegment(workspace)
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId,
         classifications: entry.changes.flatMap((change) => change.after ? [{

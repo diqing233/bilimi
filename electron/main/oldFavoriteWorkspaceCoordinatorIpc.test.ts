@@ -34,7 +34,7 @@ describe('old favorite workspace coordinator IPC', () => {
     await expect(ipcMain.invoke('old-favorite-workspace-v1:open', 8, '100')).rejects.toThrow('untrusted')
   })
 
-  it('allows validated manual and whole-batch DeepSeek classification commands', async () => {
+  it('allows manual classifications without accepting a renderer-claimed DeepSeek source', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {
       selectSegment: vi.fn().mockResolvedValue({}),
@@ -60,12 +60,12 @@ describe('old favorite workspace coordinator IPC', () => {
       type: 'apply-classifications', source: 'deepseek', assignments: [
         { aid: 1, targetLedgerIds: ['knowledge'] }, { aid: 2, targetLedgerIds: ['technology'] }
       ]
-    })).resolves.toEqual(snapshot)
-    expect(coordinator.applyClassificationBatch).toHaveBeenLastCalledWith('100', {
-      source: 'deepseek', assignments: [
-        { aid: 1, targetLedgerIds: ['knowledge'] }, { aid: 2, targetLedgerIds: ['technology'] }
-      ]
-    })
+    })).rejects.toThrow('command is invalid')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'apply-classifications', source: 'manual', assignments: Array.from({ length: 2_001 }, (_, index) => ({
+        aid: index + 1, targetLedgerIds: ['music']
+      }))
+    })).rejects.toThrow('command is invalid')
     await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
       type: 'complete-scan', aids: [1]
     })).rejects.toThrow('command is invalid')
