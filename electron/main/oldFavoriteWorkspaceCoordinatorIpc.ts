@@ -15,7 +15,7 @@ type WorkspaceCommand =
   | { type: 'select-segment'; segmentId: string }
   | { type: 'undo-classification' }
   | { type: 'redo-classification' }
-  | { type: 'apply-classifications'; source: 'manual'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
+  | { type: 'apply-classifications'; source: 'manual' | 'deepseek'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
   | { type: 'freeze-segment'; segmentId: string }
   | { type: 'freeze-bilibili-execution' }
   | { type: 'execute-frozen-bilibili-plan' }
@@ -72,8 +72,8 @@ function command(value: unknown): WorkspaceCommand {
   if (candidate.type === 'resume-reconciled-bilibili-plan' && Object.keys(candidate).length === 1) {
     return { type: 'resume-reconciled-bilibili-plan' }
   }
-  if (candidate.type === 'apply-classifications' && candidate.source === 'manual' && validAssignments(candidate.assignments)) {
-    return { type: 'apply-classifications', source: 'manual', assignments: candidate.assignments }
+  if (candidate.type === 'apply-classifications' && (candidate.source === 'manual' || candidate.source === 'deepseek') && validAssignments(candidate.assignments)) {
+    return { type: 'apply-classifications', source: candidate.source, assignments: candidate.assignments }
   }
   throw new Error('Old favorite workspace command is invalid.')
 }

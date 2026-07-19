@@ -34,7 +34,7 @@ describe('old favorite workspace coordinator IPC', () => {
     await expect(ipcMain.invoke('old-favorite-workspace-v1:open', 8, '100')).rejects.toThrow('untrusted')
   })
 
-  it('allows only validated selection and manual-classification commands', async () => {
+  it('allows validated manual and whole-batch DeepSeek classification commands', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {
       selectSegment: vi.fn().mockResolvedValue({}),
@@ -55,6 +55,16 @@ describe('old favorite workspace coordinator IPC', () => {
     })).resolves.toEqual(snapshot)
     expect(coordinator.applyClassificationBatch).toHaveBeenCalledWith('100', {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'apply-classifications', source: 'deepseek', assignments: [
+        { aid: 1, targetLedgerIds: ['knowledge'] }, { aid: 2, targetLedgerIds: ['technology'] }
+      ]
+    })).resolves.toEqual(snapshot)
+    expect(coordinator.applyClassificationBatch).toHaveBeenLastCalledWith('100', {
+      source: 'deepseek', assignments: [
+        { aid: 1, targetLedgerIds: ['knowledge'] }, { aid: 2, targetLedgerIds: ['technology'] }
+      ]
     })
     await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
       type: 'complete-scan', aids: [1]

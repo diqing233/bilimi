@@ -104,6 +104,16 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     return sendCommand({ type: 'apply-classifications', source: 'manual', assignments: normalized })
   }, [sendCommand])
 
+  const applyDeepSeekClassifications = useCallback((assignments: Array<{ aid: number; targetLedgerIds: string[] }>) => {
+    const normalized = assignments
+      .filter((assignment) => Number.isSafeInteger(assignment.aid) && assignment.aid > 0 && Array.isArray(assignment.targetLedgerIds))
+      .map((assignment) => ({
+        aid: assignment.aid,
+        targetLedgerIds: [...new Set(assignment.targetLedgerIds.filter((id) => typeof id === 'string').map((id) => id.trim()).filter(Boolean))].sort()
+      }))
+    return sendCommand({ type: 'apply-classifications', source: 'deepseek', assignments: normalized })
+  }, [sendCommand])
+
   const undoClassification = useCallback(() => sendCommand({ type: 'undo-classification' }), [sendCommand])
   const redoClassification = useCallback(() => sendCommand({ type: 'redo-classification' }), [sendCommand])
   const freezeBilibiliExecution = useCallback(() => sendCommand({ type: 'freeze-bilibili-execution' }), [sendCommand])
@@ -122,7 +132,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [refresh, snapshot?.status])
 
   return {
-    snapshot, loading, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications,
+    snapshot, loading, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, applyDeepSeekClassifications,
     undoClassification, redoClassification, freezeBilibiliExecution, executeFrozenBilibiliPlan,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     available: Boolean(accountMid && window.bilimiDesktop?.commandOldFavoriteWorkspaceV1)

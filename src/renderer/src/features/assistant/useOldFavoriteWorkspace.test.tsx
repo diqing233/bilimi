@@ -150,6 +150,28 @@ describe('useOldFavoriteWorkspace', () => {
     })
   })
 
+  it('sends a whole DeepSeek result as one constrained workspace command', async () => {
+    const command = vi.fn().mockResolvedValue(workspace('100'))
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => {
+      await result.current.applyDeepSeekClassifications([
+        { aid: 2_001, targetLedgerIds: ['knowledge'] },
+        { aid: 2_002, targetLedgerIds: ['technology'] }
+      ])
+    })
+
+    expect(command).toHaveBeenCalledExactlyOnceWith('100', {
+      type: 'apply-classifications',
+      source: 'deepseek',
+      assignments: [
+        { aid: 2_001, targetLedgerIds: ['knowledge'] },
+        { aid: 2_002, targetLedgerIds: ['technology'] }
+      ]
+    })
+  })
+
   it('sends undo and redo as payload-free constrained workspace commands', async () => {
     const command = vi.fn().mockResolvedValue(workspace('100'))
     window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
