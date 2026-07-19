@@ -712,6 +712,32 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('rejects a DeepSeek batch when an equal-target manual classification arrived after its snapshot', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    const snapshot = await coordinator.getSnapshot('100')
+    if ('recovery' in snapshot || !snapshot.currentSegment) throw new Error('workspace unexpectedly unavailable')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+
+    await expect(coordinator.applyDeepSeekClassificationBatch('100', [
+      { aid: 1, targetLedgerIds: ['music'] }
+    ], {
+      workspaceId: snapshot.workspaceId,
+      currentSegmentId: snapshot.currentSegment.id,
+      selectedSourceFolderIds: [],
+      classifications: {}
+    })).rejects.toThrow('changed while DeepSeek was running')
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: { '1': { targetLedgerIds: ['music'], source: 'manual' } },
+      history: { cursor: 1, length: 1 }
+    })
+  })
+
   it('loads the current baseline segment only once during workspace recovery', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
