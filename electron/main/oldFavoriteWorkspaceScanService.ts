@@ -8,11 +8,16 @@ type RuntimeInventoryResult = {
   reason?: string
   target?: ScanTarget
   folders?: Array<{ id: string; title: string; mediaCount: number }>
+  members?: Record<string, number[]>
+  items?: Array<{ aid: number; title: string; upperName: string; cover: string; addedAt: number }>
+  hasMore?: boolean
 }
 
 type RuntimeRequest =
   | { type: 'old-favorite-workspace-bind-scan-target'; accountMid: string }
   | { type: 'old-favorite-workspace-inventory'; accountMid: string; target: ScanTarget }
+  | { type: 'old-favorite-workspace-read-source-page'; accountMid: string; target: ScanTarget; folderId: string; page: number; pageSize: number }
+  | { type: 'old-favorite-workspace-read-managed-members'; accountMid: string; target: ScanTarget; folderIds: string[] }
 
 function normalizeAccountMid(value: string) {
   return /^\d+$/.test(value.trim()) && BigInt(value.trim()) > 0n ? BigInt(value.trim()).toString() : ''
@@ -79,6 +84,55 @@ export class OldFavoriteWorkspaceScanService {
           isBilimiWorkFolder: isBilimiWorkFolder(folder.title)
         }))
       })
+      const managedFolderIds = inventory.folders.filter((folder) => isBilimiWorkFolder(folder.title)).map((folder) => folder.id)
+      for (let offset = 0; offset < managedFolderIds.length; offset += 10) {
+        const folderIds = managedFolderIds.slice(offset, offset + 10)
+        const managed = await this.options.requestRuntime({
+          type: 'old-favorite-workspace-read-managed-members', accountMid, target: binding.target, folderIds
+        })
+        if (managed.status !== 'ok' || !managed.members) {
+          await this.options.coordinator.recordScanFailure(accountMid, managed.reason ?? 'managed-members-failed')
+          return
+        }
+        if (normalizeAccountMid(managed.observedAccountMid) !== normalizeAccountMid(accountMid)) {
+          await this.options.coordinator.recordScanFailure(accountMid, 'managed-members-account-mismatch')
+          return
+        }
+        await this.options.coordinator.recordManagedMembers(accountMid, managed.members)
+      }
+      for (const folder of inventory.folders) {
+        if (isBilimiWorkFolder(folder.title)) continue
+        let page = 1
+        let hasMore = true
+        while (hasMore) {
+          const sourcePage = await this.options.requestRuntime({
+            type: 'old-favorite-workspace-read-source-page', accountMid, target: binding.target,
+            folderId: folder.id, page, pageSize: 50
+          })
+          if (sourcePage.status !== 'ok' || !Array.isArray(sourcePage.items) || typeof sourcePage.hasMore !== 'boolean') {
+            await this.options.coordinator.recordScanFailure(accountMid, sourcePage.reason ?? 'source-page-failed')
+            return
+          }
+          if (normalizeAccountMid(sourcePage.observedAccountMid) !== normalizeAccountMid(accountMid)) {
+            await this.options.coordinator.recordScanFailure(accountMid, 'source-page-account-mismatch')
+            return
+          }
+          if (sourcePage.items.length === 0 && sourcePage.hasMore) {
+            await this.options.coordinator.recordScanFailure(accountMid, 'source-page-empty-with-more')
+            return
+          }
+          await this.options.coordinator.recordScanPage(accountMid, {
+            folderId: folder.id,
+            page,
+            items: sourcePage.items.map((item) => ({
+              aid: item.aid, title: item.title, author: item.upperName, cover: item.cover,
+              addedAt: item.addedAt, sourceFolderIds: [folder.id]
+            }))
+          })
+          hasMore = sourcePage.hasMore
+          page += 1
+        }
+      }
     } catch {
       await this.options.coordinator.recordScanFailure(accountMid, 'inventory-runtime-failed')
     }

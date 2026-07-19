@@ -54,6 +54,90 @@ describe('OldFavoriteWorkspaceStore', () => {
     ])
   })
 
+  it('persists one bounded scan page in a separate staging chunk without rewriting baseline chunks', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'scanning', baselineRevision: 0, currentSegmentId: '',
+      segments: []
+    })
+    await store.startScanRun('100', 'workspace-1', 'scan-run-1')
+
+    await store.appendScanPage('100', 'workspace-1', {
+      runId: 'scan-run-1',
+      folderId: 'source-1',
+      page: 1,
+      items: [{ aid: 1, title: 'Video', author: 'UP', cover: 'https://example.com/1.jpg', addedAt: 10, sourceFolderIds: ['source-1'] }]
+    })
+
+    await expect(store.readWorkspaceWrites('100', 'workspace-1')).resolves.toEqual([
+      'manifest.json', expect.stringMatching(/^scan\/pages\/[a-f0-9]{64}\.json$/)
+    ])
+    await expect(store.readScanPages('100', 'workspace-1')).resolves.toEqual([
+      {
+        folderId: 'source-1', page: 1,
+        items: [{ aid: 1, title: 'Video', author: 'UP', cover: 'https://example.com/1.jpg', addedAt: 10, sourceFolderIds: ['source-1'] }]
+      }
+    ])
+  })
+
+  it('does not load 30000 staged scan items during lightweight workspace recovery', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'scanning', baselineRevision: 0, currentSegmentId: '',
+      segments: []
+    })
+    await store.startScanRun('100', 'workspace-1', 'scan-run-1')
+    for (let page = 1; page <= 600; page += 1) {
+      await store.appendScanPage('100', 'workspace-1', {
+        runId: 'scan-run-1',
+        folderId: 'source-1', page,
+        items: Array.from({ length: 50 }, (_, index) => ({ aid: (page - 1) * 50 + index + 1, sourceFolderIds: ['source-1'] }))
+      })
+    }
+
+    const recoveredStore = new OldFavoriteWorkspaceStore({ root })
+    const recovered = await recoveredStore.recover('100', 'workspace-1')
+
+    expect(recovered).toMatchObject({ workspaceId: 'workspace-1', loadedSegmentAids: [] })
+    await expect(recoveredStore.readWorkspaceReads('100', 'workspace-1')).resolves.toEqual(['manifest.json'])
+  })
+
+  it('keeps an older v1 manifest recoverable when it has no scan staging fields', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'scanning', baselineRevision: 0, currentSegmentId: '', segments: []
+    })
+    const manifestPath = join(root, 'accounts', '100', 'workspaces', 'workspace-1', 'manifest.json')
+    const manifest = JSON.parse(await (await import('node:fs/promises')).readFile(manifestPath, 'utf8')) as Record<string, unknown>
+    delete manifest.scanPages
+    delete manifest.scanRunId
+    delete manifest.managedMemberChunks
+    const { checksum: _checksum, ...withoutChecksum } = manifest
+    const { createHash } = await import('node:crypto')
+    manifest.checksum = createHash('sha256').update(JSON.stringify(withoutChecksum)).digest('hex')
+    await writeFile(manifestPath, JSON.stringify(manifest), 'utf8')
+
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      workspaceId: 'workspace-1', status: 'scanning'
+    })
+  })
+
+  it('isolates a restarted scan run from previously committed staged pages', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning', baselineRevision: 0, currentSegmentId: '', segments: [] })
+    await store.startScanRun('100', 'workspace-1', 'scan-run-1')
+    await store.appendScanPage('100', 'workspace-1', { runId: 'scan-run-1', folderId: 'source-1', page: 1, items: [{ aid: 1, sourceFolderIds: ['source-1'] }] })
+    await store.startScanRun('100', 'workspace-1', 'scan-run-2')
+
+    await expect(store.readScanPages('100', 'workspace-1')).resolves.toEqual([])
+    await expect(store.appendScanPage('100', 'workspace-1', { runId: 'scan-run-1', folderId: 'source-1', page: 2, items: [] }))
+      .rejects.toThrow('scan run is stale')
+  })
+
   it('recovers a 30000-item workspace from its manifest and loads only the requested 2000-item segment', async () => {
     const root = await createRoot()
     const store = new OldFavoriteWorkspaceStore({ root })

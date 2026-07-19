@@ -85,6 +85,7 @@ export class OldFavoriteWorkspaceCoordinator {
   private readonly segmentDescriptors = new Map<string, SegmentDescriptor[]>()
   private readonly frozenSegments = new Map<string, Set<string>>()
   private readonly scanOverviews = new Map<string, ScanOverview>()
+  private readonly scanRuns = new Map<string, string>()
   private operationTail = Promise.resolve()
 
   constructor(private readonly options: {
@@ -110,12 +111,15 @@ export class OldFavoriteWorkspaceCoordinator {
       const workspace = await this.requireWorkspace(accountMid)
       if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is already active.')
       const updated = { ...workspace, mode }
+      const scanRunId = randomUUID()
       const sourceFolders = this.scanOverviews.get(workspace.accountMid)?.sourceFolders.map(clone) ?? []
       this.scanOverviews.set(workspace.accountMid, { sourceFolders, scan: { phase: 'inventory', failureCount: 0, mode } })
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId: '', classifications: [], history: [],
         scanMetadata: { sourceFolders, phase: 'inventory', failureCount: 0, mode }
       })
+      await this.options.workspaceStore.startScanRun(workspace.accountMid, workspace.id, scanRunId)
+      this.scanRuns.set(workspace.accountMid, scanRunId)
       this.workspaces.set(updated.accountMid, updated)
       return this.createSnapshot(updated)
     })
@@ -133,6 +137,31 @@ export class OldFavoriteWorkspaceCoordinator {
         scanMetadata: { sourceFolders, ...overview.scan }
       })
       this.scanOverviews.set(workspace.accountMid, overview)
+    })
+  }
+
+  /** Commits one short remote page without using the repository generation path. */
+  async recordScanPage(accountMid: string, input: {
+    folderId: string
+    page: number
+    items: Array<{ aid: number; title?: string; author?: string; cover?: string; addedAt?: number; sourceFolderIds: string[] }>
+  }) {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not active.')
+      const runId = this.scanRuns.get(workspace.accountMid)
+      if (!runId) throw new Error('Old favorite workspace scan run is not active.')
+      await this.options.workspaceStore.appendScanPage(workspace.accountMid, workspace.id, { ...input, runId })
+    })
+  }
+
+  async recordManagedMembers(accountMid: string, members: Record<string, number[]>) {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not active.')
+      const runId = this.scanRuns.get(workspace.accountMid)
+      if (!runId) throw new Error('Old favorite workspace scan run is not active.')
+      await this.options.workspaceStore.appendManagedMembers(workspace.accountMid, workspace.id, { runId, members })
     })
   }
 

@@ -10,6 +10,13 @@ type ScanItem = {
   [key: string]: unknown
 }
 type Segment = { id: string; aids: number[]; items?: ScanItem[] }
+type ScanPage = {
+  runId: string
+  folderId: string
+  page: number
+  items: ScanItem[]
+}
+type ManagedMembers = { runId: string; members: Record<string, number[]> }
 type SourceFolder = {
   id: string
   title: string
@@ -38,6 +45,9 @@ type Manifest = {
   baselineRevision: number
   currentSegmentId: string
   segments: Array<{ id: string; file: string; checksum: string }>
+  scanRunId?: string
+  scanPages?: Array<{ folderId: string; page: number; file: string; checksum: string }>
+  managedMemberChunks?: Array<{ file: string; checksum: string }>
   sourceFolders?: SourceFolder[]
   scan?: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: 'incremental' | 'full'; reason?: string }
   overlayRevision: number
@@ -90,7 +100,7 @@ export class OldFavoriteWorkspaceStore {
     const withoutChecksum: Omit<Manifest, 'checksum'> = {
       version: 1, workspaceId: input.workspaceId, accountMid, status: input.status,
       baselineRevision: input.baselineRevision, currentSegmentId: input.currentSegmentId,
-      segments, sourceFolders: input.sourceFolders?.map(clone) ?? [],
+      segments, scanPages: [], sourceFolders: input.sourceFolders?.map(clone) ?? [],
       scan: { phase: 'inventory', failureCount: 0, mode: 'incremental' },
       overlayRevision: 0, journalCursor: 0, journalChecksum
     }
@@ -101,6 +111,91 @@ export class OldFavoriteWorkspaceStore {
 
   async appendOverlay(accountMid: string, workspaceId: string, overlay: Overlay) {
     return this.queue(() => this.appendOverlayUnsafe(accountMid, workspaceId, overlay))
+  }
+
+  async startScanRun(accountMid: string, workspaceId: string, runId: string) {
+    return this.queue(async () => {
+      const account = normalizedAccountMid(accountMid)
+      if (!/^[a-zA-Z0-9_-]{8,128}$/.test(runId)) throw new Error('Old favorite workspace scan run is invalid.')
+      const directory = this.workspaceDirectory(account, workspaceId)
+      const manifest = await this.readManifest(directory)
+      if (!manifest || manifest.accountMid !== account) throw new Error('Old favorite workspace was not found.')
+      const { checksum: _storedChecksum, ...manifestWithoutChecksum } = manifest
+      await this.writeManifest(directory, {
+        ...manifestWithoutChecksum,
+        scanRunId: runId,
+        scanPages: [],
+        managedMemberChunks: []
+      })
+      this.writeLog.set(this.key(account, workspaceId), ['manifest.json'])
+    })
+  }
+
+  /** Stores one remote page outside immutable baseline chunks until scan finalization. */
+  async appendScanPage(accountMid: string, workspaceId: string, input: ScanPage) {
+    return this.queue(async () => {
+      const account = normalizedAccountMid(accountMid)
+      if (!/^[a-zA-Z0-9_-]{8,128}$/.test(input.runId) || typeof input.folderId !== 'string' || !input.folderId.trim() || !Number.isSafeInteger(input.page) || input.page < 1 ||
+        !Array.isArray(input.items) || input.items.length > 50 || input.items.some((item) => !Number.isSafeInteger(item.aid) || item.aid <= 0)) {
+        throw new Error('Old favorite workspace scan page is invalid.')
+      }
+      const directory = this.workspaceDirectory(account, workspaceId)
+      const manifest = await this.readManifest(directory)
+      if (!manifest || manifest.accountMid !== account) throw new Error('Old favorite workspace was not found.')
+      if (manifest.scanRunId !== input.runId) throw new Error('Old favorite workspace scan run is stale.')
+      const folderId = input.folderId.trim()
+      const content = JSON.stringify({ runId: input.runId, folderId, page: input.page, items: input.items.map(clone) })
+      const file = `scan/pages/${checksum(`${input.runId}:${folderId}:${input.page}:${content}`)}.json`
+      await this.atomicWrite(join(directory, file), content)
+      const scanPages = (manifest.scanPages ?? []).filter((page) => page.folderId !== folderId || page.page !== input.page)
+      scanPages.push({ folderId, page: input.page, file, checksum: checksum(content) })
+      scanPages.sort((left, right) => left.folderId.localeCompare(right.folderId) || left.page - right.page)
+      const { checksum: _storedChecksum, ...manifestWithoutChecksum } = manifest
+      await this.writeManifest(directory, { ...manifestWithoutChecksum, scanPages })
+      this.writeLog.set(this.key(account, workspaceId), ['manifest.json', file])
+    })
+  }
+
+  async readScanPages(accountMid: string, workspaceId: string): Promise<ScanPage[]> {
+    const account = normalizedAccountMid(accountMid)
+    const directory = this.workspaceDirectory(account, workspaceId)
+    const manifest = await this.readManifest(directory)
+    if (!manifest || manifest.accountMid !== account) throw new Error('Old favorite workspace was not found.')
+    const pages: ScanPage[] = []
+    for (const page of manifest.scanPages ?? []) {
+      const content = await readFile(join(directory, page.file), 'utf8')
+      if (checksum(content) !== page.checksum) throw new Error('Old favorite workspace scan page is corrupt.')
+      const value = JSON.parse(content) as ScanPage
+      if (value.runId !== manifest.scanRunId || value.folderId !== page.folderId || value.page !== page.page || !Array.isArray(value.items)) {
+        throw new Error('Old favorite workspace scan page is invalid.')
+      }
+      pages.push({ folderId: value.folderId, page: value.page, items: value.items.map(clone) })
+    }
+    return pages
+  }
+
+  async appendManagedMembers(accountMid: string, workspaceId: string, input: ManagedMembers) {
+    return this.queue(async () => {
+      const account = normalizedAccountMid(accountMid)
+      if (!/^[a-zA-Z0-9_-]{8,128}$/.test(input.runId) || !input.members || typeof input.members !== 'object' || Array.isArray(input.members)) {
+        throw new Error('Old favorite workspace managed members are invalid.')
+      }
+      const directory = this.workspaceDirectory(account, workspaceId)
+      const manifest = await this.readManifest(directory)
+      if (!manifest || manifest.accountMid !== account) throw new Error('Old favorite workspace was not found.')
+      if (manifest.scanRunId !== input.runId) throw new Error('Old favorite workspace scan run is stale.')
+      const members = Object.fromEntries(Object.entries(input.members).map(([folderId, aids]) => [
+        folderId,
+        [...new Set(aids.filter((aid) => Number.isSafeInteger(aid) && aid > 0))].sort((left, right) => left - right)
+      ]))
+      const content = JSON.stringify({ runId: input.runId, members })
+      const file = `scan/members/${checksum(content)}.json`
+      await this.atomicWrite(join(directory, file), content)
+      const chunks = [...(manifest.managedMemberChunks ?? []), { file, checksum: checksum(content) }]
+      const { checksum: _storedChecksum, ...manifestWithoutChecksum } = manifest
+      await this.writeManifest(directory, { ...manifestWithoutChecksum, managedMemberChunks: chunks })
+      this.writeLog.set(this.key(account, workspaceId), ['manifest.json', file])
+    })
   }
 
   private async appendOverlayUnsafe(accountMid: string, workspaceId: string, overlay: Overlay) {

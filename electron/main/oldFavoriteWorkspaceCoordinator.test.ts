@@ -74,6 +74,26 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({ mode: 'full' })
   })
 
+  it('writes a bounded source page through the workspace store without committing a repository generation', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, workspaceStore)
+    const workspace = await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    const revision = (await repository.getSnapshot('100')).revision
+
+    await coordinator.recordScanPage('100', {
+      folderId: 'source-1', page: 1,
+      items: [{ aid: 1, title: 'Video', author: 'UP', cover: '', addedAt: 0, sourceFolderIds: ['source-1'] }]
+    })
+
+    expect((await repository.getSnapshot('100')).revision).toBe(revision)
+    await expect(workspaceStore.readScanPages('100', workspace.id)).resolves.toEqual([
+      expect.objectContaining({ folderId: 'source-1', page: 1, items: [expect.objectContaining({ aid: 1 })] })
+    ])
+  })
+
   it('returns only the current segment in a renderer workspace snapshot', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

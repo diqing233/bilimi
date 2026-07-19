@@ -191,6 +191,29 @@ describe('App runtime integration', () => {
     expect(executeJavaScript.mock.calls[1][0]).toContain('scan-workspace-inventory')
   })
 
+  it('runs one bounded source-page command against the already bound active target', async () => {
+    const app = renderAppWithRuntimeBridge()
+    const webview = document.querySelector('webview') as Electron.WebviewTag
+    const executeJavaScript = vi.fn()
+      .mockResolvedValueOnce('100')
+      .mockResolvedValueOnce({
+        status: 'ok', observedAccountMid: '100',
+        items: [{ aid: 1, title: 'Video', upperName: 'UP', cover: '', addedAt: 0 }], hasMore: false
+      })
+    Object.assign(webview, { getWebContentsId: () => 101, executeJavaScript })
+    act(() => webview.dispatchEvent(new Event('did-start-navigation')))
+    const binding = await app.requestRuntime({
+      id: 'bind-source-page', type: 'old-favorite-workspace-bind-scan-target', accountMid: '100'
+    })
+    if (!binding || typeof binding !== 'object' || !('target' in binding) || !binding.target) throw new Error('missing scan target')
+
+    await expect(app.requestRuntime({
+      id: 'source-page', type: 'old-favorite-workspace-read-source-page', accountMid: '100',
+      target: binding.target, folderId: '11', page: 1, pageSize: 50
+    })).resolves.toMatchObject({ status: 'ok', items: [{ aid: 1 }], hasMore: false })
+    expect(executeJavaScript.mock.calls[1][0]).toContain('scan-workspace-source-page')
+  })
+
   it('shows first-launch permission guidance without running diagnostics', async () => {
     const firstRunPreferences = createAppPreferences({ permissionOnboardingCompleted: false })
     const runStartupDiagnostics = vi.fn()

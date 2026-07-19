@@ -105,6 +105,22 @@ export type AssistantRuntimeRequest =
       accountMid: string
       target: FavoriteRepositoryPageTarget
     }
+  | {
+      id: string
+      type: 'old-favorite-workspace-read-source-page'
+      accountMid: string
+      target: FavoriteRepositoryPageTarget
+      folderId: string
+      page: number
+      pageSize: number
+    }
+  | {
+      id: string
+      type: 'old-favorite-workspace-read-managed-members'
+      accountMid: string
+      target: FavoriteRepositoryPageTarget
+      folderIds: string[]
+    }
 
 export type AssistantRuntimeRequestInput = AssistantRuntimeRequest extends infer Request
   ? Request extends { id: string }

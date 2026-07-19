@@ -50,7 +50,10 @@ import {
   type OldFavoriteBatchCommitToken
 } from './features/favorites/favoriteLedgerApi'
 import { createFavoriteRepositoryPageTarget } from './features/favorites/favoriteRepositoryPageTarget'
-import { createOldFavoriteWorkspacePageBridge } from './features/favorites/oldFavoriteWorkspacePageBridge'
+import {
+  createOldFavoriteWorkspacePageBridge,
+  type OldFavoriteWorkspacePageCommand
+} from './features/favorites/oldFavoriteWorkspacePageBridge'
 import {
   prepareOldFavoriteScan as waitForOldFavoriteScanPreparation,
   type OldFavoriteScanPreparationProbe
@@ -886,7 +889,11 @@ export default function App() {
     }
   }
 
-  async function runOldFavoriteWorkspaceInventory(accountMid: string, target: FavoriteRepositoryPageTarget) {
+  async function runOldFavoriteWorkspacePageCommand(
+    accountMid: string,
+    target: FavoriteRepositoryPageTarget,
+    command: OldFavoriteWorkspacePageCommand
+  ) {
     const active = getCurrentActiveWebview()
     const activeId = active?.getWebContentsId?.()
     const current = typeof activeId === 'number' ? favoriteRepositoryTargetStates.current.get(activeId) : undefined
@@ -898,7 +905,7 @@ export default function App() {
     const bridge = createOldFavoriteWorkspacePageBridge({
       execute: (_target, script) => active.executeJavaScript(script, true)
     })
-    const result = await bridge.run(target, { type: 'inventory', accountMid })
+    const result = await bridge.run(target, command)
     const after = favoriteRepositoryTargetStates.current.get(activeId)
     if (!after || after.instanceId !== target.instanceId || after.navigationEpoch !== target.navigationEpoch) {
       return { status: 'unknown' as const, observedAccountMid: result.observedAccountMid, reason: 'target-navigated' }
@@ -2198,7 +2205,18 @@ export default function App() {
         case 'old-favorite-workspace-bind-scan-target':
           return bindFavoriteRepositoryPageTarget(request.accountMid)
         case 'old-favorite-workspace-inventory':
-          return runOldFavoriteWorkspaceInventory(request.accountMid, request.target)
+          return runOldFavoriteWorkspacePageCommand(request.accountMid, request.target, {
+            type: 'inventory', accountMid: request.accountMid
+          })
+        case 'old-favorite-workspace-read-source-page':
+          return runOldFavoriteWorkspacePageCommand(request.accountMid, request.target, {
+            type: 'read-source-page', accountMid: request.accountMid, folderId: request.folderId,
+            page: request.page, pageSize: request.pageSize
+          })
+        case 'old-favorite-workspace-read-managed-members':
+          return runOldFavoriteWorkspacePageCommand(request.accountMid, request.target, {
+            type: 'read-managed-members', accountMid: request.accountMid, folderIds: request.folderIds
+          })
         default:
           throw new Error('Unknown assistant runtime request.')
       }
