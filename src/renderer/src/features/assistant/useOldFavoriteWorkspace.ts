@@ -13,7 +13,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const [loading, setLoading] = useState(false)
   const requestVersion = useRef(0)
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (preserveSnapshot = false) => {
     const version = ++requestVersion.current
     const open = window.bilimiDesktop?.openOldFavoriteWorkspaceV1
     if (!accountMid || !open) {
@@ -22,7 +22,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       return null
     }
 
-    setSnapshot(null)
+    if (!preserveSnapshot) setSnapshot(null)
     setLoading(true)
     try {
       const next = await open(accountMid)
@@ -38,9 +38,34 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     }
   }, [accountMid])
 
+  const startScan = useCallback(async (mode: 'incremental' | 'full' = 'incremental') => {
+    const version = ++requestVersion.current
+    const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
+    if (!accountMid || !command) return null
+
+    setLoading(true)
+    try {
+      const next = await command(accountMid, { type: 'start-scan', mode })
+      const matchesRequestedAccount = normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
+      if (!matchesRequestedAccount) return null
+      if (requestVersion.current === version) setSnapshot(next)
+      return next
+    } catch {
+      return null
+    } finally {
+      if (requestVersion.current === version) setLoading(false)
+    }
+  }, [accountMid])
+
   useEffect(() => {
     void refresh()
   }, [refresh])
 
-  return { snapshot, loading, refresh }
+  useEffect(() => {
+    if (snapshot?.status !== 'scanning') return
+    const timer = window.setInterval(() => { void refresh(true) }, 400)
+    return () => window.clearInterval(timer)
+  }, [refresh, snapshot?.status])
+
+  return { snapshot, loading, refresh, startScan, available: Boolean(accountMid && window.bilimiDesktop?.commandOldFavoriteWorkspaceV1) }
 }

@@ -108,6 +108,7 @@ import {
   setOldFavoriteTransientRuntimeValue,
   subscribeOldFavoriteRuntimeKey
 } from './oldFavoriteRuntimeSession'
+import { useOldFavoriteWorkspace } from './useOldFavoriteWorkspace'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
 
@@ -2311,6 +2312,8 @@ export function FavoriteLedgerPanel({
   favoriteArchiveMultiMode = 'off',
   organizeOldFavoritesRequestSignal = 0
 }: FavoriteLedgerPanelProps) {
+  const oldFavoriteWorkspace = useOldFavoriteWorkspace(currentAccountMid)
+  const useControlledOldFavoriteWorkspace = oldFavoriteWorkspace.available
   const [archiveEditorState, setArchiveEditorState] = useOldFavoriteRuntimeState<ArchiveEditorRuntimeState>(
     'archiveEditorState',
     () => ({
@@ -3707,6 +3710,24 @@ export function FavoriteLedgerPanel({
       return
     }
 
+    if (useControlledOldFavoriteWorkspace) {
+      const snapshot = await oldFavoriteWorkspace.startScan(forceFresh ? 'full' : 'incremental')
+      if (snapshot?.status === 'scanning') {
+        setOldFavoriteGuideMode('organize')
+        setOldFavoriteStep('scan')
+        setOldFavoriteExpandedStep('scan')
+        setStatus('扫描概览：扫描中')
+        publishOldFavoriteStatus({
+          label: '旧藏扫描中',
+          message: '扫描概览：扫描中',
+          tone: 'running'
+        })
+      } else if (!snapshot) {
+        setStatus('无法启动旧藏扫描，请确认 B 站页面与登录状态后重试。')
+      }
+      return
+    }
+
     if (!forceFresh && preview && oldFavoriteGuideMode === 'organize') {
       setLedgerListExpanded(true)
       return
@@ -3776,6 +3797,11 @@ export function FavoriteLedgerPanel({
   }
 
   async function runOldFavoriteOrganizationRequest() {
+    if (useControlledOldFavoriteWorkspace) {
+      setOldFavoriteEntryOpen(false)
+      await startOrganizingOldFavorites()
+      return
+    }
     if (activeOldFavoriteUserBatch?.status === 'active' && preview && oldFavoriteGuideMode === 'organize') {
       setOldFavoriteEntryOpen(true)
       return
@@ -3884,6 +3910,8 @@ export function FavoriteLedgerPanel({
     void request.then(clearRequest, clearRequest)
     return request
   }
+
+  const controlledScanSnapshot = useControlledOldFavoriteWorkspace ? oldFavoriteWorkspace.snapshot : null
 
   function continueLastOldFavoriteOrganization() {
     setOldFavoriteEntryOpen(false)
@@ -9109,7 +9137,7 @@ export function FavoriteLedgerPanel({
         </section>
       ) : null}
 
-      {(preview || basicScanRunning) ? (
+      {(preview || basicScanRunning || controlledScanSnapshot) ? (
         <section
           className="favorite-ledger-panel__old-favorites-guide"
           aria-label={oldFavoriteGuideMode === 'setup' ? '备册向导' : '整理旧藏向导'}
@@ -9180,6 +9208,29 @@ export function FavoriteLedgerPanel({
           {oldFavoriteExpandedStep === 'scan' ? (
             <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
               <h4 className="favorite-ledger-panel__step-title">扫描概览</h4>
+              {controlledScanSnapshot ? (
+                <>
+                  <p className="favorite-ledger-panel__scan-guidance">
+                    {controlledScanSnapshot.status === 'scanning' ? '扫描概览：扫描中' : '扫描概览已完成，正在准备归档预览。'}
+                  </p>
+                  <div className="favorite-ledger-panel__scan-progress" aria-label="旧藏扫描进度">
+                    <div>
+                      <span>收藏夹概览</span>
+                      <progress aria-label="收藏夹概览进度" max={1} value={controlledScanSnapshot.status === 'scanning' ? 0 : 1} />
+                      <strong>{controlledScanSnapshot.status === 'scanning' ? '正在扫描' : '已完成'}</strong>
+                    </div>
+                  </div>
+                  <p className="favorite-ledger-panel__step-note">
+                    已发现 {controlledScanSnapshot.sourceFolders.length} 个收藏夹，当前扫描 {controlledScanSnapshot.continuationCount} 条待续新增。
+                  </p>
+                  <ul className="favorite-ledger-panel__scan-folder-list" aria-label="扫描收藏夹列表">
+                    {controlledScanSnapshot.sourceFolders.map((folder) => (
+                      <li key={folder.id}>{folder.title} · {folder.itemCount} 条{folder.isBilimiWorkFolder ? ' · Bilimi 工作夹' : ''}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <>
               <p className="favorite-ledger-panel__scan-guidance">
                 请耐心等待扫描完成；完成后按上方步骤从左到右，依次完成本轮整理。
               </p>
@@ -9263,6 +9314,8 @@ export function FavoriteLedgerPanel({
                   标签补取已结束，已使用当前取得的 {scanProgress.tags.completed} 条结果
                 </p>
               ) : null}
+                </>
+              )}
               {preview?.insights ? (
                 <>
                   <p className="favorite-ledger-panel__step-note">

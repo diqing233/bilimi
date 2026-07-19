@@ -14,7 +14,9 @@ const workspace = (accountMid: string) => ({
   segments: [],
   currentSegment: null,
   classifications: {},
-  history: { cursor: 0, length: 0 }
+  history: { cursor: 0, length: 0 },
+  scan: { phase: 'inventory' as const, failureCount: 0 },
+  sourceFolders: []
 })
 
 function deferred<T>() {
@@ -107,5 +109,16 @@ describe('useOldFavoriteWorkspace', () => {
 
     expect(open).toHaveBeenCalledTimes(2)
     expect(result.current.snapshot).toMatchObject({ continuationCount: 3 })
+  })
+
+  it('starts a compact scan through the constrained workspace command', async () => {
+    const command = vi.fn().mockResolvedValue(workspace('100'))
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.startScan('full') })
+
+    expect(command).toHaveBeenCalledExactlyOnceWith('100', { type: 'start-scan', mode: 'full' })
+    expect(result.current.snapshot).toEqual(workspace('100'))
   })
 })

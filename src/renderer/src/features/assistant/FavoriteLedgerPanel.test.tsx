@@ -97,6 +97,49 @@ describe('FavoriteLedgerPanel', () => {
     expect(onReadOldFavoriteBatchStatus).not.toHaveBeenCalled()
   })
 
+  it('starts the controlled workspace scan immediately and renders its durable overview', async () => {
+    const command = vi.fn().mockResolvedValue({
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0 },
+      sourceFolders: [{ id: 'bilimi-empty', title: 'Bilimi Inbox', itemCount: 0, isBilimiWorkFolder: true }],
+      continuationCount: 0, segments: [], currentSegment: null, classifications: {}, history: { cursor: 0, length: 0 }
+    })
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+
+    renderPanel({ currentAccountMid: '100' })
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    expect(await screen.findByRole('region', { name: '整理旧藏向导' })).toHaveTextContent('扫描概览：扫描中')
+    expect(screen.getByRole('list', { name: '扫描收藏夹列表' })).toHaveTextContent('Bilimi Inbox · 0 条 · Bilimi 工作夹')
+    expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'incremental' })
+  })
+
+  it('restores the same controlled scanning overview after the panel remounts', async () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0 },
+      sourceFolders: [{ id: 'source-1', title: 'Source', itemCount: 3, isBilimiWorkFolder: false }],
+      continuationCount: 0, segments: [], currentSegment: null, classifications: {}, history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue(snapshot)
+    const open = vi.fn().mockResolvedValue(snapshot)
+    window.bilimiDesktop = {
+      commandOldFavoriteWorkspaceV1: command,
+      openOldFavoriteWorkspaceV1: open
+    } as typeof window.bilimiDesktop
+    const rendered = renderPanel({ currentAccountMid: '100' })
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    rendered.unmount()
+
+    renderPanel({ currentAccountMid: '100' })
+
+    expect(await screen.findByRole('list', { name: '扫描收藏夹列表' })).toHaveTextContent('Source · 3 条')
+    expect(command).toHaveBeenCalledOnce()
+  })
+
   it('reads the current account only after the entry is clicked and restores only that account', async () => {
     const preview = createArchivePreviewFixture()
     const sessionBridge = installOldFavoriteSessionBridge({
