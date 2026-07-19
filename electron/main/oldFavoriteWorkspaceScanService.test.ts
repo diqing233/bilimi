@@ -142,6 +142,25 @@ describe('OldFavoriteWorkspaceScanService', () => {
     })
   })
 
+  it('finalizes the main-process workspace after the last bounded source page', async () => {
+    const coordinator = {
+      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),
+      recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), recordScanPage: vi.fn(),
+      finishScan: vi.fn(), recordScanFailure: vi.fn()
+    }
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const runtime = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', folders: [{ id: 'source-1', title: 'Source', mediaCount: 1 }] })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', items: [{ aid: 1, title: 'V1', upperName: 'UP', cover: '', addedAt: 0 }], hasMore: false })
+    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+
+    await service.start('100', 'incremental')
+
+    await vi.waitFor(() => expect(coordinator.finishScan).toHaveBeenCalledWith('100'))
+    expect(coordinator.recordScanFailure).not.toHaveBeenCalled()
+  })
+
   it('fails closed instead of endlessly paging an empty source result that claims more pages', async () => {
     const coordinator = {
       beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),

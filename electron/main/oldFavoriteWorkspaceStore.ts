@@ -174,6 +174,22 @@ export class OldFavoriteWorkspaceStore {
     return pages
   }
 
+  async visitScanPages(accountMid: string, workspaceId: string, visit: (page: ScanPage) => Promise<void> | void) {
+    const account = normalizedAccountMid(accountMid)
+    const directory = this.workspaceDirectory(account, workspaceId)
+    const manifest = await this.readManifest(directory)
+    if (!manifest || manifest.accountMid !== account) throw new Error('Old favorite workspace was not found.')
+    for (const page of manifest.scanPages ?? []) {
+      const content = await readFile(join(directory, page.file), 'utf8')
+      if (checksum(content) !== page.checksum) throw new Error('Old favorite workspace scan page is corrupt.')
+      const value = JSON.parse(content) as ScanPage
+      if (value.runId !== manifest.scanRunId || value.folderId !== page.folderId || value.page !== page.page || !Array.isArray(value.items)) {
+        throw new Error('Old favorite workspace scan page is invalid.')
+      }
+      await visit({ runId: value.runId, folderId: value.folderId, page: value.page, items: value.items.map(clone) })
+    }
+  }
+
   async appendManagedMembers(accountMid: string, workspaceId: string, input: ManagedMembers) {
     return this.queue(async () => {
       const account = normalizedAccountMid(accountMid)
@@ -196,6 +212,26 @@ export class OldFavoriteWorkspaceStore {
       await this.writeManifest(directory, { ...manifestWithoutChecksum, managedMemberChunks: chunks })
       this.writeLog.set(this.key(account, workspaceId), ['manifest.json', file])
     })
+  }
+
+  async readManagedMemberAids(accountMid: string, workspaceId: string) {
+    const account = normalizedAccountMid(accountMid)
+    const directory = this.workspaceDirectory(account, workspaceId)
+    const manifest = await this.readManifest(directory)
+    if (!manifest || manifest.accountMid !== account) throw new Error('Old favorite workspace was not found.')
+    const aids = new Set<number>()
+    for (const chunk of manifest.managedMemberChunks ?? []) {
+      const content = await readFile(join(directory, chunk.file), 'utf8')
+      if (checksum(content) !== chunk.checksum) throw new Error('Old favorite workspace managed members are corrupt.')
+      const value = JSON.parse(content) as ManagedMembers
+      if (value.runId !== manifest.scanRunId || !value.members || typeof value.members !== 'object') {
+        throw new Error('Old favorite workspace managed members are invalid.')
+      }
+      for (const members of Object.values(value.members)) {
+        for (const aid of members) if (Number.isSafeInteger(aid) && aid > 0) aids.add(aid)
+      }
+    }
+    return [...aids].sort((left, right) => left - right)
   }
 
   private async appendOverlayUnsafe(accountMid: string, workspaceId: string, overlay: Overlay) {

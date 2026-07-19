@@ -133,6 +133,7 @@ export class OldFavoriteWorkspaceScanService {
           page += 1
         }
       }
+      await this.options.coordinator.finishScan(accountMid)
     } catch {
       await this.options.coordinator.recordScanFailure(accountMid, 'inventory-runtime-failed')
     }

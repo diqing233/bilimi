@@ -165,6 +165,59 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  /** Converts scan staging to the immutable 2,000-item baseline only after every page succeeds. */
+  async finishScan(accountMid: string) {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not active.')
+      const itemsByAid = new Map<number, { aid: number; title?: string; author?: string; cover?: string; addedAt?: number; sourceFolderIds: string[] }>()
+      await this.options.workspaceStore.visitScanPages(workspace.accountMid, workspace.id, (page) => {
+        for (const item of page.items) {
+          const existing = itemsByAid.get(item.aid)
+          if (existing) {
+            existing.sourceFolderIds = [...new Set([...existing.sourceFolderIds, ...item.sourceFolderIds])].sort()
+          } else {
+            itemsByAid.set(item.aid, { ...item, sourceFolderIds: [...new Set(item.sourceFolderIds)].sort() })
+          }
+        }
+      })
+      const managedAids = await this.options.workspaceStore.readManagedMemberAids(workspace.accountMid, workspace.id)
+      const completed = completeWorkspaceScan(workspace, {
+        revision: (workspace.baseline?.revision ?? 0) + 1,
+        aids: [...itemsByAid.keys()],
+        successfullyClassifiedAids: managedAids,
+        mode: workspace.mode
+      })
+      const currentSegmentId = completed.segments[0]?.id ?? ''
+      await this.options.workspaceStore.create({
+        accountMid: completed.accountMid,
+        workspaceId: completed.id,
+        status: completed.status,
+        baselineRevision: completed.baseline?.revision ?? 0,
+        currentSegmentId,
+        sourceFolders: this.scanOverviews.get(completed.accountMid)?.sourceFolders ?? [],
+        segments: completed.segments.map((segment) => ({
+          id: segment.id,
+          aids: [...segment.aids],
+          items: segment.aids.map((aid) => itemsByAid.get(aid) ?? { aid, sourceFolderIds: [] })
+        }))
+      })
+      const descriptors = completed.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
+      await this.appendEvents(completed, currentSegmentId, [{
+        type: 'scan', createdAt: completed.createdAt, mode: completed.mode, segmentSize: completed.segmentSize,
+        segments: descriptors, baselineCompletedAids: [...completed.baselineCompletedAids]
+      }])
+      await this.persistMarker(completed)
+      this.scanOverviews.set(completed.accountMid, {
+        sourceFolders: this.scanOverviews.get(completed.accountMid)?.sourceFolders ?? [],
+        scan: { phase: 'complete', failureCount: 0, mode: completed.mode }
+      })
+      this.scanRuns.delete(completed.accountMid)
+      this.remember(completed, currentSegmentId, descriptors, new Set())
+      return clone(completed)
+    })
+  }
+
   async recordScanFailure(accountMid: string, reason: string) {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
@@ -403,6 +456,10 @@ export class OldFavoriteWorkspaceCoordinator {
       history,
       historyCursor
     }
+    this.scanOverviews.set(marker.accountMid, {
+      sourceFolders: recovered.sourceFolders,
+      scan: { phase: 'complete', failureCount: 0, mode: scan.mode }
+    })
     this.remember(workspace, recovered.currentSegmentId, scan.segments, frozenIds)
     return clone(workspace)
   }

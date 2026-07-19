@@ -94,6 +94,51 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     ])
   })
 
+  it('finalizes staged source pages into one deduplicated immutable baseline and preserves managed aids', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, workspaceStore)
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordManagedMembers('100', { 'bilimi-inbox': [2] })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source-a', page: 1,
+      items: [{ aid: 1, title: 'First title', sourceFolderIds: ['source-a'] }, { aid: 2, title: 'Shared', sourceFolderIds: ['source-a'] }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source-b', page: 1,
+      items: [{ aid: 2, title: 'Later title', sourceFolderIds: ['source-b'] }]
+    })
+
+    await expect(coordinator.finishScan('100')).resolves.toMatchObject({
+      status: 'previewing', baseline: { aids: [1, 2] }, baselineCompletedAids: [2], plannedAids: [1]
+    })
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      status: 'previewing', currentSegment: { aids: [1] }, scan: { phase: 'complete' }
+    })
+  })
+
+  it('restores the scan folder overview after staged scan finalization', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const first = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await first.open('100')
+    await first.beginScan('100', 'incremental')
+    await first.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source-a', title: 'Source A', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await first.recordScanPage('100', { folderId: 'source-a', page: 1, items: [{ aid: 1, sourceFolderIds: ['source-a'] }] })
+    await first.finishScan('100')
+
+    await expect(createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' }),
+      new OldFavoriteWorkspaceStore({ root })
+    ).getSnapshot('100')).resolves.toMatchObject({
+      status: 'previewing', scan: { phase: 'complete' }, sourceFolders: [{ id: 'source-a', itemCount: 1 }]
+    })
+  })
+
   it('returns only the current segment in a renderer workspace snapshot', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
