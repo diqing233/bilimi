@@ -73,7 +73,8 @@ function command(value: unknown): WorkspaceCommand {
   if (candidate.type === 'resume-reconciled-bilibili-plan' && Object.keys(candidate).length === 1) {
     return { type: 'resume-reconciled-bilibili-plan' }
   }
-  if (candidate.type === 'apply-classifications' && candidate.source === 'manual' && validAssignments(candidate.assignments)) {
+  if (candidate.type === 'apply-classifications' && candidate.source === 'manual' && validAssignments(candidate.assignments) &&
+    Object.keys(candidate).every((key) => key === 'type' || key === 'source' || key === 'assignments')) {
     return { type: 'apply-classifications', source: 'manual', assignments: candidate.assignments }
   }
   throw new Error('Old favorite workspace command is invalid.')

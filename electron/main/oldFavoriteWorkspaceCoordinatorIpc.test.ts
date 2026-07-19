@@ -67,6 +67,10 @@ describe('old favorite workspace coordinator IPC', () => {
       }))
     })).rejects.toThrow('command is invalid')
     await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'apply-classifications', source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }],
+      sourceOverride: 'deepseek'
+    })).rejects.toThrow('command is invalid')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
       type: 'complete-scan', aids: [1]
     })).rejects.toThrow('command is invalid')
   })
