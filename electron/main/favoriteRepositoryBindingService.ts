@@ -3,6 +3,7 @@ import { REMOTE_FAVORITE_SHARD_CAPACITY } from '../../src/shared/favoriteReposit
 import { REMOTE_FAVORITE_FOLDER_LIMIT } from '../../src/shared/favoriteRepositoryPlanning'
 import type { AccountFavoriteRepositorySnapshot } from '../../src/shared/favoriteRepository'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
+import type { FavoriteRepositoryPageBridgeManager } from './favoriteRepositorySyncService'
 
 export type FavoriteRepositoryRemoteFolderInventory = {
   id: string
@@ -109,6 +110,7 @@ export class FavoriteRepositoryBindingService {
     repository: FavoriteRepositoryService
     now?: () => string
     newBindingToken?: () => string
+    pageBridgeManager?: FavoriteRepositoryPageBridgeManager
   }) {}
 
   async getBindings(accountMid: string): Promise<FavoriteRepositoryBindingSnapshot> {
@@ -140,6 +142,49 @@ export class FavoriteRepositoryBindingService {
       }
     })
     return this.getBindings(account)
+  }
+
+  async ensurePhysicalShard(accountMid: string, input: {
+    logicalLedgerId: string
+    logicalTitle: string
+    shardNumber: number
+    memberAids: number[]
+  }) {
+    const account = normalizedAccountMid(accountMid)
+    const pageBridgeManager = this.options.pageBridgeManager
+    if (!pageBridgeManager) throw new Error('Favorite repository page bridge is unavailable.')
+    const token = this.options.newBindingToken?.().trim() || randomUUID()
+    const title = favoriteRepositoryManagedShardTitle(input.logicalLedgerId.trim(), input.shardNumber, token)
+    const runId = `favorite-binding:${input.logicalLedgerId.trim()}:${input.shardNumber}:${token}`
+    await pageBridgeManager.bind(account, runId)
+    try {
+      const bridge = pageBridgeManager.pageBridge(account, runId)
+      let inventory
+      try {
+        inventory = await bridge.readFolderInventory({ accountMid: account, operationKey: `${runId}:inventory` })
+      } catch {
+        throw new Error('Favorite repository remote folder inventory is unavailable.')
+      }
+      try {
+        const created = await bridge.createFolder({ accountMid: account, operationKey: `${runId}:create`, title })
+        return this.preparePhysicalShard(account, {
+          ...input,
+          observedAccountMid: created.observedAccountMid,
+          remoteFolderId: created.folder.id,
+          inventory: [...inventory.folders, { ...created.folder, memberAids: [] }]
+        })
+      } catch {
+        // The write may have succeeded remotely. Persist only a pending marker
+        // and require a later inventory diff before any binding is trusted.
+        return this.preparePhysicalShard(account, {
+          ...input,
+          observedAccountMid: inventory.observedAccountMid,
+          inventory: inventory.folders.map((folder) => ({ ...folder, memberAids: [] }))
+        })
+      }
+    } finally {
+      pageBridgeManager.release(account, runId)
+    }
   }
 
   async reconcilePendingBindings(accountMid: string, input: {

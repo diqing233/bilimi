@@ -182,4 +182,49 @@ describe('FavoriteRepositoryBindingService', () => {
     })).rejects.toThrow('title')
     expect(await service.getBindings('100')).toEqual({ logicalLedgers: [], shards: [] })
   })
+
+  it('creates a new shard only through a bound main-process page bridge then persists its exact response', async () => {
+    const repository = await createRepository()
+    const bind = vi.fn().mockResolvedValue(undefined)
+    const release = vi.fn()
+    const createFolder = vi.fn().mockResolvedValue({
+      observedAccountMid: '100', folder: { id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 0 }
+    })
+    const service = new FavoriteRepositoryBindingService({
+      repository, newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind, release,
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [] }),
+          createFolder,
+          append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+
+    await service.ensurePhysicalShard('100', { logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [] })
+
+    expect(bind).toHaveBeenCalledWith('100', expect.stringMatching(/^favorite-binding:/))
+    expect(createFolder).toHaveBeenCalledWith(expect.objectContaining({ accountMid: '100', title: 'B-music-001-a1b2c3' }))
+    expect((await service.getBindings('100')).shards[0]).toMatchObject({ bindingState: 'bound', remoteFolderId: 'remote-music-1' })
+    expect(release).toHaveBeenCalledWith('100', expect.stringMatching(/^favorite-binding:/))
+  })
+
+  it('keeps a created-shard binding pending when the remote result is unknown', async () => {
+    const repository = await createRepository()
+    const service = new FavoriteRepositoryBindingService({
+      repository, newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [] }),
+          createFolder: vi.fn().mockRejectedValue(new Error('network interrupted')),
+          append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+
+    await expect(service.ensurePhysicalShard('100', { logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [] }))
+      .resolves.toMatchObject({ shards: [expect.objectContaining({ bindingState: 'pending-reconcile' })] })
+  })
 })
