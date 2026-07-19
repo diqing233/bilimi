@@ -167,6 +167,26 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect((await repository.getSnapshot('100')).workspace?.frozenSyncPlan).toBeUndefined()
   })
 
+  it('ensures missing physical shards in the main process before compiling a single confirmed plan', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const ensurePhysicalShard = vi.fn().mockResolvedValue({})
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      bindingService: { ensurePhysicalShard }, now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('remote-target-unbound')
+    expect(ensurePhysicalShard).toHaveBeenCalledWith('100', {
+      logicalLedgerId: 'music', logicalTitle: 'music', shardNumber: 1, memberAids: []
+    })
+  })
+
   it('executes only the persisted frozen Bilibili plan through the main-process sync service', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

@@ -87,6 +87,7 @@ import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanServi
 import { registerOldFavoriteWorkspaceCoordinatorIpc } from './oldFavoriteWorkspaceCoordinatorIpc'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import { FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
+import { FavoriteRepositoryBindingService } from './favoriteRepositoryBindingService'
 import { FavoriteRepositoryRuntimePageBridgeManager } from './favoriteRepositoryRuntimePageBridge'
 import { registerFavoriteRepositoryIpc } from './favoriteRepositoryIpc'
 import { BilibiliSessionProxy } from './bilibiliSessionProxy'
@@ -454,6 +455,7 @@ let oldFavoriteWorkspaceService: OldFavoriteWorkspaceService | undefined
 let favoriteRepositoryService: FavoriteRepositoryService | undefined
 let favoriteRepositorySyncService: FavoriteRepositorySyncService | undefined
 let favoriteRepositoryPageBridgeManager: FavoriteRepositoryRuntimePageBridgeManager | undefined
+let favoriteRepositoryBindingService: FavoriteRepositoryBindingService | undefined
 let oldFavoriteWorkspaceCoordinator: OldFavoriteWorkspaceCoordinator | undefined
 let oldFavoriteWorkspaceScanService: OldFavoriteWorkspaceScanService | undefined
 const oldFavoriteRendererFlushCoordinator = new OldFavoriteRendererFlushCoordinator()
@@ -1401,9 +1403,14 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     repository: favoriteRepositoryService,
     pageBridgeManager: favoriteRepositoryPageBridgeManager
   })
+  favoriteRepositoryBindingService = new FavoriteRepositoryBindingService({
+    repository: favoriteRepositoryService,
+    pageBridgeManager: favoriteRepositoryPageBridgeManager
+  })
   oldFavoriteWorkspaceCoordinator = new OldFavoriteWorkspaceCoordinator({
     repository: favoriteRepositoryService,
     syncService: favoriteRepositorySyncService,
+    bindingService: favoriteRepositoryBindingService,
     workspaceStore: new OldFavoriteWorkspaceStore({
       root: join(app.getPath('userData'), 'favorites', 'repository-v1')
     })

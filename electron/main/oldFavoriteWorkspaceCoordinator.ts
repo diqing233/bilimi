@@ -18,6 +18,7 @@ import type { FavoriteRepositoryWorkspace } from '../../src/shared/favoriteRepos
 import { compileFrozenFavoriteSyncPlan } from '../../src/shared/favoriteRepositoryExecutionPlan'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import type { FavoriteRepositorySyncRun, FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
+import type { FavoriteRepositoryBindingService } from './favoriteRepositoryBindingService'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 
 const JOURNAL_EVENT_PREFIX = 'bilimi-old-favorite-workspace:v1:'
@@ -96,6 +97,7 @@ export class OldFavoriteWorkspaceCoordinator {
   constructor(private readonly options: {
     repository: FavoriteRepositoryService
     workspaceStore: OldFavoriteWorkspaceStore
+    bindingService?: Pick<FavoriteRepositoryBindingService, 'ensurePhysicalShard'>
     syncService?: Pick<FavoriteRepositorySyncService, 'executeFrozenPlan' | 'bindPageTarget' | 'reconcile' | 'resume' | 'getRun'>
     now?: () => string
   }) {}
@@ -387,8 +389,28 @@ export class OldFavoriteWorkspaceCoordinator {
 
   /** Freezes a remote plan from persisted physical shards; it never touches the page bridge. */
   async freezeForBilibiliExecution(accountMid: string): Promise<FavoriteRepositoryWorkspace> {
-    return this.queue(async () => {
+    const preparation = await this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'previewing' || !workspace.baseline) {
+        throw new Error('Old favorite workspace is not ready to freeze.')
+      }
+      return {
+        accountMid: workspace.accountMid,
+        logicalLedgerIds: [...new Set(Object.values(workspace.classifications)
+          .flatMap((classification) => classification.targetLedgerIds.map((id) => id.trim()).filter(Boolean)))].sort()
+      }
+    })
+    if (this.options.bindingService) {
+      const snapshot = await this.options.repository.getSnapshot(preparation.accountMid)
+      const existing = new Set(snapshot.physicalShards.map((shard) => shard.logicalLedgerId))
+      for (const logicalLedgerId of preparation.logicalLedgerIds.filter((id) => !existing.has(id))) {
+        await this.options.bindingService.ensurePhysicalShard(preparation.accountMid, {
+          logicalLedgerId, logicalTitle: logicalLedgerId, shardNumber: 1, memberAids: []
+        })
+      }
+    }
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(preparation.accountMid)
       if (workspace.status !== 'previewing' || !workspace.baseline) {
         throw new Error('Old favorite workspace is not ready to freeze.')
       }
