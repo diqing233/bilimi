@@ -396,23 +396,25 @@ export class OldFavoriteWorkspaceCoordinator {
       }
       return {
         accountMid: workspace.accountMid,
-        assignmentCounts: Object.values(workspace.classifications).reduce<Record<string, number>>((counts, classification) => {
+        assignmentAids: Object.values(workspace.classifications).reduce<Record<string, number[]>>((aidsByLedger, classification) => {
           for (const logicalLedgerId of classification.targetLedgerIds.map((id) => id.trim()).filter(Boolean)) {
-            counts[logicalLedgerId] = (counts[logicalLedgerId] ?? 0) + 1
+            aidsByLedger[logicalLedgerId] = [...new Set([...(aidsByLedger[logicalLedgerId] ?? []), classification.aid])]
           }
-          return counts
+          return aidsByLedger
         }, {})
       }
     })
     if (this.options.bindingService) {
       const snapshot = await this.options.repository.getSnapshot(preparation.accountMid)
-      for (const [logicalLedgerId, assignmentCount] of Object.entries(preparation.assignmentCounts).sort(([left], [right]) => left.localeCompare(right))) {
+      for (const [logicalLedgerId, assignmentAids] of Object.entries(preparation.assignmentAids).sort(([left], [right]) => left.localeCompare(right))) {
         const existing = snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logicalLedgerId)
+        const existingMemberAids = new Set(existing.flatMap((shard) => snapshot.memberships[shard.folderId] ?? []))
+        const newAssignmentCount = assignmentAids.filter((aid) => !existingMemberAids.has(aid)).length
         const availableCapacity = existing.reduce((total, shard) => total + Math.max(
           0,
           1_000 - Math.max(snapshot.memberships[shard.folderId]?.length ?? 0, shard.remoteMemberCount ?? 0)
         ), 0)
-        const shardCount = Math.max(0, Math.ceil((assignmentCount - availableCapacity) / 1_000))
+        const shardCount = Math.max(0, Math.ceil((newAssignmentCount - availableCapacity) / 1_000))
         const nextShardNumber = Math.max(0, ...existing.map((shard) => shard.shardNumber)) + 1
         for (let offset = 0; offset < shardCount; offset += 1) {
           await this.options.bindingService.ensurePhysicalShard(preparation.accountMid, {

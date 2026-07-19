@@ -251,6 +251,33 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('does not create a shard for a classified aid already present in a nearly full bound remote folder', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root })
+    const ensurePhysicalShard = vi.fn()
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), bindingService: { ensurePhysicalShard }
+    })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [1], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 999, memberAids: [1] }]
+    })
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }, { aid: 2, targetLedgerIds: ['music'] }]
+    })
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      status: 'frozen', frozenSyncPlan: {
+        operations: [{ aid: 1, folderIds: ['remote-music-1'] }, { aid: 2, folderIds: ['remote-music-1'] }]
+      }
+    })
+    expect(ensurePhysicalShard).not.toHaveBeenCalled()
+  })
+
   it('executes only the persisted frozen Bilibili plan through the main-process sync service', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
