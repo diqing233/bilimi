@@ -2,10 +2,28 @@ import { createHash, randomUUID } from 'node:crypto'
 import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-type Segment = { id: string; aids: number[] }
+type ScanItem = {
+  aid: number
+  title?: string
+  author?: string
+  sourceFolderIds: string[]
+  [key: string]: unknown
+}
+type Segment = { id: string; aids: number[]; items?: ScanItem[] }
+type SourceFolder = {
+  id: string
+  title: string
+  itemCount: number
+  isBilimiWorkFolder: boolean
+}
 type Classification = { aid: number; targetLedgerIds: string[]; source: string }
 type History = { kind: string; aids: number[] }
-type Overlay = { currentSegmentId: string; classifications: Classification[]; history: History[] }
+type Overlay = {
+  currentSegmentId: string
+  classifications: Classification[]
+  history: History[]
+  scanMetadata?: { sourceFolders?: SourceFolder[] }
+}
 type Manifest = {
   version: 1
   workspaceId: string
@@ -14,6 +32,7 @@ type Manifest = {
   baselineRevision: number
   currentSegmentId: string
   segments: Array<{ id: string; file: string; checksum: string }>
+  sourceFolders?: SourceFolder[]
   overlayRevision: number
   journalCursor: number
   journalChecksum: string
@@ -35,6 +54,7 @@ function normalizedAccountMid(value: string) {
 
 export class OldFavoriteWorkspaceStore {
   private readonly writeLog = new Map<string, string[]>()
+  private readonly readLog = new Map<string, string[]>()
   private operationTail = Promise.resolve()
 
   constructor(private readonly options: { root: string }) {}
@@ -46,13 +66,15 @@ export class OldFavoriteWorkspaceStore {
     baselineRevision: number
     currentSegmentId: string
     segments: Segment[]
+    sourceFolders?: SourceFolder[]
   }) {
     const accountMid = normalizedAccountMid(input.accountMid)
     const directory = this.workspaceDirectory(accountMid, input.workspaceId)
     await mkdir(join(directory, 'baseline'), { recursive: true })
     const segments = [] as Manifest['segments']
     for (const segment of input.segments) {
-      const content = JSON.stringify({ id: segment.id, aids: [...segment.aids] })
+      const items = segment.items?.map(clone) ?? segment.aids.map((aid) => ({ aid, sourceFolderIds: [] }))
+      const content = JSON.stringify({ id: segment.id, aids: [...segment.aids], items })
       const file = `baseline/${segment.id}.json`
       await this.atomicWrite(join(directory, file), content)
       segments.push({ id: segment.id, file, checksum: checksum(content) })
@@ -61,10 +83,12 @@ export class OldFavoriteWorkspaceStore {
     const withoutChecksum: Omit<Manifest, 'checksum'> = {
       version: 1, workspaceId: input.workspaceId, accountMid, status: input.status,
       baselineRevision: input.baselineRevision, currentSegmentId: input.currentSegmentId,
-      segments, overlayRevision: 0, journalCursor: 0, journalChecksum
+      segments, sourceFolders: input.sourceFolders?.map(clone) ?? [],
+      overlayRevision: 0, journalCursor: 0, journalChecksum
     }
     await this.writeManifest(directory, withoutChecksum)
     this.writeLog.set(this.key(accountMid, input.workspaceId), [])
+    this.readLog.set(this.key(accountMid, input.workspaceId), [])
   }
 
   async appendOverlay(accountMid: string, workspaceId: string, overlay: Overlay) {
@@ -98,25 +122,37 @@ export class OldFavoriteWorkspaceStore {
     const manifest = await this.readManifest(directory)
     if (!manifest || manifest.accountMid !== account) return { recovery: 'rebuild-required', preserveCompletedLocalResults: true }
     try {
+      const currentSegment = manifest.segments.find((segment) => segment.id === manifest.currentSegmentId)
+      const loadedSegment = currentSegment
+        ? await this.readSegment(directory, currentSegment)
+        : { id: '', aids: [] as number[], items: [] as ScanItem[] }
       const journalPath = join(directory, 'overlay.journal.jsonl')
       let journal = Buffer.alloc(0)
-      try { journal = await readFile(journalPath) } catch { journal = Buffer.alloc(0) }
+      try {
+        journal = await readFile(journalPath)
+        this.recordRead(directory, 'overlay.journal.jsonl')
+      } catch { journal = Buffer.alloc(0) }
       if (journal.byteLength < manifest.journalCursor) throw new Error('journal cursor exceeds content')
       const committedJournal = journal.subarray(0, manifest.journalCursor).toString('utf8')
       if (checksum(committedJournal) !== manifest.journalChecksum) throw new Error('journal checksum mismatch')
       const classifications: Record<string, Classification> = {}
       const history: History[] = []
+      let sourceFolders = manifest.sourceFolders?.map(clone) ?? []
       for (const line of committedJournal.split('\n').filter(Boolean)) {
         const overlay = JSON.parse(line) as Overlay
         for (const item of overlay.classifications) classifications[String(item.aid)] = clone(item)
         history.push(...overlay.history.map(clone))
+        if (overlay.scanMetadata?.sourceFolders) sourceFolders = overlay.scanMetadata.sourceFolders.map(clone)
       }
       return {
         workspaceId: manifest.workspaceId, accountMid: manifest.accountMid, status: manifest.status,
         baselineRevision: manifest.baselineRevision, currentSegmentId: manifest.currentSegmentId,
         overlayRevision: manifest.overlayRevision, journalCursor: manifest.journalCursor,
         manifestChecksum: manifest.checksum,
-        loadedSegmentAids: [] as number[], classifications, history
+        loadedSegmentAids: [...loadedSegment.aids],
+        loadedSegmentItems: (loadedSegment.items ?? []).map(clone),
+        sourceFolders,
+        classifications, history
       }
     } catch {
       return { recovery: 'rebuild-required', preserveCompletedLocalResults: true }
@@ -129,13 +165,15 @@ export class OldFavoriteWorkspaceStore {
     const manifest = await this.readManifest(directory)
     const segment = manifest?.segments.find((candidate) => candidate.id === segmentId)
     if (!segment) throw new Error('Old favorite workspace segment was not found.')
-    const content = await readFile(join(directory, segment.file), 'utf8')
-    if (checksum(content) !== segment.checksum) throw new Error('Old favorite workspace segment is corrupt.')
-    return JSON.parse(content) as Segment
+    return this.readSegment(directory, segment)
   }
 
   async readWorkspaceWrites(accountMid: string, workspaceId: string) {
     return [...(this.writeLog.get(this.key(normalizedAccountMid(accountMid), workspaceId)) ?? [])]
+  }
+
+  async readWorkspaceReads(accountMid: string, workspaceId: string) {
+    return [...(this.readLog.get(this.key(normalizedAccountMid(accountMid), workspaceId)) ?? [])]
   }
 
   async corruptOverlayForTest(accountMid: string, workspaceId: string) {
@@ -152,10 +190,26 @@ export class OldFavoriteWorkspaceStore {
 
   private async readManifest(directory: string): Promise<Manifest | null> {
     try {
-      const value = JSON.parse(await readFile(join(directory, 'manifest.json'), 'utf8')) as Manifest
+      const manifestPath = join(directory, 'manifest.json')
+      const value = JSON.parse(await readFile(manifestPath, 'utf8')) as Manifest
+      this.recordRead(directory, 'manifest.json')
       const { checksum: storedChecksum, ...withoutChecksum } = value
       return storedChecksum === checksum(canonicalManifest(withoutChecksum)) ? value : null
     } catch { return null }
+  }
+
+  private async readSegment(directory: string, segment: Manifest['segments'][number]): Promise<Segment> {
+    const content = await readFile(join(directory, segment.file), 'utf8')
+    this.recordRead(directory, segment.file)
+    if (checksum(content) !== segment.checksum) throw new Error('Old favorite workspace segment is corrupt.')
+    return JSON.parse(content) as Segment
+  }
+
+  private recordRead(directory: string, file: string) {
+    const match = /accounts[\\/]([^\\/]+)[\\/]workspaces[\\/]([^\\/]+)$/.exec(directory)
+    if (!match) return
+    const key = this.key(match[1], match[2])
+    this.readLog.set(key, [...(this.readLog.get(key) ?? []), file])
   }
 
   private async writeManifest(directory: string, input: Omit<Manifest, 'checksum'>) {

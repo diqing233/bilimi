@@ -67,9 +67,60 @@ describe('OldFavoriteWorkspaceStore', () => {
 
     const summary = await store.recover('100', 'workspace-1')
 
-    expect(summary.loadedSegmentAids).toEqual([])
+    expect(summary.loadedSegmentAids).toEqual(Array.from({ length: 2_000 }, (_unused, index) => index + 1))
+    expect(summary.loadedSegmentItems).toHaveLength(2_000)
+    await expect(store.readWorkspaceReads('100', 'workspace-1')).resolves.toEqual([
+      'manifest.json', 'baseline/segment-1.json'
+    ])
     await expect(store.loadSegment('100', 'workspace-1', 'segment-8')).resolves.toMatchObject({
       id: 'segment-8', aids: expect.arrayContaining([14_001, 16_000])
+    })
+  })
+
+  it('recovers compact scan folders including an empty Bilimi work folder', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1, currentSegmentId: 'segment-1',
+      sourceFolders: [
+        { id: 'source-1', title: '默认收藏夹', itemCount: 1, isBilimiWorkFolder: false },
+        { id: 'bilimi-empty', title: 'Bilimi · 稍后归档', itemCount: 0, isBilimiWorkFolder: true }
+      ],
+      segments: [{
+        id: 'segment-1',
+        aids: [1],
+        items: [{ aid: 1, title: '视频 1', author: 'UP 主', sourceFolderIds: ['source-1'] }]
+      }]
+    })
+
+    await expect(new OldFavoriteWorkspaceStore({ root }).recover('100', 'workspace-1')).resolves.toMatchObject({
+      sourceFolders: [
+        { id: 'source-1', itemCount: 1, isBilimiWorkFolder: false },
+        { id: 'bilimi-empty', itemCount: 0, isBilimiWorkFolder: true }
+      ],
+      loadedSegmentItems: [{ aid: 1, title: '视频 1', author: 'UP 主', sourceFolderIds: ['source-1'] }]
+    })
+  })
+
+  it('appends scan metadata without rewriting immutable baseline chunks', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1, currentSegmentId: 'segment-1',
+      sourceFolders: [{ id: 'source-1', title: '默认收藏夹', itemCount: 1, isBilimiWorkFolder: false }],
+      segments: [{ id: 'segment-1', aids: [1], items: [{ aid: 1, title: '旧标题', sourceFolderIds: ['source-1'] }] }]
+    })
+
+    await store.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [], history: [],
+      scanMetadata: { sourceFolders: [{ id: 'source-1', title: '已重命名', itemCount: 1, isBilimiWorkFolder: false }] }
+    })
+
+    await expect(store.readWorkspaceWrites('100', 'workspace-1')).resolves.toEqual([
+      'manifest.json', 'overlay.journal.jsonl'
+    ])
+    await expect(store.loadSegment('100', 'workspace-1', 'segment-1')).resolves.toMatchObject({
+      items: [{ aid: 1, title: '旧标题' }]
     })
   })
 

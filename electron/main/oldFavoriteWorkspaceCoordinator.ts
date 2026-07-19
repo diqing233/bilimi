@@ -265,19 +265,9 @@ export class OldFavoriteWorkspaceCoordinator {
       recovery: 'rebuild-required', preserveCompletedLocalResults: true,
       accountMid: marker.accountMid, workspaceId: marker.id
     }
-    let loaded: { id: string; aids: number[] }
-    try {
-      loaded = descriptor
-        ? await this.options.workspaceStore.loadSegment(marker.accountMid, marker.id, descriptor.id)
-        : { id: '', aids: [] }
-    } catch {
-      this.workspaces.delete(marker.accountMid)
-      return {
-        recovery: 'rebuild-required',
-        preserveCompletedLocalResults: true,
-        accountMid: marker.accountMid,
-        workspaceId: marker.id
-      }
+    const loaded = {
+      id: recovered.currentSegmentId,
+      aids: [...recovered.loadedSegmentAids]
     }
     const activeAidSet = new Set(loaded.aids)
     const frozenIds = new Set(events.flatMap((event) => event.type === 'freeze' ? [event.segmentId] : []))

@@ -60,6 +60,30 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     ])
   })
 
+  it('loads the current baseline segment only once during workspace recovery', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const firstStore = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, firstStore)
+    await first.open('100')
+    await first.completeScan('100', {
+      revision: 1,
+      aids: Array.from({ length: 2_001 }, (_, index) => index + 1)
+    })
+    await first.selectSegment('100', 'segment-2')
+
+    const recoveredStore = new OldFavoriteWorkspaceStore({ root })
+    const recovered = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' }),
+      recoveredStore
+    )
+
+    await recovered.getSnapshot('100')
+
+    await expect(recoveredStore.readWorkspaceReads('100', 'old-favorite-workspace-100-20260719000000000'))
+      .resolves.toEqual(['manifest.json', 'baseline/segment-2.json', 'overlay.journal.jsonl'])
+  })
+
   it('creates a scanning workspace and persists only its lightweight repository marker', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
