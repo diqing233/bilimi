@@ -48,7 +48,7 @@ import type {
   FavoriteRepositoryRevisionChange,
   FavoriteRepositorySnapshotSummary
 } from '../main/favoriteRepositoryIpc'
-import type { OldFavoriteWorkspaceSnapshot } from '../main/oldFavoriteWorkspaceCoordinator'
+import type { OldFavoriteWorkspaceView } from '../../src/shared/oldFavoriteWorkspace'
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
   version: '0.1.0',
@@ -56,9 +56,9 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   closeFloatingAssistant: () => ipcRenderer.send('floating-assistant:close'),
   closeFloatingMenu: () => ipcRenderer.send('floating-menu:close'),
   openOldFavoriteWorkspaceV1: (accountMid: string) =>
-    ipcRenderer.invoke('old-favorite-workspace-v1:open', accountMid) as Promise<OldFavoriteWorkspaceSnapshot>,
+    ipcRenderer.invoke('old-favorite-workspace-v1:open', accountMid) as Promise<OldFavoriteWorkspaceView>,
   commandOldFavoriteWorkspaceV1: (accountMid: string, command: unknown) =>
-    ipcRenderer.invoke('old-favorite-workspace-v1:command', accountMid, command) as Promise<OldFavoriteWorkspaceSnapshot>,
+    ipcRenderer.invoke('old-favorite-workspace-v1:command', accountMid, command) as Promise<OldFavoriteWorkspaceView>,
   writeClipboardText: (text: string) =>
     ipcRenderer.invoke('clipboard:write-text', text) as Promise<void>,
   loadPreferences: () => ipcRenderer.invoke('assistant:load-preferences') as Promise<AssistantPreferences>,

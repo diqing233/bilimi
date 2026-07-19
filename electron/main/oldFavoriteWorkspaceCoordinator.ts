@@ -8,7 +8,9 @@ import {
   type ApplyWorkspaceClassificationBatchOptions,
   type CompleteWorkspaceScanOptions,
   type OldFavoriteWorkspace,
-  type OldFavoriteWorkspaceHistoryEntry
+  type OldFavoriteWorkspaceHistoryEntry,
+  type OldFavoriteWorkspaceRecoveryRequired,
+  type OldFavoriteWorkspaceSnapshot
 } from '../../src/shared/oldFavoriteWorkspace'
 import type { FavoriteRepositoryWorkspace } from '../../src/shared/favoriteRepository'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
@@ -36,33 +38,7 @@ type DiscoveryJournalEvent = { type: 'discover'; aids: number[] }
 type WorkspaceJournalEvent = ScanJournalEvent | ClassificationJournalEvent | CursorJournalEvent |
   FreezeJournalEvent | DiscoveryJournalEvent
 
-export type OldFavoriteWorkspaceRecoveryRequired = {
-  recovery: 'rebuild-required'
-  preserveCompletedLocalResults: true
-  accountMid: string
-  workspaceId: string
-}
-
-export type OldFavoriteWorkspaceSnapshot = {
-  version: 1
-  accountMid: string
-  workspaceId: string
-  status: OldFavoriteWorkspace['status']
-  mode: OldFavoriteWorkspace['mode']
-  segmentSize: number
-  hasMultipleSegments: boolean
-  continuationCount: number
-  segments: Array<{ id: string; index: number; status: 'previewing' | 'frozen'; itemCount: number }>
-  currentSegment: { id: string; aids: number[] } | null
-  classifications: Record<string, OldFavoriteWorkspaceClassificationSnapshot>
-  history: { cursor: number; length: number }
-}
-
-type OldFavoriteWorkspaceClassificationSnapshot = {
-  aid: number
-  targetLedgerIds: string[]
-  source: OldFavoriteWorkspace['classifications'][string]['source']
-}
+export type { OldFavoriteWorkspaceRecoveryRequired, OldFavoriteWorkspaceSnapshot }
 
 function clone<T>(value: T): T {
   return structuredClone(value)

@@ -1,7 +1,9 @@
-import type { ApplyWorkspaceClassificationBatchOptions } from '../../src/shared/oldFavoriteWorkspace'
+import type {
+  ApplyWorkspaceClassificationBatchOptions,
+  OldFavoriteWorkspaceRecoveryRequired
+} from '../../src/shared/oldFavoriteWorkspace'
 import {
-  OldFavoriteWorkspaceCoordinator,
-  type OldFavoriteWorkspaceRecoveryRequired
+  OldFavoriteWorkspaceCoordinator
 } from './oldFavoriteWorkspaceCoordinator'
 
 type IpcEvent = { sender: { id: number } }

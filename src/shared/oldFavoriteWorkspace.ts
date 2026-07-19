@@ -54,6 +54,30 @@ export type OldFavoriteWorkspace = {
   historyCursor: number
 }
 
+export type OldFavoriteWorkspaceSnapshot = {
+  version: 1
+  accountMid: string
+  workspaceId: string
+  status: OldFavoriteWorkspaceStatus
+  mode: OldFavoriteWorkspaceMode
+  segmentSize: number
+  hasMultipleSegments: boolean
+  continuationCount: number
+  segments: Array<{ id: string; index: number; status: 'previewing' | 'frozen'; itemCount: number }>
+  currentSegment: { id: string; aids: number[] } | null
+  classifications: Record<string, OldFavoriteWorkspaceClassification>
+  history: { cursor: number; length: number }
+}
+
+export type OldFavoriteWorkspaceRecoveryRequired = {
+  recovery: 'rebuild-required'
+  preserveCompletedLocalResults: true
+  accountMid: string
+  workspaceId: string
+}
+
+export type OldFavoriteWorkspaceView = OldFavoriteWorkspaceSnapshot | OldFavoriteWorkspaceRecoveryRequired
+
 export type CreateOldFavoriteWorkspaceOptions = {
   accountMid: string
   now: string

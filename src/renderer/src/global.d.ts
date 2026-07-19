@@ -46,15 +46,15 @@ import type {
   FavoriteRepositoryRevisionChange,
   FavoriteRepositorySnapshotSummary
 } from '../../../electron/main/favoriteRepositoryIpc'
-import type { OldFavoriteWorkspaceSnapshot } from '../../../electron/main/oldFavoriteWorkspaceCoordinator'
+import type { OldFavoriteWorkspaceView } from '../../shared/oldFavoriteWorkspace'
 
 type BilimiDesktopApi = {
   version: string
   closeAssistantPet?: () => void
   closeFloatingAssistant?: () => void
   closeFloatingMenu?: () => void
-  openOldFavoriteWorkspaceV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceSnapshot>
-  commandOldFavoriteWorkspaceV1?: (accountMid: string, command: unknown) => Promise<OldFavoriteWorkspaceSnapshot>
+  openOldFavoriteWorkspaceV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceView>
+  commandOldFavoriteWorkspaceV1?: (accountMid: string, command: unknown) => Promise<OldFavoriteWorkspaceView>
   ensureFavoriteLedgers?: () => Promise<AssistantAutomationResult>
   executeOldFavoritePlan?: (
     items: FavoriteLedgerPreviewItem[],
