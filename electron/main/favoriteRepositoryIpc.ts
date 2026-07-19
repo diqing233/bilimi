@@ -79,6 +79,10 @@ function commandForAccount(value: unknown, accountMid: string): FavoriteReposito
   if (normalizedAccountMid((value as { accountMid: string }).accountMid) !== accountMid) {
     throw new Error('Favorite repository command account mismatch.')
   }
+  if ((value as { type?: unknown; payload?: { frozenSyncPlan?: unknown } }).type === 'set-workspace' &&
+    (value as { payload?: { frozenSyncPlan?: unknown } }).payload?.frozenSyncPlan !== undefined) {
+    throw new Error('Frozen favorite workspace plans are reserved for the main process.')
+  }
   return value as FavoriteRepositoryCommand
 }
 

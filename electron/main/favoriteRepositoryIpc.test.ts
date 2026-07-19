@@ -58,6 +58,24 @@ describe('registerFavoriteRepositoryIpc', () => {
     expect(service.commit).not.toHaveBeenCalled()
   })
 
+  it('does not let the renderer submit a frozen workspace plan through the generic command channel', async () => {
+    const ipcMain = new FakeIpcMain()
+    const service = { commit: vi.fn() }
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: service as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:commit-command', 7, '100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: {
+        id: 'workspace-1', accountMid: '100', status: 'frozen', baselineRevision: 1, continuationAids: [],
+        frozenSyncPlan: { id: 'run-1', accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 1, createdAt: '2026-07-19T00:00:00.000Z', operations: [] }
+      }
+    })).rejects.toThrow('reserved for the main process')
+    expect(service.commit).not.toHaveBeenCalled()
+  })
+
   it('returns a compact account and workspace summary rather than repository videos or memberships', async () => {
     const ipcMain = new FakeIpcMain()
     const service = {

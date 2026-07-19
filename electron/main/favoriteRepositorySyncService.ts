@@ -1,0 +1,319 @@
+import {
+  createAccountFavoriteRepositorySnapshot,
+  type FavoriteRepositoryFrozenSyncOperation,
+  type FavoriteRepositoryFrozenSyncPlan,
+  type FavoriteRepositorySyncRecord,
+  type FavoriteRepositoryWorkspace
+} from '../../src/shared/favoriteRepository'
+import { FavoriteRepositoryService } from './favoriteRepositoryService'
+
+export type FrozenFavoriteSyncPlan = FavoriteRepositoryFrozenSyncPlan
+
+type SyncRunStatus = 'ready-to-resume' | 'running' | 'result-unknown' | 'failed' | 'succeeded'
+
+export type FavoriteRepositorySyncRun = {
+  id: string
+  accountMid: string
+  workspaceId: string
+  status: SyncRunStatus
+  completedOperationCount: number
+  totalOperationCount: number
+}
+
+type PageBridgeResult = { observedAccountMid: string }
+
+export type FavoriteRepositoryPageBridge = {
+  append(input: {
+    accountMid: string
+    operationKey: string
+    aid: number
+    folderIds: string[]
+  }): Promise<PageBridgeResult>
+  remove(input: {
+    accountMid: string
+    operationKey: string
+    aid: number
+    folderIds: string[]
+  }): Promise<PageBridgeResult>
+  readMembers(input: {
+    accountMid: string
+    folderIds: string[]
+  }): Promise<PageBridgeResult & { members: Record<string, number[]> }>
+}
+
+type SyncRecordStatus = FavoriteRepositorySyncRecord['status']
+
+const retryReadyReason = 'reconciled-absent-ready-to-retry'
+
+function normalizeAccountMid(accountMid: string) {
+  return createAccountFavoriteRepositorySnapshot({
+    accountMid,
+    now: '1970-01-01T00:00:00.000Z'
+  }).accountMid
+}
+
+function clonePlan(plan: FavoriteRepositoryFrozenSyncPlan): FavoriteRepositoryFrozenSyncPlan {
+  return {
+    ...plan,
+    accountMid: normalizeAccountMid(plan.accountMid),
+    operations: plan.operations.map((operation) => ({
+      ...operation,
+      folderIds: [...new Set(operation.folderIds.map((folderId) => folderId.trim()).filter(Boolean))]
+    }))
+  }
+}
+
+export class FavoriteRepositoryRemoteRejectedError extends Error {
+  readonly remoteWriteRejected = true
+}
+
+function isConfirmedRemoteRejection(error: unknown) {
+  return error instanceof FavoriteRepositoryRemoteRejectedError ||
+    (typeof error === 'object' && error !== null && (error as { remoteWriteRejected?: unknown }).remoteWriteRejected === true)
+}
+
+export class FavoriteRepositorySyncService {
+  private readonly runTails = new Map<string, Promise<void>>()
+
+  constructor(private readonly options: {
+    repository: FavoriteRepositoryService
+    pageBridge: FavoriteRepositoryPageBridge
+    now?: () => string
+    sleep?: (milliseconds: number) => Promise<void>
+    pacingMs?: number
+  }) {}
+
+  async executeFrozenPlan(accountMid: string, frozenPlan: FrozenFavoriteSyncPlan): Promise<FavoriteRepositorySyncRun> {
+    const account = normalizeAccountMid(accountMid)
+    const plan = clonePlan(frozenPlan)
+    return this.withRunLock(account, plan.id, async () => {
+      if (plan.accountMid !== account) throw new Error('Favorite sync plan account mismatch.')
+      const snapshot = await this.options.repository.getSnapshot(account)
+      const workspace = snapshot.workspace
+      if (!workspace || workspace.id !== plan.workspaceId || workspace.baselineRevision !== plan.baselineRevision) {
+        throw new Error('Favorite sync plan does not match the frozen workspace.')
+      }
+      if (workspace.frozenSyncPlan) {
+        if (JSON.stringify(workspace.frozenSyncPlan) !== JSON.stringify(plan)) {
+          throw new Error('Favorite workspace frozen sync plan does not match the persisted plan.')
+        }
+        return this.drive(account, workspace.frozenSyncPlan)
+      }
+      await this.writeWorkspace(account, { ...workspace, status: 'executing', frozenSyncPlan: plan }, `freeze:${plan.id}`)
+      return this.drive(account, plan)
+    })
+  }
+
+  async getRun(accountMid: string, runId: string): Promise<FavoriteRepositorySyncRun> {
+    const account = normalizeAccountMid(accountMid)
+    const { workspace } = await this.options.repository.getSnapshot(account)
+    const plan = workspace?.frozenSyncPlan
+    if (!plan || plan.id !== runId) throw new Error('Favorite sync run was not found.')
+    return this.summarize(plan, await this.options.repository.getSyncCheckpoints(account, runId))
+  }
+
+  async resume(accountMid: string, runId: string): Promise<FavoriteRepositorySyncRun> {
+    const account = normalizeAccountMid(accountMid)
+    return this.withRunLock(account, runId, async () => {
+      const { workspace } = await this.options.repository.getSnapshot(account)
+      const plan = this.planForRun(workspace, runId, account)
+      const run = this.summarize(plan, await this.options.repository.getSyncCheckpoints(account, runId))
+      if (run.status === 'result-unknown' || run.status === 'failed' || run.status === 'succeeded') return run
+      await this.writeWorkspace(account, { ...workspace!, status: 'executing', frozenSyncPlan: plan }, `resume:${runId}`)
+      return this.drive(account, plan)
+    })
+  }
+
+  async reconcile(accountMid: string, runId: string): Promise<FavoriteRepositorySyncRun> {
+    const account = normalizeAccountMid(accountMid)
+    return this.withRunLock(account, runId, async () => {
+      const { workspace } = await this.options.repository.getSnapshot(account)
+      const plan = this.planForRun(workspace, runId, account)
+      const records = this.recordsByOperation(plan, await this.options.repository.getSyncCheckpoints(account, runId))
+      await this.writeWorkspace(account, { ...workspace!, status: 'reconciling', frozenSyncPlan: plan }, `reconcile:${runId}`)
+
+      for (const operation of plan.operations) {
+      const record = records.get(operation.operationKey)
+      if (!record || record.status === 'succeeded' || (record.status === 'pending' && record.reason === retryReadyReason)) continue
+      if (record.status === 'failed') continue
+      const result = await this.options.pageBridge.readMembers({ accountMid: account, folderIds: operation.folderIds })
+      this.assertObservedAccount(account, result.observedAccountMid)
+      if (!operation.folderIds.every((folderId) => Array.isArray(result.members[folderId]))) {
+        records.set(operation.operationKey, await this.writeRecord(account, plan, operation, 'result-unknown', record.attempt ?? 1, 'reconciliation-membership-incomplete', 'reconciled'))
+        continue
+      }
+      const membership = operation.folderIds.map((folderId) => result.members[folderId]?.includes(operation.aid) === true)
+      const allMember = membership.every(Boolean)
+      const noMembers = membership.every((value) => !value)
+      const desiredState = operation.kind === 'append' ? allMember : noMembers
+      const safeToRepeat = operation.kind === 'append' ? noMembers : allMember
+      const attempt = record.attempt ?? 1
+      if (desiredState) {
+        records.set(operation.operationKey, await this.writeRecord(account, plan, operation, 'succeeded', attempt, 'reconciled-confirmed', 'reconciled'))
+      } else if (safeToRepeat) {
+        records.set(operation.operationKey, await this.writeRecord(account, plan, operation, 'pending', attempt, retryReadyReason, 'reconciled'))
+      } else {
+        records.set(operation.operationKey, await this.writeRecord(account, plan, operation, 'result-unknown', attempt, 'reconciled-partial-state', 'reconciled'))
+      }
+      }
+
+      const run = this.summarize(plan, Array.from(records.values()))
+      const status = run.status === 'succeeded'
+        ? 'completed'
+        : run.status === 'ready-to-resume' || run.status === 'failed'
+          ? 'frozen'
+          : 'reconciling'
+      await this.writeWorkspace(account, { ...workspace!, status, frozenSyncPlan: plan }, `reconciled:${runId}`)
+      return run
+    })
+  }
+
+  private async drive(accountMid: string, plan: FavoriteRepositoryFrozenSyncPlan): Promise<FavoriteRepositorySyncRun> {
+    const snapshot = await this.options.repository.getSnapshot(accountMid)
+    const records = this.recordsByOperation(plan, await this.options.repository.getSyncCheckpoints(accountMid, plan.id))
+    for (let index = 0; index < plan.operations.length; index++) {
+      const operation = plan.operations[index]
+      const record = records.get(operation.operationKey)
+      if (record?.status === 'succeeded') continue
+      if (record?.status === 'failed') return this.summarize(plan, Array.from(records.values()))
+      if (record?.status === 'result-unknown' || (record?.status === 'pending' && record.reason !== retryReadyReason)) {
+        await this.writeWorkspace(accountMid, { ...snapshot.workspace!, status: 'reconciling', frozenSyncPlan: plan }, `unknown:${plan.id}`)
+        return this.summarize(plan, Array.from(records.values()))
+      }
+
+      const attempt = (record?.attempt ?? 0) + 1
+      records.set(operation.operationKey, await this.writeRecord(accountMid, plan, operation, 'pending', attempt, 'remote-request-started', 'checkpoint'))
+      try {
+        const result = operation.kind === 'append'
+          ? await this.options.pageBridge.append({ accountMid, operationKey: operation.operationKey, aid: operation.aid, folderIds: operation.folderIds })
+          : await this.options.pageBridge.remove({ accountMid, operationKey: operation.operationKey, aid: operation.aid, folderIds: operation.folderIds })
+        this.assertObservedAccount(accountMid, result.observedAccountMid)
+        records.set(operation.operationKey, await this.writeRecord(accountMid, plan, operation, 'succeeded', attempt, undefined, 'result'))
+      } catch (error) {
+        records.set(operation.operationKey, await this.writeRecord(
+          accountMid,
+          plan,
+          operation,
+          isConfirmedRemoteRejection(error) ? 'failed' : 'result-unknown',
+          attempt,
+          error instanceof Error ? error.message : String(error),
+          'result'
+        ))
+        const run = this.summarize(plan, Array.from(records.values()))
+        await this.writeWorkspace(accountMid, { ...snapshot.workspace!, status: run.status === 'result-unknown' ? 'reconciling' : 'frozen', frozenSyncPlan: plan }, `stopped:${plan.id}`)
+        return run
+      }
+      if (index < plan.operations.length - 1) await this.sleep()
+    }
+
+    const complete = this.summarize(plan, Array.from(records.values()))
+    await this.writeWorkspace(accountMid, { ...snapshot.workspace!, status: 'completed', frozenSyncPlan: plan }, `complete:${plan.id}`)
+    return complete
+  }
+
+  private async writeWorkspace(accountMid: string, workspace: FavoriteRepositoryWorkspace, suffix: string) {
+    await this.options.repository.commit(accountMid, {
+      id: `favorite-sync-workspace:${workspace.id}:${suffix}`,
+      accountMid,
+      issuedAt: this.now(),
+      type: 'set-workspace',
+      payload: workspace
+    })
+  }
+
+  private async writeRecord(
+    accountMid: string,
+    plan: FavoriteRepositoryFrozenSyncPlan,
+    operation: FavoriteRepositoryFrozenSyncOperation,
+    status: SyncRecordStatus,
+    attempt: number,
+    reason: string | undefined,
+    checkpoint: string
+  ) {
+    const record: FavoriteRepositorySyncRecord = {
+      id: `${plan.id}:${operation.operationKey}`,
+      commandId: `${plan.id}:${operation.operationKey}`,
+      status,
+      affectedAids: [operation.aid],
+      updatedAt: this.now(),
+      ...(reason ? { reason } : {}),
+      runId: plan.id,
+      operationKey: operation.operationKey,
+      attempt
+    }
+    await this.options.repository.recordSyncCheckpoint(
+      accountMid,
+      `favorite-sync-record:${plan.id}:${operation.operationKey}:${checkpoint}:${status}:${attempt}`,
+      record
+    )
+    return record
+  }
+
+  private summarize(plan: FavoriteRepositoryFrozenSyncPlan, records: FavoriteRepositorySyncRecord[]): FavoriteRepositorySyncRun {
+    const byOperation = this.recordsByOperation(plan, records)
+    const completedOperationCount = plan.operations.filter((operation) => byOperation.get(operation.operationKey)?.status === 'succeeded').length
+    const statuses = plan.operations.map((operation) => byOperation.get(operation.operationKey))
+    const status: SyncRunStatus = completedOperationCount === plan.operations.length
+      ? 'succeeded'
+      : statuses.some((record) => record?.status === 'result-unknown' || (record?.status === 'pending' && record.reason !== retryReadyReason))
+        ? 'result-unknown'
+        : statuses.some((record) => record?.status === 'failed')
+          ? 'failed'
+          : statuses.some((record) => record?.status === 'pending' && record.reason === retryReadyReason)
+            ? 'ready-to-resume'
+            : 'running'
+    return {
+      id: plan.id,
+      accountMid: plan.accountMid,
+      workspaceId: plan.workspaceId,
+      status,
+      completedOperationCount,
+      totalOperationCount: plan.operations.length
+    }
+  }
+
+  private recordsByOperation(plan: FavoriteRepositoryFrozenSyncPlan, records: FavoriteRepositorySyncRecord[]) {
+    return new Map(records
+      .filter((record) => record.runId === plan.id && record.operationKey)
+      .map((record) => [record.operationKey!, record]))
+  }
+
+  private planForRun(workspace: FavoriteRepositoryWorkspace | undefined, runId: string, accountMid: string) {
+    const plan = workspace?.frozenSyncPlan
+    if (!plan || plan.id !== runId || plan.accountMid !== accountMid) throw new Error('Favorite sync run was not found.')
+    return plan
+  }
+
+  private assertObservedAccount(expectedAccountMid: string, observedAccountMid: string) {
+    if (normalizeAccountMid(observedAccountMid) !== expectedAccountMid) {
+      throw new Error('Favorite sync page bridge account changed during execution.')
+    }
+  }
+
+  private now() {
+    return this.options.now?.() ?? new Date().toISOString()
+  }
+
+  private async sleep() {
+    const milliseconds = this.options.pacingMs ?? 1_200
+    if (milliseconds <= 0) return
+    if (this.options.sleep) return this.options.sleep(milliseconds)
+    await new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
+  }
+
+  private async withRunLock<T>(accountMid: string, runId: string, operation: () => Promise<T>) {
+    const key = `${accountMid}:${runId}`
+    const previous = this.runTails.get(key) ?? Promise.resolve()
+    let release: (() => void) | undefined
+    const current = new Promise<void>((resolve) => { release = resolve })
+    const tail = previous.then(() => current)
+    this.runTails.set(key, tail)
+    await previous
+    try {
+      return await operation()
+    } finally {
+      release?.()
+      if (this.runTails.get(key) === tail) this.runTails.delete(key)
+    }
+  }
+}

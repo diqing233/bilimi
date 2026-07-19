@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import {
   applyFavoriteRepositoryCommand,
@@ -8,6 +8,7 @@ import {
   type FavoriteRepositoryCommand,
   type FavoriteRepositoryCommandResult,
   type FavoriteRepositoryPage,
+  type FavoriteRepositorySyncRecord,
   type FavoriteRepositoryVideo
 } from '../../src/shared/favoriteRepository'
 
@@ -16,6 +17,7 @@ type PersistedRepository = {
   accountMid: string
   snapshot: AccountFavoriteRepositorySnapshot
   commandResults: Record<string, FavoriteRepositoryCommandResult>
+  syncCommandIds?: string[]
   generation?: string
 }
 
@@ -34,6 +36,21 @@ type RepositoryManifest = {
 type CachedRepository = {
   repository: PersistedRepository
   manifest?: RepositoryManifest
+}
+
+type SyncJournalEntry = {
+  command: FavoriteRepositoryCommand
+  acceptedAt: string
+}
+
+type SyncCheckpointState = {
+  commandIds: Set<string>
+  records: Map<string, FavoriteRepositorySyncRecord>
+}
+
+type SyncCheckpointJournalEntry = {
+  commandId: string
+  record: FavoriteRepositorySyncRecord
 }
 
 type FolderPageOptions = {
@@ -78,7 +95,9 @@ function validPersisted(value: unknown, accountMid: string): value is PersistedR
   const persisted = value as Partial<PersistedRepository>
   return persisted.version === 1 && persisted.accountMid === accountMid &&
     validSnapshot(persisted.snapshot, accountMid) && !!persisted.commandResults &&
-    typeof persisted.commandResults === 'object' && !Array.isArray(persisted.commandResults)
+    typeof persisted.commandResults === 'object' && !Array.isArray(persisted.commandResults) &&
+    (persisted.syncCommandIds === undefined ||
+      (Array.isArray(persisted.syncCommandIds) && persisted.syncCommandIds.every((id) => typeof id === 'string' && !!id)))
 }
 
 function validManifest(value: unknown, accountMid: string): value is RepositoryManifest {
@@ -97,6 +116,7 @@ export class FavoriteRepositoryService {
   private readonly cache = new Map<string, CachedRepository>()
   private writeTail = Promise.resolve()
   private pendingWriteCount = 0
+  private readonly syncCheckpointState = new Map<string, SyncCheckpointState>()
 
   constructor(private readonly options: {
     root: string
@@ -105,7 +125,10 @@ export class FavoriteRepositoryService {
 
   async getSnapshot(accountMid: string): Promise<AccountFavoriteRepositorySnapshot> {
     const account = normalizeAccountMid(accountMid)
-    return this.queue(async () => clone((await this.load(account)).repository.snapshot))
+    return this.queue(async () => clone(this.mergeSyncCheckpoints(
+      (await this.load(account)).repository,
+      await this.loadSyncCheckpointState(account)
+    ).snapshot))
   }
 
   async getFolderPage(
@@ -145,22 +168,63 @@ export class FavoriteRepositoryService {
         throw new Error('Favorite repository account mismatch.')
       }
       const cached = await this.load(account)
-      const repository = cached.repository
+      let repository = cached.repository
+      if (command.type !== 'record-sync-result') {
+        repository = this.mergeSyncCheckpoints(repository, await this.loadSyncCheckpointState(account))
+      }
       const existing = repository.commandResults[command.id]
       if (existing) return clone(existing)
+      if (command.type === 'record-sync-result' && repository.syncCommandIds?.includes(command.id)) {
+        return this.duplicateSyncResult(repository.snapshot, command)
+      }
 
-      const result = applyFavoriteRepositoryCommand(repository.snapshot, command, this.now())
+      const acceptedAt = this.now()
+      const result = applyFavoriteRepositoryCommand(repository.snapshot, command, acceptedAt)
       const next: PersistedRepository = {
         ...repository,
         snapshot: this.snapshotFromResult(result),
-        commandResults: { ...repository.commandResults, [command.id]: clone(result) }
+        commandResults: command.type === 'record-sync-result'
+          ? repository.commandResults
+          : { ...repository.commandResults, [command.id]: clone(result) },
+        ...(command.type === 'record-sync-result'
+          ? { syncCommandIds: [...new Set([...(repository.syncCommandIds ?? []), command.id])] }
+          : {})
+      }
+      if (command.type === 'record-sync-result') {
+        await this.appendSyncJournal(account, { command: clone(command), acceptedAt })
+        this.cache.set(account, { ...cached, repository: next })
+        return clone(result)
       }
       const persisted = await this.persist(account, next, cached.manifest?.generation)
+      await rm(this.syncJournalPath(account), { force: true })
+      await rm(this.syncCheckpointJournalPath(account), { force: true })
+      this.syncCheckpointState.delete(account)
       this.cache.set(account, persisted)
       return clone(result)
     }).finally(() => {
       this.pendingWriteCount--
     })
+  }
+
+  async getSyncCheckpoints(accountMid: string, runId: string): Promise<FavoriteRepositorySyncRecord[]> {
+    const account = normalizeAccountMid(accountMid)
+    return this.queue(async () => {
+      const records = new Map((await this.load(account)).repository.snapshot.syncRecords.map((record) => [record.id, record]))
+      for (const [id, record] of (await this.loadSyncCheckpointState(account)).records) records.set(id, record)
+      return Array.from(records.values()).filter((record) => record.runId === runId).map(clone)
+    })
+  }
+
+  async recordSyncCheckpoint(accountMid: string, commandId: string, record: FavoriteRepositorySyncRecord): Promise<void> {
+    const account = normalizeAccountMid(accountMid)
+    this.pendingWriteCount++
+    return this.queue(async () => {
+      const state = await this.loadSyncCheckpointState(account)
+      if (state.commandIds.has(commandId)) return
+      await this.appendSyncCheckpoint(account, { commandId, record: clone(record) })
+      state.commandIds.add(commandId)
+      state.records.set(record.id, clone(record))
+    }).finally(() => { this.pendingWriteCount-- })
   }
 
   hasPendingWrites() {
@@ -180,6 +244,18 @@ export class FavoriteRepositoryService {
     return snapshot
   }
 
+  private duplicateSyncResult(
+    snapshot: AccountFavoriteRepositorySnapshot,
+    command: Extract<FavoriteRepositoryCommand, { type: 'record-sync-result' }>
+  ): FavoriteRepositoryCommandResult {
+    return {
+      ...clone(snapshot),
+      commandId: command.id,
+      affectedFolderIds: [],
+      affectedAids: [...command.payload.affectedAids]
+    }
+  }
+
   private async load(accountMid: string): Promise<CachedRepository> {
     const cached = this.cache.get(accountMid)
     if (cached) return cached
@@ -196,11 +272,25 @@ export class FavoriteRepositoryService {
     if (previous) await this.atomicWrite(manifestPath, JSON.stringify(previous.manifest))
 
     const loaded = active ?? previous
-    const repository = loaded?.repository ?? {
+    let repository = loaded?.repository ?? {
       version: 1 as const,
       accountMid,
       snapshot: createAccountFavoriteRepositorySnapshot({ accountMid, now: this.now() }),
       commandResults: {}
+    }
+    for (const entry of await this.readSyncJournal(accountMid)) {
+      if (repository.commandResults[entry.command.id] || repository.syncCommandIds?.includes(entry.command.id)) continue
+      const result = applyFavoriteRepositoryCommand(repository.snapshot, entry.command, entry.acceptedAt)
+      repository = {
+        ...repository,
+        snapshot: this.snapshotFromResult(result),
+        commandResults: entry.command.type === 'record-sync-result'
+          ? repository.commandResults
+          : { ...repository.commandResults, [entry.command.id]: clone(result) },
+        ...(entry.command.type === 'record-sync-result'
+          ? { syncCommandIds: [...new Set([...(repository.syncCommandIds ?? []), entry.command.id])] }
+          : {})
+      }
     }
     const result = { repository, manifest: loaded?.manifest }
     this.cache.set(accountMid, result)
@@ -312,12 +402,85 @@ export class FavoriteRepositoryService {
     await rename(temporaryPath, path)
   }
 
+  private async appendSyncJournal(accountMid: string, entry: SyncJournalEntry) {
+    const path = this.syncJournalPath(accountMid)
+    await mkdir(dirname(path), { recursive: true })
+    await appendFile(path, `${JSON.stringify(entry)}\n`, 'utf8')
+  }
+
+  private async appendSyncCheckpoint(accountMid: string, entry: SyncCheckpointJournalEntry) {
+    const path = this.syncCheckpointJournalPath(accountMid)
+    await mkdir(dirname(path), { recursive: true })
+    await appendFile(path, `${JSON.stringify(entry)}\n`, 'utf8')
+  }
+
+  private async loadSyncCheckpointState(accountMid: string): Promise<SyncCheckpointState> {
+    const cached = this.syncCheckpointState.get(accountMid)
+    if (cached) return cached
+    const state: SyncCheckpointState = { commandIds: new Set(), records: new Map() }
+    try {
+      const lines = (await readFile(this.syncCheckpointJournalPath(accountMid), 'utf8')).split('\n').filter(Boolean)
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line) as Partial<SyncCheckpointJournalEntry>
+          if (typeof entry.commandId !== 'string' || !entry.commandId || !entry.record || typeof entry.record !== 'object') break
+          state.commandIds.add(entry.commandId)
+          state.records.set(entry.record.id, entry.record)
+        } catch {
+          break
+        }
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    this.syncCheckpointState.set(accountMid, state)
+    return state
+  }
+
+  private mergeSyncCheckpoints(repository: PersistedRepository, checkpoints: SyncCheckpointState): PersistedRepository {
+    if (!checkpoints.records.size) return repository
+    const syncRecords = new Map(repository.snapshot.syncRecords.map((record) => [record.id, record]))
+    for (const [id, record] of checkpoints.records) syncRecords.set(id, record)
+    return {
+      ...repository,
+      snapshot: { ...repository.snapshot, syncRecords: Array.from(syncRecords.values()) }
+    }
+  }
+
+  private async readSyncJournal(accountMid: string): Promise<SyncJournalEntry[]> {
+    try {
+      const entries: SyncJournalEntry[] = []
+      const lines = (await readFile(this.syncJournalPath(accountMid), 'utf8')).split('\n').filter(Boolean)
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line) as Partial<SyncJournalEntry>
+          if (!entry.command || typeof entry.acceptedAt !== 'string') break
+          entries.push(entry as SyncJournalEntry)
+        } catch {
+          break
+        }
+      }
+      return entries
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw error
+    }
+  }
+
   private accountDirectory(accountMid: string) {
     return join(this.options.root, 'accounts', accountMid)
   }
 
   private manifestPath(accountMid: string) {
     return join(this.accountDirectory(accountMid), 'repository.manifest.json')
+  }
+
+  private syncJournalPath(accountMid: string) {
+    return join(this.accountDirectory(accountMid), 'sync-checkpoints.jsonl')
+  }
+
+  private syncCheckpointJournalPath(accountMid: string) {
+    return join(this.accountDirectory(accountMid), 'sync-checkpoints-v2.jsonl')
   }
 
   private generationDirectory(accountMid: string, generation: string) {

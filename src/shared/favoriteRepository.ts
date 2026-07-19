@@ -30,12 +30,29 @@ export type FavoriteRepositoryPhysicalShard = {
   remoteFolderId?: string
 }
 
+export type FavoriteRepositoryFrozenSyncOperation = {
+  operationKey: string
+  aid: number
+  kind: 'append' | 'remove'
+  folderIds: string[]
+}
+
+export type FavoriteRepositoryFrozenSyncPlan = {
+  id: string
+  accountMid: string
+  workspaceId: string
+  baselineRevision: number
+  createdAt: string
+  operations: FavoriteRepositoryFrozenSyncOperation[]
+}
+
 export type FavoriteRepositoryWorkspace = {
   id: string
   accountMid: string
   status: 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'completed'
   baselineRevision: number
   continuationAids: number[]
+  frozenSyncPlan?: FavoriteRepositoryFrozenSyncPlan
 }
 
 export type FavoriteRepositorySyncRecord = {
@@ -45,6 +62,9 @@ export type FavoriteRepositorySyncRecord = {
   affectedAids: number[]
   updatedAt: string
   reason?: string
+  runId?: string
+  operationKey?: string
+  attempt?: number
 }
 
 export type FavoriteRepositoryPage<T> = {
@@ -142,6 +162,27 @@ function isWorkspaceStatus(value: unknown): value is FavoriteRepositoryWorkspace
   return ['scanning', 'previewing', 'frozen', 'executing', 'reconciling', 'completed'].includes(String(value))
 }
 
+function isFrozenSyncPlan(value: unknown, accountMid: string, workspaceId: string) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const plan = value as Partial<FavoriteRepositoryFrozenSyncPlan>
+  if (typeof plan.id !== 'string' || !plan.id.trim() || typeof plan.accountMid !== 'string' ||
+    normalizedAccountMid(plan.accountMid) !== accountMid || typeof plan.workspaceId !== 'string' ||
+    plan.workspaceId !== workspaceId || !Number.isSafeInteger(plan.baselineRevision) ||
+    Number(plan.baselineRevision) < 0 || typeof plan.createdAt !== 'string' ||
+    Number.isNaN(Date.parse(plan.createdAt)) || !Array.isArray(plan.operations)) return false
+  const operationKeys = new Set<string>()
+  return plan.operations.every((operation) => {
+    if (!operation || typeof operation !== 'object' || Array.isArray(operation)) return false
+    const record = operation as Partial<FavoriteRepositoryFrozenSyncOperation>
+    if (typeof record.operationKey !== 'string' || !record.operationKey.trim() || operationKeys.has(record.operationKey) ||
+      !Number.isSafeInteger(record.aid) || Number(record.aid) <= 0 ||
+      (record.kind !== 'append' && record.kind !== 'remove') || !Array.isArray(record.folderIds)) return false
+    if (!record.folderIds.length || record.folderIds.some((folderId) => typeof folderId !== 'string' || !folderId.trim())) return false
+    operationKeys.add(record.operationKey)
+    return true
+  })
+}
+
 function isSyncStatus(value: unknown): value is FavoriteRepositorySyncRecord['status'] {
   return ['pending', 'succeeded', 'failed', 'result-unknown'].includes(String(value))
 }
@@ -186,12 +227,16 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
     case 'set-workspace':
       if (typeof payload.id !== 'string' || !payload.id.trim() || typeof payload.accountMid !== 'string' ||
         !isWorkspaceStatus(payload.status) || !Number.isSafeInteger(payload.baselineRevision) ||
-        Number(payload.baselineRevision) < 0 || !isValidAidList(payload.continuationAids)) invalidCommand()
+        Number(payload.baselineRevision) < 0 || !isValidAidList(payload.continuationAids) ||
+        (payload.frozenSyncPlan !== undefined && !isFrozenSyncPlan(payload.frozenSyncPlan, normalizedAccountMid(payload.accountMid), payload.id))) invalidCommand()
       return
     case 'record-sync-result':
       if (typeof payload.id !== 'string' || !payload.id.trim() || typeof payload.commandId !== 'string' ||
         !payload.commandId.trim() || !isSyncStatus(payload.status) || !isValidAidList(payload.affectedAids) ||
-        typeof payload.updatedAt !== 'string' || (payload.reason !== undefined && typeof payload.reason !== 'string')) invalidCommand()
+        typeof payload.updatedAt !== 'string' || (payload.reason !== undefined && typeof payload.reason !== 'string') ||
+        (payload.runId !== undefined && (typeof payload.runId !== 'string' || !payload.runId.trim())) ||
+        (payload.operationKey !== undefined && (typeof payload.operationKey !== 'string' || !payload.operationKey.trim())) ||
+        (payload.attempt !== undefined && (!Number.isSafeInteger(payload.attempt) || Number(payload.attempt) < 1))) invalidCommand()
       return
     default:
       invalidCommand()
@@ -254,10 +299,24 @@ export function applyFavoriteRepositoryCommand(
       if (normalizedAccountMid(command.payload.accountMid) !== snapshot.accountMid) {
         throw new Error('Favorite repository account mismatch.')
       }
+      if (snapshot.workspace?.frozenSyncPlan && (snapshot.workspace.id !== command.payload.id ||
+        JSON.stringify(snapshot.workspace.frozenSyncPlan) !== JSON.stringify(command.payload.frozenSyncPlan))) {
+        throw new Error('Favorite sync plan is immutable.')
+      }
       workspace = {
         ...command.payload,
         accountMid: snapshot.accountMid,
-        continuationAids: uniquePositiveAids(command.payload.continuationAids)
+        continuationAids: uniquePositiveAids(command.payload.continuationAids),
+        ...(command.payload.frozenSyncPlan ? {
+          frozenSyncPlan: {
+            ...command.payload.frozenSyncPlan,
+            accountMid: snapshot.accountMid,
+            operations: command.payload.frozenSyncPlan.operations.map((operation) => ({
+              ...operation,
+              folderIds: [...new Set(operation.folderIds.map((folderId) => folderId.trim()).filter(Boolean))]
+            }))
+          }
+        } : {})
       }
       break
     case 'record-sync-result':

@@ -152,4 +152,38 @@ describe('account favorite repository contracts', () => {
     expect(result.workspace?.accountMid).toBe('100')
     expect(result.updatedAt).toBe('2026-07-19T00:00:20.000Z')
   })
+
+  it('rejects replacing a persisted frozen sync plan through a later workspace command', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({
+      accountMid: '100', now: '2026-07-19T00:00:00.000Z'
+    })
+    const frozen = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'workspace-1', accountMid: '100', issuedAt: '2026-07-19T00:00:01.000Z', type: 'set-workspace',
+      payload: {
+        id: 'workspace-1', accountMid: '100', status: 'frozen', baselineRevision: 1, continuationAids: [],
+        frozenSyncPlan: {
+          id: 'run-1', accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 1,
+          createdAt: '2026-07-19T00:00:01.000Z',
+          operations: [{ operationKey: 'append-1', aid: 1, kind: 'append', folderIds: ['remote-a'] }]
+        }
+      }
+    }, '2026-07-19T00:00:01.000Z')
+
+    expect(() => applyFavoriteRepositoryCommand(frozen, {
+      id: 'workspace-2', accountMid: '100', issuedAt: '2026-07-19T00:00:02.000Z', type: 'set-workspace',
+      payload: {
+        id: 'workspace-1', accountMid: '100', status: 'executing', baselineRevision: 1, continuationAids: [],
+        frozenSyncPlan: {
+          id: 'run-1', accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 1,
+          createdAt: '2026-07-19T00:00:01.000Z',
+          operations: [{ operationKey: 'append-2', aid: 1, kind: 'append', folderIds: ['remote-b'] }]
+        }
+      }
+    }, '2026-07-19T00:00:02.000Z')).toThrow('Favorite sync plan is immutable.')
+
+    expect(() => applyFavoriteRepositoryCommand(frozen, {
+      id: 'workspace-3', accountMid: '100', issuedAt: '2026-07-19T00:00:02.000Z', type: 'set-workspace',
+      payload: { id: 'different-workspace', accountMid: '100', status: 'scanning', baselineRevision: 0, continuationAids: [] }
+    }, '2026-07-19T00:00:02.000Z')).toThrow('Favorite sync plan is immutable.')
+  })
 })

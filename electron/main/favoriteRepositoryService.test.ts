@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -134,5 +134,44 @@ describe('FavoriteRepositoryService', () => {
     await service.flush()
     await pending
     expect((service as unknown as { hasPendingWrites(): boolean }).hasPendingWrites()).toBe(false)
+  })
+
+  it('journals sync checkpoints and recovers them without rewriting every repository generation', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: { id: 'workspace-1', accountMid: '100', status: 'executing', baselineRevision: 1, continuationAids: [] }
+    })
+    const generationDirectory = join(root, 'accounts', '100', 'generations')
+    const before = await readdir(generationDirectory)
+
+    await service.recordSyncCheckpoint('100', 'checkpoint-pending', {
+      id: 'run-1:append-1', commandId: 'append-1', status: 'pending', affectedAids: [1], updatedAt: '2026-07-19T00:00:00.000Z', runId: 'run-1', operationKey: 'append-1', attempt: 1
+    })
+    await service.recordSyncCheckpoint('100', 'checkpoint-result', {
+      id: 'run-1:append-1', commandId: 'append-1', status: 'succeeded', affectedAids: [1], updatedAt: '2026-07-19T00:00:00.000Z', runId: 'run-1', operationKey: 'append-1', attempt: 1
+    })
+
+    expect(await readdir(generationDirectory)).toEqual(before)
+    const restarted = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    expect(await restarted.getSyncCheckpoints('100', 'run-1')).toEqual([
+      expect.objectContaining({ id: 'run-1:append-1', status: 'succeeded' })
+    ])
+
+    await restarted.commit('100', {
+      id: 'compact-sync-journal', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: { id: 'workspace-1', accountMid: '100', status: 'completed', baselineRevision: 1, continuationAids: [] }
+    })
+    const manifest = JSON.parse(await readFile(join(root, 'accounts', '100', 'repository.manifest.json'), 'utf8')) as { generation: string }
+    const persisted = JSON.parse(await readFile(join(root, 'accounts', '100', 'generations', manifest.generation, 'repository.json'), 'utf8')) as {
+      commandResults: Record<string, unknown>
+      snapshot: { syncRecords: Array<{ id: string; status: string }> }
+    }
+    expect(persisted.commandResults).not.toHaveProperty('checkpoint-pending')
+    expect(persisted.commandResults).not.toHaveProperty('checkpoint-result')
+    expect(persisted.snapshot.syncRecords).toEqual([
+      expect.objectContaining({ id: 'run-1:append-1', status: 'succeeded' })
+    ])
   })
 })
