@@ -116,7 +116,10 @@ export class OldFavoriteWorkspaceCoordinator {
   async beginScan(accountMid: string, mode: OldFavoriteWorkspace['mode']): Promise<OldFavoriteWorkspaceSnapshot> {
     return this.queue(async () => {
       if (mode !== 'incremental' && mode !== 'full') throw new Error('Old favorite workspace mode is invalid.')
-      const workspace = await this.requireWorkspace(accountMid)
+      let workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status === 'completed') {
+        workspace = await this.createScanningWorkspace(workspace.accountMid, mode)
+      }
       if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is already active.')
       const updated = { ...workspace, mode }
       const scanRunId = randomUUID()
@@ -535,11 +538,17 @@ export class OldFavoriteWorkspaceCoordinator {
 
     if (snapshot.workspace) return this.restoreFromStore(snapshot.workspace, snapshot.updatedAt)
 
+    const workspace = await this.createScanningWorkspace(account)
+    return clone(workspace)
+  }
+
+  private async createScanningWorkspace(accountMid: string, mode?: OldFavoriteWorkspace['mode']) {
+    const account = (await this.options.repository.getSnapshot(accountMid)).accountMid
     const now = this.now()
     const workspace = createOldFavoriteWorkspace({
       accountMid: account,
       now,
-      id: `old-favorite-workspace-${account}-${now.replace(/[^0-9]/g, '')}`
+      id: `old-favorite-workspace-${account}-${now.replace(/[^0-9]/g, '')}-${randomUUID()}`
     })
     await this.options.workspaceStore.create({
       accountMid: account,
@@ -550,8 +559,11 @@ export class OldFavoriteWorkspaceCoordinator {
       segments: []
     })
     await this.persistMarker(workspace)
+    this.currentSegmentItems.delete(account)
+    this.scanOverviews.delete(account)
+    this.scanRuns.delete(account)
     this.remember(workspace, '', [], new Set())
-    return clone(workspace)
+    return mode ? { ...workspace, mode } : workspace
   }
 
   private async restoreFromStore(

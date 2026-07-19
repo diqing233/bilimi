@@ -433,7 +433,10 @@ export function applyFavoriteRepositoryCommand(
       if (normalizedAccountMid(command.payload.accountMid) !== snapshot.accountMid) {
         throw new Error('Favorite repository account mismatch.')
       }
-      if (snapshot.workspace?.frozenSyncPlan && (snapshot.workspace.id !== command.payload.id ||
+      const advancesCompletedPlan = snapshot.workspace?.status === 'completed' && snapshot.workspace.frozenSyncPlan &&
+        snapshot.workspace.id !== command.payload.id.trim() && command.payload.status === 'scanning' &&
+        command.payload.baselineRevision === 0 && command.payload.frozenSyncPlan === undefined
+      if (snapshot.workspace?.frozenSyncPlan && !advancesCompletedPlan && (snapshot.workspace.id !== command.payload.id ||
         JSON.stringify(snapshot.workspace.frozenSyncPlan) !== JSON.stringify(command.payload.frozenSyncPlan))) {
         throw new Error('Favorite sync plan is immutable.')
       }

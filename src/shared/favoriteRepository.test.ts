@@ -261,4 +261,73 @@ describe('account favorite repository contracts', () => {
       }
     }, '2026-07-19T00:00:02.000Z')).toThrow('Favorite sync plan is immutable.')
   })
+
+  it('allows a completed frozen plan to advance the account pointer to a new scanning workspace', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-19T00:00:00.000Z' })
+    const completed = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'workspace-1', accountMid: '100', issuedAt: '2026-07-19T00:00:01.000Z', type: 'set-workspace',
+      payload: {
+        id: 'workspace-1', accountMid: '100', status: 'completed', baselineRevision: 1, continuationAids: [],
+        workspaceRef: workspaceRef({ status: 'completed', baselineRevision: 1, currentSegmentId: 'segment-1' }),
+        frozenSyncPlan: {
+          id: 'run-1', accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 1,
+          createdAt: '2026-07-19T00:00:01.000Z', operations: []
+        }
+      }
+    }, '2026-07-19T00:00:01.000Z')
+
+    expect(applyFavoriteRepositoryCommand(completed, {
+      id: 'workspace-2', accountMid: '100', issuedAt: '2026-07-19T00:00:02.000Z', type: 'set-workspace',
+      payload: {
+        id: 'workspace-2', accountMid: '100', status: 'scanning', baselineRevision: 0, continuationAids: [],
+        workspaceRef: workspaceRef({ workspaceId: 'workspace-2' })
+      }
+    }, '2026-07-19T00:00:02.000Z').workspace).toMatchObject({ id: 'workspace-2', status: 'scanning' })
+  })
+
+  it('rejects replacing a completed frozen plan with a non-scanning workspace', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-19T00:00:00.000Z' })
+    const completed = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'workspace-1', accountMid: '100', issuedAt: '2026-07-19T00:00:01.000Z', type: 'set-workspace',
+      payload: {
+        id: 'workspace-1', accountMid: '100', status: 'completed', baselineRevision: 1, continuationAids: [],
+        workspaceRef: workspaceRef({ status: 'completed', baselineRevision: 1, currentSegmentId: 'segment-1' }),
+        frozenSyncPlan: {
+          id: 'run-1', accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 1,
+          createdAt: '2026-07-19T00:00:01.000Z', operations: []
+        }
+      }
+    }, '2026-07-19T00:00:01.000Z')
+
+    expect(() => applyFavoriteRepositoryCommand(completed, {
+      id: 'workspace-2', accountMid: '100', issuedAt: '2026-07-19T00:00:02.000Z', type: 'set-workspace',
+      payload: {
+        id: 'workspace-2', accountMid: '100', status: 'previewing', baselineRevision: 0, continuationAids: [],
+        workspaceRef: workspaceRef({ workspaceId: 'workspace-2', status: 'previewing' })
+      }
+    }, '2026-07-19T00:00:02.000Z')).toThrow('Favorite sync plan is immutable.')
+  })
+
+  it('rejects a whitespace-padded completed workspace id as a new scan pointer', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-19T00:00:00.000Z' })
+    const completed = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'workspace-1', accountMid: '100', issuedAt: '2026-07-19T00:00:01.000Z', type: 'set-workspace',
+      payload: {
+        id: 'workspace-1', accountMid: '100', status: 'completed', baselineRevision: 1, continuationAids: [],
+        workspaceRef: workspaceRef({ status: 'completed', baselineRevision: 1, currentSegmentId: 'segment-1' }),
+        frozenSyncPlan: {
+          id: 'run-1', accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 1,
+          createdAt: '2026-07-19T00:00:01.000Z', operations: []
+        }
+      }
+    }, '2026-07-19T00:00:01.000Z')
+
+    expect(() => applyFavoriteRepositoryCommand(completed, {
+      id: 'workspace-2', accountMid: '100', issuedAt: '2026-07-19T00:00:02.000Z', type: 'set-workspace',
+      payload: {
+        id: ' workspace-1 ', accountMid: '100', status: 'scanning', baselineRevision: 0, continuationAids: [],
+        workspaceRef: workspaceRef({ workspaceId: 'workspace-1' })
+      }
+    }, '2026-07-19T00:00:02.000Z')).toThrow('Favorite sync plan is immutable.')
+  })
 })

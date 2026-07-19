@@ -101,6 +101,33 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     ])
   })
 
+  it('starts a new incremental scan after completion without overwriting the completed workspace mirror', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const coordinator = createCoordinator(repository, store)
+    const initial = await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    const completedMarker = (await repository.getSnapshot('100')).workspace!
+    await repository.commit('100', {
+      id: 'complete', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace', payload: {
+        ...completedMarker,
+        status: 'completed', workspaceRef: { ...completedMarker.workspaceRef, status: 'completed' },
+        frozenSyncPlan: {
+          id: 'run-1', accountMid: '100', workspaceId: initial.id, baselineRevision: 1,
+          createdAt: '2026-07-20T00:00:00.000Z', operations: []
+        }
+      }
+    })
+
+    const next = await coordinator.beginScan('100', 'incremental')
+
+    expect(next).toMatchObject({ accountMid: '100', status: 'scanning', mode: 'incremental' })
+    expect(next.workspaceId).not.toBe(initial.id)
+    await expect(store.recover('100', initial.id)).resolves.toMatchObject({ workspaceId: initial.id, baselineRevision: 1 })
+    expect((await repository.getSnapshot('100')).workspace).toMatchObject({ id: next.workspaceId, status: 'scanning' })
+  })
+
   it('finalizes staged source pages into one deduplicated immutable baseline and preserves managed aids', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -512,7 +539,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await recovered.getSnapshot('100')
 
-    await expect(recoveredStore.readWorkspaceReads('100', 'old-favorite-workspace-100-20260719000000000'))
+    const workspaceId = (await repository.getSnapshot('100')).workspace!.id
+    await expect(recoveredStore.readWorkspaceReads('100', workspaceId))
       .resolves.toEqual(['manifest.json', 'baseline/segment-2.json', 'overlay.journal.jsonl'])
   })
 
