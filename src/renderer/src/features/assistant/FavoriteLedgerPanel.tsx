@@ -8784,6 +8784,29 @@ export function FavoriteLedgerPanel({
         item.sourceFolderIds.some((folderId) => controlledSelectedSourceIds.has(folderId))
       )
     : []
+  const renderControlledPreviewItem = (item: typeof controlledPreviewItems[number]) => {
+    const title = item.title?.trim() || `视频 ${item.aid}`
+    const targetLedgerId = controlledScanSnapshot?.classifications[String(item.aid)]?.targetLedgerIds[0] ?? ''
+    return (
+      <article>
+        <strong>{title}</strong> · {item.author?.trim() || '未知 UP'}
+        <label>
+          <span>归类</span>
+          <select
+            aria-label={`归类 ${title}`}
+            value={targetLedgerId}
+            onChange={(event) => void oldFavoriteWorkspace.applyManualClassifications([{
+              aid: item.aid,
+              targetLedgerIds: event.currentTarget.value ? [event.currentTarget.value] : []
+            }])}
+          >
+            <option value="">未分类</option>
+            {ledgers.map((ledger) => <option key={ledger.id} value={ledger.id}>{ledger.displayName}</option>)}
+          </select>
+        </label>
+      </article>
+    )
+  }
 
   return (
     <section
@@ -9717,15 +9740,13 @@ export function FavoriteLedgerPanel({
                     items={controlledPreviewItems}
                     itemKey={(item) => item.aid}
                     itemWidth={OLD_FAVORITE_VIRTUAL_TRACK_ITEM_WIDTH}
-                    renderItem={(item) => (
-                      <article>{item.title?.trim() || `视频 ${item.aid}`} · {item.author?.trim() || '未知 UP'} · 未分类</article>
-                    )}
+                    renderItem={renderControlledPreviewItem}
                   />
                 </div>
               ) : (
                 <ul className="favorite-ledger-panel__preview-list" aria-label="当前分段归档预览">
                   {controlledPreviewItems.map((item) => (
-                    <li key={item.aid}>{item.title?.trim() || `视频 ${item.aid}`} · {item.author?.trim() || '未知 UP'} · 未分类</li>
+                    <li key={item.aid}>{renderControlledPreviewItem(item)}</li>
                   ))}
                 </ul>
               )}

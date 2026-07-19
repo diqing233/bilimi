@@ -175,6 +175,10 @@ describe('FavoriteLedgerPanel', () => {
     }))
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     expect(await screen.findByRole('list', { name: '当前分段归档预览' })).toHaveTextContent('Keep this')
+    fireEvent.change(screen.getByRole('combobox', { name: '归类 Keep this' }), { target: { value: 'music' } })
+    await waitFor(() => expect(command).toHaveBeenLastCalledWith('100', {
+      type: 'apply-classifications', source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    }))
     expect(screen.queryByText('请等待扫描结束')).not.toBeInTheDocument()
     expect(screen.queryByText('视频 2001')).not.toBeInTheDocument()
   })

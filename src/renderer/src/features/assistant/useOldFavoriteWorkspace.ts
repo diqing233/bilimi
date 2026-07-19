@@ -73,6 +73,37 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     }
   }, [accountMid])
 
+  const sendCommand = useCallback(async (commandValue: unknown) => {
+    const version = ++requestVersion.current
+    const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
+    if (!accountMid || !command) return null
+    try {
+      const next = await command(accountMid, commandValue)
+      const matchesRequestedAccount = normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
+      if (!matchesRequestedAccount) return null
+      if (requestVersion.current === version) setSnapshot(next)
+      return next
+    } catch {
+      return null
+    }
+  }, [accountMid])
+
+  const selectSegment = useCallback((segmentId: string) => {
+    const normalized = segmentId.trim()
+    if (!normalized) return Promise.resolve(null)
+    return sendCommand({ type: 'select-segment', segmentId: normalized })
+  }, [sendCommand])
+
+  const applyManualClassifications = useCallback((assignments: Array<{ aid: number; targetLedgerIds: string[] }>) => {
+    const normalized = assignments
+      .filter((assignment) => Number.isSafeInteger(assignment.aid) && assignment.aid > 0 && Array.isArray(assignment.targetLedgerIds))
+      .map((assignment) => ({
+        aid: assignment.aid,
+        targetLedgerIds: [...new Set(assignment.targetLedgerIds.filter((id) => typeof id === 'string').map((id) => id.trim()).filter(Boolean))].sort()
+      }))
+    return sendCommand({ type: 'apply-classifications', source: 'manual', assignments: normalized })
+  }, [sendCommand])
+
   useEffect(() => {
     void refresh()
   }, [refresh])
@@ -83,5 +114,8 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     return () => window.clearInterval(timer)
   }, [refresh, snapshot?.status])
 
-  return { snapshot, loading, refresh, startScan, selectSourceFolders, available: Boolean(accountMid && window.bilimiDesktop?.commandOldFavoriteWorkspaceV1) }
+  return {
+    snapshot, loading, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications,
+    available: Boolean(accountMid && window.bilimiDesktop?.commandOldFavoriteWorkspaceV1)
+  }
 }

@@ -133,4 +133,20 @@ describe('useOldFavoriteWorkspace', () => {
       type: 'select-source-folders', folderIds: ['source-a', 'source-b']
     })
   })
+
+  it('sends current-segment changes and manual classifications as constrained workspace commands', async () => {
+    const command = vi.fn().mockResolvedValue(workspace('100'))
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.selectSegment('segment-2') })
+    await act(async () => {
+      await result.current.applyManualClassifications([{ aid: 2_001, targetLedgerIds: ['music'] }])
+    })
+
+    expect(command).toHaveBeenNthCalledWith(1, '100', { type: 'select-segment', segmentId: 'segment-2' })
+    expect(command).toHaveBeenNthCalledWith(2, '100', {
+      type: 'apply-classifications', source: 'manual', assignments: [{ aid: 2_001, targetLedgerIds: ['music'] }]
+    })
+  })
 })
