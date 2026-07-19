@@ -395,6 +395,33 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('keeps saved local protections after restart while leaving unprotected aids in the incremental scan', async () => {
+    const root = await createRoot()
+    const firstRepository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const first = createCoordinator(firstRepository, new OldFavoriteWorkspaceStore({ root }))
+    await first.open('100')
+    await first.completeScan('100', { revision: 1, aids: [1] })
+    await first.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await first.saveCurrentSegmentToLocalLibrary('100')
+
+    const restarted = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:01.000Z' }),
+      new OldFavoriteWorkspaceStore({ root })
+    )
+    await restarted.beginScan('100', 'incremental')
+    await restarted.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, sourceFolderIds: ['source'] }))
+    })
+    await restarted.finishScan('100')
+
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      currentSegment: { aids: [2] }
+    })
+  })
+
   it('does not mark a multi-segment workspace complete through the current-segment local-only command', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
