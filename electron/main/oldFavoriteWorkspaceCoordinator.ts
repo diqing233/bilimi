@@ -408,7 +408,10 @@ export class OldFavoriteWorkspaceCoordinator {
       const snapshot = await this.options.repository.getSnapshot(preparation.accountMid)
       for (const [logicalLedgerId, assignmentCount] of Object.entries(preparation.assignmentCounts).sort(([left], [right]) => left.localeCompare(right))) {
         const existing = snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logicalLedgerId)
-        const availableCapacity = existing.reduce((total, shard) => total + Math.max(0, 1_000 - (snapshot.memberships[shard.folderId]?.length ?? 0)), 0)
+        const availableCapacity = existing.reduce((total, shard) => total + Math.max(
+          0,
+          1_000 - Math.max(snapshot.memberships[shard.folderId]?.length ?? 0, shard.remoteMemberCount ?? 0)
+        ), 0)
         const shardCount = Math.max(0, Math.ceil((assignmentCount - availableCapacity) / 1_000))
         const nextShardNumber = Math.max(0, ...existing.map((shard) => shard.shardNumber)) + 1
         for (let offset = 0; offset < shardCount; offset += 1) {
@@ -426,11 +429,12 @@ export class OldFavoriteWorkspaceCoordinator {
       const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
       const boundShards = snapshot.physicalShards.flatMap((shard) => {
         if (shard.bindingState !== 'bound' || !shard.remoteFolderId) return []
+        const memberAids = snapshot.memberships[shard.folderId] ?? []
         return [{
           logicalLedgerId: shard.logicalLedgerId,
           remoteFolderId: shard.remoteFolderId,
-          memberAids: snapshot.memberships[shard.folderId] ?? [],
-          memberCount: shard.remoteMemberCount,
+          memberAids,
+          memberCount: Math.max(memberAids.length, shard.remoteMemberCount ?? 0),
           shardNumber: shard.shardNumber
         }]
       })
