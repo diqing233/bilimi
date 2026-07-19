@@ -7294,16 +7294,16 @@ export function FavoriteLedgerPanel({
     if (!context) return []
     const grouped = groupFavoritePhysicalShards(context.managedFolders.map((folder) => ({
       id: folder.id,
+      logicalLedgerId: folder.ledgerId?.trim() || `legacy-physical:${folder.id}`,
       title: folder.title,
       memberAids: context.targetMembership[folder.id] ?? [],
       isInbox: folder.isInbox
     })))
     return grouped.map((group) => {
       const physicalIds = group.shards.map((shard) => shard.id)
-      const firstFolder = context.managedFolders.find((folder) => physicalIds.includes(folder.id))
       return {
-        id: firstFolder?.ledgerId || group.logicalTitle,
-        sourceKey: `managed:${firstFolder?.ledgerId || group.logicalTitle}`,
+        id: group.logicalLedgerId,
+        sourceKey: `managed:${group.logicalLedgerId}`,
         name: group.logicalTitle,
         totalCount: group.memberAids.length,
         actionableCount: group.memberAids.length,

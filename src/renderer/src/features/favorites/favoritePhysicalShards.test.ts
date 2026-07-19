@@ -14,13 +14,17 @@ describe('favorite physical shards', () => {
     const memberAids = Array.from({ length: REMOTE_FAVORITE_SHARD_CAPACITY }, (_, index) => index + 1)
 
     const result = await allocateFavoritePhysicalShards({
-      logicalTitle: 'bilimi路知识',
+      logicalLedgerId: 'ledger-knowledge',
+      logicalTitle: 'bilimi-knowledge',
       requestedAids: [REMOTE_FAVORITE_SHARD_CAPACITY + 1],
-      shards: [{ id: 'full', title: 'bilimi路知识', memberAids }],
+      shards: [{ id: 'full', logicalLedgerId: 'ledger-knowledge', title: 'bilimi-knowledge', memberAids }],
       createShard
     })
 
-    expect(result).toMatchObject({ status: 'ready', createdShards: [{ id: 'new-2', shardNumber: 2 }] })
+    expect(result).toMatchObject({
+      status: 'ready',
+      createdShards: [{ logicalLedgerId: 'ledger-knowledge', id: 'new-2', shardNumber: 2 }]
+    })
   })
 
   it('caps a caller-provided shard capacity at the shared remote hard limit', async () => {
@@ -28,39 +32,98 @@ describe('favorite physical shards', () => {
     const memberAids = Array.from({ length: REMOTE_FAVORITE_SHARD_CAPACITY }, (_, index) => index + 1)
 
     const result = await allocateFavoritePhysicalShards({
-      logicalTitle: 'bilimi路知识',
+      logicalLedgerId: 'ledger-knowledge',
+      logicalTitle: 'bilimi-knowledge',
       requestedAids: [REMOTE_FAVORITE_SHARD_CAPACITY + 1],
-      shards: [{ id: 'full', title: 'bilimi路知识', memberAids }],
+      shards: [{ id: 'full', logicalLedgerId: 'ledger-knowledge', title: 'bilimi-knowledge', memberAids }],
       maxMembersPerShard: REMOTE_FAVORITE_SHARD_CAPACITY + 1,
       createShard
     })
 
     expect(result).toMatchObject({ status: 'ready', createdShards: [{ id: 'new-2', shardNumber: 2 }] })
-    expect(createShard).toHaveBeenCalledTimes(1)
+    expect(createShard).toHaveBeenCalledWith(
+      'ledger-knowledge',
+      getFavoritePhysicalShardTitle('bilimi-knowledge', 2),
+      2
+    )
   })
 
-  it('recognizes stable shard names and merges membership by logical folder with aid deduplication', () => {
+  it('merges membership by stable logical ledger identity with aid deduplication', () => {
     const groups = groupFavoritePhysicalShards([
-      { id: 'a', title: 'bilimi·原神', memberAids: [1, 2], membershipComplete: true },
-      { id: 'b', title: 'bilimi·原神·2', memberAids: [2, 3], membershipComplete: true },
-      { id: 'c', title: 'bilimi·暂存', memberAids: [4], membershipComplete: true, isInbox: true },
-      { id: 'd', title: 'bilimi·暂存·2', memberAids: [4, 5], membershipComplete: true, isInbox: true }
+      { id: 'a', logicalLedgerId: 'games', title: 'bilimi-games', memberAids: [1, 2], membershipComplete: true },
+      { id: 'b', logicalLedgerId: 'games', title: 'bilimi-games·2', memberAids: [2, 3], membershipComplete: true },
+      { id: 'c', logicalLedgerId: 'inbox', title: 'bilimi-inbox', memberAids: [4], membershipComplete: true, isInbox: true },
+      { id: 'd', logicalLedgerId: 'inbox', title: 'bilimi-inbox·2', memberAids: [4, 5], membershipComplete: true, isInbox: true }
     ])
 
     expect(groups).toEqual([
-      expect.objectContaining({ logicalTitle: 'bilimi·原神', shardCount: 2, memberAids: [1, 2, 3], isInbox: false }),
-      expect.objectContaining({ logicalTitle: 'bilimi·暂存', shardCount: 2, memberAids: [4, 5], isInbox: true })
+      expect.objectContaining({ logicalLedgerId: 'games', logicalTitle: 'bilimi-games', shardCount: 2, memberAids: [1, 2, 3], isInbox: false }),
+      expect.objectContaining({ logicalLedgerId: 'inbox', logicalTitle: 'bilimi-inbox', shardCount: 2, memberAids: [4, 5], isInbox: true })
     ])
   })
 
-  it('reserves suffix space within the 20-character remote title limit', () => {
-    const logicalTitle = prepareFavoriteLogicalFolderTitle('bilimi·这是一个非常非常长的分类名称')
-    expect(logicalTitle.length).toBeLessThanOrEqual(17)
-    expect(`${logicalTitle}·30`.length).toBeLessThanOrEqual(20)
+  it('keeps truncated display-title collisions in separate stable logical ledgers', () => {
+    const groups = groupFavoritePhysicalShards([
+      { id: 'remote-b', logicalLedgerId: 'ledger-b', title: 'bilimi-this-display-title-is-truncated', memberAids: [2] },
+      { id: 'remote-a', logicalLedgerId: 'ledger-a', title: 'bilimi-this-display-title-is-truncated', memberAids: [1] }
+    ])
+
+    expect(groups).toEqual([
+      expect.objectContaining({ logicalLedgerId: 'ledger-a', memberAids: [1] }),
+      expect.objectContaining({ logicalLedgerId: 'ledger-b', memberAids: [2] })
+    ])
   })
 
-  it('keeps shard 100 and larger recognizable as the same stable logical folder', () => {
-    const logicalTitle = prepareFavoriteLogicalFolderTitle('bilimi·这是一个非常非常长的分类名称')
+  it('keeps unbound legacy physical folders isolated instead of merging by title', () => {
+    const groups = groupFavoritePhysicalShards([
+      { id: 'remote-b', title: 'bilimi-collision', memberAids: [2] },
+      { id: 'remote-a', title: 'bilimi-collision', memberAids: [1] }
+    ])
+
+    expect(groups).toEqual([
+      expect.objectContaining({ logicalLedgerId: 'legacy-physical:remote-a', memberAids: [1] }),
+      expect.objectContaining({ logicalLedgerId: 'legacy-physical:remote-b', memberAids: [2] })
+    ])
+  })
+
+  it('orders groups and shards deterministically when remote folders arrive unordered', () => {
+    const groups = groupFavoritePhysicalShards([
+      { id: 'z', logicalLedgerId: 'ledger-b', title: 'B·3', memberAids: [] },
+      { id: 'z-2', logicalLedgerId: 'ledger-a', title: 'A·2', memberAids: [] },
+      { id: 'a-2', logicalLedgerId: 'ledger-a', title: 'A·2', memberAids: [] },
+      { id: 'a-1', logicalLedgerId: 'ledger-a', title: 'A', memberAids: [] }
+    ])
+
+    expect(groups.map((group) => group.logicalLedgerId)).toEqual(['ledger-a', 'ledger-b'])
+    expect(groups[0].shards.map((shard) => shard.id)).toEqual(['a-1', 'a-2', 'z-2'])
+  })
+
+  it('allocates from a deterministic shard and reports the stable logical ledger identity', async () => {
+    const result = await allocateFavoritePhysicalShards({
+      logicalLedgerId: 'ledger-a',
+      logicalTitle: 'A',
+      requestedAids: [1],
+      shards: [
+        { id: 'z', logicalLedgerId: 'ledger-a', title: 'A', memberAids: [] },
+        { id: 'a', logicalLedgerId: 'ledger-a', title: 'A', memberAids: [] }
+      ],
+      createShard: vi.fn()
+    })
+
+    expect(result).toMatchObject({
+      status: 'ready',
+      assignments: [{ logicalLedgerId: 'ledger-a', shardId: 'z', aid: 1 }]
+    })
+  })
+
+  it('reserves suffix space within the 20-character remote title limit', () => {
+    const logicalTitle = prepareFavoriteLogicalFolderTitle('bilimi-a-very-long-category-name')
+    expect(logicalTitle.length).toBeLessThanOrEqual(14)
+    expect(`${logicalTitle}-30`.length).toBeLessThanOrEqual(20)
+  })
+
+  it('keeps shard 100 and larger recognizable as the same display title', () => {
+    const logicalTitle = prepareFavoriteLogicalFolderTitle('bilimi-a-very-long-category-name')
     const shard100 = getFavoritePhysicalShardTitle(logicalTitle, 100)
     const shard1234 = getFavoritePhysicalShardTitle(logicalTitle, 1234)
 
@@ -73,11 +136,12 @@ describe('favorite physical shards', () => {
   it('fills the last available shard, accounts for reservations, then creates a new shard', async () => {
     const createShard = vi.fn().mockResolvedValue({ id: 'new-3' })
     const result = await allocateFavoritePhysicalShards({
-      logicalTitle: 'bilimi·原神',
+      logicalLedgerId: 'games',
+      logicalTitle: 'bilimi-games',
       requestedAids: [998, 999, 1000, 1001, 1001],
       shards: [
-        { id: 'one', title: 'bilimi·原神', memberAids: [1, 2, 3] },
-        { id: 'two', title: 'bilimi·原神·2', memberAids: [1002], reservedAids: [1003] }
+        { id: 'one', logicalLedgerId: 'games', title: 'bilimi-games', memberAids: [1, 2, 3] },
+        { id: 'two', logicalLedgerId: 'games', title: 'bilimi-games·2', memberAids: [1002], reservedAids: [1003] }
       ],
       maxMembersPerShard: 3,
       createShard
@@ -85,19 +149,20 @@ describe('favorite physical shards', () => {
 
     expect(result.status).toBe('ready')
     expect(result.assignments).toEqual([
-      { shardId: 'two', aid: 998 },
-      { shardId: 'new-3', aid: 999 },
-      { shardId: 'new-3', aid: 1000 },
-      { shardId: 'new-3', aid: 1001 }
+      { logicalLedgerId: 'games', shardId: 'two', aid: 998 },
+      { logicalLedgerId: 'games', shardId: 'new-3', aid: 999 },
+      { logicalLedgerId: 'games', shardId: 'new-3', aid: 1000 },
+      { logicalLedgerId: 'games', shardId: 'new-3', aid: 1001 }
     ])
-    expect(createShard).toHaveBeenCalledWith('bilimi·原神·3', 3)
+    expect(createShard).toHaveBeenCalledWith('games', getFavoritePhysicalShardTitle('bilimi-games', 3), 3)
   })
 
   it('pauses the target when creating a required shard fails and never falls back to another folder', async () => {
     const result = await allocateFavoritePhysicalShards({
-      logicalTitle: 'bilimi·原神',
+      logicalLedgerId: 'games',
+      logicalTitle: 'bilimi-games',
       requestedAids: [2],
-      shards: [{ id: 'full', title: 'bilimi·原神', memberAids: [1] }],
+      shards: [{ id: 'full', logicalLedgerId: 'games', title: 'bilimi-games', memberAids: [1] }],
       maxMembersPerShard: 1,
       createShard: vi.fn().mockResolvedValue(null)
     })
@@ -114,11 +179,12 @@ describe('favorite physical shards', () => {
   it('uses shard numbering rather than remote list order when choosing the last shard and next title', async () => {
     const createShard = vi.fn().mockResolvedValue({ id: 'new-4' })
     const result = await allocateFavoritePhysicalShards({
-      logicalTitle: 'bilimi·原神',
+      logicalLedgerId: 'games',
+      logicalTitle: 'bilimi-games',
       requestedAids: [10, 11],
       shards: [
-        { id: 'three', title: 'bilimi·原神·3', memberAids: [] },
-        { id: 'one', title: 'bilimi·原神', memberAids: [1] }
+        { id: 'three', logicalLedgerId: 'games', title: 'bilimi-games·3', memberAids: [] },
+        { id: 'one', logicalLedgerId: 'games', title: 'bilimi-games', memberAids: [1] }
       ],
       maxMembersPerShard: 1,
       createShard
@@ -126,9 +192,9 @@ describe('favorite physical shards', () => {
 
     expect(result.status).toBe('ready')
     expect(result.assignments).toEqual([
-      { shardId: 'three', aid: 10 },
-      { shardId: 'new-4', aid: 11 }
+      { logicalLedgerId: 'games', shardId: 'three', aid: 10 },
+      { logicalLedgerId: 'games', shardId: 'new-4', aid: 11 }
     ])
-    expect(createShard).toHaveBeenCalledWith('bilimi·原神·4', 4)
+    expect(createShard).toHaveBeenCalledWith('games', getFavoritePhysicalShardTitle('bilimi-games', 4), 4)
   })
 })
