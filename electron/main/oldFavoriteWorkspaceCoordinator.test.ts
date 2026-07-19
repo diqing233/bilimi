@@ -385,6 +385,27 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     ])
   })
 
+  it('undoes and redoes current-segment classifications through compact journal cursor events', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+
+    await coordinator.undoClassificationChange('100')
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: {}, history: { cursor: 0, length: 1 }
+    })
+    await coordinator.redoClassificationChange('100')
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: { '1': { targetLedgerIds: ['music'], source: 'manual' } },
+      history: { cursor: 1, length: 1 }
+    })
+  })
+
   it('restores continuation discoveries from the journal while the repository marker stays small', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })

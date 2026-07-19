@@ -101,4 +101,24 @@ describe('old favorite workspace coordinator IPC', () => {
       type: 'select-source-folders', folderIds: ['source-a', { id: 'source-b' }]
     })).rejects.toThrow('command is invalid')
   })
+
+  it('routes only explicit undo and redo commands to the controlled coordinator', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      undoClassificationChange: vi.fn().mockResolvedValue({}),
+      redoClassificationChange: vi.fn().mockResolvedValue({}),
+      getSnapshot: vi.fn().mockResolvedValue(snapshot)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'undo-classification' }))
+      .resolves.toEqual(snapshot)
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'redo-classification' }))
+      .resolves.toEqual(snapshot)
+    expect(coordinator.undoClassificationChange).toHaveBeenCalledWith('100')
+    expect(coordinator.redoClassificationChange).toHaveBeenCalledWith('100')
+  })
 })

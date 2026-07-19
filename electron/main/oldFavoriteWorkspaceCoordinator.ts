@@ -5,6 +5,8 @@ import {
   createOldFavoriteWorkspace,
   freezeWorkspaceSegment,
   recordDiscoveredFavorites,
+  redoWorkspaceChange,
+  undoWorkspaceChange,
   type ApplyWorkspaceClassificationBatchOptions,
   type CompleteWorkspaceScanOptions,
   type OldFavoriteWorkspace,
@@ -330,6 +332,32 @@ export class OldFavoriteWorkspaceCoordinator {
           historyCursor: updated.historyCursor
         })]
       })
+      this.workspaces.set(updated.accountMid, updated)
+      return clone(updated)
+    })
+  }
+
+  async undoClassificationChange(accountMid: string): Promise<OldFavoriteWorkspace> {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      const updated = undoWorkspaceChange(workspace)
+      if (updated === workspace) return clone(workspace)
+      await this.appendEvents(updated, this.currentSegment(workspace), [{
+        type: 'history-cursor', historyCursor: updated.historyCursor
+      }])
+      this.workspaces.set(updated.accountMid, updated)
+      return clone(updated)
+    })
+  }
+
+  async redoClassificationChange(accountMid: string): Promise<OldFavoriteWorkspace> {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      const updated = redoWorkspaceChange(workspace)
+      if (updated === workspace) return clone(workspace)
+      await this.appendEvents(updated, this.currentSegment(workspace), [{
+        type: 'history-cursor', historyCursor: updated.historyCursor
+      }])
       this.workspaces.set(updated.accountMid, updated)
       return clone(updated)
     })

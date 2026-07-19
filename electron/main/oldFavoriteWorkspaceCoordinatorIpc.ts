@@ -13,6 +13,8 @@ type WorkspaceCommand =
   | { type: 'start-scan'; mode: 'incremental' | 'full' }
   | { type: 'select-source-folders'; folderIds: string[] }
   | { type: 'select-segment'; segmentId: string }
+  | { type: 'undo-classification' }
+  | { type: 'redo-classification' }
   | { type: 'apply-classifications'; source: 'manual'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
   | { type: 'freeze-segment'; segmentId: string }
 
@@ -46,6 +48,10 @@ function command(value: unknown): WorkspaceCommand {
   }
   if (candidate.type === 'select-segment' && typeof candidate.segmentId === 'string' && candidate.segmentId.trim()) {
     return { type: 'select-segment', segmentId: candidate.segmentId.trim() }
+  }
+  if ((candidate.type === 'undo-classification' || candidate.type === 'redo-classification') &&
+    Object.keys(candidate).length === 1) {
+    return { type: candidate.type }
   }
   if (candidate.type === 'freeze-segment' && typeof candidate.segmentId === 'string' && candidate.segmentId.trim()) {
     return { type: 'freeze-segment', segmentId: candidate.segmentId.trim() }
@@ -83,6 +89,8 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
       : options.coordinator.beginScan(accountMid, requested.mode)
     if (requested.type === 'select-source-folders') await options.coordinator.selectSourceFolders(accountMid, requested.folderIds)
     if (requested.type === 'select-segment') await options.coordinator.selectSegment(accountMid, requested.segmentId)
+    if (requested.type === 'undo-classification') await options.coordinator.undoClassificationChange(accountMid)
+    if (requested.type === 'redo-classification') await options.coordinator.redoClassificationChange(accountMid)
     if (requested.type === 'freeze-segment') await options.coordinator.freezeSegment(accountMid, requested.segmentId)
     if (requested.type === 'apply-classifications') await options.coordinator.applyClassificationBatch(accountMid, {
       source: requested.source,

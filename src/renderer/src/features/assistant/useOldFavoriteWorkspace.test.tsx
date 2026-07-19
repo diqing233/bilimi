@@ -149,4 +149,16 @@ describe('useOldFavoriteWorkspace', () => {
       type: 'apply-classifications', source: 'manual', assignments: [{ aid: 2_001, targetLedgerIds: ['music'] }]
     })
   })
+
+  it('sends undo and redo as payload-free constrained workspace commands', async () => {
+    const command = vi.fn().mockResolvedValue(workspace('100'))
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.undoClassification() })
+    await act(async () => { await result.current.redoClassification() })
+
+    expect(command).toHaveBeenNthCalledWith(1, '100', { type: 'undo-classification' })
+    expect(command).toHaveBeenNthCalledWith(2, '100', { type: 'redo-classification' })
+  })
 })

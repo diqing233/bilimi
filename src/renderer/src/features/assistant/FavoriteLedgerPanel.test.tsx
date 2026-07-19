@@ -123,7 +123,13 @@ describe('FavoriteLedgerPanel', () => {
       sourceFolders: [{ id: 'source-1', title: 'Source', itemCount: 3, isBilimiWorkFolder: false }],
       continuationCount: 0, segments: [], currentSegment: null, classifications: {}, history: { cursor: 0, length: 0 }
     }
-    const command = vi.fn().mockResolvedValue(snapshot)
+    const command = vi.fn((_accountMid: string, value: { type: string }) => Promise.resolve(
+      value.type === 'apply-classifications'
+        ? { ...snapshot, classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'manual' as const } }, history: { cursor: 1, length: 1 } }
+        : value.type === 'undo-classification'
+          ? { ...snapshot, history: { cursor: 0, length: 1 } }
+          : snapshot
+    ))
     const open = vi.fn().mockResolvedValue(snapshot)
     window.bilimiDesktop = {
       commandOldFavoriteWorkspaceV1: command,
@@ -160,7 +166,13 @@ describe('FavoriteLedgerPanel', () => {
       },
       classifications: {}, history: { cursor: 0, length: 0 }
     }
-    const command = vi.fn().mockResolvedValue(snapshot)
+    const command = vi.fn((_accountMid: string, value: { type: string }) => Promise.resolve(
+      value.type === 'apply-classifications'
+        ? { ...snapshot, classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'manual' as const } }, history: { cursor: 1, length: 1 } }
+        : value.type === 'undo-classification'
+          ? { ...snapshot, history: { cursor: 0, length: 1 } }
+          : snapshot
+    ))
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(snapshot),
       commandOldFavoriteWorkspaceV1: command
@@ -179,6 +191,8 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenLastCalledWith('100', {
       type: 'apply-classifications', source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
     }))
+    fireEvent.click(screen.getByRole('button', { name: '撤销本次改动' }))
+    await waitFor(() => expect(command).toHaveBeenLastCalledWith('100', { type: 'undo-classification' }))
     expect(screen.queryByText('请等待扫描结束')).not.toBeInTheDocument()
     expect(screen.queryByText('视频 2001')).not.toBeInTheDocument()
   })

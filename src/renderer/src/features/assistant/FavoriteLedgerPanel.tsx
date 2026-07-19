@@ -9732,6 +9732,18 @@ export function FavoriteLedgerPanel({
             <section className="favorite-ledger-panel__insights" aria-label="归档预览">
               <h4 className="favorite-ledger-panel__step-title">归档预览</h4>
               <p className="favorite-ledger-panel__step-note">当前分段 {controlledPreviewItems.length} 条；只加载并显示这一段。</p>
+              <div className="favorite-ledger-panel__archive-history-actions" role="group" aria-label="归档预览改动操作">
+                <button
+                  type="button"
+                  disabled={(controlledScanSnapshot?.history.cursor ?? 0) === 0}
+                  onClick={() => void oldFavoriteWorkspace.undoClassification()}
+                >撤销本次改动</button>
+                <button
+                  type="button"
+                  disabled={(controlledScanSnapshot?.history.cursor ?? 0) >= (controlledScanSnapshot?.history.length ?? 0)}
+                  onClick={() => void oldFavoriteWorkspace.redoClassification()}
+                >恢复本次改动</button>
+              </div>
               {controlledPreviewItems.length > OLD_FAVORITE_VIRTUAL_TRACK_THRESHOLD ? (
                 <div role="list" aria-label="当前分段归档预览">
                   <VirtualOldFavoriteTrack
