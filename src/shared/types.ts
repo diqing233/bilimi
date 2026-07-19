@@ -6,6 +6,19 @@ export type {
   OldFavoriteTaskLease
 } from './oldFavoriteSessions'
 
+export type {
+  AccountFavoriteRepositorySnapshot,
+  FavoriteRepositoryCommand,
+  FavoriteRepositoryCommandResult,
+  FavoriteRepositoryFolder,
+  FavoriteRepositoryMembershipIndex,
+  FavoriteRepositoryPage,
+  FavoriteRepositoryPhysicalShard,
+  FavoriteRepositorySyncRecord,
+  FavoriteRepositoryVideo,
+  FavoriteRepositoryWorkspace
+} from './favoriteRepository'
+
 export type AssistantAction = '赏' | '藏' | '赐' | '表' | '阅'
 
 export type BrowserSurfaceModel = {
