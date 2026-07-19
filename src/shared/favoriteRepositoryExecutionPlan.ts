@@ -13,6 +13,7 @@ export type BoundRemoteShard = {
   remoteFolderId: string
   memberAids: number[]
   shardNumber?: number
+  memberCount?: number
 }
 
 export type CompileFrozenFavoriteSyncPlanInput = {
@@ -66,14 +67,22 @@ export function compileFrozenFavoriteSyncPlan(
     if (!logicalLedgerId || !remoteFolderId || !Array.isArray(shard.memberAids)) {
       return { allowed: false, reason: 'invalid-input', plan: null }
     }
-    const normalized = { ...shard, logicalLedgerId, remoteFolderId, memberAids: uniquePositiveAids(shard.memberAids) }
+    const memberAids = uniquePositiveAids(shard.memberAids)
+    if (shard.memberCount !== undefined && (!Number.isSafeInteger(shard.memberCount) || shard.memberCount < memberAids.length)) {
+      return { allowed: false, reason: 'invalid-input', plan: null }
+    }
+    const normalized = { ...shard, logicalLedgerId, remoteFolderId, memberAids, memberCount: shard.memberCount ?? memberAids.length }
     shardsByLedger.set(logicalLedgerId, [...(shardsByLedger.get(logicalLedgerId) ?? []), normalized])
   }
 
   const operations = new Map<number, Set<string>>()
   const occupiedAidsByFolder = new Map<string, Set<number>>()
+  const occupiedCountsByFolder = new Map<string, number>()
   for (const shards of shardsByLedger.values()) {
-    for (const shard of shards) occupiedAidsByFolder.set(shard.remoteFolderId, new Set(shard.memberAids))
+    for (const shard of shards) {
+      occupiedAidsByFolder.set(shard.remoteFolderId, new Set(shard.memberAids))
+      occupiedCountsByFolder.set(shard.remoteFolderId, shard.memberCount)
+    }
   }
   for (const classification of [...input.classifications].sort((left, right) => left.aid - right.aid)) {
     if (!Number.isSafeInteger(classification.aid) || classification.aid <= 0 || !Array.isArray(classification.targetLedgerIds)) {
@@ -85,12 +94,16 @@ export function compileFrozenFavoriteSyncPlan(
       )
       if (!shards.length) return { allowed: false, reason: 'remote-target-unbound', plan: null }
       const target = shards.find((shard) => occupiedAidsByFolder.get(shard.remoteFolderId)?.has(classification.aid)) ??
-        [...shards].reverse().find((shard) => (occupiedAidsByFolder.get(shard.remoteFolderId)?.size ?? 0) < REMOTE_FAVORITE_SHARD_CAPACITY)
+        [...shards].reverse().find((shard) => (occupiedCountsByFolder.get(shard.remoteFolderId) ?? 0) < REMOTE_FAVORITE_SHARD_CAPACITY)
       if (!target) return { allowed: false, reason: 'physical-shard-capacity-exceeded', plan: null }
       const folders = operations.get(classification.aid) ?? new Set<string>()
       folders.add(target.remoteFolderId)
       operations.set(classification.aid, folders)
-      occupiedAidsByFolder.get(target.remoteFolderId)?.add(classification.aid)
+      const occupiedAids = occupiedAidsByFolder.get(target.remoteFolderId)
+      if (!occupiedAids?.has(classification.aid)) {
+        occupiedAids?.add(classification.aid)
+        occupiedCountsByFolder.set(target.remoteFolderId, (occupiedCountsByFolder.get(target.remoteFolderId) ?? 0) + 1)
+      }
     }
   }
 

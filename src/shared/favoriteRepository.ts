@@ -31,6 +31,7 @@ export type FavoriteRepositoryPhysicalShard = {
   remoteTitle: string
   bindingState: 'bound' | 'pending-reconcile'
   knownRemoteFolderIds?: string[]
+  remoteMemberCount?: number
 }
 
 export type FavoriteRepositoryFrozenSyncOperation = {
@@ -126,6 +127,7 @@ export type FavoriteRepositoryCommand =
         bindingState: 'bound' | 'pending-reconcile'
         remoteFolderId?: string
         knownRemoteFolderIds?: string[]
+        remoteMemberCount?: number
       }
     }
   | {
@@ -288,6 +290,7 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
         (payload.remoteFolderId !== undefined && (typeof payload.remoteFolderId !== 'string' || !payload.remoteFolderId.trim())) ||
         (payload.knownRemoteFolderIds !== undefined && (!Array.isArray(payload.knownRemoteFolderIds) ||
           payload.knownRemoteFolderIds.some((id) => typeof id !== 'string' || !id.trim()))) ||
+        (payload.remoteMemberCount !== undefined && (!Number.isSafeInteger(payload.remoteMemberCount) || Number(payload.remoteMemberCount) < 0)) ||
         (payload.bindingState === 'bound' && (!payload.remoteFolderId || typeof payload.remoteFolderId !== 'string'))) invalidCommand()
       return
     case 'set-workspace':
@@ -419,7 +422,8 @@ export function applyFavoriteRepositoryCommand(
           ...(remoteFolderId ? { remoteFolderId } : {}),
           ...(bindingState === 'pending-reconcile' ? {
             knownRemoteFolderIds: [...new Set(command.payload.knownRemoteFolderIds?.map((id) => id.trim()).filter(Boolean) ?? [])].sort()
-          } : {})
+          } : {}),
+          ...(command.payload.remoteMemberCount !== undefined ? { remoteMemberCount: command.payload.remoteMemberCount } : {})
         }
       ].sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId) || left.shardNumber - right.shardNumber)
       memberships = { ...memberships, [folderId]: affectedAids }

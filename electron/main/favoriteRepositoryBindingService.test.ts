@@ -41,7 +41,7 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(await restarted.getBindings('100')).toEqual({
       logicalLedgers: [{ id: 'music', title: '音乐', syncState: 'bound' }],
       shards: [{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1,
-        remoteFolderId: 'remote-music-1', remoteTitle: 'B-music-001-a1b2c3', bindingState: 'bound' }]
+        remoteFolderId: 'remote-music-1', remoteTitle: 'B-music-001-a1b2c3', bindingState: 'bound', remoteMemberCount: 2 }]
     })
   })
 

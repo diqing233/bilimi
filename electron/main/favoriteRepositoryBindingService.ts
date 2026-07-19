@@ -31,6 +31,7 @@ export type FavoriteRepositoryBindingSnapshot = {
     remoteFolderId?: string
     remoteTitle: string
     bindingState: 'bound' | 'pending-reconcile'
+    remoteMemberCount?: number
   }>
 }
 
@@ -81,7 +82,7 @@ function normalizeInput(accountMid: string, input: PreparePhysicalShardInput, bi
   if (remote && remote.memberCount + newMemberCount > REMOTE_FAVORITE_SHARD_CAPACITY) {
     throw new Error('Favorite repository shard capacity is exceeded.')
   }
-  return { logicalLedgerId, logicalTitle, memberAids, remoteFolderId, title, inventory }
+  return { logicalLedgerId, logicalTitle, memberAids, remoteFolderId, title, inventory, remote }
 }
 
 function bindingSnapshot(snapshot: AccountFavoriteRepositorySnapshot): FavoriteRepositoryBindingSnapshot {
@@ -95,7 +96,8 @@ function bindingSnapshot(snapshot: AccountFavoriteRepositorySnapshot): FavoriteR
     shardNumber: shard.shardNumber,
     ...(shard.remoteFolderId ? { remoteFolderId: shard.remoteFolderId } : {}),
     remoteTitle: shard.remoteTitle,
-    bindingState: shard.bindingState
+    bindingState: shard.bindingState,
+    ...(shard.remoteMemberCount !== undefined ? { remoteMemberCount: shard.remoteMemberCount } : {})
   })).sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId) || left.shardNumber - right.shardNumber)
   return { logicalLedgers, shards }
 }
@@ -140,6 +142,7 @@ export class FavoriteRepositoryBindingService {
         memberAids: normalized.memberAids,
         remoteTitle: normalized.title,
         bindingState,
+        ...(remoteFolderId ? { remoteMemberCount: normalized.remote?.memberCount } : {}),
         ...(remoteFolderId ? { remoteFolderId } : {
           knownRemoteFolderIds: normalized.inventory.map((folder) => folder.id.trim()).sort()
         })

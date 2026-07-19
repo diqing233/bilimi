@@ -430,6 +430,7 @@ export class OldFavoriteWorkspaceCoordinator {
           logicalLedgerId: shard.logicalLedgerId,
           remoteFolderId: shard.remoteFolderId,
           memberAids: snapshot.memberships[shard.folderId] ?? [],
+          memberCount: shard.remoteMemberCount,
           shardNumber: shard.shardNumber
         }]
       })
