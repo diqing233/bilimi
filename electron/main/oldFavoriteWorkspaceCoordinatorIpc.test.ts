@@ -121,4 +121,24 @@ describe('old favorite workspace coordinator IPC', () => {
     expect(coordinator.undoClassificationChange).toHaveBeenCalledWith('100')
     expect(coordinator.redoClassificationChange).toHaveBeenCalledWith('100')
   })
+
+  it('allows a controlled Bilibili freeze command without accepting renderer operations', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      freezeForBilibiliExecution: vi.fn().mockResolvedValue({}),
+      getSnapshot: vi.fn().mockResolvedValue(snapshot)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'freeze-bilibili-execution'
+    })).resolves.toEqual(snapshot)
+    expect(coordinator.freezeForBilibiliExecution).toHaveBeenCalledWith('100')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'freeze-bilibili-execution', operations: [{ aid: 1 }]
+    })).rejects.toThrow('command is invalid')
+  })
 })

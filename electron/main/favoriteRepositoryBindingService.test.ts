@@ -2,7 +2,7 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { FavoriteRepositoryBindingService } from './favoriteRepositoryBindingService'
+import { FavoriteRepositoryBindingService, favoriteRepositoryManagedShardTitle } from './favoriteRepositoryBindingService'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 
 const roots: string[] = []
@@ -18,15 +18,21 @@ afterEach(async () => {
 })
 
 describe('FavoriteRepositoryBindingService', () => {
+  it('uses a bounded deterministic Bilibili shard title with a short binding token', () => {
+    const title = favoriteRepositoryManagedShardTitle('a-very-long-logical-ledger-id', 123, 'abcdef')
+    expect([...title]).toHaveLength(18)
+    expect(title).toMatch(/^B-[a-z0-9]{5}-123-[a-f0-9]{6}$/)
+  })
+
   it('persists a logical ledger with a bound numbered Bilibili shard across a restart', async () => {
     const repository = await createRepository()
-    const service = new FavoriteRepositoryBindingService({ repository, now: () => '2026-07-20T00:00:00.000Z', newBindingToken: () => 'token-1' })
+    const service = new FavoriteRepositoryBindingService({ repository, now: () => '2026-07-20T00:00:00.000Z', newBindingToken: () => 'a1b2c3' })
 
     await service.preparePhysicalShard('100', {
       logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1,
       memberAids: [1, 2], remoteFolderId: 'remote-music-1',
       observedAccountMid: '100',
-      inventory: [{ id: 'remote-music-1', title: 'Bilimi · music · 001 · token-1', memberCount: 2, memberAids: [1, 2] }]
+      inventory: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 2, memberAids: [1, 2] }]
     })
 
     const restarted = new FavoriteRepositoryBindingService({
@@ -35,20 +41,20 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(await restarted.getBindings('100')).toEqual({
       logicalLedgers: [{ id: 'music', title: '音乐', syncState: 'bound' }],
       shards: [{ logicalLedgerId: 'music', folderId: 'bilimi:music:001', shardNumber: 1,
-        remoteFolderId: 'remote-music-1', remoteTitle: 'Bilimi · music · 001 · token-1', bindingState: 'bound' }]
+        remoteFolderId: 'remote-music-1', remoteTitle: 'B-music-001-a1b2c3', bindingState: 'bound' }]
     })
   })
 
   it('keeps accounts isolated when they use the same logical ledger id', async () => {
     const repository = await createRepository()
-    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'token-1' })
+    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
     await service.preparePhysicalShard('100', {
       logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [],
-      remoteFolderId: 'a-folder', observedAccountMid: '100', inventory: [{ id: 'a-folder', title: 'Bilimi · music · 001 · token-1', memberCount: 0, memberAids: [] }]
+      remoteFolderId: 'a-folder', observedAccountMid: '100', inventory: [{ id: 'a-folder', title: 'B-music-001-a1b2c3', memberCount: 0, memberAids: [] }]
     })
     await service.preparePhysicalShard('200', {
       logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [],
-      remoteFolderId: 'b-folder', observedAccountMid: '200', inventory: [{ id: 'b-folder', title: 'Bilimi · music · 001 · token-1', memberCount: 0, memberAids: [] }]
+      remoteFolderId: 'b-folder', observedAccountMid: '200', inventory: [{ id: 'b-folder', title: 'B-music-001-a1b2c3', memberCount: 0, memberAids: [] }]
     })
 
     expect((await service.getBindings('100')).shards[0]?.remoteFolderId).toBe('a-folder')
@@ -57,14 +63,14 @@ describe('FavoriteRepositoryBindingService', () => {
 
   it('persists an unknown shard create as pending and reconciles only one exact managed title', async () => {
     const repository = await createRepository()
-    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'token-1' })
+    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
     await service.preparePhysicalShard('100', {
       logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [], observedAccountMid: '100', inventory: []
     })
     expect((await service.getBindings('100')).shards[0]).toMatchObject({ bindingState: 'pending-reconcile' })
 
     await service.reconcilePendingBindings('100', { observedAccountMid: '100', inventory: [
-      { id: 'remote-music-1', title: 'Bilimi · music · 001 · token-1', memberCount: 0, memberAids: [] }
+      { id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 0, memberAids: [] }
     ] })
     expect((await service.getBindings('100')).shards[0]).toMatchObject({
       bindingState: 'bound', remoteFolderId: 'remote-music-1'
@@ -73,14 +79,14 @@ describe('FavoriteRepositoryBindingService', () => {
 
   it('does not guess a remote folder when reconciliation finds an ambiguous managed title', async () => {
     const repository = await createRepository()
-    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'token-1' })
+    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
     await service.preparePhysicalShard('100', {
       logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [], observedAccountMid: '100', inventory: []
     })
 
     await service.reconcilePendingBindings('100', { observedAccountMid: '100', inventory: [
-      { id: 'remote-a', title: 'Bilimi · music · 001 · token-1', memberCount: 0, memberAids: [] },
-      { id: 'remote-b', title: 'Bilimi · music · 001 · token-1', memberCount: 0, memberAids: [] }
+      { id: 'remote-a', title: 'B-music-001-a1b2c3', memberCount: 0, memberAids: [] },
+      { id: 'remote-b', title: 'B-music-001-a1b2c3', memberCount: 0, memberAids: [] }
     ] })
     expect((await service.getBindings('100')).shards[0]).toMatchObject({
       bindingState: 'pending-reconcile'
@@ -89,7 +95,7 @@ describe('FavoriteRepositoryBindingService', () => {
 
   it('rejects a shard that exceeds Bilibili capacity without persisting a binding', async () => {
     const repository = await createRepository()
-    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'token-1' })
+    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
 
     await expect(service.preparePhysicalShard('100', {
       logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1,
@@ -100,20 +106,20 @@ describe('FavoriteRepositoryBindingService', () => {
 
   it('does not bind a full remote shard when the frozen work needs new members', async () => {
     const repository = await createRepository()
-    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'token-1' })
+    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
 
     await expect(service.preparePhysicalShard('100', {
       logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [1],
       remoteFolderId: 'remote-music-1',
       observedAccountMid: '100',
-      inventory: [{ id: 'remote-music-1', title: 'Bilimi · music · 001 · token-1', memberCount: 1000, memberAids: Array.from({ length: 1000 }, (_, index) => index + 2) }]
+      inventory: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 1000, memberAids: Array.from({ length: 1000 }, (_, index) => index + 2) }]
     })).rejects.toThrow('capacity')
     expect(await service.getBindings('100')).toEqual({ logicalLedgers: [], shards: [] })
   })
 
   it('refuses a new pending shard when the remote folder inventory is already at 99', async () => {
     const repository = await createRepository()
-    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'token-1' })
+    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
 
     await expect(service.preparePhysicalShard('100', {
       logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [],
@@ -131,11 +137,11 @@ describe('FavoriteRepositoryBindingService', () => {
       })
     }
     const before = await readdir(join(roots[0], 'accounts', '100', 'generations'))
-    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'token-1' })
+    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
 
     await service.preparePhysicalShard('100', {
       logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [1],
-      remoteFolderId: 'remote-music-1', observedAccountMid: '100', inventory: [{ id: 'remote-music-1', title: 'Bilimi · music · 001 · token-1', memberCount: 1, memberAids: [1] }]
+      remoteFolderId: 'remote-music-1', observedAccountMid: '100', inventory: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 1, memberAids: [1] }]
     })
 
     expect(await readdir(join(roots[0], 'accounts', '100', 'generations'))).toEqual(before)
@@ -146,7 +152,7 @@ describe('FavoriteRepositoryBindingService', () => {
 
   it('rejects an inventory observed under another Bilibili account before it can bind', async () => {
     const repository = await createRepository()
-    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'token-1' })
+    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
 
     await expect(service.preparePhysicalShard('100', {
       logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [], observedAccountMid: '200', inventory: []
@@ -156,13 +162,24 @@ describe('FavoriteRepositoryBindingService', () => {
 
   it('does not claim an unknown create from a folder that existed before the create request', async () => {
     const repository = await createRepository()
-    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'token-1' })
-    const sameName = { id: 'already-there', title: 'Bilimi · music · 001 · token-1', memberCount: 0, memberAids: [] }
+    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    const sameName = { id: 'already-there', title: 'B-music-001-a1b2c3', memberCount: 0, memberAids: [] }
     await service.preparePhysicalShard('100', {
       logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [], observedAccountMid: '100', inventory: [sameName]
     })
 
     await service.reconcilePendingBindings('100', { observedAccountMid: '100', inventory: [sameName] })
     expect((await service.getBindings('100')).shards[0]).toMatchObject({ bindingState: 'pending-reconcile' })
+  })
+
+  it('rejects a direct binding when its supplied remote id has a different managed title', async () => {
+    const repository = await createRepository()
+    const service = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+
+    await expect(service.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'unrelated', inventory: [{ id: 'unrelated', title: '别人的收藏夹', memberCount: 0, memberAids: [] }]
+    })).rejects.toThrow('title')
+    expect(await service.getBindings('100')).toEqual({ logicalLedgers: [], shards: [] })
   })
 })

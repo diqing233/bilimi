@@ -39,8 +39,14 @@ function normalizedAccountMid(value: string) {
   return BigInt(raw).toString()
 }
 
-function managedShardTitle(logicalLedgerId: string, shardNumber: number, bindingToken: string) {
-  return `Bilimi · ${logicalLedgerId} · ${String(shardNumber).padStart(3, '0')} · ${bindingToken}`
+function titleToken(value: string) {
+  return value.toLowerCase().replace(/[^a-f0-9]/g, '').slice(0, 6)
+}
+
+export function favoriteRepositoryManagedShardTitle(logicalLedgerId: string, shardNumber: number, bindingToken: string) {
+  const ledgerToken = logicalLedgerId.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5).padEnd(5, '0')
+  const token = titleToken(bindingToken).padEnd(6, '0')
+  return `B-${ledgerToken}-${String(shardNumber).padStart(3, '0')}-${token}`
 }
 
 function normalizeInput(accountMid: string, input: PreparePhysicalShardInput, bindingToken: string) {
@@ -56,7 +62,7 @@ function normalizeInput(accountMid: string, input: PreparePhysicalShardInput, bi
   }
   if (normalizedAccountMid(input.observedAccountMid) !== accountMid) throw new Error('Favorite repository remote account mismatch.')
   const remoteFolderId = input.remoteFolderId?.trim()
-  const title = managedShardTitle(logicalLedgerId, input.shardNumber, bindingToken)
+  const title = favoriteRepositoryManagedShardTitle(logicalLedgerId, input.shardNumber, bindingToken)
   const inventory = input.inventory.filter((folder) => folder && typeof folder.id === 'string' && folder.id.trim() &&
     typeof folder.title === 'string' && Number.isSafeInteger(folder.memberCount) && folder.memberCount >= 0 &&
     Array.isArray(folder.memberAids) && folder.memberAids.every((aid) => Number.isSafeInteger(aid) && aid > 0))
@@ -67,6 +73,9 @@ function normalizeInput(accountMid: string, input: PreparePhysicalShardInput, bi
     throw new Error('Favorite repository remote shard is absent from inventory.')
   }
   const remote = remoteFolderId ? inventory.find((folder) => folder.id.trim() === remoteFolderId) : undefined
+  if (remote && remote.title !== title) {
+    throw new Error('Favorite repository remote shard title is invalid.')
+  }
   const newMemberCount = remote ? memberAids.filter((aid) => !remote.memberAids.includes(aid)).length : memberAids.length
   if (remote && remote.memberCount + newMemberCount > REMOTE_FAVORITE_SHARD_CAPACITY) {
     throw new Error('Favorite repository shard capacity is exceeded.')

@@ -15,6 +15,7 @@ import {
   type OldFavoriteWorkspaceSnapshot
 } from '../../src/shared/oldFavoriteWorkspace'
 import type { FavoriteRepositoryWorkspace } from '../../src/shared/favoriteRepository'
+import { compileFrozenFavoriteSyncPlan } from '../../src/shared/favoriteRepositoryExecutionPlan'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 
@@ -382,6 +383,47 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  /** Freezes a remote plan from persisted physical shards; it never touches the page bridge. */
+  async freezeForBilibiliExecution(accountMid: string): Promise<FavoriteRepositoryWorkspace> {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'previewing' || !workspace.baseline) {
+        throw new Error('Old favorite workspace is not ready to freeze.')
+      }
+      const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
+      const boundShards = snapshot.physicalShards.flatMap((shard) => {
+        if (shard.bindingState !== 'bound' || !shard.remoteFolderId) return []
+        return [{
+          logicalLedgerId: shard.logicalLedgerId,
+          remoteFolderId: shard.remoteFolderId,
+          memberAids: snapshot.memberships[shard.folderId] ?? [],
+          shardNumber: shard.shardNumber
+        }]
+      })
+      const result = compileFrozenFavoriteSyncPlan({
+        accountMid: workspace.accountMid,
+        workspaceId: workspace.id,
+        baselineRevision: workspace.baseline.revision,
+        createdAt: this.now(),
+        classifications: Object.values(workspace.classifications).map((classification) => ({
+          aid: classification.aid,
+          targetLedgerIds: [...classification.targetLedgerIds]
+        })),
+        shards: boundShards
+      })
+      if (!result.allowed || !result.plan) {
+        throw new Error(`Old favorite workspace cannot freeze: ${result.reason ?? 'invalid-input'}`)
+      }
+      const frozen = { ...workspace, status: 'frozen' as const }
+      await this.persistMarker(frozen, result.plan)
+      this.remember(frozen, this.currentSegment(workspace), this.segmentDescriptors.get(workspace.accountMid) ?? [],
+        new Set(this.frozenSegments.get(workspace.accountMid) ?? []))
+      const persisted = await this.options.repository.getSnapshot(workspace.accountMid)
+      if (!persisted.workspace?.frozenSyncPlan) throw new Error('Old favorite workspace frozen plan was not persisted.')
+      return clone(persisted.workspace)
+    })
+  }
+
   async recordDiscoveredFavorites(accountMid: string, discoveredAids: number[]): Promise<OldFavoriteWorkspace> {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
@@ -541,7 +583,7 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
-  private async persistMarker(workspace: OldFavoriteWorkspace) {
+  private async persistMarker(workspace: OldFavoriteWorkspace, frozenSyncPlan?: FavoriteRepositoryWorkspace['frozenSyncPlan']) {
     const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
     const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
     if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
@@ -561,7 +603,9 @@ export class OldFavoriteWorkspaceCoordinator {
         journalCursor: recovered.journalCursor,
         checksum: recovered.manifestChecksum
       },
-      ...(snapshot.workspace?.id === workspace.id && snapshot.workspace.frozenSyncPlan
+      ...(frozenSyncPlan
+        ? { frozenSyncPlan: clone(frozenSyncPlan) }
+        : snapshot.workspace?.id === workspace.id && snapshot.workspace.frozenSyncPlan
         ? { frozenSyncPlan: clone(snapshot.workspace.frozenSyncPlan) }
         : {})
     }

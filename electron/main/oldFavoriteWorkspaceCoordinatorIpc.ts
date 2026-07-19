@@ -17,6 +17,7 @@ type WorkspaceCommand =
   | { type: 'redo-classification' }
   | { type: 'apply-classifications'; source: 'manual'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
   | { type: 'freeze-segment'; segmentId: string }
+  | { type: 'freeze-bilibili-execution' }
 
 function normalizeAccountMid(value: unknown) {
   if (typeof value !== 'string' || !/^\d+$/.test(value.trim()) || BigInt(value.trim()) === 0n) {
@@ -56,6 +57,9 @@ function command(value: unknown): WorkspaceCommand {
   if (candidate.type === 'freeze-segment' && typeof candidate.segmentId === 'string' && candidate.segmentId.trim()) {
     return { type: 'freeze-segment', segmentId: candidate.segmentId.trim() }
   }
+  if (candidate.type === 'freeze-bilibili-execution' && Object.keys(candidate).length === 1) {
+    return { type: 'freeze-bilibili-execution' }
+  }
   if (candidate.type === 'apply-classifications' && candidate.source === 'manual' && validAssignments(candidate.assignments)) {
     return { type: 'apply-classifications', source: 'manual', assignments: candidate.assignments }
   }
@@ -92,6 +96,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'undo-classification') await options.coordinator.undoClassificationChange(accountMid)
     if (requested.type === 'redo-classification') await options.coordinator.redoClassificationChange(accountMid)
     if (requested.type === 'freeze-segment') await options.coordinator.freezeSegment(accountMid, requested.segmentId)
+    if (requested.type === 'freeze-bilibili-execution') await options.coordinator.freezeForBilibiliExecution(accountMid)
     if (requested.type === 'apply-classifications') await options.coordinator.applyClassificationBatch(accountMid, {
       source: requested.source,
       assignments: requested.assignments
