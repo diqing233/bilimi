@@ -365,6 +365,7 @@ export class OldFavoriteWorkspaceCoordinator {
       if (!currentSegment || !options.assignments.every((assignment) => currentSegment.aids.includes(assignment.aid))) {
         throw new Error('Old favorite workspace classifications must target the current segment.')
       }
+      await this.assertAssignmentsUseSelectedSources(workspace, options.assignments)
       const updated = applyWorkspaceClassificationBatch(workspace, options)
       if (updated === workspace) return clone(workspace)
       const entry = updated.history[updated.history.length - 1]
@@ -421,6 +422,7 @@ export class OldFavoriteWorkspaceCoordinator {
       if (!currentSegment || !assignments.every((assignment) => currentSegment.aids.includes(assignment.aid))) {
         throw new Error('Old favorite workspace classifications must target the current segment.')
       }
+      await this.assertAssignmentsUseSelectedSources(workspace, assignments)
       const updated = applyWorkspaceClassificationBatch(workspace, { source: 'deepseek', assignments })
       if (updated === workspace) return clone(workspace)
       const entry = updated.history[updated.history.length - 1]
@@ -497,19 +499,20 @@ export class OldFavoriteWorkspaceCoordinator {
       const currentSegment = workspace.segments.find((segment) => segment.id === currentSegmentId)
       if (!currentSegment || !currentSegment.aids.length) throw new Error('Old favorite workspace current segment is unavailable.')
       const assignments = currentSegment.aids.map((aid) => workspace.classifications[String(aid)])
-      if (assignments.some((assignment) => !assignment?.targetLedgerIds.length)) {
+      const selectedAssignments = await this.selectedSourceAssignments(workspace, assignments.flatMap((assignment) => assignment ? [assignment] : []))
+      if (!selectedAssignments.length || selectedAssignments.some((assignment) => !assignment.targetLedgerIds.length)) {
         throw new Error('Old favorite workspace current segment is not fully classified.')
       }
       const repository = await this.options.repository.getSnapshot(workspace.accountMid)
       const itemsByAid = new Map((this.currentSegmentItems.get(workspace.accountMid) ?? [])
         .map((item) => [item.aid, item]))
       const memberAidsByFolderId: Record<string, number[]> = {}
-      for (const assignment of assignments) {
-        for (const logicalLedgerId of assignment!.targetLedgerIds) {
+      for (const assignment of selectedAssignments) {
+        for (const logicalLedgerId of assignment.targetLedgerIds) {
           const folderId = `local:${logicalLedgerId}`
           memberAidsByFolderId[folderId] = [...new Set([
             ...(memberAidsByFolderId[folderId] ?? []),
-            assignment!.aid
+            assignment.aid
           ])].sort((left, right) => left - right)
         }
       }
@@ -526,7 +529,8 @@ export class OldFavoriteWorkspaceCoordinator {
         payload: {
           workspaceId: workspace.id,
           memberAidsByFolderId,
-          videos: currentSegment.aids.flatMap((aid) => {
+          videos: selectedAssignments.flatMap((assignment) => {
+            const aid = assignment.aid
             if (repository.videos[String(aid)]) return []
             const item = itemsByAid.get(aid)
             return [{
@@ -543,10 +547,10 @@ export class OldFavoriteWorkspaceCoordinator {
             kind: 'local' as const,
             syncState: 'local-only' as const
           })),
-          organizationRecords: assignments!.map((assignment) => ({
+          organizationRecords: selectedAssignments.map((assignment) => ({
             accountMid: workspace.accountMid,
-            aid: assignment!.aid,
-            targetFolderIds: assignment!.targetLedgerIds.map((logicalLedgerId) => `local:${logicalLedgerId}`),
+            aid: assignment.aid,
+            targetFolderIds: assignment.targetLedgerIds.map((logicalLedgerId) => `local:${logicalLedgerId}`),
             completedAt: this.now()
           })),
           workspace: marker
@@ -561,13 +565,14 @@ export class OldFavoriteWorkspaceCoordinator {
   /** Freezes a remote plan from persisted physical shards; it never touches the page bridge. */
   async freezeForBilibiliExecution(accountMid: string): Promise<FavoriteRepositoryWorkspace> {
     const preparation = await this.queue(async () => {
-      const workspace = await this.requireWorkspace(accountMid)
-      if (workspace.status !== 'previewing' || !workspace.baseline) {
-        throw new Error('Old favorite workspace is not ready to freeze.')
-      }
-      return {
-        accountMid: workspace.accountMid,
-        assignmentAids: Object.values(workspace.classifications).reduce<Record<string, number[]>>((aidsByLedger, classification) => {
+        const workspace = await this.requireWorkspace(accountMid)
+        if (workspace.status !== 'previewing' || !workspace.baseline) {
+          throw new Error('Old favorite workspace is not ready to freeze.')
+        }
+        const classifications = await this.selectedSourceAssignments(workspace, Object.values(workspace.classifications))
+        return {
+          accountMid: workspace.accountMid,
+          assignmentAids: classifications.reduce<Record<string, number[]>>((aidsByLedger, classification) => {
           for (const logicalLedgerId of classification.targetLedgerIds.map((id) => id.trim()).filter(Boolean)) {
             aidsByLedger[logicalLedgerId] = [...new Set([...(aidsByLedger[logicalLedgerId] ?? []), classification.aid])]
           }
@@ -599,6 +604,7 @@ export class OldFavoriteWorkspaceCoordinator {
       if (workspace.status !== 'previewing' || !workspace.baseline) {
         throw new Error('Old favorite workspace is not ready to freeze.')
       }
+      const classifications = await this.selectedSourceAssignments(workspace, Object.values(workspace.classifications))
       const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
       const boundShards = snapshot.physicalShards.flatMap((shard) => {
         if (shard.bindingState !== 'bound' || !shard.remoteFolderId) return []
@@ -616,7 +622,7 @@ export class OldFavoriteWorkspaceCoordinator {
         workspaceId: workspace.id,
         baselineRevision: workspace.baseline.revision,
         createdAt: this.now(),
-        classifications: Object.values(workspace.classifications).map((classification) => ({
+        classifications: classifications.map((classification) => ({
           aid: classification.aid,
           targetLedgerIds: [...classification.targetLedgerIds]
         })),
@@ -858,6 +864,37 @@ export class OldFavoriteWorkspaceCoordinator {
       classifications: [],
       history: events.map(encodeJournalEvent)
     })
+  }
+
+  private async assertAssignmentsUseSelectedSources(
+    workspace: OldFavoriteWorkspace,
+    assignments: ApplyWorkspaceClassificationBatchOptions['assignments']
+  ) {
+    const selected = await this.selectedSourceAssignments(workspace, assignments)
+    if (selected.length !== assignments.length) {
+      throw new Error('Old favorite workspace classifications must target selected sources.')
+    }
+  }
+
+  private async selectedSourceAssignments<T extends { aid: number }>(workspace: OldFavoriteWorkspace, assignments: T[]): Promise<T[]> {
+    const sourceFolders = this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []
+    // Legacy/test workspaces may not have inventory metadata; only enforce a scope the user could select.
+    if (!sourceFolders.length) return assignments
+    const selectedSourceFolderIds = new Set(sourceFolders
+      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected)
+      .map((folder) => folder.id))
+    const currentItems = this.currentSegmentItems.get(workspace.accountMid)
+    const items = currentItems ?? await this.loadCurrentSegmentItems(workspace)
+    const itemsByAid = new Map(items.map((item) => [item.aid, item]))
+    return assignments.filter((assignment) =>
+      itemsByAid.get(assignment.aid)?.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId)))
+  }
+
+  private async loadCurrentSegmentItems(workspace: OldFavoriteWorkspace) {
+    const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
+    if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
+    this.currentSegmentItems.set(workspace.accountMid, recovered.loadedSegmentItems.map(clone))
+    return recovered.loadedSegmentItems
   }
 
   private async persistMarker(

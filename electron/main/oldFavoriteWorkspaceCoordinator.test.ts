@@ -253,6 +253,110 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('rejects a manual classification for a deselected source in the main-process workspace', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'source-a', title: 'Source A', itemCount: 1, isBilimiWorkFolder: false },
+        { id: 'source-b', title: 'Source B', itemCount: 1, isBilimiWorkFolder: false }
+      ]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source-a', page: 1,
+      items: [{ aid: 1, title: 'Selected', sourceFolderIds: ['source-a'] }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source-b', page: 1,
+      items: [{ aid: 2, title: 'Deselected', sourceFolderIds: ['source-b'] }]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.selectSourceFolders('100', ['source-a'])
+
+    await expect(coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 2, targetLedgerIds: ['music'] }]
+    })).rejects.toThrow('selected sources')
+    await expect(coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })).resolves.toMatchObject({ classifications: { '1': { targetLedgerIds: ['music'] } } })
+  })
+
+  it('saves only selected-source classifications to the local library', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'source-a', title: 'Source A', itemCount: 1, isBilimiWorkFolder: false },
+        { id: 'source-b', title: 'Source B', itemCount: 1, isBilimiWorkFolder: false }
+      ]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source-a', page: 1,
+      items: [{ aid: 1, title: 'Selected', sourceFolderIds: ['source-a'] }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source-b', page: 1,
+      items: [{ aid: 2, title: 'Deselected', sourceFolderIds: ['source-b'] }]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }, { aid: 2, targetLedgerIds: ['knowledge'] }]
+    })
+    await coordinator.selectSourceFolders('100', ['source-a'])
+
+    await coordinator.saveCurrentSegmentToLocalLibrary('100')
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      memberships: { 'local:music': [1] },
+      organizationRecords: [expect.objectContaining({ aid: 1 })]
+    })
+    const snapshot = await repository.getSnapshot('100')
+    expect(snapshot.memberships['local:knowledge']).toBeUndefined()
+  })
+
+  it('freezes only selected-source classifications for Bilibili execution', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'source-a', title: 'Source A', itemCount: 1, isBilimiWorkFolder: false },
+        { id: 'source-b', title: 'Source B', itemCount: 1, isBilimiWorkFolder: false }
+      ]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source-a', page: 1,
+      items: [{ aid: 1, title: 'Selected', sourceFolderIds: ['source-a'] }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source-b', page: 1,
+      items: [{ aid: 2, title: 'Deselected', sourceFolderIds: ['source-b'] }]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }, { aid: 2, targetLedgerIds: ['knowledge'] }]
+    })
+    await coordinator.selectSourceFolders('100', ['source-a'])
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: '闊充箰', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 0, memberAids: [] }]
+    })
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      frozenSyncPlan: { operations: [{ aid: 1, folderIds: ['remote-music-1'] }] }
+    })
+  })
+
   it('freezes a main-process sync plan using only persisted bound physical shard ids', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
