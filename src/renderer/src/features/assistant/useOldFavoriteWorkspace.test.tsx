@@ -121,4 +121,16 @@ describe('useOldFavoriteWorkspace', () => {
     expect(command).toHaveBeenCalledExactlyOnceWith('100', { type: 'start-scan', mode: 'full' })
     expect(result.current.snapshot).toEqual(workspace('100'))
   })
+
+  it('sends source selection as a constrained workspace command', async () => {
+    const command = vi.fn().mockResolvedValue(workspace('100'))
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.selectSourceFolders(['source-a', 'source-b']) })
+
+    expect(command).toHaveBeenCalledExactlyOnceWith('100', {
+      type: 'select-source-folders', folderIds: ['source-a', 'source-b']
+    })
+  })
 })

@@ -81,4 +81,24 @@ describe('old favorite workspace coordinator IPC', () => {
       type: 'start-scan', mode: 'incremental', aids: [1]
     })).rejects.toThrow('command is invalid')
   })
+
+  it('accepts only bounded source folder ids for a controlled source selection', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      selectSourceFolders: vi.fn().mockResolvedValue({}),
+      getSnapshot: vi.fn().mockResolvedValue(snapshot)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'select-source-folders', folderIds: ['source-a', 'source-b']
+    })).resolves.toEqual(snapshot)
+    expect(coordinator.selectSourceFolders).toHaveBeenCalledWith('100', ['source-a', 'source-b'])
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'select-source-folders', folderIds: ['source-a', { id: 'source-b' }]
+    })).rejects.toThrow('command is invalid')
+  })
 })

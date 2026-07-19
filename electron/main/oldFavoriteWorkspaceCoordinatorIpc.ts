@@ -11,6 +11,7 @@ type IpcMain = { handle(channel: string, handler: (event: IpcEvent, ...args: nev
 
 type WorkspaceCommand =
   | { type: 'start-scan'; mode: 'incremental' | 'full' }
+  | { type: 'select-source-folders'; folderIds: string[] }
   | { type: 'select-segment'; segmentId: string }
   | { type: 'apply-classifications'; source: 'manual'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
   | { type: 'freeze-segment'; segmentId: string }
@@ -37,6 +38,11 @@ function command(value: unknown): WorkspaceCommand {
   if (candidate.type === 'start-scan' && (candidate.mode === 'incremental' || candidate.mode === 'full') &&
     Object.keys(candidate).every((key) => key === 'type' || key === 'mode')) {
     return { type: 'start-scan', mode: candidate.mode }
+  }
+  if (candidate.type === 'select-source-folders' && Array.isArray(candidate.folderIds) &&
+    candidate.folderIds.length <= 500 && candidate.folderIds.every((id) => typeof id === 'string' && id.trim().length > 0 && id.trim().length <= 128) &&
+    Object.keys(candidate).every((key) => key === 'type' || key === 'folderIds')) {
+    return { type: 'select-source-folders', folderIds: [...new Set(candidate.folderIds.map((id) => id.trim()))].sort() }
   }
   if (candidate.type === 'select-segment' && typeof candidate.segmentId === 'string' && candidate.segmentId.trim()) {
     return { type: 'select-segment', segmentId: candidate.segmentId.trim() }
@@ -75,6 +81,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'start-scan') return options.startScan
       ? options.startScan(accountMid, requested.mode)
       : options.coordinator.beginScan(accountMid, requested.mode)
+    if (requested.type === 'select-source-folders') await options.coordinator.selectSourceFolders(accountMid, requested.folderIds)
     if (requested.type === 'select-segment') await options.coordinator.selectSegment(accountMid, requested.segmentId)
     if (requested.type === 'freeze-segment') await options.coordinator.freezeSegment(accountMid, requested.segmentId)
     if (requested.type === 'apply-classifications') await options.coordinator.applyClassificationBatch(accountMid, {

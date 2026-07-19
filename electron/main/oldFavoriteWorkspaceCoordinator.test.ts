@@ -115,7 +115,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       status: 'previewing', baseline: { aids: [1, 2] }, baselineCompletedAids: [2], plannedAids: [1]
     })
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
-      status: 'previewing', currentSegment: { aids: [1] }, scan: { phase: 'complete' }
+      status: 'previewing', currentSegment: {
+        aids: [1],
+        items: [{ aid: 1, title: 'First title', sourceFolderIds: ['source-a'] }]
+      }, scan: { phase: 'complete' }
     })
   })
 
@@ -136,6 +139,69 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       new OldFavoriteWorkspaceStore({ root })
     ).getSnapshot('100')).resolves.toMatchObject({
       status: 'previewing', scan: { phase: 'complete' }, sourceFolders: [{ id: 'source-a', itemCount: 1 }]
+    })
+  })
+
+  it('defaults legacy non-Bilimi source folders to selected when recovering a preview', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, store)
+    const workspace = await first.open('100')
+    await first.completeScan('100', { revision: 1, aids: [1] })
+    await store.appendOverlay('100', workspace.id, {
+      currentSegmentId: 'segment-1', classifications: [], history: [],
+      scanMetadata: {
+        sourceFolders: [{ id: 'legacy-source', title: 'Legacy source', itemCount: 1, isBilimiWorkFolder: false }]
+      }
+    })
+
+    await expect(createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' }),
+      new OldFavoriteWorkspaceStore({ root })
+    ).getSnapshot('100')).resolves.toMatchObject({
+      sourceFolders: [{ id: 'legacy-source', selected: true }]
+    })
+  })
+
+  it('restores source selection and the active segment without leaking either to another account', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, store)
+    await first.open('100')
+    await first.beginScan('100', 'incremental')
+    await first.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'source-a', title: 'Source A', itemCount: 1, isBilimiWorkFolder: false },
+        { id: 'source-b', title: 'Source B', itemCount: 1, isBilimiWorkFolder: false }
+      ]
+    })
+    await first.completeScan('100', { revision: 1, aids: Array.from({ length: 2_001 }, (_, index) => index + 1) })
+    await first.selectSegment('100', 'segment-2')
+    await first.selectSourceFolders('100', ['source-b'])
+
+    await first.open('200')
+    await first.beginScan('200', 'incremental')
+    await first.recordScanInventory('200', {
+      sourceFolders: [{ id: 'source-c', title: 'Source C', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await first.completeScan('200', { revision: 1, aids: [3] })
+
+    const recovered = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' }),
+      new OldFavoriteWorkspaceStore({ root })
+    )
+    await expect(recovered.getSnapshot('100')).resolves.toMatchObject({
+      currentSegment: { id: 'segment-2', aids: [2_001] },
+      sourceFolders: [
+        { id: 'source-a', selected: false },
+        { id: 'source-b', selected: true }
+      ]
+    })
+    await expect(recovered.getSnapshot('200')).resolves.toMatchObject({
+      currentSegment: { id: 'segment-1', aids: [3] },
+      sourceFolders: [{ id: 'source-c', selected: true }]
     })
   })
 

@@ -22,6 +22,7 @@ type SourceFolder = {
   title: string
   itemCount: number
   isBilimiWorkFolder: boolean
+  selected?: boolean
 }
 type Classification = { aid: number; targetLedgerIds: string[]; source: string }
 type History = { kind: string; aids: number[] }

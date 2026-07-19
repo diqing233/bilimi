@@ -38,7 +38,7 @@ type DiscoveryJournalEvent = { type: 'discover'; aids: number[] }
 type WorkspaceJournalEvent = ScanJournalEvent | ClassificationJournalEvent | CursorJournalEvent |
   FreezeJournalEvent | DiscoveryJournalEvent
 type ScanOverview = {
-  sourceFolders: Array<{ id: string; title: string; itemCount: number; isBilimiWorkFolder: boolean }>
+  sourceFolders: Array<{ id: string; title: string; itemCount: number; isBilimiWorkFolder: boolean; selected?: boolean }>
   scan: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: OldFavoriteWorkspace['mode']; reason?: string }
 }
 
@@ -83,6 +83,7 @@ export class OldFavoriteWorkspaceCoordinator {
   private readonly workspaces = new Map<string, OldFavoriteWorkspace>()
   private readonly currentSegments = new Map<string, string>()
   private readonly segmentDescriptors = new Map<string, SegmentDescriptor[]>()
+  private readonly currentSegmentItems = new Map<string, Array<{ aid: number; title?: string; author?: string; cover?: string; addedAt?: number; sourceFolderIds: string[] }>>()
   private readonly frozenSegments = new Map<string, Set<string>>()
   private readonly scanOverviews = new Map<string, ScanOverview>()
   private readonly scanRuns = new Map<string, string>()
@@ -129,7 +130,7 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
       if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not active.')
-      const sourceFolders = input.sourceFolders.map((folder) => ({ ...folder }))
+      const sourceFolders = input.sourceFolders.map((folder) => ({ ...folder, selected: !folder.isBilimiWorkFolder }))
       const mode = this.scanOverviews.get(workspace.accountMid)?.scan.mode ?? workspace.mode
       const overview: ScanOverview = { sourceFolders, scan: { phase: 'inventory', failureCount: 0, mode } }
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
@@ -162,6 +163,29 @@ export class OldFavoriteWorkspaceCoordinator {
       const runId = this.scanRuns.get(workspace.accountMid)
       if (!runId) throw new Error('Old favorite workspace scan run is not active.')
       await this.options.workspaceStore.appendManagedMembers(workspace.accountMid, workspace.id, { runId, members })
+    })
+  }
+
+  async selectSourceFolders(accountMid: string, folderIds: string[]) {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'previewing') throw new Error('Old favorite workspace sources are not ready.')
+      const sourceFolders = this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []
+      const validIds = new Set(sourceFolders.filter((folder) => !folder.isBilimiWorkFolder).map((folder) => folder.id))
+      if (!folderIds.every((folderId) => validIds.has(folderId))) throw new Error('Old favorite workspace source selection is invalid.')
+      const selectedIds = new Set(folderIds)
+      const updatedFolders = sourceFolders.map((folder) => ({
+        ...folder,
+        selected: folder.isBilimiWorkFolder ? false : selectedIds.has(folder.id)
+      }))
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [],
+        scanMetadata: { sourceFolders: updatedFolders }
+      })
+      this.scanOverviews.set(workspace.accountMid, {
+        sourceFolders: updatedFolders,
+        scan: this.scanOverviews.get(workspace.accountMid)?.scan ?? { phase: 'complete', failureCount: 0, mode: workspace.mode }
+      })
     })
   }
 
@@ -214,6 +238,9 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       this.scanRuns.delete(completed.accountMid)
       this.remember(completed, currentSegmentId, descriptors, new Set())
+      this.currentSegmentItems.set(completed.accountMid, completed.segments[0]?.aids.map((aid) => clone(itemsByAid.get(aid) ?? {
+        aid, sourceFolderIds: []
+      })) ?? [])
       return clone(completed)
     })
   }
@@ -409,6 +436,7 @@ export class OldFavoriteWorkspaceCoordinator {
       id: recovered.currentSegmentId,
       aids: [...recovered.loadedSegmentAids]
     }
+    this.currentSegmentItems.set(marker.accountMid, recovered.loadedSegmentItems.map(clone))
     const activeAidSet = new Set(loaded.aids)
     const frozenIds = new Set(events.flatMap((event) => event.type === 'freeze' ? [event.segmentId] : []))
     const historyEvents = events.filter((event): event is ClassificationJournalEvent => event.type === 'classification')
@@ -457,7 +485,11 @@ export class OldFavoriteWorkspaceCoordinator {
       historyCursor
     }
     this.scanOverviews.set(marker.accountMid, {
-      sourceFolders: recovered.sourceFolders,
+      // Workspaces created before source selection did not persist this flag.
+      sourceFolders: recovered.sourceFolders.map((folder) => ({
+        ...folder,
+        selected: folder.isBilimiWorkFolder ? false : folder.selected ?? true
+      })),
       scan: { phase: 'complete', failureCount: 0, mode: scan.mode }
     })
     this.remember(workspace, recovered.currentSegmentId, scan.segments, frozenIds)
@@ -524,6 +556,7 @@ export class OldFavoriteWorkspaceCoordinator {
     this.currentSegments.set(workspace.accountMid, currentSegmentId)
     this.segmentDescriptors.set(workspace.accountMid, descriptors.map(clone))
     this.frozenSegments.set(workspace.accountMid, new Set(frozenIds))
+    if (!workspace.segments.length) this.currentSegmentItems.set(workspace.accountMid, [])
   }
 
   private currentSegment(workspace: OldFavoriteWorkspace) {
@@ -550,7 +583,11 @@ export class OldFavoriteWorkspaceCoordinator {
           status: (this.frozenSegments.get(workspace.accountMid)?.has(segment.id) ? 'frozen' : 'previewing') as 'previewing' | 'frozen',
           itemCount: segment.itemCount
         })),
-      currentSegment: currentSegment ? { id: currentSegment.id, aids: [...currentSegment.aids] } : null,
+      currentSegment: currentSegment ? {
+        id: currentSegment.id,
+        aids: [...currentSegment.aids],
+        items: clone(this.currentSegmentItems.get(workspace.accountMid) ?? []).filter((item) => currentSegment.aids.includes(item.aid))
+      } : null,
       classifications: Object.fromEntries(Object.entries(workspace.classifications).map(([aid, classification]) => [aid, {
         aid: classification.aid,
         targetLedgerIds: [...classification.targetLedgerIds],

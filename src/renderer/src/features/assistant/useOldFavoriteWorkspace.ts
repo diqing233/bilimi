@@ -57,6 +57,22 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     }
   }, [accountMid])
 
+  const selectSourceFolders = useCallback(async (folderIds: string[]) => {
+    const version = ++requestVersion.current
+    const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
+    if (!accountMid || !command) return null
+    const normalizedFolderIds = [...new Set(folderIds.filter((id) => typeof id === 'string').map((id) => id.trim()).filter(Boolean))].sort()
+    try {
+      const next = await command(accountMid, { type: 'select-source-folders', folderIds: normalizedFolderIds })
+      const matchesRequestedAccount = normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
+      if (!matchesRequestedAccount) return null
+      if (requestVersion.current === version) setSnapshot(next)
+      return next
+    } catch {
+      return null
+    }
+  }, [accountMid])
+
   useEffect(() => {
     void refresh()
   }, [refresh])
@@ -67,5 +83,5 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     return () => window.clearInterval(timer)
   }, [refresh, snapshot?.status])
 
-  return { snapshot, loading, refresh, startScan, available: Boolean(accountMid && window.bilimiDesktop?.commandOldFavoriteWorkspaceV1) }
+  return { snapshot, loading, refresh, startScan, selectSourceFolders, available: Boolean(accountMid && window.bilimiDesktop?.commandOldFavoriteWorkspaceV1) }
 }

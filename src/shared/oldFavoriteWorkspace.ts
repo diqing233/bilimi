@@ -72,10 +72,22 @@ export type OldFavoriteWorkspaceSnapshot = {
     title: string
     itemCount: number
     isBilimiWorkFolder: boolean
+    selected?: boolean
   }>
   continuationCount: number
   segments: Array<{ id: string; index: number; status: 'previewing' | 'frozen'; itemCount: number }>
-  currentSegment: { id: string; aids: number[] } | null
+  currentSegment: {
+    id: string
+    aids: number[]
+    items: Array<{
+      aid: number
+      title?: string
+      author?: string
+      cover?: string
+      addedAt?: number
+      sourceFolderIds: string[]
+    }>
+  } | null
   classifications: Record<string, OldFavoriteWorkspaceClassification>
   history: { cursor: number; length: number }
 }

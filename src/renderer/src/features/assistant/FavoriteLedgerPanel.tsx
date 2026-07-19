@@ -8776,6 +8776,14 @@ export function FavoriteLedgerPanel({
       tags: { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'idle' as const }
     }
   }
+  const controlledSelectedSourceIds = new Set(
+    controlledScanSnapshot?.sourceFolders.filter((folder) => folder.selected && !folder.isBilimiWorkFolder).map((folder) => folder.id) ?? []
+  )
+  const controlledPreviewItems = controlledScanSnapshot?.status === 'previewing'
+    ? (controlledScanSnapshot.currentSegment?.items ?? []).filter((item) =>
+        item.sourceFolderIds.some((folderId) => controlledSelectedSourceIds.has(folderId))
+      )
+    : []
 
   return (
     <section
@@ -9225,9 +9233,36 @@ export function FavoriteLedgerPanel({
                   </p>
                   <ul className="favorite-ledger-panel__scan-folder-list" aria-label="扫描收藏夹列表">
                     {controlledScanSnapshot.sourceFolders.map((folder) => (
-                      <li key={folder.id}>{folder.title} · {folder.itemCount} 条{folder.isBilimiWorkFolder ? ' · Bilimi 工作夹' : ''}</li>
+                      <li key={folder.id}>
+                        <label>
+                          <input
+                            type="checkbox"
+                            aria-label={`选择来源 ${folder.title}`}
+                            checked={Boolean(folder.selected)}
+                            disabled={folder.isBilimiWorkFolder}
+                            onChange={(event) => {
+                              const next = new Set(controlledSelectedSourceIds)
+                              if (event.currentTarget.checked) next.add(folder.id)
+                              else next.delete(folder.id)
+                              void oldFavoriteWorkspace.selectSourceFolders([...next])
+                            }}
+                          />
+                          {folder.title} · {folder.itemCount} 条{folder.isBilimiWorkFolder ? ' · Bilimi 工作夹' : ''}
+                        </label>
+                      </li>
                     ))}
                   </ul>
+                  {controlledScanSnapshot.status === 'previewing' ? (
+                    <section className="favorite-ledger-panel__insights" aria-label="归档预览">
+                      <h4>归档预览</h4>
+                      <p className="favorite-ledger-panel__step-note">当前分段 {controlledPreviewItems.length} 条；只加载并显示这一段。</p>
+                      <ul className="favorite-ledger-panel__preview-list" aria-label="当前分段归档预览">
+                        {controlledPreviewItems.map((item) => (
+                          <li key={item.aid}>{item.title?.trim() || `视频 ${item.aid}`} · {item.author?.trim() || '未知 UP'} · 未分类</li>
+                        ))}
+                      </ul>
+                    </section>
+                  ) : null}
                 </>
               ) : (
                 <>

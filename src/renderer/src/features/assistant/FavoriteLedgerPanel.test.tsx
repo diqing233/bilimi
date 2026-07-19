@@ -140,6 +140,43 @@ describe('FavoriteLedgerPanel', () => {
     expect(command).toHaveBeenCalledOnce()
   })
 
+  it('renders only the controlled current segment in the archive preview and persists source selection by command', async () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: true,
+      scan: { phase: 'complete' as const, failureCount: 0 },
+      sourceFolders: [
+        { id: 'source-a', title: 'Source A', itemCount: 1, isBilimiWorkFolder: false, selected: true },
+        { id: 'source-b', title: 'Source B', itemCount: 1, isBilimiWorkFolder: false, selected: true }
+      ],
+      continuationCount: 0,
+      segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 2_000 }],
+      currentSegment: {
+        id: 'segment-1', aids: [1, 2],
+        items: [
+          { aid: 1, title: 'Keep this', author: 'UP A', sourceFolderIds: ['source-a'] },
+          { aid: 2, title: 'Hide this', author: 'UP B', sourceFolderIds: ['source-b'] }
+        ]
+      },
+      classifications: {}, history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue(snapshot)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(snapshot),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    renderPanel({ currentAccountMid: '100' })
+
+    expect(await screen.findByRole('list', { name: '当前分段归档预览' })).toHaveTextContent('Keep this')
+    expect(screen.getByRole('list', { name: '当前分段归档预览' })).toHaveTextContent('Hide this')
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择来源 Source B' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'select-source-folders', folderIds: ['source-a']
+    }))
+    expect(screen.queryByText('视频 2001')).not.toBeInTheDocument()
+  })
+
   it('reads the current account only after the entry is clicked and restores only that account', async () => {
     const preview = createArchivePreviewFixture()
     const sessionBridge = installOldFavoriteSessionBridge({
