@@ -14,7 +14,7 @@ type WorkspaceExpectation = {
   workspaceId: string
   currentSegmentId: string
   selectedSourceFolderIds: string[]
-  classifications: Record<string, { targetLedgerIds: string[] }>
+  classifications: Record<string, { targetLedgerIds: string[]; source: string }>
 }
 
 function multiArchiveLimit(mode: FavoriteArchiveMultiMode) {
@@ -100,7 +100,8 @@ export class OldFavoriteWorkspaceDeepSeekService {
       currentSegmentId: snapshot.currentSegment.id,
       selectedSourceFolderIds: [...selectedFolderIds].sort(),
       classifications: Object.fromEntries(Object.entries(snapshot.classifications).map(([aid, classification]) => [aid, {
-        targetLedgerIds: [...classification.targetLedgerIds].sort()
+        targetLedgerIds: [...classification.targetLedgerIds].sort(),
+        source: classification.source
       }]))
     }
     return this.options.coordinator.applyDeepSeekClassificationBatch(snapshot.accountMid, assignments, expected)

@@ -394,7 +394,7 @@ export class OldFavoriteWorkspaceCoordinator {
       workspaceId: string
       currentSegmentId: string
       selectedSourceFolderIds: string[]
-      classifications: Record<string, { targetLedgerIds: string[] }>
+      classifications: Record<string, { targetLedgerIds: string[]; source: string }>
     }
   ): Promise<OldFavoriteWorkspace> {
     if (assignments.length > 2_000 || assignments.some((assignment) =>
@@ -409,7 +409,8 @@ export class OldFavoriteWorkspaceCoordinator {
         .map((folder) => folder.id)
         .sort()
       const classifications = Object.fromEntries(Object.entries(workspace.classifications).map(([aid, classification]) => [aid, {
-        targetLedgerIds: [...classification.targetLedgerIds].sort()
+        targetLedgerIds: [...classification.targetLedgerIds].sort(),
+        source: classification.source
       }]))
       if (workspace.id !== expected.workspaceId || currentSegmentId !== expected.currentSegmentId ||
         JSON.stringify(selectedSourceFolderIds) !== JSON.stringify([...expected.selectedSourceFolderIds].sort()) ||
