@@ -37,13 +37,15 @@ import type { OldFavoriteBatchCommitToken } from './features/favorites/favoriteL
 import type { OldFavoriteAccountIndex, OldFavoriteBatchDetail, OldFavoriteOverlayKind, OldFavoriteOverlayPatch } from '../../../electron/main/oldFavoriteWorkspaceTypes'
 import type { OldFavoriteBatchLifecycleSnapshot } from '../../../electron/main/oldFavoriteSessionStore'
 import type {
-  AccountFavoriteRepositorySnapshot,
   FavoriteRepositoryCommand,
   FavoriteRepositoryCommandResult,
   FavoriteRepositoryPage,
   FavoriteRepositoryVideo
 } from '@shared/favoriteRepository'
-import type { FavoriteRepositoryRevisionChange } from '../../../electron/main/favoriteRepositoryIpc'
+import type {
+  FavoriteRepositoryRevisionChange,
+  FavoriteRepositorySnapshotSummary
+} from '../../../electron/main/favoriteRepositoryIpc'
 
 type BilimiDesktopApi = {
   version: string
@@ -87,8 +89,8 @@ type BilimiDesktopApi = {
   ) => Promise<OldFavoriteRuntimeSetResult>
   bindOldFavoriteRuntimeAccount?: (accountMid: string) => boolean
   readBilibiliAccountMid?: () => Promise<string>
-  openFavoriteRepositoryAccount?: (accountMid: string) => Promise<{ accountMid: string; revision: number }>
-  getFavoriteRepositorySnapshot?: (accountMid: string) => Promise<AccountFavoriteRepositorySnapshot>
+  openFavoriteRepositoryAccount?: (accountMid: string) => Promise<FavoriteRepositorySnapshotSummary>
+  getFavoriteRepositorySnapshot?: (accountMid: string) => Promise<FavoriteRepositorySnapshotSummary>
   getFavoriteRepositoryFolderPage?: (
     accountMid: string,
     folderId: string,

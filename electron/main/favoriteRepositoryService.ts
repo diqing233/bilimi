@@ -96,6 +96,7 @@ function validManifest(value: unknown, accountMid: string): value is RepositoryM
 export class FavoriteRepositoryService {
   private readonly cache = new Map<string, CachedRepository>()
   private writeTail = Promise.resolve()
+  private pendingWriteCount = 0
 
   constructor(private readonly options: {
     root: string
@@ -138,6 +139,7 @@ export class FavoriteRepositoryService {
     command: FavoriteRepositoryCommand
   ): Promise<FavoriteRepositoryCommandResult> {
     const account = normalizeAccountMid(accountMid)
+    this.pendingWriteCount++
     return this.queue(async () => {
       if (normalizeAccountMid(command.accountMid) !== account) {
         throw new Error('Favorite repository account mismatch.')
@@ -156,7 +158,13 @@ export class FavoriteRepositoryService {
       const persisted = await this.persist(account, next, cached.manifest?.generation)
       this.cache.set(account, persisted)
       return clone(result)
+    }).finally(() => {
+      this.pendingWriteCount--
     })
+  }
+
+  hasPendingWrites() {
+    return this.pendingWriteCount > 0
   }
 
   async flush() {

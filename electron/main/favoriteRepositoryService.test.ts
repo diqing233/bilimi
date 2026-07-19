@@ -121,4 +121,18 @@ describe('FavoriteRepositoryService', () => {
       .rejects.toThrow('Favorite repository account mismatch.')
     expect((await service.getSnapshot('100')).videos['1'].title).toBe('Original')
   })
+
+  it('reports a pending durable commit so the quit barrier can wait even when old favorite state is clean', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const pending = service.commit('100', {
+      id: 'video-1', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Pending', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    })
+
+    expect((service as unknown as { hasPendingWrites(): boolean }).hasPendingWrites()).toBe(true)
+    await service.flush()
+    await pending
+    expect((service as unknown as { hasPendingWrites(): boolean }).hasPendingWrites()).toBe(false)
+  })
 })

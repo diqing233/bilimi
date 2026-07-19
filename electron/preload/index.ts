@@ -39,13 +39,15 @@ import type {
 import type { FavoriteLedgerPreviewItem } from '../../src/renderer/src/features/favorites/favoriteLedgerPreview'
 import type { OldFavoriteAccountIndex, OldFavoriteBatchDetail, OldFavoriteOverlayKind, OldFavoriteOverlayPatch } from '../main/oldFavoriteWorkspaceTypes'
 import type {
-  AccountFavoriteRepositorySnapshot,
   FavoriteRepositoryCommand,
   FavoriteRepositoryCommandResult,
   FavoriteRepositoryPage,
   FavoriteRepositoryVideo
 } from '../../src/shared/favoriteRepository'
-import type { FavoriteRepositoryRevisionChange } from '../main/favoriteRepositoryIpc'
+import type {
+  FavoriteRepositoryRevisionChange,
+  FavoriteRepositorySnapshotSummary
+} from '../main/favoriteRepositoryIpc'
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
   version: '0.1.0',
@@ -98,9 +100,9 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.sendSync('old-favorite-runtime:bind-account', accountMid) as boolean,
   readBilibiliAccountMid: () => ipcRenderer.invoke('bilibili:account-mid') as Promise<string>,
   openFavoriteRepositoryAccount: (accountMid: string) =>
-    ipcRenderer.invoke('favorite-repository:open-account', accountMid) as Promise<{ accountMid: string; revision: number }>,
+    ipcRenderer.invoke('favorite-repository:open-account', accountMid) as Promise<FavoriteRepositorySnapshotSummary>,
   getFavoriteRepositorySnapshot: (accountMid: string) =>
-    ipcRenderer.invoke('favorite-repository:get-snapshot', accountMid) as Promise<AccountFavoriteRepositorySnapshot>,
+    ipcRenderer.invoke('favorite-repository:get-snapshot', accountMid) as Promise<FavoriteRepositorySnapshotSummary>,
   getFavoriteRepositoryFolderPage: (accountMid: string, folderId: string, options: { limit: number; cursor?: string }) =>
     ipcRenderer.invoke('favorite-repository:get-folder-page', accountMid, folderId, options) as Promise<FavoriteRepositoryPage<FavoriteRepositoryVideo>>,
   searchFavoriteRepositoryPage: (accountMid: string, query: string, options: { limit: number; cursor?: string }) =>
@@ -112,12 +114,24 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     folderId: string | undefined,
     callback: (change: FavoriteRepositoryRevisionChange) => void
   ) => {
-    const listener = (_event: Electron.IpcRendererEvent, change: FavoriteRepositoryRevisionChange) => callback(change)
+    let subscriptionId: string | undefined
+    let disposed = false
+    const listener = (_event: Electron.IpcRendererEvent, change: FavoriteRepositoryRevisionChange) => {
+      if (change.subscriptionId === subscriptionId) callback(change)
+    }
     ipcRenderer.on('favorite-repository:revision-changed', listener)
     void ipcRenderer.invoke('favorite-repository:subscribe', accountMid, folderId)
+      .then((id: string) => {
+        subscriptionId = id
+        if (disposed) void ipcRenderer.invoke('favorite-repository:unsubscribe', accountMid, id).catch(() => undefined)
+      })
+      .catch(() => {
+        ipcRenderer.removeListener('favorite-repository:revision-changed', listener)
+      })
     return () => {
+      disposed = true
       ipcRenderer.removeListener('favorite-repository:revision-changed', listener)
-      void ipcRenderer.invoke('favorite-repository:unsubscribe', accountMid, folderId)
+      if (subscriptionId) void ipcRenderer.invoke('favorite-repository:unsubscribe', accountMid, subscriptionId).catch(() => undefined)
     }
   },
   openOldFavoriteWorkspaceAccount: (accountMid: string) =>

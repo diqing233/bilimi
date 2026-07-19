@@ -1,24 +1,56 @@
+import { randomUUID } from 'node:crypto'
 import type {
   AccountFavoriteRepositorySnapshot,
   FavoriteRepositoryCommand,
   FavoriteRepositoryCommandResult,
+  FavoriteRepositoryFolder,
   FavoriteRepositoryPage,
   FavoriteRepositoryVideo
 } from '../../src/shared/favoriteRepository'
 import type { FavoriteRepositoryService } from './favoriteRepositoryService'
 
-type IpcEvent = { sender: { id: number } }
+type IpcEvent = {
+  sender: {
+    id: number
+    once?: (event: 'destroyed', listener: () => void) => unknown
+  }
+}
 type IpcMain = {
   handle(channel: string, handler: (event: IpcEvent, ...args: never[]) => unknown): void
 }
 
 type FolderPageOptions = { limit: number; cursor?: string }
+type Subscription = { id: string; accountMid: string; folderId?: string }
+
+const MAX_AFFECTED_FOLDER_IDS = 100
+
+export type FavoriteRepositorySnapshotSummary = {
+  version: 1
+  accountMid: string
+  revision: number
+  updatedAt: string
+  videoCount: number
+  folderCount: number
+  folders: FavoriteRepositoryFolder[]
+  physicalShardCount: number
+  syncRecordCount: number
+  syncCounts: Record<'pending' | 'succeeded' | 'failed' | 'result-unknown', number>
+  workspace?: {
+    id: string
+    status: AccountFavoriteRepositorySnapshot['workspace']['status']
+    baselineRevision: number
+    continuationCount: number
+  }
+}
 
 export type FavoriteRepositoryRevisionChange = {
+  subscriptionId: string
   accountMid: string
   revision: number
   affectedFolderIds: string[]
-  affectedAids: number[]
+  affectedFolderCount: number
+  affectedFolderIdsTruncated: boolean
+  affectedAidCount: number
   pageInvalidated: boolean
 }
 
@@ -48,6 +80,33 @@ function commandForAccount(value: unknown, accountMid: string): FavoriteReposito
     throw new Error('Favorite repository command account mismatch.')
   }
   return value as FavoriteRepositoryCommand
+}
+
+function createSummary(snapshot: AccountFavoriteRepositorySnapshot): FavoriteRepositorySnapshotSummary {
+  const syncCounts: FavoriteRepositorySnapshotSummary['syncCounts'] = {
+    pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0
+  }
+  for (const record of snapshot.syncRecords) syncCounts[record.status]++
+  return {
+    version: 1,
+    accountMid: snapshot.accountMid,
+    revision: snapshot.revision,
+    updatedAt: snapshot.updatedAt,
+    videoCount: Object.keys(snapshot.videos).length,
+    folderCount: snapshot.folders.length,
+    folders: snapshot.folders.map((folder) => ({ ...folder })),
+    physicalShardCount: snapshot.physicalShards.length,
+    syncRecordCount: snapshot.syncRecords.length,
+    syncCounts,
+    ...(snapshot.workspace ? {
+      workspace: {
+        id: snapshot.workspace.id,
+        status: snapshot.workspace.status,
+        baselineRevision: snapshot.workspace.baselineRevision,
+        continuationCount: snapshot.workspace.continuationAids.length
+      }
+    } : {})
+  }
 }
 
 function searchPage(
@@ -83,84 +142,115 @@ export function registerFavoriteRepositoryIpc(options: {
   getCurrentAccountMid: () => Promise<string>
   send?: (senderId: number, channel: string, payload: FavoriteRepositoryRevisionChange) => void
 }) {
-  const subscriptions = new Map<number, Map<string, Set<string | undefined>>>()
+  const subscriptions = new Map<number, Map<string, Subscription>>()
   const assertTrusted = (event: IpcEvent) => {
     if (!options.isTrustedSender(event.sender.id)) {
       throw new Error('Favorite repository request came from an untrusted renderer.')
     }
   }
-  const publish = (result: FavoriteRepositoryCommandResult) => {
-    for (const [senderId, byAccount] of subscriptions) {
-      const folders = byAccount.get(result.accountMid)
-      if (!folders) continue
-      const pageInvalidated = folders.has(undefined) || result.affectedFolderIds.some((folderId) => folders.has(folderId))
-      options.send?.(senderId, 'favorite-repository:revision-changed', {
-        accountMid: result.accountMid,
-        revision: result.revision,
-        affectedFolderIds: result.affectedFolderIds,
-        affectedAids: result.affectedAids,
-        pageInvalidated
-      })
+  const assertCurrentAccount = async (accountMid: string) => {
+    let currentAccountMid: string
+    try {
+      currentAccountMid = normalizedAccountMid(await options.getCurrentAccountMid())
+    } catch {
+      throw new Error('Favorite repository request does not match the current Bilibili account.')
+    }
+    if (currentAccountMid !== accountMid) {
+      throw new Error('Favorite repository request does not match the current Bilibili account.')
     }
   }
-  const subscribe = (senderId: number, accountMid: string, folderId?: string) => {
-    const byAccount = subscriptions.get(senderId) ?? new Map<string, Set<string | undefined>>()
-    const folders = byAccount.get(accountMid) ?? new Set<string | undefined>()
-    folders.add(folderId?.trim() || undefined)
-    byAccount.set(accountMid, folders)
-    subscriptions.set(senderId, byAccount)
+  const publish = (result: FavoriteRepositoryCommandResult) => {
+    const affectedFolderIds = [...new Set(result.affectedFolderIds)].slice(0, MAX_AFFECTED_FOLDER_IDS)
+    const affectedFolderCount = new Set(result.affectedFolderIds).size
+    for (const [senderId, records] of subscriptions) {
+      for (const subscription of records.values()) {
+        if (subscription.accountMid !== result.accountMid) continue
+        const pageInvalidated = !subscription.folderId || result.affectedFolderIds.includes(subscription.folderId)
+        options.send?.(senderId, 'favorite-repository:revision-changed', {
+          subscriptionId: subscription.id,
+          accountMid: result.accountMid,
+          revision: result.revision,
+          affectedFolderIds,
+          affectedFolderCount,
+          affectedFolderIdsTruncated: affectedFolderCount > affectedFolderIds.length,
+          affectedAidCount: new Set(result.affectedAids).size,
+          pageInvalidated
+        })
+      }
+    }
   }
-  const unsubscribe = (senderId: number, accountMid: string, folderId?: string) => {
-    const byAccount = subscriptions.get(senderId)
-    const folders = byAccount?.get(accountMid)
-    if (!folders) return false
-    const removed = folders.delete(folderId?.trim() || undefined)
-    if (!folders.size) byAccount?.delete(accountMid)
-    if (!byAccount?.size) subscriptions.delete(senderId)
-    return removed
+  const subscribe = (event: IpcEvent, accountMid: string, folderId?: string) => {
+    const senderId = event.sender.id
+    const id = randomUUID()
+    const records = subscriptions.get(senderId) ?? new Map<string, Subscription>()
+    records.set(id, { id, accountMid, ...(folderId?.trim() ? { folderId: folderId.trim() } : {}) })
+    subscriptions.set(senderId, records)
+    event.sender.once?.('destroyed', () => subscriptions.delete(senderId))
+    return id
+  }
+  const unsubscribe = (senderId: number, accountMid: string, subscriptionId: unknown) => {
+    if (typeof subscriptionId !== 'string' || !subscriptionId) return false
+    const records = subscriptions.get(senderId)
+    const record = records?.get(subscriptionId)
+    if (!record || record.accountMid !== accountMid) return false
+    records?.delete(subscriptionId)
+    if (!records?.size) subscriptions.delete(senderId)
+    return true
   }
 
   options.ipcMain.handle('favorite-repository:open-account', async (event, requestedAccountMid: string) => {
     assertTrusted(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
-    const snapshot = await options.service.getSnapshot(accountMid)
-    return { accountMid: snapshot.accountMid, revision: snapshot.revision }
+    await assertCurrentAccount(accountMid)
+    return createSummary(await options.service.getSnapshot(accountMid))
   })
   options.ipcMain.handle('favorite-repository:get-snapshot', async (event, requestedAccountMid: string) => {
     assertTrusted(event)
-    return options.service.getSnapshot(normalizedAccountMid(requestedAccountMid))
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    return createSummary(await options.service.getSnapshot(accountMid))
   })
   options.ipcMain.handle('favorite-repository:get-folder-page', async (
     event, requestedAccountMid: string, folderId: string, requestedOptions: FolderPageOptions
   ) => {
     assertTrusted(event)
-    return options.service.getFolderPage(normalizedAccountMid(requestedAccountMid), folderId, pageOptions(requestedOptions))
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    return options.service.getFolderPage(accountMid, folderId, pageOptions(requestedOptions))
   })
   options.ipcMain.handle('favorite-repository:search-page', async (
     event, requestedAccountMid: string, query: string, requestedOptions: FolderPageOptions
   ) => {
     assertTrusted(event)
-    return searchPage(await options.service.getSnapshot(normalizedAccountMid(requestedAccountMid)), query, requestedOptions)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    return searchPage(await options.service.getSnapshot(accountMid), query, requestedOptions)
   })
   options.ipcMain.handle('favorite-repository:commit-command', async (
     event, requestedAccountMid: string, requestedCommand: FavoriteRepositoryCommand
   ) => {
     assertTrusted(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
-    if (normalizedAccountMid(await options.getCurrentAccountMid()) !== accountMid) {
-      throw new Error('Favorite repository command does not match the current Bilibili account.')
-    }
+    await assertCurrentAccount(accountMid)
     const result = await options.service.commit(accountMid, commandForAccount(requestedCommand, accountMid))
     publish(result)
     return result
   })
-  options.ipcMain.handle('favorite-repository:subscribe', (event, requestedAccountMid: string, folderId?: string) => {
+  options.ipcMain.handle('favorite-repository:subscribe', async (event, requestedAccountMid: string, folderId?: string) => {
     assertTrusted(event)
-    subscribe(event.sender.id, normalizedAccountMid(requestedAccountMid), folderId)
-    return true
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    return subscribe(event, accountMid, folderId)
   })
-  options.ipcMain.handle('favorite-repository:unsubscribe', (event, requestedAccountMid: string, folderId?: string) => {
+  options.ipcMain.handle('favorite-repository:unsubscribe', async (event, requestedAccountMid: string, subscriptionId: string) => {
     assertTrusted(event)
-    return unsubscribe(event.sender.id, normalizedAccountMid(requestedAccountMid), folderId)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    return unsubscribe(event.sender.id, accountMid, subscriptionId)
   })
+
+  return {
+    removeSender(senderId: number) {
+      subscriptions.delete(senderId)
+    }
+  }
 }

@@ -1457,7 +1457,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
 })
 
 const oldFavoriteQuitBarrier = createOldFavoriteQuitBarrier({
-  shouldFlush: () => shouldFlushOldFavoriteOnQuit(
+  shouldFlush: () => favoriteRepositoryService?.hasPendingWrites() === true || shouldFlushOldFavoriteOnQuit(
     oldFavoritePersistenceDirtyTracker.isDirty(),
     oldFavoriteRendererFlushCoordinator.isDirty(),
     oldFavoriteSessionStore
