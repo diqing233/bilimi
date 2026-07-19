@@ -128,6 +128,36 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect((await repository.getSnapshot('100')).workspace).toMatchObject({ id: next.workspaceId, status: 'scanning' })
   })
 
+  it.each([
+    ['incremental', [3], [1, 2]],
+    ['full', [1, 2, 3], []]
+  ] as const)('projects a completed Bilimi membership scan as %s candidates in the next round', async (mode, plannedAids, protectedAids) => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    const completed = await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
+    const completedMarker = (await repository.getSnapshot('100')).workspace!
+    await repository.commit('100', {
+      id: 'complete', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace', payload: {
+        ...completedMarker,
+        status: 'completed', workspaceRef: { ...completedMarker.workspaceRef, status: 'completed' },
+        frozenSyncPlan: {
+          id: 'run-1', accountMid: '100', workspaceId: completed.id, baselineRevision: 1,
+          createdAt: '2026-07-20T00:00:00.000Z', operations: []
+        }
+      }
+    })
+    await coordinator.beginScan('100', mode)
+    await coordinator.recordManagedMembers('100', { 'bilimi-music': [1, 2] })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source-a', page: 1,
+      items: [1, 2, 3].map((aid) => ({ aid, title: `Video ${aid}`, sourceFolderIds: ['source-a'] }))
+    })
+
+    await expect(coordinator.finishScan('100')).resolves.toMatchObject({ plannedAids, protectedAids })
+  })
+
   it('finalizes staged source pages into one deduplicated immutable baseline and preserves managed aids', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
