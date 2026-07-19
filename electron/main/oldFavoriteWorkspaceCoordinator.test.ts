@@ -28,6 +28,38 @@ function createCoordinator(repository: FavoriteRepositoryService, workspaceStore
 }
 
 describe('OldFavoriteWorkspaceCoordinator', () => {
+  it('returns only the current segment in a renderer workspace snapshot', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.completeScan('100', {
+      revision: 1,
+      aids: Array.from({ length: 2_001 }, (_, index) => index + 1)
+    })
+    await coordinator.selectSegment('100', 'segment-2')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 2_001, targetLedgerIds: ['music'] }]
+    })
+
+    const snapshot = await coordinator.getSnapshot('100')
+
+    expect(snapshot).toMatchObject({
+      version: 1,
+      accountMid: '100',
+      status: 'previewing',
+      currentSegment: { id: 'segment-2', aids: [2_001] },
+      classifications: { '2001': { targetLedgerIds: ['music'], source: 'manual' } },
+      history: { cursor: 1, length: 1 }
+    })
+    expect(snapshot).not.toHaveProperty('baseline')
+    expect(snapshot).not.toHaveProperty('plannedAids')
+    expect(snapshot.segments).toEqual([
+      { id: 'segment-1', index: 0, status: 'previewing', itemCount: 2_000 },
+      { id: 'segment-2', index: 1, status: 'previewing', itemCount: 1 }
+    ])
+  })
+
   it('creates a scanning workspace and persists only its lightweight repository marker', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })

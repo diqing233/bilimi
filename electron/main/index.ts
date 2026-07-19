@@ -81,6 +81,9 @@ import { resetOldFavoriteAccount } from './oldFavoriteAccountReset'
 import { OldFavoriteBackgroundRuntime } from './oldFavoriteBackgroundRuntime'
 import { OldFavoriteWorkspaceService } from './oldFavoriteWorkspaceService'
 import { registerOldFavoriteWorkspaceIpc } from './oldFavoriteWorkspaceIpc'
+import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinator'
+import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
+import { registerOldFavoriteWorkspaceCoordinatorIpc } from './oldFavoriteWorkspaceCoordinatorIpc'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import { FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
 import { FavoriteRepositoryRuntimePageBridgeManager } from './favoriteRepositoryRuntimePageBridge'
@@ -450,6 +453,7 @@ let oldFavoriteWorkspaceService: OldFavoriteWorkspaceService | undefined
 let favoriteRepositoryService: FavoriteRepositoryService | undefined
 let favoriteRepositorySyncService: FavoriteRepositorySyncService | undefined
 let favoriteRepositoryPageBridgeManager: FavoriteRepositoryRuntimePageBridgeManager | undefined
+let oldFavoriteWorkspaceCoordinator: OldFavoriteWorkspaceCoordinator | undefined
 const oldFavoriteRendererFlushCoordinator = new OldFavoriteRendererFlushCoordinator()
 let queueOldFavoriteSessionMutation: OldFavoriteMutationQueue | undefined
 
@@ -1394,6 +1398,18 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   favoriteRepositorySyncService = new FavoriteRepositorySyncService({
     repository: favoriteRepositoryService,
     pageBridgeManager: favoriteRepositoryPageBridgeManager
+  })
+  oldFavoriteWorkspaceCoordinator = new OldFavoriteWorkspaceCoordinator({
+    repository: favoriteRepositoryService,
+    workspaceStore: new OldFavoriteWorkspaceStore({
+      root: join(app.getPath('userData'), 'favorites', 'repository-v1')
+    })
+  })
+  registerOldFavoriteWorkspaceCoordinatorIpc({
+    ipcMain,
+    coordinator: oldFavoriteWorkspaceCoordinator,
+    isTrustedSender: isTrustedOldFavoriteSessionSender,
+    getCurrentAccountMid: readCurrentBilibiliAccountMid
   })
   registerFavoriteRepositoryIpc({
     ipcMain,

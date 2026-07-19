@@ -16,7 +16,7 @@ import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 
 const JOURNAL_EVENT_PREFIX = 'bilimi-old-favorite-workspace:v1:'
 
-type SegmentDescriptor = { id: string; index: number }
+type SegmentDescriptor = { id: string; index: number; itemCount: number }
 type ScanJournalEvent = {
   type: 'scan'
   createdAt: string
@@ -41,6 +41,27 @@ export type OldFavoriteWorkspaceRecoveryRequired = {
   preserveCompletedLocalResults: true
   accountMid: string
   workspaceId: string
+}
+
+export type OldFavoriteWorkspaceSnapshot = {
+  version: 1
+  accountMid: string
+  workspaceId: string
+  status: OldFavoriteWorkspace['status']
+  mode: OldFavoriteWorkspace['mode']
+  segmentSize: number
+  hasMultipleSegments: boolean
+  continuationCount: number
+  segments: Array<{ id: string; index: number; status: 'previewing' | 'frozen'; itemCount: number }>
+  currentSegment: { id: string; aids: number[] } | null
+  classifications: Record<string, OldFavoriteWorkspaceClassificationSnapshot>
+  history: { cursor: number; length: number }
+}
+
+type OldFavoriteWorkspaceClassificationSnapshot = {
+  aid: number
+  targetLedgerIds: string[]
+  source: OldFavoriteWorkspace['classifications'][string]['source']
 }
 
 function clone<T>(value: T): T {
@@ -95,6 +116,13 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.queue(() => this.openUnsafe(accountMid))
   }
 
+  async getSnapshot(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot | OldFavoriteWorkspaceRecoveryRequired> {
+    return this.queue(async () => {
+      const workspace = await this.openUnsafe(accountMid)
+      return isRecoveryRequired(workspace) ? workspace : this.createSnapshot(workspace)
+    })
+  }
+
   async completeScan(accountMid: string, options: CompleteWorkspaceScanOptions): Promise<OldFavoriteWorkspace> {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
@@ -108,7 +136,7 @@ export class OldFavoriteWorkspaceCoordinator {
         currentSegmentId,
         segments: completed.segments.map((segment) => ({ id: segment.id, aids: [...segment.aids] }))
       })
-      const descriptors = completed.segments.map(({ id, index }) => ({ id, index }))
+      const descriptors = completed.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
       await this.appendEvents(completed, currentSegmentId, [{
         type: 'scan',
         createdAt: completed.createdAt,
@@ -127,7 +155,7 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
       const descriptors = this.segmentDescriptors.get(workspace.accountMid) ??
-        workspace.segments.map(({ id, index }) => ({ id, index }))
+        workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
       if (!descriptors.some((segment) => segment.id === segmentId)) {
         throw new Error('Old favorite workspace segment is invalid.')
       }
@@ -175,7 +203,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const frozenIds = new Set(this.frozenSegments.get(workspace.accountMid) ?? [])
       frozenIds.add(segmentId)
       const descriptors = this.segmentDescriptors.get(workspace.accountMid) ??
-        frozen.segments.map(({ id, index }) => ({ id, index }))
+        frozen.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
       const updated = {
         ...frozen,
         status: frozenIds.size >= descriptors.length ? 'frozen' as const : 'previewing' as const
@@ -390,6 +418,34 @@ export class OldFavoriteWorkspaceCoordinator {
 
   private currentSegment(workspace: OldFavoriteWorkspace) {
     return this.currentSegments.get(workspace.accountMid) ?? workspace.segments[0]?.id ?? ''
+  }
+
+  private createSnapshot(workspace: OldFavoriteWorkspace): OldFavoriteWorkspaceSnapshot {
+    const currentSegment = workspace.segments[0]
+    return {
+      version: 1,
+      accountMid: workspace.accountMid,
+      workspaceId: workspace.id,
+      status: workspace.status,
+      mode: workspace.mode,
+      segmentSize: workspace.segmentSize,
+      hasMultipleSegments: workspace.hasMultipleSegments,
+      continuationCount: workspace.continuationAids.length,
+      segments: (this.segmentDescriptors.get(workspace.accountMid) ?? workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length })))
+        .map((segment) => ({
+          id: segment.id,
+          index: segment.index,
+          status: (this.frozenSegments.get(workspace.accountMid)?.has(segment.id) ? 'frozen' : 'previewing') as 'previewing' | 'frozen',
+          itemCount: segment.itemCount
+        })),
+      currentSegment: currentSegment ? { id: currentSegment.id, aids: [...currentSegment.aids] } : null,
+      classifications: Object.fromEntries(Object.entries(workspace.classifications).map(([aid, classification]) => [aid, {
+        aid: classification.aid,
+        targetLedgerIds: [...classification.targetLedgerIds],
+        source: classification.source
+      }])),
+      history: { cursor: workspace.historyCursor, length: workspace.history.length }
+    }
   }
 
   private now() {
