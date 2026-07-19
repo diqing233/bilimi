@@ -141,7 +141,13 @@ describe('FavoriteRepositoryService', () => {
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
     await service.commit('100', {
       id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
-      payload: { id: 'workspace-1', accountMid: '100', status: 'executing', baselineRevision: 1, continuationAids: [] }
+      payload: {
+        id: 'workspace-1', accountMid: '100', status: 'executing', baselineRevision: 1, continuationAids: [],
+        workspaceRef: {
+          workspaceId: 'workspace-1', accountMid: '100', status: 'executing', baselineRevision: 1,
+          currentSegmentId: 'segment-1', overlayRevision: 1, journalCursor: 1, checksum: 'a'.repeat(64)
+        }
+      }
     })
     const generationDirectory = join(root, 'accounts', '100', 'generations')
     const before = await readdir(generationDirectory)
@@ -161,7 +167,13 @@ describe('FavoriteRepositoryService', () => {
 
     await restarted.commit('100', {
       id: 'compact-sync-journal', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
-      payload: { id: 'workspace-1', accountMid: '100', status: 'completed', baselineRevision: 1, continuationAids: [] }
+      payload: {
+        id: 'workspace-1', accountMid: '100', status: 'completed', baselineRevision: 1, continuationAids: [],
+        workspaceRef: {
+          workspaceId: 'workspace-1', accountMid: '100', status: 'completed', baselineRevision: 1,
+          currentSegmentId: 'segment-1', overlayRevision: 1, journalCursor: 1, checksum: 'a'.repeat(64)
+        }
+      }
     })
     const manifest = JSON.parse(await readFile(join(root, 'accounts', '100', 'repository.manifest.json'), 'utf8')) as { generation: string }
     const persisted = JSON.parse(await readFile(join(root, 'accounts', '100', 'generations', manifest.generation, 'repository.json'), 'utf8')) as {

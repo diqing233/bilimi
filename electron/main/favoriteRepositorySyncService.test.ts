@@ -20,7 +20,11 @@ async function createRepository() {
 
 function workspace(accountMid = '100'): FavoriteRepositoryWorkspace {
   return {
-    id: 'workspace-1', accountMid, status: 'frozen', baselineRevision: 1, continuationAids: []
+    id: 'workspace-1', accountMid, status: 'frozen', baselineRevision: 1, continuationAids: [],
+    workspaceRef: {
+      workspaceId: 'workspace-1', accountMid, status: 'frozen', baselineRevision: 1,
+      currentSegmentId: 'segment-1', overlayRevision: 1, journalCursor: 1, checksum: 'a'.repeat(64)
+    }
   }
 }
 

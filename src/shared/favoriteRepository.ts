@@ -46,12 +46,24 @@ export type FavoriteRepositoryFrozenSyncPlan = {
   operations: FavoriteRepositoryFrozenSyncOperation[]
 }
 
+export type FavoriteRepositoryWorkspaceRef = {
+  workspaceId: string
+  accountMid: string
+  status: 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'completed'
+  baselineRevision: number
+  currentSegmentId: string
+  overlayRevision: number
+  journalCursor: number
+  checksum: string
+}
+
 export type FavoriteRepositoryWorkspace = {
   id: string
   accountMid: string
   status: 'scanning' | 'previewing' | 'frozen' | 'executing' | 'reconciling' | 'completed'
   baselineRevision: number
   continuationAids: number[]
+  workspaceRef: FavoriteRepositoryWorkspaceRef
   frozenSyncPlan?: FavoriteRepositoryFrozenSyncPlan
 }
 
@@ -162,6 +174,29 @@ function isWorkspaceStatus(value: unknown): value is FavoriteRepositoryWorkspace
   return ['scanning', 'previewing', 'frozen', 'executing', 'reconciling', 'completed'].includes(String(value))
 }
 
+function isWorkspaceRef(
+  value: unknown,
+  accountMid: string,
+  workspaceId: string,
+  status: FavoriteRepositoryWorkspace['status'],
+  baselineRevision: number
+): value is FavoriteRepositoryWorkspaceRef {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const ref = value as Record<string, unknown>
+  const allowedKeys = new Set([
+    'workspaceId', 'accountMid', 'status', 'baselineRevision', 'currentSegmentId',
+    'overlayRevision', 'journalCursor', 'checksum'
+  ])
+  if (Object.keys(ref).some((key) => !allowedKeys.has(key)) ||
+    typeof ref.workspaceId !== 'string' || ref.workspaceId.trim() !== workspaceId ||
+    typeof ref.accountMid !== 'string' || normalizedAccountMid(ref.accountMid) !== accountMid ||
+    ref.status !== status || !Number.isSafeInteger(ref.baselineRevision) || ref.baselineRevision !== baselineRevision ||
+    typeof ref.currentSegmentId !== 'string' || !Number.isSafeInteger(ref.overlayRevision) ||
+    Number(ref.overlayRevision) < 0 || !Number.isSafeInteger(ref.journalCursor) || Number(ref.journalCursor) < 0 ||
+    typeof ref.checksum !== 'string' || !/^[a-f0-9]{64}$/i.test(ref.checksum)) return false
+  return true
+}
+
 function isFrozenSyncPlan(value: unknown, accountMid: string, workspaceId: string) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const plan = value as Partial<FavoriteRepositoryFrozenSyncPlan>
@@ -225,11 +260,29 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
         !isValidAidList(payload.aids)) invalidCommand()
       return
     case 'set-workspace':
-      if (typeof payload.id !== 'string' || !payload.id.trim() || typeof payload.accountMid !== 'string' ||
-        !isWorkspaceStatus(payload.status) || !Number.isSafeInteger(payload.baselineRevision) ||
-        Number(payload.baselineRevision) < 0 || !isValidAidList(payload.continuationAids) ||
-        (payload.frozenSyncPlan !== undefined && !isFrozenSyncPlan(payload.frozenSyncPlan, normalizedAccountMid(payload.accountMid), payload.id))) invalidCommand()
-      return
+      {
+        const forbiddenWorkspaceState = [
+          'baseline', 'classifications', 'history', 'segments', 'plannedAids', 'protectedAids',
+          'baselineCompletedAids', 'videos', 'memberships'
+        ]
+        if (typeof payload.id !== 'string' || !payload.id.trim() || typeof payload.accountMid !== 'string' ||
+          !isWorkspaceStatus(payload.status) || !Number.isSafeInteger(payload.baselineRevision) ||
+          Number(payload.baselineRevision) < 0 || !isValidAidList(payload.continuationAids) || payload.continuationAids.length > 0 ||
+          forbiddenWorkspaceState.some((key) => key in payload) ||
+          !isWorkspaceRef(
+            payload.workspaceRef,
+            normalizedAccountMid(payload.accountMid),
+            payload.id.trim(),
+            payload.status,
+            Number(payload.baselineRevision)
+          ) ||
+          (payload.frozenSyncPlan !== undefined && !isFrozenSyncPlan(
+            payload.frozenSyncPlan,
+            normalizedAccountMid(payload.accountMid),
+            payload.id.trim()
+          ))) invalidCommand()
+        return
+      }
     case 'record-sync-result':
       if (typeof payload.id !== 'string' || !payload.id.trim() || typeof payload.commandId !== 'string' ||
         !payload.commandId.trim() || !isSyncStatus(payload.status) || !isValidAidList(payload.affectedAids) ||
@@ -304,9 +357,20 @@ export function applyFavoriteRepositoryCommand(
         throw new Error('Favorite sync plan is immutable.')
       }
       workspace = {
-        ...command.payload,
+        id: command.payload.id.trim(),
         accountMid: snapshot.accountMid,
-        continuationAids: uniquePositiveAids(command.payload.continuationAids),
+        status: command.payload.status,
+        baselineRevision: command.payload.baselineRevision,
+        continuationAids: [],
+        workspaceRef: {
+          ...command.payload.workspaceRef,
+          workspaceId: command.payload.id.trim(),
+          accountMid: snapshot.accountMid,
+          status: command.payload.status,
+          baselineRevision: command.payload.baselineRevision,
+          currentSegmentId: command.payload.workspaceRef.currentSegmentId.trim(),
+          checksum: command.payload.workspaceRef.checksum.toLowerCase()
+        },
         ...(command.payload.frozenSyncPlan ? {
           frozenSyncPlan: {
             ...command.payload.frozenSyncPlan,

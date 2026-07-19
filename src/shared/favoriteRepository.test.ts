@@ -1,8 +1,25 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyFavoriteRepositoryCommand,
-  createAccountFavoriteRepositorySnapshot
+  createAccountFavoriteRepositorySnapshot,
+  type FavoriteRepositoryWorkspaceRef
 } from './favoriteRepository'
+
+const WORKSPACE_CHECKSUM = 'a'.repeat(64)
+
+function workspaceRef(overrides: Partial<FavoriteRepositoryWorkspaceRef> = {}): FavoriteRepositoryWorkspaceRef {
+  return {
+    workspaceId: 'workspace-1',
+    accountMid: '100',
+    status: 'scanning',
+    baselineRevision: 0,
+    currentSegmentId: '',
+    overlayRevision: 0,
+    journalCursor: 0,
+    checksum: WORKSPACE_CHECKSUM,
+    ...overrides
+  }
+}
 
 describe('account favorite repository contracts', () => {
   it('rejects a command for another account before changing the snapshot', () => {
@@ -145,12 +162,65 @@ describe('account favorite repository contracts', () => {
     const result = applyFavoriteRepositoryCommand(snapshot, {
       id: 'command-1', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
       payload: {
-        id: 'workspace-1', accountMid: '00100', status: 'scanning', baselineRevision: 0, continuationAids: []
+        id: 'workspace-1', accountMid: '00100', status: 'scanning', baselineRevision: 0, continuationAids: [],
+        workspaceRef: workspaceRef({ accountMid: '00100' })
       }
     }, '2026-07-19T00:00:20.000Z')
 
     expect(result.workspace?.accountMid).toBe('100')
+    expect(result.workspace?.workspaceRef.accountMid).toBe('100')
     expect(result.updatedAt).toBe('2026-07-19T00:00:20.000Z')
+  })
+
+  it('stores only a validated lightweight workspace reference in the repository snapshot', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({
+      accountMid: '100', now: '2026-07-19T00:00:00.000Z'
+    })
+
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'workspace-ref', accountMid: '100', issuedAt: '2026-07-19T00:00:01.000Z', type: 'set-workspace',
+      payload: {
+        id: 'workspace-1', accountMid: '100', status: 'previewing', baselineRevision: 7, continuationAids: [],
+        workspaceRef: workspaceRef({
+          status: 'previewing', baselineRevision: 7, currentSegmentId: 'segment-2',
+          overlayRevision: 4, journalCursor: 812
+        })
+      }
+    }, '2026-07-19T00:00:01.000Z')
+
+    expect(result.workspace?.workspaceRef).toEqual({
+      workspaceId: 'workspace-1', accountMid: '100', status: 'previewing', baselineRevision: 7,
+      currentSegmentId: 'segment-2', overlayRevision: 4, journalCursor: 812, checksum: WORKSPACE_CHECKSUM
+    })
+    expect(result.workspace).not.toHaveProperty('baseline')
+    expect(result.workspace).not.toHaveProperty('classifications')
+    expect(result.workspace).not.toHaveProperty('history')
+    expect(result.workspace).not.toHaveProperty('segments')
+  })
+
+  it('rejects malformed or overloaded workspace references at the shared command boundary', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({
+      accountMid: '100', now: '2026-07-19T00:00:00.000Z'
+    })
+    const command = (ref: unknown, extra: Record<string, unknown> = {}) => ({
+      id: 'workspace-ref', accountMid: '100', issuedAt: '2026-07-19T00:00:01.000Z', type: 'set-workspace',
+      payload: {
+        id: 'workspace-1', accountMid: '100', status: 'previewing', baselineRevision: 7, continuationAids: [],
+        workspaceRef: ref,
+        ...extra
+      }
+    })
+
+    expect(() => applyFavoriteRepositoryCommand(snapshot, command(workspaceRef({ checksum: 'bad' })),
+      '2026-07-19T00:00:01.000Z')).toThrow('Favorite repository command is invalid.')
+    expect(() => applyFavoriteRepositoryCommand(snapshot, command(workspaceRef({ journalCursor: -1 })),
+      '2026-07-19T00:00:01.000Z')).toThrow('Favorite repository command is invalid.')
+    expect(() => applyFavoriteRepositoryCommand(snapshot, command(workspaceRef({ workspaceId: 'other' })),
+      '2026-07-19T00:00:01.000Z')).toThrow('Favorite repository command is invalid.')
+    expect(() => applyFavoriteRepositoryCommand(snapshot, command(workspaceRef({ status: 'frozen' })),
+      '2026-07-19T00:00:01.000Z')).toThrow('Favorite repository command is invalid.')
+    expect(() => applyFavoriteRepositoryCommand(snapshot, command(workspaceRef(), { history: [{ changes: [] }] }),
+      '2026-07-19T00:00:01.000Z')).toThrow('Favorite repository command is invalid.')
   })
 
   it('rejects replacing a persisted frozen sync plan through a later workspace command', () => {
@@ -161,6 +231,7 @@ describe('account favorite repository contracts', () => {
       id: 'workspace-1', accountMid: '100', issuedAt: '2026-07-19T00:00:01.000Z', type: 'set-workspace',
       payload: {
         id: 'workspace-1', accountMid: '100', status: 'frozen', baselineRevision: 1, continuationAids: [],
+        workspaceRef: workspaceRef({ status: 'frozen', baselineRevision: 1, currentSegmentId: 'segment-1' }),
         frozenSyncPlan: {
           id: 'run-1', accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 1,
           createdAt: '2026-07-19T00:00:01.000Z',
@@ -173,6 +244,7 @@ describe('account favorite repository contracts', () => {
       id: 'workspace-2', accountMid: '100', issuedAt: '2026-07-19T00:00:02.000Z', type: 'set-workspace',
       payload: {
         id: 'workspace-1', accountMid: '100', status: 'executing', baselineRevision: 1, continuationAids: [],
+        workspaceRef: workspaceRef({ status: 'executing', baselineRevision: 1, currentSegmentId: 'segment-1' }),
         frozenSyncPlan: {
           id: 'run-1', accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 1,
           createdAt: '2026-07-19T00:00:01.000Z',
@@ -183,7 +255,10 @@ describe('account favorite repository contracts', () => {
 
     expect(() => applyFavoriteRepositoryCommand(frozen, {
       id: 'workspace-3', accountMid: '100', issuedAt: '2026-07-19T00:00:02.000Z', type: 'set-workspace',
-      payload: { id: 'different-workspace', accountMid: '100', status: 'scanning', baselineRevision: 0, continuationAids: [] }
+      payload: {
+        id: 'different-workspace', accountMid: '100', status: 'scanning', baselineRevision: 0, continuationAids: [],
+        workspaceRef: workspaceRef({ workspaceId: 'different-workspace' })
+      }
     }, '2026-07-19T00:00:02.000Z')).toThrow('Favorite sync plan is immutable.')
   })
 })

@@ -16,7 +16,8 @@ export type {
   FavoriteRepositoryPhysicalShard,
   FavoriteRepositorySyncRecord,
   FavoriteRepositoryVideo,
-  FavoriteRepositoryWorkspace
+  FavoriteRepositoryWorkspace,
+  FavoriteRepositoryWorkspaceRef
 } from './favoriteRepository'
 
 export type AssistantAction = '赏' | '藏' | '赐' | '表' | '阅'

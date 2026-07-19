@@ -63,6 +63,19 @@ function clonePlan(plan: FavoriteRepositoryFrozenSyncPlan): FavoriteRepositoryFr
   }
 }
 
+function withWorkspaceStatus(
+  workspace: FavoriteRepositoryWorkspace,
+  status: FavoriteRepositoryWorkspace['status'],
+  frozenSyncPlan: FavoriteRepositoryFrozenSyncPlan
+): FavoriteRepositoryWorkspace {
+  return {
+    ...workspace,
+    status,
+    workspaceRef: { ...workspace.workspaceRef, status },
+    frozenSyncPlan
+  }
+}
+
 export class FavoriteRepositoryRemoteRejectedError extends Error {
   readonly remoteWriteRejected = true
 }
@@ -99,7 +112,7 @@ export class FavoriteRepositorySyncService {
         }
         return this.drive(account, workspace.frozenSyncPlan)
       }
-      await this.writeWorkspace(account, { ...workspace, status: 'executing', frozenSyncPlan: plan }, `freeze:${plan.id}`)
+      await this.writeWorkspace(account, withWorkspaceStatus(workspace, 'executing', plan), `freeze:${plan.id}`)
       return this.drive(account, plan)
     })
   }
@@ -119,7 +132,7 @@ export class FavoriteRepositorySyncService {
       const plan = this.planForRun(workspace, runId, account)
       const run = this.summarize(plan, await this.options.repository.getSyncCheckpoints(account, runId))
       if (run.status === 'result-unknown' || run.status === 'failed' || run.status === 'succeeded') return run
-      await this.writeWorkspace(account, { ...workspace!, status: 'executing', frozenSyncPlan: plan }, `resume:${runId}`)
+      await this.writeWorkspace(account, withWorkspaceStatus(workspace!, 'executing', plan), `resume:${runId}`)
       return this.drive(account, plan)
     })
   }
@@ -130,7 +143,7 @@ export class FavoriteRepositorySyncService {
       const { workspace } = await this.options.repository.getSnapshot(account)
       const plan = this.planForRun(workspace, runId, account)
       const records = this.recordsByOperation(plan, await this.options.repository.getSyncCheckpoints(account, runId))
-      await this.writeWorkspace(account, { ...workspace!, status: 'reconciling', frozenSyncPlan: plan }, `reconcile:${runId}`)
+      await this.writeWorkspace(account, withWorkspaceStatus(workspace!, 'reconciling', plan), `reconcile:${runId}`)
 
       for (const operation of plan.operations) {
       const record = records.get(operation.operationKey)
@@ -163,7 +176,7 @@ export class FavoriteRepositorySyncService {
         : run.status === 'ready-to-resume' || run.status === 'failed'
           ? 'frozen'
           : 'reconciling'
-      await this.writeWorkspace(account, { ...workspace!, status, frozenSyncPlan: plan }, `reconciled:${runId}`)
+      await this.writeWorkspace(account, withWorkspaceStatus(workspace!, status, plan), `reconciled:${runId}`)
       return run
     })
   }
@@ -177,7 +190,7 @@ export class FavoriteRepositorySyncService {
       if (record?.status === 'succeeded') continue
       if (record?.status === 'failed') return this.summarize(plan, Array.from(records.values()))
       if (record?.status === 'result-unknown' || (record?.status === 'pending' && record.reason !== retryReadyReason)) {
-        await this.writeWorkspace(accountMid, { ...snapshot.workspace!, status: 'reconciling', frozenSyncPlan: plan }, `unknown:${plan.id}`)
+        await this.writeWorkspace(accountMid, withWorkspaceStatus(snapshot.workspace!, 'reconciling', plan), `unknown:${plan.id}`)
         return this.summarize(plan, Array.from(records.values()))
       }
 
@@ -200,14 +213,16 @@ export class FavoriteRepositorySyncService {
           'result'
         ))
         const run = this.summarize(plan, Array.from(records.values()))
-        await this.writeWorkspace(accountMid, { ...snapshot.workspace!, status: run.status === 'result-unknown' ? 'reconciling' : 'frozen', frozenSyncPlan: plan }, `stopped:${plan.id}`)
+        await this.writeWorkspace(accountMid, withWorkspaceStatus(
+          snapshot.workspace!, run.status === 'result-unknown' ? 'reconciling' : 'frozen', plan
+        ), `stopped:${plan.id}`)
         return run
       }
       if (index < plan.operations.length - 1) await this.sleep()
     }
 
     const complete = this.summarize(plan, Array.from(records.values()))
-    await this.writeWorkspace(accountMid, { ...snapshot.workspace!, status: 'completed', frozenSyncPlan: plan }, `complete:${plan.id}`)
+    await this.writeWorkspace(accountMid, withWorkspaceStatus(snapshot.workspace!, 'completed', plan), `complete:${plan.id}`)
     return complete
   }
 
