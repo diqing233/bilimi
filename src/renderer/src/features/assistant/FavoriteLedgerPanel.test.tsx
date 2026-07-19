@@ -280,11 +280,11 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenLastCalledWith('100', { type: 'execute-frozen-bilibili-plan' }))
   })
 
-  it.each(['scanning', 'completed'] as const)('keeps controlled confirmation unavailable while the workspace is %s', async (status) => {
+  it('keeps controlled confirmation unavailable while the workspace is scanning', async () => {
     const snapshot = {
-      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status,
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
       mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
-      scan: { phase: status === 'scanning' ? 'inventory' as const : 'complete' as const, failureCount: 0 },
+      scan: { phase: 'inventory' as const, failureCount: 0 },
       sourceFolders: [], continuationCount: 0, segments: [], currentSegment: null, classifications: {}, history: { cursor: 0, length: 0 }
     }
     window.bilimiDesktop = {
@@ -295,6 +295,29 @@ describe('FavoriteLedgerPanel', () => {
     renderPanel({ currentAccountMid: '100' })
 
     expect(await screen.findByRole('button', { name: '确认执行' })).toBeDisabled()
+  })
+
+  it('shows controlled Bilibili completion without offering another frozen-plan action', async () => {
+    const completed = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'completed' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue(completed)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(completed),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    renderPanel({ currentAccountMid: '100' })
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('已完成同步到 B 站')
+    expect(screen.queryByRole('button', { name: '确认同步到 B 站' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '开始同步到 B 站' })).not.toBeInTheDocument()
+    expect(command).not.toHaveBeenCalled()
   })
 
   it('reads the current account only after the entry is clicked and restores only that account', async () => {

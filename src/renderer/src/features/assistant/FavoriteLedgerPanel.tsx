@@ -3913,7 +3913,7 @@ export function FavoriteLedgerPanel({
 
   const controlledScanSnapshot = useControlledOldFavoriteWorkspace ? oldFavoriteWorkspace.snapshot : null
   const controlledConfirmAvailable = controlledScanSnapshot !== null &&
-    ['previewing', 'frozen', 'executing', 'reconciling'].includes(controlledScanSnapshot.status)
+    ['previewing', 'frozen', 'executing', 'reconciling', 'completed'].includes(controlledScanSnapshot.status)
 
   function continueLastOldFavoriteOrganization() {
     setOldFavoriteEntryOpen(false)
@@ -10163,6 +10163,8 @@ export function FavoriteLedgerPanel({
                 </>
               ) : controlledScanSnapshot?.status === 'executing' ? (
                 <p role="status">正在同步到 B 站；页面切换后会按检查点恢复状态。</p>
+              ) : controlledScanSnapshot?.status === 'completed' ? (
+                <p role="status">本轮已完成同步到 B 站。已提交的 B 站操作不会在此撤销。</p>
               ) : (
                 <>
                   <p>将为当前归档预览生成不可变 B 站同步计划；未绑定、待对账或容量不足时不会执行。</p>
