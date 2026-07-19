@@ -28,6 +28,9 @@ export type FavoriteRepositoryPhysicalShard = {
   folderId: string
   shardNumber: number
   remoteFolderId?: string
+  remoteTitle: string
+  bindingState: 'bound' | 'pending-reconcile'
+  knownRemoteFolderIds?: string[]
 }
 
 export type FavoriteRepositoryFrozenSyncOperation = {
@@ -108,6 +111,22 @@ export type FavoriteRepositoryCommand =
       issuedAt: string
       type: 'set-folder-members'
       payload: { folderId: string; aids: number[] }
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      type: 'upsert-physical-shard-binding'
+      payload: {
+        logicalLedgerId: string
+        logicalTitle: string
+        shardNumber: number
+        memberAids: number[]
+        remoteTitle: string
+        bindingState: 'bound' | 'pending-reconcile'
+        remoteFolderId?: string
+        knownRemoteFolderIds?: string[]
+      }
     }
   | {
       id: string
@@ -259,6 +278,18 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       if (typeof payload.folderId !== 'string' || !payload.folderId.trim() || !Array.isArray(payload.aids) ||
         !isValidAidList(payload.aids)) invalidCommand()
       return
+    case 'upsert-physical-shard-binding':
+      if (typeof payload.logicalLedgerId !== 'string' || !payload.logicalLedgerId.trim() ||
+        typeof payload.logicalTitle !== 'string' || !payload.logicalTitle.trim() ||
+        !Number.isSafeInteger(payload.shardNumber) || Number(payload.shardNumber) < 1 ||
+        !Array.isArray(payload.memberAids) || !isValidAidList(payload.memberAids) ||
+        typeof payload.remoteTitle !== 'string' || !payload.remoteTitle.trim() ||
+        (payload.bindingState !== 'bound' && payload.bindingState !== 'pending-reconcile') ||
+        (payload.remoteFolderId !== undefined && (typeof payload.remoteFolderId !== 'string' || !payload.remoteFolderId.trim())) ||
+        (payload.knownRemoteFolderIds !== undefined && (!Array.isArray(payload.knownRemoteFolderIds) ||
+          payload.knownRemoteFolderIds.some((id) => typeof id !== 'string' || !id.trim()))) ||
+        (payload.bindingState === 'bound' && (!payload.remoteFolderId || typeof payload.remoteFolderId !== 'string'))) invalidCommand()
+      return
     case 'set-workspace':
       {
         const forbiddenWorkspaceState = [
@@ -330,6 +361,8 @@ export function applyFavoriteRepositoryCommand(
   let workspace = snapshot.workspace
   let syncRecords = [...snapshot.syncRecords]
   let videos = { ...snapshot.videos }
+  let folders = [...snapshot.folders]
+  let physicalShards = [...snapshot.physicalShards]
 
   switch (command.type) {
     case 'commit-local-plan': {
@@ -348,6 +381,50 @@ export function applyFavoriteRepositoryCommand(
       affectedAids = uniquePositiveAids(command.payload.aids).sort((left, right) => left - right)
       memberships = { ...memberships, [affectedFolderIds[0]]: affectedAids }
       break
+    case 'upsert-physical-shard-binding': {
+      const logicalLedgerId = command.payload.logicalLedgerId.trim()
+      const logicalTitle = command.payload.logicalTitle.trim()
+      const folderId = `bilimi:${logicalLedgerId}:${String(command.payload.shardNumber).padStart(3, '0')}`
+      const remoteFolderId = command.payload.remoteFolderId?.trim()
+      const bindingState = command.payload.bindingState
+      affectedFolderIds = [folderId]
+      affectedAids = uniquePositiveAids(command.payload.memberAids)
+      const existingLogical = folders.find((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId === logicalLedgerId)
+      if (existingLogical && existingLogical.title !== logicalTitle) {
+        throw new Error('Favorite repository logical ledger title is immutable.')
+      }
+      if (!existingLogical) {
+        folders = [...folders, {
+          id: `bilimi-logical:${logicalLedgerId}`,
+          title: logicalTitle,
+          kind: 'bilimi-logical',
+          logicalLedgerId,
+          syncState: bindingState
+        }]
+      } else {
+        folders = folders.map((folder) => folder === existingLogical ? { ...folder, syncState: bindingState } : folder)
+      }
+      const existingShard = physicalShards.find((shard) => shard.logicalLedgerId === logicalLedgerId && shard.shardNumber === command.payload.shardNumber)
+      if (existingShard?.remoteFolderId && remoteFolderId && existingShard.remoteFolderId !== remoteFolderId) {
+        throw new Error('Favorite repository physical shard binding is immutable.')
+      }
+      physicalShards = [
+        ...physicalShards.filter((shard) => shard !== existingShard),
+        {
+          logicalLedgerId,
+          folderId,
+          shardNumber: command.payload.shardNumber,
+          remoteTitle: command.payload.remoteTitle.trim(),
+          bindingState,
+          ...(remoteFolderId ? { remoteFolderId } : {}),
+          ...(bindingState === 'pending-reconcile' ? {
+            knownRemoteFolderIds: [...new Set(command.payload.knownRemoteFolderIds?.map((id) => id.trim()).filter(Boolean) ?? [])].sort()
+          } : {})
+        }
+      ].sort((left, right) => left.logicalLedgerId.localeCompare(right.logicalLedgerId) || left.shardNumber - right.shardNumber)
+      memberships = { ...memberships, [folderId]: affectedAids }
+      break
+    }
     case 'set-workspace':
       if (normalizedAccountMid(command.payload.accountMid) !== snapshot.accountMid) {
         throw new Error('Favorite repository account mismatch.')
@@ -394,7 +471,9 @@ export function applyFavoriteRepositoryCommand(
     revision: snapshot.revision + 1,
     updatedAt: new Date(Math.max(Date.parse(snapshot.updatedAt), Date.parse(normalizedAcceptedAt))).toISOString(),
     videos,
+    folders,
     memberships,
+    physicalShards,
     workspace,
     syncRecords,
     commandId: command.id,

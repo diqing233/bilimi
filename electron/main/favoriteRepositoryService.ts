@@ -53,6 +53,11 @@ type SyncCheckpointJournalEntry = {
   record: FavoriteRepositorySyncRecord
 }
 
+type BindingJournalEntry = {
+  command: Extract<FavoriteRepositoryCommand, { type: 'upsert-physical-shard-binding' }>
+  acceptedAt: string
+}
+
 type FolderPageOptions = {
   limit: number
   cursor?: string
@@ -169,7 +174,7 @@ export class FavoriteRepositoryService {
       }
       const cached = await this.load(account)
       let repository = cached.repository
-      if (command.type !== 'record-sync-result') {
+      if (command.type !== 'record-sync-result' && command.type !== 'upsert-physical-shard-binding') {
         repository = this.mergeSyncCheckpoints(repository, await this.loadSyncCheckpointState(account))
       }
       const existing = repository.commandResults[command.id]
@@ -195,9 +200,15 @@ export class FavoriteRepositoryService {
         this.cache.set(account, { ...cached, repository: next })
         return clone(result)
       }
+      if (command.type === 'upsert-physical-shard-binding') {
+        await this.appendBindingJournal(account, { command: clone(command), acceptedAt })
+        this.cache.set(account, { ...cached, repository: next })
+        return clone(result)
+      }
       const persisted = await this.persist(account, next, cached.manifest?.generation)
       await rm(this.syncJournalPath(account), { force: true })
       await rm(this.syncCheckpointJournalPath(account), { force: true })
+      await rm(this.bindingJournalPath(account), { force: true })
       this.syncCheckpointState.delete(account)
       this.cache.set(account, persisted)
       return clone(result)
@@ -290,6 +301,15 @@ export class FavoriteRepositoryService {
         ...(entry.command.type === 'record-sync-result'
           ? { syncCommandIds: [...new Set([...(repository.syncCommandIds ?? []), entry.command.id])] }
           : {})
+      }
+    }
+    for (const entry of await this.readBindingJournal(accountMid)) {
+      if (repository.commandResults[entry.command.id]) continue
+      const result = applyFavoriteRepositoryCommand(repository.snapshot, entry.command, entry.acceptedAt)
+      repository = {
+        ...repository,
+        snapshot: this.snapshotFromResult(result),
+        commandResults: { ...repository.commandResults, [entry.command.id]: clone(result) }
       }
     }
     const result = { repository, manifest: loaded?.manifest }
@@ -414,6 +434,12 @@ export class FavoriteRepositoryService {
     await appendFile(path, `${JSON.stringify(entry)}\n`, 'utf8')
   }
 
+  private async appendBindingJournal(accountMid: string, entry: BindingJournalEntry) {
+    const path = this.bindingJournalPath(accountMid)
+    await mkdir(dirname(path), { recursive: true })
+    await appendFile(path, `${JSON.stringify(entry)}\n`, 'utf8')
+  }
+
   private async loadSyncCheckpointState(accountMid: string): Promise<SyncCheckpointState> {
     const cached = this.syncCheckpointState.get(accountMid)
     if (cached) return cached
@@ -467,6 +493,26 @@ export class FavoriteRepositoryService {
     }
   }
 
+  private async readBindingJournal(accountMid: string): Promise<BindingJournalEntry[]> {
+    try {
+      const entries: BindingJournalEntry[] = []
+      const lines = (await readFile(this.bindingJournalPath(accountMid), 'utf8')).split('\n').filter(Boolean)
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line) as Partial<BindingJournalEntry>
+          if (!entry.command || entry.command.type !== 'upsert-physical-shard-binding' || typeof entry.acceptedAt !== 'string') break
+          entries.push(entry as BindingJournalEntry)
+        } catch {
+          break
+        }
+      }
+      return entries
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw error
+    }
+  }
+
   private accountDirectory(accountMid: string) {
     return join(this.options.root, 'accounts', accountMid)
   }
@@ -481,6 +527,10 @@ export class FavoriteRepositoryService {
 
   private syncCheckpointJournalPath(accountMid: string) {
     return join(this.accountDirectory(accountMid), 'sync-checkpoints-v2.jsonl')
+  }
+
+  private bindingJournalPath(accountMid: string) {
+    return join(this.accountDirectory(accountMid), 'physical-shard-bindings.jsonl')
   }
 
   private generationDirectory(accountMid: string, generation: string) {
