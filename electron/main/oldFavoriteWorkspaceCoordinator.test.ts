@@ -187,6 +187,25 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('ensures numbered physical shards when one logical ledger needs more than 1000 new members', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root })
+    const ensurePhysicalShard = vi.fn().mockResolvedValue({})
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), bindingService: { ensurePhysicalShard }
+    })
+    const aids = Array.from({ length: 1_001 }, (_, index) => index + 1)
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: aids.map((aid) => ({ aid, targetLedgerIds: ['music'] }))
+    })
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('remote-target-unbound')
+    expect(ensurePhysicalShard).toHaveBeenNthCalledWith(1, '100', expect.objectContaining({ logicalLedgerId: 'music', shardNumber: 1 }))
+    expect(ensurePhysicalShard).toHaveBeenNthCalledWith(2, '100', expect.objectContaining({ logicalLedgerId: 'music', shardNumber: 2 }))
+  })
+
   it('executes only the persisted frozen Bilibili plan through the main-process sync service', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

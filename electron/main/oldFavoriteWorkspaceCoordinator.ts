@@ -396,17 +396,26 @@ export class OldFavoriteWorkspaceCoordinator {
       }
       return {
         accountMid: workspace.accountMid,
-        logicalLedgerIds: [...new Set(Object.values(workspace.classifications)
-          .flatMap((classification) => classification.targetLedgerIds.map((id) => id.trim()).filter(Boolean)))].sort()
+        assignmentCounts: Object.values(workspace.classifications).reduce<Record<string, number>>((counts, classification) => {
+          for (const logicalLedgerId of classification.targetLedgerIds.map((id) => id.trim()).filter(Boolean)) {
+            counts[logicalLedgerId] = (counts[logicalLedgerId] ?? 0) + 1
+          }
+          return counts
+        }, {})
       }
     })
     if (this.options.bindingService) {
       const snapshot = await this.options.repository.getSnapshot(preparation.accountMid)
-      const existing = new Set(snapshot.physicalShards.map((shard) => shard.logicalLedgerId))
-      for (const logicalLedgerId of preparation.logicalLedgerIds.filter((id) => !existing.has(id))) {
-        await this.options.bindingService.ensurePhysicalShard(preparation.accountMid, {
-          logicalLedgerId, logicalTitle: logicalLedgerId, shardNumber: 1, memberAids: []
-        })
+      for (const [logicalLedgerId, assignmentCount] of Object.entries(preparation.assignmentCounts).sort(([left], [right]) => left.localeCompare(right))) {
+        const existing = snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logicalLedgerId)
+        const availableCapacity = existing.reduce((total, shard) => total + Math.max(0, 1_000 - (snapshot.memberships[shard.folderId]?.length ?? 0)), 0)
+        const shardCount = Math.max(0, Math.ceil((assignmentCount - availableCapacity) / 1_000))
+        const nextShardNumber = Math.max(0, ...existing.map((shard) => shard.shardNumber)) + 1
+        for (let offset = 0; offset < shardCount; offset += 1) {
+          await this.options.bindingService.ensurePhysicalShard(preparation.accountMid, {
+            logicalLedgerId, logicalTitle: logicalLedgerId, shardNumber: nextShardNumber + offset, memberAids: []
+          })
+        }
       }
     }
     return this.queue(async () => {
