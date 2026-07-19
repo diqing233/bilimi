@@ -1,6 +1,7 @@
 export type FavoriteRepositoryLocalPlanPayload = {
   workspaceId: string
   memberAidsByFolderId: Record<string, number[]>
+  folders?: Array<Pick<FavoriteRepositoryFolder, 'id' | 'title' | 'kind' | 'syncState'>>
 }
 
 export type FavoriteRepositoryVideo = {
@@ -294,6 +295,11 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
       for (const aids of Object.values(payload.memberAidsByFolderId as Record<string, unknown>)) {
         if (!isValidAidList(aids)) invalidCommand()
       }
+      if (payload.folders !== undefined && (!Array.isArray(payload.folders) || payload.folders.some((folder) =>
+        !folder || typeof folder !== 'object' || Array.isArray(folder) ||
+        typeof (folder as Record<string, unknown>).id !== 'string' || !(folder as Record<string, unknown>).id.trim() ||
+        typeof (folder as Record<string, unknown>).title !== 'string' || !(folder as Record<string, unknown>).title.trim() ||
+        (folder as Record<string, unknown>).kind !== 'local' || (folder as Record<string, unknown>).syncState !== 'local-only'))) invalidCommand()
       return
     }
     case 'upsert-video':
@@ -408,6 +414,15 @@ export function applyFavoriteRepositoryCommand(
       affectedFolderIds = [...membersByFolderId.keys()].sort()
       affectedAids = uniquePositiveAids([...membersByFolderId.values()].flat()).sort((left, right) => left - right)
       memberships = { ...memberships, ...Object.fromEntries(membersByFolderId) }
+      const requestedFolders = command.payload.folders ?? []
+      for (const folder of requestedFolders) {
+        const id = folder.id.trim()
+        const existing = folders.find((candidate) => candidate.id === id)
+        if (existing && (existing.kind !== 'local' || existing.title !== folder.title.trim())) {
+          throw new Error('Favorite repository local folder is immutable.')
+        }
+        if (!existing) folders = [...folders, { id, title: folder.title.trim(), kind: 'local', syncState: 'local-only' }]
+      }
       break
     }
     case 'upsert-video':

@@ -62,6 +62,24 @@ describe('account favorite repository contracts', () => {
     expect(result.affectedAids).toEqual([1, 2])
   })
 
+  it('creates local library folders and their members in one local-only plan', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({
+      accountMid: '100', now: '2026-07-20T00:00:00.000Z'
+    })
+
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'local-plan', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'workspace-1',
+        memberAidsByFolderId: { 'local:music': [1, 2] },
+        folders: [{ id: 'local:music', title: 'Music', kind: 'local', syncState: 'local-only' }]
+      }
+    }, '2026-07-20T00:00:01.000Z')
+
+    expect(result.folders).toContainEqual({ id: 'local:music', title: 'Music', kind: 'local', syncState: 'local-only' })
+    expect(result.memberships['local:music']).toEqual([1, 2])
+  })
+
   it('uses one positive account identity despite leading zeroes', () => {
     const snapshot = createAccountFavoriteRepositorySnapshot({
       accountMid: '00100',
