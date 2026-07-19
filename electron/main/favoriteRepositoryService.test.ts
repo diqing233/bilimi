@@ -106,4 +106,19 @@ describe('FavoriteRepositoryService', () => {
     expect(replay).toEqual(first)
     expect((await service.getSnapshot('100')).videos['1'].title).toBe('Original')
   })
+
+  it('rejects a cross-account command even when its id was already committed', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const command = {
+      id: 'shared-command-id', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-video' as const,
+      payload: { aid: 1, title: 'Original', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }
+    }
+
+    await service.commit('100', command)
+
+    await expect(service.commit('100', { ...command, accountMid: '200' }))
+      .rejects.toThrow('Favorite repository account mismatch.')
+    expect((await service.getSnapshot('100')).videos['1'].title).toBe('Original')
+  })
 })

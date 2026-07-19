@@ -139,6 +139,9 @@ export class FavoriteRepositoryService {
   ): Promise<FavoriteRepositoryCommandResult> {
     const account = normalizeAccountMid(accountMid)
     return this.queue(async () => {
+      if (normalizeAccountMid(command.accountMid) !== account) {
+        throw new Error('Favorite repository account mismatch.')
+      }
       const cached = await this.load(account)
       const repository = cached.repository
       const existing = repository.commandResults[command.id]
