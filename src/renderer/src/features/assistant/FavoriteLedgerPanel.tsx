@@ -9182,8 +9182,16 @@ export function FavoriteLedgerPanel({
                   type="button"
                   aria-current={oldFavoriteStep === step.id ? 'step' : undefined}
                   aria-expanded={oldFavoriteExpandedStep === step.id}
-                  disabled={deepSeekArchiveRunning && oldFavoriteStep !== step.id}
-                  onClick={() => switchOldFavoriteStep(step.id)}
+                  disabled={(deepSeekArchiveRunning && oldFavoriteStep !== step.id) ||
+                    (useControlledOldFavoriteWorkspace && step.id !== 'scan' && step.id !== 'preview')}
+                  onClick={() => {
+                    if (useControlledOldFavoriteWorkspace) {
+                      setOldFavoriteStep(step.id)
+                      setOldFavoriteExpandedStep(step.id)
+                      return
+                    }
+                    switchOldFavoriteStep(step.id)
+                  }}
                 >
                   {step.label}
                 </button>
@@ -9255,12 +9263,11 @@ export function FavoriteLedgerPanel({
                   {controlledScanSnapshot.status === 'previewing' ? (
                     <section className="favorite-ledger-panel__insights" aria-label="归档预览">
                       <h4>归档预览</h4>
-                      <p className="favorite-ledger-panel__step-note">当前分段 {controlledPreviewItems.length} 条；只加载并显示这一段。</p>
-                      <ul className="favorite-ledger-panel__preview-list" aria-label="当前分段归档预览">
-                        {controlledPreviewItems.map((item) => (
-                          <li key={item.aid}>{item.title?.trim() || `视频 ${item.aid}`} · {item.author?.trim() || '未知 UP'} · 未分类</li>
-                        ))}
-                      </ul>
+                      <p className="favorite-ledger-panel__step-note">当前分段 {controlledPreviewItems.length} 条；只加载这一段。</p>
+                      <button type="button" onClick={() => {
+                        setOldFavoriteStep('preview')
+                        setOldFavoriteExpandedStep('preview')
+                      }}>查看归档预览</button>
                     </section>
                   ) : null}
                 </>
@@ -9698,7 +9705,32 @@ export function FavoriteLedgerPanel({
             </section>
           ) : null}
 
-          {oldFavoriteExpandedStep === 'preview' ? (
+          {oldFavoriteExpandedStep === 'preview' ? useControlledOldFavoriteWorkspace ? (
+            <section className="favorite-ledger-panel__insights" aria-label="归档预览">
+              <h4 className="favorite-ledger-panel__step-title">归档预览</h4>
+              <p className="favorite-ledger-panel__step-note">当前分段 {controlledPreviewItems.length} 条；只加载并显示这一段。</p>
+              {controlledPreviewItems.length > OLD_FAVORITE_VIRTUAL_TRACK_THRESHOLD ? (
+                <div role="list" aria-label="当前分段归档预览">
+                  <VirtualOldFavoriteTrack
+                    className="favorite-ledger-panel__preview-videos favorite-ledger-panel__preview-videos--virtual"
+                    ariaLabel="当前分段归档预览滚动区"
+                    items={controlledPreviewItems}
+                    itemKey={(item) => item.aid}
+                    itemWidth={OLD_FAVORITE_VIRTUAL_TRACK_ITEM_WIDTH}
+                    renderItem={(item) => (
+                      <article>{item.title?.trim() || `视频 ${item.aid}`} · {item.author?.trim() || '未知 UP'} · 未分类</article>
+                    )}
+                  />
+                </div>
+              ) : (
+                <ul className="favorite-ledger-panel__preview-list" aria-label="当前分段归档预览">
+                  {controlledPreviewItems.map((item) => (
+                    <li key={item.aid}>{item.title?.trim() || `视频 ${item.aid}`} · {item.author?.trim() || '未知 UP'} · 未分类</li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ) : (
             <div className="favorite-ledger-panel__preview">
               {!oldFavoritePreviewReady ? (
                 <>

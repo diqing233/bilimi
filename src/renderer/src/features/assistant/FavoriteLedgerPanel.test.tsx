@@ -168,13 +168,43 @@ describe('FavoriteLedgerPanel', () => {
 
     renderPanel({ currentAccountMid: '100' })
 
-    expect(await screen.findByRole('list', { name: '当前分段归档预览' })).toHaveTextContent('Keep this')
-    expect(screen.getByRole('list', { name: '当前分段归档预览' })).toHaveTextContent('Hide this')
+    expect(await screen.findByRole('button', { name: '查看归档预览' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('checkbox', { name: '选择来源 Source B' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'select-source-folders', folderIds: ['source-a']
     }))
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    expect(await screen.findByRole('list', { name: '当前分段归档预览' })).toHaveTextContent('Keep this')
+    expect(screen.queryByText('请等待扫描结束')).not.toBeInTheDocument()
     expect(screen.queryByText('视频 2001')).not.toBeInTheDocument()
+  })
+
+  it('virtualizes a large controlled current segment instead of mounting every preview item', async () => {
+    const items = Array.from({ length: 51 }, (_, index) => ({
+      aid: index + 1, title: `Video ${index + 1}`, author: 'UP', sourceFolderIds: ['source-a']
+    }))
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 },
+      sourceFolders: [{ id: 'source-a', title: 'Source A', itemCount: 51, isBilimiWorkFolder: false, selected: true }],
+      continuationCount: 0,
+      segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 51 }],
+      currentSegment: { id: 'segment-1', aids: items.map((item) => item.aid), items },
+      classifications: {}, history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(snapshot),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(snapshot)
+    } as typeof window.bilimiDesktop
+
+    renderPanel({ currentAccountMid: '100' })
+    await screen.findByRole('button', { name: '查看归档预览' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+
+    const list = await screen.findByRole('list', { name: '当前分段归档预览' })
+    expect(list.querySelector('[data-virtualized="true"]')).toBeTruthy()
+    expect(screen.queryByText('Video 51')).not.toBeInTheDocument()
   })
 
   it('reads the current account only after the entry is clicked and restores only that account', async () => {

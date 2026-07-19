@@ -122,7 +122,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('restores the scan folder overview after staged scan finalization', async () => {
+  it('restores staged source metadata and the active segment after scan finalization', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const first = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -131,14 +131,19 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await first.recordScanInventory('100', {
       sourceFolders: [{ id: 'source-a', title: 'Source A', itemCount: 1, isBilimiWorkFolder: false }]
     })
-    await first.recordScanPage('100', { folderId: 'source-a', page: 1, items: [{ aid: 1, sourceFolderIds: ['source-a'] }] })
+    await first.recordScanPage('100', {
+      folderId: 'source-a', page: 1,
+      items: [{ aid: 1, title: 'Recovered title', author: 'Recovered UP', sourceFolderIds: ['source-a'] }]
+    })
     await first.finishScan('100')
 
     await expect(createCoordinator(
       new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' }),
       new OldFavoriteWorkspaceStore({ root })
     ).getSnapshot('100')).resolves.toMatchObject({
-      status: 'previewing', scan: { phase: 'complete' }, sourceFolders: [{ id: 'source-a', itemCount: 1 }]
+      status: 'previewing', scan: { phase: 'complete' },
+      sourceFolders: [{ id: 'source-a', itemCount: 1, selected: true }],
+      currentSegment: { id: 'segment-1', items: [{ aid: 1, title: 'Recovered title', author: 'Recovered UP', sourceFolderIds: ['source-a'] }] }
     })
   })
 
