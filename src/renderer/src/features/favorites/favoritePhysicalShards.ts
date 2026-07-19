@@ -70,10 +70,10 @@ export function groupFavoritePhysicalShards(shards: FavoritePhysicalShard[]): Fa
   const groups = new Map<string, FavoritePhysicalShardGroup>()
   for (const shard of shards) {
     const logicalLedgerId = resolvedLogicalLedgerId(shard)
-    const logicalTitle = getFavoriteLogicalFolderTitle(shard.title)
+    const shardLogicalTitle = getFavoriteLogicalFolderTitle(shard.title)
     const current = groups.get(logicalLedgerId) ?? {
       logicalLedgerId,
-      logicalTitle,
+      logicalTitle: shardLogicalTitle,
       shardCount: 0,
       shards: [],
       memberAids: [],
@@ -84,14 +84,19 @@ export function groupFavoritePhysicalShards(shards: FavoritePhysicalShard[]): Fa
     current.shardCount += 1
     current.memberAids = uniqueValidAids([...current.memberAids, ...shard.memberAids])
     current.membershipComplete = current.membershipComplete && shard.membershipComplete !== false
-    current.isInbox = current.isInbox || shard.isInbox === true || logicalTitle === 'bilimi·暂存'
+    current.isInbox = current.isInbox || shard.isInbox === true || shardLogicalTitle === 'bilimi·暂存'
     groups.set(logicalLedgerId, current)
   }
   return Array.from(groups.values())
-    .map((group) => ({
-      ...group,
-      shards: [...group.shards].sort(comparePhysicalShards)
-    }))
+    .map((group) => {
+      const sortedShards = [...group.shards].sort(comparePhysicalShards)
+      const canonicalShard = sortedShards[0]!
+      return {
+        ...group,
+        logicalTitle: getFavoriteLogicalFolderTitle(canonicalShard.title),
+        shards: sortedShards
+      }
+    })
     .sort((left, right) => compareStableText(left.logicalLedgerId, right.logicalLedgerId))
 }
 

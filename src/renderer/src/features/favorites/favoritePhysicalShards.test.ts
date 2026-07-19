@@ -98,6 +98,23 @@ describe('favorite physical shards', () => {
     expect(groups[0].shards.map((shard) => shard.id)).toEqual(['a-1', 'a-2', 'z-2'])
   })
 
+  it('derives each logical title from the canonical shard regardless of remote input order', () => {
+    const shards = [
+      { id: 'later', logicalLedgerId: 'with-first', title: getFavoritePhysicalShardTitle('other-first', 2), memberAids: [] },
+      { id: 'first', logicalLedgerId: 'with-first', title: 'canon-first', memberAids: [] },
+      { id: 'later', logicalLedgerId: 'without-first', title: getFavoritePhysicalShardTitle('other-later', 3), memberAids: [] },
+      { id: 'b', logicalLedgerId: 'without-first', title: getFavoritePhysicalShardTitle('other-equal', 2), memberAids: [] },
+      { id: 'a', logicalLedgerId: 'without-first', title: getFavoritePhysicalShardTitle('canon-fallback', 2), memberAids: [] }
+    ]
+
+    for (const orderedShards of [shards, [...shards].reverse()]) {
+      expect(groupFavoritePhysicalShards(orderedShards)).toEqual([
+        expect.objectContaining({ logicalLedgerId: 'with-first', logicalTitle: 'canon-first' }),
+        expect.objectContaining({ logicalLedgerId: 'without-first', logicalTitle: 'canon-fallback' })
+      ])
+    }
+  })
+
   it('allocates from a deterministic shard and reports the stable logical ledger identity', async () => {
     const result = await allocateFavoritePhysicalShards({
       logicalLedgerId: 'ledger-a',
