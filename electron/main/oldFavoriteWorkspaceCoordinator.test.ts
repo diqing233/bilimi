@@ -690,11 +690,18 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
     await coordinator.open('100')
     await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
+    const snapshot = await coordinator.getSnapshot('100')
+    if ('recovery' in snapshot || !snapshot.currentSegment) throw new Error('workspace unexpectedly unavailable')
 
     await coordinator.applyDeepSeekClassificationBatch('100', [
       { aid: 1, targetLedgerIds: ['knowledge'] },
       { aid: 2, targetLedgerIds: ['technology'] }
-    ])
+    ], {
+      workspaceId: snapshot.workspaceId,
+      currentSegmentId: snapshot.currentSegment.id,
+      selectedSourceFolderIds: [],
+      classifications: {}
+    })
 
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       classifications: {

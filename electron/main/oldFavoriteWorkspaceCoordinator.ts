@@ -389,13 +389,54 @@ export class OldFavoriteWorkspaceCoordinator {
   /** DeepSeek results originate in the main process, never from a renderer command. */
   async applyDeepSeekClassificationBatch(
     accountMid: string,
-    assignments: ApplyWorkspaceClassificationBatchOptions['assignments']
+    assignments: ApplyWorkspaceClassificationBatchOptions['assignments'],
+    expected: {
+      workspaceId: string
+      currentSegmentId: string
+      selectedSourceFolderIds: string[]
+      classifications: Record<string, { targetLedgerIds: string[] }>
+    }
   ): Promise<OldFavoriteWorkspace> {
     if (assignments.length > 2_000 || assignments.some((assignment) =>
       assignment.targetLedgerIds.length > 3 || assignment.targetLedgerIds.some((id) => id.trim().length > 128))) {
       throw new Error('Old favorite workspace DeepSeek classification is invalid.')
     }
-    return this.applyClassificationBatch(accountMid, { source: 'deepseek', assignments })
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      const currentSegmentId = this.currentSegment(workspace)
+      const selectedSourceFolderIds = (this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
+        .filter((folder) => !folder.isBilimiWorkFolder && folder.selected)
+        .map((folder) => folder.id)
+        .sort()
+      const classifications = Object.fromEntries(Object.entries(workspace.classifications).map(([aid, classification]) => [aid, {
+        targetLedgerIds: [...classification.targetLedgerIds].sort()
+      }]))
+      if (workspace.id !== expected.workspaceId || currentSegmentId !== expected.currentSegmentId ||
+        JSON.stringify(selectedSourceFolderIds) !== JSON.stringify([...expected.selectedSourceFolderIds].sort()) ||
+        JSON.stringify(classifications) !== JSON.stringify(expected.classifications)) {
+        throw new Error('Old favorite workspace changed while DeepSeek was running.')
+      }
+      const currentSegment = workspace.segments.find((segment) => segment.id === currentSegmentId)
+      if (!currentSegment || !assignments.every((assignment) => currentSegment.aids.includes(assignment.aid))) {
+        throw new Error('Old favorite workspace classifications must target the current segment.')
+      }
+      const updated = applyWorkspaceClassificationBatch(workspace, { source: 'deepseek', assignments })
+      if (updated === workspace) return clone(workspace)
+      const entry = updated.history[updated.history.length - 1]
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId,
+        classifications: entry.changes.flatMap((change) => change.after ? [{
+          aid: change.after.aid,
+          targetLedgerIds: [...change.after.targetLedgerIds],
+          source: change.after.source
+        }] : []),
+        history: [encodeJournalEvent({
+          type: 'classification', entry: clone(entry), historyCursor: updated.historyCursor
+        })]
+      })
+      this.workspaces.set(updated.accountMid, updated)
+      return clone(updated)
+    })
   }
 
   async undoClassificationChange(accountMid: string): Promise<OldFavoriteWorkspace> {
