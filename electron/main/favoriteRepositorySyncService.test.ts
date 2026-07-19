@@ -110,6 +110,35 @@ describe('FavoriteRepositorySyncService', () => {
     expect(bind).not.toHaveBeenCalled()
   })
 
+  it('finalizes an executing run with every durable checkpoint succeeded without a page bind', async () => {
+    const repository = await createRepository()
+    const persistedPlan = plan()
+    const executing = { ...workspace(), status: 'executing' as const, workspaceRef: { ...workspace().workspaceRef, status: 'executing' as const }, frozenSyncPlan: persistedPlan }
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: executing
+    })
+    await repository.recordSyncCheckpoint('100', 'already-succeeded', {
+      id: 'run-1:append-1', commandId: 'append-1', status: 'succeeded', affectedAids: [1],
+      updatedAt: '2026-07-19T00:00:00.000Z', runId: 'run-1', operationKey: 'append-1', attempt: 1
+    })
+    const bind = vi.fn()
+    const append = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridgeManager: {
+        bind,
+        release: vi.fn(),
+        pageBridge: vi.fn(() => ({ append, remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn() }))
+      },
+      now: () => '2026-07-19T00:00:00.000Z'
+    })
+
+    await expect(service.executeFrozenPlan('100', persistedPlan)).resolves.toMatchObject({ status: 'succeeded' })
+    expect(bind).not.toHaveBeenCalled()
+    expect(append).not.toHaveBeenCalled()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: { status: 'completed' } })
+  })
+
   it('keeps a known remote failure frozen instead of treating it as a reconciliation retry', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

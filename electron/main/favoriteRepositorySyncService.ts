@@ -135,10 +135,18 @@ export class FavoriteRepositorySyncService {
         if (JSON.stringify(workspace.frozenSyncPlan) !== JSON.stringify(plan)) {
           throw new Error('Favorite workspace frozen sync plan does not match the persisted plan.')
         }
+        const existingRun = this.summarize(workspace.frozenSyncPlan, await this.options.repository.getSyncCheckpoints(account, plan.id))
+        if (existingRun.status === 'succeeded') {
+          if (workspace.status !== 'completed') {
+            await this.writeWorkspace(account, withWorkspaceStatus(workspace, 'completed', workspace.frozenSyncPlan), `complete:${plan.id}`)
+          }
+          this.options.pageBridgeManager?.release(account, plan.id)
+          return existingRun
+        }
         if (workspace.status !== 'frozen') {
           // A restored/existing run is never rebound here. Callers must use
           // explicit reconciliation before deciding whether it may continue.
-          return this.summarize(workspace.frozenSyncPlan, await this.options.repository.getSyncCheckpoints(account, plan.id))
+          return existingRun
         }
         // Persist the execution boundary before binding. A restart must reconcile
         // rather than mistake an interrupted bind for a new user-confirmed run.

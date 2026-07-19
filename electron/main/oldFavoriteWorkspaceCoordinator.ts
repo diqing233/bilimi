@@ -471,7 +471,7 @@ export class OldFavoriteWorkspaceCoordinator {
     const frozenPlan = await this.queue(async () => {
       const snapshot = await this.options.repository.getSnapshot(accountMid)
       const workspace = snapshot.workspace
-      if (!workspace?.frozenSyncPlan || workspace.status !== 'frozen') {
+      if (!workspace?.frozenSyncPlan || (workspace.status !== 'frozen' && workspace.status !== 'executing')) {
         throw new Error('Old favorite workspace is not frozen for Bilibili execution.')
       }
       if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
@@ -481,6 +481,11 @@ export class OldFavoriteWorkspaceCoordinator {
     // while waiting on a remote page request so snapshot recovery stays live.
     if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
     const currentRun = await this.options.syncService.getRun(frozenPlan.accountMid, frozenPlan.plan.id)
+    if (currentRun.status === 'succeeded') {
+      // A crash can occur after the final checkpoint but before the completed
+      // marker. The sync service resolves that durable boundary without a page bind.
+      return this.options.syncService.executeFrozenPlan(frozenPlan.accountMid, frozenPlan.plan)
+    }
     if (currentRun.status === 'ready-to-resume') {
       return this.options.syncService.resume(frozenPlan.accountMid, frozenPlan.plan.id)
     }

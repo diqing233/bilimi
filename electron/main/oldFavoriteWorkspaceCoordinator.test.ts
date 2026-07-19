@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import { FavoriteRepositoryBindingService } from './favoriteRepositoryBindingService'
+import { FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
 import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinator'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 
@@ -360,6 +361,58 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.executeFrozenBilibiliPlan('100')).resolves.toMatchObject({ id: 'run-1', status: 'succeeded' })
     const persisted = (await repository.getSnapshot('100')).workspace?.frozenSyncPlan
     expect(executeFrozenPlan).toHaveBeenCalledWith('100', persisted)
+  })
+
+  it('finishes an all-checkpoint-successful plan without rebinding and exposes the cleared completed snapshot', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const bind = vi.fn()
+    const append = vi.fn()
+    const syncService = new FavoriteRepositorySyncService({
+      repository,
+      pageBridgeManager: {
+        bind,
+        release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          append, remove: vi.fn(), readMembers: vi.fn(), readFolderInventory: vi.fn(), createFolder: vi.fn()
+        }))
+      },
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), syncService,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 0, memberAids: [] }]
+    })
+    await coordinator.freezeForBilibiliExecution('100')
+    const plan = (await repository.getSnapshot('100')).workspace!.frozenSyncPlan!
+    await repository.recordSyncCheckpoint('100', 'already-succeeded', {
+      id: `${plan.id}:${plan.operations[0].operationKey}`,
+      commandId: plan.operations[0].operationKey,
+      status: 'succeeded',
+      affectedAids: [1],
+      updatedAt: '2026-07-20T00:00:00.000Z',
+      runId: plan.id,
+      operationKey: plan.operations[0].operationKey,
+      attempt: 1
+    })
+
+    await expect(coordinator.executeFrozenBilibiliPlan('100')).resolves.toMatchObject({ status: 'succeeded' })
+    expect(bind).not.toHaveBeenCalled()
+    expect(append).not.toHaveBeenCalled()
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      status: 'completed', classifications: {}, history: { cursor: 0, length: 0 }
+    })
   })
 
   it('does not execute a workspace that has not yet persisted a frozen plan', async () => {
