@@ -9732,6 +9732,19 @@ export function FavoriteLedgerPanel({
             <section className="favorite-ledger-panel__insights" aria-label="归档预览">
               <h4 className="favorite-ledger-panel__step-title">归档预览</h4>
               <p className="favorite-ledger-panel__step-note">当前分段 {controlledPreviewItems.length} 条；只加载并显示这一段。</p>
+              {controlledScanSnapshot && controlledScanSnapshot.segments.length > 1 ? (
+                <div className="favorite-ledger-panel__archive-history-actions" role="group" aria-label="分段选择">
+                  {controlledScanSnapshot.segments.map((segment) => (
+                    <button
+                      key={segment.id}
+                      type="button"
+                      aria-pressed={controlledScanSnapshot.currentSegment?.id === segment.id}
+                      disabled={controlledScanSnapshot.currentSegment?.id === segment.id}
+                      onClick={() => void oldFavoriteWorkspace.selectSegment(segment.id)}
+                    >第 {segment.index + 1} 组</button>
+                  ))}
+                </div>
+              ) : null}
               <div className="favorite-ledger-panel__archive-history-actions" role="group" aria-label="归档预览改动操作">
                 <button
                   type="button"

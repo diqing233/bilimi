@@ -187,6 +187,7 @@ describe('FavoriteLedgerPanel', () => {
     }))
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     expect(await screen.findByRole('list', { name: '当前分段归档预览' })).toHaveTextContent('Keep this')
+    expect(screen.queryByRole('group', { name: '分段选择' })).not.toBeInTheDocument()
     fireEvent.change(screen.getByRole('combobox', { name: '归类 Keep this' }), { target: { value: 'music' } })
     await waitFor(() => expect(command).toHaveBeenLastCalledWith('100', {
       type: 'apply-classifications', source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
@@ -223,6 +224,34 @@ describe('FavoriteLedgerPanel', () => {
     const list = await screen.findByRole('list', { name: '当前分段归档预览' })
     expect(list.querySelector('[data-virtualized="true"]')).toBeTruthy()
     expect(screen.queryByText('Video 51')).not.toBeInTheDocument()
+  })
+
+  it('shows segment navigation only for a multi-segment controlled workspace and delegates the switch', async () => {
+    const firstSegment = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: true,
+      scan: { phase: 'complete' as const, failureCount: 0 },
+      sourceFolders: [{ id: 'source-a', title: 'Source A', itemCount: 2_001, isBilimiWorkFolder: false, selected: true }],
+      continuationCount: 0,
+      segments: [
+        { id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 2_000 },
+        { id: 'segment-2', index: 1, status: 'previewing' as const, itemCount: 1 }
+      ],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'First', sourceFolderIds: ['source-a'] }] },
+      classifications: {}, history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue(firstSegment)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(firstSegment),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    renderPanel({ currentAccountMid: '100' })
+    await screen.findByRole('button', { name: '查看归档预览' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '第 2 组' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'select-segment', segmentId: 'segment-2' }))
   })
 
   it('reads the current account only after the entry is clicked and restores only that account', async () => {
