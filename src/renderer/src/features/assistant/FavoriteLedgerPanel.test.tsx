@@ -228,6 +228,33 @@ describe('FavoriteLedgerPanel', () => {
     expect(await screen.findByRole('combobox', { name: '归类 DeepSeek item' })).toHaveValue('music')
   })
 
+  it('saves a fully classified controlled segment locally without starting Bilibili sync', async () => {
+    const previewing = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 },
+      sourceFolders: [{ id: 'source-a', title: 'Source A', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+      continuationCount: 0, segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1 }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Local item', sourceFolderIds: ['source-a'] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'manual' as const } }, history: { cursor: 1, length: 1 }
+    }
+    const command = vi.fn((_accountMid: string, value: { type: string }) => Promise.resolve(
+      value.type === 'save-current-segment-locally' ? { ...previewing, status: 'completed' as const, completionMode: 'local' as const, classifications: {}, history: { cursor: 0, length: 0 } } : previewing
+    ))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(previewing), commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    renderPanel({ currentAccountMid: '100' })
+    await screen.findByRole('button', { name: '查看归档预览' })
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '仅保存当前分段到收藏库' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'save-current-segment-locally' }))
+    expect(command).not.toHaveBeenCalledWith('100', { type: 'freeze-bilibili-execution' })
+    expect(await screen.findByText(/本轮已保存到收藏库/)).toBeInTheDocument()
+  })
+
   it('virtualizes a large controlled current segment instead of mounting every preview item', async () => {
     const items = Array.from({ length: 51 }, (_, index) => ({
       aid: index + 1, title: `Video ${index + 1}`, author: 'UP', sourceFolderIds: ['source-a']

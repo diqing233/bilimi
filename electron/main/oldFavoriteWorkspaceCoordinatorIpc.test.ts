@@ -170,6 +170,25 @@ describe('old favorite workspace coordinator IPC', () => {
     })).rejects.toThrow('command is invalid')
   })
 
+  it('saves a local-only current segment without accepting renderer memberships', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      saveCurrentSegmentToLocalLibrary: vi.fn().mockResolvedValue({}),
+      getSnapshot: vi.fn().mockResolvedValue({ ...snapshot, status: 'completed' })
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'save-current-segment-locally' }))
+      .resolves.toMatchObject({ status: 'completed' })
+    expect(coordinator.saveCurrentSegmentToLocalLibrary).toHaveBeenCalledWith('100')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'save-current-segment-locally', memberAidsByFolderId: { 'local:music': [1] }
+    })).rejects.toThrow('command is invalid')
+  })
+
   it('routes execution only after the main-process frozen plan exists', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

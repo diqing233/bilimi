@@ -184,6 +184,17 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.snapshot).toMatchObject({ status: 'frozen' })
   })
 
+  it('saves the current segment locally through a payload-free workspace command', async () => {
+    const command = vi.fn().mockResolvedValue({ ...workspace('100'), status: 'completed' as const })
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.saveCurrentSegmentLocally() })
+
+    expect(command).toHaveBeenCalledExactlyOnceWith('100', { type: 'save-current-segment-locally' })
+    expect(result.current.snapshot).toMatchObject({ status: 'completed' })
+  })
+
   it('starts only the already frozen Bilibili plan through a payload-free command', async () => {
     const command = vi.fn().mockResolvedValue({ ...workspace('100'), status: 'executing' as const })
     window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop

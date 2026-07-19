@@ -18,6 +18,7 @@ type WorkspaceCommand =
   | { type: 'redo-classification' }
   | { type: 'apply-classifications'; source: 'manual'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
   | { type: 'freeze-segment'; segmentId: string }
+  | { type: 'save-current-segment-locally' }
   | { type: 'freeze-bilibili-execution' }
   | { type: 'execute-frozen-bilibili-plan' }
   | { type: 'reconcile-frozen-bilibili-plan' }
@@ -64,6 +65,9 @@ function command(value: unknown): WorkspaceCommand {
   }
   if (candidate.type === 'freeze-bilibili-execution' && Object.keys(candidate).length === 1) {
     return { type: 'freeze-bilibili-execution' }
+  }
+  if (candidate.type === 'save-current-segment-locally' && Object.keys(candidate).length === 1) {
+    return { type: 'save-current-segment-locally' }
   }
   if (candidate.type === 'execute-frozen-bilibili-plan' && Object.keys(candidate).length === 1) {
     return { type: 'execute-frozen-bilibili-plan' }
@@ -117,6 +121,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'undo-classification') await options.coordinator.undoClassificationChange(accountMid)
     if (requested.type === 'redo-classification') await options.coordinator.redoClassificationChange(accountMid)
     if (requested.type === 'freeze-segment') await options.coordinator.freezeSegment(accountMid, requested.segmentId)
+    if (requested.type === 'save-current-segment-locally') await options.coordinator.saveCurrentSegmentToLocalLibrary(accountMid)
     if (requested.type === 'freeze-bilibili-execution') await options.coordinator.freezeForBilibiliExecution(accountMid)
     if (requested.type === 'execute-frozen-bilibili-plan') await options.coordinator.executeFrozenBilibiliPlan(accountMid)
     if (requested.type === 'reconcile-frozen-bilibili-plan') await options.coordinator.bindAndReconcileFrozenBilibiliPlan(accountMid)

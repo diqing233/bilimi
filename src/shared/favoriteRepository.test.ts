@@ -80,6 +80,24 @@ describe('account favorite repository contracts', () => {
     expect(result.memberships['local:music']).toEqual([1, 2])
   })
 
+  it('stores local-plan video records with their local membership indexes', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({
+      accountMid: '100', now: '2026-07-20T00:00:00.000Z'
+    })
+
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'local-plan-with-video', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'workspace-1',
+        memberAidsByFolderId: { 'local:music': [1] },
+        videos: [{ aid: 1, title: 'Saved locally', author: 'UP', tags: [], updatedAt: '2026-07-20T00:00:01.000Z' }]
+      }
+    }, '2026-07-20T00:00:01.000Z')
+
+    expect(result.videos['1']).toMatchObject({ aid: 1, title: 'Saved locally', author: 'UP' })
+    expect(result.memberships['local:music']).toEqual([1])
+  })
+
   it('uses one positive account identity despite leading zeroes', () => {
     const snapshot = createAccountFavoriteRepositorySnapshot({
       accountMid: '00100',
@@ -116,6 +134,20 @@ describe('account favorite repository contracts', () => {
 
     expect(result.affectedFolderIds).toEqual(['local:inbox'])
     expect(result.affectedAids).toEqual([1, 2])
+  })
+
+  it('adds local-plan members without replacing existing local members', () => {
+    const snapshot = {
+      ...createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-19T00:00:00.000Z' }),
+      memberships: { 'local:music': [9] }
+    }
+
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'add-local-member', accountMid: '100', issuedAt: '2026-07-19T00:00:01.000Z', type: 'commit-local-plan',
+      payload: { workspaceId: 'workspace-1', memberAidsByFolderId: { 'local:music': [1] } }
+    }, '2026-07-19T00:00:01.000Z')
+
+    expect(result.memberships['local:music']).toEqual([1, 9])
   })
 
   it('merges multiple completed formal targets for the same protected aid', () => {

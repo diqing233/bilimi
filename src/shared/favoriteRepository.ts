@@ -2,6 +2,9 @@ export type FavoriteRepositoryLocalPlanPayload = {
   workspaceId: string
   memberAidsByFolderId: Record<string, number[]>
   folders?: Array<Pick<FavoriteRepositoryFolder, 'id' | 'title' | 'kind' | 'syncState'>>
+  videos?: FavoriteRepositoryVideo[]
+  organizationRecords?: FavoriteRepositoryOrganizationRecord[]
+  workspace?: FavoriteRepositoryWorkspace
 }
 
 export type FavoriteRepositoryVideo = {
@@ -69,6 +72,7 @@ export type FavoriteRepositoryWorkspace = {
   baselineRevision: number
   continuationAids: number[]
   workspaceRef: FavoriteRepositoryWorkspaceRef
+  completionMode?: 'bilibili' | 'local'
   frozenSyncPlan?: FavoriteRepositoryFrozenSyncPlan
 }
 
@@ -299,7 +303,25 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
         !folder || typeof folder !== 'object' || Array.isArray(folder) ||
         typeof (folder as Record<string, unknown>).id !== 'string' || !(folder as Record<string, unknown>).id.trim() ||
         typeof (folder as Record<string, unknown>).title !== 'string' || !(folder as Record<string, unknown>).title.trim() ||
-        (folder as Record<string, unknown>).kind !== 'local' || (folder as Record<string, unknown>).syncState !== 'local-only'))) invalidCommand()
+         (folder as Record<string, unknown>).kind !== 'local' || (folder as Record<string, unknown>).syncState !== 'local-only'))) invalidCommand()
+      if (payload.videos !== undefined && (!Array.isArray(payload.videos) || payload.videos.some((video) =>
+        !video || typeof video !== 'object' || Array.isArray(video) ||
+        !Number.isSafeInteger((video as Record<string, unknown>).aid) || Number((video as Record<string, unknown>).aid) <= 0 ||
+        typeof (video as Record<string, unknown>).title !== 'string' ||
+        !Array.isArray((video as Record<string, unknown>).tags) ||
+        !(video as Record<string, unknown>).tags?.every((tag) => typeof tag === 'string') ||
+        typeof (video as Record<string, unknown>).updatedAt !== 'string' ||
+        ((video as Record<string, unknown>).author !== undefined && typeof (video as Record<string, unknown>).author !== 'string') ||
+        ((video as Record<string, unknown>).description !== undefined && typeof (video as Record<string, unknown>).description !== 'string')))) invalidCommand()
+      if (payload.organizationRecords !== undefined && (!Array.isArray(payload.organizationRecords) ||
+        !payload.organizationRecords.every(isOrganizationRecord))) invalidCommand()
+      if (payload.workspace !== undefined) {
+        const workspace = payload.workspace as Record<string, unknown>
+        if (!workspace || typeof workspace !== 'object' || Array.isArray(workspace) ||
+          workspace.status !== 'completed' || workspace.completionMode !== 'local' ||
+          !isWorkspaceRef(workspace.workspaceRef, normalizedAccountMid(record.accountMid), String(workspace.id ?? '').trim(), 'completed', Number(workspace.baselineRevision)) ||
+          workspace.frozenSyncPlan !== undefined) invalidCommand()
+      }
       return
     }
     case 'upsert-video':
@@ -346,7 +368,7 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
             payload.frozenSyncPlan,
             normalizedAccountMid(payload.accountMid),
             payload.id.trim()
-          ))) invalidCommand()
+          )) || (payload.completionMode !== undefined && payload.completionMode !== 'bilibili' && payload.completionMode !== 'local')) invalidCommand()
         return
       }
     case 'record-sync-result':
@@ -413,7 +435,33 @@ export function applyFavoriteRepositoryCommand(
       const membersByFolderId = normalizeFolderMembers(command.payload.memberAidsByFolderId)
       affectedFolderIds = [...membersByFolderId.keys()].sort()
       affectedAids = uniquePositiveAids([...membersByFolderId.values()].flat()).sort((left, right) => left - right)
-      memberships = { ...memberships, ...Object.fromEntries(membersByFolderId) }
+      memberships = {
+        ...memberships,
+        ...Object.fromEntries(Array.from(membersByFolderId, ([folderId, aids]) => [
+          folderId,
+          uniquePositiveAids([...(memberships[folderId] ?? []), ...aids])
+        ]))
+      }
+      for (const video of command.payload.videos ?? []) {
+        videos[String(video.aid)] = { ...video, tags: [...video.tags] }
+      }
+      if (command.payload.organizationRecords) {
+        const records = new Map(organizationRecords.map((record) => [record.aid, record]))
+        for (const record of command.payload.organizationRecords) {
+          if (normalizedAccountMid(record.accountMid) !== snapshot.accountMid) {
+            throw new Error('Favorite repository account mismatch.')
+          }
+          const existing = records.get(record.aid)
+          records.set(record.aid, {
+            accountMid: snapshot.accountMid,
+            aid: record.aid,
+            targetFolderIds: [...new Set([...(existing?.targetFolderIds ?? []), ...record.targetFolderIds]
+              .map((id) => id.trim()).filter(Boolean))].sort(),
+            completedAt: existing?.completedAt ?? normalizedTimestamp(record.completedAt)
+          })
+        }
+        organizationRecords = Array.from(records.values()).sort((left, right) => left.aid - right.aid)
+      }
       const requestedFolders = command.payload.folders ?? []
       for (const folder of requestedFolders) {
         const id = folder.id.trim()
@@ -422,6 +470,26 @@ export function applyFavoriteRepositoryCommand(
           throw new Error('Favorite repository local folder is immutable.')
         }
         if (!existing) folders = [...folders, { id, title: folder.title.trim(), kind: 'local', syncState: 'local-only' }]
+      }
+      if (command.payload.workspace) {
+        const localWorkspace = command.payload.workspace
+        workspace = {
+          id: localWorkspace.id.trim(),
+          accountMid: snapshot.accountMid,
+          status: 'completed',
+          baselineRevision: localWorkspace.baselineRevision,
+          continuationAids: [],
+          workspaceRef: {
+            ...localWorkspace.workspaceRef,
+            workspaceId: localWorkspace.id.trim(),
+            accountMid: snapshot.accountMid,
+            status: 'completed',
+            baselineRevision: localWorkspace.baselineRevision,
+            currentSegmentId: localWorkspace.workspaceRef.currentSegmentId.trim(),
+            checksum: localWorkspace.workspaceRef.checksum.toLowerCase()
+          },
+          completionMode: 'local'
+        }
       }
       break
     }
@@ -514,7 +582,8 @@ export function applyFavoriteRepositoryCommand(
               folderIds: [...new Set(operation.folderIds.map((folderId) => folderId.trim()).filter(Boolean))]
             }))
           }
-        } : {})
+        } : {}),
+        ...(command.payload.completionMode ? { completionMode: command.payload.completionMode } : {})
       }
       break
     case 'record-sync-result':

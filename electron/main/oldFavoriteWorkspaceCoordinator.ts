@@ -485,6 +485,79 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  /** Commits classifications to local library folders only; it never binds or touches Bilibili. */
+  async saveCurrentSegmentToLocalLibrary(accountMid: string): Promise<OldFavoriteWorkspace> {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'previewing') throw new Error('Old favorite workspace is not ready for local saving.')
+      if (workspace.hasMultipleSegments) {
+        throw new Error('Old favorite workspace local-only saving does not support multiple segments.')
+      }
+      const currentSegmentId = this.currentSegment(workspace)
+      const currentSegment = workspace.segments.find((segment) => segment.id === currentSegmentId)
+      if (!currentSegment || !currentSegment.aids.length) throw new Error('Old favorite workspace current segment is unavailable.')
+      const assignments = currentSegment.aids.map((aid) => workspace.classifications[String(aid)])
+      if (assignments.some((assignment) => !assignment?.targetLedgerIds.length)) {
+        throw new Error('Old favorite workspace current segment is not fully classified.')
+      }
+      const repository = await this.options.repository.getSnapshot(workspace.accountMid)
+      const itemsByAid = new Map((this.currentSegmentItems.get(workspace.accountMid) ?? [])
+        .map((item) => [item.aid, item]))
+      const memberAidsByFolderId: Record<string, number[]> = {}
+      for (const assignment of assignments) {
+        for (const logicalLedgerId of assignment!.targetLedgerIds) {
+          const folderId = `local:${logicalLedgerId}`
+          memberAidsByFolderId[folderId] = [...new Set([
+            ...(memberAidsByFolderId[folderId] ?? []),
+            assignment!.aid
+          ])].sort((left, right) => left - right)
+        }
+      }
+      const completed = {
+        ...workspace, status: 'completed' as const, classifications: {}, history: [], historyCursor: 0,
+        completionMode: 'local' as const
+      }
+      const marker = await this.createMarker(completed, undefined, 'local')
+      await this.options.repository.commit(workspace.accountMid, {
+        id: `old-favorite-workspace:local:${workspace.id}:${currentSegmentId}`,
+        accountMid: workspace.accountMid,
+        issuedAt: this.now(),
+        type: 'commit-local-plan',
+        payload: {
+          workspaceId: workspace.id,
+          memberAidsByFolderId,
+          videos: currentSegment.aids.flatMap((aid) => {
+            if (repository.videos[String(aid)]) return []
+            const item = itemsByAid.get(aid)
+            return [{
+              aid,
+              title: item?.title?.trim() || `Video ${aid}`,
+              ...(item?.author?.trim() ? { author: item.author.trim() } : {}),
+              tags: [],
+              updatedAt: this.now()
+            }]
+          }),
+          folders: Object.keys(memberAidsByFolderId).map((folderId) => ({
+            id: folderId,
+            title: folderId.slice('local:'.length),
+            kind: 'local' as const,
+            syncState: 'local-only' as const
+          })),
+          organizationRecords: assignments!.map((assignment) => ({
+            accountMid: workspace.accountMid,
+            aid: assignment!.aid,
+            targetFolderIds: assignment!.targetLedgerIds.map((logicalLedgerId) => `local:${logicalLedgerId}`),
+            completedAt: this.now()
+          })),
+          workspace: marker
+        }
+      })
+      this.remember(completed, currentSegmentId, this.segmentDescriptors.get(workspace.accountMid) ?? [],
+        new Set(this.frozenSegments.get(workspace.accountMid) ?? []))
+      return clone(completed)
+    })
+  }
+
   /** Freezes a remote plan from persisted physical shards; it never touches the page bridge. */
   async freezeForBilibiliExecution(accountMid: string): Promise<FavoriteRepositoryWorkspace> {
     const preparation = await this.queue(async () => {
@@ -755,7 +828,8 @@ export class OldFavoriteWorkspaceCoordinator {
       }] : [],
       classifications,
       history,
-      historyCursor
+      historyCursor,
+      ...(marker.completionMode ? { completionMode: marker.completionMode } : {})
     }
     this.scanOverviews.set(marker.accountMid, {
       // Workspaces created before source selection did not persist this flag.
@@ -786,7 +860,26 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
-  private async persistMarker(workspace: OldFavoriteWorkspace, frozenSyncPlan?: FavoriteRepositoryWorkspace['frozenSyncPlan']) {
+  private async persistMarker(
+    workspace: OldFavoriteWorkspace,
+    frozenSyncPlan?: FavoriteRepositoryWorkspace['frozenSyncPlan'],
+    completionMode?: FavoriteRepositoryWorkspace['completionMode']
+  ) {
+    const marker = await this.createMarker(workspace, frozenSyncPlan, completionMode)
+    await this.options.repository.commit(workspace.accountMid, {
+      id: `old-favorite-workspace:${workspace.id}:${randomUUID()}`,
+      accountMid: workspace.accountMid,
+      issuedAt: this.now(),
+      type: 'set-workspace',
+      payload: marker
+    })
+  }
+
+  private async createMarker(
+    workspace: OldFavoriteWorkspace,
+    frozenSyncPlan?: FavoriteRepositoryWorkspace['frozenSyncPlan'],
+    completionMode?: FavoriteRepositoryWorkspace['completionMode']
+  ): Promise<FavoriteRepositoryWorkspace> {
     const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
     const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
     if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
@@ -810,15 +903,10 @@ export class OldFavoriteWorkspaceCoordinator {
         ? { frozenSyncPlan: clone(frozenSyncPlan) }
         : snapshot.workspace?.id === workspace.id && snapshot.workspace.frozenSyncPlan
         ? { frozenSyncPlan: clone(snapshot.workspace.frozenSyncPlan) }
-        : {})
+        : {}),
+      ...(completionMode ? { completionMode } : snapshot.workspace?.completionMode ? { completionMode: snapshot.workspace.completionMode } : {})
     }
-    await this.options.repository.commit(workspace.accountMid, {
-      id: `old-favorite-workspace:${workspace.id}:${randomUUID()}`,
-      accountMid: workspace.accountMid,
-      issuedAt: this.now(),
-      type: 'set-workspace',
-      payload: marker
-    })
+    return marker
   }
 
   private remember(
@@ -868,7 +956,8 @@ export class OldFavoriteWorkspaceCoordinator {
         targetLedgerIds: [...classification.targetLedgerIds],
         source: classification.source
       }])),
-      history: { cursor: workspace.historyCursor, length: workspace.history.length }
+      history: { cursor: workspace.historyCursor, length: workspace.history.length },
+      ...(workspace.completionMode ? { completionMode: workspace.completionMode } : {})
     }
   }
 

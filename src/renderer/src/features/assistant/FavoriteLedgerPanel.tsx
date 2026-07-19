@@ -10169,12 +10169,19 @@ export function FavoriteLedgerPanel({
               ) : controlledScanSnapshot?.status === 'executing' ? (
                 <p role="status">正在同步到 B 站；页面切换后会按检查点恢复状态。</p>
               ) : controlledScanSnapshot?.status === 'completed' ? (
-                <p role="status">本轮已完成同步到 B 站。已提交的 B 站操作不会在此撤销。</p>
+                <p role="status">{controlledScanSnapshot.completionMode === 'local'
+                  ? '本轮已保存到收藏库。'
+                  : '本轮已完成同步到 B 站。已提交的 B 站操作不会在此撤销。'} </p>
               ) : (
                 <>
-                  <p>将为当前归档预览生成不可变 B 站同步计划；未绑定、待对账或容量不足时不会执行。</p>
+                  <p>可直接同步到 B 站，或仅保存到本地收藏库；两种方式都会冻结当前分类结果。</p>
                   {!controlledBilibiliFreezeReady ? <p className="favorite-ledger-panel__confirm-warning" role="alert">请先为当前分段的每条视频选择归类。</p> : null}
                   <div className="favorite-ledger-panel__confirm-actions">
+                    <button
+                      type="button"
+                      disabled={!controlledBilibiliFreezeReady || oldFavoriteWorkspace.loading}
+                      onClick={() => void oldFavoriteWorkspace.saveCurrentSegmentLocally()}
+                    >{oldFavoriteWorkspace.loading ? '正在保存…' : '仅保存当前分段到收藏库'}</button>
                     <button
                       type="button"
                       disabled={!controlledBilibiliFreezeReady || oldFavoriteWorkspace.loading}

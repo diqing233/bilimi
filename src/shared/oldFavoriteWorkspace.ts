@@ -52,6 +52,7 @@ export type OldFavoriteWorkspace = {
   classifications: Record<string, OldFavoriteWorkspaceClassification>
   history: OldFavoriteWorkspaceHistoryEntry[]
   historyCursor: number
+  completionMode?: 'bilibili' | 'local'
 }
 
 export type OldFavoriteWorkspaceSnapshot = {
@@ -90,6 +91,7 @@ export type OldFavoriteWorkspaceSnapshot = {
   } | null
   classifications: Record<string, OldFavoriteWorkspaceClassification>
   history: { cursor: number; length: number }
+  completionMode?: 'bilibili' | 'local'
 }
 
 export type OldFavoriteWorkspaceRecoveryRequired = {

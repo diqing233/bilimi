@@ -277,6 +277,153 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('saves the classified current segment to local library folders without binding or executing Bilibili', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [
+        { aid: 1, targetLedgerIds: ['music'] }, { aid: 2, targetLedgerIds: ['knowledge'] }
+      ]
+    })
+
+    await expect(coordinator.saveCurrentSegmentToLocalLibrary('100')).resolves.toMatchObject({ status: 'completed' })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      folders: expect.arrayContaining([
+        expect.objectContaining({ id: 'local:music', kind: 'local', syncState: 'local-only' }),
+        expect.objectContaining({ id: 'local:knowledge', kind: 'local', syncState: 'local-only' })
+      ]),
+      memberships: { 'local:music': [1], 'local:knowledge': [2] },
+      workspace: { status: 'completed' }
+    })
+  })
+
+  it('keeps existing local library members when saving a classified segment', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    await repository.commit('100', {
+      id: 'existing-local', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'commit-local-plan',
+      payload: {
+        workspaceId: 'previous', memberAidsByFolderId: { 'local:music': [9] },
+        folders: [{ id: 'local:music', title: 'music', kind: 'local', syncState: 'local-only' }]
+      }
+    })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+
+    await coordinator.saveCurrentSegmentToLocalLibrary('100')
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ memberships: { 'local:music': [1, 9] } })
+  })
+
+  it('makes locally saved scan items visible through their local library folder', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Saved locally', author: 'UP', sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+
+    await coordinator.saveCurrentSegmentToLocalLibrary('100')
+
+    await expect(repository.getFolderPage('100', 'local:music', { limit: 10 })).resolves.toMatchObject({
+      items: [expect.objectContaining({ aid: 1, title: 'Saved locally', author: 'UP' })]
+    })
+  })
+
+  it('commits local memberships, protections, and the completed workspace marker together', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    const commit = vi.spyOn(repository, 'commit')
+
+    await coordinator.saveCurrentSegmentToLocalLibrary('100')
+
+    expect(commit).toHaveBeenCalledTimes(1)
+    expect(commit.mock.calls[0]?.[1]).toMatchObject({
+      type: 'commit-local-plan',
+      payload: {
+        workspace: { status: 'completed', completionMode: 'local' },
+        organizationRecords: [{ aid: 1, targetFolderIds: ['local:music'] }]
+      }
+    })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      workspace: { status: 'completed', completionMode: 'local' },
+      organizationRecords: [expect.objectContaining({ aid: 1, targetFolderIds: ['local:music'] })]
+    })
+  })
+
+  it('protects locally saved classifications in the next incremental workspace', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await coordinator.saveCurrentSegmentToLocalLibrary('100')
+
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [1, 2].map((aid) => ({ aid, title: `Video ${aid}`, sourceFolderIds: ['source'] }))
+    })
+    await coordinator.finishScan('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      mode: 'incremental',
+      currentSegment: { aids: [2] }
+    })
+  })
+
+  it('does not mark a multi-segment workspace complete through the current-segment local-only command', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: Array.from({ length: 2_001 }, (_, index) => index + 1) })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: Array.from({ length: 2_000 }, (_, index) => ({ aid: index + 1, targetLedgerIds: ['music'] }))
+    })
+
+    await expect(coordinator.saveCurrentSegmentToLocalLibrary('100')).rejects.toThrow('multiple segments')
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({ status: 'previewing' })
+  })
+
+  it('keeps rejecting local-only completion after restoring a multi-segment workspace', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const first = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await first.open('100')
+    await first.completeScan('100', { revision: 1, aids: Array.from({ length: 2_001 }, (_, index) => index + 1) })
+    await first.applyClassificationBatch('100', {
+      source: 'manual', assignments: Array.from({ length: 2_000 }, (_, index) => ({ aid: index + 1, targetLedgerIds: ['music'] }))
+    })
+    const restored = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+
+    await expect(restored.saveCurrentSegmentToLocalLibrary('100')).rejects.toThrow('multiple segments')
+    await expect(restored.getSnapshot('100')).resolves.toMatchObject({ status: 'previewing', hasMultipleSegments: true })
+  })
+
   it('refuses to freeze a Bilibili sync plan for an unbound logical target', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
