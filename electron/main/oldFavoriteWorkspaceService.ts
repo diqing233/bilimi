@@ -1,3 +1,4 @@
+// Temporary compatibility service for the old favorite core; remove after the repository migration is fully accepted.
 import { createHash, randomUUID } from 'node:crypto'
 import { cp, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
