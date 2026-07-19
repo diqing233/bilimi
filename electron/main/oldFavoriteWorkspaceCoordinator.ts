@@ -79,6 +79,10 @@ function normalizeAids(aids: number[]) {
     .sort((left, right) => left - right)
 }
 
+function isStagingBilimiFolder(title: string) {
+  return /待分类|暂存/u.test(title)
+}
+
 /**
  * Owns the main-process old-favorite mirror while keeping its large baseline
  * and high-frequency edits in OldFavoriteWorkspaceStore. The repository only
@@ -117,6 +121,18 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.queue(async () => {
       if (mode !== 'incremental' && mode !== 'full') throw new Error('Old favorite workspace mode is invalid.')
       let workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'scanning' && workspace.status !== 'completed') {
+        throw new Error('Old favorite workspace scan is already active.')
+      }
+      if (mode === 'full') {
+        await this.options.repository.commit(workspace.accountMid, {
+          id: `old-favorite-workspace:clear-protection:${workspace.id}`,
+          accountMid: workspace.accountMid,
+          issuedAt: this.now(),
+          type: 'record-organization-protections',
+          payload: { records: [], replace: true }
+        })
+      }
       if (workspace.status === 'completed') {
         workspace = await this.createScanningWorkspace(workspace.accountMid, mode)
       }
@@ -215,11 +231,32 @@ export class OldFavoriteWorkspaceCoordinator {
           }
         }
       })
-      const managedAids = await this.options.workspaceStore.readManagedMemberAids(workspace.accountMid, workspace.id)
+      const managedMembers = await this.options.workspaceStore.readManagedMembers(workspace.accountMid, workspace.id)
+      const repository = await this.options.repository.getSnapshot(workspace.accountMid)
+      const sourceFolders = this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []
+      const successfulAids = repository.organizationRecords
+        .filter((record) => record.accountMid === workspace.accountMid && itemsByAid.has(record.aid))
+        .map((record) => record.aid)
+      const initializedRecords = !repository.organizationMigrationInitialized
+        ? sourceFolders.filter((folder) => folder.isBilimiWorkFolder && !isStagingBilimiFolder(folder.title)).flatMap((folder) =>
+          (managedMembers[folder.id] ?? []).map((aid) => ({
+            accountMid: workspace.accountMid, aid, targetFolderIds: [folder.id], completedAt: this.now()
+          }))
+        )
+        : []
+      if (initializedRecords.length || !repository.organizationMigrationInitialized) {
+        await this.options.repository.commit(workspace.accountMid, {
+          id: `old-favorite-workspace:migrate-protection:${workspace.id}`,
+          accountMid: workspace.accountMid,
+          issuedAt: this.now(),
+          type: 'record-organization-protections',
+          payload: { records: initializedRecords, markMigrationInitialized: true }
+        })
+      }
       const completed = completeWorkspaceScan(workspace, {
         revision: (workspace.baseline?.revision ?? 0) + 1,
         aids: [...itemsByAid.keys()],
-        successfullyClassifiedAids: managedAids,
+        successfullyClassifiedAids: [...successfulAids, ...initializedRecords.map((record) => record.aid)],
         mode: workspace.mode
       })
       const currentSegmentId = completed.segments[0]?.id ?? ''

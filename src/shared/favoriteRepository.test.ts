@@ -100,6 +100,24 @@ describe('account favorite repository contracts', () => {
     expect(result.affectedAids).toEqual([1, 2])
   })
 
+  it('merges multiple completed formal targets for the same protected aid', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({
+      accountMid: '100', now: '2026-07-20T00:00:00.000Z'
+    })
+
+    const result = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'protections', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'record-organization-protections',
+      payload: { records: [
+        { accountMid: '100', aid: 1, targetFolderIds: ['remote-music'], completedAt: '2026-07-20T00:00:00.000Z' },
+        { accountMid: '100', aid: 1, targetFolderIds: ['remote-knowledge'], completedAt: '2026-07-20T00:00:00.000Z' }
+      ] }
+    }, '2026-07-20T00:00:00.000Z')
+
+    expect(result.organizationRecords).toEqual([
+      expect.objectContaining({ aid: 1, targetFolderIds: ['remote-knowledge', 'remote-music'] })
+    ])
+  })
+
   it('rejects malformed command data at the shared IPC boundary', () => {
     const snapshot = createAccountFavoriteRepositorySnapshot({
       accountMid: '100',

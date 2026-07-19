@@ -92,7 +92,17 @@ function validSnapshot(value: unknown, accountMid: string): value is AccountFavo
     Number.isSafeInteger(snapshot.revision) && typeof snapshot.updatedAt === 'string' &&
     !!snapshot.videos && typeof snapshot.videos === 'object' &&
     Array.isArray(snapshot.folders) && !!snapshot.memberships && typeof snapshot.memberships === 'object' &&
-    Array.isArray(snapshot.physicalShards) && Array.isArray(snapshot.syncRecords)
+    Array.isArray(snapshot.physicalShards) && Array.isArray(snapshot.syncRecords) &&
+    (snapshot.organizationRecords === undefined || Array.isArray(snapshot.organizationRecords)) &&
+    (snapshot.organizationMigrationInitialized === undefined || typeof snapshot.organizationMigrationInitialized === 'boolean')
+}
+
+function normalizeSnapshot(snapshot: AccountFavoriteRepositorySnapshot): AccountFavoriteRepositorySnapshot {
+  return {
+    ...snapshot,
+    organizationRecords: snapshot.organizationRecords ?? [],
+    organizationMigrationInitialized: snapshot.organizationMigrationInitialized ?? false
+  }
 }
 
 function validPersisted(value: unknown, accountMid: string): value is PersistedRepository {
@@ -346,7 +356,9 @@ export class FavoriteRepositoryService {
 
     try {
       const repository = JSON.parse(repositoryContent) as unknown
-      return validPersisted(repository, accountMid) ? { repository, manifest } : null
+      return validPersisted(repository, accountMid)
+        ? { repository: { ...repository, snapshot: normalizeSnapshot(repository.snapshot) }, manifest }
+        : null
     } catch (error) {
       if (error instanceof SyntaxError) return null
       throw error

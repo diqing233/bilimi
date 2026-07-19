@@ -130,9 +130,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
   })
 
   it.each([
-    ['incremental', [3], [1, 2]],
+    ['incremental', [1, 2, 3], []],
     ['full', [1, 2, 3], []]
-  ] as const)('projects a completed Bilimi membership scan as %s candidates in the next round', async (mode, plannedAids, protectedAids) => {
+  ] as const)('does not treat staged Bilimi membership as %s incremental protection', async (mode, plannedAids, protectedAids) => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -150,6 +150,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       }
     })
     await coordinator.beginScan('100', mode)
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'bilimi-inbox', title: 'bilimi·待分类', itemCount: 2, isBilimiWorkFolder: true }]
+    })
     await coordinator.recordManagedMembers('100', { 'bilimi-music': [1, 2] })
     await coordinator.recordScanPage('100', {
       folderId: 'source-a', page: 1,
@@ -159,7 +162,67 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.finishScan('100')).resolves.toMatchObject({ plannedAids, protectedAids })
   })
 
-  it('finalizes staged source pages into one deduplicated immutable baseline and preserves managed aids', async () => {
+  it('conservatively records formal Bilimi membership once while leaving staging aids active', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'bilimi-music', title: 'bilimi·音乐', itemCount: 1, isBilimiWorkFolder: true },
+        { id: 'bilimi-inbox', title: 'bilimi·待分类', itemCount: 1, isBilimiWorkFolder: true }
+      ]
+    })
+    await coordinator.recordManagedMembers('100', { 'bilimi-music': [1, 4], 'bilimi-inbox': [2] })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source-a', page: 1,
+      items: [1, 2, 3].map((aid) => ({ aid, title: `Video ${aid}`, sourceFolderIds: ['source-a'] }))
+    })
+
+    await expect(coordinator.finishScan('100')).resolves.toMatchObject({ plannedAids: [2, 3], protectedAids: [1] })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      organizationMigrationInitialized: true,
+      organizationRecords: [
+        expect.objectContaining({ aid: 1, targetFolderIds: ['bilimi-music'] }),
+        expect.objectContaining({ aid: 4, targetFolderIds: ['bilimi-music'] })
+      ]
+    })
+  })
+
+  it('removes prior successful protections when a user explicitly starts a full reorganization', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await repository.commit('100', {
+      id: 'prior-protection', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'record-organization-protections',
+      payload: { records: [{ accountMid: '100', aid: 1, targetFolderIds: ['remote-music'], completedAt: '2026-07-20T00:00:00.000Z' }] }
+    })
+    await coordinator.open('100')
+
+    await coordinator.beginScan('100', 'full')
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ organizationRecords: [] })
+  })
+
+  it('keeps prior protections when a full reorganization cannot start from an active preview', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await repository.commit('100', {
+      id: 'prior-protection', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'record-organization-protections',
+      payload: { records: [{ accountMid: '100', aid: 1, targetFolderIds: ['remote-music'], completedAt: '2026-07-20T00:00:00.000Z' }] }
+    })
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+
+    await expect(coordinator.beginScan('100', 'full')).rejects.toThrow('scan is already active')
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      organizationRecords: [expect.objectContaining({ aid: 1 })]
+    })
+  })
+
+  it('finalizes staged source pages into one deduplicated immutable baseline without treating unclassified managed aids as complete', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const workspaceStore = new OldFavoriteWorkspaceStore({ root })
@@ -177,12 +240,15 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await expect(coordinator.finishScan('100')).resolves.toMatchObject({
-      status: 'previewing', baseline: { aids: [1, 2] }, baselineCompletedAids: [2], plannedAids: [1]
+      status: 'previewing', baseline: { aids: [1, 2] }, baselineCompletedAids: [], plannedAids: [1, 2]
     })
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       status: 'previewing', currentSegment: {
-        aids: [1],
-        items: [{ aid: 1, title: 'First title', sourceFolderIds: ['source-a'] }]
+        aids: [1, 2],
+        items: [
+          { aid: 1, title: 'First title', sourceFolderIds: ['source-a'] },
+          { aid: 2, title: 'Shared', sourceFolderIds: ['source-a', 'source-b'] }
+        ]
       }, scan: { phase: 'complete' }
     })
   })

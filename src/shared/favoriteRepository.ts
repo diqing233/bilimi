@@ -83,6 +83,14 @@ export type FavoriteRepositorySyncRecord = {
   attempt?: number
 }
 
+/** A successful organization protects this aid in future incremental scans. */
+export type FavoriteRepositoryOrganizationRecord = {
+  accountMid: string
+  aid: number
+  targetFolderIds: string[]
+  completedAt: string
+}
+
 export type FavoriteRepositoryPage<T> = {
   version: 1
   accountMid: string
@@ -144,6 +152,13 @@ export type FavoriteRepositoryCommand =
       type: 'record-sync-result'
       payload: FavoriteRepositorySyncRecord
     }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      type: 'record-organization-protections'
+      payload: { records: FavoriteRepositoryOrganizationRecord[]; markMigrationInitialized?: boolean; replace?: boolean }
+    }
 
 export type AccountFavoriteRepositorySnapshot = {
   version: 1
@@ -156,6 +171,8 @@ export type AccountFavoriteRepositorySnapshot = {
   physicalShards: FavoriteRepositoryPhysicalShard[]
   workspace?: FavoriteRepositoryWorkspace
   syncRecords: FavoriteRepositorySyncRecord[]
+  organizationRecords: FavoriteRepositoryOrganizationRecord[]
+  organizationMigrationInitialized: boolean
 }
 
 export type FavoriteRepositoryCommandResult = AccountFavoriteRepositorySnapshot & {
@@ -243,6 +260,15 @@ function isSyncStatus(value: unknown): value is FavoriteRepositorySyncRecord['st
   return ['pending', 'succeeded', 'failed', 'result-unknown'].includes(String(value))
 }
 
+function isOrganizationRecord(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const record = value as Record<string, unknown>
+  return typeof record.accountMid === 'string' && typeof record.aid === 'number' &&
+    Number.isSafeInteger(record.aid) && record.aid > 0 && Array.isArray(record.targetFolderIds) &&
+    record.targetFolderIds.every((id) => typeof id === 'string' && Boolean(id.trim())) &&
+    typeof record.completedAt === 'string' && !Number.isNaN(Date.parse(record.completedAt))
+}
+
 function normalizeFolderMembers(memberAidsByFolderId: Record<string, number[]>) {
   const normalized = new Map<string, number[]>()
   for (const [rawFolderId, rawAids] of Object.entries(memberAidsByFolderId)) {
@@ -325,6 +351,11 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
         (payload.operationKey !== undefined && (typeof payload.operationKey !== 'string' || !payload.operationKey.trim())) ||
         (payload.attempt !== undefined && (!Number.isSafeInteger(payload.attempt) || Number(payload.attempt) < 1))) invalidCommand()
       return
+    case 'record-organization-protections':
+      if (!Array.isArray(payload.records) || !payload.records.every(isOrganizationRecord) ||
+        (payload.markMigrationInitialized !== undefined && typeof payload.markMigrationInitialized !== 'boolean') ||
+        (payload.replace !== undefined && typeof payload.replace !== 'boolean')) invalidCommand()
+      return
     default:
       invalidCommand()
   }
@@ -343,7 +374,9 @@ export function createAccountFavoriteRepositorySnapshot(input: {
     folders: [],
     memberships: {},
     physicalShards: [],
-    syncRecords: []
+    syncRecords: [],
+    organizationRecords: [],
+    organizationMigrationInitialized: false
   }
 }
 
@@ -363,6 +396,8 @@ export function applyFavoriteRepositoryCommand(
   let memberships = { ...snapshot.memberships }
   let workspace = snapshot.workspace
   let syncRecords = [...snapshot.syncRecords]
+  let organizationRecords = [...snapshot.organizationRecords]
+  let organizationMigrationInitialized = snapshot.organizationMigrationInitialized
   let videos = { ...snapshot.videos }
   let folders = [...snapshot.folders]
   let physicalShards = [...snapshot.physicalShards]
@@ -471,6 +506,26 @@ export function applyFavoriteRepositoryCommand(
       affectedAids = uniquePositiveAids(command.payload.affectedAids).sort((left, right) => left - right)
       syncRecords = [...syncRecords.filter((record) => record.id !== command.payload.id), { ...command.payload, affectedAids }]
       break
+    case 'record-organization-protections': {
+      const records = new Map((command.payload.replace ? [] : organizationRecords).map((record) => [record.aid, record]))
+      for (const record of command.payload.records) {
+        if (normalizedAccountMid(record.accountMid) !== snapshot.accountMid) {
+          throw new Error('Favorite repository account mismatch.')
+        }
+        const existing = records.get(record.aid)
+        records.set(record.aid, {
+          accountMid: snapshot.accountMid,
+          aid: record.aid,
+          targetFolderIds: [...new Set([...(existing?.targetFolderIds ?? []), ...record.targetFolderIds]
+            .map((id) => id.trim()).filter(Boolean))].sort(),
+          completedAt: existing?.completedAt ?? normalizedTimestamp(record.completedAt)
+        })
+      }
+      organizationRecords = Array.from(records.values()).sort((left, right) => left.aid - right.aid)
+      organizationMigrationInitialized = organizationMigrationInitialized || command.payload.markMigrationInitialized === true
+      affectedAids = command.payload.records.map((record) => record.aid).sort((left, right) => left - right)
+      break
+    }
   }
 
   return {
@@ -483,6 +538,8 @@ export function applyFavoriteRepositoryCommand(
     physicalShards,
     workspace,
     syncRecords,
+    organizationRecords,
+    organizationMigrationInitialized,
     commandId: command.id,
     affectedFolderIds,
     affectedAids

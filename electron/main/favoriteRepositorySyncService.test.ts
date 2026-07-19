@@ -67,6 +67,10 @@ describe('FavoriteRepositorySyncService', () => {
     append.mockResolvedValueOnce({ observedAccountMid: '100' })
     expect(await service.resume('100', 'run-1')).toMatchObject({ status: 'succeeded' })
     expect(append).toHaveBeenCalledTimes(2)
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      workspace: { status: 'completed' },
+      organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['remote-a'] }]
+    })
   })
 
   it('binds the target before the first remote checkpoint but never auto-binds resume or reconciliation', async () => {
@@ -91,6 +95,44 @@ describe('FavoriteRepositorySyncService', () => {
     expect(release).toHaveBeenCalledWith('100', 'run-1')
     await expect(service.resume('100', 'run-1')).resolves.toMatchObject({ status: 'succeeded' })
     expect(bind).toHaveBeenCalledTimes(1)
+  })
+
+  it('records completed aids as account-scoped incremental protections only after the full plan succeeds', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: { ...workspace(), frozenSyncPlan: plan() }
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append: vi.fn().mockResolvedValue({ observedAccountMid: '100' }), remove: vi.fn(), readMembers: vi.fn() },
+      now: () => '2026-07-19T00:00:00.000Z'
+    })
+
+    await expect(service.executeFrozenPlan('100', plan())).resolves.toMatchObject({ status: 'succeeded' })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['remote-a'] }]
+    })
+    await expect(repository.getSnapshot('200')).resolves.toMatchObject({ organizationRecords: [] })
+  })
+
+  it('does not protect an aid whose successful append only targets the staging logical ledger', async () => {
+    const repository = await createRepository()
+    const stagingPlan = { ...plan(), operations: [{ operationKey: 'append-1', aid: 1, kind: 'append' as const, folderIds: ['remote-inbox'] }] }
+    await repository.commit('100', {
+      id: 'inbox-binding', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'inbox', logicalTitle: 'Inbox', shardNumber: 1, memberAids: [], remoteTitle: 'bilimi inbox', bindingState: 'bound', remoteFolderId: 'remote-inbox' }
+    })
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: { ...workspace(), frozenSyncPlan: stagingPlan }
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append: vi.fn().mockResolvedValue({ observedAccountMid: '100' }), remove: vi.fn(), readMembers: vi.fn() },
+      now: () => '2026-07-19T00:00:00.000Z'
+    })
+
+    await expect(service.executeFrozenPlan('100', stagingPlan)).resolves.toMatchObject({ status: 'succeeded' })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ organizationRecords: [] })
   })
 
   it('does not rebind a persisted executing run after an interruption before its first remote request', async () => {
@@ -137,6 +179,9 @@ describe('FavoriteRepositorySyncService', () => {
     expect(bind).not.toHaveBeenCalled()
     expect(append).not.toHaveBeenCalled()
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: { status: 'completed' } })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      organizationRecords: [{ accountMid: '100', aid: 1, targetFolderIds: ['remote-a'] }]
+    })
   })
 
   it('keeps a known remote failure frozen instead of treating it as a reconciliation retry', async () => {

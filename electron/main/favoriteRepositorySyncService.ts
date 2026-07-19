@@ -137,6 +137,7 @@ export class FavoriteRepositorySyncService {
         }
         const existingRun = this.summarize(workspace.frozenSyncPlan, await this.options.repository.getSyncCheckpoints(account, plan.id))
         if (existingRun.status === 'succeeded') {
+          await this.recordOrganizationProtections(account, workspace.frozenSyncPlan)
           if (workspace.status !== 'completed') {
             await this.writeWorkspace(account, withWorkspaceStatus(workspace, 'completed', workspace.frozenSyncPlan), `complete:${plan.id}`)
           }
@@ -251,6 +252,7 @@ export class FavoriteRepositorySyncService {
         : run.status === 'ready-to-resume' || run.status === 'failed'
           ? 'frozen'
           : 'reconciling'
+      if (status === 'completed') await this.recordOrganizationProtections(account, plan)
       await this.writeWorkspace(account, withWorkspaceStatus(workspace!, status, plan), `reconciled:${runId}`)
       return run
     })
@@ -297,9 +299,34 @@ export class FavoriteRepositorySyncService {
     }
 
     const complete = this.summarize(plan, Array.from(records.values()))
+    await this.recordOrganizationProtections(accountMid, plan)
     await this.writeWorkspace(accountMid, withWorkspaceStatus(snapshot.workspace!, 'completed', plan), `complete:${plan.id}`)
     this.options.pageBridgeManager?.release(accountMid, plan.id)
     return complete
+  }
+
+  private async recordOrganizationProtections(accountMid: string, plan: FavoriteRepositoryFrozenSyncPlan) {
+    const snapshot = await this.options.repository.getSnapshot(accountMid)
+    const stagingFolderIds = new Set(snapshot.physicalShards
+      .filter((shard) => shard.logicalLedgerId === 'inbox' && shard.remoteFolderId)
+      .map((shard) => shard.remoteFolderId!))
+    const records = plan.operations.filter((operation) => operation.kind === 'append').flatMap((operation) => {
+      const targetFolderIds = operation.folderIds.filter((folderId) => !stagingFolderIds.has(folderId))
+      return targetFolderIds.length ? [{
+      accountMid,
+      aid: operation.aid,
+      targetFolderIds,
+      completedAt: this.now()
+      }] : []
+    })
+    if (!records.length) return
+    await this.options.repository.commit(accountMid, {
+      id: `favorite-sync-protection:${plan.id}`,
+      accountMid,
+      issuedAt: this.now(),
+      type: 'record-organization-protections',
+      payload: { records }
+    })
   }
 
   private async writeWorkspace(accountMid: string, workspace: FavoriteRepositoryWorkspace, suffix: string) {

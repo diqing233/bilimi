@@ -216,11 +216,16 @@ export class OldFavoriteWorkspaceStore {
   }
 
   async readManagedMemberAids(accountMid: string, workspaceId: string) {
+    const members = await this.readManagedMembers(accountMid, workspaceId)
+    return [...new Set(Object.values(members).flat())].sort((left, right) => left - right)
+  }
+
+  async readManagedMembers(accountMid: string, workspaceId: string) {
     const account = normalizedAccountMid(accountMid)
     const directory = this.workspaceDirectory(account, workspaceId)
     const manifest = await this.readManifest(directory)
     if (!manifest || manifest.accountMid !== account) throw new Error('Old favorite workspace was not found.')
-    const aids = new Set<number>()
+    const membersByFolderId: Record<string, number[]> = {}
     for (const chunk of manifest.managedMemberChunks ?? []) {
       const content = await readFile(join(directory, chunk.file), 'utf8')
       if (checksum(content) !== chunk.checksum) throw new Error('Old favorite workspace managed members are corrupt.')
@@ -228,11 +233,13 @@ export class OldFavoriteWorkspaceStore {
       if (value.runId !== manifest.scanRunId || !value.members || typeof value.members !== 'object') {
         throw new Error('Old favorite workspace managed members are invalid.')
       }
-      for (const members of Object.values(value.members)) {
-        for (const aid of members) if (Number.isSafeInteger(aid) && aid > 0) aids.add(aid)
+      for (const [folderId, aids] of Object.entries(value.members)) {
+        membersByFolderId[folderId] = [...new Set([...(membersByFolderId[folderId] ?? []), ...aids])]
+          .filter((aid) => Number.isSafeInteger(aid) && aid > 0)
+          .sort((left, right) => left - right)
       }
     }
-    return [...aids].sort((left, right) => left - right)
+    return membersByFolderId
   }
 
   private async appendOverlayUnsafe(accountMid: string, workspaceId: string, overlay: Overlay) {
