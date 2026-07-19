@@ -254,6 +254,49 @@ describe('FavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'select-segment', segmentId: 'segment-2' }))
   })
 
+  it('lets a controlled unknown result reconcile and then continue the persisted frozen plan', async () => {
+    const reconciling = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'reconciling' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, history: { cursor: 0, length: 0 }
+    }
+    const frozen = { ...reconciling, status: 'frozen' as const }
+    const executing = { ...reconciling, status: 'executing' as const }
+    const command = vi.fn((_accountMid: string, value: { type: string }) => Promise.resolve(
+      value.type === 'reconcile-frozen-bilibili-plan' ? frozen : executing
+    ))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(reconciling),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    renderPanel({ currentAccountMid: '100' })
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    fireEvent.click(await screen.findByRole('button', { name: '对账 B 站结果' }))
+    await waitFor(() => expect(command).toHaveBeenLastCalledWith('100', { type: 'reconcile-frozen-bilibili-plan' }))
+    fireEvent.click(await screen.findByRole('button', { name: '开始同步到 B 站' }))
+    await waitFor(() => expect(command).toHaveBeenLastCalledWith('100', { type: 'execute-frozen-bilibili-plan' }))
+  })
+
+  it.each(['scanning', 'completed'] as const)('keeps controlled confirmation unavailable while the workspace is %s', async (status) => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: status === 'scanning' ? 'inventory' as const : 'complete' as const, failureCount: 0 },
+      sourceFolders: [], continuationCount: 0, segments: [], currentSegment: null, classifications: {}, history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(snapshot),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(snapshot)
+    } as typeof window.bilimiDesktop
+
+    renderPanel({ currentAccountMid: '100' })
+
+    expect(await screen.findByRole('button', { name: '确认执行' })).toBeDisabled()
+  })
+
   it('reads the current account only after the entry is clicked and restores only that account', async () => {
     const preview = createArchivePreviewFixture()
     const sessionBridge = installOldFavoriteSessionBridge({

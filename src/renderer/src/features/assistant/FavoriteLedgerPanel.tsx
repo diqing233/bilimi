@@ -3912,6 +3912,8 @@ export function FavoriteLedgerPanel({
   }
 
   const controlledScanSnapshot = useControlledOldFavoriteWorkspace ? oldFavoriteWorkspace.snapshot : null
+  const controlledConfirmAvailable = controlledScanSnapshot !== null &&
+    ['previewing', 'frozen', 'executing', 'reconciling'].includes(controlledScanSnapshot.status)
 
   function continueLastOldFavoriteOrganization() {
     setOldFavoriteEntryOpen(false)
@@ -9208,7 +9210,8 @@ export function FavoriteLedgerPanel({
                   aria-current={oldFavoriteStep === step.id ? 'step' : undefined}
                   aria-expanded={oldFavoriteExpandedStep === step.id}
                   disabled={(deepSeekArchiveRunning && oldFavoriteStep !== step.id) ||
-                    (useControlledOldFavoriteWorkspace && step.id !== 'scan' && step.id !== 'preview')}
+                    (useControlledOldFavoriteWorkspace && step.id !== 'scan' && step.id !== 'preview' &&
+                      (step.id !== 'confirm' || !controlledConfirmAvailable))}
                   onClick={() => {
                     if (useControlledOldFavoriteWorkspace) {
                       setOldFavoriteStep(step.id)
