@@ -227,4 +227,45 @@ describe('FavoriteRepositoryBindingService', () => {
     await expect(service.ensurePhysicalShard('100', { logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [] }))
       .resolves.toMatchObject({ shards: [expect.objectContaining({ bindingState: 'pending-reconcile' })] })
   })
+
+  it('reuses the exact generated title when production token generation changes per call', async () => {
+    const repository = await createRepository()
+    const createFolder = vi.fn().mockImplementation(async ({ title }: { title: string }) => ({
+      observedAccountMid: '100', folder: { id: 'remote-music-1', title, memberCount: 0 }
+    }))
+    let tokenIndex = 0
+    const service = new FavoriteRepositoryBindingService({
+      repository, newBindingToken: () => ['a1b2c3', 'd4e5f6'][tokenIndex++],
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [] }), createFolder,
+          append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+
+    await service.ensurePhysicalShard('100', { logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [] })
+    expect((await service.getBindings('100')).shards[0]).toMatchObject({
+      remoteTitle: 'B-music-001-a1b2c3', remoteFolderId: 'remote-music-1', bindingState: 'bound'
+    })
+  })
+
+  it('checks the 99-folder remote limit before attempting a shard create', async () => {
+    const repository = await createRepository()
+    const createFolder = vi.fn()
+    const service = new FavoriteRepositoryBindingService({
+      repository, newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: Array.from({ length: 99 }, (_, index) => ({ id: `folder-${index}`, title: `other-${index}`, memberCount: 0 })) }),
+          createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+
+    await expect(service.ensurePhysicalShard('100', { logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [] })).rejects.toThrow('folder limit')
+    expect(createFolder).not.toHaveBeenCalled()
+  })
 })
