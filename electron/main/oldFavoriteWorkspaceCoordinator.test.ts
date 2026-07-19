@@ -714,6 +714,66 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('clears completed workspace classifications and undo history when restoring after Bilibili sync', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, store)
+    const workspace = await first.open('100')
+    await first.completeScan('100', { revision: 1, aids: [1] })
+    await first.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    const marker = (await repository.getSnapshot('100')).workspace!
+    await repository.commit('100', {
+      id: 'complete', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace', payload: {
+        ...marker,
+        status: 'completed', workspaceRef: { ...marker.workspaceRef, status: 'completed' },
+        frozenSyncPlan: {
+          id: 'run-1', accountMid: '100', workspaceId: workspace.id, baselineRevision: 1,
+          createdAt: '2026-07-20T00:00:00.000Z', operations: []
+        }
+      }
+    })
+
+    await expect(createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' }),
+      new OldFavoriteWorkspaceStore({ root })
+    ).getSnapshot('100')).resolves.toMatchObject({
+      status: 'completed', classifications: {}, history: { cursor: 0, length: 0 }
+    })
+  })
+
+  it.each(['executing', 'reconciling'] as const)('keeps %s workspace history during restart recovery', async (status) => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, store)
+    const workspace = await first.open('100')
+    await first.completeScan('100', { revision: 1, aids: [1] })
+    await first.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    const marker = (await repository.getSnapshot('100')).workspace!
+    await repository.commit('100', {
+      id: `recover-${status}`, accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace', payload: {
+        ...marker,
+        status, workspaceRef: { ...marker.workspaceRef, status },
+        frozenSyncPlan: {
+          id: 'run-1', accountMid: '100', workspaceId: workspace.id, baselineRevision: 1,
+          createdAt: '2026-07-20T00:00:00.000Z', operations: []
+        }
+      }
+    })
+
+    await expect(createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' }),
+      new OldFavoriteWorkspaceStore({ root })
+    ).getSnapshot('100')).resolves.toMatchObject({
+      status, classifications: { '1': { targetLedgerIds: ['music'], source: 'manual' } }, history: { cursor: 1, length: 1 }
+    })
+  })
+
   it('restores continuation discoveries from the journal while the repository marker stays small', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })

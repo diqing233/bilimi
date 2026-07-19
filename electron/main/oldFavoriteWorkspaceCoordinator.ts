@@ -615,11 +615,12 @@ export class OldFavoriteWorkspaceCoordinator {
     const allHistory = historyEvents.map((event) => clone(event.entry))
     const latestCursor = [...events].reverse().find((event): event is ClassificationJournalEvent | CursorJournalEvent =>
       event.type === 'classification' || event.type === 'history-cursor')?.historyCursor ?? allHistory.length
-    const history = allHistory.map((entry) => ({
+    const recoveredHistory = allHistory.map((entry) => ({
       ...entry,
       changes: entry.changes.filter((change) => activeAidSet.has(change.aid))
     })).filter((entry) => entry.changes.length > 0)
-    const historyCursor = Math.min(latestCursor, history.length)
+    const history = marker.status === 'completed' ? [] : recoveredHistory
+    const historyCursor = marker.status === 'completed' ? 0 : Math.min(latestCursor, history.length)
     const classifications: OldFavoriteWorkspace['classifications'] = {}
     for (const entry of history.slice(0, historyCursor)) {
       for (const change of entry.changes) {
