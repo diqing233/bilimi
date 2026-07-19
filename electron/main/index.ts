@@ -1403,6 +1403,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   })
   oldFavoriteWorkspaceCoordinator = new OldFavoriteWorkspaceCoordinator({
     repository: favoriteRepositoryService,
+    syncService: favoriteRepositorySyncService,
     workspaceStore: new OldFavoriteWorkspaceStore({
       root: join(app.getPath('userData'), 'favorites', 'repository-v1')
     })

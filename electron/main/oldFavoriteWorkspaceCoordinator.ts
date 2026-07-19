@@ -17,6 +17,7 @@ import {
 import type { FavoriteRepositoryWorkspace } from '../../src/shared/favoriteRepository'
 import { compileFrozenFavoriteSyncPlan } from '../../src/shared/favoriteRepositoryExecutionPlan'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
+import type { FavoriteRepositorySyncRun, FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 
 const JOURNAL_EVENT_PREFIX = 'bilimi-old-favorite-workspace:v1:'
@@ -95,6 +96,7 @@ export class OldFavoriteWorkspaceCoordinator {
   constructor(private readonly options: {
     repository: FavoriteRepositoryService
     workspaceStore: OldFavoriteWorkspaceStore
+    syncService?: Pick<FavoriteRepositorySyncService, 'executeFrozenPlan'>
     now?: () => string
   }) {}
 
@@ -421,6 +423,18 @@ export class OldFavoriteWorkspaceCoordinator {
       const persisted = await this.options.repository.getSnapshot(workspace.accountMid)
       if (!persisted.workspace?.frozenSyncPlan) throw new Error('Old favorite workspace frozen plan was not persisted.')
       return clone(persisted.workspace)
+    })
+  }
+
+  async executeFrozenBilibiliPlan(accountMid: string): Promise<FavoriteRepositorySyncRun> {
+    return this.queue(async () => {
+      const snapshot = await this.options.repository.getSnapshot(accountMid)
+      const workspace = snapshot.workspace
+      if (!workspace?.frozenSyncPlan || workspace.status !== 'frozen') {
+        throw new Error('Old favorite workspace is not frozen for Bilibili execution.')
+      }
+      if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+      return this.options.syncService.executeFrozenPlan(snapshot.accountMid, clone(workspace.frozenSyncPlan))
     })
   }
 

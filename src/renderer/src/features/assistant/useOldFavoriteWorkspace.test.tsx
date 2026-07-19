@@ -172,4 +172,15 @@ describe('useOldFavoriteWorkspace', () => {
     expect(command).toHaveBeenCalledExactlyOnceWith('100', { type: 'freeze-bilibili-execution' })
     expect(result.current.snapshot).toMatchObject({ status: 'frozen' })
   })
+
+  it('starts only the already frozen Bilibili plan through a payload-free command', async () => {
+    const command = vi.fn().mockResolvedValue({ ...workspace('100'), status: 'executing' as const })
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.executeFrozenBilibiliPlan() })
+
+    expect(command).toHaveBeenCalledExactlyOnceWith('100', { type: 'execute-frozen-bilibili-plan' })
+    expect(result.current.snapshot).toMatchObject({ status: 'executing' })
+  })
 })

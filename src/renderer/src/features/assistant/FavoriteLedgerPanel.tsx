@@ -10137,7 +10137,16 @@ export function FavoriteLedgerPanel({
             <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
               <h4>确认执行</h4>
               {controlledScanSnapshot?.status === 'frozen' ? (
-                <p role="status">B 站同步计划已冻结，将由主进程受控执行。</p>
+                <>
+                  <p role="status">B 站同步计划已冻结，执行过程由主进程受控并带检查点。</p>
+                  <div className="favorite-ledger-panel__confirm-actions">
+                    <button
+                      type="button"
+                      disabled={oldFavoriteWorkspace.loading}
+                      onClick={() => void oldFavoriteWorkspace.executeFrozenBilibiliPlan()}
+                    >{oldFavoriteWorkspace.loading ? '正在开始…' : '开始同步到 B 站'}</button>
+                  </div>
+                </>
               ) : (
                 <>
                   <p>将为当前归档预览生成不可变 B 站同步计划；未绑定、待对账或容量不足时不会执行。</p>

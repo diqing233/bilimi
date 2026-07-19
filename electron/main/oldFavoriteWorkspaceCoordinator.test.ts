@@ -161,6 +161,45 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect((await repository.getSnapshot('100')).workspace?.frozenSyncPlan).toBeUndefined()
   })
 
+  it('executes only the persisted frozen Bilibili plan through the main-process sync service', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const executeFrozenPlan = vi.fn().mockResolvedValue({ id: 'run-1', status: 'succeeded' })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      syncService: { executeFrozenPlan }, now: () => '2026-07-20T00:00:00.000Z'
+    })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: '音乐', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 0, memberAids: [] }]
+    })
+    await coordinator.freezeForBilibiliExecution('100')
+
+    await expect(coordinator.executeFrozenBilibiliPlan('100')).resolves.toMatchObject({ id: 'run-1', status: 'succeeded' })
+    const persisted = (await repository.getSnapshot('100')).workspace?.frozenSyncPlan
+    expect(executeFrozenPlan).toHaveBeenCalledWith('100', persisted)
+  })
+
+  it('does not execute a workspace that has not yet persisted a frozen plan', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const executeFrozenPlan = vi.fn()
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), syncService: { executeFrozenPlan }
+    })
+    await coordinator.open('100')
+
+    await expect(coordinator.executeFrozenBilibiliPlan('100')).rejects.toThrow('not frozen')
+    expect(executeFrozenPlan).not.toHaveBeenCalled()
+  })
+
   it('restores staged source metadata and the active segment after scan finalization', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
