@@ -386,6 +386,18 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  /** DeepSeek results originate in the main process, never from a renderer command. */
+  async applyDeepSeekClassificationBatch(
+    accountMid: string,
+    assignments: ApplyWorkspaceClassificationBatchOptions['assignments']
+  ): Promise<OldFavoriteWorkspace> {
+    if (assignments.length > 2_000 || assignments.some((assignment) =>
+      assignment.targetLedgerIds.length > 3 || assignment.targetLedgerIds.some((id) => id.trim().length > 128))) {
+      throw new Error('Old favorite workspace DeepSeek classification is invalid.')
+    }
+    return this.applyClassificationBatch(accountMid, { source: 'deepseek', assignments })
+  }
+
   async undoClassificationChange(accountMid: string): Promise<OldFavoriteWorkspace> {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)

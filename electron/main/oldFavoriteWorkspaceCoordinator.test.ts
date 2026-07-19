@@ -684,6 +684,27 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })).rejects.toThrow('current segment')
   })
 
+  it('records a main-process DeepSeek batch as one current-segment history entry', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
+
+    await coordinator.applyDeepSeekClassificationBatch('100', [
+      { aid: 1, targetLedgerIds: ['knowledge'] },
+      { aid: 2, targetLedgerIds: ['technology'] }
+    ])
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: {
+        '1': { targetLedgerIds: ['knowledge'], source: 'deepseek' },
+        '2': { targetLedgerIds: ['technology'], source: 'deepseek' }
+      },
+      history: { cursor: 1, length: 1 }
+    })
+  })
+
   it('loads the current baseline segment only once during workspace recovery', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
