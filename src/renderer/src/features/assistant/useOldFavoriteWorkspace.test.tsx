@@ -161,4 +161,15 @@ describe('useOldFavoriteWorkspace', () => {
     expect(command).toHaveBeenNthCalledWith(1, '100', { type: 'undo-classification' })
     expect(command).toHaveBeenNthCalledWith(2, '100', { type: 'redo-classification' })
   })
+
+  it('freezes Bilibili execution without allowing the renderer to supply operations', async () => {
+    const command = vi.fn().mockResolvedValue({ ...workspace('100'), status: 'frozen' as const })
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.freezeBilibiliExecution() })
+
+    expect(command).toHaveBeenCalledExactlyOnceWith('100', { type: 'freeze-bilibili-execution' })
+    expect(result.current.snapshot).toMatchObject({ status: 'frozen' })
+  })
 })

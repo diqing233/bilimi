@@ -106,6 +106,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
 
   const undoClassification = useCallback(() => sendCommand({ type: 'undo-classification' }), [sendCommand])
   const redoClassification = useCallback(() => sendCommand({ type: 'redo-classification' }), [sendCommand])
+  const freezeBilibiliExecution = useCallback(() => sendCommand({ type: 'freeze-bilibili-execution' }), [sendCommand])
 
   useEffect(() => {
     void refresh()
@@ -119,7 +120,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
 
   return {
     snapshot, loading, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications,
-    undoClassification, redoClassification,
+    undoClassification, redoClassification, freezeBilibiliExecution,
     available: Boolean(accountMid && window.bilimiDesktop?.commandOldFavoriteWorkspaceV1)
   }
 }

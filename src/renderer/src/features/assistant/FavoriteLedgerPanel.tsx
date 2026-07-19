@@ -8784,6 +8784,8 @@ export function FavoriteLedgerPanel({
         item.sourceFolderIds.some((folderId) => controlledSelectedSourceIds.has(folderId))
       )
     : []
+  const controlledBilibiliFreezeReady = controlledPreviewItems.length > 0 &&
+    controlledPreviewItems.every((item) => (controlledScanSnapshot?.classifications[String(item.aid)]?.targetLedgerIds.length ?? 0) > 0)
   const renderControlledPreviewItem = (item: typeof controlledPreviewItems[number]) => {
     const title = item.title?.trim() || `视频 ${item.aid}`
     const targetLedgerId = controlledScanSnapshot?.classifications[String(item.aid)]?.targetLedgerIds[0] ?? ''
@@ -10131,7 +10133,26 @@ export function FavoriteLedgerPanel({
             </div>
           ) : null}
 
-          {oldFavoriteExpandedStep === 'confirm' ? (
+          {oldFavoriteExpandedStep === 'confirm' ? useControlledOldFavoriteWorkspace ? (
+            <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
+              <h4>确认执行</h4>
+              {controlledScanSnapshot?.status === 'frozen' ? (
+                <p role="status">B 站同步计划已冻结，将由主进程受控执行。</p>
+              ) : (
+                <>
+                  <p>将为当前归档预览生成不可变 B 站同步计划；未绑定、待对账或容量不足时不会执行。</p>
+                  {!controlledBilibiliFreezeReady ? <p className="favorite-ledger-panel__confirm-warning" role="alert">请先为当前分段的每条视频选择归类。</p> : null}
+                  <div className="favorite-ledger-panel__confirm-actions">
+                    <button
+                      type="button"
+                      disabled={!controlledBilibiliFreezeReady || oldFavoriteWorkspace.loading}
+                      onClick={() => void oldFavoriteWorkspace.freezeBilibiliExecution()}
+                    >{oldFavoriteWorkspace.loading ? '正在冻结…' : '确认同步到 B 站'}</button>
+                  </div>
+                </>
+              )}
+            </section>
+          ) : (
             !oldFavoriteScanFlowComplete ? (
               <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
                 <h4>确认执行</h4>
