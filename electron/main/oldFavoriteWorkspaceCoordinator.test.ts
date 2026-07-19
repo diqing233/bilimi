@@ -171,9 +171,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const executeFrozenPlan = vi.fn().mockResolvedValue({ id: 'run-1', status: 'succeeded' })
+    const getRun = vi.fn().mockResolvedValue({ id: 'run-1', status: 'running' })
     const coordinator = new OldFavoriteWorkspaceCoordinator({
       repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }),
-      syncService: { executeFrozenPlan }, now: () => '2026-07-20T00:00:00.000Z'
+      syncService: { executeFrozenPlan, getRun }, now: () => '2026-07-20T00:00:00.000Z'
     })
     const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
     await coordinator.open('100')
@@ -197,8 +198,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const executeFrozenPlan = vi.fn()
+    const getRun = vi.fn()
     const coordinator = new OldFavoriteWorkspaceCoordinator({
-      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), syncService: { executeFrozenPlan }
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), syncService: { executeFrozenPlan, getRun }
     })
     await coordinator.open('100')
 
@@ -212,7 +214,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const waiting = deferred<{ id: string; status: 'running' }>()
     const coordinator = new OldFavoriteWorkspaceCoordinator({
       repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }),
-      syncService: { executeFrozenPlan: vi.fn().mockReturnValue(waiting.promise) }
+      syncService: { executeFrozenPlan: vi.fn().mockReturnValue(waiting.promise), getRun: vi.fn().mockResolvedValue({ id: 'run-1', status: 'running' }) }
     })
     await coordinator.open('100')
     await repository.commit('100', {
@@ -232,6 +234,31 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     ])).resolves.toMatchObject({ accountMid: '100' })
     waiting.resolve({ id: 'run-1', status: 'running' })
     await executing
+  })
+
+  it('requires an explicit page bind before reconciling an unknown frozen run', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root })
+    const bindPageTarget = vi.fn().mockResolvedValue(undefined)
+    const reconcile = vi.fn().mockResolvedValue({ id: 'run-1', status: 'ready-to-resume' })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      syncService: { executeFrozenPlan: vi.fn(), bindPageTarget, reconcile }
+    })
+    await coordinator.open('100')
+    await repository.commit('100', {
+      id: 'frozen', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace', payload: {
+        id: 'workspace-1', accountMid: '100', status: 'reconciling', baselineRevision: 1, continuationAids: [],
+        workspaceRef: { workspaceId: 'workspace-1', accountMid: '100', status: 'reconciling', baselineRevision: 1,
+          currentSegmentId: 'segment-1', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64) },
+        frozenSyncPlan: { id: 'run-1', accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 1,
+          createdAt: '2026-07-20T00:00:00.000Z', operations: [{ operationKey: 'append-1', aid: 1, kind: 'append', folderIds: ['remote-1'] }] }
+      }
+    })
+
+    await expect(coordinator.bindAndReconcileFrozenBilibiliPlan('100')).resolves.toMatchObject({ status: 'ready-to-resume' })
+    expect(bindPageTarget).toHaveBeenCalledWith('100', 'run-1')
+    expect(reconcile).toHaveBeenCalledWith('100', 'run-1')
   })
 
   it('restores staged source metadata and the active segment after scan finalization', async () => {

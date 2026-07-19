@@ -93,6 +93,23 @@ describe('FavoriteRepositorySyncService', () => {
     expect(bind).toHaveBeenCalledTimes(1)
   })
 
+  it('does not rebind a persisted executing run after an interruption before its first remote request', async () => {
+    const repository = await createRepository()
+    const frozen = { ...workspace(), status: 'executing' as const, workspaceRef: { ...workspace().workspaceRef, status: 'executing' as const }, frozenSyncPlan: plan() }
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: frozen
+    })
+    const bind = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridgeManager: { bind, release: vi.fn(), pageBridge: vi.fn() },
+      now: () => '2026-07-19T00:00:00.000Z'
+    })
+
+    await expect(service.executeFrozenPlan('100', plan())).resolves.toMatchObject({ status: 'running' })
+    expect(bind).not.toHaveBeenCalled()
+  })
+
   it('keeps a known remote failure frozen instead of treating it as a reconciliation retry', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

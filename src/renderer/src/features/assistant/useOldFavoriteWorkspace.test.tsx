@@ -183,4 +183,16 @@ describe('useOldFavoriteWorkspace', () => {
     expect(command).toHaveBeenCalledExactlyOnceWith('100', { type: 'execute-frozen-bilibili-plan' })
     expect(result.current.snapshot).toMatchObject({ status: 'executing' })
   })
+
+  it('exposes explicit reconciliation and non-binding resume commands', async () => {
+    const command = vi.fn().mockResolvedValue({ ...workspace('100'), status: 'reconciling' as const })
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.reconcileFrozenBilibiliPlan() })
+    await act(async () => { await result.current.resumeReconciledBilibiliPlan() })
+
+    expect(command).toHaveBeenNthCalledWith(1, '100', { type: 'reconcile-frozen-bilibili-plan' })
+    expect(command).toHaveBeenNthCalledWith(2, '100', { type: 'resume-reconciled-bilibili-plan' })
+  })
 })

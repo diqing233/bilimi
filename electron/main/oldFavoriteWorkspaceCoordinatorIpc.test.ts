@@ -158,4 +158,22 @@ describe('old favorite workspace coordinator IPC', () => {
     })).resolves.toMatchObject({ status: 'executing' })
     expect(coordinator.executeFrozenBilibiliPlan).toHaveBeenCalledWith('100')
   })
+
+  it('requires explicit reconciliation and only then allows a no-rebind resume command', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      bindAndReconcileFrozenBilibiliPlan: vi.fn().mockResolvedValue({}),
+      resumeReconciledBilibiliPlan: vi.fn().mockResolvedValue({}),
+      getSnapshot: vi.fn().mockResolvedValue({ ...snapshot, status: 'reconciling' })
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'reconcile-frozen-bilibili-plan' })
+    await ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'resume-reconciled-bilibili-plan' })
+    expect(coordinator.bindAndReconcileFrozenBilibiliPlan).toHaveBeenCalledWith('100')
+    expect(coordinator.resumeReconciledBilibiliPlan).toHaveBeenCalledWith('100')
+  })
 })

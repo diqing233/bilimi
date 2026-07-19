@@ -96,7 +96,7 @@ export class OldFavoriteWorkspaceCoordinator {
   constructor(private readonly options: {
     repository: FavoriteRepositoryService
     workspaceStore: OldFavoriteWorkspaceStore
-    syncService?: Pick<FavoriteRepositorySyncService, 'executeFrozenPlan'>
+    syncService?: Pick<FavoriteRepositorySyncService, 'executeFrozenPlan' | 'bindPageTarget' | 'reconcile' | 'resume' | 'getRun'>
     now?: () => string
   }) {}
 
@@ -439,7 +439,41 @@ export class OldFavoriteWorkspaceCoordinator {
     // The sync service owns its own run lock; never hold workspace mutations
     // while waiting on a remote page request so snapshot recovery stays live.
     if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+    const currentRun = await this.options.syncService.getRun(frozenPlan.accountMid, frozenPlan.plan.id)
+    if (currentRun.status === 'ready-to-resume') {
+      return this.options.syncService.resume(frozenPlan.accountMid, frozenPlan.plan.id)
+    }
+    if (currentRun.status !== 'running') {
+      return currentRun
+    }
     return this.options.syncService.executeFrozenPlan(frozenPlan.accountMid, frozenPlan.plan)
+  }
+
+  async bindAndReconcileFrozenBilibiliPlan(accountMid: string): Promise<FavoriteRepositorySyncRun> {
+    const run = await this.queue(async () => {
+      const snapshot = await this.options.repository.getSnapshot(accountMid)
+      const plan = snapshot.workspace?.frozenSyncPlan
+      if (!plan || snapshot.workspace?.status !== 'reconciling') {
+        throw new Error('Old favorite workspace does not require reconciliation.')
+      }
+      if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+      return { accountMid: snapshot.accountMid, runId: plan.id }
+    })
+    if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+    await this.options.syncService.bindPageTarget(run.accountMid, run.runId)
+    return this.options.syncService.reconcile(run.accountMid, run.runId)
+  }
+
+  async resumeReconciledBilibiliPlan(accountMid: string): Promise<FavoriteRepositorySyncRun> {
+    const run = await this.queue(async () => {
+      const snapshot = await this.options.repository.getSnapshot(accountMid)
+      const plan = snapshot.workspace?.frozenSyncPlan
+      if (!plan || snapshot.workspace?.status !== 'frozen') throw new Error('Old favorite workspace is not ready to continue.')
+      if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+      return { accountMid: snapshot.accountMid, runId: plan.id }
+    })
+    if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+    return this.options.syncService.resume(run.accountMid, run.runId)
   }
 
   async recordDiscoveredFavorites(accountMid: string, discoveredAids: number[]): Promise<OldFavoriteWorkspace> {

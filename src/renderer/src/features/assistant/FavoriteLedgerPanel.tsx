@@ -10147,6 +10147,19 @@ export function FavoriteLedgerPanel({
                     >{oldFavoriteWorkspace.loading ? '正在开始…' : '开始同步到 B 站'}</button>
                   </div>
                 </>
+              ) : controlledScanSnapshot?.status === 'reconciling' ? (
+                <>
+                  <p role="status">上次 B 站操作结果未知。请先在当前 B 站页面对账，系统不会盲目重试。</p>
+                  <div className="favorite-ledger-panel__confirm-actions">
+                    <button
+                      type="button"
+                      disabled={oldFavoriteWorkspace.loading}
+                      onClick={() => void oldFavoriteWorkspace.reconcileFrozenBilibiliPlan()}
+                    >{oldFavoriteWorkspace.loading ? '正在对账…' : '对账 B 站结果'}</button>
+                  </div>
+                </>
+              ) : controlledScanSnapshot?.status === 'executing' ? (
+                <p role="status">正在同步到 B 站；页面切换后会按检查点恢复状态。</p>
               ) : (
                 <>
                   <p>将为当前归档预览生成不可变 B 站同步计划；未绑定、待对账或容量不足时不会执行。</p>

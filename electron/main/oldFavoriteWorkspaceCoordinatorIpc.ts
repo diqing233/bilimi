@@ -19,6 +19,8 @@ type WorkspaceCommand =
   | { type: 'freeze-segment'; segmentId: string }
   | { type: 'freeze-bilibili-execution' }
   | { type: 'execute-frozen-bilibili-plan' }
+  | { type: 'reconcile-frozen-bilibili-plan' }
+  | { type: 'resume-reconciled-bilibili-plan' }
 
 function normalizeAccountMid(value: unknown) {
   if (typeof value !== 'string' || !/^\d+$/.test(value.trim()) || BigInt(value.trim()) === 0n) {
@@ -64,6 +66,12 @@ function command(value: unknown): WorkspaceCommand {
   if (candidate.type === 'execute-frozen-bilibili-plan' && Object.keys(candidate).length === 1) {
     return { type: 'execute-frozen-bilibili-plan' }
   }
+  if (candidate.type === 'reconcile-frozen-bilibili-plan' && Object.keys(candidate).length === 1) {
+    return { type: 'reconcile-frozen-bilibili-plan' }
+  }
+  if (candidate.type === 'resume-reconciled-bilibili-plan' && Object.keys(candidate).length === 1) {
+    return { type: 'resume-reconciled-bilibili-plan' }
+  }
   if (candidate.type === 'apply-classifications' && candidate.source === 'manual' && validAssignments(candidate.assignments)) {
     return { type: 'apply-classifications', source: 'manual', assignments: candidate.assignments }
   }
@@ -102,6 +110,8 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'freeze-segment') await options.coordinator.freezeSegment(accountMid, requested.segmentId)
     if (requested.type === 'freeze-bilibili-execution') await options.coordinator.freezeForBilibiliExecution(accountMid)
     if (requested.type === 'execute-frozen-bilibili-plan') await options.coordinator.executeFrozenBilibiliPlan(accountMid)
+    if (requested.type === 'reconcile-frozen-bilibili-plan') await options.coordinator.bindAndReconcileFrozenBilibiliPlan(accountMid)
+    if (requested.type === 'resume-reconciled-bilibili-plan') await options.coordinator.resumeReconciledBilibiliPlan(accountMid)
     if (requested.type === 'apply-classifications') await options.coordinator.applyClassificationBatch(accountMid, {
       source: requested.source,
       assignments: requested.assignments

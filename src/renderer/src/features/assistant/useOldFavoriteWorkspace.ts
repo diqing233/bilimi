@@ -108,6 +108,8 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const redoClassification = useCallback(() => sendCommand({ type: 'redo-classification' }), [sendCommand])
   const freezeBilibiliExecution = useCallback(() => sendCommand({ type: 'freeze-bilibili-execution' }), [sendCommand])
   const executeFrozenBilibiliPlan = useCallback(() => sendCommand({ type: 'execute-frozen-bilibili-plan' }), [sendCommand])
+  const reconcileFrozenBilibiliPlan = useCallback(() => sendCommand({ type: 'reconcile-frozen-bilibili-plan' }), [sendCommand])
+  const resumeReconciledBilibiliPlan = useCallback(() => sendCommand({ type: 'resume-reconciled-bilibili-plan' }), [sendCommand])
 
   useEffect(() => {
     void refresh()
@@ -122,6 +124,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   return {
     snapshot, loading, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications,
     undoClassification, redoClassification, freezeBilibiliExecution, executeFrozenBilibiliPlan,
+    reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     available: Boolean(accountMid && window.bilimiDesktop?.commandOldFavoriteWorkspaceV1)
   }
 }
