@@ -1,0 +1,162 @@
+import type {
+  FavoriteRepositoryFolder,
+  FavoriteRepositoryPage,
+  FavoriteRepositorySyncRecord,
+  FavoriteRepositoryVideo
+} from '../../../../shared/favoriteRepository'
+
+export type FavoriteLibrarySearchEntry = {
+  video: FavoriteRepositoryVideo
+  folderId: string
+}
+
+export type FavoriteLibraryRow = FavoriteRepositoryVideo & {
+  folderIds: string[]
+}
+
+export type FavoriteLibraryPendingState = 'unsynced' | 'continuation' | 'failed' | 'result-unknown'
+
+export type FavoriteLibraryPendingRow = {
+  aid: number
+  states: FavoriteLibraryPendingState[]
+}
+
+export type FavoriteLibraryNavigationItem =
+  | { id: 'all'; kind: 'all'; title: string }
+  | { id: 'pending'; kind: 'pending'; title: string; count: number }
+  | {
+      id: string
+      kind: 'folder'
+      folderId: string
+      title: string
+      source: FavoriteRepositoryFolder['kind']
+    }
+
+export type FavoriteLibraryDetail = FavoriteLibraryRow & {
+  folders: FavoriteRepositoryFolder[]
+  pendingStates: FavoriteLibraryPendingState[]
+}
+
+function validAid(aid: number) {
+  return Number.isSafeInteger(aid) && aid > 0
+}
+
+function copyVideo(video: FavoriteRepositoryVideo): FavoriteRepositoryVideo {
+  return { ...video, tags: [...video.tags] }
+}
+
+function createRow(video: FavoriteRepositoryVideo, folderIds: Iterable<string>): FavoriteLibraryRow {
+  return { ...copyVideo(video), folderIds: [...new Set(folderIds)].sort((left, right) => left.localeCompare(right)) }
+}
+
+/**
+ * Combines only the rows received for the current global-search page.  The
+ * repository remains in the main process; callers provide page entries with
+ * their known memberships rather than a full memberships index.
+ */
+export function buildLibrarySearchRows(entries: readonly FavoriteLibrarySearchEntry[]): FavoriteLibraryRow[] {
+  const rowsByAid = new Map<number, { video: FavoriteRepositoryVideo; folderIds: Set<string> }>()
+  for (const entry of entries) {
+    const folderId = entry.folderId.trim()
+    if (!folderId || !validAid(entry.video.aid)) continue
+    const existing = rowsByAid.get(entry.video.aid)
+    if (existing) {
+      existing.folderIds.add(folderId)
+      continue
+    }
+    rowsByAid.set(entry.video.aid, { video: entry.video, folderIds: new Set([folderId]) })
+  }
+  return [...rowsByAid.values()]
+    .map(({ video, folderIds }) => createRow(video, folderIds))
+    .sort((left, right) => left.aid - right.aid)
+}
+
+/** A folder page intentionally preserves membership order and repetitions. */
+export function buildFolderLibraryRows(folderId: string, items: readonly FavoriteRepositoryVideo[]): FavoriteLibraryRow[] {
+  const normalizedFolderId = folderId.trim()
+  if (!normalizedFolderId) return []
+  return items
+    .filter((item) => validAid(item.aid))
+    .map((item) => createRow(item, [normalizedFolderId]))
+}
+
+export function buildPendingLibraryRows(input: {
+  unsyncedAids?: readonly number[]
+  continuationAids?: readonly number[]
+  syncRecords?: readonly Pick<FavoriteRepositorySyncRecord, 'status' | 'affectedAids'>[]
+}): FavoriteLibraryPendingRow[] {
+  const statesByAid = new Map<number, Set<FavoriteLibraryPendingState>>()
+  const add = (aid: number, state: FavoriteLibraryPendingState) => {
+    if (!validAid(aid)) return
+    const states = statesByAid.get(aid) ?? new Set<FavoriteLibraryPendingState>()
+    states.add(state)
+    statesByAid.set(aid, states)
+  }
+  for (const aid of input.unsyncedAids ?? []) add(aid, 'unsynced')
+  for (const aid of input.continuationAids ?? []) add(aid, 'continuation')
+  for (const record of input.syncRecords ?? []) {
+    const state = record.status === 'pending'
+      ? 'unsynced'
+      : record.status === 'failed' || record.status === 'result-unknown'
+        ? record.status
+        : undefined
+    if (state) for (const aid of record.affectedAids) add(aid, state)
+  }
+  const stateOrder: FavoriteLibraryPendingState[] = ['unsynced', 'continuation', 'failed', 'result-unknown']
+  return [...statesByAid]
+    .sort(([left], [right]) => left - right)
+    .map(([aid, states]) => ({ aid, states: stateOrder.filter((state) => states.has(state)) }))
+}
+
+export function buildFavoriteLibraryNavigation(
+  folders: readonly FavoriteRepositoryFolder[],
+  pendingCount: number
+): FavoriteLibraryNavigationItem[] {
+  const kindOrder: Record<FavoriteRepositoryFolder['kind'], number> = {
+    bilibili: 0,
+    'bilimi-logical': 1,
+    local: 2
+  }
+  const folderItems = folders
+    .filter((folder) => folder.id.trim())
+    .slice()
+    .sort((left, right) => kindOrder[left.kind] - kindOrder[right.kind] ||
+      left.title.localeCompare(right.title) || left.id.localeCompare(right.id))
+    .map((folder) => ({
+      id: `folder:${folder.id}`,
+      kind: 'folder' as const,
+      folderId: folder.id,
+      title: folder.title,
+      source: folder.kind
+    }))
+  return [
+    { id: 'all', kind: 'all', title: 'All' },
+    { id: 'pending', kind: 'pending', title: 'Pending', count: Math.max(0, pendingCount) },
+    ...folderItems
+  ]
+}
+
+export function buildFavoriteLibraryDetail(
+  row: FavoriteLibraryRow,
+  folders: readonly FavoriteRepositoryFolder[],
+  pending?: FavoriteLibraryPendingRow
+): FavoriteLibraryDetail {
+  const folderById = new Map(folders.map((folder) => [folder.id, folder]))
+  const matchingFolders = row.folderIds
+    .map((folderId) => folderById.get(folderId))
+    .filter((folder): folder is FavoriteRepositoryFolder => Boolean(folder))
+    .sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id))
+    .map((folder) => ({ ...folder }))
+  return {
+    ...createRow(row, row.folderIds),
+    folders: matchingFolders,
+    pendingStates: pending?.states ? [...pending.states] : []
+  }
+}
+
+export function createFavoriteLibraryPageCursor(page: Pick<FavoriteRepositoryPage<unknown>, 'nextCursor' | 'revision'>) {
+  return {
+    ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+    revision: page.revision
+  }
+}
