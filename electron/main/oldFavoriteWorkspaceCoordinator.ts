@@ -427,15 +427,19 @@ export class OldFavoriteWorkspaceCoordinator {
   }
 
   async executeFrozenBilibiliPlan(accountMid: string): Promise<FavoriteRepositorySyncRun> {
-    return this.queue(async () => {
+    const frozenPlan = await this.queue(async () => {
       const snapshot = await this.options.repository.getSnapshot(accountMid)
       const workspace = snapshot.workspace
       if (!workspace?.frozenSyncPlan || workspace.status !== 'frozen') {
         throw new Error('Old favorite workspace is not frozen for Bilibili execution.')
       }
       if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
-      return this.options.syncService.executeFrozenPlan(snapshot.accountMid, clone(workspace.frozenSyncPlan))
+      return { accountMid: snapshot.accountMid, plan: clone(workspace.frozenSyncPlan) }
     })
+    // The sync service owns its own run lock; never hold workspace mutations
+    // while waiting on a remote page request so snapshot recovery stays live.
+    if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+    return this.options.syncService.executeFrozenPlan(frozenPlan.accountMid, frozenPlan.plan)
   }
 
   async recordDiscoveredFavorites(accountMid: string, discoveredAids: number[]): Promise<OldFavoriteWorkspace> {

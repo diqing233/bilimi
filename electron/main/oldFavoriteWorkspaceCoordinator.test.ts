@@ -28,6 +28,12 @@ function createCoordinator(repository: FavoriteRepositoryService, workspaceStore
   })
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((next) => { resolve = next })
+  return { promise, resolve }
+}
+
 describe('OldFavoriteWorkspaceCoordinator', () => {
   it('persists a scanning inventory overview, including empty Bilimi work folders, for restart recovery', async () => {
     const root = await createRoot()
@@ -198,6 +204,34 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.executeFrozenBilibiliPlan('100')).rejects.toThrow('not frozen')
     expect(executeFrozenPlan).not.toHaveBeenCalled()
+  })
+
+  it('keeps the compact workspace snapshot readable while remote execution is awaiting a checkpoint', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const waiting = deferred<{ id: string; status: 'running' }>()
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      syncService: { executeFrozenPlan: vi.fn().mockReturnValue(waiting.promise) }
+    })
+    await coordinator.open('100')
+    await repository.commit('100', {
+      id: 'frozen', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace', payload: {
+        id: 'workspace-1', accountMid: '100', status: 'frozen', baselineRevision: 1, continuationAids: [],
+        workspaceRef: { workspaceId: 'workspace-1', accountMid: '100', status: 'frozen', baselineRevision: 1,
+          currentSegmentId: 'segment-1', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64) },
+        frozenSyncPlan: { id: 'run-1', accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 1,
+          createdAt: '2026-07-20T00:00:00.000Z', operations: [{ operationKey: 'append-1', aid: 1, kind: 'append', folderIds: ['remote-1'] }] }
+      }
+    })
+
+    const executing = coordinator.executeFrozenBilibiliPlan('100')
+    await expect(Promise.race([
+      coordinator.getSnapshot('100'),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('snapshot blocked')), 100))
+    ])).resolves.toMatchObject({ accountMid: '100' })
+    waiting.resolve({ id: 'run-1', status: 'running' })
+    await executing
   })
 
   it('restores staged source metadata and the active segment after scan finalization', async () => {
