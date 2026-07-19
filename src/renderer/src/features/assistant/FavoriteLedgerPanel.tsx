@@ -3895,6 +3895,32 @@ export function FavoriteLedgerPanel({
   async function resetAllOldFavoriteOrganization() {
     if (oldFavoriteResetRequestRef.current) return oldFavoriteResetRequestRef.current
     const request = (async () => {
+    const resetRecoverySnapshot = {
+      preview,
+      baseScanPreview,
+      scanProgress: scanProgressRef.current,
+      archiveEditorState,
+      selectedOldFavoriteSourceFolderKeys,
+      selectedManagedLogicalIds,
+      unlockedManagedLogicalIds,
+      reorganizedProtectedAids,
+      pendingUnclassifiedDecision,
+      oldFavoriteUserBatches,
+      activeOldFavoriteUserBatchId,
+      oldFavoriteExecutionPhase,
+      oldFavoriteExecutionProgress,
+      oldFavoriteExecutionRun,
+      oldFavoriteStep,
+      lastSuccessfulPreview: lastSuccessfulPreviewRef.current,
+      lastSuccessfulBasePreview: lastSuccessfulBasePreviewRef.current,
+      lastSuccessfulArchivePlanState: lastSuccessfulArchivePlanStateRef.current,
+      currentScanRunId: currentScanRunIdRef.current,
+      currentScanAccountMid: currentScanAccountMidRef.current,
+      currentScanSession: currentScanSessionRef.current,
+      currentScanWorkspace: currentScanWorkspaceRef.current,
+      currentScanInitialFull: currentScanInitialFullRef.current,
+      oldFavoriteRecoveryOpen: oldFavoriteEntryOpen
+    }
     setOldFavoriteResetConfirmOpen(false)
     setOldFavoriteRecoveryResetConfirmOpen(false)
     setOldFavoriteResetRunning(true)
@@ -4001,6 +4027,31 @@ export function FavoriteLedgerPanel({
       } else {
         oldFavoriteIgnoredSessionBatchIdsRef.current.delete(accountMid)
       }
+      setPreview(resetRecoverySnapshot.preview)
+      setBaseScanPreview(resetRecoverySnapshot.baseScanPreview)
+      setScanProgress(resetRecoverySnapshot.scanProgress)
+      setArchiveEditorState(resetRecoverySnapshot.archiveEditorState)
+      setSelectedOldFavoriteSourceFolderKeys(resetRecoverySnapshot.selectedOldFavoriteSourceFolderKeys)
+      setSelectedManagedLogicalIds(resetRecoverySnapshot.selectedManagedLogicalIds)
+      setUnlockedManagedLogicalIds(resetRecoverySnapshot.unlockedManagedLogicalIds)
+      setReorganizedProtectedAids(resetRecoverySnapshot.reorganizedProtectedAids)
+      setPendingUnclassifiedDecision(resetRecoverySnapshot.pendingUnclassifiedDecision)
+      setOldFavoriteUserBatches(resetRecoverySnapshot.oldFavoriteUserBatches)
+      oldFavoriteUserBatchesRef.current = resetRecoverySnapshot.oldFavoriteUserBatches
+      setActiveOldFavoriteUserBatchId(resetRecoverySnapshot.activeOldFavoriteUserBatchId)
+      setOldFavoriteExecutionPhase(resetRecoverySnapshot.oldFavoriteExecutionPhase)
+      setOldFavoriteExecutionProgress(resetRecoverySnapshot.oldFavoriteExecutionProgress)
+      setOldFavoriteExecutionRun(resetRecoverySnapshot.oldFavoriteExecutionRun)
+      setOldFavoriteStep(resetRecoverySnapshot.oldFavoriteStep)
+      lastSuccessfulPreviewRef.current = resetRecoverySnapshot.lastSuccessfulPreview
+      lastSuccessfulBasePreviewRef.current = resetRecoverySnapshot.lastSuccessfulBasePreview
+      lastSuccessfulArchivePlanStateRef.current = resetRecoverySnapshot.lastSuccessfulArchivePlanState
+      currentScanRunIdRef.current = resetRecoverySnapshot.currentScanRunId
+      currentScanAccountMidRef.current = resetRecoverySnapshot.currentScanAccountMid
+      currentScanSessionRef.current = resetRecoverySnapshot.currentScanSession
+      currentScanWorkspaceRef.current = resetRecoverySnapshot.currentScanWorkspace
+      currentScanInitialFullRef.current = resetRecoverySnapshot.currentScanInitialFull
+      setOldFavoriteEntryOpen(resetRecoverySnapshot.oldFavoriteRecoveryOpen)
       const failureMessage = `全部重新整理失败：${errorMessage(error)}`
       setOldFavoriteRecoveryFailure(failureMessage)
       setStatus(failureMessage)

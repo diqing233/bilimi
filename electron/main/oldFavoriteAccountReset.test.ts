@@ -48,4 +48,42 @@ describe('resetOldFavoriteAccount', () => {
     expect(restoreSessions).toHaveBeenCalledWith(previousSessions)
     expect(flushSessions).toHaveBeenCalledTimes(2)
   })
+
+  it('writes a durable reset intent before clearing sessions and completes it last', async () => {
+    const order: string[] = []
+    const operations = {
+      loadSessions: () => ({ version: 1 as const, batches: [], lease: null }),
+      beginReset: vi.fn(async () => { order.push('begin-reset') }),
+      resetRuntime: vi.fn(() => { order.push('runtime'); return null }),
+      restoreRuntime: vi.fn(),
+      resetSessions: vi.fn(() => { order.push('sessions'); return { version: 1 as const, batches: [], lease: null } }),
+      restoreSessions: vi.fn(),
+      flushSessions: vi.fn(async () => { order.push('flush') }),
+      resetWorkspace: vi.fn(async () => { order.push('workspace') }),
+      completeReset: vi.fn(async () => { order.push('complete-reset') })
+    } as never
+
+    await resetOldFavoriteAccount(operations, '42')
+
+    expect(order).toEqual(['begin-reset', 'runtime', 'sessions', 'flush', 'workspace', 'complete-reset'])
+  })
+
+  it('aborts a reset intent when runtime clearing fails before workspace reset', async () => {
+    const beginReset = vi.fn()
+    const abortReset = vi.fn()
+    await expect(resetOldFavoriteAccount({
+      loadSessions: () => ({ version: 1 as const, batches: [], lease: null }),
+      beginReset,
+      abortReset,
+      resetRuntime: () => { throw new Error('runtime reset failed') },
+      restoreRuntime: vi.fn(),
+      resetSessions: vi.fn(),
+      restoreSessions: vi.fn(),
+      flushSessions: vi.fn().mockResolvedValue(undefined),
+      resetWorkspace: vi.fn().mockResolvedValue(undefined)
+    }, '42')).rejects.toThrow('runtime reset failed')
+
+    expect(beginReset).toHaveBeenCalledWith('42')
+    expect(abortReset).toHaveBeenCalledWith('42')
+  })
 })

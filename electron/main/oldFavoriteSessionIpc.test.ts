@@ -42,6 +42,57 @@ describe('registerOldFavoriteSessionIpc', () => {
     expect(broadcast).toHaveBeenCalledWith(state)
   })
 
+  it('does not let generic session save end an active batch', async () => {
+    const ipcMain = new FakeIpcMain()
+    const store = new OldFavoriteSessionStore(new MemoryBackend())
+    const state = createState()
+    store.save(state)
+    const incoming = structuredClone(state)
+    incoming.batches[0].status = 'ended'
+    incoming.batches[0].endedAt = '2026-07-16T09:00:00Z'
+    incoming.batches[0].segments = incoming.batches[0].segments.map((segment) => ({
+      ...segment,
+      status: 'ended' as const,
+      task: undefined
+    }))
+    registerOldFavoriteSessionIpc({ ipcMain, store, isTrustedSender: (id) => id === 7, broadcast: vi.fn() })
+
+    const saved = await ipcMain.invoke('old-favorite-sessions:save', 7, incoming) as OldFavoriteSessionsState
+
+    expect(saved.batches[0]).toMatchObject({ status: 'active' })
+    expect(saved.batches[0].endedAt).toBeUndefined()
+  })
+
+  it('does not let generic session save end an active segment', async () => {
+    const ipcMain = new FakeIpcMain()
+    const store = new OldFavoriteSessionStore(new MemoryBackend())
+    const state = createState()
+    store.save(state)
+    const incoming = structuredClone(state)
+    incoming.batches[0].segments[0].status = 'ended'
+    incoming.batches[0].segments[0].task = undefined
+    registerOldFavoriteSessionIpc({ ipcMain, store, isTrustedSender: (id) => id === 7, broadcast: vi.fn() })
+
+    const saved = await ipcMain.invoke('old-favorite-sessions:save', 7, incoming) as OldFavoriteSessionsState
+
+    expect(saved.batches[0].segments[0]).toMatchObject({ status: 'pending' })
+  })
+
+  it('does not create a terminal batch through generic session save', async () => {
+    const ipcMain = new FakeIpcMain()
+    const store = new OldFavoriteSessionStore(new MemoryBackend())
+    const incoming = createState()
+    incoming.batches[0].status = 'ended'
+    incoming.batches[0].endedAt = '2026-07-16T09:00:00Z'
+    incoming.batches[0].segments[0].status = 'ended'
+    registerOldFavoriteSessionIpc({ ipcMain, store, isTrustedSender: (id) => id === 7, broadcast: vi.fn() })
+
+    const saved = await ipcMain.invoke('old-favorite-sessions:save', 7, incoming) as OldFavoriteSessionsState
+
+    expect(saved.batches[0]).toMatchObject({ status: 'active' })
+    expect(saved.batches[0].segments[0]).toMatchObject({ status: 'pending' })
+  })
+
   it('rejects untrusted senders without reading or mutating storage', async () => {
     const ipcMain = new FakeIpcMain()
     const store = new OldFavoriteSessionStore(new MemoryBackend())

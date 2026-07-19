@@ -946,7 +946,10 @@ function registerAssistantPreferenceHandlers() {
     if (!oldFavoriteWorkspaceService) throw new Error('Old favorite workspace service is unavailable.')
     const reset = () => resetOldFavoriteAccount({
       loadSessions: () => persistence.sessionStore.load(),
+      beginReset: () => oldFavoriteWorkspaceService!.beginReset(accountMid),
+      abortReset: () => oldFavoriteWorkspaceService!.abortReset(accountMid),
       resetRuntime: (account) => {
+        oldFavoriteRuntimeCheckpointScheduler?.invalidate()
         const snapshot = persistence.runtimeStore.captureAccount(account)
         persistence.runtimeStore.resetAccount(account)
         return snapshot
@@ -956,6 +959,7 @@ function registerAssistantPreferenceHandlers() {
       restoreSessions: (state) => persistence.sessionStore.restore(state),
       flushSessions: () => persistence.sessionStore.flush(),
       resetWorkspace: (account) => oldFavoriteWorkspaceService!.resetAccount(account),
+      completeReset: () => oldFavoriteWorkspaceService!.completeReset(accountMid),
       onMutation: {
         begin: () => oldFavoritePersistenceDirtyTracker.beginMutation(),
         finish: (mutation) => oldFavoritePersistenceDirtyTracker.finishMutation(mutation as OldFavoritePersistenceMutation)
@@ -1367,10 +1371,11 @@ configureDevelopmentUserData(app, { isPackaged: app.isPackaged })
 configureAppIdentity(app)
 const singleInstanceGuard = installSingleInstanceGuard(app, () => mainWindow)
 
-if (singleInstanceGuard) app.whenReady().then(() => {
+if (singleInstanceGuard) app.whenReady().then(async () => {
   oldFavoriteWorkspaceService = new OldFavoriteWorkspaceService({
     root: join(app.getPath('userData'), 'old-favorite', 'workspace-v2')
   })
+  await oldFavoriteWorkspaceService.initialize()
   registerOldFavoriteWorkspaceIpc({
     ipcMain,
     service: oldFavoriteWorkspaceService,
@@ -1408,6 +1413,7 @@ if (singleInstanceGuard) app.whenReady().then(() => {
     if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
       throw new Error('Old favorite runtime request came from an untrusted renderer.')
     }
+    oldFavoriteRuntimeCheckpointScheduler?.invalidate()
     const changed = oldFavoriteRuntimeStore?.resetAccount(accountMid) ?? false
     if (changed) broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: accountMid.trim() })
     return changed

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type {
   OldFavoriteAccountIndex,
@@ -13,6 +13,12 @@ import type {
 } from './oldFavoriteWorkspaceTypes'
 
 type FileOperation = 'read' | 'write' | 'delete'
+type ResetIntent = {
+  version: 1
+  accountMid: string
+  transactionId: string
+  phase: 'started' | 'workspace-reset'
+}
 const EMPTY_OVERLAYS = (): OldFavoriteBatchDetail['overlays'] => ({
   user: {},
   deepseek: {},
@@ -67,6 +73,23 @@ export class OldFavoriteWorkspaceService {
 
   isOpen() {
     return this.opened
+  }
+
+  async initialize(): Promise<void> {
+    await this.queueWrite(async () => {
+      let entries
+      try {
+        entries = await readdir(join(this.options.root, 'reset-intents'), { withFileTypes: true })
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+        throw error
+      }
+      for (const entry of entries) {
+        if (!entry.isFile() || !entry.name.endsWith('.json')) continue
+        const account = entry.name.slice(0, -'.json'.length)
+        if (/^\d+$/.test(account)) await this.recoverResetIntent(account)
+      }
+    })
   }
 
   async openAccount(accountMid: string): Promise<OldFavoriteAccountIndex> {
@@ -349,8 +372,10 @@ export class OldFavoriteWorkspaceService {
   async resetAccount(accountMid: string) {
     const account = validAccountMid(accountMid)
     return this.queueWrite(async () => {
+      const existingIntent = await this.readResetIntent(account)
+      const intent = existingIntent ?? await this.beginResetIntent(account)
       const accountDirectory = join(this.options.root, 'accounts', account)
-      const transactionId = randomUUID()
+      const transactionId = intent.transactionId
       const stagedDirectory = join(this.options.root, 'accounts', `.${account}.reset-${transactionId}`)
       const backupDirectory = join(this.options.root, 'accounts', `.${account}.reset-backup-${transactionId}`)
       let staged = false
@@ -365,6 +390,7 @@ export class OldFavoriteWorkspaceService {
         if (staged) {
           await cp(stagedDirectory, backupDirectory, { recursive: true })
           backedUp = true
+          await this.markWorkspaceResetComplete(account, intent)
           await this.deletePath(stagedDirectory, true)
           staged = false
           await this.deletePath(backupDirectory, true)
@@ -378,11 +404,34 @@ export class OldFavoriteWorkspaceService {
         } else if (staged) {
           await rename(stagedDirectory, accountDirectory).catch(() => undefined)
         }
+        await this.completeResetIntent(account).catch(() => undefined)
         throw error
       }
+      await this.completeResetIntent(account).catch(() => undefined)
       this.indexes.delete(account)
       for (const key of [...this.manifests.keys()]) if (key.startsWith(`${account}:`)) this.manifests.delete(key)
       for (const key of [...this.overlayCache.keys()]) if (key.startsWith(`${account}:`)) this.overlayCache.delete(key)
+    })
+  }
+
+  async beginReset(accountMid: string): Promise<void> {
+    const account = validAccountMid(accountMid)
+    await this.queueWrite(async () => {
+      await this.beginResetIntent(account)
+    })
+  }
+
+  async completeReset(accountMid: string): Promise<void> {
+    const account = validAccountMid(accountMid)
+    await this.queueWrite(async () => {
+      await this.completeResetIntent(account).catch(() => undefined)
+    })
+  }
+
+  async abortReset(accountMid: string): Promise<void> {
+    const account = validAccountMid(accountMid)
+    await this.queueWrite(async () => {
+      await this.completeResetIntent(account).catch(() => undefined)
     })
   }
 
@@ -436,6 +485,78 @@ export class OldFavoriteWorkspaceService {
   private async readText(path: string) {
     this.options.onFileAccess?.('read', path)
     try { return await readFile(path, 'utf8') } catch { return null }
+  }
+
+  private resetIntentPath(account: string) {
+    return join(this.options.root, 'reset-intents', `${account}.json`)
+  }
+
+  private async readResetIntent(account: string): Promise<ResetIntent | null> {
+    const intent = await this.readJson<ResetIntent>(this.resetIntentPath(account))
+    return intent?.version === 1 && intent.accountMid === account && /^[a-f0-9-]+$/.test(intent.transactionId)
+      ? intent
+      : null
+  }
+
+  private async beginResetIntent(account: string): Promise<ResetIntent> {
+    const existing = await this.readResetIntent(account)
+    if (existing) return existing
+    const intent: ResetIntent = {
+      version: 1,
+      accountMid: account,
+      transactionId: randomUUID(),
+      phase: 'started'
+    }
+    await this.atomicWriteJson(this.resetIntentPath(account), intent)
+    return intent
+  }
+
+  private async completeResetIntent(account: string): Promise<void> {
+    await this.deletePath(this.resetIntentPath(account))
+  }
+
+  private async markWorkspaceResetComplete(account: string, intent: ResetIntent): Promise<void> {
+    await this.atomicWriteJson(this.resetIntentPath(account), {
+      ...intent,
+      phase: 'workspace-reset'
+    })
+  }
+
+  private async recoverResetIntent(account: string): Promise<void> {
+    const intent = await this.readResetIntent(account)
+    if (!intent) return
+    const stagedDirectory = join(this.options.root, 'accounts', `.${account}.reset-${intent.transactionId}`)
+    const backupDirectory = join(this.options.root, 'accounts', `.${account}.reset-backup-${intent.transactionId}`)
+    if (intent.phase === 'workspace-reset') {
+      await this.deletePath(this.accountDirectory(account), true)
+      await this.deletePath(stagedDirectory, true)
+      await this.deletePath(backupDirectory, true)
+    } else {
+      const accountDirectory = this.accountDirectory(account)
+      const stagedExists = await this.pathExists(stagedDirectory)
+      const accountExists = await this.pathExists(accountDirectory)
+      if (!accountExists && stagedExists) {
+        await rename(stagedDirectory, accountDirectory)
+      } else if (!accountExists && await this.pathExists(backupDirectory)) {
+        await rename(backupDirectory, accountDirectory)
+      }
+      await this.deletePath(stagedDirectory, true)
+      await this.deletePath(backupDirectory, true)
+    }
+    await this.completeResetIntent(account)
+    this.indexes.delete(account)
+    for (const key of [...this.manifests.keys()]) if (key.startsWith(`${account}:`)) this.manifests.delete(key)
+    for (const key of [...this.overlayCache.keys()]) if (key.startsWith(`${account}:`)) this.overlayCache.delete(key)
+  }
+
+  private async pathExists(path: string): Promise<boolean> {
+    try {
+      await readFile(path)
+      return true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EISDIR') return true
+      return false
+    }
   }
 
   private async readJson<T>(path: string): Promise<T | null> {

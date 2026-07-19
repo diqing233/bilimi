@@ -34,6 +34,35 @@ function finishMutation(options: RegisterOptions, mutation: unknown): void {
   else options.onMutation?.(false, mutation)
 }
 
+function rendererSnapshotWithoutLifecycleTransitions(
+  state: OldFavoriteSessionsState,
+  current: OldFavoriteSessionsState
+): OldFavoriteSessionsState {
+  const currentById = new Map(current.batches.map((batch) => [batch.id, batch]))
+  return {
+    ...state,
+    batches: state.batches.map((batch) => {
+      const existing = currentById.get(batch.id)
+      if (existing?.status === 'ended') return existing
+      const nextBatch = batch.status !== 'ended'
+        ? batch
+        : { ...batch, status: 'active' as const, endedAt: undefined }
+      return {
+        ...nextBatch,
+        segments: nextBatch.segments.map((segment) => {
+          if (segment.status !== 'ended') return segment
+          const previous = existing?.segments.find((candidate) => candidate.id === segment.id)
+          return {
+            ...segment,
+            status: previous?.status && previous.status !== 'ended' ? previous.status : 'pending',
+            task: previous?.task
+          }
+        })
+      }
+    })
+  }
+}
+
 export function registerOldFavoriteSessionIpc(options: RegisterOptions): void {
   const { ipcMain, isTrustedSender, broadcast } = options
   let mutationTail = Promise.resolve()
@@ -54,7 +83,8 @@ export function registerOldFavoriteSessionIpc(options: RegisterOptions): void {
     assertTrusted(event, isTrustedSender)
     return queueMutation(async () => {
       const store = await getStore()
-      store.save(state)
+      const current = typeof store.load === 'function' ? store.load() : undefined
+      store.save(current ? rendererSnapshotWithoutLifecycleTransitions(state, current) : state)
       const mutation = options.onMutation?.(true)
       await store.flush()
       finishMutation(options, mutation)

@@ -2153,7 +2153,9 @@ describe('FavoriteLedgerPanel', () => {
       .getByRole('button', { name: '确认重置' }))
 
     await screen.findByText('全部重新整理失败：workspace reset failed')
-    expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '当前整理批次' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /进行中/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '清除旧结果并重新扫描' })).toBeInTheDocument()
     expect(onScanOldFavorites).not.toHaveBeenCalled()
     expect(resetOldFavoriteAccount).toHaveBeenCalledWith('42')

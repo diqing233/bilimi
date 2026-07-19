@@ -73,6 +73,7 @@ export function compactOldFavoriteRuntimeState(state: PersistedRuntimeState): Pe
 export class TransientCheckpointScheduler {
   private readonly dirtyKeys = new Set<string>()
   private timer: ReturnType<typeof setTimeout> | null = null
+  private epoch = 0
 
   constructor(
     private readonly checkpoint: (keys: string[]) => void,
@@ -82,12 +83,23 @@ export class TransientCheckpointScheduler {
   markDirty(key: string): void {
     this.dirtyKeys.add(key)
     if (this.timer) return
+    const scheduledEpoch = this.epoch
     this.timer = setTimeout(() => {
       this.timer = null
+      if (scheduledEpoch !== this.epoch) return
       const keys = [...this.dirtyKeys]
       this.dirtyKeys.clear()
       this.checkpoint(keys)
     }, this.delayMs)
+  }
+
+  invalidate(): void {
+    this.epoch += 1
+    this.dirtyKeys.clear()
+    if (this.timer) {
+      clearTimeout(this.timer)
+      this.timer = null
+    }
   }
 }
 
@@ -174,16 +186,19 @@ export class OldFavoriteRuntimeStore {
     const normalized = accountMid.trim()
     if (!normalized || !this.backend) return false
     const persisted = this.readPersisted()
-    if (!(normalized in persisted.accounts)) return false
+    const isBoundAccount = this.accountMid === normalized
+    if (!(normalized in persisted.accounts) && !isBoundAccount) return false
     const previous = structuredClone(persisted)
     delete persisted.accounts[normalized]
-    try {
-      this.backend.set(STORE_KEY, encodeRuntimeValue(persisted))
-    } catch (error) {
-      try { this.backend.set(STORE_KEY, encodeRuntimeValue(previous)) } catch { /* preserve the original failure */ }
-      throw error
+    if (normalized in previous.accounts) {
+      try {
+        this.backend.set(STORE_KEY, encodeRuntimeValue(persisted))
+      } catch (error) {
+        try { this.backend.set(STORE_KEY, encodeRuntimeValue(previous)) } catch { /* preserve the original failure */ }
+        throw error
+      }
     }
-    if (this.accountMid === normalized) this.loadBoundAccount()
+    if (isBoundAccount) this.loadBoundAccount()
     return true
   }
 

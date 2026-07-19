@@ -735,4 +735,52 @@ describe('OldFavoriteWorkspaceService', () => {
     })
   })
 
+  it('completes a reset intent and removes interrupted workspace artifacts on startup', async () => {
+    const root = await createRoot()
+    const accountDirectory = join(root, 'accounts', '100')
+    await mkdir(join(accountDirectory, 'batches'), { recursive: true })
+    await writeFile(join(accountDirectory, 'index.json'), JSON.stringify({
+      version: 2, accountMid: '100', batches: []
+    }), 'utf8')
+    await mkdir(join(root, 'reset-intents'), { recursive: true })
+    await writeFile(join(root, 'reset-intents', '100.json'), JSON.stringify({
+      version: 1,
+      accountMid: '100',
+      transactionId: '00000000-0000-4000-8000-000000000000',
+      phase: 'workspace-reset'
+    }), 'utf8')
+    await mkdir(join(root, 'accounts', '.100.reset-00000000-0000-4000-8000-000000000000'), { recursive: true })
+    await mkdir(join(root, 'accounts', '.100.reset-backup-00000000-0000-4000-8000-000000000000'), { recursive: true })
+
+    const service = new OldFavoriteWorkspaceService({ root })
+
+    await service.initialize()
+    expect((await service.openAccount('100')).batches).toEqual([])
+    await expect(readFile(join(root, 'reset-intents', '100.json'), 'utf8')).rejects.toThrow()
+    await expect(readdir(join(root, 'accounts'))).resolves.toEqual([])
+  })
+
+  it('restores a staged account when startup finds a reset interrupted before workspace deletion', async () => {
+    const root = await createRoot()
+    const stagedDirectory = join(root, 'accounts', '.100.reset-00000000-0000-4000-8000-000000000000')
+    await mkdir(stagedDirectory, { recursive: true })
+    await writeFile(join(stagedDirectory, 'index.json'), JSON.stringify({
+      version: 2, accountMid: '100', batches: []
+    }), 'utf8')
+    await mkdir(join(root, 'reset-intents'), { recursive: true })
+    await writeFile(join(root, 'reset-intents', '100.json'), JSON.stringify({
+      version: 1,
+      accountMid: '100',
+      transactionId: '00000000-0000-4000-8000-000000000000',
+      phase: 'started'
+    }), 'utf8')
+
+    const service = new OldFavoriteWorkspaceService({ root })
+
+    await service.initialize()
+    expect((await service.openAccount('100')).batches).toEqual([])
+    await expect(readFile(join(root, 'reset-intents', '100.json'), 'utf8')).rejects.toThrow()
+    await expect(readdir(join(root, 'accounts'))).resolves.toEqual(['100'])
+  })
+
 })

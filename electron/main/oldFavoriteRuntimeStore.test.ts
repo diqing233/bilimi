@@ -237,4 +237,27 @@ describe('OldFavoriteRuntimeStore', () => {
     reopened.bindAccount('99')
     expect(reopened.get('oldFavoriteExecutionPhase', null).value).toBe('idle')
   })
+
+  it('clears transient in-memory account state even when no durable account exists', () => {
+    const backend = memoryBackend()
+    const store = new OldFavoriteRuntimeStore(backend)
+    store.bindAccount('42')
+    store.setTransient('scanProgress', { completed: 12 }, 0)
+
+    expect(store.resetAccount('42')).toBe(true)
+    expect(store.get('scanProgress', null).value).toBeNull()
+    expect(store.checkpoint(['scanProgress'])).toBe(false)
+  })
+
+  it('invalidates a pending transient checkpoint when reset starts', () => {
+    vi.useFakeTimers()
+    const checkpoint = vi.fn()
+    const scheduler = new TransientCheckpointScheduler(checkpoint, 4_000)
+
+    scheduler.markDirty('scanProgress')
+    scheduler.invalidate()
+    vi.advanceTimersByTime(4_000)
+
+    expect(checkpoint).not.toHaveBeenCalled()
+  })
 })
