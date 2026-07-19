@@ -1,3 +1,5 @@
+import { REMOTE_FAVORITE_SHARD_CAPACITY } from '../../../../shared/favoriteRepositoryPlanning'
+
 export type FavoritePhysicalShard = {
   id: string
   title: string
@@ -79,7 +81,7 @@ type AllocateFavoritePhysicalShardsOptions = {
 }
 
 export async function allocateFavoritePhysicalShards(options: AllocateFavoritePhysicalShardsOptions) {
-  const maxMembersPerShard = options.maxMembersPerShard ?? 1000
+  const maxMembersPerShard = options.maxMembersPerShard ?? REMOTE_FAVORITE_SHARD_CAPACITY
   const workingShards = options.shards
     .map((shard) => ({
       ...shard,

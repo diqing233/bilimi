@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { REMOTE_FAVORITE_SHARD_CAPACITY } from '../../../../shared/favoriteRepositoryPlanning'
 import {
   allocateFavoritePhysicalShards,
   getFavoriteLogicalFolderTitle,
@@ -8,6 +9,20 @@ import {
 } from './favoritePhysicalShards'
 
 describe('favorite physical shards', () => {
+  it('uses the shared remote capacity when no per-call limit is supplied', async () => {
+    const createShard = vi.fn().mockResolvedValue({ id: 'new-2' })
+    const memberAids = Array.from({ length: REMOTE_FAVORITE_SHARD_CAPACITY }, (_, index) => index + 1)
+
+    const result = await allocateFavoritePhysicalShards({
+      logicalTitle: 'bilimi路知识',
+      requestedAids: [REMOTE_FAVORITE_SHARD_CAPACITY + 1],
+      shards: [{ id: 'full', title: 'bilimi路知识', memberAids }],
+      createShard
+    })
+
+    expect(result).toMatchObject({ status: 'ready', createdShards: [{ id: 'new-2', shardNumber: 2 }] })
+  })
+
   it('recognizes stable shard names and merges membership by logical folder with aid deduplication', () => {
     const groups = groupFavoritePhysicalShards([
       { id: 'a', title: 'bilimi·原神', memberAids: [1, 2], membershipComplete: true },
