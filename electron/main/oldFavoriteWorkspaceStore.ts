@@ -22,7 +22,13 @@ type Overlay = {
   currentSegmentId: string
   classifications: Classification[]
   history: History[]
-  scanMetadata?: { sourceFolders?: SourceFolder[] }
+  scanMetadata?: {
+    sourceFolders?: SourceFolder[]
+    phase?: 'inventory' | 'failed' | 'complete'
+    failureCount?: number
+    mode?: 'incremental' | 'full'
+    reason?: string
+  }
 }
 type Manifest = {
   version: 1
@@ -33,6 +39,7 @@ type Manifest = {
   currentSegmentId: string
   segments: Array<{ id: string; file: string; checksum: string }>
   sourceFolders?: SourceFolder[]
+  scan?: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: 'incremental' | 'full'; reason?: string }
   overlayRevision: number
   journalCursor: number
   journalChecksum: string
@@ -84,6 +91,7 @@ export class OldFavoriteWorkspaceStore {
       version: 1, workspaceId: input.workspaceId, accountMid, status: input.status,
       baselineRevision: input.baselineRevision, currentSegmentId: input.currentSegmentId,
       segments, sourceFolders: input.sourceFolders?.map(clone) ?? [],
+      scan: { phase: 'inventory', failureCount: 0, mode: 'incremental' },
       overlayRevision: 0, journalCursor: 0, journalChecksum
     }
     await this.writeManifest(directory, withoutChecksum)
@@ -138,11 +146,20 @@ export class OldFavoriteWorkspaceStore {
       const classifications: Record<string, Classification> = {}
       const history: History[] = []
       let sourceFolders = manifest.sourceFolders?.map(clone) ?? []
+      let scan = clone(manifest.scan ?? { phase: 'inventory' as const, failureCount: 0, mode: 'incremental' as const })
       for (const line of committedJournal.split('\n').filter(Boolean)) {
         const overlay = JSON.parse(line) as Overlay
         for (const item of overlay.classifications) classifications[String(item.aid)] = clone(item)
         history.push(...overlay.history.map(clone))
         if (overlay.scanMetadata?.sourceFolders) sourceFolders = overlay.scanMetadata.sourceFolders.map(clone)
+        if (overlay.scanMetadata?.phase) {
+          scan = {
+            phase: overlay.scanMetadata.phase,
+            failureCount: overlay.scanMetadata.failureCount ?? scan.failureCount,
+            mode: overlay.scanMetadata.mode ?? scan.mode,
+            ...(overlay.scanMetadata.reason ? { reason: overlay.scanMetadata.reason } : {})
+          }
+        }
       }
       return {
         workspaceId: manifest.workspaceId, accountMid: manifest.accountMid, status: manifest.status,
@@ -152,6 +169,7 @@ export class OldFavoriteWorkspaceStore {
         loadedSegmentAids: [...loadedSegment.aids],
         loadedSegmentItems: (loadedSegment.items ?? []).map(clone),
         sourceFolders,
+        scan,
         classifications, history
       }
     } catch {

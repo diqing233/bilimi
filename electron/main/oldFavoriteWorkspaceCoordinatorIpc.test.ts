@@ -15,7 +15,8 @@ const snapshot = {
   version: 1 as const, accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const,
   mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false, continuationCount: 0,
   segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1 }],
-  currentSegment: { id: 'segment-1', aids: [1] }, classifications: {}, history: { cursor: 0, length: 0 }
+  currentSegment: { id: 'segment-1', aids: [1] }, classifications: {}, history: { cursor: 0, length: 0 },
+  scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: []
 }
 
 describe('old favorite workspace coordinator IPC', () => {
@@ -57,6 +58,27 @@ describe('old favorite workspace coordinator IPC', () => {
     })
     await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
       type: 'complete-scan', aids: [1]
+    })).rejects.toThrow('command is invalid')
+  })
+
+  it('accepts only a small start-scan command and returns its immediate scanning snapshot', async () => {
+    const ipcMain = new FakeIpcMain()
+    const scanning = { ...snapshot, status: 'scanning' as const, scan: { phase: 'inventory' as const, failureCount: 0 } }
+    const coordinator = {
+      beginScan: vi.fn().mockResolvedValue(scanning),
+      getSnapshot: vi.fn().mockResolvedValue(scanning)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'start-scan', mode: 'incremental'
+    })).resolves.toEqual(scanning)
+    expect(coordinator.beginScan).toHaveBeenCalledWith('100', 'incremental')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'start-scan', mode: 'incremental', aids: [1]
     })).rejects.toThrow('command is invalid')
   })
 })

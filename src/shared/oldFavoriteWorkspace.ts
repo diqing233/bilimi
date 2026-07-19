@@ -62,6 +62,17 @@ export type OldFavoriteWorkspaceSnapshot = {
   mode: OldFavoriteWorkspaceMode
   segmentSize: number
   hasMultipleSegments: boolean
+  scan: {
+    phase: 'inventory' | 'failed' | 'complete'
+    failureCount: number
+    reason?: string
+  }
+  sourceFolders: Array<{
+    id: string
+    title: string
+    itemCount: number
+    isBilimiWorkFolder: boolean
+  }>
   continuationCount: number
   segments: Array<{ id: string; index: number; status: 'previewing' | 'frozen'; itemCount: number }>
   currentSegment: { id: string; aids: number[] } | null

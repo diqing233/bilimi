@@ -28,6 +28,52 @@ function createCoordinator(repository: FavoriteRepositoryService, workspaceStore
 }
 
 describe('OldFavoriteWorkspaceCoordinator', () => {
+  it('persists a scanning inventory overview, including empty Bilimi work folders, for restart recovery', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const first = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+
+    await first.open('100')
+    await first.beginScan('100', 'incremental')
+    await first.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'source', title: 'Source', itemCount: 3, isBilimiWorkFolder: false },
+        { id: 'bilimi-empty', title: 'Bilimi Inbox', itemCount: 0, isBilimiWorkFolder: true }
+      ]
+    })
+
+    await expect(createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' }),
+      new OldFavoriteWorkspaceStore({ root })
+    ).getSnapshot('100')).resolves.toMatchObject({
+      status: 'scanning',
+      scan: { phase: 'inventory', failureCount: 0 },
+      sourceFolders: [
+        { id: 'source', itemCount: 3, isBilimiWorkFolder: false },
+        { id: 'bilimi-empty', itemCount: 0, isBilimiWorkFolder: true }
+      ],
+      currentSegment: null
+    })
+  })
+
+  it('keeps a requested full scan mode and existing inventory overview when restarted', async () => {
+    const root = await createRoot()
+    const coordinator = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' }),
+      new OldFavoriteWorkspaceStore({ root })
+    )
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'bilimi-empty', title: 'Bilimi·Inbox', itemCount: 0, isBilimiWorkFolder: true }]
+    })
+
+    await expect(coordinator.beginScan('100', 'full')).resolves.toMatchObject({
+      mode: 'full', sourceFolders: [{ id: 'bilimi-empty', itemCount: 0 }]
+    })
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({ mode: 'full' })
+  })
+
   it('returns only the current segment in a renderer workspace snapshot', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

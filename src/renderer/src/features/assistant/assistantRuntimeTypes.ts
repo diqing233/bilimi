@@ -98,6 +98,13 @@ export type AssistantRuntimeRequest =
       action: 'append' | 'remove' | 'read-members'
       input: FavoriteRepositoryPageOperationInput
     }
+  | { id: string; type: 'old-favorite-workspace-bind-scan-target'; accountMid: string }
+  | {
+      id: string
+      type: 'old-favorite-workspace-inventory'
+      accountMid: string
+      target: FavoriteRepositoryPageTarget
+    }
 
 export type AssistantRuntimeRequestInput = AssistantRuntimeRequest extends infer Request
   ? Request extends { id: string }

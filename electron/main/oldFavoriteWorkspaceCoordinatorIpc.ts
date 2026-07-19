@@ -10,6 +10,7 @@ type IpcEvent = { sender: { id: number } }
 type IpcMain = { handle(channel: string, handler: (event: IpcEvent, ...args: never[]) => unknown): void }
 
 type WorkspaceCommand =
+  | { type: 'start-scan'; mode: 'incremental' | 'full' }
   | { type: 'select-segment'; segmentId: string }
   | { type: 'apply-classifications'; source: 'manual'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
   | { type: 'freeze-segment'; segmentId: string }
@@ -33,6 +34,10 @@ function validAssignments(value: unknown): value is ApplyWorkspaceClassification
 function command(value: unknown): WorkspaceCommand {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Old favorite workspace command is invalid.')
   const candidate = value as Record<string, unknown>
+  if (candidate.type === 'start-scan' && (candidate.mode === 'incremental' || candidate.mode === 'full') &&
+    Object.keys(candidate).every((key) => key === 'type' || key === 'mode')) {
+    return { type: 'start-scan', mode: candidate.mode }
+  }
   if (candidate.type === 'select-segment' && typeof candidate.segmentId === 'string' && candidate.segmentId.trim()) {
     return { type: 'select-segment', segmentId: candidate.segmentId.trim() }
   }
@@ -50,6 +55,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   coordinator: OldFavoriteWorkspaceCoordinator
   isTrustedSender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
+  startScan?: (accountMid: string, mode: 'incremental' | 'full') => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
 }) {
   const assertAccount = async (event: IpcEvent, requestedAccountMid: unknown) => {
     if (!options.isTrustedSender(event.sender.id)) throw new Error('Old favorite workspace request came from an untrusted renderer.')
@@ -66,6 +72,9 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   options.ipcMain.handle('old-favorite-workspace-v1:command', async (event, requestedAccountMid: string, value: unknown) => {
     const accountMid = await assertAccount(event, requestedAccountMid)
     const requested = command(value)
+    if (requested.type === 'start-scan') return options.startScan
+      ? options.startScan(accountMid, requested.mode)
+      : options.coordinator.beginScan(accountMid, requested.mode)
     if (requested.type === 'select-segment') await options.coordinator.selectSegment(accountMid, requested.segmentId)
     if (requested.type === 'freeze-segment') await options.coordinator.freezeSegment(accountMid, requested.segmentId)
     if (requested.type === 'apply-classifications') await options.coordinator.applyClassificationBatch(accountMid, {

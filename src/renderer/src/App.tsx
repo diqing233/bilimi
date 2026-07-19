@@ -50,6 +50,7 @@ import {
   type OldFavoriteBatchCommitToken
 } from './features/favorites/favoriteLedgerApi'
 import { createFavoriteRepositoryPageTarget } from './features/favorites/favoriteRepositoryPageTarget'
+import { createOldFavoriteWorkspacePageBridge } from './features/favorites/oldFavoriteWorkspacePageBridge'
 import {
   prepareOldFavoriteScan as waitForOldFavoriteScanPreparation,
   type OldFavoriteScanPreparationProbe
@@ -883,6 +884,26 @@ export default function App() {
     } catch {
       return { status: 'unknown' as const, observedAccountMid: '', reason: 'target-unavailable' }
     }
+  }
+
+  async function runOldFavoriteWorkspaceInventory(accountMid: string, target: FavoriteRepositoryPageTarget) {
+    const active = getCurrentActiveWebview()
+    const activeId = active?.getWebContentsId?.()
+    const current = typeof activeId === 'number' ? favoriteRepositoryTargetStates.current.get(activeId) : undefined
+    if (!active || !current || active.isLoading?.() || !active.executeJavaScript ||
+      current.webContentsId !== target.webContentsId || current.instanceId !== target.instanceId ||
+      current.navigationEpoch !== target.navigationEpoch) {
+      return { status: 'unknown' as const, observedAccountMid: '', reason: 'target-unavailable' }
+    }
+    const bridge = createOldFavoriteWorkspacePageBridge({
+      execute: (_target, script) => active.executeJavaScript(script, true)
+    })
+    const result = await bridge.run(target, { type: 'inventory', accountMid })
+    const after = favoriteRepositoryTargetStates.current.get(activeId)
+    if (!after || after.instanceId !== target.instanceId || after.navigationEpoch !== target.navigationEpoch) {
+      return { status: 'unknown' as const, observedAccountMid: result.observedAccountMid, reason: 'target-navigated' }
+    }
+    return result
   }
 
   function refreshActiveTab() {
@@ -2174,6 +2195,10 @@ export default function App() {
           return runFavoriteRepositoryPageOperation(
             request.accountMid, request.runId, request.target, request.action, request.input
           )
+        case 'old-favorite-workspace-bind-scan-target':
+          return bindFavoriteRepositoryPageTarget(request.accountMid)
+        case 'old-favorite-workspace-inventory':
+          return runOldFavoriteWorkspaceInventory(request.accountMid, request.target)
         default:
           throw new Error('Unknown assistant runtime request.')
       }

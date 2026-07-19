@@ -83,6 +83,7 @@ import { OldFavoriteWorkspaceService } from './oldFavoriteWorkspaceService'
 import { registerOldFavoriteWorkspaceIpc } from './oldFavoriteWorkspaceIpc'
 import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinator'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
+import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanService'
 import { registerOldFavoriteWorkspaceCoordinatorIpc } from './oldFavoriteWorkspaceCoordinatorIpc'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import { FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
@@ -454,6 +455,7 @@ let favoriteRepositoryService: FavoriteRepositoryService | undefined
 let favoriteRepositorySyncService: FavoriteRepositorySyncService | undefined
 let favoriteRepositoryPageBridgeManager: FavoriteRepositoryRuntimePageBridgeManager | undefined
 let oldFavoriteWorkspaceCoordinator: OldFavoriteWorkspaceCoordinator | undefined
+let oldFavoriteWorkspaceScanService: OldFavoriteWorkspaceScanService | undefined
 const oldFavoriteRendererFlushCoordinator = new OldFavoriteRendererFlushCoordinator()
 let queueOldFavoriteSessionMutation: OldFavoriteMutationQueue | undefined
 
@@ -1405,11 +1407,16 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       root: join(app.getPath('userData'), 'favorites', 'repository-v1')
     })
   })
+  oldFavoriteWorkspaceScanService = new OldFavoriteWorkspaceScanService({
+    coordinator: oldFavoriteWorkspaceCoordinator,
+    requestRuntime: (request) => requestMainAssistantRuntime(request)
+  })
   registerOldFavoriteWorkspaceCoordinatorIpc({
     ipcMain,
     coordinator: oldFavoriteWorkspaceCoordinator,
     isTrustedSender: isTrustedOldFavoriteSessionSender,
-    getCurrentAccountMid: readCurrentBilibiliAccountMid
+    getCurrentAccountMid: readCurrentBilibiliAccountMid,
+    startScan: (accountMid, mode) => oldFavoriteWorkspaceScanService!.start(accountMid, mode)
   })
   registerFavoriteRepositoryIpc({
     ipcMain,

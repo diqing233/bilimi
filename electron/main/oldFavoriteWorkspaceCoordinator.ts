@@ -37,6 +37,10 @@ type FreezeJournalEvent = { type: 'freeze'; segmentId: string }
 type DiscoveryJournalEvent = { type: 'discover'; aids: number[] }
 type WorkspaceJournalEvent = ScanJournalEvent | ClassificationJournalEvent | CursorJournalEvent |
   FreezeJournalEvent | DiscoveryJournalEvent
+type ScanOverview = {
+  sourceFolders: Array<{ id: string; title: string; itemCount: number; isBilimiWorkFolder: boolean }>
+  scan: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: OldFavoriteWorkspace['mode']; reason?: string }
+}
 
 export type { OldFavoriteWorkspaceRecoveryRequired, OldFavoriteWorkspaceSnapshot }
 
@@ -80,6 +84,7 @@ export class OldFavoriteWorkspaceCoordinator {
   private readonly currentSegments = new Map<string, string>()
   private readonly segmentDescriptors = new Map<string, SegmentDescriptor[]>()
   private readonly frozenSegments = new Map<string, Set<string>>()
+  private readonly scanOverviews = new Map<string, ScanOverview>()
   private operationTail = Promise.resolve()
 
   constructor(private readonly options: {
@@ -96,6 +101,55 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.queue(async () => {
       const workspace = await this.openUnsafe(accountMid)
       return isRecoveryRequired(workspace) ? workspace : this.createSnapshot(workspace)
+    })
+  }
+
+  async beginScan(accountMid: string, mode: OldFavoriteWorkspace['mode']): Promise<OldFavoriteWorkspaceSnapshot> {
+    return this.queue(async () => {
+      if (mode !== 'incremental' && mode !== 'full') throw new Error('Old favorite workspace mode is invalid.')
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is already active.')
+      const updated = { ...workspace, mode }
+      const sourceFolders = this.scanOverviews.get(workspace.accountMid)?.sourceFolders.map(clone) ?? []
+      this.scanOverviews.set(workspace.accountMid, { sourceFolders, scan: { phase: 'inventory', failureCount: 0, mode } })
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: '', classifications: [], history: [],
+        scanMetadata: { sourceFolders, phase: 'inventory', failureCount: 0, mode }
+      })
+      this.workspaces.set(updated.accountMid, updated)
+      return this.createSnapshot(updated)
+    })
+  }
+
+  async recordScanInventory(accountMid: string, input: { sourceFolders: ScanOverview['sourceFolders'] }) {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not active.')
+      const sourceFolders = input.sourceFolders.map((folder) => ({ ...folder }))
+      const mode = this.scanOverviews.get(workspace.accountMid)?.scan.mode ?? workspace.mode
+      const overview: ScanOverview = { sourceFolders, scan: { phase: 'inventory', failureCount: 0, mode } }
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: '', classifications: [], history: [],
+        scanMetadata: { sourceFolders, ...overview.scan }
+      })
+      this.scanOverviews.set(workspace.accountMid, overview)
+    })
+  }
+
+  async recordScanFailure(accountMid: string, reason: string) {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'scanning') return
+      const prior = this.scanOverviews.get(workspace.accountMid) ?? { sourceFolders: [], scan: { phase: 'inventory' as const, failureCount: 0, mode: workspace.mode } }
+      const overview: ScanOverview = {
+        sourceFolders: prior.sourceFolders,
+        scan: { phase: 'failed', failureCount: prior.scan.failureCount + 1, mode: prior.scan.mode, reason: reason.slice(0, 256) }
+      }
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: '', classifications: [], history: [],
+        scanMetadata: { sourceFolders: overview.sourceFolders, ...overview.scan }
+      })
+      this.scanOverviews.set(workspace.accountMid, overview)
     })
   }
 
@@ -249,7 +303,11 @@ export class OldFavoriteWorkspaceCoordinator {
     const events = recovered.history.map(decodeJournalEvent).filter((event): event is WorkspaceJournalEvent => Boolean(event))
     const scan = events.find((event): event is ScanJournalEvent => event.type === 'scan')
     if (marker.status === 'scanning') {
-      const scanning = createOldFavoriteWorkspace({ accountMid: marker.accountMid, id: marker.id, now: updatedAt })
+      const scanning = { ...createOldFavoriteWorkspace({ accountMid: marker.accountMid, id: marker.id, now: updatedAt }), mode: recovered.scan.mode }
+      this.scanOverviews.set(marker.accountMid, {
+        sourceFolders: recovered.sourceFolders,
+        scan: recovered.scan
+      })
       this.remember(scanning, '', [], new Set())
       return clone(scanning)
     }
@@ -396,6 +454,8 @@ export class OldFavoriteWorkspaceCoordinator {
       mode: workspace.mode,
       segmentSize: workspace.segmentSize,
       hasMultipleSegments: workspace.hasMultipleSegments,
+      scan: clone(this.scanOverviews.get(workspace.accountMid)?.scan ?? { phase: workspace.status === 'scanning' ? 'inventory' : 'complete', failureCount: 0, mode: workspace.mode }),
+      sourceFolders: clone(this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []),
       continuationCount: workspace.continuationAids.length,
       segments: (this.segmentDescriptors.get(workspace.accountMid) ?? workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length })))
         .map((segment) => ({

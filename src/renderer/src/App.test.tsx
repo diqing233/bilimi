@@ -169,6 +169,28 @@ describe('App runtime integration', () => {
     })).resolves.toMatchObject({ status: 'unknown', reason: 'target-unavailable' })
   })
 
+  it('runs only the fixed inventory command against the explicitly bound active target', async () => {
+    const app = renderAppWithRuntimeBridge()
+    const webview = document.querySelector('webview') as Electron.WebviewTag
+    const executeJavaScript = vi.fn()
+      .mockResolvedValueOnce('100')
+      .mockResolvedValueOnce({
+        status: 'ok', observedAccountMid: '100',
+        folders: [{ id: '11', title: 'Bilimi Inbox', mediaCount: 0 }]
+      })
+    Object.assign(webview, { getWebContentsId: () => 101, executeJavaScript })
+    act(() => webview.dispatchEvent(new Event('did-start-navigation')))
+    const binding = await app.requestRuntime({
+      id: 'bind-scan', type: 'old-favorite-workspace-bind-scan-target', accountMid: '100'
+    })
+    if (!binding || typeof binding !== 'object' || !('target' in binding) || !binding.target) throw new Error('missing scan target')
+
+    await expect(app.requestRuntime({
+      id: 'inventory', type: 'old-favorite-workspace-inventory', accountMid: '100', target: binding.target
+    })).resolves.toMatchObject({ status: 'ok', folders: [{ id: '11', mediaCount: 0 }] })
+    expect(executeJavaScript.mock.calls[1][0]).toContain('scan-workspace-inventory')
+  })
+
   it('shows first-launch permission guidance without running diagnostics', async () => {
     const firstRunPreferences = createAppPreferences({ permissionOnboardingCompleted: false })
     const runStartupDiagnostics = vi.fn()
