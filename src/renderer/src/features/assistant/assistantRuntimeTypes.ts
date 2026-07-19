@@ -95,8 +95,8 @@ export type AssistantRuntimeRequest =
       accountMid: string
       runId: string
       target: FavoriteRepositoryPageTarget
-      action: 'append' | 'remove' | 'read-members'
-      input: FavoriteRepositoryPageOperationInput
+      action: FavoriteRepositoryPageOperationAction
+      input: FavoriteRepositoryPageOperationInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput
     }
   | { id: string; type: 'old-favorite-workspace-bind-scan-target'; accountMid: string }
   | {
@@ -152,6 +152,15 @@ export type FavoriteRepositoryPageOperationInput = {
   folderIds: string[]
 }
 
+export type FavoriteRepositoryFolderInventoryInput = { accountMid: string; operationKey: string }
+export type FavoriteRepositoryFolderCreateInput = { accountMid: string; operationKey: string; title: string }
+export type FavoriteRepositoryPageOperationAction =
+  | 'append'
+  | 'remove'
+  | 'read-members'
+  | 'read-folder-inventory'
+  | 'create-folder'
+
 export type FavoriteRepositoryPageTarget = {
   webContentsId: number
   instanceId: string
@@ -163,6 +172,8 @@ export type FavoriteRepositoryPageOperationResult = {
   observedAccountMid: string
   reason?: string
   members?: Record<string, number[]>
+  folders?: Array<{ id: string; title: string; memberCount: number }>
+  folder?: { id: string; title: string; memberCount: number }
   target?: FavoriteRepositoryPageTarget
 }
 

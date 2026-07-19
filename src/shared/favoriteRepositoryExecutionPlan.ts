@@ -71,7 +71,11 @@ export function compileFrozenFavoriteSyncPlan(
   }
 
   const operations = new Map<number, Set<string>>()
-  for (const classification of input.classifications) {
+  const occupiedAidsByFolder = new Map<string, Set<number>>()
+  for (const shards of shardsByLedger.values()) {
+    for (const shard of shards) occupiedAidsByFolder.set(shard.remoteFolderId, new Set(shard.memberAids))
+  }
+  for (const classification of [...input.classifications].sort((left, right) => left.aid - right.aid)) {
     if (!Number.isSafeInteger(classification.aid) || classification.aid <= 0 || !Array.isArray(classification.targetLedgerIds)) {
       return { allowed: false, reason: 'invalid-input', plan: null }
     }
@@ -80,12 +84,13 @@ export function compileFrozenFavoriteSyncPlan(
         (left.shardNumber ?? 1) - (right.shardNumber ?? 1) || left.remoteFolderId.localeCompare(right.remoteFolderId)
       )
       if (!shards.length) return { allowed: false, reason: 'remote-target-unbound', plan: null }
-      const target = shards.find((shard) => shard.memberAids.includes(classification.aid)) ??
-        [...shards].reverse().find((shard) => shard.memberAids.length < REMOTE_FAVORITE_SHARD_CAPACITY)
+      const target = shards.find((shard) => occupiedAidsByFolder.get(shard.remoteFolderId)?.has(classification.aid)) ??
+        [...shards].reverse().find((shard) => (occupiedAidsByFolder.get(shard.remoteFolderId)?.size ?? 0) < REMOTE_FAVORITE_SHARD_CAPACITY)
       if (!target) return { allowed: false, reason: 'physical-shard-capacity-exceeded', plan: null }
       const folders = operations.get(classification.aid) ?? new Set<string>()
       folders.add(target.remoteFolderId)
       operations.set(classification.aid, folders)
+      occupiedAidsByFolder.get(target.remoteFolderId)?.add(classification.aid)
     }
   }
 

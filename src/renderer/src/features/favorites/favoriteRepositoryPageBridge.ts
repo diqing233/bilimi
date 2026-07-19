@@ -5,6 +5,11 @@ export type FavoriteRepositoryPageBridgeInput = {
   folderIds: string[]
 }
 
+export type FavoriteRepositoryFolderInventoryInput = { accountMid: string; operationKey: string }
+export type FavoriteRepositoryFolderCreateInput = { accountMid: string; operationKey: string; title: string }
+
+export type FavoriteRepositoryRemoteFolder = { id: string; title: string; memberCount: number }
+
 export type FavoriteRepositoryPageBridgeResult = {
   status: 'ok' | 'rejected' | 'unknown'
   observedAccountMid: string
@@ -13,11 +18,13 @@ export type FavoriteRepositoryPageBridgeResult = {
 
 export type FavoriteRepositoryPageBridgeReadResult = FavoriteRepositoryPageBridgeResult & {
   members?: Record<string, number[]>
+  folders?: FavoriteRepositoryRemoteFolder[]
+  folder?: FavoriteRepositoryRemoteFolder
 }
 
 type ExecuteJavaScript = (script: string, userGesture?: boolean) => Promise<unknown>
 
-type PageBridgeAction = 'append' | 'remove' | 'read-members'
+type PageBridgeAction = 'append' | 'remove' | 'read-members' | 'read-folder-inventory' | 'create-folder'
 
 const validStatuses = new Set<FavoriteRepositoryPageBridgeResult['status']>(['ok', 'rejected', 'unknown'])
 
@@ -31,24 +38,75 @@ function isMembers(value: unknown): value is Record<string, number[]> {
       folderId.trim().length > 0 && Array.isArray(aids) && aids.every(isPositiveAid))
 }
 
+function isFolder(value: unknown): value is FavoriteRepositoryRemoteFolder {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const folder = value as Record<string, unknown>
+  return typeof folder.id === 'string' && !!folder.id.trim() && typeof folder.title === 'string' && !!folder.title.trim() &&
+    Number.isSafeInteger(folder.memberCount) && Number(folder.memberCount) >= 0
+}
+
 function isPageResult(value: unknown, action: PageBridgeAction): value is FavoriteRepositoryPageBridgeReadResult {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const result = value as Record<string, unknown>
   const allowedKeys = action === 'read-members'
     ? new Set(['status', 'observedAccountMid', 'reason', 'members'])
-    : new Set(['status', 'observedAccountMid', 'reason'])
+    : action === 'read-folder-inventory'
+      ? new Set(['status', 'observedAccountMid', 'reason', 'folders'])
+      : action === 'create-folder'
+        ? new Set(['status', 'observedAccountMid', 'reason', 'folder'])
+        : new Set(['status', 'observedAccountMid', 'reason'])
   if (Object.keys(result).some((key) => !allowedKeys.has(key))) return false
   if (!validStatuses.has(result.status as FavoriteRepositoryPageBridgeResult['status'])) return false
   if (typeof result.observedAccountMid !== 'string') return false
   if (result.reason !== undefined && typeof result.reason !== 'string') return false
   if (action === 'read-members' && result.status === 'ok' && !isMembers(result.members)) return false
+  if (action === 'read-folder-inventory' && result.status === 'ok' && (!Array.isArray(result.folders) || !result.folders.every(isFolder))) return false
+  if (action === 'create-folder' && result.status === 'ok' && !isFolder(result.folder)) return false
   return true
 }
 
-function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridgeInput): string {
+function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput): string {
   const payload = JSON.stringify(input)
   const mutationField = action === 'append' ? 'add_media_ids' : 'del_media_ids'
   const mutation = action === 'append' || action === 'remove'
+
+  if (action === 'read-folder-inventory') {
+    return `
+      (async () => {
+        const input = ${payload};
+        const readCookie = (name) => String(document.cookie || '').split(';').map((part) => part.trim()).find((part) => part.startsWith(name + '='))?.slice(name.length + 1) || '';
+        const normalizeMid = (value) => { const raw = String(value || '').trim(); return /^\\d+$/.test(raw) && raw !== '0' ? raw.replace(/^0+(?=\\d)/, '') : ''; };
+        const observedAccountMid = normalizeMid(readCookie('DedeUserID'));
+        if (!observedAccountMid || observedAccountMid !== normalizeMid(input.accountMid) || !String(input.operationKey || '').trim()) return { status: 'unknown', observedAccountMid, reason: 'account-mismatch' };
+        let response; try { response = await fetch('https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=' + encodeURIComponent(observedAccountMid) + '&type=2', { credentials: 'include' }); } catch { return { status: 'unknown', observedAccountMid, reason: 'network-failure' }; }
+        let json; try { json = await response.json(); } catch { return { status: 'unknown', observedAccountMid, reason: 'invalid-response' }; }
+        if (!response.ok || json?.code !== 0 || !Array.isArray(json?.data?.list)) return { status: 'unknown', observedAccountMid, reason: 'remote-ambiguous' };
+        const folders = json.data.list.map((folder) => ({ id: String(folder?.id ?? folder?.fid ?? ''), title: String(folder?.title ?? '').trim(), memberCount: Number(folder?.media_count ?? folder?.mediaCount ?? 0) })).filter((folder) => folder.id && folder.title && Number.isSafeInteger(folder.memberCount) && folder.memberCount >= 0);
+        return normalizeMid(readCookie('DedeUserID')) === observedAccountMid ? { status: 'ok', observedAccountMid, folders } : { status: 'unknown', observedAccountMid: normalizeMid(readCookie('DedeUserID')), reason: 'account-mismatch' };
+      })()
+    `
+  }
+
+  if (action === 'create-folder') {
+    return `
+      (async () => {
+        const input = ${payload};
+        const readCookie = (name) => String(document.cookie || '').split(';').map((part) => part.trim()).find((part) => part.startsWith(name + '='))?.slice(name.length + 1) || '';
+        const normalizeMid = (value) => { const raw = String(value || '').trim(); return /^\\d+$/.test(raw) && raw !== '0' ? raw.replace(/^0+(?=\\d)/, '') : ''; };
+        const observedAccountMid = normalizeMid(readCookie('DedeUserID'));
+        const title = String(input.title || '').trim();
+        if (!observedAccountMid || observedAccountMid !== normalizeMid(input.accountMid) || !String(input.operationKey || '').trim()) return { status: 'unknown', observedAccountMid, reason: 'account-mismatch' };
+        if (!title || Array.from(title).length > 20) return { status: 'rejected', observedAccountMid, reason: 'invalid-folder-title' };
+        const csrf = readCookie('bili_jct'); if (!csrf) return { status: 'rejected', observedAccountMid, reason: 'csrf-missing' };
+        const body = new URLSearchParams(); body.set('csrf', csrf); body.set('privacy', '0'); body.set('title', title);
+        let response; try { response = await fetch('https://api.bilibili.com/x/v3/fav/folder/add', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' }, body }); } catch { return { status: 'unknown', observedAccountMid, reason: 'network-failure' }; }
+        let json; try { json = await response.json(); } catch { return { status: 'unknown', observedAccountMid, reason: 'invalid-response' }; }
+        const id = String(json?.data?.id ?? json?.data?.fid ?? '');
+        if (response.ok && json?.code === 0 && id && normalizeMid(readCookie('DedeUserID')) === observedAccountMid) return { status: 'ok', observedAccountMid, folder: { id, title, memberCount: 0 } };
+        return { status: 'unknown', observedAccountMid, reason: 'remote-ambiguous' };
+      })()
+    `
+  }
 
   if (!mutation) {
     return `
@@ -148,7 +206,7 @@ function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridg
 }
 
 export function createFavoriteRepositoryPageBridge(options: { executeJavaScript: ExecuteJavaScript }) {
-  const run = async (action: PageBridgeAction, input: FavoriteRepositoryPageBridgeInput): Promise<FavoriteRepositoryPageBridgeReadResult> => {
+  const run = async (action: PageBridgeAction, input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput): Promise<FavoriteRepositoryPageBridgeReadResult> => {
     try {
       const result = await options.executeJavaScript(pageScript(action, input), true)
       if (!isPageResult(result, action)) {
@@ -163,6 +221,8 @@ export function createFavoriteRepositoryPageBridge(options: { executeJavaScript:
   return {
     append: (input: FavoriteRepositoryPageBridgeInput) => run('append', input),
     remove: (input: FavoriteRepositoryPageBridgeInput) => run('remove', input),
-    readMembers: (input: FavoriteRepositoryPageBridgeInput) => run('read-members', input)
+    readMembers: (input: FavoriteRepositoryPageBridgeInput) => run('read-members', input),
+    readFolderInventory: (input: FavoriteRepositoryFolderInventoryInput) => run('read-folder-inventory', input),
+    createFolder: (input: FavoriteRepositoryFolderCreateInput) => run('create-folder', input)
   }
 }

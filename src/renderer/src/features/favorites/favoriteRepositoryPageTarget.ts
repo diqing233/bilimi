@@ -1,10 +1,12 @@
 import {
   createFavoriteRepositoryPageBridge,
   type FavoriteRepositoryPageBridgeInput,
+  type FavoriteRepositoryFolderCreateInput,
+  type FavoriteRepositoryFolderInventoryInput,
   type FavoriteRepositoryPageBridgeReadResult
 } from './favoriteRepositoryPageBridge'
 
-type PageBridgeAction = 'append' | 'remove' | 'read-members'
+type PageBridgeAction = 'append' | 'remove' | 'read-members' | 'read-folder-inventory' | 'create-folder'
 
 export type FavoriteRepositoryPageTarget = {
   webContentsId: number
@@ -35,7 +37,7 @@ export function createFavoriteRepositoryPageTarget(options: {
     async run(
       binding: FavoriteRepositoryPageTarget,
       action: PageBridgeAction,
-      input: FavoriteRepositoryPageBridgeInput
+      input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput
     ): Promise<FavoriteRepositoryPageBridgeReadResult> {
       const target = options.findWebviewById(binding.webContentsId) ?? null
       if (!target?.executeJavaScript) {
@@ -49,10 +51,14 @@ export function createFavoriteRepositoryPageTarget(options: {
       }
       const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript: target.executeJavaScript.bind(target) })
       const result = await (action === 'append'
-        ? bridge.append(input)
+        ? bridge.append(input as FavoriteRepositoryPageBridgeInput)
         : action === 'remove'
-          ? bridge.remove(input)
-          : bridge.readMembers(input))
+          ? bridge.remove(input as FavoriteRepositoryPageBridgeInput)
+          : action === 'read-members'
+            ? bridge.readMembers(input as FavoriteRepositoryPageBridgeInput)
+            : action === 'read-folder-inventory'
+              ? bridge.readFolderInventory(input as FavoriteRepositoryFolderInventoryInput)
+              : bridge.createFolder(input as FavoriteRepositoryFolderCreateInput))
       if (options.getNavigationEpoch(binding.webContentsId, binding.instanceId) !== binding.navigationEpoch) {
         return { status: 'unknown', observedAccountMid: result.observedAccountMid, reason: 'target-navigated' }
       }

@@ -62,6 +62,35 @@ describe('favorite repository page bridge', () => {
     expect(script).toContain(JSON.stringify(input))
   })
 
+  it('reads the account-scoped remote folder inventory through a fixed page primitive', async () => {
+    const executeJavaScript = vi.fn().mockResolvedValue({
+      status: 'ok', observedAccountMid: '100', folders: [{ id: '11', title: 'B-music-001-a1b2c3', memberCount: 2 }]
+    })
+    const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript })
+
+    await expect(bridge.readFolderInventory({ accountMid: '100', operationKey: 'bind:inventory' })).resolves.toEqual({
+      status: 'ok', observedAccountMid: '100', folders: [{ id: '11', title: 'B-music-001-a1b2c3', memberCount: 2 }]
+    })
+    const script = executeJavaScript.mock.calls[0][0]
+    expect(script).toContain('/x/v3/fav/folder/created/list-all')
+    expect(script).not.toContain('bili_jct')
+  })
+
+  it('creates only a bounded explicit folder title through the page primitive', async () => {
+    const executeJavaScript = vi.fn().mockResolvedValue({
+      status: 'ok', observedAccountMid: '100', folder: { id: '11', title: 'B-music-001-a1b2c3', memberCount: 0 }
+    })
+    const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript })
+
+    await expect(bridge.createFolder({ accountMid: '100', operationKey: 'bind:create', title: 'B-music-001-a1b2c3' })).resolves.toMatchObject({
+      status: 'ok', folder: { id: '11', title: 'B-music-001-a1b2c3' }
+    })
+    const script = executeJavaScript.mock.calls[0][0]
+    expect(script).toContain('/x/v3/fav/folder/add')
+    expect(script).toContain('bili_jct')
+    expect(script).toContain('B-music-001-a1b2c3')
+  })
+
   it('turns a page execution failure into an unknown result for reconciliation', async () => {
     const executeJavaScript = vi.fn().mockRejectedValue(new Error('webContents gone'))
     const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript })

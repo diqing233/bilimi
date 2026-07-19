@@ -21,6 +21,7 @@ export type FavoriteRepositorySyncRun = {
 }
 
 type PageBridgeResult = { observedAccountMid: string }
+export type FavoriteRepositoryRemoteFolder = { id: string; title: string; memberCount: number }
 
 export type FavoriteRepositoryPageBridge = {
   append(input: {
@@ -41,6 +42,8 @@ export type FavoriteRepositoryPageBridge = {
     aid: number
     folderIds: string[]
   }): Promise<PageBridgeResult & { members: Record<string, number[]> }>
+  readFolderInventory(input: { accountMid: string; operationKey: string }): Promise<PageBridgeResult & { folders: FavoriteRepositoryRemoteFolder[] }>
+  createFolder(input: { accountMid: string; operationKey: string; title: string }): Promise<PageBridgeResult & { folder: FavoriteRepositoryRemoteFolder }>
 }
 
 export type FavoriteRepositoryPageBridgeManager = {

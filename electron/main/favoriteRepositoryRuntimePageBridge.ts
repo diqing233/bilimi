@@ -7,11 +7,12 @@ import { FavoriteRepositoryRemoteRejectedError, type FavoriteRepositoryPageBridg
 export type FavoriteRepositoryRuntimePageBridgeInput = {
   accountMid: string
   operationKey: string
-  aid: number
-  folderIds: string[]
+  aid?: number
+  folderIds?: string[]
+  title?: string
 }
 
-export type FavoriteRepositoryRuntimePageBridgeOperation = 'append' | 'remove' | 'read-members'
+export type FavoriteRepositoryRuntimePageBridgeOperation = 'append' | 'remove' | 'read-members' | 'read-folder-inventory' | 'create-folder'
 
 function normalizedAccountMid(value: string) {
   const raw = value.trim()
@@ -87,6 +88,16 @@ export class FavoriteRepositoryRuntimePageBridgeManager {
         const result = await execute('read-members', input)
         if (!result.members) throw new Error('Favorite repository page bridge returned incomplete members.')
         return { observedAccountMid: result.observedAccountMid, members: result.members }
+      },
+      async readFolderInventory(input) {
+        const result = await execute('read-folder-inventory', input)
+        if (!result.folders) throw new Error('Favorite repository page bridge returned incomplete folder inventory.')
+        return { observedAccountMid: result.observedAccountMid, folders: result.folders }
+      },
+      async createFolder(input) {
+        const result = await execute('create-folder', input)
+        if (!result.folder) throw new Error('Favorite repository page bridge returned incomplete created folder.')
+        return { observedAccountMid: result.observedAccountMid, folder: result.folder }
       }
     }
   }
