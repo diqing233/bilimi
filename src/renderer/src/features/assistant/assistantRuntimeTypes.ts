@@ -83,6 +83,21 @@ export type AssistantRuntimeRequest =
       mode: DeepSeekArchiveMode
       request: DeepSeekGenerateRequest
     }
+  | {
+      id: string
+      type: 'favorite-repository-bind-page-target'
+      accountMid: string
+      runId: string
+    }
+  | {
+      id: string
+      type: 'favorite-repository-page-operation'
+      accountMid: string
+      runId: string
+      target: FavoriteRepositoryPageTarget
+      action: 'append' | 'remove' | 'read-members'
+      input: FavoriteRepositoryPageOperationInput
+    }
 
 export type AssistantRuntimeRequestInput = AssistantRuntimeRequest extends infer Request
   ? Request extends { id: string }
@@ -103,8 +118,30 @@ export type AssistantRuntimeResponsePayload =
   | number
   | boolean
   | OldFavoriteBatchCommitResult
+  | FavoriteRepositoryPageOperationResult
   | { pending: boolean }
   | null
+
+export type FavoriteRepositoryPageOperationInput = {
+  accountMid: string
+  operationKey: string
+  aid: number
+  folderIds: string[]
+}
+
+export type FavoriteRepositoryPageTarget = {
+  webContentsId: number
+  instanceId: string
+  navigationEpoch: number
+}
+
+export type FavoriteRepositoryPageOperationResult = {
+  status: 'ok' | 'rejected' | 'unknown'
+  observedAccountMid: string
+  reason?: string
+  members?: Record<string, number[]>
+  target?: FavoriteRepositoryPageTarget
+}
 
 export type OldFavoriteBatchCommitResult = {
   ok: boolean

@@ -49,6 +49,7 @@ import {
   buildScanOldFavoritesScript,
   type OldFavoriteBatchCommitToken
 } from './features/favorites/favoriteLedgerApi'
+import { createFavoriteRepositoryPageTarget } from './features/favorites/favoriteRepositoryPageTarget'
 import {
   prepareOldFavoriteScan as waitForOldFavoriteScanPreparation,
   type OldFavoriteScanPreparationProbe
@@ -70,7 +71,8 @@ import { recordAssistantPreferenceFeedback } from './features/state/assistantSta
 import type {
   AssistantRuntimeRequest,
   AssistantSnapshot,
-  OldFavoriteBatchCommitResult
+  OldFavoriteBatchCommitResult,
+  FavoriteRepositoryPageTarget
 } from './features/assistant/assistantRuntimeTypes'
 import { AssistantSidebar } from './features/assistant/AssistantSidebar'
 import { PET_VIDEO_OPENING_LINES, pickPetLine } from './features/assistant/petInteractionLines'
@@ -499,6 +501,8 @@ export default function App() {
   const activeTabIdRef = useRef(activeTabId)
   const [webviews, setWebviews] = useState<Record<string, Electron.WebviewTag>>({})
   const webviewRefs = useRef<Record<string, Electron.WebviewTag>>({})
+  const favoriteRepositoryPageTargetRef = useRef<ReturnType<typeof createFavoriteRepositoryPageTarget> | null>(null)
+  const favoriteRepositoryTargetStates = useRef(new Map<number, FavoriteRepositoryPageTarget>())
   const activeTabChangeMounted = useRef(false)
   const lastPetVideoKey = useRef<string | undefined>(undefined)
   const assistantRuntimeFeedbackRef = useRef<{ id: number; message: string } | undefined>(undefined)
@@ -691,6 +695,17 @@ export default function App() {
     })
   }, [])
 
+  const handleFavoriteRepositoryTargetState = useCallback((
+    _tabId: string,
+    state: FavoriteRepositoryPageTarget & { webview: Electron.WebviewTag }
+  ) => {
+    favoriteRepositoryTargetStates.current.set(state.webContentsId, {
+      webContentsId: state.webContentsId,
+      instanceId: state.instanceId,
+      navigationEpoch: state.navigationEpoch
+    })
+  }, [])
+
   const openInternalTab = useCallback((url: string) => {
     const nextUrl = url.trim()
 
@@ -825,6 +840,49 @@ export default function App() {
       webviewRefs.current[activeTabId] ??
       (document.querySelector('webview[data-active="true"]') as Electron.WebviewTag | null)
     )
+  }
+
+  async function runFavoriteRepositoryPageOperation(
+    accountMid: string,
+    runId: string,
+    target: FavoriteRepositoryPageTarget,
+    action: 'append' | 'remove' | 'read-members',
+    input: { accountMid: string; operationKey: string; aid: number; folderIds: string[] }
+  ) {
+    favoriteRepositoryPageTargetRef.current ??= createFavoriteRepositoryPageTarget({
+      getActiveWebview: getCurrentActiveWebview,
+      findWebviewById: (webContentsId) => Object.values(webviewRefs.current).find(
+        (webview) => webview.getWebContentsId?.() === webContentsId
+      ),
+      getNavigationEpoch: (webContentsId, instanceId) => {
+        const current = favoriteRepositoryTargetStates.current.get(webContentsId)
+        return current?.instanceId === instanceId ? current.navigationEpoch : undefined
+      }
+    })
+    if (input.accountMid !== accountMid) {
+      return { status: 'unknown' as const, observedAccountMid: '', reason: 'account-mismatch' }
+    }
+    return favoriteRepositoryPageTargetRef.current.run(target, action, input)
+  }
+
+  async function bindFavoriteRepositoryPageTarget(accountMid: string) {
+    const webview = getCurrentActiveWebview()
+    const webContentsId = webview?.getWebContentsId?.()
+    const target = typeof webContentsId === 'number' ? favoriteRepositoryTargetStates.current.get(webContentsId) : undefined
+    if (!target || webview?.isLoading?.() || !webview?.executeJavaScript) {
+      return { status: 'unknown' as const, observedAccountMid: '', reason: 'target-unavailable' }
+    }
+    try {
+      const before = String(await webview.executeJavaScript(
+        `(() => String(document.cookie || '').match(/(?:^|;\\s*)DedeUserID=(\\d+)/)?.[1] || '')()`, true
+      )).trim()
+      if (before !== accountMid || favoriteRepositoryTargetStates.current.get(webContentsId)?.navigationEpoch !== target.navigationEpoch) {
+        return { status: 'unknown' as const, observedAccountMid: before, reason: 'account-mismatch' }
+      }
+      return { status: 'ok' as const, observedAccountMid: before, target }
+    } catch {
+      return { status: 'unknown' as const, observedAccountMid: '', reason: 'target-unavailable' }
+    }
   }
 
   function refreshActiveTab() {
@@ -2110,6 +2168,12 @@ export default function App() {
             finishDeepSeekTask()
           }
         }
+        case 'favorite-repository-bind-page-target':
+          return bindFavoriteRepositoryPageTarget(request.accountMid)
+        case 'favorite-repository-page-operation':
+          return runFavoriteRepositoryPageOperation(
+            request.accountMid, request.runId, request.target, request.action, request.input
+          )
         default:
           throw new Error('Unknown assistant runtime request.')
       }
@@ -2217,6 +2281,7 @@ export default function App() {
                 window.bilimiDesktop?.setAssistantPetHint?.({ tone: 'hint', message })
               }}
               onReady={handleWebviewReady}
+              onTargetState={handleFavoriteRepositoryTargetState}
               onTitleChange={updateTabTitle}
             />
           ))}

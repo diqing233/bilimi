@@ -37,8 +37,16 @@ export type FavoriteRepositoryPageBridge = {
   }): Promise<PageBridgeResult>
   readMembers(input: {
     accountMid: string
+    operationKey: string
+    aid: number
     folderIds: string[]
   }): Promise<PageBridgeResult & { members: Record<string, number[]> }>
+}
+
+export type FavoriteRepositoryPageBridgeManager = {
+  bind(accountMid: string, runId: string): Promise<void>
+  pageBridge(accountMid: string, runId: string): FavoriteRepositoryPageBridge
+  release(accountMid: string, runId: string): void
 }
 
 type SyncRecordStatus = FavoriteRepositorySyncRecord['status']
@@ -90,11 +98,25 @@ export class FavoriteRepositorySyncService {
 
   constructor(private readonly options: {
     repository: FavoriteRepositoryService
-    pageBridge: FavoriteRepositoryPageBridge
+    pageBridge?: FavoriteRepositoryPageBridge
+    createPageBridge?: (runId: string) => FavoriteRepositoryPageBridge
+    pageBridgeManager?: FavoriteRepositoryPageBridgeManager
     now?: () => string
     sleep?: (milliseconds: number) => Promise<void>
     pacingMs?: number
   }) {}
+
+  private pageBridge(accountMid: string, runId: string) {
+    const pageBridge = this.options.pageBridgeManager?.pageBridge(accountMid, runId) ??
+      this.options.createPageBridge?.(runId) ?? this.options.pageBridge
+    if (!pageBridge) throw new Error('Favorite sync page bridge is unavailable.')
+    return pageBridge
+  }
+
+  async bindPageTarget(accountMid: string, runId: string) {
+    const account = normalizeAccountMid(accountMid)
+    await this.options.pageBridgeManager?.bind(account, runId)
+  }
 
   async executeFrozenPlan(accountMid: string, frozenPlan: FrozenFavoriteSyncPlan): Promise<FavoriteRepositorySyncRun> {
     const account = normalizeAccountMid(accountMid)
@@ -110,8 +132,11 @@ export class FavoriteRepositorySyncService {
         if (JSON.stringify(workspace.frozenSyncPlan) !== JSON.stringify(plan)) {
           throw new Error('Favorite workspace frozen sync plan does not match the persisted plan.')
         }
+        // A frozen plan has not started yet; bind it before its first remote request.
+        if (workspace.status === 'frozen') await this.bindPageTarget(account, plan.id)
         return this.drive(account, workspace.frozenSyncPlan)
       }
+      await this.bindPageTarget(account, plan.id)
       await this.writeWorkspace(account, withWorkspaceStatus(workspace, 'executing', plan), `freeze:${plan.id}`)
       return this.drive(account, plan)
     })
@@ -149,8 +174,40 @@ export class FavoriteRepositorySyncService {
       const record = records.get(operation.operationKey)
       if (!record || record.status === 'succeeded' || (record.status === 'pending' && record.reason === retryReadyReason)) continue
       if (record.status === 'failed') continue
-      const result = await this.options.pageBridge.readMembers({ accountMid: account, folderIds: operation.folderIds })
-      this.assertObservedAccount(account, result.observedAccountMid)
+      let result: PageBridgeResult & { members: Record<string, number[]> }
+      try {
+        result = await this.pageBridge(account, plan.id).readMembers({
+          accountMid: account,
+          operationKey: operation.operationKey,
+          aid: operation.aid,
+          folderIds: operation.folderIds
+        })
+      } catch (error) {
+        records.set(operation.operationKey, await this.writeRecord(
+          account,
+          plan,
+          operation,
+          'result-unknown',
+          record.attempt ?? 1,
+          error instanceof Error ? error.message : String(error),
+          'reconciled'
+        ))
+        continue
+      }
+      try {
+        this.assertObservedAccount(account, result.observedAccountMid)
+      } catch (error) {
+        records.set(operation.operationKey, await this.writeRecord(
+          account,
+          plan,
+          operation,
+          'result-unknown',
+          record.attempt ?? 1,
+          error instanceof Error ? error.message : String(error),
+          'reconciled'
+        ))
+        continue
+      }
       if (!operation.folderIds.every((folderId) => Array.isArray(result.members[folderId]))) {
         records.set(operation.operationKey, await this.writeRecord(account, plan, operation, 'result-unknown', record.attempt ?? 1, 'reconciliation-membership-incomplete', 'reconciled'))
         continue
@@ -198,8 +255,8 @@ export class FavoriteRepositorySyncService {
       records.set(operation.operationKey, await this.writeRecord(accountMid, plan, operation, 'pending', attempt, 'remote-request-started', 'checkpoint'))
       try {
         const result = operation.kind === 'append'
-          ? await this.options.pageBridge.append({ accountMid, operationKey: operation.operationKey, aid: operation.aid, folderIds: operation.folderIds })
-          : await this.options.pageBridge.remove({ accountMid, operationKey: operation.operationKey, aid: operation.aid, folderIds: operation.folderIds })
+          ? await this.pageBridge(accountMid, plan.id).append({ accountMid, operationKey: operation.operationKey, aid: operation.aid, folderIds: operation.folderIds })
+          : await this.pageBridge(accountMid, plan.id).remove({ accountMid, operationKey: operation.operationKey, aid: operation.aid, folderIds: operation.folderIds })
         this.assertObservedAccount(accountMid, result.observedAccountMid)
         records.set(operation.operationKey, await this.writeRecord(accountMid, plan, operation, 'succeeded', attempt, undefined, 'result'))
       } catch (error) {
@@ -223,6 +280,7 @@ export class FavoriteRepositorySyncService {
 
     const complete = this.summarize(plan, Array.from(records.values()))
     await this.writeWorkspace(accountMid, withWorkspaceStatus(snapshot.workspace!, 'completed', plan), `complete:${plan.id}`)
+    this.options.pageBridgeManager?.release(accountMid, plan.id)
     return complete
   }
 

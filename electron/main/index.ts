@@ -82,6 +82,8 @@ import { OldFavoriteBackgroundRuntime } from './oldFavoriteBackgroundRuntime'
 import { OldFavoriteWorkspaceService } from './oldFavoriteWorkspaceService'
 import { registerOldFavoriteWorkspaceIpc } from './oldFavoriteWorkspaceIpc'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
+import { FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
+import { FavoriteRepositoryRuntimePageBridgeManager } from './favoriteRepositoryRuntimePageBridge'
 import { registerFavoriteRepositoryIpc } from './favoriteRepositoryIpc'
 import { BilibiliSessionProxy } from './bilibiliSessionProxy'
 import {
@@ -128,6 +130,7 @@ import type {
   AssistantRuntimeRequestInput,
   AssistantRuntimeRequest,
   AssistantSnapshot,
+  FavoriteRepositoryPageOperationResult,
   FloatingAssistantActionOptions,
   FloatingAssistantWorkspaceRequest,
   OldFavoriteBatchCommitResult
@@ -445,6 +448,8 @@ let oldFavoritePersistenceOpening: ReturnType<typeof createOldFavoritePersistenc
 const oldFavoritePersistenceDirtyTracker = new OldFavoritePersistenceDirtyTracker()
 let oldFavoriteWorkspaceService: OldFavoriteWorkspaceService | undefined
 let favoriteRepositoryService: FavoriteRepositoryService | undefined
+let favoriteRepositorySyncService: FavoriteRepositorySyncService | undefined
+let favoriteRepositoryPageBridgeManager: FavoriteRepositoryRuntimePageBridgeManager | undefined
 const oldFavoriteRendererFlushCoordinator = new OldFavoriteRendererFlushCoordinator()
 let queueOldFavoriteSessionMutation: OldFavoriteMutationQueue | undefined
 
@@ -1382,6 +1387,13 @@ async function readCurrentBilibiliAccountMid() {
 if (singleInstanceGuard) app.whenReady().then(async () => {
   favoriteRepositoryService = new FavoriteRepositoryService({
     root: join(app.getPath('userData'), 'favorites', 'repository-v1')
+  })
+  favoriteRepositoryPageBridgeManager = new FavoriteRepositoryRuntimePageBridgeManager(
+    (request) => requestMainAssistantRuntime<FavoriteRepositoryPageOperationResult>(request)
+  )
+  favoriteRepositorySyncService = new FavoriteRepositorySyncService({
+    repository: favoriteRepositoryService,
+    pageBridgeManager: favoriteRepositoryPageBridgeManager
   })
   registerFavoriteRepositoryIpc({
     ipcMain,

@@ -61,9 +61,36 @@ describe('FavoriteRepositorySyncService', () => {
     expect(append).toHaveBeenCalledTimes(1)
 
     expect(await service.reconcile('100', 'run-1')).toMatchObject({ status: 'ready-to-resume' })
+    expect(pageBridge.readMembers).toHaveBeenCalledWith({
+      accountMid: '100', operationKey: 'append-1', aid: 1, folderIds: ['remote-a']
+    })
     append.mockResolvedValueOnce({ observedAccountMid: '100' })
     expect(await service.resume('100', 'run-1')).toMatchObject({ status: 'succeeded' })
     expect(append).toHaveBeenCalledTimes(2)
+  })
+
+  it('binds the target before the first remote checkpoint but never auto-binds resume or reconciliation', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: workspace()
+    })
+    const bind = vi.fn().mockResolvedValue(undefined)
+    const release = vi.fn()
+    const pageBridge = {
+      append: vi.fn().mockResolvedValue({ observedAccountMid: '100' }),
+      remove: vi.fn(), readMembers: vi.fn()
+    }
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridgeManager: { bind, release, pageBridge: vi.fn(() => pageBridge) },
+      now: () => '2026-07-19T00:00:00.000Z'
+    })
+
+    await expect(service.executeFrozenPlan('100', plan())).resolves.toMatchObject({ status: 'succeeded' })
+    expect(bind).toHaveBeenCalledWith('100', 'run-1')
+    expect(release).toHaveBeenCalledWith('100', 'run-1')
+    await expect(service.resume('100', 'run-1')).resolves.toMatchObject({ status: 'succeeded' })
+    expect(bind).toHaveBeenCalledTimes(1)
   })
 
   it('keeps a known remote failure frozen instead of treating it as a reconciliation retry', async () => {
@@ -129,6 +156,44 @@ describe('FavoriteRepositorySyncService', () => {
     expect(await service.reconcile('100', 'run-1')).toMatchObject({ status: 'result-unknown' })
     expect(await service.resume('100', 'run-1')).toMatchObject({ status: 'result-unknown' })
     expect(append).toHaveBeenCalledTimes(1)
+  })
+
+  it('records a failed membership read as result-unknown instead of rejecting reconciliation', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: workspace()
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn().mockRejectedValueOnce(new Error('network connection interrupted')),
+        remove: vi.fn(),
+        readMembers: vi.fn().mockRejectedValue(new Error('bound target lost'))
+      },
+      now: () => '2026-07-19T00:00:00.000Z'
+    })
+
+    await service.executeFrozenPlan('100', plan())
+    await expect(service.reconcile('100', 'run-1')).resolves.toMatchObject({ status: 'result-unknown' })
+  })
+
+  it('records a mismatched reconciliation account as result-unknown instead of rejecting reconciliation', async () => {
+    const repository = await createRepository()
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: workspace()
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: {
+        append: vi.fn().mockRejectedValueOnce(new Error('network interrupted')),
+        remove: vi.fn(),
+        readMembers: vi.fn().mockResolvedValue({ observedAccountMid: '200', members: { 'remote-a': [] } })
+      },
+      now: () => '2026-07-19T00:00:00.000Z'
+    })
+
+    await service.executeFrozenPlan('100', plan())
+    await expect(service.reconcile('100', 'run-1')).resolves.toMatchObject({ status: 'result-unknown' })
   })
 
   it('treats an untyped bridge error as result-unknown until it is reconciled', async () => {

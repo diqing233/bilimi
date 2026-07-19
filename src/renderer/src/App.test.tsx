@@ -139,6 +139,36 @@ function renderAppWithRuntimeBridge(apiOverrides: Partial<Window['bilimiDesktop'
 }
 
 describe('App runtime integration', () => {
+  it('returns an explicit target descriptor only when binding the active Bilibili page', async () => {
+    const app = renderAppWithRuntimeBridge()
+    const webview = document.querySelector('webview') as Electron.WebviewTag
+    Object.assign(webview, {
+      getWebContentsId: () => 101,
+      executeJavaScript: vi.fn().mockResolvedValue('100')
+    })
+    act(() => webview.dispatchEvent(new Event('did-start-navigation')))
+
+    await expect(app.requestRuntime({
+      id: 'bind-target', type: 'favorite-repository-bind-page-target', accountMid: '100', runId: 'run-1'
+    })).resolves.toMatchObject({
+      status: 'ok', observedAccountMid: '100', target: { webContentsId: 101, navigationEpoch: 1 }
+    })
+  })
+
+  it('reports an unavailable bound Bilibili target as unknown without selecting another tab', async () => {
+    const app = renderAppWithRuntimeBridge()
+
+    await expect(app.requestRuntime({
+      id: 'page-operation',
+      type: 'favorite-repository-page-operation',
+      accountMid: '100',
+      runId: 'run-1',
+      target: { webContentsId: 101, instanceId: 'missing', navigationEpoch: 0 },
+      action: 'append',
+      input: { accountMid: '100', operationKey: 'append-1', aid: 1, folderIds: ['11'] }
+    })).resolves.toMatchObject({ status: 'unknown', reason: 'target-unavailable' })
+  })
+
   it('shows first-launch permission guidance without running diagnostics', async () => {
     const firstRunPreferences = createAppPreferences({ permissionOnboardingCompleted: false })
     const runStartupDiagnostics = vi.fn()

@@ -3,6 +3,23 @@ import { describe, expect, it, vi } from 'vitest'
 import { BiliWebview } from './BiliWebview'
 
 describe('BiliWebview', () => {
+  it('increments its navigation epoch for same-url main-frame reloads but not subframes', () => {
+    const onTargetState = vi.fn()
+    render(<BiliWebview active tabId="home" url="https://www.bilibili.com" onTargetState={onTargetState} />)
+    const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+    Object.assign(webview, { getWebContentsId: () => 101 })
+
+    act(() => {
+      webview.dispatchEvent(Object.assign(new Event('did-start-navigation'), { isMainFrame: false }))
+      webview.dispatchEvent(Object.assign(new Event('did-start-navigation'), { isMainFrame: true }))
+    })
+
+    expect(onTargetState).toHaveBeenLastCalledWith('home', expect.objectContaining({
+      webContentsId: 101,
+      navigationEpoch: 1
+    }))
+  })
+
   it('installs video link capture when the guest page is ready', () => {
     render(<BiliWebview active tabId="home" url="https://www.bilibili.com" />)
 

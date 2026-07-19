@@ -17,6 +17,12 @@ type BiliWebviewProps = {
   onPageInteractionHint?: (message: string) => void
   onHtmlFullscreenChange?: (tabId: string, fullscreen: boolean) => void
   onTitleChange?: (tabId: string, title: string) => void
+  onTargetState?: (tabId: string, state: {
+    webview: Electron.WebviewTag
+    webContentsId: number
+    instanceId: string
+    navigationEpoch: number
+  }) => void
 }
 
 type WebviewUrlEvent = Event & {
@@ -32,6 +38,8 @@ type WebviewLoadFailureEvent = Event & {
   errorCode?: number
   isMainFrame?: boolean
 }
+
+type WebviewNavigationEvent = Event & { isMainFrame?: boolean; detail?: { isMainFrame?: boolean } }
 
 function readEventUrl(event: WebviewUrlEvent): string | undefined {
   return event.detail?.url ?? event.url
@@ -216,9 +224,12 @@ export function BiliWebview({
   onHtmlFullscreenChange,
   onPageInteractionHint,
   onReady,
-  onTitleChange
+  onTitleChange,
+  onTargetState
 }: BiliWebviewProps) {
   const ref = useRef<Electron.WebviewTag | null>(null)
+  const instanceId = useRef(`bili-webview-${crypto.randomUUID()}`)
+  const navigationEpoch = useRef(0)
   const initialUrl = useRef(url)
   const latestUrl = useRef(url)
   const model = useMemo(() => createBrowserSurfaceModel(initialUrl.current), [])
@@ -234,6 +245,18 @@ export function BiliWebview({
     }
 
     onReady?.(tabId, webview)
+
+    const reportTargetState = () => {
+      const webContentsId = webview.getWebContentsId?.()
+      if (typeof webContentsId !== 'number') return
+      onTargetState?.(tabId, {
+        webview,
+        webContentsId,
+        instanceId: instanceId.current,
+        navigationEpoch: navigationEpoch.current
+      })
+    }
+    reportTargetState()
 
     const installLinkCapture = () => {
       if (!webview.executeJavaScript) {
@@ -282,6 +305,13 @@ export function BiliWebview({
         onLocationChange?.(tabId, nextUrl)
         scheduleDanmakuWake()
       }
+    }
+
+    const handleNavigationStart = (event: Event) => {
+      const navigation = event as WebviewNavigationEvent
+      if (navigation.isMainFrame === false || navigation.detail?.isMainFrame === false) return
+      navigationEpoch.current += 1
+      reportTargetState()
     }
 
     const handleEnterHtmlFullscreen = () => {
@@ -336,6 +366,7 @@ export function BiliWebview({
     webview.addEventListener('did-finish-load', scheduleDanmakuWake)
     webview.addEventListener('did-finish-load', handleLoadSuccess)
     webview.addEventListener('did-fail-load', handleLoadFailure)
+    webview.addEventListener('did-start-navigation', handleNavigationStart)
     webview.addEventListener('did-navigate', handleLocationChange)
     webview.addEventListener('did-navigate-in-page', handleLocationChange)
     webview.addEventListener('enter-html-full-screen', handleEnterHtmlFullscreen)
@@ -350,13 +381,14 @@ export function BiliWebview({
       webview.removeEventListener('did-finish-load', scheduleDanmakuWake)
       webview.removeEventListener('did-finish-load', handleLoadSuccess)
       webview.removeEventListener('did-fail-load', handleLoadFailure)
+      webview.removeEventListener('did-start-navigation', handleNavigationStart)
       webview.removeEventListener('did-navigate', handleLocationChange)
       webview.removeEventListener('did-navigate-in-page', handleLocationChange)
       webview.removeEventListener('enter-html-full-screen', handleEnterHtmlFullscreen)
       webview.removeEventListener('leave-html-full-screen', handleLeaveHtmlFullscreen)
       webview.removeEventListener('page-title-updated', handleTitleChange)
     }
-  }, [onHtmlFullscreenChange, onLocationChange, onOpenInTab, onPageInteractionHint, onReady, onTitleChange, tabId])
+  }, [onHtmlFullscreenChange, onLocationChange, onOpenInTab, onPageInteractionHint, onReady, onTargetState, onTitleChange, tabId])
 
   useEffect(() => {
     const webview = ref.current
