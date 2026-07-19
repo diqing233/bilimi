@@ -38,6 +38,14 @@ import type {
 } from '../../src/renderer/src/features/assistant/petState'
 import type { FavoriteLedgerPreviewItem } from '../../src/renderer/src/features/favorites/favoriteLedgerPreview'
 import type { OldFavoriteAccountIndex, OldFavoriteBatchDetail, OldFavoriteOverlayKind, OldFavoriteOverlayPatch } from '../main/oldFavoriteWorkspaceTypes'
+import type {
+  AccountFavoriteRepositorySnapshot,
+  FavoriteRepositoryCommand,
+  FavoriteRepositoryCommandResult,
+  FavoriteRepositoryPage,
+  FavoriteRepositoryVideo
+} from '../../src/shared/favoriteRepository'
+import type { FavoriteRepositoryRevisionChange } from '../main/favoriteRepositoryIpc'
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
   version: '0.1.0',
@@ -89,6 +97,29 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   bindOldFavoriteRuntimeAccount: (accountMid: string) =>
     ipcRenderer.sendSync('old-favorite-runtime:bind-account', accountMid) as boolean,
   readBilibiliAccountMid: () => ipcRenderer.invoke('bilibili:account-mid') as Promise<string>,
+  openFavoriteRepositoryAccount: (accountMid: string) =>
+    ipcRenderer.invoke('favorite-repository:open-account', accountMid) as Promise<{ accountMid: string; revision: number }>,
+  getFavoriteRepositorySnapshot: (accountMid: string) =>
+    ipcRenderer.invoke('favorite-repository:get-snapshot', accountMid) as Promise<AccountFavoriteRepositorySnapshot>,
+  getFavoriteRepositoryFolderPage: (accountMid: string, folderId: string, options: { limit: number; cursor?: string }) =>
+    ipcRenderer.invoke('favorite-repository:get-folder-page', accountMid, folderId, options) as Promise<FavoriteRepositoryPage<FavoriteRepositoryVideo>>,
+  searchFavoriteRepositoryPage: (accountMid: string, query: string, options: { limit: number; cursor?: string }) =>
+    ipcRenderer.invoke('favorite-repository:search-page', accountMid, query, options) as Promise<FavoriteRepositoryPage<FavoriteRepositoryVideo>>,
+  commitFavoriteRepositoryCommand: (accountMid: string, command: FavoriteRepositoryCommand) =>
+    ipcRenderer.invoke('favorite-repository:commit-command', accountMid, command) as Promise<FavoriteRepositoryCommandResult>,
+  subscribeFavoriteRepository: (
+    accountMid: string,
+    folderId: string | undefined,
+    callback: (change: FavoriteRepositoryRevisionChange) => void
+  ) => {
+    const listener = (_event: Electron.IpcRendererEvent, change: FavoriteRepositoryRevisionChange) => callback(change)
+    ipcRenderer.on('favorite-repository:revision-changed', listener)
+    void ipcRenderer.invoke('favorite-repository:subscribe', accountMid, folderId)
+    return () => {
+      ipcRenderer.removeListener('favorite-repository:revision-changed', listener)
+      void ipcRenderer.invoke('favorite-repository:unsubscribe', accountMid, folderId)
+    }
+  },
   openOldFavoriteWorkspaceAccount: (accountMid: string) =>
     ipcRenderer.invoke('old-favorite-workspace:open-account', accountMid) as Promise<OldFavoriteAccountIndex>,
   loadOldFavoriteWorkspaceBatch: (accountMid: string, batchId: string) =>

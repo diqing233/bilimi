@@ -36,6 +36,14 @@ import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from './feature
 import type { OldFavoriteBatchCommitToken } from './features/favorites/favoriteLedgerApi'
 import type { OldFavoriteAccountIndex, OldFavoriteBatchDetail, OldFavoriteOverlayKind, OldFavoriteOverlayPatch } from '../../../electron/main/oldFavoriteWorkspaceTypes'
 import type { OldFavoriteBatchLifecycleSnapshot } from '../../../electron/main/oldFavoriteSessionStore'
+import type {
+  AccountFavoriteRepositorySnapshot,
+  FavoriteRepositoryCommand,
+  FavoriteRepositoryCommandResult,
+  FavoriteRepositoryPage,
+  FavoriteRepositoryVideo
+} from '@shared/favoriteRepository'
+import type { FavoriteRepositoryRevisionChange } from '../../../electron/main/favoriteRepositoryIpc'
 
 type BilimiDesktopApi = {
   version: string
@@ -79,6 +87,27 @@ type BilimiDesktopApi = {
   ) => Promise<OldFavoriteRuntimeSetResult>
   bindOldFavoriteRuntimeAccount?: (accountMid: string) => boolean
   readBilibiliAccountMid?: () => Promise<string>
+  openFavoriteRepositoryAccount?: (accountMid: string) => Promise<{ accountMid: string; revision: number }>
+  getFavoriteRepositorySnapshot?: (accountMid: string) => Promise<AccountFavoriteRepositorySnapshot>
+  getFavoriteRepositoryFolderPage?: (
+    accountMid: string,
+    folderId: string,
+    options: { limit: number; cursor?: string }
+  ) => Promise<FavoriteRepositoryPage<FavoriteRepositoryVideo>>
+  searchFavoriteRepositoryPage?: (
+    accountMid: string,
+    query: string,
+    options: { limit: number; cursor?: string }
+  ) => Promise<FavoriteRepositoryPage<FavoriteRepositoryVideo>>
+  commitFavoriteRepositoryCommand?: (
+    accountMid: string,
+    command: FavoriteRepositoryCommand
+  ) => Promise<FavoriteRepositoryCommandResult>
+  subscribeFavoriteRepository?: (
+    accountMid: string,
+    folderId: string | undefined,
+    callback: (change: FavoriteRepositoryRevisionChange) => void
+  ) => () => void
   openOldFavoriteWorkspaceAccount?: (accountMid: string) => Promise<OldFavoriteAccountIndex>
   loadOldFavoriteWorkspaceBatch?: (accountMid: string, batchId: string) => Promise<OldFavoriteBatchDetail>
   recoverOldFavoriteWorkspaceBatch?: (accountMid: string, batchId: string) => Promise<{ discardedTail: string | null }>

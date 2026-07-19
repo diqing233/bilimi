@@ -81,6 +81,8 @@ import { resetOldFavoriteAccount } from './oldFavoriteAccountReset'
 import { OldFavoriteBackgroundRuntime } from './oldFavoriteBackgroundRuntime'
 import { OldFavoriteWorkspaceService } from './oldFavoriteWorkspaceService'
 import { registerOldFavoriteWorkspaceIpc } from './oldFavoriteWorkspaceIpc'
+import { FavoriteRepositoryService } from './favoriteRepositoryService'
+import { registerFavoriteRepositoryIpc } from './favoriteRepositoryIpc'
 import { BilibiliSessionProxy } from './bilibiliSessionProxy'
 import {
   configureFloatingMenuWindow,
@@ -442,6 +444,7 @@ let flushOldFavoritePersistence: (() => Promise<void>) | undefined
 let oldFavoritePersistenceOpening: ReturnType<typeof createOldFavoritePersistence> | undefined
 const oldFavoritePersistenceDirtyTracker = new OldFavoritePersistenceDirtyTracker()
 let oldFavoriteWorkspaceService: OldFavoriteWorkspaceService | undefined
+let favoriteRepositoryService: FavoriteRepositoryService | undefined
 const oldFavoriteRendererFlushCoordinator = new OldFavoriteRendererFlushCoordinator()
 let queueOldFavoriteSessionMutation: OldFavoriteMutationQueue | undefined
 
@@ -1371,7 +1374,25 @@ configureDevelopmentUserData(app, { isPackaged: app.isPackaged })
 configureAppIdentity(app)
 const singleInstanceGuard = installSingleInstanceGuard(app, () => mainWindow)
 
+async function readCurrentBilibiliAccountMid() {
+  const cookies = await session.fromPartition(BILIMI_SESSION_PARTITION).cookies.get({ name: 'DedeUserID' })
+  return cookies.find((cookie) => /^\d+$/.test(cookie.value))?.value ?? ''
+}
+
 if (singleInstanceGuard) app.whenReady().then(async () => {
+  favoriteRepositoryService = new FavoriteRepositoryService({
+    root: join(app.getPath('userData'), 'favorites', 'repository-v1')
+  })
+  registerFavoriteRepositoryIpc({
+    ipcMain,
+    service: favoriteRepositoryService,
+    isTrustedSender: isTrustedOldFavoriteSessionSender,
+    getCurrentAccountMid: readCurrentBilibiliAccountMid,
+    send: (senderId, channel, payload) => {
+      const target = webContents.fromId(senderId)
+      if (target && !target.isDestroyed()) target.send(channel, payload)
+    }
+  })
   oldFavoriteWorkspaceService = new OldFavoriteWorkspaceService({
     root: join(app.getPath('userData'), 'old-favorite', 'workspace-v2')
   })
@@ -1426,8 +1447,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     }
   })
   ipcMain.handle('bilibili:account-mid', async () => {
-    const cookies = await session.fromPartition(BILIMI_SESSION_PARTITION).cookies.get({ name: 'DedeUserID' })
-    return cookies.find((cookie) => /^\d+$/.test(cookie.value))?.value ?? ''
+    return readCurrentBilibiliAccountMid()
   })
   getVideoTranscriptionQueue()
   registerAssistantPreferenceHandlers()
@@ -1464,7 +1484,8 @@ const oldFavoriteQuitBarrier = createOldFavoriteQuitBarrier({
     }
     await Promise.all([
       oldFavoritePersistenceDirtyTracker.isDirty() ? (flushOldFavoritePersistence?.() ?? Promise.resolve()) : Promise.resolve(),
-      oldFavoritePersistenceDirtyTracker.isDirty() ? (oldFavoriteWorkspaceService?.flush() ?? Promise.resolve()) : Promise.resolve()
+      oldFavoritePersistenceDirtyTracker.isDirty() ? (oldFavoriteWorkspaceService?.flush() ?? Promise.resolve()) : Promise.resolve(),
+      favoriteRepositoryService?.flush() ?? Promise.resolve()
     ])
     oldFavoritePersistenceDirtyTracker.completeFlush(persistenceDirtyAtFlushStart)
   },
