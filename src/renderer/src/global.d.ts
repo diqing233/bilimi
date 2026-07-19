@@ -55,6 +55,7 @@ type BilimiDesktopApi = {
   closeFloatingMenu?: () => void
   openOldFavoriteWorkspaceV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceView>
   commandOldFavoriteWorkspaceV1?: (accountMid: string, command: unknown) => Promise<OldFavoriteWorkspaceView>
+  organizeOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceView>
   ensureFavoriteLedgers?: () => Promise<AssistantAutomationResult>
   executeOldFavoritePlan?: (
     items: FavoriteLedgerPreviewItem[],

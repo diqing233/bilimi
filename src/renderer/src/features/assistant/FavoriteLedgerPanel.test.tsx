@@ -198,6 +198,36 @@ describe('FavoriteLedgerPanel', () => {
     expect(screen.queryByText('视频 2001')).not.toBeInTheDocument()
   })
 
+  it('runs controlled DeepSeek without passing preview items or results through React', async () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 },
+      sourceFolders: [{ id: 'source-a', title: 'Source A', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+      continuationCount: 0, segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1 }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'DeepSeek item', sourceFolderIds: ['source-a'] }] },
+      classifications: {}, history: { cursor: 0, length: 0 }
+    }
+    const organize = vi.fn().mockResolvedValue({
+      ...snapshot,
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'deepseek' as const } },
+      history: { cursor: 1, length: 1 }
+    })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(snapshot),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(snapshot),
+      organizeOldFavoriteWorkspaceDeepSeekV1: organize
+    } as typeof window.bilimiDesktop
+
+    renderPanel({ currentAccountMid: '100', deepSeekArchiveAvailable: true })
+    await screen.findByRole('button', { name: '查看归档预览' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(await screen.findByRole('button', { name: '使用 DeepSeek 整理当前分段' }))
+
+    await waitFor(() => expect(organize).toHaveBeenCalledExactlyOnceWith('100'))
+    expect(await screen.findByRole('combobox', { name: '归类 DeepSeek item' })).toHaveValue('music')
+  })
+
   it('virtualizes a large controlled current segment instead of mounting every preview item', async () => {
     const items = Array.from({ length: 51 }, (_, index) => ({
       aid: index + 1, title: `Video ${index + 1}`, author: 'UP', sourceFolderIds: ['source-a']

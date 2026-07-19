@@ -34,6 +34,20 @@ describe('old favorite workspace coordinator IPC', () => {
     await expect(ipcMain.invoke('old-favorite-workspace-v1:open', 8, '100')).rejects.toThrow('untrusted')
   })
 
+  it('runs DeepSeek only through a main-process current-segment service with no renderer result payload', async () => {
+    const ipcMain = new FakeIpcMain()
+    const deepSeekService = { organizeCurrentSegment: vi.fn().mockResolvedValue(snapshot) }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: {} as never, deepSeekService: deepSeekService as never,
+      isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:deepseek-current-segment', 7, '100')).resolves.toEqual(snapshot)
+    expect(deepSeekService.organizeCurrentSegment).toHaveBeenCalledWith('100')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:deepseek-current-segment', 7, '100', { results: [] }))
+      .rejects.toThrow('arguments are invalid')
+  })
+
   it('allows manual classifications without accepting a renderer-claimed DeepSeek source', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

@@ -9753,6 +9753,11 @@ export function FavoriteLedgerPanel({
               <div className="favorite-ledger-panel__archive-history-actions" role="group" aria-label="归档预览改动操作">
                 <button
                   type="button"
+                  disabled={!deepSeekArchiveAvailable || oldFavoriteWorkspace.loading || controlledPreviewItems.length === 0}
+                  onClick={() => void oldFavoriteWorkspace.organizeCurrentSegmentWithDeepSeek()}
+                >使用 DeepSeek 整理当前分段</button>
+                <button
+                  type="button"
                   disabled={(controlledScanSnapshot?.history.cursor ?? 0) === 0}
                   onClick={() => void oldFavoriteWorkspace.undoClassification()}
                 >撤销本次改动</button>

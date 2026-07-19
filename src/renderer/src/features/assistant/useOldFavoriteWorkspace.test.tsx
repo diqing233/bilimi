@@ -150,6 +150,17 @@ describe('useOldFavoriteWorkspace', () => {
     })
   })
 
+  it('runs DeepSeek through the payload-free current-segment bridge', async () => {
+    const organize = vi.fn().mockResolvedValue(workspace('100'))
+    window.bilimiDesktop = { organizeOldFavoriteWorkspaceDeepSeekV1: organize } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.organizeCurrentSegmentWithDeepSeek() })
+
+    expect(organize).toHaveBeenCalledExactlyOnceWith('100')
+    expect(result.current.snapshot).toEqual(workspace('100'))
+  })
+
   it('sends undo and redo as payload-free constrained workspace commands', async () => {
     const command = vi.fn().mockResolvedValue(workspace('100'))
     window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop

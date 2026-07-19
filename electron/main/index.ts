@@ -84,6 +84,7 @@ import { registerOldFavoriteWorkspaceIpc } from './oldFavoriteWorkspaceIpc'
 import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinator'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanService'
+import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepSeekService'
 import { registerOldFavoriteWorkspaceCoordinatorIpc } from './oldFavoriteWorkspaceCoordinatorIpc'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import { FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
@@ -458,6 +459,7 @@ let favoriteRepositoryPageBridgeManager: FavoriteRepositoryRuntimePageBridgeMana
 let favoriteRepositoryBindingService: FavoriteRepositoryBindingService | undefined
 let oldFavoriteWorkspaceCoordinator: OldFavoriteWorkspaceCoordinator | undefined
 let oldFavoriteWorkspaceScanService: OldFavoriteWorkspaceScanService | undefined
+let oldFavoriteWorkspaceDeepSeekService: OldFavoriteWorkspaceDeepSeekService | undefined
 const oldFavoriteRendererFlushCoordinator = new OldFavoriteRendererFlushCoordinator()
 let queueOldFavoriteSessionMutation: OldFavoriteMutationQueue | undefined
 
@@ -1419,9 +1421,23 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     coordinator: oldFavoriteWorkspaceCoordinator,
     requestRuntime: (request) => requestMainAssistantRuntime(request)
   })
+  oldFavoriteWorkspaceDeepSeekService = new OldFavoriteWorkspaceDeepSeekService({
+    coordinator: oldFavoriteWorkspaceCoordinator,
+    preferences: () => loadAssistantPreferences(getDesktopStore()),
+    generate: (request) => generateDeepSeekResult({
+      config: {
+        enabled: loadAssistantPreferences(getDesktopStore()).deepseekEnabled,
+        apiKey: loadDeepSeekApiKey(getDesktopStore(), safeStorage),
+        model: loadAssistantPreferences(getDesktopStore()).deepseekModel,
+        baseUrl: loadAssistantPreferences(getDesktopStore()).deepseekBaseUrl
+      },
+      request
+    })
+  })
   registerOldFavoriteWorkspaceCoordinatorIpc({
     ipcMain,
     coordinator: oldFavoriteWorkspaceCoordinator,
+    deepSeekService: oldFavoriteWorkspaceDeepSeekService,
     isTrustedSender: isTrustedOldFavoriteSessionSender,
     getCurrentAccountMid: readCurrentBilibiliAccountMid,
     startScan: (accountMid, mode) => oldFavoriteWorkspaceScanService!.start(accountMid, mode)
