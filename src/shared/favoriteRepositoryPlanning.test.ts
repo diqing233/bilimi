@@ -34,7 +34,39 @@ describe('favorite repository planning', () => {
         { ledgerId: 'review', source: 'deepseek' }
       ],
       maximumTargets: 2
-    })).toEqual({ targetLedgerIds: ['music', 'live'], reason: null })
+    })).toEqual({ targetLedgerIds: ['live', 'music'], reason: null })
+  })
+
+  it('clamps the configured multi-target limit to the supported range of one through three', () => {
+    const candidates = [
+      { ledgerId: 'one', source: 'deepseek' as const },
+      { ledgerId: 'two', source: 'deepseek' as const },
+      { ledgerId: 'three', source: 'deepseek' as const },
+      { ledgerId: 'four', source: 'deepseek' as const }
+    ]
+
+    expect(resolveRepositoryTargets({ candidates, maximumTargets: 99 }).targetLedgerIds)
+      .toEqual(['four', 'one', 'three'])
+    expect(resolveRepositoryTargets({ candidates, maximumTargets: 0 }).targetLedgerIds)
+      .toEqual(['four'])
+    expect(resolveRepositoryTargets({ candidates, maximumTargets: Number.NaN }).targetLedgerIds)
+      .toEqual(['four'])
+    expect(resolveRepositoryTargets({ candidates, maximumTargets: Number.POSITIVE_INFINITY }).targetLedgerIds)
+      .toEqual(['four'])
+  })
+
+  it('trims and deterministically deduplicates equivalent winning ledger candidates', () => {
+    const candidates = [
+      { ledgerId: ' zeta ', source: 'deepseek' as const },
+      { ledgerId: 'alpha', source: 'deepseek' as const },
+      { ledgerId: 'zeta', source: 'deepseek' as const },
+      { ledgerId: ' beta', source: 'deepseek' as const }
+    ]
+
+    expect(resolveRepositoryTargets({ candidates, maximumTargets: 3 }))
+      .toEqual({ targetLedgerIds: ['alpha', 'beta', 'zeta'], reason: null })
+    expect(resolveRepositoryTargets({ candidates: [...candidates].reverse(), maximumTargets: 3 }))
+      .toEqual({ targetLedgerIds: ['alpha', 'beta', 'zeta'], reason: null })
   })
 
   it('keeps an automatic high-confidence proposal to one target', () => {
@@ -73,5 +105,22 @@ describe('favorite repository planning', () => {
       inboxTotal: 1,
       maximumProjectedShardMembers: 1_001
     })).toMatchObject({ allowed: false, reason: 'shard-capacity-exceeded' })
+  })
+
+  it.each([
+    { currentFolderCount: -1, shardCreates: 0, inboxTotal: 0 },
+    { currentFolderCount: Number.NaN, shardCreates: 0, inboxTotal: 0 },
+    { currentFolderCount: Number.POSITIVE_INFINITY, shardCreates: 0, inboxTotal: 0 },
+    { currentFolderCount: 0, shardCreates: -1, inboxTotal: 0 },
+    { currentFolderCount: 0, shardCreates: 0, inboxTotal: Number.NaN },
+    { currentFolderCount: 0, shardCreates: 0, inboxTotal: 0, maximumProjectedShardMembers: -1 },
+    { currentFolderCount: 0, shardCreates: 0, inboxTotal: 0, maximumProjectedShardMembers: Number.POSITIVE_INFINITY },
+    { currentFolderCount: 0.5, shardCreates: 0, inboxTotal: 0 }
+  ])('fails closed for invalid remote capacity input %#', (input) => {
+    expect(planRemoteCapacity(input)).toEqual({
+      allowed: false,
+      reason: 'invalid-input',
+      projectedFolderCount: 0
+    })
   })
 })

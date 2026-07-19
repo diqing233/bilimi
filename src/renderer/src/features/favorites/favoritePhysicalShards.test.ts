@@ -23,6 +23,22 @@ describe('favorite physical shards', () => {
     expect(result).toMatchObject({ status: 'ready', createdShards: [{ id: 'new-2', shardNumber: 2 }] })
   })
 
+  it('caps a caller-provided shard capacity at the shared remote hard limit', async () => {
+    const createShard = vi.fn().mockResolvedValue({ id: 'new-2' })
+    const memberAids = Array.from({ length: REMOTE_FAVORITE_SHARD_CAPACITY }, (_, index) => index + 1)
+
+    const result = await allocateFavoritePhysicalShards({
+      logicalTitle: 'bilimi路知识',
+      requestedAids: [REMOTE_FAVORITE_SHARD_CAPACITY + 1],
+      shards: [{ id: 'full', title: 'bilimi路知识', memberAids }],
+      maxMembersPerShard: REMOTE_FAVORITE_SHARD_CAPACITY + 1,
+      createShard
+    })
+
+    expect(result).toMatchObject({ status: 'ready', createdShards: [{ id: 'new-2', shardNumber: 2 }] })
+    expect(createShard).toHaveBeenCalledTimes(1)
+  })
+
   it('recognizes stable shard names and merges membership by logical folder with aid deduplication', () => {
     const groups = groupFavoritePhysicalShards([
       { id: 'a', title: 'bilimi·原神', memberAids: [1, 2], membershipComplete: true },

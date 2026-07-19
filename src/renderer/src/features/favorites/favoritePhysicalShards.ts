@@ -81,7 +81,10 @@ type AllocateFavoritePhysicalShardsOptions = {
 }
 
 export async function allocateFavoritePhysicalShards(options: AllocateFavoritePhysicalShardsOptions) {
-  const maxMembersPerShard = options.maxMembersPerShard ?? REMOTE_FAVORITE_SHARD_CAPACITY
+  const requestedCapacity = options.maxMembersPerShard ?? REMOTE_FAVORITE_SHARD_CAPACITY
+  const maxMembersPerShard = Number.isFinite(requestedCapacity) && requestedCapacity > 0
+    ? Math.min(Math.floor(requestedCapacity), REMOTE_FAVORITE_SHARD_CAPACITY)
+    : REMOTE_FAVORITE_SHARD_CAPACITY
   const workingShards = options.shards
     .map((shard) => ({
       ...shard,
