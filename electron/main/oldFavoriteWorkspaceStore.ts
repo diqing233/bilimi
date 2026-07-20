@@ -52,6 +52,7 @@ type Overlay = {
     reason?: string
   }
 }
+type OverlayHistory = Pick<Overlay, 'currentSegmentId' | 'history'>
 type Manifest = {
   version: 1
   workspaceId: string
@@ -347,6 +348,33 @@ export class OldFavoriteWorkspaceStore {
     const segment = manifest?.segments.find((candidate) => candidate.id === segmentId)
     if (!segment) throw new Error('Old favorite workspace segment was not found.')
     return this.readSegment(directory, segment)
+  }
+
+  /** Reads committed delta commands for freeze compilation without loading baseline chunks. */
+  async readOverlayHistory(accountMid: string, workspaceId: string): Promise<OverlayHistory[]> {
+    const account = normalizedAccountMid(accountMid)
+    const directory = this.workspaceDirectory(account, workspaceId)
+    const manifest = await this.readManifest(directory)
+    if (!manifest || manifest.accountMid !== account) throw new Error('Old favorite workspace was not found.')
+    const journalPath = join(directory, 'overlay.journal.jsonl')
+    let journal = Buffer.alloc(0)
+    try {
+      journal = await readFile(journalPath)
+      this.recordRead(directory, 'overlay.journal.jsonl')
+    } catch {
+      if (manifest.journalCursor > 0) throw new Error('Old favorite workspace journal is corrupt.')
+      return []
+    }
+    if (journal.byteLength < manifest.journalCursor) throw new Error('Old favorite workspace journal is corrupt.')
+    const committed = journal.subarray(0, manifest.journalCursor).toString('utf8')
+    if (checksum(committed) !== manifest.journalChecksum) throw new Error('Old favorite workspace journal is corrupt.')
+    return committed.split('\n').filter(Boolean).map((line) => {
+      const overlay = JSON.parse(line) as Overlay
+      if (typeof overlay.currentSegmentId !== 'string' || !Array.isArray(overlay.history)) {
+        throw new Error('Old favorite workspace journal is invalid.')
+      }
+      return { currentSegmentId: overlay.currentSegmentId, history: overlay.history.map(clone) }
+    })
   }
 
   async readWorkspaceWrites(accountMid: string, workspaceId: string) {

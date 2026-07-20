@@ -147,6 +147,9 @@ export class FavoriteRepositorySyncService {
         if (workspace.status !== 'frozen') {
           // A restored/existing run is never rebound here. Callers must use
           // explicit reconciliation before deciding whether it may continue.
+          if (workspace.status === 'executing' && !existingRun.completedOperationCount && existingRun.status === 'running') {
+            await this.writeWorkspace(account, withWorkspaceStatus(workspace, 'reconciling', workspace.frozenSyncPlan), `interrupted-before-request:${plan.id}`)
+          }
           return existingRun
         }
         // Persist the execution boundary before binding. A restart must reconcile
@@ -188,6 +191,13 @@ export class FavoriteRepositorySyncService {
       const plan = this.planForRun(workspace, runId, account)
       const records = this.recordsByOperation(plan, await this.options.repository.getSyncCheckpoints(account, runId))
       await this.writeWorkspace(account, withWorkspaceStatus(workspace!, 'reconciling', plan), `reconcile:${runId}`)
+
+      // No remote checkpoint means the interrupted run made no request. It is
+      // safe to return to the frozen plan without binding or retrying anything.
+      if (!records.size) {
+        await this.writeWorkspace(account, withWorkspaceStatus(workspace!, 'frozen', plan), `reconciled-unstarted:${runId}`)
+        return { ...this.summarize(plan, []), status: 'ready-to-resume' }
+      }
 
       for (const operation of plan.operations) {
       const record = records.get(operation.operationKey)

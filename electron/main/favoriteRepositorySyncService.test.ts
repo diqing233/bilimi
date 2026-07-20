@@ -135,7 +135,7 @@ describe('FavoriteRepositorySyncService', () => {
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({ organizationRecords: [] })
   })
 
-  it('does not rebind a persisted executing run after an interruption before its first remote request', async () => {
+  it('requires reconciliation instead of rebinding a persisted executing run before its first remote request', async () => {
     const repository = await createRepository()
     const frozen = { ...workspace(), status: 'executing' as const, workspaceRef: { ...workspace().workspaceRef, status: 'executing' as const }, frozenSyncPlan: plan() }
     await repository.commit('100', {
@@ -150,6 +150,23 @@ describe('FavoriteRepositorySyncService', () => {
 
     await expect(service.executeFrozenPlan('100', plan())).resolves.toMatchObject({ status: 'running' })
     expect(bind).not.toHaveBeenCalled()
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: { status: 'reconciling' } })
+  })
+
+  it('returns an interrupted pre-request execution to frozen after explicit reconciliation', async () => {
+    const repository = await createRepository()
+    const interrupted = { ...workspace(), status: 'executing' as const, workspaceRef: { ...workspace().workspaceRef, status: 'executing' as const }, frozenSyncPlan: plan() }
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace', payload: interrupted
+    })
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridgeManager: { bind: vi.fn(), release: vi.fn(), pageBridge: vi.fn() },
+      now: () => '2026-07-19T00:00:00.000Z'
+    })
+
+    await expect(service.reconcile('100', 'run-1')).resolves.toMatchObject({ status: 'ready-to-resume' })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: { status: 'frozen' } })
   })
 
   it('finalizes an executing run with every durable checkpoint succeeded without a page bind', async () => {

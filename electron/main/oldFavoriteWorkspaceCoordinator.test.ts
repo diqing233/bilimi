@@ -667,6 +667,51 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('does not freeze classifications after every selectable source is deselected', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1, items: [{ aid: 1, title: 'Video', sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await coordinator.selectSourceFolders('100', [])
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      frozenSyncPlan: { operations: [] }
+    })
+  })
+
+  it('does not freeze classifications when source-selection metadata is unavailable', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 0, memberAids: [] }]
+    })
+    ;(coordinator as unknown as { scanOverviews: Map<string, unknown> }).scanOverviews.delete('100')
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      frozenSyncPlan: { operations: [] }
+    })
+  })
+
   it('freezes a main-process sync plan using only persisted bound physical shard ids', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -850,6 +895,41 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({ status: 'previewing' })
   })
 
+  it('freezes one remote plan that deduplicates classifications from every prepared segment', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    const aids = Array.from({ length: 2_001 }, (_, index) => index + 1)
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: Array.from({ length: 2_000 }, (_, index) => ({ aid: index + 1, targetLedgerIds: ['music'] }))
+    })
+    await coordinator.selectSegment('100', 'segment-2')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 2_001, targetLedgerIds: ['music'] }]
+    })
+    for (const shardNumber of [1, 2, 3]) {
+      const remoteFolderId = `remote-music-${shardNumber}`
+      await bindings.preparePhysicalShard('100', {
+        logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber, memberAids: [], observedAccountMid: '100',
+        remoteFolderId,
+        inventory: [{
+          id: remoteFolderId, title: favoriteRepositoryManagedShardTitle('music', shardNumber, 'a1b2c3'), memberCount: 0, memberAids: []
+        }]
+      })
+    }
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      status: 'frozen', frozenSyncPlan: { operations: expect.arrayContaining([
+        expect.objectContaining({ aid: 1 }),
+        expect.objectContaining({ aid: 2_001 })
+      ]) }
+    })
+    expect((await repository.getSnapshot('100')).workspace?.frozenSyncPlan?.operations).toHaveLength(2_001)
+  })
+
   it('keeps rejecting local-only completion after restoring a multi-segment workspace', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -1015,6 +1095,31 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.executeFrozenBilibiliPlan('100')).resolves.toMatchObject({ id: 'run-1', status: 'succeeded' })
     const persisted = (await repository.getSnapshot('100')).workspace?.frozenSyncPlan
     expect(executeFrozenPlan).toHaveBeenCalledWith('100', persisted)
+  })
+
+  it('freezes and starts a Bilibili plan from one explicit confirmation', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const executeFrozenPlan = vi.fn().mockResolvedValue({ id: 'run-1', status: 'running' })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      syncService: { executeFrozenPlan, getRun: vi.fn().mockResolvedValue({ id: 'run-1', status: 'running' }) },
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: favoriteRepositoryManagedShardTitle('music', 1, 'a1b2c3'), memberCount: 0, memberAids: [] }]
+    })
+
+    await expect(coordinator.confirmAndExecuteBilibiliPlan('100')).resolves.toMatchObject({ id: 'run-1', status: 'running' })
+    expect(executeFrozenPlan).toHaveBeenCalledWith('100', expect.objectContaining({ operations: [expect.objectContaining({ aid: 1 })] }))
   })
 
   it('finishes an all-checkpoint-successful plan without rebinding and exposes the cleared completed snapshot', async () => {
@@ -1287,7 +1392,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     ], {
       workspaceId: snapshot.workspaceId,
       currentSegmentId: snapshot.currentSegment.id,
-      selectedSourceFolderIds: [],
+      selectedSourceFolderIds: ['legacy-source'],
       classifications: {}
     })
 

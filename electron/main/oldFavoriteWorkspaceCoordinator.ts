@@ -408,13 +408,23 @@ export class OldFavoriteWorkspaceCoordinator {
       const workspace = await this.requireWorkspace(accountMid)
       const completed = completeWorkspaceScan(workspace, options)
       const currentSegmentId = completed.segments[0]?.id ?? ''
+      // This internal test/compatibility entry point represents one selected source.
+      // The production scan path persists the real inventory before finalization.
+      const sourceFolders = this.scanOverviews.get(completed.accountMid)?.sourceFolders ?? [{
+        id: 'legacy-source', title: 'Legacy source', itemCount: options.aids.length, isBilimiWorkFolder: false, selected: true
+      }]
       await this.options.workspaceStore.create({
         accountMid: completed.accountMid,
         workspaceId: completed.id,
         status: completed.status,
         baselineRevision: completed.baseline?.revision ?? 0,
         currentSegmentId,
-        segments: completed.segments.map((segment) => ({ id: segment.id, aids: [...segment.aids] }))
+        sourceFolders,
+        segments: completed.segments.map((segment) => ({
+          id: segment.id,
+          aids: [...segment.aids],
+          items: segment.aids.map((aid) => ({ aid, sourceFolderIds: ['legacy-source'] }))
+        }))
       })
       const descriptors = completed.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
       await this.appendEvents(completed, currentSegmentId, [{
@@ -426,6 +436,13 @@ export class OldFavoriteWorkspaceCoordinator {
         baselineCompletedAids: [...completed.baselineCompletedAids]
       }])
       await this.persistMarker(completed)
+      this.scanOverviews.set(completed.accountMid, {
+        sourceFolders,
+        scan: { phase: 'complete', failureCount: 0, mode: completed.mode }
+      })
+      this.currentSegmentItems.set(completed.accountMid, completed.segments[0]?.aids.map((aid) => ({
+        aid, sourceFolderIds: ['legacy-source']
+      })) ?? [])
       this.remember(completed, currentSegmentId, descriptors, new Set())
       return clone(completed)
     })
@@ -721,7 +738,7 @@ export class OldFavoriteWorkspaceCoordinator {
         if (workspace.status !== 'previewing' || !workspace.baseline) {
           throw new Error('Old favorite workspace is not ready to freeze.')
         }
-        const classifications = await this.selectedSourceAssignments(workspace, Object.values(workspace.classifications))
+        const classifications = await this.loadSelectedClassificationsForFreeze(workspace)
         const recommendations = await this.ensureRecommendations(workspace)
         const recommendationTitles = new Map(recommendations.candidates.map((candidate) => [candidate.id, candidate.displayName]))
         return {
@@ -765,7 +782,7 @@ export class OldFavoriteWorkspaceCoordinator {
       if (workspace.status !== 'previewing' || !workspace.baseline) {
         throw new Error('Old favorite workspace is not ready to freeze.')
       }
-      const classifications = await this.selectedSourceAssignments(workspace, Object.values(workspace.classifications))
+      const classifications = await this.loadSelectedClassificationsForFreeze(workspace)
       const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
       const boundShards = snapshot.physicalShards.flatMap((shard) => {
         if (shard.bindingState !== 'bound' || !shard.remoteFolderId) return []
@@ -830,11 +847,17 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.options.syncService.executeFrozenPlan(frozenPlan.accountMid, frozenPlan.plan)
   }
 
+  /** One user confirmation freezes the immutable plan, then starts its controlled execution. */
+  async confirmAndExecuteBilibiliPlan(accountMid: string): Promise<FavoriteRepositorySyncRun> {
+    await this.freezeForBilibiliExecution(accountMid)
+    return this.executeFrozenBilibiliPlan(accountMid)
+  }
+
   async bindAndReconcileFrozenBilibiliPlan(accountMid: string): Promise<FavoriteRepositorySyncRun> {
     const run = await this.queue(async () => {
       const snapshot = await this.options.repository.getSnapshot(accountMid)
       const plan = snapshot.workspace?.frozenSyncPlan
-      if (!plan || snapshot.workspace?.status !== 'reconciling') {
+      if (!plan || (snapshot.workspace?.status !== 'reconciling' && snapshot.workspace?.status !== 'executing')) {
         throw new Error('Old favorite workspace does not require reconciliation.')
       }
       if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
@@ -1040,7 +1063,11 @@ export class OldFavoriteWorkspaceCoordinator {
   }
 
   private async selectedSourceAssignments<T extends { aid: number }>(workspace: OldFavoriteWorkspace, assignments: T[]): Promise<T[]> {
-    const sourceFolders = this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []
+    const overview = this.scanOverviews.get(workspace.accountMid)
+    // A remote plan requires durable evidence of the user-selected source scope.
+    // Missing metadata must never widen that scope after recovery.
+    if (!overview) return []
+    const sourceFolders = overview.sourceFolders
     // Legacy/test workspaces may not have inventory metadata; only enforce a scope the user could select.
     if (!sourceFolders.length) return assignments
     const selectedSourceFolderIds = new Set(sourceFolders
@@ -1051,6 +1078,56 @@ export class OldFavoriteWorkspaceCoordinator {
     const itemsByAid = new Map(items.map((item) => [item.aid, item]))
     return assignments.filter((assignment) =>
       itemsByAid.get(assignment.aid)?.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId)))
+  }
+
+  /** Replays per-segment journal deltas only when compiling a one-confirmation remote plan. */
+  private async loadSelectedClassificationsForFreeze(workspace: OldFavoriteWorkspace) {
+    const overlays = await this.options.workspaceStore.readOverlayHistory(workspace.accountMid, workspace.id)
+    const entriesBySegment = new Map<string, OldFavoriteWorkspaceHistoryEntry[]>()
+    const cursorBySegment = new Map<string, number>()
+    for (const overlay of overlays) {
+      const entries = entriesBySegment.get(overlay.currentSegmentId) ?? []
+      for (const history of overlay.history) {
+        const event = decodeJournalEvent(history)
+        if (!event) continue
+        if (event.type === 'classification') {
+          const next = entries.slice(0, Math.max(0, event.historyCursor - 1))
+          next.push(clone(event.entry))
+          entriesBySegment.set(overlay.currentSegmentId, next)
+          cursorBySegment.set(overlay.currentSegmentId, event.historyCursor)
+        } else if (event.type === 'history-cursor') {
+          cursorBySegment.set(overlay.currentSegmentId, event.historyCursor)
+        }
+      }
+    }
+    const classifications = new Map<number, OldFavoriteWorkspace['classifications'][string]>()
+    for (const [segmentId, entries] of entriesBySegment) {
+      for (const entry of entries.slice(0, Math.min(cursorBySegment.get(segmentId) ?? entries.length, entries.length))) {
+        for (const change of entry.changes) {
+          if (change.after) classifications.set(change.aid, clone(change.after))
+          else classifications.delete(change.aid)
+        }
+      }
+    }
+    const overview = this.scanOverviews.get(workspace.accountMid)
+    if (!overview) return []
+    const sourceFolders = overview.sourceFolders
+    const hasSelectableSourceFolders = sourceFolders.some((folder) => !folder.isBilimiWorkFolder)
+    const selectedSourceFolderIds = new Set(sourceFolders
+      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected)
+      .map((folder) => folder.id))
+    const selected = [] as OldFavoriteWorkspace['classifications'][string][]
+    const descriptors = this.segmentDescriptors.get(workspace.accountMid) ?? workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
+    for (const descriptor of descriptors) {
+      const segment = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, descriptor.id)
+      for (const item of segment.items ?? []) {
+        const classification = classifications.get(item.aid)
+        if (classification && (!hasSelectableSourceFolders || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId)))) {
+          selected.push(clone(classification))
+        }
+      }
+    }
+    return selected
   }
 
   private async loadCurrentSegmentItems(workspace: OldFavoriteWorkspace) {

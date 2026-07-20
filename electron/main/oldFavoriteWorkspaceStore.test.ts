@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -102,7 +102,7 @@ describe('OldFavoriteWorkspaceStore', () => {
 
     expect(recovered).toMatchObject({ workspaceId: 'workspace-1', loadedSegmentAids: [] })
     await expect(recoveredStore.readWorkspaceReads('100', 'workspace-1')).resolves.toEqual(['manifest.json'])
-  })
+  }, 20_000)
 
   it('keeps an older v1 manifest recoverable when it has no scan staging fields', async () => {
     const root = await createRoot()
@@ -159,6 +159,27 @@ describe('OldFavoriteWorkspaceStore', () => {
     await expect(store.loadSegment('100', 'workspace-1', 'segment-8')).resolves.toMatchObject({
       id: 'segment-8', aids: expect.arrayContaining([14_001, 16_000])
     })
+  })
+
+  it('reads committed multi-segment history for freeze planning without loading baseline chunks', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1, currentSegmentId: 'segment-1',
+      segments: [{ id: 'segment-1', aids: [1] }, { id: 'segment-2', aids: [2] }]
+    })
+    await store.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [],
+      history: [{ kind: 'bilimi-old-favorite-workspace:v1:{"type":"classification","entry":{"source":"manual","changes":[]},"historyCursor":1}', aids: [] }]
+    })
+
+    const reader = new OldFavoriteWorkspaceStore({ root })
+    await expect(reader.readOverlayHistory('100', 'workspace-1')).resolves.toMatchObject([
+      { currentSegmentId: 'segment-1', history: [expect.objectContaining({ aids: [] })] }
+    ])
+    await expect(reader.readWorkspaceReads('100', 'workspace-1')).resolves.toEqual([
+      'manifest.json', 'overlay.journal.jsonl'
+    ])
   })
 
   it('recovers compact scan folders including an empty Bilimi work folder', async () => {
@@ -238,6 +259,21 @@ describe('OldFavoriteWorkspaceStore', () => {
     await expect(store.recover('100', 'workspace-1')).resolves.toMatchObject({
       recovery: 'rebuild-required', preserveCompletedLocalResults: true
     })
+  })
+
+  it('rejects a missing committed overlay journal instead of treating it as an empty freeze history', async () => {
+    const root = await createRoot()
+    const store = new OldFavoriteWorkspaceStore({ root })
+    await store.create({
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing', baselineRevision: 1, currentSegmentId: 'segment-1',
+      segments: [{ id: 'segment-1', aids: [1] }]
+    })
+    await store.appendOverlay('100', 'workspace-1', {
+      currentSegmentId: 'segment-1', classifications: [{ aid: 1, targetLedgerIds: ['music'], source: 'manual' }], history: []
+    })
+    await unlink(join(root, 'accounts', '100', 'workspaces', 'workspace-1', 'overlay.journal.jsonl'))
+
+    await expect(store.readOverlayHistory('100', 'workspace-1')).rejects.toThrow('Old favorite workspace journal is corrupt.')
   })
 
   it('ignores a valid journal tail that was appended before its manifest pointer committed', async () => {

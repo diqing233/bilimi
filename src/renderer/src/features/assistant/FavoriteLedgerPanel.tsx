@@ -10181,13 +10181,13 @@ export function FavoriteLedgerPanel({
               <h4>确认执行</h4>
               {controlledScanSnapshot?.status === 'frozen' ? (
                 <>
-                  <p role="status">B 站同步计划已冻结，执行过程由主进程受控并带检查点。</p>
+                  <p role="status">B 站同步计划已冻结；恢复时请继续执行或先对账，系统不会重新分类。</p>
                   <div className="favorite-ledger-panel__confirm-actions">
                     <button
                       type="button"
                       disabled={oldFavoriteWorkspace.loading}
                       onClick={() => void oldFavoriteWorkspace.executeFrozenBilibiliPlan()}
-                    >{oldFavoriteWorkspace.loading ? '正在开始…' : '开始同步到 B 站'}</button>
+                    >{oldFavoriteWorkspace.loading ? '正在继续…' : '继续同步到 B 站'}</button>
                   </div>
                 </>
               ) : controlledScanSnapshot?.status === 'reconciling' ? (
@@ -10202,7 +10202,16 @@ export function FavoriteLedgerPanel({
                   </div>
                 </>
               ) : controlledScanSnapshot?.status === 'executing' ? (
-                <p role="status">正在同步到 B 站；页面切换后会按检查点恢复状态。</p>
+                <>
+                  <p role="status">同步状态正在恢复。若刚好在页面绑定前中断，请先检查 B 站状态，系统不会盲目重试。</p>
+                  <div className="favorite-ledger-panel__confirm-actions">
+                    <button
+                      type="button"
+                      disabled={oldFavoriteWorkspace.loading}
+                      onClick={() => void oldFavoriteWorkspace.reconcileFrozenBilibiliPlan()}
+                    >{oldFavoriteWorkspace.loading ? '正在检查…' : '检查 B 站同步状态'}</button>
+                  </div>
+                </>
               ) : controlledScanSnapshot?.status === 'completed' ? (
                 <p role="status">{controlledScanSnapshot.completionMode === 'local'
                   ? '本轮已保存到收藏库。'
@@ -10220,8 +10229,8 @@ export function FavoriteLedgerPanel({
                     <button
                       type="button"
                       disabled={!controlledBilibiliFreezeReady || oldFavoriteWorkspace.loading}
-                      onClick={() => void oldFavoriteWorkspace.freezeBilibiliExecution()}
-                    >{oldFavoriteWorkspace.loading ? '正在冻结…' : '确认同步到 B 站'}</button>
+                      onClick={() => void oldFavoriteWorkspace.confirmAndExecuteBilibiliPlan()}
+                    >{oldFavoriteWorkspace.loading ? '正在确认…' : '确认并同步到 B 站'}</button>
                   </div>
                 </>
               )}

@@ -399,8 +399,27 @@ describe('FavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
     fireEvent.click(await screen.findByRole('button', { name: '对账 B 站结果' }))
     await waitFor(() => expect(command).toHaveBeenLastCalledWith('100', { type: 'reconcile-frozen-bilibili-plan' }))
-    fireEvent.click(await screen.findByRole('button', { name: '开始同步到 B 站' }))
+    fireEvent.click(await screen.findByRole('button', { name: '继续同步到 B 站' }))
     await waitFor(() => expect(command).toHaveBeenLastCalledWith('100', { type: 'execute-frozen-bilibili-plan' }))
+  })
+
+  it('offers explicit reconciliation for an interrupted controlled execution', async () => {
+    const executing = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'executing' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue({ ...executing, status: 'reconciling' as const })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(executing),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    renderPanel({ currentAccountMid: '100' })
+    fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
+    fireEvent.click(await screen.findByRole('button', { name: '检查 B 站同步状态' }))
+    await waitFor(() => expect(command).toHaveBeenLastCalledWith('100', { type: 'reconcile-frozen-bilibili-plan' }))
   })
 
   it('keeps controlled confirmation unavailable while the workspace is scanning', async () => {
