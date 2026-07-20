@@ -40,6 +40,7 @@ describe('OldFavoriteConfirmationStep', () => {
   })
 
   it('shows main-process execution progress while the frozen plan is syncing', () => {
+    const reconcile = vi.fn()
     render(<OldFavoriteConfirmationStep
       snapshot={{
         version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'executing', mode: 'incremental',
@@ -47,11 +48,13 @@ describe('OldFavoriteConfirmationStep', () => {
         sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
         history: { cursor: 0, length: 0 }, executionProgress: { completedOperationCount: 3, totalOperationCount: 8 }
       }}
-      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+      loading={false} onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={reconcile}
     />)
 
     expect(screen.getByRole('status')).toHaveTextContent('已完成 3 / 8 条')
     expect(screen.getByRole('progressbar', { name: '正在同步到 B 站' })).toHaveAttribute('value', '3')
     expect(screen.getByRole('progressbar', { name: '正在同步到 B 站' })).toHaveAttribute('max', '8')
+    screen.getByRole('button', { name: '对账 B 站结果' }).click()
+    expect(reconcile).toHaveBeenCalledOnce()
   })
 })

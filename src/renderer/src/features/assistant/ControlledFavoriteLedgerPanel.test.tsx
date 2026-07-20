@@ -163,6 +163,31 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('region', { name: '整理旧藏向导' }).querySelector('.favorite-ledger-panel__guide-entry-actions')).toBeNull()
   })
 
+  it('routes an interrupted remote execution to reconciliation without offering an invalid full reset', async () => {
+    const executing = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'executing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }, executionProgress: { completedOperationCount: 1, totalOperationCount: 3 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(executing),
+      commandOldFavoriteWorkspaceV1: vi.fn()
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+
+    const resumeDialog = await screen.findByRole('dialog', { name: '整理旧藏' })
+    expect(within(resumeDialog).getByRole('button', { name: '继续上次整理' })).toBeInTheDocument()
+    expect(within(resumeDialog).queryByRole('button', { name: '全部重新整理' })).not.toBeInTheDocument()
+    fireEvent.click(within(resumeDialog).getByRole('button', { name: '继续上次整理' }))
+    expect(await screen.findByRole('button', { name: '对账 B 站结果' })).toBeEnabled()
+  })
+
   it('keeps editable rule types and safe reset synchronization in the legacy checklist', async () => {
     const save = vi.fn()
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[

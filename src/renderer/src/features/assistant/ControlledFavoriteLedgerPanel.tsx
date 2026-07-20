@@ -115,6 +115,7 @@ export function ControlledFavoriteLedgerPanel({
     }
     void startScan('incremental')
   }
+  const canRestartFromResume = snapshot?.status === 'previewing' || snapshot?.status === 'scanning'
 
   return (
     <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
@@ -144,11 +145,11 @@ export function ControlledFavoriteLedgerPanel({
         onCancel={() => setResumeDialogOpen(false)}
         extraActions={<>
           <button type="button" onClick={() => { setResumeDialogOpen(false); setGuideOpen(true) }}>继续上次整理</button>
-          <button type="button" onClick={() => {
+          {canRestartFromResume ? <button type="button" onClick={() => {
             setResumeDialogOpen(false)
             setFullReorganizationAccountMid(normalizeAccountMid(currentAccountMid))
             setFullReorganizationConfirmOpen(true)
-          }}>全部重新整理</button>
+          }}>全部重新整理</button> : null}
         </>}>
         <p>检测到当前账号有未结束的整理存档，请选择接下来的操作。</p>
       </OldFavoriteModal> : null}
