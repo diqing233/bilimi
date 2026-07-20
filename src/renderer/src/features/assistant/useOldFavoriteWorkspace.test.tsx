@@ -245,6 +245,17 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.snapshot).toEqual(workspace('100'))
   })
 
+  it('reports a visible DeepSeek failure when its narrow bridge is unavailable', async () => {
+    window.bilimiDesktop = {} as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.organizeCurrentSegmentWithDeepSeek('unclassified-only') })
+
+    expect(result.current.deepSeekFeedback).toEqual({
+      status: 'failed', message: 'DeepSeek 整理暂不可用，请稍后重试。'
+    })
+  })
+
   it('sends undo and redo as payload-free constrained workspace commands', async () => {
     const command = vi.fn().mockResolvedValue(workspace('100'))
     window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop

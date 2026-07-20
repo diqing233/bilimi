@@ -51,12 +51,20 @@ export class OldFavoriteWorkspaceDeepSeekService {
     const foldersById = new Map(snapshot.sourceFolders.map((folder) => [folder.id, folder]))
     const items = snapshot.currentSegment.items.filter((item) =>
       item.sourceFolderIds.some((folderId) => selectedFolderIds.has(folderId)))
-    if (!items.length) return snapshot
+    const scopedItems = items.filter((item) => {
+      const classification = snapshot.classifications[String(item.aid)]
+      if (mode === 'unclassified-only') return !classification?.targetLedgerIds.length
+      if (mode === 'low-confidence-and-unclassified') {
+        return !classification?.targetLedgerIds.length || classification.source === 'system-low'
+      }
+      return true
+    })
+    if (!scopedItems.length) return snapshot
 
     const request: ArchiveRequest = {
       kind: 'favorite-archive-organize',
       mode,
-      videos: items.map((item) => {
+      videos: scopedItems.map((item) => {
         const sourceFolderId = item.sourceFolderIds.find((folderId) => selectedFolderIds.has(folderId)) ?? ''
         return {
           aid: item.aid,
@@ -92,7 +100,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
       results.push(...result.results)
     }
 
-    const itemByAid = new Map(items.map((item) => [item.aid, item]))
+    const itemByAid = new Map(scopedItems.map((item) => [item.aid, item]))
     const enabledLedgerIds = new Set(request.ledgers.map((ledger) => ledger.id))
     const assignments = this.assignmentsFromResult(results, itemByAid, snapshot.classifications, enabledLedgerIds, request.multiArchiveLimit)
     if (!assignments.length) return snapshot

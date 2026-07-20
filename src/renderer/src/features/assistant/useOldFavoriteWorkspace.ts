@@ -166,7 +166,10 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     const version = ++requestVersion.current
     const generation = accountGeneration.current
     const organize = window.bilimiDesktop?.organizeOldFavoriteWorkspaceDeepSeekV1
-    if (!accountMid || !organize) return null
+    if (!accountMid || !organize) {
+      setDeepSeekFeedback({ status: 'failed', message: 'DeepSeek 整理暂不可用，请稍后重试。' })
+      return null
+    }
     setLoading(true)
     foregroundRequestCount.current += 1
     setDeepSeekFeedback({ status: 'running', message: 'DeepSeek 正在整理当前分段…' })
