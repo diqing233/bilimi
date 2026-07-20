@@ -58,7 +58,7 @@ export function OldFavoriteScanOverviewStep({
       ? `扫描失败：${scanFailureGuidance(snapshot.scan.reason)}`
       : scanning
         ? '扫描概览：扫描中'
-        : '扫描概览已完成，正在准备归档预览。'
+        : '扫描概览已完成，请选择下一步继续整理。'
 
   return <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
     <h4>扫描概览</h4>

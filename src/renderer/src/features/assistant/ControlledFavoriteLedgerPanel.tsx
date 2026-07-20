@@ -48,6 +48,7 @@ export function ControlledFavoriteLedgerPanel({
   const [scanStartFailure, setScanStartFailure] = useState<string | null>(null)
   const scanPresentationRequestVersion = useRef(0)
   const scanStartingRef = useRef(false)
+  const previousWorkspaceStatusRef = useRef<string | null>(null)
   const activeAccountMid = useRef(currentAccountMid)
   activeAccountMid.current = currentAccountMid
   const snapshot = workspace.snapshot &&
@@ -58,6 +59,7 @@ export function ControlledFavoriteLedgerPanel({
   useEffect(() => {
     scanPresentationRequestVersion.current += 1
     scanStartingRef.current = false
+    previousWorkspaceStatusRef.current = null
     setGuideOpen(false)
     setResumeDialogOpen(false)
     setStep('scan')
@@ -69,11 +71,13 @@ export function ControlledFavoriteLedgerPanel({
 
   useEffect(() => {
     if (!snapshot || scanStartingRef.current) return
+    const previousStatus = previousWorkspaceStatusRef.current
+    previousWorkspaceStatusRef.current = snapshot.status
     setGuideOpen(true)
     setStep((currentStep) => {
       if (snapshot.status === 'scanning' || recovery) return 'scan'
       if (snapshot.status !== 'previewing') return 'confirm'
-      if (currentStep === 'scan') return 'preview'
+      if (previousStatus === null) return 'preview'
       return currentStep
     })
   }, [recovery, scanStarting, snapshot?.accountMid, snapshot?.status])

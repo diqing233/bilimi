@@ -1541,6 +1541,38 @@ describe('ControlledFavoriteLedgerPanel', () => {
     }))
   })
 
+  it('keeps scan overview selected when a background refresh reports scan completion', async () => {
+    const scanning = {
+        version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
+        mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+        scan: { phase: 'inventory' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [],
+        segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 0, length: 0 }
+      }
+      const previewing = {
+        ...scanning,
+        status: 'previewing' as const,
+        scan: { phase: 'complete' as const, failureCount: 0 }
+      }
+    let persisted = scanning
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockImplementation(() => Promise.resolve(persisted)),
+      commandOldFavoriteWorkspaceV1: vi.fn()
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
+    persisted = previewing
+    await waitFor(() => expect(screen.getByRole('button', { name: '归档预览' })).toBeEnabled(), { timeout: 1500 })
+
+    expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByRole('region', { name: '扫描概览' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '归档预览' })).not.toBeInTheDocument()
+  })
+
   it('locks source selection after classifications have been persisted', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
