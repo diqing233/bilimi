@@ -71,7 +71,7 @@ export function OldFavoriteArchivePreviewStep({
         disabled={snapshot.currentSegment?.id === segment.id || loading}
         onClick={() => onSelectSegment(segment.id)}>第 {segment.index + 1} 组</button>)}
     </div> : null}
-    <div className="favorite-ledger-panel__confirm-actions">
+    <div className="favorite-ledger-panel__preview-toolbar" role="group" aria-label="归档工具">
       <button type="button" disabled={loading || items.length === 0} onClick={onAutoClassify}>自动分类</button>
       <div className="favorite-ledger-panel__deepseek-archive-scope" onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDeepSeekScopeOpen(false)
@@ -102,8 +102,10 @@ export function OldFavoriteArchivePreviewStep({
       <label>新建收藏夹后重新归类<input aria-label="新增收藏夹名称" value={newLedgerName} onChange={(event) => setNewLedgerName(event.currentTarget.value)} /></label>
       <button type="button" disabled={loading || !newLedgerName.trim()} onClick={() => { onCreateLocalLedgerAndReclassify(newLedgerName); setNewLedgerName('') }}>新增并重新归类</button>
     </div>
-    {items.length > VIRTUAL_TRACK_THRESHOLD ? <VirtualOldFavoriteTrack className="favorite-ledger-panel__preview-videos--virtual" ariaLabel="当前分段归档预览"
-      items={items} itemKey={(item) => String(item.aid)} itemWidth={320} renderItem={renderItem} /> :
-      <ul aria-label="当前分段归档预览">{items.map((item) => <li key={item.aid}>{renderItem(item)}</li>)}</ul>}
+    <div className="favorite-ledger-panel__preview-groups">
+      {items.length > VIRTUAL_TRACK_THRESHOLD ? <VirtualOldFavoriteTrack className="favorite-ledger-panel__preview-videos--virtual" ariaLabel="当前分段归档预览"
+        items={items} itemKey={(item) => String(item.aid)} itemWidth={320} renderItem={renderItem} /> :
+        <ul aria-label="当前分段归档预览">{items.map((item) => <li key={item.aid}>{renderItem(item)}</li>)}</ul>}
+    </div>
   </section>
 }

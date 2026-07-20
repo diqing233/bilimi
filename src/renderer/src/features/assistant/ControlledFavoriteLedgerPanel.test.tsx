@@ -1118,6 +1118,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
 
+    expect(screen.getByRole('group', { name: '归档工具' })).toHaveClass('favorite-ledger-panel__preview-toolbar')
+    expect(screen.getByLabelText('当前分段归档预览').parentElement).toHaveClass('favorite-ledger-panel__preview-groups')
     expect(screen.getAllByText('来源：Watch later')).not.toHaveLength(0)
     expect(screen.getByText('分类来源：低置信度自动分类')).toBeInTheDocument()
     expect(screen.getByText('目标收藏夹：Music')).toBeInTheDocument()
