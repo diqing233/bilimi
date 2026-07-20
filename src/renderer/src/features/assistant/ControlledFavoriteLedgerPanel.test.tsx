@@ -176,6 +176,41 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledTimes(2))
   })
 
+  it('does not show scan-start failure from the previous account after switching accounts', async () => {
+    const scanning = {
+      version: 1 as const, accountMid: '200', workspaceId: 'workspace-200', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    let rejectScan: ((reason?: unknown) => void) | undefined
+    const command = vi.fn(() => new Promise<never>((_resolve, reject) => { rejectScan = reject }))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn((accountMid: string) => Promise.resolve(accountMid === '200' ? scanning : null)),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    const { rerender } = render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+    />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'incremental' }))
+
+    rerender(<ControlledFavoriteLedgerPanel
+      currentAccountMid="200" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+    />)
+
+    expect(await screen.findByText('扫描概览：扫描中')).toBeInTheDocument()
+    await act(async () => { rejectScan?.(new Error('unavailable')) })
+
+    expect(screen.queryByText('扫描启动失败，请重新扫描。')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '重新扫描' })).not.toBeInTheDocument()
+  })
+
   it('opens and locks the guide while a full scan replaces a stale preview', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,

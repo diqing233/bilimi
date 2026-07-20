@@ -1,5 +1,5 @@
 import type { FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
 import { useOldFavoriteWorkspace } from './useOldFavoriteWorkspace'
 
@@ -38,6 +38,9 @@ export function ControlledFavoriteLedgerPanel({
   const [guideOpen, setGuideOpen] = useState(false)
   const [scanStarting, setScanStarting] = useState(false)
   const [scanStartFailed, setScanStartFailed] = useState(false)
+  const scanPresentationRequestVersion = useRef(0)
+  const activeAccountMid = useRef(currentAccountMid)
+  activeAccountMid.current = currentAccountMid
   const [newLedgerName, setNewLedgerName] = useState('')
   const snapshot = workspace.snapshot
   const recovery = snapshot && 'recovery' in snapshot ? snapshot : null
@@ -62,6 +65,7 @@ export function ControlledFavoriteLedgerPanel({
   }
 
   useEffect(() => {
+    scanPresentationRequestVersion.current += 1
     setStep('scan')
     setScanStarting(false)
     setScanStartFailed(false)
@@ -69,14 +73,20 @@ export function ControlledFavoriteLedgerPanel({
 
   const startScan = async (mode: 'incremental' | 'full') => {
     if (scanStarting || workspace.loading) return
+    const requestedAccountMid = currentAccountMid
+    const requestVersion = ++scanPresentationRequestVersion.current
     setGuideOpen(true)
     setStep('scan')
     setScanStartFailed(false)
     setScanStarting(true)
     try {
-      if (!await workspace.startScan(mode)) setScanStartFailed(true)
+      if (!await workspace.startScan(mode) && scanPresentationRequestVersion.current === requestVersion && activeAccountMid.current === requestedAccountMid) {
+        setScanStartFailed(true)
+      }
     } finally {
-      setScanStarting(false)
+      if (scanPresentationRequestVersion.current === requestVersion && activeAccountMid.current === requestedAccountMid) {
+        setScanStarting(false)
+      }
     }
   }
 
