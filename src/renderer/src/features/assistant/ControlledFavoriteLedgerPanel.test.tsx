@@ -122,6 +122,33 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await act(async () => { resolveScan?.(scanningSnapshot) })
   })
 
+  it('exposes the scanning guide state through named navigation, current step, progress, and disabled controls', async () => {
+    const scanningSnapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(scanningSnapshot),
+      commandOldFavoriteWorkspaceV1: vi.fn()
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+    />)
+
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    expect(screen.getByRole('navigation', { name: '整理旧藏步骤' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByRole('progressbar', { name: '收藏夹概览进度' })).toHaveValue(0)
+    expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '归档预览' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '确认执行' })).toBeDisabled()
+  })
+
   it('locks the old favorite guide while a new scan replaces an existing preview', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
