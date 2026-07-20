@@ -66,10 +66,10 @@ export function OldFavoriteArchivePreviewStep({
   return <section className="favorite-ledger-panel__preview favorite-ledger-panel__archive-preview" aria-label="归档预览">
     <div className="favorite-ledger-panel__preview-topbar">
       <div>
-        <h4>归档预览</h4>
-    <p>当前分段 {items.length} 条；只加载并显示这一段。</p>
+        <h4 className="favorite-ledger-panel__step-title">归档预览</h4>
       </div>
     </div>
+    <p className="favorite-ledger-panel__step-note">当前分段 {items.length} 条；只加载并显示这一段。</p>
     {snapshot.segments.length > 1 ? <div role="group" aria-label="整理分段">
       {snapshot.segments.map((segment) => <button key={segment.id} type="button" aria-pressed={snapshot.currentSegment?.id === segment.id}
         disabled={snapshot.currentSegment?.id === segment.id || loading}

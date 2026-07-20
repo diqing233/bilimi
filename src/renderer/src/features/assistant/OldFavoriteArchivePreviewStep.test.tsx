@@ -25,7 +25,12 @@ describe('OldFavoriteArchivePreviewStep', () => {
       onCreateLocalLedgerAndReclassify={vi.fn()}
     />)
 
-    expect(screen.getByRole('heading', { name: '\u5f52\u6863\u9884\u89c8' }).closest('.favorite-ledger-panel__preview-topbar')).not.toBeNull()
-    expect(screen.getByRole('region', { name: '\u5f52\u6863\u9884\u89c8' })).toHaveClass('favorite-ledger-panel__preview')
+    const region = screen.getByRole('region', { name: '\u5f52\u6863\u9884\u89c8' })
+    const heading = screen.getByRole('heading', { name: '\u5f52\u6863\u9884\u89c8' })
+
+    expect(heading).toHaveClass('favorite-ledger-panel__step-title')
+    expect(heading.closest('.favorite-ledger-panel__preview-topbar')).not.toBeNull()
+    expect(region).toHaveClass('favorite-ledger-panel__preview')
+    expect(region.querySelector(':scope > p.favorite-ledger-panel__step-note')).toHaveTextContent('当前分段 1 条；只加载并显示这一段。')
   })
 })
