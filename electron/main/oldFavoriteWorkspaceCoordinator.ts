@@ -959,10 +959,10 @@ export class OldFavoriteWorkspaceCoordinator {
             kind: 'local' as const,
             syncState: 'local-only' as const
           })),
-          organizationRecords: selectedAssignments.filter((assignment) => assignment.targetLedgerIds.length).map((assignment) => ({
+          organizationRecords: selectedAssignments.filter((assignment) => assignment.targetLedgerIds.some((id) => id !== 'inbox')).map((assignment) => ({
             accountMid: workspace.accountMid,
             aid: assignment.aid,
-            targetFolderIds: assignment.targetLedgerIds.map((logicalLedgerId) => `local:${logicalLedgerId}`),
+            targetFolderIds: assignment.targetLedgerIds.filter((id) => id !== 'inbox').map((logicalLedgerId) => `local:${logicalLedgerId}`),
             completedAt: this.now()
           })),
           workspace: marker
@@ -988,7 +988,7 @@ export class OldFavoriteWorkspaceCoordinator {
           accountMid: workspace.accountMid,
           recommendationTitles,
           assignmentAids: classifications.reduce<Record<string, number[]>>((aidsByLedger, classification) => {
-          for (const logicalLedgerId of classification.targetLedgerIds.map((id) => id.trim()).filter(Boolean)) {
+          for (const logicalLedgerId of classification.targetLedgerIds.map((id) => id.trim()).filter((id) => id && id !== 'inbox')) {
             aidsByLedger[logicalLedgerId] = [...new Set([...(aidsByLedger[logicalLedgerId] ?? []), classification.aid])]
           }
           return aidsByLedger
@@ -1046,7 +1046,7 @@ export class OldFavoriteWorkspaceCoordinator {
         createdAt: this.now(),
         classifications: classifications.map((classification) => ({
           aid: classification.aid,
-          targetLedgerIds: [...classification.targetLedgerIds]
+          targetLedgerIds: classification.targetLedgerIds.filter((id) => id !== 'inbox')
         })),
         shards: boundShards
       })
@@ -1090,7 +1090,9 @@ export class OldFavoriteWorkspaceCoordinator {
       const workspace = await this.requireWorkspace(accountMid)
       if (workspace.status !== 'previewing') return
       const selectedAssignments = await this.loadSelectedClassificationsForFreeze(workspace)
-      const classifiedAids = new Set(selectedAssignments.filter((assignment) => assignment.targetLedgerIds.length).map((assignment) => assignment.aid))
+      const remotelyClassifiedAids = new Set(selectedAssignments
+        .filter((assignment) => assignment.targetLedgerIds.some((id) => id !== 'inbox'))
+        .map((assignment) => assignment.aid))
       const overview = this.scanOverviews.get(workspace.accountMid)
       const selectable = overview?.sourceFolders.filter((folder) => !folder.isBilimiWorkFolder) ?? []
       const selectedSourceFolderIds = new Set(selectable.filter((folder) => folder.selected).map((folder) => folder.id))
@@ -1102,7 +1104,7 @@ export class OldFavoriteWorkspaceCoordinator {
         items.push(...(segment.items ?? []))
       }
       const unresolved = items.filter((item) =>
-        (!selectable.length || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))) && !classifiedAids.has(item.aid))
+        (!selectable.length || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))) && !remotelyClassifiedAids.has(item.aid))
       if (!unresolved.length) return
       const repository = await this.options.repository.getSnapshot(workspace.accountMid)
       await this.options.repository.commit(workspace.accountMid, {

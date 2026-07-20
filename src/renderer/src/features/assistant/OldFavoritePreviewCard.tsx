@@ -38,7 +38,7 @@ export function OldFavoritePreviewCard({
       <p>来源：{sourceFolderTitles.join('、') || '未记录'}</p>
       {item.tags?.length ? <p>标签：{item.tags.join('、')}</p> : null}
       <p>{classification ? `分类来源：${sourceLabels[classification.source]}` : '未分类'}</p>
-      <p>目标收藏夹：{targetLedger?.displayName || '未分类'}</p>
+  <p>目标收藏夹：{targetLedgerId === 'inbox' ? '暂存' : targetLedger?.displayName || '未分类'}</p>
     </div>
     <label>
       <span>归类</span>

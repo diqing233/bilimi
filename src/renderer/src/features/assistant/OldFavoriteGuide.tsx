@@ -31,6 +31,7 @@ type OldFavoriteGuideProps = {
   onRedoClassification: () => void
   onMoveHistoryCursor: (cursor: number) => void
   onApplyManualClassification: (aid: number, targetLedgerIds: string[]) => void
+  onApplyManualClassifications: (assignments: Array<{ aid: number; targetLedgerIds: string[] }>) => void
   onCreateLocalLedgerAndReclassify: (title: string) => void
   onSaveLocally: () => void
   onConfirmAndSync: () => void
@@ -66,6 +67,7 @@ export function OldFavoriteGuide({
   onRedoClassification,
   onMoveHistoryCursor,
   onApplyManualClassification,
+  onApplyManualClassifications,
   onCreateLocalLedgerAndReclassify,
   onSaveLocally,
   onConfirmAndSync,
@@ -130,6 +132,7 @@ export function OldFavoriteGuide({
       onRedo={onRedoClassification}
       onMoveHistoryCursor={onMoveHistoryCursor}
       onApplyManualClassification={onApplyManualClassification}
+      onApplyManualClassifications={onApplyManualClassifications}
     /> : null}
     {!recovery && snapshot && step === 'confirm' ? <OldFavoriteConfirmationStep
       snapshot={snapshot}

@@ -185,6 +185,7 @@ export function ControlledFavoriteLedgerPanel({
         onRedoClassification={() => void workspace.redoClassification()}
         onMoveHistoryCursor={(cursor) => void workspace.moveHistoryCursor(cursor)}
         onApplyManualClassification={(aid, targetLedgerIds) => void workspace.applyManualClassifications([{ aid, targetLedgerIds }])}
+        onApplyManualClassifications={(assignments) => void workspace.applyManualClassifications(assignments)}
         onCreateLocalLedgerAndReclassify={(title) => void workspace.createLocalLedgerAndReclassify(title)}
         onSaveLocally={() => void workspace.saveCurrentSegmentLocally()}
         onConfirmAndSync={() => void workspace.confirmAndExecuteBilibiliPlan()}

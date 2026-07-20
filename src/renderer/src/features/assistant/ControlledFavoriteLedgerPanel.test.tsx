@@ -1229,6 +1229,39 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '高置信度自动分类：3 条 → 音乐' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'move-history-cursor', cursor: 1 }))
   })
+
+  it('stages every unclassified preview item locally and expands a grouped preview on demand', async () => {
+    const items = Array.from({ length: 9 }, (_, index) => ({
+      aid: index + 1, title: `Pending ${index + 1}`, sourceFolderIds: ['source']
+    }))
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'Watch later', itemCount: items.length, isBilimiWorkFolder: false, selected: true }],
+      segments: [{ id: 'segment-1', index: 0, itemCount: items.length, status: 'previewing' as const }],
+      currentSegment: { id: 'segment-1', aids: items.map((item) => item.aid), items },
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0, entries: [] }
+    }
+    const command = vi.fn().mockResolvedValue(preview)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview), commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
+    expect(screen.getByText('Pending 6')).toBeInTheDocument()
+    expect(screen.queryByText('Pending 7')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '显示全部 9 条' }))
+    expect(screen.getByText('Pending 9')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox', { name: '全部存入暂存' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'apply-classifications', source: 'manual', assignments: items.map((item) => ({ aid: item.aid, targetLedgerIds: ['inbox'] }))
+    }))
+  })
   it('renders source, classification provenance, and a virtualized multi-segment archive preview', async () => {
     const items = Array.from({ length: 51 }, (_, index) => ({
       aid: index + 1,
