@@ -151,6 +151,18 @@ function buildAuthorRecommendations(items: Iterable<Pick<CurrentSegmentItem, 'au
   }
 }
 
+function asLocalRecommendedLedger(candidate: StoredRecommendation, priority: number): FavoriteLedger {
+  return {
+    id: candidate.id,
+    displayName: candidate.displayName,
+    keywords: [...candidate.keywords],
+    ruleType: candidate.kind === 'author' ? 'author' : 'keyword',
+    enabled: true,
+    priority,
+    isDefault: false
+  }
+}
+
 function isStagingBilimiFolder(title: string) {
   return /\u5f85\u5206\u7c7b|\u6682\u5b58/u.test(title)
 }
@@ -186,6 +198,7 @@ export class OldFavoriteWorkspaceCoordinator {
     }
     syncService?: Pick<FavoriteRepositorySyncService, 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'reconcile' | 'resume' | 'getRun'>
     classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
+    saveRecommendedLedgers?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
     now?: () => string
   }) {}
 
@@ -342,6 +355,12 @@ export class OldFavoriteWorkspaceCoordinator {
       const adoptedCandidateIds = [...new Set(candidateIds.map((id) => id.trim()).filter(Boolean))].sort()
       if (!adoptedCandidateIds.every((id) => knownIds.has(id))) {
         throw new Error('Old favorite workspace recommendation selection is invalid.')
+      }
+      const newlyAdopted = state.candidates.filter((candidate) =>
+        adoptedCandidateIds.includes(candidate.id) && !state.adoptedCandidateIds.includes(candidate.id))
+      if (newlyAdopted.length) {
+        await this.options.saveRecommendedLedgers?.(workspace.accountMid, newlyAdopted.map((candidate, index) =>
+          asLocalRecommendedLedger(candidate, 10_000 + index)))
       }
       const next = { initialized: true, candidates: state.candidates.map(clone), adoptedCandidateIds }
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {

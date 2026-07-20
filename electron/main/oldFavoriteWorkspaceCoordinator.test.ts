@@ -24,7 +24,7 @@ afterEach(async () => {
 function createCoordinator(
   repository: FavoriteRepositoryService,
   workspaceStore: OldFavoriteWorkspaceStore,
-  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem'> = {}
+  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'saveRecommendedLedgers'> = {}
 ) {
   return new OldFavoriteWorkspaceCoordinator({
     repository,
@@ -559,6 +559,36 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         '2': { targetLedgerIds: ['manual'], source: 'manual' }
       }
     })
+  })
+
+  it('saves an adopted recommendation as a local ledger rule before reclassifying', async () => {
+    const root = await createRoot()
+    const saved = vi.fn().mockResolvedValue(undefined)
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      saveRecommendedLedgers: saved,
+      classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' })
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Alpha 1', author: 'UP Alpha', tags: [], category: '', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Alpha 2', author: 'UP Alpha', tags: [], category: '', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+
+    await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+
+    expect(saved).toHaveBeenCalledWith('100', [expect.objectContaining({
+      id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', keywords: ['UP Alpha'],
+      ruleType: 'author', enabled: true, isDefault: false
+    })])
   })
 
   it('creates a local logical ledger in the repository and reclassifies system results without changing manual decisions', async () => {

@@ -1215,6 +1215,16 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     repository: favoriteRepositoryService,
     syncService: favoriteRepositorySyncService,
     bindingService: favoriteRepositoryBindingService,
+    saveRecommendedLedgers: async (_accountMid, recommendedLedgers) => {
+      const preferences = loadAssistantPreferences(getDesktopStore())
+      const existingLedgerIds = new Set(preferences.favoriteLedgers.map((ledger) => ledger.id))
+      const additions = recommendedLedgers.filter((ledger) => !existingLedgerIds.has(ledger.id))
+      if (!additions.length) return
+      const saved = patchAssistantPreferences(getDesktopStore(), {
+        favoriteLedgers: [...preferences.favoriteLedgers, ...additions]
+      })
+      sendAssistantPreferencesChanged(saved)
+    },
     classifyCurrentItem: (item, recommendedLedgers = []) => {
       const result = classifyVideoContent({ title: item.title, author: item.author, tags: item.tags, category: item.category }, mergeOldFavoriteWorkspaceLedgers(
         loadAssistantPreferences(getDesktopStore()).favoriteLedgers,
