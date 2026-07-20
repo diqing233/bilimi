@@ -7,6 +7,13 @@ export type FavoriteRepositoryLocalPlanPayload = {
   workspace?: FavoriteRepositoryWorkspace
 }
 
+export type FavoriteRepositoryBilibiliMirrorPayload = {
+  workspaceId: string
+  memberAidsByFolderId: Record<string, number[]>
+  folders: Array<Pick<FavoriteRepositoryFolder, 'id' | 'title' | 'remoteFolderId'>>
+  videos: FavoriteRepositoryVideo[]
+}
+
 export type FavoriteRepositoryVideo = {
   aid: number
   title: string
@@ -119,6 +126,13 @@ export type FavoriteRepositoryCommand =
       issuedAt: string
       type: 'upsert-video'
       payload: FavoriteRepositoryVideo
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      type: 'record-bilibili-mirror'
+      payload: FavoriteRepositoryBilibiliMirrorPayload
     }
   | {
       id: string
@@ -331,6 +345,26 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
         (payload.author !== undefined && typeof payload.author !== 'string') ||
         (payload.description !== undefined && typeof payload.description !== 'string')) invalidCommand()
       return
+    case 'record-bilibili-mirror': {
+      if (typeof payload.workspaceId !== 'string' || !payload.workspaceId.trim() ||
+        !payload.memberAidsByFolderId || typeof payload.memberAidsByFolderId !== 'object' || Array.isArray(payload.memberAidsByFolderId) ||
+        !Array.isArray(payload.folders) || !Array.isArray(payload.videos)) invalidCommand()
+      for (const aids of Object.values(payload.memberAidsByFolderId as Record<string, unknown>)) {
+        if (!isValidAidList(aids)) invalidCommand()
+      }
+      if (payload.folders.some((folder) => !folder || typeof folder !== 'object' || Array.isArray(folder) ||
+        typeof (folder as Record<string, unknown>).id !== 'string' || !(folder as Record<string, unknown>).id.trim() ||
+        typeof (folder as Record<string, unknown>).title !== 'string' || !(folder as Record<string, unknown>).title.trim() ||
+        typeof (folder as Record<string, unknown>).remoteFolderId !== 'string' || !(folder as Record<string, unknown>).remoteFolderId.trim())) invalidCommand()
+      if (payload.videos.some((video) => !video || typeof video !== 'object' || Array.isArray(video) ||
+        !Number.isSafeInteger((video as Record<string, unknown>).aid) || Number((video as Record<string, unknown>).aid) <= 0 ||
+        typeof (video as Record<string, unknown>).title !== 'string' || !Array.isArray((video as Record<string, unknown>).tags) ||
+        !(video as Record<string, unknown>).tags?.every((tag) => typeof tag === 'string') ||
+        typeof (video as Record<string, unknown>).updatedAt !== 'string' ||
+        ((video as Record<string, unknown>).author !== undefined && typeof (video as Record<string, unknown>).author !== 'string') ||
+        ((video as Record<string, unknown>).description !== undefined && typeof (video as Record<string, unknown>).description !== 'string'))) invalidCommand()
+      return
+    }
     case 'set-folder-members':
       if (typeof payload.folderId !== 'string' || !payload.folderId.trim() || !Array.isArray(payload.aids) ||
         !isValidAidList(payload.aids)) invalidCommand()
@@ -500,6 +534,23 @@ export function applyFavoriteRepositoryCommand(
       affectedAids = [command.payload.aid]
       videos[String(command.payload.aid)] = { ...command.payload, tags: [...command.payload.tags] }
       break
+    case 'record-bilibili-mirror': {
+      const membersByFolderId = normalizeFolderMembers(command.payload.memberAidsByFolderId)
+      affectedFolderIds = [...membersByFolderId.keys()].sort()
+      affectedAids = uniquePositiveAids([...membersByFolderId.values()].flat()).sort((left, right) => left - right)
+      for (const video of command.payload.videos) videos[String(video.aid)] = { ...video, tags: [...video.tags] }
+      for (const folder of command.payload.folders) {
+        const id = folder.id.trim()
+        const existing = folders.find((candidate) => candidate.id === id)
+        const mirror = { id, title: folder.title.trim(), kind: 'bilibili' as const, remoteFolderId: folder.remoteFolderId!.trim(), syncState: 'bound' as const }
+        if (existing && (existing.kind !== 'bilibili' || existing.remoteFolderId !== mirror.remoteFolderId)) {
+          throw new Error('Favorite repository Bilibili mirror folder is immutable.')
+        }
+        folders = existing ? folders.map((candidate) => candidate === existing ? mirror : candidate) : [...folders, mirror]
+      }
+      memberships = { ...memberships, ...Object.fromEntries(membersByFolderId) }
+      break
+    }
     case 'set-folder-members':
       affectedFolderIds = [command.payload.folderId.trim()]
       affectedAids = uniquePositiveAids(command.payload.aids).sort((left, right) => left - right)

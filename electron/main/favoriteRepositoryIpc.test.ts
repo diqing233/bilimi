@@ -106,6 +106,21 @@ describe('registerFavoriteRepositoryIpc', () => {
     expect(service.commit).not.toHaveBeenCalled()
   })
 
+  it('does not let the renderer forge a Bilibili source mirror', async () => {
+    const ipcMain = new FakeIpcMain()
+    const service = { commit: vi.fn() }
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: service as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:commit-command', 7, '100', {
+      id: 'mirror', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: { workspaceId: 'workspace-1', memberAidsByFolderId: {}, folders: [], videos: [] }
+    })).rejects.toThrow('reserved for the main process')
+    expect(service.commit).not.toHaveBeenCalled()
+  })
+
   it('returns a compact account and workspace summary rather than repository videos or memberships', async () => {
     const ipcMain = new FakeIpcMain()
     const service = {

@@ -427,6 +427,36 @@ export class OldFavoriteWorkspaceCoordinator {
       const managedMembers = await this.options.workspaceStore.readManagedMembers(workspace.accountMid, workspace.id)
       const repository = await this.options.repository.getSnapshot(workspace.accountMid)
       const sourceFolders = this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []
+      const mirrorFolders = sourceFolders.filter((folder) => !folder.isBilimiWorkFolder).map((folder) => ({
+        id: `bilibili:${folder.id}`,
+        title: folder.title,
+        remoteFolderId: folder.id
+      }))
+      const mirrorMembers = new Map(mirrorFolders.map((folder) => [folder.remoteFolderId, [] as number[]]))
+      for (const item of itemsByAid.values()) {
+        for (const folderId of item.sourceFolderIds) mirrorMembers.get(folderId)?.push(item.aid)
+      }
+      const mirrorUpdatedAt = this.now()
+      await this.options.repository.commit(workspace.accountMid, {
+        id: `old-favorite-workspace:mirror:${workspace.id}:${(workspace.baseline?.revision ?? 0) + 1}`,
+        accountMid: workspace.accountMid,
+        issuedAt: this.now(),
+        type: 'record-bilibili-mirror',
+        payload: {
+          workspaceId: workspace.id,
+          memberAidsByFolderId: Object.fromEntries(mirrorFolders.map((folder) => [folder.id,
+            (mirrorMembers.get(folder.remoteFolderId) ?? []).sort((left, right) => left - right)
+          ])),
+          folders: mirrorFolders,
+          videos: [...itemsByAid.values()].map((item) => ({
+            aid: item.aid,
+            title: item.title ?? `Video ${item.aid}`,
+            ...(item.author ? { author: item.author } : {}),
+            tags: [],
+            updatedAt: mirrorUpdatedAt
+          }))
+        }
+      })
       const successfulAids = repository.organizationRecords
         .filter((record) => record.accountMid === workspace.accountMid && itemsByAid.has(record.aid))
         .map((record) => record.aid)

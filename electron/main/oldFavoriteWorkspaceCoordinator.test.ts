@@ -334,6 +334,33 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('mirrors a completed Bilibili source scan into the account-scoped favorite library', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'remote-music', title: '音乐收藏', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'remote-music', page: 1,
+      items: [{ aid: 7, title: '真实 B 站收藏', author: 'UP 主', sourceFolderIds: ['remote-music'] }]
+    })
+
+    await coordinator.finishScan('100')
+
+    await expect(repository.getLibraryPage('100', { kind: 'all' }, { limit: 100 })).resolves.toMatchObject({
+      items: [{
+        video: { aid: 7, title: '真实 B 站收藏', author: 'UP 主' },
+        folderIds: ['bilibili:remote-music']
+      }]
+    })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      folders: [{ id: 'bilibili:remote-music', title: '音乐收藏', kind: 'bilibili', remoteFolderId: 'remote-music' }]
+    })
+  })
+
   it('rejects a manual classification for a deselected source in the main-process workspace', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
