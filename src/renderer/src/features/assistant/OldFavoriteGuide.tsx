@@ -18,7 +18,6 @@ type OldFavoriteGuideProps = {
   step: OldFavoriteGuideStep
   onStepChange: (step: OldFavoriteGuideStep) => void
   onRetryScan: () => void
-  onFullReorganize: () => void
   onRebuildWorkspace: () => void
   onSelectSourceFolders: (folderIds: string[]) => void
   onSetRecommendedCandidates: (candidateIds: string[]) => void
@@ -53,7 +52,6 @@ export function OldFavoriteGuide({
   step,
   onStepChange,
   onRetryScan,
-  onFullReorganize,
   onRebuildWorkspace,
   onSelectSourceFolders,
   onSetRecommendedCandidates,
@@ -99,9 +97,6 @@ export function OldFavoriteGuide({
         </span>
       </div>
       {guideHintExpanded ? <p className="favorite-ledger-panel__guide-hint">扫描旧藏后，按扫描概览、推荐收藏夹、归档预览和确认执行依次完成本轮整理。</p> : null}
-      <div className="favorite-ledger-panel__guide-entry-actions">
-        <button type="button" disabled={loading || scanStarting} onClick={onFullReorganize}>全部重新整理</button>
-      </div>
       <nav className="favorite-ledger-panel__guide-steps" aria-label="整理旧藏步骤">
         {steps.map((item) => <button key={item.id} type="button" aria-current={step === item.id ? 'step' : undefined}
           disabled={!canOpenStep(item.id)} onClick={() => onStepChange(item.id)}>{item.label}</button>)}

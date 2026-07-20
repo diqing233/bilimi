@@ -138,7 +138,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(help).toHaveTextContent('')
   })
 
-  it('keeps full reorganization inside the old-favorites guide header instead of the panel shell', async () => {
+  it('keeps full reorganization in the legacy resume dialog instead of the guide header', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -151,12 +151,16 @@ describe('ControlledFavoriteLedgerPanel', () => {
       commandOldFavoriteWorkspaceV1: vi.fn()
     } as typeof window.bilimiDesktop
 
-    const { container } = render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
-    const guide = await screen.findByRole('region', { name: '整理旧藏向导' })
 
-    expect(within(guide).getByRole('button', { name: '全部重新整理' })).toBeInTheDocument()
-    expect(Array.from(container.children).some((child) => child.classList.contains('favorite-ledger-panel__guide-entry-actions'))).toBe(false)
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    const resumeDialog = await screen.findByRole('dialog', { name: '整理旧藏' })
+    expect(within(resumeDialog).getByRole('button', { name: '继续上次整理' })).toBeInTheDocument()
+    expect(within(resumeDialog).getByRole('button', { name: '全部重新整理' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '整理旧藏向导' }).querySelector('.favorite-ledger-panel__guide-entry-actions')).toBeNull()
   })
 
   it('keeps editable rule types and safe reset synchronization in the legacy checklist', async () => {
@@ -445,6 +449,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(window.bilimiDesktop.openOldFavoriteWorkspaceV1).toHaveBeenCalledWith('100'))
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     fireEvent.click(screen.getByRole('button', { name: '全部重新整理' }))
     fireEvent.click(screen.getByRole('button', { name: '确认重置' }))
 
@@ -662,6 +667,13 @@ describe('ControlledFavoriteLedgerPanel', () => {
   })
 
   it('uses the controlled full-scan command only after the user explicitly requests full reorganization', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
     const command = vi.fn().mockResolvedValue({
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
       mode: 'full' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -669,7 +681,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       segments: [], currentSegment: null, classifications: {}, history: { cursor: 0, length: 0 }
     })
     window.bilimiDesktop = {
-      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command
     } as typeof window.bilimiDesktop
 
@@ -678,9 +690,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: '全部重新整理' })).toBeEnabled())
-    fireEvent.click(screen.getByRole('button', { name: '全部重新整理' }))
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '全部重新整理' }))
     fireEvent.click(await screen.findByRole('button', { name: '确认重置' }))
 
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
@@ -707,6 +719,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
     fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
     fireEvent.click(await screen.findByRole('button', { name: '全部重新整理' }))
     expect(screen.getByRole('alertdialog', { name: '确认全部重新整理？' })).toBeInTheDocument()
@@ -878,8 +891,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
     const fullReorganize = await screen.findByRole('button', { name: '全部重新整理' })
-    await waitFor(() => expect(fullReorganize).toBeEnabled())
     fireEvent.click(fullReorganize)
     fireEvent.click(await screen.findByRole('button', { name: '确认重置' }))
 

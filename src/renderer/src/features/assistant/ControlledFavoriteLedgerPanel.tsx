@@ -40,6 +40,7 @@ export function ControlledFavoriteLedgerPanel({
   const workspace = useOldFavoriteWorkspace(currentAccountMid)
   const [step, setStep] = useState<OldFavoriteGuideStep>('scan')
   const [guideOpen, setGuideOpen] = useState(false)
+  const [resumeDialogOpen, setResumeDialogOpen] = useState(false)
   const [fullReorganizationConfirmOpen, setFullReorganizationConfirmOpen] = useState(false)
   const [fullReorganizationAccountMid, setFullReorganizationAccountMid] = useState<string | null>(null)
   const [scanStarting, setScanStarting] = useState(false)
@@ -57,6 +58,7 @@ export function ControlledFavoriteLedgerPanel({
     scanPresentationRequestVersion.current += 1
     scanStartingRef.current = false
     setGuideOpen(false)
+    setResumeDialogOpen(false)
     setStep('scan')
     setFullReorganizationConfirmOpen(false)
     setFullReorganizationAccountMid(null)
@@ -106,6 +108,14 @@ export function ControlledFavoriteLedgerPanel({
     }
   }
 
+  const requestOldFavoriteOrganization = () => {
+    if (snapshot && !recovery && snapshot.status !== 'scanning' && snapshot.status !== 'completed') {
+      setResumeDialogOpen(true)
+      return
+    }
+    void startScan('incremental')
+  }
+
   return (
     <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
       <div className="favorite-ledger-panel__topbar">
@@ -117,7 +127,7 @@ export function ControlledFavoriteLedgerPanel({
             })} icon={clickedPetUrl} iconAlt="小咪备册" badge="备"
             label="备册" description="一键生成 bilimi 收藏夹，用于归类收藏和整理" />
           <AssistantActionButton type="button" aria-label="整理旧藏" disabled={scanStarting || !currentAccountMid}
-            onClick={() => void startScan('incremental')} icon={hintPetUrl} iconAlt="小咪整理旧藏" badge="整"
+            onClick={requestOldFavoriteOrganization} icon={hintPetUrl} iconAlt="小咪整理旧藏" badge="整"
             label="整理旧藏" description="扫描旧藏，确认后整理到 bilimi 收藏夹里" />
           <AssistantActionButton type="button" aria-label="收藏库"
             onClick={() => void window.bilimiDesktop?.openFavoriteLibrary?.()} icon={clickedPetUrl} iconAlt="小咪收藏库" badge="库"
@@ -130,6 +140,18 @@ export function ControlledFavoriteLedgerPanel({
         missingLedgerIds={missingLedgerIds}
         onSaveLedgers={onSaveLedgers}
       />
+      {resumeDialogOpen ? <OldFavoriteModal title="整理旧藏"
+        onCancel={() => setResumeDialogOpen(false)}
+        extraActions={<>
+          <button type="button" onClick={() => { setResumeDialogOpen(false); setGuideOpen(true) }}>继续上次整理</button>
+          <button type="button" onClick={() => {
+            setResumeDialogOpen(false)
+            setFullReorganizationAccountMid(normalizeAccountMid(currentAccountMid))
+            setFullReorganizationConfirmOpen(true)
+          }}>全部重新整理</button>
+        </>}>
+        <p>检测到当前账号有未结束的整理存档，请选择接下来的操作。</p>
+      </OldFavoriteModal> : null}
       {fullReorganizationConfirmOpen ? <OldFavoriteModal title="确认全部重新整理？" danger confirmLabel="确认重置"
         onCancel={() => { setFullReorganizationConfirmOpen(false); setFullReorganizationAccountMid(null) }}
         onConfirm={() => {
@@ -149,10 +171,6 @@ export function ControlledFavoriteLedgerPanel({
         step={step}
         onStepChange={setStep}
         onRetryScan={() => void startScan('incremental')}
-        onFullReorganize={() => {
-          setFullReorganizationAccountMid(normalizeAccountMid(currentAccountMid))
-          setFullReorganizationConfirmOpen(true)
-        }}
         onRebuildWorkspace={() => void workspace.rebuildCorruptWorkspace()}
         onSelectSourceFolders={(folderIds) => void workspace.selectSourceFolders(folderIds)}
         onSetRecommendedCandidates={(candidateIds) => void workspace.setRecommendedCandidates(candidateIds)}
