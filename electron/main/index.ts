@@ -85,6 +85,7 @@ import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinat
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanService'
 import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepSeekService'
+import { mergeOldFavoriteWorkspaceLedgers } from './oldFavoriteWorkspaceClassification'
 import { registerOldFavoriteWorkspaceCoordinatorIpc } from './oldFavoriteWorkspaceCoordinatorIpc'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import { FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
@@ -1414,8 +1415,11 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     repository: favoriteRepositoryService,
     syncService: favoriteRepositorySyncService,
     bindingService: favoriteRepositoryBindingService,
-    classifyCurrentItem: (item) => {
-      const result = classifyVideoContent({ title: item.title, author: item.author }, loadAssistantPreferences(getDesktopStore()).favoriteLedgers)
+    classifyCurrentItem: (item, recommendedLedgers = []) => {
+      const result = classifyVideoContent({ title: item.title, author: item.author }, mergeOldFavoriteWorkspaceLedgers(
+        loadAssistantPreferences(getDesktopStore()).favoriteLedgers,
+        recommendedLedgers
+      ))
       if (result.ledgerId === 'inbox') return { targetLedgerIds: [], confidence: 'low' }
       return {
         targetLedgerIds: [result.ledgerId],

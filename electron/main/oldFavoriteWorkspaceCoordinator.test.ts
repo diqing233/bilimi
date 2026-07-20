@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
-import { FavoriteRepositoryBindingService } from './favoriteRepositoryBindingService'
+import { FavoriteRepositoryBindingService, favoriteRepositoryManagedShardTitle } from './favoriteRepositoryBindingService'
 import { FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
 import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinator'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
@@ -453,6 +453,144 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     await expect(restored.getSnapshot('200')).resolves.toMatchObject({
       recommendations: { candidates: [], adoptedCandidateIds: [] }
+    })
+  })
+
+  it('uses an adopted recommendation display name when requesting its first physical shard', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const ensurePhysicalShard = vi.fn().mockResolvedValue({})
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      bindingService: { ensurePhysicalShard },
+      classifyCurrentItem: (item, recommendedLedgers = []) => item.author === 'UP Alpha' && recommendedLedgers.length
+        ? { targetLedgerIds: [recommendedLedgers[0]!.id], confidence: 'high' }
+        : { targetLedgerIds: [], confidence: 'low' },
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Alpha one', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Alpha two', author: 'UP Alpha', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('remote-target-unbound')
+    expect(ensurePhysicalShard).toHaveBeenCalledWith('100', expect.objectContaining({
+      logicalLedgerId: 'custom-author-up-alpha',
+      logicalTitle: 'bilimi\u00b7UP Alpha',
+      remoteDisplayTitle: 'bilimi\u00b7UP Alpha',
+      shardNumber: 1
+    }))
+  })
+
+  it('keeps one remote organization round coherent from scan through protected incremental follow-up', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const append = vi.fn().mockResolvedValue({ observedAccountMid: '100' })
+    const syncService = new FavoriteRepositorySyncService({
+      repository,
+      pageBridge: { append, remove: vi.fn(), readMembers: vi.fn() },
+      now: () => '2026-07-20T00:00:00.000Z',
+      pacingMs: 0
+    })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      syncService,
+      classifyCurrentItem: (item, recommendedLedgers = []) => item.aid === 1 &&
+        recommendedLedgers.some((ledger) => ledger.id === 'custom-author-up-alpha')
+        ? { targetLedgerIds: ['custom-author-up-alpha'], confidence: 'high' }
+        : { targetLedgerIds: ['music'], confidence: 'high' },
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'source', title: 'Source', itemCount: 3, isBilimiWorkFolder: false },
+        { id: 'bilimi-empty', title: 'bilimi inbox', itemCount: 0, isBilimiWorkFolder: true }
+      ]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Alpha one', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Alpha two', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 3, title: 'Manual', author: 'UP Beta', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.selectSourceFolders('100', ['source'])
+    await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+    const deepSeekInput = await coordinator.getSnapshot('100')
+    if ('recovery' in deepSeekInput || !deepSeekInput.currentSegment) throw new Error('workspace unexpectedly unavailable')
+    await coordinator.applyDeepSeekClassificationBatch('100', [{ aid: 2, targetLedgerIds: ['knowledge'] }], {
+      workspaceId: deepSeekInput.workspaceId,
+      currentSegmentId: deepSeekInput.currentSegment.id,
+      selectedSourceFolderIds: ['source'],
+      classifications: {
+        '1': { targetLedgerIds: ['custom-author-up-alpha'], source: 'system-high' },
+        '2': { targetLedgerIds: ['music'], source: 'system-high' },
+        '3': { targetLedgerIds: ['music'], source: 'system-high' }
+      }
+    })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 3, targetLedgerIds: ['manual'] }]
+    })
+    await coordinator.undoClassificationChange('100')
+    await coordinator.redoClassificationChange('100')
+    await coordinator.setRecommendedCandidates('100', [])
+    await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: {
+        '1': { targetLedgerIds: ['custom-author-up-alpha'], source: 'system-high' },
+        '2': { targetLedgerIds: ['knowledge'], source: 'deepseek' },
+        '3': { targetLedgerIds: ['manual'], source: 'manual' }
+      }
+    })
+
+    for (const [logicalLedgerId, remoteFolderId] of [
+      ['custom-author-up-alpha', 'remote-alpha'], ['knowledge', 'remote-knowledge'], ['manual', 'remote-manual']
+    ]) {
+      const remoteTitle = favoriteRepositoryManagedShardTitle(logicalLedgerId, 1, 'a1b2c3')
+      await bindings.preparePhysicalShard('100', {
+        logicalLedgerId, logicalTitle: logicalLedgerId, shardNumber: 1, memberAids: [], observedAccountMid: '100',
+        remoteFolderId,
+        inventory: [{ id: remoteFolderId, title: remoteTitle, memberCount: 0, memberAids: [] }]
+      })
+    }
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      status: 'frozen', frozenSyncPlan: { operations: expect.arrayContaining([
+        expect.objectContaining({ aid: 1, folderIds: ['remote-alpha'] }),
+        expect.objectContaining({ aid: 2, folderIds: ['remote-knowledge'] }),
+        expect.objectContaining({ aid: 3, folderIds: ['remote-manual'] })
+      ]) }
+    })
+    await expect(coordinator.executeFrozenBilibiliPlan('100')).resolves.toMatchObject({ status: 'succeeded' })
+    expect(append).toHaveBeenCalledTimes(3)
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      status: 'completed', classifications: {}, history: { cursor: 0, length: 0 }
+    })
+
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [1, 2, 3, 4].map((aid) => ({ aid, title: `Video ${aid}`, sourceFolderIds: ['source'] }))
+    })
+    await coordinator.finishScan('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      status: 'previewing', mode: 'incremental', currentSegment: { aids: [4] }
     })
   })
 

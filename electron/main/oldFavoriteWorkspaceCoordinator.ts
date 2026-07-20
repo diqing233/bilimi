@@ -160,7 +160,15 @@ export class OldFavoriteWorkspaceCoordinator {
   constructor(private readonly options: {
     repository: FavoriteRepositoryService
     workspaceStore: OldFavoriteWorkspaceStore
-    bindingService?: Pick<FavoriteRepositoryBindingService, 'ensurePhysicalShard'>
+    bindingService?: {
+      ensurePhysicalShard(accountMid: string, input: {
+        logicalLedgerId: string
+        logicalTitle: string
+        remoteDisplayTitle?: string
+        shardNumber: number
+        memberAids: number[]
+      }): Promise<unknown>
+    }
     syncService?: Pick<FavoriteRepositorySyncService, 'executeFrozenPlan' | 'bindPageTarget' | 'reconcile' | 'resume' | 'getRun'>
     classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
     now?: () => string
@@ -714,8 +722,11 @@ export class OldFavoriteWorkspaceCoordinator {
           throw new Error('Old favorite workspace is not ready to freeze.')
         }
         const classifications = await this.selectedSourceAssignments(workspace, Object.values(workspace.classifications))
+        const recommendations = await this.ensureRecommendations(workspace)
+        const recommendationTitles = new Map(recommendations.candidates.map((candidate) => [candidate.id, candidate.displayName]))
         return {
           accountMid: workspace.accountMid,
+          recommendationTitles,
           assignmentAids: classifications.reduce<Record<string, number[]>>((aidsByLedger, classification) => {
           for (const logicalLedgerId of classification.targetLedgerIds.map((id) => id.trim()).filter(Boolean)) {
             aidsByLedger[logicalLedgerId] = [...new Set([...(aidsByLedger[logicalLedgerId] ?? []), classification.aid])]
@@ -738,7 +749,13 @@ export class OldFavoriteWorkspaceCoordinator {
         const nextShardNumber = Math.max(0, ...existing.map((shard) => shard.shardNumber)) + 1
         for (let offset = 0; offset < shardCount; offset += 1) {
           await this.options.bindingService.ensurePhysicalShard(preparation.accountMid, {
-            logicalLedgerId, logicalTitle: logicalLedgerId, shardNumber: nextShardNumber + offset, memberAids: []
+            logicalLedgerId,
+            logicalTitle: preparation.recommendationTitles.get(logicalLedgerId) ?? logicalLedgerId,
+            ...(preparation.recommendationTitles.has(logicalLedgerId)
+              ? { remoteDisplayTitle: preparation.recommendationTitles.get(logicalLedgerId)! }
+              : {}),
+            shardNumber: nextShardNumber + offset,
+            memberAids: []
           })
         }
       }

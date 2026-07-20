@@ -15,6 +15,7 @@ export type FavoriteRepositoryRemoteFolderInventory = {
 export type PreparePhysicalShardInput = {
   logicalLedgerId: string
   logicalTitle: string
+  remoteDisplayTitle?: string
   shardNumber: number
   memberAids: number[]
   remoteFolderId?: string
@@ -46,6 +47,20 @@ function titleToken(value: string) {
 }
 
 export function favoriteRepositoryManagedShardTitle(logicalLedgerId: string, shardNumber: number, bindingToken: string) {
+  return favoriteRepositoryManagedShardTitleForDisplay(logicalLedgerId, shardNumber, bindingToken)
+}
+
+function favoriteRepositoryManagedShardTitleForDisplay(
+  logicalLedgerId: string,
+  shardNumber: number,
+  bindingToken: string,
+  remoteDisplayTitle?: string
+) {
+  const displayTitle = remoteDisplayTitle?.trim()
+  if (displayTitle) {
+    const suffix = `\u00b7${String(shardNumber).padStart(2, '0')}\u00b7${titleToken(bindingToken).padEnd(4, '0').slice(0, 4)}`
+    return `${Array.from(displayTitle).slice(0, Math.max(1, 20 - Array.from(suffix).length)).join('')}${suffix}`
+  }
   const ledgerToken = logicalLedgerId.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5).padEnd(5, '0')
   const token = titleToken(bindingToken).padEnd(6, '0')
   return `B-${ledgerToken}-${String(shardNumber).padStart(3, '0')}-${token}`
@@ -64,7 +79,9 @@ function normalizeInput(accountMid: string, input: PreparePhysicalShardInput, bi
   }
   if (normalizedAccountMid(input.observedAccountMid) !== accountMid) throw new Error('Favorite repository remote account mismatch.')
   const remoteFolderId = input.remoteFolderId?.trim()
-  const title = favoriteRepositoryManagedShardTitle(logicalLedgerId, input.shardNumber, bindingToken)
+  const title = favoriteRepositoryManagedShardTitleForDisplay(
+    logicalLedgerId, input.shardNumber, bindingToken, input.remoteDisplayTitle
+  )
   const inventory = input.inventory.filter((folder) => folder && typeof folder.id === 'string' && folder.id.trim() &&
     typeof folder.title === 'string' && Number.isSafeInteger(folder.memberCount) && folder.memberCount >= 0 &&
     Array.isArray(folder.memberAids) && folder.memberAids.every((aid) => Number.isSafeInteger(aid) && aid > 0))
@@ -154,6 +171,7 @@ export class FavoriteRepositoryBindingService {
   async ensurePhysicalShard(accountMid: string, input: {
     logicalLedgerId: string
     logicalTitle: string
+    remoteDisplayTitle?: string
     shardNumber: number
     memberAids: number[]
   }) {
@@ -161,7 +179,9 @@ export class FavoriteRepositoryBindingService {
     const pageBridgeManager = this.options.pageBridgeManager
     if (!pageBridgeManager) throw new Error('Favorite repository page bridge is unavailable.')
     const token = this.options.newBindingToken?.().trim() || randomUUID()
-    const title = favoriteRepositoryManagedShardTitle(input.logicalLedgerId.trim(), input.shardNumber, token)
+    const title = favoriteRepositoryManagedShardTitleForDisplay(
+      input.logicalLedgerId.trim(), input.shardNumber, token, input.remoteDisplayTitle
+    )
     const runId = `favorite-binding:${input.logicalLedgerId.trim()}:${input.shardNumber}:${token}`
     await pageBridgeManager.bind(account, runId)
     try {

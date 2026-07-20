@@ -210,6 +210,32 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(release).toHaveBeenCalledWith('100', expect.stringMatching(/^favorite-binding:/))
   })
 
+  it('creates an adopted recommendation shard with its visible logical title and bounded volume marker', async () => {
+    const repository = await createRepository()
+    const createFolder = vi.fn().mockImplementation(async ({ title }: { title: string }) => ({
+      observedAccountMid: '100', folder: { id: 'remote-alpha-1', title, memberCount: 0 }
+    }))
+    const service = new FavoriteRepositoryBindingService({
+      repository, newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined), release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [] }),
+          createFolder, append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+
+    await service.ensurePhysicalShard('100', {
+      logicalLedgerId: 'custom-author-up-alpha', logicalTitle: 'bilimi\u00b7UP Alpha',
+      remoteDisplayTitle: 'bilimi\u00b7UP Alpha', shardNumber: 1, memberAids: []
+    })
+
+    expect(createFolder).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'bilimi\u00b7UP Al\u00b701\u00b7a1b2'
+    }))
+  })
+
   it('keeps a created-shard binding pending when the remote result is unknown', async () => {
     const repository = await createRepository()
     const service = new FavoriteRepositoryBindingService({
