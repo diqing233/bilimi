@@ -47,6 +47,8 @@ export function OldFavoriteScanOverviewStep({
     .map((folder) => folder.id))
   const scanFailed = Boolean(scanStartFailure) || snapshot?.scan.phase === 'failed'
   const scanning = scanStarting || snapshot?.status === 'scanning' || !snapshot
+  const totalItemCount = snapshot?.scan.totalItemCount ?? 0
+  const scannedItemCount = Math.min(snapshot?.scan.scannedItemCount ?? 0, totalItemCount)
   const sourceSelectionLocked = Boolean(snapshot && !recovery && Object.keys(snapshot.classifications).length > 0)
   const guidance = scanStartFailure
     ? `扫描启动失败：${scanFailureGuidance(scanStartFailure)}`
@@ -61,8 +63,9 @@ export function OldFavoriteScanOverviewStep({
     <p className="favorite-ledger-panel__scan-guidance" role={scanFailed ? 'alert' : undefined}>{guidance}</p>
     <div className="favorite-ledger-panel__scan-progress" aria-label="旧藏扫描进度">
       <div>
-        <span>收藏夹概览</span>
-        <progress aria-label="收藏夹概览进度" max={1} value={scanFailed || scanning ? 0 : 1} />
+        <span>扫描进度</span>
+        <progress aria-label="旧藏扫描进度" max={Math.max(totalItemCount, 1)} value={scanFailed ? 0 : scanning ? scannedItemCount : Math.max(totalItemCount, 1)} />
+        <span>{scanning && totalItemCount ? `${scannedItemCount} / ${totalItemCount} 条` : null}</span>
         <strong>{scanFailed ? '扫描失败' : scanning ? '正在扫描' : '已完成'}</strong>
       </div>
     </div>

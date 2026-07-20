@@ -46,7 +46,7 @@ type WorkspaceJournalEvent = ScanJournalEvent | ClassificationJournalEvent | Cur
   FreezeJournalEvent | DiscoveryJournalEvent
 type ScanOverview = {
   sourceFolders: Array<{ id: string; title: string; itemCount: number; isBilimiWorkFolder: boolean; selected?: boolean }>
-  scan: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: OldFavoriteWorkspace['mode']; reason?: string }
+  scan: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: OldFavoriteWorkspace['mode']; reason?: string; totalItemCount?: number; scannedItemCount?: number }
 }
 type CurrentSegmentItem = {
   aid: number
@@ -281,7 +281,14 @@ export class OldFavoriteWorkspaceCoordinator {
       if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not active.')
       const sourceFolders = input.sourceFolders.map((folder) => ({ ...folder, selected: !folder.isBilimiWorkFolder }))
       const mode = this.scanOverviews.get(workspace.accountMid)?.scan.mode ?? workspace.mode
-      const overview: ScanOverview = { sourceFolders, scan: { phase: 'inventory', failureCount: 0, mode } }
+      const overview: ScanOverview = {
+        sourceFolders,
+        scan: {
+          phase: 'inventory', failureCount: 0, mode,
+          totalItemCount: sourceFolders.filter((folder) => !folder.isBilimiWorkFolder).reduce((count, folder) => count + folder.itemCount, 0),
+          scannedItemCount: 0
+        }
+      }
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId: '', classifications: [], history: [],
         scanMetadata: { sourceFolders, ...overview.scan }
@@ -304,6 +311,16 @@ export class OldFavoriteWorkspaceCoordinator {
       const runId = this.scanRuns.get(workspace.accountMid)
       if (!runId) throw new Error('Old favorite workspace scan run is not active.')
       await this.options.workspaceStore.appendScanPage(workspace.accountMid, workspace.id, { ...input, runId })
+      const overview = this.scanOverviews.get(workspace.accountMid)
+      if (overview) {
+        const scannedItemCount = await this.options.workspaceStore.readScanPages(workspace.accountMid, workspace.id)
+          .then((pages) => new Set(pages.flatMap((page) => page.items.map((item) => item.aid))).size)
+        const scan = { ...overview.scan, scannedItemCount }
+        await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+          currentSegmentId: '', classifications: [], history: [], scanMetadata: { ...scan }
+        })
+        this.scanOverviews.set(workspace.accountMid, { ...overview, scan })
+      }
       return true
     })
   }

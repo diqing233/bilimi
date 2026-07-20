@@ -51,6 +51,8 @@ type Overlay = {
     failureCount?: number
     mode?: 'incremental' | 'full'
     reason?: string
+    totalItemCount?: number
+    scannedItemCount?: number
   }
 }
 type OverlayHistory = Pick<Overlay, 'currentSegmentId' | 'history'>
@@ -66,7 +68,7 @@ type Manifest = {
   scanPages?: Array<{ folderId: string; page: number; file: string; checksum: string }>
   managedMemberChunks?: Array<{ file: string; checksum: string }>
   sourceFolders?: SourceFolder[]
-  scan?: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: 'incremental' | 'full'; reason?: string }
+  scan?: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: 'incremental' | 'full'; reason?: string; totalItemCount?: number; scannedItemCount?: number }
   overlayRevision: number
   journalCursor: number
   journalChecksum: string
@@ -325,6 +327,8 @@ export class OldFavoriteWorkspaceStore {
             failureCount: overlay.scanMetadata.failureCount ?? scan.failureCount,
             mode: overlay.scanMetadata.mode ?? scan.mode,
             ...(overlay.scanMetadata.reason ? { reason: overlay.scanMetadata.reason } : {})
+            ,...(Number.isSafeInteger(overlay.scanMetadata.totalItemCount) ? { totalItemCount: overlay.scanMetadata.totalItemCount } : {})
+            ,...(Number.isSafeInteger(overlay.scanMetadata.scannedItemCount) ? { scannedItemCount: overlay.scanMetadata.scannedItemCount } : {})
           }
         }
       }

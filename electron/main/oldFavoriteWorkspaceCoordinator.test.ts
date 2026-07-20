@@ -107,6 +107,14 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         { id: 'bilimi-empty', title: 'Bilimi Inbox', itemCount: 0, isBilimiWorkFolder: true }
       ]
     })
+    await first.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'First scanned video', sourceFolderIds: ['source'] }]
+    })
+
+    await expect(first.getSnapshot('100')).resolves.toMatchObject({
+      scan: { phase: 'inventory', totalItemCount: 3, scannedItemCount: 1 }
+    })
 
     await expect(createCoordinator(
       new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' }),

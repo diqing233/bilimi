@@ -397,7 +397,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await screen.findByRole('region', { name: '整理旧藏向导' })
     expect(screen.getByRole('navigation', { name: '整理旧藏步骤' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '扫描概览' })).toHaveAttribute('aria-current', 'step')
-    expect(screen.getByRole('progressbar', { name: '收藏夹概览进度' })).toHaveValue(0)
+    expect(screen.getByRole('progressbar', { name: '旧藏扫描进度' })).toHaveValue(0)
     expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '归档预览' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '确认执行' })).toBeDisabled()
@@ -807,6 +807,28 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('无法确认当前 B站页面，请保持已登录的 B站页面打开后重新扫描')
     expect(screen.queryByText('target-unavailable')).not.toBeInTheDocument()
+  })
+
+  it('shows live item scan progress instead of an empty progress bar', async () => {
+    const scanning = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0, totalItemCount: 243, scannedItemCount: 40 },
+      sourceFolders: [{ id: 'source', title: '默认收藏夹', itemCount: 243, isBilimiWorkFolder: false, selected: true }],
+      continuationCount: 0, segments: [], currentSegment: null, classifications: {},
+      recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(scanning),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(scanning)
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+
+    expect((await screen.findAllByLabelText('旧藏扫描进度')).find((element) => element.tagName === 'PROGRESS')).toHaveAttribute('value', '40')
+    expect(screen.getByText('40 / 243 条')).toBeInTheDocument()
   })
 
   it('maps page execution failures to a recoverable scan message without exposing the internal reason', async () => {

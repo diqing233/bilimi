@@ -75,6 +75,8 @@ export type OldFavoriteWorkspaceSnapshot = {
     phase: 'inventory' | 'failed' | 'complete'
     failureCount: number
     reason?: string
+    totalItemCount?: number
+    scannedItemCount?: number
   }
   sourceFolders: Array<{
     id: string
