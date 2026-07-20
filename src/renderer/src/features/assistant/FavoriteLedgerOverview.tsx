@@ -67,6 +67,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, onSaveLedger
   const duplicate = active && draftLedgers.some((ledger) => ledger.id !== active.id &&
     displayTitle(ledger.displayName).toLocaleLowerCase() === title.trim().toLocaleLowerCase())
   const valid = Boolean(active && title.trim() && validation.valid && !duplicate)
+  const allLedgersEnabled = draftLedgers.length > 0 && draftLedgers.every((ledger) => ledger.enabled)
   const update = (patch: Partial<FavoriteLedger>) => setDraftLedgers((current) => current.map((ledger) => ledger.id === activeLedgerId ? { ...ledger, ...patch } : ledger))
   const toggle = (id: string) => setDraftLedgers((current) => current.map((ledger) => ledger.id === id ? { ...ledger, enabled: !ledger.enabled } : ledger))
   const add = () => {
@@ -88,7 +89,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, onSaveLedger
               <span className="favorite-ledger-panel__help-arrow favorite-ledger-panel__help-arrow--down" />
             </span>
           </button>
-        </span><div className="favorite-ledger-panel__category-actions"><button type="button" onClick={() => setResetConfirmOpen(true)}>重置</button><button type="button" onClick={() => setDraftLedgers((current) => current.map((ledger) => ({ ...ledger, enabled: current.some((item) => !item.enabled) })))}>全选</button><button type="button" onClick={() => void onSaveLedgers(draftLedgers, { deleteDisabled: false })}>同步</button></div></div>
+        </span><div className="favorite-ledger-panel__category-actions"><button type="button" onClick={() => setResetConfirmOpen(true)}>重置</button><button type="button" onClick={() => setDraftLedgers((current) => current.map((ledger) => ({ ...ledger, enabled: !allLedgersEnabled })))}>{allLedgersEnabled ? '全不选' : '全选'}</button><button type="button" onClick={() => void onSaveLedgers(draftLedgers, { deleteDisabled: false })}>同步</button></div></div>
         {ledgerHintExpanded ? <div className="favorite-ledger-panel__sync-hint"><p>{LEDGER_SYNC_HINT}</p><p>关键词、UP 名字和标签用于本地识别；DeepSeek 约束只在开启 DeepSeek 后作为辅助判断参考，可以输入一段自然语言。</p></div> : null}
         <div className="favorite-ledger-panel__chips">{draftLedgers.map((ledger) => <div key={ledger.id} className="favorite-ledger-panel__chip-item"><button type="button" aria-label={displayTitle(ledger.displayName) || ledger.displayName} title={ledger.displayName} aria-pressed={ledger.enabled} onClick={() => { setActiveLedgerId(ledger.id); setNewLedger(false) }}>{displayTitle(ledger.displayName) || ledger.displayName}</button><button type="button" className="favorite-ledger-panel__chip-action" aria-label={`${ledger.enabled ? '移出同步' : '加入同步'} ${ledger.displayName}`} data-enabled={ledger.enabled} onClick={() => toggle(ledger.id)}>{ledger.enabled ? '✓' : '+'}</button></div>)}</div>
         <div className="favorite-ledger-panel__list-toggle"><button type="button" onClick={add}>新建收藏夹</button></div>
