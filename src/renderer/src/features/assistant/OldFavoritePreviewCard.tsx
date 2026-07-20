@@ -31,7 +31,7 @@ export function OldFavoritePreviewCard({
   const targetLedgerId = classification?.targetLedgerIds[0] ?? ''
   const targetLedger = ledgers.find((ledger) => ledger.id === targetLedgerId)
 
-  return <article className="favorite-ledger-panel__preview-item-shell">
+  return <article className="favorite-ledger-panel__preview-video favorite-ledger-panel__preview-item-shell">
     <strong>{title}</strong>
     <p>UP：{item.author?.trim() || '未知 UP'}</p>
     <p>来源：{sourceFolderTitles.join('、') || '未记录'}</p>
