@@ -1193,6 +1193,42 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '展开更多高频标签' }))
     expect(screen.getByRole('checkbox', { name: '标签 标签7' })).toBeInTheDocument()
   })
+
+  it('shows newest-first history details and routes a selected history record to the main process', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'Watch later', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+      segments: [{ id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'One', sourceFolderIds: ['source'] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['knowledge'], source: 'manual' as const } },
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: {
+        cursor: 2, length: 2,
+        entries: [
+          { cursor: 2, source: 'manual' as const, changeCount: 1, targetLedgerIds: ['knowledge'] },
+          { cursor: 1, source: 'system-high' as const, changeCount: 3, targetLedgerIds: ['music'] }
+        ]
+      }
+    }
+    const command = vi.fn().mockResolvedValue(preview)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview), commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
+      { id: 'knowledge', displayName: '知识学习', keywords: [], enabled: true, priority: 0, isDefault: true },
+      { id: 'music', displayName: '音乐', keywords: [], enabled: true, priority: 1, isDefault: true }
+    ]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '查看改动记录' }))
+    expect(screen.getByRole('menu', { name: '改动记录' })).toHaveTextContent('人工调整：1 条 → 知识学习')
+    expect(screen.getByRole('menu', { name: '改动记录' })).toHaveTextContent('高置信度自动分类：3 条 → 音乐')
+    fireEvent.click(screen.getByRole('menuitem', { name: '高置信度自动分类：3 条 → 音乐' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'move-history-cursor', cursor: 1 }))
+  })
   it('renders source, classification provenance, and a virtualized multi-segment archive preview', async () => {
     const items = Array.from({ length: 51 }, (_, index) => ({
       aid: index + 1,

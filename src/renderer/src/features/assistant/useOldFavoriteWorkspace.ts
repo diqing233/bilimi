@@ -210,6 +210,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
 
   const undoClassification = useCallback(() => sendCommand({ type: 'undo-classification' }), [sendCommand])
   const redoClassification = useCallback(() => sendCommand({ type: 'redo-classification' }), [sendCommand])
+  const moveHistoryCursor = useCallback((cursor: number) => sendCommand({ type: 'move-history-cursor', cursor }), [sendCommand])
   const autoClassifyCurrentSegment = useCallback(() => sendCommand({ type: 'auto-classify-current-segment' }), [sendCommand])
   const setRecommendedCandidates = useCallback((candidateIds: string[]) => sendCommand({
     type: 'set-recommended-candidates',
@@ -239,7 +240,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
 
   return {
     snapshot, loading, backgroundRefreshing, lastError, deepSeekFeedback, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek,
-    undoClassification, redoClassification, autoClassifyCurrentSegment, setRecommendedCandidates, createLocalLedgerAndReclassify, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, executeFrozenBilibiliPlan,
+    undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, setRecommendedCandidates, createLocalLedgerAndReclassify, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, executeFrozenBilibiliPlan,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace,
     available: Boolean(accountMid && window.bilimiDesktop?.commandOldFavoriteWorkspaceV1)

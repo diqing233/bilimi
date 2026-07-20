@@ -24,6 +24,7 @@ type OldFavoriteArchivePreviewStepProps = {
   onOrganizeWithDeepSeek: (mode: DeepSeekArchiveMode) => void
   onUndo: () => void
   onRedo: () => void
+  onMoveHistoryCursor: (cursor: number) => void
   onApplyManualClassification: (aid: number, targetLedgerIds: string[]) => void
 }
 
@@ -37,10 +38,21 @@ export function OldFavoriteArchivePreviewStep({
   onOrganizeWithDeepSeek,
   onUndo,
   onRedo,
+  onMoveHistoryCursor,
   onApplyManualClassification,
 }: OldFavoriteArchivePreviewStepProps) {
   const [deepSeekMode, setDeepSeekMode] = useState<DeepSeekArchiveMode>('low-confidence-and-unclassified')
   const [deepSeekScopeOpen, setDeepSeekScopeOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const historySourceLabels = {
+    manual: '人工调整',
+    deepseek: 'DeepSeek',
+    'system-high': '高置信度自动分类',
+    'system-low': '低置信度自动分类'
+  } as const
+  const ledgerNames = new Map(ledgers.map((ledger) => [ledger.id, ledger.displayName]))
+  const historyLabel = (entry: OldFavoriteWorkspaceSnapshot['history']['entries'][number]) =>
+    `${historySourceLabels[entry.source]}：${entry.changeCount} 条 → ${entry.targetLedgerIds.map((id) => ledgerNames.get(id) ?? id).join('、') || '未分类'}`
   const sourceFolderTitles = new Map(snapshot.sourceFolders
     .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
     .map((folder) => [folder.id, folder.title]))
@@ -123,18 +135,20 @@ export function OldFavoriteArchivePreviewStep({
         <div className="favorite-ledger-panel__archive-tool-divider" aria-hidden="true" />
         <div className="favorite-ledger-panel__archive-history-section" role="group" aria-label="归档预览改动操作">
           <div className="favorite-ledger-panel__archive-history-actions">
-            <label className="favorite-ledger-panel__archive-history-select">
-              <span>改动记录</span>
-              <select aria-label="改动记录" value="current" disabled={loading || snapshot.history.length === 0}
-                onChange={(event) => {
-                  if (event.currentTarget.value === 'undo') onUndo()
-                  if (event.currentTarget.value === 'redo') onRedo()
-                }}>
-                <option value="current">当前：第 {snapshot.history.cursor} / {snapshot.history.length} 次</option>
-                {snapshot.history.cursor > 0 ? <option value="undo">撤销至上一步</option> : null}
-                {snapshot.history.cursor < snapshot.history.length ? <option value="redo">恢复下一步</option> : null}
-              </select>
-            </label>
+            <div className="favorite-ledger-panel__archive-history-select-control">
+              <button type="button" className="favorite-ledger-panel__archive-history-trigger"
+                aria-label="查看改动记录" aria-expanded={historyOpen} disabled={loading || snapshot.history.length === 0}
+                onClick={() => setHistoryOpen((open) => !open)}>
+                <span className="favorite-ledger-panel__archive-history-arrow" aria-hidden="true" />
+              </button>
+              {historyOpen ? <div className="favorite-ledger-panel__archive-history-menu" role="menu" aria-label="改动记录">
+                {snapshot.history.entries.map((entry) => <button key={entry.cursor} type="button" role="menuitem"
+                  disabled={loading || entry.cursor === snapshot.history.cursor} onClick={() => {
+                    setHistoryOpen(false)
+                    onMoveHistoryCursor(entry.cursor)
+                  }}>{historyLabel(entry)}</button>)}
+              </div> : null}
+            </div>
             <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || snapshot.history.cursor === 0} onClick={onUndo}>撤销本次改动</button>
             <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || snapshot.history.cursor >= snapshot.history.length} onClick={onRedo}>恢复本次改动</button>
           </div>

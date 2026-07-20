@@ -29,6 +29,7 @@ type OldFavoriteGuideProps = {
   onOrganizeWithDeepSeek: (mode: DeepSeekArchiveMode) => void
   onUndoClassification: () => void
   onRedoClassification: () => void
+  onMoveHistoryCursor: (cursor: number) => void
   onApplyManualClassification: (aid: number, targetLedgerIds: string[]) => void
   onCreateLocalLedgerAndReclassify: (title: string) => void
   onSaveLocally: () => void
@@ -63,6 +64,7 @@ export function OldFavoriteGuide({
   onOrganizeWithDeepSeek,
   onUndoClassification,
   onRedoClassification,
+  onMoveHistoryCursor,
   onApplyManualClassification,
   onCreateLocalLedgerAndReclassify,
   onSaveLocally,
@@ -126,6 +128,7 @@ export function OldFavoriteGuide({
       onOrganizeWithDeepSeek={onOrganizeWithDeepSeek}
       onUndo={onUndoClassification}
       onRedo={onRedoClassification}
+      onMoveHistoryCursor={onMoveHistoryCursor}
       onApplyManualClassification={onApplyManualClassification}
     /> : null}
     {!recovery && snapshot && step === 'confirm' ? <OldFavoriteConfirmationStep

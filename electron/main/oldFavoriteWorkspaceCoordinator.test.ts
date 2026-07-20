@@ -1980,6 +1980,40 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('returns newest-first human-readable history summaries and jumps to a requested cursor in the main process', async () => {
+    const root = await createRoot()
+    const coordinator = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' }),
+      new OldFavoriteWorkspaceStore({ root })
+    )
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 2, targetLedgerIds: ['knowledge'] }]
+    })
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      history: {
+        cursor: 2,
+        length: 2,
+        entries: [
+          { cursor: 2, source: 'manual', changeCount: 1, targetLedgerIds: ['knowledge'] },
+          { cursor: 1, source: 'manual', changeCount: 1, targetLedgerIds: ['music'] }
+        ]
+      }
+    })
+
+    await coordinator.moveHistoryCursor('100', 1)
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: { '1': { targetLedgerIds: ['music'] } },
+      history: { cursor: 1, length: 2 }
+    })
+  })
+
   it('clears completed workspace classifications and undo history when restoring after Bilibili sync', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

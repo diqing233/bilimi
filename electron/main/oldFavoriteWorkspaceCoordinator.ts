@@ -1063,6 +1063,27 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  /** Moves the durable history cursor without letting the renderer replay classifications. */
+  async moveHistoryCursor(accountMid: string, targetCursor: number): Promise<OldFavoriteWorkspace> {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (!Number.isSafeInteger(targetCursor) || targetCursor < 0 || targetCursor > workspace.history.length) {
+        throw new Error('Old favorite workspace history cursor is invalid.')
+      }
+      let updated = workspace
+      while (updated.historyCursor > targetCursor) updated = undoWorkspaceChange(updated)
+      while (updated.historyCursor < targetCursor) updated = redoWorkspaceChange(updated)
+      if (updated === workspace) return clone(workspace)
+      const readiness = await this.calculatePlanReadiness(updated)
+      await this.appendEvents(updated, this.currentSegment(workspace), [{
+        type: 'history-cursor', historyCursor: updated.historyCursor
+      }], readiness)
+      this.planReadiness.set(updated.accountMid, readiness)
+      this.workspaces.set(updated.accountMid, updated)
+      return clone(updated)
+    })
+  }
+
   /** Writes unresolved videos to the local-only inbox before compiling a remote-only plan. */
   private async stageUnclassifiedSelectedVideos(accountMid: string) {
     await this.queue(async () => {
@@ -1652,7 +1673,16 @@ export class OldFavoriteWorkspaceCoordinator {
         const readiness = this.planReadiness.get(workspace.accountMid) ?? { selectedAidCount: 0, classifiedAidCount: 0 }
         return { ...readiness, unclassifiedAidCount: readiness.selectedAidCount - readiness.classifiedAidCount }
       })(),
-      history: { cursor: workspace.historyCursor, length: workspace.history.length },
+      history: {
+        cursor: workspace.historyCursor,
+        length: workspace.history.length,
+        entries: workspace.history.map((entry, index) => ({
+          cursor: index + 1,
+          source: entry.source,
+          changeCount: entry.changes.length,
+          targetLedgerIds: [...new Set(entry.changes.flatMap((change) => change.after?.targetLedgerIds ?? change.before?.targetLedgerIds ?? []))].sort()
+        })).reverse()
+      },
       ...(workspace.completionMode ? { completionMode: workspace.completionMode } : {})
     }
   }

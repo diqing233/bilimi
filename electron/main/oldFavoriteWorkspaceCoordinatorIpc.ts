@@ -18,6 +18,7 @@ type WorkspaceCommand =
   | { type: 'select-segment'; segmentId: string }
   | { type: 'undo-classification' }
   | { type: 'redo-classification' }
+  | { type: 'move-history-cursor'; cursor: number }
   | { type: 'auto-classify-current-segment' }
   | { type: 'set-recommended-candidates'; candidateIds: string[] }
   | { type: 'create-local-ledger-and-reclassify'; title: string }
@@ -68,6 +69,10 @@ function command(value: unknown): WorkspaceCommand {
   if ((candidate.type === 'undo-classification' || candidate.type === 'redo-classification') &&
     Object.keys(candidate).length === 1) {
     return { type: candidate.type }
+  }
+  if (candidate.type === 'move-history-cursor' && Number.isSafeInteger(candidate.cursor) && candidate.cursor >= 0 &&
+    Object.keys(candidate).every((key) => key === 'type' || key === 'cursor')) {
+    return { type: 'move-history-cursor', cursor: candidate.cursor }
   }
   if (candidate.type === 'auto-classify-current-segment' && Object.keys(candidate).length === 1) {
     return { type: 'auto-classify-current-segment' }
@@ -148,6 +153,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'select-segment') await options.coordinator.selectSegment(accountMid, requested.segmentId)
     if (requested.type === 'undo-classification') await options.coordinator.undoClassificationChange(accountMid)
     if (requested.type === 'redo-classification') await options.coordinator.redoClassificationChange(accountMid)
+    if (requested.type === 'move-history-cursor') await options.coordinator.moveHistoryCursor(accountMid, requested.cursor)
     if (requested.type === 'auto-classify-current-segment') await options.coordinator.autoClassifyCurrentSegment(accountMid)
     if (requested.type === 'set-recommended-candidates') await options.coordinator.setRecommendedCandidates(accountMid, requested.candidateIds)
     if (requested.type === 'create-local-ledger-and-reclassify') await options.coordinator.createLocalLedgerAndReclassify(accountMid, requested.title)

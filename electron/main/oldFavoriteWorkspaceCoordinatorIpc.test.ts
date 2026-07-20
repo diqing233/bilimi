@@ -212,6 +212,26 @@ describe('old favorite workspace coordinator IPC', () => {
     expect(coordinator.redoClassificationChange).toHaveBeenCalledWith('100')
   })
 
+  it('routes a bounded history cursor jump without accepting renderer classifications', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      moveHistoryCursor: vi.fn().mockResolvedValue({}),
+      getSnapshot: vi.fn().mockResolvedValue(snapshot)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'move-history-cursor', cursor: 3
+    })).resolves.toEqual(snapshot)
+    expect(coordinator.moveHistoryCursor).toHaveBeenCalledWith('100', 3)
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'move-history-cursor', cursor: 3, assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })).rejects.toThrow('command is invalid')
+  })
+
   it('runs automatic classification only through a payload-free main-process command', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

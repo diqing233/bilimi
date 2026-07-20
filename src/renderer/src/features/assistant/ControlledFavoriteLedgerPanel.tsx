@@ -183,6 +183,7 @@ export function ControlledFavoriteLedgerPanel({
         onOrganizeWithDeepSeek={(mode) => void workspace.organizeCurrentSegmentWithDeepSeek(mode)}
         onUndoClassification={() => void workspace.undoClassification()}
         onRedoClassification={() => void workspace.redoClassification()}
+        onMoveHistoryCursor={(cursor) => void workspace.moveHistoryCursor(cursor)}
         onApplyManualClassification={(aid, targetLedgerIds) => void workspace.applyManualClassifications([{ aid, targetLedgerIds }])}
         onCreateLocalLedgerAndReclassify={(title) => void workspace.createLocalLedgerAndReclassify(title)}
         onSaveLocally={() => void workspace.saveCurrentSegmentLocally()}

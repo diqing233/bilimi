@@ -111,7 +111,16 @@ export type OldFavoriteWorkspaceSnapshot = {
     classifiedAidCount: number
     unclassifiedAidCount: number
   }
-  history: { cursor: number; length: number }
+  history: {
+    cursor: number
+    length: number
+    entries: Array<{
+      cursor: number
+      source: OldFavoriteWorkspaceClassificationSource
+      changeCount: number
+      targetLedgerIds: string[]
+    }>
+  }
   completionMode?: 'bilibili' | 'local'
 }
 
