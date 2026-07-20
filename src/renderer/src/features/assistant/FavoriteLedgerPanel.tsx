@@ -3799,6 +3799,13 @@ export function FavoriteLedgerPanel({
   async function runOldFavoriteOrganizationRequest() {
     if (useControlledOldFavoriteWorkspace) {
       setOldFavoriteEntryOpen(false)
+      const workspace = oldFavoriteWorkspace.snapshot ?? await oldFavoriteWorkspace.refresh(true)
+      if (workspace && 'recovery' in workspace) {
+        setOldFavoriteGuideMode('organize')
+        setOldFavoriteStep('scan')
+        setOldFavoriteExpandedStep('scan')
+        return
+      }
       await startOrganizingOldFavorites()
       return
     }
@@ -8779,7 +8786,9 @@ export function FavoriteLedgerPanel({
     }
   }
   const controlledSelectedSourceIds = new Set(
-    controlledScanSnapshot?.sourceFolders.filter((folder) => folder.selected && !folder.isBilimiWorkFolder).map((folder) => folder.id) ?? []
+    ('recovery' in (controlledScanSnapshot ?? {})
+      ? []
+      : controlledScanSnapshot?.sourceFolders.filter((folder) => folder.selected && !folder.isBilimiWorkFolder).map((folder) => folder.id)) ?? []
   )
   const controlledPreviewItems = controlledScanSnapshot?.status === 'previewing'
     ? (controlledScanSnapshot.currentSegment?.items ?? []).filter((item) =>
@@ -9260,21 +9269,42 @@ export function FavoriteLedgerPanel({
             </div>
           ) : null}
 
-          {oldFavoriteExpandedStep === 'scan' ? (
+          {'recovery' in (controlledScanSnapshot ?? {}) ? (
+            <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
+              <h4 className="favorite-ledger-panel__step-title">扫描概览</h4>
+              <p className="favorite-ledger-panel__scan-guidance">工作镜像损坏，已完成的收藏库结果不会丢失。</p>
+              <button
+                type="button"
+                disabled={oldFavoriteWorkspace.loading}
+                onClick={() => void oldFavoriteWorkspace.rebuildCorruptWorkspace()}
+              >重建工作镜像并重新扫描</button>
+            </section>
+          ) : oldFavoriteExpandedStep === 'scan' ? (
             <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
               <h4 className="favorite-ledger-panel__step-title">扫描概览</h4>
               {controlledScanSnapshot ? (
                 <>
                   <p className="favorite-ledger-panel__scan-guidance">
-                    {controlledScanSnapshot.status === 'scanning' ? '扫描概览：扫描中' : '扫描概览已完成，正在准备归档预览。'}
+                    {controlledScanSnapshot.scan.phase === 'failed'
+                      ? `扫描失败：${controlledScanSnapshot.scan.reason || '请重新扫描。'}`
+                      : controlledScanSnapshot.status === 'scanning' ? '扫描概览：扫描中' : '扫描概览已完成，正在准备归档预览。'}
                   </p>
                   <div className="favorite-ledger-panel__scan-progress" aria-label="旧藏扫描进度">
                     <div>
                       <span>收藏夹概览</span>
                       <progress aria-label="收藏夹概览进度" max={1} value={controlledScanSnapshot.status === 'scanning' ? 0 : 1} />
-                      <strong>{controlledScanSnapshot.status === 'scanning' ? '正在扫描' : '已完成'}</strong>
+                      <strong>{controlledScanSnapshot.scan.phase === 'failed'
+                        ? '扫描失败'
+                        : controlledScanSnapshot.status === 'scanning' ? '正在扫描' : '已完成'}</strong>
                     </div>
                   </div>
+                  {controlledScanSnapshot.scan.phase === 'failed' ? (
+                    <button
+                      type="button"
+                      disabled={oldFavoriteWorkspace.loading}
+                      onClick={() => void oldFavoriteWorkspace.startScan('incremental')}
+                    >重新扫描</button>
+                  ) : null}
                   <p className="favorite-ledger-panel__step-note">
                     已发现 {controlledScanSnapshot.sourceFolders.length} 个收藏夹，当前扫描 {controlledScanSnapshot.continuationCount} 条待续新增。
                   </p>

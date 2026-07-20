@@ -134,6 +134,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const executeFrozenBilibiliPlan = useCallback(() => sendCommand({ type: 'execute-frozen-bilibili-plan' }), [sendCommand])
   const reconcileFrozenBilibiliPlan = useCallback(() => sendCommand({ type: 'reconcile-frozen-bilibili-plan' }), [sendCommand])
   const resumeReconciledBilibiliPlan = useCallback(() => sendCommand({ type: 'resume-reconciled-bilibili-plan' }), [sendCommand])
+  const rebuildCorruptWorkspace = useCallback(() => sendCommand({ type: 'rebuild-corrupt-workspace' }), [sendCommand])
 
   useEffect(() => {
     void refresh()
@@ -149,6 +150,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     snapshot, loading, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek,
     undoClassification, redoClassification, autoClassifyCurrentSegment, setRecommendedCandidates, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, executeFrozenBilibiliPlan,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
+    rebuildCorruptWorkspace,
     available: Boolean(accountMid && window.bilimiDesktop?.commandOldFavoriteWorkspaceV1)
   }
 }

@@ -12,6 +12,7 @@ type IpcMain = { handle(channel: string, handler: (event: IpcEvent, ...args: nev
 
 type WorkspaceCommand =
   | { type: 'start-scan'; mode: 'incremental' | 'full' }
+  | { type: 'rebuild-corrupt-workspace' }
   | { type: 'select-source-folders'; folderIds: string[] }
   | { type: 'select-segment'; segmentId: string }
   | { type: 'undo-classification' }
@@ -50,6 +51,9 @@ function command(value: unknown): WorkspaceCommand {
   if (candidate.type === 'start-scan' && (candidate.mode === 'incremental' || candidate.mode === 'full') &&
     Object.keys(candidate).every((key) => key === 'type' || key === 'mode')) {
     return { type: 'start-scan', mode: candidate.mode }
+  }
+  if (candidate.type === 'rebuild-corrupt-workspace' && Object.keys(candidate).length === 1) {
+    return { type: 'rebuild-corrupt-workspace' }
   }
   if (candidate.type === 'select-source-folders' && Array.isArray(candidate.folderIds) &&
     candidate.folderIds.length <= 500 && candidate.folderIds.every((id) => typeof id === 'string' && id.trim().length > 0 && id.trim().length <= 128) &&
@@ -106,6 +110,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   isTrustedSender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
   startScan?: (accountMid: string, mode: 'incremental' | 'full') => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
+  rebuildAndStartScan?: (accountMid: string) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
 }) {
   const assertAccount = async (event: IpcEvent, requestedAccountMid: unknown) => {
     if (!options.isTrustedSender(event.sender.id)) throw new Error('Old favorite workspace request came from an untrusted renderer.')
@@ -130,6 +135,9 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'start-scan') return options.startScan
       ? options.startScan(accountMid, requested.mode)
       : options.coordinator.beginScan(accountMid, requested.mode)
+    if (requested.type === 'rebuild-corrupt-workspace') return options.rebuildAndStartScan
+      ? options.rebuildAndStartScan(accountMid)
+      : options.coordinator.rebuildAfterRecovery(accountMid)
     if (requested.type === 'select-source-folders') await options.coordinator.selectSourceFolders(accountMid, requested.folderIds)
     if (requested.type === 'select-segment') await options.coordinator.selectSegment(accountMid, requested.segmentId)
     if (requested.type === 'undo-classification') await options.coordinator.undoClassificationChange(accountMid)

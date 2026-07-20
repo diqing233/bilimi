@@ -110,6 +110,44 @@ describe('old favorite workspace coordinator IPC', () => {
     })).rejects.toThrow('command is invalid')
   })
 
+  it('rebuilds a corrupt workspace only through an exact account-validated command', async () => {
+    const ipcMain = new FakeIpcMain()
+    const scanning = { ...snapshot, status: 'scanning' as const, scan: { phase: 'inventory' as const, failureCount: 0 } }
+    const rebuildAndStartScan = vi.fn().mockResolvedValue(scanning)
+    const coordinator = { rebuildAfterRecovery: vi.fn().mockResolvedValue(scanning) }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, rebuildAndStartScan,
+      isTrustedSender: (id) => id === 7, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '00100', {
+      type: 'rebuild-corrupt-workspace'
+    })).resolves.toEqual(scanning)
+    expect(rebuildAndStartScan).toHaveBeenCalledWith('100')
+    expect(coordinator.rebuildAfterRecovery).not.toHaveBeenCalled()
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'rebuild-corrupt-workspace', mode: 'full'
+    })).rejects.toThrow('command is invalid')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 8, '100', {
+      type: 'rebuild-corrupt-workspace'
+    })).rejects.toThrow('untrusted')
+  })
+
+  it('falls back to the coordinator rebuild command when no scan callback is registered', async () => {
+    const ipcMain = new FakeIpcMain()
+    const scanning = { ...snapshot, status: 'scanning' as const, scan: { phase: 'inventory' as const, failureCount: 0 } }
+    const coordinator = { rebuildAfterRecovery: vi.fn().mockResolvedValue(scanning) }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'rebuild-corrupt-workspace'
+    })).resolves.toEqual(scanning)
+    expect(coordinator.rebuildAfterRecovery).toHaveBeenCalledWith('100')
+  })
+
   it('accepts only bounded source folder ids for a controlled source selection', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

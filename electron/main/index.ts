@@ -1496,7 +1496,11 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     deepSeekService: oldFavoriteWorkspaceDeepSeekService,
     isTrustedSender: isTrustedOldFavoriteSessionSender,
     getCurrentAccountMid: readCurrentBilibiliAccountMid,
-    startScan: (accountMid, mode) => oldFavoriteWorkspaceScanService!.start(accountMid, mode)
+    startScan: (accountMid, mode) => oldFavoriteWorkspaceScanService!.start(accountMid, mode),
+    rebuildAndStartScan: async (accountMid) => {
+      await oldFavoriteWorkspaceCoordinator!.rebuildAfterRecovery(accountMid)
+      return oldFavoriteWorkspaceScanService!.start(accountMid, 'incremental')
+    }
   })
   registerFavoriteRepositoryIpc({
     ipcMain,

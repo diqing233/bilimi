@@ -36,6 +36,31 @@ function deferred<T>() {
 }
 
 describe('OldFavoriteWorkspaceCoordinator', () => {
+  it('refuses one-confirmation cross-segment execution until every selected aid has a classification', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2_001, isBilimiWorkFolder: false }]
+    })
+    for (let offset = 0; offset < 2_001; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: (offset / 50) + 1,
+        items: Array.from({ length: Math.min(50, 2_001 - offset) }, (_, index) => ({
+          aid: offset + index + 1, title: `Video ${offset + index + 1}`, sourceFolderIds: ['source']
+        }))
+      })
+    }
+    await coordinator.finishScan('100')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: Array.from({ length: 2_000 }, (_, index) => ({ aid: index + 1, targetLedgerIds: ['music'] }))
+    })
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('not fully classified')
+  })
+
   it('persists a scanning inventory overview, including empty Bilimi work folders, for restart recovery', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
@@ -1741,6 +1766,59 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       workspaceId: workspace.id
     })
     expect((await repository.getSnapshot('100')).videos['88']?.title).toBe('kept')
+  })
+
+  it('rebuilds a corrupt workspace into a fresh incremental scan without touching completed local results', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, workspaceStore)
+    const corrupted = await first.open('100')
+    await first.completeScan('100', { revision: 1, aids: [1] })
+    await repository.commit('100', {
+      id: 'completed-local-result', accountMid: '100', issuedAt: '2026-07-19T00:00:01.000Z',
+      type: 'upsert-video', payload: {
+        aid: 88, title: 'kept', author: 'up', tags: [], updatedAt: '2026-07-19T00:00:01.000Z'
+      }
+    })
+    await workspaceStore.corruptOverlayForTest('100', corrupted.id)
+
+    const reopenedRepository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const rebuilt = await createCoordinator(reopenedRepository, new OldFavoriteWorkspaceStore({ root })).rebuildAfterRecovery('100')
+
+    expect(rebuilt).toMatchObject({ status: 'scanning', mode: 'incremental' })
+    expect(rebuilt.workspaceId).not.toBe(corrupted.id)
+    await expect(workspaceStore.recover('100', corrupted.id)).resolves.toMatchObject({ recovery: 'rebuild-required' })
+    await expect(reopenedRepository.getSnapshot('100')).resolves.toMatchObject({
+      videos: { '88': { title: 'kept' } },
+      workspace: { id: rebuilt.workspaceId, status: 'scanning' }
+    })
+  })
+
+  it('refuses to replace a corrupt workspace with an unfinished frozen sync plan', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const workspaceStore = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, workspaceStore)
+    const workspace = await first.open('100')
+    await first.completeScan('100', { revision: 1, aids: [1] })
+    const marker = (await repository.getSnapshot('100')).workspace!
+    await repository.commit('100', {
+      id: 'unfinished-frozen-plan', accountMid: '100', issuedAt: '2026-07-19T00:00:01.000Z', type: 'set-workspace', payload: {
+        ...marker,
+        status: 'frozen', workspaceRef: { ...marker.workspaceRef, status: 'frozen' },
+        frozenSyncPlan: {
+          id: 'run-1', accountMid: '100', workspaceId: workspace.id, baselineRevision: 1,
+          createdAt: '2026-07-19T00:00:01.000Z', operations: []
+        }
+      }
+    })
+    await workspaceStore.corruptOverlayForTest('100', workspace.id)
+
+    await expect(createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' }),
+      new OldFavoriteWorkspaceStore({ root })
+    ).rebuildAfterRecovery('100')).rejects.toThrow('unfinished frozen sync plan')
   })
 
   it('returns rebuild-required when the active baseline segment is corrupt after manifest-only recovery', async () => {

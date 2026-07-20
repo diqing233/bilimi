@@ -185,6 +185,21 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  /** Replaces only a verified-corrupt mirror; completed repository results remain authoritative. */
+  async rebuildAfterRecovery(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot> {
+    return this.queue(async () => {
+      const snapshot = await this.options.repository.getSnapshot(accountMid)
+      if (!snapshot.workspace) throw new Error('Old favorite workspace does not require rebuild.')
+      const opened = await this.openUnsafe(snapshot.accountMid)
+      if (!isRecoveryRequired(opened)) throw new Error('Old favorite workspace does not require rebuild.')
+      if (snapshot.workspace.frozenSyncPlan && snapshot.workspace.status !== 'completed') {
+        throw new Error('Old favorite workspace has an unfinished frozen sync plan.')
+      }
+      const rebuilt = await this.createScanningWorkspace(snapshot.accountMid, 'incremental')
+      return this.createSnapshot(rebuilt)
+    })
+  }
+
   async beginScan(accountMid: string, mode: OldFavoriteWorkspace['mode']): Promise<OldFavoriteWorkspaceSnapshot> {
     return this.queue(async () => {
       if (mode !== 'incremental' && mode !== 'full') throw new Error('Old favorite workspace mode is invalid.')
@@ -739,6 +754,7 @@ export class OldFavoriteWorkspaceCoordinator {
           throw new Error('Old favorite workspace is not ready to freeze.')
         }
         const classifications = await this.loadSelectedClassificationsForFreeze(workspace)
+        await this.assertSelectedPlanFullyClassified(workspace, classifications)
         const recommendations = await this.ensureRecommendations(workspace)
         const recommendationTitles = new Map(recommendations.candidates.map((candidate) => [candidate.id, candidate.displayName]))
         return {
@@ -783,6 +799,7 @@ export class OldFavoriteWorkspaceCoordinator {
         throw new Error('Old favorite workspace is not ready to freeze.')
       }
       const classifications = await this.loadSelectedClassificationsForFreeze(workspace)
+      await this.assertSelectedPlanFullyClassified(workspace, classifications)
       const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
       const boundShards = snapshot.physicalShards.flatMap((shard) => {
         if (shard.bindingState !== 'bound' || !shard.remoteFolderId) return []
@@ -1128,6 +1145,32 @@ export class OldFavoriteWorkspaceCoordinator {
       }
     }
     return selected
+  }
+
+  /** A one-click cross-segment plan must never silently omit an unclassified selected item. */
+  private async assertSelectedPlanFullyClassified(
+    workspace: OldFavoriteWorkspace,
+    classifications: OldFavoriteWorkspace['classifications'][string][]
+  ) {
+    const overview = this.scanOverviews.get(workspace.accountMid)
+    // Old workspaces without persisted selection metadata are fail-closed by
+    // freezing an empty plan, never by widening their source scope.
+    if (!overview) return
+    const selectable = overview.sourceFolders.filter((folder) => !folder.isBilimiWorkFolder)
+    const selectedSourceFolderIds = new Set(selectable.filter((folder) => folder.selected).map((folder) => folder.id))
+    if (selectable.length && !selectedSourceFolderIds.size) return
+    const expectedAids = new Set<number>()
+    const descriptors = this.segmentDescriptors.get(workspace.accountMid) ?? workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
+    for (const descriptor of descriptors) {
+      const segment = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, descriptor.id)
+      for (const item of segment.items ?? []) {
+        if (!selectable.length || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))) expectedAids.add(item.aid)
+      }
+    }
+    const classifiedAids = new Set(classifications.filter((classification) => classification.targetLedgerIds.length).map((classification) => classification.aid))
+    if ([...expectedAids].some((aid) => !classifiedAids.has(aid))) {
+      throw new Error('Old favorite workspace selected plan is not fully classified.')
+    }
   }
 
   private async loadCurrentSegmentItems(workspace: OldFavoriteWorkspace) {

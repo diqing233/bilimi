@@ -126,6 +126,129 @@ describe('FavoriteLedgerPanel', () => {
     expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'incremental' })
   })
 
+  it('shows a controlled scan failure and retries it through the workspace command', async () => {
+    const failed = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'failed' as const, failureCount: 1, reason: 'inventory-failed' },
+      sourceFolders: [], continuationCount: 0, segments: [], currentSegment: null, classifications: {}, history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue(failed)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(failed), commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    renderPanel({ currentAccountMid: '100' })
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    expect(await screen.findByText('扫描失败：inventory-failed')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重新扫描' }))
+    await waitFor(() => expect(command).toHaveBeenLastCalledWith('100', { type: 'start-scan', mode: 'incremental' }))
+  })
+
+  it('rebuilds a damaged controlled mirror without falling back to the legacy scanner', async () => {
+    const rebuildRequired = {
+      recovery: 'rebuild-required' as const, preserveCompletedLocalResults: true as const,
+      accountMid: '100', workspaceId: 'corrupt-workspace'
+    }
+    const command = vi.fn().mockResolvedValue({
+      version: 1 as const, accountMid: '100', workspaceId: 'replacement-workspace', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, history: { cursor: 0, length: 0 }
+    })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(rebuildRequired), commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+    const onScanOldFavorites = vi.fn()
+
+    renderPanel({ currentAccountMid: '100', onScanOldFavorites })
+    fireEvent.click(await screen.findByRole('button', { name: '重建工作镜像并重新扫描' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'rebuild-corrupt-workspace' }))
+    expect(onScanOldFavorites).not.toHaveBeenCalled()
+  })
+
+  it('finishes a controlled old-favorite round through reconciliation without invoking legacy scan or execution', async () => {
+    const previewing = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: true,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source-a', title: 'Source A', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+      segments: [
+        { id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1 },
+        { id: 'segment-2', index: 1, status: 'previewing' as const, itemCount: 1 }
+      ],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Round item', author: 'UP', sourceFolderIds: ['source-a'] }] },
+      classifications: {}, history: { cursor: 0, length: 0 },
+      recommendations: {
+        candidates: [{ id: 'author-up', kind: 'author' as const, displayName: 'bilimi·UP', count: 1, reason: 'UP appeared once.' }],
+        adoptedCandidateIds: []
+      }
+    }
+    const classified = {
+      ...previewing,
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'manual' as const } },
+      history: { cursor: 1, length: 1 }
+    }
+    const reconciling = { ...classified, status: 'reconciling' as const }
+    const frozen = { ...classified, status: 'frozen' as const }
+    const completed = { ...classified, status: 'completed' as const, classifications: {}, history: { cursor: 0, length: 0 } }
+    const scanning = { ...previewing, status: 'scanning' as const, currentSegment: null, segments: [], classifications: {}, history: { cursor: 0, length: 0 } }
+    const command = vi.fn((_accountMid: string, value: { type: string }) => Promise.resolve(
+      value.type === 'set-recommended-candidates' ? { ...previewing, recommendations: { ...previewing.recommendations, adoptedCandidateIds: ['author-up'] } }
+        : value.type === 'auto-classify-current-segment' || value.type === 'apply-classifications' ? classified
+          : value.type === 'undo-classification' ? { ...classified, classifications: {}, history: { cursor: 0, length: 1 } }
+            : value.type === 'redo-classification' ? classified
+              : value.type === 'confirm-and-execute-bilibili-plan' ? reconciling
+                : value.type === 'reconcile-frozen-bilibili-plan' ? frozen
+                  : value.type === 'execute-frozen-bilibili-plan' ? completed
+                    : value.type === 'start-scan' ? scanning
+                      : previewing
+    ))
+    const organize = vi.fn().mockResolvedValue(classified)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(previewing),
+      commandOldFavoriteWorkspaceV1: command,
+      organizeOldFavoriteWorkspaceDeepSeekV1: organize
+    } as typeof window.bilimiDesktop
+    const onScanOldFavorites = vi.fn()
+    const onExecuteOldFavoritePlan = vi.fn()
+
+    renderPanel({ currentAccountMid: '100', deepSeekArchiveAvailable: true, onScanOldFavorites, onExecuteOldFavoritePlan })
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择来源 Source A' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'select-source-folders', folderIds: [] }))
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(await screen.findByLabelText('bilimi·UP'))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'set-recommended-candidates', candidateIds: ['author-up'] }))
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(await screen.findByRole('button', { name: '自动分类当前分段' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'auto-classify-current-segment' }))
+    fireEvent.click(screen.getByRole('button', { name: '使用 DeepSeek 整理当前分段' }))
+    await waitFor(() => expect(organize).toHaveBeenCalledWith('100'))
+    fireEvent.change(await screen.findByRole('combobox', { name: '归类 Round item' }), { target: { value: 'music' } })
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'apply-classifications', source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    }))
+    fireEvent.click(screen.getByRole('button', { name: '撤销本次改动' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'undo-classification' }))
+    const redo = await screen.findByRole('button', { name: '恢复本次改动' })
+    await waitFor(() => expect(redo).toBeEnabled())
+    fireEvent.click(redo)
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'redo-classification' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    fireEvent.click(await screen.findByRole('button', { name: '确认并同步到 B 站' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'confirm-and-execute-bilibili-plan' }))
+    fireEvent.click(await screen.findByRole('button', { name: '对账 B 站结果' }))
+    fireEvent.click(await screen.findByRole('button', { name: '继续同步到 B 站' }))
+    expect(await screen.findByText(/本轮已完成同步到 B 站/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await waitFor(() => expect(command).toHaveBeenLastCalledWith('100', { type: 'start-scan', mode: 'incremental' }))
+    expect(onScanOldFavorites).not.toHaveBeenCalled()
+    expect(onExecuteOldFavoritePlan).not.toHaveBeenCalled()
+  })
+
   it('restores the same controlled scanning overview after the panel remounts', async () => {
     const snapshot = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
