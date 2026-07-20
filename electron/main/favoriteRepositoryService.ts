@@ -36,6 +36,14 @@ type RepositoryManifest = {
 type CachedRepository = {
   repository: PersistedRepository
   manifest?: RepositoryManifest
+  libraryIndex?: FavoriteRepositoryLibraryIndex
+}
+
+type FavoriteRepositoryLibraryIndex = {
+  allAids: number[]
+  folderAidsByFolderId: Map<string, number[]>
+  folderIdsByAid: Map<number, string[]>
+  pendingStatesByAid: Map<number, Set<FavoriteRepositoryLibraryPageRow['pendingStates'][number]>>
 }
 
 type SyncJournalEntry = {
@@ -97,6 +105,36 @@ function validSnapshot(value: unknown, accountMid: string): value is AccountFavo
     (snapshot.organizationMigrationInitialized === undefined || typeof snapshot.organizationMigrationInitialized === 'boolean')
 }
 
+export type FavoriteRepositoryLibraryPageScope =
+  | { kind: 'all' }
+  | { kind: 'folder'; folderId: string }
+  | { kind: 'pending' }
+
+export type FavoriteRepositoryLibraryPageRow = {
+  video: FavoriteRepositoryVideo
+  folderIds: string[]
+  pendingStates: Array<'unsynced' | 'continuation' | 'failed' | 'result-unknown'>
+}
+
+export type FavoriteRepositoryLibrarySummary = {
+  version: 1
+  accountMid: string
+  revision: number
+  updatedAt: string
+  videoCount: number
+  folderCount: number
+  folders: import('../../src/shared/favoriteRepository').FavoriteRepositoryFolder[]
+  physicalShardCount: number
+  syncRecordCount: number
+  syncCounts: Record<'pending' | 'succeeded' | 'failed' | 'result-unknown', number>
+  workspace?: {
+    id: string
+    status: NonNullable<AccountFavoriteRepositorySnapshot['workspace']>['status']
+    baselineRevision: number
+    continuationCount: number
+  }
+}
+
 function normalizeSnapshot(snapshot: AccountFavoriteRepositorySnapshot): AccountFavoriteRepositorySnapshot {
   return {
     ...snapshot,
@@ -144,6 +182,36 @@ export class FavoriteRepositoryService {
       (await this.load(account)).repository,
       await this.loadSyncCheckpointState(account)
     ).snapshot))
+  }
+
+  async getLibrarySummary(accountMid: string): Promise<FavoriteRepositoryLibrarySummary> {
+    const account = normalizeAccountMid(accountMid)
+    const cached = await this.load(account)
+    const snapshot = this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account)).snapshot
+    const syncCounts: FavoriteRepositoryLibrarySummary['syncCounts'] = {
+      pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0
+    }
+    for (const record of snapshot.syncRecords) syncCounts[record.status]++
+    return {
+      version: 1,
+      accountMid: snapshot.accountMid,
+      revision: snapshot.revision,
+      updatedAt: snapshot.updatedAt,
+      videoCount: Object.keys(snapshot.videos).length,
+      folderCount: snapshot.folders.length,
+      folders: snapshot.folders.map((folder) => ({ ...folder })),
+      physicalShardCount: snapshot.physicalShards.length,
+      syncRecordCount: snapshot.syncRecords.length,
+      syncCounts,
+      ...(snapshot.workspace ? {
+        workspace: {
+          id: snapshot.workspace.id,
+          status: snapshot.workspace.status,
+          baselineRevision: snapshot.workspace.baselineRevision,
+          continuationCount: snapshot.workspace.continuationAids.length
+        }
+      } : {})
+    }
   }
 
   async getFolderPage(
@@ -207,12 +275,12 @@ export class FavoriteRepositoryService {
       }
       if (command.type === 'record-sync-result') {
         await this.appendSyncJournal(account, { command: clone(command), acceptedAt })
-        this.cache.set(account, { ...cached, repository: next })
+        this.cache.set(account, { ...cached, repository: next, libraryIndex: undefined })
         return clone(result)
       }
       if (command.type === 'upsert-physical-shard-binding') {
         await this.appendBindingJournal(account, { command: clone(command), acceptedAt })
-        this.cache.set(account, { ...cached, repository: next })
+        this.cache.set(account, { ...cached, repository: next, libraryIndex: undefined })
         return clone(result)
       }
       const persisted = await this.persist(account, next, cached.manifest?.generation)
@@ -225,6 +293,39 @@ export class FavoriteRepositoryService {
     }).finally(() => {
       this.pendingWriteCount--
     })
+  }
+
+  async getLibraryPage(
+    accountMid: string,
+    scope: FavoriteRepositoryLibraryPageScope,
+    options: FolderPageOptions
+  ): Promise<FavoriteRepositoryPage<FavoriteRepositoryLibraryPageRow>> {
+    const account = normalizeAccountMid(accountMid)
+    const limit = pageLimit(options.limit)
+    const cached = await this.load(account)
+    const snapshot = this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account)).snapshot
+    const index = cached.libraryIndex ?? this.createLibraryIndex(snapshot)
+    cached.libraryIndex = index
+    const scopedAids = this.libraryAids(snapshot, scope, index)
+    const start = options.cursor ? Math.max(0, Number(options.cursor)) : 0
+    if (!Number.isSafeInteger(start) || start < 0) throw new Error('Favorite repository page cursor is invalid.')
+    const selected = scopedAids.slice(start, start + limit)
+    const stateOrder: FavoriteRepositoryLibraryPageRow['pendingStates'] = ['unsynced', 'continuation', 'failed', 'result-unknown']
+    return {
+      version: 1,
+      accountMid: account,
+      items: selected.flatMap((aid) => {
+        const video = snapshot.videos[String(aid)]
+        if (!video) return []
+        return [{
+          video: { ...video, tags: [...video.tags] },
+          folderIds: [...(index.folderIdsByAid.get(aid) ?? [])],
+          pendingStates: stateOrder.filter((state) => index.pendingStatesByAid.get(aid)?.has(state))
+        }]
+      }),
+      ...(start + limit < scopedAids.length ? { nextCursor: String(start + limit) } : {}),
+      revision: snapshot.revision
+    }
   }
 
   async getSyncCheckpoints(accountMid: string, runId: string): Promise<FavoriteRepositorySyncRecord[]> {
@@ -245,6 +346,8 @@ export class FavoriteRepositoryService {
       await this.appendSyncCheckpoint(account, { commandId, record: clone(record) })
       state.commandIds.add(commandId)
       state.records.set(record.id, clone(record))
+      const cached = this.cache.get(account)
+      if (cached) cached.libraryIndex = undefined
     }).finally(() => { this.pendingWriteCount-- })
   }
 
@@ -263,6 +366,60 @@ export class FavoriteRepositoryService {
   private snapshotFromResult(result: FavoriteRepositoryCommandResult): AccountFavoriteRepositorySnapshot {
     const { commandId: _commandId, affectedFolderIds: _affectedFolderIds, affectedAids: _affectedAids, ...snapshot } = result
     return snapshot
+  }
+
+  private createLibraryIndex(snapshot: AccountFavoriteRepositorySnapshot): FavoriteRepositoryLibraryIndex {
+    const folderIdsByAid = new Map<number, Set<string>>()
+    const folderAidsByFolderId = new Map<string, number[]>()
+    for (const [folderId, aids] of Object.entries(snapshot.memberships)) {
+      const validAids = aids.filter((aid) => Boolean(snapshot.videos[String(aid)]))
+      folderAidsByFolderId.set(folderId, validAids)
+      for (const aid of validAids) {
+        const folderIds = folderIdsByAid.get(aid) ?? new Set<string>()
+        folderIds.add(folderId)
+        folderIdsByAid.set(aid, folderIds)
+      }
+    }
+    return {
+      allAids: Object.keys(snapshot.videos).map(Number).filter(Number.isSafeInteger).sort((left, right) => left - right),
+      folderAidsByFolderId,
+      folderIdsByAid: new Map([...folderIdsByAid].map(([aid, ids]) => [aid, [...ids].sort((left, right) => left.localeCompare(right))])),
+      pendingStatesByAid: this.pendingStatesByAid(snapshot)
+    }
+  }
+
+  private pendingStatesByAid(snapshot: AccountFavoriteRepositorySnapshot) {
+    const statesByAid = new Map<number, Set<FavoriteRepositoryLibraryPageRow['pendingStates'][number]>>()
+    const addState = (aid: number, state: FavoriteRepositoryLibraryPageRow['pendingStates'][number]) => {
+      if (!Number.isSafeInteger(aid) || aid <= 0) return
+      const states = statesByAid.get(aid) ?? new Set<FavoriteRepositoryLibraryPageRow['pendingStates'][number]>()
+      states.add(state)
+      statesByAid.set(aid, states)
+    }
+    for (const aid of snapshot.workspace?.continuationAids ?? []) addState(aid, 'continuation')
+    for (const record of snapshot.syncRecords) {
+      const state = record.status === 'pending'
+        ? 'unsynced'
+        : record.status === 'failed' || record.status === 'result-unknown'
+          ? record.status
+          : undefined
+      if (state) for (const aid of record.affectedAids) addState(aid, state)
+    }
+    return statesByAid
+  }
+
+  private libraryAids(
+    snapshot: AccountFavoriteRepositorySnapshot,
+    scope: FavoriteRepositoryLibraryPageScope,
+    index: FavoriteRepositoryLibraryIndex
+  ) {
+    if (scope.kind === 'folder') {
+      return index.folderAidsByFolderId.get(scope.folderId) ?? []
+    }
+    if (scope.kind === 'pending') {
+      return [...index.pendingStatesByAid.keys()].filter((aid) => Boolean(snapshot.videos[String(aid)])).sort((left, right) => left - right)
+    }
+    return index.allAids
   }
 
   private duplicateSyncResult(

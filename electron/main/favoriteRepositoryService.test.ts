@@ -122,6 +122,39 @@ describe('FavoriteRepositoryService', () => {
     expect((await service.getSnapshot('100')).videos['1'].title).toBe('Original')
   })
 
+  it('returns only the requested library page without reading unselected repository videos', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    const videos: Record<string, { aid: number; title: string; tags: string[]; updatedAt: string }> = {
+      '1': { aid: 1, title: 'First', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }
+    }
+    Object.defineProperty(videos, '2', {
+      enumerable: true,
+      get: () => { throw new Error('unselected video must not be read') }
+    })
+    ;(service as unknown as { cache: Map<string, unknown> }).cache.set('100', {
+      repository: {
+        version: 1,
+        accountMid: '100',
+        snapshot: {
+          version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-20T00:00:00.000Z',
+          videos, folders: [], memberships: {}, physicalShards: [], syncRecords: [],
+          organizationRecords: [], organizationMigrationInitialized: false
+        },
+        commandResults: {}
+      }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 1 })).resolves.toEqual({
+      version: 1, accountMid: '100', revision: 1,
+      items: [{
+        video: { aid: 1, title: 'First', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' },
+        folderIds: [], pendingStates: []
+      }],
+      nextCursor: '1'
+    })
+  })
+
   it('reports a pending durable commit so the quit barrier can wait even when old favorite state is clean', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })

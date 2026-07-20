@@ -231,19 +231,22 @@ describe('registerFavoriteRepositoryIpc', () => {
   it('returns one bounded library page with every membership and pending state for each aid', async () => {
     const ipcMain = new FakeIpcMain()
     const service = {
-      getSnapshot: vi.fn().mockResolvedValue({
-        version: 1, accountMid: '100', revision: 4, updatedAt: '2026-07-20T00:00:00.000Z',
-        videos: {
-          '1': { aid: 1, title: 'Alpha', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' },
-          '2': { aid: 2, title: 'Beta', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }
-        },
-        memberships: { remote: [1], local: [1, 2] }, folders: [], physicalShards: [],
-        syncRecords: [
-          { id: 'failed-1', commandId: 'failed-1', status: 'failed', affectedAids: [1], updatedAt: '2026-07-20T00:00:00.000Z' },
-          { id: 'pending-2', commandId: 'pending-2', status: 'pending', affectedAids: [2], updatedAt: '2026-07-20T00:00:00.000Z' }
-        ],
-        workspace: { continuationAids: [2] }
-      })
+      getLibraryPage: vi.fn()
+        .mockResolvedValueOnce({
+          version: 1, accountMid: '100', revision: 4,
+          items: [{
+            video: { aid: 1, title: 'Alpha', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' },
+            folderIds: ['local', 'remote'], pendingStates: ['failed']
+          }],
+          nextCursor: '1'
+        })
+        .mockResolvedValueOnce({
+          version: 1, accountMid: '100', revision: 4,
+          items: [
+            { video: { aid: 1 }, folderIds: ['local', 'remote'], pendingStates: ['failed'] },
+            { video: { aid: 2 }, folderIds: ['local'], pendingStates: ['unsynced', 'continuation'] }
+          ]
+        })
     }
     registerFavoriteRepositoryIpc({
       ipcMain, service: service as never, isTrustedSender: () => true,
@@ -271,7 +274,7 @@ describe('registerFavoriteRepositoryIpc', () => {
   it('allows a library-only sender to read a page but not commit a repository command', async () => {
     const ipcMain = new FakeIpcMain()
     const service = {
-      getSnapshot: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 0, videos: {}, memberships: {}, folders: [], physicalShards: [], syncRecords: [] }),
+      getLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 0, items: [] }),
       commit: vi.fn()
     }
     registerFavoriteRepositoryIpc({
@@ -282,6 +285,8 @@ describe('registerFavoriteRepositoryIpc', () => {
 
     await expect(ipcMain.invoke('favorite-repository:get-library-page', 8, '100', { kind: 'all' }, { limit: 10 }))
       .resolves.toMatchObject({ accountMid: '100', items: [] })
+    const subscriptionId = await ipcMain.invoke('favorite-repository:subscribe', 8, '100') as string
+    await expect(ipcMain.invoke('favorite-repository:unsubscribe', 8, '100', subscriptionId)).resolves.toBe(true)
     await expect(ipcMain.invoke('favorite-repository:commit-command', 8, '100', {
       id: 'command-1', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-video',
       payload: { aid: 1, title: 'Blocked', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }

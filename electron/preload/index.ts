@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   closeAssistantPet: () => ipcRenderer.send('assistant-pet:close'),
   closeFloatingAssistant: () => ipcRenderer.send('floating-assistant:close'),
   closeFloatingMenu: () => ipcRenderer.send('floating-menu:close'),
+  openFavoriteLibrary: () => ipcRenderer.invoke('favorite-library:open') as Promise<void>,
   openOldFavoriteWorkspaceV1: (accountMid: string) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:open', accountMid) as Promise<OldFavoriteWorkspaceView>,
   commandOldFavoriteWorkspaceV1: (accountMid: string, command: unknown) =>

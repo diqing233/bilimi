@@ -92,6 +92,7 @@ import { FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
 import { FavoriteRepositoryBindingService } from './favoriteRepositoryBindingService'
 import { FavoriteRepositoryRuntimePageBridgeManager } from './favoriteRepositoryRuntimePageBridge'
 import { registerFavoriteRepositoryIpc } from './favoriteRepositoryIpc'
+import { FavoriteLibraryWindowController, installFavoriteLibraryNavigationGuard } from './favoriteLibraryWindow'
 import { BilibiliSessionProxy } from './bilibiliSessionProxy'
 import {
   configureFloatingMenuWindow,
@@ -109,7 +110,7 @@ import {
   createFloatingVisualBounds
 } from './floatingSealGeometry'
 import type { FloatingAssistantSide } from './floatingSealGeometry'
-import { createPreloadScriptPath } from './preloadPath'
+import { createFavoriteLibraryPreloadScriptPath, createPreloadScriptPath } from './preloadPath'
 import { createRendererFilePath } from './rendererPath'
 import { transcribeCurrentVideoAudio } from './videoTranscriptionService'
 import { createVideoTranscriptionQueue } from './videoTranscriptionQueue'
@@ -164,6 +165,7 @@ const FLOATING_MENU_VISUAL_SIZE = { width: 184, height: 248 }
 const FLOATING_MENU_SHADOW_PADDING = 28
 const FLOATING_MENU_QUERY = { window: 'floating-menu' }
 const FLOATING_ASSISTANT_QUERY = { window: 'floating-assistant' }
+const FAVORITE_LIBRARY_QUERY = { window: 'favorite-library' }
 
 let mainWindow: BrowserWindow | null = null
 let floatingSealWindow: BrowserWindow | null = null
@@ -1396,6 +1398,34 @@ async function readCurrentBilibiliAccountMid() {
   return cookies.find((cookie) => /^\d+$/.test(cookie.value))?.value ?? ''
 }
 
+function createFavoriteLibraryWindow() {
+  const library = new BrowserWindow({
+    width: 1180,
+    height: 760,
+    minWidth: 900,
+    minHeight: 560,
+    title: '收藏库',
+    webPreferences: {
+      preload: createFavoriteLibraryPreloadScriptPath(__dirname),
+      contextIsolation: true,
+      sandbox: false,
+      webviewTag: false
+    }
+  })
+
+  installFavoriteLibraryNavigationGuard(library.webContents)
+  library.on('closed', () => favoriteLibraryWindowController.clearIfCurrent(library))
+  loadRendererWindow(library, FAVORITE_LIBRARY_QUERY)
+  return library
+}
+
+const favoriteLibraryWindowController = new FavoriteLibraryWindowController(createFavoriteLibraryWindow)
+
+function isTrustedFavoriteLibraryReader(senderId: number): boolean {
+  const library = favoriteLibraryWindowController.getWindow()
+  return Boolean(library && !library.isDestroyed() && library.webContents.id === senderId)
+}
+
 if (singleInstanceGuard) app.whenReady().then(async () => {
   favoriteRepositoryService = new FavoriteRepositoryService({
     root: join(app.getPath('userData'), 'favorites', 'repository-v1')
@@ -1459,11 +1489,16 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     ipcMain,
     service: favoriteRepositoryService,
     isTrustedSender: isTrustedOldFavoriteSessionSender,
+    isTrustedReader: isTrustedFavoriteLibraryReader,
     getCurrentAccountMid: readCurrentBilibiliAccountMid,
     send: (senderId, channel, payload) => {
       const target = webContents.fromId(senderId)
       if (target && !target.isDestroyed()) target.send(channel, payload)
     }
+  })
+  ipcMain.handle('favorite-library:open', (event) => {
+    assertTrustedOldFavoriteAssistantSender(event)
+    favoriteLibraryWindowController.open()
   })
   oldFavoriteWorkspaceService = new OldFavoriteWorkspaceService({
     root: join(app.getPath('userData'), 'old-favorite', 'workspace-v2')
@@ -1515,7 +1550,11 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   session.fromPartition(BILIMI_SESSION_PARTITION).cookies.on('changed', (_event, cookie) => {
     if (cookie.name === 'DedeUserID' || cookie.name === 'bili_jct') {
       clearTimeout(accountChangeTimer)
-      accountChangeTimer = setTimeout(notifyFloatingAssistantSnapshotChanged, 150)
+      accountChangeTimer = setTimeout(() => {
+        notifyFloatingAssistantSnapshotChanged()
+        const library = favoriteLibraryWindowController.getWindow()
+        if (library && !library.isDestroyed()) library.webContents.send('bilibili:account-changed')
+      }, 150)
     }
   })
   ipcMain.handle('bilibili:account-mid', async () => {

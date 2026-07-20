@@ -168,62 +168,6 @@ function searchPage(
   }
 }
 
-function libraryPage(
-  snapshot: AccountFavoriteRepositorySnapshot,
-  scope: LibraryPageScope,
-  options: FolderPageOptions
-): FavoriteRepositoryLibraryPage {
-  const foldersByAid = new Map<number, Set<string>>()
-  for (const [folderId, aids] of Object.entries(snapshot.memberships)) {
-    for (const aid of aids) {
-      const folderIds = foldersByAid.get(aid) ?? new Set<string>()
-      folderIds.add(folderId)
-      foldersByAid.set(aid, folderIds)
-    }
-  }
-  const statesByAid = new Map<number, Set<FavoriteRepositoryLibraryRow['pendingStates'][number]>>()
-  const addState = (aid: number, state: FavoriteRepositoryLibraryRow['pendingStates'][number]) => {
-    if (!Number.isSafeInteger(aid) || aid <= 0) return
-    const states = statesByAid.get(aid) ?? new Set<FavoriteRepositoryLibraryRow['pendingStates'][number]>()
-    states.add(state)
-    statesByAid.set(aid, states)
-  }
-  for (const aid of snapshot.workspace?.continuationAids ?? []) addState(aid, 'continuation')
-  for (const record of snapshot.syncRecords) {
-    const state = record.status === 'pending'
-      ? 'unsynced'
-      : record.status === 'failed' || record.status === 'result-unknown'
-        ? record.status
-        : undefined
-    if (state) for (const aid of record.affectedAids) addState(aid, state)
-  }
-  const allAids = Object.keys(snapshot.videos).map(Number).filter(Number.isSafeInteger).sort((left, right) => left - right)
-  const scopedAids = scope.kind === 'folder'
-    ? (snapshot.memberships[scope.folderId] ?? []).filter((aid) => snapshot.videos[String(aid)])
-    : scope.kind === 'pending'
-      ? [...statesByAid.keys()].filter((aid) => snapshot.videos[String(aid)]).sort((left, right) => left - right)
-      : allAids
-  const start = options.cursor ? Math.max(0, Number(options.cursor)) : 0
-  if (!Number.isSafeInteger(start) || start < 0) throw new Error('Favorite repository page cursor is invalid.')
-  const selected = scopedAids.slice(start, start + options.limit)
-  const stateOrder: FavoriteRepositoryLibraryRow['pendingStates'] = ['unsynced', 'continuation', 'failed', 'result-unknown']
-  return {
-    version: 1,
-    accountMid: snapshot.accountMid,
-    items: selected.flatMap((aid) => {
-      const video = snapshot.videos[String(aid)]
-      if (!video) return []
-      return [{
-        video: { ...video, tags: [...video.tags] },
-        folderIds: [...(foldersByAid.get(aid) ?? [])].sort((left, right) => left.localeCompare(right)),
-        pendingStates: stateOrder.filter((state) => statesByAid.get(aid)?.has(state))
-      }]
-    }),
-    ...(start + options.limit < scopedAids.length ? { nextCursor: String(start + options.limit) } : {}),
-    revision: snapshot.revision
-  }
-}
-
 export function registerFavoriteRepositoryIpc(options: {
   ipcMain: IpcMain
   service: FavoriteRepositoryService
@@ -298,7 +242,7 @@ export function registerFavoriteRepositoryIpc(options: {
     assertReader(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
-    return createSummary(await options.service.getSnapshot(accountMid))
+    return options.service.getLibrarySummary(accountMid)
   })
   options.ipcMain.handle('favorite-repository:get-snapshot', async (event, requestedAccountMid: string) => {
     assertReader(event)
@@ -328,7 +272,7 @@ export function registerFavoriteRepositoryIpc(options: {
     assertReader(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
-    return libraryPage(await options.service.getSnapshot(accountMid), libraryPageScope(requestedScope), pageOptions(requestedOptions))
+    return options.service.getLibraryPage(accountMid, libraryPageScope(requestedScope), pageOptions(requestedOptions))
   })
   options.ipcMain.handle('favorite-repository:commit-command', async (
     event, requestedAccountMid: string, requestedCommand: FavoriteRepositoryCommand
@@ -347,7 +291,7 @@ export function registerFavoriteRepositoryIpc(options: {
     return subscribe(event, accountMid, folderId)
   })
   options.ipcMain.handle('favorite-repository:unsubscribe', async (event, requestedAccountMid: string, subscriptionId: string) => {
-    assertTrusted(event)
+    assertReader(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
     return unsubscribe(event.sender.id, accountMid, subscriptionId)
   })

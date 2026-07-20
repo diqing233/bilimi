@@ -53,6 +53,7 @@ type BilimiDesktopApi = {
   closeAssistantPet?: () => void
   closeFloatingAssistant?: () => void
   closeFloatingMenu?: () => void
+  openFavoriteLibrary?: () => Promise<void>
   openOldFavoriteWorkspaceV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceView>
   commandOldFavoriteWorkspaceV1?: (accountMid: string, command: unknown) => Promise<OldFavoriteWorkspaceView>
   organizeOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceView>
@@ -93,6 +94,7 @@ type BilimiDesktopApi = {
   ) => Promise<OldFavoriteRuntimeSetResult>
   bindOldFavoriteRuntimeAccount?: (accountMid: string) => boolean
   readBilibiliAccountMid?: () => Promise<string>
+  onBilibiliAccountChanged?: (callback: () => void) => () => void
   openFavoriteRepositoryAccount?: (accountMid: string) => Promise<FavoriteRepositorySnapshotSummary>
   getFavoriteRepositorySnapshot?: (accountMid: string) => Promise<FavoriteRepositorySnapshotSummary>
   getFavoriteRepositoryFolderPage?: (

@@ -97,6 +97,17 @@ describe('FavoriteLedgerPanel', () => {
     expect(onReadOldFavoriteBatchStatus).not.toHaveBeenCalled()
   })
 
+  it('opens the independent favorite library without starting the old-favorite workflow', () => {
+    const openFavoriteLibrary = vi.fn().mockResolvedValue(undefined)
+    window.bilimiDesktop = { openFavoriteLibrary } as typeof window.bilimiDesktop
+    renderPanel()
+
+    fireEvent.click(screen.getByRole('button', { name: '收藏库' }))
+
+    expect(openFavoriteLibrary).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
+  })
+
   it('starts the controlled workspace scan immediately and renders its durable overview', async () => {
     const command = vi.fn().mockResolvedValue({
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
