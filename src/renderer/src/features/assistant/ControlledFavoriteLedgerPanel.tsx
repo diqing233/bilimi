@@ -77,7 +77,8 @@ export function ControlledFavoriteLedgerPanel({
 
   const startScan = async (mode: 'incremental' | 'full') => {
     if (scanStarting) return
-    if (mode === 'incremental' && snapshot && !recovery && snapshot.scan.phase !== 'failed' && snapshot.status !== 'completed') {
+    if (mode === 'incremental' && snapshot && !recovery && snapshot.scan.phase !== 'failed' &&
+      snapshot.status !== 'completed' && snapshot.status !== 'scanning') {
       setGuideOpen(true)
       setStep(snapshot.status === 'scanning' ? 'scan' : snapshot.status === 'previewing' ? 'preview' : 'confirm')
       return
