@@ -3,8 +3,7 @@ import {
   FavoriteLibraryWindowController,
   FavoriteLibrarySideBySideLayout,
   createFavoriteLibraryWindowOptions,
-  installFavoriteLibraryNavigationGuard,
-  installFavoriteLibraryNavigationGuardAfterInitialLoad
+  installFavoriteLibraryNavigationGuard
 } from './favoriteLibraryWindow'
 
 function createWindow() {
@@ -78,22 +77,6 @@ describe('FavoriteLibraryWindowController', () => {
     expect(preventDefault).toHaveBeenCalledOnce()
   })
 
-  it('waits for the initial renderer load before blocking later navigation', () => {
-    let initialLoadListener: (() => void) | undefined
-    let navigationListener: ((event: { preventDefault: () => void }) => void) | undefined
-    const webContents = {
-      once: (_event: 'did-finish-load', listener: () => void) => { initialLoadListener = listener },
-      on: (_event: 'will-navigate', listener: (event: { preventDefault: () => void }) => void) => { navigationListener = listener },
-      setWindowOpenHandler: vi.fn()
-    }
-
-    installFavoriteLibraryNavigationGuardAfterInitialLoad(webContents)
-    expect(navigationListener).toBeUndefined()
-    initialLoadListener?.()
-    const preventDefault = vi.fn()
-    navigationListener?.({ preventDefault })
-    expect(preventDefault).toHaveBeenCalledOnce()
-  })
 })
 
 describe('FavoriteLibrarySideBySideLayout', () => {

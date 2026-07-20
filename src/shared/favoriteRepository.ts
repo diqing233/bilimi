@@ -7,6 +7,14 @@ export type FavoriteRepositoryLocalPlanPayload = {
   workspace?: FavoriteRepositoryWorkspace
 }
 
+/** Main-process snapshot of the account's current Bilibili source folders. */
+export type FavoriteRepositoryBilibiliMirrorPayload = {
+  workspaceId: string
+  memberAidsByFolderId: Record<string, number[]>
+  folders: Array<Pick<FavoriteRepositoryFolder, 'id' | 'title' | 'remoteFolderId'>>
+  videos: FavoriteRepositoryVideo[]
+}
+
 export type FavoriteRepositoryVideo = {
   aid: number
   title: string
@@ -147,6 +155,13 @@ export type FavoriteRepositoryCommand =
       id: string
       accountMid: string
       issuedAt: string
+      type: 'record-bilibili-mirror'
+      payload: FavoriteRepositoryBilibiliMirrorPayload
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
       type: 'set-folder-members'
       payload: { folderId: string; aids: number[] }
     }
@@ -173,6 +188,13 @@ export type FavoriteRepositoryCommand =
       issuedAt: string
       type: 'set-workspace'
       payload: FavoriteRepositoryWorkspace
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
+      type: 'abandon-frozen-workspace'
+      payload: { workspaceId: string; frozenPlanId: string }
     }
   | {
       id: string
@@ -309,6 +331,16 @@ function normalizeFolderMembers(memberAidsByFolderId: Record<string, number[]>) 
   return normalized
 }
 
+function isRepositoryVideo(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const video = value as Record<string, unknown>
+  return Number.isSafeInteger(video.aid) && Number(video.aid) > 0 && typeof video.title === 'string' &&
+    Array.isArray(video.tags) && video.tags.every((tag) => typeof tag === 'string') &&
+    typeof video.updatedAt === 'string' &&
+    (video.author === undefined || typeof video.author === 'string') &&
+    (video.description === undefined || typeof video.description === 'string')
+}
+
 function validateCommand(command: unknown): asserts command is FavoriteRepositoryCommand {
   if (!command || typeof command !== 'object') invalidCommand()
   const record = command as Record<string, unknown>
@@ -403,6 +435,23 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
           )) || (payload.completionMode !== undefined && payload.completionMode !== 'bilibili' && payload.completionMode !== 'local')) invalidCommand()
         return
       }
+    case 'abandon-frozen-workspace':
+      if (typeof payload.workspaceId !== 'string' || !payload.workspaceId.trim() ||
+        typeof payload.frozenPlanId !== 'string' || !payload.frozenPlanId.trim()) invalidCommand()
+      return
+    case 'record-bilibili-mirror':
+      if (typeof payload.workspaceId !== 'string' || !payload.workspaceId.trim() ||
+        !payload.memberAidsByFolderId || typeof payload.memberAidsByFolderId !== 'object' || Array.isArray(payload.memberAidsByFolderId) ||
+        !Array.isArray(payload.folders) || payload.folders.some((folder) => !folder || typeof folder !== 'object' || Array.isArray(folder) ||
+          typeof (folder as Record<string, unknown>).id !== 'string' || !(folder as Record<string, unknown>).id.trim() ||
+          !String((folder as Record<string, unknown>).id).startsWith('bilibili:') ||
+          typeof (folder as Record<string, unknown>).title !== 'string' || !(folder as Record<string, unknown>).title.trim() ||
+          typeof (folder as Record<string, unknown>).remoteFolderId !== 'string' || !(folder as Record<string, unknown>).remoteFolderId.trim()) ||
+        !Array.isArray(payload.videos) || !payload.videos.every(isRepositoryVideo)) invalidCommand()
+      for (const [folderId, aids] of Object.entries(payload.memberAidsByFolderId as Record<string, unknown>)) {
+        if (!folderId.trim().startsWith('bilibili:') || !isValidAidList(aids)) invalidCommand()
+      }
+      return
     case 'record-sync-result':
       if (typeof payload.id !== 'string' || !payload.id.trim() || typeof payload.commandId !== 'string' ||
         !payload.commandId.trim() || !isSyncStatus(payload.status) || !isValidAidList(payload.affectedAids) ||
@@ -537,6 +586,41 @@ export function applyFavoriteRepositoryCommand(
       affectedAids = [command.payload.aid]
       libraryMirrors[String(command.payload.aid)] = { ...command.payload }
       break
+    case 'record-bilibili-mirror': {
+      const membersByFolderId = normalizeFolderMembers(command.payload.memberAidsByFolderId)
+      const mirrorFolders = command.payload.folders.map((folder) => ({
+        id: folder.id.trim(), title: folder.title.trim(), remoteFolderId: folder.remoteFolderId!.trim()
+      })).sort((left, right) => left.id.localeCompare(right.id))
+      const folderIds = new Set(mirrorFolders.map((folder) => folder.id))
+      if (folderIds.size !== mirrorFolders.length || [...membersByFolderId.keys()].some((folderId) => !folderIds.has(folderId))) {
+        throw new Error('Favorite Bilibili mirror folders are invalid.')
+      }
+      const removedFolderIds = folders.filter((folder) => folder.kind === 'bilibili').map((folder) => folder.id)
+      folders = [...folders.filter((folder) => folder.kind !== 'bilibili'), ...mirrorFolders.map((folder) => ({
+        ...folder, kind: 'bilibili' as const, syncState: 'bound' as const
+      }))]
+      memberships = Object.fromEntries(Object.entries(memberships).filter(([folderId]) => !removedFolderIds.includes(folderId)))
+      for (const folder of mirrorFolders) memberships[folder.id] = membersByFolderId.get(folder.id) ?? []
+      const mirroredAids = new Set([...membersByFolderId.values()].flat())
+      const retainedAids = new Set(Object.values(memberships).flat())
+      for (const [aid, video] of Object.entries(videos)) {
+        if (!mirroredAids.has(Number(aid)) && !retainedAids.has(Number(aid))) delete videos[aid]
+        else videos[aid] = video
+      }
+      for (const video of command.payload.videos) {
+        const existing = videos[String(video.aid)]
+        videos[String(video.aid)] = {
+          ...video,
+          ...(existing?.author && !video.author ? { author: existing.author } : {}),
+          ...(existing?.description && !video.description ? { description: existing.description } : {}),
+          tags: video.tags.length ? [...video.tags] : [...(existing?.tags ?? [])],
+          updatedAt: existing?.updatedAt ?? video.updatedAt
+        }
+      }
+      affectedFolderIds = [...folderIds].sort()
+      affectedAids = [...mirroredAids].sort((left, right) => left - right)
+      break
+    }
     case 'set-folder-members':
       affectedFolderIds = [command.payload.folderId.trim()]
       affectedAids = uniquePositiveAids(command.payload.aids).sort((left, right) => left - right)
@@ -625,6 +709,13 @@ export function applyFavoriteRepositoryCommand(
         } : {}),
         ...(command.payload.completionMode ? { completionMode: command.payload.completionMode } : {})
       }
+      break
+    case 'abandon-frozen-workspace':
+      if (!workspace?.frozenSyncPlan || workspace.id !== command.payload.workspaceId.trim() ||
+        workspace.frozenSyncPlan.id !== command.payload.frozenPlanId.trim()) {
+        throw new Error('Favorite frozen workspace does not match the abandoned plan.')
+      }
+      workspace = undefined
       break
     case 'record-sync-result':
       affectedAids = uniquePositiveAids(command.payload.affectedAids).sort((left, right) => left - right)

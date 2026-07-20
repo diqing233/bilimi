@@ -5031,7 +5031,7 @@ body[data-floating-window="true"],
 }
 .favorite-ledger-panel__preview-controls {
   display: grid;
-  grid-template-columns: minmax(132px, 1fr) minmax(0, 1fr);
+  grid-template-columns: 60px minmax(0, 1fr);
   justify-content: stretch;
   align-items: center;
   gap: 6px;

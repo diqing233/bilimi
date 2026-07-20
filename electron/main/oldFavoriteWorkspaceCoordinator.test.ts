@@ -178,6 +178,42 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.getActiveScanRunId('100')).resolves.not.toBe(incrementalRunId)
   })
 
+  it('abandons an interrupted frozen plan before replacing it with a full scan', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const syncService = new FavoriteRepositorySyncService({
+      repository,
+      pageBridgeManager: { bind: vi.fn(), release: vi.fn(), pageBridge: vi.fn() },
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    const abandonFrozenPlan = vi.spyOn(syncService, 'abandonFrozenPlan')
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      bindingService: { ensurePhysicalShard: vi.fn().mockResolvedValue(undefined) },
+      syncService,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 0, memberAids: [] }]
+    })
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await coordinator.freezeForBilibiliExecution('100')
+
+    await expect(coordinator.beginScan('100', 'full')).resolves.toMatchObject({ status: 'scanning', mode: 'full' })
+    expect(abandonFrozenPlan).toHaveBeenCalledWith('100')
+    const snapshot = await repository.getSnapshot('100')
+    expect(snapshot.workspace).toMatchObject({ status: 'scanning', baselineRevision: 0 })
+    expect(snapshot.workspace?.frozenSyncPlan).toBeUndefined()
+  })
+
   it('lets an explicitly restarted scan replace a persisted scanning lease after process recovery', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })

@@ -1222,13 +1222,14 @@ function createFavoriteLibraryWindow() {
   )
 
   library.removeMenu()
-  installFavoriteLibraryNavigationGuardAfterInitialLoad(library.webContents)
   favoriteLibrarySideBySideLayout.open(mainWindow, library)
   library.on('closed', () => {
     favoriteLibrarySideBySideLayout.close(mainWindow)
     favoriteLibraryWindowController.clearIfCurrent(library)
   })
   loadRendererWindow(library, FAVORITE_LIBRARY_QUERY)
+  // The initial local route is a top-level navigation, so guard only after starting it.
+  installFavoriteLibraryNavigationGuard(library.webContents)
   return library
 }
 

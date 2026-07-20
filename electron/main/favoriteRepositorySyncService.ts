@@ -124,6 +124,30 @@ export class FavoriteRepositorySyncService {
     await this.options.pageBridgeManager?.bind(account, runId)
   }
 
+  /** Discards only the local execution plan; already completed remote writes remain untouched. */
+  async abandonFrozenPlan(accountMid: string): Promise<void> {
+    const account = normalizeAccountMid(accountMid)
+    await this.runRemote(account, async () => {
+      const { workspace } = await this.options.repository.getSnapshot(account)
+      const plan = workspace?.frozenSyncPlan
+      if (!workspace || !plan) return
+      await this.withRunLock(account, plan.id, async () => {
+        const current = await this.options.repository.getSnapshot(account)
+        const currentPlan = current.workspace?.frozenSyncPlan
+        if (!current.workspace || !currentPlan) return
+        await this.options.repository.commit(account, {
+          id: `favorite-sync-abandon:${current.workspace.id}:${currentPlan.id}`,
+          accountMid: account,
+          issuedAt: this.now(),
+          type: 'abandon-frozen-workspace',
+          payload: { workspaceId: current.workspace.id, frozenPlanId: currentPlan.id }
+        })
+        this.claimedExecutionRuns.delete(`${account}:${currentPlan.id}`)
+        this.options.pageBridgeManager?.release(account, currentPlan.id)
+      })
+    })
+  }
+
   /** Persists the user-confirmed execution boundary before any remote bind begins. */
   async claimFrozenPlan(accountMid: string, frozenPlan: FrozenFavoriteSyncPlan): Promise<FavoriteRepositorySyncRun> {
     const account = normalizeAccountMid(accountMid)

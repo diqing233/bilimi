@@ -383,6 +383,26 @@ describe('account favorite repository contracts', () => {
     }, '2026-07-19T00:00:02.000Z')).toThrow('Favorite sync plan is immutable.')
   })
 
+  it('clears an unfinished frozen workspace only through an exact explicit abandon command', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-19T00:00:00.000Z' })
+    const frozen = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'workspace-1', accountMid: '100', issuedAt: '2026-07-19T00:00:01.000Z', type: 'set-workspace',
+      payload: {
+        id: 'workspace-1', accountMid: '100', status: 'frozen', baselineRevision: 1, continuationAids: [],
+        workspaceRef: workspaceRef({ status: 'frozen', baselineRevision: 1, currentSegmentId: 'segment-1' }),
+        frozenSyncPlan: {
+          id: 'run-1', accountMid: '100', workspaceId: 'workspace-1', baselineRevision: 1,
+          createdAt: '2026-07-19T00:00:01.000Z', operations: []
+        }
+      }
+    }, '2026-07-19T00:00:01.000Z')
+
+    expect(applyFavoriteRepositoryCommand(frozen, {
+      id: 'abandon-1', accountMid: '100', issuedAt: '2026-07-19T00:00:02.000Z',
+      type: 'abandon-frozen-workspace', payload: { workspaceId: 'workspace-1', frozenPlanId: 'run-1' }
+    }, '2026-07-19T00:00:02.000Z').workspace).toBeUndefined()
+  })
+
   it('allows a completed frozen plan to advance the account pointer to a new scanning workspace', () => {
     const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-19T00:00:00.000Z' })
     const completed = applyFavoriteRepositoryCommand(snapshot, {

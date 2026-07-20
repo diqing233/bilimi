@@ -115,7 +115,7 @@ export function ControlledFavoriteLedgerPanel({
     }
     void startScan('incremental')
   }
-  const canRestartFromResume = snapshot?.status === 'previewing' || snapshot?.status === 'scanning'
+  const canRestartFromResume = snapshot !== null && !recovery && snapshot.status !== 'completed'
 
   return (
     <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
@@ -161,7 +161,7 @@ export function ControlledFavoriteLedgerPanel({
           setFullReorganizationAccountMid(null)
           if (canConfirm) void startScan('full')
         }}>
-        <p>这会解除既有保护并从头扫描；不会改写收藏库。</p>
+        <p>这会丢弃本轮本地整理状态，并重新扫描 B 站当前收藏；不会撤销已提交到 B 站的操作。</p>
       </OldFavoriteModal> : null}
 
       {guideOpen ? <OldFavoriteGuide

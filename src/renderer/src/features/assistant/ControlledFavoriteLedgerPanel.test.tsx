@@ -163,7 +163,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('region', { name: '整理旧藏向导' }).querySelector('.favorite-ledger-panel__guide-entry-actions')).toBeNull()
   })
 
-  it('routes an interrupted remote execution to reconciliation without offering an invalid full reset', async () => {
+  it('offers full reorganization for an interrupted remote execution after explaining its local-only reset', async () => {
     const executing = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'executing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -183,7 +183,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     const resumeDialog = await screen.findByRole('dialog', { name: '整理旧藏' })
     expect(within(resumeDialog).getByRole('button', { name: '继续上次整理' })).toBeInTheDocument()
-    expect(within(resumeDialog).queryByRole('button', { name: '全部重新整理' })).not.toBeInTheDocument()
+    expect(within(resumeDialog).getByRole('button', { name: '全部重新整理' })).toBeInTheDocument()
     fireEvent.click(within(resumeDialog).getByRole('button', { name: '继续上次整理' }))
     expect(await screen.findByRole('button', { name: '对账 B 站结果' })).toBeEnabled()
   })

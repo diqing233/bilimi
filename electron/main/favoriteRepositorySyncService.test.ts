@@ -41,6 +41,26 @@ afterEach(async () => {
 })
 
 describe('FavoriteRepositorySyncService', () => {
+  it('abandons a frozen local plan without reverting any remote operation', async () => {
+    const repository = await createRepository()
+    const frozenPlan = plan()
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...workspace(), frozenSyncPlan: frozenPlan }
+    })
+    const release = vi.fn()
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridgeManager: { bind: vi.fn(), release, pageBridge: vi.fn() },
+      now: () => '2026-07-19T00:00:00.000Z'
+    })
+
+    await service.abandonFrozenPlan('100')
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: undefined })
+    expect(release).toHaveBeenCalledWith('100', frozenPlan.id)
+  })
+
   it('never retries an unknown append before reconciliation confirms it is absent', async () => {
     const repository = await createRepository()
     await repository.commit('100', {

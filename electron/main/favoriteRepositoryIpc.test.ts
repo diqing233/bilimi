@@ -121,6 +121,21 @@ describe('registerFavoriteRepositoryIpc', () => {
     expect(service.commit).not.toHaveBeenCalled()
   })
 
+  it('does not let the renderer abandon a frozen workspace plan', async () => {
+    const ipcMain = new FakeIpcMain()
+    const service = { commit: vi.fn() }
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: service as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:commit-command', 7, '100', {
+      id: 'abandon', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'abandon-frozen-workspace',
+      payload: { workspaceId: 'workspace-1', frozenPlanId: 'run-1' }
+    })).rejects.toThrow('reserved for the main process')
+    expect(service.commit).not.toHaveBeenCalled()
+  })
+
   it('returns a compact account and workspace summary rather than repository videos or memberships', async () => {
     const ipcMain = new FakeIpcMain()
     const service = {

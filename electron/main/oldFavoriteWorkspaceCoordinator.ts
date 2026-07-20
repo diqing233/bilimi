@@ -227,7 +227,7 @@ export class OldFavoriteWorkspaceCoordinator {
         memberAids: number[]
       }): Promise<unknown>
     }
-    syncService?: Pick<FavoriteRepositorySyncService, 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'reconcile' | 'resume' | 'getRun'>
+    syncService?: Pick<FavoriteRepositorySyncService, 'abandonFrozenPlan' | 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'reconcile' | 'resume' | 'getRun'>
     classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
     saveRecommendedLedgers?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
     removeRecommendedLedgers?: (accountMid: string, ledgerIds: string[]) => Promise<void>
@@ -266,7 +266,15 @@ export class OldFavoriteWorkspaceCoordinator {
       if (mode !== 'incremental' && mode !== 'full') throw new Error('Old favorite workspace mode is invalid.')
       let workspace = await this.requireWorkspace(accountMid)
       const replaceEditablePreview = mode === 'full' && workspace.status === 'previewing'
-      if (workspace.status !== 'scanning' && workspace.status !== 'completed' && !replaceEditablePreview) {
+      const persistedWorkspace = (await this.options.repository.getSnapshot(workspace.accountMid)).workspace
+      const abandonFrozenPlan = mode === 'full' && Boolean(persistedWorkspace?.frozenSyncPlan) &&
+        persistedWorkspace?.status !== 'completed'
+      if (abandonFrozenPlan) {
+        if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
+        await this.options.syncService.abandonFrozenPlan(workspace.accountMid)
+        workspace = await this.createScanningWorkspace(workspace.accountMid, mode)
+      }
+      if (workspace.status !== 'scanning' && workspace.status !== 'completed' && !replaceEditablePreview && !abandonFrozenPlan) {
         throw new Error('Old favorite workspace scan is already active.')
       }
       if (replaceEditablePreview || workspace.status === 'completed') {
