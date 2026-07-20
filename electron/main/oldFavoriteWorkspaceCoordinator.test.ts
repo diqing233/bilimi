@@ -558,6 +558,29 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       }
     })
 
+    const restartedRepository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const restarted = new OldFavoriteWorkspaceCoordinator({
+      repository: restartedRepository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      syncService: new FavoriteRepositorySyncService({
+        repository: restartedRepository,
+        pageBridge: { append, remove: vi.fn(), readMembers: vi.fn() },
+        now: () => '2026-07-20T00:00:00.000Z',
+        pacingMs: 0
+      }),
+      classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' }),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      status: 'previewing',
+      classifications: {
+        '1': { targetLedgerIds: ['custom-author-up-alpha'], source: 'system-high' },
+        '2': { targetLedgerIds: ['knowledge'], source: 'deepseek' },
+        '3': { targetLedgerIds: ['manual'], source: 'manual' }
+      },
+      history: { cursor: 5, length: 5 }
+    })
+
     for (const [logicalLedgerId, remoteFolderId] of [
       ['custom-author-up-alpha', 'remote-alpha'], ['knowledge', 'remote-knowledge'], ['manual', 'remote-manual']
     ]) {
@@ -568,28 +591,41 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         inventory: [{ id: remoteFolderId, title: remoteTitle, memberCount: 0, memberAids: [] }]
       })
     }
+    const restartedRepositoryAfterBindings = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const restartedAfterBindings = new OldFavoriteWorkspaceCoordinator({
+      repository: restartedRepositoryAfterBindings,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      syncService: new FavoriteRepositorySyncService({
+        repository: restartedRepositoryAfterBindings,
+        pageBridge: { append, remove: vi.fn(), readMembers: vi.fn() },
+        now: () => '2026-07-20T00:00:00.000Z',
+        pacingMs: 0
+      }),
+      classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' }),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
 
-    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+    await expect(restartedAfterBindings.freezeForBilibiliExecution('100')).resolves.toMatchObject({
       status: 'frozen', frozenSyncPlan: { operations: expect.arrayContaining([
         expect.objectContaining({ aid: 1, folderIds: ['remote-alpha'] }),
         expect.objectContaining({ aid: 2, folderIds: ['remote-knowledge'] }),
         expect.objectContaining({ aid: 3, folderIds: ['remote-manual'] })
       ]) }
     })
-    await expect(coordinator.executeFrozenBilibiliPlan('100')).resolves.toMatchObject({ status: 'succeeded' })
+    await expect(restartedAfterBindings.executeFrozenBilibiliPlan('100')).resolves.toMatchObject({ status: 'succeeded' })
     expect(append).toHaveBeenCalledTimes(3)
-    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+    await expect(restartedAfterBindings.getSnapshot('100')).resolves.toMatchObject({
       status: 'completed', classifications: {}, history: { cursor: 0, length: 0 }
     })
 
-    await coordinator.beginScan('100', 'incremental')
-    await coordinator.recordScanPage('100', {
+    await restartedAfterBindings.beginScan('100', 'incremental')
+    await restartedAfterBindings.recordScanPage('100', {
       folderId: 'source', page: 1,
       items: [1, 2, 3, 4].map((aid) => ({ aid, title: `Video ${aid}`, sourceFolderIds: ['source'] }))
     })
-    await coordinator.finishScan('100')
+    await restartedAfterBindings.finishScan('100')
 
-    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+    await expect(restartedAfterBindings.getSnapshot('100')).resolves.toMatchObject({
       status: 'previewing', mode: 'incremental', currentSegment: { aids: [4] }
     })
   })
