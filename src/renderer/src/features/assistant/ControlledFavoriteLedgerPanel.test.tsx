@@ -143,7 +143,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     />)
 
     await waitFor(() => expect(window.bilimiDesktop.openOldFavoriteWorkspaceV1).toHaveBeenCalledWith('100'))
-    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(screen.getByRole('button', { name: '全部重新整理' }))
 
     expect(screen.getByText('扫描概览：扫描中')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
@@ -293,6 +293,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('heading', { name: '归档预览' })).toBeInTheDocument()
     expect(command).not.toHaveBeenCalled()
     expect(open).toHaveBeenCalledTimes(2)
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    expect(command).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step')
   })
 
   it('restores a persisted frozen snapshot at confirmation on remount', async () => {
@@ -309,12 +313,20 @@ describe('ControlledFavoriteLedgerPanel', () => {
       commandOldFavoriteWorkspaceV1: command
     } as typeof window.bilimiDesktop
 
-    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+    const first = render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
     expect(await screen.findByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '确认执行' })).toHaveAttribute('aria-current', 'step')
     expect(screen.getByRole('button', { name: '继续同步到 B 站' })).toBeInTheDocument()
+    expect(command).not.toHaveBeenCalled()
+
+    first.unmount()
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    expect(await screen.findByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '确认执行' })).toHaveAttribute('aria-current', 'step')
     expect(command).not.toHaveBeenCalled()
   })
 
@@ -541,9 +553,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       deepSeekArchiveAvailable
     />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
-    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'incremental' }))
-    await waitFor(() => expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step'))
+    await screen.findByRole('button', { name: '归档预览' })
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
     fireEvent.click(screen.getByRole('checkbox', { name: 'bilimi·UP' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'set-recommended-candidates', candidateIds: ['custom-author-up'] }))

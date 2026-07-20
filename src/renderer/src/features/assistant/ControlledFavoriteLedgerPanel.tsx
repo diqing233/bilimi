@@ -71,6 +71,11 @@ export function ControlledFavoriteLedgerPanel({
 
   const startScan = async (mode: 'incremental' | 'full') => {
     if (scanStarting || workspace.loading) return
+    if (mode === 'incremental' && snapshot && !recovery && snapshot.status !== 'failed') {
+      setGuideOpen(true)
+      setStep(snapshot.status === 'scanning' ? 'scan' : snapshot.status === 'previewing' ? 'preview' : 'confirm')
+      return
+    }
     const requestedAccountMid = currentAccountMid
     const requestVersion = ++scanPresentationRequestVersion.current
     setGuideOpen(true)
