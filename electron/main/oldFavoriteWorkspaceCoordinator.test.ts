@@ -146,22 +146,25 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('keeps a requested full scan mode and existing inventory overview when restarted', async () => {
+  it('creates a new empty workspace for every explicit full reorganization', async () => {
     const root = await createRoot()
     const coordinator = createCoordinator(
       new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' }),
       new OldFavoriteWorkspaceStore({ root })
     )
-    await coordinator.open('100')
-    await coordinator.beginScan('100', 'incremental')
+    const initial = await coordinator.open('100')
+    await coordinator.beginScan('100', 'full')
     await coordinator.recordScanInventory('100', {
       sourceFolders: [{ id: 'bilimi-empty', title: 'Bilimi·Inbox', itemCount: 0, isBilimiWorkFolder: true }]
     })
 
-    await expect(coordinator.beginScan('100', 'full')).resolves.toMatchObject({
-      mode: 'full', sourceFolders: [{ id: 'bilimi-empty', itemCount: 0 }]
+    const reset = await coordinator.beginScan('100', 'full')
+
+    expect(reset).toMatchObject({ mode: 'full', status: 'scanning', sourceFolders: [] })
+    expect(reset.workspaceId).not.toBe(initial.id)
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      mode: 'full', workspaceId: reset.workspaceId, sourceFolders: []
     })
-    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({ mode: 'full' })
   })
 
   it('supersedes an in-progress incremental scan when the user explicitly requests a full reorganization', async () => {
@@ -212,6 +215,48 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const snapshot = await repository.getSnapshot('100')
     expect(snapshot.workspace).toMatchObject({ status: 'scanning', baselineRevision: 0 })
     expect(snapshot.workspace?.frozenSyncPlan).toBeUndefined()
+  })
+
+  it('treats full reorganization as a fresh workspace even when reconciliation is pending', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const syncService = new FavoriteRepositorySyncService({
+      repository,
+      pageBridgeManager: { bind: vi.fn(), release: vi.fn(), pageBridge: vi.fn() },
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      bindingService: { ensurePhysicalShard: vi.fn().mockResolvedValue(undefined) },
+      syncService,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music-1',
+      inventory: [{ id: 'remote-music-1', title: 'B-music-001-a1b2c3', memberCount: 0, memberAids: [] }]
+    })
+    const oldWorkspace = await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await coordinator.freezeForBilibiliExecution('100')
+    const frozen = (await repository.getSnapshot('100')).workspace!
+    await repository.commit('100', {
+      id: 'mark-reconciling', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...frozen, status: 'reconciling', workspaceRef: { ...frozen.workspaceRef, status: 'reconciling' } }
+    })
+
+    const reset = await coordinator.beginScan('100', 'full')
+
+    expect(reset).toMatchObject({ status: 'scanning', mode: 'full', workspaceId: expect.not.stringContaining(oldWorkspace.id) })
+    const persisted = await repository.getSnapshot('100')
+    expect(persisted.workspace).toMatchObject({ status: 'scanning', baselineRevision: 0 })
+    expect(persisted.workspace?.id).not.toBe(oldWorkspace.id)
+    expect(persisted.workspace?.frozenSyncPlan).toBeUndefined()
   })
 
   it('lets an explicitly restarted scan replace a persisted scanning lease after process recovery', async () => {
@@ -428,8 +473,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
-    await coordinator.open('100')
-    await coordinator.beginScan('100', 'incremental')
+    const initial = await coordinator.open('100')
+    await coordinator.beginScan('100', 'full')
     await coordinator.recordScanInventory('100', {
       sourceFolders: [{ id: 'remote-music', title: '音乐收藏', itemCount: 1, isBilimiWorkFolder: false }]
     })
@@ -637,8 +682,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
-    await coordinator.open('100')
-    await coordinator.beginScan('100', 'incremental')
+    const initial = await coordinator.open('100')
+    await coordinator.beginScan('100', 'full')
     await coordinator.recordScanPage('100', {
       folderId: 'source', page: 1,
       items: [
@@ -677,8 +722,8 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       saveRecommendedLedgers: saved,
       classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' })
     })
-    await coordinator.open('100')
-    await coordinator.beginScan('100', 'incremental')
+    const initial = await coordinator.open('100')
+    await coordinator.beginScan('100', 'full')
     await coordinator.recordScanInventory('100', {
       sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
     })

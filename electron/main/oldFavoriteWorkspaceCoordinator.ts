@@ -265,19 +265,19 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.queue(async () => {
       if (mode !== 'incremental' && mode !== 'full') throw new Error('Old favorite workspace mode is invalid.')
       let workspace = await this.requireWorkspace(accountMid)
-      const replaceEditablePreview = mode === 'full' && workspace.status === 'previewing'
       const persistedWorkspace = (await this.options.repository.getSnapshot(workspace.accountMid)).workspace
       const abandonFrozenPlan = mode === 'full' && Boolean(persistedWorkspace?.frozenSyncPlan) &&
         persistedWorkspace?.status !== 'completed'
       if (abandonFrozenPlan) {
         if (!this.options.syncService) throw new Error('Old favorite workspace sync service is unavailable.')
         await this.options.syncService.abandonFrozenPlan(workspace.accountMid)
-        workspace = await this.createScanningWorkspace(workspace.accountMid, mode)
       }
-      if (workspace.status !== 'scanning' && workspace.status !== 'completed' && !replaceEditablePreview && !abandonFrozenPlan) {
+      if (mode === 'full') {
+        workspace = await this.createScanningWorkspace(workspace.accountMid, mode)
+      } else if (workspace.status !== 'scanning' && workspace.status !== 'completed') {
         throw new Error('Old favorite workspace scan is already active.')
       }
-      if (replaceEditablePreview || workspace.status === 'completed') {
+      if (mode === 'incremental' && workspace.status === 'completed') {
         workspace = await this.createScanningWorkspace(workspace.accountMid, mode)
       }
       if (mode === 'full') {
