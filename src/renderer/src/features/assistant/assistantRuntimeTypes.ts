@@ -2,18 +2,13 @@ import type {
   AssistantAction,
   AssistantAutomationResult,
   AssistantPreferences,
-  DeepSeekArchiveMode,
-  DeepSeekGenerateRequest,
   DeepSeekGenerateResult,
-  FavoriteArchiveMultiMode,
   FavoriteLedger,
   FavoriteLedgerSaveOptions,
   FavoriteLedgerStatus,
   VideoAudioTranscriptionQueueSnapshot,
   VideoNote
 } from '@shared/types'
-import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
-import type { OldFavoriteBatchCommitToken } from '../favorites/favoriteLedgerApi'
 import type { VideoContentContext } from '../recommendation/videoClassifier'
 
 export type AssistantSnapshot = {
@@ -63,28 +58,6 @@ export type AssistantRuntimeRequest =
   | { id: string; type: 'open-bilibili-favorites' }
   | {
       id: string
-      type: 'scan-old-favorites'
-      multiArchiveMode?: FavoriteArchiveMultiMode
-    }
-  | { id: string; type: 'commit-old-favorite-batch'; token: OldFavoriteBatchCommitToken }
-  | { id: string; type: 'read-old-favorite-batch-status' }
-  | { id: string; type: 'prepare-old-favorite-scan' }
-  | { id: string; type: 'old-favorite-tag-enrichment'; action?: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' }
-  | { id: string; type: 'rejudge-old-favorite'; item: FavoriteLedgerPreviewItem }
-  | {
-      id: string
-      type: 'execute-old-favorite-plan'
-      items: FavoriteLedgerPreviewItem[]
-      expectedAccountMid?: string
-    }
-  | {
-      id: string
-      type: 'organize-old-favorites-with-deepseek'
-      mode: DeepSeekArchiveMode
-      request: DeepSeekGenerateRequest
-    }
-  | {
-      id: string
       type: 'favorite-repository-bind-page-target'
       accountMid: string
       runId: string
@@ -132,15 +105,11 @@ export type AssistantRuntimeResponsePayload =
   | AssistantSnapshot
   | AssistantAutomationResult
   | FavoriteLedgerStatus
-  | FavoriteLedgerPreview
-  | FavoriteLedgerPreviewItem
-  | DeepSeekGenerateResult
   | VideoAudioTranscriptionQueueSnapshot
   | VideoNote
   | VideoNote[]
   | number
   | boolean
-  | OldFavoriteBatchCommitResult
   | FavoriteRepositoryPageOperationResult
   | { pending: boolean }
   | null
@@ -175,12 +144,4 @@ export type FavoriteRepositoryPageOperationResult = {
   folders?: Array<{ id: string; title: string; memberCount: number }>
   folder?: { id: string; title: string; memberCount: number }
   target?: FavoriteRepositoryPageTarget
-}
-
-export type OldFavoriteBatchCommitResult = {
-  ok: boolean
-  committed: boolean
-  stale?: boolean
-  code?: string
-  message?: string
 }

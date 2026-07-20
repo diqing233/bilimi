@@ -120,30 +120,6 @@ describe('requestAssistantRuntimeWhenReady', () => {
     expect(createAssistantRuntimeTimeoutMs({ type: 'generate-video-note-from-audio' })).toBe(
       30 * 60 * 1000
     )
-    expect(createAssistantRuntimeTimeoutMs({ type: 'scan-old-favorites' })).toBe(30 * 60 * 1000)
-    expect(
-      createAssistantRuntimeTimeoutMs({
-        type: 'rejudge-old-favorite',
-        item: {
-          aid: 250,
-          title: '待重判旧藏',
-          sourceFolderTitle: '默认收藏夹',
-          targetLedgerId: 'inbox',
-          targetFolderId: '9008',
-          targetDisplayName: 'bilimi·暂存',
-          reviewRequired: false,
-          alreadyInTarget: false,
-          selected: false,
-          originalSuggestedLedgerIds: [],
-          currentTargetLedgerIds: [],
-          selectedTargetLedgerIds: [],
-          lowConfidence: false
-        }
-      })
-    ).toBe(30 * 60 * 1000)
-    expect(createAssistantRuntimeTimeoutMs({ type: 'execute-old-favorite-plan', items: [] })).toBe(
-      30 * 60 * 1000
-    )
     expect(
       createAssistantRuntimeTimeoutMs({
         type: 'run-action',
@@ -206,7 +182,7 @@ describe('requestAssistantRuntimeWhenReady', () => {
     const bus = createResponseBus()
     const longRequest = requestAssistantRuntimeWhenReady<AssistantAutomationResult>({
       createRequestId: () => 'req-long',
-      request: { type: 'scan-old-favorites' },
+      request: { type: 'generate-video-note-from-audio' },
       responseBus: bus,
       target,
       timeoutMs: 100
@@ -408,29 +384,6 @@ describe('requestAssistantRuntimeWhenReady', () => {
       await vi.advanceTimersByTimeAsync(8000)
 
       bus.emitResponse({ id: 'req-5', ok: true, payload: createAutomationResult(true) })
-
-      await expect(promise).resolves.toMatchObject({ ok: true })
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('keeps old favorite scans alive past the default quick request timeout', async () => {
-    vi.useFakeTimers()
-
-    try {
-      const { target } = createRuntimeTarget(false)
-      const bus = createResponseBus()
-      const promise = requestAssistantRuntimeWhenReady<AssistantAutomationResult>({
-        createRequestId: () => 'req-6',
-        request: { type: 'scan-old-favorites' },
-        responseBus: bus,
-        target
-      })
-
-      await vi.advanceTimersByTimeAsync(8000)
-
-      bus.emitResponse({ id: 'req-6', ok: true, payload: createAutomationResult(true) })
 
       await expect(promise).resolves.toMatchObject({ ok: true })
     } finally {

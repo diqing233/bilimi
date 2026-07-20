@@ -39,36 +39,14 @@ import {
 } from './features/notes/videoNoteTimeAutomation'
 import {
   buildEnsureFavoriteLedgersScript,
-  buildExecuteFavoriteLedgerPlanScript,
   buildFavoriteLedgerStatusScript,
-  buildCommitOldFavoriteBatchCheckpointScript,
-  buildReadOldFavoriteBatchStatusScript,
-  buildOldFavoriteTagEnrichmentScript,
   buildSaveFavoriteLedgersScript,
-  buildScanOldFavoriteVideoScript,
-  buildScanOldFavoritesScript,
-  type OldFavoriteBatchCommitToken
 } from './features/favorites/favoriteLedgerApi'
 import { createFavoriteRepositoryPageTarget } from './features/favorites/favoriteRepositoryPageTarget'
 import {
   createOldFavoriteWorkspacePageBridge,
   type OldFavoriteWorkspacePageCommand
 } from './features/favorites/oldFavoriteWorkspacePageBridge'
-import {
-  prepareOldFavoriteScan as waitForOldFavoriteScanPreparation,
-  type OldFavoriteScanPreparationProbe
-} from './features/favorites/oldFavoriteScanPreparation'
-import {
-  createFavoriteLedgerPreview,
-  type FavoriteLedgerPreview,
-  type FavoriteLedgerPreviewItem,
-  type FavoriteSourceFolder
-} from './features/favorites/favoriteLedgerPreview'
-import {
-  partitionFavoriteArchiveSources,
-  upsertFavoriteArchiveProtectionRecords,
-  type FavoriteArchiveManagedFolder
-} from '@shared/favoriteArchiveProtection'
 import { createLocalVideoNoteDraft } from './features/notes/videoNoteSummarizer'
 import { parseManualTranscript } from './features/notes/transcriptNormalizer'
 import { recordAssistantPreferenceFeedback } from './features/state/assistantState'
@@ -83,7 +61,6 @@ import { PET_VIDEO_OPENING_LINES, pickPetLine } from './features/assistant/petIn
 import { publishDeepSeekTask } from './features/assistant/deepSeekTaskSignal'
 import { composeMemorialComments } from './features/comments/commentComposer'
 import { createCorrectionDraft } from './features/recommendation/correctionLearning'
-import type { FavoriteArchiveTarget } from './features/recommendation/archivePlanning'
 
 const HOME_TAB_ID = 'home'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
@@ -1150,278 +1127,6 @@ export default function App() {
     return result
   }
 
-  async function scanOldFavorites(
-    options: { multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode'] } = {}
-  ): Promise<FavoriteLedgerPreview> {
-    const loginFailure = await requireBilibiliLogin()
-    if (loginFailure) {
-      return {
-        ok: false,
-        message: loginFailure.message,
-        items: [],
-        skippedSourceFolderTitles: []
-      }
-    }
-
-    const scanResult = await runScript(
-      buildScanOldFavoritesScript(preferences.favoriteLedgers)
-    ) as AssistantAutomationResult & {
-      accountMid?: string
-      sourceFolders?: FavoriteSourceFolder[]
-      targetMembership?: Record<string, number[]>
-      managedFolders?: FavoriteArchiveManagedFolder[]
-      managedFolderScanComplete?: boolean
-      recoveringPendingBatch?: boolean
-      skippedSourceFolderTitles?: string[]
-      scanDiagnostics?: FavoriteLedgerPreview['scanDiagnostics']
-      scanProgress?: FavoriteLedgerPreview['scanProgress']
-      batch?: FavoriteLedgerPreview['batch']
-    }
-    assistantSnapshotCacheRef.current.accountMid = scanResult.accountMid?.trim() ?? ''
-
-    if (!scanResult.ok || !Array.isArray(scanResult.sourceFolders) || !scanResult.targetMembership) {
-      return {
-        ok: false,
-        message: scanResult.message || '整理旧藏未完成。',
-        items: [],
-        skippedSourceFolderTitles: []
-      }
-    }
-
-    if (scanResult.managedFolderScanComplete === false) {
-      const folderFailures = scanResult.scanDiagnostics?.folderFailures ?? []
-      const managedFolderIds = new Set(
-        scanResult.managedFolders
-          ? scanResult.managedFolders.map((folder) => folder.id)
-          : preferences.favoriteLedgers
-              .map((ledger) => ledger.bilibiliFolderId)
-              .filter((folderId): folderId is string => Boolean(folderId))
-      )
-      const matchedManagedFailure = folderFailures.find((failure) =>
-        failure.folderId !== undefined && managedFolderIds.has(failure.folderId)
-      )
-      const legacyFailure = folderFailures.every((failure) => !failure.folderId)
-        ? folderFailures[0]
-        : undefined
-      const failureReason = (matchedManagedFailure ?? legacyFailure)?.message
-      const failureTitle = matchedManagedFailure?.folderTitle
-      const isTargetMembershipFailure = matchedManagedFailure?.operation === 'target-membership'
-      return {
-        ok: false,
-        message: `${isTargetMembershipFailure ? '目标收藏夹成员读取失败' : 'bilimi 收藏夹读取不完整'}${failureTitle ? `：${failureTitle}` : ''}${failureReason ? `（${failureReason}）` : ''}，请稍后重试。`,
-        items: [],
-        skippedSourceFolderTitles: scanResult.skippedSourceFolderTitles ?? []
-      }
-    }
-
-    const multiArchiveMode = options.multiArchiveMode ?? preferences.favoriteArchiveMultiMode
-    const completeSourceFolders = scanResult.sourceFolders.filter((folder) => folder.scanFailed !== true)
-    const partition = partitionFavoriteArchiveSources({
-      accountMid: scanResult.accountMid ?? '',
-      sourceFolders: completeSourceFolders,
-      managedFolders: scanResult.managedFolders ?? [],
-      targetMembership: scanResult.targetMembership,
-      protectionRecords: preferences.favoriteArchiveProtectionRecords ?? [],
-      initializeExistingMembership:
-        scanResult.recoveringPendingBatch === true ||
-        !(
-          preferences.favoriteArchiveProtectionInitializedAccountMids ?? []
-        ).includes(scanResult.accountMid ?? '')
-    })
-
-    const shouldMarkProtectionMigrationComplete =
-      Boolean(scanResult.accountMid) &&
-      (scanResult.skippedSourceFolderTitles?.length ?? 0) === 0 &&
-      !(preferences.favoriteArchiveProtectionInitializedAccountMids ?? []).includes(
-        scanResult.accountMid ?? ''
-      )
-    if (partition.initializedProtectionRecords.length > 0 || shouldMarkProtectionMigrationComplete) {
-      const nextPreferences = createInitialAssistantPreferences({
-        ...preferences,
-        favoriteArchiveProtectionRecords: upsertFavoriteArchiveProtectionRecords(
-          preferences.favoriteArchiveProtectionRecords ?? [],
-          partition.initializedProtectionRecords
-        ),
-        favoriteArchiveProtectionInitializedAccountMids: Array.from(
-          new Set([
-            ...(preferences.favoriteArchiveProtectionInitializedAccountMids ?? []),
-            ...(shouldMarkProtectionMigrationComplete ? [scanResult.accountMid ?? ''] : [])
-          ].filter(Boolean))
-        )
-      })
-      setPreferences(nextPreferences)
-      if (window.bilimiDesktop?.savePreferences) {
-        const saved = window.bilimiDesktop.patchPreferences
-          ? await window.bilimiDesktop.patchPreferences({
-              favoriteArchiveProtectionRecords: nextPreferences.favoriteArchiveProtectionRecords,
-              favoriteArchiveProtectionInitializedAccountMids:
-                nextPreferences.favoriteArchiveProtectionInitializedAccountMids
-            })
-          : await window.bilimiDesktop.savePreferences(nextPreferences)
-        setPreferences(createInitialAssistantPreferences(saved))
-      }
-    }
-
-    const preview = createFavoriteLedgerPreview({
-      ledgers: preferences.favoriteLedgers,
-      sourceFolders: partition.activeSourceFolders,
-      targetMembership: scanResult.targetMembership,
-      skippedSourceFolderTitles: scanResult.skippedSourceFolderTitles,
-      scanDiagnostics: scanResult.scanDiagnostics,
-      scanProgress: scanResult.scanProgress,
-      multiArchiveMode
-    })
-    preview.batch = scanResult.batch
-
-    preview.scanContext = {
-      accountMid: scanResult.accountMid ?? '',
-      totalUniqueVideos: partition.totalUniqueVideos,
-      sourceFolders: scanResult.sourceFolders,
-      activeSourceFolders: partition.activeSourceFolders,
-      protectedVideos: partition.protectedVideos,
-      managedFolders: scanResult.managedFolders ?? [],
-      targetMembership: scanResult.targetMembership,
-      multiArchiveMode
-    }
-
-    if ((scanResult.scanProgress?.tags.pending ?? 0) > 0) {
-      void readOldFavoriteTagEnrichment('resume').catch(() => undefined)
-    }
-
-    return preview
-  }
-
-  async function readOldFavoriteTagEnrichment(action: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' = 'read') {
-    return runScript(buildOldFavoriteTagEnrichmentScript(action)) as Promise<{
-      accountMid?: string
-      sourceFolders: FavoriteSourceFolder[]
-      discoveredAids?: number[]
-      scanProgress: NonNullable<FavoriteLedgerPreview['scanProgress']>
-    }>
-  }
-
-  async function commitOldFavoriteBatchCheckpoint(
-    token: OldFavoriteBatchCommitToken
-  ): Promise<OldFavoriteBatchCommitResult> {
-    return runScript(
-      buildCommitOldFavoriteBatchCheckpointScript(token)
-    ) as unknown as Promise<OldFavoriteBatchCommitResult>
-  }
-
-  async function readOldFavoriteBatchStatus(): Promise<{ pending: boolean }> {
-    const result = await runScript(buildReadOldFavoriteBatchStatusScript()) as unknown
-    return {
-      pending: Boolean(
-        result && typeof result === 'object' && 'pending' in result && result.pending
-      )
-    }
-  }
-
-  async function prepareOldFavoriteScan(): Promise<AssistantAutomationResult> {
-    return waitForOldFavoriteScanPreparation(async (): Promise<OldFavoriteScanPreparationProbe> => {
-      const currentActiveWebview = getCurrentActiveWebview()
-      if (!currentActiveWebview?.executeJavaScript) {
-        return { status: 'waiting' }
-      }
-
-      try {
-        const readiness = await currentActiveWebview.executeJavaScript(
-          `(() => {
-            const marker = 'bilimi-old-favorite-preparation'
-            void marker
-            const cookie = String(document.cookie || '')
-            return {
-              ready: document.readyState !== 'loading',
-              hasUserId: /(?:^|;\\s*)DedeUserID=\\d+/.test(cookie),
-              hasCsrf: /(?:^|;\\s*)bili_jct=[^;]+/.test(cookie)
-            }
-          })()`,
-          true
-        ) as { ready?: boolean; hasUserId?: boolean; hasCsrf?: boolean } | null
-
-        if (!readiness?.ready) {
-          return { status: 'waiting' }
-        }
-        if (!readiness.hasUserId || !readiness.hasCsrf) {
-          return { status: 'fatal', message: 'B站登录状态已失效，请重新登录后重试。' }
-        }
-        return { status: 'ready' }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error ?? '')
-        if (/html|login|登录|风控|risk|-101|-352|-412|-509/i.test(message)) {
-          return { status: 'fatal', message }
-        }
-        return { status: 'waiting' }
-      }
-    })
-  }
-
-  async function rejudgeOldFavorite(item: FavoriteLedgerPreviewItem): Promise<FavoriteLedgerPreviewItem> {
-    const loginFailure = await requireBilibiliLogin()
-    if (loginFailure) {
-      return item
-    }
-
-    const scanResult = await runScript(
-      buildScanOldFavoriteVideoScript(preferences.favoriteLedgers, item.aid)
-    ) as AssistantAutomationResult & {
-      sourceFolders?: FavoriteSourceFolder[]
-      targetMembership?: Record<string, number[]>
-      managedFolderScanComplete?: boolean
-      skippedSourceFolderTitles?: string[]
-    }
-
-    if (
-      !scanResult.ok ||
-      scanResult.managedFolderScanComplete === false ||
-      !Array.isArray(scanResult.sourceFolders) ||
-      !scanResult.targetMembership
-    ) {
-      return item
-    }
-
-    const preview = createFavoriteLedgerPreview({
-      ledgers: preferences.favoriteLedgers,
-      sourceFolders: scanResult.sourceFolders,
-      targetMembership: scanResult.targetMembership,
-      skippedSourceFolderTitles: scanResult.skippedSourceFolderTitles,
-      multiArchiveMode: preferences.favoriteArchiveMultiMode
-    })
-
-    return preview.items.find((candidate) => candidate.aid === item.aid) ?? item
-  }
-
-  async function executeOldFavoritePlan(
-    items: FavoriteLedgerPreviewItem[],
-    expectedAccountMid?: string
-  ): Promise<AssistantAutomationResult> {
-    const webContentsId = getCurrentActiveWebview()?.getWebContentsId?.()
-    if (typeof webContentsId === 'number') {
-      window.bilimiDesktop?.setOldFavoriteBackgroundTarget?.(webContentsId)
-    }
-
-    const loginFailure = await requireBilibiliLogin()
-    if (loginFailure) {
-      return loginFailure
-    }
-
-    if (expectedAccountMid) {
-      const currentAccountMid = await readBilibiliAccountMid()
-      if (!currentAccountMid || currentAccountMid !== expectedAccountMid.trim()) {
-        return {
-          ok: false,
-          paused: true,
-          resultUnknown: true,
-          steps: ['old-favorite:account-mismatch'],
-          missingTargets: ['bilibili-account'],
-          message: '当前 B 站账号已变化，整理已暂停；继续前需要核对实际收藏状态。'
-        }
-      }
-    }
-
-    return runScript(buildExecuteFavoriteLedgerPlanScript(items, {}, expectedAccountMid))
-  }
-
   async function openBilibiliFavorites(): Promise<AssistantAutomationResult> {
     const currentActiveWebview = getCurrentActiveWebview()
 
@@ -2168,34 +1873,6 @@ export default function App() {
           return saveFavoriteLedgers(request.ledgers, request.options)
         case 'open-bilibili-favorites':
           return openBilibiliFavorites()
-        case 'scan-old-favorites':
-          return scanOldFavorites({
-            multiArchiveMode: request.multiArchiveMode
-          })
-        case 'commit-old-favorite-batch':
-          return commitOldFavoriteBatchCheckpoint(request.token)
-        case 'read-old-favorite-batch-status':
-          return readOldFavoriteBatchStatus()
-        case 'prepare-old-favorite-scan':
-          return prepareOldFavoriteScan()
-        case 'old-favorite-tag-enrichment':
-          return readOldFavoriteTagEnrichment(request.action)
-        case 'rejudge-old-favorite':
-          return rejudgeOldFavorite(request.item)
-        case 'execute-old-favorite-plan':
-          return executeOldFavoritePlan(request.items, request.expectedAccountMid)
-        case 'organize-old-favorites-with-deepseek': {
-          const finishDeepSeekTask = publishDeepSeekTask({
-            id: `archive-organize-runtime:${Date.now()}:${Math.random()}`,
-            kind: 'archive-organize',
-            detail: '旧藏整理：正在分析当前批次'
-          })
-          try {
-            return (await window.bilimiDesktop?.generateDeepSeek?.(request.request)) ?? null
-          } finally {
-            finishDeepSeekTask()
-          }
-        }
         case 'favorite-repository-bind-page-target':
           return bindFavoriteRepositoryPageTarget(request.accountMid)
         case 'favorite-repository-page-operation':
@@ -2222,22 +1899,17 @@ export default function App() {
       }
     })
   }, [
-    executeOldFavoritePlan,
     generateRuntimeVideoNote,
     generateRuntimeVideoNoteFromAudio,
     openBilibiliFavorites,
     preferences,
     readFavoriteLedgerStatus,
-    readOldFavoriteTagEnrichment,
-    readOldFavoriteBatchStatus,
     readCurrentVideoTime,
     readVideoContentContext,
     readVideoNoteSource,
-    rejudgeOldFavorite,
     runAssistantRuntimeAction,
     saveFavoriteLedgers,
     saveVideoNote,
-    scanOldFavorites,
     seekVideoTime
   ])
 

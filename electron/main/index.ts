@@ -63,24 +63,7 @@ import { installFloatingSealWhiteStripFix } from './floatingSealWhiteStripFix'
 import { createFloatingSealWindowOptions } from './floatingSealWindowOptions'
 import { toggleFloatingAssistantFromSeal } from './floatingMenuToggleFlow'
 import { FLOATING_ASSISTANT_SIZE } from './floatingAssistantWindowSize'
-import { OldFavoriteRuntimeStore, TransientCheckpointScheduler } from './oldFavoriteRuntimeStore'
-import { OldFavoriteSessionStore } from './oldFavoriteSessionStore'
-import { createOldFavoritePersistence } from './oldFavoritePersistence'
-import {
-  OldFavoritePersistenceDirtyTracker,
-  type OldFavoritePersistenceMutation
-} from './oldFavoritePersistenceDirtyTracker'
-import {
-  createOldFavoriteQuitBarrier,
-  prepareOldFavoriteStateForShutdown,
-  shouldFlushOldFavoriteOnQuit
-} from './oldFavoriteQuitBarrier'
-import { OldFavoriteRendererFlushCoordinator } from './oldFavoriteRendererFlushCoordinator'
-import { registerOldFavoriteSessionIpc, type OldFavoriteMutationQueue } from './oldFavoriteSessionIpc'
-import { resetOldFavoriteAccount } from './oldFavoriteAccountReset'
-import { OldFavoriteBackgroundRuntime } from './oldFavoriteBackgroundRuntime'
-import { OldFavoriteWorkspaceService } from './oldFavoriteWorkspaceService'
-import { registerOldFavoriteWorkspaceIpc } from './oldFavoriteWorkspaceIpc'
+import { createFavoriteRepositoryQuitBarrier } from './favoriteRepositoryQuitBarrier'
 import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinator'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanService'
@@ -146,12 +129,10 @@ import type {
   FloatingAssistantWorkspaceRequest,
   OldFavoriteBatchCommitResult
 } from '../../src/renderer/src/features/assistant/assistantRuntimeTypes'
-import type { OldFavoriteBatchCommitToken } from '../../src/renderer/src/features/favorites/favoriteLedgerApi'
 import type {
   AssistantPetHint,
   AssistantPetState
 } from '../../src/renderer/src/features/assistant/petState'
-import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../../src/renderer/src/features/favorites/favoriteLedgerPreview'
 
 const FLOATING_SEAL_VISUAL_SIZE = { width: 280, height: 352 }
 const FLOATING_SEAL_SHADOW_PADDING = 28
@@ -168,8 +149,6 @@ const FLOATING_MENU_SHADOW_PADDING = 28
 const FLOATING_MENU_QUERY = { window: 'floating-menu' }
 const FLOATING_ASSISTANT_QUERY = { window: 'floating-assistant' }
 const FAVORITE_LIBRARY_QUERY = { window: 'favorite-library' }
-// A temporary support-only escape hatch while the legacy core is removed.
-const OLD_FAVORITE_EMERGENCY_FALLBACK_ENABLED = process.env.BILIMI_ENABLE_OLD_FAVORITE_EMERGENCY_FALLBACK === '1'
 
 let mainWindow: BrowserWindow | null = null
 let floatingSealWindow: BrowserWindow | null = null
@@ -179,10 +158,6 @@ let enforceFloatingSealWindowBounds: (() => void) | null = null
 let recompositeFloatingSealWindow: (() => void) | null = null
 let assistantPetState: AssistantPetState = 'idle'
 let floatingAssistantSide: FloatingAssistantSide | undefined
-const oldFavoriteBackgroundRuntime = new OldFavoriteBackgroundRuntime({
-  getMainWebContents: () => mainWindow?.webContents,
-  getWebContentsById: (id) => webContents.fromId(id)
-})
 const bilibiliSessionProxy = new BilibiliSessionProxy(() => session.fromPartition(BILIMI_SESSION_PARTITION))
 
 function openUrlInRendererTab(win: BrowserWindow, url: string) {
@@ -454,13 +429,6 @@ const floatingAssistantController = new FloatingMenuController(createFloatingAss
   prepareWindow: positionFloatingAssistantWindow
 })
 
-let oldFavoriteRuntimeStore: OldFavoriteRuntimeStore | undefined
-let oldFavoriteSessionStore: OldFavoriteSessionStore | undefined
-let oldFavoriteRuntimeCheckpointScheduler: TransientCheckpointScheduler | undefined
-let flushOldFavoritePersistence: (() => Promise<void>) | undefined
-let oldFavoritePersistenceOpening: ReturnType<typeof createOldFavoritePersistence> | undefined
-const oldFavoritePersistenceDirtyTracker = new OldFavoritePersistenceDirtyTracker()
-let oldFavoriteWorkspaceService: OldFavoriteWorkspaceService | undefined
 let favoriteRepositoryService: FavoriteRepositoryService | undefined
 let favoriteRepositorySyncService: FavoriteRepositorySyncService | undefined
 let favoriteRepositoryPageBridgeManager: FavoriteRepositoryRuntimePageBridgeManager | undefined
@@ -470,41 +438,6 @@ const favoriteRepositoryRemoteOperations = new FavoriteRepositoryRemoteOperation
 let oldFavoriteWorkspaceCoordinator: OldFavoriteWorkspaceCoordinator | undefined
 let oldFavoriteWorkspaceScanService: OldFavoriteWorkspaceScanService | undefined
 let oldFavoriteWorkspaceDeepSeekService: OldFavoriteWorkspaceDeepSeekService | undefined
-const oldFavoriteRendererFlushCoordinator = new OldFavoriteRendererFlushCoordinator()
-let queueOldFavoriteSessionMutation: OldFavoriteMutationQueue | undefined
-
-async function ensureOldFavoritePersistence() {
-  oldFavoritePersistenceOpening ??= createOldFavoritePersistence({
-    userDataPath: app.getPath('userData'),
-    legacyStore: getDesktopStore()
-  })
-  const persistence = await oldFavoritePersistenceOpening
-  oldFavoriteRuntimeStore ??= persistence.runtimeStore
-  oldFavoriteSessionStore ??= persistence.sessionStore
-  flushOldFavoritePersistence ??= persistence.flush
-  oldFavoriteRuntimeCheckpointScheduler ??= new TransientCheckpointScheduler(
-    (keys) => oldFavoriteRuntimeStore?.checkpoint(keys) ?? false,
-    4_000
-  )
-  return persistence
-}
-
-function broadcastOldFavoriteRuntimeSnapshot(snapshot: unknown) {
-  for (const target of BrowserWindow.getAllWindows()) {
-    if (!target.isDestroyed()) {
-      target.webContents.send('old-favorite-runtime:changed', snapshot)
-    }
-  }
-}
-
-function broadcastOldFavoriteSessions(state: unknown) {
-  for (const target of BrowserWindow.getAllWindows()) {
-    if (!target.isDestroyed()) {
-      target.webContents.send('old-favorite-sessions:changed', state)
-    }
-  }
-}
-
 function isTrustedOldFavoriteSessionSender(senderId: number): boolean {
   const floatingAssistant = floatingAssistantController.getWindow()
   return [mainWindow?.webContents.id, floatingAssistant?.webContents.id]
@@ -875,7 +808,6 @@ function createMainWindow() {
   })
   installWindowOpenRouting(win)
   win.on('closed', () => {
-    oldFavoriteBackgroundRuntime.setRunning(false)
     disposeDisplayLayout()
     if (mainWindow === win) {
       mainWindow = null
@@ -950,147 +882,12 @@ function getVideoTranscriptionQueue() {
 }
 
 function registerAssistantPreferenceHandlers() {
-  ipcMain.on('old-favorite-emergency-fallback:enabled', (event) => {
-    if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
-      event.returnValue = false
-      return
-    }
-    event.returnValue = OLD_FAVORITE_EMERGENCY_FALLBACK_ENABLED
-  })
-  if (OLD_FAVORITE_EMERGENCY_FALLBACK_ENABLED) {
-    registerOldFavoriteSessionIpc({
-    ipcMain,
-    getStore: async () => (await ensureOldFavoritePersistence()).sessionStore,
-    isTrustedSender: isTrustedOldFavoriteSessionSender,
-    broadcast: broadcastOldFavoriteSessions,
-    getWorkspaceBatchSummary: async (accountMid, batchId) => {
-      if (!oldFavoriteWorkspaceService) throw new Error('Old favorite workspace service is unavailable.')
-      return oldFavoriteWorkspaceService.readBatchSummary(accountMid, batchId)
-    },
-    onMutationQueueReady: (queue) => {
-      queueOldFavoriteSessionMutation = queue
-    },
-    onMutation: (dirty, mutation) => dirty
-      ? oldFavoritePersistenceDirtyTracker.beginMutation()
-      : oldFavoritePersistenceDirtyTracker.finishMutation(mutation as OldFavoritePersistenceMutation)
-  })
-  ipcMain.handle('old-favorite-account:reset', async (event, accountMid: string) => {
-    if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
-      throw new Error('Old favorite reset request came from an untrusted renderer.')
-    }
-    const persistence = await ensureOldFavoritePersistence()
-    if (!oldFavoriteWorkspaceService) throw new Error('Old favorite workspace service is unavailable.')
-    const reset = () => resetOldFavoriteAccount({
-      loadSessions: () => persistence.sessionStore.load(),
-      beginReset: () => oldFavoriteWorkspaceService!.beginReset(accountMid),
-      abortReset: () => oldFavoriteWorkspaceService!.abortReset(accountMid),
-      resetRuntime: (account) => {
-        oldFavoriteRuntimeCheckpointScheduler?.invalidate()
-        const snapshot = persistence.runtimeStore.captureAccount(account)
-        persistence.runtimeStore.resetAccount(account)
-        return snapshot
-      },
-      restoreRuntime: (account, snapshot) => persistence.runtimeStore.restoreAccount(account, snapshot),
-      resetSessions: (account) => persistence.sessionStore.resetAccount(account),
-      restoreSessions: (state) => persistence.sessionStore.restore(state),
-      flushSessions: () => persistence.sessionStore.flush(),
-      resetWorkspace: (account) => oldFavoriteWorkspaceService!.resetAccount(account),
-      completeReset: () => oldFavoriteWorkspaceService!.completeReset(accountMid),
-      onMutation: {
-        begin: () => oldFavoritePersistenceDirtyTracker.beginMutation(),
-        finish: (mutation) => oldFavoritePersistenceDirtyTracker.finishMutation(mutation as OldFavoritePersistenceMutation)
-      }
-    }, accountMid)
-    const saved = await (queueOldFavoriteSessionMutation?.(reset) ?? reset())
-    broadcastOldFavoriteSessions(saved)
-    broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: accountMid.trim() })
-    return saved
-  })
-  }
   ipcMain.on('assistant-runtime:ready', (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
       return
     }
     markAssistantRuntimeReady(event.sender.id)
   })
-  if (OLD_FAVORITE_EMERGENCY_FALLBACK_ENABLED) {
-    ipcMain.on('old-favorite-runtime:get', (event, key: string, initialValue: unknown) => {
-    if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
-      event.returnValue = { key, value: initialValue, revision: 0, accountMid: '' }
-      return
-    }
-    event.returnValue = oldFavoriteRuntimeStore?.get(key, initialValue) ?? {
-      key, value: initialValue, revision: 0, accountMid: ''
-    }
-  })
-  ipcMain.on(
-    'old-favorite-runtime:set',
-    (event, key: string, value: unknown, expectedRevision: number) => {
-      if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
-        event.returnValue = { accepted: false, key, value, revision: expectedRevision, accountMid: '' }
-        return
-      }
-      const result = oldFavoriteRuntimeStore?.set(key, value, expectedRevision) ?? {
-        accepted: true, key, value, revision: expectedRevision + 1, accountMid: ''
-      }
-      event.returnValue = result
-      if (result.accepted) {
-        broadcastOldFavoriteRuntimeSnapshot(result)
-      }
-    }
-  )
-  ipcMain.handle(
-    'old-favorite-runtime:set-transient',
-    (event, key: string, value: unknown, expectedRevision: number) => {
-      if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
-        throw new Error('Old favorite runtime request came from an untrusted renderer.')
-      }
-      const result = oldFavoriteRuntimeStore?.setTransient(key, value, expectedRevision) ?? {
-        accepted: true, key, value, revision: expectedRevision + 1, accountMid: ''
-      }
-      if (result.accepted) {
-        for (const target of BrowserWindow.getAllWindows()) {
-          if (!target.isDestroyed() && target.webContents.id !== event.sender.id) {
-            target.webContents.send('old-favorite-runtime:changed', result)
-          }
-        }
-        oldFavoriteRuntimeCheckpointScheduler?.markDirty(key)
-      }
-      return result
-    }
-  )
-  ipcMain.on('old-favorite-runtime:bind-account', (event, accountMid: string) => {
-    if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
-      event.returnValue = false
-      return
-    }
-    const changed = oldFavoriteRuntimeStore?.bindAccount(accountMid) ?? false
-    event.returnValue = changed
-    if (changed) {
-      broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: accountMid.trim() })
-    }
-  })
-  ipcMain.on('old-favorite-runtime:reset', (event) => {
-    if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
-      event.returnValue = false
-      return
-    }
-    oldFavoriteRuntimeStore?.reset()
-    event.returnValue = true
-    broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: '' })
-  })
-  ipcMain.on('old-favorite-background:set-running', (event, running: boolean) => {
-    const floatingAssistant = floatingAssistantController.getWindow()
-    const trustedSenderIds = [mainWindow?.webContents.id, floatingAssistant?.webContents.id]
-      .filter((id): id is number => typeof id === 'number')
-    if (!trustedSenderIds.includes(event.sender.id)) return
-    oldFavoriteBackgroundRuntime.setRunning(running === true)
-  })
-  ipcMain.on('old-favorite-background:set-target', (event, webContentsId: number) => {
-    if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) return
-    oldFavoriteBackgroundRuntime.setExecutionTarget(webContentsId)
-  })
-  }
   ipcMain.handle('bilibili-session:retry-direct', (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
       throw new Error('Bilibili session proxy request came from an untrusted renderer.')
@@ -1327,61 +1124,6 @@ function registerAssistantPreferenceHandlers() {
       type: 'open-bilibili-favorites'
     })
   })
-  if (OLD_FAVORITE_EMERGENCY_FALLBACK_ENABLED) {
-    ipcMain.handle('floating-assistant:scan-old-favorites', (event, options = {}) => {
-    assertTrustedOldFavoriteAssistantSender(event)
-    return requestMainAssistantRuntime<FavoriteLedgerPreview>({ type: 'scan-old-favorites', ...options })
-  })
-  ipcMain.handle(
-    'floating-assistant:commit-old-favorite-batch',
-    (event, token: OldFavoriteBatchCommitToken) => {
-      assertTrustedOldFavoriteAssistantSender(event)
-      return requestMainAssistantRuntime<OldFavoriteBatchCommitResult>({
-        type: 'commit-old-favorite-batch',
-        token
-      })
-    }
-  )
-  ipcMain.handle('floating-assistant:read-old-favorite-batch-status', (event) => {
-    assertTrustedOldFavoriteAssistantSender(event)
-    return requestMainAssistantRuntime<{ pending: boolean }>({
-      type: 'read-old-favorite-batch-status'
-    })
-  })
-  ipcMain.handle('floating-assistant:prepare-old-favorite-scan', (event) => {
-    assertTrustedOldFavoriteAssistantSender(event)
-    return requestMainAssistantRuntime<AssistantAutomationResult>({
-      type: 'prepare-old-favorite-scan'
-    }).catch(() => ({
-      ok: false,
-      steps: [],
-      missingTargets: ['bilibili-runtime'],
-      message: 'B站页面或登录状态尚未准备好，请确认登录后重试。'
-    }))
-  })
-  ipcMain.handle('floating-assistant:old-favorite-tag-enrichment', (event, action = 'read') => {
-    assertTrustedOldFavoriteAssistantSender(event)
-    return requestMainAssistantRuntime({ type: 'old-favorite-tag-enrichment', action })
-  })
-  ipcMain.handle('floating-assistant:rejudge-old-favorite', (event, item: FavoriteLedgerPreviewItem) => {
-    assertTrustedOldFavoriteAssistantSender(event)
-    return requestMainAssistantRuntime<FavoriteLedgerPreviewItem>({
-      type: 'rejudge-old-favorite',
-      item
-    })
-  })
-  ipcMain.handle(
-    'floating-assistant:execute-old-favorite-plan',
-    (event, items: FavoriteLedgerPreviewItem[], expectedAccountMid?: string) => {
-      assertTrustedOldFavoriteAssistantSender(event)
-      return requestMainAssistantRuntime<AssistantAutomationResult>({
-        type: 'execute-old-favorite-plan',
-        items,
-        expectedAccountMid
-      })
-    }
-  )
-  }
   ipcMain.on('floating-assistant:close', () => {
     closeFloatingAssistantWindow()
   })
@@ -1538,54 +1280,6 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     assertTrustedOldFavoriteAssistantSender(event)
     favoriteLibraryWindowController.open()
   })
-  if (OLD_FAVORITE_EMERGENCY_FALLBACK_ENABLED) {
-    oldFavoriteWorkspaceService = new OldFavoriteWorkspaceService({
-    root: join(app.getPath('userData'), 'old-favorite', 'workspace-v2')
-  })
-  await oldFavoriteWorkspaceService.initialize()
-  registerOldFavoriteWorkspaceIpc({
-    ipcMain,
-    service: oldFavoriteWorkspaceService,
-    isTrustedSender: isTrustedOldFavoriteSessionSender,
-    send: (senderId, channel, payload) => {
-      const target = webContents.fromId(senderId)
-      if (target && !target.isDestroyed()) target.send(channel, payload)
-    },
-    queueMutation: (work) => queueOldFavoriteSessionMutation?.(work) ?? work(),
-    onMutation: (dirty, mutation) => dirty
-      ? oldFavoritePersistenceDirtyTracker.beginMutation()
-      : oldFavoritePersistenceDirtyTracker.finishMutation(mutation as OldFavoritePersistenceMutation)
-  })
-  ipcMain.on('old-favorite-workspace:renderer-dirty', (event) => {
-    if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
-      event.returnValue = false
-      return
-    }
-    oldFavoriteRendererFlushCoordinator.markDirty()
-    event.returnValue = true
-  })
-  ipcMain.on('old-favorite-workspace:renderer-flushed', (event, requestId: string, success: boolean) => {
-    if (!isTrustedOldFavoriteSessionSender(event.sender.id)) return
-    oldFavoriteRendererFlushCoordinator.complete(requestId, success)
-  })
-  ipcMain.on('old-favorite-workspace:renderer-clean', (event) => {
-    if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
-      event.returnValue = false
-      return
-    }
-    oldFavoriteRendererFlushCoordinator.markClean()
-    event.returnValue = true
-  })
-    ipcMain.handle('old-favorite-runtime:reset-account', (event, accountMid: string) => {
-    if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
-      throw new Error('Old favorite runtime request came from an untrusted renderer.')
-    }
-    oldFavoriteRuntimeCheckpointScheduler?.invalidate()
-    const changed = oldFavoriteRuntimeStore?.resetAccount(accountMid) ?? false
-    if (changed) broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: accountMid.trim() })
-    return changed
-    })
-  }
   let accountChangeTimer: NodeJS.Timeout | undefined
   session.fromPartition(BILIMI_SESSION_PARTITION).cookies.on('changed', (_event, cookie) => {
     if (cookie.name === 'DedeUserID' || cookie.name === 'bili_jct') {
@@ -1607,42 +1301,15 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   createFloatingSealWindow()
 })
 
-const oldFavoriteQuitBarrier = createOldFavoriteQuitBarrier({
-  shouldFlush: () => favoriteRepositoryService?.hasPendingWrites() === true || shouldFlushOldFavoriteOnQuit(
-    oldFavoritePersistenceDirtyTracker.isDirty(),
-    oldFavoriteRendererFlushCoordinator.isDirty(),
-    oldFavoriteSessionStore
-  ),
-  prepare: () => {
-    if (!oldFavoriteSessionStore) return
-    prepareOldFavoriteStateForShutdown({
-      sessionStore: oldFavoriteSessionStore,
-      runtimeStore: oldFavoriteRuntimeStore,
-      beginMutation: () => oldFavoritePersistenceDirtyTracker.beginMutation()
-    })
-  },
+const favoriteRepositoryQuitBarrier = createFavoriteRepositoryQuitBarrier({
+  hasPendingWrites: () => favoriteRepositoryService?.hasPendingWrites() === true,
   flush: async () => {
     appQuitting = true
-    const persistenceDirtyAtFlushStart = oldFavoritePersistenceDirtyTracker.captureFlushCheckpoint()
-    if (oldFavoriteRendererFlushCoordinator.isDirty()) {
-      await oldFavoriteRendererFlushCoordinator.requestFlush((requestId) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('old-favorite-workspace:flush-requested', requestId)
-        } else {
-          oldFavoriteRendererFlushCoordinator.complete(requestId, false)
-        }
-      })
-    }
-    await Promise.all([
-      oldFavoritePersistenceDirtyTracker.isDirty() ? (flushOldFavoritePersistence?.() ?? Promise.resolve()) : Promise.resolve(),
-      oldFavoritePersistenceDirtyTracker.isDirty() ? (oldFavoriteWorkspaceService?.flush() ?? Promise.resolve()) : Promise.resolve(),
-      favoriteRepositoryService?.flush() ?? Promise.resolve()
-    ])
-    oldFavoritePersistenceDirtyTracker.completeFlush(persistenceDirtyAtFlushStart)
+    await favoriteRepositoryService?.flush()
   },
   quit: () => app.quit()
 })
-app.on('before-quit', oldFavoriteQuitBarrier)
+app.on('before-quit', favoriteRepositoryQuitBarrier)
 
 app.on('window-all-closed', () => {
   if (appQuitting && process.platform !== 'darwin') app.quit()

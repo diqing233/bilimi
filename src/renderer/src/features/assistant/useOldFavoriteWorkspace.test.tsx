@@ -206,6 +206,26 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.snapshot).toMatchObject({ status: 'executing' })
   })
 
+  it('keeps execution pending and refreshes the compact remote status while a sync command is in flight', async () => {
+    const pending = deferred<ReturnType<typeof workspace>>()
+    const command = vi.fn().mockReturnValue(pending.promise)
+    const open = vi.fn().mockResolvedValue({ ...workspace('100'), status: 'executing' as const })
+    window.bilimiDesktop = {
+      commandOldFavoriteWorkspaceV1: command,
+      openOldFavoriteWorkspaceV1: open
+    } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    let execution!: Promise<unknown>
+    act(() => { execution = result.current.executeFrozenBilibiliPlan() })
+
+    await waitFor(() => expect(result.current.loading).toBe(true))
+    await waitFor(() => expect(open).toHaveBeenCalled())
+    pending.resolve({ ...workspace('100'), status: 'completed' as const })
+    await act(async () => { await execution })
+    expect(result.current.loading).toBe(false)
+  })
+
   it('exposes explicit reconciliation and non-binding resume commands', async () => {
     const command = vi.fn().mockResolvedValue({ ...workspace('100'), status: 'reconciling' as const })
     window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop

@@ -6,7 +6,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
     let resolveInventory: ((value: unknown) => void) | undefined
     const inventory = new Promise((resolve) => { resolveInventory = resolve })
     const coordinator = {
-      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning', scan: { phase: 'inventory' } }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning', scan: { phase: 'inventory' } }),
       recordScanInventory: vi.fn(),
       recordScanFailure: vi.fn()
     }
@@ -38,12 +38,12 @@ describe('OldFavoriteWorkspaceScanService', () => {
         expect.objectContaining({ id: 'bilimi', itemCount: 0, isBilimiWorkFolder: true }),
         expect.objectContaining({ id: 'not-managed', isBilimiWorkFolder: false })
       ])
-    })))
+    }), 'scan-run-1'))
   })
 
   it('records an inventory failure instead of rebinding a different page target', async () => {
     const coordinator = {
-      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),
       recordScanFailure: vi.fn()
     }
     const runtime = vi.fn().mockResolvedValue({ status: 'unknown', observedAccountMid: '', reason: 'target-unavailable' })
@@ -51,7 +51,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
 
     await service.start('100', 'incremental')
 
-    await vi.waitFor(() => expect(coordinator.recordScanFailure).toHaveBeenCalledWith('100', 'target-unavailable'))
+    await vi.waitFor(() => expect(coordinator.recordScanFailure).toHaveBeenCalledWith('100', 'target-unavailable', 'scan-run-1'))
     expect(runtime).toHaveBeenCalledTimes(1)
   })
 
@@ -60,7 +60,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
     const inventory = new Promise((resolve) => { resolveInventory = resolve })
     const snapshot = { accountMid: '100', status: 'scanning' as const, scan: { phase: 'inventory' as const } }
     const coordinator = {
-      beginScan: vi.fn().mockResolvedValue(snapshot),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue(snapshot),
       recordScanInventory: vi.fn(),
       recordScanFailure: vi.fn()
     }
@@ -77,9 +77,34 @@ describe('OldFavoriteWorkspaceScanService', () => {
     await vi.waitFor(() => expect(coordinator.recordScanInventory).toHaveBeenCalledOnce())
   })
 
+  it('does not let an incremental scan swallow an explicit full reorganization request', async () => {
+    let resolveIncrementalInventory!: (value: unknown) => void
+    const incrementalInventory = new Promise((resolve) => { resolveIncrementalInventory = resolve })
+    const coordinator = {
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn()
+        .mockResolvedValueOnce({ accountMid: '100', status: 'scanning', mode: 'incremental' })
+        .mockResolvedValueOnce({ accountMid: '100', status: 'scanning', mode: 'full' }),
+      recordScanInventory: vi.fn(), recordScanFailure: vi.fn()
+    }
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const runtime = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockReturnValueOnce(incrementalInventory)
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', folders: [] })
+    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+
+    await service.start('100', 'incremental')
+    await expect(service.start('100', 'full')).resolves.toMatchObject({ mode: 'full' })
+
+    expect(coordinator.beginScan).toHaveBeenNthCalledWith(1, '100', 'incremental')
+    expect(coordinator.beginScan).toHaveBeenNthCalledWith(2, '100', 'full')
+    resolveIncrementalInventory({ status: 'ok', observedAccountMid: '100', folders: [] })
+  })
+
   it('does not persist inventory reported for a different account', async () => {
     const coordinator = {
-      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),
       recordScanInventory: vi.fn(),
       recordScanFailure: vi.fn()
     }
@@ -90,13 +115,13 @@ describe('OldFavoriteWorkspaceScanService', () => {
 
     await service.start('100', 'incremental')
 
-    await vi.waitFor(() => expect(coordinator.recordScanFailure).toHaveBeenCalledWith('100', 'inventory-account-mismatch'))
+    await vi.waitFor(() => expect(coordinator.recordScanFailure).toHaveBeenCalledWith('100', 'inventory-account-mismatch', 'scan-run-1'))
     expect(coordinator.recordScanInventory).not.toHaveBeenCalled()
   })
 
   it('streams bounded source pages to the main-process coordinator without returning them to the caller', async () => {
     const coordinator = {
-      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning', scan: { phase: 'inventory' } }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning', scan: { phase: 'inventory' } }),
       recordScanInventory: vi.fn(),
       recordScanPage: vi.fn(),
       recordScanFailure: vi.fn()
@@ -112,8 +137,8 @@ describe('OldFavoriteWorkspaceScanService', () => {
     await service.start('100', 'incremental')
 
     await vi.waitFor(() => expect(coordinator.recordScanPage).toHaveBeenCalledTimes(2))
-    expect(coordinator.recordScanPage).toHaveBeenNthCalledWith(1, '100', expect.objectContaining({ folderId: 'source-1', page: 1, items: expect.any(Array) }))
-    expect(coordinator.recordScanPage).toHaveBeenNthCalledWith(2, '100', expect.objectContaining({ folderId: 'source-1', page: 2, items: [{ aid: 51, title: 'V51', author: 'UP', cover: '', addedAt: 0, sourceFolderIds: ['source-1'] }] }))
+    expect(coordinator.recordScanPage).toHaveBeenNthCalledWith(1, '100', expect.objectContaining({ folderId: 'source-1', page: 1, items: expect.any(Array) }), 'scan-run-1')
+    expect(coordinator.recordScanPage).toHaveBeenNthCalledWith(2, '100', expect.objectContaining({ folderId: 'source-1', page: 2, items: [{ aid: 51, title: 'V51', author: 'UP', cover: '', addedAt: 0, sourceFolderIds: ['source-1'] }] }), 'scan-run-1')
     expect(runtime).toHaveBeenLastCalledWith({
       type: 'old-favorite-workspace-read-source-page', accountMid: '100', target, folderId: 'source-1', page: 2, pageSize: 50
     })
@@ -121,7 +146,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
 
   it('reads Bilimi work-folder members in batches before ordinary source pages', async () => {
     const coordinator = {
-      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),
       recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), recordScanPage: vi.fn(), recordScanFailure: vi.fn()
     }
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
@@ -136,7 +161,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
 
     await service.start('100', 'incremental')
 
-    await vi.waitFor(() => expect(coordinator.recordManagedMembers).toHaveBeenCalledWith('100', { 'managed-1': [9, 1] }))
+    await vi.waitFor(() => expect(coordinator.recordManagedMembers).toHaveBeenCalledWith('100', { 'managed-1': [9, 1] }, 'scan-run-1'))
     expect(runtime).toHaveBeenNthCalledWith(3, {
       type: 'old-favorite-workspace-read-managed-members', accountMid: '100', target, folderIds: ['managed-1']
     })
@@ -144,7 +169,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
 
   it('finalizes the main-process workspace after the last bounded source page', async () => {
     const coordinator = {
-      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),
       recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), recordScanPage: vi.fn(),
       finishScan: vi.fn(), recordScanFailure: vi.fn()
     }
@@ -157,13 +182,13 @@ describe('OldFavoriteWorkspaceScanService', () => {
 
     await service.start('100', 'incremental')
 
-    await vi.waitFor(() => expect(coordinator.finishScan).toHaveBeenCalledWith('100'))
+    await vi.waitFor(() => expect(coordinator.finishScan).toHaveBeenCalledWith('100', 'scan-run-1'))
     expect(coordinator.recordScanFailure).not.toHaveBeenCalled()
   })
 
   it('fails closed instead of endlessly paging an empty source result that claims more pages', async () => {
     const coordinator = {
-      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),
       recordScanInventory: vi.fn(), recordScanPage: vi.fn(), recordScanFailure: vi.fn()
     }
     const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
@@ -175,7 +200,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
 
     await service.start('100', 'incremental')
 
-    await vi.waitFor(() => expect(coordinator.recordScanFailure).toHaveBeenCalledWith('100', 'source-page-empty-with-more'))
+    await vi.waitFor(() => expect(coordinator.recordScanFailure).toHaveBeenCalledWith('100', 'source-page-empty-with-more', 'scan-run-1'))
     expect(runtime).toHaveBeenCalledTimes(3)
     expect(coordinator.recordScanPage).not.toHaveBeenCalled()
   })

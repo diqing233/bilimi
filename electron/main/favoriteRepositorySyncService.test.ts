@@ -153,6 +153,25 @@ describe('FavoriteRepositorySyncService', () => {
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: { status: 'reconciling' } })
   })
 
+  it('claims a frozen plan durably before the controlled first bind', async () => {
+    const repository = await createRepository()
+    const frozenPlan = plan()
+    await repository.commit('100', {
+      id: 'workspace', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'set-workspace',
+      payload: { ...workspace(), frozenSyncPlan: frozenPlan }
+    })
+    const bind = vi.fn().mockResolvedValue(undefined)
+    const service = new FavoriteRepositorySyncService({
+      repository,
+      pageBridgeManager: { bind, release: vi.fn(), pageBridge: vi.fn(() => ({ append: vi.fn(), remove: vi.fn(), readMembers: vi.fn() })) },
+      now: () => '2026-07-19T00:00:00.000Z'
+    })
+
+    await expect(service.claimFrozenPlan('100', frozenPlan)).resolves.toMatchObject({ status: 'running' })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ workspace: { status: 'executing' } })
+    expect(bind).not.toHaveBeenCalled()
+  })
+
   it('returns an interrupted pre-request execution to frozen after explicit reconciliation', async () => {
     const repository = await createRepository()
     const interrupted = { ...workspace(), status: 'executing' as const, workspaceRef: { ...workspace().workspaceRef, status: 'executing' as const }, frozenSyncPlan: plan() }

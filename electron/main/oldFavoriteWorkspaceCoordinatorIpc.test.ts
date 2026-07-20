@@ -283,6 +283,23 @@ describe('old favorite workspace coordinator IPC', () => {
     expect(coordinator.executeFrozenBilibiliPlan).toHaveBeenCalledWith('100')
   })
 
+  it('returns the persisted execution snapshot without waiting for remote Bilibili work', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      beginBilibiliExecution: vi.fn().mockResolvedValue({ ...snapshot, status: 'executing' })
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'confirm-and-execute-bilibili-plan'
+    })).resolves.toMatchObject({ status: 'executing' })
+    expect(coordinator.beginBilibiliExecution).toHaveBeenCalledOnce()
+    expect(coordinator.beginBilibiliExecution).toHaveBeenCalledWith('100')
+  })
+
   it('requires explicit reconciliation and only then allows a no-rebind resume command', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

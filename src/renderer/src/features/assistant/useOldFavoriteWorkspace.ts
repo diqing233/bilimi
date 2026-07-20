@@ -77,6 +77,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     const version = ++requestVersion.current
     const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
     if (!accountMid || !command) return null
+    setLoading(true)
     try {
       const next = await command(accountMid, commandValue)
       const matchesRequestedAccount = normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
@@ -85,6 +86,8 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       return next
     } catch {
       return null
+    } finally {
+      if (requestVersion.current === version) setLoading(false)
     }
   }, [accountMid])
 
@@ -141,7 +144,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [refresh])
 
   useEffect(() => {
-    if (snapshot?.status !== 'scanning') return
+    if (!snapshot || !['scanning', 'executing', 'reconciling'].includes(snapshot.status)) return
     const timer = window.setInterval(() => { void refresh(true) }, 400)
     return () => window.clearInterval(timer)
   }, [refresh, snapshot?.status])

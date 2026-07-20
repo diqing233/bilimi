@@ -45,7 +45,7 @@ import {
 } from '../state/preferenceSaveScheduler'
 import { CommentChooser } from './CommentChooser'
 import { CommentIntentDialog } from './CommentIntentDialog'
-import { FavoriteLedgerPanel, type OldFavoriteStatusSnapshot } from './FavoriteLedgerPanel'
+import { ControlledFavoriteLedgerPanel } from './ControlledFavoriteLedgerPanel'
 import { MemorialPanel } from './MemorialPanel'
 import type { VideoNotesResultTab } from '../notes/VideoNotesPanel'
 import {
@@ -57,17 +57,9 @@ import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint
 import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle.png'
 import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
 import type { AssistantPetHint } from './petState'
-import type { AssistantSnapshot, OldFavoriteBatchCommitResult } from './assistantRuntimeTypes'
-import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from '../favorites/favoriteLedgerPreview'
-import type { OldFavoriteBatchCommitToken } from '../favorites/favoriteLedgerApi'
+import type { AssistantSnapshot } from './assistantRuntimeTypes'
 import { PET_COLLAPSE_FAREWELL_LINES, pickPetLine } from './petInteractionLines'
 import { publishDeepSeekTask, subscribeDeepSeekTasks } from './deepSeekTaskSignal'
-import {
-  bindOldFavoriteRuntimeAccount,
-  getOldFavoriteRuntimeValue,
-  setOldFavoriteRuntimeValue,
-  subscribeOldFavoriteRuntime
-} from './oldFavoriteRuntimeSession'
 
 const CURRENT_TITLE = '等待视频加载'
 const BILIBILI_TITLE_SUFFIX = /\s*[-_]\s*哔哩哔哩.*$/i
@@ -308,25 +300,6 @@ const DEEPSEEK_TASK_DEFAULT_DETAIL: Record<DeepSeekTask['kind'], string> = {
 
 function normalizeDeepSeekConnectionStatus(value: unknown): DeepSeekConnectionStatus {
   return value === 'connected' || value === 'failed' ? value : 'pending'
-}
-
-function globalStatusFromOldFavorite(status: OldFavoriteStatusSnapshot | null): GlobalStatusItem | null {
-  return status
-    ? {
-        label: status.label,
-        detail: status.message,
-        tone: status.tone
-      }
-    : null
-}
-
-function sameGlobalStatus(left: GlobalStatusItem | null, right: GlobalStatusItem | null) {
-  return left === right || Boolean(
-    left && right &&
-    left.label === right.label &&
-    left.detail === right.detail &&
-    left.tone === right.tone
-  )
 }
 
 function favoriteLedgerBackupGap(ledgers: FavoriteLedger[]) {
@@ -724,11 +697,7 @@ export function FloatingAssistantApp({
   const [deepSeekKeyFieldStatus, setDeepSeekKeyFieldStatus] =
     useState<DeepSeekKeyFieldStatus>('unsaved')
   const [deepSeekConnectionStatus, setDeepSeekConnectionStatus] =
-    useState<DeepSeekConnectionStatus>(() =>
-      normalizeDeepSeekConnectionStatus(
-        getOldFavoriteRuntimeValue('deepSeekConnectionStatus', 'pending')
-      )
-    )
+    useState<DeepSeekConnectionStatus>('pending')
   const [settingsDiagnosticReport, setSettingsDiagnosticReport] =
     useState<StartupDiagnosticReport | null>(null)
   const [settingsDiagnosticRunning, setSettingsDiagnosticRunning] = useState(false)
@@ -738,22 +707,9 @@ export function FloatingAssistantApp({
   const [settingsKeywordSuggestionView, setSettingsKeywordSuggestionView] =
     useState<'pending' | 'processed'>('pending')
   const [settingsJumpValue, setSettingsJumpValue] = useState<SettingsJumpValue>('diagnostics')
-  const [globalFeedbackMessage, setGlobalFeedbackMessage] = useState(() =>
-    getOldFavoriteRuntimeValue('sharedOperationFeedback', '')
-  )
+  const [globalFeedbackMessage, setGlobalFeedbackMessage] = useState('')
   const [localDeepSeekTasks, setLocalDeepSeekTasks] = useState<DeepSeekTask[]>([])
   const [remoteDeepSeekTasks, setRemoteDeepSeekTasks] = useState<DeepSeekTask[]>([])
-  const [oldFavoriteExecutionState, setOldFavoriteExecutionState] =
-    useState<'idle' | 'running' | 'finished'>('idle')
-  const [oldFavoriteGlobalStatus, setOldFavoriteGlobalStatus] = useState<GlobalStatusItem | null>(
-    () =>
-      globalStatusFromOldFavorite(
-        getOldFavoriteRuntimeValue<OldFavoriteStatusSnapshot | null>(
-          'oldFavoriteRuntimeStatus',
-          null
-        )
-      )
-  )
   const settingsBodyRef = useRef<HTMLDivElement | null>(null)
   const mounted = useRef(false)
   const lastPreferenceChangeAt = useRef(0)
@@ -780,7 +736,6 @@ export function FloatingAssistantApp({
     useState<VideoNotesResultTab | null>(null)
   const [videoNoteArchiveSelection, setVideoNoteArchiveSelection] =
     useState<VideoNoteArchiveSelection>(() => loadSessionVideoNoteArchiveSelection())
-  const [organizeOldFavoritesRequestSignal, setOrganizeOldFavoritesRequestSignal] = useState(0)
   const isSidebarMode = mode === 'sidebar'
 
   const globalTranscriptionStatus = useMemo<GlobalStatusItem>(() => {
@@ -928,18 +883,6 @@ export function FloatingAssistantApp({
   const globalLedgerStatus = useMemo<GlobalStatusItem>(() => {
     const backupGap = favoriteLedgerBackupGap(preferences.favoriteLedgers)
 
-    if (oldFavoriteGlobalStatus) {
-      return oldFavoriteGlobalStatus
-    }
-
-    if (oldFavoriteExecutionState === 'running') {
-      return {
-        label: '整理中',
-        detail: '旧藏正在整理中。',
-        tone: 'running'
-      }
-    }
-
     if (favoriteLedgerStatus?.missingLedgerIds.length) {
       return {
         label: '未备册',
@@ -966,8 +909,8 @@ export function FloatingAssistantApp({
 
     if (favoriteLedgerStatus?.ok) {
       return {
-        label: oldFavoriteExecutionState === 'finished' ? '整理完成' : '已备册',
-        detail: oldFavoriteExecutionState === 'finished' ? '本次旧藏整理已结束。' : 'bilimi 收藏夹已备册。',
+        label: '???',
+        detail: 'bilimi ???????',
         tone: 'ok'
       }
     }
@@ -979,8 +922,6 @@ export function FloatingAssistantApp({
     }
   }, [
     favoriteLedgerStatus,
-    oldFavoriteExecutionState,
-    oldFavoriteGlobalStatus,
     preferences.favoriteLedgers
   ])
 
@@ -1004,13 +945,11 @@ export function FloatingAssistantApp({
     const trimmed = message.trim()
     if (trimmed) {
       setGlobalFeedbackMessage(trimmed)
-      setOldFavoriteRuntimeValue('sharedOperationFeedback', trimmed)
     }
   }
 
   function publishDeepSeekConnectionStatus(status: DeepSeekConnectionStatus) {
     setDeepSeekConnectionStatus(status)
-    setOldFavoriteRuntimeValue('deepSeekConnectionStatus', status)
   }
 
   function setActiveTab(tab: AssistantWorkspaceTab, options?: { view?: AssistantWorkspaceView }) {
@@ -1048,9 +987,6 @@ export function FloatingAssistantApp({
       }
 
       snapshotRef.current = nextSnapshot
-      if (nextSnapshot.accountMid !== undefined) {
-        bindOldFavoriteRuntimeAccount(nextSnapshot.accountMid)
-      }
       setSnapshot(nextSnapshot)
       if (!runtimeFeedbackSnapshotLoaded.current) {
         runtimeFeedbackSnapshotLoaded.current = true
@@ -1105,44 +1041,6 @@ export function FloatingAssistantApp({
       }
     })()
     return nextLoad
-  }, [])
-
-  useEffect(() => {
-    if (controlledActiveTab !== undefined) {
-      setActiveView(controlledActiveTab === 'notes' ? notesWorkspaceView : controlledActiveTab)
-    }
-  }, [controlledActiveTab, notesWorkspaceView])
-
-  useEffect(() => {
-    preferencesRef.current = preferences
-  }, [preferences])
-
-  useEffect(() => {
-    workspaceRequestsEnabledRef.current = workspaceRequestsEnabled
-  }, [workspaceRequestsEnabled])
-
-  useEffect(() => {
-    return subscribeDeepSeekTasks(setRemoteDeepSeekTasks)
-  }, [])
-
-  useEffect(() => {
-    return subscribeOldFavoriteRuntime(() => {
-      setDeepSeekConnectionStatus(
-        normalizeDeepSeekConnectionStatus(
-          getOldFavoriteRuntimeValue('deepSeekConnectionStatus', 'pending')
-        )
-      )
-      const nextOldFavoriteStatus = globalStatusFromOldFavorite(
-          getOldFavoriteRuntimeValue<OldFavoriteStatusSnapshot | null>(
-            'oldFavoriteRuntimeStatus',
-            null
-          )
-        )
-      setOldFavoriteGlobalStatus((current) =>
-        sameGlobalStatus(current, nextOldFavoriteStatus) ? current : nextOldFavoriteStatus
-      )
-      setGlobalFeedbackMessage(getOldFavoriteRuntimeValue('sharedOperationFeedback', ''))
-    })
   }, [])
 
   useEffect(() => {
@@ -2465,199 +2363,6 @@ export function FloatingAssistantApp({
     return result
   }
 
-  async function scanOldFavorites(
-    options: {
-      multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']
-    } = {}
-  ): Promise<FavoriteLedgerPreview> {
-    tellPet('progress', '小咪正在扫描旧收藏夹。')
-    const preview =
-      (await window.bilimiDesktop?.scanOldFavorites?.(options)) ?? {
-        items: [],
-        skippedSourceFolderTitles: []
-      }
-
-    tellPet(
-      'success',
-      preview.items.length > 0
-        ? '旧藏扫描好了，小咪列出可归册项目。'
-        : '旧藏扫描好了，暂时没有需要归册的项目。'
-    )
-    return preview
-  }
-
-  const readOldFavoriteTagEnrichment = useCallback((action: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan') =>
-    window.bilimiDesktop?.readOldFavoriteTagEnrichment?.(action) ?? Promise.resolve({
-      sourceFolders: [],
-      scanProgress: {
-        basic: { completed: 0, total: 0, status: 'complete' as const },
-        tags: { completed: 0, total: 0, pending: 0, cacheHits: 0, succeeded: 0, failed: 0, status: 'complete' as const }
-      }
-    }), [])
-
-  const commitOldFavoriteBatchCheckpoint = useCallback(async (
-    token: OldFavoriteBatchCommitToken
-  ): Promise<AssistantAutomationResult> => {
-    const result: OldFavoriteBatchCommitResult =
-      await window.bilimiDesktop?.commitOldFavoriteBatchCheckpoint?.(token) ?? {
-        ok: false,
-        committed: false,
-        message: '旧藏批次检查点通道尚未就绪。'
-      }
-    return {
-      ok: result.ok && result.committed,
-      steps: [],
-      missingTargets: [],
-      message: result.message ?? (result.committed ? '旧藏批次检查点已保存。' : '旧藏批次检查点保存失败。')
-    }
-  }, [])
-
-  const readOldFavoriteBatchStatus = useCallback(async (): Promise<{ pending: boolean }> =>
-    window.bilimiDesktop?.readOldFavoriteBatchStatus?.() ?? { pending: false }, [])
-
-  const prepareOldFavoriteScan = useCallback(async (): Promise<AssistantAutomationResult> =>
-    window.bilimiDesktop?.prepareOldFavoriteScan?.() ?? {
-      ok: true,
-      steps: ['bilibili-runtime:legacy-ready'],
-      missingTargets: [],
-      message: 'B站收藏环境已准备好。'
-    }, [])
-
-  async function executeOldFavoritePlan(
-    items: FavoriteLedgerPreviewItem[],
-    expectedAccountMid?: string
-  ): Promise<AssistantAutomationResult> {
-    const result =
-      (await window.bilimiDesktop?.executeOldFavoritePlan?.(items, expectedAccountMid)) ??
-      createDefaultResult('旧藏已归册。')
-
-    return result
-  }
-
-  async function rejudgeOldFavorite(item: FavoriteLedgerPreviewItem): Promise<FavoriteLedgerPreviewItem> {
-    tellPet('progress', '小咪正在根据最新改动重新判断。')
-    const refreshedItem = (await window.bilimiDesktop?.rejudgeOldFavorite?.(item)) ?? item
-    tellPet('success', '已经按最新信息判断一次。')
-    return refreshedItem
-  }
-
-  async function organizeOldFavoritesWithDeepSeek(
-    _mode: DeepSeekArchiveMode,
-    request: DeepSeekGenerateRequest
-  ): Promise<DeepSeekGenerateResult | null | undefined> {
-    tellPet('progress', '小咪正在请 DeepSeek 整理旧藏。')
-    const finishDeepSeekTask = startDeepSeekTask({
-      id: `archive-organize:${Date.now()}:${Math.random()}`,
-      kind: 'archive-organize',
-      detail: '旧藏整理：正在分析当前批次'
-    })
-    try {
-      const result = await window.bilimiDesktop?.generateDeepSeek?.(request)
-      if (result) {
-        publishDeepSeekConnectionStatus('connected')
-      }
-      tellPet(
-        result?.kind === 'favorite-archive-organize' ? 'success' : 'error',
-        result?.kind === 'favorite-archive-organize'
-          ? 'DeepSeek 旧藏整理结果已返回。'
-          : 'DeepSeek 旧藏整理没有返回可用结果。'
-      )
-      return result
-    } finally {
-      finishDeepSeekTask()
-    }
-  }
-
-  function mergeDeepSeekArchiveKeywordSuggestions(suggestions: FavoriteKeywordSuggestion[]) {
-    if (suggestions.length === 0) {
-      return
-    }
-
-    const existingIds = new Set(
-      preferencesRef.current.favoriteKeywordSuggestions.map((suggestion) => suggestion.id)
-    )
-    const existingSignatures = new Set(
-      preferencesRef.current.favoriteKeywordSuggestions.map(keywordSuggestionSignature)
-    )
-    const nextIncomingSuggestions: FavoriteKeywordSuggestion[] = []
-
-    for (const suggestion of suggestions) {
-      const signature = keywordSuggestionSignature(suggestion)
-      if (existingIds.has(suggestion.id) || existingSignatures.has(signature)) {
-        continue
-      }
-      existingIds.add(suggestion.id)
-      existingSignatures.add(signature)
-      nextIncomingSuggestions.push(suggestion)
-    }
-
-    const nextSuggestions = [
-      ...preferencesRef.current.favoriteKeywordSuggestions,
-      ...nextIncomingSuggestions
-    ]
-
-    persistPreferencePatch({ favoriteKeywordSuggestions: nextSuggestions })
-  }
-
-  function confirmArchiveCorrectionRecords(records: FavoriteCorrectionRecord[]) {
-    if (!preferencesRef.current.favoriteCorrectionLearningEnabled || records.length === 0) {
-      return
-    }
-
-    const existingIds = new Set(
-      preferencesRef.current.favoriteCorrectionRecords.map((record) => record.id)
-    )
-    const nextRecords = [
-      ...preferencesRef.current.favoriteCorrectionRecords,
-      ...records.filter((record) => !existingIds.has(record.id))
-    ]
-
-    persistPreferencePatch({ favoriteCorrectionRecords: nextRecords })
-  }
-
-  function confirmArchiveProtectionRecords(records: FavoriteArchiveProtectionRecord[]) {
-    if (records.length === 0) {
-      return
-    }
-
-    persistPreferencePatch({
-      favoriteArchiveProtectionRecords: upsertFavoriteArchiveProtectionRecords(
-        preferencesRef.current.favoriteArchiveProtectionRecords ?? [],
-        records
-      )
-    })
-  }
-
-  function handleOldFavoriteExecutionStateChange(state: 'running' | 'finished') {
-    setOldFavoriteExecutionState(state)
-    window.bilimiDesktop?.setOldFavoriteBackgroundRunning?.(state === 'running')
-    tellPet(
-      state === 'running' ? 'progress' : 'success',
-      state === 'running' ? '旧藏整理中，请耐心等待。' : '本次整理已结束。'
-    )
-  }
-
-  function handleOldFavoriteStatusUpdate(status: {
-    label: string
-    message: string
-    tone: GlobalStatusTone
-  }) {
-    setOldFavoriteGlobalStatus({
-      label: status.label,
-      detail: status.message,
-      tone: status.tone
-    })
-  }
-
-  function handleOldFavoriteStageFeedback(message: string) {
-    setGlobalFeedback(message)
-  }
-
-  function handleOldFavoriteAcknowledged() {
-    setOldFavoriteExecutionState('idle')
-    setOldFavoriteGlobalStatus(null)
-  }
-
   function closeAssistant() {
     if (isSidebarMode) {
       onRequestCollapse?.()
@@ -2769,40 +2474,18 @@ export function FloatingAssistantApp({
 
         {ledgerWorkspaceOpened ? (
           <div className="floating-assistant-view" hidden={activeView !== 'ledger'}>
-            <FavoriteLedgerPanel
+            <ControlledFavoriteLedgerPanel
             currentAccountMid={resolvedSnapshot.accountMid}
             ledgers={preferences.favoriteLedgers}
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? []}
             onEnsureLedgers={ensureFavoriteLedgers}
             onSaveLedgers={saveFavoriteLedgers}
             onOpenFavoritePage={openFavoritePage}
-            onScanOldFavorites={scanOldFavorites}
-            onReadCurrentOldFavoriteAccount={async () => {
-              return (await window.bilimiDesktop?.readBilibiliAccountMid?.())?.trim() ?? ''
-            }}
-            onReadOldFavoriteTagEnrichment={readOldFavoriteTagEnrichment}
-            onCommitOldFavoriteBatchCheckpoint={commitOldFavoriteBatchCheckpoint}
-            onReadOldFavoriteBatchStatus={readOldFavoriteBatchStatus}
-            onPrepareOldFavoriteScan={prepareOldFavoriteScan}
-            onExecuteOldFavoritePlan={executeOldFavoritePlan}
-            onOldFavoriteExecutionStateChange={handleOldFavoriteExecutionStateChange}
-            onOldFavoriteStatusUpdate={handleOldFavoriteStatusUpdate}
-            onOldFavoriteStageFeedback={handleOldFavoriteStageFeedback}
-            onOldFavoriteAcknowledged={handleOldFavoriteAcknowledged}
-            onOpenOldFavoriteVideo={onOpenInTab}
-            onRejudgeOldFavorite={rejudgeOldFavorite}
             deepSeekArchiveAvailable={
               preferences.deepseekEnabled &&
               preferences.deepseekApiKeyStored &&
               preferences.deepseekArchiveOrganizationEnabled
             }
-            onOrganizeOldFavoritesWithDeepSeek={organizeOldFavoritesWithDeepSeek}
-            onDeepSeekArchiveKeywordSuggestions={mergeDeepSeekArchiveKeywordSuggestions}
-            onOpenDeepSeekSuggestions={() => openSettingsSection('learning')}
-            onConfirmArchiveCorrections={confirmArchiveCorrectionRecords}
-            onConfirmArchiveProtections={confirmArchiveProtectionRecords}
-            favoriteArchiveMultiMode={preferences.favoriteArchiveMultiMode}
-            organizeOldFavoritesRequestSignal={organizeOldFavoritesRequestSignal}
             />
           </div>
         ) : null}

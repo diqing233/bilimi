@@ -12,10 +12,6 @@ import type {
   StartupDiagnosticReport,
   PendingFavoriteQueueItem,
   PendingFavoriteQueueStatus,
-  OldFavoriteRuntimeSetResult,
-  OldFavoriteRuntimeSnapshot,
-  OldFavoriteSessionsState,
-  OldFavoriteTaskKind,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionQueueSnapshot,
   VideoAudioTranscriptionRequest,
@@ -28,16 +24,11 @@ import type {
   AssistantRuntimeResponsePayload,
   FloatingAssistantActionOptions,
   FloatingAssistantWorkspaceRequest,
-  OldFavoriteBatchCommitResult
 } from '../../src/renderer/src/features/assistant/assistantRuntimeTypes'
-import type { OldFavoriteBatchCommitToken } from '../../src/renderer/src/features/favorites/favoriteLedgerApi'
-import type { OldFavoriteBatchLifecycleSnapshot } from '../main/oldFavoriteSessionStore'
 import type {
   AssistantPetHint,
   AssistantPetState
 } from '../../src/renderer/src/features/assistant/petState'
-import type { FavoriteLedgerPreviewItem } from '../../src/renderer/src/features/favorites/favoriteLedgerPreview'
-import type { OldFavoriteAccountIndex, OldFavoriteBatchDetail, OldFavoriteOverlayKind, OldFavoriteOverlayPatch } from '../main/oldFavoriteWorkspaceTypes'
 import type {
   FavoriteRepositoryCommand,
   FavoriteRepositoryCommandResult,
@@ -51,17 +42,12 @@ import type {
 } from '../main/favoriteRepositoryIpc'
 import type { OldFavoriteWorkspaceView } from '../../src/shared/oldFavoriteWorkspace'
 
-const oldFavoriteEmergencyFallbackEnabled =
-  ipcRenderer.sendSync('old-favorite-emergency-fallback:enabled') === true
-
 contextBridge.exposeInMainWorld('bilimiDesktop', {
   version: '0.1.0',
   closeAssistantPet: () => ipcRenderer.send('assistant-pet:close'),
   closeFloatingAssistant: () => ipcRenderer.send('floating-assistant:close'),
   closeFloatingMenu: () => ipcRenderer.send('floating-menu:close'),
   openFavoriteLibrary: () => ipcRenderer.invoke('favorite-library:open') as Promise<void>,
-  isOldFavoriteEmergencyFallbackEnabled: () =>
-    ipcRenderer.sendSync('old-favorite-emergency-fallback:enabled') === true,
   openOldFavoriteWorkspaceV1: (accountMid: string) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:open', accountMid) as Promise<OldFavoriteWorkspaceView>,
   commandOldFavoriteWorkspaceV1: (accountMid: string, command: unknown) =>
@@ -94,24 +80,6 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   moveFloatingSealTo: (screenX: number, screenY: number) =>
     ipcRenderer.send('floating-seal:move-to', screenX, screenY),
   notifyAssistantSnapshotChanged: () => ipcRenderer.send('floating-assistant:snapshot-changed'),
-  getOldFavoriteRuntimeSnapshot: (key: string, initialValue: unknown) =>
-    ipcRenderer.sendSync('old-favorite-runtime:get', key, initialValue) as OldFavoriteRuntimeSnapshot,
-  setOldFavoriteRuntimeValue: (key: string, value: unknown, expectedRevision: number) =>
-    ipcRenderer.sendSync(
-      'old-favorite-runtime:set',
-      key,
-      value,
-      expectedRevision
-    ) as OldFavoriteRuntimeSetResult,
-  setOldFavoriteRuntimeTransientValue: (key: string, value: unknown, expectedRevision: number) =>
-    ipcRenderer.invoke(
-      'old-favorite-runtime:set-transient',
-      key,
-      value,
-      expectedRevision
-    ) as Promise<OldFavoriteRuntimeSetResult>,
-  bindOldFavoriteRuntimeAccount: (accountMid: string) =>
-    ipcRenderer.sendSync('old-favorite-runtime:bind-account', accountMid) as boolean,
   readBilibiliAccountMid: () => ipcRenderer.invoke('bilibili:account-mid') as Promise<string>,
   openFavoriteRepositoryAccount: (accountMid: string) =>
     ipcRenderer.invoke('favorite-repository:open-account', accountMid) as Promise<FavoriteRepositorySnapshotSummary>,
@@ -152,106 +120,6 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
       ipcRenderer.removeListener('favorite-repository:revision-changed', listener)
       if (subscriptionId) void ipcRenderer.invoke('favorite-repository:unsubscribe', accountMid, subscriptionId).catch(() => undefined)
     }
-  },
-  openOldFavoriteWorkspaceAccount: (accountMid: string) =>
-    ipcRenderer.invoke('old-favorite-workspace:open-account', accountMid) as Promise<OldFavoriteAccountIndex>,
-  loadOldFavoriteWorkspaceBatch: (accountMid: string, batchId: string) =>
-    ipcRenderer.invoke('old-favorite-workspace:load-batch', accountMid, batchId) as Promise<OldFavoriteBatchDetail>,
-  recoverOldFavoriteWorkspaceBatch: (accountMid: string, batchId: string) =>
-    ipcRenderer.invoke('old-favorite-workspace:recover-batch', accountMid, batchId) as Promise<{ discardedTail: string | null }>,
-  createOldFavoriteWorkspaceBatch: (input: { accountMid: string; kind: 'full' | 'incremental'; createdAt?: string; id?: string }) =>
-    ipcRenderer.invoke('old-favorite-workspace:create-batch', input),
-  appendOldFavoriteWorkspaceChunk: (accountMid: string, batchId: string, kind: 'base' | 'tags' | 'sources', items: unknown[]) =>
-    ipcRenderer.invoke('old-favorite-workspace:append-chunk', accountMid, batchId, kind, items),
-  appendOldFavoriteWorkspaceChunkGroup: (accountMid: string, batchId: string, chunks: Record<'base' | 'tags' | 'sources', unknown[]>) =>
-    ipcRenderer.invoke('old-favorite-workspace:append-chunk-group', accountMid, batchId, chunks),
-  patchOldFavoriteWorkspaceOverlay: (accountMid: string, batchId: string, kind: OldFavoriteOverlayKind, patch: OldFavoriteOverlayPatch | OldFavoriteOverlayPatch[]) =>
-    ipcRenderer.invoke('old-favorite-workspace:patch-overlay', accountMid, batchId, kind, patch),
-  markOldFavoriteWorkspaceOverlayDirty: () =>
-    ipcRenderer.sendSync('old-favorite-workspace:renderer-dirty') as boolean,
-  markOldFavoriteWorkspaceOverlayClean: () =>
-    ipcRenderer.sendSync('old-favorite-workspace:renderer-clean') as boolean,
-  onOldFavoriteWorkspaceFlushRequested: (callback: () => Promise<void>) => {
-    const listener = async (_event: Electron.IpcRendererEvent, requestId: string) => {
-      try {
-        await callback()
-        ipcRenderer.send('old-favorite-workspace:renderer-flushed', requestId, true)
-      } catch {
-        ipcRenderer.send('old-favorite-workspace:renderer-flushed', requestId, false)
-      }
-    }
-    ipcRenderer.on('old-favorite-workspace:flush-requested', listener)
-    return () => ipcRenderer.removeListener('old-favorite-workspace:flush-requested', listener)
-  },
-  finalizeOldFavoriteWorkspaceBatch: (accountMid: string, batchId: string) =>
-    ipcRenderer.invoke('old-favorite-workspace:finalize-batch', accountMid, batchId),
-  resetOldFavoriteWorkspaceAccount: (accountMid: string) =>
-    ipcRenderer.invoke('old-favorite-workspace:reset-account', accountMid),
-  resetOldFavoriteAccount: (accountMid: string) =>
-    ipcRenderer.invoke('old-favorite-account:reset', accountMid),
-  resetOldFavoriteRuntime: () =>
-    ipcRenderer.sendSync('old-favorite-runtime:reset') as boolean,
-  resetOldFavoriteRuntimeAccount: (accountMid: string) =>
-    ipcRenderer.invoke('old-favorite-runtime:reset-account', accountMid) as Promise<boolean>,
-  loadOldFavoriteSessions: () =>
-    ipcRenderer.invoke('old-favorite-sessions:load') as Promise<OldFavoriteSessionsState>,
-  beginOldFavoriteFullScan: (accountMid: string, now: string, snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']) =>
-    ipcRenderer.invoke('old-favorite-sessions:begin-full-scan', accountMid, now, snapshot) as Promise<{
-      batch: OldFavoriteSessionsState['batches'][number]
-      acquired: boolean
-    }>,
-  beginOldFavoriteIncrementalScan: (accountMid: string, now: string, snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']) =>
-    ipcRenderer.invoke('old-favorite-sessions:begin-incremental-scan', accountMid, now, snapshot) as Promise<{
-      batch: OldFavoriteSessionsState['batches'][number]
-      acquired: boolean
-    }>,
-  endOldFavoriteBatch: (batchId: string, endedAt: string) =>
-    ipcRenderer.invoke('old-favorite-sessions:end-batch', batchId, endedAt) as Promise<OldFavoriteBatchLifecycleSnapshot>,
-  discardOldFavoriteEmptyIncrementalBatch: (batchId: string, accountMid: string) =>
-    ipcRenderer.invoke('old-favorite-sessions:discard-empty-incremental', batchId, accountMid) as Promise<{
-      batchId: string
-      accountMid: string
-      discarded: true
-    }>,
-  saveOldFavoriteSessions: (state: OldFavoriteSessionsState) =>
-    ipcRenderer.invoke('old-favorite-sessions:save', state) as Promise<OldFavoriteSessionsState>,
-  resetOldFavoriteSessionsAccount: (accountMid: string) =>
-    ipcRenderer.invoke('old-favorite-sessions:reset-account', accountMid) as Promise<OldFavoriteSessionsState>,
-  claimOldFavoriteTaskLease: (
-    batchId: string,
-    segmentId: string,
-    task: OldFavoriteTaskKind,
-    accountMid: string
-  ) => ipcRenderer.invoke(
-    'old-favorite-sessions:claim-lease',
-    batchId,
-    segmentId,
-    task,
-    accountMid
-  ) as Promise<boolean>,
-  releaseOldFavoriteTaskLease: (batchId: string, segmentId: string) =>
-    ipcRenderer.invoke('old-favorite-sessions:release-lease', batchId, segmentId) as Promise<boolean>,
-  onOldFavoriteSessionsChanged: (callback: (state: OldFavoriteSessionsState) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, state: OldFavoriteSessionsState) => callback(state)
-    ipcRenderer.on('old-favorite-sessions:changed', listener)
-    return () => ipcRenderer.removeListener('old-favorite-sessions:changed', listener)
-  },
-  setOldFavoriteBackgroundRunning: (running: boolean) =>
-    ipcRenderer.send('old-favorite-background:set-running', running),
-  setOldFavoriteBackgroundTarget: (webContentsId: number) =>
-    ipcRenderer.send('old-favorite-background:set-target', webContentsId),
-  retryBilibiliSessionDirect: () =>
-    ipcRenderer.invoke('bilibili-session:retry-direct') as Promise<{ mode: 'direct' }>,
-  onOldFavoriteRuntimeChanged: (
-    callback: (snapshot: OldFavoriteRuntimeSnapshot | { type: 'reset'; accountMid: string }) => void
-  ) => {
-    const listener = (
-      _event: Electron.IpcRendererEvent,
-      snapshot: OldFavoriteRuntimeSnapshot | { type: 'reset'; accountMid: string }
-    ) => callback(snapshot)
-
-    ipcRenderer.on('old-favorite-runtime:changed', listener)
-    return () => ipcRenderer.removeListener('old-favorite-runtime:changed', listener)
   },
   onAssistantPetStateChanged: (callback: (state: AssistantPetState) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, state: AssistantPetState) => callback(state)
@@ -436,28 +304,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   saveFavoriteLedgers: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) =>
     ipcRenderer.invoke('floating-assistant:save-ledgers', ledgers, options),
   openBilibiliFavorites: () => ipcRenderer.invoke('floating-assistant:open-bilibili-favorites'),
-  ...(oldFavoriteEmergencyFallbackEnabled ? {
-    scanOldFavorites: (options?: {
-      multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']
-    }) => ipcRenderer.invoke('floating-assistant:scan-old-favorites', options),
-    commitOldFavoriteBatchCheckpoint: (token: OldFavoriteBatchCommitToken) =>
-      ipcRenderer.invoke(
-        'floating-assistant:commit-old-favorite-batch',
-        token
-      ) as Promise<OldFavoriteBatchCommitResult>,
-    readOldFavoriteBatchStatus: () =>
-      ipcRenderer.invoke('floating-assistant:read-old-favorite-batch-status') as Promise<{
-        pending: boolean
-      }>,
-    prepareOldFavoriteScan: () =>
-      ipcRenderer.invoke('floating-assistant:prepare-old-favorite-scan') as Promise<AssistantAutomationResult>,
-    readOldFavoriteTagEnrichment: (action: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' = 'read') =>
-      ipcRenderer.invoke('floating-assistant:old-favorite-tag-enrichment', action),
-    rejudgeOldFavorite: (item: FavoriteLedgerPreviewItem) =>
-      ipcRenderer.invoke('floating-assistant:rejudge-old-favorite', item) as Promise<FavoriteLedgerPreviewItem>,
-    executeOldFavoritePlan: (items: FavoriteLedgerPreviewItem[], expectedAccountMid?: string) =>
-      ipcRenderer.invoke('floating-assistant:execute-old-favorite-plan', items, expectedAccountMid)
-  } : {}),
+
   savePreferences: (preferences: AssistantPreferences) =>
     ipcRenderer.invoke('assistant:save-preferences', preferences) as Promise<AssistantPreferences>,
   patchPreferences: (patch: Partial<AssistantPreferences>) =>

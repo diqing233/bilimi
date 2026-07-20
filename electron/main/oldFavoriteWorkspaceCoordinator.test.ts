@@ -110,6 +110,59 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({ mode: 'full' })
   })
 
+  it('supersedes an in-progress incremental scan when the user explicitly requests a full reorganization', async () => {
+    const root = await createRoot()
+    const coordinator = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' }),
+      new OldFavoriteWorkspaceStore({ root })
+    )
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    const incrementalRunId = await coordinator.getActiveScanRunId('100')
+
+    await expect(coordinator.beginScan('100', 'full')).resolves.toMatchObject({ status: 'scanning', mode: 'full' })
+    await expect(coordinator.getActiveScanRunId('100')).resolves.not.toBe(incrementalRunId)
+  })
+
+  it('lets an explicitly restarted scan replace a persisted scanning lease after process recovery', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, store)
+    await first.open('100')
+    await first.beginScan('100', 'incremental')
+
+    const recovered = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' }),
+      new OldFavoriteWorkspaceStore({ root })
+    )
+    await expect(recovered.getSnapshot('100')).resolves.toMatchObject({ status: 'scanning', mode: 'incremental' })
+    await expect(recovered.beginScan('100', 'incremental')).resolves.toMatchObject({ status: 'scanning', mode: 'incremental' })
+    await expect(recovered.getActiveScanRunId('100')).resolves.toEqual(expect.any(String))
+  })
+
+  it('drops a queued page from a superseded scan run instead of writing it into the full scan', async () => {
+    const root = await createRoot()
+    const coordinator = createCoordinator(
+      new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' }),
+      new OldFavoriteWorkspaceStore({ root })
+    )
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    const incrementalRunId = await coordinator.getActiveScanRunId('100')
+    await coordinator.beginScan('100', 'full')
+
+    await expect(coordinator.recordScanPage('100', {
+      folderId: 'old-source', page: 1, items: [{ aid: 1, sourceFolderIds: ['old-source'] }]
+    }, incrementalRunId)).resolves.toBe(false)
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'new-source', title: 'New', itemCount: 0, isBilimiWorkFolder: false }]
+    })
+    await coordinator.finishScan('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({ mode: 'full', currentSegment: null })
+  })
+
   it('writes a bounded source page through the workspace store without committing a repository generation', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -945,7 +998,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('does not mark a multi-segment workspace complete through the current-segment local-only command', async () => {
+  it('commits every classified segment to the local library in one atomic local-only round', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -954,9 +1007,15 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.applyClassificationBatch('100', {
       source: 'manual', assignments: Array.from({ length: 2_000 }, (_, index) => ({ aid: index + 1, targetLedgerIds: ['music'] }))
     })
+    await coordinator.selectSegment('100', 'segment-2')
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 2_001, targetLedgerIds: ['music'] }]
+    })
 
-    await expect(coordinator.saveCurrentSegmentToLocalLibrary('100')).rejects.toThrow('multiple segments')
-    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({ status: 'previewing' })
+    await expect(coordinator.saveCurrentSegmentToLocalLibrary('100')).resolves.toMatchObject({ status: 'completed', completionMode: 'local' })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      memberships: { 'local:music': expect.arrayContaining([1, 2_001]) }, workspace: { status: 'completed' }
+    })
   })
 
   it('freezes one remote plan that deduplicates classifications from every prepared segment', async () => {
@@ -994,7 +1053,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect((await repository.getSnapshot('100')).workspace?.frozenSyncPlan?.operations).toHaveLength(2_001)
   })
 
-  it('keeps rejecting local-only completion after restoring a multi-segment workspace', async () => {
+  it('keeps multi-segment local-only completion available after workspace recovery', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const first = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -1005,7 +1064,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     const restored = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
 
-    await expect(restored.saveCurrentSegmentToLocalLibrary('100')).rejects.toThrow('multiple segments')
+    await expect(restored.saveCurrentSegmentToLocalLibrary('100')).rejects.toThrow('fully classified')
     await expect(restored.getSnapshot('100')).resolves.toMatchObject({ status: 'previewing', hasMultipleSegments: true })
   })
 

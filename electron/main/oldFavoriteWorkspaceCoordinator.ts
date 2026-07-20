@@ -171,7 +171,7 @@ export class OldFavoriteWorkspaceCoordinator {
         memberAids: number[]
       }): Promise<unknown>
     }
-    syncService?: Pick<FavoriteRepositorySyncService, 'executeFrozenPlan' | 'bindPageTarget' | 'reconcile' | 'resume' | 'getRun'>
+    syncService?: Pick<FavoriteRepositorySyncService, 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'reconcile' | 'resume' | 'getRun'>
     classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
     now?: () => string
   }) {}
@@ -238,9 +238,20 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
-  async recordScanInventory(accountMid: string, input: { sourceFolders: ScanOverview['sourceFolders'] }) {
+  /** Internal scan lease; renderer snapshots never expose this token. */
+  async getActiveScanRunId(accountMid: string): Promise<string> {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
+      const runId = this.scanRuns.get(workspace.accountMid)
+      if (!runId) throw new Error('Old favorite workspace scan run is not active.')
+      return runId
+    })
+  }
+
+  async recordScanInventory(accountMid: string, input: { sourceFolders: ScanOverview['sourceFolders'] }, expectedRunId?: string) {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (expectedRunId && this.scanRuns.get(workspace.accountMid) !== expectedRunId) return false
       if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not active.')
       const sourceFolders = input.sourceFolders.map((folder) => ({ ...folder, selected: !folder.isBilimiWorkFolder }))
       const mode = this.scanOverviews.get(workspace.accountMid)?.scan.mode ?? workspace.mode
@@ -250,6 +261,7 @@ export class OldFavoriteWorkspaceCoordinator {
         scanMetadata: { sourceFolders, ...overview.scan }
       })
       this.scanOverviews.set(workspace.accountMid, overview)
+      return true
     })
   }
 
@@ -258,23 +270,27 @@ export class OldFavoriteWorkspaceCoordinator {
     folderId: string
     page: number
     items: Array<{ aid: number; title?: string; author?: string; cover?: string; addedAt?: number; sourceFolderIds: string[] }>
-  }) {
+  }, expectedRunId?: string) {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
+      if (expectedRunId && this.scanRuns.get(workspace.accountMid) !== expectedRunId) return false
       if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not active.')
       const runId = this.scanRuns.get(workspace.accountMid)
       if (!runId) throw new Error('Old favorite workspace scan run is not active.')
       await this.options.workspaceStore.appendScanPage(workspace.accountMid, workspace.id, { ...input, runId })
+      return true
     })
   }
 
-  async recordManagedMembers(accountMid: string, members: Record<string, number[]>) {
+  async recordManagedMembers(accountMid: string, members: Record<string, number[]>, expectedRunId?: string) {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
+      if (expectedRunId && this.scanRuns.get(workspace.accountMid) !== expectedRunId) return false
       if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not active.')
       const runId = this.scanRuns.get(workspace.accountMid)
       if (!runId) throw new Error('Old favorite workspace scan run is not active.')
       await this.options.workspaceStore.appendManagedMembers(workspace.accountMid, workspace.id, { runId, members })
+      return true
     })
   }
 
@@ -325,9 +341,10 @@ export class OldFavoriteWorkspaceCoordinator {
   }
 
   /** Converts scan staging to the immutable 2,000-item baseline only after every page succeeds. */
-  async finishScan(accountMid: string) {
+  async finishScan(accountMid: string, expectedRunId?: string) {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
+      if (expectedRunId && this.scanRuns.get(workspace.accountMid) !== expectedRunId) return clone(workspace)
       if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not active.')
       const itemsByAid = new Map<number, { aid: number; title?: string; author?: string; cover?: string; addedAt?: number; sourceFolderIds: string[] }>()
       await this.options.workspaceStore.visitScanPages(workspace.accountMid, workspace.id, (page) => {
@@ -408,9 +425,10 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
-  async recordScanFailure(accountMid: string, reason: string) {
+  async recordScanFailure(accountMid: string, reason: string, expectedRunId?: string) {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
+      if (expectedRunId && this.scanRuns.get(workspace.accountMid) !== expectedRunId) return false
       if (workspace.status !== 'scanning') return
       const prior = this.scanOverviews.get(workspace.accountMid) ?? { sourceFolders: [], scan: { phase: 'inventory' as const, failureCount: 0, mode: workspace.mode } }
       const overview: ScanOverview = {
@@ -422,6 +440,7 @@ export class OldFavoriteWorkspaceCoordinator {
         scanMetadata: { sourceFolders: overview.sourceFolders, ...overview.scan }
       })
       this.scanOverviews.set(workspace.accountMid, overview)
+      return true
     })
   }
 
@@ -687,25 +706,23 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
-  /** Commits classifications to local library folders only; it never binds or touches Bilibili. */
+  /** Commits the complete, classified round to local folders without touching Bilibili. */
   async saveCurrentSegmentToLocalLibrary(accountMid: string): Promise<OldFavoriteWorkspace> {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
       if (workspace.status !== 'previewing') throw new Error('Old favorite workspace is not ready for local saving.')
-      if (workspace.hasMultipleSegments) {
-        throw new Error('Old favorite workspace local-only saving does not support multiple segments.')
-      }
       const currentSegmentId = this.currentSegment(workspace)
-      const currentSegment = workspace.segments.find((segment) => segment.id === currentSegmentId)
-      if (!currentSegment || !currentSegment.aids.length) throw new Error('Old favorite workspace current segment is unavailable.')
-      const assignments = currentSegment.aids.map((aid) => workspace.classifications[String(aid)])
-      const selectedAssignments = await this.selectedSourceAssignments(workspace, assignments.flatMap((assignment) => assignment ? [assignment] : []))
-      if (!selectedAssignments.length || selectedAssignments.some((assignment) => !assignment.targetLedgerIds.length)) {
-        throw new Error('Old favorite workspace current segment is not fully classified.')
-      }
+      const selectedAssignments = await this.loadSelectedClassificationsForFreeze(workspace)
+      await this.assertSelectedPlanFullyClassified(workspace, selectedAssignments)
+      if (!selectedAssignments.length) throw new Error('Old favorite workspace selected plan is empty.')
       const repository = await this.options.repository.getSnapshot(workspace.accountMid)
-      const itemsByAid = new Map((this.currentSegmentItems.get(workspace.accountMid) ?? [])
-        .map((item) => [item.aid, item]))
+      const itemsByAid = new Map<number, CurrentSegmentItem>()
+      const descriptors = this.segmentDescriptors.get(workspace.accountMid) ??
+        workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
+      for (const descriptor of descriptors) {
+        const segment = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, descriptor.id)
+        for (const item of segment.items ?? []) itemsByAid.set(item.aid, item)
+      }
       const memberAidsByFolderId: Record<string, number[]> = {}
       for (const assignment of selectedAssignments) {
         for (const logicalLedgerId of assignment.targetLedgerIds) {
@@ -722,7 +739,7 @@ export class OldFavoriteWorkspaceCoordinator {
       }
       const marker = await this.createMarker(completed, undefined, 'local')
       await this.options.repository.commit(workspace.accountMid, {
-        id: `old-favorite-workspace:local:${workspace.id}:${currentSegmentId}`,
+        id: `old-favorite-workspace:local:${workspace.id}`,
         accountMid: workspace.accountMid,
         issuedAt: this.now(),
         type: 'commit-local-plan',
@@ -884,6 +901,17 @@ export class OldFavoriteWorkspaceCoordinator {
   async confirmAndExecuteBilibiliPlan(accountMid: string): Promise<FavoriteRepositorySyncRun> {
     await this.freezeForBilibiliExecution(accountMid)
     return this.executeFrozenBilibiliPlan(accountMid)
+  }
+
+  /** Claims a frozen plan synchronously, then drives Bilibili in one main-process background task. */
+  async beginBilibiliExecution(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot> {
+    const frozen = await this.freezeForBilibiliExecution(accountMid)
+    if (!frozen.frozenSyncPlan || !this.options.syncService) {
+      throw new Error('Old favorite workspace sync service is unavailable.')
+    }
+    await this.options.syncService.claimFrozenPlan(frozen.accountMid, frozen.frozenSyncPlan)
+    void this.executeFrozenBilibiliPlan(frozen.accountMid).catch(() => undefined)
+    return this.getSnapshot(frozen.accountMid) as Promise<OldFavoriteWorkspaceSnapshot>
   }
 
   async bindAndReconcileFrozenBilibiliPlan(accountMid: string): Promise<FavoriteRepositorySyncRun> {

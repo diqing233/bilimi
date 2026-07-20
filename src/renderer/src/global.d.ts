@@ -12,10 +12,6 @@ import type {
   StartupDiagnosticReport,
   PendingFavoriteQueueItem,
   PendingFavoriteQueueStatus,
-  OldFavoriteRuntimeSetResult,
-  OldFavoriteRuntimeSnapshot,
-  OldFavoriteSessionsState,
-  OldFavoriteTaskKind,
   VideoAudioTranscriptionProgress,
   VideoAudioTranscriptionQueueSnapshot,
   VideoAudioTranscriptionRequest,
@@ -29,13 +25,8 @@ import type {
   AssistantSnapshot,
   FloatingAssistantActionOptions,
   FloatingAssistantWorkspaceRequest,
-  OldFavoriteBatchCommitResult
 } from './features/assistant/assistantRuntimeTypes'
 import type { AssistantPetHint, AssistantPetState } from './features/assistant/petState'
-import type { FavoriteLedgerPreview, FavoriteLedgerPreviewItem } from './features/favorites/favoriteLedgerPreview'
-import type { OldFavoriteBatchCommitToken } from './features/favorites/favoriteLedgerApi'
-import type { OldFavoriteAccountIndex, OldFavoriteBatchDetail, OldFavoriteOverlayKind, OldFavoriteOverlayPatch } from '../../../electron/main/oldFavoriteWorkspaceTypes'
-import type { OldFavoriteBatchLifecycleSnapshot } from '../../../electron/main/oldFavoriteSessionStore'
 import type {
   FavoriteRepositoryCommand,
   FavoriteRepositoryCommandResult,
@@ -55,15 +46,10 @@ type BilimiDesktopApi = {
   closeFloatingAssistant?: () => void
   closeFloatingMenu?: () => void
   openFavoriteLibrary?: () => Promise<void>
-  isOldFavoriteEmergencyFallbackEnabled?: () => boolean
   openOldFavoriteWorkspaceV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceView>
   commandOldFavoriteWorkspaceV1?: (accountMid: string, command: unknown) => Promise<OldFavoriteWorkspaceView>
   organizeOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceView>
   ensureFavoriteLedgers?: () => Promise<AssistantAutomationResult>
-  executeOldFavoritePlan?: (
-    items: FavoriteLedgerPreviewItem[],
-    expectedAccountMid?: string
-  ) => Promise<AssistantAutomationResult>
   finishFloatingSealDrag?: () => void
   generateDeepSeek?: (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>
   generateVideoNote?: (manualTranscript?: string) => Promise<VideoNote | null>
@@ -83,18 +69,6 @@ type BilimiDesktopApi = {
   moveFloatingSealBy?: (deltaX: number, deltaY: number) => Promise<void>
   moveFloatingSealTo?: (screenX: number, screenY: number) => void
   notifyAssistantSnapshotChanged?: () => void
-  getOldFavoriteRuntimeSnapshot?: (key: string, initialValue: unknown) => OldFavoriteRuntimeSnapshot
-  setOldFavoriteRuntimeValue?: (
-    key: string,
-    value: unknown,
-    expectedRevision: number
-  ) => OldFavoriteRuntimeSetResult
-  setOldFavoriteRuntimeTransientValue?: (
-    key: string,
-    value: unknown,
-    expectedRevision: number
-  ) => Promise<OldFavoriteRuntimeSetResult>
-  bindOldFavoriteRuntimeAccount?: (accountMid: string) => boolean
   readBilibiliAccountMid?: () => Promise<string>
   onBilibiliAccountChanged?: (callback: () => void) => () => void
   openFavoriteRepositoryAccount?: (accountMid: string) => Promise<FavoriteRepositorySnapshotSummary>
@@ -132,55 +106,6 @@ type BilimiDesktopApi = {
     folderId: string | undefined,
     callback: (change: FavoriteRepositoryRevisionChange) => void
   ) => () => void
-  openOldFavoriteWorkspaceAccount?: (accountMid: string) => Promise<OldFavoriteAccountIndex>
-  loadOldFavoriteWorkspaceBatch?: (accountMid: string, batchId: string) => Promise<OldFavoriteBatchDetail>
-  recoverOldFavoriteWorkspaceBatch?: (accountMid: string, batchId: string) => Promise<{ discardedTail: string | null }>
-  createOldFavoriteWorkspaceBatch?: (input: { accountMid: string; kind: 'full' | 'incremental'; createdAt?: string; id?: string }) => Promise<unknown>
-  appendOldFavoriteWorkspaceChunk?: (accountMid: string, batchId: string, kind: 'base' | 'tags' | 'sources', items: unknown[]) => Promise<unknown>
-  appendOldFavoriteWorkspaceChunkGroup?: (accountMid: string, batchId: string, chunks: Record<'base' | 'tags' | 'sources', unknown[]>) => Promise<unknown>
-  patchOldFavoriteWorkspaceOverlay?: (accountMid: string, batchId: string, kind: OldFavoriteOverlayKind, patch: OldFavoriteOverlayPatch | OldFavoriteOverlayPatch[]) => Promise<void>
-  markOldFavoriteWorkspaceOverlayDirty?: () => boolean
-  markOldFavoriteWorkspaceOverlayClean?: () => boolean
-  onOldFavoriteWorkspaceFlushRequested?: (callback: () => Promise<void>) => () => void
-  finalizeOldFavoriteWorkspaceBatch?: (accountMid: string, batchId: string) => Promise<unknown>
-  resetOldFavoriteWorkspaceAccount?: (accountMid: string) => Promise<void>
-  resetOldFavoriteAccount?: (accountMid: string) => Promise<OldFavoriteSessionsState>
-  resetOldFavoriteRuntime?: () => boolean
-  resetOldFavoriteRuntimeAccount?: (accountMid: string) => Promise<boolean>
-      loadOldFavoriteSessions?: () => Promise<OldFavoriteSessionsState>
-      beginOldFavoriteFullScan?: (
-        accountMid: string,
-        now: string,
-        snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']
-      ) => Promise<{ batch: OldFavoriteSessionsState['batches'][number]; acquired: boolean }>
-      beginOldFavoriteIncrementalScan?: (
-        accountMid: string,
-        now: string,
-        snapshot?: OldFavoriteSessionsState['batches'][number]['snapshot']
-      ) => Promise<{ batch: OldFavoriteSessionsState['batches'][number]; acquired: boolean }>
-      endOldFavoriteBatch?: (batchId: string, endedAt: string) => Promise<OldFavoriteBatchLifecycleSnapshot>
-      discardOldFavoriteEmptyIncrementalBatch?: (
-        batchId: string,
-        accountMid: string
-      ) => Promise<{ batchId: string; accountMid: string; discarded: true }>
-  saveOldFavoriteSessions?: (state: OldFavoriteSessionsState) => Promise<OldFavoriteSessionsState>
-  resetOldFavoriteSessionsAccount?: (accountMid: string) => Promise<OldFavoriteSessionsState>
-  claimOldFavoriteTaskLease?: (
-    batchId: string,
-    segmentId: string,
-    task: OldFavoriteTaskKind,
-    accountMid: string
-  ) => Promise<boolean>
-  releaseOldFavoriteTaskLease?: (batchId: string, segmentId: string) => Promise<boolean>
-  onOldFavoriteSessionsChanged?: (
-    callback: (state: OldFavoriteSessionsState) => void
-  ) => () => void
-  setOldFavoriteBackgroundRunning?: (running: boolean) => void
-  setOldFavoriteBackgroundTarget?: (webContentsId: number) => void
-  retryBilibiliSessionDirect?: () => Promise<{ mode: 'direct' }>
-  onOldFavoriteRuntimeChanged?: (
-    callback: (snapshot: OldFavoriteRuntimeSnapshot | { type: 'reset'; accountMid: string }) => void
-  ) => () => void
   onAssistantPreferencesChanged?: (callback: (preferences: AssistantPreferences) => void) => () => void
   onAssistantPetStateChanged?: (callback: (state: AssistantPetState) => void) => () => void
   onAssistantPetHintChanged?: (callback: (hint: AssistantPetHint) => void) => () => void
@@ -192,7 +117,6 @@ type BilimiDesktopApi = {
   ) => () => void
   onOpenInTab?: (callback: (url: string) => void) => () => void
   openBilibiliFavorites?: () => Promise<AssistantAutomationResult>
-  rejudgeOldFavorite?: (item: FavoriteLedgerPreviewItem) => Promise<FavoriteLedgerPreviewItem>
   onRunAssistantAction?: (callback: (payload: { action: AssistantAction }) => void) => () => void
   onVideoAudioTranscriptionProgress?: (
     callback: (progress: VideoAudioTranscriptionProgress) => void
@@ -214,20 +138,6 @@ type BilimiDesktopApi = {
   openFloatingAssistantWorkspace?: (
     payload: FloatingAssistantWorkspaceRequest
   ) => Promise<void>
-  scanOldFavorites?: (options?: {
-    multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']
-  }) => Promise<FavoriteLedgerPreview>
-  commitOldFavoriteBatchCheckpoint?: (
-    token: OldFavoriteBatchCommitToken
-  ) => Promise<OldFavoriteBatchCommitResult>
-  readOldFavoriteBatchStatus?: () => Promise<{ pending: boolean }>
-  prepareOldFavoriteScan?: () => Promise<AssistantAutomationResult>
-  readOldFavoriteTagEnrichment?: (action?: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan') => Promise<{
-    accountMid?: string
-    sourceFolders: import('./features/favorites/favoriteLedgerPreview').FavoriteSourceFolder[]
-    discoveredAids?: number[]
-    scanProgress: NonNullable<FavoriteLedgerPreview['scanProgress']>
-  }>
   upsertPendingFavoriteQueueItems?: (
     items: PendingFavoriteQueueItem[]
   ) => Promise<PendingFavoriteQueueItem[]>

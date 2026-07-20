@@ -99,6 +99,7 @@ function isConfirmedRemoteRejection(error: unknown) {
 
 export class FavoriteRepositorySyncService {
   private readonly runTails = new Map<string, Promise<void>>()
+  private readonly claimedExecutionRuns = new Set<string>()
 
   constructor(private readonly options: {
     repository: FavoriteRepositoryService
@@ -121,6 +122,24 @@ export class FavoriteRepositorySyncService {
   async bindPageTarget(accountMid: string, runId: string) {
     const account = normalizeAccountMid(accountMid)
     await this.options.pageBridgeManager?.bind(account, runId)
+  }
+
+  /** Persists the user-confirmed execution boundary before any remote bind begins. */
+  async claimFrozenPlan(accountMid: string, frozenPlan: FrozenFavoriteSyncPlan): Promise<FavoriteRepositorySyncRun> {
+    const account = normalizeAccountMid(accountMid)
+    const plan = clonePlan(frozenPlan)
+    return this.runRemote(account, async () => this.withRunLock(account, plan.id, async () => {
+      const { workspace } = await this.options.repository.getSnapshot(account)
+      if (!workspace || workspace.id !== plan.workspaceId || JSON.stringify(workspace.frozenSyncPlan) !== JSON.stringify(plan)) {
+        throw new Error('Favorite sync plan does not match the frozen workspace.')
+      }
+      const run = this.summarize(plan, await this.options.repository.getSyncCheckpoints(account, plan.id))
+      if (workspace.status === 'frozen') {
+        await this.writeWorkspace(account, withWorkspaceStatus(workspace, 'executing', plan), `claim:${plan.id}`)
+        this.claimedExecutionRuns.add(`${account}:${plan.id}`)
+      }
+      return run
+    }))
   }
 
   async executeFrozenPlan(accountMid: string, frozenPlan: FrozenFavoriteSyncPlan): Promise<FavoriteRepositorySyncRun> {
@@ -147,6 +166,15 @@ export class FavoriteRepositorySyncService {
           return existingRun
         }
         if (workspace.status !== 'frozen') {
+          if (workspace.status === 'executing' && this.claimedExecutionRuns.delete(`${account}:${plan.id}`)) {
+            try {
+              await this.bindPageTarget(account, plan.id)
+              return this.drive(account, workspace.frozenSyncPlan)
+            } catch (error) {
+              await this.writeWorkspace(account, withWorkspaceStatus(workspace, 'reconciling', workspace.frozenSyncPlan), `bind-failed:${plan.id}`)
+              throw error
+            }
+          }
           // A restored/existing run is never rebound here. Callers must use
           // explicit reconciliation before deciding whether it may continue.
           if (workspace.status === 'executing' && !existingRun.completedOperationCount && existingRun.status === 'running') {

@@ -1,12 +1,6 @@
 import type { PetHoverShortcutId } from './petHoverShortcuts'
 
 export type {
-  OldFavoriteSessionsState,
-  OldFavoriteTaskKind,
-  OldFavoriteTaskLease
-} from './oldFavoriteSessions'
-
-export type {
   AccountFavoriteRepositorySnapshot,
   FavoriteRepositoryCommand,
   FavoriteRepositoryCommandResult,
@@ -136,17 +130,6 @@ export type FavoriteCorrectionRecord = {
   scoreGap?: number
   createdAt: string
   confirmedAt?: string
-}
-
-export type OldFavoriteRuntimeSnapshot = {
-  key: string
-  revision: number
-  value: unknown
-  accountMid: string
-}
-
-export type OldFavoriteRuntimeSetResult = OldFavoriteRuntimeSnapshot & {
-  accepted: boolean
 }
 
 export type FavoriteKeywordSuggestion = {
