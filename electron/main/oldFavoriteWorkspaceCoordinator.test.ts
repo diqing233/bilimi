@@ -1465,6 +1465,28 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(ensurePhysicalShard).toHaveBeenNthCalledWith(2, '100', expect.objectContaining({ logicalLedgerId: 'music', shardNumber: 2 }))
   })
 
+  it('resolves a saved custom ledger title before preparing its remote shard', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root })
+    const ensurePhysicalShard = vi.fn().mockResolvedValue({})
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      bindingService: { ensurePhysicalShard },
+      resolveLedgerTitle: vi.fn().mockResolvedValue('bilimi·你好')
+    })
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['custom-saved-ledger'] }]
+    })
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('remote-target-unbound')
+    expect(ensurePhysicalShard).toHaveBeenCalledWith('100', {
+      logicalLedgerId: 'custom-saved-ledger', logicalTitle: 'bilimi·你好', remoteDisplayTitle: 'bilimi·你好', shardNumber: 1, memberAids: []
+    })
+  })
+
   it('allocates another physical shard when a bound remote folder is nearly full but local members are incomplete', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })

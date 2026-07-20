@@ -143,6 +143,7 @@ export function OldFavoriteGuide({
     {!recovery && snapshot && step === 'confirm' ? <OldFavoriteConfirmationStep
       snapshot={snapshot}
       loading={loading}
+      executionError={executionError}
       onSaveLocally={onSaveLocally}
       onConfirmAndSync={onConfirmAndSync}
       onExecuteFrozenPlan={onExecuteFrozenPlan}

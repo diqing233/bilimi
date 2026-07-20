@@ -69,6 +69,7 @@ import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
 import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanService'
 import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepSeekService'
 import { mergeOldFavoriteWorkspaceLedgers } from './oldFavoriteWorkspaceClassification'
+import { resolveSavedOldFavoriteWorkspaceLedgerTitle } from './oldFavoriteWorkspaceLedgerTitle'
 import { registerOldFavoriteWorkspaceCoordinatorIpc } from './oldFavoriteWorkspaceCoordinatorIpc'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import { FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
@@ -1279,6 +1280,11 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         confidence: result.diagnostic?.confidence === 'high' ? 'high' : 'low'
       }
     },
+    resolveLedgerTitle: async (_accountMid, logicalLedgerId) =>
+      resolveSavedOldFavoriteWorkspaceLedgerTitle(
+        loadAssistantPreferences(getDesktopStore()).favoriteLedgers,
+        logicalLedgerId
+      ),
     workspaceStore: new OldFavoriteWorkspaceStore({
       root: join(app.getPath('userData'), 'favorites', 'repository-v1')
     })
