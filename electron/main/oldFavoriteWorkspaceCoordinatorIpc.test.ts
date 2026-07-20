@@ -168,6 +168,26 @@ describe('old favorite workspace coordinator IPC', () => {
     })).rejects.toThrow('command is invalid')
   })
 
+  it('routes a bounded local-ledger creation command only to the workspace coordinator', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      createLocalLedgerAndReclassify: vi.fn().mockResolvedValue({}),
+      getSnapshot: vi.fn().mockResolvedValue(snapshot)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'create-local-ledger-and-reclassify', title: 'Music'
+    })).resolves.toEqual(snapshot)
+    expect(coordinator.createLocalLedgerAndReclassify).toHaveBeenCalledWith('100', 'Music')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'create-local-ledger-and-reclassify', title: 'Music', remoteFolderId: '999'
+    })).rejects.toThrow('command is invalid')
+  })
+
   it('routes only explicit undo and redo commands to the controlled coordinator', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

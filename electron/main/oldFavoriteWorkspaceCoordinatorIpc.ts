@@ -19,6 +19,7 @@ type WorkspaceCommand =
   | { type: 'redo-classification' }
   | { type: 'auto-classify-current-segment' }
   | { type: 'set-recommended-candidates'; candidateIds: string[] }
+  | { type: 'create-local-ledger-and-reclassify'; title: string }
   | { type: 'apply-classifications'; source: 'manual'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
   | { type: 'freeze-segment'; segmentId: string }
   | { type: 'save-current-segment-locally' }
@@ -74,6 +75,10 @@ function command(value: unknown): WorkspaceCommand {
     candidate.candidateIds.length <= 32 && candidate.candidateIds.every((id) => typeof id === 'string' && id.trim().length > 0 && id.trim().length <= 128) &&
     Object.keys(candidate).every((key) => key === 'type' || key === 'candidateIds')) {
     return { type: 'set-recommended-candidates', candidateIds: [...new Set(candidate.candidateIds.map((id) => id.trim()))].sort() }
+  }
+  if (candidate.type === 'create-local-ledger-and-reclassify' && typeof candidate.title === 'string' &&
+    candidate.title.trim().length > 0 && candidate.title.trim().length <= 128 && Object.keys(candidate).every((key) => key === 'type' || key === 'title')) {
+    return { type: 'create-local-ledger-and-reclassify', title: candidate.title.trim() }
   }
   if (candidate.type === 'freeze-segment' && typeof candidate.segmentId === 'string' && candidate.segmentId.trim()) {
     return { type: 'freeze-segment', segmentId: candidate.segmentId.trim() }
@@ -144,6 +149,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'redo-classification') await options.coordinator.redoClassificationChange(accountMid)
     if (requested.type === 'auto-classify-current-segment') await options.coordinator.autoClassifyCurrentSegment(accountMid)
     if (requested.type === 'set-recommended-candidates') await options.coordinator.setRecommendedCandidates(accountMid, requested.candidateIds)
+    if (requested.type === 'create-local-ledger-and-reclassify') await options.coordinator.createLocalLedgerAndReclassify(accountMid, requested.title)
     if (requested.type === 'freeze-segment') await options.coordinator.freezeSegment(accountMid, requested.segmentId)
     if (requested.type === 'save-current-segment-locally') await options.coordinator.saveCurrentSegmentToLocalLibrary(accountMid)
     if (requested.type === 'freeze-bilibili-execution') await options.coordinator.freezeForBilibiliExecution(accountMid)

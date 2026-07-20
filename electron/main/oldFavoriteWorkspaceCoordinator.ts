@@ -113,6 +113,17 @@ function stableRecommendationId(author: string) {
   return `custom-author-${(hash >>> 0).toString(36)}`
 }
 
+function localLedgerId(title: string) {
+  const slug = title.toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  if (slug) return `local-${slug}`
+  let hash = 2166136261
+  for (const character of title) {
+    hash ^= character.codePointAt(0) ?? 0
+    hash = Math.imul(hash, 16777619)
+  }
+  return `local-${(hash >>> 0).toString(36)}`
+}
+
 function buildAuthorRecommendations(items: Iterable<Pick<CurrentSegmentItem, 'author'>>): RecommendationState {
   const counts = new Map<string, number>()
   for (const item of items) {
@@ -337,6 +348,62 @@ export class OldFavoriteWorkspaceCoordinator {
       this.recommendations.set(workspace.accountMid, next)
       if (!this.options.classifyCurrentItem) return clone(workspace)
       return this.autoClassifyCurrentSegmentUnsafe(workspace, true)
+    })
+  }
+
+  /** Creates a repository-only logical target, then reapplies system suggestions for the current segment. */
+  async createLocalLedgerAndReclassify(accountMid: string, title: string) {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      const normalizedTitle = title.trim()
+      if (workspace.status !== 'previewing' || !normalizedTitle || normalizedTitle.length > 128) {
+        throw new Error('Old favorite workspace local ledger is invalid.')
+      }
+      const id = localLedgerId(normalizedTitle)
+      const folderId = `local:${id}`
+      const repository = await this.options.repository.getSnapshot(workspace.accountMid)
+      const existingFolder = repository.folders.find((folder) => folder.id === folderId)
+      if (existingFolder && (existingFolder.kind !== 'local' || existingFolder.title !== normalizedTitle)) {
+        throw new Error('Old favorite workspace local ledger already exists.')
+      }
+      if (!existingFolder) {
+        await this.options.repository.commit(workspace.accountMid, {
+          id: `old-favorite-workspace:create-local-ledger:${workspace.id}:${id}`,
+          accountMid: workspace.accountMid,
+          issuedAt: this.now(),
+          type: 'commit-local-plan',
+          payload: {
+            workspaceId: workspace.id,
+            memberAidsByFolderId: {},
+            folders: [{ id: folderId, title: normalizedTitle, kind: 'local', syncState: 'local-only' }]
+          }
+        })
+      }
+      const state = await this.ensureRecommendations(workspace)
+      const candidate: StoredRecommendation = {
+        id,
+        displayName: `${BILIMI_LEDGER_PREFIX}${normalizedTitle}`,
+        kind: 'series',
+        sourceName: normalizedTitle,
+        keywords: [normalizedTitle],
+        count: 0,
+        reason: 'Created locally for this organization round.'
+      }
+      const candidates = state.candidates.some((item) => item.id === id)
+        ? state.candidates.map((item) => item.id === id ? candidate : item)
+        : [...state.candidates, candidate]
+      const next: RecommendationState = {
+        initialized: true,
+        candidates,
+        adoptedCandidateIds: [...new Set([...state.adoptedCandidateIds, id])].sort()
+      }
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], recommendations: next
+      })
+      this.recommendations.set(workspace.accountMid, next)
+      return this.options.classifyCurrentItem
+        ? this.autoClassifyCurrentSegmentUnsafe(workspace, true)
+        : clone(workspace)
     })
   }
 

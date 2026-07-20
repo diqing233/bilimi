@@ -40,8 +40,7 @@ export function ControlledFavoriteLedgerPanel({
   const snapshot = workspace.snapshot
   const recovery = snapshot && 'recovery' in snapshot ? snapshot : null
   const sourceIds = useMemo(() => new Set(
-    recovery ? [] : snapshot?.sourceFolders
-      .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
+    recovery ? [] : snapshot?.sourceFolders?.filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
       .map((folder) => folder.id) ?? []
   ), [recovery, snapshot])
   const previewItems = useMemo(() => snapshot?.status === 'previewing'
@@ -62,13 +61,7 @@ export function ControlledFavoriteLedgerPanel({
   const addLocalLedger = async () => {
     const displayName = newLedgerName.trim()
     if (!displayName) return
-    const id = `local-${displayName.toLocaleLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/giu, '-').replace(/^-|-$/g, '') || Date.now()}`
-    if (ledgers.some((ledger) => ledger.id === id || ledger.displayName === displayName)) return
-    await onSaveLedgers([...ledgers, {
-      id,
-      displayName: displayName.startsWith(BILIMI_LEDGER_PREFIX) ? displayName : `${BILIMI_LEDGER_PREFIX}${displayName}`,
-      keywords: [], ruleType: 'keyword', enabled: true, priority: ledgers.length, isDefault: false
-    }])
+    await workspace.createLocalLedgerAndReclassify(displayName)
     setNewLedgerName('')
   }
 

@@ -69,9 +69,19 @@ describe('ControlledFavoriteLedgerPanel', () => {
     }))
   })
 
-  it('adds a local ledger before the workspace reclassifies the current segment', async () => {
+  it('creates a local workspace ledger through the controlled command instead of saving Bilibili rules', async () => {
+    const command = vi.fn().mockResolvedValue({
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    })
     const save = vi.fn().mockResolvedValue(undefined)
-    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null) } as typeof window.bilimiDesktop
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
     render(<ControlledFavoriteLedgerPanel
       currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={save}
@@ -80,8 +90,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.change(screen.getByRole('textbox', { name: '新增收藏夹名称' }), { target: { value: '音乐' } })
     fireEvent.click(screen.getByRole('button', { name: '新增并重新归类' }))
 
-    await waitFor(() => expect(save).toHaveBeenCalledWith([
-      expect.objectContaining({ id: 'local-音乐', displayName: 'bilimi·音乐', enabled: true })
-    ]))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'create-local-ledger-and-reclassify', title: '音乐'
+    }))
+    expect(save).not.toHaveBeenCalled()
   })
 })

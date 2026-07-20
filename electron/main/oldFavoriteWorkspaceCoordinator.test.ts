@@ -504,6 +504,36 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('creates a local logical ledger in the repository and reclassifies system results without changing manual decisions', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      classifyCurrentItem: (_item, ledgers = []) => ledgers.some((ledger) => ledger.id === 'local-music')
+        ? { targetLedgerIds: ['local-music'], confidence: 'high' }
+        : { targetLedgerIds: ['music'], confidence: 'high' },
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 2, targetLedgerIds: ['manual'] }]
+    })
+
+    await coordinator.createLocalLedgerAndReclassify('100', 'Music')
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: { adoptedCandidateIds: ['local-music'] },
+      classifications: {
+        '1': { targetLedgerIds: ['local-music'], source: 'system-high' },
+        '2': { targetLedgerIds: ['manual'], source: 'manual' }
+      }
+    })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      folders: [expect.objectContaining({ id: 'local:local-music', title: 'Music', kind: 'local', syncState: 'local-only' })]
+    })
+  })
+
   it('restores adopted recommendations without leaking them across accounts', async () => {
     const root = await createRoot()
     const first = new OldFavoriteWorkspaceCoordinator({
@@ -611,6 +641,14 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     await coordinator.finishScan('100')
     await coordinator.selectSourceFolders('100', ['source'])
+    await coordinator.autoClassifyCurrentSegment('100')
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: {
+        '1': { targetLedgerIds: ['music'], source: 'system-high' },
+        '2': { targetLedgerIds: ['music'], source: 'system-high' },
+        '3': { targetLedgerIds: ['music'], source: 'system-high' }
+      }
+    })
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
     const deepSeekInput = await coordinator.getSnapshot('100')
     if ('recovery' in deepSeekInput || !deepSeekInput.currentSegment) throw new Error('workspace unexpectedly unavailable')
@@ -659,7 +697,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
         '2': { targetLedgerIds: ['knowledge'], source: 'deepseek' },
         '3': { targetLedgerIds: ['manual'], source: 'manual' }
       },
-      history: { cursor: 5, length: 5 }
+      history: { cursor: 6, length: 6 }
     })
 
     for (const [logicalLedgerId, remoteFolderId] of [
