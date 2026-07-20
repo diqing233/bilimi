@@ -116,6 +116,30 @@ describe('OldFavoriteWorkspaceScanService', () => {
     resolveIncrementalInventory({ status: 'ok', observedAccountMid: '100', folders: [] })
   })
 
+  it('does not let an earlier full scan swallow a later full reorganization request', async () => {
+    let resolveFirstInventory!: (value: unknown) => void
+    const firstInventory = new Promise((resolve) => { resolveFirstInventory = resolve })
+    const coordinator = {
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-2'), beginScan: vi.fn()
+        .mockResolvedValueOnce({ accountMid: '100', status: 'scanning', mode: 'full' })
+        .mockResolvedValueOnce({ accountMid: '100', status: 'scanning', mode: 'full' }),
+      recordScanInventory: vi.fn(), recordScanFailure: vi.fn()
+    }
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const runtime = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockReturnValueOnce(firstInventory)
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', folders: [] })
+    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+
+    await service.start('100', 'full')
+    await expect(service.start('100', 'full')).resolves.toMatchObject({ mode: 'full' })
+
+    expect(coordinator.beginScan).toHaveBeenCalledTimes(2)
+    resolveFirstInventory({ status: 'ok', observedAccountMid: '100', folders: [] })
+  })
+
   it('does not persist inventory reported for a different account', async () => {
     const coordinator = {
       getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),

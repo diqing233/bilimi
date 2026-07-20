@@ -45,7 +45,7 @@ export class OldFavoriteWorkspaceScanService {
     const active = this.activeScans.get(account)
     // An explicit full reorganization must supersede a running incremental scan.
     // The old scan observes its revoked ownership before it can write another page.
-    if (active && (active.mode === mode || active.mode === 'full')) return active.snapshot
+    if (active && mode !== 'full' && (active.mode === mode || active.mode === 'full')) return active.snapshot
 
     let run!: { mode: OldFavoriteWorkspaceMode; snapshot: Promise<OldFavoriteWorkspaceSnapshot> }
     const isCurrent = () => this.activeScans.get(account) === run
