@@ -148,7 +148,9 @@ export function OldFavoriteArchivePreviewStep({
         <div className="favorite-ledger-panel__archive-tool-divider" aria-hidden="true" />
         <div className="favorite-ledger-panel__archive-history-section" role="group" aria-label="归档预览改动操作">
           <div className="favorite-ledger-panel__archive-history-actions">
-            <div className="favorite-ledger-panel__archive-history-select-control">
+            <label className="favorite-ledger-panel__archive-history-select">
+              <span>改动记录</span>
+              <div className="favorite-ledger-panel__archive-history-select-control">
               <button type="button" className="favorite-ledger-panel__archive-history-trigger"
                 aria-label="查看改动记录" aria-expanded={historyOpen} disabled={loading || snapshot.history.length === 0}
                 onClick={() => setHistoryOpen((open) => !open)}>
@@ -161,7 +163,8 @@ export function OldFavoriteArchivePreviewStep({
                     onMoveHistoryCursor(entry.cursor)
                   }}>{historyLabel(entry)}</button>)}
               </div> : null}
-            </div>
+              </div>
+            </label>
             <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || snapshot.history.cursor === 0} onClick={onUndo}>撤销本次改动</button>
             <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || snapshot.history.cursor >= snapshot.history.length} onClick={onRedo}>恢复本次改动</button>
           </div>
@@ -175,13 +178,18 @@ export function OldFavoriteArchivePreviewStep({
         const visibleItems = expanded ? group.items : group.items.slice(0, INITIAL_GROUP_ITEM_LIMIT)
         const stageAll = group.id === 'unclassified' && group.items.length > 0 && group.items.every((item) =>
           snapshot.classifications[String(item.aid)]?.targetLedgerIds.includes('inbox'))
+        const groupAll = group.id !== 'unclassified' && group.items.length > 0 && group.items.every((item) =>
+          snapshot.classifications[String(item.aid)]?.targetLedgerIds.includes(group.id))
         return <section key={group.id} className={`favorite-ledger-panel__preview-row${group.id === 'unclassified' ? ' favorite-ledger-panel__preview-row--pending' : ''}`}
           data-archive-ledger-id={group.id} role="group" aria-label={`${group.title} ${group.items.length} 条`}>
           <header><span className="favorite-ledger-panel__preview-heading"><strong>{group.title}</strong><small>{group.items.length} 条{group.id === 'unclassified' ? '需要处理' : '适合'}</small></span>
             {group.id === 'unclassified' ? <label><input type="checkbox" aria-label="全部存入暂存" checked={stageAll} disabled={loading}
               onChange={(event) => onApplyManualClassifications(group.items.map((item) => ({
                 aid: item.aid, targetLedgerIds: event.currentTarget.checked ? ['inbox'] : []
-              })))} /><span>全部存入暂存</span></label> : null}
+              })))} /><span>全部存入暂存</span></label> : <label><input type="checkbox" aria-label={`全选 ${group.title}`} checked={groupAll} disabled={loading}
+                onChange={(event) => onApplyManualClassifications(group.items.map((item) => ({
+                  aid: item.aid, targetLedgerIds: event.currentTarget.checked ? [group.id] : []
+                })))} /><span>全选</span></label>}
           </header>
           {expanded && group.items.length > VIRTUAL_TRACK_THRESHOLD ? <VirtualOldFavoriteTrack className="favorite-ledger-panel__preview-videos favorite-ledger-panel__preview-videos--virtual"
             ariaLabel={`${group.title} 视频`} items={group.items} itemKey={(item) => `${group.id}-${item.aid}`} itemWidth={280} renderItem={renderItem} /> :

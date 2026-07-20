@@ -69,6 +69,35 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(screen.getByRole('group', { name: '音乐舞台 1 条' })).toBeInTheDocument()
   })
 
+  it('restores a select-all control for every concrete archive group', () => {
+    const onApplyManualClassifications = vi.fn()
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false, selected: true }],
+        segments: [], currentSegment: {
+          id: 'segment-1', aids: [1, 2], items: [
+            { aid: 1, title: 'Matched', sourceFolderIds: ['source'] },
+            { aid: 2, title: 'Unmatched', sourceFolderIds: ['source'] }
+          ]
+        },
+        classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'system-high' } },
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+      }}
+      ledgers={[{ id: 'music', displayName: '音乐舞台', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
+      loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()}
+      onApplyManualClassifications={onApplyManualClassifications}
+    />)
+
+    expect(screen.getByRole('checkbox', { name: '全选 音乐舞台' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '全部存入暂存' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox', { name: '全选 音乐舞台' }))
+    expect(onApplyManualClassifications).toHaveBeenCalledWith([{ aid: 1, targetLedgerIds: [] }])
+  })
+
   it('uses the legacy 280px virtual track width for large preview groups', () => {
     const items = Array.from({ length: 51 }, (_, index) => ({
       aid: index + 1, title: `Video ${index + 1}`, sourceFolderIds: ['source']
@@ -86,6 +115,7 @@ describe('OldFavoriteArchivePreviewStep', () => {
       onUndo={vi.fn()} onRedo={vi.fn()} onApplyManualClassification={vi.fn()} onCreateLocalLedgerAndReclassify={vi.fn()}
     />)
 
+    fireEvent.click(screen.getByRole('button', { name: '显示全部 51 条' }))
     expect(document.querySelector('.favorite-ledger-panel__virtual-track-spacer')).toHaveStyle({ width: '14280px' })
   })
 })

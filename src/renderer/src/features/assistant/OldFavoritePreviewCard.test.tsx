@@ -30,4 +30,34 @@ describe('OldFavoritePreviewCard', () => {
 
     expect(screen.getByText('标签：TypeScript、Frontend')).toBeInTheDocument()
   })
+
+  it('keeps the legacy target line and compact classification footer together', () => {
+    render(<OldFavoritePreviewCard
+      item={{ aid: 1, title: 'Manual move', sourceFolderIds: ['source'] }}
+      sourceFolderTitles={['Source folder']}
+      classification={{ aid: 1, targetLedgerIds: ['music'], source: 'manual' }}
+      ledgers={[{ id: 'music', displayName: 'Music', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
+      loading={false}
+      onApplyManualClassification={vi.fn()}
+    />)
+
+    const article = screen.getByRole('article')
+    expect(screen.getByText('目标收藏夹：Music')).toBeInTheDocument()
+    expect(screen.getByLabelText('归类 Manual move')).toBeInTheDocument()
+    expect(article.querySelector('.favorite-ledger-panel__preview-controls')).not.toBeNull()
+    expect(article.querySelector('.favorite-ledger-panel__preview-change-source')).toHaveTextContent('改动来源：人工调整')
+  })
+
+  it('labels an unclassified card as an unclassified classification source', () => {
+    render(<OldFavoritePreviewCard
+      item={{ aid: 1, title: 'Unclassified', sourceFolderIds: ['source'] }}
+      sourceFolderTitles={['Source folder']}
+      ledgers={[]}
+      loading={false}
+      onApplyManualClassification={vi.fn()}
+    />)
+
+    expect(screen.getByText('分类来源：未分类')).toBeInTheDocument()
+    expect(screen.getByText('目标收藏夹：未分类')).toBeInTheDocument()
+  })
 })
