@@ -112,7 +112,9 @@ export function ControlledFavoriteLedgerPanel({
         <div className="favorite-ledger-panel__header"><h2 className="sr-only">掌库</h2></div>
         <div className="favorite-ledger-panel__toolbar">
           <AssistantActionButton type="button" aria-label="备册" disabled={workspace.loading}
-            onClick={() => void onEnsureLedgers()} icon={clickedPetUrl} iconAlt="小咪备册" badge="备"
+            onClick={() => void onEnsureLedgers().then((result) => {
+              if ((result as { ok?: boolean } | undefined)?.ok !== false) return onOpenFavoritePage?.()
+            })} icon={clickedPetUrl} iconAlt="小咪备册" badge="备"
             label="备册" description="一键生成 bilimi 收藏夹，用于归类收藏和整理" />
           <AssistantActionButton type="button" aria-label="整理旧藏" disabled={scanStarting || !currentAccountMid}
             onClick={() => void startScan('incremental')} icon={hintPetUrl} iconAlt="小咪整理旧藏" badge="整"

@@ -21,6 +21,30 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('region', { name: '收藏夹' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '全部重新整理' })).not.toBeInTheDocument()
   })
+
+  it('opens the Bilibili favorites page after a successful legacy backup action', async () => {
+    const ensure = vi.fn().mockResolvedValue({ ok: true })
+    const openFavoritePage = vi.fn().mockResolvedValue({ ok: true })
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={ensure} onSaveLedgers={vi.fn()} onOpenFavoritePage={openFavoritePage} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册' }))
+
+    await waitFor(() => expect(ensure).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(openFavoritePage).toHaveBeenCalledTimes(1))
+  })
+
+  it('does not open the Bilibili favorites page after a failed backup action', async () => {
+    const ensure = vi.fn().mockResolvedValue({ ok: false })
+    const openFavoritePage = vi.fn()
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={ensure} onSaveLedgers={vi.fn()} onOpenFavoritePage={openFavoritePage} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '备册' }))
+
+    await waitFor(() => expect(ensure).toHaveBeenCalledTimes(1))
+    expect(openFavoritePage).not.toHaveBeenCalled()
+  })
   it('keeps the default ledger closed behind separate Chinese organize and library entries', async () => {
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
