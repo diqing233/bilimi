@@ -36,6 +36,7 @@ export function ControlledFavoriteLedgerPanel({
   const workspace = useOldFavoriteWorkspace(currentAccountMid)
   const [step, setStep] = useState<GuideStep>('scan')
   const [guideOpen, setGuideOpen] = useState(false)
+  const [scanStarting, setScanStarting] = useState(false)
   const [newLedgerName, setNewLedgerName] = useState('')
   const snapshot = workspace.snapshot
   const recovery = snapshot && 'recovery' in snapshot ? snapshot : null
@@ -54,8 +55,18 @@ export function ControlledFavoriteLedgerPanel({
         (snapshot?.classifications[String(item.aid)]?.targetLedgerIds.length ?? 0) > 0)
   const canOpenStep = (next: GuideStep) => {
     if (next === 'scan') return true
+    if (scanStarting) return false
     if (next === 'generated' || next === 'preview') return snapshot?.status === 'previewing'
     return Boolean(snapshot && ['previewing', 'frozen', 'executing', 'reconciling', 'completed'].includes(snapshot.status))
+  }
+
+  const startScan = async (mode: 'incremental' | 'full') => {
+    setScanStarting(true)
+    try {
+      await workspace.startScan(mode)
+    } finally {
+      setScanStarting(false)
+    }
   }
 
   const addLocalLedger = async () => {
@@ -100,7 +111,7 @@ export function ControlledFavoriteLedgerPanel({
             onClick={() => {
               setGuideOpen(true)
               setStep('scan')
-              void workspace.startScan('incremental')
+              void startScan('incremental')
             }}>整理旧藏</button>
           <button type="button" aria-label="全部重新整理" disabled={workspace.loading || !currentAccountMid}
             onClick={() => void workspace.startScan('full')}>全部重新整理</button>
@@ -136,10 +147,10 @@ export function ControlledFavoriteLedgerPanel({
           <h4>扫描概览</h4>
           <p className="favorite-ledger-panel__scan-guidance">{snapshot?.scan.phase === 'failed'
             ? `扫描失败：${snapshot.scan.reason || '请重新扫描。'}`
-            : snapshot?.status === 'scanning' || !snapshot ? '扫描概览：扫描中' : '扫描概览已完成，正在准备归档预览。'}</p>
+            : scanStarting || snapshot?.status === 'scanning' || !snapshot ? '扫描概览：扫描中' : '扫描概览已完成，正在准备归档预览。'}</p>
           <div className="favorite-ledger-panel__scan-progress" aria-label="旧藏扫描进度">
-            <progress aria-label="收藏夹概览进度" max={1} value={snapshot?.status === 'scanning' ? 0 : 1} />
-            <strong>{snapshot?.scan.phase === 'failed' ? '扫描失败' : snapshot?.status === 'scanning' ? '正在扫描' : '已完成'}</strong>
+            <progress aria-label="收藏夹概览进度" max={1} value={scanStarting || snapshot?.status === 'scanning' ? 0 : 1} />
+            <strong>{snapshot?.scan.phase === 'failed' ? '扫描失败' : scanStarting || snapshot?.status === 'scanning' ? '正在扫描' : '已完成'}</strong>
           </div>
           {snapshot?.scan.phase === 'failed' ? <button type="button" disabled={workspace.loading}
             onClick={() => void workspace.startScan('incremental')}>重新扫描</button> : null}
