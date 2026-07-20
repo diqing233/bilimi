@@ -14,7 +14,7 @@ describe('OldFavoritePreviewCard', () => {
     />)
 
     const article = screen.getByRole('article')
-    expect(article).toHaveClass('favorite-ledger-panel__preview-item-shell')
+    expect(article).not.toHaveClass('favorite-ledger-panel__preview-item-shell')
     expect(article).not.toHaveClass('favorite-ledger-panel__preview-video')
     expect(article.querySelector('.favorite-ledger-panel__preview-video--pending')).toHaveAttribute('data-selected', 'false')
   })

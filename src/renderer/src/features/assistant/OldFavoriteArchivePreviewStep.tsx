@@ -156,8 +156,8 @@ export function OldFavoriteArchivePreviewStep({
         data-archive-ledger-id={group.id} role="group" aria-label={`${group.title} ${group.items.length} 条`}>
         <header><span className="favorite-ledger-panel__preview-heading"><strong>{group.title}</strong><small>{group.items.length} 条{group.id === 'unclassified' ? '需要处理' : '适合'}</small></span></header>
         {group.items.length > VIRTUAL_TRACK_THRESHOLD ? <VirtualOldFavoriteTrack className="favorite-ledger-panel__preview-videos favorite-ledger-panel__preview-videos--virtual"
-          ariaLabel={`${group.title} 视频`} items={group.items} itemKey={(item) => `${group.id}-${item.aid}`} itemWidth={320} renderItem={renderItem} /> :
-          <div className="favorite-ledger-panel__preview-videos" aria-label={`${group.title} 视频`}>{group.items.map((item) => <div key={`${group.id}-${item.aid}`}>{renderItem(item)}</div>)}</div>}
+          ariaLabel={`${group.title} 视频`} items={group.items} itemKey={(item) => `${group.id}-${item.aid}`} itemWidth={280} renderItem={renderItem} /> :
+          <div className="favorite-ledger-panel__preview-videos" aria-label={`${group.title} 视频`}>{group.items.map((item) => <div key={`${group.id}-${item.aid}`} className="favorite-ledger-panel__preview-item-shell">{renderItem(item)}</div>)}</div>}
       </section>)}
     </div>
     {newLedgerDialogOpen ? <OldFavoriteModal title="新建收藏夹后重新归类"

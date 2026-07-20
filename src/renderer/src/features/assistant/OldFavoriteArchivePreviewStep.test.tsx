@@ -68,4 +68,24 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(screen.getByRole('group', { name: '未匹配到合适分类 1 条' })).toBeInTheDocument()
     expect(screen.getByRole('group', { name: '音乐舞台 1 条' })).toBeInTheDocument()
   })
+
+  it('uses the legacy 280px virtual track width for large preview groups', () => {
+    const items = Array.from({ length: 51 }, (_, index) => ({
+      aid: index + 1, title: `Video ${index + 1}`, sourceFolderIds: ['source']
+    }))
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: items.length, isBilimiWorkFolder: false, selected: true }],
+        segments: [], currentSegment: { id: 'segment-1', aids: items.map((item) => item.aid), items },
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+      }}
+      ledgers={[]} loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onSelectSegment={vi.fn()} onAutoClassify={vi.fn()} onOrganizeWithDeepSeek={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onApplyManualClassification={vi.fn()} onCreateLocalLedgerAndReclassify={vi.fn()}
+    />)
+
+    expect(document.querySelector('.favorite-ledger-panel__virtual-track-spacer')).toHaveStyle({ width: '14280px' })
+  })
 })
