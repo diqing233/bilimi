@@ -26,10 +26,24 @@ type SourceFolder = {
 }
 type Classification = { aid: number; targetLedgerIds: string[]; source: string }
 type History = { kind: string; aids: number[] }
+type Recommendation = {
+  id: string
+  displayName: string
+  kind: 'author' | 'series'
+  sourceName: string
+  keywords: string[]
+  count: number
+  reason: string
+}
 type Overlay = {
   currentSegmentId: string
   classifications: Classification[]
   history: History[]
+  recommendations?: {
+    initialized?: boolean
+    candidates?: Recommendation[]
+    adoptedCandidateIds?: string[]
+  }
   scanMetadata?: {
     sourceFolders?: SourceFolder[]
     phase?: 'inventory' | 'failed' | 'complete'
@@ -285,11 +299,21 @@ export class OldFavoriteWorkspaceStore {
       const classifications: Record<string, Classification> = {}
       const history: History[] = []
       let sourceFolders = manifest.sourceFolders?.map(clone) ?? []
+      let recommendations: { initialized: boolean; candidates: Recommendation[]; adoptedCandidateIds: string[] } = {
+        initialized: false, candidates: [], adoptedCandidateIds: []
+      }
       let scan = clone(manifest.scan ?? { phase: 'inventory' as const, failureCount: 0, mode: 'incremental' as const })
       for (const line of committedJournal.split('\n').filter(Boolean)) {
         const overlay = JSON.parse(line) as Overlay
         for (const item of overlay.classifications) classifications[String(item.aid)] = clone(item)
         history.push(...overlay.history.map(clone))
+        if (overlay.recommendations?.candidates) {
+          recommendations.candidates = overlay.recommendations.candidates.map(clone)
+        }
+        if (overlay.recommendations?.initialized) recommendations.initialized = true
+        if (overlay.recommendations?.adoptedCandidateIds) {
+          recommendations.adoptedCandidateIds = [...new Set(overlay.recommendations.adoptedCandidateIds)]
+        }
         if (overlay.scanMetadata?.sourceFolders) sourceFolders = overlay.scanMetadata.sourceFolders.map(clone)
         if (overlay.scanMetadata?.phase) {
           scan = {
@@ -309,7 +333,7 @@ export class OldFavoriteWorkspaceStore {
         loadedSegmentItems: (loadedSegment.items ?? []).map(clone),
         sourceFolders,
         scan,
-        classifications, history
+        classifications, history, recommendations
       }
     } catch {
       return { recovery: 'rebuild-required', preserveCompletedLocalResults: true }

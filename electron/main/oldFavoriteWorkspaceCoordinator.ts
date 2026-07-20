@@ -15,6 +15,8 @@ import {
   type OldFavoriteWorkspaceSnapshot
 } from '../../src/shared/oldFavoriteWorkspace'
 import type { FavoriteRepositoryWorkspace } from '../../src/shared/favoriteRepository'
+import { BILIMI_LEDGER_PREFIX } from '../../src/shared/favoriteLedgers'
+import type { FavoriteLedger } from '../../src/shared/types'
 import { compileFrozenFavoriteSyncPlan } from '../../src/shared/favoriteRepositoryExecutionPlan'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import type { FavoriteRepositorySyncRun, FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
@@ -55,6 +57,17 @@ type CurrentSegmentItem = {
   sourceFolderIds: string[]
 }
 type AutomaticClassification = { targetLedgerIds: string[]; confidence: 'high' | 'low' }
+type RecommendedLedger = Pick<FavoriteLedger, 'id' | 'displayName' | 'keywords' | 'ruleType' | 'enabled' | 'priority' | 'isDefault'>
+type StoredRecommendation = {
+  id: string
+  displayName: string
+  kind: 'author' | 'series'
+  sourceName: string
+  keywords: string[]
+  count: number
+  reason: string
+}
+type RecommendationState = { initialized: boolean; candidates: StoredRecommendation[]; adoptedCandidateIds: string[] }
 
 export type { OldFavoriteWorkspaceRecoveryRequired, OldFavoriteWorkspaceSnapshot }
 
@@ -88,8 +101,44 @@ function normalizeAids(aids: number[]) {
     .sort((left, right) => left - right)
 }
 
+function stableRecommendationId(author: string) {
+  const slug = author.toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  if (slug) return `custom-author-${slug}`
+  let hash = 2166136261
+  for (const character of author) {
+    hash ^= character.codePointAt(0) ?? 0
+    hash = Math.imul(hash, 16777619)
+  }
+  return `custom-author-${(hash >>> 0).toString(36)}`
+}
+
+function buildAuthorRecommendations(items: Iterable<Pick<CurrentSegmentItem, 'author'>>): RecommendationState {
+  const counts = new Map<string, number>()
+  for (const item of items) {
+    const author = item.author?.trim()
+    if (author) counts.set(author, (counts.get(author) ?? 0) + 1)
+  }
+  return {
+    candidates: [...counts.entries()]
+      .filter(([, count]) => count >= 2)
+      .sort(([leftName, leftCount], [rightName, rightCount]) => rightCount - leftCount || leftName.localeCompare(rightName, 'zh-Hans-CN'))
+      .slice(0, 24)
+      .map(([sourceName, count]) => ({
+        id: stableRecommendationId(sourceName),
+        displayName: `${BILIMI_LEDGER_PREFIX}${sourceName}`,
+        kind: 'author' as const,
+        sourceName,
+        keywords: [sourceName],
+        count,
+        reason: `${sourceName} appeared ${count} times.`
+      })),
+    initialized: true,
+    adoptedCandidateIds: []
+  }
+}
+
 function isStagingBilimiFolder(title: string) {
-  return /待分类|暂存/u.test(title)
+  return /\u5f85\u5206\u7c7b|\u6682\u5b58/u.test(title)
 }
 
 /**
@@ -105,6 +154,7 @@ export class OldFavoriteWorkspaceCoordinator {
   private readonly frozenSegments = new Map<string, Set<string>>()
   private readonly scanOverviews = new Map<string, ScanOverview>()
   private readonly scanRuns = new Map<string, string>()
+  private readonly recommendations = new Map<string, RecommendationState>()
   private operationTail = Promise.resolve()
 
   constructor(private readonly options: {
@@ -112,7 +162,7 @@ export class OldFavoriteWorkspaceCoordinator {
     workspaceStore: OldFavoriteWorkspaceStore
     bindingService?: Pick<FavoriteRepositoryBindingService, 'ensurePhysicalShard'>
     syncService?: Pick<FavoriteRepositorySyncService, 'executeFrozenPlan' | 'bindPageTarget' | 'reconcile' | 'resume' | 'getRun'>
-    classifyCurrentItem?: (item: CurrentSegmentItem) => AutomaticClassification | Promise<AutomaticClassification>
+    classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
     now?: () => string
   }) {}
 
@@ -225,6 +275,27 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  /** Stores only compact candidate metadata; the renderer never supplies rules or classifications. */
+  async setRecommendedCandidates(accountMid: string, candidateIds: string[]) {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'previewing') throw new Error('Old favorite workspace recommendations are not ready.')
+      const state = await this.ensureRecommendations(workspace)
+      const knownIds = new Set(state.candidates.map((candidate) => candidate.id))
+      const adoptedCandidateIds = [...new Set(candidateIds.map((id) => id.trim()).filter(Boolean))].sort()
+      if (!adoptedCandidateIds.every((id) => knownIds.has(id))) {
+        throw new Error('Old favorite workspace recommendation selection is invalid.')
+      }
+      const next = { initialized: true, candidates: state.candidates.map(clone), adoptedCandidateIds }
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], recommendations: next
+      })
+      this.recommendations.set(workspace.accountMid, next)
+      if (!this.options.classifyCurrentItem) return clone(workspace)
+      return this.autoClassifyCurrentSegmentUnsafe(workspace, true)
+    })
+  }
+
   /** Converts scan staging to the immutable 2,000-item baseline only after every page succeeds. */
   async finishScan(accountMid: string) {
     return this.queue(async () => {
@@ -283,6 +354,10 @@ export class OldFavoriteWorkspaceCoordinator {
           items: segment.aids.map((aid) => itemsByAid.get(aid) ?? { aid, sourceFolderIds: [] })
         }))
       })
+      const recommendations = buildAuthorRecommendations(itemsByAid.values())
+      await this.options.workspaceStore.appendOverlay(completed.accountMid, completed.id, {
+        currentSegmentId, classifications: [], history: [], recommendations
+      })
       const descriptors = completed.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
       await this.appendEvents(completed, currentSegmentId, [{
         type: 'scan', createdAt: completed.createdAt, mode: completed.mode, segmentSize: completed.segmentSize,
@@ -294,6 +369,7 @@ export class OldFavoriteWorkspaceCoordinator {
         scan: { phase: 'complete', failureCount: 0, mode: completed.mode }
       })
       this.scanRuns.delete(completed.accountMid)
+      this.recommendations.set(completed.accountMid, clone(recommendations))
       this.remember(completed, currentSegmentId, descriptors, new Set())
       this.currentSegmentItems.set(completed.accountMid, completed.segments[0]?.aids.map((aid) => clone(itemsByAid.get(aid) ?? {
         aid, sourceFolderIds: []
@@ -455,45 +531,59 @@ export class OldFavoriteWorkspaceCoordinator {
   /** Classifies only the selected current segment; user and DeepSeek decisions remain authoritative. */
   async autoClassifyCurrentSegment(accountMid: string): Promise<OldFavoriteWorkspace> {
     return this.queue(async () => {
-      const classify = this.options.classifyCurrentItem
-      if (!classify) throw new Error('Old favorite workspace automatic classification is unavailable.')
       const workspace = await this.requireWorkspace(accountMid)
-      const currentSegmentId = this.currentSegment(workspace)
-      const currentSegment = workspace.segments.find((segment) => segment.id === currentSegmentId)
-      if (!currentSegment) throw new Error('Old favorite workspace current segment is unavailable.')
-      const items = this.currentSegmentItems.get(workspace.accountMid) ?? await this.loadCurrentSegmentItems(workspace)
-      const eligibleAids = new Set((await this.selectedSourceAssignments(workspace, items)).map((item) => item.aid))
-      const proposed = await Promise.all(items
-        .filter((item) => currentSegment.aids.includes(item.aid) && eligibleAids.has(item.aid))
-        .filter((item) => {
-          const existing = workspace.classifications[String(item.aid)]
-          return existing?.source !== 'manual' && existing?.source !== 'deepseek'
-        })
-        .map(async (item) => ({ aid: item.aid, proposal: await classify(clone(item)) })))
-      let updated = workspace
-      for (const source of ['system-high', 'system-low'] as const) {
-        const assignments = proposed
-          .filter(({ proposal }) => proposal.confidence === (source === 'system-high' ? 'high' : 'low'))
-          .map(({ aid, proposal }) => ({ aid, targetLedgerIds: proposal.targetLedgerIds.slice(0, 1) }))
-          .filter((assignment) => assignment.targetLedgerIds.length > 0)
-        if (!assignments.length) continue
-        const next = applyWorkspaceClassificationBatch(updated, { source, assignments })
-        if (next === updated) continue
-        const entry = next.history[next.history.length - 1]
-        await this.options.workspaceStore.appendOverlay(updated.accountMid, updated.id, {
-          currentSegmentId,
-          classifications: entry.changes.flatMap((change) => change.after ? [{
-            aid: change.after.aid,
-            targetLedgerIds: [...change.after.targetLedgerIds],
-            source: change.after.source
-          }] : []),
-          history: [encodeJournalEvent({ type: 'classification', entry: clone(entry), historyCursor: next.historyCursor })]
-        })
-        updated = next
-      }
-      this.workspaces.set(updated.accountMid, updated)
-      return clone(updated)
+      return this.autoClassifyCurrentSegmentUnsafe(workspace, false)
     })
+  }
+
+  private async autoClassifyCurrentSegmentUnsafe(workspace: OldFavoriteWorkspace, replaceSystem: boolean) {
+    const classify = this.options.classifyCurrentItem
+    if (!classify) throw new Error('Old favorite workspace automatic classification is unavailable.')
+    const currentSegmentId = this.currentSegment(workspace)
+    const currentSegment = workspace.segments.find((segment) => segment.id === currentSegmentId)
+    if (!currentSegment) throw new Error('Old favorite workspace current segment is unavailable.')
+    const state = await this.ensureRecommendations(workspace)
+    const adopted = new Set(state.adoptedCandidateIds)
+    const recommendedLedgers = state.candidates.filter((candidate) => adopted.has(candidate.id)).map((candidate, index) => ({
+      id: candidate.id, displayName: candidate.displayName, keywords: [...candidate.keywords],
+      ruleType: candidate.kind === 'author' ? 'author' as const : 'keyword' as const,
+      enabled: true, priority: index, isDefault: false
+    }))
+    const items = this.currentSegmentItems.get(workspace.accountMid) ?? await this.loadCurrentSegmentItems(workspace)
+    const eligibleAids = new Set((await this.selectedSourceAssignments(workspace, items)).map((item) => item.aid))
+    const proposed = await Promise.all(items
+      .filter((item) => currentSegment.aids.includes(item.aid) && eligibleAids.has(item.aid))
+      .filter((item) => {
+        const existing = workspace.classifications[String(item.aid)]
+        return existing?.source !== 'manual' && existing?.source !== 'deepseek'
+      })
+      .map(async (item) => ({
+        aid: item.aid,
+        proposal: recommendedLedgers.length
+          ? await classify(clone(item), clone(recommendedLedgers))
+          : await classify(clone(item))
+      })))
+    let updated = workspace
+    for (const source of ['system-high', 'system-low'] as const) {
+      const assignments = proposed
+        .filter(({ proposal }) => proposal.confidence === (source === 'system-high' ? 'high' : 'low'))
+        .map(({ aid, proposal }) => ({ aid, targetLedgerIds: proposal.targetLedgerIds.slice(0, 1) }))
+        .filter((assignment) => assignment.targetLedgerIds.length > 0)
+      if (!assignments.length) continue
+      const next = applyWorkspaceClassificationBatch(updated, { source, assignments, replaceExistingSystem: replaceSystem })
+      if (next === updated) continue
+      const entry = next.history[next.history.length - 1]
+      await this.options.workspaceStore.appendOverlay(updated.accountMid, updated.id, {
+        currentSegmentId,
+        classifications: entry.changes.flatMap((change) => change.after ? [{
+          aid: change.after.aid, targetLedgerIds: [...change.after.targetLedgerIds], source: change.after.source
+        }] : []),
+        history: [encodeJournalEvent({ type: 'classification', entry: clone(entry), historyCursor: next.historyCursor })]
+      })
+      updated = next
+    }
+    this.workspaces.set(updated.accountMid, updated)
+    return clone(updated)
   }
 
   async undoClassificationChange(accountMid: string): Promise<OldFavoriteWorkspace> {
@@ -822,6 +912,7 @@ export class OldFavoriteWorkspaceCoordinator {
         sourceFolders: recovered.sourceFolders,
         scan: recovered.scan
       })
+      this.recommendations.set(marker.accountMid, clone(recovered.recommendations))
       this.remember(scanning, '', [], new Set())
       return clone(scanning)
     }
@@ -899,6 +990,7 @@ export class OldFavoriteWorkspaceCoordinator {
       })),
       scan: { phase: 'complete', failureCount: 0, mode: scan.mode }
     })
+    this.recommendations.set(marker.accountMid, clone(recovered.recommendations))
     this.remember(workspace, recovered.currentSegmentId, scan.segments, frozenIds)
     return clone(workspace)
   }
@@ -1017,6 +1109,29 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.currentSegments.get(workspace.accountMid) ?? workspace.segments[0]?.id ?? ''
   }
 
+  private async ensureRecommendations(workspace: OldFavoriteWorkspace): Promise<RecommendationState> {
+    const remembered = this.recommendations.get(workspace.accountMid)
+    if (remembered) return clone(remembered)
+
+    const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
+    if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
+    if (recovered.recommendations.initialized) {
+      this.recommendations.set(workspace.accountMid, clone(recovered.recommendations))
+      return clone(recovered.recommendations)
+    }
+
+    const items: CurrentSegmentItem[] = []
+    await this.options.workspaceStore.visitScanPages(workspace.accountMid, workspace.id, (page) => {
+      items.push(...page.items)
+    })
+    const state = buildAuthorRecommendations(items)
+    await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+      currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], recommendations: state
+    })
+    this.recommendations.set(workspace.accountMid, clone(state))
+    return clone(state)
+  }
+
   private createSnapshot(workspace: OldFavoriteWorkspace): OldFavoriteWorkspaceSnapshot {
     const currentSegment = workspace.segments[0]
     return {
@@ -1047,6 +1162,10 @@ export class OldFavoriteWorkspaceCoordinator {
         targetLedgerIds: [...classification.targetLedgerIds],
         source: classification.source
       }])),
+      recommendations: {
+        candidates: (this.recommendations.get(workspace.accountMid)?.candidates ?? []).map(({ sourceName: _sourceName, keywords: _keywords, ...candidate }) => clone(candidate)),
+        adoptedCandidateIds: [...(this.recommendations.get(workspace.accountMid)?.adoptedCandidateIds ?? [])]
+      },
       history: { cursor: workspace.historyCursor, length: workspace.history.length },
       ...(workspace.completionMode ? { completionMode: workspace.completionMode } : {})
     }

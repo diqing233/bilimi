@@ -23,6 +23,14 @@ export type OldFavoriteWorkspaceClassification = {
   source: OldFavoriteWorkspaceClassificationSource
 }
 
+export type OldFavoriteWorkspaceRecommendationCandidate = {
+  id: string
+  displayName: string
+  kind: 'author' | 'series'
+  count: number
+  reason: string
+}
+
 export type OldFavoriteWorkspaceHistoryChange = {
   aid: number
   before?: OldFavoriteWorkspaceClassification
@@ -90,6 +98,10 @@ export type OldFavoriteWorkspaceSnapshot = {
     }>
   } | null
   classifications: Record<string, OldFavoriteWorkspaceClassification>
+  recommendations: {
+    candidates: OldFavoriteWorkspaceRecommendationCandidate[]
+    adoptedCandidateIds: string[]
+  }
   history: { cursor: number; length: number }
   completionMode?: 'bilibili' | 'local'
 }
@@ -125,6 +137,7 @@ export type WorkspaceClassificationAssignment = {
 export type ApplyWorkspaceClassificationBatchOptions = {
   source: OldFavoriteWorkspaceClassificationSource
   assignments: WorkspaceClassificationAssignment[]
+  replaceExistingSystem?: boolean
 }
 
 function normalizeAccountMid(value: string) {
@@ -355,7 +368,8 @@ export function applyWorkspaceClassificationBatch(
       throw new Error('Old favorite workspace low-confidence classification cannot target multiple ledgers.')
     }
     const existing = workspace.classifications[String(assignment.aid)]
-    if (existing && classificationPriority(existing.source) > classificationPriority(options.source)) {
+    if (existing && classificationPriority(existing.source) > classificationPriority(options.source) &&
+      !(options.replaceExistingSystem && existing.source.startsWith('system-') && options.source.startsWith('system-'))) {
       continue
     }
     assignments.set(assignment.aid, {

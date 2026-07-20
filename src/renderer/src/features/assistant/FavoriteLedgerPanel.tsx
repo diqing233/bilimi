@@ -9210,7 +9210,7 @@ export function FavoriteLedgerPanel({
                   aria-current={oldFavoriteStep === step.id ? 'step' : undefined}
                   aria-expanded={oldFavoriteExpandedStep === step.id}
                   disabled={(deepSeekArchiveRunning && oldFavoriteStep !== step.id) ||
-                    (useControlledOldFavoriteWorkspace && step.id !== 'scan' && step.id !== 'preview' &&
+                    (useControlledOldFavoriteWorkspace && step.id !== 'scan' && step.id !== 'generated' && step.id !== 'preview' &&
                       (step.id !== 'confirm' || !controlledConfirmAvailable))}
                   onClick={() => {
                     if (useControlledOldFavoriteWorkspace) {
@@ -9599,7 +9599,37 @@ export function FavoriteLedgerPanel({
             </section>
           ) : null}
 
-          {oldFavoriteExpandedStep === 'generated' ? (
+          {oldFavoriteExpandedStep === 'generated' ? useControlledOldFavoriteWorkspace ? (
+            <section className="favorite-ledger-panel__candidates" aria-label="专属收藏夹候选">
+              <h4 className="favorite-ledger-panel__step-title">推荐收藏夹</h4>
+              <p className="favorite-ledger-panel__step-note">推荐按整轮扫描共享；勾选后由主进程重新归类当前分段。</p>
+              <div className="favorite-ledger-panel__candidate-section">
+                {(controlledScanSnapshot?.recommendations?.candidates ?? []).map((candidate) => {
+                  const adopted = controlledScanSnapshot?.recommendations?.adoptedCandidateIds.includes(candidate.id) ?? false
+                  return (
+                    <article key={candidate.id} title={candidate.reason}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          aria-label={candidate.displayName}
+                          checked={adopted}
+                          disabled={oldFavoriteWorkspace.loading}
+                          onChange={(event) => {
+                            const selected = new Set(controlledScanSnapshot?.recommendations?.adoptedCandidateIds ?? [])
+                            if (event.currentTarget.checked) selected.add(candidate.id)
+                            else selected.delete(candidate.id)
+                            void oldFavoriteWorkspace.setRecommendedCandidates([...selected])
+                          }}
+                        />
+                        <span><strong>{candidate.displayName}</strong><small>{candidate.count} 条适合 · {candidate.reason}</small></span>
+                      </label>
+                    </article>
+                  )
+                })}
+                {(controlledScanSnapshot?.recommendations?.candidates.length ?? 0) === 0 ? <p>暂无专属 UP 追更候选。</p> : null}
+              </div>
+            </section>
+          ) : (
             <section className="favorite-ledger-panel__candidates" aria-label="专属收藏夹候选">
               <h4 className="favorite-ledger-panel__step-title">推荐收藏夹</h4>
               <p className="favorite-ledger-panel__step-note">确认执行后，会把已勾选候选同步到 B 站收藏夹里。</p>

@@ -244,11 +244,54 @@ describe('FavoriteLedgerPanel', () => {
     } as typeof window.bilimiDesktop
 
     renderPanel({ currentAccountMid: '100' })
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     await screen.findByRole('button', { name: '查看归档预览' })
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     fireEvent.click(await screen.findByRole('button', { name: '自动分类当前分段' }))
 
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'auto-classify-current-segment' }))
+  })
+
+  it('adopts controlled workspace recommendations without rebuilding them in React', async () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 },
+      sourceFolders: [{ id: 'source-a', title: 'Source A', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+      continuationCount: 0,
+      segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1 }],
+      currentSegment: {
+        id: 'segment-1', aids: [1],
+        items: [{ aid: 1, title: '主进程推荐的视频', author: '推荐 UP', sourceFolderIds: ['source-a'] }]
+      },
+      classifications: {}, history: { cursor: 0, length: 0 },
+      recommendations: {
+        candidates: [{ id: 'author:推荐-up', kind: 'author' as const, displayName: 'bilimi·推荐 UP', count: 1, reason: '推荐 UP 的视频出现 1 次。' }],
+        adoptedCandidateIds: []
+      }
+    }
+    const command = vi.fn((_accountMid: string, value: { type: string }) => Promise.resolve(
+      value.type === 'set-recommended-candidates'
+        ? { ...snapshot, recommendations: { ...snapshot.recommendations, adoptedCandidateIds: ['author:推荐-up'] } }
+        : snapshot
+    ))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(snapshot), commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    renderPanel({ currentAccountMid: '100' })
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    await screen.findByRole('button', { name: '查看归档预览' })
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+
+    const candidates = await screen.findByRole('region', { name: '专属收藏夹候选' })
+    const candidate = within(candidates).getByLabelText('bilimi·推荐 UP')
+    expect(candidate).not.toBeChecked()
+    fireEvent.click(candidate)
+
+    await waitFor(() => expect(command).toHaveBeenLastCalledWith('100', {
+      type: 'set-recommended-candidates', candidateIds: ['author:推荐-up']
+    }))
   })
 
   it('saves a fully classified controlled segment locally without starting Bilibili sync', async () => {

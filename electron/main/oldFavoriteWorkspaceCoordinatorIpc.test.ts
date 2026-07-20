@@ -169,6 +169,26 @@ describe('old favorite workspace coordinator IPC', () => {
     })).rejects.toThrow('command is invalid')
   })
 
+  it('accepts only candidate ids when changing main-process recommendation adoption', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      setRecommendedCandidates: vi.fn().mockResolvedValue({}),
+      getSnapshot: vi.fn().mockResolvedValue(snapshot)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'set-recommended-candidates', candidateIds: ['custom-author-up-alpha']
+    })).resolves.toEqual(snapshot)
+    expect(coordinator.setRecommendedCandidates).toHaveBeenCalledWith('100', ['custom-author-up-alpha'])
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'set-recommended-candidates', candidates: [{ id: 'custom-author-up-alpha', keywords: ['forged'] }]
+    })).rejects.toThrow('command is invalid')
+  })
+
   it('allows a controlled Bilibili freeze command without accepting renderer operations', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

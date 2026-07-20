@@ -355,6 +355,107 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('persists whole-round author recommendations and reapplies only system classifications when adoption changes', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const classifyCurrentItem = vi.fn((item: { author?: string }, recommendedLedgers: Array<{ id: string }> = []) => {
+      const authorLedger = recommendedLedgers.find((ledger) => ledger.id === 'custom-author-up-alpha')
+      return authorLedger && item.author === 'UP Alpha'
+        ? { targetLedgerIds: [authorLedger.id], confidence: 'high' as const }
+        : { targetLedgerIds: ['music'], confidence: 'high' as const }
+    })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), classifyCurrentItem,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'source-a', title: 'Source A', itemCount: 2, isBilimiWorkFolder: false },
+        { id: 'source-b', title: 'Source B', itemCount: 1, isBilimiWorkFolder: false }
+      ]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source-a', page: 1,
+      items: [
+        { aid: 1, title: 'Alpha first', author: 'UP Alpha', sourceFolderIds: ['source-a'] },
+        { aid: 2, title: 'Manual', author: 'UP Alpha', sourceFolderIds: ['source-a'] }
+      ]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source-b', page: 1,
+      items: [{ aid: 3, title: 'Other', author: 'UP Beta', sourceFolderIds: ['source-b'] }]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.selectSourceFolders('100', ['source-a'])
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 2, targetLedgerIds: ['manual'] }]
+    })
+    await coordinator.autoClassifyCurrentSegment('100')
+
+    await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: {
+        candidates: [expect.objectContaining({
+          id: 'custom-author-up-alpha', kind: 'author', count: 2
+        })],
+        adoptedCandidateIds: ['custom-author-up-alpha']
+      },
+      classifications: {
+        '1': { targetLedgerIds: ['custom-author-up-alpha'], source: 'system-high' },
+        '2': { targetLedgerIds: ['manual'], source: 'manual' }
+      }
+    })
+    expect(classifyCurrentItem).toHaveBeenLastCalledWith(
+      expect.objectContaining({ aid: 1 }),
+      expect.arrayContaining([expect.objectContaining({ id: 'custom-author-up-alpha' })])
+    )
+
+    await coordinator.setRecommendedCandidates('100', [])
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: { adoptedCandidateIds: [] },
+      classifications: {
+        '1': { targetLedgerIds: ['music'], source: 'system-high' },
+        '2': { targetLedgerIds: ['manual'], source: 'manual' }
+      }
+    })
+  })
+
+  it('restores adopted recommendations without leaking them across accounts', async () => {
+    const root = await createRoot()
+    const first = new OldFavoriteWorkspaceCoordinator({
+      repository: new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' }),
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await first.open('100')
+    await first.beginScan('100', 'incremental')
+    await first.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Alpha part 1', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Alpha part 2', author: 'UP Alpha', sourceFolderIds: ['source'] }
+      ]
+    })
+    await first.finishScan('100')
+    await first.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+    await first.open('200')
+
+    const restored = new OldFavoriteWorkspaceCoordinator({
+      repository: new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' }),
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await expect(restored.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: { adoptedCandidateIds: ['custom-author-up-alpha'] }
+    })
+    await expect(restored.getSnapshot('200')).resolves.toMatchObject({
+      recommendations: { candidates: [], adoptedCandidateIds: [] }
+    })
+  })
+
   it('saves only selected-source classifications to the local library', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
