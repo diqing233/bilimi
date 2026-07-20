@@ -9,6 +9,14 @@ export type DeepSeekWorkspaceFeedback = {
   message: string
 }
 
+function deepSeekFailureMessage(error: unknown) {
+  const detail = error instanceof Error ? error.message : ''
+  if (/DeepSeekServiceError|DeepSeek returned invalid JSON|Error invoking remote method/i.test(detail)) {
+    return 'DeepSeek 整理失败，请检查服务设置后重试。'
+  }
+  return detail || 'DeepSeek 整理失败，请稍后重试。'
+}
+
 function normalizeAccountMid(value: string) {
   if (!/^\d+$/.test(value.trim()) || BigInt(value.trim()) === 0n) return null
   return BigInt(value.trim()).toString()
@@ -185,7 +193,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       if (requestVersion.current === version && accountGeneration.current === generation) {
         setDeepSeekFeedback({
           status: 'failed',
-          message: error instanceof Error ? error.message : 'DeepSeek 整理失败，请稍后重试。'
+          message: deepSeekFailureMessage(error)
         })
       }
       return null

@@ -1018,6 +1018,13 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
     await screen.findByRole('alert')
     expect(screen.getByRole('alert')).toHaveTextContent('DeepSeek 服务暂时不可用')
+    deepSeek.mockRejectedValueOnce(new Error(
+      "Error invoking remote method 'old-favorite-workspace-v1:deepseek-current-segment': DeepSeekServiceError: DeepSeek returned invalid JSON."
+    ))
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    await screen.findByRole('alert')
+    expect(screen.getByRole('alert')).toHaveTextContent('DeepSeek 整理失败，请检查服务设置后重试。')
+    expect(screen.getByRole('alert')).not.toHaveTextContent('Error invoking remote method')
     fireEvent.change(screen.getByRole('combobox', { name: '归类 Alpha' }), { target: { value: 'knowledge' } })
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'apply-classifications', source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['knowledge'] }]
