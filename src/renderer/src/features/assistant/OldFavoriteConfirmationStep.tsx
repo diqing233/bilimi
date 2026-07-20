@@ -74,7 +74,7 @@ export function OldFavoriteConfirmationStep({
     <h4>确认执行</h4>
     <p>可直接同步到 B 站，或仅保存到本地收藏库；两种方式都会冻结当前分类结果。</p>
     {readinessText ? <p>{readinessText}</p> : null}
-    {!canFreeze ? <p role="alert">{blockedMessage}</p> : null}
+    {!canFreeze ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{blockedMessage}</p> : null}
     <div className="favorite-ledger-panel__confirm-actions">
       <button type="button" disabled={!canFreeze || loading} onClick={onSaveLocally}>仅保存本轮到收藏库</button>
       <button type="button" disabled={!canFreeze || loading} onClick={onConfirmAndSync}>确认并同步到 B 站</button>
