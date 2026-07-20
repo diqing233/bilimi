@@ -53,8 +53,50 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
     />)
 
-    expect(screen.getByRole('heading', { name: '收藏夹' }).closest('section')).toHaveClass('favorite-ledger-panel__ledger-list')
-    expect(screen.getByText('管理本地收藏夹规则，并在整理完成后保存。')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '收藏夹' }).closest('.favorite-ledger-panel__ledger-list')).not.toBeNull()
+    expect(screen.getByText(/管理本地收藏夹规则，并在整理完成后保存。/)).toBeInTheDocument()
+  })
+
+  it('keeps the legacy 收藏夹 checklist header, help disclosure, chips, and actions', () => {
+    const ledgers = [
+      { id: 'knowledge', displayName: 'bilimi·知识学习', keywords: [], ruleType: 'keyword' as const, enabled: true, priority: 0, isDefault: true },
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], ruleType: 'keyword' as const, enabled: false, priority: 1, isDefault: false }
+    ]
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={ledgers} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    const checklist = screen.getByRole('region', { name: '收藏夹' }).querySelector('.favorite-ledger-panel__checklist')
+    expect(checklist).not.toBeNull()
+    expect(within(checklist as HTMLElement).getByRole('button', { name: '展开收藏夹说明' })).toHaveAttribute('aria-expanded', 'false')
+    expect(within(checklist as HTMLElement).getByRole('button', { name: '重置' })).toBeInTheDocument()
+    expect(within(checklist as HTMLElement).getByRole('button', { name: '全选' })).toBeInTheDocument()
+    expect(within(checklist as HTMLElement).getByRole('button', { name: '同步' })).toBeInTheDocument()
+    expect(within(checklist as HTMLElement).getByRole('button', { name: '知识学习' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(checklist as HTMLElement).getByRole('button', { name: '音乐' })).toHaveAttribute('aria-pressed', 'false')
+    expect(within(checklist as HTMLElement).getByRole('button', { name: '新建收藏夹' })).toBeInTheDocument()
+
+    fireEvent.click(within(checklist as HTMLElement).getByRole('button', { name: '展开收藏夹说明' }))
+    expect(within(checklist as HTMLElement).getByRole('button', { name: '收起收藏夹说明' })).toHaveAttribute('aria-expanded', 'true')
+    expect(within(checklist as HTMLElement).getByText(/自定义你的 bilimi 收藏夹/)).toBeInTheDocument()
+  })
+
+  it('keeps editable rule types and safe reset synchronization in the legacy checklist', async () => {
+    const save = vi.fn()
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }
+    ]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={save} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
+    fireEvent.change(screen.getByRole('combobox', { name: '收藏夹种类' }), { target: { value: 'author' } })
+    expect(screen.getByLabelText('UP 名字')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+    expect(save).toHaveBeenLastCalledWith(expect.any(Array), { deleteDisabled: false })
+
+    fireEvent.click(screen.getByRole('button', { name: '重置' }))
+    expect(screen.getByRole('dialog', { name: '重置收藏夹规则？' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '确认重置' }))
+    fireEvent.click(screen.getByRole('button', { name: '同步' }))
+    expect(save).toHaveBeenLastCalledWith(expect.any(Array), { deleteDisabled: false })
   })
 
   it('places the organize and library entries as peers in the shared toolbar', async () => {
@@ -620,16 +662,17 @@ describe('ControlledFavoriteLedgerPanel', () => {
   })
 
   it('creates a local workspace ledger through the controlled command instead of saving Bilibili rules', async () => {
-    const command = vi.fn().mockResolvedValue({
-      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
-      scan: { phase: 'inventory' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
       segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
       history: { cursor: 0, length: 0 }
-    })
+    }
+    const command = vi.fn().mockResolvedValue(preview)
     const save = vi.fn().mockResolvedValue(undefined)
     window.bilimiDesktop = {
-      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command
     } as typeof window.bilimiDesktop
     render(<ControlledFavoriteLedgerPanel
@@ -637,6 +680,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={save}
     />)
 
+    await screen.findByRole('region', { name: '整理旧藏向导' })
     fireEvent.change(screen.getByRole('textbox', { name: '新增收藏夹名称' }), { target: { value: '音乐' } })
     fireEvent.click(screen.getByRole('button', { name: '新增并重新归类' }))
 

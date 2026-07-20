@@ -125,6 +125,7 @@ export function ControlledFavoriteLedgerPanel({
         onSaveLedgers={onSaveLedgers}
         onOpenFavoritePage={onOpenFavoritePage}
         onCreateLocalLedger={workspace.createLocalLedgerAndReclassify}
+        canCreateLocalLedger={snapshot?.status === 'previewing'}
       />
       {guideOpen && snapshot && !recovery ? <div className="favorite-ledger-panel__guide-entry-actions">
         <button type="button" onClick={() => {
