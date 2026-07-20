@@ -1,8 +1,59 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { ControlledFavoriteLedgerPanel } from './ControlledFavoriteLedgerPanel'
 
 describe('ControlledFavoriteLedgerPanel', () => {
+  it('keeps the default ledger closed behind separate Chinese organize and library entries', async () => {
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
+      commandOldFavoriteWorkspaceV1: vi.fn()
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100"
+      ledgers={[{ id: 'knowledge', displayName: 'bilimi:知识学习', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
+      missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()}
+      onSaveLedgers={vi.fn()}
+    />)
+
+    expect(await screen.findByRole('button', { name: '整理旧藏' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '收藏库' })).toBeInTheDocument()
+    expect(screen.queryByText('bilimi:知识学习')).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
+  })
+
+  it('opens all four guide steps immediately and locks later steps while scanning', async () => {
+    const scanningSnapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    let resolveScan: ((value: typeof scanningSnapshot) => void) | undefined
+    const command = vi.fn(() => new Promise<typeof scanningSnapshot>((resolve) => { resolveScan = resolve }))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+    />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+
+    expect(await screen.findByRole('button', { name: '扫描概览' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '归档预览' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '确认执行' })).toBeDisabled()
+    expect(screen.getByText('扫描概览：扫描中')).toBeInTheDocument()
+
+    await act(async () => { resolveScan?.(scanningSnapshot) })
+  })
+
   it('starts the durable workspace scan without calling a legacy scan callback', async () => {
     const command = vi.fn().mockResolvedValue({
       version: 1 as const,
@@ -137,6 +188,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       deepSeekArchiveAvailable
     />)
 
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
     expect(await screen.findByText('扫描概览已完成，正在准备归档预览。')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
     fireEvent.click(screen.getByRole('checkbox', { name: 'bilimi·UP' }))

@@ -1,5 +1,4 @@
 import type { FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
-import { BILIMI_LEDGER_PREFIX } from '@shared/favoriteLedgers'
 import { useMemo, useState } from 'react'
 import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
 import { useOldFavoriteWorkspace } from './useOldFavoriteWorkspace'
@@ -36,6 +35,7 @@ export function ControlledFavoriteLedgerPanel({
 }: ControlledFavoriteLedgerPanelProps) {
   const workspace = useOldFavoriteWorkspace(currentAccountMid)
   const [step, setStep] = useState<GuideStep>('scan')
+  const [guideOpen, setGuideOpen] = useState(false)
   const [newLedgerName, setNewLedgerName] = useState('')
   const snapshot = workspace.snapshot
   const recovery = snapshot && 'recovery' in snapshot ? snapshot : null
@@ -97,7 +97,11 @@ export function ControlledFavoriteLedgerPanel({
         <div className="favorite-ledger-panel__toolbar">
           <button type="button" aria-label="备册" onClick={() => void onEnsureLedgers()}>备册</button>
           <button type="button" aria-label="整理旧藏" disabled={workspace.loading || !currentAccountMid}
-            onClick={() => void workspace.startScan('incremental')}>整理旧藏</button>
+            onClick={() => {
+              setGuideOpen(true)
+              setStep('scan')
+              void workspace.startScan('incremental')
+            }}>整理旧藏</button>
           <button type="button" aria-label="全部重新整理" disabled={workspace.loading || !currentAccountMid}
             onClick={() => void workspace.startScan('full')}>全部重新整理</button>
           <button type="button" aria-label="收藏库" onClick={() => void window.bilimiDesktop?.openFavoriteLibrary?.()}>收藏库</button>
@@ -106,7 +110,6 @@ export function ControlledFavoriteLedgerPanel({
 
       {missingLedgerIds.length > 0 ? <p role="alert">部分 Bilimi 收藏夹尚未备册。</p> : null}
       <section className="favorite-ledger-panel__ledger-list" aria-label="收藏夹规则">
-        {ledgers.map((ledger) => <article key={ledger.id}><strong>{ledger.displayName}</strong></article>)}
         <label>新增收藏夹
           <input aria-label="新增收藏夹名称" value={newLedgerName} onChange={(event) => setNewLedgerName(event.currentTarget.value)} />
         </label>
@@ -115,7 +118,7 @@ export function ControlledFavoriteLedgerPanel({
         <button type="button" onClick={() => void onSaveLedgers(ledgers)}>保存收藏夹规则</button>
       </section>
 
-      {snapshot ? <section className="favorite-ledger-panel__old-favorites-guide" aria-label="整理旧藏向导">
+      {guideOpen ? <section className="favorite-ledger-panel__old-favorites-guide" aria-label="整理旧藏向导">
         <div className="favorite-ledger-panel__guide-header">
           <h3>整理旧藏</h3>
           <nav className="favorite-ledger-panel__guide-steps" aria-label="整理旧藏步骤">
@@ -131,18 +134,18 @@ export function ControlledFavoriteLedgerPanel({
 
         {!recovery && step === 'scan' ? <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
           <h4>扫描概览</h4>
-          <p className="favorite-ledger-panel__scan-guidance">{snapshot.scan.phase === 'failed'
+          <p className="favorite-ledger-panel__scan-guidance">{snapshot?.scan.phase === 'failed'
             ? `扫描失败：${snapshot.scan.reason || '请重新扫描。'}`
-            : snapshot.status === 'scanning' ? '扫描概览：扫描中' : '扫描概览已完成，正在准备归档预览。'}</p>
+            : snapshot?.status === 'scanning' || !snapshot ? '扫描概览：扫描中' : '扫描概览已完成，正在准备归档预览。'}</p>
           <div className="favorite-ledger-panel__scan-progress" aria-label="旧藏扫描进度">
-            <progress aria-label="收藏夹概览进度" max={1} value={snapshot.status === 'scanning' ? 0 : 1} />
-            <strong>{snapshot.scan.phase === 'failed' ? '扫描失败' : snapshot.status === 'scanning' ? '正在扫描' : '已完成'}</strong>
+            <progress aria-label="收藏夹概览进度" max={1} value={snapshot?.status === 'scanning' ? 0 : 1} />
+            <strong>{snapshot?.scan.phase === 'failed' ? '扫描失败' : snapshot?.status === 'scanning' ? '正在扫描' : '已完成'}</strong>
           </div>
-          {snapshot.scan.phase === 'failed' ? <button type="button" disabled={workspace.loading}
+          {snapshot?.scan.phase === 'failed' ? <button type="button" disabled={workspace.loading}
             onClick={() => void workspace.startScan('incremental')}>重新扫描</button> : null}
-          <p>已发现 {snapshot.sourceFolders.length} 个收藏夹，当前扫描 {snapshot.continuationCount} 条待续新增。</p>
+          <p>已发现 {snapshot?.sourceFolders.length ?? 0} 个收藏夹，当前扫描 {snapshot?.continuationCount ?? 0} 条待续新增。</p>
           <ul className="favorite-ledger-panel__scan-folder-list" aria-label="扫描收藏夹列表">
-            {snapshot.sourceFolders.map((folder) => <li key={folder.id}><label>
+            {(snapshot?.sourceFolders ?? []).map((folder) => <li key={folder.id}><label>
               <input type="checkbox" aria-label={`选择来源 ${folder.title}`} checked={Boolean(folder.selected)}
                 disabled={folder.isBilimiWorkFolder || workspace.loading} onChange={(event) => {
                   const next = new Set(sourceIds)
@@ -152,10 +155,10 @@ export function ControlledFavoriteLedgerPanel({
               {folder.title} · {folder.itemCount} 条{folder.isBilimiWorkFolder ? ' · Bilimi 工作夹' : ''}
             </label></li>)}
           </ul>
-          {snapshot.status === 'previewing' ? <button type="button" onClick={() => setStep('preview')}>查看归档预览</button> : null}
+          {snapshot?.status === 'previewing' ? <button type="button" onClick={() => setStep('preview')}>查看归档预览</button> : null}
         </section> : null}
 
-        {!recovery && step === 'generated' ? <section aria-label="专属收藏夹候选">
+        {!recovery && snapshot && step === 'generated' ? <section aria-label="专属收藏夹候选">
           <h4>推荐收藏夹</h4>
           {(snapshot.recommendations?.candidates ?? []).map((candidate) => {
             const adopted = snapshot.recommendations?.adoptedCandidateIds.includes(candidate.id) ?? false
@@ -168,7 +171,7 @@ export function ControlledFavoriteLedgerPanel({
           })}
         </section> : null}
 
-        {!recovery && step === 'preview' ? <section className="favorite-ledger-panel__archive-preview" aria-label="归档预览">
+        {!recovery && snapshot && step === 'preview' ? <section className="favorite-ledger-panel__archive-preview" aria-label="归档预览">
           <h4>归档预览</h4><p>当前分段 {previewItems.length} 条；只加载并显示这一段。</p>
           {snapshot.segments.length > 1 ? <div aria-label="整理分段">{snapshot.segments.map((segment) =>
             <button key={segment.id} type="button" aria-pressed={snapshot.currentSegment?.id === segment.id}
@@ -185,7 +188,7 @@ export function ControlledFavoriteLedgerPanel({
             <ul aria-label="当前分段归档预览">{previewItems.map((item) => <li key={item.aid}>{renderPreviewItem(item)}</li>)}</ul>}
         </section> : null}
 
-        {!recovery && step === 'confirm' ? <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
+        {!recovery && snapshot && step === 'confirm' ? <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
           <h4>确认执行</h4>
           {snapshot.status === 'frozen' ? <button type="button" disabled={workspace.loading} onClick={() => void workspace.executeFrozenBilibiliPlan()}>继续同步到 B 站</button>
             : snapshot.status === 'reconciling' ? <button type="button" disabled={workspace.loading} onClick={() => void workspace.reconcileFrozenBilibiliPlan()}>对账 B 站结果</button>
