@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteArchivePreviewStep } from './OldFavoriteArchivePreviewStep'
 
@@ -32,5 +32,13 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(heading.closest('.favorite-ledger-panel__preview-topbar')).not.toBeNull()
     expect(region).toHaveClass('favorite-ledger-panel__preview')
     expect(region.querySelector(':scope > p.favorite-ledger-panel__step-note')).toHaveTextContent('当前分段 1 条；只加载并显示这一段。')
+    expect(region.querySelector('.favorite-ledger-panel__preview-new-ledger')).toBeNull()
+    expect(region.querySelector('.favorite-ledger-panel__preview-toolbar')).toBeNull()
+    expect(region.querySelector('.favorite-ledger-panel__preview-tools .favorite-ledger-panel__archive-tool-card')).not.toBeNull()
+    expect(screen.getByRole('group', { name: 'DeepSeek 辅助整理' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: '归档预览改动操作' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹后重新归类' }))
+    expect(screen.getByRole('dialog', { name: '新建收藏夹后重新归类' })).toBeInTheDocument()
   })
 })

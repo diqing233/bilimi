@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
 import { OldFavoritePreviewCard } from './OldFavoritePreviewCard'
 import type { DeepSeekWorkspaceFeedback } from './useOldFavoriteWorkspace'
+import { OldFavoriteModal } from './OldFavoriteModal'
 
 const VIRTUAL_TRACK_THRESHOLD = 50
 
@@ -44,6 +45,7 @@ export function OldFavoriteArchivePreviewStep({
   onCreateLocalLedgerAndReclassify
 }: OldFavoriteArchivePreviewStepProps) {
   const [newLedgerName, setNewLedgerName] = useState('')
+  const [newLedgerDialogOpen, setNewLedgerDialogOpen] = useState(false)
   const [deepSeekMode, setDeepSeekMode] = useState<DeepSeekArchiveMode>('low-confidence-and-unclassified')
   const [deepSeekScopeOpen, setDeepSeekScopeOpen] = useState(false)
   const sourceFolderTitles = new Map(snapshot.sourceFolders
@@ -75,41 +77,61 @@ export function OldFavoriteArchivePreviewStep({
         disabled={snapshot.currentSegment?.id === segment.id || loading}
         onClick={() => onSelectSegment(segment.id)}>第 {segment.index + 1} 组</button>)}
     </div> : null}
-    <div className="favorite-ledger-panel__preview-toolbar" role="group" aria-label="归档工具">
-      <button type="button" disabled={loading || items.length === 0} onClick={onAutoClassify}>自动分类</button>
-      <div className="favorite-ledger-panel__deepseek-archive-scope" onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDeepSeekScopeOpen(false)
-      }}>
-        <button type="button" aria-haspopup="menu" aria-expanded={deepSeekScopeOpen} aria-label="整理范围"
-          title={`当前选择：${DEEPSEEK_ARCHIVE_PROCESSING_OPTIONS.find((option) => option.value === deepSeekMode)?.label ?? ''}`}
-          disabled={loading} onClick={() => setDeepSeekScopeOpen((open) => !open)}>
-          <span>整理范围</span><span className="favorite-ledger-panel__deepseek-archive-scope-arrow" aria-hidden="true" />
-        </button>
-        {deepSeekScopeOpen ? <div className="favorite-ledger-panel__deepseek-archive-scope-menu" role="menu" aria-label="DeepSeek 处理对象">
-          {DEEPSEEK_ARCHIVE_PROCESSING_OPTIONS.map((option) => <button key={option.value} type="button" role="menuitemradio"
-            aria-checked={deepSeekMode === option.value} onClick={() => { setDeepSeekMode(option.value); setDeepSeekScopeOpen(false) }}>
-            {option.label}
-          </button>)}
-        </div> : null}
+    <div className="favorite-ledger-panel__preview-tools">
+      <div className="favorite-ledger-panel__archive-tool-card" role="group" aria-label="归档预览辅助工具">
+        <div className="favorite-ledger-panel__deepseek-archive-section" role="group" aria-label="DeepSeek 辅助整理">
+          <div className="favorite-ledger-panel__deepseek-archive-heading">
+            <strong>DeepSeek 辅助整理</strong>
+            <div className="favorite-ledger-panel__deepseek-archive-actions">
+              <div className="favorite-ledger-panel__deepseek-archive-scope" onBlur={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDeepSeekScopeOpen(false)
+              }}>
+                <button type="button" aria-haspopup="menu" aria-expanded={deepSeekScopeOpen} aria-label="整理范围"
+                  title={`当前选择：${DEEPSEEK_ARCHIVE_PROCESSING_OPTIONS.find((option) => option.value === deepSeekMode)?.label ?? ''}`}
+                  disabled={loading} onClick={() => setDeepSeekScopeOpen((open) => !open)}>
+                  <span>整理范围</span><span className="favorite-ledger-panel__deepseek-archive-scope-arrow" aria-hidden="true" />
+                </button>
+                {deepSeekScopeOpen ? <div className="favorite-ledger-panel__deepseek-archive-scope-menu" role="menu" aria-label="DeepSeek 处理对象">
+                  {DEEPSEEK_ARCHIVE_PROCESSING_OPTIONS.map((option) => <button key={option.value} type="button" role="menuitemradio"
+                    aria-checked={deepSeekMode === option.value} onClick={() => { setDeepSeekMode(option.value); setDeepSeekScopeOpen(false) }}>
+                    {option.label}
+                  </button>)}
+                </div> : null}
+              </div>
+              <button type="button" className="favorite-ledger-panel__deepseek-archive-run-button"
+                disabled={!deepSeekAvailable || loading || items.length === 0} onClick={() => onOrganizeWithDeepSeek(deepSeekMode)}>
+                {loading ? 'DeepSeek 整理中…' : 'DeepSeek 整理'}
+              </button>
+            </div>
+          </div>
+          {!deepSeekAvailable ? <small className="favorite-ledger-panel__deepseek-archive-disabled">请先到设置开启 DeepSeek 后再使用辅助整理。</small> : null}
+          <p className="favorite-ledger-panel__deepseek-archive-hint">将发送标题、UP、标签、简介、来源收藏夹、当前建议和 bilimi 册目信息给 DeepSeek。</p>
+          {deepSeekFeedback ? <p className="favorite-ledger-panel__deepseek-archive-status"
+            role={deepSeekFeedback.status === 'failed' ? 'alert' : 'status'}>{deepSeekFeedback.message}</p> : null}
+        </div>
+        <div className="favorite-ledger-panel__archive-tool-divider" aria-hidden="true" />
+        <div className="favorite-ledger-panel__archive-history-section" role="group" aria-label="归档预览改动操作">
+          <div className="favorite-ledger-panel__archive-history-actions">
+            <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || items.length === 0} onClick={onAutoClassify}>自动分类当前分段</button>
+            <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || snapshot.history.cursor === 0} onClick={onUndo}>撤销本次改动</button>
+            <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || snapshot.history.cursor >= snapshot.history.length} onClick={onRedo}>恢复本次改动</button>
+            <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading} onClick={() => setNewLedgerDialogOpen(true)}>新建收藏夹后重新归类</button>
+          </div>
+          <p>Ctrl+Z 撤销，Ctrl+Shift+Z 恢复；会按最近改动逐步回退或重做。</p>
+        </div>
       </div>
-      <button type="button" disabled={!deepSeekAvailable || loading || items.length === 0} onClick={() => onOrganizeWithDeepSeek(deepSeekMode)}>
-        {loading ? 'DeepSeek 整理中…' : 'DeepSeek 整理'}
-      </button>
-      <button type="button" disabled={loading || snapshot.history.cursor === 0} onClick={onUndo}>撤销本次改动</button>
-      <button type="button" disabled={loading || snapshot.history.cursor >= snapshot.history.length} onClick={onRedo}>恢复本次改动</button>
-    </div>
-    {!deepSeekAvailable ? <small className="favorite-ledger-panel__deepseek-archive-disabled">请先到设置开启 DeepSeek 后再使用辅助整理。</small> : null}
-    {deepSeekFeedback ? <p className="favorite-ledger-panel__deepseek-archive-status"
-      role={deepSeekFeedback.status === 'failed' ? 'alert' : 'status'}>{deepSeekFeedback.message}</p> : null}
-    <p className="favorite-ledger-panel__deepseek-archive-hint">将发送标题、UP、标签、简介、来源收藏夹、当前建议和 bilimi 册目信息给 DeepSeek。</p>
-    <div className="favorite-ledger-panel__preview-new-ledger">
-      <label>新建收藏夹后重新归类<input aria-label="新增收藏夹名称" value={newLedgerName} onChange={(event) => setNewLedgerName(event.currentTarget.value)} /></label>
-      <button type="button" disabled={loading || !newLedgerName.trim()} onClick={() => { onCreateLocalLedgerAndReclassify(newLedgerName); setNewLedgerName('') }}>新增并重新归类</button>
     </div>
     <div className="favorite-ledger-panel__preview-groups">
       {items.length > VIRTUAL_TRACK_THRESHOLD ? <VirtualOldFavoriteTrack className="favorite-ledger-panel__preview-videos--virtual" ariaLabel="当前分段归档预览"
         items={items} itemKey={(item) => String(item.aid)} itemWidth={320} renderItem={renderItem} /> :
         <ul aria-label="当前分段归档预览">{items.map((item) => <li key={item.aid}>{renderItem(item)}</li>)}</ul>}
     </div>
+    {newLedgerDialogOpen ? <OldFavoriteModal title="新建收藏夹后重新归类"
+      confirmLabel="新增并重新归类"
+      confirmDisabled={loading || !newLedgerName.trim()}
+      onCancel={() => { setNewLedgerDialogOpen(false); setNewLedgerName('') }}
+      onConfirm={() => { onCreateLocalLedgerAndReclassify(newLedgerName); setNewLedgerName(''); setNewLedgerDialogOpen(false) }}>
+      <label>收藏夹名称<input aria-label="新增收藏夹名称" value={newLedgerName} onChange={(event) => setNewLedgerName(event.currentTarget.value)} /></label>
+    </OldFavoriteModal> : null}
   </section>
 }

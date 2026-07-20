@@ -865,7 +865,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
     fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
-    fireEvent.click(screen.getByRole('button', { name: '自动分类' }))
+    fireEvent.click(screen.getByRole('button', { name: '自动分类当前分段' }))
 
     await waitFor(() => expect(screen.getByRole('button', { name: '确认执行' })).toHaveAttribute('aria-current', 'step'))
     expect(screen.getByRole('button', { name: '继续同步到 B 站' })).toBeInTheDocument()
@@ -962,6 +962,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     />)
 
     await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹后重新归类' }))
     fireEvent.change(screen.getByRole('textbox', { name: '新增收藏夹名称' }), { target: { value: '音乐' } })
     fireEvent.click(screen.getByRole('button', { name: '新增并重新归类' }))
 
@@ -1018,7 +1020,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'UP bilimi·UP' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'set-recommended-candidates', candidateIds: ['custom-author-up'] }))
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
-    fireEvent.click(screen.getByRole('button', { name: '自动分类' }))
+    fireEvent.click(screen.getByRole('button', { name: '自动分类当前分段' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'auto-classify-current-segment' }))
     fireEvent.click(screen.getByRole('button', { name: '整理范围' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: '只整理【未匹配到合适分类】' }))
@@ -1183,7 +1185,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
 
-    expect(screen.getByRole('group', { name: '归档工具' })).toHaveClass('favorite-ledger-panel__preview-toolbar')
+    expect(screen.getByRole('group', { name: '归档预览辅助工具' })).toHaveClass('favorite-ledger-panel__archive-tool-card')
+    expect(screen.queryByRole('group', { name: '归档工具' })).not.toBeInTheDocument()
     expect(screen.getByLabelText('当前分段归档预览').parentElement).toHaveClass('favorite-ledger-panel__preview-groups')
     expect(screen.getAllByText('来源：Watch later')).not.toHaveLength(0)
     expect(screen.getByText('分类来源：低置信度自动分类')).toBeInTheDocument()
