@@ -179,6 +179,22 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.loading).toBe(false)
   })
 
+  it('does not let an abandoned prior-account request keep the new account loading', async () => {
+    const first = deferred<ReturnType<typeof workspace>>()
+    const second = deferred<ReturnType<typeof workspace>>()
+    const open = vi.fn((accountMid: string) => accountMid === '100' ? first.promise : second.promise)
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as typeof window.bilimiDesktop
+    const { result, rerender } = renderHook(({ accountMid }) => useOldFavoriteWorkspace(accountMid), {
+      initialProps: { accountMid: '100' }
+    })
+
+    rerender({ accountMid: '200' })
+    await act(async () => { second.resolve(workspace('200')) })
+
+    expect(result.current.snapshot).toEqual(workspace('200'))
+    expect(result.current.loading).toBe(false)
+  })
+
   it('starts a compact scan through the constrained workspace command', async () => {
     const command = vi.fn().mockResolvedValue(workspace('100'))
     window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop

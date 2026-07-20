@@ -16,11 +16,20 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const requestVersion = useRef(0)
   const backgroundRequestVersion = useRef(0)
   const foregroundRequestCount = useRef(0)
+  const accountGeneration = useRef(0)
+
+  useEffect(() => {
+    accountGeneration.current += 1
+    foregroundRequestCount.current = 0
+    setLoading(false)
+    setBackgroundRefreshing(false)
+  }, [accountMid])
 
   const refresh = useCallback(async (preserveSnapshot = false) => {
     if (preserveSnapshot && foregroundRequestCount.current > 0) return null
     const version = preserveSnapshot ? ++backgroundRequestVersion.current : ++requestVersion.current
     const foregroundVersion = requestVersion.current
+    const generation = accountGeneration.current
     const open = window.bilimiDesktop?.openOldFavoriteWorkspaceV1
     if (!accountMid || !open) {
       setSnapshot(null)
@@ -43,21 +52,21 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       const matchesRequestedAccount = normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
       if (!matchesRequestedAccount) return null
       const isCurrent = preserveSnapshot
-        ? backgroundRequestVersion.current === version && requestVersion.current === foregroundVersion && foregroundRequestCount.current === 0
-        : requestVersion.current === version
+        ? backgroundRequestVersion.current === version && requestVersion.current === foregroundVersion && foregroundRequestCount.current === 0 && accountGeneration.current === generation
+        : requestVersion.current === version && accountGeneration.current === generation
       if (isCurrent) setSnapshot(next)
       return next
     } catch (error) {
       const isCurrent = preserveSnapshot
-        ? backgroundRequestVersion.current === version && requestVersion.current === foregroundVersion && foregroundRequestCount.current === 0
-        : requestVersion.current === version
+        ? backgroundRequestVersion.current === version && requestVersion.current === foregroundVersion && foregroundRequestCount.current === 0 && accountGeneration.current === generation
+        : requestVersion.current === version && accountGeneration.current === generation
       if (isCurrent) setSnapshot(null)
       if (isCurrent) setLastError(error instanceof Error ? error.message : '读取整理旧藏工作区失败。')
       return null
     } finally {
       if (preserveSnapshot) {
-        if (backgroundRequestVersion.current === version) setBackgroundRefreshing(false)
-      } else {
+        if (backgroundRequestVersion.current === version && accountGeneration.current === generation) setBackgroundRefreshing(false)
+      } else if (accountGeneration.current === generation) {
         foregroundRequestCount.current = Math.max(0, foregroundRequestCount.current - 1)
         if (foregroundRequestCount.current === 0) setLoading(false)
       }
@@ -66,6 +75,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
 
   const startScan = useCallback(async (mode: 'incremental' | 'full' = 'incremental') => {
     const version = ++requestVersion.current
+    const generation = accountGeneration.current
     const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
     if (!accountMid || !command) return null
 
@@ -76,14 +86,16 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       const next = await command(accountMid, { type: 'start-scan', mode })
       const matchesRequestedAccount = normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
       if (!matchesRequestedAccount) return null
-      if (requestVersion.current === version) setSnapshot(next)
+      if (requestVersion.current === version && accountGeneration.current === generation) setSnapshot(next)
       return next
     } catch (error) {
-      if (requestVersion.current === version) setLastError(error instanceof Error ? error.message : '启动整理旧藏扫描失败。')
+      if (requestVersion.current === version && accountGeneration.current === generation) setLastError(error instanceof Error ? error.message : '启动整理旧藏扫描失败。')
       throw error
     } finally {
-      foregroundRequestCount.current = Math.max(0, foregroundRequestCount.current - 1)
-      if (foregroundRequestCount.current === 0) setLoading(false)
+      if (accountGeneration.current === generation) {
+        foregroundRequestCount.current = Math.max(0, foregroundRequestCount.current - 1)
+        if (foregroundRequestCount.current === 0) setLoading(false)
+      }
     }
   }, [accountMid])
 
@@ -105,6 +117,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
 
   const sendCommand = useCallback(async (commandValue: unknown) => {
     const version = ++requestVersion.current
+    const generation = accountGeneration.current
     const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
     if (!accountMid || !command) return null
     setLoading(true)
@@ -113,13 +126,15 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       const next = await command(accountMid, commandValue)
       const matchesRequestedAccount = normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
       if (!matchesRequestedAccount) return null
-      if (requestVersion.current === version) setSnapshot(next)
+      if (requestVersion.current === version && accountGeneration.current === generation) setSnapshot(next)
       return next
     } catch {
       return null
     } finally {
-      foregroundRequestCount.current = Math.max(0, foregroundRequestCount.current - 1)
-      if (foregroundRequestCount.current === 0) setLoading(false)
+      if (accountGeneration.current === generation) {
+        foregroundRequestCount.current = Math.max(0, foregroundRequestCount.current - 1)
+        if (foregroundRequestCount.current === 0) setLoading(false)
+      }
     }
   }, [accountMid])
 
@@ -141,6 +156,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
 
   const organizeCurrentSegmentWithDeepSeek = useCallback(async () => {
     const version = ++requestVersion.current
+    const generation = accountGeneration.current
     const organize = window.bilimiDesktop?.organizeOldFavoriteWorkspaceDeepSeekV1
     if (!accountMid || !organize) return null
     setLoading(true)
@@ -148,13 +164,15 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     try {
       const next = await organize(accountMid)
       if (normalizeAccountMid(next.accountMid) !== normalizeAccountMid(accountMid)) return null
-      if (requestVersion.current === version) setSnapshot(next)
+      if (requestVersion.current === version && accountGeneration.current === generation) setSnapshot(next)
       return next
     } catch {
       return null
     } finally {
-      foregroundRequestCount.current = Math.max(0, foregroundRequestCount.current - 1)
-      if (foregroundRequestCount.current === 0) setLoading(false)
+      if (accountGeneration.current === generation) {
+        foregroundRequestCount.current = Math.max(0, foregroundRequestCount.current - 1)
+        if (foregroundRequestCount.current === 0) setLoading(false)
+      }
     }
   }, [accountMid])
 
