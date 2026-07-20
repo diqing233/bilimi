@@ -52,6 +52,8 @@ type CurrentSegmentItem = {
   aid: number
   title?: string
   author?: string
+  tags?: string[]
+  category?: string
   cover?: string
   addedAt?: number
   sourceFolderIds: string[]
@@ -280,7 +282,7 @@ export class OldFavoriteWorkspaceCoordinator {
   async recordScanPage(accountMid: string, input: {
     folderId: string
     page: number
-    items: Array<{ aid: number; title?: string; author?: string; cover?: string; addedAt?: number; sourceFolderIds: string[] }>
+    items: Array<{ aid: number; title?: string; author?: string; tags?: string[]; category?: string; cover?: string; addedAt?: number; sourceFolderIds: string[] }>
   }, expectedRunId?: string) {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
@@ -413,12 +415,14 @@ export class OldFavoriteWorkspaceCoordinator {
       const workspace = await this.requireWorkspace(accountMid)
       if (expectedRunId && this.scanRuns.get(workspace.accountMid) !== expectedRunId) return clone(workspace)
       if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is not active.')
-      const itemsByAid = new Map<number, { aid: number; title?: string; author?: string; cover?: string; addedAt?: number; sourceFolderIds: string[] }>()
+      const itemsByAid = new Map<number, CurrentSegmentItem>()
       await this.options.workspaceStore.visitScanPages(workspace.accountMid, workspace.id, (page) => {
         for (const item of page.items) {
           const existing = itemsByAid.get(item.aid)
           if (existing) {
             existing.sourceFolderIds = [...new Set([...existing.sourceFolderIds, ...item.sourceFolderIds])].sort()
+            if (!existing.tags?.length && item.tags?.length) existing.tags = [...item.tags]
+            if (!existing.category && item.category) existing.category = item.category
           } else {
             itemsByAid.set(item.aid, { ...item, sourceFolderIds: [...new Set(item.sourceFolderIds)].sort() })
           }
@@ -452,7 +456,7 @@ export class OldFavoriteWorkspaceCoordinator {
             aid: item.aid,
             title: item.title ?? `Video ${item.aid}`,
             ...(item.author ? { author: item.author } : {}),
-            tags: [],
+            tags: [...(item.tags ?? [])],
             updatedAt: mirrorUpdatedAt
           }))
         }
@@ -518,7 +522,12 @@ export class OldFavoriteWorkspaceCoordinator {
       this.currentSegmentItems.set(completed.accountMid, completed.segments[0]?.aids.map((aid) => clone(itemsByAid.get(aid) ?? {
         aid, sourceFolderIds: []
       })) ?? [])
-      return clone(completed)
+      // Current bridge pages always carry this classification metadata; older
+      // recovered staging files do not, so preserve their explicit re-run flow.
+      const hasClassificationSignals = [...itemsByAid.values()].some((item) => item.tags !== undefined || item.category !== undefined)
+      return this.options.classifyCurrentItem && hasClassificationSignals
+        ? this.autoClassifyCurrentSegmentUnsafe(completed, true)
+        : clone(completed)
     })
   }
 

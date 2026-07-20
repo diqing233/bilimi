@@ -40,6 +40,8 @@ export type OldFavoriteWorkspaceSourceItem = {
   upperName: string
   cover: string
   addedAt: number
+  tags: string[]
+  category: string
 }
 
 type PageBaseResult = {
@@ -123,11 +125,13 @@ function isMembers(value: unknown): value is Record<string, number[]> {
 function isSourceItem(value: unknown): value is OldFavoriteWorkspaceSourceItem {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const item = value as Record<string, unknown>
-  return Object.keys(item).every((key) => key === 'aid' || key === 'title' || key === 'upperName' || key === 'cover' || key === 'addedAt') &&
+  return Object.keys(item).every((key) => key === 'aid' || key === 'title' || key === 'upperName' || key === 'cover' || key === 'addedAt' || key === 'tags' || key === 'category') &&
     isPositiveInteger(item.aid) && typeof item.title === 'string' && item.title.length <= 1024 &&
     typeof item.upperName === 'string' && item.upperName.length <= 512 &&
     typeof item.cover === 'string' && item.cover.length <= 2048 &&
-    typeof item.addedAt === 'number' && Number.isSafeInteger(item.addedAt) && item.addedAt >= 0
+    typeof item.addedAt === 'number' && Number.isSafeInteger(item.addedAt) && item.addedAt >= 0 &&
+    Array.isArray(item.tags) && item.tags.length <= 32 && item.tags.every((tag) => typeof tag === 'string' && tag.length <= 128) &&
+    typeof item.category === 'string' && item.category.length <= 128
 }
 
 function resultFor(command: OldFavoriteWorkspacePageCommand, value: unknown): OldFavoriteWorkspacePageResult | null {
@@ -237,7 +241,9 @@ function scriptFor(command: OldFavoriteWorkspacePageCommand): string {
       title: String(media?.title || ''),
       upperName: String(media?.upper?.name || ''),
       cover: String(media?.cover || ''),
-      addedAt: Number(media?.fav_time ?? media?.ctime ?? 0)
+      addedAt: Number(media?.fav_time ?? media?.ctime ?? 0),
+      tags: Array.isArray(media?.tags) ? media.tags.map((tag) => String(tag?.tag_name ?? tag?.name ?? tag || '').trim()).filter(Boolean).slice(0, 32) : [],
+      category: String(media?.tname ?? media?.category ?? media?.typename ?? media?.type_name ?? '').trim().slice(0, 128)
     })).filter((item) => Number.isSafeInteger(item.aid) && item.aid > 0 && Number.isSafeInteger(item.addedAt) && item.addedAt >= 0).slice(0, input.pageSize);
     return { status: 'ok', observedAccountMid, items, hasMore: Boolean(response.json?.data?.has_more) };
   })()`

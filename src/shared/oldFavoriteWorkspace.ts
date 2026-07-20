@@ -92,6 +92,8 @@ export type OldFavoriteWorkspaceSnapshot = {
       aid: number
       title?: string
       author?: string
+      tags?: string[]
+      category?: string
       cover?: string
       addedAt?: number
       sourceFolderIds: string[]

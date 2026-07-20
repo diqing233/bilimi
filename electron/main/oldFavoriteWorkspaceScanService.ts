@@ -9,7 +9,7 @@ type RuntimeInventoryResult = {
   target?: ScanTarget
   folders?: Array<{ id: string; title: string; mediaCount: number }>
   members?: Record<string, number[]>
-  items?: Array<{ aid: number; title: string; upperName: string; cover: string; addedAt: number }>
+  items?: Array<{ aid: number; title: string; upperName: string; cover: string; addedAt: number; tags: string[]; category: string }>
   hasMore?: boolean
 }
 
@@ -139,7 +139,7 @@ export class OldFavoriteWorkspaceScanService {
             page,
             items: sourcePage.items.map((item) => ({
               aid: item.aid, title: item.title, author: item.upperName, cover: item.cover,
-              addedAt: item.addedAt, sourceFolderIds: [folder.id]
+              addedAt: item.addedAt, tags: item.tags, category: item.category, sourceFolderIds: [folder.id]
             }))
           }, runId)
           hasMore = sourcePage.hasMore

@@ -55,11 +55,14 @@ describe('old favorite workspace page bridge', () => {
     expect(execute.mock.calls[0][1]).toContain('scan-workspace-managed-members')
   })
 
-  it('reads one bounded source page and returns only lightweight item fields', async () => {
+  it('reads one bounded source page with the tags and category required for classification', async () => {
     const execute = vi.fn().mockResolvedValue({
       status: 'ok',
       observedAccountMid: '100',
-      items: [{ aid: 42, title: 'Video', upperName: 'UP', cover: 'https://i0.hdslb.com/a.jpg', addedAt: 123 }],
+      items: [{
+        aid: 42, title: 'Video', upperName: 'UP', cover: 'https://i0.hdslb.com/a.jpg', addedAt: 123,
+        tags: ['TypeScript', 'Frontend'], category: '科技'
+      }],
       hasMore: true
     })
     const bridge = createOldFavoriteWorkspacePageBridge({ execute })
@@ -73,7 +76,10 @@ describe('old favorite workspace page bridge', () => {
     })).resolves.toEqual({
       status: 'ok',
       observedAccountMid: '100',
-      items: [{ aid: 42, title: 'Video', upperName: 'UP', cover: 'https://i0.hdslb.com/a.jpg', addedAt: 123 }],
+      items: [{
+        aid: 42, title: 'Video', upperName: 'UP', cover: 'https://i0.hdslb.com/a.jpg', addedAt: 123,
+        tags: ['TypeScript', 'Frontend'], category: '科技'
+      }],
       hasMore: true
     })
 
@@ -85,6 +91,8 @@ describe('old favorite workspace page bridge', () => {
     expect(script).not.toContain("url.searchParams.set('keyword'")
     expect(script).not.toContain("url.searchParams.set('tid'")
     expect(script).toContain('scan-workspace-source-page')
+    expect(script).toContain('media?.tags')
+    expect(script).toContain('media?.tname')
   })
 
   it('rejects an invalid target without running a page script', async () => {

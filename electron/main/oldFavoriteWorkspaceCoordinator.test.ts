@@ -21,10 +21,15 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
-function createCoordinator(repository: FavoriteRepositoryService, workspaceStore: OldFavoriteWorkspaceStore) {
+function createCoordinator(
+  repository: FavoriteRepositoryService,
+  workspaceStore: OldFavoriteWorkspaceStore,
+  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem'> = {}
+) {
   return new OldFavoriteWorkspaceCoordinator({
     repository,
     workspaceStore,
+    ...options,
     now: () => '2026-07-19T00:00:00.000Z'
   })
 }
@@ -36,6 +41,31 @@ function deferred<T>() {
 }
 
 describe('OldFavoriteWorkspaceCoordinator', () => {
+  it('retains scanned tags and automatically classifies the completed selected segment', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const classifyCurrentItem = vi.fn().mockReturnValue({ targetLedgerIds: ['knowledge'], confidence: 'high' as const })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { classifyCurrentItem })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'TypeScript tutorial', tags: ['TypeScript'], category: '科技', sourceFolderIds: ['source'] }]
+    })
+
+    await coordinator.finishScan('100')
+
+    expect(classifyCurrentItem).toHaveBeenCalledWith(expect.objectContaining({ tags: ['TypeScript'], category: '科技' }))
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      currentSegment: { items: [expect.objectContaining({ aid: 1, tags: ['TypeScript'], category: '科技' })] },
+      classifications: { '1': { targetLedgerIds: ['knowledge'], source: 'system-high' } },
+      planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 }
+    })
+  })
+
   it('refuses one-confirmation cross-segment execution until every selected aid has a classification', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
