@@ -5,6 +5,7 @@ import type {
   DeepSeekGenerateRequest,
   DeepSeekGenerateResult,
   DeepSeekKeyStatus,
+  DeepSeekArchiveMode,
   AssistantPreferences,
   FavoriteLedger,
   FavoriteLedgerSaveOptions,
@@ -48,7 +49,7 @@ type BilimiDesktopApi = {
   openFavoriteLibrary?: () => Promise<void>
   openOldFavoriteWorkspaceV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceView>
   commandOldFavoriteWorkspaceV1?: (accountMid: string, command: unknown) => Promise<OldFavoriteWorkspaceView>
-  organizeOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceView>
+  organizeOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string, mode: DeepSeekArchiveMode) => Promise<OldFavoriteWorkspaceView>
   ensureFavoriteLedgers?: () => Promise<AssistantAutomationResult>
   finishFloatingSealDrag?: () => void
   generateDeepSeek?: (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>

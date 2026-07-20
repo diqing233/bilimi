@@ -1,4 +1,6 @@
 import type { FavoriteLedger } from '@shared/types'
+import type { DeepSeekArchiveMode } from '@shared/types'
+import type { DeepSeekWorkspaceFeedback } from './useOldFavoriteWorkspace'
 import type { OldFavoriteWorkspaceView } from '@shared/oldFavoriteWorkspace'
 import { OldFavoriteScanOverviewStep } from './OldFavoriteScanOverviewStep'
 import { OldFavoriteRecommendationStep } from './OldFavoriteRecommendationStep'
@@ -20,9 +22,10 @@ type OldFavoriteGuideProps = {
   onSetRecommendedCandidates: (candidateIds: string[]) => void
   ledgers: FavoriteLedger[]
   deepSeekAvailable: boolean
+  deepSeekFeedback: DeepSeekWorkspaceFeedback | null
   onSelectSegment: (segmentId: string) => void
   onAutoClassify: () => void
-  onOrganizeWithDeepSeek: () => void
+  onOrganizeWithDeepSeek: (mode: DeepSeekArchiveMode) => void
   onUndoClassification: () => void
   onRedoClassification: () => void
   onApplyManualClassification: (aid: number, targetLedgerIds: string[]) => void
@@ -53,6 +56,7 @@ export function OldFavoriteGuide({
   onSetRecommendedCandidates,
   ledgers,
   deepSeekAvailable,
+  deepSeekFeedback,
   onSelectSegment,
   onAutoClassify,
   onOrganizeWithDeepSeek,
@@ -100,6 +104,7 @@ export function OldFavoriteGuide({
       ledgers={ledgers}
       loading={loading}
       deepSeekAvailable={deepSeekAvailable}
+      deepSeekFeedback={deepSeekFeedback}
       onSelectSegment={onSelectSegment}
       onAutoClassify={onAutoClassify}
       onOrganizeWithDeepSeek={onOrganizeWithDeepSeek}

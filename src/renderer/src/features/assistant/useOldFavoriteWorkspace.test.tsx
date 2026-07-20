@@ -239,9 +239,9 @@ describe('useOldFavoriteWorkspace', () => {
     window.bilimiDesktop = { organizeOldFavoriteWorkspaceDeepSeekV1: organize } as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
-    await act(async () => { await result.current.organizeCurrentSegmentWithDeepSeek() })
+    await act(async () => { await result.current.organizeCurrentSegmentWithDeepSeek('low-confidence-and-unclassified') })
 
-    expect(organize).toHaveBeenCalledExactlyOnceWith('100')
+    expect(organize).toHaveBeenCalledExactlyOnceWith('100', 'low-confidence-and-unclassified')
     expect(result.current.snapshot).toEqual(workspace('100'))
   })
 

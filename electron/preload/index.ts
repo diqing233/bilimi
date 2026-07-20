@@ -7,6 +7,7 @@ import type {
   DeepSeekGenerateRequest,
   DeepSeekGenerateResult,
   DeepSeekKeyStatus,
+  DeepSeekArchiveMode,
   FavoriteLedger,
   FavoriteLedgerSaveOptions,
   StartupDiagnosticReport,
@@ -52,8 +53,8 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('old-favorite-workspace-v1:open', accountMid) as Promise<OldFavoriteWorkspaceView>,
   commandOldFavoriteWorkspaceV1: (accountMid: string, command: unknown) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:command', accountMid, command) as Promise<OldFavoriteWorkspaceView>,
-  organizeOldFavoriteWorkspaceDeepSeekV1: (accountMid: string) =>
-    ipcRenderer.invoke('old-favorite-workspace-v1:deepseek-current-segment', accountMid) as Promise<OldFavoriteWorkspaceView>,
+  organizeOldFavoriteWorkspaceDeepSeekV1: (accountMid: string, mode: DeepSeekArchiveMode) =>
+    ipcRenderer.invoke('old-favorite-workspace-v1:deepseek-current-segment', accountMid, mode) as Promise<OldFavoriteWorkspaceView>,
   writeClipboardText: (text: string) =>
     ipcRenderer.invoke('clipboard:write-text', text) as Promise<void>,
   loadPreferences: () => ipcRenderer.invoke('assistant:load-preferences') as Promise<AssistantPreferences>,

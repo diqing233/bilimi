@@ -2,6 +2,7 @@ import type {
   ApplyWorkspaceClassificationBatchOptions,
   OldFavoriteWorkspaceRecoveryRequired
 } from '../../src/shared/oldFavoriteWorkspace'
+import type { DeepSeekArchiveMode } from '../../src/shared/types'
 import {
   OldFavoriteWorkspaceCoordinator
 } from './oldFavoriteWorkspaceCoordinator'
@@ -129,10 +130,10 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   options.ipcMain.handle('old-favorite-workspace-v1:open', async (event, requestedAccountMid: string) => {
     return snapshot(await options.coordinator.getSnapshot(await assertAccount(event, requestedAccountMid)))
   })
-  options.ipcMain.handle('old-favorite-workspace-v1:deepseek-current-segment', async (event, requestedAccountMid: string, ...args: unknown[]) => {
-    if (args.length !== 0) throw new Error('Old favorite workspace DeepSeek arguments are invalid.')
+  options.ipcMain.handle('old-favorite-workspace-v1:deepseek-current-segment', async (event, requestedAccountMid: string, mode?: DeepSeekArchiveMode, ...args: unknown[]) => {
+    if (args.length !== 0 || (mode !== undefined && !['all', 'classified-only', 'unclassified-only', 'low-confidence-and-unclassified'].includes(mode))) throw new Error('Old favorite workspace DeepSeek arguments are invalid.')
     if (!options.deepSeekService) throw new Error('Old favorite workspace DeepSeek service is unavailable.')
-    return snapshot(await options.deepSeekService.organizeCurrentSegment(await assertAccount(event, requestedAccountMid)))
+    return snapshot(await options.deepSeekService.organizeCurrentSegment(await assertAccount(event, requestedAccountMid), mode ?? 'all'))
   })
   options.ipcMain.handle('old-favorite-workspace-v1:command', async (event, requestedAccountMid: string, value: unknown) => {
     const accountMid = await assertAccount(event, requestedAccountMid)

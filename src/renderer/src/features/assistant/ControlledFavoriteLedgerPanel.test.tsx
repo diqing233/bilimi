@@ -813,7 +813,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const command = vi.fn(async (_accountMid: string, input: { type: string }) => input.type === 'confirm-and-execute-bilibili-plan'
       ? { ...preview, status: 'executing' as const }
       : preview)
-    const deepSeek = vi.fn().mockResolvedValue(preview)
+    let resolveDeepSeek: ((value: typeof preview) => void) | undefined
+    const deepSeek = vi.fn(() => new Promise<typeof preview>((resolve) => { resolveDeepSeek = resolve }))
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command,
@@ -839,8 +840,17 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     fireEvent.click(screen.getByRole('button', { name: '自动分类' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'auto-classify-current-segment' }))
+    fireEvent.click(screen.getByRole('button', { name: '整理范围' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: '只整理【未匹配到合适分类】' }))
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
-    await waitFor(() => expect(deepSeek).toHaveBeenCalledWith('100'))
+    await waitFor(() => expect(deepSeek).toHaveBeenCalledWith('100', 'unclassified-only'))
+    expect(screen.getByRole('status')).toHaveTextContent('DeepSeek 正在整理当前分段…')
+    resolveDeepSeek?.(preview)
+    await screen.findByText('DeepSeek 整理完成，已更新当前分段。')
+    deepSeek.mockRejectedValueOnce(new Error('DeepSeek 服务暂时不可用'))
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    await screen.findByRole('alert')
+    expect(screen.getByRole('alert')).toHaveTextContent('DeepSeek 服务暂时不可用')
     fireEvent.change(screen.getByRole('combobox', { name: '归类 Alpha' }), { target: { value: 'knowledge' } })
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'apply-classifications', source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['knowledge'] }]
@@ -856,7 +866,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(command).toHaveBeenCalledWith('100', {
       type: 'apply-classifications', source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['knowledge'] }]
     })
-    expect(deepSeek).toHaveBeenCalledWith('100')
+    expect(deepSeek).toHaveBeenCalledWith('100', 'unclassified-only')
   })
 
   it('renders UP and tag recommendation cards and restores whole-round choices across segments and remounts', async () => {

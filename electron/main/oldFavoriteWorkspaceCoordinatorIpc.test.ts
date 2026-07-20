@@ -43,8 +43,12 @@ describe('old favorite workspace coordinator IPC', () => {
     })
 
     await expect(ipcMain.invoke('old-favorite-workspace-v1:deepseek-current-segment', 7, '100')).resolves.toEqual(snapshot)
-    expect(deepSeekService.organizeCurrentSegment).toHaveBeenCalledWith('100')
+    expect(deepSeekService.organizeCurrentSegment).toHaveBeenCalledWith('100', 'all')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:deepseek-current-segment', 7, '100', 'unclassified-only')).resolves.toEqual(snapshot)
+    expect(deepSeekService.organizeCurrentSegment).toHaveBeenLastCalledWith('100', 'unclassified-only')
     await expect(ipcMain.invoke('old-favorite-workspace-v1:deepseek-current-segment', 7, '100', { results: [] }))
+      .rejects.toThrow('arguments are invalid')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:deepseek-current-segment', 7, '100', 'renderer-claimed-mode'))
       .rejects.toThrow('arguments are invalid')
   })
 

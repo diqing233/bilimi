@@ -2,6 +2,20 @@ import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepSeekService'
 
 describe('OldFavoriteWorkspaceDeepSeekService', () => {
+  it('forwards the legacy low-confidence and unclassified scope without letting the renderer supply videos', async () => {
+    const coordinator = {
+      getSnapshot: vi.fn().mockResolvedValue({
+        accountMid: '100', workspaceId: 'workspace-100', status: 'previewing',
+        sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+        currentSegment: { id: 'segment-1', items: [{ aid: 1, title: 'Video', sourceFolderIds: ['source'] }] }, classifications: {}
+      }), applyDeepSeekClassificationBatch: vi.fn().mockResolvedValue({})
+    }
+    const generate = vi.fn().mockResolvedValue({ kind: 'favorite-archive-organize', results: [{ aid: 1, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false }], keywordSuggestions: [] })
+    const service = new OldFavoriteWorkspaceDeepSeekService({ coordinator: coordinator as never, preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }] }), generate })
+
+    await service.organizeCurrentSegment('100', 'low-confidence-and-unclassified')
+    expect(generate).toHaveBeenCalledWith(expect.objectContaining({ mode: 'low-confidence-and-unclassified' }))
+  })
   it('submits only the selected current segment and records one main-process DeepSeek batch', async () => {
     const coordinator = {
       getSnapshot: vi.fn().mockResolvedValue({

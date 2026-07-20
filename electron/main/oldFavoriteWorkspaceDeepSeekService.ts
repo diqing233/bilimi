@@ -2,6 +2,7 @@ import { parseFavoriteLedgerRules } from '../../src/shared/favoriteLedgerConstra
 import { assertDeepSeekRequestEnabled } from './deepseekFeatureAccess'
 import type {
   DeepSeekArchiveVideoResult,
+  DeepSeekArchiveMode,
   DeepSeekGenerateRequest,
   DeepSeekGenerateResult,
   FavoriteArchiveMultiMode,
@@ -37,7 +38,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
     generate: (request: ArchiveRequest) => Promise<DeepSeekGenerateResult>
   }) {}
 
-  async organizeCurrentSegment(accountMid: string) {
+  async organizeCurrentSegment(accountMid: string, mode: DeepSeekArchiveMode = 'all') {
     const preferences = this.options.preferences()
     assertDeepSeekRequestEnabled(preferences as Parameters<typeof assertDeepSeekRequestEnabled>[0], 'favorite-archive-organize')
     const snapshot = await this.options.coordinator.getSnapshot(accountMid)
@@ -54,7 +55,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
 
     const request: ArchiveRequest = {
       kind: 'favorite-archive-organize',
-      mode: 'all',
+      mode,
       videos: items.map((item) => {
         const sourceFolderId = item.sourceFolderIds.find((folderId) => selectedFolderIds.has(folderId)) ?? ''
         return {

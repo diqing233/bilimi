@@ -159,9 +159,10 @@ export function ControlledFavoriteLedgerPanel({
 
         ledgers={ledgers}
         deepSeekAvailable={deepSeekArchiveAvailable}
+        deepSeekFeedback={workspace.deepSeekFeedback}
         onSelectSegment={(segmentId) => void workspace.selectSegment(segmentId)}
         onAutoClassify={() => void workspace.autoClassifyCurrentSegment()}
-        onOrganizeWithDeepSeek={() => void workspace.organizeCurrentSegmentWithDeepSeek()}
+        onOrganizeWithDeepSeek={(mode) => void workspace.organizeCurrentSegmentWithDeepSeek(mode)}
         onUndoClassification={() => void workspace.undoClassification()}
         onRedoClassification={() => void workspace.redoClassification()}
         onApplyManualClassification={(aid, targetLedgerIds) => void workspace.applyManualClassifications([{ aid, targetLedgerIds }])}

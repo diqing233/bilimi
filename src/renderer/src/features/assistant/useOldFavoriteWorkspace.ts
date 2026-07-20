@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { OldFavoriteWorkspaceView } from '../../../../shared/oldFavoriteWorkspace'
+import type { DeepSeekArchiveMode } from '@shared/types'
 
 type WorkspaceView = OldFavoriteWorkspaceView
+
+export type DeepSeekWorkspaceFeedback = {
+  status: 'running' | 'completed' | 'failed'
+  message: string
+}
 
 function normalizeAccountMid(value: string) {
   if (!/^\d+$/.test(value.trim()) || BigInt(value.trim()) === 0n) return null
@@ -13,6 +19,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const [loading, setLoading] = useState(false)
   const [backgroundRefreshing, setBackgroundRefreshing] = useState(false)
   const [lastError, setLastError] = useState<string | null>(null)
+  const [deepSeekFeedback, setDeepSeekFeedback] = useState<DeepSeekWorkspaceFeedback | null>(null)
   const requestVersion = useRef(0)
   const backgroundRequestVersion = useRef(0)
   const foregroundRequestCount = useRef(0)
@@ -23,6 +30,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     foregroundRequestCount.current = 0
     setLoading(false)
     setBackgroundRefreshing(false)
+    setDeepSeekFeedback(null)
   }, [accountMid])
 
   const refresh = useCallback(async (preserveSnapshot = false) => {
@@ -154,19 +162,29 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     return sendCommand({ type: 'apply-classifications', source: 'manual', assignments: normalized })
   }, [sendCommand])
 
-  const organizeCurrentSegmentWithDeepSeek = useCallback(async () => {
+  const organizeCurrentSegmentWithDeepSeek = useCallback(async (mode: DeepSeekArchiveMode) => {
     const version = ++requestVersion.current
     const generation = accountGeneration.current
     const organize = window.bilimiDesktop?.organizeOldFavoriteWorkspaceDeepSeekV1
     if (!accountMid || !organize) return null
     setLoading(true)
     foregroundRequestCount.current += 1
+    setDeepSeekFeedback({ status: 'running', message: 'DeepSeek 正在整理当前分段…' })
     try {
-      const next = await organize(accountMid)
+      const next = await organize(accountMid, mode)
       if (normalizeAccountMid(next.accountMid) !== normalizeAccountMid(accountMid)) return null
       if (requestVersion.current === version && accountGeneration.current === generation) setSnapshot(next)
+      if (requestVersion.current === version && accountGeneration.current === generation) {
+        setDeepSeekFeedback({ status: 'completed', message: 'DeepSeek 整理完成，已更新当前分段。' })
+      }
       return next
-    } catch {
+    } catch (error) {
+      if (requestVersion.current === version && accountGeneration.current === generation) {
+        setDeepSeekFeedback({
+          status: 'failed',
+          message: error instanceof Error ? error.message : 'DeepSeek 整理失败，请稍后重试。'
+        })
+      }
       return null
     } finally {
       if (accountGeneration.current === generation) {
@@ -206,7 +224,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [refresh, snapshot?.status])
 
   return {
-    snapshot, loading, backgroundRefreshing, lastError, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek,
+    snapshot, loading, backgroundRefreshing, lastError, deepSeekFeedback, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek,
     undoClassification, redoClassification, autoClassifyCurrentSegment, setRecommendedCandidates, createLocalLedgerAndReclassify, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, executeFrozenBilibiliPlan,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace,
