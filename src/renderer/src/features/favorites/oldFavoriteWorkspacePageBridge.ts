@@ -236,15 +236,28 @@ function scriptFor(command: OldFavoriteWorkspacePageCommand): string {
     const response = await fetchJson(url.toString());
     if (response.error) return unknown(response.error);
     if (!Array.isArray(response.json?.data?.medias)) return unknown('invalid-source-page-response');
-    const items = response.json.data.medias.map((media) => ({
+    const readTags = (value) => (Array.isArray(value) ? value : [])
+      .map((tag) => String(tag?.tag_name ?? tag?.name ?? tag?.title ?? tag || '').trim())
+      .filter(Boolean)
+      .slice(0, 32);
+    const rawItems = response.json.data.medias.map((media) => ({
       aid: Number(media?.id ?? media?.aid),
       title: String(media?.title || ''),
       upperName: String(media?.upper?.name || ''),
       cover: String(media?.cover || ''),
       addedAt: Number(media?.fav_time ?? media?.ctime ?? 0),
-      tags: Array.isArray(media?.tags) ? media.tags.map((tag) => String(tag?.tag_name ?? tag?.name ?? tag || '').trim()).filter(Boolean).slice(0, 32) : [],
+      tags: readTags(media?.tags ?? media?.tag),
       category: String(media?.tname ?? media?.category ?? media?.typename ?? media?.type_name ?? '').trim().slice(0, 128)
     })).filter((item) => Number.isSafeInteger(item.aid) && item.aid > 0 && Number.isSafeInteger(item.addedAt) && item.addedAt >= 0).slice(0, input.pageSize);
+    for (const item of rawItems) {
+      if (item.tags.length) continue;
+      const tagUrl = new URL('https://api.bilibili.com/x/tag/archive/tags');
+      tagUrl.searchParams.set('aid', String(item.aid));
+      const tagResponse = await fetchJson(tagUrl.toString());
+      // Missing tags are non-fatal; the rest of the bounded source page remains usable.
+      if (!tagResponse.error) item.tags = readTags(tagResponse.json?.data?.tags ?? tagResponse.json?.data);
+    }
+    const items = rawItems;
     return { status: 'ok', observedAccountMid, items, hasMore: Boolean(response.json?.data?.has_more) };
   })()`
 }
