@@ -36,6 +36,7 @@ import type {
 } from '@shared/favoriteRepository'
 import type {
   FavoriteRepositoryRevisionChange,
+  FavoriteRepositoryLibraryVideoDetail,
   FavoriteRepositorySnapshotSummary
 } from '../../../electron/main/favoriteRepositoryIpc'
 import type { FavoriteLibraryCommandResult, FavoriteLibrarySyncSelection } from '../../../electron/main/favoriteLibraryCommands'
@@ -72,7 +73,13 @@ type BilimiDesktopApi = {
   moveFloatingSealTo?: (screenX: number, screenY: number) => void
   notifyAssistantSnapshotChanged?: () => void
   readBilibiliAccountMid?: () => Promise<string>
+  readBilibiliAccount?: () => Promise<{ mid: string; nickname?: string }>
+  openFavoriteLibraryVideo?: (accountMid: string, aid: number) => Promise<void>
+  openFavoriteLibrarySource?: (accountMid: string, folderId: string) => Promise<void>
+  toggleFavoriteLibraryArchiveStar?: (accountMid: string, aid: number) => Promise<void>
+  saveFavoriteLibraryArchiveMemo?: (accountMid: string, aid: number, memo: string) => Promise<void>
   onBilibiliAccountChanged?: (callback: () => void) => () => void
+  onFavoriteLibraryTranscriptionChanged?: (callback: () => void) => () => void
   openFavoriteRepositoryAccount?: (accountMid: string) => Promise<FavoriteRepositorySnapshotSummary>
   getFavoriteRepositorySnapshot?: (accountMid: string) => Promise<FavoriteRepositorySnapshotSummary>
   getFavoriteRepositoryFolderPage?: (
@@ -90,11 +97,11 @@ type BilimiDesktopApi = {
     scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' },
     options: { limit: number; cursor?: string }
   ) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryLibraryPage>
+  getFavoriteRepositoryLibraryVideoDetail?: (
+    accountMid: string,
+    aid: number
+  ) => Promise<FavoriteRepositoryLibraryVideoDetail>
   syncFavoriteLibrarySelection?: (accountMid: string, selection: FavoriteLibrarySyncSelection) => Promise<FavoriteLibraryCommandResult>
-  reconcileFavoriteLibrarySync?: (accountMid: string, runId: string) => Promise<FavoriteLibraryCommandResult>
-  retryFavoriteLibrarySync?: (accountMid: string, runId: string) => Promise<FavoriteLibraryCommandResult>
-  bindFavoriteLibrarySyncPage?: (accountMid: string, runId: string) => Promise<FavoriteLibraryCommandResult>
-  getPendingFavoriteLibrarySyncRuns?: (accountMid: string) => Promise<FavoriteLibraryCommandResult[]>
   enqueueFavoriteLibraryTranscription?: (
     accountMid: string,
     input: { aids: number[]; summarizeWithDeepSeek?: boolean }

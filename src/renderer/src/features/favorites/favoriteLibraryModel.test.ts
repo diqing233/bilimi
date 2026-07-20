@@ -7,6 +7,7 @@ import {
   buildLibrarySearchRows,
   buildPendingLibraryRows,
   createFavoriteLibraryPageCursor
+  , formatFavoriteLibraryMirrorStatus
 } from './favoriteLibraryModel'
 
 const video = (aid: number, title = `Video ${aid}`): FavoriteRepositoryVideo => ({
@@ -17,6 +18,12 @@ const video = (aid: number, title = `Video ${aid}`): FavoriteRepositoryVideo => 
 })
 
 describe('favoriteLibraryModel', () => {
+  it('translates repository mirror states into user-facing Chinese labels', () => {
+    expect(formatFavoriteLibraryMirrorStatus(['unsynced'])).toBe('未同步')
+    expect(formatFavoriteLibraryMirrorStatus(['failed'])).toBe('同步失败')
+    expect(formatFavoriteLibraryMirrorStatus([])).toBe('已同步')
+  })
+
   it('returns one global-search row per aid and retains every folder membership', () => {
     expect(buildLibrarySearchRows([
       { video: video(1), folderId: 'b' },
@@ -64,8 +71,8 @@ describe('favoriteLibraryModel', () => {
     ]
 
     expect(buildFavoriteLibraryNavigation(folders, 3)).toEqual([
-      { id: 'all', kind: 'all', title: 'All' },
-      { id: 'pending', kind: 'pending', title: 'Pending', count: 3 },
+      { id: 'all', kind: 'all', title: '全部收藏' },
+      { id: 'pending', kind: 'pending', title: '待处理', count: 3 },
       { id: 'folder:remote', kind: 'folder', folderId: 'remote', title: 'Bili', source: 'bilibili' },
       { id: 'folder:logical', kind: 'folder', folderId: 'logical', title: 'Bilimi logical', source: 'bilimi-logical' },
       { id: 'folder:local', kind: 'folder', folderId: 'local', title: 'Local', source: 'local' }

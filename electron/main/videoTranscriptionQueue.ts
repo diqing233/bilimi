@@ -31,7 +31,8 @@ type VideoTranscriptionQueue = {
 }
 
 function createQueueItemId(request: VideoAudioTranscriptionRequest): string {
-  return request.bvid ? `bvid:${request.bvid}` : `url:${request.url}`
+  const account = request.accountMid?.trim() ? `account:${request.accountMid.trim()}:` : ''
+  return request.bvid ? `${account}bvid:${request.bvid}` : `${account}url:${request.url}`
 }
 
 function createErrorMessage(error: unknown): string {
@@ -46,6 +47,7 @@ function createNoteFromQueueItem(
   return createLocalVideoNoteDraft({
     now,
     source: {
+      accountMid: item.accountMid,
       title: item.title,
       author: item.author,
       bvid: item.bvid,

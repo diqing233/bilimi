@@ -76,7 +76,17 @@ import { FavoriteRepositoryBindingService } from './favoriteRepositoryBindingSer
 import { FavoriteRepositoryRuntimePageBridgeManager } from './favoriteRepositoryRuntimePageBridge'
 import { registerFavoriteRepositoryIpc } from './favoriteRepositoryIpc'
 import { FavoriteLibraryCommandService, registerFavoriteLibraryCommandsIpc } from './favoriteLibraryCommands'
-import { FavoriteLibraryWindowController, installFavoriteLibraryNavigationGuardAfterInitialLoad } from './favoriteLibraryWindow'
+import {
+  createFavoriteLibraryArchiveSummary,
+  createFavoriteLibraryTranscriptionSummary
+} from './favoriteLibrarySummaries'
+import {
+  createFavoriteLibraryWindowOptions,
+  FavoriteLibrarySideBySideLayout,
+  FavoriteLibraryWindowController,
+  installFavoriteLibraryNavigationGuard
+} from './favoriteLibraryWindow'
+import { registerFavoriteLibraryBridgeIpc, type FavoriteLibraryAccount } from './favoriteLibraryBridge'
 import { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 import { BilibiliSessionProxy } from './bilibiliSessionProxy'
 import {
@@ -820,7 +830,8 @@ function createMainWindow() {
 }
 
 function sendVideoAudioTranscriptionQueueChanged(snapshot: VideoAudioTranscriptionQueueSnapshot) {
-  const targets = [mainWindow, floatingSealWindow, floatingAssistantController.getWindow()]
+  const libraryWindow = favoriteLibraryWindowController.getWindow()
+  const targets = [mainWindow, floatingSealWindow, floatingAssistantController.getWindow(), libraryWindow]
 
   for (const target of targets) {
     if (!target || target.isDestroyed()) {
@@ -828,6 +839,7 @@ function sendVideoAudioTranscriptionQueueChanged(snapshot: VideoAudioTranscripti
     }
 
     target.webContents.send('video-audio:transcription-queue-changed', snapshot)
+    if (target === libraryWindow) target.webContents.send('favorite-library:transcription-changed')
   }
 }
 
@@ -1159,28 +1171,69 @@ async function readCurrentBilibiliAccountMid() {
   return cookies.find((cookie) => /^\d+$/.test(cookie.value))?.value ?? ''
 }
 
-function createFavoriteLibraryWindow() {
-  const library = new BrowserWindow({
-    width: 1180,
-    height: 760,
-    minWidth: 900,
-    minHeight: 560,
-    title: '收藏库',
-    webPreferences: {
-      preload: createFavoriteLibraryPreloadScriptPath(__dirname),
-      contextIsolation: true,
-      sandbox: false,
-      webviewTag: false
-    }
-  })
+async function readCurrentBilibiliAccount(): Promise<FavoriteLibraryAccount> {
+  const mid = await readCurrentBilibiliAccountMid()
+  if (!mid) return { mid: '' }
 
+  try {
+    const response = await session.fromPartition(BILIMI_SESSION_PARTITION).fetch('https://api.bilibili.com/x/web-interface/nav')
+    const payload = await response.json() as { code?: unknown; data?: { uname?: unknown } }
+    const nickname = payload.code === 0 && typeof payload.data?.uname === 'string' ? payload.data.uname.trim() : ''
+    return { mid, ...(nickname ? { nickname } : {}) }
+  } catch {
+    return { mid }
+  }
+}
+
+/** Fetches video facts through the logged-in Electron session; this endpoint is read-only. */
+async function refreshFavoriteLibraryVideo(accountMid: string, aid: number) {
+  if ((await readCurrentBilibiliAccountMid()).trim() !== accountMid) throw new Error('当前账号已切换，请重新加载收藏库。')
+  const url = new URL('https://api.bilibili.com/x/web-interface/view')
+  url.searchParams.set('aid', String(aid))
+  const response = await session.fromPartition(BILIMI_SESSION_PARTITION).fetch(url)
+  const payload = await response.json() as { code?: unknown; data?: Record<string, unknown> }
+  if (!response.ok || payload.code !== 0 || !payload.data) throw new Error('无法读取视频信息，请稍后重试。')
+  if ((await readCurrentBilibiliAccountMid()).trim() !== accountMid) throw new Error('当前账号已切换，请重新加载收藏库。')
+  const data = payload.data
+  const title = typeof data.title === 'string' ? data.title.trim() : ''
+  if (!title) throw new Error('视频信息不完整，请稍后重试。')
+  const owner = data.owner as Record<string, unknown> | undefined
+  const pages = Array.isArray(data.pages) ? data.pages as Array<Record<string, unknown>> : []
+  const firstPage = pages[0]
+  return {
+    aid, title, tags: [], updatedAt: new Date().toISOString(),
+    ...(typeof owner?.name === 'string' && owner.name.trim() ? { author: owner.name.trim() } : {}),
+    ...(typeof data.desc === 'string' && data.desc.trim() ? { description: data.desc.trim() } : {}),
+    ...(typeof data.bvid === 'string' && data.bvid.trim() ? { bvid: data.bvid.trim() } : {}),
+    ...(Number.isSafeInteger(data.duration) ? { durationSeconds: Number(data.duration) } : {}),
+    ...(typeof data.tname === 'string' && data.tname.trim() ? { category: data.tname.trim() } : {}),
+    ...(typeof data.pic === 'string' && data.pic.trim() ? { coverUrl: data.pic.trim() } : {}),
+    ...(Number.isSafeInteger(firstPage?.cid) ? { cid: Number(firstPage.cid) } : {})
+  }
+}
+
+function createFavoriteLibraryWindow() {
+  const display = screen.getDisplayMatching(mainWindow?.getBounds() ?? screen.getPrimaryDisplay().bounds)
+  const library = new BrowserWindow(
+    createFavoriteLibraryWindowOptions(
+      display.workArea,
+      createFavoriteLibraryPreloadScriptPath(__dirname)
+    )
+  )
+
+  library.removeMenu()
   installFavoriteLibraryNavigationGuardAfterInitialLoad(library.webContents)
-  library.on('closed', () => favoriteLibraryWindowController.clearIfCurrent(library))
+  favoriteLibrarySideBySideLayout.open(mainWindow, library)
+  library.on('closed', () => {
+    favoriteLibrarySideBySideLayout.close(mainWindow)
+    favoriteLibraryWindowController.clearIfCurrent(library)
+  })
   loadRendererWindow(library, FAVORITE_LIBRARY_QUERY)
   return library
 }
 
 const favoriteLibraryWindowController = new FavoriteLibraryWindowController(createFavoriteLibraryWindow)
+const favoriteLibrarySideBySideLayout = new FavoriteLibrarySideBySideLayout()
 
 function isTrustedFavoriteLibraryReader(senderId: number): boolean {
   const library = favoriteLibraryWindowController.getWindow()
@@ -1189,7 +1242,8 @@ function isTrustedFavoriteLibraryReader(senderId: number): boolean {
 
 if (singleInstanceGuard) app.whenReady().then(async () => {
   favoriteRepositoryService = new FavoriteRepositoryService({
-    root: join(app.getPath('userData'), 'favorites', 'repository-v1')
+    root: join(app.getPath('userData'), 'favorites', 'repository-v1'),
+    getTranscriptionItems: () => getVideoTranscriptionQueue().getSnapshot().items
   })
   favoriteRepositoryPageBridgeManager = new FavoriteRepositoryRuntimePageBridgeManager(
     (request) => requestMainAssistantRuntime<FavoriteRepositoryPageOperationResult>(request)
@@ -1206,37 +1260,15 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   })
   favoriteLibraryCommandService = new FavoriteLibraryCommandService({
     repository: favoriteRepositoryService,
-    pageBridgeManager: favoriteRepositoryPageBridgeManager,
     transcriptionQueue: getVideoTranscriptionQueue(),
-    root: join(app.getPath('userData'), 'favorites', 'repository-v1'),
-    remoteOperations: favoriteRepositoryRemoteOperations
+    refreshVideo: refreshFavoriteLibraryVideo
   })
   oldFavoriteWorkspaceCoordinator = new OldFavoriteWorkspaceCoordinator({
     repository: favoriteRepositoryService,
     syncService: favoriteRepositorySyncService,
     bindingService: favoriteRepositoryBindingService,
-    saveRecommendedLedgers: async (_accountMid, recommendedLedgers) => {
-      const preferences = loadAssistantPreferences(getDesktopStore())
-      const existingLedgerIds = new Set(preferences.favoriteLedgers.map((ledger) => ledger.id))
-      const additions = recommendedLedgers.filter((ledger) => !existingLedgerIds.has(ledger.id))
-      if (!additions.length) return
-      const saved = patchAssistantPreferences(getDesktopStore(), {
-        favoriteLedgers: [...preferences.favoriteLedgers, ...additions]
-      })
-      sendAssistantPreferencesChanged(saved)
-    },
-    removeRecommendedLedgers: async (_accountMid, ledgerIds) => {
-      const preferences = loadAssistantPreferences(getDesktopStore())
-      const ids = new Set(ledgerIds)
-      const favoriteLedgers = preferences.favoriteLedgers.filter((ledger) => !ids.has(ledger.id))
-      if (favoriteLedgers.length === preferences.favoriteLedgers.length) return
-      const saved = patchAssistantPreferences(getDesktopStore(), { favoriteLedgers })
-      sendAssistantPreferencesChanged(saved)
-    },
-    resolveLedgerTitle: async (_accountMid, logicalLedgerId) =>
-      loadAssistantPreferences(getDesktopStore()).favoriteLedgers.find((ledger) => ledger.id === logicalLedgerId)?.displayName,
     classifyCurrentItem: (item, recommendedLedgers = []) => {
-      const result = classifyVideoContent({ title: item.title, author: item.author, tags: item.tags, category: item.category }, mergeOldFavoriteWorkspaceLedgers(
+      const result = classifyVideoContent({ title: item.title, author: item.author }, mergeOldFavoriteWorkspaceLedgers(
         loadAssistantPreferences(getDesktopStore()).favoriteLedgers,
         recommendedLedgers
       ))
@@ -1288,13 +1320,33 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     send: (senderId, channel, payload) => {
       const target = webContents.fromId(senderId)
       if (target && !target.isDestroyed()) target.send(channel, payload)
-    }
+    },
+    getArchiveSummary: (accountMid, aid) => createFavoriteLibraryArchiveSummary(accountMid, aid, loadVideoNoteArchives(getDesktopStore())),
+    getTranscriptionSummary: (accountMid, aid) =>
+      createFavoriteLibraryTranscriptionSummary(accountMid, aid, getVideoTranscriptionQueue().getSnapshot().items)
   })
   registerFavoriteLibraryCommandsIpc({
     ipcMain,
     commands: favoriteLibraryCommandService,
     isTrustedLibrarySender: isTrustedFavoriteLibraryReader,
     getCurrentAccountMid: readCurrentBilibiliAccountMid
+  })
+  registerFavoriteLibraryBridgeIpc({
+    ipcMain,
+    isTrustedLibrarySender: isTrustedFavoriteLibraryReader,
+    readAccount: readCurrentBilibiliAccount,
+    getCurrentAccountMid: readCurrentBilibiliAccountMid,
+    getSnapshot: (accountMid) => favoriteRepositoryService!.getSnapshot(accountMid),
+    loadArchives: () => loadVideoNoteArchives(getDesktopStore()),
+    updateArchiveVersion: (archiveId, versionId, note) => {
+      const archives = updateVideoNoteArchiveVersion(getDesktopStore(), archiveId, versionId, note)
+      sendAssistantSnapshotChangedToTargets([mainWindow, floatingAssistantController.getWindow()])
+      return archives
+    },
+    openMainUrl: (url) => {
+      const target = ensureMainWindowForAssistantRuntime()
+      openUrlInRendererTab(target, url)
+    }
   })
   ipcMain.handle('favorite-library:open', (event) => {
     assertTrustedOldFavoriteAssistantSender(event)

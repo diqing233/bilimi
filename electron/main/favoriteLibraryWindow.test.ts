@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { FavoriteLibraryWindowController } from './favoriteLibraryWindow'
-import { installFavoriteLibraryNavigationGuard } from './favoriteLibraryWindow'
-import { installFavoriteLibraryNavigationGuardAfterInitialLoad } from './favoriteLibraryWindow'
+import {
+  FavoriteLibraryWindowController,
+  FavoriteLibrarySideBySideLayout,
+  createFavoriteLibraryWindowOptions,
+  installFavoriteLibraryNavigationGuard,
+  installFavoriteLibraryNavigationGuardAfterInitialLoad
+} from './favoriteLibraryWindow'
 
 function createWindow() {
   return {
@@ -17,6 +21,20 @@ function createWindow() {
 }
 
 describe('FavoriteLibraryWindowController', () => {
+  it('creates a left-docked menu-free library work window', () => {
+    expect(createFavoriteLibraryWindowOptions({ x: 0, y: 40, width: 1920, height: 1040 }, 'preload.js')).toMatchObject({
+      x: 0,
+      y: 40,
+      width: 760,
+      height: 1040,
+      minWidth: 620,
+      minHeight: 560,
+      title: '收藏库',
+      autoHideMenuBar: true,
+      webPreferences: { preload: 'preload.js', contextIsolation: true, sandbox: false, webviewTag: false }
+    })
+  })
+
   it('reuses and focuses one library window without creating a second renderer', () => {
     const first = createWindow()
     let created = 0
@@ -71,10 +89,23 @@ describe('FavoriteLibraryWindowController', () => {
 
     installFavoriteLibraryNavigationGuardAfterInitialLoad(webContents)
     expect(navigationListener).toBeUndefined()
-
     initialLoadListener?.()
     const preventDefault = vi.fn()
     navigationListener?.({ preventDefault })
     expect(preventDefault).toHaveBeenCalledOnce()
+  })
+})
+
+describe('FavoriteLibrarySideBySideLayout', () => {
+  it('reserves the left library width and restores the main window after closing', () => {
+    const setBounds = vi.fn()
+    const main = { getBounds: () => ({ x: 0, y: 40, width: 1920, height: 1040 }), setBounds, isDestroyed: () => false }
+    const layout = new FavoriteLibrarySideBySideLayout()
+
+    layout.open(main, { getBounds: () => ({ x: 0, y: 40, width: 760, height: 1040 }) })
+    layout.close(main)
+
+    expect(setBounds).toHaveBeenNthCalledWith(1, { x: 760, y: 40, width: 1160, height: 1040 })
+    expect(setBounds).toHaveBeenNthCalledWith(2, { x: 0, y: 40, width: 1920, height: 1040 })
   })
 })

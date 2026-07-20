@@ -4,8 +4,6 @@ import { FavoriteLibraryApp } from './FavoriteLibraryApp'
 
 const text = {
   library: '\u6536\u85cf\u5e93',
-  cannotRead: '\u6536\u85cf\u5e93\u6682\u65f6\u65e0\u6cd5\u8bfb\u53d6\uff0c\u8bf7\u91cd\u65b0\u52a0\u8f7d\u3002',
-  reload: '\u91cd\u65b0\u52a0\u8f7d\u6536\u85cf\u5e93',
   all: '\u5168\u90e8\u6536\u85cf',
   pending: '\u5f85\u5904\u7406',
   videoList: '\u6536\u85cf\u5e93\u89c6\u9891\u5217\u8868',
@@ -21,66 +19,98 @@ afterEach(() => {
 })
 
 describe('FavoriteLibraryApp', () => {
-  it('renders a recoverable library state when account repository binding fails', async () => {
-    const openAccount = vi.fn().mockRejectedValue(new Error('repository storage unavailable'))
-    window.bilimiDesktop = {
-      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
-      openFavoriteRepositoryAccount: openAccount
-    } as typeof window.bilimiDesktop
-
-    render(<FavoriteLibraryApp />)
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(text.cannotRead)
-    expect(screen.getByRole('button', { name: text.reload })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: text.reload }))
-    await waitFor(() => expect(openAccount).toHaveBeenCalledTimes(2))
-  })
-
-  it('keeps the reload action available when a refresh fails after a library page was loaded', async () => {
-    let notifyRepositoryChange: (() => void) | undefined
-    const openAccount = vi.fn()
-      .mockResolvedValueOnce({
-        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-20T00:00:00.000Z', videoCount: 1, folderCount: 0,
-        folders: [], physicalShardCount: 0, syncRecordCount: 0,
-        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
-      })
-      .mockRejectedValue(new Error('repository storage unavailable'))
-    window.bilimiDesktop = {
-      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
-      openFavoriteRepositoryAccount: openAccount,
-      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
-        version: 1, accountMid: '100', revision: 1,
-        items: [{ video: { aid: 1, title: 'Existing page', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [] }]
-      }),
-      subscribeFavoriteRepository: vi.fn((_accountMid, _folderId, callback) => {
-        notifyRepositoryChange = () => callback({})
-        return () => undefined
-      })
-    } as typeof window.bilimiDesktop
-
-    render(<FavoriteLibraryApp />)
-
-    expect(await screen.findByText('Existing page')).toBeInTheDocument()
-    await act(async () => { notifyRepositoryChange?.() })
-    expect(await screen.findByRole('button', { name: text.reload })).toBeInTheDocument()
-  })
-
-  it('renders an explicit empty state after an account-scoped repository page returns zero items', async () => {
+  it('keeps internal action failures out of the user-facing alert', async () => {
+    const syncFavoriteLibrarySelection = vi.fn().mockRejectedValue(new Error('Error invoking remote method favorite-library:sync-selection'))
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
       openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
-        version: 1, accountMid: '100', revision: 2, updatedAt: '2026-07-20T00:00:00.000Z', videoCount: 0, folderCount: 0,
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-20T00:00:00.000Z', videoCount: 1, folderCount: 0,
         folders: [], physicalShardCount: 0, syncRecordCount: 0,
-        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }, pendingAidCount: 0
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
       }),
-      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 2, items: [] }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1,
+        items: [{ video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: ['unsynced'] }]
+      }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined),
+      syncFavoriteLibrarySelection
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择 视频一' }))
+    fireEvent.click(screen.getByRole('button', { name: '同步所选（1）' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('收藏库操作失败。')
+    expect(screen.getByRole('alert')).not.toHaveTextContent('Error invoking remote method')
+  })
+
+  it('uses Chinese controls, selects the current page, and identifies the signed-in account', async () => {
+    const syncFavoriteLibrarySelection = vi.fn().mockResolvedValue({ status: 'succeeded' })
+    const desktop = {
+      readBilibiliAccount: vi.fn().mockResolvedValue({ mid: '100', nickname: '小咪' }),
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 2, updatedAt: '2026-07-20T00:00:00.000Z', videoCount: 2, folderCount: 0,
+        folders: [], physicalShardCount: 0, syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 2,
+        items: [
+          { video: { aid: 1, title: '视频一', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: ['unsynced'] },
+          { video: { aid: 2, title: '视频二', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [] }
+        ]
+      }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined),
+      syncFavoriteLibrarySelection
+    }
+    window.bilimiDesktop = desktop as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+
+    expect(await screen.findByText('当前账号：小咪（UID：100）')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '全选当前页' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox', { name: '全选当前页' }))
+    expect(screen.getByText('已选 2 项')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '同步所选（2）' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '同步所选（2）' }))
+    await waitFor(() => expect(syncFavoriteLibrarySelection).toHaveBeenCalledWith('100', { kind: 'aids', aids: [1, 2] }))
+  })
+
+  it('loads the selected video detail snapshot and exposes its source and archive facts', async () => {
+    const getFavoriteRepositoryLibraryVideoDetail = vi.fn().mockResolvedValue({
+      video: { aid: 1, title: '已扫描视频', author: 'UP 主', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' },
+      folderIds: ['source'], pendingStates: [],
+      mirror: { status: '已同步', lastSyncedAt: '2026-07-20T10:00:00.000Z' },
+      transcription: { status: '转写完成' },
+      archive: { status: '已入档', versionCount: 2, starred: true, hasMemo: true, memoPreview: '已备注', hasSummary: true }
+    })
+    const toggleFavoriteLibraryArchiveStar = vi.fn().mockResolvedValue(undefined)
+    const saveFavoriteLibraryArchiveMemo = vi.fn().mockResolvedValue(undefined)
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-20T00:00:00.000Z', videoCount: 1, folderCount: 1, folders: [{ id: 'source', title: '默认收藏夹', kind: 'bilibili', syncState: 'bound' }], physicalShardCount: 0, syncRecordCount: 0, syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 } }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 1, items: [{ video: { aid: 1, title: '已扫描视频', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: ['source'], pendingStates: [] }] }),
+      getFavoriteRepositoryLibraryVideoDetail,
+      toggleFavoriteLibraryArchiveStar,
+      saveFavoriteLibraryArchiveMemo,
       subscribeFavoriteRepository: vi.fn(() => () => undefined)
     } as typeof window.bilimiDesktop
 
     render(<FavoriteLibraryApp />)
-
-    expect(await screen.findByText('当前账号暂无已保存的收藏。')).toBeInTheDocument()
-    expect(screen.getByText('可先在掌库完成整理旧藏扫描，或刷新后再查看。')).toBeInTheDocument()
+    fireEvent.click(await screen.findByText('已扫描视频'))
+    const detail = await screen.findByRole('complementary', { name: text.detail })
+    expect(detail).toHaveTextContent('本地镜像')
+    expect(detail).toHaveTextContent('已同步')
+    expect(detail).toHaveTextContent('转写完成')
+    expect(detail).toHaveTextContent('已入档')
+    expect(getFavoriteRepositoryLibraryVideoDetail).toHaveBeenCalledWith('100', 1)
+    fireEvent.click(screen.getByRole('button', { name: '取消星标' }))
+    await waitFor(() => expect(toggleFavoriteLibraryArchiveStar).toHaveBeenCalledWith('100', 1))
+    fireEvent.change(screen.getByRole('textbox', { name: '档案备注' }), { target: { value: '新备注' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存备注' }))
+    await waitFor(() => expect(saveFavoriteLibraryArchiveMemo).toHaveBeenCalledWith('100', 1, '新备注'))
   })
 
   it('renders account-scoped navigation, one paged virtual list, and a collapsible detail pane', async () => {
@@ -174,10 +204,10 @@ describe('FavoriteLibraryApp', () => {
 
     render(<FavoriteLibraryApp />)
     await screen.findByText('One')
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Select One' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Queue transcription' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 One' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入转写队列（1）' }))
     await waitFor(() => expect(enqueueFavoriteLibraryTranscription).toHaveBeenCalledWith('100', { aids: [1] }))
-    fireEvent.click(screen.getByRole('button', { name: 'Sync selected' }))
+    fireEvent.click(screen.getByRole('button', { name: '重新同步所选（1）' }))
     await waitFor(() => expect(syncFavoriteLibrarySelection).toHaveBeenCalledWith('100', { kind: 'aids', aids: [1] }))
   })
 

@@ -12,6 +12,7 @@ export type FavoriteLibrarySearchEntry = {
 
 export type FavoriteLibraryRow = FavoriteRepositoryVideo & {
   folderIds: string[]
+  pendingStates?: FavoriteLibraryPendingState[]
 }
 
 export type FavoriteLibraryPendingState = 'unsynced' | 'continuation' | 'failed' | 'result-unknown'
@@ -35,6 +36,15 @@ export type FavoriteLibraryNavigationItem =
 export type FavoriteLibraryDetail = FavoriteLibraryRow & {
   folders: FavoriteRepositoryFolder[]
   pendingStates: FavoriteLibraryPendingState[]
+}
+
+/** Converts main-process snapshot states to labels without retaining state in the renderer. */
+export function formatFavoriteLibraryMirrorStatus(states: readonly FavoriteLibraryPendingState[]): string {
+  if (states.includes('failed')) return '同步失败'
+  if (states.includes('result-unknown')) return '同步状态待确认'
+  if (states.includes('unsynced')) return '未同步'
+  if (states.includes('continuation')) return '等待处理'
+  return '已同步'
 }
 
 function validAid(aid: number) {
@@ -130,8 +140,8 @@ export function buildFavoriteLibraryNavigation(
       source: folder.kind
     }))
   return [
-    { id: 'all', kind: 'all', title: 'All' },
-    { id: 'pending', kind: 'pending', title: 'Pending', count: Math.max(0, pendingCount) },
+    { id: 'all', kind: 'all', title: '全部收藏' },
+    { id: 'pending', kind: 'pending', title: '待处理', count: Math.max(0, pendingCount) },
     ...folderItems
   ]
 }

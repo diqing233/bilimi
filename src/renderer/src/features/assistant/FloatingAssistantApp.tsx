@@ -1133,10 +1133,11 @@ export function FloatingAssistantApp({
         snapshotChangeLoadScheduled.current = false
         if (mounted.current) {
           void loadSnapshot({ resetVideoNote: true })
+          void loadVideoNoteArchives({ silent: true })
         }
       })
     })
-  }, [loadSnapshot])
+  }, [loadSnapshot, loadVideoNoteArchives])
 
   useEffect(() => {
     return window.bilimiDesktop?.onAssistantPreferencesChanged?.((nextPreferences) => {
