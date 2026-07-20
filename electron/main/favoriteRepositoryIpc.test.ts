@@ -227,4 +227,65 @@ describe('registerFavoriteRepositoryIpc', () => {
       nextCursor: undefined
     })
   })
+
+  it('returns one bounded library page with every membership and pending state for each aid', async () => {
+    const ipcMain = new FakeIpcMain()
+    const service = {
+      getSnapshot: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 4, updatedAt: '2026-07-20T00:00:00.000Z',
+        videos: {
+          '1': { aid: 1, title: 'Alpha', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' },
+          '2': { aid: 2, title: 'Beta', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }
+        },
+        memberships: { remote: [1], local: [1, 2] }, folders: [], physicalShards: [],
+        syncRecords: [
+          { id: 'failed-1', commandId: 'failed-1', status: 'failed', affectedAids: [1], updatedAt: '2026-07-20T00:00:00.000Z' },
+          { id: 'pending-2', commandId: 'pending-2', status: 'pending', affectedAids: [2], updatedAt: '2026-07-20T00:00:00.000Z' }
+        ],
+        workspace: { continuationAids: [2] }
+      })
+    }
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: service as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'all' }, { limit: 1 }))
+      .resolves.toEqual({
+        version: 1, accountMid: '100', revision: 4,
+        items: [{
+          video: { aid: 1, title: 'Alpha', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' },
+          folderIds: ['local', 'remote'], pendingStates: ['failed']
+        }],
+        nextCursor: '1'
+      })
+    await expect(ipcMain.invoke('favorite-repository:get-library-page', 7, '100', { kind: 'pending' }, { limit: 10 }))
+      .resolves.toMatchObject({
+        items: [
+          { video: { aid: 1 }, pendingStates: ['failed'] },
+          { video: { aid: 2 }, pendingStates: ['unsynced', 'continuation'] }
+        ]
+      })
+  })
+
+  it('allows a library-only sender to read a page but not commit a repository command', async () => {
+    const ipcMain = new FakeIpcMain()
+    const service = {
+      getSnapshot: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 0, videos: {}, memberships: {}, folders: [], physicalShards: [], syncRecords: [] }),
+      commit: vi.fn()
+    }
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: service as never, isTrustedSender: (senderId) => senderId === 7,
+      isTrustedReader: (senderId) => senderId === 8,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:get-library-page', 8, '100', { kind: 'all' }, { limit: 10 }))
+      .resolves.toMatchObject({ accountMid: '100', items: [] })
+    await expect(ipcMain.invoke('favorite-repository:commit-command', 8, '100', {
+      id: 'command-1', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Blocked', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }
+    })).rejects.toThrow('untrusted renderer')
+    expect(service.commit).not.toHaveBeenCalled()
+  })
 })

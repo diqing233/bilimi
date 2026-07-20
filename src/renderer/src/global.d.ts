@@ -105,6 +105,11 @@ type BilimiDesktopApi = {
     query: string,
     options: { limit: number; cursor?: string }
   ) => Promise<FavoriteRepositoryPage<FavoriteRepositoryVideo>>
+  getFavoriteRepositoryLibraryPage?: (
+    accountMid: string,
+    scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' },
+    options: { limit: number; cursor?: string }
+  ) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryLibraryPage>
   commitFavoriteRepositoryCommand?: (
     accountMid: string,
     command: FavoriteRepositoryCommand

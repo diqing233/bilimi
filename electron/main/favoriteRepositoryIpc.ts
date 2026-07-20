@@ -21,6 +21,10 @@ type IpcMain = {
 
 type FolderPageOptions = { limit: number; cursor?: string }
 type Subscription = { id: string; accountMid: string; folderId?: string }
+type LibraryPageScope =
+  | { kind: 'all' }
+  | { kind: 'folder'; folderId: string }
+  | { kind: 'pending' }
 
 const MAX_AFFECTED_FOLDER_IDS = 100
 
@@ -54,6 +58,14 @@ export type FavoriteRepositoryRevisionChange = {
   pageInvalidated: boolean
 }
 
+export type FavoriteRepositoryLibraryRow = {
+  video: FavoriteRepositoryVideo
+  folderIds: string[]
+  pendingStates: Array<'unsynced' | 'continuation' | 'failed' | 'result-unknown'>
+}
+
+export type FavoriteRepositoryLibraryPage = FavoriteRepositoryPage<FavoriteRepositoryLibraryRow>
+
 function normalizedAccountMid(value: unknown) {
   if (typeof value !== 'string') throw new Error('Favorite repository account is invalid.')
   const trimmed = value.trim()
@@ -70,6 +82,19 @@ function pageOptions(value: unknown): FolderPageOptions {
     throw new Error('Favorite repository page options are invalid.')
   }
   return cursor ? { limit, cursor } : { limit }
+}
+
+function libraryPageScope(value: unknown): LibraryPageScope {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Favorite library page scope is invalid.')
+  }
+  const candidate = value as { kind?: unknown; folderId?: unknown }
+  if (candidate.kind === 'all' && Object.keys(candidate).length === 1) return { kind: 'all' }
+  if (candidate.kind === 'pending' && Object.keys(candidate).length === 1) return { kind: 'pending' }
+  if (candidate.kind === 'folder' && typeof candidate.folderId === 'string' && candidate.folderId.trim() && Object.keys(candidate).length === 2) {
+    return { kind: 'folder', folderId: candidate.folderId.trim() }
+  }
+  throw new Error('Favorite library page scope is invalid.')
 }
 
 function commandForAccount(value: unknown, accountMid: string): FavoriteRepositoryCommand {
@@ -143,16 +168,79 @@ function searchPage(
   }
 }
 
+function libraryPage(
+  snapshot: AccountFavoriteRepositorySnapshot,
+  scope: LibraryPageScope,
+  options: FolderPageOptions
+): FavoriteRepositoryLibraryPage {
+  const foldersByAid = new Map<number, Set<string>>()
+  for (const [folderId, aids] of Object.entries(snapshot.memberships)) {
+    for (const aid of aids) {
+      const folderIds = foldersByAid.get(aid) ?? new Set<string>()
+      folderIds.add(folderId)
+      foldersByAid.set(aid, folderIds)
+    }
+  }
+  const statesByAid = new Map<number, Set<FavoriteRepositoryLibraryRow['pendingStates'][number]>>()
+  const addState = (aid: number, state: FavoriteRepositoryLibraryRow['pendingStates'][number]) => {
+    if (!Number.isSafeInteger(aid) || aid <= 0) return
+    const states = statesByAid.get(aid) ?? new Set<FavoriteRepositoryLibraryRow['pendingStates'][number]>()
+    states.add(state)
+    statesByAid.set(aid, states)
+  }
+  for (const aid of snapshot.workspace?.continuationAids ?? []) addState(aid, 'continuation')
+  for (const record of snapshot.syncRecords) {
+    const state = record.status === 'pending'
+      ? 'unsynced'
+      : record.status === 'failed' || record.status === 'result-unknown'
+        ? record.status
+        : undefined
+    if (state) for (const aid of record.affectedAids) addState(aid, state)
+  }
+  const allAids = Object.keys(snapshot.videos).map(Number).filter(Number.isSafeInteger).sort((left, right) => left - right)
+  const scopedAids = scope.kind === 'folder'
+    ? (snapshot.memberships[scope.folderId] ?? []).filter((aid) => snapshot.videos[String(aid)])
+    : scope.kind === 'pending'
+      ? [...statesByAid.keys()].filter((aid) => snapshot.videos[String(aid)]).sort((left, right) => left - right)
+      : allAids
+  const start = options.cursor ? Math.max(0, Number(options.cursor)) : 0
+  if (!Number.isSafeInteger(start) || start < 0) throw new Error('Favorite repository page cursor is invalid.')
+  const selected = scopedAids.slice(start, start + options.limit)
+  const stateOrder: FavoriteRepositoryLibraryRow['pendingStates'] = ['unsynced', 'continuation', 'failed', 'result-unknown']
+  return {
+    version: 1,
+    accountMid: snapshot.accountMid,
+    items: selected.flatMap((aid) => {
+      const video = snapshot.videos[String(aid)]
+      if (!video) return []
+      return [{
+        video: { ...video, tags: [...video.tags] },
+        folderIds: [...(foldersByAid.get(aid) ?? [])].sort((left, right) => left.localeCompare(right)),
+        pendingStates: stateOrder.filter((state) => statesByAid.get(aid)?.has(state))
+      }]
+    }),
+    ...(start + options.limit < scopedAids.length ? { nextCursor: String(start + options.limit) } : {}),
+    revision: snapshot.revision
+  }
+}
+
 export function registerFavoriteRepositoryIpc(options: {
   ipcMain: IpcMain
   service: FavoriteRepositoryService
   isTrustedSender: (senderId: number) => boolean
+  /** A library window may read page snapshots but never mutate the repository. */
+  isTrustedReader?: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
   send?: (senderId: number, channel: string, payload: FavoriteRepositoryRevisionChange) => void
 }) {
   const subscriptions = new Map<number, Map<string, Subscription>>()
   const assertTrusted = (event: IpcEvent) => {
     if (!options.isTrustedSender(event.sender.id)) {
+      throw new Error('Favorite repository request came from an untrusted renderer.')
+    }
+  }
+  const assertReader = (event: IpcEvent) => {
+    if (!options.isTrustedSender(event.sender.id) && !options.isTrustedReader?.(event.sender.id)) {
       throw new Error('Favorite repository request came from an untrusted renderer.')
     }
   }
@@ -207,13 +295,13 @@ export function registerFavoriteRepositoryIpc(options: {
   }
 
   options.ipcMain.handle('favorite-repository:open-account', async (event, requestedAccountMid: string) => {
-    assertTrusted(event)
+    assertReader(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
     return createSummary(await options.service.getSnapshot(accountMid))
   })
   options.ipcMain.handle('favorite-repository:get-snapshot', async (event, requestedAccountMid: string) => {
-    assertTrusted(event)
+    assertReader(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
     return createSummary(await options.service.getSnapshot(accountMid))
@@ -221,7 +309,7 @@ export function registerFavoriteRepositoryIpc(options: {
   options.ipcMain.handle('favorite-repository:get-folder-page', async (
     event, requestedAccountMid: string, folderId: string, requestedOptions: FolderPageOptions
   ) => {
-    assertTrusted(event)
+    assertReader(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
     return options.service.getFolderPage(accountMid, folderId, pageOptions(requestedOptions))
@@ -229,10 +317,18 @@ export function registerFavoriteRepositoryIpc(options: {
   options.ipcMain.handle('favorite-repository:search-page', async (
     event, requestedAccountMid: string, query: string, requestedOptions: FolderPageOptions
   ) => {
-    assertTrusted(event)
+    assertReader(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
     return searchPage(await options.service.getSnapshot(accountMid), query, requestedOptions)
+  })
+  options.ipcMain.handle('favorite-repository:get-library-page', async (
+    event, requestedAccountMid: string, requestedScope: LibraryPageScope, requestedOptions: FolderPageOptions
+  ) => {
+    assertReader(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    return libraryPage(await options.service.getSnapshot(accountMid), libraryPageScope(requestedScope), pageOptions(requestedOptions))
   })
   options.ipcMain.handle('favorite-repository:commit-command', async (
     event, requestedAccountMid: string, requestedCommand: FavoriteRepositoryCommand
@@ -245,7 +341,7 @@ export function registerFavoriteRepositoryIpc(options: {
     return result
   })
   options.ipcMain.handle('favorite-repository:subscribe', async (event, requestedAccountMid: string, folderId?: string) => {
-    assertTrusted(event)
+    assertReader(event)
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
     return subscribe(event, accountMid, folderId)

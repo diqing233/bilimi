@@ -44,6 +44,7 @@ import type {
   FavoriteRepositoryPage,
   FavoriteRepositoryVideo
 } from '../../src/shared/favoriteRepository'
+import type { FavoriteRepositoryLibraryPage } from '../main/favoriteRepositoryIpc'
 import type {
   FavoriteRepositoryRevisionChange,
   FavoriteRepositorySnapshotSummary
@@ -114,6 +115,11 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('favorite-repository:get-folder-page', accountMid, folderId, options) as Promise<FavoriteRepositoryPage<FavoriteRepositoryVideo>>,
   searchFavoriteRepositoryPage: (accountMid: string, query: string, options: { limit: number; cursor?: string }) =>
     ipcRenderer.invoke('favorite-repository:search-page', accountMid, query, options) as Promise<FavoriteRepositoryPage<FavoriteRepositoryVideo>>,
+  getFavoriteRepositoryLibraryPage: (
+    accountMid: string,
+    scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' },
+    options: { limit: number; cursor?: string }
+  ) => ipcRenderer.invoke('favorite-repository:get-library-page', accountMid, scope, options) as Promise<FavoriteRepositoryLibraryPage>,
   commitFavoriteRepositoryCommand: (accountMid: string, command: FavoriteRepositoryCommand) =>
     ipcRenderer.invoke('favorite-repository:commit-command', accountMid, command) as Promise<FavoriteRepositoryCommandResult>,
   subscribeFavoriteRepository: (
