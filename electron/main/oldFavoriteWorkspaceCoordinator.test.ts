@@ -24,7 +24,7 @@ afterEach(async () => {
 function createCoordinator(
   repository: FavoriteRepositoryService,
   workspaceStore: OldFavoriteWorkspaceStore,
-  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'saveRecommendedLedgers'> = {}
+  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'saveRecommendedLedgers' | 'removeRecommendedLedgers'> = {}
 ) {
   return new OldFavoriteWorkspaceCoordinator({
     repository,
@@ -597,6 +597,36 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       id: 'custom-author-up-alpha', displayName: 'bilimi·UP Alpha', keywords: ['UP Alpha'],
       ruleType: 'author', enabled: true, isDefault: false
     })])
+  })
+
+  it('removes a previously adopted recommendation rule when its checkbox is cleared', async () => {
+    const root = await createRoot()
+    const saved = vi.fn().mockResolvedValue(undefined)
+    const removed = vi.fn().mockResolvedValue(undefined)
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), {
+      saveRecommendedLedgers: saved,
+      removeRecommendedLedgers: removed,
+      classifyCurrentItem: () => ({ targetLedgerIds: ['music'], confidence: 'high' })
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Alpha 1', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Alpha 2', author: 'UP Alpha', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+
+    await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+    await coordinator.setRecommendedCandidates('100', [])
+
+    expect(removed).toHaveBeenCalledWith('100', ['custom-author-up-alpha'])
   })
 
   it('creates a local logical ledger in the repository and reclassifies system results without changing manual decisions', async () => {

@@ -199,6 +199,7 @@ export class OldFavoriteWorkspaceCoordinator {
     syncService?: Pick<FavoriteRepositorySyncService, 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'reconcile' | 'resume' | 'getRun'>
     classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
     saveRecommendedLedgers?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
+    removeRecommendedLedgers?: (accountMid: string, ledgerIds: string[]) => Promise<void>
     now?: () => string
   }) {}
 
@@ -375,9 +376,14 @@ export class OldFavoriteWorkspaceCoordinator {
       }
       const newlyAdopted = state.candidates.filter((candidate) =>
         adoptedCandidateIds.includes(candidate.id) && !state.adoptedCandidateIds.includes(candidate.id))
+      const removedAdoptions = state.candidates.filter((candidate) =>
+        state.adoptedCandidateIds.includes(candidate.id) && !adoptedCandidateIds.includes(candidate.id))
       if (newlyAdopted.length) {
         await this.options.saveRecommendedLedgers?.(workspace.accountMid, newlyAdopted.map((candidate, index) =>
           asLocalRecommendedLedger(candidate, 10_000 + index)))
+      }
+      if (removedAdoptions.length) {
+        await this.options.removeRecommendedLedgers?.(workspace.accountMid, removedAdoptions.map((candidate) => candidate.id))
       }
       const next = { initialized: true, candidates: state.candidates.map(clone), adoptedCandidateIds }
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {

@@ -1225,6 +1225,14 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       })
       sendAssistantPreferencesChanged(saved)
     },
+    removeRecommendedLedgers: async (_accountMid, ledgerIds) => {
+      const preferences = loadAssistantPreferences(getDesktopStore())
+      const ids = new Set(ledgerIds)
+      const favoriteLedgers = preferences.favoriteLedgers.filter((ledger) => !ids.has(ledger.id))
+      if (favoriteLedgers.length === preferences.favoriteLedgers.length) return
+      const saved = patchAssistantPreferences(getDesktopStore(), { favoriteLedgers })
+      sendAssistantPreferencesChanged(saved)
+    },
     classifyCurrentItem: (item, recommendedLedgers = []) => {
       const result = classifyVideoContent({ title: item.title, author: item.author, tags: item.tags, category: item.category }, mergeOldFavoriteWorkspaceLedgers(
         loadAssistantPreferences(getDesktopStore()).favoriteLedgers,
