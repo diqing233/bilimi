@@ -20,4 +20,22 @@ describe('FavoriteLedgerOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: '全不选' }))
     expect(screen.getByRole('button', { name: '全选' })).toBeInTheDocument()
   })
+
+  it('keeps the legacy collapsed ledger list and its expand toggle', () => {
+    const ledgers = Array.from({ length: 16 }, (_, index) => ({
+      id: `ledger-${index + 1}`,
+      displayName: `bilimi:收藏夹${index + 1}`,
+      keywords: [],
+      ruleType: 'keyword' as const,
+      enabled: true,
+      priority: (index + 1) * 10,
+      isDefault: false
+    }))
+    render(<FavoriteLedgerOverview ledgers={ledgers} missingLedgerIds={[]} onSaveLedgers={vi.fn()} />)
+
+    expect(screen.queryByRole('button', { name: '收藏夹16' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '展开' }))
+    expect(screen.getByRole('button', { name: '收藏夹16' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '折叠' })).toBeInTheDocument()
+  })
 })

@@ -23,6 +23,7 @@ const TYPES: Array<{ value: FavoriteLedgerRuleType; label: string }> = [
   { value: 'tag', label: '标签收藏夹' },
   { value: 'deepseek', label: 'DeepSeek约束收藏夹' }
 ]
+const COLLAPSED_LEDGER_COUNT = 15
 
 function ruleLabel(type: FavoriteLedgerRuleType | undefined) {
   return type === 'author' ? 'UP 名字' : type === 'tag' ? '标签' : type === 'deepseek' ? 'DeepSeek约束' : '关键词'
@@ -57,7 +58,8 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, onSaveLedger
   const [activeLedgerId, setActiveLedgerId] = useState<string | null>(null)
   const [newLedger, setNewLedger] = useState(false)
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
-  useEffect(() => { setDraftLedgers(ledgers); setActiveLedgerId(null); setNewLedger(false) }, [ledgers])
+  const [ledgerListExpanded, setLedgerListExpanded] = useState(false)
+  useEffect(() => { setDraftLedgers(ledgers); setActiveLedgerId(null); setNewLedger(false); setLedgerListExpanded(false) }, [ledgers])
   const active = draftLedgers.find((ledger) => ledger.id === activeLedgerId)
   const activeHasUnsavedChanges = Boolean(active && (newLedger ||
     JSON.stringify(active) !== JSON.stringify(ledgers.find((ledger) => ledger.id === active.id))))
@@ -68,6 +70,8 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, onSaveLedger
     displayTitle(ledger.displayName).toLocaleLowerCase() === title.trim().toLocaleLowerCase())
   const valid = Boolean(active && title.trim() && validation.valid && !duplicate)
   const allLedgersEnabled = draftLedgers.length > 0 && draftLedgers.every((ledger) => ledger.enabled)
+  const canToggleLedgerList = draftLedgers.length > COLLAPSED_LEDGER_COUNT
+  const ledgersToDisplay = ledgerListExpanded ? draftLedgers : draftLedgers.slice(0, COLLAPSED_LEDGER_COUNT)
   const update = (patch: Partial<FavoriteLedger>) => setDraftLedgers((current) => current.map((ledger) => ledger.id === activeLedgerId ? { ...ledger, ...patch } : ledger))
   const toggle = (id: string) => setDraftLedgers((current) => current.map((ledger) => ledger.id === id ? { ...ledger, enabled: !ledger.enabled } : ledger))
   const add = () => {
@@ -91,8 +95,8 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, onSaveLedger
           </button>
         </span><div className="favorite-ledger-panel__category-actions"><button type="button" onClick={() => setResetConfirmOpen(true)}>重置</button><button type="button" onClick={() => setDraftLedgers((current) => current.map((ledger) => ({ ...ledger, enabled: !allLedgersEnabled })))}>{allLedgersEnabled ? '全不选' : '全选'}</button><button type="button" onClick={() => void onSaveLedgers(draftLedgers, { deleteDisabled: false })}>同步</button></div></div>
         {ledgerHintExpanded ? <div className="favorite-ledger-panel__sync-hint"><p>{LEDGER_SYNC_HINT}</p><p>关键词、UP 名字和标签用于本地识别；DeepSeek 约束只在开启 DeepSeek 后作为辅助判断参考，可以输入一段自然语言。</p></div> : null}
-        <div className="favorite-ledger-panel__chips">{draftLedgers.map((ledger) => <div key={ledger.id} className="favorite-ledger-panel__chip-item"><button type="button" aria-label={displayTitle(ledger.displayName) || ledger.displayName} title={ledger.displayName} aria-pressed={ledger.enabled} onClick={() => { setActiveLedgerId(ledger.id); setNewLedger(false) }}>{displayTitle(ledger.displayName) || ledger.displayName}</button><button type="button" className="favorite-ledger-panel__chip-action" aria-label={`${ledger.enabled ? '移出同步' : '加入同步'} ${ledger.displayName}`} data-enabled={ledger.enabled} onClick={() => toggle(ledger.id)}>{ledger.enabled ? '✓' : '+'}</button></div>)}</div>
-        <div className="favorite-ledger-panel__list-toggle"><button type="button" onClick={add}>新建收藏夹</button></div>
+        <div className="favorite-ledger-panel__chips">{ledgersToDisplay.map((ledger) => <div key={ledger.id} className="favorite-ledger-panel__chip-item"><button type="button" aria-label={displayTitle(ledger.displayName) || ledger.displayName} title={ledger.displayName} aria-pressed={ledger.enabled} onClick={() => { setActiveLedgerId(ledger.id); setNewLedger(false) }}>{displayTitle(ledger.displayName) || ledger.displayName}</button><button type="button" className="favorite-ledger-panel__chip-action" aria-label={`${ledger.enabled ? '移出同步' : '加入同步'} ${ledger.displayName}`} data-enabled={ledger.enabled} onClick={() => toggle(ledger.id)}>{ledger.enabled ? '✓' : '+'}</button></div>)}</div>
+        <div className="favorite-ledger-panel__list-toggle"><button type="button" onClick={add}>新建收藏夹</button>{canToggleLedgerList ? <button type="button" aria-expanded={ledgerListExpanded} onClick={() => setLedgerListExpanded((expanded) => !expanded)}>{ledgerListExpanded ? '折叠' : '展开'}</button> : null}</div>
       </section>
       {missingLedgerIds.length ? <p className="favorite-ledger-panel__notice" role="alert">部分 Bilimi 收藏夹尚未备册。</p> : null}
       {active ? <section className="favorite-ledger-panel__editor" aria-label="当前收藏夹"><div className="favorite-ledger-panel__editor-title"><strong>{activeHasUnsavedChanges ? '（未保存）' : ''}{newLedger ? '新建收藏夹' : '正在编辑：'}{active.displayName}</strong><div className="favorite-ledger-panel__editor-actions"><button type="button" disabled={!valid} onClick={save}>保存</button><button type="button" onClick={close}>取消</button>{!active.isDefault ? <button type="button" onClick={() => { const next = draftLedgers.filter((ledger) => ledger.id !== active.id); setDraftLedgers(next); void onSaveLedgers(next, { deleteDisabled: false }); setActiveLedgerId(null); setNewLedger(false) }}>删除</button> : null}</div></div>
