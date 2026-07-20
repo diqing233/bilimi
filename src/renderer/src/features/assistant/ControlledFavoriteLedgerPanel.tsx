@@ -18,6 +18,11 @@ type ControlledFavoriteLedgerPanelProps = {
 
 const VIRTUAL_TRACK_THRESHOLD = 50
 
+function normalizeAccountMid(value: string | undefined) {
+  if (!value || !/^\d+$/.test(value.trim()) || BigInt(value.trim()) === 0n) return null
+  return BigInt(value.trim()).toString()
+}
+
 export function ControlledFavoriteLedgerPanel({
   currentAccountMid,
   ledgers,
@@ -36,7 +41,10 @@ export function ControlledFavoriteLedgerPanel({
   const scanStartingRef = useRef(false)
   const activeAccountMid = useRef(currentAccountMid)
   activeAccountMid.current = currentAccountMid
-  const snapshot = workspace.snapshot
+  const snapshot = workspace.snapshot &&
+    normalizeAccountMid(workspace.snapshot.accountMid) === normalizeAccountMid(currentAccountMid)
+    ? workspace.snapshot
+    : null
   const recovery = snapshot && 'recovery' in snapshot ? snapshot : null
   const sourceIds = useMemo(() => new Set(
     recovery ? [] : snapshot?.sourceFolders?.filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
@@ -54,6 +62,7 @@ export function ControlledFavoriteLedgerPanel({
   useEffect(() => {
     scanPresentationRequestVersion.current += 1
     scanStartingRef.current = false
+    setGuideOpen(false)
     setStep('scan')
     setScanStarting(false)
     setScanStartFailed(false)
@@ -62,16 +71,17 @@ export function ControlledFavoriteLedgerPanel({
   useEffect(() => {
     if (!snapshot || scanStartingRef.current) return
     setGuideOpen(true)
-    setStep(snapshot.status === 'scanning' || recovery
-      ? 'scan'
-      : snapshot.status === 'previewing'
-        ? 'preview'
-        : 'confirm')
-  }, [recovery, scanStarting, snapshot])
+    setStep((currentStep) => {
+      if (snapshot.status === 'scanning' || recovery) return 'scan'
+      if (snapshot.status !== 'previewing') return 'confirm'
+      if (currentStep === 'scan') return 'preview'
+      return currentStep
+    })
+  }, [recovery, scanStarting, snapshot?.accountMid, snapshot?.status])
 
   const startScan = async (mode: 'incremental' | 'full') => {
     if (scanStarting || workspace.loading) return
-    if (mode === 'incremental' && snapshot && !recovery && snapshot.status !== 'failed') {
+    if (mode === 'incremental' && snapshot && !recovery && snapshot.scan.phase !== 'failed') {
       setGuideOpen(true)
       setStep(snapshot.status === 'scanning' ? 'scan' : snapshot.status === 'previewing' ? 'preview' : 'confirm')
       return
@@ -159,18 +169,7 @@ export function ControlledFavoriteLedgerPanel({
         onRetryScan={() => void startScan('incremental')}
         onRebuildWorkspace={() => void workspace.rebuildCorruptWorkspace()}
         onSelectSourceFolders={(folderIds) => void workspace.selectSourceFolders(folderIds)}
-        generatedStep={!recovery && snapshot ? <section aria-label="专属收藏夹候选">
-          <h4>推荐收藏夹</h4>
-          {(snapshot.recommendations?.candidates ?? []).map((candidate) => {
-            const adopted = snapshot.recommendations?.adoptedCandidateIds.includes(candidate.id) ?? false
-            return <label key={candidate.id}><input type="checkbox" aria-label={candidate.displayName} checked={adopted}
-              disabled={workspace.loading} onChange={(event) => {
-                const next = new Set(snapshot.recommendations?.adoptedCandidateIds ?? [])
-                if (event.currentTarget.checked) next.add(candidate.id); else next.delete(candidate.id)
-                void workspace.setRecommendedCandidates([...next])
-              }} />{candidate.displayName}</label>
-          })}
-        </section> : null}
+        onSetRecommendedCandidates={(candidateIds) => void workspace.setRecommendedCandidates(candidateIds)}
 
         previewStep={!recovery && snapshot ? <section className="favorite-ledger-panel__archive-preview" aria-label="归档预览">
           <h4>归档预览</h4><p>当前分段 {previewItems.length} 条；只加载并显示这一段。</p>

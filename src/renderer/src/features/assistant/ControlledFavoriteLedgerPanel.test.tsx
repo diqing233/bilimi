@@ -126,8 +126,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
-      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
-      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      scan: { phase: 'complete' as const, failureCount: 0 },
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }], continuationCount: 0,
+      segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1 }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: ['source'] }] }, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
       history: { cursor: 0, length: 0 }
     }
     let resolveScan: ((value: typeof preview) => void) | undefined
@@ -380,6 +382,32 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledTimes(2))
   })
 
+  it('restarts a persisted failed incremental scan from the organize entry', async () => {
+    const failed = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'failed' as const, failureCount: 1, reason: 'network unavailable' }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue({ ...failed, scan: { phase: 'inventory' as const, failureCount: 1 } })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(failed),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+    />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'start-scan', mode: 'incremental'
+    }))
+  })
+
   it('does not show scan-start failure from the previous account after switching accounts', async () => {
     const scanning = {
       version: 1 as const, accountMid: '200', workspaceId: 'workspace-200', status: 'scanning' as const,
@@ -413,6 +441,33 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     expect(screen.queryByText('扫描启动失败，请重新扫描。')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '重新扫描' })).not.toBeInTheDocument()
+  })
+
+  it('moves an open preview guide to confirmation when the persisted workspace freezes', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 },
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }], continuationCount: 0,
+      segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1 }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: ['source'] }] },
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+    }
+    const frozen = { ...preview, status: 'frozen' as const }
+    const command = vi.fn().mockResolvedValue(frozen)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '自动分类' }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '确认执行' })).toHaveAttribute('aria-current', 'step'))
+    expect(screen.getByRole('button', { name: '继续同步到 B 站' })).toBeInTheDocument()
   })
 
   it('opens and locks the guide while a full scan replaces a stale preview', async () => {
@@ -555,7 +610,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     await screen.findByRole('button', { name: '归档预览' })
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: 'bilimi·UP' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'UP bilimi·UP' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'set-recommended-candidates', candidateIds: ['custom-author-up'] }))
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     fireEvent.click(screen.getByRole('button', { name: '自动分类' }))
@@ -578,5 +633,94 @@ describe('ControlledFavoriteLedgerPanel', () => {
       type: 'apply-classifications', source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['knowledge'] }]
     })
     expect(deepSeek).toHaveBeenCalledWith('100')
+  })
+
+  it('renders UP and tag recommendation cards and restores whole-round choices across segments and remounts', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 1, hasMultipleSegments: true,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [],
+      segments: [
+        { id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const },
+        { id: 'segment-2', index: 1, itemCount: 1, status: 'previewing' as const }
+      ],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: [] }] },
+      classifications: {},
+      recommendations: {
+        candidates: [
+          { id: 'author-up', displayName: '阿婆主', kind: 'author' as const, count: 8, reason: '常看 UP' },
+          { id: 'series-tech', displayName: '科技', kind: 'series' as const, count: 5, reason: '常见标签' }
+        ],
+        adoptedCandidateIds: ['author-up']
+      },
+      history: { cursor: 0, length: 0 }
+    }
+    let persisted = preview
+    const command = vi.fn(async (_accountMid: string, input: { type: string, candidateIds?: string[], segmentId?: string }) => {
+      if (input.type === 'set-recommended-candidates') {
+        persisted = { ...persisted, recommendations: { ...persisted.recommendations, adoptedCandidateIds: input.candidateIds ?? [] } }
+      }
+      if (input.type === 'select-segment') {
+        persisted = { ...persisted, currentSegment: { id: input.segmentId ?? 'segment-1', aids: [2], items: [{ aid: 2, sourceFolderIds: [] }] } }
+      }
+      return persisted
+    })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn(() => Promise.resolve(persisted)),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    const props = {
+      currentAccountMid: '100', ledgers: [], missingLedgerIds: [],
+      onEnsureLedgers: vi.fn(), onSaveLedgers: vi.fn()
+    }
+    const { unmount } = render(<ControlledFavoriteLedgerPanel {...props} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    expect(screen.getByRole('checkbox', { name: 'UP 阿婆主' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '标签 科技' })).not.toBeChecked()
+    expect(screen.getByText(/常看 UP/)).toBeInTheDocument()
+    expect(screen.getByText(/常见标签/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '标签 科技' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'set-recommended-candidates', candidateIds: ['author-up', 'series-tech']
+    }))
+
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '第 2 组' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'select-segment', segmentId: 'segment-2' }))
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    expect(screen.getByRole('checkbox', { name: 'UP 阿婆主' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '标签 科技' })).toBeChecked()
+
+    unmount()
+    render(<ControlledFavoriteLedgerPanel {...props} />)
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    expect(screen.getByRole('checkbox', { name: 'UP 阿婆主' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '标签 科技' })).toBeChecked()
+  })
+
+  it('explains why no recommendations are available', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [],
+      segments: [], currentSegment: null, classifications: {},
+      recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: vi.fn()
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+    />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    expect(screen.getByText('本轮没有足够重复的 UP 或标签，暂不生成推荐收藏夹。')).toBeInTheDocument()
   })
 })

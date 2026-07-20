@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import type { OldFavoriteWorkspaceView } from '@shared/oldFavoriteWorkspace'
 import { OldFavoriteScanOverviewStep } from './OldFavoriteScanOverviewStep'
+import { OldFavoriteRecommendationStep } from './OldFavoriteRecommendationStep'
 
 export type OldFavoriteGuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
 
@@ -14,7 +15,7 @@ type OldFavoriteGuideProps = {
   onRetryScan: () => void
   onRebuildWorkspace: () => void
   onSelectSourceFolders: (folderIds: string[]) => void
-  generatedStep?: ReactNode
+  onSetRecommendedCandidates: (candidateIds: string[]) => void
   previewStep?: ReactNode
   confirmStep?: ReactNode
 }
@@ -36,7 +37,7 @@ export function OldFavoriteGuide({
   onRetryScan,
   onRebuildWorkspace,
   onSelectSourceFolders,
-  generatedStep,
+  onSetRecommendedCandidates,
   previewStep,
   confirmStep
 }: OldFavoriteGuideProps) {
@@ -65,7 +66,11 @@ export function OldFavoriteGuide({
       onRebuild={onRebuildWorkspace}
       onSelectSourceFolders={onSelectSourceFolders}
     /> : null}
-    {!recovery && step === 'generated' ? generatedStep : null}
+    {!recovery && snapshot && step === 'generated' ? <OldFavoriteRecommendationStep
+      snapshot={snapshot}
+      loading={loading}
+      onSetRecommendedCandidates={onSetRecommendedCandidates}
+    /> : null}
     {!recovery && step === 'preview' ? previewStep : null}
     {!recovery && step === 'confirm' ? confirmStep : null}
   </section>
