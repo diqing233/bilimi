@@ -256,8 +256,6 @@ export function BiliWebview({
         navigationEpoch: navigationEpoch.current
       })
     }
-    reportTargetState()
-
     const installLinkCapture = () => {
       if (!webview.executeJavaScript) {
         return
@@ -361,6 +359,7 @@ export function BiliWebview({
     }
 
     webview.addEventListener('new-window', handleNewWindow)
+    webview.addEventListener('dom-ready', reportTargetState)
     webview.addEventListener('dom-ready', installLinkCapture)
     webview.addEventListener('did-finish-load', installLinkCapture)
     webview.addEventListener('did-finish-load', scheduleDanmakuWake)
@@ -376,6 +375,7 @@ export function BiliWebview({
     return () => {
       window.clearTimeout(danmakuWakeTimeout)
       webview.removeEventListener('new-window', handleNewWindow)
+      webview.removeEventListener('dom-ready', reportTargetState)
       webview.removeEventListener('dom-ready', installLinkCapture)
       webview.removeEventListener('did-finish-load', installLinkCapture)
       webview.removeEventListener('did-finish-load', scheduleDanmakuWake)

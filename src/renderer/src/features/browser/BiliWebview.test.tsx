@@ -3,6 +3,32 @@ import { describe, expect, it, vi } from 'vitest'
 import { BiliWebview } from './BiliWebview'
 
 describe('BiliWebview', () => {
+  it('waits for dom-ready before reading the guest webContents id', () => {
+    const onTargetState = vi.fn()
+    const getWebContentsId = vi.fn(() => {
+      throw new Error('The WebView must be attached to the DOM and the dom-ready event emitted before this method can be called.')
+    })
+    Object.defineProperty(HTMLElement.prototype, 'getWebContentsId', {
+      configurable: true,
+      value: getWebContentsId
+    })
+
+    try {
+      expect(() => render(
+        <BiliWebview active tabId="home" url="https://www.bilibili.com" onTargetState={onTargetState} />
+      )).not.toThrow()
+      expect(getWebContentsId).not.toHaveBeenCalled()
+
+      getWebContentsId.mockImplementation(() => 101)
+      const webview = document.getElementById('bilimi-webview') as Electron.WebviewTag
+      act(() => webview.dispatchEvent(new Event('dom-ready')))
+
+      expect(onTargetState).toHaveBeenCalledWith('home', expect.objectContaining({ webContentsId: 101 }))
+    } finally {
+      delete (HTMLElement.prototype as HTMLElement & { getWebContentsId?: () => number }).getWebContentsId
+    }
+  })
+
   it('increments its navigation epoch for same-url main-frame reloads but not subframes', () => {
     const onTargetState = vi.fn()
     render(<BiliWebview active tabId="home" url="https://www.bilibili.com" onTargetState={onTargetState} />)
