@@ -1,4 +1,6 @@
 import type { OldFavoriteWorkspaceRecommendationCandidate, OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
+import { stripBilimiLedgerPrefix } from '@shared/favoriteLedgers'
+import { useState } from 'react'
 
 type OldFavoriteRecommendationStepProps = {
   snapshot: OldFavoriteWorkspaceSnapshot
@@ -13,7 +15,11 @@ type CandidateGroup = {
 }
 
 function candidateLabel(candidate: OldFavoriteWorkspaceRecommendationCandidate) {
-  return `${candidate.kind === 'author' ? 'UP' : '标签'} ${candidate.displayName}`
+  return `${candidate.kind === 'author' ? 'UP' : '标签'} ${stripBilimiLedgerPrefix(candidate.displayName)}`
+}
+
+function candidateDetail(candidate: OldFavoriteWorkspaceRecommendationCandidate) {
+  return `${candidate.count} 条适合`
 }
 
 export function OldFavoriteRecommendationStep({
@@ -21,7 +27,9 @@ export function OldFavoriteRecommendationStep({
   loading,
   onSetRecommendedCandidates
 }: OldFavoriteRecommendationStepProps) {
+  const [tagCandidatesExpanded, setTagCandidatesExpanded] = useState(false)
   const adoptedCandidateIds = new Set(snapshot.recommendations.adoptedCandidateIds)
+  const tagCandidates = snapshot.recommendations.candidates.filter((candidate) => candidate.kind === 'tag')
   const groups: CandidateGroup[] = [
     {
       heading: '专属 UP 追更',
@@ -31,7 +39,7 @@ export function OldFavoriteRecommendationStep({
     {
       heading: '高频标签收藏夹',
       emptyText: '暂无高频标签收藏夹候选，可直接查看归档预览。',
-      candidates: snapshot.recommendations.candidates.filter((candidate) => candidate.kind !== 'author')
+      candidates: tagCandidatesExpanded ? tagCandidates : tagCandidates.slice(0, 6)
     }
   ]
 
@@ -73,11 +81,14 @@ export function OldFavoriteRecommendationStep({
                     else next.delete(candidate.id)
                     onSetRecommendedCandidates([...next])
                   }} />
-                <span><strong>{candidateLabel(candidate)}</strong><small>{candidate.reason} · {candidate.count} 条</small></span>
+                <span><strong>{candidateLabel(candidate)}</strong><small>{candidateDetail(candidate)}</small></span>
               </label>
             </article>
           })}
           {group.candidates.length === 0 ? <p>{group.emptyText}</p> : null}
+          {group.heading === '高频标签收藏夹' && !tagCandidatesExpanded && tagCandidates.length > group.candidates.length ? (
+            <button type="button" onClick={() => setTagCandidatesExpanded(true)}>展开更多高频标签</button>
+          ) : null}
         </div>
       </div>
     })}

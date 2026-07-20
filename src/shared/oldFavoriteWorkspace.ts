@@ -26,7 +26,7 @@ export type OldFavoriteWorkspaceClassification = {
 export type OldFavoriteWorkspaceRecommendationCandidate = {
   id: string
   displayName: string
-  kind: 'author' | 'series'
+  kind: 'author' | 'series' | 'tag'
   count: number
   reason: string
 }

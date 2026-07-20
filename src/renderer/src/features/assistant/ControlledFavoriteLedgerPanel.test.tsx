@@ -898,7 +898,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
       sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }], continuationCount: 0,
       segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1 }],
       currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: ['source'] }] },
-      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+      classifications: {}, recommendations: {
+        candidates: [{ id: 'author-up', displayName: 'bilimi·UP', kind: 'author' as const, count: 2, reason: 'UP appeared.' }],
+        adoptedCandidateIds: []
+      }, history: { cursor: 0, length: 0 }
     }
     const frozen = { ...preview, status: 'frozen' as const }
     const command = vi.fn().mockResolvedValue(frozen)
@@ -910,8 +913,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
-    fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
-    fireEvent.click(screen.getByRole('button', { name: '自动分类当前分段' }))
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'UP UP' }))
 
     await waitFor(() => expect(screen.getByRole('button', { name: '确认执行' })).toHaveAttribute('aria-current', 'step'))
     expect(screen.getByRole('button', { name: '继续同步到 B 站' })).toBeInTheDocument()
@@ -988,37 +991,6 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByRole('region', { name: '归档预览' })).not.toBeInTheDocument()
   })
 
-  it('creates a local workspace ledger through the controlled command instead of saving Bilibili rules', async () => {
-    const preview = {
-      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
-      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
-      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
-      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
-      history: { cursor: 0, length: 0 }
-    }
-    const command = vi.fn().mockResolvedValue(preview)
-    const save = vi.fn().mockResolvedValue(undefined)
-    window.bilimiDesktop = {
-      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
-      commandOldFavoriteWorkspaceV1: command
-    } as typeof window.bilimiDesktop
-    render(<ControlledFavoriteLedgerPanel
-      currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
-      onEnsureLedgers={vi.fn()} onSaveLedgers={save}
-    />)
-
-    await screen.findByRole('region', { name: '整理旧藏向导' })
-    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
-    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹后重新归类' }))
-    fireEvent.change(screen.getByRole('textbox', { name: '新增收藏夹名称' }), { target: { value: '音乐' } })
-    fireEvent.click(screen.getByRole('button', { name: '新增并重新归类' }))
-
-    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
-      type: 'create-local-ledger-and-reclassify', title: '音乐'
-    }))
-    expect(save).not.toHaveBeenCalled()
-  })
-
   it('routes the preview-stage recommendation, classification, and confirmation controls through controlled commands', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
@@ -1063,11 +1035,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     await screen.findByRole('button', { name: '归档预览' })
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: 'UP bilimi·UP' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'UP UP' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'set-recommended-candidates', candidateIds: ['custom-author-up'] }))
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
-    fireEvent.click(screen.getByRole('button', { name: '自动分类当前分段' }))
-    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'auto-classify-current-segment' }))
     fireEvent.click(screen.getByRole('button', { name: '整理范围' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: '只整理【未匹配到合适分类】' }))
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
@@ -1097,7 +1067,6 @@ describe('ControlledFavoriteLedgerPanel', () => {
       type: 'confirm-and-execute-bilibili-plan'
     }))
     expect(command).toHaveBeenCalledWith('100', { type: 'set-recommended-candidates', candidateIds: ['custom-author-up'] })
-    expect(command).toHaveBeenCalledWith('100', { type: 'auto-classify-current-segment' })
     expect(command).toHaveBeenCalledWith('100', {
       type: 'apply-classifications', source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['knowledge'] }]
     })
@@ -1119,7 +1088,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       recommendations: {
         candidates: [
           { id: 'author-up', displayName: '阿婆主', kind: 'author' as const, count: 8, reason: '常看 UP' },
-          { id: 'series-tech', displayName: '科技', kind: 'series' as const, count: 5, reason: '常见标签' }
+          { id: 'series-tech', displayName: 'bilimi·科技', kind: 'tag' as const, count: 5, reason: 'appeared 5 times' }
         ],
         adoptedCandidateIds: ['author-up']
       },
@@ -1153,8 +1122,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('checkbox', { name: '全选 高频标签收藏夹' })).not.toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'UP 阿婆主' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: '标签 科技' })).not.toBeChecked()
-    expect(screen.getByText(/常看 UP/)).toBeInTheDocument()
-    expect(screen.getByText(/常见标签/)).toBeInTheDocument()
+    expect(screen.getByText('8 条适合')).toBeInTheDocument()
+    expect(screen.queryByText(/常看 UP/)).not.toBeInTheDocument()
+    expect(screen.getByText('5 条适合')).toBeInTheDocument()
+    expect(screen.queryByText(/appeared 5 times/)).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('checkbox', { name: '标签 科技' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
@@ -1195,6 +1166,32 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
     expect(screen.getByText('本轮没有足够重复的 UP 或标签，暂不生成推荐收藏夹。')).toBeInTheDocument()
+  })
+
+  it('shows only the first six tag recommendations until the legacy expand action is chosen', async () => {
+    const tagCandidates = Array.from({ length: 7 }, (_, index) => ({
+      id: `tag-${index + 1}`, displayName: `bilimi·标签${index + 1}`, kind: 'tag' as const,
+      count: 7 - index, reason: `高频标签 ${index + 1}`
+    }))
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [],
+      segments: [], currentSegment: null, classifications: {},
+      recommendations: { candidates: tagCandidates, adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview), commandOldFavoriteWorkspaceV1: vi.fn()
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    expect(screen.getByRole('checkbox', { name: '标签 标签6' })).toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: '标签 标签7' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '展开更多高频标签' }))
+    expect(screen.getByRole('checkbox', { name: '标签 标签7' })).toBeInTheDocument()
   })
   it('renders source, classification provenance, and a virtualized multi-segment archive preview', async () => {
     const items = Array.from({ length: 51 }, (_, index) => ({

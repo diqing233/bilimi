@@ -580,6 +580,42 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('creates bounded high-frequency tag recommendations from scanned tag metadata', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'First', tags: ['TypeScript', '  TypeScript  ', '视频'], sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Second', tags: ['TypeScript', '视频'], sourceFolderIds: ['source'] },
+        { aid: 3, title: 'Third', tags: ['TypeScript', '教程'], sourceFolderIds: ['source'] }
+      ]
+    })
+
+    await coordinator.finishScan('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: {
+        candidates: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'custom-tag-typescript', displayName: 'bilimi·TypeScript', kind: 'tag', count: 3
+          })
+        ])
+      }
+    })
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      recommendations: {
+        candidates: expect.not.arrayContaining([
+          expect.objectContaining({ displayName: 'bilimi·视频' }),
+          expect.objectContaining({ displayName: 'bilimi·教程' })
+        ])
+      }
+    })
+  })
+
   it('saves an adopted recommendation as a local ledger rule before reclassifying', async () => {
     const root = await createRoot()
     const saved = vi.fn().mockResolvedValue(undefined)

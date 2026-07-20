@@ -63,7 +63,7 @@ type RecommendedLedger = Pick<FavoriteLedger, 'id' | 'displayName' | 'keywords' 
 type StoredRecommendation = {
   id: string
   displayName: string
-  kind: 'author' | 'series'
+  kind: 'author' | 'series' | 'tag'
   sourceName: string
   keywords: string[]
   count: number
@@ -115,6 +115,17 @@ function stableRecommendationId(author: string) {
   return `custom-author-${(hash >>> 0).toString(36)}`
 }
 
+function stableTagRecommendationId(tag: string) {
+  const slug = tag.toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  if (slug) return `custom-tag-${slug}`
+  let hash = 2166136261
+  for (const character of tag) {
+    hash ^= character.codePointAt(0) ?? 0
+    hash = Math.imul(hash, 16777619)
+  }
+  return `custom-tag-${(hash >>> 0).toString(36)}`
+}
+
 function localLedgerId(title: string) {
   const slug = title.toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
   if (slug) return `local-${slug}`
@@ -126,26 +137,44 @@ function localLedgerId(title: string) {
   return `local-${(hash >>> 0).toString(36)}`
 }
 
-function buildAuthorRecommendations(items: Iterable<Pick<CurrentSegmentItem, 'author'>>): RecommendationState {
-  const counts = new Map<string, number>()
+function buildAuthorRecommendations(items: Iterable<Pick<CurrentSegmentItem, 'author' | 'tags'>>): RecommendationState {
+  const authorCounts = new Map<string, number>()
+  const tagCounts = new Map<string, number>()
   for (const item of items) {
     const author = item.author?.trim()
-    if (author) counts.set(author, (counts.get(author) ?? 0) + 1)
+    if (author) authorCounts.set(author, (authorCounts.get(author) ?? 0) + 1)
+    const tags = new Set((item.tags ?? []).map((tag) => tag.trim().replace(/\s+/g, ' ')).filter(Boolean))
+    for (const tag of tags) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1)
   }
+  const authors: StoredRecommendation[] = [...authorCounts.entries()]
+    .filter(([, count]) => count >= 2)
+    .sort(([leftName, leftCount], [rightName, rightCount]) => rightCount - leftCount || leftName.localeCompare(rightName, 'zh-Hans-CN'))
+    .slice(0, 24)
+    .map(([sourceName, count]) => ({
+      id: stableRecommendationId(sourceName),
+      displayName: `${BILIMI_LEDGER_PREFIX}${sourceName}`,
+      kind: 'author' as const,
+      sourceName,
+      keywords: [sourceName],
+      count,
+      reason: `${sourceName} appeared ${count} times.`
+    }))
+  const genericTags = new Set(['视频', 'bilibili', '哔哩哔哩', '收藏', '推荐'])
+  const tags: StoredRecommendation[] = [...tagCounts.entries()]
+    .filter(([tag, count]) => count >= 2 && tag.length >= 2 && !genericTags.has(tag.toLocaleLowerCase()))
+    .sort(([leftName, leftCount], [rightName, rightCount]) => rightCount - leftCount || leftName.localeCompare(rightName, 'zh-Hans-CN'))
+    .slice(0, 24)
+    .map(([sourceName, count]) => ({
+      id: stableTagRecommendationId(sourceName),
+      displayName: `${BILIMI_LEDGER_PREFIX}${sourceName}`,
+      kind: 'tag' as const,
+      sourceName,
+      keywords: [sourceName],
+      count,
+      reason: `高频标签“${sourceName}”出现 ${count} 次，适合单独成册。`
+    }))
   return {
-    candidates: [...counts.entries()]
-      .filter(([, count]) => count >= 2)
-      .sort(([leftName, leftCount], [rightName, rightCount]) => rightCount - leftCount || leftName.localeCompare(rightName, 'zh-Hans-CN'))
-      .slice(0, 24)
-      .map(([sourceName, count]) => ({
-        id: stableRecommendationId(sourceName),
-        displayName: `${BILIMI_LEDGER_PREFIX}${sourceName}`,
-        kind: 'author' as const,
-        sourceName,
-        keywords: [sourceName],
-        count,
-        reason: `${sourceName} appeared ${count} times.`
-      })),
+    candidates: [...authors, ...tags],
     initialized: true,
     adoptedCandidateIds: []
   }
@@ -156,7 +185,7 @@ function asLocalRecommendedLedger(candidate: StoredRecommendation, priority: num
     id: candidate.id,
     displayName: candidate.displayName,
     keywords: [...candidate.keywords],
-    ruleType: candidate.kind === 'author' ? 'author' : 'keyword',
+    ruleType: candidate.kind === 'author' ? 'author' : candidate.kind === 'tag' ? 'tag' : 'keyword',
     enabled: true,
     priority,
     isDefault: false
