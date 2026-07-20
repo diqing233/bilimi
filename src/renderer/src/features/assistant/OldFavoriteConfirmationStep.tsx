@@ -9,9 +9,14 @@ type OldFavoriteConfirmationStepProps = {
   onReconcile: () => void
 }
 
-function isReadyToFreeze(snapshot: OldFavoriteWorkspaceSnapshot) {
-  return Boolean(snapshot.planReadiness &&
-    snapshot.planReadiness.selectedAidCount > 0 && snapshot.planReadiness.unclassifiedAidCount === 0)
+function readinessFor(snapshot: OldFavoriteWorkspaceSnapshot) {
+  const readiness = snapshot.planReadiness
+  const hasSelected = Boolean(readiness && readiness.selectedAidCount > 0)
+  return {
+    canSaveLocally: hasSelected,
+    canSyncToBilibili: Boolean(readiness && readiness.classifiedAidCount > 0),
+    unclassifiedCount: readiness?.unclassifiedAidCount ?? 0
+  }
 }
 
 export function OldFavoriteConfirmationStep({
@@ -22,7 +27,7 @@ export function OldFavoriteConfirmationStep({
   onExecuteFrozenPlan,
   onReconcile
 }: OldFavoriteConfirmationStepProps) {
-  const canFreeze = isReadyToFreeze(snapshot)
+  const { canSaveLocally, canSyncToBilibili, unclassifiedCount } = readinessFor(snapshot)
   const readiness = snapshot.planReadiness
   const isMultiSegment = snapshot.hasMultipleSegments
 
@@ -64,20 +69,20 @@ export function OldFavoriteConfirmationStep({
   const readinessText = readiness && isMultiSegment
     ? `整体准备度：${readiness.classifiedAidCount} / ${readiness.selectedAidCount} 条已分类`
     : null
-  const blockedMessage = readiness?.unclassifiedAidCount
-    ? isMultiSegment
-      ? `还需完成 ${readiness.unclassifiedAidCount} 条（跨所有分段）。`
-      : `还需完成 ${readiness.unclassifiedAidCount} 条。`
-    : '正在等待主进程确认本轮分类准备度。'
+  const blockedMessage = unclassifiedCount
+    ? `${unclassifiedCount} 条未分类视频会仅本地暂存，不会同步到 B 站。`
+    : !canSaveLocally
+      ? '正在等待主进程确认本轮分类准备度。'
+      : null
 
   return <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
     <h4>确认执行</h4>
     <p>可直接同步到 B 站，或仅保存到本地收藏库；两种方式都会冻结当前分类结果。</p>
     {readinessText ? <p>{readinessText}</p> : null}
-    {!canFreeze ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{blockedMessage}</p> : null}
+    {blockedMessage ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{blockedMessage}</p> : null}
     <div className="favorite-ledger-panel__confirm-actions">
-      <button type="button" disabled={!canFreeze || loading} onClick={onSaveLocally}>仅保存本轮到收藏库</button>
-      <button type="button" disabled={!canFreeze || loading} onClick={onConfirmAndSync}>确认并同步到 B 站</button>
+      <button type="button" disabled={!canSaveLocally || loading} onClick={onSaveLocally}>仅保存本轮到收藏库</button>
+      <button type="button" disabled={!canSyncToBilibili || loading} onClick={onConfirmAndSync}>确认并同步到 B 站</button>
     </div>
   </section>
 }

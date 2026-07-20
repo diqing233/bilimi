@@ -1041,8 +1041,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const command = vi.fn(async (_accountMid: string, input: { type: string }) => input.type === 'confirm-and-execute-bilibili-plan'
       ? { ...preview, status: 'executing' as const }
       : preview)
-    let resolveDeepSeek: ((value: typeof preview) => void) | undefined
-    const deepSeek = vi.fn(() => new Promise<typeof preview>((resolve) => { resolveDeepSeek = resolve }))
+    let resolveDeepSeek: ((value: { snapshot: typeof preview; progress: { totalChunks: number; completedChunks: number; successfulVideoCount: number; failedVideoCount: number }; failures: [] }) => void) | undefined
+    const deepSeek = vi.fn(() => new Promise<{ snapshot: typeof preview; progress: { totalChunks: number; completedChunks: number; successfulVideoCount: number; failedVideoCount: number }; failures: [] }>((resolve) => { resolveDeepSeek = resolve }))
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command,
@@ -1073,7 +1073,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
     await waitFor(() => expect(deepSeek).toHaveBeenCalledWith('100', 'unclassified-only'))
     expect(screen.getByRole('status')).toHaveTextContent('DeepSeek 正在整理当前分段…')
-    resolveDeepSeek?.(preview)
+    resolveDeepSeek?.({ snapshot: preview, progress: { totalChunks: 1, completedChunks: 1, successfulVideoCount: 1, failedVideoCount: 0 }, failures: [] })
     await screen.findByText('DeepSeek 整理完成，已更新当前分段。')
     deepSeek.mockRejectedValueOnce(new Error('DeepSeek 服务暂时不可用'))
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
@@ -1291,9 +1291,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
 
     expect(screen.getByText('整体准备度：1 / 2 条已分类')).toBeInTheDocument()
-    expect(screen.getByRole('alert')).toHaveTextContent('还需完成 1 条（跨所有分段）')
-    expect(screen.getByRole('button', { name: '仅保存本轮到收藏库' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: '确认并同步到 B 站' })).toBeDisabled()
+    expect(screen.getByRole('alert')).toHaveTextContent('1 条未分类视频会仅本地暂存')
+    expect(screen.getByRole('button', { name: '仅保存本轮到收藏库' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '确认并同步到 B 站' })).toBeEnabled()
   })
 
   it('renders execution states from snapshots and routes only their controlled actions', async () => {
