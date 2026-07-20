@@ -128,13 +128,6 @@ export function ControlledFavoriteLedgerPanel({
         missingLedgerIds={missingLedgerIds}
         onSaveLedgers={onSaveLedgers}
       />
-      {guideOpen && snapshot && !recovery ? <div className="favorite-ledger-panel__guide-entry-actions">
-        <button type="button" onClick={() => {
-          setFullReorganizationAccountMid(normalizeAccountMid(currentAccountMid))
-          setFullReorganizationConfirmOpen(true)
-        }} disabled={workspace.loading}>全部重新整理</button>
-      </div> : null}
-
       {fullReorganizationConfirmOpen ? <OldFavoriteModal title="确认全部重新整理？" danger confirmLabel="确认重置"
         onCancel={() => { setFullReorganizationConfirmOpen(false); setFullReorganizationAccountMid(null) }}
         onConfirm={() => {
@@ -154,6 +147,10 @@ export function ControlledFavoriteLedgerPanel({
         step={step}
         onStepChange={setStep}
         onRetryScan={() => void startScan('incremental')}
+        onFullReorganize={() => {
+          setFullReorganizationAccountMid(normalizeAccountMid(currentAccountMid))
+          setFullReorganizationConfirmOpen(true)
+        }}
         onRebuildWorkspace={() => void workspace.rebuildCorruptWorkspace()}
         onSelectSourceFolders={(folderIds) => void workspace.selectSourceFolders(folderIds)}
         onSetRecommendedCandidates={(candidateIds) => void workspace.setRecommendedCandidates(candidateIds)}

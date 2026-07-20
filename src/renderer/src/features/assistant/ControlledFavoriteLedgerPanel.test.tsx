@@ -104,6 +104,27 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(within(guide).getByRole('button', { name: '收起整理旧藏说明' })).toHaveAttribute('aria-expanded', 'true')
   })
 
+  it('keeps full reorganization inside the old-favorites guide header instead of the panel shell', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: vi.fn()
+    } as typeof window.bilimiDesktop
+
+    const { container } = render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    const guide = await screen.findByRole('region', { name: '整理旧藏向导' })
+
+    expect(within(guide).getByRole('button', { name: '全部重新整理' })).toBeInTheDocument()
+    expect(Array.from(container.children).some((child) => child.classList.contains('favorite-ledger-panel__guide-entry-actions'))).toBe(false)
+  })
+
   it('keeps editable rule types and safe reset synchronization in the legacy checklist', async () => {
     const save = vi.fn()
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
