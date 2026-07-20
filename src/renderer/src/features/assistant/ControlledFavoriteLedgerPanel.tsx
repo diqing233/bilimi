@@ -1,6 +1,8 @@
 import type { FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
+import { FavoriteLedgerOverview } from './FavoriteLedgerOverview'
+import { FavoriteLibraryEntry } from './FavoriteLibraryEntry'
 import { useOldFavoriteWorkspace } from './useOldFavoriteWorkspace'
 
 type ControlledFavoriteLedgerPanelProps = {
@@ -41,7 +43,6 @@ export function ControlledFavoriteLedgerPanel({
   const scanPresentationRequestVersion = useRef(0)
   const activeAccountMid = useRef(currentAccountMid)
   activeAccountMid.current = currentAccountMid
-  const [newLedgerName, setNewLedgerName] = useState('')
   const snapshot = workspace.snapshot
   const recovery = snapshot && 'recovery' in snapshot ? snapshot : null
   const sourceIds = useMemo(() => new Set(
@@ -90,13 +91,6 @@ export function ControlledFavoriteLedgerPanel({
     }
   }
 
-  const addLocalLedger = async () => {
-    const displayName = newLedgerName.trim()
-    if (!displayName) return
-    await workspace.createLocalLedgerAndReclassify(displayName)
-    setNewLedgerName('')
-  }
-
   const renderPreviewItem = (item: typeof previewItems[number]) => {
     const title = item.title?.trim() || `视频 ${item.aid}`
     const targetLedgerId = snapshot?.classifications[String(item.aid)]?.targetLedgerIds[0] ?? ''
@@ -126,25 +120,28 @@ export function ControlledFavoriteLedgerPanel({
     <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
       <div className="favorite-ledger-panel__topbar">
         <div className="favorite-ledger-panel__header"><h2 className="sr-only">掌库</h2></div>
-        <div className="favorite-ledger-panel__toolbar">
-          <button type="button" aria-label="备册" onClick={() => void onEnsureLedgers()}>备册</button>
-          <button type="button" aria-label="整理旧藏" disabled={workspace.loading || !currentAccountMid}
-            onClick={() => void startScan('incremental')}>整理旧藏</button>
-          <button type="button" aria-label="全部重新整理" disabled={workspace.loading || !currentAccountMid}
-            onClick={() => void startScan('full')}>全部重新整理</button>
-          <button type="button" aria-label="收藏库" onClick={() => void window.bilimiDesktop?.openFavoriteLibrary?.()}>收藏库</button>
-        </div>
       </div>
 
-      {missingLedgerIds.length > 0 ? <p role="alert">部分 Bilimi 收藏夹尚未备册。</p> : null}
-      <section className="favorite-ledger-panel__ledger-list" aria-label="收藏夹规则">
-        <label>新增收藏夹
-          <input aria-label="新增收藏夹名称" value={newLedgerName} onChange={(event) => setNewLedgerName(event.currentTarget.value)} />
-        </label>
-        <button type="button" disabled={!newLedgerName.trim()} onClick={() => void addLocalLedger()}>新增并重新归类</button>
-        {onOpenFavoritePage ? <button type="button" onClick={() => void onOpenFavoritePage()}>打开 B 站收藏夹</button> : null}
-        <button type="button" onClick={() => void onSaveLedgers(ledgers)}>保存收藏夹规则</button>
+      <FavoriteLedgerOverview
+        ledgers={ledgers}
+        missingLedgerIds={missingLedgerIds}
+        onEnsureLedgers={onEnsureLedgers}
+        onSaveLedgers={onSaveLedgers}
+        onOpenFavoritePage={onOpenFavoritePage}
+        onCreateLocalLedger={workspace.createLocalLedgerAndReclassify}
+      />
+      <section className="favorite-ledger-panel__workspace" aria-label="整理旧藏">
+        <div className="favorite-ledger-panel__editor-title">
+          <div><h3>整理旧藏</h3><p>扫描历史收藏，并使用当前受控工作区完成归档。</p></div>
+          <div className="favorite-ledger-panel__category-actions">
+            <button type="button" aria-label="整理旧藏" disabled={workspace.loading || !currentAccountMid}
+              onClick={() => void startScan('incremental')}>整理旧藏</button>
+            <button type="button" aria-label="全部重新整理" disabled={workspace.loading || !currentAccountMid}
+              onClick={() => void startScan('full')}>全部重新整理</button>
+          </div>
+        </div>
       </section>
+      <FavoriteLibraryEntry />
 
       {guideOpen ? <section className="favorite-ledger-panel__old-favorites-guide" aria-label="整理旧藏向导">
         <div className="favorite-ledger-panel__guide-header">

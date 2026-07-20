@@ -23,6 +23,50 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByRole('region', { name: '整理旧藏向导' })).not.toBeInTheDocument()
   })
 
+  it('keeps the ledger overview, organize entry, and library entry in a stable order', async () => {
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
+      commandOldFavoriteWorkspaceV1: vi.fn(),
+      openFavoriteLibrary: vi.fn()
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+    />)
+
+    const regions = await screen.findAllByRole('region')
+    expect(regions.map((region) => region.getAttribute('aria-label'))).toEqual([
+      '收藏夹管理', '整理旧藏', '收藏库'
+    ])
+    expect(screen.getByRole('heading', { name: '收藏夹管理' }).closest('section')).toHaveClass('favorite-ledger-panel__ledger-list')
+    expect(screen.getByText('管理本地收藏夹规则，并在整理完成后保存。')).toBeInTheDocument()
+  })
+
+  it('opens the organize guide without changing the independent library entry', async () => {
+    const command = vi.fn()
+    const openFavoriteLibrary = vi.fn().mockResolvedValue(undefined)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
+      commandOldFavoriteWorkspaceV1: command,
+      openFavoriteLibrary
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+    />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+
+    expect(await screen.findByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '收藏库' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '收藏库' }))
+
+    expect(openFavoriteLibrary).toHaveBeenCalledTimes(1)
+    expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'incremental' })
+  })
+
   it('opens all four guide steps immediately and locks later steps while scanning', async () => {
     const scanningSnapshot = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
