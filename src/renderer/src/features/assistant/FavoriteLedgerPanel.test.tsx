@@ -126,6 +126,31 @@ describe('FavoriteLedgerPanel', () => {
     expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'incremental' })
   })
 
+  it('does not start the legacy scanner when the controlled IPC is unavailable without an emergency authorization', async () => {
+    const onScanOldFavorites = vi.fn()
+    window.bilimiDesktop = {
+      isOldFavoriteEmergencyFallbackEnabled: () => false
+    } as typeof window.bilimiDesktop
+
+    renderPanel({
+      currentAccountMid: '100',
+      onScanOldFavorites
+    })
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    await screen.findByText(/整理旧藏当前不可用/)
+    expect(onScanOldFavorites).not.toHaveBeenCalled()
+  })
+
+  it('does not expose a legacy scanner when the main process has not authorized the emergency fallback', () => {
+    window.bilimiDesktop = {
+      isOldFavoriteEmergencyFallbackEnabled: () => false
+    } as typeof window.bilimiDesktop
+
+    expect(window.bilimiDesktop.scanOldFavorites).toBeUndefined()
+    expect(window.bilimiDesktop.executeOldFavoritePlan).toBeUndefined()
+  })
+
   it('shows a controlled scan failure and retries it through the workspace command', async () => {
     const failed = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
@@ -704,6 +729,10 @@ describe('FavoriteLedgerPanel', () => {
 
   beforeEach(() => {
     resetOldFavoriteRuntimeSession()
+    window.bilimiDesktop = {
+      isOldFavoriteEmergencyFallbackEnabled: () => true,
+      patchOldFavoriteWorkspaceOverlay: vi.fn().mockResolvedValue(undefined)
+    } as typeof window.bilimiDesktop
   })
 
   afterEach(async () => {
@@ -810,6 +839,13 @@ describe('FavoriteLedgerPanel', () => {
   })
 
   function renderPanel(overrides: Partial<Parameters<typeof FavoriteLedgerPanel>[0]> = {}) {
+    if (!window.bilimiDesktop?.isOldFavoriteEmergencyFallbackEnabled) {
+      window.bilimiDesktop = {
+        ...window.bilimiDesktop,
+        // Legacy-only tests opt into the short-lived emergency path explicitly.
+        isOldFavoriteEmergencyFallbackEnabled: () => true
+      } as typeof window.bilimiDesktop
+    }
     return render(
       <FavoriteLedgerPanel
         ledgers={createDefaultFavoriteLedgers()}
@@ -933,6 +969,7 @@ describe('FavoriteLedgerPanel', () => {
     let state = structuredClone(initial)
     const listeners = new Set<(next: OldFavoriteSessionsState) => void>()
     const api = {
+      isOldFavoriteEmergencyFallbackEnabled: () => true,
       loadOldFavoriteSessions: vi.fn(async () => structuredClone(state)),
       beginOldFavoriteFullScan: vi.fn(),
       beginOldFavoriteIncrementalScan: vi.fn(),

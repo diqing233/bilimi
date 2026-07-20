@@ -55,6 +55,7 @@ type BilimiDesktopApi = {
   closeFloatingAssistant?: () => void
   closeFloatingMenu?: () => void
   openFavoriteLibrary?: () => Promise<void>
+  isOldFavoriteEmergencyFallbackEnabled?: () => boolean
   openOldFavoriteWorkspaceV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceView>
   commandOldFavoriteWorkspaceV1?: (accountMid: string, command: unknown) => Promise<OldFavoriteWorkspaceView>
   organizeOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceView>

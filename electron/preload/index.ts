@@ -51,12 +51,17 @@ import type {
 } from '../main/favoriteRepositoryIpc'
 import type { OldFavoriteWorkspaceView } from '../../src/shared/oldFavoriteWorkspace'
 
+const oldFavoriteEmergencyFallbackEnabled =
+  ipcRenderer.sendSync('old-favorite-emergency-fallback:enabled') === true
+
 contextBridge.exposeInMainWorld('bilimiDesktop', {
   version: '0.1.0',
   closeAssistantPet: () => ipcRenderer.send('assistant-pet:close'),
   closeFloatingAssistant: () => ipcRenderer.send('floating-assistant:close'),
   closeFloatingMenu: () => ipcRenderer.send('floating-menu:close'),
   openFavoriteLibrary: () => ipcRenderer.invoke('favorite-library:open') as Promise<void>,
+  isOldFavoriteEmergencyFallbackEnabled: () =>
+    ipcRenderer.sendSync('old-favorite-emergency-fallback:enabled') === true,
   openOldFavoriteWorkspaceV1: (accountMid: string) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:open', accountMid) as Promise<OldFavoriteWorkspaceView>,
   commandOldFavoriteWorkspaceV1: (accountMid: string, command: unknown) =>
@@ -431,26 +436,28 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   saveFavoriteLedgers: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) =>
     ipcRenderer.invoke('floating-assistant:save-ledgers', ledgers, options),
   openBilibiliFavorites: () => ipcRenderer.invoke('floating-assistant:open-bilibili-favorites'),
-  scanOldFavorites: (options?: {
-    multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']
-  }) => ipcRenderer.invoke('floating-assistant:scan-old-favorites', options),
-  commitOldFavoriteBatchCheckpoint: (token: OldFavoriteBatchCommitToken) =>
-    ipcRenderer.invoke(
-      'floating-assistant:commit-old-favorite-batch',
-      token
-    ) as Promise<OldFavoriteBatchCommitResult>,
-  readOldFavoriteBatchStatus: () =>
-    ipcRenderer.invoke('floating-assistant:read-old-favorite-batch-status') as Promise<{
-      pending: boolean
-    }>,
-  prepareOldFavoriteScan: () =>
-    ipcRenderer.invoke('floating-assistant:prepare-old-favorite-scan') as Promise<AssistantAutomationResult>,
-  readOldFavoriteTagEnrichment: (action: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' = 'read') =>
-    ipcRenderer.invoke('floating-assistant:old-favorite-tag-enrichment', action),
-  rejudgeOldFavorite: (item: FavoriteLedgerPreviewItem) =>
-    ipcRenderer.invoke('floating-assistant:rejudge-old-favorite', item) as Promise<FavoriteLedgerPreviewItem>,
-  executeOldFavoritePlan: (items: FavoriteLedgerPreviewItem[], expectedAccountMid?: string) =>
-    ipcRenderer.invoke('floating-assistant:execute-old-favorite-plan', items, expectedAccountMid),
+  ...(oldFavoriteEmergencyFallbackEnabled ? {
+    scanOldFavorites: (options?: {
+      multiArchiveMode?: AssistantPreferences['favoriteArchiveMultiMode']
+    }) => ipcRenderer.invoke('floating-assistant:scan-old-favorites', options),
+    commitOldFavoriteBatchCheckpoint: (token: OldFavoriteBatchCommitToken) =>
+      ipcRenderer.invoke(
+        'floating-assistant:commit-old-favorite-batch',
+        token
+      ) as Promise<OldFavoriteBatchCommitResult>,
+    readOldFavoriteBatchStatus: () =>
+      ipcRenderer.invoke('floating-assistant:read-old-favorite-batch-status') as Promise<{
+        pending: boolean
+      }>,
+    prepareOldFavoriteScan: () =>
+      ipcRenderer.invoke('floating-assistant:prepare-old-favorite-scan') as Promise<AssistantAutomationResult>,
+    readOldFavoriteTagEnrichment: (action: 'read' | 'progress' | 'pause' | 'resume' | 'cancel' | 'cancel-scan' = 'read') =>
+      ipcRenderer.invoke('floating-assistant:old-favorite-tag-enrichment', action),
+    rejudgeOldFavorite: (item: FavoriteLedgerPreviewItem) =>
+      ipcRenderer.invoke('floating-assistant:rejudge-old-favorite', item) as Promise<FavoriteLedgerPreviewItem>,
+    executeOldFavoritePlan: (items: FavoriteLedgerPreviewItem[], expectedAccountMid?: string) =>
+      ipcRenderer.invoke('floating-assistant:execute-old-favorite-plan', items, expectedAccountMid)
+  } : {}),
   savePreferences: (preferences: AssistantPreferences) =>
     ipcRenderer.invoke('assistant:save-preferences', preferences) as Promise<AssistantPreferences>,
   patchPreferences: (patch: Partial<AssistantPreferences>) =>

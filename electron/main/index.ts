@@ -168,6 +168,8 @@ const FLOATING_MENU_SHADOW_PADDING = 28
 const FLOATING_MENU_QUERY = { window: 'floating-menu' }
 const FLOATING_ASSISTANT_QUERY = { window: 'floating-assistant' }
 const FAVORITE_LIBRARY_QUERY = { window: 'favorite-library' }
+// A temporary support-only escape hatch while the legacy core is removed.
+const OLD_FAVORITE_EMERGENCY_FALLBACK_ENABLED = process.env.BILIMI_ENABLE_OLD_FAVORITE_EMERGENCY_FALLBACK === '1'
 
 let mainWindow: BrowserWindow | null = null
 let floatingSealWindow: BrowserWindow | null = null
@@ -948,7 +950,15 @@ function getVideoTranscriptionQueue() {
 }
 
 function registerAssistantPreferenceHandlers() {
-  registerOldFavoriteSessionIpc({
+  ipcMain.on('old-favorite-emergency-fallback:enabled', (event) => {
+    if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
+      event.returnValue = false
+      return
+    }
+    event.returnValue = OLD_FAVORITE_EMERGENCY_FALLBACK_ENABLED
+  })
+  if (OLD_FAVORITE_EMERGENCY_FALLBACK_ENABLED) {
+    registerOldFavoriteSessionIpc({
     ipcMain,
     getStore: async () => (await ensureOldFavoritePersistence()).sessionStore,
     isTrustedSender: isTrustedOldFavoriteSessionSender,
@@ -996,13 +1006,15 @@ function registerAssistantPreferenceHandlers() {
     broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: accountMid.trim() })
     return saved
   })
+  }
   ipcMain.on('assistant-runtime:ready', (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
       return
     }
     markAssistantRuntimeReady(event.sender.id)
   })
-  ipcMain.on('old-favorite-runtime:get', (event, key: string, initialValue: unknown) => {
+  if (OLD_FAVORITE_EMERGENCY_FALLBACK_ENABLED) {
+    ipcMain.on('old-favorite-runtime:get', (event, key: string, initialValue: unknown) => {
     if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
       event.returnValue = { key, value: initialValue, revision: 0, accountMid: '' }
       return
@@ -1078,6 +1090,7 @@ function registerAssistantPreferenceHandlers() {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) return
     oldFavoriteBackgroundRuntime.setExecutionTarget(webContentsId)
   })
+  }
   ipcMain.handle('bilibili-session:retry-direct', (event) => {
     if (!mainWindow || mainWindow.isDestroyed() || event.sender.id !== mainWindow.webContents.id) {
       throw new Error('Bilibili session proxy request came from an untrusted renderer.')
@@ -1314,7 +1327,8 @@ function registerAssistantPreferenceHandlers() {
       type: 'open-bilibili-favorites'
     })
   })
-  ipcMain.handle('floating-assistant:scan-old-favorites', (event, options = {}) => {
+  if (OLD_FAVORITE_EMERGENCY_FALLBACK_ENABLED) {
+    ipcMain.handle('floating-assistant:scan-old-favorites', (event, options = {}) => {
     assertTrustedOldFavoriteAssistantSender(event)
     return requestMainAssistantRuntime<FavoriteLedgerPreview>({ type: 'scan-old-favorites', ...options })
   })
@@ -1367,6 +1381,7 @@ function registerAssistantPreferenceHandlers() {
       })
     }
   )
+  }
   ipcMain.on('floating-assistant:close', () => {
     closeFloatingAssistantWindow()
   })
@@ -1523,7 +1538,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     assertTrustedOldFavoriteAssistantSender(event)
     favoriteLibraryWindowController.open()
   })
-  oldFavoriteWorkspaceService = new OldFavoriteWorkspaceService({
+  if (OLD_FAVORITE_EMERGENCY_FALLBACK_ENABLED) {
+    oldFavoriteWorkspaceService = new OldFavoriteWorkspaceService({
     root: join(app.getPath('userData'), 'old-favorite', 'workspace-v2')
   })
   await oldFavoriteWorkspaceService.initialize()
@@ -1560,7 +1576,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     oldFavoriteRendererFlushCoordinator.markClean()
     event.returnValue = true
   })
-  ipcMain.handle('old-favorite-runtime:reset-account', (event, accountMid: string) => {
+    ipcMain.handle('old-favorite-runtime:reset-account', (event, accountMid: string) => {
     if (!isTrustedOldFavoriteSessionSender(event.sender.id)) {
       throw new Error('Old favorite runtime request came from an untrusted renderer.')
     }
@@ -1568,7 +1584,8 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     const changed = oldFavoriteRuntimeStore?.resetAccount(accountMid) ?? false
     if (changed) broadcastOldFavoriteRuntimeSnapshot({ type: 'reset', accountMid: accountMid.trim() })
     return changed
-  })
+    })
+  }
   let accountChangeTimer: NodeJS.Timeout | undefined
   session.fromPartition(BILIMI_SESSION_PARTITION).cookies.on('changed', (_event, cookie) => {
     if (cookie.name === 'DedeUserID' || cookie.name === 'bili_jct') {

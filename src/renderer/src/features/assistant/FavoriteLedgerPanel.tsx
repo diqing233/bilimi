@@ -2314,6 +2314,9 @@ export function FavoriteLedgerPanel({
 }: FavoriteLedgerPanelProps) {
   const oldFavoriteWorkspace = useOldFavoriteWorkspace(currentAccountMid)
   const useControlledOldFavoriteWorkspace = oldFavoriteWorkspace.available
+  // The main process controls the short-lived legacy recovery path.
+  const emergencyOldFavoriteFallbackEnabled =
+    window.bilimiDesktop?.isOldFavoriteEmergencyFallbackEnabled?.() === true
   const [archiveEditorState, setArchiveEditorState] = useOldFavoriteRuntimeState<ArchiveEditorRuntimeState>(
     'archiveEditorState',
     () => ({
@@ -3728,6 +3731,11 @@ export function FavoriteLedgerPanel({
       return
     }
 
+    if (!emergencyOldFavoriteFallbackEnabled) {
+      setStatus('整理旧藏当前不可用，请保持 B 站页面已登录后重试。')
+      return
+    }
+
     if (!forceFresh && preview && oldFavoriteGuideMode === 'organize') {
       setLedgerListExpanded(true)
       return
@@ -3807,6 +3815,10 @@ export function FavoriteLedgerPanel({
         return
       }
       await startOrganizingOldFavorites()
+      return
+    }
+    if (!emergencyOldFavoriteFallbackEnabled) {
+      setStatus('整理旧藏当前不可用，请保持 B 站页面已登录后重试。')
       return
     }
     if (activeOldFavoriteUserBatch?.status === 'active' && preview && oldFavoriteGuideMode === 'organize') {
