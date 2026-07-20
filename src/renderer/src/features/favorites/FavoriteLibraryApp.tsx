@@ -35,6 +35,8 @@ const text = {
   detail: '\u89c6\u9891\u8be6\u60c5',
   hideDetail: '\u6536\u8d77\u8be6\u60c5',
   noDescription: '\u6682\u65e0\u7b80\u4ecb\u3002',
+  empty: '\u5f53\u524d\u8d26\u53f7\u6682\u65e0\u5df2\u4fdd\u5b58\u7684\u6536\u85cf\u3002',
+  emptyHint: '\u53ef\u5148\u5728\u638c\u5e93\u5b8c\u6210\u6574\u7406\u65e7\u85cf\u626b\u63cf\uff0c\u6216\u5237\u65b0\u540e\u518d\u67e5\u770b\u3002',
   membershipsHeading: '\u5f52\u5c5e',
   pendingStates: '\u5f85\u5904\u7406\uff1a',
   select: 'Select',
@@ -259,6 +261,9 @@ export function FavoriteLibraryApp() {
               </div>
             )}
           />
+          {page && rows.length === 0 ? <div className="favorite-library__empty" role="status">
+            <strong>{text.empty}</strong><span>{text.emptyHint}</span>
+          </div> : null}
           {page?.nextCursor ? (
             <button
               type="button"

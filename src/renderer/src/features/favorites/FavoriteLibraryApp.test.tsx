@@ -19,6 +19,24 @@ afterEach(() => {
 })
 
 describe('FavoriteLibraryApp', () => {
+  it('renders an explicit empty state after an account-scoped repository page returns zero items', async () => {
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 2, updatedAt: '2026-07-20T00:00:00.000Z', videoCount: 0, folderCount: 0,
+        folders: [], physicalShardCount: 0, syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }, pendingAidCount: 0
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({ version: 1, accountMid: '100', revision: 2, items: [] }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined)
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+
+    expect(await screen.findByText('当前账号暂无已保存的收藏。')).toBeInTheDocument()
+    expect(screen.getByText('可先在掌库完成整理旧藏扫描，或刷新后再查看。')).toBeInTheDocument()
+  })
+
   it('renders account-scoped navigation, one paged virtual list, and a collapsible detail pane', async () => {
     const getPage = vi.fn(async (_accountMid: string, scope: { kind: string; folderId?: string }) => ({
       version: 1 as const, accountMid: '100', revision: 2,
