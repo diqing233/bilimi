@@ -94,6 +94,7 @@ describe('old favorite workspace page bridge', () => {
     expect(script).toContain('media?.tags')
     expect(script).toContain('media?.tname')
     expect(script).toContain('/x/tag/archive/tags')
+    expect(() => new Function(`return ${script}`)).not.toThrow()
   })
 
   it('rejects an invalid target without running a page script', async () => {

@@ -237,7 +237,7 @@ function scriptFor(command: OldFavoriteWorkspacePageCommand): string {
     if (response.error) return unknown(response.error);
     if (!Array.isArray(response.json?.data?.medias)) return unknown('invalid-source-page-response');
     const readTags = (value) => (Array.isArray(value) ? value : [])
-      .map((tag) => String(tag?.tag_name ?? tag?.name ?? tag?.title ?? tag || '').trim())
+      .map((tag) => String((tag?.tag_name ?? tag?.name ?? tag?.title ?? tag) || '').trim())
       .filter(Boolean)
       .slice(0, 32);
     const rawItems = response.json.data.medias.map((media) => ({

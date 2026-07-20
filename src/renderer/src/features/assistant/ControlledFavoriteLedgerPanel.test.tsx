@@ -809,6 +809,30 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByText('target-unavailable')).not.toBeInTheDocument()
   })
 
+  it('maps page execution failures to a recoverable scan message without exposing the internal reason', async () => {
+    const failed = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'failed' as const, failureCount: 1, reason: 'page-execution-failed' }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(failed)
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+    />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('无法读取当前 B站页面，请保持已登录的 B站页面打开并等待页面加载完成后重新扫描')
+    expect(screen.queryByText('page-execution-failed')).not.toBeInTheDocument()
+  })
+
   it('does not show scan-start failure from the previous account after switching accounts', async () => {
     const scanning = {
       version: 1 as const, accountMid: '200', workspaceId: 'workspace-200', status: 'scanning' as const,
