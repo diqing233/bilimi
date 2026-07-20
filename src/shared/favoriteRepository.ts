@@ -13,7 +13,23 @@ export type FavoriteRepositoryVideo = {
   author?: string
   description?: string
   tags: string[]
+  bvid?: string
+  cid?: number
+  durationSeconds?: number
+  category?: string
+  favoriteAt?: string
+  scannedAt?: string
+  coverUrl?: string
   updatedAt: string
+}
+
+/** Local, account-scoped metadata mirror. It never describes a Bilibili write. */
+export type FavoriteLibraryMirrorRecord = {
+  aid: number
+  status: 'never' | 'refreshing' | 'synced' | 'failed'
+  metadataRevision: number
+  lastSyncedAt?: string
+  errorCode?: 'network' | 'unavailable' | 'account-changed'
 }
 
 export type FavoriteRepositoryFolder = {
@@ -124,6 +140,13 @@ export type FavoriteRepositoryCommand =
       id: string
       accountMid: string
       issuedAt: string
+      type: 'record-library-mirror'
+      payload: FavoriteLibraryMirrorRecord
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
       type: 'set-folder-members'
       payload: { folderId: string; aids: number[] }
     }
@@ -172,6 +195,7 @@ export type AccountFavoriteRepositorySnapshot = {
   revision: number
   updatedAt: string
   videos: Record<string, FavoriteRepositoryVideo>
+  libraryMirrors: Record<string, FavoriteLibraryMirrorRecord>
   folders: FavoriteRepositoryFolder[]
   memberships: FavoriteRepositoryMembershipIndex
   physicalShards: FavoriteRepositoryPhysicalShard[]
@@ -331,6 +355,13 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
         (payload.author !== undefined && typeof payload.author !== 'string') ||
         (payload.description !== undefined && typeof payload.description !== 'string')) invalidCommand()
       return
+    case 'record-library-mirror':
+      if (!Number.isSafeInteger(payload.aid) || Number(payload.aid) <= 0 ||
+        !['never', 'refreshing', 'synced', 'failed'].includes(String(payload.status)) ||
+        !Number.isSafeInteger(payload.metadataRevision) || Number(payload.metadataRevision) < 0 ||
+        (payload.lastSyncedAt !== undefined && (typeof payload.lastSyncedAt !== 'string' || Number.isNaN(Date.parse(payload.lastSyncedAt)))) ||
+        (payload.errorCode !== undefined && !['network', 'unavailable', 'account-changed'].includes(String(payload.errorCode)))) invalidCommand()
+      return
     case 'set-folder-members':
       if (typeof payload.folderId !== 'string' || !payload.folderId.trim() || !Array.isArray(payload.aids) ||
         !isValidAidList(payload.aids)) invalidCommand()
@@ -402,6 +433,7 @@ export function createAccountFavoriteRepositorySnapshot(input: {
     revision: 0,
     updatedAt: normalizedTimestamp(input.now),
     videos: {},
+    libraryMirrors: {},
     folders: [],
     memberships: {},
     physicalShards: [],
@@ -430,6 +462,7 @@ export function applyFavoriteRepositoryCommand(
   let organizationRecords = [...snapshot.organizationRecords]
   let organizationMigrationInitialized = snapshot.organizationMigrationInitialized
   let videos = { ...snapshot.videos }
+  let libraryMirrors = { ...snapshot.libraryMirrors }
   let folders = [...snapshot.folders]
   let physicalShards = [...snapshot.physicalShards]
 
@@ -499,6 +532,10 @@ export function applyFavoriteRepositoryCommand(
     case 'upsert-video':
       affectedAids = [command.payload.aid]
       videos[String(command.payload.aid)] = { ...command.payload, tags: [...command.payload.tags] }
+      break
+    case 'record-library-mirror':
+      affectedAids = [command.payload.aid]
+      libraryMirrors[String(command.payload.aid)] = { ...command.payload }
       break
     case 'set-folder-members':
       affectedFolderIds = [command.payload.folderId.trim()]
@@ -620,6 +657,7 @@ export function applyFavoriteRepositoryCommand(
     revision: snapshot.revision + 1,
     updatedAt: new Date(Math.max(Date.parse(snapshot.updatedAt), Date.parse(normalizedAcceptedAt))).toISOString(),
     videos,
+    libraryMirrors,
     folders,
     memberships,
     physicalShards,

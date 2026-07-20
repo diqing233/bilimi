@@ -11,6 +11,7 @@ import {
   type FavoriteRepositorySyncRecord,
   type FavoriteRepositoryVideo
 } from '../../src/shared/favoriteRepository'
+import type { VideoAudioTranscriptionQueueItem } from '../../src/shared/types'
 
 type PersistedRepository = {
   version: 1
@@ -99,6 +100,7 @@ function validSnapshot(value: unknown, accountMid: string): value is AccountFavo
   return snapshot.version === 1 && snapshot.accountMid === accountMid &&
     Number.isSafeInteger(snapshot.revision) && typeof snapshot.updatedAt === 'string' &&
     !!snapshot.videos && typeof snapshot.videos === 'object' &&
+    (snapshot.libraryMirrors === undefined || (typeof snapshot.libraryMirrors === 'object' && !Array.isArray(snapshot.libraryMirrors))) &&
     Array.isArray(snapshot.folders) && !!snapshot.memberships && typeof snapshot.memberships === 'object' &&
     Array.isArray(snapshot.physicalShards) && Array.isArray(snapshot.syncRecords) &&
     (snapshot.organizationRecords === undefined || Array.isArray(snapshot.organizationRecords)) &&
@@ -113,7 +115,20 @@ export type FavoriteRepositoryLibraryPageScope =
 export type FavoriteRepositoryLibraryPageRow = {
   video: FavoriteRepositoryVideo
   folderIds: string[]
-  pendingStates: Array<'unsynced' | 'continuation' | 'failed' | 'result-unknown'>
+  pendingStates: Array<'unsynced' | 'continuation' | 'failed' | 'result-unknown' | 'transcription'>
+}
+
+export type FavoriteRepositoryLibraryDetail = {
+  version: 1
+  accountMid: string
+  revision: number
+  video: FavoriteRepositoryVideo
+  folderIds: string[]
+  pendingStates: FavoriteRepositoryLibraryPageRow['pendingStates']
+  mirror: {
+    status: '未同步' | '同步中' | '已同步' | '同步失败' | '待确认'
+    lastSyncedAt?: string
+  }
 }
 
 export type FavoriteRepositoryLibrarySummary = {
@@ -139,6 +154,7 @@ export type FavoriteRepositoryLibrarySummary = {
 function normalizeSnapshot(snapshot: AccountFavoriteRepositorySnapshot): AccountFavoriteRepositorySnapshot {
   return {
     ...snapshot,
+    libraryMirrors: snapshot.libraryMirrors ?? {},
     organizationRecords: snapshot.organizationRecords ?? [],
     organizationMigrationInitialized: snapshot.organizationMigrationInitialized ?? false
   }
@@ -175,6 +191,7 @@ export class FavoriteRepositoryService {
   constructor(private readonly options: {
     root: string
     now?: () => string
+    getTranscriptionItems?: () => readonly VideoAudioTranscriptionQueueItem[]
   }) {}
 
   async getSnapshot(accountMid: string): Promise<AccountFavoriteRepositorySnapshot> {
@@ -307,13 +324,13 @@ export class FavoriteRepositoryService {
     const limit = pageLimit(options.limit)
     const cached = await this.load(account)
     const snapshot = this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account)).snapshot
-    const index = cached.libraryIndex ?? this.createLibraryIndex(snapshot)
+    const index = this.options.getTranscriptionItems ? this.createLibraryIndex(snapshot) : cached.libraryIndex ?? this.createLibraryIndex(snapshot)
     cached.libraryIndex = index
     const scopedAids = this.libraryAids(snapshot, scope, index)
     const start = options.cursor ? Math.max(0, Number(options.cursor)) : 0
     if (!Number.isSafeInteger(start) || start < 0) throw new Error('Favorite repository page cursor is invalid.')
     const selected = scopedAids.slice(start, start + limit)
-    const stateOrder: FavoriteRepositoryLibraryPageRow['pendingStates'] = ['unsynced', 'continuation', 'failed', 'result-unknown']
+    const stateOrder: FavoriteRepositoryLibraryPageRow['pendingStates'] = ['unsynced', 'continuation', 'failed', 'result-unknown', 'transcription']
     return {
       version: 1,
       accountMid: account,
@@ -328,6 +345,27 @@ export class FavoriteRepositoryService {
       }),
       ...(start + limit < scopedAids.length ? { nextCursor: String(start + limit) } : {}),
       revision: snapshot.revision
+    }
+  }
+
+  async getLibraryDetail(accountMid: string, aid: number): Promise<FavoriteRepositoryLibraryDetail | null> {
+    const account = normalizeAccountMid(accountMid)
+    if (!Number.isSafeInteger(aid) || aid <= 0) throw new Error('Favorite library video is invalid.')
+    const cached = await this.load(account)
+    const snapshot = this.mergeSyncCheckpoints(cached.repository, await this.loadSyncCheckpointState(account)).snapshot
+    const video = snapshot.videos[String(aid)]
+    if (!video) return null
+    const index = this.options.getTranscriptionItems ? this.createLibraryIndex(snapshot) : cached.libraryIndex ?? this.createLibraryIndex(snapshot)
+    cached.libraryIndex = index
+    const stateOrder: FavoriteRepositoryLibraryPageRow['pendingStates'] = ['unsynced', 'continuation', 'failed', 'result-unknown', 'transcription']
+    return {
+      version: 1,
+      accountMid: account,
+      revision: snapshot.revision,
+      video: { ...video, tags: [...video.tags] },
+      folderIds: [...(index.folderIdsByAid.get(aid) ?? [])],
+      pendingStates: stateOrder.filter((state) => index.pendingStatesByAid.get(aid)?.has(state)),
+      mirror: this.mirrorSummary(snapshot.libraryMirrors?.[String(aid)])
     }
   }
 
@@ -400,43 +438,23 @@ export class FavoriteRepositoryService {
       statesByAid.set(aid, states)
     }
     for (const aid of snapshot.workspace?.continuationAids ?? []) addState(aid, 'continuation')
-    const boundRemoteFolderIdsByLedger = new Map<string, Set<string>>()
-    for (const shard of snapshot.physicalShards) {
-      if (shard.bindingState !== 'bound' || !shard.remoteFolderId) continue
-      const ids = boundRemoteFolderIdsByLedger.get(shard.logicalLedgerId) ?? new Set<string>()
-      ids.add(shard.remoteFolderId)
-      boundRemoteFolderIdsByLedger.set(shard.logicalLedgerId, ids)
+    for (const aid of Object.keys(snapshot.videos).map(Number)) {
+      const mirror = snapshot.libraryMirrors?.[String(aid)]
+      if (!mirror || mirror.status === 'never' || mirror.status === 'refreshing') addState(aid, 'unsynced')
+      if (mirror?.status === 'failed') addState(aid, 'failed')
     }
-    const succeededRemoteTargetsByAid = new Map<number, Set<string>>()
-    const addSucceededTargets = (aid: number, targetFolderIds: readonly string[]) => {
-      const targets = succeededRemoteTargetsByAid.get(aid) ?? new Set<string>()
-      for (const folderId of targetFolderIds) targets.add(folderId)
-      succeededRemoteTargetsByAid.set(aid, targets)
-    }
-    for (const record of snapshot.organizationRecords ?? []) addSucceededTargets(record.aid, record.targetFolderIds)
-    for (const record of snapshot.syncRecords) {
-      if (record.status === 'succeeded' && record.targetFolderIds?.length) addSucceededTargets(record.affectedAids[0], record.targetFolderIds)
-    }
-    for (const [folderId, aids] of Object.entries(snapshot.memberships)) {
-      const folder = snapshot.folders.find((candidate) => candidate.id === folderId)
-      const logicalLedgerId = folder?.kind === 'bilimi-logical' ? folder.logicalLedgerId :
-        folder?.kind === 'local' && folder.id.startsWith('local:') ? folder.id.slice('local:'.length) : undefined
-      if (!logicalLedgerId) continue
-      const remoteFolderIds = boundRemoteFolderIdsByLedger.get(logicalLedgerId) ?? new Set<string>()
-      for (const aid of aids) {
-        const succeeded = succeededRemoteTargetsByAid.get(aid) ?? new Set<string>()
-        if (![...remoteFolderIds].some((folderId) => succeeded.has(folderId))) addState(aid, 'unsynced')
-      }
-    }
-    for (const record of snapshot.syncRecords) {
-      const state = record.status === 'pending'
-        ? 'unsynced'
-        : record.status === 'failed' || record.status === 'result-unknown'
-          ? record.status
-          : undefined
-      if (state) for (const aid of record.affectedAids) addState(aid, state)
+    for (const item of this.options.getTranscriptionItems?.() ?? []) {
+      if (item.accountMid !== snapshot.accountMid || !['pending', 'running', 'failed'].includes(item.status)) continue
+      addState(Number(item.aid), 'transcription')
     }
     return statesByAid
+  }
+
+  private mirrorSummary(record: AccountFavoriteRepositorySnapshot['libraryMirrors'][string] | undefined): FavoriteRepositoryLibraryDetail['mirror'] {
+    if (!record || record.status === 'never') return { status: '未同步' }
+    if (record.status === 'synced') return { status: '已同步', ...(record.lastSyncedAt ? { lastSyncedAt: record.lastSyncedAt } : {}) }
+    if (record.status === 'failed') return { status: '同步失败', ...(record.lastSyncedAt ? { lastSyncedAt: record.lastSyncedAt } : {}) }
+    return { status: '同步中', ...(record.lastSyncedAt ? { lastSyncedAt: record.lastSyncedAt } : {}) }
   }
 
   private libraryAids(

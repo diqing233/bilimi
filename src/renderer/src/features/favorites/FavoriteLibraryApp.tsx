@@ -2,21 +2,31 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FavoriteRepositoryFolder } from '@shared/favoriteRepository'
 import type {
   FavoriteRepositoryLibraryPage,
+  FavoriteRepositoryLibraryVideoDetail,
   FavoriteRepositorySnapshotSummary
 } from '../../../../../electron/main/favoriteRepositoryIpc'
 import { VirtualFavoriteLibraryList } from './VirtualFavoriteLibraryList'
 import {
   buildFavoriteLibraryDetail,
   buildFavoriteLibraryNavigation,
+  formatFavoriteLibraryMirrorStatus,
   type FavoriteLibraryRow
 } from './favoriteLibraryModel'
 import './FavoriteLibraryApp.css'
 
 type LibraryScope = { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' }
 
+type FavoriteLibraryDesktopExtensions = {
+  readBilibiliAccount?: () => Promise<{ mid: string; nickname?: string }>
+  openFavoriteLibraryVideo?: (accountMid: string, aid: number) => Promise<void>
+  openFavoriteLibrarySource?: (accountMid: string, folderId: string) => Promise<void>
+  toggleFavoriteLibraryArchiveStar?: (accountMid: string, aid: number) => Promise<void>
+  saveFavoriteLibraryArchiveMemo?: (accountMid: string, aid: number, memo: string) => Promise<void>
+}
+
 const text = {
   library: '\u6536\u85cf\u5e93',
-  account: '\u8d26\u53f7',
+  account: '\u5f53\u524d\u8d26\u53f7\uff1a',
   loadingAccount: '\u6b63\u5728\u8bfb\u53d6\u8d26\u53f7...',
   unavailable: '\u6536\u85cf\u5e93\u6682\u4e0d\u53ef\u7528\u3002',
   signIn: '\u8bf7\u5148\u767b\u5f55 B \u7ad9\u8d26\u53f7\u3002',
@@ -37,19 +47,30 @@ const text = {
   noDescription: '\u6682\u65e0\u7b80\u4ecb\u3002',
   membershipsHeading: '\u5f52\u5c5e',
   pendingStates: '\u5f85\u5904\u7406\uff1a',
-  select: 'Select',
-  selected: 'selected',
-  syncSelected: 'Sync selected',
-  syncFolder: 'Sync folder',
-  reconcile: 'Reconcile',
-  retry: 'Retry',
-  bind: 'Bind Bilibili page',
-  transcription: 'Queue transcription',
+  select: '\u9009\u62e9',
+  selectPage: '\u5168\u9009\u5f53\u524d\u9875',
+  selected: '\u5df2\u9009',
+  item: '\u9879',
+  syncSelected: '\u540c\u6b65\u6240\u9009',
+  syncFolder: '\u540c\u6b65\u5f53\u524d\u6536\u85cf\u5939',
+  transcription: '\u52a0\u5165\u8f6c\u5199\u961f\u5217',
+  mirror: '\u672c\u5730\u955c\u50cf',
+  source: '\u89c6\u9891\u6765\u6e90',
+  openVideo: '\u6253\u5f00\u89c6\u9891',
+  openSource: '\u6253\u5f00\u6765\u6e90\u6536\u85cf\u5939',
+  scan: '\u626b\u63cf\u4fe1\u606f',
+  videoId: '\u89c6\u9891 ID',
+  archive: '\u6863\u6848\u5173\u8054',
+  noArchive: '\u6682\u65e0\u672c\u5730\u6863\u6848',
+  star: '\u661f\u6807',
+  unstar: '\u53d6\u6d88\u661f\u6807',
+  saveMemo: '\u4fdd\u5b58\u5907\u6ce8',
+  transcriptionState: '\u8f6c\u5199\u72b6\u6001',
   actionFailed: '\u6536\u85cf\u5e93\u64cd\u4f5c\u5931\u8d25\u3002'
 } as const
 
 function pageRows(page: FavoriteRepositoryLibraryPage): FavoriteLibraryRow[] {
-  return page.items.map((item) => ({ ...item.video, folderIds: [...item.folderIds] }))
+  return page.items.map((item) => ({ ...item.video, folderIds: [...item.folderIds], pendingStates: [...item.pendingStates] }))
 }
 
 function pendingCount(summary: FavoriteRepositorySnapshotSummary) {
@@ -66,16 +87,16 @@ function scopeForNavigation(id: string): LibraryScope {
 /** Reads account-scoped repository pages; it owns only visible UI selection. */
 export function FavoriteLibraryApp() {
   const [accountMid, setAccountMid] = useState<string>()
+  const [accountNickname, setAccountNickname] = useState<string>()
   const [summary, setSummary] = useState<FavoriteRepositorySnapshotSummary>()
   const [scopeId, setScopeId] = useState('all')
   const [page, setPage] = useState<FavoriteRepositoryLibraryPage>()
   const [selected, setSelected] = useState<FavoriteLibraryRow>()
+  const [detailSnapshot, setDetailSnapshot] = useState<FavoriteRepositoryLibraryVideoDetail>()
+  const [memoDraft, setMemoDraft] = useState('')
   const [detailOpen, setDetailOpen] = useState(true)
   const [error, setError] = useState<string>()
   const [selectedAids, setSelectedAids] = useState<number[]>([])
-  const [lastSyncRun, setLastSyncRun] = useState<{ id: string; status: string }>()
-  const [pendingSyncRuns, setPendingSyncRuns] = useState<Array<{ id: string; status: string }>>([])
-  const [boundRunId, setBoundRunId] = useState<string>()
   const requestIdRef = useRef(0)
 
   const scope = useMemo(() => scopeForNavigation(scopeId), [scopeId])
@@ -99,16 +120,17 @@ export function FavoriteLibraryApp() {
     const refreshId = ++requestIdRef.current
     const api = window.bilimiDesktop
     try {
-      const mid = (await api?.readBilibiliAccountMid?.())?.trim()
+      const extendedApi = api as (typeof api & FavoriteLibraryDesktopExtensions) | undefined
+      const account = await extendedApi?.readBilibiliAccount?.()
+      const mid = (account?.mid ?? await api?.readBilibiliAccountMid?.())?.trim()
       if (!mid) {
         if (refreshId !== requestIdRef.current) return
         setAccountMid(undefined)
+        setAccountNickname(undefined)
         setSummary(undefined)
         setPage(undefined)
         setSelected(undefined)
         setSelectedAids([])
-        setBoundRunId(undefined)
-        setPendingSyncRuns([])
         setError(text.signIn)
         return
       }
@@ -116,33 +138,36 @@ export function FavoriteLibraryApp() {
       if (refreshId !== requestIdRef.current) return
       if (mid !== expectedAccountMid) {
         setAccountMid(mid)
+        setAccountNickname(account?.nickname?.trim() || undefined)
         setSummary(undefined)
         setPage(undefined)
       setSelected(undefined)
       setSelectedAids([])
-      setBoundRunId(undefined)
       }
+      if (mid === expectedAccountMid) setAccountNickname(account?.nickname?.trim() || undefined)
       const nextSummary = await api.openFavoriteRepositoryAccount(mid)
       if (refreshId !== requestIdRef.current) return
       setSummary(nextSummary)
-      const pendingRuns = await api.getPendingFavoriteLibrarySyncRuns?.(mid)
-      if (refreshId !== requestIdRef.current) return
-      const runs = (pendingRuns ?? []).flatMap((run) => run.runId ? [{ id: run.runId, status: run.status }] : [])
-      setPendingSyncRuns(runs)
-      setLastSyncRun((current) => current && runs.some((run) => run.id === current.id) ? current : runs[0])
       await load(mid, mid === expectedAccountMid ? scopeRef.current : { kind: 'all' })
-    } catch (reason) {
-      if (refreshId === requestIdRef.current) setError(reason instanceof Error ? reason.message : text.cannotRead)
+    } catch {
+      if (refreshId === requestIdRef.current) setError(text.cannotRead)
     }
   }, [load])
 
   useEffect(() => { void refresh() }, [refresh])
 
   useEffect(() => window.bilimiDesktop?.onBilibiliAccountChanged?.(() => {
+    setAccountMid(undefined)
+    setAccountNickname(undefined)
     setSummary(undefined)
     setPage(undefined)
     setSelected(undefined)
+    setSelectedAids([])
     void refresh(accountMid)
+  }), [accountMid, refresh])
+
+  useEffect(() => window.bilimiDesktop?.onFavoriteLibraryTranscriptionChanged?.(() => {
+    if (accountMid) void refresh(accountMid)
   }), [accountMid, refresh])
 
   useEffect(() => {
@@ -154,25 +179,61 @@ export function FavoriteLibraryApp() {
     )
   }, [accountMid, refresh, scope])
 
+  useEffect(() => {
+    let disposed = false
+    setDetailSnapshot(undefined)
+    if (!accountMid || !selected || !window.bilimiDesktop?.getFavoriteRepositoryLibraryVideoDetail) return
+    void window.bilimiDesktop.getFavoriteRepositoryLibraryVideoDetail(accountMid, selected.aid)
+      .then((snapshot) => { if (!disposed) setDetailSnapshot(snapshot) })
+      .catch(() => { if (!disposed) setError(text.cannotRead) })
+    return () => { disposed = true }
+  }, [accountMid, selected])
+
+  useEffect(() => {
+    setMemoDraft(detailSnapshot?.archive.memoPreview ?? '')
+  }, [detailSnapshot?.video.aid, detailSnapshot?.archive.memoPreview])
+
   const folders = summary?.folders ?? []
   const rows = page ? pageRows(page) : []
   const activeRow = selected && page?.items.find((item) => item.video.aid === selected.aid)
-  const detail = selected && activeRow ? buildFavoriteLibraryDetail(selected, folders, {
-    aid: selected.aid,
-    states: [...activeRow.pendingStates]
-  }) : undefined
+  const detail = selected && activeRow ? buildFavoriteLibraryDetail(
+    detailSnapshot?.video.aid === selected.aid
+      ? { ...detailSnapshot.video, folderIds: [...detailSnapshot.folderIds], pendingStates: [...detailSnapshot.pendingStates] }
+      : selected,
+    folders,
+    { aid: selected.aid, states: [...(detailSnapshot?.pendingStates ?? activeRow.pendingStates)] }
+  ) : undefined
   const navigation = summary ? buildFavoriteLibraryNavigation(folders, pendingCount(summary)) : []
   const toggleAid = (aid: number) => setSelectedAids((current) => current.includes(aid)
     ? current.filter((candidate) => candidate !== aid)
     : [...current, aid].sort((left, right) => left - right))
+  const allCurrentPageSelected = rows.length > 0 && rows.every((row) => selectedAids.includes(row.aid))
+  const toggleCurrentPage = () => setSelectedAids((current) => allCurrentPageSelected
+    ? current.filter((aid) => !rows.some((row) => row.aid === aid))
+    : [...new Set([...current, ...rows.map((row) => row.aid)])].sort((left, right) => left - right))
+  const allSelectedSynced = selectedAids.length > 0 && selectedAids.every((aid) => {
+    const row = rows.find((candidate) => candidate.aid === aid)
+    return Boolean(row && (row.pendingStates ?? []).length === 0)
+  })
   const runAction = async (action: () => Promise<{ runId?: string; status: string }>) => {
     try {
       setError(undefined)
       const result = await action()
-      if (result.runId) setLastSyncRun({ id: result.runId, status: result.status })
       if (accountMid) await refresh(accountMid)
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : text.actionFailed)
+    } catch {
+      setError(text.actionFailed)
+    }
+  }
+  const runDetailAction = async (action: () => Promise<void>) => {
+    try {
+      setError(undefined)
+      await action()
+      if (accountMid && selected) {
+        const snapshot = await window.bilimiDesktop?.getFavoriteRepositoryLibraryVideoDetail?.(accountMid, selected.aid)
+        if (snapshot) setDetailSnapshot(snapshot)
+      }
+    } catch {
+      setError(text.actionFailed)
     }
   }
   const currentFolderId = scope.kind === 'folder' ? scope.folderId : undefined
@@ -181,7 +242,7 @@ export function FavoriteLibraryApp() {
   return (
     <main className="favorite-library" aria-label={text.library}>
       <header className="favorite-library__header">
-        <div><h1>{text.library}</h1><p>{accountMid ? `${text.account} ${accountMid}` : text.loadingAccount}</p></div>
+        <div><h1>{text.library}</h1><p>{accountMid ? `${text.account}${accountNickname ? `${accountNickname}\uff08UID\uff1a${accountMid}\uff09` : `UID\uff1a${accountMid}`}` : text.loadingAccount}</p></div>
         {page ? <small>{page.items.length} {text.currentPage} - {text.version} {page.revision}</small> : null}
       </header>
       {error ? <p role="alert" className="favorite-library__error">{error}</p> : null}
@@ -203,12 +264,13 @@ export function FavoriteLibraryApp() {
         </nav>
         <section className="favorite-library__results" aria-label={text.results}>
           <div className="favorite-library__actions">
-            <small>{selectedAids.length} {text.selected}</small>
+            <label className="favorite-library__select-page"><input type="checkbox" aria-label={text.selectPage} checked={allCurrentPageSelected} disabled={!rows.length} onChange={toggleCurrentPage} />{text.selectPage}</label>
+            <small>{text.selected} {selectedAids.length} {text.item}</small>
             <button type="button" disabled={!accountMid || !selectedAids.length} onClick={() => void runAction(async () => {
               const api = window.bilimiDesktop
               if (!api?.syncFavoriteLibrarySelection || !accountMid) throw new Error(text.unavailable)
               return api.syncFavoriteLibrarySelection(accountMid, { kind: 'aids', aids: selectedAids })
-            })}>{text.syncSelected}</button>
+            })}>{(allSelectedSynced ? '\u91cd\u65b0' : '') + text.syncSelected + '\uff08' + selectedAids.length + '\uff09'}</button>
             {syncCurrentFolder ? <button type="button" disabled={!accountMid} onClick={() => void runAction(async () => {
               const api = window.bilimiDesktop
               if (!api?.syncFavoriteLibrarySelection || !accountMid || !currentFolderId) throw new Error(text.unavailable)
@@ -218,33 +280,7 @@ export function FavoriteLibraryApp() {
               const api = window.bilimiDesktop
               if (!api?.enqueueFavoriteLibraryTranscription || !accountMid) throw new Error(text.unavailable)
               return api.enqueueFavoriteLibraryTranscription(accountMid, { aids: selectedAids })
-            })}>{text.transcription}</button>
-            {lastSyncRun?.status === 'result-unknown' ? <button type="button" disabled={!accountMid} onClick={() => void runAction(async () => {
-              if (boundRunId !== lastSyncRun.id) throw new Error(text.bind)
-              const api = window.bilimiDesktop
-              if (!api?.reconcileFavoriteLibrarySync || !accountMid) throw new Error(text.unavailable)
-              return api.reconcileFavoriteLibrarySync(accountMid, lastSyncRun.id)
-            })}>{text.reconcile}</button> : null}
-            {lastSyncRun && boundRunId !== lastSyncRun.id && (lastSyncRun.status === 'result-unknown' || lastSyncRun.status === 'failed' || lastSyncRun.status === 'ready-to-retry') ? <button type="button" disabled={!accountMid} onClick={() => void (async () => {
-              try {
-                const api = window.bilimiDesktop
-                if (!api?.bindFavoriteLibrarySyncPage || !accountMid) throw new Error(text.unavailable)
-                await api.bindFavoriteLibrarySyncPage(accountMid, lastSyncRun.id)
-                setBoundRunId(lastSyncRun.id)
-                setError(undefined)
-              } catch (reason) {
-                setError(reason instanceof Error ? reason.message : text.actionFailed)
-              }
-            })()}>{text.bind}</button> : null}
-            {lastSyncRun?.status === 'failed' || lastSyncRun?.status === 'ready-to-retry' ? <button type="button" disabled={!accountMid} onClick={() => void runAction(async () => {
-              if (boundRunId !== lastSyncRun.id) throw new Error(text.bind)
-              const api = window.bilimiDesktop
-              if (!api?.retryFavoriteLibrarySync || !accountMid) throw new Error(text.unavailable)
-              return api.retryFavoriteLibrarySync(accountMid, lastSyncRun.id)
-            })}>{text.retry}</button> : null}
-            {pendingSyncRuns.length > 1 ? <span className="favorite-library__runs" aria-label="Pending sync runs">{pendingSyncRuns.map((run) => (
-              <button key={run.id} type="button" aria-pressed={lastSyncRun?.id === run.id} onClick={() => setLastSyncRun(run)}>{run.id}</button>
-            ))}</span> : null}
+            })}>{text.transcription + '\uff08' + selectedAids.length + '\uff09'}</button>
           </div>
           <VirtualFavoriteLibraryList
             ariaLabel={text.videoList}
@@ -254,7 +290,7 @@ export function FavoriteLibraryApp() {
               <div className="favorite-library__row-wrap">
                 <input type="checkbox" aria-label={`${text.select} ${row.title}`} checked={selectedAids.includes(row.aid)} onChange={() => toggleAid(row.aid)} />
                 <button type="button" className="favorite-library__row" onClick={() => { setSelected(row); setDetailOpen(true) }}>
-                  <strong>{row.title}</strong><small>{row.author ?? text.unknownAuthor} - {row.folderIds.length} {text.memberships}</small>
+                  <strong>{row.title}</strong><small>{row.author ?? text.unknownAuthor} - {row.folderIds.length} {text.memberships} - {formatFavoriteLibraryMirrorStatus(row.pendingStates ?? [])}</small>
                 </button>
               </div>
             )}
@@ -274,7 +310,27 @@ export function FavoriteLibraryApp() {
             <button type="button" onClick={() => setDetailOpen(false)}>{text.hideDetail}</button>
             <h2>{detail.title}</h2><p>{detail.author ?? text.unknownAuthor}</p>
             <p>{detail.description ?? text.noDescription}</p>
-            <h3>{text.membershipsHeading}</h3><ul>{detail.folders.map((folder: FavoriteRepositoryFolder) => <li key={folder.id}>{folder.title}</li>)}</ul>
+            <section><h3>{text.mirror}</h3><p>{detailSnapshot?.mirror.status ?? formatFavoriteLibraryMirrorStatus(detail.pendingStates)}</p>{detailSnapshot?.mirror.lastSyncedAt ? <small>{`上次同步：${detailSnapshot.mirror.lastSyncedAt}`}</small> : null}</section>
+            <section><h3>{text.source}</h3><ul>{detail.folders.map((folder: FavoriteRepositoryFolder) => <li key={folder.id}>{folder.title} {accountMid ? <button type="button" onClick={() => void runDetailAction(async () => {
+              const api = window.bilimiDesktop as typeof window.bilimiDesktop & FavoriteLibraryDesktopExtensions
+              if (!api.openFavoriteLibrarySource) throw new Error(text.unavailable)
+              await api.openFavoriteLibrarySource(accountMid, folder.id)
+            })}>{text.openSource}</button> : null}</li>)}</ul></section>
+            <section><h3>{text.scan}</h3><p>{text.videoId}\uff1a{detail.aid}</p>{detailSnapshot?.video.bvid ? <p>BV 号：{detailSnapshot.video.bvid}</p> : null}{detailSnapshot?.video.durationSeconds ? <p>时长：{Math.floor(detailSnapshot.video.durationSeconds / 60)} 分 {detailSnapshot.video.durationSeconds % 60} 秒</p> : null}{detailSnapshot?.video.category ? <p>分区：{detailSnapshot.video.category}</p> : null}{detailSnapshot?.video.tags.length ? <p>标签：{detailSnapshot.video.tags.join('、')}</p> : null}<p>{text.transcriptionState}\uff1a{detailSnapshot?.transcription.status ?? (detail.pendingStates.includes('continuation') ? '\u7b49\u5f85\u5904\u7406' : '\u6682\u65e0\u8f6c\u5199\u4efb\u52a1')}</p></section>
+            <section><h3>{text.archive}</h3><p>{detailSnapshot?.archive.status ?? text.noArchive}</p>{detailSnapshot?.archive.versionCount ? <small>{`${detailSnapshot.archive.versionCount} 个版本`}</small> : null}{detailSnapshot?.archive.status === '已入档' && accountMid ? <><button type="button" onClick={() => void runDetailAction(async () => {
+              const api = window.bilimiDesktop as typeof window.bilimiDesktop & FavoriteLibraryDesktopExtensions
+              if (!api.toggleFavoriteLibraryArchiveStar) throw new Error(text.unavailable)
+              await api.toggleFavoriteLibraryArchiveStar(accountMid, detail.aid)
+            })}>{detailSnapshot.archive.starred ? text.unstar : text.star}</button><label>备注<textarea aria-label="档案备注" value={memoDraft} onChange={(event) => setMemoDraft(event.currentTarget.value)} /></label><button type="button" onClick={() => void runDetailAction(async () => {
+              const api = window.bilimiDesktop as typeof window.bilimiDesktop & FavoriteLibraryDesktopExtensions
+              if (!api.saveFavoriteLibraryArchiveMemo) throw new Error(text.unavailable)
+              await api.saveFavoriteLibraryArchiveMemo(accountMid, detail.aid, memoDraft)
+            })}>{text.saveMemo}</button></> : null}</section>
+            {accountMid ? <button type="button" className="favorite-library__open-video" onClick={() => void runDetailAction(async () => {
+              const api = window.bilimiDesktop as typeof window.bilimiDesktop & FavoriteLibraryDesktopExtensions
+              if (!api.openFavoriteLibraryVideo) throw new Error(text.unavailable)
+              await api.openFavoriteLibraryVideo(accountMid, detail.aid)
+            })}>{text.openVideo}</button> : null}
             {detail.pendingStates.length ? <p>{text.pendingStates}{detail.pendingStates.join('\u3001')}</p> : null}
           </aside>
         ) : null}

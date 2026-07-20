@@ -293,4 +293,39 @@ describe('registerFavoriteRepositoryIpc', () => {
     })).rejects.toThrow('untrusted renderer')
     expect(service.commit).not.toHaveBeenCalled()
   })
+
+  it('returns one account-scoped library detail with Chinese mirror, transcription, and archive summaries', async () => {
+    const ipcMain = new FakeIpcMain()
+    const service = {
+      getLibraryDetail: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 4,
+        video: { aid: 1, title: 'Alpha', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' },
+        folderIds: ['source'], pendingStates: [],
+        mirror: { status: '已同步', lastSyncedAt: '2026-07-20T00:00:00.000Z' }
+      })
+    }
+    registerFavoriteRepositoryIpc({
+      ipcMain, service: service as never, isTrustedSender: () => false, isTrustedReader: (id) => id === 8,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100'),
+      getArchiveSummary: vi.fn().mockReturnValue({
+        status: '已入档', versionCount: 2, starred: true, hasMemo: true, memoPreview: '稍后复习',
+        hasSummary: true, updatedAt: '2026-07-20T01:00:00.000Z'
+      }),
+      getTranscriptionSummary: vi.fn().mockReturnValue({ status: '转写完成' })
+    })
+
+    await expect(ipcMain.invoke('favorite-repository:get-library-video-detail', 8, '100', 1)).resolves.toEqual({
+      version: 1, accountMid: '100', revision: 4,
+      video: { aid: 1, title: 'Alpha', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' },
+      folderIds: ['source'], pendingStates: [],
+      mirror: { status: '已同步', lastSyncedAt: '2026-07-20T00:00:00.000Z' },
+      archive: {
+        status: '已入档', versionCount: 2, starred: true, hasMemo: true, memoPreview: '稍后复习',
+        hasSummary: true, updatedAt: '2026-07-20T01:00:00.000Z'
+      },
+      transcription: { status: '转写完成' }
+    })
+    await expect(ipcMain.invoke('favorite-repository:get-library-video-detail', 8, '101', 1))
+      .rejects.toThrow('current Bilibili account')
+  })
 })

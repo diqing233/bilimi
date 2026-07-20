@@ -246,6 +246,8 @@ export type VisualAutomationFallback = (
 ) => Promise<AssistantAutomationResult>
 
 export type VideoNoteSourceMetadata = {
+  /** Archive ownership. Entries created before this field stay unassigned and private to the archive library. */
+  accountMid?: string
   title: string
   author?: string
   description?: string
@@ -551,12 +553,16 @@ export type VideoAudioTranscriptionProgress = {
 }
 
 export type VideoAudioTranscriptionRequest = {
+  /** Library-originated requests are scoped to their Bilibili account. */
+  accountMid?: string
   url: string
   title: string
   author?: string
   bvid?: string
   aid?: number | string
   cid?: number | string
+  /** Immutable local metadata snapshot used when this item was enqueued. */
+  metadataRevision?: number
   summarizeWithDeepSeek?: boolean
 }
 

@@ -149,13 +149,13 @@ describe('FavoriteRepositoryService', () => {
       version: 1, accountMid: '100', revision: 1,
       items: [{
         video: { aid: 1, title: 'First', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' },
-        folderIds: [], pendingStates: []
+          folderIds: [], pendingStates: ['unsynced']
       }],
       nextCursor: '1'
     })
   })
 
-  it('shows local-only members as unsynced until a succeeded remote checkpoint confirms their bound target', async () => {
+  it('does not use an old remote checkpoint as a local mirror confirmation', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     await service.commit('100', {
@@ -179,6 +179,61 @@ describe('FavoriteRepositoryService', () => {
       id: 'run:append', commandId: 'run:append', runId: 'run', operationKey: 'append:1', status: 'succeeded',
       affectedAids: [1], targetFolderIds: ['remote-music'], updatedAt: '2026-07-20T00:00:00.000Z', attempt: 1
     })
+    await expect(service.getLibraryPage('100', { kind: 'pending' }, { limit: 10 })).resolves.toMatchObject({
+      items: [{ video: { aid: 1 }, pendingStates: ['unsynced'] }]
+    })
+  })
+
+  it('keeps the last successful mirror timestamp when a later local refresh fails', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    await service.commit('100', {
+      id: 'video', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Mirror', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'mirror-ok', accountMid: '100', issuedAt: '2026-07-20T01:00:00.000Z', type: 'record-library-mirror',
+      payload: { aid: 1, status: 'synced', metadataRevision: 1, lastSyncedAt: '2026-07-20T01:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'mirror-failed', accountMid: '100', issuedAt: '2026-07-20T02:00:00.000Z', type: 'record-library-mirror',
+      payload: { aid: 1, status: 'failed', metadataRevision: 1, lastSyncedAt: '2026-07-20T01:00:00.000Z', errorCode: 'network' }
+    })
+
+    await expect(service.getLibraryDetail('100', 1)).resolves.toMatchObject({
+      mirror: { status: '同步失败', lastSyncedAt: '2026-07-20T01:00:00.000Z' }
+    })
+  })
+
+  it('reports the local metadata mirror without reusing remote favorite sync records', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    await service.commit('100', {
+      id: 'video', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 7, title: '镜像视频', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'mirror', accountMid: '100', issuedAt: '2026-07-20T01:00:00.000Z', type: 'record-library-mirror',
+      payload: { aid: 7, status: 'synced', metadataRevision: 1, lastSyncedAt: '2026-07-20T01:00:00.000Z' }
+    })
+
+    await expect(service.getLibraryDetail('100', 7)).resolves.toMatchObject({
+      mirror: { status: '已同步', lastSyncedAt: '2026-07-20T01:00:00.000Z' }
+    })
+  })
+
+  it('uses the local mirror record, rather than old remote checkpoints, for the pending library page', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root })
+    await service.commit('100', {
+      id: 'video', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 8, title: '已镜像', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'mirror', accountMid: '100', issuedAt: '2026-07-20T01:00:00.000Z', type: 'record-library-mirror',
+      payload: { aid: 8, status: 'synced', metadataRevision: 1, lastSyncedAt: '2026-07-20T01:00:00.000Z' }
+    })
+
     await expect(service.getLibraryPage('100', { kind: 'pending' }, { limit: 10 })).resolves.toMatchObject({ items: [] })
   })
 

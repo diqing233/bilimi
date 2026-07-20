@@ -7,7 +7,7 @@ import type {
   FavoriteRepositoryPage,
   FavoriteRepositoryVideo
 } from '../../src/shared/favoriteRepository'
-import type { FavoriteRepositoryService } from './favoriteRepositoryService'
+import type { FavoriteRepositoryLibraryDetail, FavoriteRepositoryService } from './favoriteRepositoryService'
 
 type IpcEvent = {
   sender: {
@@ -67,6 +67,25 @@ export type FavoriteRepositoryLibraryRow = {
 
 export type FavoriteRepositoryLibraryPage = FavoriteRepositoryPage<FavoriteRepositoryLibraryRow>
 
+export type FavoriteLibraryArchiveSummary = {
+  status: '未入档' | '已入档'
+  versionCount: number
+  starred: boolean
+  hasMemo: boolean
+  memoPreview?: string
+  hasSummary: boolean
+  updatedAt?: string
+}
+
+export type FavoriteLibraryTranscriptionSummary = {
+  status: '未转写' | '等待转写' | '正在转写' | '转写完成' | '转写失败'
+}
+
+export type FavoriteRepositoryLibraryVideoDetail = FavoriteRepositoryLibraryDetail & {
+  archive: FavoriteLibraryArchiveSummary
+  transcription: FavoriteLibraryTranscriptionSummary
+}
+
 function normalizedAccountMid(value: unknown) {
   if (typeof value !== 'string') throw new Error('Favorite repository account is invalid.')
   const trimmed = value.trim()
@@ -96,6 +115,11 @@ function libraryPageScope(value: unknown): LibraryPageScope {
     return { kind: 'folder', folderId: candidate.folderId.trim() }
   }
   throw new Error('Favorite library page scope is invalid.')
+}
+
+function videoAid(value: unknown) {
+  if (!Number.isSafeInteger(value) || Number(value) <= 0) throw new Error('Favorite library video is invalid.')
+  return Number(value)
 }
 
 function commandForAccount(value: unknown, accountMid: string): FavoriteRepositoryCommand {
@@ -184,6 +208,8 @@ export function registerFavoriteRepositoryIpc(options: {
   isTrustedReader?: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
   send?: (senderId: number, channel: string, payload: FavoriteRepositoryRevisionChange) => void
+  getArchiveSummary?: (accountMid: string, aid: number) => FavoriteLibraryArchiveSummary
+  getTranscriptionSummary?: (accountMid: string, aid: number) => FavoriteLibraryTranscriptionSummary
 }) {
   const subscriptions = new Map<number, Map<string, Subscription>>()
   const assertTrusted = (event: IpcEvent) => {
@@ -281,6 +307,22 @@ export function registerFavoriteRepositoryIpc(options: {
     const accountMid = normalizedAccountMid(requestedAccountMid)
     await assertCurrentAccount(accountMid)
     return options.service.getLibraryPage(accountMid, libraryPageScope(requestedScope), pageOptions(requestedOptions))
+  })
+  options.ipcMain.handle('favorite-repository:get-library-video-detail', async (
+    event, requestedAccountMid: string, requestedAid: unknown
+  ) => {
+    assertReader(event)
+    const accountMid = normalizedAccountMid(requestedAccountMid)
+    await assertCurrentAccount(accountMid)
+    const detail = await options.service.getLibraryDetail(accountMid, videoAid(requestedAid))
+    if (!detail) throw new Error('所选视频暂时无法读取，请重新加载收藏库后重试。')
+    return {
+      ...detail,
+      archive: options.getArchiveSummary?.(accountMid, detail.video.aid) ?? {
+        status: '未入档', versionCount: 0, starred: false, hasMemo: false, hasSummary: false
+      },
+      transcription: options.getTranscriptionSummary?.(accountMid, detail.video.aid) ?? { status: '未转写' }
+    } satisfies FavoriteRepositoryLibraryVideoDetail
   })
   options.ipcMain.handle('favorite-repository:commit-command', async (
     event, requestedAccountMid: string, requestedCommand: FavoriteRepositoryCommand
