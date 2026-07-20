@@ -1034,6 +1034,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const { unmount } = render(<ControlledFavoriteLedgerPanel {...props} />)
 
     fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
+    expect(screen.getByRole('heading', { name: '专属 UP 追更' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '高频标签收藏夹' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '全选 专属 UP 追更' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '全选 高频标签收藏夹' })).not.toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'UP 阿婆主' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: '标签 科技' })).not.toBeChecked()
     expect(screen.getByText(/常看 UP/)).toBeInTheDocument()
