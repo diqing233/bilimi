@@ -11,7 +11,7 @@ type OldFavoriteGuideProps = {
   snapshot: OldFavoriteWorkspaceView | null
   loading: boolean
   scanStarting: boolean
-  scanStartFailed: boolean
+  scanStartFailure: string | null
   step: OldFavoriteGuideStep
   onStepChange: (step: OldFavoriteGuideStep) => void
   onRetryScan: () => void
@@ -43,7 +43,7 @@ export function OldFavoriteGuide({
   snapshot,
   loading,
   scanStarting,
-  scanStartFailed,
+  scanStartFailure,
   step,
   onStepChange,
   onRetryScan,
@@ -83,7 +83,7 @@ export function OldFavoriteGuide({
       snapshot={snapshot}
       loading={loading}
       scanStarting={scanStarting}
-      scanStartFailed={scanStartFailed}
+      scanStartFailure={scanStartFailure}
       onRetry={onRetryScan}
       onRebuild={onRebuildWorkspace}
       onSelectSourceFolders={onSelectSourceFolders}

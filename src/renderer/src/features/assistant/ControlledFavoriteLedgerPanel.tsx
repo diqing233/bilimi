@@ -43,7 +43,7 @@ export function ControlledFavoriteLedgerPanel({
   const [fullReorganizationConfirmOpen, setFullReorganizationConfirmOpen] = useState(false)
   const [fullReorganizationAccountMid, setFullReorganizationAccountMid] = useState<string | null>(null)
   const [scanStarting, setScanStarting] = useState(false)
-  const [scanStartFailed, setScanStartFailed] = useState(false)
+  const [scanStartFailure, setScanStartFailure] = useState<string | null>(null)
   const scanPresentationRequestVersion = useRef(0)
   const scanStartingRef = useRef(false)
   const activeAccountMid = useRef(currentAccountMid)
@@ -61,7 +61,7 @@ export function ControlledFavoriteLedgerPanel({
     setFullReorganizationConfirmOpen(false)
     setFullReorganizationAccountMid(null)
     setScanStarting(false)
-    setScanStartFailed(false)
+    setScanStartFailure(null)
   }, [currentAccountMid])
 
   useEffect(() => {
@@ -76,7 +76,7 @@ export function ControlledFavoriteLedgerPanel({
   }, [recovery, scanStarting, snapshot?.accountMid, snapshot?.status])
 
   const startScan = async (mode: 'incremental' | 'full') => {
-    if (scanStarting || workspace.loading) return
+    if (scanStarting) return
     if (mode === 'incremental' && snapshot && !recovery && snapshot.scan.phase !== 'failed' && snapshot.status !== 'completed') {
       setGuideOpen(true)
       setStep(snapshot.status === 'scanning' ? 'scan' : snapshot.status === 'previewing' ? 'preview' : 'confirm')
@@ -86,12 +86,16 @@ export function ControlledFavoriteLedgerPanel({
     const requestVersion = ++scanPresentationRequestVersion.current
     setGuideOpen(true)
     setStep('scan')
-    setScanStartFailed(false)
+    setScanStartFailure(null)
     scanStartingRef.current = true
     setScanStarting(true)
     try {
       if (!await workspace.startScan(mode) && scanPresentationRequestVersion.current === requestVersion && activeAccountMid.current === requestedAccountMid) {
-        setScanStartFailed(true)
+        setScanStartFailure(workspace.lastError ?? '扫描启动失败，请重新扫描。')
+      }
+    } catch (error) {
+      if (scanPresentationRequestVersion.current === requestVersion && activeAccountMid.current === requestedAccountMid) {
+        setScanStartFailure(error instanceof Error ? error.message : '扫描启动失败，请重新扫描。')
       }
     } finally {
       if (scanPresentationRequestVersion.current === requestVersion && activeAccountMid.current === requestedAccountMid) {
@@ -109,7 +113,7 @@ export function ControlledFavoriteLedgerPanel({
           <AssistantActionButton type="button" aria-label="备册" disabled={workspace.loading}
             onClick={() => void onEnsureLedgers()} icon={clickedPetUrl} iconAlt="小咪备册" badge="备"
             label="备册" description="一键生成 bilimi 收藏夹，用于归类收藏和整理" />
-          <AssistantActionButton type="button" aria-label="整理旧藏" disabled={workspace.loading || !currentAccountMid}
+          <AssistantActionButton type="button" aria-label="整理旧藏" disabled={scanStarting || !currentAccountMid}
             onClick={() => void startScan('incremental')} icon={hintPetUrl} iconAlt="小咪整理旧藏" badge="整"
             label="整理旧藏" description="扫描旧藏，确认后整理到 bilimi 收藏夹里" />
           <AssistantActionButton type="button" aria-label="收藏库"
@@ -149,7 +153,7 @@ export function ControlledFavoriteLedgerPanel({
         snapshot={snapshot}
         loading={workspace.loading}
         scanStarting={scanStarting}
-        scanStartFailed={scanStartFailed}
+        scanStartFailure={scanStartFailure}
         step={step}
         onStepChange={setStep}
         onRetryScan={() => void startScan('incremental')}

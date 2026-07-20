@@ -11,6 +11,7 @@ function normalizeAccountMid(value: string) {
 export function useOldFavoriteWorkspace(accountMid?: string) {
   const [snapshot, setSnapshot] = useState<WorkspaceView | null>(null)
   const [loading, setLoading] = useState(false)
+  const [lastError, setLastError] = useState<string | null>(null)
   const requestVersion = useRef(0)
 
   const refresh = useCallback(async (preserveSnapshot = false) => {
@@ -19,19 +20,22 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     if (!accountMid || !open) {
       setSnapshot(null)
       setLoading(false)
+      setLastError(null)
       return null
     }
 
     if (!preserveSnapshot) setSnapshot(null)
     setLoading(true)
+    setLastError(null)
     try {
       const next = await open(accountMid)
       const matchesRequestedAccount = normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
       if (!matchesRequestedAccount) return null
       if (requestVersion.current === version) setSnapshot(next)
       return next
-    } catch {
+    } catch (error) {
       if (requestVersion.current === version) setSnapshot(null)
+      if (requestVersion.current === version) setLastError(error instanceof Error ? error.message : '读取整理旧藏工作区失败。')
       return null
     } finally {
       if (requestVersion.current === version) setLoading(false)
@@ -44,14 +48,16 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     if (!accountMid || !command) return null
 
     setLoading(true)
+    setLastError(null)
     try {
       const next = await command(accountMid, { type: 'start-scan', mode })
       const matchesRequestedAccount = normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
       if (!matchesRequestedAccount) return null
       if (requestVersion.current === version) setSnapshot(next)
       return next
-    } catch {
-      return null
+    } catch (error) {
+      if (requestVersion.current === version) setLastError(error instanceof Error ? error.message : '启动整理旧藏扫描失败。')
+      throw error
     } finally {
       if (requestVersion.current === version) setLoading(false)
     }
@@ -154,7 +160,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [refresh, snapshot?.status])
 
   return {
-    snapshot, loading, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek,
+    snapshot, loading, lastError, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek,
     undoClassification, redoClassification, autoClassifyCurrentSegment, setRecommendedCandidates, createLocalLedgerAndReclassify, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, executeFrozenBilibiliPlan,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace,

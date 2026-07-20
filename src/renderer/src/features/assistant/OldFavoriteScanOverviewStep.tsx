@@ -4,7 +4,7 @@ type OldFavoriteScanOverviewStepProps = {
   snapshot: OldFavoriteWorkspaceView | null
   loading: boolean
   scanStarting: boolean
-  scanStartFailed: boolean
+  scanStartFailure: string | null
   onRetry: () => void
   onRebuild: () => void
   onSelectSourceFolders: (folderIds: string[]) => void
@@ -14,7 +14,7 @@ export function OldFavoriteScanOverviewStep({
   snapshot,
   loading,
   scanStarting,
-  scanStartFailed,
+  scanStartFailure,
   onRetry,
   onRebuild,
   onSelectSourceFolders
@@ -32,11 +32,11 @@ export function OldFavoriteScanOverviewStep({
   const selectedSourceIds = new Set(folders
     .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
     .map((folder) => folder.id))
-  const scanFailed = scanStartFailed || snapshot?.scan.phase === 'failed'
+  const scanFailed = Boolean(scanStartFailure) || snapshot?.scan.phase === 'failed'
   const scanning = scanStarting || snapshot?.status === 'scanning' || !snapshot
   const sourceSelectionLocked = Boolean(snapshot && !recovery && Object.keys(snapshot.classifications).length > 0)
-  const guidance = scanStartFailed
-    ? '扫描启动失败，请重新扫描。'
+  const guidance = scanStartFailure
+    ? `扫描启动失败：${scanStartFailure}`
     : snapshot?.scan.phase === 'failed'
       ? `扫描失败：${snapshot.scan.reason || '请重新扫描。'}`
       : scanning

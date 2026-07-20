@@ -147,6 +147,32 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'incremental' })
   })
 
+  it('starts scanning from the real organize entry while the initial workspace snapshot is still loading', async () => {
+    let resolveOpen: ((value: null) => void) | undefined
+    const open = vi.fn(() => new Promise<null>((resolve) => { resolveOpen = resolve }))
+    const scanning = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue(scanning)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'incremental' }))
+    expect(await screen.findByText('扫描概览：扫描中')).toBeInTheDocument()
+    await act(async () => { resolveOpen?.(null) })
+  })
+
   it('opens all four guide steps immediately and locks later steps while scanning', async () => {
     const scanningSnapshot = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
@@ -478,7 +504,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
   })
 
   it('shows a retryable scan-start failure when the controlled start command is rejected', async () => {
-    const command = vi.fn().mockRejectedValue(new Error('unavailable'))
+    const command = vi.fn().mockRejectedValue(new Error('current Bilibili account is unavailable'))
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
       commandOldFavoriteWorkspaceV1: command
@@ -492,6 +518,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('扫描启动失败')
+    expect(screen.getByRole('alert')).toHaveTextContent('current Bilibili account is unavailable')
     expect(screen.getByRole('button', { name: '重新扫描' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '归档预览' })).toBeDisabled()
