@@ -216,7 +216,7 @@ describe('App runtime integration', () => {
       .mockResolvedValueOnce('100')
       .mockResolvedValueOnce({
         status: 'ok', observedAccountMid: '100',
-        items: [{ aid: 1, title: 'Video', upperName: 'UP', cover: '', addedAt: 0 }], hasMore: false
+        items: [{ aid: 1, title: 'Video', upperName: 'UP', cover: '', addedAt: 0, tags: [], category: '' }], hasMore: false
       })
     Object.assign(webview, { getWebContentsId: () => 101, executeJavaScript })
     act(() => webview.dispatchEvent(new Event('did-start-navigation')))
