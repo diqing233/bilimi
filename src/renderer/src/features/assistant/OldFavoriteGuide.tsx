@@ -1,9 +1,9 @@
-import type { ReactNode } from 'react'
 import type { FavoriteLedger } from '@shared/types'
 import type { OldFavoriteWorkspaceView } from '@shared/oldFavoriteWorkspace'
 import { OldFavoriteScanOverviewStep } from './OldFavoriteScanOverviewStep'
 import { OldFavoriteRecommendationStep } from './OldFavoriteRecommendationStep'
 import { OldFavoriteArchivePreviewStep } from './OldFavoriteArchivePreviewStep'
+import { OldFavoriteConfirmationStep } from './OldFavoriteConfirmationStep'
 
 export type OldFavoriteGuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
 
@@ -26,7 +26,10 @@ type OldFavoriteGuideProps = {
   onUndoClassification: () => void
   onRedoClassification: () => void
   onApplyManualClassification: (aid: number, targetLedgerIds: string[]) => void
-  confirmStep?: ReactNode
+  onSaveLocally: () => void
+  onConfirmAndSync: () => void
+  onExecuteFrozenPlan: () => void
+  onReconcile: () => void
 }
 
 const steps: Array<{ id: OldFavoriteGuideStep; label: string }> = [
@@ -55,7 +58,10 @@ export function OldFavoriteGuide({
   onUndoClassification,
   onRedoClassification,
   onApplyManualClassification,
-  confirmStep
+  onSaveLocally,
+  onConfirmAndSync,
+  onExecuteFrozenPlan,
+  onReconcile
 }: OldFavoriteGuideProps) {
   const recovery = snapshot && 'recovery' in snapshot
   const canOpenStep = (next: OldFavoriteGuideStep) => {
@@ -99,6 +105,13 @@ export function OldFavoriteGuide({
       onRedo={onRedoClassification}
       onApplyManualClassification={onApplyManualClassification}
     /> : null}
-    {!recovery && step === 'confirm' ? confirmStep : null}
+    {!recovery && snapshot && step === 'confirm' ? <OldFavoriteConfirmationStep
+      snapshot={snapshot}
+      loading={loading}
+      onSaveLocally={onSaveLocally}
+      onConfirmAndSync={onConfirmAndSync}
+      onExecuteFrozenPlan={onExecuteFrozenPlan}
+      onReconcile={onReconcile}
+    /> : null}
   </section>
 }

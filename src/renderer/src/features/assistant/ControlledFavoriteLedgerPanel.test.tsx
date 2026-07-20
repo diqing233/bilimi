@@ -788,4 +788,127 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByRole('group', { name: '整理分段' })).not.toBeInTheDocument()
     expect(screen.getAllByText('未分类')).not.toHaveLength(0)
   })
+
+  it('uses the snapshot-wide readiness to block confirmation until every segment is classified', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 1, hasMultipleSegments: true,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [],
+      segments: [
+        { id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const },
+        { id: 'segment-2', index: 1, itemCount: 1, status: 'previewing' as const }
+      ],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: [] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'manual' as const } },
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      planReadiness: { selectedAidCount: 2, classifiedAidCount: 1, unclassifiedAidCount: 1 },
+      history: { cursor: 1, length: 1 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: vi.fn()
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
+
+    expect(screen.getByText('整体准备度：1 / 2 条已分类')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('还需完成 1 条（跨所有分段）')
+    expect(screen.getByRole('button', { name: '仅保存本轮到收藏库' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '确认并同步到 B 站' })).toBeDisabled()
+  })
+
+  it('renders execution states from snapshots and routes only their controlled actions', async () => {
+    const frozen = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'frozen' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+    }
+    const reconciling = { ...frozen, status: 'reconciling' as const }
+    const completed = { ...frozen, status: 'completed' as const, completionMode: 'bilibili' as const }
+    let persisted: typeof frozen | typeof reconciling | typeof completed = frozen
+    const command = vi.fn(async (_accountMid: string, input: { type: string }) => {
+      if (input.type === 'execute-frozen-bilibili-plan') persisted = { ...frozen, status: 'executing' as const } as never
+      if (input.type === 'reconcile-frozen-bilibili-plan') persisted = completed
+      return persisted
+    })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockImplementation(() => Promise.resolve(persisted)),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    const rendered = render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '继续同步到 B 站' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'execute-frozen-bilibili-plan' }))
+    expect(screen.getByRole('progressbar', { name: '正在同步到 B 站' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '继续同步到 B 站' })).not.toBeInTheDocument()
+
+    rendered.unmount()
+    persisted = reconciling
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '对账 B 站结果' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'reconcile-frozen-bilibili-plan' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('本轮已完成同步到 B 站')
+    expect(screen.queryByRole('button', { name: '确认并同步到 B 站' })).not.toBeInTheDocument()
+  })
+
+  it('does not submit the same Bilibili confirmation twice while the controlled command is pending', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [],
+      segments: [{ id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: [] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'manual' as const } },
+      recommendations: { candidates: [], adoptedCandidateIds: [] },
+      planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 },
+      history: { cursor: 1, length: 1 }
+    }
+    let resolveCommand: ((value: typeof preview) => void) | undefined
+    const command = vi.fn(() => new Promise<typeof preview>((resolve) => { resolveCommand = resolve }))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
+    const confirm = screen.getByRole('button', { name: '确认并同步到 B 站' })
+    fireEvent.click(confirm)
+    fireEvent.click(confirm)
+
+    expect(command).toHaveBeenCalledTimes(1)
+    await act(async () => { resolveCommand?.(preview) })
+  })
+
+  it('requires authoritative plan readiness instead of inferring readiness from a rendered segment', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [],
+      segments: [{ id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: [] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'manual' as const } },
+      recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 1, length: 1 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: vi.fn()
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
+
+    expect(screen.getByRole('button', { name: '确认并同步到 B 站' })).toBeDisabled()
+  })
 })

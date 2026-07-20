@@ -1,5 +1,5 @@
 import type { FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FavoriteLedgerOverview } from './FavoriteLedgerOverview'
 import { FavoriteLibraryEntry } from './FavoriteLibraryEntry'
 import { OldFavoriteGuide, type OldFavoriteGuideStep } from './OldFavoriteGuide'
@@ -43,13 +43,6 @@ export function ControlledFavoriteLedgerPanel({
     ? workspace.snapshot
     : null
   const recovery = snapshot && 'recovery' in snapshot ? snapshot : null
-  const previewItems = useMemo(() => snapshot?.currentSegment?.items ?? [], [snapshot])
-
-  const readiness = !recovery ? snapshot?.planReadiness : undefined
-  const canFreeze = readiness
-    ? readiness.selectedAidCount > 0 && readiness.unclassifiedAidCount === 0
-    : previewItems.length > 0 && previewItems.every((item) =>
-        (snapshot?.classifications[String(item.aid)]?.targetLedgerIds.length ?? 0) > 0)
   useEffect(() => {
     scanPresentationRequestVersion.current += 1
     scanStartingRef.current = false
@@ -145,17 +138,10 @@ export function ControlledFavoriteLedgerPanel({
         onUndoClassification={() => void workspace.undoClassification()}
         onRedoClassification={() => void workspace.redoClassification()}
         onApplyManualClassification={(aid, targetLedgerIds) => void workspace.applyManualClassifications([{ aid, targetLedgerIds }])}
-        confirmStep={!recovery && snapshot ? <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
-          <h4>确认执行</h4>
-          {snapshot.status === 'frozen' ? <button type="button" disabled={workspace.loading} onClick={() => void workspace.executeFrozenBilibiliPlan()}>继续同步到 B 站</button>
-            : snapshot.status === 'reconciling' ? <button type="button" disabled={workspace.loading} onClick={() => void workspace.reconcileFrozenBilibiliPlan()}>对账 B 站结果</button>
-              : snapshot.status === 'executing' ? <button type="button" disabled={workspace.loading} onClick={() => void workspace.reconcileFrozenBilibiliPlan()}>检查 B 站同步状态</button>
-                : snapshot.status === 'completed' ? <p role="status">{snapshot.completionMode === 'local' ? '本轮已保存到收藏库。' : '本轮已完成同步到 B 站。已提交的 B 站操作不会在此撤销。'}</p>
-                  : <><p>可直接同步到 B 站，或仅保存到本地收藏库；两种方式都会冻结当前分类结果。</p>
-                    {!canFreeze ? <p role="alert">{readiness?.unclassifiedAidCount ? `还需完成 ${readiness.unclassifiedAidCount} 条（跨所有分段）。` : '请先为当前分段的每条视频选择归类。'}</p> : null}
-                    <button type="button" disabled={!canFreeze || workspace.loading} onClick={() => void workspace.saveCurrentSegmentLocally()}>仅保存本轮到收藏库</button>
-                    <button type="button" disabled={!canFreeze || workspace.loading} onClick={() => void workspace.confirmAndExecuteBilibiliPlan()}>确认并同步到 B 站</button></>}
-        </section> : null}
+        onSaveLocally={() => void workspace.saveCurrentSegmentLocally()}
+        onConfirmAndSync={() => void workspace.confirmAndExecuteBilibiliPlan()}
+        onExecuteFrozenPlan={() => void workspace.executeFrozenBilibiliPlan()}
+        onReconcile={() => void workspace.reconcileFrozenBilibiliPlan()}
       /> : null}
     </section>
   )
