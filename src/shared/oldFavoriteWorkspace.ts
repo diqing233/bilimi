@@ -199,6 +199,10 @@ function isClassificationEqual(
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
+function classificationPriority(source: OldFavoriteWorkspaceClassificationSource) {
+  return { 'system-low': 0, 'system-high': 1, deepseek: 2, manual: 3 }[source]
+}
+
 function segmentForAid(workspace: OldFavoriteWorkspace, aid: number) {
   return workspace.segments.find((segment) => segment.aids.includes(aid))
 }
@@ -346,9 +350,17 @@ export function applyWorkspaceClassificationBatch(
     const segment = segmentForAid(workspace, assignment.aid)
     if (!segment) throw new Error('Old favorite workspace aid is not in the active plan.')
     if (segment.status === 'frozen') throw new Error('Old favorite workspace segment is frozen.')
+    const targetLedgerIds = normalizeLedgerIds(assignment.targetLedgerIds)
+    if (options.source === 'system-low' && targetLedgerIds.length > 1) {
+      throw new Error('Old favorite workspace low-confidence classification cannot target multiple ledgers.')
+    }
+    const existing = workspace.classifications[String(assignment.aid)]
+    if (existing && classificationPriority(existing.source) > classificationPriority(options.source)) {
+      continue
+    }
     assignments.set(assignment.aid, {
       aid: assignment.aid,
-      targetLedgerIds: normalizeLedgerIds(assignment.targetLedgerIds),
+      targetLedgerIds,
       source: options.source
     })
   }

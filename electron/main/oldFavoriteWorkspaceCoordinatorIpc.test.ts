@@ -150,6 +150,25 @@ describe('old favorite workspace coordinator IPC', () => {
     expect(coordinator.redoClassificationChange).toHaveBeenCalledWith('100')
   })
 
+  it('runs automatic classification only through a payload-free main-process command', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      autoClassifyCurrentSegment: vi.fn().mockResolvedValue({}),
+      getSnapshot: vi.fn().mockResolvedValue(snapshot)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'auto-classify-current-segment' }))
+      .resolves.toEqual(snapshot)
+    expect(coordinator.autoClassifyCurrentSegment).toHaveBeenCalledWith('100')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'auto-classify-current-segment', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })).rejects.toThrow('command is invalid')
+  })
+
   it('allows a controlled Bilibili freeze command without accepting renderer operations', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

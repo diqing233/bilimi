@@ -16,6 +16,7 @@ type WorkspaceCommand =
   | { type: 'select-segment'; segmentId: string }
   | { type: 'undo-classification' }
   | { type: 'redo-classification' }
+  | { type: 'auto-classify-current-segment' }
   | { type: 'apply-classifications'; source: 'manual'; assignments: Array<{ aid: number; targetLedgerIds: string[] }> }
   | { type: 'freeze-segment'; segmentId: string }
   | { type: 'save-current-segment-locally' }
@@ -59,6 +60,9 @@ function command(value: unknown): WorkspaceCommand {
   if ((candidate.type === 'undo-classification' || candidate.type === 'redo-classification') &&
     Object.keys(candidate).length === 1) {
     return { type: candidate.type }
+  }
+  if (candidate.type === 'auto-classify-current-segment' && Object.keys(candidate).length === 1) {
+    return { type: 'auto-classify-current-segment' }
   }
   if (candidate.type === 'freeze-segment' && typeof candidate.segmentId === 'string' && candidate.segmentId.trim()) {
     return { type: 'freeze-segment', segmentId: candidate.segmentId.trim() }
@@ -120,6 +124,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'select-segment') await options.coordinator.selectSegment(accountMid, requested.segmentId)
     if (requested.type === 'undo-classification') await options.coordinator.undoClassificationChange(accountMid)
     if (requested.type === 'redo-classification') await options.coordinator.redoClassificationChange(accountMid)
+    if (requested.type === 'auto-classify-current-segment') await options.coordinator.autoClassifyCurrentSegment(accountMid)
     if (requested.type === 'freeze-segment') await options.coordinator.freezeSegment(accountMid, requested.segmentId)
     if (requested.type === 'save-current-segment-locally') await options.coordinator.saveCurrentSegmentToLocalLibrary(accountMid)
     if (requested.type === 'freeze-bilibili-execution') await options.coordinator.freezeForBilibiliExecution(accountMid)

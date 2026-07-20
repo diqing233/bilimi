@@ -228,6 +228,29 @@ describe('FavoriteLedgerPanel', () => {
     expect(await screen.findByRole('combobox', { name: '归类 DeepSeek item' })).toHaveValue('music')
   })
 
+  it('asks the main process to automatically classify the current segment without sending item data', async () => {
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 },
+      sourceFolders: [{ id: 'source-a', title: 'Source A', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+      continuationCount: 0, segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1 }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Automatic item', sourceFolderIds: ['source-a'] }] },
+      classifications: {}, history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue(snapshot)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(snapshot), commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    renderPanel({ currentAccountMid: '100' })
+    await screen.findByRole('button', { name: '查看归档预览' })
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(await screen.findByRole('button', { name: '自动分类当前分段' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'auto-classify-current-segment' }))
+  })
+
   it('saves a fully classified controlled segment locally without starting Bilibili sync', async () => {
     const previewing = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,

@@ -46,6 +46,15 @@ type ScanOverview = {
   sourceFolders: Array<{ id: string; title: string; itemCount: number; isBilimiWorkFolder: boolean; selected?: boolean }>
   scan: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: OldFavoriteWorkspace['mode']; reason?: string }
 }
+type CurrentSegmentItem = {
+  aid: number
+  title?: string
+  author?: string
+  cover?: string
+  addedAt?: number
+  sourceFolderIds: string[]
+}
+type AutomaticClassification = { targetLedgerIds: string[]; confidence: 'high' | 'low' }
 
 export type { OldFavoriteWorkspaceRecoveryRequired, OldFavoriteWorkspaceSnapshot }
 
@@ -92,7 +101,7 @@ export class OldFavoriteWorkspaceCoordinator {
   private readonly workspaces = new Map<string, OldFavoriteWorkspace>()
   private readonly currentSegments = new Map<string, string>()
   private readonly segmentDescriptors = new Map<string, SegmentDescriptor[]>()
-  private readonly currentSegmentItems = new Map<string, Array<{ aid: number; title?: string; author?: string; cover?: string; addedAt?: number; sourceFolderIds: string[] }>>()
+  private readonly currentSegmentItems = new Map<string, CurrentSegmentItem[]>()
   private readonly frozenSegments = new Map<string, Set<string>>()
   private readonly scanOverviews = new Map<string, ScanOverview>()
   private readonly scanRuns = new Map<string, string>()
@@ -103,6 +112,7 @@ export class OldFavoriteWorkspaceCoordinator {
     workspaceStore: OldFavoriteWorkspaceStore
     bindingService?: Pick<FavoriteRepositoryBindingService, 'ensurePhysicalShard'>
     syncService?: Pick<FavoriteRepositorySyncService, 'executeFrozenPlan' | 'bindPageTarget' | 'reconcile' | 'resume' | 'getRun'>
+    classifyCurrentItem?: (item: CurrentSegmentItem) => AutomaticClassification | Promise<AutomaticClassification>
     now?: () => string
   }) {}
 
@@ -437,6 +447,50 @@ export class OldFavoriteWorkspaceCoordinator {
           type: 'classification', entry: clone(entry), historyCursor: updated.historyCursor
         })]
       })
+      this.workspaces.set(updated.accountMid, updated)
+      return clone(updated)
+    })
+  }
+
+  /** Classifies only the selected current segment; user and DeepSeek decisions remain authoritative. */
+  async autoClassifyCurrentSegment(accountMid: string): Promise<OldFavoriteWorkspace> {
+    return this.queue(async () => {
+      const classify = this.options.classifyCurrentItem
+      if (!classify) throw new Error('Old favorite workspace automatic classification is unavailable.')
+      const workspace = await this.requireWorkspace(accountMid)
+      const currentSegmentId = this.currentSegment(workspace)
+      const currentSegment = workspace.segments.find((segment) => segment.id === currentSegmentId)
+      if (!currentSegment) throw new Error('Old favorite workspace current segment is unavailable.')
+      const items = this.currentSegmentItems.get(workspace.accountMid) ?? await this.loadCurrentSegmentItems(workspace)
+      const eligibleAids = new Set((await this.selectedSourceAssignments(workspace, items)).map((item) => item.aid))
+      const proposed = await Promise.all(items
+        .filter((item) => currentSegment.aids.includes(item.aid) && eligibleAids.has(item.aid))
+        .filter((item) => {
+          const existing = workspace.classifications[String(item.aid)]
+          return existing?.source !== 'manual' && existing?.source !== 'deepseek'
+        })
+        .map(async (item) => ({ aid: item.aid, proposal: await classify(clone(item)) })))
+      let updated = workspace
+      for (const source of ['system-high', 'system-low'] as const) {
+        const assignments = proposed
+          .filter(({ proposal }) => proposal.confidence === (source === 'system-high' ? 'high' : 'low'))
+          .map(({ aid, proposal }) => ({ aid, targetLedgerIds: proposal.targetLedgerIds.slice(0, 1) }))
+          .filter((assignment) => assignment.targetLedgerIds.length > 0)
+        if (!assignments.length) continue
+        const next = applyWorkspaceClassificationBatch(updated, { source, assignments })
+        if (next === updated) continue
+        const entry = next.history[next.history.length - 1]
+        await this.options.workspaceStore.appendOverlay(updated.accountMid, updated.id, {
+          currentSegmentId,
+          classifications: entry.changes.flatMap((change) => change.after ? [{
+            aid: change.after.aid,
+            targetLedgerIds: [...change.after.targetLedgerIds],
+            source: change.after.source
+          }] : []),
+          history: [encodeJournalEvent({ type: 'classification', entry: clone(entry), historyCursor: next.historyCursor })]
+        })
+        updated = next
+      }
       this.workspaces.set(updated.accountMid, updated)
       return clone(updated)
     })

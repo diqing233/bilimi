@@ -117,6 +117,7 @@ import { assertDeepSeekRequestEnabled } from './deepseekFeatureAccess'
 import { resolveMediaToolPaths } from './mediaToolPaths'
 import { runStartupDiagnostics } from './startupDiagnostics'
 import { BILIMI_SESSION_PARTITION } from '../../src/shared/constants'
+import { classifyVideoContent } from '../../src/shared/recommendation/videoClassifier'
 import { createNotePosterText } from '../../src/shared/videoNoteArchive'
 import { configureAppIdentity, configureDevelopmentUserData } from './appIdentity'
 import { installSingleInstanceGuard } from './singleInstance'
@@ -1413,6 +1414,14 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     repository: favoriteRepositoryService,
     syncService: favoriteRepositorySyncService,
     bindingService: favoriteRepositoryBindingService,
+    classifyCurrentItem: (item) => {
+      const result = classifyVideoContent({ title: item.title, author: item.author }, loadAssistantPreferences(getDesktopStore()).favoriteLedgers)
+      if (result.ledgerId === 'inbox') return { targetLedgerIds: [], confidence: 'low' }
+      return {
+        targetLedgerIds: [result.ledgerId],
+        confidence: result.diagnostic?.confidence === 'high' ? 'high' : 'low'
+      }
+    },
     workspaceStore: new OldFavoriteWorkspaceStore({
       root: join(app.getPath('userData'), 'favorites', 'repository-v1')
     })

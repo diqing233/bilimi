@@ -284,6 +284,77 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })).resolves.toMatchObject({ classifications: { '1': { targetLedgerIds: ['music'] } } })
   })
 
+  it('automatically classifies only selected current-segment items without replacing manual decisions', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const classifyCurrentItem = vi.fn((item: { aid: number }) => item.aid === 1
+      ? { targetLedgerIds: ['knowledge'], confidence: 'high' as const }
+      : { targetLedgerIds: ['music'], confidence: 'low' as const })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      classifyCurrentItem,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [
+        { id: 'source-a', title: 'Source A', itemCount: 2, isBilimiWorkFolder: false },
+        { id: 'source-b', title: 'Source B', itemCount: 1, isBilimiWorkFolder: false }
+      ]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source-a', page: 1,
+      items: [{ aid: 1, title: 'Knowledge', sourceFolderIds: ['source-a'] }, { aid: 2, title: 'Music', sourceFolderIds: ['source-a'] }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source-b', page: 1,
+      items: [{ aid: 3, title: 'Excluded', sourceFolderIds: ['source-b'] }]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.selectSourceFolders('100', ['source-a'])
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 2, targetLedgerIds: ['manual-music'] }]
+    })
+
+    await coordinator.autoClassifyCurrentSegment('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: {
+        '1': { targetLedgerIds: ['knowledge'], source: 'system-high' },
+        '2': { targetLedgerIds: ['manual-music'], source: 'manual' }
+      },
+      history: { cursor: 2, length: 2 }
+    })
+    expect(classifyCurrentItem).toHaveBeenCalledTimes(1)
+    expect(classifyCurrentItem).toHaveBeenCalledWith(expect.objectContaining({ aid: 1 }))
+  })
+
+  it('records automatic low-confidence assignments as one-target system-low history', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      classifyCurrentItem: () => ({ targetLedgerIds: ['music', 'knowledge'], confidence: 'low' })
+    })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Low confidence', sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+
+    await coordinator.autoClassifyCurrentSegment('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: { '1': { targetLedgerIds: ['music'], source: 'system-low' } },
+      history: { cursor: 1, length: 1 }
+    })
+  })
+
   it('saves only selected-source classifications to the local library', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
