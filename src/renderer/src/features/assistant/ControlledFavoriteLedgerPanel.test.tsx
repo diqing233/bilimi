@@ -95,4 +95,72 @@ describe('ControlledFavoriteLedgerPanel', () => {
     }))
     expect(save).not.toHaveBeenCalled()
   })
+
+  it('routes the preview-stage recommendation, classification, and confirmation controls through controlled commands', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [
+        { id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true },
+        { id: 'bilimi-empty', title: 'Bilimi Inbox', itemCount: 0, isBilimiWorkFolder: true, selected: false }
+      ],
+      segments: [{ id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Alpha', author: 'UP', sourceFolderIds: ['source'] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'system-high' as const } },
+      recommendations: {
+        candidates: [{ id: 'custom-author-up', displayName: 'bilimi·UP', kind: 'author' as const, count: 1, reason: 'UP appeared.' }],
+        adoptedCandidateIds: []
+      },
+      planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 },
+      history: { cursor: 1, length: 1 }
+    }
+    const command = vi.fn(async (_accountMid: string, input: { type: string }) => input.type === 'confirm-and-execute-bilibili-plan'
+      ? { ...preview, status: 'executing' as const }
+      : preview)
+    const deepSeek = vi.fn().mockResolvedValue(preview)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command,
+      organizeOldFavoriteWorkspaceDeepSeekV1: deepSeek
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100"
+      ledgers={[
+        { id: 'music', displayName: 'bilimi·Music', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true },
+        { id: 'knowledge', displayName: 'bilimi·Knowledge', keywords: [], ruleType: 'keyword', enabled: true, priority: 1, isDefault: true }
+      ]}
+      missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()}
+      onSaveLedgers={vi.fn()}
+      deepSeekArchiveAvailable
+    />)
+
+    expect(await screen.findByText('扫描概览已完成，正在准备归档预览。')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'bilimi·UP' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'set-recommended-candidates', candidateIds: ['custom-author-up'] }))
+    fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: '自动分类' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'auto-classify-current-segment' }))
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    await waitFor(() => expect(deepSeek).toHaveBeenCalledWith('100'))
+    fireEvent.change(screen.getByRole('combobox', { name: '归类 Alpha' }), { target: { value: 'knowledge' } })
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'apply-classifications', source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['knowledge'] }]
+    }))
+    fireEvent.click(screen.getByRole('button', { name: '确认执行' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'confirm-and-execute-bilibili-plan'
+    }))
+    expect(command).toHaveBeenCalledWith('100', { type: 'set-recommended-candidates', candidateIds: ['custom-author-up'] })
+    expect(command).toHaveBeenCalledWith('100', { type: 'auto-classify-current-segment' })
+    expect(command).toHaveBeenCalledWith('100', {
+      type: 'apply-classifications', source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['knowledge'] }]
+    })
+    expect(deepSeek).toHaveBeenCalledWith('100')
+  })
 })
