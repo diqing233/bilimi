@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
 import { FavoriteLedgerOverview } from './FavoriteLedgerOverview'
 import { FavoriteLibraryEntry } from './FavoriteLibraryEntry'
+import { OldFavoriteGuide, type OldFavoriteGuideStep } from './OldFavoriteGuide'
 import { useOldFavoriteWorkspace } from './useOldFavoriteWorkspace'
 
 type ControlledFavoriteLedgerPanelProps = {
@@ -14,15 +15,6 @@ type ControlledFavoriteLedgerPanelProps = {
   onOpenFavoritePage?: () => Promise<unknown> | void
   deepSeekArchiveAvailable?: boolean
 }
-
-type GuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
-
-const steps: Array<{ id: GuideStep; label: string }> = [
-  { id: 'scan', label: '扫描概览' },
-  { id: 'generated', label: '推荐收藏夹' },
-  { id: 'preview', label: '归档预览' },
-  { id: 'confirm', label: '确认执行' }
-]
 
 const VIRTUAL_TRACK_THRESHOLD = 50
 
@@ -36,7 +28,7 @@ export function ControlledFavoriteLedgerPanel({
   deepSeekArchiveAvailable = false
 }: ControlledFavoriteLedgerPanelProps) {
   const workspace = useOldFavoriteWorkspace(currentAccountMid)
-  const [step, setStep] = useState<GuideStep>('scan')
+  const [step, setStep] = useState<OldFavoriteGuideStep>('scan')
   const [guideOpen, setGuideOpen] = useState(false)
   const [scanStarting, setScanStarting] = useState(false)
   const [scanStartFailed, setScanStartFailed] = useState(false)
@@ -58,19 +50,16 @@ export function ControlledFavoriteLedgerPanel({
     ? readiness.selectedAidCount > 0 && readiness.unclassifiedAidCount === 0
     : previewItems.length > 0 && previewItems.every((item) =>
         (snapshot?.classifications[String(item.aid)]?.targetLedgerIds.length ?? 0) > 0)
-  const canOpenStep = (next: GuideStep) => {
-    if (next === 'scan') return true
-    if (scanStarting) return false
-    if (next === 'generated' || next === 'preview') return snapshot?.status === 'previewing'
-    return Boolean(snapshot && ['previewing', 'frozen', 'executing', 'reconciling', 'completed'].includes(snapshot.status))
-  }
-
   useEffect(() => {
     scanPresentationRequestVersion.current += 1
     setStep('scan')
     setScanStarting(false)
     setScanStartFailed(false)
   }, [currentAccountMid])
+
+  useEffect(() => {
+    if (recovery || snapshot?.status === 'scanning') setGuideOpen(true)
+  }, [recovery, snapshot?.status])
 
   const startScan = async (mode: 'incremental' | 'full') => {
     if (scanStarting || workspace.loading) return
@@ -145,49 +134,17 @@ export function ControlledFavoriteLedgerPanel({
         <FavoriteLibraryEntry />
       </div>
 
-      {guideOpen ? <section className="favorite-ledger-panel__old-favorites-guide" aria-label="整理旧藏向导">
-        <div className="favorite-ledger-panel__guide-header">
-          <h3>整理旧藏</h3>
-          <nav className="favorite-ledger-panel__guide-steps" aria-label="整理旧藏步骤">
-            {steps.map((item) => <button key={item.id} type="button" aria-current={step === item.id ? 'step' : undefined}
-              disabled={!canOpenStep(item.id)} onClick={() => setStep(item.id)}>{item.label}</button>)}
-          </nav>
-        </div>
-
-        {recovery ? <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
-          <h4>扫描概览</h4><p>工作镜像损坏，已完成的收藏库结果不会丢失。</p>
-          <button type="button" disabled={workspace.loading} onClick={() => void workspace.rebuildCorruptWorkspace()}>重建工作镜像并重新扫描</button>
-        </section> : null}
-
-        {!recovery && step === 'scan' ? <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
-          <h4>扫描概览</h4>
-          <p className="favorite-ledger-panel__scan-guidance" role={scanStartFailed || snapshot?.scan.phase === 'failed' ? 'alert' : undefined}>{scanStartFailed
-            ? '扫描启动失败，请重新扫描。'
-            : snapshot?.scan.phase === 'failed'
-            ? `扫描失败：${snapshot.scan.reason || '请重新扫描。'}`
-            : scanStarting || snapshot?.status === 'scanning' || !snapshot ? '扫描概览：扫描中' : '扫描概览已完成，正在准备归档预览。'}</p>
-          <div className="favorite-ledger-panel__scan-progress" aria-label="旧藏扫描进度">
-            <progress aria-label="收藏夹概览进度" max={1} value={scanStartFailed || scanStarting || snapshot?.status === 'scanning' ? 0 : 1} />
-            <strong>{scanStartFailed || snapshot?.scan.phase === 'failed' ? '扫描失败' : scanStarting || snapshot?.status === 'scanning' ? '正在扫描' : '已完成'}</strong>
-          </div>
-          {scanStartFailed || snapshot?.scan.phase === 'failed' ? <button type="button" disabled={workspace.loading || scanStarting}
-            onClick={() => void startScan('incremental')}>重新扫描</button> : null}
-          <p>已发现 {snapshot?.sourceFolders.length ?? 0} 个收藏夹，当前扫描 {snapshot?.continuationCount ?? 0} 条待续新增。</p>
-          <ul className="favorite-ledger-panel__scan-folder-list" aria-label="扫描收藏夹列表">
-            {(snapshot?.sourceFolders ?? []).map((folder) => <li key={folder.id}><label>
-              <input type="checkbox" aria-label={`选择来源 ${folder.title}`} checked={Boolean(folder.selected)}
-                disabled={folder.isBilimiWorkFolder || workspace.loading} onChange={(event) => {
-                  const next = new Set(sourceIds)
-                  if (event.currentTarget.checked) next.add(folder.id); else next.delete(folder.id)
-                  void workspace.selectSourceFolders([...next])
-                }} />
-              {folder.title} · {folder.itemCount} 条{folder.isBilimiWorkFolder ? ' · Bilimi 工作夹' : ''}
-            </label></li>)}
-          </ul>
-          {snapshot?.status === 'previewing' ? <button type="button" onClick={() => setStep('preview')}>查看归档预览</button> : null}
-        </section> : null}
-
-        {!recovery && snapshot && step === 'generated' ? <section aria-label="专属收藏夹候选">
+      {guideOpen ? <OldFavoriteGuide
+        snapshot={snapshot}
+        loading={workspace.loading}
+        scanStarting={scanStarting}
+        scanStartFailed={scanStartFailed}
+        step={step}
+        onStepChange={setStep}
+        onRetryScan={() => void startScan('incremental')}
+        onRebuildWorkspace={() => void workspace.rebuildCorruptWorkspace()}
+        onSelectSourceFolders={(folderIds) => void workspace.selectSourceFolders(folderIds)}
+        generatedStep={!recovery && snapshot ? <section aria-label="专属收藏夹候选">
           <h4>推荐收藏夹</h4>
           {(snapshot.recommendations?.candidates ?? []).map((candidate) => {
             const adopted = snapshot.recommendations?.adoptedCandidateIds.includes(candidate.id) ?? false
@@ -200,7 +157,7 @@ export function ControlledFavoriteLedgerPanel({
           })}
         </section> : null}
 
-        {!recovery && snapshot && step === 'preview' ? <section className="favorite-ledger-panel__archive-preview" aria-label="归档预览">
+        previewStep={!recovery && snapshot ? <section className="favorite-ledger-panel__archive-preview" aria-label="归档预览">
           <h4>归档预览</h4><p>当前分段 {previewItems.length} 条；只加载并显示这一段。</p>
           {snapshot.segments.length > 1 ? <div aria-label="整理分段">{snapshot.segments.map((segment) =>
             <button key={segment.id} type="button" aria-pressed={snapshot.currentSegment?.id === segment.id}
@@ -217,7 +174,7 @@ export function ControlledFavoriteLedgerPanel({
             <ul aria-label="当前分段归档预览">{previewItems.map((item) => <li key={item.aid}>{renderPreviewItem(item)}</li>)}</ul>}
         </section> : null}
 
-        {!recovery && snapshot && step === 'confirm' ? <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
+        confirmStep={!recovery && snapshot ? <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
           <h4>确认执行</h4>
           {snapshot.status === 'frozen' ? <button type="button" disabled={workspace.loading} onClick={() => void workspace.executeFrozenBilibiliPlan()}>继续同步到 B 站</button>
             : snapshot.status === 'reconciling' ? <button type="button" disabled={workspace.loading} onClick={() => void workspace.reconcileFrozenBilibiliPlan()}>对账 B 站结果</button>
@@ -228,7 +185,7 @@ export function ControlledFavoriteLedgerPanel({
                     <button type="button" disabled={!canFreeze || workspace.loading} onClick={() => void workspace.saveCurrentSegmentLocally()}>仅保存本轮到收藏库</button>
                     <button type="button" disabled={!canFreeze || workspace.loading} onClick={() => void workspace.confirmAndExecuteBilibiliPlan()}>确认并同步到 B 站</button></>}
         </section> : null}
-      </section> : null}
+      /> : null}
     </section>
   )
 }

@@ -1,0 +1,72 @@
+import type { ReactNode } from 'react'
+import type { OldFavoriteWorkspaceView } from '@shared/oldFavoriteWorkspace'
+import { OldFavoriteScanOverviewStep } from './OldFavoriteScanOverviewStep'
+
+export type OldFavoriteGuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
+
+type OldFavoriteGuideProps = {
+  snapshot: OldFavoriteWorkspaceView | null
+  loading: boolean
+  scanStarting: boolean
+  scanStartFailed: boolean
+  step: OldFavoriteGuideStep
+  onStepChange: (step: OldFavoriteGuideStep) => void
+  onRetryScan: () => void
+  onRebuildWorkspace: () => void
+  onSelectSourceFolders: (folderIds: string[]) => void
+  generatedStep?: ReactNode
+  previewStep?: ReactNode
+  confirmStep?: ReactNode
+}
+
+const steps: Array<{ id: OldFavoriteGuideStep; label: string }> = [
+  { id: 'scan', label: '扫描概览' },
+  { id: 'generated', label: '推荐收藏夹' },
+  { id: 'preview', label: '归档预览' },
+  { id: 'confirm', label: '确认执行' }
+]
+
+export function OldFavoriteGuide({
+  snapshot,
+  loading,
+  scanStarting,
+  scanStartFailed,
+  step,
+  onStepChange,
+  onRetryScan,
+  onRebuildWorkspace,
+  onSelectSourceFolders,
+  generatedStep,
+  previewStep,
+  confirmStep
+}: OldFavoriteGuideProps) {
+  const recovery = snapshot && 'recovery' in snapshot
+  const canOpenStep = (next: OldFavoriteGuideStep) => {
+    if (next === 'scan') return true
+    if (scanStarting || recovery) return false
+    if (next === 'generated' || next === 'preview') return snapshot?.status === 'previewing'
+    return Boolean(snapshot && ['previewing', 'frozen', 'executing', 'reconciling', 'completed'].includes(snapshot.status))
+  }
+
+  return <section className="favorite-ledger-panel__old-favorites-guide" aria-label="整理旧藏向导">
+    <div className="favorite-ledger-panel__guide-header">
+      <h3>整理旧藏</h3>
+      <nav className="favorite-ledger-panel__guide-steps" aria-label="整理旧藏步骤">
+        {steps.map((item) => <button key={item.id} type="button" aria-current={step === item.id ? 'step' : undefined}
+          disabled={!canOpenStep(item.id)} onClick={() => onStepChange(item.id)}>{item.label}</button>)}
+      </nav>
+    </div>
+    {recovery || step === 'scan' ? <OldFavoriteScanOverviewStep
+      snapshot={snapshot}
+      loading={loading}
+      scanStarting={scanStarting}
+      scanStartFailed={scanStartFailed}
+      onRetry={onRetryScan}
+      onRebuild={onRebuildWorkspace}
+      onSelectSourceFolders={onSelectSourceFolders}
+    /> : null}
+    {!recovery && step === 'generated' ? generatedStep : null}
+    {!recovery && step === 'preview' ? previewStep : null}
+    {!recovery && step === 'confirm' ? confirmStep : null}
+  </section>
+}

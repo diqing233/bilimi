@@ -194,6 +194,67 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByText('Bilimi Inbox · 0 条 · Bilimi 工作夹')).toBeInTheDocument()
   })
 
+  it('shows normal source selection but keeps Bilimi work folders read-only', async () => {
+    const scanning = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [
+        { id: 'source', title: 'My source', itemCount: 2, isBilimiWorkFolder: false, selected: true },
+        { id: 'bilimi', title: 'Bilimi Inbox', itemCount: 0, isBilimiWorkFolder: true, selected: false }
+      ],
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue(scanning)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(scanning),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择来源 My source' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'select-source-folders', folderIds: []
+    }))
+    expect(screen.getByText('Bilimi Inbox · 0 条 · Bilimi 工作夹')).toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: '选择来源 Bilimi Inbox' })).not.toBeInTheDocument()
+  })
+
+  it('rebuilds a corrupt workspace and restores the persisted snapshot after remount', async () => {
+    const recovery = {
+      recovery: 'rebuild-required' as const, preserveCompletedLocalResults: true as const,
+      accountMid: '100', workspaceId: 'workspace-100'
+    }
+    const scanning = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    const open = vi.fn().mockResolvedValueOnce(recovery).mockResolvedValueOnce(scanning)
+    const command = vi.fn().mockResolvedValue(scanning)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    const first = render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '重建工作镜像并重新扫描' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'rebuild-corrupt-workspace' }))
+    first.unmount()
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    expect(await screen.findByText('扫描概览：扫描中')).toBeInTheDocument()
+    expect(open).toHaveBeenCalledTimes(2)
+  })
+
   it('uses the controlled full-scan command only after the user explicitly requests full reorganization', async () => {
     const command = vi.fn().mockResolvedValue({
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
