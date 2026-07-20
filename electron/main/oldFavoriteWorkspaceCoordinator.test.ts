@@ -233,7 +233,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(repository.getSnapshot('100')).resolves.toMatchObject({ organizationRecords: [] })
   })
 
-  it('keeps prior protections when a full reorganization cannot start from an active preview', async () => {
+  it('replaces an editable preview with a full reorganization and clears prior protections', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -244,10 +244,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.open('100')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
 
-    await expect(coordinator.beginScan('100', 'full')).rejects.toThrow('scan is already active')
-    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
-      organizationRecords: [expect.objectContaining({ aid: 1 })]
+    await expect(coordinator.beginScan('100', 'full')).resolves.toMatchObject({
+      status: 'scanning', mode: 'full'
     })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({ organizationRecords: [] })
   })
 
   it('finalizes staged source pages into one deduplicated immutable baseline without treating unclassified managed aids as complete', async () => {

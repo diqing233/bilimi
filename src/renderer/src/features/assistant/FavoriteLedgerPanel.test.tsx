@@ -126,6 +126,37 @@ describe('FavoriteLedgerPanel', () => {
     expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'incremental' })
   })
 
+  it('starts a controlled full scan for an explicit all-favorites reorganization without legacy reset APIs', async () => {
+    const previewing = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2_000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, history: { cursor: 0, length: 0 },
+      recommendations: { candidates: [], adoptedCandidateIds: [] }
+    }
+    const command = vi.fn().mockResolvedValue({
+      ...previewing, status: 'scanning' as const, mode: 'full' as const,
+      scan: { phase: 'inventory' as const, failureCount: 0 }
+    })
+    const legacyReset = vi.fn()
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(previewing),
+      commandOldFavoriteWorkspaceV1: command,
+      resetOldFavoriteAccount: legacyReset
+    } as typeof window.bilimiDesktop
+
+    renderPanel({ currentAccountMid: '100' })
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(within(await screen.findByRole('dialog', { name: '整理旧藏' }))
+      .getByRole('button', { name: '全部重新整理' }))
+    fireEvent.click(within(screen.getByRole('alertdialog', { name: '确认全部重新整理？' }))
+      .getByRole('button', { name: '确认重置' }))
+
+    await waitFor(() => expect(command).toHaveBeenLastCalledWith('100', { type: 'start-scan', mode: 'full' }))
+    expect(legacyReset).not.toHaveBeenCalled()
+  })
+
   it('does not subscribe to the legacy runtime while the controlled workspace is available', async () => {
     const legacyRuntimeSubscription = vi.fn()
     const snapshot = {

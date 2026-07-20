@@ -206,8 +206,12 @@ export class OldFavoriteWorkspaceCoordinator {
     return this.queue(async () => {
       if (mode !== 'incremental' && mode !== 'full') throw new Error('Old favorite workspace mode is invalid.')
       let workspace = await this.requireWorkspace(accountMid)
-      if (workspace.status !== 'scanning' && workspace.status !== 'completed') {
+      const replaceEditablePreview = mode === 'full' && workspace.status === 'previewing'
+      if (workspace.status !== 'scanning' && workspace.status !== 'completed' && !replaceEditablePreview) {
         throw new Error('Old favorite workspace scan is already active.')
+      }
+      if (replaceEditablePreview || workspace.status === 'completed') {
+        workspace = await this.createScanningWorkspace(workspace.accountMid, mode)
       }
       if (mode === 'full') {
         await this.options.repository.commit(workspace.accountMid, {
@@ -217,9 +221,6 @@ export class OldFavoriteWorkspaceCoordinator {
           type: 'record-organization-protections',
           payload: { records: [], replace: true }
         })
-      }
-      if (workspace.status === 'completed') {
-        workspace = await this.createScanningWorkspace(workspace.accountMid, mode)
       }
       if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is already active.')
       const updated = { ...workspace, mode }

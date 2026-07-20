@@ -3814,6 +3814,10 @@ export function FavoriteLedgerPanel({
         setOldFavoriteExpandedStep('scan')
         return
       }
+      if (workspace && workspace.status !== 'scanning' && workspace.status !== 'completed') {
+        setOldFavoriteEntryOpen(true)
+        return
+      }
       await startOrganizingOldFavorites()
       return
     }
@@ -3936,6 +3940,12 @@ export function FavoriteLedgerPanel({
 
   function continueLastOldFavoriteOrganization() {
     setOldFavoriteEntryOpen(false)
+    if (useControlledOldFavoriteWorkspace) {
+      setOldFavoriteGuideMode('organize')
+      setOldFavoriteStep('scan')
+      setOldFavoriteExpandedStep('scan')
+      return
+    }
     const latest = unfinishedOldFavoriteBatches.at(-1)
     if (latest) selectOldFavoriteUserBatch(latest.id)
     else void startOrganizingOldFavorites()
@@ -3943,6 +3953,38 @@ export function FavoriteLedgerPanel({
 
   async function resetAllOldFavoriteOrganization() {
     if (oldFavoriteResetRequestRef.current) return oldFavoriteResetRequestRef.current
+    if (useControlledOldFavoriteWorkspace) {
+      const accountMid = currentAccountMid?.trim()
+      if (!accountMid) {
+        setStatus('无法确认当前 B 站账号，请重新登录后再整理。')
+        return
+      }
+      const request = (async () => {
+        setOldFavoriteResetConfirmOpen(false)
+        setOldFavoriteRecoveryResetConfirmOpen(false)
+        setOldFavoriteResetRunning(true)
+        setStatus('扫描概览：扫描中')
+        try {
+          const snapshot = await oldFavoriteWorkspace.startScan('full')
+          if (!snapshot) throw new Error('无法启动完整旧藏扫描。')
+          setOldFavoriteEntryOpen(false)
+          setOldFavoriteGuideMode('organize')
+          setOldFavoriteStep('scan')
+          setOldFavoriteExpandedStep('scan')
+        } catch (error) {
+          setStatus(`全部重新整理失败：${errorMessage(error)}`)
+        } finally {
+          setOldFavoriteResetRunning(false)
+        }
+      })()
+      oldFavoriteResetRequestRef.current = request
+      try {
+        await request
+      } finally {
+        oldFavoriteResetRequestRef.current = null
+      }
+      return
+    }
     const request = (async () => {
     const resetRecoverySnapshot = {
       preview,
