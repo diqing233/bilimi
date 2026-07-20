@@ -126,6 +126,26 @@ describe('FavoriteLedgerPanel', () => {
     expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'incremental' })
   })
 
+  it('does not subscribe to the legacy runtime while the controlled workspace is available', async () => {
+    const legacyRuntimeSubscription = vi.fn()
+    const snapshot = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(snapshot),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(snapshot),
+      onOldFavoriteRuntimeChanged: legacyRuntimeSubscription
+    } as typeof window.bilimiDesktop
+
+    renderPanel({ currentAccountMid: '100' })
+
+    await screen.findByRole('region', { name: '整理旧藏向导' })
+    expect(legacyRuntimeSubscription).not.toHaveBeenCalled()
+  })
+
   it('does not start the legacy scanner when the controlled IPC is unavailable without an emergency authorization', async () => {
     const onScanOldFavorites = vi.fn()
     window.bilimiDesktop = {

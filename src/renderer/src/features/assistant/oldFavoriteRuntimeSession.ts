@@ -80,6 +80,11 @@ function ensureBridgeSubscription(store: OldFavoriteRuntimeStore) {
     return
   }
 
+  // The retired runtime only exists while the main process enables its emergency scanner.
+  if (!window.bilimiDesktop?.scanOldFavorites) {
+    return
+  }
+
   const subscribe = window.bilimiDesktop?.onOldFavoriteRuntimeChanged
   if (!subscribe) {
     return

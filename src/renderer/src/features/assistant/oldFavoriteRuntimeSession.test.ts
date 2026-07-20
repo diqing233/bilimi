@@ -1,6 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 describe('oldFavoriteRuntimeSession', () => {
+  it('does not attach the retired runtime bridge without an emergency scanner capability', async () => {
+    const subscribe = vi.fn()
+    Object.defineProperty(window, 'bilimiDesktop', {
+      configurable: true,
+      value: { onOldFavoriteRuntimeChanged: subscribe }
+    })
+    const session = await import('./oldFavoriteRuntimeSession')
+    session.resetOldFavoriteRuntimeSession()
+
+    session.getOldFavoriteRuntimeValue('preview', null)
+
+    expect(subscribe).not.toHaveBeenCalled()
+  })
+
   it('keeps large workspace snapshots in renderer memory instead of synchronous main runtime IPC', async () => {
     const setMain = vi.fn()
     Object.defineProperty(window, 'bilimiDesktop', {
@@ -142,6 +156,7 @@ describe('oldFavoriteRuntimeSession', () => {
     Object.defineProperty(window, 'bilimiDesktop', {
       configurable: true,
       value: {
+        scanOldFavorites: vi.fn(),
         onOldFavoriteRuntimeChanged: vi.fn((callback) => {
           runtimeChanged = callback
           return vi.fn()
@@ -170,6 +185,7 @@ describe('oldFavoriteRuntimeSession', () => {
     Object.defineProperty(window, 'bilimiDesktop', {
       configurable: true,
       value: {
+        scanOldFavorites: vi.fn(),
         onOldFavoriteRuntimeChanged: vi.fn((callback) => {
           runtimeChanged = callback
           return vi.fn()
@@ -270,7 +286,7 @@ describe('oldFavoriteRuntimeSession', () => {
     const firstSubscribe = vi.fn().mockReturnValue(firstUnsubscribe)
     Object.defineProperty(window, 'bilimiDesktop', {
       configurable: true,
-      value: { onOldFavoriteRuntimeChanged: firstSubscribe }
+      value: { scanOldFavorites: vi.fn(), onOldFavoriteRuntimeChanged: firstSubscribe }
     })
     const session = await import('./oldFavoriteRuntimeSession')
     session.getOldFavoriteRuntimeValue('preview', null)
@@ -279,7 +295,7 @@ describe('oldFavoriteRuntimeSession', () => {
     const secondSubscribe = vi.fn().mockReturnValue(vi.fn())
     Object.defineProperty(window, 'bilimiDesktop', {
       configurable: true,
-      value: { onOldFavoriteRuntimeChanged: secondSubscribe }
+      value: { scanOldFavorites: vi.fn(), onOldFavoriteRuntimeChanged: secondSubscribe }
     })
     session.getOldFavoriteRuntimeValue('preview', null)
 
