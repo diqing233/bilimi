@@ -27,11 +27,10 @@ export function FavoriteLedgerOverview({
     setNewLedgerName('')
   }
 
-  return <section className="favorite-ledger-panel__ledger-list" aria-label="收藏夹管理">
+  return <section className="favorite-ledger-panel__ledger-list" aria-label="收藏夹">
     <div className="favorite-ledger-panel__workspace">
       <div className="favorite-ledger-panel__editor-title">
-        <div><h3>收藏夹管理</h3><p>管理本地收藏夹规则，并在整理完成后保存。</p></div>
-        <button type="button" aria-label="备册" onClick={() => void onEnsureLedgers()}>备册</button>
+        <div><h3>收藏夹</h3><p>管理本地收藏夹规则，并在整理完成后保存。</p></div>
       </div>
       {missingLedgerIds.length > 0 ? <p className="favorite-ledger-panel__notice" role="alert">部分 Bilimi 收藏夹尚未备册。</p> : null}
       <div className="favorite-ledger-panel__editor">

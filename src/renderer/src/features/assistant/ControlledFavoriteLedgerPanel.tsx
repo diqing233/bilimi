@@ -1,8 +1,12 @@
 import type { FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
 import { useEffect, useRef, useState } from 'react'
+import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
+import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
+import { AssistantActionButton } from './AssistantActionButton'
 import { FavoriteLedgerOverview } from './FavoriteLedgerOverview'
 import { FavoriteLibraryEntry } from './FavoriteLibraryEntry'
 import { OldFavoriteGuide, type OldFavoriteGuideStep } from './OldFavoriteGuide'
+import { OldFavoriteModal } from './OldFavoriteModal'
 import { useOldFavoriteWorkspace } from './useOldFavoriteWorkspace'
 
 type ControlledFavoriteLedgerPanelProps = {
@@ -20,6 +24,10 @@ function normalizeAccountMid(value: string | undefined) {
   return BigInt(value.trim()).toString()
 }
 
+export function canConfirmFullReorganization(openedForAccountMid: string | null, currentAccountMid: string | undefined) {
+  return openedForAccountMid !== null && openedForAccountMid === normalizeAccountMid(currentAccountMid)
+}
+
 export function ControlledFavoriteLedgerPanel({
   currentAccountMid,
   ledgers,
@@ -32,6 +40,8 @@ export function ControlledFavoriteLedgerPanel({
   const workspace = useOldFavoriteWorkspace(currentAccountMid)
   const [step, setStep] = useState<OldFavoriteGuideStep>('scan')
   const [guideOpen, setGuideOpen] = useState(false)
+  const [fullReorganizationConfirmOpen, setFullReorganizationConfirmOpen] = useState(false)
+  const [fullReorganizationAccountMid, setFullReorganizationAccountMid] = useState<string | null>(null)
   const [scanStarting, setScanStarting] = useState(false)
   const [scanStartFailed, setScanStartFailed] = useState(false)
   const scanPresentationRequestVersion = useRef(0)
@@ -48,6 +58,8 @@ export function ControlledFavoriteLedgerPanel({
     scanStartingRef.current = false
     setGuideOpen(false)
     setStep('scan')
+    setFullReorganizationConfirmOpen(false)
+    setFullReorganizationAccountMid(null)
     setScanStarting(false)
     setScanStartFailed(false)
   }, [currentAccountMid])
@@ -93,6 +105,17 @@ export function ControlledFavoriteLedgerPanel({
     <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
       <div className="favorite-ledger-panel__topbar">
         <div className="favorite-ledger-panel__header"><h2 className="sr-only">掌库</h2></div>
+        <div className="favorite-ledger-panel__toolbar">
+          <AssistantActionButton type="button" aria-label="备册" disabled={workspace.loading}
+            onClick={() => void onEnsureLedgers()} icon={clickedPetUrl} iconAlt="小咪备册" badge="备"
+            label="备册" description="一键生成 bilimi 收藏夹，用于归类收藏和整理" />
+          <AssistantActionButton type="button" aria-label="整理旧藏" disabled={workspace.loading || !currentAccountMid}
+            onClick={() => void startScan('incremental')} icon={hintPetUrl} iconAlt="小咪整理旧藏" badge="整"
+            label="整理旧藏" description="扫描旧藏，确认后整理到 bilimi 收藏夹里" />
+          <AssistantActionButton type="button" aria-label="收藏库"
+            onClick={() => void window.bilimiDesktop?.openFavoriteLibrary?.()} icon={clickedPetUrl} iconAlt="小咪收藏库" badge="库"
+            label="收藏库" description="在独立窗口浏览收藏库" />
+        </div>
       </div>
 
       <FavoriteLedgerOverview
@@ -103,20 +126,23 @@ export function ControlledFavoriteLedgerPanel({
         onOpenFavoritePage={onOpenFavoritePage}
         onCreateLocalLedger={workspace.createLocalLedgerAndReclassify}
       />
-      <div className="favorite-ledger-panel__toolbar">
-        <section className="favorite-ledger-panel__workspace" aria-label="整理旧藏">
-          <div className="favorite-ledger-panel__editor-title">
-            <div><h3>整理旧藏</h3><p>扫描历史收藏，并使用当前受控工作区完成归档。</p></div>
-            <div className="favorite-ledger-panel__category-actions">
-              <button type="button" aria-label="整理旧藏" disabled={workspace.loading || !currentAccountMid}
-                onClick={() => void startScan('incremental')}>整理旧藏</button>
-              <button type="button" aria-label="全部重新整理" disabled={workspace.loading || !currentAccountMid}
-                onClick={() => void startScan('full')}>全部重新整理</button>
-            </div>
-          </div>
-        </section>
-        <FavoriteLibraryEntry />
-      </div>
+      {guideOpen && snapshot && !recovery ? <div className="favorite-ledger-panel__guide-entry-actions">
+        <button type="button" onClick={() => {
+          setFullReorganizationAccountMid(normalizeAccountMid(currentAccountMid))
+          setFullReorganizationConfirmOpen(true)
+        }} disabled={workspace.loading}>全部重新整理</button>
+      </div> : null}
+
+      {fullReorganizationConfirmOpen ? <OldFavoriteModal title="确认全部重新整理？" danger confirmLabel="确认重置"
+        onCancel={() => { setFullReorganizationConfirmOpen(false); setFullReorganizationAccountMid(null) }}
+        onConfirm={() => {
+          const canConfirm = canConfirmFullReorganization(fullReorganizationAccountMid, currentAccountMid)
+          setFullReorganizationConfirmOpen(false)
+          setFullReorganizationAccountMid(null)
+          if (canConfirm) void startScan('full')
+        }}>
+        <p>这会解除既有保护并从头扫描；不会改写收藏库。</p>
+      </OldFavoriteModal> : null}
 
       {guideOpen ? <OldFavoriteGuide
         snapshot={snapshot}
