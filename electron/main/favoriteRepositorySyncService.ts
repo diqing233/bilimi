@@ -6,6 +6,7 @@ import {
   type FavoriteRepositoryWorkspace
 } from '../../src/shared/favoriteRepository'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
+import type { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 
 export type FrozenFavoriteSyncPlan = FavoriteRepositoryFrozenSyncPlan
 
@@ -107,6 +108,7 @@ export class FavoriteRepositorySyncService {
     now?: () => string
     sleep?: (milliseconds: number) => Promise<void>
     pacingMs?: number
+    remoteOperations?: FavoriteRepositoryRemoteOperationArbiter
   }) {}
 
   private pageBridge(accountMid: string, runId: string) {
@@ -124,7 +126,7 @@ export class FavoriteRepositorySyncService {
   async executeFrozenPlan(accountMid: string, frozenPlan: FrozenFavoriteSyncPlan): Promise<FavoriteRepositorySyncRun> {
     const account = normalizeAccountMid(accountMid)
     const plan = clonePlan(frozenPlan)
-    return this.withRunLock(account, plan.id, async () => {
+    return this.runRemote(account, async () => this.withRunLock(account, plan.id, async () => {
       if (plan.accountMid !== account) throw new Error('Favorite sync plan account mismatch.')
       const snapshot = await this.options.repository.getSnapshot(account)
       const workspace = snapshot.workspace
@@ -161,7 +163,7 @@ export class FavoriteRepositorySyncService {
       await this.bindPageTarget(account, plan.id)
       await this.writeWorkspace(account, withWorkspaceStatus(workspace, 'executing', plan), `freeze:${plan.id}`)
       return this.drive(account, plan)
-    })
+    }))
   }
 
   async getRun(accountMid: string, runId: string): Promise<FavoriteRepositorySyncRun> {
@@ -174,19 +176,19 @@ export class FavoriteRepositorySyncService {
 
   async resume(accountMid: string, runId: string): Promise<FavoriteRepositorySyncRun> {
     const account = normalizeAccountMid(accountMid)
-    return this.withRunLock(account, runId, async () => {
+    return this.runRemote(account, async () => this.withRunLock(account, runId, async () => {
       const { workspace } = await this.options.repository.getSnapshot(account)
       const plan = this.planForRun(workspace, runId, account)
       const run = this.summarize(plan, await this.options.repository.getSyncCheckpoints(account, runId))
       if (run.status === 'result-unknown' || run.status === 'failed' || run.status === 'succeeded') return run
       await this.writeWorkspace(account, withWorkspaceStatus(workspace!, 'executing', plan), `resume:${runId}`)
       return this.drive(account, plan)
-    })
+    }))
   }
 
   async reconcile(accountMid: string, runId: string): Promise<FavoriteRepositorySyncRun> {
     const account = normalizeAccountMid(accountMid)
-    return this.withRunLock(account, runId, async () => {
+    return this.runRemote(account, async () => this.withRunLock(account, runId, async () => {
       const { workspace } = await this.options.repository.getSnapshot(account)
       const plan = this.planForRun(workspace, runId, account)
       const records = this.recordsByOperation(plan, await this.options.repository.getSyncCheckpoints(account, runId))
@@ -265,7 +267,7 @@ export class FavoriteRepositorySyncService {
       if (status === 'completed') await this.recordOrganizationProtections(account, plan)
       await this.writeWorkspace(account, withWorkspaceStatus(workspace!, status, plan), `reconciled:${runId}`)
       return run
-    })
+    }))
   }
 
   private async drive(accountMid: string, plan: FavoriteRepositoryFrozenSyncPlan): Promise<FavoriteRepositorySyncRun> {
@@ -367,6 +369,7 @@ export class FavoriteRepositorySyncService {
       ...(reason ? { reason } : {}),
       runId: plan.id,
       operationKey: operation.operationKey,
+      targetFolderIds: [...operation.folderIds],
       attempt
     }
     await this.options.repository.recordSyncCheckpoint(
@@ -443,5 +446,9 @@ export class FavoriteRepositorySyncService {
       release?.()
       if (this.runTails.get(key) === tail) this.runTails.delete(key)
     }
+  }
+
+  private async runRemote<T>(accountMid: string, operation: () => Promise<T>) {
+    return this.options.remoteOperations?.run(accountMid, operation) ?? operation()
   }
 }

@@ -46,6 +46,7 @@ import type {
   FavoriteRepositoryRevisionChange,
   FavoriteRepositorySnapshotSummary
 } from '../../../electron/main/favoriteRepositoryIpc'
+import type { FavoriteLibraryCommandResult, FavoriteLibrarySyncSelection } from '../../../electron/main/favoriteLibraryCommands'
 import type { OldFavoriteWorkspaceView } from '../../shared/oldFavoriteWorkspace'
 
 type BilimiDesktopApi = {
@@ -112,6 +113,15 @@ type BilimiDesktopApi = {
     scope: { kind: 'all' } | { kind: 'folder'; folderId: string } | { kind: 'pending' },
     options: { limit: number; cursor?: string }
   ) => Promise<import('../../../electron/main/favoriteRepositoryIpc').FavoriteRepositoryLibraryPage>
+  syncFavoriteLibrarySelection?: (accountMid: string, selection: FavoriteLibrarySyncSelection) => Promise<FavoriteLibraryCommandResult>
+  reconcileFavoriteLibrarySync?: (accountMid: string, runId: string) => Promise<FavoriteLibraryCommandResult>
+  retryFavoriteLibrarySync?: (accountMid: string, runId: string) => Promise<FavoriteLibraryCommandResult>
+  bindFavoriteLibrarySyncPage?: (accountMid: string, runId: string) => Promise<FavoriteLibraryCommandResult>
+  getPendingFavoriteLibrarySyncRuns?: (accountMid: string) => Promise<FavoriteLibraryCommandResult[]>
+  enqueueFavoriteLibraryTranscription?: (
+    accountMid: string,
+    input: { aids: number[]; summarizeWithDeepSeek?: boolean }
+  ) => Promise<FavoriteLibraryCommandResult>
   commitFavoriteRepositoryCommand?: (
     accountMid: string,
     command: FavoriteRepositoryCommand

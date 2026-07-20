@@ -36,7 +36,16 @@ const text = {
   hideDetail: '\u6536\u8d77\u8be6\u60c5',
   noDescription: '\u6682\u65e0\u7b80\u4ecb\u3002',
   membershipsHeading: '\u5f52\u5c5e',
-  pendingStates: '\u5f85\u5904\u7406\uff1a'
+  pendingStates: '\u5f85\u5904\u7406\uff1a',
+  select: 'Select',
+  selected: 'selected',
+  syncSelected: 'Sync selected',
+  syncFolder: 'Sync folder',
+  reconcile: 'Reconcile',
+  retry: 'Retry',
+  bind: 'Bind Bilibili page',
+  transcription: 'Queue transcription',
+  actionFailed: '\u6536\u85cf\u5e93\u64cd\u4f5c\u5931\u8d25\u3002'
 } as const
 
 function pageRows(page: FavoriteRepositoryLibraryPage): FavoriteLibraryRow[] {
@@ -44,8 +53,8 @@ function pageRows(page: FavoriteRepositoryLibraryPage): FavoriteLibraryRow[] {
 }
 
 function pendingCount(summary: FavoriteRepositorySnapshotSummary) {
-  return summary.syncCounts.pending + summary.syncCounts.failed + summary.syncCounts['result-unknown'] +
-    (summary.workspace?.continuationCount ?? 0)
+  return summary.pendingAidCount ?? (summary.syncCounts.pending + summary.syncCounts.failed + summary.syncCounts['result-unknown'] +
+    (summary.workspace?.continuationCount ?? 0))
 }
 
 function scopeForNavigation(id: string): LibraryScope {
@@ -63,6 +72,10 @@ export function FavoriteLibraryApp() {
   const [selected, setSelected] = useState<FavoriteLibraryRow>()
   const [detailOpen, setDetailOpen] = useState(true)
   const [error, setError] = useState<string>()
+  const [selectedAids, setSelectedAids] = useState<number[]>([])
+  const [lastSyncRun, setLastSyncRun] = useState<{ id: string; status: string }>()
+  const [pendingSyncRuns, setPendingSyncRuns] = useState<Array<{ id: string; status: string }>>([])
+  const [boundRunId, setBoundRunId] = useState<string>()
   const requestIdRef = useRef(0)
 
   const scope = useMemo(() => scopeForNavigation(scopeId), [scopeId])
@@ -93,6 +106,9 @@ export function FavoriteLibraryApp() {
         setSummary(undefined)
         setPage(undefined)
         setSelected(undefined)
+        setSelectedAids([])
+        setBoundRunId(undefined)
+        setPendingSyncRuns([])
         setError(text.signIn)
         return
       }
@@ -102,11 +118,18 @@ export function FavoriteLibraryApp() {
         setAccountMid(mid)
         setSummary(undefined)
         setPage(undefined)
-        setSelected(undefined)
+      setSelected(undefined)
+      setSelectedAids([])
+      setBoundRunId(undefined)
       }
       const nextSummary = await api.openFavoriteRepositoryAccount(mid)
       if (refreshId !== requestIdRef.current) return
       setSummary(nextSummary)
+      const pendingRuns = await api.getPendingFavoriteLibrarySyncRuns?.(mid)
+      if (refreshId !== requestIdRef.current) return
+      const runs = (pendingRuns ?? []).flatMap((run) => run.runId ? [{ id: run.runId, status: run.status }] : [])
+      setPendingSyncRuns(runs)
+      setLastSyncRun((current) => current && runs.some((run) => run.id === current.id) ? current : runs[0])
       await load(mid, mid === expectedAccountMid ? scopeRef.current : { kind: 'all' })
     } catch (reason) {
       if (refreshId === requestIdRef.current) setError(reason instanceof Error ? reason.message : text.cannotRead)
@@ -139,6 +162,21 @@ export function FavoriteLibraryApp() {
     states: [...activeRow.pendingStates]
   }) : undefined
   const navigation = summary ? buildFavoriteLibraryNavigation(folders, pendingCount(summary)) : []
+  const toggleAid = (aid: number) => setSelectedAids((current) => current.includes(aid)
+    ? current.filter((candidate) => candidate !== aid)
+    : [...current, aid].sort((left, right) => left - right))
+  const runAction = async (action: () => Promise<{ runId?: string; status: string }>) => {
+    try {
+      setError(undefined)
+      const result = await action()
+      if (result.runId) setLastSyncRun({ id: result.runId, status: result.status })
+      if (accountMid) await refresh(accountMid)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : text.actionFailed)
+    }
+  }
+  const currentFolderId = scope.kind === 'folder' ? scope.folderId : undefined
+  const syncCurrentFolder = currentFolderId && folders.find((folder) => folder.id === currentFolderId)?.kind !== 'bilibili'
 
   return (
     <main className="favorite-library" aria-label={text.library}>
@@ -164,14 +202,61 @@ export function FavoriteLibraryApp() {
           ))}
         </nav>
         <section className="favorite-library__results" aria-label={text.results}>
+          <div className="favorite-library__actions">
+            <small>{selectedAids.length} {text.selected}</small>
+            <button type="button" disabled={!accountMid || !selectedAids.length} onClick={() => void runAction(async () => {
+              const api = window.bilimiDesktop
+              if (!api?.syncFavoriteLibrarySelection || !accountMid) throw new Error(text.unavailable)
+              return api.syncFavoriteLibrarySelection(accountMid, { kind: 'aids', aids: selectedAids })
+            })}>{text.syncSelected}</button>
+            {syncCurrentFolder ? <button type="button" disabled={!accountMid} onClick={() => void runAction(async () => {
+              const api = window.bilimiDesktop
+              if (!api?.syncFavoriteLibrarySelection || !accountMid || !currentFolderId) throw new Error(text.unavailable)
+              return api.syncFavoriteLibrarySelection(accountMid, { kind: 'folder', folderId: currentFolderId })
+            })}>{text.syncFolder}</button> : null}
+            <button type="button" disabled={!accountMid || !selectedAids.length} onClick={() => void runAction(async () => {
+              const api = window.bilimiDesktop
+              if (!api?.enqueueFavoriteLibraryTranscription || !accountMid) throw new Error(text.unavailable)
+              return api.enqueueFavoriteLibraryTranscription(accountMid, { aids: selectedAids })
+            })}>{text.transcription}</button>
+            {lastSyncRun?.status === 'result-unknown' ? <button type="button" disabled={!accountMid} onClick={() => void runAction(async () => {
+              if (boundRunId !== lastSyncRun.id) throw new Error(text.bind)
+              const api = window.bilimiDesktop
+              if (!api?.reconcileFavoriteLibrarySync || !accountMid) throw new Error(text.unavailable)
+              return api.reconcileFavoriteLibrarySync(accountMid, lastSyncRun.id)
+            })}>{text.reconcile}</button> : null}
+            {lastSyncRun && boundRunId !== lastSyncRun.id && (lastSyncRun.status === 'result-unknown' || lastSyncRun.status === 'failed' || lastSyncRun.status === 'ready-to-retry') ? <button type="button" disabled={!accountMid} onClick={() => void (async () => {
+              try {
+                const api = window.bilimiDesktop
+                if (!api?.bindFavoriteLibrarySyncPage || !accountMid) throw new Error(text.unavailable)
+                await api.bindFavoriteLibrarySyncPage(accountMid, lastSyncRun.id)
+                setBoundRunId(lastSyncRun.id)
+                setError(undefined)
+              } catch (reason) {
+                setError(reason instanceof Error ? reason.message : text.actionFailed)
+              }
+            })()}>{text.bind}</button> : null}
+            {lastSyncRun?.status === 'failed' || lastSyncRun?.status === 'ready-to-retry' ? <button type="button" disabled={!accountMid} onClick={() => void runAction(async () => {
+              if (boundRunId !== lastSyncRun.id) throw new Error(text.bind)
+              const api = window.bilimiDesktop
+              if (!api?.retryFavoriteLibrarySync || !accountMid) throw new Error(text.unavailable)
+              return api.retryFavoriteLibrarySync(accountMid, lastSyncRun.id)
+            })}>{text.retry}</button> : null}
+            {pendingSyncRuns.length > 1 ? <span className="favorite-library__runs" aria-label="Pending sync runs">{pendingSyncRuns.map((run) => (
+              <button key={run.id} type="button" aria-pressed={lastSyncRun?.id === run.id} onClick={() => setLastSyncRun(run)}>{run.id}</button>
+            ))}</span> : null}
+          </div>
           <VirtualFavoriteLibraryList
             ariaLabel={text.videoList}
             items={rows}
             className="favorite-library__list"
             renderItem={(row) => (
-              <button type="button" className="favorite-library__row" onClick={() => { setSelected(row); setDetailOpen(true) }}>
-                <strong>{row.title}</strong><small>{row.author ?? text.unknownAuthor} - {row.folderIds.length} {text.memberships}</small>
-              </button>
+              <div className="favorite-library__row-wrap">
+                <input type="checkbox" aria-label={`${text.select} ${row.title}`} checked={selectedAids.includes(row.aid)} onChange={() => toggleAid(row.aid)} />
+                <button type="button" className="favorite-library__row" onClick={() => { setSelected(row); setDetailOpen(true) }}>
+                  <strong>{row.title}</strong><small>{row.author ?? text.unknownAuthor} - {row.folderIds.length} {text.memberships}</small>
+                </button>
+              </div>
             )}
           />
           {page?.nextCursor ? (

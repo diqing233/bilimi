@@ -39,6 +39,7 @@ export type FavoriteRepositorySnapshotSummary = {
   physicalShardCount: number
   syncRecordCount: number
   syncCounts: Record<'pending' | 'succeeded' | 'failed' | 'result-unknown', number>
+  pendingAidCount: number
   workspace?: {
     id: string
     status: AccountFavoriteRepositorySnapshot['workspace']['status']
@@ -120,6 +121,12 @@ function createSummary(snapshot: AccountFavoriteRepositorySnapshot): FavoriteRep
     pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0
   }
   for (const record of snapshot.syncRecords) syncCounts[record.status]++
+  const pendingAids = new Set<number>(snapshot.workspace?.continuationAids ?? [])
+  for (const record of snapshot.syncRecords) {
+    if (record.status === 'pending' || record.status === 'failed' || record.status === 'result-unknown') {
+      for (const aid of record.affectedAids) pendingAids.add(aid)
+    }
+  }
   return {
     version: 1,
     accountMid: snapshot.accountMid,
@@ -131,6 +138,7 @@ function createSummary(snapshot: AccountFavoriteRepositorySnapshot): FavoriteRep
     physicalShardCount: snapshot.physicalShards.length,
     syncRecordCount: snapshot.syncRecords.length,
     syncCounts,
+    pendingAidCount: pendingAids.size,
     ...(snapshot.workspace ? {
       workspace: {
         id: snapshot.workspace.id,

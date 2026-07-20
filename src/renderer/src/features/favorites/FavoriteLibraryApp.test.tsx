@@ -86,6 +86,37 @@ describe('FavoriteLibraryApp', () => {
     expect(screen.queryByText('First page')).not.toBeInTheDocument()
   })
 
+  it('sends only selected aids or the current local folder to narrow library actions', async () => {
+    const syncFavoriteLibrarySelection = vi.fn().mockResolvedValue({ runId: 'library-1', status: 'succeeded' })
+    const enqueueFavoriteLibraryTranscription = vi.fn().mockResolvedValue({ status: 'queued' })
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 2, updatedAt: '2026-07-20T00:00:00.000Z', videoCount: 2, folderCount: 1,
+        folders: [{ id: 'local', title: text.localFolder, kind: 'local', syncState: 'local-only' }], physicalShardCount: 0, syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }, pendingAidCount: 0
+      }),
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 2,
+        items: [
+          { video: { aid: 1, title: 'One', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: ['local'], pendingStates: [] },
+          { video: { aid: 2, title: 'Two', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: ['local'], pendingStates: [] }
+        ]
+      }),
+      subscribeFavoriteRepository: vi.fn(() => () => undefined),
+      syncFavoriteLibrarySelection,
+      enqueueFavoriteLibraryTranscription
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+    await screen.findByText('One')
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select One' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Queue transcription' }))
+    await waitFor(() => expect(enqueueFavoriteLibraryTranscription).toHaveBeenCalledWith('100', { aids: [1] }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sync selected' }))
+    await waitFor(() => expect(syncFavoriteLibrarySelection).toHaveBeenCalledWith('100', { kind: 'aids', aids: [1] }))
+  })
+
   it('clears the prior account and rebinds when a repository revision observes an account switch', async () => {
     let notify: (() => void) | undefined
     const getPage = vi.fn(async (accountMid: string) => ({

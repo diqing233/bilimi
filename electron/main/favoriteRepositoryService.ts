@@ -127,6 +127,7 @@ export type FavoriteRepositoryLibrarySummary = {
   physicalShardCount: number
   syncRecordCount: number
   syncCounts: Record<'pending' | 'succeeded' | 'failed' | 'result-unknown', number>
+  pendingAidCount: number
   workspace?: {
     id: string
     status: NonNullable<AccountFavoriteRepositorySnapshot['workspace']>['status']
@@ -192,6 +193,7 @@ export class FavoriteRepositoryService {
       pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0
     }
     for (const record of snapshot.syncRecords) syncCounts[record.status]++
+    const pendingAidCount = this.pendingStatesByAid(snapshot).size
     return {
       version: 1,
       accountMid: snapshot.accountMid,
@@ -203,6 +205,7 @@ export class FavoriteRepositoryService {
       physicalShardCount: snapshot.physicalShards.length,
       syncRecordCount: snapshot.syncRecords.length,
       syncCounts,
+      pendingAidCount,
       ...(snapshot.workspace ? {
         workspace: {
           id: snapshot.workspace.id,
@@ -397,6 +400,34 @@ export class FavoriteRepositoryService {
       statesByAid.set(aid, states)
     }
     for (const aid of snapshot.workspace?.continuationAids ?? []) addState(aid, 'continuation')
+    const boundRemoteFolderIdsByLedger = new Map<string, Set<string>>()
+    for (const shard of snapshot.physicalShards) {
+      if (shard.bindingState !== 'bound' || !shard.remoteFolderId) continue
+      const ids = boundRemoteFolderIdsByLedger.get(shard.logicalLedgerId) ?? new Set<string>()
+      ids.add(shard.remoteFolderId)
+      boundRemoteFolderIdsByLedger.set(shard.logicalLedgerId, ids)
+    }
+    const succeededRemoteTargetsByAid = new Map<number, Set<string>>()
+    const addSucceededTargets = (aid: number, targetFolderIds: readonly string[]) => {
+      const targets = succeededRemoteTargetsByAid.get(aid) ?? new Set<string>()
+      for (const folderId of targetFolderIds) targets.add(folderId)
+      succeededRemoteTargetsByAid.set(aid, targets)
+    }
+    for (const record of snapshot.organizationRecords ?? []) addSucceededTargets(record.aid, record.targetFolderIds)
+    for (const record of snapshot.syncRecords) {
+      if (record.status === 'succeeded' && record.targetFolderIds?.length) addSucceededTargets(record.affectedAids[0], record.targetFolderIds)
+    }
+    for (const [folderId, aids] of Object.entries(snapshot.memberships)) {
+      const folder = snapshot.folders.find((candidate) => candidate.id === folderId)
+      const logicalLedgerId = folder?.kind === 'bilimi-logical' ? folder.logicalLedgerId :
+        folder?.kind === 'local' && folder.id.startsWith('local:') ? folder.id.slice('local:'.length) : undefined
+      if (!logicalLedgerId) continue
+      const remoteFolderIds = boundRemoteFolderIdsByLedger.get(logicalLedgerId) ?? new Set<string>()
+      for (const aid of aids) {
+        const succeeded = succeededRemoteTargetsByAid.get(aid) ?? new Set<string>()
+        if (![...remoteFolderIds].some((folderId) => succeeded.has(folderId))) addState(aid, 'unsynced')
+      }
+    }
     for (const record of snapshot.syncRecords) {
       const state = record.status === 'pending'
         ? 'unsynced'

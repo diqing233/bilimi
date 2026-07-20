@@ -155,6 +155,33 @@ describe('FavoriteRepositoryService', () => {
     })
   })
 
+  it('shows local-only members as unsynced until a succeeded remote checkpoint confirms their bound target', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'video', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: 'Local', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'members', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'commit-local-plan',
+      payload: { workspaceId: 'local-save', memberAidsByFolderId: { 'local:music': [1] },
+        folders: [{ id: 'local:music', title: 'Music', kind: 'local', syncState: 'local-only' }] }
+    })
+    await service.commit('100', {
+      id: 'binding', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'upsert-physical-shard-binding',
+      payload: { logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], remoteTitle: 'Music', bindingState: 'bound', remoteFolderId: 'remote-music' }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'pending' }, { limit: 10 })).resolves.toMatchObject({
+      items: [{ video: { aid: 1 }, pendingStates: ['unsynced'] }]
+    })
+    await service.recordSyncCheckpoint('100', 'succeeded', {
+      id: 'run:append', commandId: 'run:append', runId: 'run', operationKey: 'append:1', status: 'succeeded',
+      affectedAids: [1], targetFolderIds: ['remote-music'], updatedAt: '2026-07-20T00:00:00.000Z', attempt: 1
+    })
+    await expect(service.getLibraryPage('100', { kind: 'pending' }, { limit: 10 })).resolves.toMatchObject({ items: [] })
+  })
+
   it('reports a pending durable commit so the quit barrier can wait even when old favorite state is clean', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })

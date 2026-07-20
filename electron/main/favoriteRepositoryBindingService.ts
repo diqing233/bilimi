@@ -4,6 +4,7 @@ import { REMOTE_FAVORITE_FOLDER_LIMIT } from '../../src/shared/favoriteRepositor
 import type { AccountFavoriteRepositorySnapshot } from '../../src/shared/favoriteRepository'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import type { FavoriteRepositoryPageBridgeManager } from './favoriteRepositorySyncService'
+import type { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 
 export type FavoriteRepositoryRemoteFolderInventory = {
   id: string
@@ -130,6 +131,7 @@ export class FavoriteRepositoryBindingService {
     now?: () => string
     newBindingToken?: () => string
     pageBridgeManager?: FavoriteRepositoryPageBridgeManager
+    remoteOperations?: FavoriteRepositoryRemoteOperationArbiter
   }) {}
 
   async getBindings(accountMid: string): Promise<FavoriteRepositoryBindingSnapshot> {
@@ -176,6 +178,17 @@ export class FavoriteRepositoryBindingService {
     memberAids: number[]
   }) {
     const account = normalizedAccountMid(accountMid)
+    return this.options.remoteOperations?.run(account, () => this.ensurePhysicalShardUnsafe(account, input)) ??
+      this.ensurePhysicalShardUnsafe(account, input)
+  }
+
+  private async ensurePhysicalShardUnsafe(account: string, input: {
+    logicalLedgerId: string
+    logicalTitle: string
+    remoteDisplayTitle?: string
+    shardNumber: number
+    memberAids: number[]
+  }) {
     const pageBridgeManager = this.options.pageBridgeManager
     if (!pageBridgeManager) throw new Error('Favorite repository page bridge is unavailable.')
     const token = this.options.newBindingToken?.().trim() || randomUUID()

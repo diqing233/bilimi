@@ -92,7 +92,9 @@ import { FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
 import { FavoriteRepositoryBindingService } from './favoriteRepositoryBindingService'
 import { FavoriteRepositoryRuntimePageBridgeManager } from './favoriteRepositoryRuntimePageBridge'
 import { registerFavoriteRepositoryIpc } from './favoriteRepositoryIpc'
+import { FavoriteLibraryCommandService, registerFavoriteLibraryCommandsIpc } from './favoriteLibraryCommands'
 import { FavoriteLibraryWindowController, installFavoriteLibraryNavigationGuard } from './favoriteLibraryWindow'
+import { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 import { BilibiliSessionProxy } from './bilibiliSessionProxy'
 import {
   configureFloatingMenuWindow,
@@ -461,6 +463,8 @@ let favoriteRepositoryService: FavoriteRepositoryService | undefined
 let favoriteRepositorySyncService: FavoriteRepositorySyncService | undefined
 let favoriteRepositoryPageBridgeManager: FavoriteRepositoryRuntimePageBridgeManager | undefined
 let favoriteRepositoryBindingService: FavoriteRepositoryBindingService | undefined
+let favoriteLibraryCommandService: FavoriteLibraryCommandService | undefined
+const favoriteRepositoryRemoteOperations = new FavoriteRepositoryRemoteOperationArbiter()
 let oldFavoriteWorkspaceCoordinator: OldFavoriteWorkspaceCoordinator | undefined
 let oldFavoriteWorkspaceScanService: OldFavoriteWorkspaceScanService | undefined
 let oldFavoriteWorkspaceDeepSeekService: OldFavoriteWorkspaceDeepSeekService | undefined
@@ -1435,11 +1439,20 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
   )
   favoriteRepositorySyncService = new FavoriteRepositorySyncService({
     repository: favoriteRepositoryService,
-    pageBridgeManager: favoriteRepositoryPageBridgeManager
+    pageBridgeManager: favoriteRepositoryPageBridgeManager,
+    remoteOperations: favoriteRepositoryRemoteOperations
   })
   favoriteRepositoryBindingService = new FavoriteRepositoryBindingService({
     repository: favoriteRepositoryService,
-    pageBridgeManager: favoriteRepositoryPageBridgeManager
+    pageBridgeManager: favoriteRepositoryPageBridgeManager,
+    remoteOperations: favoriteRepositoryRemoteOperations
+  })
+  favoriteLibraryCommandService = new FavoriteLibraryCommandService({
+    repository: favoriteRepositoryService,
+    pageBridgeManager: favoriteRepositoryPageBridgeManager,
+    transcriptionQueue: getVideoTranscriptionQueue(),
+    root: join(app.getPath('userData'), 'favorites', 'repository-v1'),
+    remoteOperations: favoriteRepositoryRemoteOperations
   })
   oldFavoriteWorkspaceCoordinator = new OldFavoriteWorkspaceCoordinator({
     repository: favoriteRepositoryService,
@@ -1495,6 +1508,12 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
       const target = webContents.fromId(senderId)
       if (target && !target.isDestroyed()) target.send(channel, payload)
     }
+  })
+  registerFavoriteLibraryCommandsIpc({
+    ipcMain,
+    commands: favoriteLibraryCommandService,
+    isTrustedLibrarySender: isTrustedFavoriteLibraryReader,
+    getCurrentAccountMid: readCurrentBilibiliAccountMid
   })
   ipcMain.handle('favorite-library:open', (event) => {
     assertTrustedOldFavoriteAssistantSender(event)

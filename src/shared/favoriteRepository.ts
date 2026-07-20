@@ -85,6 +85,7 @@ export type FavoriteRepositorySyncRecord = {
   reason?: string
   runId?: string
   operationKey?: string
+  targetFolderIds?: string[]
   attempt?: number
 }
 
@@ -377,6 +378,8 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
         typeof payload.updatedAt !== 'string' || (payload.reason !== undefined && typeof payload.reason !== 'string') ||
         (payload.runId !== undefined && (typeof payload.runId !== 'string' || !payload.runId.trim())) ||
         (payload.operationKey !== undefined && (typeof payload.operationKey !== 'string' || !payload.operationKey.trim())) ||
+        (payload.targetFolderIds !== undefined && (!Array.isArray(payload.targetFolderIds) ||
+          payload.targetFolderIds.some((id) => typeof id !== 'string' || !id.trim()))) ||
         (payload.attempt !== undefined && (!Number.isSafeInteger(payload.attempt) || Number(payload.attempt) < 1))) invalidCommand()
       return
     case 'record-organization-protections':
