@@ -307,6 +307,9 @@ describe('DeepSeek main service', () => {
     expect(systemMessage).toContain('cannot directly edit keywords')
     expect(systemMessage).toContain('deepSeekConstraint')
     expect(systemMessage).toContain('must use it as folder-specific decision guidance')
+    expect(systemMessage).toContain('takes precedence over local keywords, automatic classifications, and existing targets')
+    expect(systemMessage).toContain('When a constraint applies, include that ledger in targetLedgerIds')
+    expect(systemMessage).toContain('If applicable constraints conflict, choose the best-supported ledger and explain the conflict in reason')
     expect(systemMessage).toContain('Return JSON only')
     expect(body.messages.find((message) => message.role === 'user')?.content).toContain(
       '只收真实出行经验，不收游戏攻略。'
@@ -562,6 +565,9 @@ describe('DeepSeek main service', () => {
     expect(systemMessage).toContain('unclassified')
     expect(systemMessage).toContain('choose the closest existing enabled ledger')
     expect(systemMessage).toContain('keywordSuggestions')
+    expect(systemMessage).toContain('takes precedence over local keywords, automatic classifications, and existing targets')
+    expect(systemMessage).toContain('When a constraint applies, include that ledger in targetLedgerIds')
+    expect(systemMessage).toContain('If applicable constraints conflict, choose the best-supported ledger and explain the conflict in reason')
     expect(systemMessage).toContain('JSON only')
     expect(systemMessage).toContain('keywordSuggestions are only pending suggestions')
   })
