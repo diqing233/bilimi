@@ -36,6 +36,35 @@ describe('FavoriteLibraryApp', () => {
     await waitFor(() => expect(openAccount).toHaveBeenCalledTimes(2))
   })
 
+  it('keeps the reload action available when a refresh fails after a library page was loaded', async () => {
+    let notifyRepositoryChange: (() => void) | undefined
+    const openAccount = vi.fn()
+      .mockResolvedValueOnce({
+        version: 1, accountMid: '100', revision: 1, updatedAt: '2026-07-20T00:00:00.000Z', videoCount: 1, folderCount: 0,
+        folders: [], physicalShardCount: 0, syncRecordCount: 0,
+        syncCounts: { pending: 0, succeeded: 0, failed: 0, 'result-unknown': 0 }
+      })
+      .mockRejectedValue(new Error('repository storage unavailable'))
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: openAccount,
+      getFavoriteRepositoryLibraryPage: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', revision: 1,
+        items: [{ video: { aid: 1, title: 'Existing page', tags: [], updatedAt: '2026-07-20T00:00:00.000Z' }, folderIds: [], pendingStates: [] }]
+      }),
+      subscribeFavoriteRepository: vi.fn((_accountMid, _folderId, callback) => {
+        notifyRepositoryChange = () => callback({})
+        return () => undefined
+      })
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+
+    expect(await screen.findByText('Existing page')).toBeInTheDocument()
+    await act(async () => { notifyRepositoryChange?.() })
+    expect(await screen.findByRole('button', { name: text.reload })).toBeInTheDocument()
+  })
+
   it('renders an explicit empty state after an account-scoped repository page returns zero items', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),

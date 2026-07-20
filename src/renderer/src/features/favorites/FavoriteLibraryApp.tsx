@@ -207,7 +207,7 @@ export function FavoriteLibraryApp() {
           ))}
         </nav>
         <section className="favorite-library__results" aria-label={text.results}>
-          {error && !page && accountMid ? <div className="favorite-library__unavailable" role="status">
+          {error && accountMid ? <div className="favorite-library__unavailable" role="status">
             <strong>{text.unavailableState}</strong>
             <button type="button" onClick={() => void refresh(accountMid)}>{text.reload}</button>
           </div> : null}
