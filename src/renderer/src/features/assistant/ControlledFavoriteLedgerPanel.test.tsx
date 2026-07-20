@@ -1043,8 +1043,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const command = vi.fn(async (_accountMid: string, input: { type: string }) => input.type === 'confirm-and-execute-bilibili-plan'
       ? { ...preview, status: 'executing' as const }
       : preview)
-    let resolveDeepSeek: ((value: { snapshot: typeof preview; progress: { totalChunks: number; completedChunks: number; successfulVideoCount: number; failedVideoCount: number }; failures: [] }) => void) | undefined
-    const deepSeek = vi.fn(() => new Promise<{ snapshot: typeof preview; progress: { totalChunks: number; completedChunks: number; successfulVideoCount: number; failedVideoCount: number }; failures: [] }>((resolve) => { resolveDeepSeek = resolve }))
+    let resolveDeepSeek: ((value: { snapshot: typeof preview; referencedConstraintLedgerNames: string[]; progress: { totalChunks: number; completedChunks: number; successfulVideoCount: number; failedVideoCount: number }; failures: [] }) => void) | undefined
+    const deepSeek = vi.fn(() => new Promise<{ snapshot: typeof preview; referencedConstraintLedgerNames: string[]; progress: { totalChunks: number; completedChunks: number; successfulVideoCount: number; failedVideoCount: number }; failures: [] }>((resolve) => { resolveDeepSeek = resolve }))
     window.bilimiDesktop = {
       openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
       commandOldFavoriteWorkspaceV1: command,
@@ -1073,8 +1073,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
     await waitFor(() => expect(deepSeek).toHaveBeenCalledWith('100', 'unclassified-only'))
     expect(screen.getByRole('status')).toHaveTextContent('DeepSeek 正在整理当前分段…')
-    resolveDeepSeek?.({ snapshot: preview, progress: { totalChunks: 1, completedChunks: 1, successfulVideoCount: 1, failedVideoCount: 0 }, failures: [] })
-    await screen.findByText('DeepSeek 整理完成，已更新当前分段。')
+    resolveDeepSeek?.({ snapshot: preview, referencedConstraintLedgerNames: ['bilimi·动画'], progress: { totalChunks: 1, completedChunks: 1, successfulVideoCount: 1, failedVideoCount: 0 }, failures: [] })
+    await screen.findByText('DeepSeek 整理完成，已更新当前分段。本次整理参考了 DeepSeek 约束收藏夹：bilimi·动画。')
     deepSeek.mockRejectedValueOnce(new Error('DeepSeek 服务暂时不可用'))
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
     await screen.findByRole('alert')

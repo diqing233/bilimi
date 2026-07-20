@@ -189,9 +189,13 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       if (normalizeAccountMid(next.accountMid) !== normalizeAccountMid(accountMid)) return null
       if (requestVersion.current === version && accountGeneration.current === generation) setSnapshot(next)
       if (requestVersion.current === version && accountGeneration.current === generation) {
+        const referencedConstraintLedgerNames = result.referencedConstraintLedgerNames ?? []
+        const referencedConstraints = referencedConstraintLedgerNames.length
+          ? `本次整理参考了 DeepSeek 约束收藏夹：${referencedConstraintLedgerNames.join('、')}。`
+          : '本次整理未带入 DeepSeek 约束收藏夹。'
         setDeepSeekFeedback(result.failures.length
-          ? { status: 'failed', message: `DeepSeek 已处理 ${result.progress.successfulVideoCount} 条；${result.progress.failedVideoCount} 条未应用。`, progress: result.progress, failures: result.failures }
-          : { status: 'completed', message: 'DeepSeek 整理完成，已更新当前分段。', progress: result.progress, failures: [] })
+          ? { status: 'failed', message: `DeepSeek 已处理 ${result.progress.successfulVideoCount} 条；${result.progress.failedVideoCount} 条未应用。${referencedConstraints}`, progress: result.progress, failures: result.failures }
+          : { status: 'completed', message: `DeepSeek 整理完成，已更新当前分段。${referencedConstraints}`, progress: result.progress, failures: [] })
       }
       return next
     } catch (error) {

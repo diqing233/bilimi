@@ -56,7 +56,7 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
         deepseekArchiveOrganizationEnabled: true,
         favoriteArchiveMultiMode: 'off' as const,
         favoriteLedgers: [
-          { id: 'knowledge', displayName: 'Knowledge', keywords: [], enabled: true },
+          { id: 'knowledge', displayName: 'Knowledge', keywords: ['Only technical tutorials'], ruleType: 'deepseek', enabled: true },
           { id: 'music', displayName: 'Music', keywords: [], enabled: true },
           { id: 'inbox', displayName: 'Inbox', keywords: [], enabled: true }
         ]
@@ -64,7 +64,9 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
       generate
     })
 
-    await service.organizeCurrentSegment('100')
+    await expect(service.organizeCurrentSegment('100')).resolves.toMatchObject({
+      referencedConstraintLedgerNames: ['Knowledge']
+    })
 
     expect(generate).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'favorite-archive-organize',

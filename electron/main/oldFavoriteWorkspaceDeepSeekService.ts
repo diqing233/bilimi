@@ -84,7 +84,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
       }
       return true
     }).filter((item) => !retry || retry.aids.includes(item.aid))
-    if (!scopedItems.length) return this.finish(accountMid, snapshot, mode, 0, 0, 0, [])
+    if (!scopedItems.length) return this.finish(accountMid, snapshot, mode, 0, 0, 0, [], [])
 
     const request: ArchiveRequest = {
       kind: 'favorite-archive-organize',
@@ -116,6 +116,9 @@ export class OldFavoriteWorkspaceDeepSeekService {
         }),
       multiArchiveLimit: multiArchiveLimit(preferences.favoriteArchiveMultiMode)
     }
+    const referencedConstraintLedgerNames = request.ledgers
+      .filter((ledger) => Boolean(ledger.deepSeekConstraint?.trim()))
+      .map((ledger) => ledger.displayName)
     const results: DeepSeekArchiveVideoResult[] = []
     const failures: OldFavoriteWorkspaceDeepSeekFailure[] = []
     const totalChunks = Math.ceil(request.videos.length / 20)
@@ -139,7 +142,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
     const itemByAid = new Map(scopedItems.map((item) => [item.aid, item]))
     const enabledLedgerIds = new Set(request.ledgers.map((ledger) => ledger.id))
     const assignments = this.assignmentsFromResult(results, itemByAid, snapshot.classifications, enabledLedgerIds, request.multiArchiveLimit)
-    if (!assignments.length) return this.finish(accountMid, snapshot, mode, totalChunks, results.length, scopedItems.length - results.length, failures)
+    if (!assignments.length) return this.finish(accountMid, snapshot, mode, totalChunks, results.length, scopedItems.length - results.length, failures, referencedConstraintLedgerNames)
     const expected: WorkspaceExpectation = {
       workspaceId: snapshot.workspaceId,
       currentSegmentId: snapshot.currentSegment.id,
@@ -150,7 +153,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
       }]))
     }
     const next = await this.options.coordinator.applyDeepSeekClassificationBatch(snapshot.accountMid, assignments, expected)
-    return this.finish(accountMid, next, mode, totalChunks, assignments.length, scopedItems.length - results.length, failures)
+    return this.finish(accountMid, next, mode, totalChunks, assignments.length, scopedItems.length - results.length, failures, referencedConstraintLedgerNames)
   }
 
   private finish(
@@ -160,7 +163,8 @@ export class OldFavoriteWorkspaceDeepSeekService {
     totalChunks: number,
     successfulVideoCount: number,
     failedVideoCount: number,
-    failures: OldFavoriteWorkspaceDeepSeekFailure[]
+    failures: OldFavoriteWorkspaceDeepSeekFailure[],
+    referencedConstraintLedgerNames: string[]
   ) {
     const aids = failures.flatMap((failure) => failure.aids)
     if (aids.length && snapshot.currentSegment) {
@@ -170,7 +174,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
     } else {
       this.failedRuns.delete(accountMid)
     }
-    return this.result(snapshot, totalChunks, successfulVideoCount, failedVideoCount, failures)
+    return this.result(snapshot, totalChunks, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames)
   }
 
   private result(
@@ -178,10 +182,12 @@ export class OldFavoriteWorkspaceDeepSeekService {
     totalChunks: number,
     successfulVideoCount: number,
     failedVideoCount: number,
-    failures: OldFavoriteWorkspaceDeepSeekFailure[]
+    failures: OldFavoriteWorkspaceDeepSeekFailure[],
+    referencedConstraintLedgerNames: string[]
   ): OldFavoriteWorkspaceDeepSeekResult {
     return {
       snapshot,
+      referencedConstraintLedgerNames,
       progress: { totalChunks, completedChunks: totalChunks, successfulVideoCount, failedVideoCount },
       failures
     }

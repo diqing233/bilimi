@@ -149,6 +149,8 @@ export type OldFavoriteWorkspaceDeepSeekFailure = {
 /** A main-process DeepSeek run may apply completed chunks while retaining failed chunks for retry. */
 export type OldFavoriteWorkspaceDeepSeekResult = {
   snapshot: OldFavoriteWorkspaceSnapshot
+  /** Enabled DeepSeek-constraint ledgers sent with this archive organization request. */
+  referencedConstraintLedgerNames: string[]
   progress: {
     totalChunks: number
     completedChunks: number
