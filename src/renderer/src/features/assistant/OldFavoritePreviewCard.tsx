@@ -31,12 +31,14 @@ export function OldFavoritePreviewCard({
   const targetLedgerId = classification?.targetLedgerIds[0] ?? ''
   const targetLedger = ledgers.find((ledger) => ledger.id === targetLedgerId)
 
-  return <article className="favorite-ledger-panel__preview-video favorite-ledger-panel__preview-item-shell">
-    <strong>{title}</strong>
-    <p>UP：{item.author?.trim() || '未知 UP'}</p>
-    <p>来源：{sourceFolderTitles.join('、') || '未记录'}</p>
-    <p>{classification ? `分类来源：${sourceLabels[classification.source]}` : '未分类'}</p>
-    <p>目标收藏夹：{targetLedger?.displayName || '未分类'}</p>
+  return <article className="favorite-ledger-panel__preview-item-shell">
+    <div className="favorite-ledger-panel__preview-video favorite-ledger-panel__preview-video--pending" data-selected="false">
+      <strong>{title}</strong>
+      <p>UP：{item.author?.trim() || '未知 UP'}</p>
+      <p>来源：{sourceFolderTitles.join('、') || '未记录'}</p>
+      <p>{classification ? `分类来源：${sourceLabels[classification.source]}` : '未分类'}</p>
+      <p>目标收藏夹：{targetLedger?.displayName || '未分类'}</p>
+    </div>
     <label>
       <span>归类</span>
       <select

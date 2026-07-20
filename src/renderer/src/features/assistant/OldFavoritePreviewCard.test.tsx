@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { OldFavoritePreviewCard } from './OldFavoritePreviewCard'
 
 describe('OldFavoritePreviewCard', () => {
-  it('uses the legacy preview-video card shell for a controlled workspace item', () => {
+  it('keeps the legacy static preview-video layer inside its article shell', () => {
     render(<OldFavoritePreviewCard
       item={{ aid: 1, title: 'Legacy preview', author: 'Uploader', sourceFolderIds: ['source'] }}
       sourceFolderTitles={['Source folder']}
@@ -13,7 +13,9 @@ describe('OldFavoritePreviewCard', () => {
       onApplyManualClassification={vi.fn()}
     />)
 
-    expect(screen.getByRole('article')).toHaveClass('favorite-ledger-panel__preview-video')
-    expect(screen.getByRole('article')).toHaveClass('favorite-ledger-panel__preview-item-shell')
+    const article = screen.getByRole('article')
+    expect(article).toHaveClass('favorite-ledger-panel__preview-item-shell')
+    expect(article).not.toHaveClass('favorite-ledger-panel__preview-video')
+    expect(article.querySelector('.favorite-ledger-panel__preview-video--pending')).toHaveAttribute('data-selected', 'false')
   })
 })
