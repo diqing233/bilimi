@@ -130,18 +130,20 @@ export function ControlledFavoriteLedgerPanel({
         onOpenFavoritePage={onOpenFavoritePage}
         onCreateLocalLedger={workspace.createLocalLedgerAndReclassify}
       />
-      <section className="favorite-ledger-panel__workspace" aria-label="整理旧藏">
-        <div className="favorite-ledger-panel__editor-title">
-          <div><h3>整理旧藏</h3><p>扫描历史收藏，并使用当前受控工作区完成归档。</p></div>
-          <div className="favorite-ledger-panel__category-actions">
-            <button type="button" aria-label="整理旧藏" disabled={workspace.loading || !currentAccountMid}
-              onClick={() => void startScan('incremental')}>整理旧藏</button>
-            <button type="button" aria-label="全部重新整理" disabled={workspace.loading || !currentAccountMid}
-              onClick={() => void startScan('full')}>全部重新整理</button>
+      <div className="favorite-ledger-panel__toolbar">
+        <section className="favorite-ledger-panel__workspace" aria-label="整理旧藏">
+          <div className="favorite-ledger-panel__editor-title">
+            <div><h3>整理旧藏</h3><p>扫描历史收藏，并使用当前受控工作区完成归档。</p></div>
+            <div className="favorite-ledger-panel__category-actions">
+              <button type="button" aria-label="整理旧藏" disabled={workspace.loading || !currentAccountMid}
+                onClick={() => void startScan('incremental')}>整理旧藏</button>
+              <button type="button" aria-label="全部重新整理" disabled={workspace.loading || !currentAccountMid}
+                onClick={() => void startScan('full')}>全部重新整理</button>
+            </div>
           </div>
-        </div>
-      </section>
-      <FavoriteLibraryEntry />
+        </section>
+        <FavoriteLibraryEntry />
+      </div>
 
       {guideOpen ? <section className="favorite-ledger-panel__old-favorites-guide" aria-label="整理旧藏向导">
         <div className="favorite-ledger-panel__guide-header">

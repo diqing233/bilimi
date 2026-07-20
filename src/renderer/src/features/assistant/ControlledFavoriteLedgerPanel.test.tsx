@@ -43,6 +43,30 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByText('管理本地收藏夹规则，并在整理完成后保存。')).toBeInTheDocument()
   })
 
+  it('places the organize and library entries as peers in the shared toolbar', async () => {
+    const openFavoriteLibrary = vi.fn().mockResolvedValue(undefined)
+    const command = vi.fn()
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
+      commandOldFavoriteWorkspaceV1: command,
+      openFavoriteLibrary
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+    />)
+
+    const organizeEntry = await screen.findByRole('region', { name: '整理旧藏' })
+    const libraryEntry = screen.getByRole('region', { name: '收藏库' })
+    expect(organizeEntry.parentElement).toHaveClass('favorite-ledger-panel__toolbar')
+    expect(libraryEntry.parentElement).toBe(organizeEntry.parentElement)
+
+    fireEvent.click(screen.getByRole('button', { name: '收藏库' }))
+    expect(openFavoriteLibrary).toHaveBeenCalledTimes(1)
+    expect(command).not.toHaveBeenCalled()
+  })
+
   it('opens the organize guide without changing the independent library entry', async () => {
     const command = vi.fn()
     const openFavoriteLibrary = vi.fn().mockResolvedValue(undefined)
