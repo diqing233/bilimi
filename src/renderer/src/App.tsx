@@ -386,6 +386,33 @@ function sameLedgerSet(left: string[], right: string[]) {
   return leftSet.size === rightSet.size && Array.from(leftSet).every((ledgerId) => rightSet.has(ledgerId))
 }
 
+function appliedDeepSeekConstraintNames(
+  favoriteLedgers: FavoriteLedger[],
+  reviewResult?: DailyClassificationReviewResult
+) {
+  return uniqueLedgerIds(reviewResult?.appliedConstraintLedgerIds ?? [])
+    .filter((ledgerId) => favoriteLedgers.some((ledger) => ledger.id === ledgerId && ledger.enabled))
+    .map((ledgerId) => ledgerDisplayName(favoriteLedgers, ledgerId))
+}
+
+function dailyReviewFeedback(input: {
+  favoriteLedgers: FavoriteLedger[]
+  localTargetLedgerIds: string[]
+  reviewResult?: DailyClassificationReviewResult
+}) {
+  const localNames = input.localTargetLedgerIds
+    .map((ledgerId) => ledgerDisplayName(input.favoriteLedgers, ledgerId))
+    .join('、')
+  const constraintNames = appliedDeepSeekConstraintNames(input.favoriteLedgers, input.reviewResult)
+  const reviewAgreed = Boolean(input.reviewResult && !input.reviewResult.invalid)
+  const constraintDetail = constraintNames.length
+    ? `DeepSeek 约束生效：「${constraintNames.join('、')}」`
+    : '本次未命中收藏夹约束'
+  return reviewAgreed
+    ? `DeepSeek 二判完成：${constraintDetail}；与本地判断一致，保留在「${localNames}」。`
+    : `DeepSeek 二判未完成：${constraintDetail}；本次沿用本地判断「${localNames}」。`
+}
+
 function dailyCorrectionFromReview(args: {
   favoriteLedgers: FavoriteLedger[]
   localTargetLedgerId: string
@@ -1487,14 +1514,13 @@ export default function App() {
           preActionCorrectionTargets = correction.targetLedgerIds
           deepSeekCorrection = correction
         } else {
-          const localNames = ledgerNames(localTargetLedgerIds)
-          const reviewAgreed = Boolean(
-            reviewBeforeAction.result && !reviewBeforeAction.result.invalid
-          )
-          resultMessagePrefix = reviewAgreed
-            ? `DeepSeek 二判完成：与本地判断一致，保留在「${localNames}」。`
-            : `DeepSeek 二判未完成，本次沿用本地判断「${localNames}」。`
-          if (reviewAgreed) {
+          resultMessagePrefix = dailyReviewFeedback({
+            favoriteLedgers: preferences.favoriteLedgers,
+            localTargetLedgerIds,
+            reviewResult: reviewBeforeAction.result
+          })
+          if (reviewBeforeAction.result && !reviewBeforeAction.result.invalid) {
+            const localNames = ledgerNames(localTargetLedgerIds)
             window.bilimiDesktop?.setAssistantPetHint?.({
               tone: 'happy',
               message: `主人，DeepSeek复核过啦～与原建议一致，存入「${localNames}」。`
@@ -1648,14 +1674,13 @@ export default function App() {
           })
 
           if (!correction) {
-            const localNames = ledgerNames(localTargetLedgerIds)
-            const reviewAgreed = Boolean(reviewResult && !reviewResult.invalid)
-            publishRuntimeFeedback(
-              reviewAgreed
-                ? `DeepSeek 二判完成：与本地判断一致，保留在「${localNames}」。`
-                : `DeepSeek 二判未完成，本次沿用本地判断「${localNames}」。`
-            )
-            if (reviewAgreed) {
+            publishRuntimeFeedback(dailyReviewFeedback({
+              favoriteLedgers: preferences.favoriteLedgers,
+              localTargetLedgerIds,
+              reviewResult
+            }))
+            if (reviewResult && !reviewResult.invalid) {
+              const localNames = ledgerNames(localTargetLedgerIds)
               window.bilimiDesktop?.setAssistantPetHint?.({
                 tone: 'happy',
                 message: `主人，DeepSeek复核过啦～与原建议一致，存入「${localNames}」。`

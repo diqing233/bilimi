@@ -1956,6 +1956,7 @@ describe('App runtime integration', () => {
     const generateDeepSeek = vi.fn(async (): Promise<DeepSeekGenerateResult> => ({
       kind: 'favorite-daily-classify-review',
       targetLedgerIds: ['life-interest'],
+      appliedConstraintLedgerIds: ['life-interest'],
       corrected: false,
       reason: '本地判断正确。',
       confidence: 0.9,
@@ -1994,11 +1995,11 @@ describe('App runtime integration', () => {
     const result = await requestRuntime({ id: 'run-daily-agree', type: 'run-action', action: '藏' })
 
     expect(result).toEqual(expect.objectContaining({
-      message: expect.stringContaining('DeepSeek 二判完成：与本地判断一致，保留在「bilimi·生活日常」')
+      message: expect.stringContaining('DeepSeek 二判完成：DeepSeek 约束生效：「bilimi·生活日常」；与本地判断一致，保留在「bilimi·生活日常」')
     }))
     expect(await requestRuntime({ id: 'snapshot-daily-agree', type: 'snapshot' })).toEqual(
       expect.objectContaining({
-        runtimeFeedback: 'DeepSeek 二判完成：与本地判断一致，保留在「bilimi·生活日常」。'
+        runtimeFeedback: 'DeepSeek 二判完成：DeepSeek 约束生效：「bilimi·生活日常」；与本地判断一致，保留在「bilimi·生活日常」。'
       })
     )
     expect(desktopApi.setAssistantPetHint).toHaveBeenCalledWith({

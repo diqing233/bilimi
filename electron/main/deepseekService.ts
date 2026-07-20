@@ -415,6 +415,7 @@ function invalidDailyClassificationReviewResult(
 ): DeepSeekDailyClassificationReviewResult {
   return {
     targetLedgerIds,
+    appliedConstraintLedgerIds: [],
     corrected: false,
     reason,
     confidence:
@@ -436,6 +437,12 @@ function parseDailyClassificationReviewResult(
   const allowedLedgerIds = enabledLedgerIdsForRequest(request)
   const targetLedgerIds = coerceStringArray(row.targetLedgerIds, 3).filter((ledgerId) =>
     allowedLedgerIds.has(ledgerId)
+  )
+  const constrainedLedgerIds = new Set(request.ledgers
+    .filter((ledger) => ledger.enabled && Boolean(ledger.deepSeekConstraint?.trim()))
+    .map((ledger) => ledger.id))
+  const appliedConstraintLedgerIds = coerceStringArray(row.appliedConstraintLedgerIds, 3).filter(
+    (ledgerId) => targetLedgerIds.includes(ledgerId) && constrainedLedgerIds.has(ledgerId)
   )
   const confidence =
     typeof row.confidence === 'number' && Number.isFinite(row.confidence) ? row.confidence : undefined
@@ -476,6 +483,7 @@ function parseDailyClassificationReviewResult(
   return {
     kind: 'favorite-daily-classify-review',
     targetLedgerIds,
+    appliedConstraintLedgerIds,
     corrected: row.corrected === true,
     reason,
     confidence,
@@ -567,7 +575,7 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
           'If a ledger has deepSeekConstraint, use it as folder-specific decision guidance. A matching constraint takes precedence over local keywords, automatic classifications, and existing targets. When a constraint applies, include that ledger in targetLedgerIds. It is not a keyword list; do not classify a video only because a word appears inside the constraint text. If applicable constraints conflict, choose the best-supported ledger and explain the conflict in reason.',
           'Do not create folders and do not directly edit keywords; keywordSuggestions are only pending suggestions for the user to review.',
           'Set corrected=true only when the local classification should be replaced before executing. If local targets are correct, echo them and set corrected=false.',
-          'Return JSON only: {"targetLedgerIds":["ledger-id"],"corrected":false,"reason":"","confidence":0.8,"keywordSuggestions":[{"action":"replace-with-combination","ledgerId":"game","keyword":"攻略","replacement":"游戏攻略","reason":""}]}'
+          'Return JSON only: {"targetLedgerIds":["ledger-id"],"appliedConstraintLedgerIds":["ledger-id"],"corrected":false,"reason":"","confidence":0.8,"keywordSuggestions":[{"action":"replace-with-combination","ledgerId":"game","keyword":"攻略","replacement":"游戏攻略","reason":""}]} Use appliedConstraintLedgerIds only for enabled ledgers whose deepSeekConstraint you actually applied, and only when that ledger is included in targetLedgerIds.'
         ].join(' ')
       },
       {

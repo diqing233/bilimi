@@ -408,6 +408,8 @@ export type DeepSeekDailyClassificationInput = {
 
 export type DeepSeekDailyClassificationReviewResult = {
   targetLedgerIds: FavoriteLedgerId[]
+  /** Enabled DeepSeek-constraint ledgers that the model applied to this decision. */
+  appliedConstraintLedgerIds?: FavoriteLedgerId[]
   corrected: boolean
   reason: string
   confidence?: number

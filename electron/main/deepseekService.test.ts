@@ -465,6 +465,7 @@ describe('DeepSeek main service', () => {
     const fetchImpl = createJsonFetch(
       JSON.stringify({
         targetLedgerIds: ['life-interest', 'disabled-ledger'],
+        appliedConstraintLedgerIds: ['life-interest', 'disabled-ledger'],
         corrected: true,
         reason: '旅行攻略应归入生活日常，不是游戏攻略。',
         confidence: 0.82,
@@ -525,12 +526,13 @@ describe('DeepSeek main service', () => {
               keywords: ['游戏攻略'],
               enabled: true
             },
-            {
-              id: 'life-interest',
-              displayName: 'bilimi·生活日常',
-              keywords: ['旅行攻略'],
-              enabled: true
-            },
+          {
+            id: 'life-interest',
+            displayName: 'bilimi·生活日常',
+            keywords: ['旅行攻略'],
+            enabled: true
+            , deepSeekConstraint: '所有旅行地铁攻略都必须归入此收藏夹。'
+          },
             {
               id: 'disabled-ledger',
               displayName: '停用',
@@ -543,8 +545,9 @@ describe('DeepSeek main service', () => {
       })
     ).resolves.toMatchObject({
       kind: 'favorite-daily-classify-review',
-      targetLedgerIds: ['life-interest'],
-      corrected: true,
+        targetLedgerIds: ['life-interest'],
+        appliedConstraintLedgerIds: ['life-interest'],
+        corrected: true,
       reason: '旅行攻略应归入生活日常，不是游戏攻略。',
       confidence: 0.82,
       keywordSuggestions: [
@@ -568,6 +571,7 @@ describe('DeepSeek main service', () => {
     expect(systemMessage).toContain('takes precedence over local keywords, automatic classifications, and existing targets')
     expect(systemMessage).toContain('When a constraint applies, include that ledger in targetLedgerIds')
     expect(systemMessage).toContain('If applicable constraints conflict, choose the best-supported ledger and explain the conflict in reason')
+    expect(systemMessage).toContain('appliedConstraintLedgerIds')
     expect(systemMessage).toContain('JSON only')
     expect(systemMessage).toContain('keywordSuggestions are only pending suggestions')
   })
