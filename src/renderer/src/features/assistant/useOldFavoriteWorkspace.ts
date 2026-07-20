@@ -182,11 +182,14 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     foregroundRequestCount.current += 1
     setDeepSeekFeedback({ status: 'running', message: 'DeepSeek 正在整理当前分段…' })
     try {
-      const next = await organize(accountMid, mode)
+      const result = await organize(accountMid, mode)
+      const next = result.snapshot
       if (normalizeAccountMid(next.accountMid) !== normalizeAccountMid(accountMid)) return null
       if (requestVersion.current === version && accountGeneration.current === generation) setSnapshot(next)
       if (requestVersion.current === version && accountGeneration.current === generation) {
-        setDeepSeekFeedback({ status: 'completed', message: 'DeepSeek 整理完成，已更新当前分段。' })
+        setDeepSeekFeedback(result.failures.length
+          ? { status: 'failed', message: `DeepSeek 已整理 ${result.progress.successfulVideoCount} 条；${result.progress.failedVideoCount} 条未应用：${result.failures.map((failure) => `第 ${failure.chunkIndex} 批 ${failure.message}`).join('；')}` }
+          : { status: 'completed', message: 'DeepSeek 整理完成，已更新当前分段。' })
       }
       return next
     } catch (error) {

@@ -124,6 +124,24 @@ export type OldFavoriteWorkspaceRecoveryRequired = {
 
 export type OldFavoriteWorkspaceView = OldFavoriteWorkspaceSnapshot | OldFavoriteWorkspaceRecoveryRequired
 
+export type OldFavoriteWorkspaceDeepSeekFailure = {
+  chunkIndex: number
+  affectedVideoCount: number
+  message: string
+}
+
+/** A main-process DeepSeek run may apply completed chunks while retaining failed chunks for retry. */
+export type OldFavoriteWorkspaceDeepSeekResult = {
+  snapshot: OldFavoriteWorkspaceSnapshot
+  progress: {
+    totalChunks: number
+    completedChunks: number
+    successfulVideoCount: number
+    failedVideoCount: number
+  }
+  failures: OldFavoriteWorkspaceDeepSeekFailure[]
+}
+
 export type CreateOldFavoriteWorkspaceOptions = {
   accountMid: string
   now: string

@@ -39,7 +39,7 @@ import type {
   FavoriteRepositorySnapshotSummary
 } from '../../../electron/main/favoriteRepositoryIpc'
 import type { FavoriteLibraryCommandResult, FavoriteLibrarySyncSelection } from '../../../electron/main/favoriteLibraryCommands'
-import type { OldFavoriteWorkspaceView } from '../../shared/oldFavoriteWorkspace'
+import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceView } from '../../shared/oldFavoriteWorkspace'
 
 type BilimiDesktopApi = {
   version: string
@@ -49,7 +49,7 @@ type BilimiDesktopApi = {
   openFavoriteLibrary?: () => Promise<void>
   openOldFavoriteWorkspaceV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceView>
   commandOldFavoriteWorkspaceV1?: (accountMid: string, command: unknown) => Promise<OldFavoriteWorkspaceView>
-  organizeOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string, mode: DeepSeekArchiveMode) => Promise<OldFavoriteWorkspaceView>
+  organizeOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string, mode: DeepSeekArchiveMode) => Promise<OldFavoriteWorkspaceDeepSeekResult>
   ensureFavoriteLedgers?: () => Promise<AssistantAutomationResult>
   finishFloatingSealDrag?: () => void
   generateDeepSeek?: (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>

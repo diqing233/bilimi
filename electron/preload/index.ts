@@ -41,7 +41,7 @@ import type {
   FavoriteRepositoryRevisionChange,
   FavoriteRepositorySnapshotSummary
 } from '../main/favoriteRepositoryIpc'
-import type { OldFavoriteWorkspaceView } from '../../src/shared/oldFavoriteWorkspace'
+import type { OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceView } from '../../src/shared/oldFavoriteWorkspace'
 
 contextBridge.exposeInMainWorld('bilimiDesktop', {
   version: '0.1.0',
@@ -54,7 +54,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   commandOldFavoriteWorkspaceV1: (accountMid: string, command: unknown) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:command', accountMid, command) as Promise<OldFavoriteWorkspaceView>,
   organizeOldFavoriteWorkspaceDeepSeekV1: (accountMid: string, mode: DeepSeekArchiveMode) =>
-    ipcRenderer.invoke('old-favorite-workspace-v1:deepseek-current-segment', accountMid, mode) as Promise<OldFavoriteWorkspaceView>,
+    ipcRenderer.invoke('old-favorite-workspace-v1:deepseek-current-segment', accountMid, mode) as Promise<OldFavoriteWorkspaceDeepSeekResult>,
   writeClipboardText: (text: string) =>
     ipcRenderer.invoke('clipboard:write-text', text) as Promise<void>,
   loadPreferences: () => ipcRenderer.invoke('assistant:load-preferences') as Promise<AssistantPreferences>,

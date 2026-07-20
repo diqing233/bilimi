@@ -9,6 +9,11 @@ import type {
   FavoriteLedger
 } from '../../src/shared/types'
 import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinator'
+import type {
+  OldFavoriteWorkspaceDeepSeekFailure,
+  OldFavoriteWorkspaceDeepSeekResult,
+  OldFavoriteWorkspaceSnapshot
+} from '../../src/shared/oldFavoriteWorkspace'
 
 type ArchiveRequest = Extract<DeepSeekGenerateRequest, { kind: 'favorite-archive-organize' }>
 type WorkspaceExpectation = {
@@ -38,7 +43,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
     generate: (request: ArchiveRequest) => Promise<DeepSeekGenerateResult>
   }) {}
 
-  async organizeCurrentSegment(accountMid: string, mode: DeepSeekArchiveMode = 'all') {
+  async organizeCurrentSegment(accountMid: string, mode: DeepSeekArchiveMode = 'all'): Promise<OldFavoriteWorkspaceDeepSeekResult> {
     const preferences = this.options.preferences()
     assertDeepSeekRequestEnabled(preferences as Parameters<typeof assertDeepSeekRequestEnabled>[0], 'favorite-archive-organize')
     const snapshot = await this.options.coordinator.getSnapshot(accountMid)
@@ -59,7 +64,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
       }
       return true
     })
-    if (!scopedItems.length) return snapshot
+    if (!scopedItems.length) return this.result(snapshot, 0, 0, 0, [])
 
     const request: ArchiveRequest = {
       kind: 'favorite-archive-organize',
@@ -92,18 +97,28 @@ export class OldFavoriteWorkspaceDeepSeekService {
       multiArchiveLimit: multiArchiveLimit(preferences.favoriteArchiveMultiMode)
     }
     const results: DeepSeekArchiveVideoResult[] = []
+    const failures: OldFavoriteWorkspaceDeepSeekFailure[] = []
+    const totalChunks = Math.ceil(request.videos.length / 20)
     for (let offset = 0; offset < request.videos.length; offset += 20) {
       const chunk = { ...request, videos: request.videos.slice(offset, offset + 20) }
-      const result = await this.options.generate(chunk)
-      if (result.kind !== 'favorite-archive-organize') throw new Error('DeepSeek returned an invalid favorite workspace result.')
-      this.assertCompleteChunk(chunk, result.results)
-      results.push(...result.results)
+      try {
+        const result = await this.options.generate(chunk)
+        if (result.kind !== 'favorite-archive-organize') throw new Error('DeepSeek returned an invalid favorite workspace result.')
+        this.assertCompleteChunk(chunk, result.results)
+        results.push(...result.results)
+      } catch (error) {
+        failures.push({
+          chunkIndex: offset / 20 + 1,
+          affectedVideoCount: chunk.videos.length,
+          message: error instanceof Error ? error.message : 'DeepSeek request failed.'
+        })
+      }
     }
 
     const itemByAid = new Map(scopedItems.map((item) => [item.aid, item]))
     const enabledLedgerIds = new Set(request.ledgers.map((ledger) => ledger.id))
     const assignments = this.assignmentsFromResult(results, itemByAid, snapshot.classifications, enabledLedgerIds, request.multiArchiveLimit)
-    if (!assignments.length) return snapshot
+    if (!assignments.length) return this.result(snapshot, totalChunks, results.length, scopedItems.length - results.length, failures)
     const expected: WorkspaceExpectation = {
       workspaceId: snapshot.workspaceId,
       currentSegmentId: snapshot.currentSegment.id,
@@ -113,7 +128,22 @@ export class OldFavoriteWorkspaceDeepSeekService {
         source: classification.source
       }]))
     }
-    return this.options.coordinator.applyDeepSeekClassificationBatch(snapshot.accountMid, assignments, expected)
+    const next = await this.options.coordinator.applyDeepSeekClassificationBatch(snapshot.accountMid, assignments, expected)
+    return this.result(next, totalChunks, assignments.length, scopedItems.length - results.length, failures)
+  }
+
+  private result(
+    snapshot: OldFavoriteWorkspaceSnapshot,
+    totalChunks: number,
+    successfulVideoCount: number,
+    failedVideoCount: number,
+    failures: OldFavoriteWorkspaceDeepSeekFailure[]
+  ): OldFavoriteWorkspaceDeepSeekResult {
+    return {
+      snapshot,
+      progress: { totalChunks, completedChunks: totalChunks, successfulVideoCount, failedVideoCount },
+      failures
+    }
   }
 
   private assertCompleteChunk(request: ArchiveRequest, results: DeepSeekArchiveVideoResult[]) {

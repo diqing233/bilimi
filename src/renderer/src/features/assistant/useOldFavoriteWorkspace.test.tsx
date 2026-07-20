@@ -235,7 +235,11 @@ describe('useOldFavoriteWorkspace', () => {
   })
 
   it('runs DeepSeek through the payload-free current-segment bridge', async () => {
-    const organize = vi.fn().mockResolvedValue(workspace('100'))
+    const organize = vi.fn().mockResolvedValue({
+      snapshot: workspace('100'),
+      progress: { totalChunks: 1, completedChunks: 1, successfulVideoCount: 1, failedVideoCount: 0 },
+      failures: []
+    })
     window.bilimiDesktop = { organizeOldFavoriteWorkspaceDeepSeekV1: organize } as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
 
