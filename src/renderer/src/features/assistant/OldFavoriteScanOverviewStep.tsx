@@ -37,7 +37,9 @@ export function OldFavoriteScanOverviewStep({
   }
 
   const folders = snapshot?.sourceFolders ?? []
-  const selectedSourceIds = new Set(folders
+  const userFolders = folders.filter((folder) => !folder.isBilimiWorkFolder)
+  const bilimiFolders = folders.filter((folder) => folder.isBilimiWorkFolder)
+  const selectedSourceIds = new Set(userFolders
     .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
     .map((folder) => folder.id))
   const scanFailed = Boolean(scanStartFailure) || snapshot?.scan.phase === 'failed'
@@ -55,30 +57,47 @@ export function OldFavoriteScanOverviewStep({
     <h4>扫描概览</h4>
     <p className="favorite-ledger-panel__scan-guidance" role={scanFailed ? 'alert' : undefined}>{guidance}</p>
     <div className="favorite-ledger-panel__scan-progress" aria-label="旧藏扫描进度">
-      <progress aria-label="收藏夹概览进度" max={1} value={scanFailed || scanning ? 0 : 1} />
-      <strong>{scanFailed ? '扫描失败' : scanning ? '正在扫描' : '已完成'}</strong>
+      <div>
+        <span>收藏夹概览</span>
+        <progress aria-label="收藏夹概览进度" max={1} value={scanFailed || scanning ? 0 : 1} />
+        <strong>{scanFailed ? '扫描失败' : scanning ? '正在扫描' : '已完成'}</strong>
+      </div>
     </div>
     {scanFailed ? <button type="button" disabled={loading || scanStarting} onClick={onRetry}>重新扫描</button> : null}
     <p>已发现 {folders.length} 个收藏夹，当前扫描 {snapshot?.continuationCount ?? 0} 条待续新增。</p>
-    <ul className="favorite-ledger-panel__scan-folder-list" aria-label="扫描收藏夹列表">
-      {folders.map((folder) => <li key={folder.id}>
-        {folder.isBilimiWorkFolder
-          ? <span>{folder.title} · {folder.itemCount} 条 · Bilimi 工作夹</span>
-          : <label>
-            <input
-              type="checkbox"
-              aria-label={`选择来源 ${folder.title}`}
-              checked={selectedSourceIds.has(folder.id)}
-              disabled={loading || sourceSelectionLocked}
-              onChange={(event) => {
+    {userFolders.length ? <div className="favorite-ledger-panel__source-table" role="table" aria-label="用户收藏夹">
+      <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--user">
+        <span role="columnheader" aria-label="选择" /><span role="columnheader">用户收藏夹</span>
+        <span role="columnheader">总数</span><span role="columnheader">本轮待整理</span>
+      </div>
+      <ul role="rowgroup" className="favorite-ledger-panel__source-list">
+        {userFolders.map((folder) => <li key={folder.id} role="row" className="favorite-ledger-panel__source-row favorite-ledger-panel__source-row--user">
+          <label className="favorite-ledger-panel__source-row-content">
+            <span role="cell"><input type="checkbox" aria-label={`选择来源 ${folder.title}`} checked={selectedSourceIds.has(folder.id)}
+              disabled={loading || sourceSelectionLocked} onChange={(event) => {
                 const next = new Set(selectedSourceIds)
                 if (event.currentTarget.checked) next.add(folder.id); else next.delete(folder.id)
                 onSelectSourceFolders([...next])
-              }}
-            />
-            {folder.title} · {folder.itemCount} 条
-          </label>}
-      </li>)}
-    </ul>
+              }} /></span>
+            <span role="cell" className="favorite-ledger-panel__source-name" title={folder.title}>{folder.title}</span>
+            <span role="cell" className="favorite-ledger-panel__source-count">{folder.itemCount}</span>
+            <span role="cell" className="favorite-ledger-panel__source-count">{selectedSourceIds.has(folder.id) ? folder.itemCount : 0}</span>
+          </label>
+        </li>)}
+      </ul>
+    </div> : null}
+    {bilimiFolders.length ? <div className="favorite-ledger-panel__source-table favorite-ledger-panel__source-table--bilimi" role="table" aria-label="bilimi 工作夹">
+      <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--bilimi">
+        <span role="columnheader" aria-label="选择" /><span role="columnheader">bilimi 工作夹</span>
+        <span role="columnheader">已有</span><span role="columnheader">本轮待整理</span>
+      </div>
+      <ul role="rowgroup" className="favorite-ledger-panel__source-list">
+        {bilimiFolders.map((folder) => <li key={folder.id} role="row" className="favorite-ledger-panel__source-row favorite-ledger-panel__source-row--bilimi">
+          <span role="cell" /><span role="cell" className="favorite-ledger-panel__source-name" title={folder.title}>{folder.title}</span>
+          <span role="cell" className="favorite-ledger-panel__source-count">{folder.itemCount}</span>
+          <span role="cell" className="favorite-ledger-panel__source-count">0</span>
+        </li>)}
+      </ul>
+    </div> : null}
   </section>
 }

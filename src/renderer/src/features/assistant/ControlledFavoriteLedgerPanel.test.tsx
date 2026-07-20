@@ -449,7 +449,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       type: 'start-scan', mode: 'incremental'
     }))
     expect(await screen.findByText('扫描概览：扫描中')).toBeInTheDocument()
-    expect(screen.getByText('Bilimi Inbox · 0 条 · Bilimi 工作夹')).toBeInTheDocument()
+    expect(within(screen.getByRole('table', { name: 'bilimi 工作夹' })).getByText('Bilimi Inbox')).toBeInTheDocument()
   })
 
   it('shows normal source selection but keeps Bilimi work folders read-only', async () => {
@@ -478,8 +478,36 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'select-source-folders', folderIds: []
     }))
-    expect(screen.getByText('Bilimi Inbox · 0 条 · Bilimi 工作夹')).toBeInTheDocument()
+    expect(within(screen.getByRole('table', { name: 'bilimi 工作夹' })).getByText('Bilimi Inbox')).toBeInTheDocument()
     expect(screen.queryByRole('checkbox', { name: '选择来源 Bilimi Inbox' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the legacy scan source tables for user folders and read-only Bilimi work folders', async () => {
+    const scanning = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'inventory' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [
+        { id: 'source', title: 'My source', itemCount: 2, isBilimiWorkFolder: false, selected: true },
+        { id: 'bilimi', title: 'Bilimi Inbox', itemCount: 7, isBilimiWorkFolder: true, selected: false }
+      ],
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(scanning),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(scanning)
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    const userTable = await screen.findByRole('table', { name: '用户收藏夹' })
+    expect(within(userTable).getByRole('columnheader', { name: '本轮待整理' })).toBeInTheDocument()
+    expect(within(userTable).getByRole('checkbox', { name: '选择来源 My source' })).toBeChecked()
+    const bilimiTable = screen.getByRole('table', { name: 'bilimi 工作夹' })
+    expect(within(bilimiTable).getByText('Bilimi Inbox')).toBeInTheDocument()
+    expect(within(bilimiTable).getByText('7')).toBeInTheDocument()
   })
 
   it('rebuilds a corrupt workspace and restores the persisted snapshot after remount', async () => {
