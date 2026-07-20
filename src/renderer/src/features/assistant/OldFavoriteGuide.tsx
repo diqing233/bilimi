@@ -123,12 +123,10 @@ export function OldFavoriteGuide({
       deepSeekAvailable={deepSeekAvailable}
       deepSeekFeedback={deepSeekFeedback}
       onSelectSegment={onSelectSegment}
-      onAutoClassify={onAutoClassify}
       onOrganizeWithDeepSeek={onOrganizeWithDeepSeek}
       onUndo={onUndoClassification}
       onRedo={onRedoClassification}
       onApplyManualClassification={onApplyManualClassification}
-      onCreateLocalLedgerAndReclassify={onCreateLocalLedgerAndReclassify}
     /> : null}
     {!recovery && snapshot && step === 'confirm' ? <OldFavoriteConfirmationStep
       snapshot={snapshot}

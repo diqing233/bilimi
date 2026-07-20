@@ -38,8 +38,8 @@ describe('OldFavoriteArchivePreviewStep', () => {
     expect(screen.getByRole('group', { name: 'DeepSeek 辅助整理' })).toBeInTheDocument()
     expect(screen.getByRole('group', { name: '归档预览改动操作' })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹后重新归类' }))
-    expect(screen.getByRole('dialog', { name: '新建收藏夹后重新归类' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '自动分类当前分段' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '新建收藏夹后重新归类' })).not.toBeInTheDocument()
   })
 
   it('restores the legacy change-record entry and groups unmatched and classified videos', () => {

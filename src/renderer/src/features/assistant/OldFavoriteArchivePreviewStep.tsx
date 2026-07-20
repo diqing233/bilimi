@@ -5,7 +5,6 @@ import { useState } from 'react'
 import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
 import { OldFavoritePreviewCard } from './OldFavoritePreviewCard'
 import type { DeepSeekWorkspaceFeedback } from './useOldFavoriteWorkspace'
-import { OldFavoriteModal } from './OldFavoriteModal'
 
 const VIRTUAL_TRACK_THRESHOLD = 50
 
@@ -22,12 +21,10 @@ type OldFavoriteArchivePreviewStepProps = {
   deepSeekAvailable: boolean
   deepSeekFeedback: DeepSeekWorkspaceFeedback | null
   onSelectSegment: (segmentId: string) => void
-  onAutoClassify: () => void
   onOrganizeWithDeepSeek: (mode: DeepSeekArchiveMode) => void
   onUndo: () => void
   onRedo: () => void
   onApplyManualClassification: (aid: number, targetLedgerIds: string[]) => void
-  onCreateLocalLedgerAndReclassify: (title: string) => void
 }
 
 export function OldFavoriteArchivePreviewStep({
@@ -37,15 +34,11 @@ export function OldFavoriteArchivePreviewStep({
   deepSeekAvailable,
   deepSeekFeedback,
   onSelectSegment,
-  onAutoClassify,
   onOrganizeWithDeepSeek,
   onUndo,
   onRedo,
   onApplyManualClassification,
-  onCreateLocalLedgerAndReclassify
 }: OldFavoriteArchivePreviewStepProps) {
-  const [newLedgerName, setNewLedgerName] = useState('')
-  const [newLedgerDialogOpen, setNewLedgerDialogOpen] = useState(false)
   const [deepSeekMode, setDeepSeekMode] = useState<DeepSeekArchiveMode>('low-confidence-and-unclassified')
   const [deepSeekScopeOpen, setDeepSeekScopeOpen] = useState(false)
   const sourceFolderTitles = new Map(snapshot.sourceFolders
@@ -142,10 +135,8 @@ export function OldFavoriteArchivePreviewStep({
                 {snapshot.history.cursor < snapshot.history.length ? <option value="redo">恢复下一步</option> : null}
               </select>
             </label>
-            <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || items.length === 0} onClick={onAutoClassify}>自动分类当前分段</button>
             <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || snapshot.history.cursor === 0} onClick={onUndo}>撤销本次改动</button>
             <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || snapshot.history.cursor >= snapshot.history.length} onClick={onRedo}>恢复本次改动</button>
-            <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading} onClick={() => setNewLedgerDialogOpen(true)}>新建收藏夹后重新归类</button>
           </div>
           <p>Ctrl+Z 撤销，Ctrl+Shift+Z 恢复；会按最近改动逐步回退或重做。</p>
         </div>
@@ -160,12 +151,5 @@ export function OldFavoriteArchivePreviewStep({
           <div className="favorite-ledger-panel__preview-videos" aria-label={`${group.title} 视频`}>{group.items.map((item) => <div key={`${group.id}-${item.aid}`} className="favorite-ledger-panel__preview-item-shell">{renderItem(item)}</div>)}</div>}
       </section>)}
     </div>
-    {newLedgerDialogOpen ? <OldFavoriteModal title="新建收藏夹后重新归类"
-      confirmLabel="新增并重新归类"
-      confirmDisabled={loading || !newLedgerName.trim()}
-      onCancel={() => { setNewLedgerDialogOpen(false); setNewLedgerName('') }}
-      onConfirm={() => { onCreateLocalLedgerAndReclassify(newLedgerName); setNewLedgerName(''); setNewLedgerDialogOpen(false) }}>
-      <label>收藏夹名称<input aria-label="新增收藏夹名称" value={newLedgerName} onChange={(event) => setNewLedgerName(event.currentTarget.value)} /></label>
-    </OldFavoriteModal> : null}
   </section>
 }
