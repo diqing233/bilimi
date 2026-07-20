@@ -871,8 +871,6 @@ export class OldFavoriteWorkspaceCoordinator {
       if (workspace.status !== 'previewing') throw new Error('Old favorite workspace is not ready for local saving.')
       const currentSegmentId = this.currentSegment(workspace)
       const selectedAssignments = await this.loadSelectedClassificationsForFreeze(workspace)
-      await this.assertSelectedPlanFullyClassified(workspace, selectedAssignments)
-      if (!selectedAssignments.length) throw new Error('Old favorite workspace selected plan is empty.')
       const repository = await this.options.repository.getSnapshot(workspace.accountMid)
       const itemsByAid = new Map<number, CurrentSegmentItem>()
       const descriptors = this.segmentDescriptors.get(workspace.accountMid) ??
@@ -881,13 +879,24 @@ export class OldFavoriteWorkspaceCoordinator {
         const segment = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, descriptor.id)
         for (const item of segment.items ?? []) itemsByAid.set(item.aid, item)
       }
+      const selectableSourceFolders = (this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
+        .filter((folder) => !folder.isBilimiWorkFolder)
+      const selectedSourceFolderIds = new Set(selectableSourceFolders
+        .filter((folder) => folder.selected).map((folder) => folder.id))
+      const selectedAids = [...itemsByAid.values()]
+        .filter((item) => !selectableSourceFolders.length || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId)))
+        .map((item) => item.aid)
+        .sort((left, right) => left - right)
+      if (!selectedAids.length) throw new Error('Old favorite workspace selected plan is empty.')
+      const assignmentsByAid = new Map(selectedAssignments.map((assignment) => [assignment.aid, assignment]))
       const memberAidsByFolderId: Record<string, number[]> = {}
-      for (const assignment of selectedAssignments) {
-        for (const logicalLedgerId of assignment.targetLedgerIds) {
+      for (const aid of selectedAids) {
+        const targets = assignmentsByAid.get(aid)?.targetLedgerIds ?? ['inbox']
+        for (const logicalLedgerId of targets) {
           const folderId = `local:${logicalLedgerId}`
           memberAidsByFolderId[folderId] = [...new Set([
             ...(memberAidsByFolderId[folderId] ?? []),
-            assignment.aid
+            aid
           ])].sort((left, right) => left - right)
         }
       }
@@ -904,8 +913,7 @@ export class OldFavoriteWorkspaceCoordinator {
         payload: {
           workspaceId: workspace.id,
           memberAidsByFolderId,
-          videos: selectedAssignments.flatMap((assignment) => {
-            const aid = assignment.aid
+          videos: selectedAids.flatMap((aid) => {
             if (repository.videos[String(aid)]) return []
             const item = itemsByAid.get(aid)
             return [{
@@ -918,11 +926,11 @@ export class OldFavoriteWorkspaceCoordinator {
           }),
           folders: Object.keys(memberAidsByFolderId).map((folderId) => ({
             id: folderId,
-            title: folderId.slice('local:'.length),
+            title: folderId === 'local:inbox' ? '暂存' : folderId.slice('local:'.length),
             kind: 'local' as const,
             syncState: 'local-only' as const
           })),
-          organizationRecords: selectedAssignments.map((assignment) => ({
+          organizationRecords: selectedAssignments.filter((assignment) => assignment.targetLedgerIds.length).map((assignment) => ({
             accountMid: workspace.accountMid,
             aid: assignment.aid,
             targetFolderIds: assignment.targetLedgerIds.map((logicalLedgerId) => `local:${logicalLedgerId}`),
@@ -945,7 +953,6 @@ export class OldFavoriteWorkspaceCoordinator {
           throw new Error('Old favorite workspace is not ready to freeze.')
         }
         const classifications = await this.loadSelectedClassificationsForFreeze(workspace)
-        await this.assertSelectedPlanFullyClassified(workspace, classifications)
         const recommendations = await this.ensureRecommendations(workspace)
         const recommendationTitles = new Map(recommendations.candidates.map((candidate) => [candidate.id, candidate.displayName]))
         return {
@@ -959,6 +966,7 @@ export class OldFavoriteWorkspaceCoordinator {
         }, {})
       }
     })
+    await this.stageUnclassifiedSelectedVideos(preparation.accountMid)
     if (this.options.bindingService) {
       const snapshot = await this.options.repository.getSnapshot(preparation.accountMid)
       for (const [logicalLedgerId, assignmentAids] of Object.entries(preparation.assignmentAids).sort(([left], [right]) => left.localeCompare(right))) {
@@ -990,7 +998,6 @@ export class OldFavoriteWorkspaceCoordinator {
         throw new Error('Old favorite workspace is not ready to freeze.')
       }
       const classifications = await this.loadSelectedClassificationsForFreeze(workspace)
-      await this.assertSelectedPlanFullyClassified(workspace, classifications)
       const snapshot = await this.options.repository.getSnapshot(workspace.accountMid)
       const boundShards = snapshot.physicalShards.flatMap((shard) => {
         if (shard.bindingState !== 'bound' || !shard.remoteFolderId) return []
@@ -1024,6 +1031,48 @@ export class OldFavoriteWorkspaceCoordinator {
       const persisted = await this.options.repository.getSnapshot(workspace.accountMid)
       if (!persisted.workspace?.frozenSyncPlan) throw new Error('Old favorite workspace frozen plan was not persisted.')
       return clone(persisted.workspace)
+    })
+  }
+
+  /** Writes unresolved videos to the local-only inbox before compiling a remote-only plan. */
+  private async stageUnclassifiedSelectedVideos(accountMid: string) {
+    await this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (workspace.status !== 'previewing') return
+      const selectedAssignments = await this.loadSelectedClassificationsForFreeze(workspace)
+      const classifiedAids = new Set(selectedAssignments.filter((assignment) => assignment.targetLedgerIds.length).map((assignment) => assignment.aid))
+      const overview = this.scanOverviews.get(workspace.accountMid)
+      const selectable = overview?.sourceFolders.filter((folder) => !folder.isBilimiWorkFolder) ?? []
+      const selectedSourceFolderIds = new Set(selectable.filter((folder) => folder.selected).map((folder) => folder.id))
+      const descriptors = this.segmentDescriptors.get(workspace.accountMid) ??
+        workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
+      const items: CurrentSegmentItem[] = []
+      for (const descriptor of descriptors) {
+        const segment = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, descriptor.id)
+        items.push(...(segment.items ?? []))
+      }
+      const unresolved = items.filter((item) =>
+        (!selectable.length || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))) && !classifiedAids.has(item.aid))
+      if (!unresolved.length) return
+      const repository = await this.options.repository.getSnapshot(workspace.accountMid)
+      await this.options.repository.commit(workspace.accountMid, {
+        id: `old-favorite-workspace:stage:${workspace.id}:${randomUUID()}`,
+        accountMid: workspace.accountMid,
+        issuedAt: this.now(),
+        type: 'commit-local-plan',
+        payload: {
+          workspaceId: workspace.id,
+          memberAidsByFolderId: { 'local:inbox': unresolved.map((item) => item.aid).sort((left, right) => left - right) },
+          folders: [{ id: 'local:inbox', title: '暂存', kind: 'local', syncState: 'local-only' }],
+          videos: unresolved.flatMap((item) => repository.videos[String(item.aid)] ? [] : [{
+            aid: item.aid,
+            title: item.title?.trim() || `Video ${item.aid}`,
+            ...(item.author?.trim() ? { author: item.author.trim() } : {}),
+            tags: [...(item.tags ?? [])],
+            updatedAt: this.now()
+          }])
+        }
+      })
     })
   }
 

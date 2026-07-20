@@ -66,7 +66,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('refuses one-confirmation cross-segment execution until every selected aid has a classification', async () => {
+  it('stages unclassified selected aids before refusing an unbound cross-segment remote plan', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -88,7 +88,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       source: 'manual', assignments: Array.from({ length: 2_000 }, (_, index) => ({ aid: index + 1, targetLedgerIds: ['music'] }))
     })
 
-    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('not fully classified')
+    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('remote-target-unbound')
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      memberships: { 'local:inbox': [2_001] }
+    })
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       planReadiness: { selectedAidCount: 2_001, classifiedAidCount: 2_000, unclassifiedAidCount: 1 }
     })
@@ -1091,6 +1094,29 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('stores unclassified selected videos in the local inbox without marking them as organized', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Needs classification', author: 'UP', sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+
+    await expect(coordinator.saveCurrentSegmentToLocalLibrary('100')).resolves.toMatchObject({
+      status: 'completed', completionMode: 'local'
+    })
+    await expect(repository.getFolderPage('100', 'local:inbox', { limit: 10 })).resolves.toMatchObject({
+      items: [expect.objectContaining({ aid: 1, title: 'Needs classification' })]
+    })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      organizationRecords: []
+    })
+  })
+
   it('commits local memberships, protections, and the completed workspace marker together', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -1224,7 +1250,33 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect((await repository.getSnapshot('100')).workspace?.frozenSyncPlan?.operations).toHaveLength(2_001)
   })
 
-  it('keeps multi-segment local-only completion available after workspace recovery', async () => {
+  it('stages unclassified videos locally while freezing only classified videos for Bilibili', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
+    await coordinator.open('100')
+    await coordinator.completeScan('100', { revision: 1, aids: [1, 2] })
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'music', logicalTitle: 'Music', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-music', inventory: [{
+        id: 'remote-music', title: favoriteRepositoryManagedShardTitle('music', 1, 'a1b2c3'), memberCount: 0, memberAids: []
+      }]
+    })
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      status: 'frozen', frozenSyncPlan: { operations: [expect.objectContaining({ aid: 1, folderIds: ['remote-music'] })] }
+    })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      memberships: { 'local:inbox': [2] }
+    })
+    expect((await repository.getSnapshot('100')).workspace?.frozenSyncPlan?.operations).toHaveLength(1)
+  })
+
+  it('stages unclassified recovered segments while completing the local-only round', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const first = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -1235,8 +1287,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     const restored = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
 
-    await expect(restored.saveCurrentSegmentToLocalLibrary('100')).rejects.toThrow('fully classified')
-    await expect(restored.getSnapshot('100')).resolves.toMatchObject({ status: 'previewing', hasMultipleSegments: true })
+    await expect(restored.saveCurrentSegmentToLocalLibrary('100')).resolves.toMatchObject({ status: 'completed', completionMode: 'local' })
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      memberships: { 'local:inbox': [2_001] }
+    })
   })
 
   it('refuses to freeze a Bilibili sync plan for an unbound logical target', async () => {
