@@ -21,6 +21,8 @@ const text = {
   unavailable: '\u6536\u85cf\u5e93\u6682\u4e0d\u53ef\u7528\u3002',
   signIn: '\u8bf7\u5148\u767b\u5f55 B \u7ad9\u8d26\u53f7\u3002',
   cannotRead: '\u6536\u85cf\u5e93\u65e0\u6cd5\u8bfb\u53d6\u3002',
+  unavailableState: '\u6536\u85cf\u5e93\u6682\u65f6\u65e0\u6cd5\u8bfb\u53d6\uff0c\u8bf7\u91cd\u65b0\u52a0\u8f7d\u3002',
+  reload: '\u91cd\u65b0\u52a0\u8f7d\u6536\u85cf\u5e93',
   cannotRefresh: '\u6536\u85cf\u5e93\u65e0\u6cd5\u5237\u65b0\u3002',
   currentPage: '\u6761\u5f53\u524d\u9875',
   version: '\u7248\u672c',
@@ -100,6 +102,7 @@ export function FavoriteLibraryApp() {
   const refresh = useCallback(async (expectedAccountMid?: string) => {
     const refreshId = ++requestIdRef.current
     const api = window.bilimiDesktop
+    setError(undefined)
     try {
       const mid = (await api?.readBilibiliAccountMid?.())?.trim()
       if (!mid) {
@@ -134,7 +137,7 @@ export function FavoriteLibraryApp() {
       setLastSyncRun((current) => current && runs.some((run) => run.id === current.id) ? current : runs[0])
       await load(mid, mid === expectedAccountMid ? scopeRef.current : { kind: 'all' })
     } catch (reason) {
-      if (refreshId === requestIdRef.current) setError(reason instanceof Error ? reason.message : text.cannotRead)
+      if (refreshId === requestIdRef.current) setError(text.unavailableState)
     }
   }, [load])
 
@@ -204,6 +207,10 @@ export function FavoriteLibraryApp() {
           ))}
         </nav>
         <section className="favorite-library__results" aria-label={text.results}>
+          {error && !page && accountMid ? <div className="favorite-library__unavailable" role="status">
+            <strong>{text.unavailableState}</strong>
+            <button type="button" onClick={() => void refresh(accountMid)}>{text.reload}</button>
+          </div> : null}
           <div className="favorite-library__actions">
             <small>{selectedAids.length} {text.selected}</small>
             <button type="button" disabled={!accountMid || !selectedAids.length} onClick={() => void runAction(async () => {

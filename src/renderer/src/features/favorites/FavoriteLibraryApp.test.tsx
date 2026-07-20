@@ -4,6 +4,8 @@ import { FavoriteLibraryApp } from './FavoriteLibraryApp'
 
 const text = {
   library: '\u6536\u85cf\u5e93',
+  cannotRead: '\u6536\u85cf\u5e93\u6682\u65f6\u65e0\u6cd5\u8bfb\u53d6\uff0c\u8bf7\u91cd\u65b0\u52a0\u8f7d\u3002',
+  reload: '\u91cd\u65b0\u52a0\u8f7d\u6536\u85cf\u5e93',
   all: '\u5168\u90e8\u6536\u85cf',
   pending: '\u5f85\u5904\u7406',
   videoList: '\u6536\u85cf\u5e93\u89c6\u9891\u5217\u8868',
@@ -19,6 +21,21 @@ afterEach(() => {
 })
 
 describe('FavoriteLibraryApp', () => {
+  it('renders a recoverable library state when account repository binding fails', async () => {
+    const openAccount = vi.fn().mockRejectedValue(new Error('repository storage unavailable'))
+    window.bilimiDesktop = {
+      readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
+      openFavoriteRepositoryAccount: openAccount
+    } as typeof window.bilimiDesktop
+
+    render(<FavoriteLibraryApp />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(text.cannotRead)
+    expect(screen.getByRole('button', { name: text.reload })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: text.reload }))
+    await waitFor(() => expect(openAccount).toHaveBeenCalledTimes(2))
+  })
+
   it('renders an explicit empty state after an account-scoped repository page returns zero items', async () => {
     window.bilimiDesktop = {
       readBilibiliAccountMid: vi.fn().mockResolvedValue('100'),
