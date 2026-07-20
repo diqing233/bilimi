@@ -18,4 +18,16 @@ describe('OldFavoritePreviewCard', () => {
     expect(article).not.toHaveClass('favorite-ledger-panel__preview-video')
     expect(article.querySelector('.favorite-ledger-panel__preview-video--pending')).toHaveAttribute('data-selected', 'false')
   })
+
+  it('shows scanned Bilibili tags from the authoritative workspace item', () => {
+    render(<OldFavoritePreviewCard
+      item={{ aid: 1, title: 'Tagged video', tags: ['TypeScript', 'Frontend'], sourceFolderIds: ['source'] }}
+      sourceFolderTitles={['Source folder']}
+      ledgers={[]}
+      loading={false}
+      onApplyManualClassification={vi.fn()}
+    />)
+
+    expect(screen.getByText('标签：TypeScript、Frontend')).toBeInTheDocument()
+  })
 })

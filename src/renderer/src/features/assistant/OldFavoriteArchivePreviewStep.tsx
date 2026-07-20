@@ -56,6 +56,24 @@ export function OldFavoriteArchivePreviewStep({
     .map((folder) => folder.id))
   const items = (snapshot.currentSegment?.items ?? []).filter((item) =>
     item.sourceFolderIds.some((folderId) => selectedSourceIds.has(folderId)))
+  const previewGroups = (() => {
+    const unmatched = items.filter((item) => !snapshot.classifications[String(item.aid)]?.targetLedgerIds.length)
+    const classified = new Map<string, typeof items>()
+    for (const item of items) {
+      const targetLedgerId = snapshot.classifications[String(item.aid)]?.targetLedgerIds[0]
+      if (!targetLedgerId) continue
+      const groupId = ledgers.some((ledger) => ledger.id === targetLedgerId) ? targetLedgerId : 'other'
+      classified.set(groupId, [...(classified.get(groupId) ?? []), item])
+    }
+    return [
+      ...(unmatched.length ? [{ id: 'unclassified', title: '未匹配到合适分类', items: unmatched }] : []),
+      ...[...classified.entries()].map(([id, groupedItems]) => ({
+        id,
+        title: id === 'other' ? '其它收藏' : ledgers.find((ledger) => ledger.id === id)?.displayName ?? '其它收藏',
+        items: groupedItems
+      }))
+    ]
+  })()
   const renderItem = (item: typeof items[number]) => <OldFavoritePreviewCard
     item={item}
     sourceFolderTitles={item.sourceFolderIds.map((id) => sourceFolderTitles.get(id)).filter((title): title is string => Boolean(title))}
@@ -112,6 +130,18 @@ export function OldFavoriteArchivePreviewStep({
         <div className="favorite-ledger-panel__archive-tool-divider" aria-hidden="true" />
         <div className="favorite-ledger-panel__archive-history-section" role="group" aria-label="归档预览改动操作">
           <div className="favorite-ledger-panel__archive-history-actions">
+            <label className="favorite-ledger-panel__archive-history-select">
+              <span>改动记录</span>
+              <select aria-label="改动记录" value="current" disabled={loading || snapshot.history.length === 0}
+                onChange={(event) => {
+                  if (event.currentTarget.value === 'undo') onUndo()
+                  if (event.currentTarget.value === 'redo') onRedo()
+                }}>
+                <option value="current">当前：第 {snapshot.history.cursor} / {snapshot.history.length} 次</option>
+                {snapshot.history.cursor > 0 ? <option value="undo">撤销至上一步</option> : null}
+                {snapshot.history.cursor < snapshot.history.length ? <option value="redo">恢复下一步</option> : null}
+              </select>
+            </label>
             <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || items.length === 0} onClick={onAutoClassify}>自动分类当前分段</button>
             <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || snapshot.history.cursor === 0} onClick={onUndo}>撤销本次改动</button>
             <button type="button" className="favorite-ledger-panel__archive-history-button" disabled={loading || snapshot.history.cursor >= snapshot.history.length} onClick={onRedo}>恢复本次改动</button>
@@ -122,9 +152,13 @@ export function OldFavoriteArchivePreviewStep({
       </div>
     </div>
     <div className="favorite-ledger-panel__preview-groups">
-      {items.length > VIRTUAL_TRACK_THRESHOLD ? <VirtualOldFavoriteTrack className="favorite-ledger-panel__preview-videos--virtual" ariaLabel="当前分段归档预览"
-        items={items} itemKey={(item) => String(item.aid)} itemWidth={320} renderItem={renderItem} /> :
-        <ul aria-label="当前分段归档预览">{items.map((item) => <li key={item.aid}>{renderItem(item)}</li>)}</ul>}
+      {previewGroups.map((group) => <section key={group.id} className={`favorite-ledger-panel__preview-row${group.id === 'unclassified' ? ' favorite-ledger-panel__preview-row--pending' : ''}`}
+        data-archive-ledger-id={group.id} role="group" aria-label={`${group.title} ${group.items.length} 条`}>
+        <header><span className="favorite-ledger-panel__preview-heading"><strong>{group.title}</strong><small>{group.items.length} 条{group.id === 'unclassified' ? '需要处理' : '适合'}</small></span></header>
+        {group.items.length > VIRTUAL_TRACK_THRESHOLD ? <VirtualOldFavoriteTrack className="favorite-ledger-panel__preview-videos favorite-ledger-panel__preview-videos--virtual"
+          ariaLabel={`${group.title} 视频`} items={group.items} itemKey={(item) => `${group.id}-${item.aid}`} itemWidth={320} renderItem={renderItem} /> :
+          <div className="favorite-ledger-panel__preview-videos" aria-label={`${group.title} 视频`}>{group.items.map((item) => <div key={`${group.id}-${item.aid}`}>{renderItem(item)}</div>)}</div>}
+      </section>)}
     </div>
     {newLedgerDialogOpen ? <OldFavoriteModal title="新建收藏夹后重新归类"
       confirmLabel="新增并重新归类"

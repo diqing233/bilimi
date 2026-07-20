@@ -1233,11 +1233,11 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     expect(screen.getByRole('group', { name: '归档预览辅助工具' })).toHaveClass('favorite-ledger-panel__archive-tool-card')
     expect(screen.queryByRole('group', { name: '归档工具' })).not.toBeInTheDocument()
-    expect(screen.getByLabelText('当前分段归档预览').parentElement).toHaveClass('favorite-ledger-panel__preview-groups')
+    expect(screen.getByRole('group', { name: '未匹配到合适分类 50 条' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Music 1 条' })).toBeInTheDocument()
     expect(screen.getAllByText('来源：Watch later')).not.toHaveLength(0)
     expect(screen.getByText('分类来源：低置信度自动分类')).toBeInTheDocument()
     expect(screen.getByText('目标收藏夹：Music')).toBeInTheDocument()
-    expect(screen.getByLabelText('当前分段归档预览')).toHaveAttribute('data-virtualized', 'true')
     expect(screen.getByRole('group', { name: '整理分段' })).toBeInTheDocument()
   })
 

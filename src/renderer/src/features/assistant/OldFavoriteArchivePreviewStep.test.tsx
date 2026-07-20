@@ -41,4 +41,31 @@ describe('OldFavoriteArchivePreviewStep', () => {
     fireEvent.click(screen.getByRole('button', { name: '新建收藏夹后重新归类' }))
     expect(screen.getByRole('dialog', { name: '新建收藏夹后重新归类' })).toBeInTheDocument()
   })
+
+  it('restores the legacy change-record entry and groups unmatched and classified videos', () => {
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false, selected: true }],
+        segments: [], currentSegment: {
+          id: 'segment-1', aids: [1, 2], items: [
+            { aid: 1, title: 'Matched', sourceFolderIds: ['source'] },
+            { aid: 2, title: 'Unmatched', sourceFolderIds: ['source'] }
+          ]
+        },
+        classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'system-high' } },
+        recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 1, length: 2 }
+      }}
+      ledgers={[{ id: 'music', displayName: '音乐舞台', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
+      loading={false} deepSeekAvailable={false} deepSeekFeedback={null}
+      onSelectSegment={vi.fn()} onAutoClassify={vi.fn()} onOrganizeWithDeepSeek={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onApplyManualClassification={vi.fn()} onCreateLocalLedgerAndReclassify={vi.fn()}
+    />)
+
+    expect(screen.getByText('改动记录')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '撤销本次改动' })).toBeEnabled()
+    expect(screen.getByRole('group', { name: '未匹配到合适分类 1 条' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: '音乐舞台 1 条' })).toBeInTheDocument()
+  })
 })
