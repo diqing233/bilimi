@@ -81,6 +81,9 @@ describe('old favorite workspace page bridge', () => {
     expect(script).toContain('/x/v3/fav/resource/list')
     expect(script).toContain('"page":2')
     expect(script).toContain('"pageSize":20')
+    expect(script).toContain("url.searchParams.set('platform', 'web')")
+    expect(script).not.toContain("url.searchParams.set('keyword'")
+    expect(script).not.toContain("url.searchParams.set('tid'")
     expect(script).toContain('scan-workspace-source-page')
   })
 
@@ -160,6 +163,17 @@ describe('old favorite workspace page bridge', () => {
 
     expect(execute.mock.calls[0][1]).toContain('account-mismatch')
     expect(execute.mock.calls[0][1]).toContain("normalizeMid(readCookie('DedeUserID')) !== observedAccountMid")
+  })
+
+  it('preserves remote HTTP and Bilibili API codes in the controlled diagnostic reason', async () => {
+    const execute = vi.fn().mockResolvedValue({ status: 'unknown', observedAccountMid: '100', reason: 'remote-api-412-412' })
+    const bridge = createOldFavoriteWorkspacePageBridge({ execute })
+
+    await expect(bridge.run(target, {
+      type: 'read-source-page', accountMid: '100', folderId: '11', page: 1, pageSize: 20
+    })).resolves.toEqual({ status: 'unknown', observedAccountMid: '100', reason: 'remote-api-412-412' })
+
+    expect(execute.mock.calls[0][1]).toContain("'remote-api-' + String(response.status) + '-' + String(json?.code ?? 'no-code')")
   })
 
   it('fails closed when a scan result includes fields outside the lightweight command contract', async () => {

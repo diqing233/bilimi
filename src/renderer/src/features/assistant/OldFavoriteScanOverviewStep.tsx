@@ -10,6 +10,14 @@ type OldFavoriteScanOverviewStepProps = {
   onSelectSourceFolders: (folderIds: string[]) => void
 }
 
+function scanFailureGuidance(reason: string | null | undefined) {
+  const normalized = reason?.trim() ?? ''
+  if (/^(target-unavailable|target-navigated|remote-ambiguous|remote-api-)/.test(normalized)) {
+    return '无法确认当前 B站页面，请保持已登录的 B站页面打开后重新扫描。'
+  }
+  return normalized || '请重新扫描。'
+}
+
 export function OldFavoriteScanOverviewStep({
   snapshot,
   loading,
@@ -36,9 +44,9 @@ export function OldFavoriteScanOverviewStep({
   const scanning = scanStarting || snapshot?.status === 'scanning' || !snapshot
   const sourceSelectionLocked = Boolean(snapshot && !recovery && Object.keys(snapshot.classifications).length > 0)
   const guidance = scanStartFailure
-    ? `扫描启动失败：${scanStartFailure}`
+    ? `扫描启动失败：${scanFailureGuidance(scanStartFailure)}`
     : snapshot?.scan.phase === 'failed'
-      ? `扫描失败：${snapshot.scan.reason || '请重新扫描。'}`
+      ? `扫描失败：${scanFailureGuidance(snapshot.scan.reason)}`
       : scanning
         ? '扫描概览：扫描中'
         : '扫描概览已完成，正在准备归档预览。'

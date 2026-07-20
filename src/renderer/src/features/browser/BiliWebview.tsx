@@ -256,6 +256,15 @@ export function BiliWebview({
         navigationEpoch: navigationEpoch.current
       })
     }
+    // A restored WebView may finish loading before React attaches event listeners.
+    // Probe on the next turn so Electron can expose its guest id without rebinding another tab.
+    const targetStateFallbackTimer = window.setTimeout(() => {
+      try {
+        reportTargetState()
+      } catch {
+        // The normal dom-ready event remains the authoritative path while the guest initializes.
+      }
+    }, 0)
     const installLinkCapture = () => {
       if (!webview.executeJavaScript) {
         return
@@ -360,6 +369,7 @@ export function BiliWebview({
 
     webview.addEventListener('new-window', handleNewWindow)
     webview.addEventListener('dom-ready', reportTargetState)
+    webview.addEventListener('did-finish-load', reportTargetState)
     webview.addEventListener('dom-ready', installLinkCapture)
     webview.addEventListener('did-finish-load', installLinkCapture)
     webview.addEventListener('did-finish-load', scheduleDanmakuWake)
@@ -373,9 +383,11 @@ export function BiliWebview({
     webview.addEventListener('page-title-updated', handleTitleChange)
 
     return () => {
+      window.clearTimeout(targetStateFallbackTimer)
       window.clearTimeout(danmakuWakeTimeout)
       webview.removeEventListener('new-window', handleNewWindow)
       webview.removeEventListener('dom-ready', reportTargetState)
+      webview.removeEventListener('did-finish-load', reportTargetState)
       webview.removeEventListener('dom-ready', installLinkCapture)
       webview.removeEventListener('did-finish-load', installLinkCapture)
       webview.removeEventListener('did-finish-load', scheduleDanmakuWake)

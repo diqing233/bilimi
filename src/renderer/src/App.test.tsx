@@ -155,6 +155,24 @@ describe('App runtime integration', () => {
     })
   })
 
+  it('binds an already loaded active Bilibili page when dom-ready was missed', async () => {
+    const app = renderAppWithRuntimeBridge()
+    const webview = document.querySelector('webview') as Electron.WebviewTag
+    Object.assign(webview, {
+      getWebContentsId: () => 101,
+      executeJavaScript: vi.fn().mockResolvedValue('100')
+    })
+
+    // Electron can finish loading before React attaches its dom-ready listener on app restart.
+    act(() => webview.dispatchEvent(new Event('did-finish-load')))
+
+    await expect(app.requestRuntime({
+      id: 'bind-loaded-target', type: 'old-favorite-workspace-bind-scan-target', accountMid: '100'
+    })).resolves.toMatchObject({
+      status: 'ok', observedAccountMid: '100', target: { webContentsId: 101, navigationEpoch: 0 }
+    })
+  })
+
   it('reports an unavailable bound Bilibili target as unknown without selecting another tab', async () => {
     const app = renderAppWithRuntimeBridge()
 

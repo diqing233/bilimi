@@ -29,6 +29,25 @@ describe('BiliWebview', () => {
     }
   })
 
+  it('reports a guest target that was already ready before its event listeners attached', async () => {
+    const onTargetState = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'getWebContentsId', {
+      configurable: true,
+      value: () => 101
+    })
+
+    try {
+      render(<BiliWebview active tabId="home" url="https://www.bilibili.com" onTargetState={onTargetState} />)
+
+      await vi.waitFor(() => expect(onTargetState).toHaveBeenCalledWith('home', expect.objectContaining({
+        webContentsId: 101,
+        navigationEpoch: 0
+      })))
+    } finally {
+      delete (HTMLElement.prototype as HTMLElement & { getWebContentsId?: () => number }).getWebContentsId
+    }
+  })
+
   it('increments its navigation epoch for same-url main-frame reloads but not subframes', () => {
     const onTargetState = vi.fn()
     render(<BiliWebview active tabId="home" url="https://www.bilibili.com" onTargetState={onTargetState} />)

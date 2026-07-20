@@ -140,7 +140,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
     expect(coordinator.recordScanPage).toHaveBeenNthCalledWith(1, '100', expect.objectContaining({ folderId: 'source-1', page: 1, items: expect.any(Array) }), 'scan-run-1')
     expect(coordinator.recordScanPage).toHaveBeenNthCalledWith(2, '100', expect.objectContaining({ folderId: 'source-1', page: 2, items: [{ aid: 51, title: 'V51', author: 'UP', cover: '', addedAt: 0, sourceFolderIds: ['source-1'] }] }), 'scan-run-1')
     expect(runtime).toHaveBeenLastCalledWith({
-      type: 'old-favorite-workspace-read-source-page', accountMid: '100', target, folderId: 'source-1', page: 2, pageSize: 50
+      type: 'old-favorite-workspace-read-source-page', accountMid: '100', target, folderId: 'source-1', page: 2, pageSize: 20
     })
   })
 

@@ -119,7 +119,7 @@ export class OldFavoriteWorkspaceScanService {
         while (hasMore) {
           const sourcePage = await this.options.requestRuntime({
             type: 'old-favorite-workspace-read-source-page', accountMid, target: binding.target,
-            folderId: folder.id, page, pageSize: 50
+            folderId: folder.id, page, pageSize: 20
           })
           if (!isCurrent()) return
           if (sourcePage.status !== 'ok' || !Array.isArray(sourcePage.items) || typeof sourcePage.hasMore !== 'boolean') {

@@ -187,7 +187,9 @@ function scriptFor(command: OldFavoriteWorkspacePageCommand): string {
       let json;
       try { json = await response.json(); } catch { return { error: 'invalid-response' }; }
       if (normalizeMid(readCookie('DedeUserID')) !== observedAccountMid) return { error: 'account-mismatch' };
-      if (!response.ok || json?.code !== 0) return { error: 'remote-ambiguous' };
+      if (!response.ok || json?.code !== 0) {
+        return { error: 'remote-api-' + String(response.status) + '-' + String(json?.code ?? 'no-code') };
+      }
       return { json };
     };
   `
@@ -224,9 +226,9 @@ function scriptFor(command: OldFavoriteWorkspacePageCommand): string {
     url.searchParams.set('media_id', String(input.folderId).trim());
     url.searchParams.set('pn', String(input.page));
     url.searchParams.set('ps', String(input.pageSize));
-    url.searchParams.set('keyword', '');
     url.searchParams.set('order', 'mtime');
     url.searchParams.set('type', '0');
+    url.searchParams.set('platform', 'web');
     const response = await fetchJson(url.toString());
     if (response.error) return unknown(response.error);
     if (!Array.isArray(response.json?.data?.medias)) return unknown('invalid-source-page-response');
