@@ -98,6 +98,59 @@ describe('account favorite repository contracts', () => {
     expect(result.memberships['local:music']).toEqual([1])
   })
 
+  it('replaces only the Bilibili mirror namespace on a later source scan', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-20T00:00:00.000Z' })
+    const first = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'mirror-1', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1',
+        memberAidsByFolderId: { 'bilibili:old': [1], 'bilibili:keep': [2] },
+        folders: [
+          { id: 'bilibili:old', title: '已删除收藏夹', remoteFolderId: 'old' },
+          { id: 'bilibili:keep', title: '保留收藏夹', remoteFolderId: 'keep' }
+        ],
+        videos: [
+          { aid: 1, title: '过期视频', tags: [], updatedAt: '2026-07-20T00:00:01.000Z' },
+          { aid: 2, title: '保留视频', tags: [], updatedAt: '2026-07-20T00:00:01.000Z' }
+        ]
+      }
+    }, '2026-07-20T00:00:01.000Z')
+
+    const second = applyFavoriteRepositoryCommand(first, {
+      id: 'mirror-2', accountMid: '100', issuedAt: '2026-07-20T00:00:02.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-2', memberAidsByFolderId: { 'bilibili:keep': [2] },
+        folders: [{ id: 'bilibili:keep', title: '保留收藏夹', remoteFolderId: 'keep' }],
+        videos: [{ aid: 2, title: '保留视频', tags: [], updatedAt: '2026-07-20T00:00:02.000Z' }]
+      }
+    }, '2026-07-20T00:00:02.000Z')
+
+    expect(second.folders.map((folder) => folder.id)).toEqual(['bilibili:keep'])
+    expect(second.memberships).toEqual({ 'bilibili:keep': [2] })
+    expect(second.videos).not.toHaveProperty('1')
+  })
+
+  it('keeps rich existing metadata when a sparse Bilibili scan refreshes a video', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-20T00:00:00.000Z' })
+    const rich = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'rich-video', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'upsert-video',
+      payload: { aid: 1, title: '旧标题', author: '原 UP', description: '完整简介', tags: ['音乐'], updatedAt: '2026-07-19T00:00:00.000Z' }
+    }, '2026-07-20T00:00:01.000Z')
+
+    const mirrored = applyFavoriteRepositoryCommand(rich, {
+      id: 'sparse-mirror', accountMid: '100', issuedAt: '2026-07-20T00:00:02.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1', memberAidsByFolderId: { 'bilibili:source': [1] },
+        folders: [{ id: 'bilibili:source', title: '来源', remoteFolderId: 'source' }],
+        videos: [{ aid: 1, title: '扫描标题', tags: [], updatedAt: '2026-07-20T00:00:02.000Z' }]
+      }
+    }, '2026-07-20T00:00:02.000Z')
+
+    expect(mirrored.videos['1']).toEqual({
+      aid: 1, title: '扫描标题', author: '原 UP', description: '完整简介', tags: ['音乐'], updatedAt: '2026-07-19T00:00:00.000Z'
+    })
+  })
+
   it('uses one positive account identity despite leading zeroes', () => {
     const snapshot = createAccountFavoriteRepositorySnapshot({
       accountMid: '00100',

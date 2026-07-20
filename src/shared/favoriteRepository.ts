@@ -538,17 +538,35 @@ export function applyFavoriteRepositoryCommand(
       const membersByFolderId = normalizeFolderMembers(command.payload.memberAidsByFolderId)
       affectedFolderIds = [...membersByFolderId.keys()].sort()
       affectedAids = uniquePositiveAids([...membersByFolderId.values()].flat()).sort((left, right) => left - right)
-      for (const video of command.payload.videos) videos[String(video.aid)] = { ...video, tags: [...video.tags] }
+      const nextMirrorFolderIds = new Set(membersByFolderId.keys())
+      const previousMirrorFolderIds = new Set(folders.filter((folder) => folder.kind === 'bilibili').map((folder) => folder.id))
+      const retiredMirrorFolderIds = [...previousMirrorFolderIds].filter((folderId) => !nextMirrorFolderIds.has(folderId))
+      const retainedMemberships = Object.fromEntries(Object.entries(memberships)
+        .filter(([folderId]) => !previousMirrorFolderIds.has(folderId)))
+      memberships = { ...retainedMemberships, ...Object.fromEntries(membersByFolderId) }
+      const liveAids = new Set(Object.values(memberships).flat())
+      for (const folderId of retiredMirrorFolderIds) {
+        for (const aid of snapshot.memberships[folderId] ?? []) {
+          if (!liveAids.has(aid)) delete videos[String(aid)]
+        }
+      }
+      for (const video of command.payload.videos) {
+        const existing = videos[String(video.aid)]
+        videos[String(video.aid)] = {
+          ...existing,
+          ...video,
+          ...(video.author || !existing?.author ? { author: video.author } : { author: existing.author }),
+          ...(video.description || !existing?.description ? { description: video.description } : { description: existing.description }),
+          tags: video.tags.length ? [...video.tags] : [...(existing?.tags ?? [])],
+          updatedAt: existing?.updatedAt ?? video.updatedAt
+        }
+      }
+      folders = folders.filter((folder) => folder.kind !== 'bilibili')
       for (const folder of command.payload.folders) {
         const id = folder.id.trim()
-        const existing = folders.find((candidate) => candidate.id === id)
         const mirror = { id, title: folder.title.trim(), kind: 'bilibili' as const, remoteFolderId: folder.remoteFolderId!.trim(), syncState: 'bound' as const }
-        if (existing && (existing.kind !== 'bilibili' || existing.remoteFolderId !== mirror.remoteFolderId)) {
-          throw new Error('Favorite repository Bilibili mirror folder is immutable.')
-        }
-        folders = existing ? folders.map((candidate) => candidate === existing ? mirror : candidate) : [...folders, mirror]
+        folders = [...folders, mirror]
       }
-      memberships = { ...memberships, ...Object.fromEntries(membersByFolderId) }
       break
     }
     case 'set-folder-members':
