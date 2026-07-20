@@ -54,7 +54,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     />)
 
     expect(screen.getByRole('heading', { name: '收藏夹' }).closest('.favorite-ledger-panel__ledger-list')).not.toBeNull()
-    expect(screen.getByText(/管理本地收藏夹规则，并在整理完成后保存。/)).toBeInTheDocument()
+    expect(screen.queryByText(/管理本地收藏夹规则，并在整理完成后保存。/)).not.toBeInTheDocument()
   })
 
   it('keeps the legacy 收藏夹 checklist header, help disclosure, chips, and actions', () => {
@@ -97,6 +97,67 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '确认重置' }))
     fireEvent.click(screen.getByRole('button', { name: '同步' }))
     expect(save).toHaveBeenLastCalledWith(expect.any(Array), { deleteDisabled: false })
+  })
+
+  it('keeps the local ledger editor closed until the legacy new-ledger entry is chosen', () => {
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
+      { id: 'music', displayName: 'bilimi:音乐', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }
+    ]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/管理本地收藏夹规则/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/当前有.*个收藏夹规则/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '新建收藏夹' })).toBeInTheDocument()
+  })
+
+  it('opens the full legacy editor only from new ledger, validates names, and saves a normal local draft without reclassifying', () => {
+    const save = vi.fn()
+    const command = vi.fn()
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
+      { id: 'music', displayName: 'bilimi:音乐', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }
+    ]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={save} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹' }))
+    expect(screen.getByRole('region', { name: '当前收藏夹' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '收藏夹种类' })).toHaveTextContent('关键词收藏夹')
+    expect(screen.getByLabelText('册名')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: '关键词' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '取消' })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole('combobox', { name: '收藏夹种类' }), { target: { value: 'deepseek' } })
+    expect(screen.getByRole('textbox', { name: 'DeepSeek约束' })).toBeInTheDocument()
+    expect(screen.getByText(/此类型不参与本地自动分类/)).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('combobox', { name: '收藏夹种类' }), { target: { value: 'keyword' } })
+
+    fireEvent.change(screen.getByLabelText('册名'), { target: { value: '音乐' } })
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('册名'), { target: { value: '一二三四五六七八九十一二三四五六七八九十一' } })
+    expect(screen.getByRole('alert')).toHaveTextContent('最多20个字')
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('册名'), { target: { value: '舞蹈' } })
+    fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: '舞蹈 编舞' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    expect(save).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ displayName: 'bilimi·舞蹈', keywords: ['舞蹈', '编舞'] })
+    ]), { deleteDisabled: false })
+    expect(command).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '舞蹈' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
+  })
+
+  it('cancels a new local ledger editor without leaving a chip behind', () => {
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '新建收藏夹' }))
+    fireEvent.change(screen.getByLabelText('册名'), { target: { value: '舞蹈' } })
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+
+    expect(screen.queryByRole('region', { name: '当前收藏夹' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '舞蹈' })).not.toBeInTheDocument()
   })
 
   it('places the organize and library entries as peers in the shared toolbar', async () => {

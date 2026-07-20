@@ -1,5 +1,6 @@
 import type { FavoriteLedger } from '@shared/types'
 import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
+import { useState } from 'react'
 import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
 import { OldFavoritePreviewCard } from './OldFavoritePreviewCard'
 
@@ -16,6 +17,7 @@ type OldFavoriteArchivePreviewStepProps = {
   onUndo: () => void
   onRedo: () => void
   onApplyManualClassification: (aid: number, targetLedgerIds: string[]) => void
+  onCreateLocalLedgerAndReclassify: (title: string) => void
 }
 
 export function OldFavoriteArchivePreviewStep({
@@ -28,8 +30,10 @@ export function OldFavoriteArchivePreviewStep({
   onOrganizeWithDeepSeek,
   onUndo,
   onRedo,
-  onApplyManualClassification
+  onApplyManualClassification,
+  onCreateLocalLedgerAndReclassify
 }: OldFavoriteArchivePreviewStepProps) {
+  const [newLedgerName, setNewLedgerName] = useState('')
   const sourceFolderTitles = new Map(snapshot.sourceFolders
     .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
     .map((folder) => [folder.id, folder.title]))
@@ -62,6 +66,10 @@ export function OldFavoriteArchivePreviewStep({
       </button>
       <button type="button" disabled={loading || snapshot.history.cursor === 0} onClick={onUndo}>撤销本次改动</button>
       <button type="button" disabled={loading || snapshot.history.cursor >= snapshot.history.length} onClick={onRedo}>恢复本次改动</button>
+    </div>
+    <div className="favorite-ledger-panel__preview-new-ledger">
+      <label>新建收藏夹后重新归类<input aria-label="新增收藏夹名称" value={newLedgerName} onChange={(event) => setNewLedgerName(event.currentTarget.value)} /></label>
+      <button type="button" disabled={loading || !newLedgerName.trim()} onClick={() => { onCreateLocalLedgerAndReclassify(newLedgerName); setNewLedgerName('') }}>新增并重新归类</button>
     </div>
     {items.length > VIRTUAL_TRACK_THRESHOLD ? <VirtualOldFavoriteTrack className="favorite-ledger-panel__preview-videos--virtual" ariaLabel="当前分段归档预览"
       items={items} itemKey={(item) => String(item.aid)} itemWidth={320} renderItem={renderItem} /> :
