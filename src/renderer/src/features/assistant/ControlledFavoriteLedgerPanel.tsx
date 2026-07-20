@@ -33,6 +33,7 @@ export function ControlledFavoriteLedgerPanel({
   const [scanStarting, setScanStarting] = useState(false)
   const [scanStartFailed, setScanStartFailed] = useState(false)
   const scanPresentationRequestVersion = useRef(0)
+  const scanStartingRef = useRef(false)
   const activeAccountMid = useRef(currentAccountMid)
   activeAccountMid.current = currentAccountMid
   const snapshot = workspace.snapshot
@@ -52,14 +53,21 @@ export function ControlledFavoriteLedgerPanel({
         (snapshot?.classifications[String(item.aid)]?.targetLedgerIds.length ?? 0) > 0)
   useEffect(() => {
     scanPresentationRequestVersion.current += 1
+    scanStartingRef.current = false
     setStep('scan')
     setScanStarting(false)
     setScanStartFailed(false)
   }, [currentAccountMid])
 
   useEffect(() => {
-    if (recovery || snapshot?.status === 'scanning') setGuideOpen(true)
-  }, [recovery, snapshot?.status])
+    if (!snapshot || scanStartingRef.current) return
+    setGuideOpen(true)
+    setStep(snapshot.status === 'scanning' || recovery
+      ? 'scan'
+      : snapshot.status === 'previewing'
+        ? 'preview'
+        : 'confirm')
+  }, [recovery, scanStarting, snapshot])
 
   const startScan = async (mode: 'incremental' | 'full') => {
     if (scanStarting || workspace.loading) return
@@ -68,6 +76,7 @@ export function ControlledFavoriteLedgerPanel({
     setGuideOpen(true)
     setStep('scan')
     setScanStartFailed(false)
+    scanStartingRef.current = true
     setScanStarting(true)
     try {
       if (!await workspace.startScan(mode) && scanPresentationRequestVersion.current === requestVersion && activeAccountMid.current === requestedAccountMid) {
@@ -75,6 +84,7 @@ export function ControlledFavoriteLedgerPanel({
       }
     } finally {
       if (scanPresentationRequestVersion.current === requestVersion && activeAccountMid.current === requestedAccountMid) {
+        scanStartingRef.current = false
         setScanStarting(false)
       }
     }

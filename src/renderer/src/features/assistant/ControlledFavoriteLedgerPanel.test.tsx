@@ -255,6 +255,69 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(open).toHaveBeenCalledTimes(2)
   })
 
+  it('restores a persisted preview on remount without starting another scan', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'My source', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+      segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1 }],
+      currentSegment: {
+        id: 'segment-1', index: 0, status: 'previewing' as const,
+        items: [{ aid: 1, title: 'Alpha', author: 'UP', sourceFolderIds: ['source'] }]
+      },
+      classifications: { '1': { targetLedgerIds: [] } }, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    const open = vi.fn().mockResolvedValue(preview)
+    const command = vi.fn()
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    const first = render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    expect(await screen.findByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByRole('heading', { name: '归档预览' })).toBeInTheDocument()
+    expect(command).not.toHaveBeenCalled()
+
+    first.unmount()
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    expect(await screen.findByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByRole('heading', { name: '归档预览' })).toBeInTheDocument()
+    expect(command).not.toHaveBeenCalled()
+    expect(open).toHaveBeenCalledTimes(2)
+  })
+
+  it('restores a persisted frozen snapshot at confirmation on remount', async () => {
+    const frozen = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'frozen' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {},
+      recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn()
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(frozen),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    expect(await screen.findByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '确认执行' })).toHaveAttribute('aria-current', 'step')
+    expect(screen.getByRole('button', { name: '继续同步到 B 站' })).toBeInTheDocument()
+    expect(command).not.toHaveBeenCalled()
+  })
+
   it('uses the controlled full-scan command only after the user explicitly requests full reorganization', async () => {
     const command = vi.fn().mockResolvedValue({
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
@@ -479,7 +542,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     />)
 
     fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
-    expect(await screen.findByText('扫描概览已完成，正在准备归档预览。')).toBeInTheDocument()
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'incremental' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step'))
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
     fireEvent.click(screen.getByRole('checkbox', { name: 'bilimi·UP' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'set-recommended-candidates', candidateIds: ['custom-author-up'] }))
