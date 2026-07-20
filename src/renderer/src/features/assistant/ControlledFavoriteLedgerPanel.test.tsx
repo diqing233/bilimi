@@ -104,6 +104,16 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(within(guide).getByRole('button', { name: '收起整理旧藏说明' })).toHaveAttribute('aria-expanded', 'true')
   })
 
+  it('keeps the legacy folder help arrow in the checklist title row', () => {
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    const help = screen.getByRole('button', { name: '展开收藏夹说明' })
+    expect(help).toHaveClass('favorite-ledger-panel__help-toggle')
+    expect(help.querySelector('.favorite-ledger-panel__help-arrows')).not.toBeNull()
+    expect(help).toHaveTextContent('')
+  })
+
   it('keeps full reorganization inside the old-favorites guide header instead of the panel shell', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
