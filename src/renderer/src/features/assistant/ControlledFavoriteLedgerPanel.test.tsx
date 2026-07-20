@@ -160,6 +160,19 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByRole('button', { name: '舞蹈' })).not.toBeInTheDocument()
   })
 
+  it('persists deletion of a custom ledger through the normal local save path', () => {
+    const save = vi.fn()
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
+      { id: 'music', displayName: 'bilimi·音乐', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }
+    ]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={save} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除' }))
+
+    expect(save).toHaveBeenCalledWith([], { deleteDisabled: false })
+    expect(screen.queryByRole('button', { name: '音乐' })).not.toBeInTheDocument()
+  })
+
   it('places the organize and library entries as peers in the shared toolbar', async () => {
     const openFavoriteLibrary = vi.fn().mockResolvedValue(undefined)
     const command = vi.fn()

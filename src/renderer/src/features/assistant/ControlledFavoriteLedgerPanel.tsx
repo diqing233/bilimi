@@ -125,11 +125,7 @@ export function ControlledFavoriteLedgerPanel({
       <FavoriteLedgerOverview
         ledgers={ledgers}
         missingLedgerIds={missingLedgerIds}
-        onEnsureLedgers={onEnsureLedgers}
         onSaveLedgers={onSaveLedgers}
-        onOpenFavoritePage={onOpenFavoritePage}
-        onCreateLocalLedger={workspace.createLocalLedgerAndReclassify}
-        canCreateLocalLedger={snapshot?.status === 'previewing'}
       />
       {guideOpen && snapshot && !recovery ? <div className="favorite-ledger-panel__guide-entry-actions">
         <button type="button" onClick={() => {
