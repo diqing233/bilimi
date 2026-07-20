@@ -76,7 +76,7 @@ import { FavoriteRepositoryBindingService } from './favoriteRepositoryBindingSer
 import { FavoriteRepositoryRuntimePageBridgeManager } from './favoriteRepositoryRuntimePageBridge'
 import { registerFavoriteRepositoryIpc } from './favoriteRepositoryIpc'
 import { FavoriteLibraryCommandService, registerFavoriteLibraryCommandsIpc } from './favoriteLibraryCommands'
-import { FavoriteLibraryWindowController, installFavoriteLibraryNavigationGuard } from './favoriteLibraryWindow'
+import { FavoriteLibraryWindowController, installFavoriteLibraryNavigationGuardAfterInitialLoad } from './favoriteLibraryWindow'
 import { FavoriteRepositoryRemoteOperationArbiter } from './favoriteRepositoryRemoteOperationArbiter'
 import { BilibiliSessionProxy } from './bilibiliSessionProxy'
 import {
@@ -1174,7 +1174,7 @@ function createFavoriteLibraryWindow() {
     }
   })
 
-  installFavoriteLibraryNavigationGuard(library.webContents)
+  installFavoriteLibraryNavigationGuardAfterInitialLoad(library.webContents)
   library.on('closed', () => favoriteLibraryWindowController.clearIfCurrent(library))
   loadRendererWindow(library, FAVORITE_LIBRARY_QUERY)
   return library

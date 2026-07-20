@@ -6,6 +6,7 @@ type FavoriteLibraryWindow = {
 }
 
 type FavoriteLibraryWebContents = {
+  once?: (event: 'did-finish-load', listener: () => void) => void
   on: (event: 'will-navigate', listener: (event: { preventDefault: () => void }) => void) => void
   setWindowOpenHandler: (handler: () => { action: 'deny' }) => unknown
 }
@@ -14,6 +15,15 @@ type FavoriteLibraryWebContents = {
 export function installFavoriteLibraryNavigationGuard(webContents: FavoriteLibraryWebContents) {
   webContents.on('will-navigate', (event) => event.preventDefault())
   webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+}
+
+/** Lets the local initial route load before denying every subsequent navigation. */
+export function installFavoriteLibraryNavigationGuardAfterInitialLoad(webContents: FavoriteLibraryWebContents) {
+  if (!webContents.once) {
+    installFavoriteLibraryNavigationGuard(webContents)
+    return
+  }
+  webContents.once('did-finish-load', () => installFavoriteLibraryNavigationGuard(webContents))
 }
 
 /** Keeps the library as one disposable window, never as a second data store. */

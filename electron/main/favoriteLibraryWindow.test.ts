@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { FavoriteLibraryWindowController } from './favoriteLibraryWindow'
 import { installFavoriteLibraryNavigationGuard } from './favoriteLibraryWindow'
+import { installFavoriteLibraryNavigationGuardAfterInitialLoad } from './favoriteLibraryWindow'
 
 function createWindow() {
   return {
@@ -56,6 +57,24 @@ describe('FavoriteLibraryWindowController', () => {
     installFavoriteLibraryNavigationGuard(webContents)
     navigationListener?.({ preventDefault })
 
+    expect(preventDefault).toHaveBeenCalledOnce()
+  })
+
+  it('waits for the initial renderer load before blocking later navigation', () => {
+    let initialLoadListener: (() => void) | undefined
+    let navigationListener: ((event: { preventDefault: () => void }) => void) | undefined
+    const webContents = {
+      once: (_event: 'did-finish-load', listener: () => void) => { initialLoadListener = listener },
+      on: (_event: 'will-navigate', listener: (event: { preventDefault: () => void }) => void) => { navigationListener = listener },
+      setWindowOpenHandler: vi.fn()
+    }
+
+    installFavoriteLibraryNavigationGuardAfterInitialLoad(webContents)
+    expect(navigationListener).toBeUndefined()
+
+    initialLoadListener?.()
+    const preventDefault = vi.fn()
+    navigationListener?.({ preventDefault })
     expect(preventDefault).toHaveBeenCalledOnce()
   })
 })
