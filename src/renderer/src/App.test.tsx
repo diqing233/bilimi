@@ -316,6 +316,33 @@ describe('App runtime integration', () => {
     expect(executeJavaScript).not.toHaveBeenCalled()
   })
 
+  it('refreshes the assistant snapshot account from the authoritative desktop cookie reader', async () => {
+    const readBilibiliAccountMid = vi.fn()
+      .mockResolvedValueOnce('100')
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce('200')
+    const { requestRuntime } = renderAppWithRuntimeBridge({ readBilibiliAccountMid })
+
+    await expect(requestRuntime({ id: 'snapshot-login', type: 'snapshot' }))
+      .resolves.toEqual(expect.objectContaining({ accountMid: '100' }))
+    await expect(requestRuntime({ id: 'snapshot-logout', type: 'snapshot' }))
+      .resolves.toEqual(expect.objectContaining({ accountMid: '' }))
+    await expect(requestRuntime({ id: 'snapshot-switch', type: 'snapshot' }))
+      .resolves.toEqual(expect.objectContaining({ accountMid: '200' }))
+    expect(readBilibiliAccountMid).toHaveBeenCalledTimes(3)
+  })
+
+  it('clears a stale snapshot account when the authoritative reader rejects', async () => {
+    const readBilibiliAccountMid = vi.fn()
+      .mockResolvedValueOnce('100')
+      .mockRejectedValueOnce(new Error('cookie unavailable'))
+    const { requestRuntime } = renderAppWithRuntimeBridge({ readBilibiliAccountMid })
+
+    await requestRuntime({ id: 'snapshot-before-reader-failure', type: 'snapshot' })
+    await expect(requestRuntime({ id: 'snapshot-after-reader-failure', type: 'snapshot' }))
+      .resolves.toEqual(expect.objectContaining({ accountMid: '' }))
+  })
+
   it('prefers the active browser tab title when page extraction returns a stale video title', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {

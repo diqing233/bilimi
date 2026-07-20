@@ -1024,6 +1024,7 @@ export default function App() {
         assistantSnapshotCacheRef.current.accountMid = accountMid
         return accountMid
       } catch {
+        assistantSnapshotCacheRef.current.accountMid = ''
         return ''
       }
     }
@@ -1849,6 +1850,7 @@ export default function App() {
     return window.bilimiDesktop.registerAssistantRuntime(async (request: AssistantRuntimeRequest) => {
       switch (request.type) {
         case 'snapshot':
+          if (window.bilimiDesktop?.readBilibiliAccountMid) await readBilibiliAccountMid()
           return createAssistantSnapshot()
         case 'run-action':
           return runAssistantRuntimeAction(request.action, request.options)
