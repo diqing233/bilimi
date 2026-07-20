@@ -189,6 +189,17 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('button', { name: '新建收藏夹' })).toBeInTheDocument()
   })
 
+  it('marks a changed legacy ledger editor as unsaved before it is synchronized', () => {
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
+      { id: 'music', displayName: 'bilimi·音乐', keywords: ['旋律'], ruleType: 'keyword', enabled: true, priority: 0, isDefault: false }
+    ]} missingLedgerIds={[]} onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '音乐' }))
+    expect(screen.queryByText(/未保存/)).not.toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: '旋律 节奏' } })
+    expect(screen.getByText(/未保存/)).toBeInTheDocument()
+  })
+
   it('opens the full legacy editor only from new ledger, validates names, and saves a normal local draft without reclassifying', () => {
     const save = vi.fn()
     const command = vi.fn()
