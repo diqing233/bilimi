@@ -68,6 +68,7 @@ type StoredRecommendation = {
   reason: string
 }
 type RecommendationState = { initialized: boolean; candidates: StoredRecommendation[]; adoptedCandidateIds: string[] }
+type PlanReadiness = { selectedAidCount: number; classifiedAidCount: number }
 
 export type { OldFavoriteWorkspaceRecoveryRequired, OldFavoriteWorkspaceSnapshot }
 
@@ -155,6 +156,7 @@ export class OldFavoriteWorkspaceCoordinator {
   private readonly scanOverviews = new Map<string, ScanOverview>()
   private readonly scanRuns = new Map<string, string>()
   private readonly recommendations = new Map<string, RecommendationState>()
+  private readonly planReadiness = new Map<string, PlanReadiness>()
   private operationTail = Promise.resolve()
 
   constructor(private readonly options: {
@@ -287,14 +289,16 @@ export class OldFavoriteWorkspaceCoordinator {
         ...folder,
         selected: folder.isBilimiWorkFolder ? false : selectedIds.has(folder.id)
       }))
-      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
-        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [],
-        scanMetadata: { sourceFolders: updatedFolders }
-      })
       this.scanOverviews.set(workspace.accountMid, {
         sourceFolders: updatedFolders,
         scan: this.scanOverviews.get(workspace.accountMid)?.scan ?? { phase: 'complete', failureCount: 0, mode: workspace.mode }
       })
+      const readiness = await this.calculatePlanReadiness(workspace)
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [],
+        scanMetadata: { sourceFolders: updatedFolders }, planReadiness: readiness
+      })
+      this.planReadiness.set(workspace.accountMid, readiness)
     })
   }
 
@@ -378,8 +382,9 @@ export class OldFavoriteWorkspaceCoordinator {
         }))
       })
       const recommendations = buildAuthorRecommendations(itemsByAid.values())
+      const readiness = this.calculatePlanReadinessFromItems(completed, itemsByAid.values(), sourceFolders)
       await this.options.workspaceStore.appendOverlay(completed.accountMid, completed.id, {
-        currentSegmentId, classifications: [], history: [], recommendations
+        currentSegmentId, classifications: [], history: [], recommendations, planReadiness: readiness
       })
       const descriptors = completed.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
       await this.appendEvents(completed, currentSegmentId, [{
@@ -393,6 +398,7 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       this.scanRuns.delete(completed.accountMid)
       this.recommendations.set(completed.accountMid, clone(recommendations))
+      this.planReadiness.set(completed.accountMid, readiness)
       this.remember(completed, currentSegmentId, descriptors, new Set())
       this.currentSegmentItems.set(completed.accountMid, completed.segments[0]?.aids.map((aid) => clone(itemsByAid.get(aid) ?? {
         aid, sourceFolderIds: []
@@ -495,6 +501,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const updated = applyWorkspaceClassificationBatch(workspace, options)
       if (updated === workspace) return clone(workspace)
       const entry = updated.history[updated.history.length - 1]
+      const readiness = await this.applyReadinessHistoryChange(workspace, entry, 'forward')
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId,
         classifications: entry.changes.flatMap((change) => change.after ? [{
@@ -506,8 +513,9 @@ export class OldFavoriteWorkspaceCoordinator {
           type: 'classification',
           entry: clone(entry),
           historyCursor: updated.historyCursor
-        })]
+        })], planReadiness: readiness
       })
+      this.planReadiness.set(workspace.accountMid, readiness)
       this.workspaces.set(updated.accountMid, updated)
       return clone(updated)
     })
@@ -552,6 +560,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const updated = applyWorkspaceClassificationBatch(workspace, { source: 'deepseek', assignments })
       if (updated === workspace) return clone(workspace)
       const entry = updated.history[updated.history.length - 1]
+      const readiness = await this.applyReadinessHistoryChange(workspace, entry, 'forward')
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId,
         classifications: entry.changes.flatMap((change) => change.after ? [{
@@ -561,8 +570,9 @@ export class OldFavoriteWorkspaceCoordinator {
         }] : []),
         history: [encodeJournalEvent({
           type: 'classification', entry: clone(entry), historyCursor: updated.historyCursor
-        })]
+        })], planReadiness: readiness
       })
+      this.planReadiness.set(workspace.accountMid, readiness)
       this.workspaces.set(updated.accountMid, updated)
       return clone(updated)
     })
@@ -613,13 +623,16 @@ export class OldFavoriteWorkspaceCoordinator {
       const next = applyWorkspaceClassificationBatch(updated, { source, assignments, replaceExistingSystem: replaceSystem })
       if (next === updated) continue
       const entry = next.history[next.history.length - 1]
+      const readiness = await this.applyReadinessHistoryChange(updated, entry, 'forward')
       await this.options.workspaceStore.appendOverlay(updated.accountMid, updated.id, {
         currentSegmentId,
         classifications: entry.changes.flatMap((change) => change.after ? [{
           aid: change.after.aid, targetLedgerIds: [...change.after.targetLedgerIds], source: change.after.source
         }] : []),
-        history: [encodeJournalEvent({ type: 'classification', entry: clone(entry), historyCursor: next.historyCursor })]
+        history: [encodeJournalEvent({ type: 'classification', entry: clone(entry), historyCursor: next.historyCursor })],
+        planReadiness: readiness
       })
+      this.planReadiness.set(updated.accountMid, readiness)
       updated = next
     }
     this.workspaces.set(updated.accountMid, updated)
@@ -631,9 +644,10 @@ export class OldFavoriteWorkspaceCoordinator {
       const workspace = await this.requireWorkspace(accountMid)
       const updated = undoWorkspaceChange(workspace)
       if (updated === workspace) return clone(workspace)
+      const readiness = await this.applyReadinessHistoryChange(workspace, workspace.history[workspace.historyCursor - 1], 'undo')
       await this.appendEvents(updated, this.currentSegment(workspace), [{
         type: 'history-cursor', historyCursor: updated.historyCursor
-      }])
+      }], readiness)
       this.workspaces.set(updated.accountMid, updated)
       return clone(updated)
     })
@@ -644,9 +658,10 @@ export class OldFavoriteWorkspaceCoordinator {
       const workspace = await this.requireWorkspace(accountMid)
       const updated = redoWorkspaceChange(workspace)
       if (updated === workspace) return clone(workspace)
+      const readiness = await this.applyReadinessHistoryChange(workspace, workspace.history[workspace.historyCursor], 'forward')
       await this.appendEvents(updated, this.currentSegment(workspace), [{
         type: 'history-cursor', historyCursor: updated.historyCursor
-      }])
+      }], readiness)
       this.workspaces.set(updated.accountMid, updated)
       return clone(updated)
     })
@@ -1048,6 +1063,7 @@ export class OldFavoriteWorkspaceCoordinator {
       scan: { phase: 'complete', failureCount: 0, mode: scan.mode }
     })
     this.recommendations.set(marker.accountMid, clone(recovered.recommendations))
+    this.planReadiness.set(marker.accountMid, clone(recovered.planReadiness))
     this.remember(workspace, recovered.currentSegmentId, scan.segments, frozenIds)
     return clone(workspace)
   }
@@ -1061,12 +1077,75 @@ export class OldFavoriteWorkspaceCoordinator {
     return opened
   }
 
-  private async appendEvents(workspace: OldFavoriteWorkspace, currentSegmentId: string, events: WorkspaceJournalEvent[]) {
+  private async appendEvents(
+    workspace: OldFavoriteWorkspace,
+    currentSegmentId: string,
+    events: WorkspaceJournalEvent[],
+    planReadiness?: PlanReadiness
+  ) {
     await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
       currentSegmentId,
       classifications: [],
-      history: events.map(encodeJournalEvent)
+      history: events.map(encodeJournalEvent),
+      ...(planReadiness ? { planReadiness } : {})
     })
+    if (planReadiness) this.planReadiness.set(workspace.accountMid, planReadiness)
+  }
+
+  private async calculatePlanReadiness(workspace: OldFavoriteWorkspace): Promise<PlanReadiness> {
+    const overview = this.scanOverviews.get(workspace.accountMid)
+    if (!overview) return { selectedAidCount: 0, classifiedAidCount: 0 }
+    const selectedSourceFolderIds = new Set(overview.sourceFolders
+      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected)
+      .map((folder) => folder.id))
+    if (!selectedSourceFolderIds.size) return { selectedAidCount: 0, classifiedAidCount: 0 }
+    const descriptors = this.segmentDescriptors.get(workspace.accountMid) ??
+      workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
+    let selectedAidCount = 0
+    for (const descriptor of descriptors) {
+      const segment = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, descriptor.id)
+      selectedAidCount += (segment.items ?? []).filter((item) =>
+        item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))).length
+    }
+    const classifiedAidCount = new Set((await this.loadSelectedClassificationsForFreeze(workspace))
+      .filter((classification) => classification.targetLedgerIds.length)
+      .map((classification) => classification.aid)).size
+    return { selectedAidCount, classifiedAidCount: Math.min(selectedAidCount, classifiedAidCount) }
+  }
+
+  private calculatePlanReadinessFromItems(
+    _workspace: OldFavoriteWorkspace,
+    items: Iterable<CurrentSegmentItem>,
+    sourceFolders: ScanOverview['sourceFolders']
+  ): PlanReadiness {
+    const selectedSourceFolderIds = new Set(sourceFolders
+      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected)
+      .map((folder) => folder.id))
+    const selectedAidCount = [...items].filter((item) =>
+      item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))).length
+    return { selectedAidCount, classifiedAidCount: 0 }
+  }
+
+  private async applyReadinessHistoryChange(
+    workspace: OldFavoriteWorkspace,
+    entry: OldFavoriteWorkspaceHistoryEntry | undefined,
+    direction: 'forward' | 'undo'
+  ): Promise<PlanReadiness> {
+    const current = this.planReadiness.get(workspace.accountMid) ?? await this.calculatePlanReadiness(workspace)
+    if (!entry) return current
+    const selectedSourceFolderIds = new Set((this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
+      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected).map((folder) => folder.id))
+    const currentItems = this.currentSegmentItems.get(workspace.accountMid) ?? await this.loadCurrentSegmentItems(workspace)
+    const selectedAids = new Set(currentItems.filter((item) => item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId))).map((item) => item.aid))
+    let classifiedAidCount = current.classifiedAidCount
+    for (const change of entry.changes) {
+      if (!selectedAids.has(change.aid)) continue
+      const before = (direction === 'forward' ? change.before : change.after)?.targetLedgerIds.length ?? 0
+      const after = (direction === 'forward' ? change.after : change.before)?.targetLedgerIds.length ?? 0
+      if (!before && after) classifiedAidCount += 1
+      if (before && !after) classifiedAidCount -= 1
+    }
+    return { selectedAidCount: current.selectedAidCount, classifiedAidCount: Math.max(0, Math.min(current.selectedAidCount, classifiedAidCount)) }
   }
 
   private async assertAssignmentsUseSelectedSources(
@@ -1303,6 +1382,10 @@ export class OldFavoriteWorkspaceCoordinator {
         candidates: (this.recommendations.get(workspace.accountMid)?.candidates ?? []).map(({ sourceName: _sourceName, keywords: _keywords, ...candidate }) => clone(candidate)),
         adoptedCandidateIds: [...(this.recommendations.get(workspace.accountMid)?.adoptedCandidateIds ?? [])]
       },
+      planReadiness: (() => {
+        const readiness = this.planReadiness.get(workspace.accountMid) ?? { selectedAidCount: 0, classifiedAidCount: 0 }
+        return { ...readiness, unclassifiedAidCount: readiness.selectedAidCount - readiness.classifiedAidCount }
+      })(),
       history: { cursor: workspace.historyCursor, length: workspace.history.length },
       ...(workspace.completionMode ? { completionMode: workspace.completionMode } : {})
     }

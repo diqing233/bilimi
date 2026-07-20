@@ -59,6 +59,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('not fully classified')
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      planReadiness: { selectedAidCount: 2_001, classifiedAidCount: 2_000, unclassifiedAidCount: 1 }
+    })
   })
 
   it('persists a scanning inventory overview, including empty Bilimi work folders, for restart recovery', async () => {

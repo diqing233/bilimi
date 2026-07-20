@@ -8795,8 +8795,13 @@ export function FavoriteLedgerPanel({
         item.sourceFolderIds.some((folderId) => controlledSelectedSourceIds.has(folderId))
       )
     : []
-  const controlledBilibiliFreezeReady = controlledPreviewItems.length > 0 &&
-    controlledPreviewItems.every((item) => (controlledScanSnapshot?.classifications[String(item.aid)]?.targetLedgerIds.length ?? 0) > 0)
+  const controlledPlanReadiness = controlledScanSnapshot && !('recovery' in controlledScanSnapshot)
+    ? controlledScanSnapshot.planReadiness
+    : undefined
+  const controlledBilibiliFreezeReady = controlledPlanReadiness
+    ? controlledPlanReadiness.selectedAidCount > 0 && controlledPlanReadiness.unclassifiedAidCount === 0
+    : controlledPreviewItems.length > 0 && controlledPreviewItems.every((item) =>
+      (controlledScanSnapshot?.classifications[String(item.aid)]?.targetLedgerIds.length ?? 0) > 0)
   const renderControlledPreviewItem = (item: typeof controlledPreviewItems[number]) => {
     const title = item.title?.trim() || `视频 ${item.aid}`
     const targetLedgerId = controlledScanSnapshot?.classifications[String(item.aid)]?.targetLedgerIds[0] ?? ''
@@ -10260,7 +10265,9 @@ export function FavoriteLedgerPanel({
               ) : (
                 <>
                   <p>可直接同步到 B 站，或仅保存到本地收藏库；两种方式都会冻结当前分类结果。</p>
-                  {!controlledBilibiliFreezeReady ? <p className="favorite-ledger-panel__confirm-warning" role="alert">请先为当前分段的每条视频选择归类。</p> : null}
+                  {!controlledBilibiliFreezeReady ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{controlledPlanReadiness?.unclassifiedAidCount
+                    ? `还需完成 ${controlledPlanReadiness.unclassifiedAidCount} 条（跨所有分段）。`
+                    : '请先为当前分段的每条视频选择归类。'}</p> : null}
                   <div className="favorite-ledger-panel__confirm-actions">
                     <button
                       type="button"

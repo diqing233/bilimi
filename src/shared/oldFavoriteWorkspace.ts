@@ -102,6 +102,11 @@ export type OldFavoriteWorkspaceSnapshot = {
     candidates: OldFavoriteWorkspaceRecommendationCandidate[]
     adoptedCandidateIds: string[]
   }
+  planReadiness?: {
+    selectedAidCount: number
+    classifiedAidCount: number
+    unclassifiedAidCount: number
+  }
   history: { cursor: number; length: number }
   completionMode?: 'bilibili' | 'local'
 }

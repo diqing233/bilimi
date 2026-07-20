@@ -44,6 +44,7 @@ type Overlay = {
     candidates?: Recommendation[]
     adoptedCandidateIds?: string[]
   }
+  planReadiness?: { selectedAidCount: number; classifiedAidCount: number }
   scanMetadata?: {
     sourceFolders?: SourceFolder[]
     phase?: 'inventory' | 'failed' | 'complete'
@@ -304,6 +305,7 @@ export class OldFavoriteWorkspaceStore {
         initialized: false, candidates: [], adoptedCandidateIds: []
       }
       let scan = clone(manifest.scan ?? { phase: 'inventory' as const, failureCount: 0, mode: 'incremental' as const })
+      let planReadiness = { selectedAidCount: 0, classifiedAidCount: 0 }
       for (const line of committedJournal.split('\n').filter(Boolean)) {
         const overlay = JSON.parse(line) as Overlay
         for (const item of overlay.classifications) classifications[String(item.aid)] = clone(item)
@@ -315,6 +317,7 @@ export class OldFavoriteWorkspaceStore {
         if (overlay.recommendations?.adoptedCandidateIds) {
           recommendations.adoptedCandidateIds = [...new Set(overlay.recommendations.adoptedCandidateIds)]
         }
+        if (overlay.planReadiness) planReadiness = clone(overlay.planReadiness)
         if (overlay.scanMetadata?.sourceFolders) sourceFolders = overlay.scanMetadata.sourceFolders.map(clone)
         if (overlay.scanMetadata?.phase) {
           scan = {
@@ -334,7 +337,7 @@ export class OldFavoriteWorkspaceStore {
         loadedSegmentItems: (loadedSegment.items ?? []).map(clone),
         sourceFolders,
         scan,
-        classifications, history, recommendations
+        classifications, history, recommendations, planReadiness
       }
     } catch {
       return { recovery: 'rebuild-required', preserveCompletedLocalResults: true }
