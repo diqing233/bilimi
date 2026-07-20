@@ -15,7 +15,7 @@ import {
   type OldFavoriteWorkspaceSnapshot
 } from '../../src/shared/oldFavoriteWorkspace'
 import type { FavoriteRepositoryWorkspace } from '../../src/shared/favoriteRepository'
-import { BILIMI_LEDGER_PREFIX } from '../../src/shared/favoriteLedgers'
+import { BILIMI_LEDGER_PREFIX, createDefaultFavoriteLedgers } from '../../src/shared/favoriteLedgers'
 import type { FavoriteLedger } from '../../src/shared/types'
 import { compileFrozenFavoriteSyncPlan } from '../../src/shared/favoriteRepositoryExecutionPlan'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
@@ -231,6 +231,7 @@ export class OldFavoriteWorkspaceCoordinator {
     classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
     saveRecommendedLedgers?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
     removeRecommendedLedgers?: (accountMid: string, ledgerIds: string[]) => Promise<void>
+    resolveLedgerTitle?: (accountMid: string, logicalLedgerId: string) => Promise<string | undefined>
     now?: () => string
   }) {}
 
@@ -241,7 +242,7 @@ export class OldFavoriteWorkspaceCoordinator {
   async getSnapshot(accountMid: string): Promise<OldFavoriteWorkspaceSnapshot | OldFavoriteWorkspaceRecoveryRequired> {
     return this.queue(async () => {
       const workspace = await this.openUnsafe(accountMid)
-      return isRecoveryRequired(workspace) ? workspace : this.createSnapshot(workspace)
+      return isRecoveryRequired(workspace) ? workspace : await this.createSnapshotWithExecutionProgress(workspace)
     })
   }
 
@@ -853,7 +854,6 @@ export class OldFavoriteWorkspaceCoordinator {
       const assignments = proposed
         .filter(({ proposal }) => proposal.confidence === (source === 'system-high' ? 'high' : 'low'))
         .map(({ aid, proposal }) => ({ aid, targetLedgerIds: proposal.targetLedgerIds.slice(0, 1) }))
-        .filter((assignment) => assignment.targetLedgerIds.length > 0)
       if (!assignments.length) continue
       const next = applyWorkspaceClassificationBatch(updated, { source, assignments, replaceExistingSystem: replaceSystem })
       if (next === updated) continue
@@ -1012,21 +1012,34 @@ export class OldFavoriteWorkspaceCoordinator {
         const classifications = await this.loadSelectedClassificationsForFreeze(workspace)
         const recommendations = await this.ensureRecommendations(workspace)
         const recommendationTitles = new Map(recommendations.candidates.map((candidate) => [candidate.id, candidate.displayName]))
-        return {
-          accountMid: workspace.accountMid,
-          recommendationTitles,
-          assignmentAids: classifications.reduce<Record<string, number[]>>((aidsByLedger, classification) => {
+        const assignmentAids = classifications.reduce<Record<string, number[]>>((aidsByLedger, classification) => {
           for (const logicalLedgerId of classification.targetLedgerIds.map((id) => id.trim()).filter((id) => id && id !== 'inbox')) {
             aidsByLedger[logicalLedgerId] = [...new Set([...(aidsByLedger[logicalLedgerId] ?? []), classification.aid])]
           }
           return aidsByLedger
         }, {})
+        const repositorySnapshot = await this.options.repository.getSnapshot(workspace.accountMid)
+        const boundTitles = new Map(repositorySnapshot.folders
+          .filter((folder) => folder.kind === 'bilimi-logical' && folder.logicalLedgerId)
+          .map((folder) => [folder.logicalLedgerId!, folder.title]))
+        const defaultTitles = new Map(createDefaultFavoriteLedgers().map((ledger) => [ledger.id, ledger.displayName]))
+        const logicalTitles = new Map(await Promise.all(Object.keys(assignmentAids).map(async (logicalLedgerId) => [
+          logicalLedgerId,
+          boundTitles.get(logicalLedgerId) ?? recommendationTitles.get(logicalLedgerId) ??
+            await this.options.resolveLedgerTitle?.(workspace.accountMid, logicalLedgerId) ?? defaultTitles.get(logicalLedgerId)
+        ] as const)))
+        return {
+          accountMid: workspace.accountMid,
+          logicalTitles,
+          assignmentAids
       }
     })
     await this.stageUnclassifiedSelectedVideos(preparation.accountMid)
     if (this.options.bindingService) {
       const snapshot = await this.options.repository.getSnapshot(preparation.accountMid)
       for (const [logicalLedgerId, assignmentAids] of Object.entries(preparation.assignmentAids).sort(([left], [right]) => left.localeCompare(right))) {
+        const logicalTitle = preparation.logicalTitles.get(logicalLedgerId)
+        if (!logicalTitle) throw new Error('Old favorite workspace target title is unavailable.')
         const existing = snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logicalLedgerId)
         const existingMemberAids = new Set(existing.flatMap((shard) => snapshot.memberships[shard.folderId] ?? []))
         const newAssignmentCount = assignmentAids.filter((aid) => !existingMemberAids.has(aid)).length
@@ -1039,10 +1052,8 @@ export class OldFavoriteWorkspaceCoordinator {
         for (let offset = 0; offset < shardCount; offset += 1) {
           await this.options.bindingService.ensurePhysicalShard(preparation.accountMid, {
             logicalLedgerId,
-            logicalTitle: preparation.recommendationTitles.get(logicalLedgerId) ?? logicalLedgerId,
-            ...(preparation.recommendationTitles.has(logicalLedgerId)
-              ? { remoteDisplayTitle: preparation.recommendationTitles.get(logicalLedgerId)! }
-              : {}),
+            logicalTitle,
+            remoteDisplayTitle: logicalTitle,
             shardNumber: nextShardNumber + offset,
             memberAids: []
           })
@@ -1715,6 +1726,26 @@ export class OldFavoriteWorkspaceCoordinator {
         })).reverse()
       },
       ...(workspace.completionMode ? { completionMode: workspace.completionMode } : {})
+    }
+  }
+
+  private async createSnapshotWithExecutionProgress(workspace: OldFavoriteWorkspace): Promise<OldFavoriteWorkspaceSnapshot> {
+    const snapshot = this.createSnapshot(workspace)
+    if (workspace.status !== 'executing' || !this.options.syncService) return snapshot
+    try {
+      const persisted = await this.options.repository.getSnapshot(workspace.accountMid)
+      const plan = persisted.workspace?.frozenSyncPlan
+      if (!plan || persisted.workspace?.status !== 'executing') return snapshot
+      const run = await this.options.syncService.getRun(workspace.accountMid, plan.id)
+      return {
+        ...snapshot,
+        executionProgress: {
+          completedOperationCount: run.completedOperationCount,
+          totalOperationCount: run.totalOperationCount
+        }
+      }
+    } catch {
+      return snapshot
     }
   }
 

@@ -7,6 +7,7 @@ import { FavoriteRepositoryBindingService, favoriteRepositoryManagedShardTitle }
 import { FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
 import { OldFavoriteWorkspaceCoordinator } from './oldFavoriteWorkspaceCoordinator'
 import { OldFavoriteWorkspaceStore } from './oldFavoriteWorkspaceStore'
+import { createOldFavoriteWorkspace } from '../../src/shared/oldFavoriteWorkspace'
 
 const roots: string[] = []
 
@@ -519,14 +520,15 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
   it('persists whole-round author recommendations and reapplies only system classifications when adoption changes', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const bindings = new FavoriteRepositoryBindingService({ repository, newBindingToken: () => 'a1b2c3' })
     const classifyCurrentItem = vi.fn((item: { author?: string }, recommendedLedgers: Array<{ id: string }> = []) => {
       const authorLedger = recommendedLedgers.find((ledger) => ledger.id === 'custom-author-up-alpha')
       return authorLedger && item.author === 'UP Alpha'
         ? { targetLedgerIds: [authorLedger.id], confidence: 'high' as const }
-        : { targetLedgerIds: ['music'], confidence: 'high' as const }
+        : { targetLedgerIds: [], confidence: 'low' as const }
     })
     const coordinator = new OldFavoriteWorkspaceCoordinator({
-      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), classifyCurrentItem,
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), bindingService: bindings, classifyCurrentItem,
       now: () => '2026-07-20T00:00:00.000Z'
     })
     await coordinator.open('100')
@@ -578,10 +580,21 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       recommendations: { adoptedCandidateIds: [] },
       classifications: {
-        '1': { targetLedgerIds: ['music'], source: 'system-high' },
+        '1': { targetLedgerIds: [], source: 'system-low' },
         '2': { targetLedgerIds: ['manual'], source: 'manual' }
       }
     })
+
+    await bindings.preparePhysicalShard('100', {
+      logicalLedgerId: 'manual', logicalTitle: 'bilimi·人工调整', shardNumber: 1, memberAids: [], observedAccountMid: '100',
+      remoteFolderId: 'remote-manual', inventory: [{
+        id: 'remote-manual', title: favoriteRepositoryManagedShardTitle('manual', 1, 'a1b2c3'), memberCount: 0, memberAids: []
+      }]
+    })
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      frozenSyncPlan: { operations: [{ aid: 2, folderIds: ['remote-manual'] }] }
+    })
+    expect((await repository.getSnapshot('100')).workspace?.frozenSyncPlan?.operations).toHaveLength(1)
   })
 
   it('creates bounded high-frequency tag recommendations from scanned tag metadata', async () => {
@@ -1393,7 +1406,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('remote-target-unbound')
     expect(ensurePhysicalShard).toHaveBeenCalledWith('100', {
-      logicalLedgerId: 'music', logicalTitle: 'music', shardNumber: 1, memberAids: []
+      logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐舞台', remoteDisplayTitle: 'bilimi·音乐舞台', shardNumber: 1, memberAids: []
     })
   })
 
@@ -1632,6 +1645,39 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     ])).resolves.toMatchObject({ accountMid: '100' })
     waiting.resolve({ id: 'run-1', status: 'running' })
     await executing
+  })
+
+  it('projects execution progress from the durable frozen plan instead of an in-memory workspace copy', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root })
+    const getRun = vi.fn().mockResolvedValue({
+      id: 'run-1', status: 'running', completedOperationCount: 3, totalOperationCount: 8
+    })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }), syncService: {
+        claimFrozenPlan: vi.fn(), executeFrozenPlan: vi.fn(), bindPageTarget: vi.fn(), reconcile: vi.fn(), resume: vi.fn(), getRun
+      }
+    })
+    const executing = {
+      ...createOldFavoriteWorkspace({ accountMid: '100', now: '2026-07-20T00:00:00.000Z' }),
+      status: 'executing' as const
+    }
+    vi.spyOn(coordinator as unknown as { openUnsafe: (accountMid: string) => Promise<typeof executing> }, 'openUnsafe')
+      .mockResolvedValue(executing)
+    await repository.commit('100', {
+      id: 'executing', accountMid: '100', issuedAt: '2026-07-20T00:00:00.000Z', type: 'set-workspace', payload: {
+        id: executing.id, accountMid: '100', status: 'executing', baselineRevision: 0, continuationAids: [],
+        workspaceRef: { workspaceId: executing.id, accountMid: '100', status: 'executing', baselineRevision: 0,
+          currentSegmentId: '', overlayRevision: 0, journalCursor: 0, checksum: 'a'.repeat(64) },
+        frozenSyncPlan: { id: 'run-1', accountMid: '100', workspaceId: executing.id, baselineRevision: 0,
+          createdAt: '2026-07-20T00:00:00.000Z', operations: [] }
+      }
+    })
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      executionProgress: { completedOperationCount: 3, totalOperationCount: 8 }
+    })
+    expect(getRun).toHaveBeenCalledWith('100', 'run-1')
   })
 
   it('requires an explicit page bind before reconciling an unknown frozen run', async () => {

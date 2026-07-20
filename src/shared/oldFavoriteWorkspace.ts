@@ -113,6 +113,10 @@ export type OldFavoriteWorkspaceSnapshot = {
     classifiedAidCount: number
     unclassifiedAidCount: number
   }
+  executionProgress?: {
+    completedOperationCount: number
+    totalOperationCount: number
+  }
   history: {
     cursor: number
     length: number

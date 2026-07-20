@@ -41,11 +41,14 @@ export function OldFavoriteConfirmationStep({
   }
 
   if (snapshot.status === 'executing') {
+    const completed = snapshot.executionProgress?.completedOperationCount ?? 0
+    const total = snapshot.executionProgress?.totalOperationCount ?? 0
     return <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
       <h4>确认执行</h4>
       <div className="favorite-ledger-panel__old-favorite-progress" role="status">
         <p>正在同步到 B 站，主进程会持续更新执行结果。</p>
-        <progress aria-label="正在同步到 B 站" />
+        {total > 0 ? <p>已完成 {completed} / {total} 条</p> : null}
+        <progress aria-label="正在同步到 B 站" value={completed} max={Math.max(total, 1)} />
       </div>
     </section>
   }
