@@ -180,6 +180,7 @@ export class OldFavoriteWorkspaceCoordinator {
   private readonly frozenSegments = new Map<string, Set<string>>()
   private readonly scanOverviews = new Map<string, ScanOverview>()
   private readonly scanRuns = new Map<string, string>()
+  private readonly scannedAids = new Map<string, Set<number>>()
   private readonly recommendations = new Map<string, RecommendationState>()
   private readonly planReadiness = new Map<string, PlanReadiness>()
   private operationTail = Promise.resolve()
@@ -260,6 +261,7 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       await this.options.workspaceStore.startScanRun(workspace.accountMid, workspace.id, scanRunId)
       this.scanRuns.set(workspace.accountMid, scanRunId)
+      this.scannedAids.set(workspace.accountMid, new Set())
       this.workspaces.set(updated.accountMid, updated)
       return this.createSnapshot(updated)
     })
@@ -314,8 +316,15 @@ export class OldFavoriteWorkspaceCoordinator {
       await this.options.workspaceStore.appendScanPage(workspace.accountMid, workspace.id, { ...input, runId })
       const overview = this.scanOverviews.get(workspace.accountMid)
       if (overview) {
-        const scannedItemCount = await this.options.workspaceStore.readScanPages(workspace.accountMid, workspace.id)
-          .then((pages) => new Set(pages.flatMap((page) => page.items.map((item) => item.aid))).size)
+        let scannedAids = this.scannedAids.get(workspace.accountMid)
+        if (!scannedAids) {
+          scannedAids = new Set((await this.options.workspaceStore.readScanPages(workspace.accountMid, workspace.id))
+            .flatMap((page) => page.items.map((item) => item.aid)))
+          this.scannedAids.set(workspace.accountMid, scannedAids)
+        } else {
+          for (const item of input.items) scannedAids.add(item.aid)
+        }
+        const scannedItemCount = scannedAids.size
         const scan = { ...overview.scan, scannedItemCount }
         await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
           currentSegmentId: '', classifications: [], history: [], scanMetadata: { ...scan }
@@ -558,6 +567,7 @@ export class OldFavoriteWorkspaceCoordinator {
         scan: { phase: 'complete', failureCount: 0, mode: completed.mode }
       })
       this.scanRuns.delete(completed.accountMid)
+      this.scannedAids.delete(completed.accountMid)
       this.recommendations.set(completed.accountMid, clone(recommendations))
       this.planReadiness.set(completed.accountMid, readiness)
       this.remember(completed, currentSegmentId, descriptors, new Set())
@@ -1133,7 +1143,8 @@ export class OldFavoriteWorkspaceCoordinator {
     await this.persistMarker(workspace)
     this.currentSegmentItems.delete(account)
     this.scanOverviews.delete(account)
-    this.scanRuns.delete(account)
+      this.scanRuns.delete(account)
+      this.scannedAids.delete(account)
     this.remember(workspace, '', [], new Set())
     return mode ? { ...workspace, mode } : workspace
   }

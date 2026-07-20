@@ -116,6 +116,14 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       scan: { phase: 'inventory', totalItemCount: 3, scannedItemCount: 1 }
     })
 
+    await first.recordScanPage('100', {
+      folderId: 'source', page: 2,
+      items: [{ aid: 1, title: 'Duplicated source item', sourceFolderIds: ['source'] }]
+    })
+    await expect(first.getSnapshot('100')).resolves.toMatchObject({
+      scan: { totalItemCount: 3, scannedItemCount: 1 }
+    })
+
     await expect(createCoordinator(
       new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' }),
       new OldFavoriteWorkspaceStore({ root })
