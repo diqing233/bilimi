@@ -1,5 +1,5 @@
 import type { FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
 import { useOldFavoriteWorkspace } from './useOldFavoriteWorkspace'
 
@@ -37,6 +37,7 @@ export function ControlledFavoriteLedgerPanel({
   const [step, setStep] = useState<GuideStep>('scan')
   const [guideOpen, setGuideOpen] = useState(false)
   const [scanStarting, setScanStarting] = useState(false)
+  const [scanStartFailed, setScanStartFailed] = useState(false)
   const [newLedgerName, setNewLedgerName] = useState('')
   const snapshot = workspace.snapshot
   const recovery = snapshot && 'recovery' in snapshot ? snapshot : null
@@ -60,10 +61,20 @@ export function ControlledFavoriteLedgerPanel({
     return Boolean(snapshot && ['previewing', 'frozen', 'executing', 'reconciling', 'completed'].includes(snapshot.status))
   }
 
+  useEffect(() => {
+    setStep('scan')
+    setScanStarting(false)
+    setScanStartFailed(false)
+  }, [currentAccountMid])
+
   const startScan = async (mode: 'incremental' | 'full') => {
+    if (scanStarting || workspace.loading) return
+    setGuideOpen(true)
+    setStep('scan')
+    setScanStartFailed(false)
     setScanStarting(true)
     try {
-      await workspace.startScan(mode)
+      if (!await workspace.startScan(mode)) setScanStartFailed(true)
     } finally {
       setScanStarting(false)
     }
@@ -108,13 +119,9 @@ export function ControlledFavoriteLedgerPanel({
         <div className="favorite-ledger-panel__toolbar">
           <button type="button" aria-label="备册" onClick={() => void onEnsureLedgers()}>备册</button>
           <button type="button" aria-label="整理旧藏" disabled={workspace.loading || !currentAccountMid}
-            onClick={() => {
-              setGuideOpen(true)
-              setStep('scan')
-              void startScan('incremental')
-            }}>整理旧藏</button>
+            onClick={() => void startScan('incremental')}>整理旧藏</button>
           <button type="button" aria-label="全部重新整理" disabled={workspace.loading || !currentAccountMid}
-            onClick={() => void workspace.startScan('full')}>全部重新整理</button>
+            onClick={() => void startScan('full')}>全部重新整理</button>
           <button type="button" aria-label="收藏库" onClick={() => void window.bilimiDesktop?.openFavoriteLibrary?.()}>收藏库</button>
         </div>
       </div>
@@ -145,15 +152,17 @@ export function ControlledFavoriteLedgerPanel({
 
         {!recovery && step === 'scan' ? <section className="favorite-ledger-panel__scan-overview" aria-label="扫描概览">
           <h4>扫描概览</h4>
-          <p className="favorite-ledger-panel__scan-guidance">{snapshot?.scan.phase === 'failed'
+          <p className="favorite-ledger-panel__scan-guidance" role={scanStartFailed || snapshot?.scan.phase === 'failed' ? 'alert' : undefined}>{scanStartFailed
+            ? '扫描启动失败，请重新扫描。'
+            : snapshot?.scan.phase === 'failed'
             ? `扫描失败：${snapshot.scan.reason || '请重新扫描。'}`
             : scanStarting || snapshot?.status === 'scanning' || !snapshot ? '扫描概览：扫描中' : '扫描概览已完成，正在准备归档预览。'}</p>
           <div className="favorite-ledger-panel__scan-progress" aria-label="旧藏扫描进度">
-            <progress aria-label="收藏夹概览进度" max={1} value={scanStarting || snapshot?.status === 'scanning' ? 0 : 1} />
-            <strong>{snapshot?.scan.phase === 'failed' ? '扫描失败' : scanStarting || snapshot?.status === 'scanning' ? '正在扫描' : '已完成'}</strong>
+            <progress aria-label="收藏夹概览进度" max={1} value={scanStartFailed || scanStarting || snapshot?.status === 'scanning' ? 0 : 1} />
+            <strong>{scanStartFailed || snapshot?.scan.phase === 'failed' ? '扫描失败' : scanStarting || snapshot?.status === 'scanning' ? '正在扫描' : '已完成'}</strong>
           </div>
-          {snapshot?.scan.phase === 'failed' ? <button type="button" disabled={workspace.loading}
-            onClick={() => void workspace.startScan('incremental')}>重新扫描</button> : null}
+          {scanStartFailed || snapshot?.scan.phase === 'failed' ? <button type="button" disabled={workspace.loading || scanStarting}
+            onClick={() => void startScan('incremental')}>重新扫描</button> : null}
           <p>已发现 {snapshot?.sourceFolders.length ?? 0} 个收藏夹，当前扫描 {snapshot?.continuationCount ?? 0} 条待续新增。</p>
           <ul className="favorite-ledger-panel__scan-folder-list" aria-label="扫描收藏夹列表">
             {(snapshot?.sourceFolders ?? []).map((folder) => <li key={folder.id}><label>

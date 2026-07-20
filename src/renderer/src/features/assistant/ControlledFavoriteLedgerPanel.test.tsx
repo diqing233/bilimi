@@ -151,6 +151,101 @@ describe('ControlledFavoriteLedgerPanel', () => {
     }))
   })
 
+  it('shows a retryable scan-start failure when the controlled start command is rejected', async () => {
+    const command = vi.fn().mockRejectedValue(new Error('unavailable'))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+    />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('扫描启动失败')
+    expect(screen.getByRole('button', { name: '重新扫描' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '归档预览' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '确认执行' })).toBeDisabled()
+    expect(screen.queryByText('扫描概览：扫描中')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '重新扫描' }))
+    await waitFor(() => expect(command).toHaveBeenCalledTimes(2))
+  })
+
+  it('opens and locks the guide while a full scan replaces a stale preview', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    let resolveScan: ((value: typeof preview) => void) | undefined
+    const command = vi.fn(() => new Promise<typeof preview>((resolve) => { resolveScan = resolve }))
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+    />)
+
+    const fullReorganize = await screen.findByRole('button', { name: '全部重新整理' })
+    await waitFor(() => expect(fullReorganize).toBeEnabled())
+    fireEvent.click(fullReorganize)
+
+    expect(screen.getByRole('region', { name: '整理旧藏向导' })).toBeInTheDocument()
+    expect(screen.getByText('扫描概览：扫描中')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '归档预览' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '确认执行' })).toBeDisabled()
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'full' }))
+
+    await act(async () => { resolveScan?.(preview) })
+  })
+
+  it('returns an open preview guide to the scan step after the account changes to a scanning workspace', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    const scanning = {
+      ...preview, accountMid: '200', workspaceId: 'workspace-200', status: 'scanning' as const,
+      scan: { phase: 'inventory' as const, failureCount: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn((accountMid: string) => Promise.resolve(accountMid === '100' ? preview : scanning)),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview)
+    } as typeof window.bilimiDesktop
+
+    const { rerender } = render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+    />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
+    expect(screen.getByRole('region', { name: '归档预览' })).toBeInTheDocument()
+
+    rerender(<ControlledFavoriteLedgerPanel
+      currentAccountMid="200" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+    />)
+
+    expect(await screen.findByRole('heading', { name: '扫描概览' })).toBeInTheDocument()
+    expect(screen.getByText('扫描概览：扫描中')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '归档预览' })).not.toBeInTheDocument()
+  })
+
   it('creates a local workspace ledger through the controlled command instead of saving Bilibili rules', async () => {
     const command = vi.fn().mockResolvedValue({
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
