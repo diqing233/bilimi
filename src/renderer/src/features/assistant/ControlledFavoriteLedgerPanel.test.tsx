@@ -162,10 +162,14 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.change(screen.getByLabelText('册名'), { target: { value: '舞蹈' } })
     fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: '舞蹈 编舞' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'DeepSeek约束' }), { target: { value: '仅保留舞台演出与练习视频' } })
     fireEvent.click(screen.getByRole('button', { name: '保存' }))
 
     expect(save).toHaveBeenCalledWith(expect.arrayContaining([
-      expect.objectContaining({ displayName: 'bilimi·舞蹈', keywords: ['舞蹈', '编舞'] })
+      expect.objectContaining({
+        displayName: 'bilimi·舞蹈',
+        keywords: ['舞蹈', '编舞', '【DeepSeek约束】', '仅保留舞台演出与练习视频']
+      })
     ]), { deleteDisabled: false })
     expect(command).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: '舞蹈' })).toBeInTheDocument()
