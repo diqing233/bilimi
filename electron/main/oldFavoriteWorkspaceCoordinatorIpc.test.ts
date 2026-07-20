@@ -212,6 +212,20 @@ describe('old favorite workspace coordinator IPC', () => {
     expect(coordinator.redoClassificationChange).toHaveBeenCalledWith('100')
   })
 
+  it('retries failed DeepSeek chunks through a payload-free main-process endpoint', async () => {
+    const ipcMain = new FakeIpcMain()
+    const deepSeekService = { retryFailedChunks: vi.fn().mockResolvedValue(snapshot) }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: {} as never, deepSeekService: deepSeekService as never,
+      isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:retry-failed-deepseek', 7, '100')).resolves.toEqual(snapshot)
+    expect(deepSeekService.retryFailedChunks).toHaveBeenCalledWith('100')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:retry-failed-deepseek', 7, '100', { aids: [1] }))
+      .rejects.toThrow('arguments are invalid')
+  })
+
   it('routes a bounded history cursor jump without accepting renderer classifications', async () => {
     const ipcMain = new FakeIpcMain()
     const coordinator = {

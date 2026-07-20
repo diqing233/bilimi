@@ -33,6 +33,8 @@ function uniqueTargets(targets: string[]) {
 
 /** Builds, validates, and applies a DeepSeek batch entirely in the main process. */
 export class OldFavoriteWorkspaceDeepSeekService {
+  private readonly failedRuns = new Map<string, { workspaceId: string; segmentId: string; mode: DeepSeekArchiveMode; aids: number[] }>()
+
   constructor(private readonly options: {
     coordinator: Pick<OldFavoriteWorkspaceCoordinator, 'getSnapshot' | 'applyDeepSeekClassificationBatch'>
     preferences: () => Pick<{
@@ -44,11 +46,29 @@ export class OldFavoriteWorkspaceDeepSeekService {
   }) {}
 
   async organizeCurrentSegment(accountMid: string, mode: DeepSeekArchiveMode = 'all'): Promise<OldFavoriteWorkspaceDeepSeekResult> {
+    return this.organize(accountMid, mode)
+  }
+
+  /** Retries only the main-process remembered failed chunk aids for the active workspace. */
+  async retryFailedChunks(accountMid: string): Promise<OldFavoriteWorkspaceDeepSeekResult> {
+    const failedRun = this.failedRuns.get(accountMid)
+    if (!failedRun?.aids.length) throw new Error('Old favorite workspace has no failed DeepSeek chunks to retry.')
+    return this.organize(accountMid, failedRun.mode, failedRun)
+  }
+
+  private async organize(
+    accountMid: string,
+    mode: DeepSeekArchiveMode,
+    retry?: { workspaceId: string; segmentId: string; mode: DeepSeekArchiveMode; aids: number[] }
+  ): Promise<OldFavoriteWorkspaceDeepSeekResult> {
     const preferences = this.options.preferences()
     assertDeepSeekRequestEnabled(preferences as Parameters<typeof assertDeepSeekRequestEnabled>[0], 'favorite-archive-organize')
     const snapshot = await this.options.coordinator.getSnapshot(accountMid)
     if ('recovery' in snapshot || snapshot.status !== 'previewing' || !snapshot.currentSegment) {
       throw new Error('Old favorite workspace is not ready for DeepSeek classification.')
+    }
+    if (retry && (retry.workspaceId !== snapshot.workspaceId || retry.segmentId !== snapshot.currentSegment.id)) {
+      throw new Error('Old favorite workspace changed before failed DeepSeek chunks could be retried.')
     }
     const selectedFolderIds = new Set(snapshot.sourceFolders
       .filter((folder) => !folder.isBilimiWorkFolder && folder.selected)
@@ -63,8 +83,8 @@ export class OldFavoriteWorkspaceDeepSeekService {
         return !classification?.targetLedgerIds.length || classification.source === 'system-low'
       }
       return true
-    })
-    if (!scopedItems.length) return this.result(snapshot, 0, 0, 0, [])
+    }).filter((item) => !retry || retry.aids.includes(item.aid))
+    if (!scopedItems.length) return this.finish(accountMid, snapshot, mode, 0, 0, 0, [])
 
     const request: ArchiveRequest = {
       kind: 'favorite-archive-organize',
@@ -109,6 +129,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
       } catch (error) {
         failures.push({
           chunkIndex: offset / 20 + 1,
+          aids: chunk.videos.map((video) => video.aid).filter((aid): aid is number => Number.isSafeInteger(aid)).sort((left, right) => left - right),
           affectedVideoCount: chunk.videos.length,
           message: error instanceof Error ? error.message : 'DeepSeek request failed.'
         })
@@ -118,7 +139,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
     const itemByAid = new Map(scopedItems.map((item) => [item.aid, item]))
     const enabledLedgerIds = new Set(request.ledgers.map((ledger) => ledger.id))
     const assignments = this.assignmentsFromResult(results, itemByAid, snapshot.classifications, enabledLedgerIds, request.multiArchiveLimit)
-    if (!assignments.length) return this.result(snapshot, totalChunks, results.length, scopedItems.length - results.length, failures)
+    if (!assignments.length) return this.finish(accountMid, snapshot, mode, totalChunks, results.length, scopedItems.length - results.length, failures)
     const expected: WorkspaceExpectation = {
       workspaceId: snapshot.workspaceId,
       currentSegmentId: snapshot.currentSegment.id,
@@ -129,7 +150,27 @@ export class OldFavoriteWorkspaceDeepSeekService {
       }]))
     }
     const next = await this.options.coordinator.applyDeepSeekClassificationBatch(snapshot.accountMid, assignments, expected)
-    return this.result(next, totalChunks, assignments.length, scopedItems.length - results.length, failures)
+    return this.finish(accountMid, next, mode, totalChunks, assignments.length, scopedItems.length - results.length, failures)
+  }
+
+  private finish(
+    accountMid: string,
+    snapshot: OldFavoriteWorkspaceSnapshot,
+    mode: DeepSeekArchiveMode,
+    totalChunks: number,
+    successfulVideoCount: number,
+    failedVideoCount: number,
+    failures: OldFavoriteWorkspaceDeepSeekFailure[]
+  ) {
+    const aids = failures.flatMap((failure) => failure.aids)
+    if (aids.length && snapshot.currentSegment) {
+      this.failedRuns.set(accountMid, {
+        workspaceId: snapshot.workspaceId, segmentId: snapshot.currentSegment.id, mode, aids: [...new Set(aids)].sort((left, right) => left - right)
+      })
+    } else {
+      this.failedRuns.delete(accountMid)
+    }
+    return this.result(snapshot, totalChunks, successfulVideoCount, failedVideoCount, failures)
   }
 
   private result(

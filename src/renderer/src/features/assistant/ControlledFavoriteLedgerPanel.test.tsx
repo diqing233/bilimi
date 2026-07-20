@@ -1262,6 +1262,40 @@ describe('ControlledFavoriteLedgerPanel', () => {
       type: 'apply-classifications', source: 'manual', assignments: items.map((item) => ({ aid: item.aid, targetLedgerIds: ['inbox'] }))
     }))
   })
+
+  it('shows a returned DeepSeek partial failure and retries only failed chunks', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'Watch later', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+      segments: [{ id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'One', sourceFolderIds: ['source'] }] },
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0, entries: [] }
+    }
+    const partial = {
+      snapshot: preview,
+      progress: { totalChunks: 2, completedChunks: 2, successfulVideoCount: 20, failedVideoCount: 1 },
+      failures: [{ chunkIndex: 2, aids: [1], affectedVideoCount: 1, message: '请求过于频繁' }]
+    }
+    const organize = vi.fn().mockResolvedValue(partial)
+    const retry = vi.fn().mockResolvedValue({ ...partial, progress: { totalChunks: 1, completedChunks: 1, successfulVideoCount: 1, failedVideoCount: 0 }, failures: [] })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      organizeOldFavoriteWorkspaceDeepSeekV1: organize,
+      retryOldFavoriteWorkspaceDeepSeekV1: retry
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} deepSeekArchiveAvailable />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
+    expect(await screen.findByText(/已处理 20 条；1 条未应用/)).toBeInTheDocument()
+    expect(screen.getByText('第 2 批：请求过于频繁')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重试失败批次' }))
+    await waitFor(() => expect(retry).toHaveBeenCalledWith('100'))
+  })
   it('renders source, classification provenance, and a virtualized multi-segment archive preview', async () => {
     const items = Array.from({ length: 51 }, (_, index) => ({
       aid: index + 1,

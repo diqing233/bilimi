@@ -135,6 +135,7 @@ export type OldFavoriteWorkspaceView = OldFavoriteWorkspaceSnapshot | OldFavorit
 
 export type OldFavoriteWorkspaceDeepSeekFailure = {
   chunkIndex: number
+  aids: number[]
   affectedVideoCount: number
   message: string
 }

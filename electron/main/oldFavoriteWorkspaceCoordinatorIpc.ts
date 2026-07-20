@@ -117,7 +117,7 @@ function command(value: unknown): WorkspaceCommand {
 export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   ipcMain: IpcMain
   coordinator: OldFavoriteWorkspaceCoordinator
-  deepSeekService?: Pick<OldFavoriteWorkspaceDeepSeekService, 'organizeCurrentSegment'>
+  deepSeekService?: Pick<OldFavoriteWorkspaceDeepSeekService, 'organizeCurrentSegment' | 'retryFailedChunks'>
   isTrustedSender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
   startScan?: (accountMid: string, mode: 'incremental' | 'full') => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
@@ -139,6 +139,11 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (args.length !== 0 || (mode !== undefined && !['all', 'classified-only', 'unclassified-only', 'low-confidence-and-unclassified'].includes(mode))) throw new Error('Old favorite workspace DeepSeek arguments are invalid.')
     if (!options.deepSeekService) throw new Error('Old favorite workspace DeepSeek service is unavailable.')
     return snapshot(await options.deepSeekService.organizeCurrentSegment(await assertAccount(event, requestedAccountMid), mode ?? 'all'))
+  })
+  options.ipcMain.handle('old-favorite-workspace-v1:retry-failed-deepseek', async (event, requestedAccountMid: string, ...args: unknown[]) => {
+    if (args.length !== 0) throw new Error('Old favorite workspace DeepSeek arguments are invalid.')
+    if (!options.deepSeekService) throw new Error('Old favorite workspace DeepSeek service is unavailable.')
+    return snapshot(await options.deepSeekService.retryFailedChunks(await assertAccount(event, requestedAccountMid)))
   })
   options.ipcMain.handle('old-favorite-workspace-v1:command', async (event, requestedAccountMid: string, value: unknown) => {
     const accountMid = await assertAccount(event, requestedAccountMid)

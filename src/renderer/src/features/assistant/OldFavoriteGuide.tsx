@@ -27,6 +27,7 @@ type OldFavoriteGuideProps = {
   onSelectSegment: (segmentId: string) => void
   onAutoClassify: () => void
   onOrganizeWithDeepSeek: (mode: DeepSeekArchiveMode) => void
+  onRetryFailedDeepSeekChunks: () => void
   onUndoClassification: () => void
   onRedoClassification: () => void
   onMoveHistoryCursor: (cursor: number) => void
@@ -63,6 +64,7 @@ export function OldFavoriteGuide({
   onSelectSegment,
   onAutoClassify,
   onOrganizeWithDeepSeek,
+  onRetryFailedDeepSeekChunks,
   onUndoClassification,
   onRedoClassification,
   onMoveHistoryCursor,
@@ -128,6 +130,7 @@ export function OldFavoriteGuide({
       deepSeekFeedback={deepSeekFeedback}
       onSelectSegment={onSelectSegment}
       onOrganizeWithDeepSeek={onOrganizeWithDeepSeek}
+      onRetryFailedDeepSeekChunks={onRetryFailedDeepSeekChunks}
       onUndo={onUndoClassification}
       onRedo={onRedoClassification}
       onMoveHistoryCursor={onMoveHistoryCursor}

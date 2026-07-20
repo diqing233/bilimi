@@ -236,7 +236,34 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
     expect(result).toMatchObject({
       snapshot: { accountMid: '100', status: 'previewing' },
       progress: { totalChunks: 2, completedChunks: 2, successfulVideoCount: 20, failedVideoCount: 1 },
-      failures: [{ chunkIndex: 2, affectedVideoCount: 1, message: 'DeepSeek API request failed: 429 Too Many Requests' }]
+      failures: [{ chunkIndex: 2, aids: [21], affectedVideoCount: 1, message: 'DeepSeek API request failed: 429 Too Many Requests' }]
     })
+  })
+
+  it('retries only the previously failed chunk aids through the main process', async () => {
+    const items = Array.from({ length: 21 }, (_, index) => ({ aid: index + 1, title: `Video ${index + 1}`, sourceFolderIds: ['source'] }))
+    const snapshot = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing',
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      currentSegment: { id: 'segment-1', items }, classifications: {}
+    }
+    const coordinator = {
+      getSnapshot: vi.fn().mockResolvedValue(snapshot),
+      applyDeepSeekClassificationBatch: vi.fn().mockResolvedValue(snapshot)
+    }
+    const generate = vi.fn()
+      .mockImplementationOnce(async (request) => ({ kind: 'favorite-archive-organize' as const, results: request.videos.map((video: { aid: number }) => ({ aid: video.aid, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false })), keywordSuggestions: [] }))
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockImplementationOnce(async (request) => ({ kind: 'favorite-archive-organize' as const, results: request.videos.map((video: { aid: number }) => ({ aid: video.aid, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false })), keywordSuggestions: [] }))
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }] }),
+      generate
+    })
+
+    await service.organizeCurrentSegment('100')
+    await service.retryFailedChunks('100')
+
+    expect(generate.mock.calls[2]![0].videos.map((video: { aid: number }) => video.aid)).toEqual([21])
   })
 })

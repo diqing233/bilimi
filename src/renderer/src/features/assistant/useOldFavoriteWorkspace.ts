@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { OldFavoriteWorkspaceView } from '../../../../shared/oldFavoriteWorkspace'
+import type { OldFavoriteWorkspaceDeepSeekFailure, OldFavoriteWorkspaceDeepSeekResult, OldFavoriteWorkspaceView } from '../../../../shared/oldFavoriteWorkspace'
 import type { DeepSeekArchiveMode } from '@shared/types'
 
 type WorkspaceView = OldFavoriteWorkspaceView
@@ -7,6 +7,8 @@ type WorkspaceView = OldFavoriteWorkspaceView
 export type DeepSeekWorkspaceFeedback = {
   status: 'running' | 'completed' | 'failed'
   message: string
+  progress?: OldFavoriteWorkspaceDeepSeekResult['progress']
+  failures?: OldFavoriteWorkspaceDeepSeekFailure[]
 }
 
 function deepSeekFailureMessage(error: unknown) {
@@ -188,8 +190,8 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       if (requestVersion.current === version && accountGeneration.current === generation) setSnapshot(next)
       if (requestVersion.current === version && accountGeneration.current === generation) {
         setDeepSeekFeedback(result.failures.length
-          ? { status: 'failed', message: `DeepSeek 已整理 ${result.progress.successfulVideoCount} 条；${result.progress.failedVideoCount} 条未应用：${result.failures.map((failure) => `第 ${failure.chunkIndex} 批 ${failure.message}`).join('；')}` }
-          : { status: 'completed', message: 'DeepSeek 整理完成，已更新当前分段。' })
+          ? { status: 'failed', message: `DeepSeek 已处理 ${result.progress.successfulVideoCount} 条；${result.progress.failedVideoCount} 条未应用。`, progress: result.progress, failures: result.failures }
+          : { status: 'completed', message: 'DeepSeek 整理完成，已更新当前分段。', progress: result.progress, failures: [] })
       }
       return next
     } catch (error) {
@@ -198,6 +200,37 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
           status: 'failed',
           message: deepSeekFailureMessage(error)
         })
+      }
+      return null
+    } finally {
+      if (accountGeneration.current === generation) {
+        foregroundRequestCount.current = Math.max(0, foregroundRequestCount.current - 1)
+        if (foregroundRequestCount.current === 0) setLoading(false)
+      }
+    }
+  }, [accountMid])
+
+  const retryFailedDeepSeekChunks = useCallback(async () => {
+    const version = ++requestVersion.current
+    const generation = accountGeneration.current
+    const retry = window.bilimiDesktop?.retryOldFavoriteWorkspaceDeepSeekV1
+    if (!accountMid || !retry) return null
+    setLoading(true)
+    foregroundRequestCount.current += 1
+    setDeepSeekFeedback({ status: 'running', message: 'DeepSeek 正在重试失败批次…' })
+    try {
+      const result = await retry(accountMid)
+      if (normalizeAccountMid(result.snapshot.accountMid) !== normalizeAccountMid(accountMid)) return null
+      if (requestVersion.current === version && accountGeneration.current === generation) {
+        setSnapshot(result.snapshot)
+        setDeepSeekFeedback(result.failures.length
+          ? { status: 'failed', message: `DeepSeek 已处理 ${result.progress.successfulVideoCount} 条；${result.progress.failedVideoCount} 条未应用。`, progress: result.progress, failures: result.failures }
+          : { status: 'completed', message: 'DeepSeek 失败批次已重试完成。', progress: result.progress, failures: [] })
+      }
+      return result.snapshot
+    } catch (error) {
+      if (requestVersion.current === version && accountGeneration.current === generation) {
+        setDeepSeekFeedback({ status: 'failed', message: deepSeekFailureMessage(error) })
       }
       return null
     } finally {
@@ -239,7 +272,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [refresh, snapshot?.status])
 
   return {
-    snapshot, loading, backgroundRefreshing, lastError, deepSeekFeedback, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek,
+    snapshot, loading, backgroundRefreshing, lastError, deepSeekFeedback, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, retryFailedDeepSeekChunks,
     undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, setRecommendedCandidates, createLocalLedgerAndReclassify, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, executeFrozenBilibiliPlan,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace,

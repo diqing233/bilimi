@@ -23,6 +23,7 @@ type OldFavoriteArchivePreviewStepProps = {
   deepSeekFeedback: DeepSeekWorkspaceFeedback | null
   onSelectSegment: (segmentId: string) => void
   onOrganizeWithDeepSeek: (mode: DeepSeekArchiveMode) => void
+  onRetryFailedDeepSeekChunks: () => void
   onUndo: () => void
   onRedo: () => void
   onMoveHistoryCursor: (cursor: number) => void
@@ -38,6 +39,7 @@ export function OldFavoriteArchivePreviewStep({
   deepSeekFeedback,
   onSelectSegment,
   onOrganizeWithDeepSeek,
+  onRetryFailedDeepSeekChunks,
   onUndo,
   onRedo,
   onMoveHistoryCursor,
@@ -135,8 +137,13 @@ export function OldFavoriteArchivePreviewStep({
           </div>
           {!deepSeekAvailable ? <small className="favorite-ledger-panel__deepseek-archive-disabled">请先到设置开启 DeepSeek 后再使用辅助整理。</small> : null}
           <p className="favorite-ledger-panel__deepseek-archive-hint">将发送标题、UP、标签、简介、来源收藏夹、当前建议和 bilimi 册目信息给 DeepSeek。</p>
-          {deepSeekFeedback ? <p className="favorite-ledger-panel__deepseek-archive-status"
-            role={deepSeekFeedback.status === 'failed' ? 'alert' : 'status'}>{deepSeekFeedback.message}</p> : null}
+          {deepSeekFeedback ? <div className="favorite-ledger-panel__deepseek-archive-status"
+            role={deepSeekFeedback.status === 'failed' ? 'alert' : 'status'}>
+            <p>{deepSeekFeedback.message}</p>
+            {deepSeekFeedback.progress ? <small>已完成 {deepSeekFeedback.progress.completedChunks} / {deepSeekFeedback.progress.totalChunks} 批。</small> : null}
+            {deepSeekFeedback.failures?.map((failure) => <p key={failure.chunkIndex}>第 {failure.chunkIndex} 批：{failure.message}</p>)}
+            {deepSeekFeedback.failures?.length ? <button type="button" disabled={loading} onClick={onRetryFailedDeepSeekChunks}>重试失败批次</button> : null}
+          </div> : null}
         </div>
         <div className="favorite-ledger-panel__archive-tool-divider" aria-hidden="true" />
         <div className="favorite-ledger-panel__archive-history-section" role="group" aria-label="归档预览改动操作">
