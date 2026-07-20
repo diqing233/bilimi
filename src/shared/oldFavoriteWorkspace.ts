@@ -77,6 +77,8 @@ export type OldFavoriteWorkspaceSnapshot = {
     reason?: string
     totalItemCount?: number
     scannedItemCount?: number
+    taggedItemCount?: number
+    untaggedItemCount?: number
   }
   sourceFolders: Array<{
     id: string

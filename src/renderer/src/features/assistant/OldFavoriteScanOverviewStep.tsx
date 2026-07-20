@@ -49,6 +49,8 @@ export function OldFavoriteScanOverviewStep({
   const scanning = scanStarting || snapshot?.status === 'scanning' || !snapshot
   const totalItemCount = snapshot?.scan.totalItemCount ?? 0
   const scannedItemCount = Math.min(snapshot?.scan.scannedItemCount ?? 0, totalItemCount)
+  const taggedItemCount = Math.min(snapshot?.scan.taggedItemCount ?? 0, scannedItemCount)
+  const untaggedItemCount = Math.max(0, snapshot?.scan.untaggedItemCount ?? scannedItemCount - taggedItemCount)
   const sourceSelectionLocked = Boolean(snapshot && !recovery && Object.keys(snapshot.classifications).length > 0)
   const guidance = scanStartFailure
     ? `扫描启动失败：${scanFailureGuidance(scanStartFailure)}`
@@ -68,6 +70,12 @@ export function OldFavoriteScanOverviewStep({
         <span>{scanning && totalItemCount ? `${scannedItemCount} / ${totalItemCount} 条` : null}</span>
         <strong>{scanFailed ? '扫描失败' : scanning ? '正在扫描' : '已完成'}</strong>
       </div>
+      {scannedItemCount ? <div>
+        <span>标签识别</span>
+        <progress aria-label="标签识别进度" max={Math.max(scannedItemCount, 1)} value={taggedItemCount} />
+        <span>标签识别 {taggedItemCount} / {scannedItemCount} 条</span>
+        <strong>{untaggedItemCount ? `${untaggedItemCount} 条未识别标签` : '已识别'}</strong>
+      </div> : null}
     </div>
     {scanFailed ? <button type="button" disabled={loading || scanStarting} onClick={onRetry}>重新扫描</button> : null}
     <p>已发现 {folders.length} 个收藏夹，当前扫描 {snapshot?.continuationCount ?? 0} 条待续新增。</p>

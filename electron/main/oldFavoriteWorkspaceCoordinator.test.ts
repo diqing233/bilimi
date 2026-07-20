@@ -60,6 +60,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     expect(classifyCurrentItem).toHaveBeenCalledWith(expect.objectContaining({ tags: ['TypeScript'], category: '科技' }))
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      scan: { phase: 'complete', totalItemCount: 1, scannedItemCount: 1, taggedItemCount: 1, untaggedItemCount: 0 },
       currentSegment: { items: [expect.objectContaining({ aid: 1, tags: ['TypeScript'], category: '科技' })] },
       classifications: { '1': { targetLedgerIds: ['knowledge'], source: 'system-high' } },
       planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 }
@@ -112,11 +113,14 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
     await first.recordScanPage('100', {
       folderId: 'source', page: 1,
-      items: [{ aid: 1, title: 'First scanned video', sourceFolderIds: ['source'] }]
+      items: [{ aid: 1, title: 'First scanned video', tags: ['知识'], sourceFolderIds: ['source'] }]
     })
 
     await expect(first.getSnapshot('100')).resolves.toMatchObject({
-      scan: { phase: 'inventory', totalItemCount: 3, scannedItemCount: 1 }
+      scan: {
+        phase: 'inventory', totalItemCount: 3, scannedItemCount: 1,
+        taggedItemCount: 1, untaggedItemCount: 0
+      }
     })
 
     await first.recordScanPage('100', {
@@ -124,7 +128,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       items: [{ aid: 1, title: 'Duplicated source item', sourceFolderIds: ['source'] }]
     })
     await expect(first.getSnapshot('100')).resolves.toMatchObject({
-      scan: { totalItemCount: 3, scannedItemCount: 1 }
+      scan: { totalItemCount: 3, scannedItemCount: 1, taggedItemCount: 1, untaggedItemCount: 0 }
     })
 
     await expect(createCoordinator(

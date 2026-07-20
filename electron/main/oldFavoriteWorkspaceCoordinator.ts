@@ -46,7 +46,7 @@ type WorkspaceJournalEvent = ScanJournalEvent | ClassificationJournalEvent | Cur
   FreezeJournalEvent | DiscoveryJournalEvent
 type ScanOverview = {
   sourceFolders: Array<{ id: string; title: string; itemCount: number; isBilimiWorkFolder: boolean; selected?: boolean }>
-  scan: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: OldFavoriteWorkspace['mode']; reason?: string; totalItemCount?: number; scannedItemCount?: number }
+  scan: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: OldFavoriteWorkspace['mode']; reason?: string; totalItemCount?: number; scannedItemCount?: number; taggedItemCount?: number; untaggedItemCount?: number }
 }
 type CurrentSegmentItem = {
   aid: number
@@ -210,6 +210,7 @@ export class OldFavoriteWorkspaceCoordinator {
   private readonly scanOverviews = new Map<string, ScanOverview>()
   private readonly scanRuns = new Map<string, string>()
   private readonly scannedAids = new Map<string, Set<number>>()
+  private readonly scannedTagStates = new Map<string, Map<number, boolean>>()
   private readonly recommendations = new Map<string, RecommendationState>()
   private readonly planReadiness = new Map<string, PlanReadiness>()
   private operationTail = Promise.resolve()
@@ -291,6 +292,7 @@ export class OldFavoriteWorkspaceCoordinator {
       await this.options.workspaceStore.startScanRun(workspace.accountMid, workspace.id, scanRunId)
       this.scanRuns.set(workspace.accountMid, scanRunId)
       this.scannedAids.set(workspace.accountMid, new Set())
+      this.scannedTagStates.set(workspace.accountMid, new Map())
       this.workspaces.set(updated.accountMid, updated)
       return this.createSnapshot(updated)
     })
@@ -318,7 +320,7 @@ export class OldFavoriteWorkspaceCoordinator {
         scan: {
           phase: 'inventory', failureCount: 0, mode,
           totalItemCount: sourceFolders.filter((folder) => !folder.isBilimiWorkFolder).reduce((count, folder) => count + folder.itemCount, 0),
-          scannedItemCount: 0
+          scannedItemCount: 0, taggedItemCount: 0, untaggedItemCount: 0
         }
       }
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
@@ -346,15 +348,27 @@ export class OldFavoriteWorkspaceCoordinator {
       const overview = this.scanOverviews.get(workspace.accountMid)
       if (overview) {
         let scannedAids = this.scannedAids.get(workspace.accountMid)
+        let scannedTagStates = this.scannedTagStates.get(workspace.accountMid)
         if (!scannedAids) {
-          scannedAids = new Set((await this.options.workspaceStore.readScanPages(workspace.accountMid, workspace.id))
-            .flatMap((page) => page.items.map((item) => item.aid)))
+          const pages = await this.options.workspaceStore.readScanPages(workspace.accountMid, workspace.id)
+          scannedAids = new Set(pages.flatMap((page) => page.items.map((item) => item.aid)))
+          scannedTagStates = new Map<number, boolean>()
+          for (const item of pages.flatMap((page) => page.items)) {
+            scannedTagStates.set(item.aid, Boolean(scannedTagStates.get(item.aid) || item.tags?.length))
+          }
           this.scannedAids.set(workspace.accountMid, scannedAids)
+          this.scannedTagStates.set(workspace.accountMid, scannedTagStates)
         } else {
-          for (const item of input.items) scannedAids.add(item.aid)
+          scannedTagStates ??= new Map<number, boolean>()
+          for (const item of input.items) {
+            scannedAids.add(item.aid)
+            scannedTagStates.set(item.aid, Boolean(scannedTagStates.get(item.aid) || item.tags?.length))
+          }
+          this.scannedTagStates.set(workspace.accountMid, scannedTagStates)
         }
         const scannedItemCount = scannedAids.size
-        const scan = { ...overview.scan, scannedItemCount }
+        const taggedItemCount = [...(scannedTagStates?.values() ?? [])].filter(Boolean).length
+        const scan = { ...overview.scan, scannedItemCount, taggedItemCount, untaggedItemCount: scannedItemCount - taggedItemCount }
         await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
           currentSegmentId: '', classifications: [], history: [], scanMetadata: { ...scan }
         })
@@ -582,8 +596,21 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       const recommendations = buildAuthorRecommendations(itemsByAid.values())
       const readiness = this.calculatePlanReadinessFromItems(completed, itemsByAid.values(), sourceFolders)
+      const totalItemCount = sourceFolders.filter((folder) => !folder.isBilimiWorkFolder)
+        .reduce((count, folder) => count + folder.itemCount, 0)
+      const taggedItemCount = [...itemsByAid.values()].filter((item) => Boolean(item.tags?.length)).length
+      const completedScan = {
+        phase: 'complete' as const,
+        failureCount: 0,
+        mode: completed.mode,
+        totalItemCount,
+        scannedItemCount: itemsByAid.size,
+        taggedItemCount,
+        untaggedItemCount: itemsByAid.size - taggedItemCount
+      }
       await this.options.workspaceStore.appendOverlay(completed.accountMid, completed.id, {
-        currentSegmentId, classifications: [], history: [], recommendations, planReadiness: readiness
+        currentSegmentId, classifications: [], history: [], recommendations, planReadiness: readiness,
+        scanMetadata: { sourceFolders, ...completedScan }
       })
       const descriptors = completed.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
       await this.appendEvents(completed, currentSegmentId, [{
@@ -593,10 +620,11 @@ export class OldFavoriteWorkspaceCoordinator {
       await this.persistMarker(completed)
       this.scanOverviews.set(completed.accountMid, {
         sourceFolders: this.scanOverviews.get(completed.accountMid)?.sourceFolders ?? [],
-        scan: { phase: 'complete', failureCount: 0, mode: completed.mode }
+        scan: completedScan
       })
       this.scanRuns.delete(completed.accountMid)
       this.scannedAids.delete(completed.accountMid)
+      this.scannedTagStates.delete(completed.accountMid)
       this.recommendations.set(completed.accountMid, clone(recommendations))
       this.planReadiness.set(completed.accountMid, readiness)
       this.remember(completed, currentSegmentId, descriptors, new Set())
@@ -1246,6 +1274,7 @@ export class OldFavoriteWorkspaceCoordinator {
     this.scanOverviews.delete(account)
       this.scanRuns.delete(account)
       this.scannedAids.delete(account)
+      this.scannedTagStates.delete(account)
     this.remember(workspace, '', [], new Set())
     return mode ? { ...workspace, mode } : workspace
   }

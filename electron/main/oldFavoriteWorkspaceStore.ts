@@ -53,6 +53,8 @@ type Overlay = {
     reason?: string
     totalItemCount?: number
     scannedItemCount?: number
+    taggedItemCount?: number
+    untaggedItemCount?: number
   }
 }
 type OverlayHistory = Pick<Overlay, 'currentSegmentId' | 'history'>
@@ -68,7 +70,7 @@ type Manifest = {
   scanPages?: Array<{ folderId: string; page: number; file: string; checksum: string }>
   managedMemberChunks?: Array<{ file: string; checksum: string }>
   sourceFolders?: SourceFolder[]
-  scan?: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: 'incremental' | 'full'; reason?: string; totalItemCount?: number; scannedItemCount?: number }
+  scan?: { phase: 'inventory' | 'failed' | 'complete'; failureCount: number; mode: 'incremental' | 'full'; reason?: string; totalItemCount?: number; scannedItemCount?: number; taggedItemCount?: number; untaggedItemCount?: number }
   overlayRevision: number
   journalCursor: number
   journalChecksum: string
@@ -329,6 +331,8 @@ export class OldFavoriteWorkspaceStore {
             ...(overlay.scanMetadata.reason ? { reason: overlay.scanMetadata.reason } : {})
             ,...(Number.isSafeInteger(overlay.scanMetadata.totalItemCount) ? { totalItemCount: overlay.scanMetadata.totalItemCount } : {})
             ,...(Number.isSafeInteger(overlay.scanMetadata.scannedItemCount) ? { scannedItemCount: overlay.scanMetadata.scannedItemCount } : {})
+            ,...(Number.isSafeInteger(overlay.scanMetadata.taggedItemCount) ? { taggedItemCount: overlay.scanMetadata.taggedItemCount } : {})
+            ,...(Number.isSafeInteger(overlay.scanMetadata.untaggedItemCount) ? { untaggedItemCount: overlay.scanMetadata.untaggedItemCount } : {})
           }
         }
       }

@@ -813,7 +813,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const scanning = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
-      scan: { phase: 'inventory' as const, failureCount: 0, totalItemCount: 243, scannedItemCount: 40 },
+      scan: {
+        phase: 'inventory' as const, failureCount: 0, totalItemCount: 243, scannedItemCount: 40,
+        taggedItemCount: 31, untaggedItemCount: 9
+      },
       sourceFolders: [{ id: 'source', title: '默认收藏夹', itemCount: 243, isBilimiWorkFolder: false, selected: true }],
       continuationCount: 0, segments: [], currentSegment: null, classifications: {},
       recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
@@ -829,6 +832,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     expect((await screen.findAllByLabelText('旧藏扫描进度')).find((element) => element.tagName === 'PROGRESS')).toHaveAttribute('value', '40')
     expect(screen.getByText('40 / 243 条')).toBeInTheDocument()
+    expect(screen.getByText('标签识别 31 / 40 条')).toBeInTheDocument()
+    expect(screen.getByText('9 条未识别标签')).toBeInTheDocument()
   })
 
   it('maps page execution failures to a recoverable scan message without exposing the internal reason', async () => {
