@@ -1,7 +1,9 @@
 import type { ReactNode } from 'react'
+import type { FavoriteLedger } from '@shared/types'
 import type { OldFavoriteWorkspaceView } from '@shared/oldFavoriteWorkspace'
 import { OldFavoriteScanOverviewStep } from './OldFavoriteScanOverviewStep'
 import { OldFavoriteRecommendationStep } from './OldFavoriteRecommendationStep'
+import { OldFavoriteArchivePreviewStep } from './OldFavoriteArchivePreviewStep'
 
 export type OldFavoriteGuideStep = 'scan' | 'generated' | 'preview' | 'confirm'
 
@@ -16,7 +18,14 @@ type OldFavoriteGuideProps = {
   onRebuildWorkspace: () => void
   onSelectSourceFolders: (folderIds: string[]) => void
   onSetRecommendedCandidates: (candidateIds: string[]) => void
-  previewStep?: ReactNode
+  ledgers: FavoriteLedger[]
+  deepSeekAvailable: boolean
+  onSelectSegment: (segmentId: string) => void
+  onAutoClassify: () => void
+  onOrganizeWithDeepSeek: () => void
+  onUndoClassification: () => void
+  onRedoClassification: () => void
+  onApplyManualClassification: (aid: number, targetLedgerIds: string[]) => void
   confirmStep?: ReactNode
 }
 
@@ -38,7 +47,14 @@ export function OldFavoriteGuide({
   onRebuildWorkspace,
   onSelectSourceFolders,
   onSetRecommendedCandidates,
-  previewStep,
+  ledgers,
+  deepSeekAvailable,
+  onSelectSegment,
+  onAutoClassify,
+  onOrganizeWithDeepSeek,
+  onUndoClassification,
+  onRedoClassification,
+  onApplyManualClassification,
   confirmStep
 }: OldFavoriteGuideProps) {
   const recovery = snapshot && 'recovery' in snapshot
@@ -71,7 +87,18 @@ export function OldFavoriteGuide({
       loading={loading}
       onSetRecommendedCandidates={onSetRecommendedCandidates}
     /> : null}
-    {!recovery && step === 'preview' ? previewStep : null}
+    {!recovery && snapshot && step === 'preview' ? <OldFavoriteArchivePreviewStep
+      snapshot={snapshot}
+      ledgers={ledgers}
+      loading={loading}
+      deepSeekAvailable={deepSeekAvailable}
+      onSelectSegment={onSelectSegment}
+      onAutoClassify={onAutoClassify}
+      onOrganizeWithDeepSeek={onOrganizeWithDeepSeek}
+      onUndo={onUndoClassification}
+      onRedo={onRedoClassification}
+      onApplyManualClassification={onApplyManualClassification}
+    /> : null}
     {!recovery && step === 'confirm' ? confirmStep : null}
   </section>
 }

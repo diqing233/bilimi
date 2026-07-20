@@ -723,4 +723,69 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
     expect(screen.getByText('本轮没有足够重复的 UP 或标签，暂不生成推荐收藏夹。')).toBeInTheDocument()
   })
+  it('renders source, classification provenance, and a virtualized multi-segment archive preview', async () => {
+    const items = Array.from({ length: 51 }, (_, index) => ({
+      aid: index + 1,
+      title: index === 0 ? 'First archive' : `Archive ${index + 1}`,
+      author: index === 0 ? 'Uploader' : undefined,
+      sourceFolderIds: ['source']
+    }))
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 51, hasMultipleSegments: true,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'Watch later', itemCount: 51, isBilimiWorkFolder: false, selected: true }],
+      segments: [
+        { id: 'segment-1', index: 0, itemCount: 51, status: 'previewing' as const },
+        { id: 'segment-2', index: 1, itemCount: 1, status: 'previewing' as const }
+      ],
+      currentSegment: { id: 'segment-1', aids: items.map((item) => item.aid), items },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'system-low' as const } },
+      recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview)
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100"
+      ledgers={[{ id: 'music', displayName: 'Music', keywords: [], ruleType: 'keyword', enabled: true, priority: 0, isDefault: true }]}
+      missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()}
+      onSaveLedgers={vi.fn()}
+    />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
+
+    expect(screen.getAllByText('来源：Watch later')).not.toHaveLength(0)
+    expect(screen.getByText('分类来源：低置信度自动分类')).toBeInTheDocument()
+    expect(screen.getByText('目标收藏夹：Music')).toBeInTheDocument()
+    expect(screen.getByLabelText('当前分段归档预览')).toHaveAttribute('data-virtualized', 'true')
+    expect(screen.getByRole('group', { name: '整理分段' })).toBeInTheDocument()
+  })
+
+  it('does not introduce segment controls for a single-segment archive preview', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'Watch later', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+      segments: [{ id: 'segment-1', index: 0, itemCount: 1, status: 'previewing' as const }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'One', sourceFolderIds: ['source'] }] },
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview)
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
+
+    expect(screen.queryByRole('group', { name: '整理分段' })).not.toBeInTheDocument()
+    expect(screen.getAllByText('未分类')).not.toHaveLength(0)
+  })
 })

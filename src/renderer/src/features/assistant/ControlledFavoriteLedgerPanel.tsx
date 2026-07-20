@@ -1,6 +1,5 @@
 import type { FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { VirtualOldFavoriteTrack } from '../favorites/VirtualOldFavoriteTrack'
 import { FavoriteLedgerOverview } from './FavoriteLedgerOverview'
 import { FavoriteLibraryEntry } from './FavoriteLibraryEntry'
 import { OldFavoriteGuide, type OldFavoriteGuideStep } from './OldFavoriteGuide'
@@ -15,8 +14,6 @@ type ControlledFavoriteLedgerPanelProps = {
   onOpenFavoritePage?: () => Promise<unknown> | void
   deepSeekArchiveAvailable?: boolean
 }
-
-const VIRTUAL_TRACK_THRESHOLD = 50
 
 function normalizeAccountMid(value: string | undefined) {
   if (!value || !/^\d+$/.test(value.trim()) || BigInt(value.trim()) === 0n) return null
@@ -46,14 +43,8 @@ export function ControlledFavoriteLedgerPanel({
     ? workspace.snapshot
     : null
   const recovery = snapshot && 'recovery' in snapshot ? snapshot : null
-  const sourceIds = useMemo(() => new Set(
-    recovery ? [] : snapshot?.sourceFolders?.filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
-      .map((folder) => folder.id) ?? []
-  ), [recovery, snapshot])
-  const previewItems = useMemo(() => snapshot?.status === 'previewing'
-    ? (snapshot.currentSegment?.items ?? []).filter((item) =>
-        item.sourceFolderIds.some((folderId) => sourceIds.has(folderId)))
-    : [], [snapshot, sourceIds])
+  const previewItems = useMemo(() => snapshot?.currentSegment?.items ?? [], [snapshot])
+
   const readiness = !recovery ? snapshot?.planReadiness : undefined
   const canFreeze = readiness
     ? readiness.selectedAidCount > 0 && readiness.unclassifiedAidCount === 0
@@ -105,31 +96,6 @@ export function ControlledFavoriteLedgerPanel({
     }
   }
 
-  const renderPreviewItem = (item: typeof previewItems[number]) => {
-    const title = item.title?.trim() || `视频 ${item.aid}`
-    const targetLedgerId = snapshot?.classifications[String(item.aid)]?.targetLedgerIds[0] ?? ''
-    return (
-      <article className="favorite-ledger-panel__preview-item-shell">
-        <strong>{title}</strong> · {item.author?.trim() || '未知 UP'}
-        <label>
-          <span>归类</span>
-          <select
-            aria-label={`归类 ${title}`}
-            value={targetLedgerId}
-            disabled={workspace.loading}
-            onChange={(event) => void workspace.applyManualClassifications([{
-              aid: item.aid,
-              targetLedgerIds: event.currentTarget.value ? [event.currentTarget.value] : []
-            }])}
-          >
-            <option value="">未分类</option>
-            {ledgers.map((ledger) => <option key={ledger.id} value={ledger.id}>{ledger.displayName}</option>)}
-          </select>
-        </label>
-      </article>
-    )
-  }
-
   return (
     <section role="dialog" aria-label="掌库" className="favorite-ledger-panel">
       <div className="favorite-ledger-panel__topbar">
@@ -171,23 +137,14 @@ export function ControlledFavoriteLedgerPanel({
         onSelectSourceFolders={(folderIds) => void workspace.selectSourceFolders(folderIds)}
         onSetRecommendedCandidates={(candidateIds) => void workspace.setRecommendedCandidates(candidateIds)}
 
-        previewStep={!recovery && snapshot ? <section className="favorite-ledger-panel__archive-preview" aria-label="归档预览">
-          <h4>归档预览</h4><p>当前分段 {previewItems.length} 条；只加载并显示这一段。</p>
-          {snapshot.segments.length > 1 ? <div aria-label="整理分段">{snapshot.segments.map((segment) =>
-            <button key={segment.id} type="button" aria-pressed={snapshot.currentSegment?.id === segment.id}
-              disabled={snapshot.currentSegment?.id === segment.id || workspace.loading}
-              onClick={() => void workspace.selectSegment(segment.id)}>第 {segment.index + 1} 组</button>)}</div> : null}
-          <div className="favorite-ledger-panel__confirm-actions">
-            <button type="button" disabled={workspace.loading || previewItems.length === 0} onClick={() => void workspace.autoClassifyCurrentSegment()}>自动分类</button>
-            <button type="button" disabled={!deepSeekArchiveAvailable || workspace.loading || previewItems.length === 0} onClick={() => void workspace.organizeCurrentSegmentWithDeepSeek()}>DeepSeek 整理</button>
-            <button type="button" disabled={workspace.loading || snapshot.history.cursor === 0} onClick={() => void workspace.undoClassification()}>撤销本次改动</button>
-            <button type="button" disabled={workspace.loading || snapshot.history.cursor >= snapshot.history.length} onClick={() => void workspace.redoClassification()}>恢复本次改动</button>
-          </div>
-          {previewItems.length > VIRTUAL_TRACK_THRESHOLD ? <VirtualOldFavoriteTrack className="favorite-ledger-panel__preview-videos" ariaLabel="当前分段归档预览"
-            items={previewItems} itemKey={(item) => String(item.aid)} itemWidth={320} renderItem={renderPreviewItem} /> :
-            <ul aria-label="当前分段归档预览">{previewItems.map((item) => <li key={item.aid}>{renderPreviewItem(item)}</li>)}</ul>}
-        </section> : null}
-
+        ledgers={ledgers}
+        deepSeekAvailable={deepSeekArchiveAvailable}
+        onSelectSegment={(segmentId) => void workspace.selectSegment(segmentId)}
+        onAutoClassify={() => void workspace.autoClassifyCurrentSegment()}
+        onOrganizeWithDeepSeek={() => void workspace.organizeCurrentSegmentWithDeepSeek()}
+        onUndoClassification={() => void workspace.undoClassification()}
+        onRedoClassification={() => void workspace.redoClassification()}
+        onApplyManualClassification={(aid, targetLedgerIds) => void workspace.applyManualClassifications([{ aid, targetLedgerIds }])}
         confirmStep={!recovery && snapshot ? <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
           <h4>确认执行</h4>
           {snapshot.status === 'frozen' ? <button type="button" disabled={workspace.loading} onClick={() => void workspace.executeFrozenBilibiliPlan()}>继续同步到 B 站</button>

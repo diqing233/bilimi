@@ -1445,7 +1445,7 @@ export class OldFavoriteWorkspaceCoordinator {
   }
 
   private createSnapshot(workspace: OldFavoriteWorkspace): OldFavoriteWorkspaceSnapshot {
-    const currentSegment = workspace.segments[0]
+    const currentSegment = workspace.segments.find((segment) => segment.id === this.currentSegment(workspace))
     return {
       version: 1,
       accountMid: workspace.accountMid,
