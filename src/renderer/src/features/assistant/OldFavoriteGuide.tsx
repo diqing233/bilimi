@@ -1,5 +1,6 @@
 import type { FavoriteLedger } from '@shared/types'
 import type { DeepSeekArchiveMode } from '@shared/types'
+import { useState } from 'react'
 import type { DeepSeekWorkspaceFeedback } from './useOldFavoriteWorkspace'
 import type { OldFavoriteWorkspaceView } from '@shared/oldFavoriteWorkspace'
 import { OldFavoriteScanOverviewStep } from './OldFavoriteScanOverviewStep'
@@ -69,6 +70,7 @@ export function OldFavoriteGuide({
   onExecuteFrozenPlan,
   onReconcile
 }: OldFavoriteGuideProps) {
+  const [guideHintExpanded, setGuideHintExpanded] = useState(false)
   const recovery = snapshot && 'recovery' in snapshot
   const canOpenStep = (next: OldFavoriteGuideStep) => {
     if (next === 'scan') return true
@@ -79,7 +81,22 @@ export function OldFavoriteGuide({
 
   return <section className="favorite-ledger-panel__old-favorites-guide" aria-label="整理旧藏向导">
     <div className="favorite-ledger-panel__guide-header">
-      <h3>整理旧藏</h3>
+      <div className="favorite-ledger-panel__guide-title-row">
+        <span className="favorite-ledger-panel__section-title">
+          <h3 title="扫描旧藏，确认后整理到 bilimi 收藏夹里。">整理旧藏</h3>
+          <button type="button" className="favorite-ledger-panel__help-toggle"
+            aria-label={`${guideHintExpanded ? '收起' : '展开'}整理旧藏说明`}
+            aria-expanded={guideHintExpanded}
+            title="扫描旧藏，确认后整理到 bilimi 收藏夹里。"
+            onClick={() => setGuideHintExpanded((expanded) => !expanded)}>
+            <span className="favorite-ledger-panel__help-arrows" aria-hidden="true">
+              <span className="favorite-ledger-panel__help-arrow favorite-ledger-panel__help-arrow--up" />
+              <span className="favorite-ledger-panel__help-arrow favorite-ledger-panel__help-arrow--down" />
+            </span>
+          </button>
+        </span>
+      </div>
+      {guideHintExpanded ? <p className="favorite-ledger-panel__guide-hint">扫描旧藏后，按扫描概览、推荐收藏夹、归档预览和确认执行依次完成本轮整理。</p> : null}
       <nav className="favorite-ledger-panel__guide-steps" aria-label="整理旧藏步骤">
         {steps.map((item) => <button key={item.id} type="button" aria-current={step === item.id ? 'step' : undefined}
           disabled={!canOpenStep(item.id)} onClick={() => onStepChange(item.id)}>{item.label}</button>)}

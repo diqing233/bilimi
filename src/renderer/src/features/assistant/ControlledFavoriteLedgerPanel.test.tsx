@@ -80,6 +80,30 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(within(checklist as HTMLElement).getByText(/自定义你的 bilimi 收藏夹/)).toBeInTheDocument()
   })
 
+  it('keeps the legacy organize-guide help arrow in the title row and expands its explanation', async () => {
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(null),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue({
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning',
+        mode: 'incremental', segmentSize: 2000, hasMultipleSegments: false,
+        scan: { phase: 'inventory', failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+        segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        history: { cursor: 0, length: 0 }
+      })
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+
+    const guide = await screen.findByRole('region', { name: '整理旧藏向导' })
+    const help = within(guide).getByRole('button', { name: '展开整理旧藏说明' })
+    expect(help).toHaveClass('favorite-ledger-panel__help-toggle')
+    expect(help.querySelector('.favorite-ledger-panel__help-arrows')).not.toBeNull()
+    fireEvent.click(help)
+    expect(within(guide).getByRole('button', { name: '收起整理旧藏说明' })).toHaveAttribute('aria-expanded', 'true')
+  })
+
   it('keeps editable rule types and safe reset synchronization in the legacy checklist', async () => {
     const save = vi.fn()
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[
