@@ -111,6 +111,74 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.snapshot).toMatchObject({ continuationCount: 3 })
   })
 
+  it('keeps interaction loading stable during the 400ms background status polling', async () => {
+    vi.useFakeTimers()
+    const polling = deferred<ReturnType<typeof workspace>>()
+    const open = vi.fn()
+      .mockResolvedValueOnce(workspace('100'))
+      .mockReturnValueOnce(polling.promise)
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await vi.runOnlyPendingTimersAsync() })
+    expect(result.current.loading).toBe(false)
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(400) })
+    expect(open).toHaveBeenCalledTimes(2)
+    expect(result.current.loading).toBe(false)
+    expect(result.current.backgroundRefreshing).toBe(true)
+
+    await act(async () => { polling.resolve(workspace('100')) })
+    expect(result.current.backgroundRefreshing).toBe(false)
+  })
+
+  it('does not let background polling strand a foreground command in loading', async () => {
+    vi.useFakeTimers()
+    const commandResult = deferred<ReturnType<typeof workspace>>()
+    const open = vi.fn().mockResolvedValue(workspace('100'))
+    const command = vi.fn().mockReturnValue(commandResult.promise)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: open,
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await vi.runOnlyPendingTimersAsync() })
+    let pendingCommand!: Promise<unknown>
+    act(() => { pendingCommand = result.current.startScan() })
+    expect(result.current.loading).toBe(true)
+    await act(async () => { await vi.advanceTimersByTimeAsync(400) })
+    commandResult.resolve(workspace('100'))
+    await act(async () => { await pendingCommand })
+
+    expect(result.current.loading).toBe(false)
+    vi.useRealTimers()
+  })
+
+  it('keeps loading until overlapping foreground commands have both finished', async () => {
+    const first = deferred<ReturnType<typeof workspace>>()
+    const second = deferred<ReturnType<typeof workspace>>()
+    const command = vi.fn()
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    let firstCommand!: Promise<unknown>
+    let secondCommand!: Promise<unknown>
+    act(() => {
+      firstCommand = result.current.startScan()
+      secondCommand = result.current.autoClassifyCurrentSegment()
+    })
+    second.resolve(workspace('100'))
+    await act(async () => { await secondCommand })
+    expect(result.current.loading).toBe(true)
+
+    first.resolve(workspace('100'))
+    await act(async () => { await firstCommand })
+    expect(result.current.loading).toBe(false)
+  })
+
   it('starts a compact scan through the constrained workspace command', async () => {
     const command = vi.fn().mockResolvedValue(workspace('100'))
     window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
@@ -207,6 +275,7 @@ describe('useOldFavoriteWorkspace', () => {
   })
 
   it('keeps execution pending and refreshes the compact remote status while a sync command is in flight', async () => {
+    vi.useRealTimers()
     const pending = deferred<ReturnType<typeof workspace>>()
     const command = vi.fn().mockReturnValue(pending.promise)
     const open = vi.fn().mockResolvedValue({ ...workspace('100'), status: 'executing' as const })

@@ -11,34 +11,56 @@ function normalizeAccountMid(value: string) {
 export function useOldFavoriteWorkspace(accountMid?: string) {
   const [snapshot, setSnapshot] = useState<WorkspaceView | null>(null)
   const [loading, setLoading] = useState(false)
+  const [backgroundRefreshing, setBackgroundRefreshing] = useState(false)
   const [lastError, setLastError] = useState<string | null>(null)
   const requestVersion = useRef(0)
+  const backgroundRequestVersion = useRef(0)
+  const foregroundRequestCount = useRef(0)
 
   const refresh = useCallback(async (preserveSnapshot = false) => {
-    const version = ++requestVersion.current
+    if (preserveSnapshot && foregroundRequestCount.current > 0) return null
+    const version = preserveSnapshot ? ++backgroundRequestVersion.current : ++requestVersion.current
+    const foregroundVersion = requestVersion.current
     const open = window.bilimiDesktop?.openOldFavoriteWorkspaceV1
     if (!accountMid || !open) {
       setSnapshot(null)
       setLoading(false)
+      setBackgroundRefreshing(false)
       setLastError(null)
       return null
     }
 
-    if (!preserveSnapshot) setSnapshot(null)
-    setLoading(true)
+    if (!preserveSnapshot) {
+      setSnapshot(null)
+      setLoading(true)
+      foregroundRequestCount.current += 1
+    } else {
+      setBackgroundRefreshing(true)
+    }
     setLastError(null)
     try {
       const next = await open(accountMid)
       const matchesRequestedAccount = normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
       if (!matchesRequestedAccount) return null
-      if (requestVersion.current === version) setSnapshot(next)
+      const isCurrent = preserveSnapshot
+        ? backgroundRequestVersion.current === version && requestVersion.current === foregroundVersion && foregroundRequestCount.current === 0
+        : requestVersion.current === version
+      if (isCurrent) setSnapshot(next)
       return next
     } catch (error) {
-      if (requestVersion.current === version) setSnapshot(null)
-      if (requestVersion.current === version) setLastError(error instanceof Error ? error.message : '读取整理旧藏工作区失败。')
+      const isCurrent = preserveSnapshot
+        ? backgroundRequestVersion.current === version && requestVersion.current === foregroundVersion && foregroundRequestCount.current === 0
+        : requestVersion.current === version
+      if (isCurrent) setSnapshot(null)
+      if (isCurrent) setLastError(error instanceof Error ? error.message : '读取整理旧藏工作区失败。')
       return null
     } finally {
-      if (requestVersion.current === version) setLoading(false)
+      if (preserveSnapshot) {
+        if (backgroundRequestVersion.current === version) setBackgroundRefreshing(false)
+      } else {
+        foregroundRequestCount.current = Math.max(0, foregroundRequestCount.current - 1)
+        if (foregroundRequestCount.current === 0) setLoading(false)
+      }
     }
   }, [accountMid])
 
@@ -48,6 +70,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     if (!accountMid || !command) return null
 
     setLoading(true)
+    foregroundRequestCount.current += 1
     setLastError(null)
     try {
       const next = await command(accountMid, { type: 'start-scan', mode })
@@ -59,7 +82,8 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
       if (requestVersion.current === version) setLastError(error instanceof Error ? error.message : '启动整理旧藏扫描失败。')
       throw error
     } finally {
-      if (requestVersion.current === version) setLoading(false)
+      foregroundRequestCount.current = Math.max(0, foregroundRequestCount.current - 1)
+      if (foregroundRequestCount.current === 0) setLoading(false)
     }
   }, [accountMid])
 
@@ -84,6 +108,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
     if (!accountMid || !command) return null
     setLoading(true)
+    foregroundRequestCount.current += 1
     try {
       const next = await command(accountMid, commandValue)
       const matchesRequestedAccount = normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
@@ -93,7 +118,8 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     } catch {
       return null
     } finally {
-      if (requestVersion.current === version) setLoading(false)
+      foregroundRequestCount.current = Math.max(0, foregroundRequestCount.current - 1)
+      if (foregroundRequestCount.current === 0) setLoading(false)
     }
   }, [accountMid])
 
@@ -118,6 +144,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     const organize = window.bilimiDesktop?.organizeOldFavoriteWorkspaceDeepSeekV1
     if (!accountMid || !organize) return null
     setLoading(true)
+    foregroundRequestCount.current += 1
     try {
       const next = await organize(accountMid)
       if (normalizeAccountMid(next.accountMid) !== normalizeAccountMid(accountMid)) return null
@@ -126,7 +153,8 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     } catch {
       return null
     } finally {
-      if (requestVersion.current === version) setLoading(false)
+      foregroundRequestCount.current = Math.max(0, foregroundRequestCount.current - 1)
+      if (foregroundRequestCount.current === 0) setLoading(false)
     }
   }, [accountMid])
 
@@ -160,7 +188,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [refresh, snapshot?.status])
 
   return {
-    snapshot, loading, lastError, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek,
+    snapshot, loading, backgroundRefreshing, lastError, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek,
     undoClassification, redoClassification, autoClassifyCurrentSegment, setRecommendedCandidates, createLocalLedgerAndReclassify, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, executeFrozenBilibiliPlan,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace,
