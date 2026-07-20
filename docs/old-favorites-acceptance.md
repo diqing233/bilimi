@@ -20,6 +20,16 @@ npm run build
 git diff --check
 ```
 
+## 面板完整流程回归
+
+`ControlledFavoriteLedgerPanel.test.tsx` 覆盖受控面板从入口到完成的状态与命令边界：扫描和来源选择、推荐、自动分类、DeepSeek、人工调整、撤销/恢复、分段切换、一次 B 站确认、执行、对账、完成态与下一轮受保护的增量扫描。测试只断言 `old-favorite-workspace-v1` 快照和受控命令；收藏库入口仍独立打开三栏窗口，不能改写向导工作区。
+
+关键回归命令：
+
+```powershell
+npm test -- --run src/renderer/src/features/assistant/ControlledFavoriteLedgerPanel.test.tsx electron/main/oldFavoriteLegacyBoundary.test.ts
+```
+
 ## 尚需人工验收
 
 真实 B 站页面和 Windows 安装包不能由 mock 回归替代。准备打包或发布时，必须按 `docs/release-checklist.md` 在 dev、preview 和已安装 Windows 包中分别完成：登录后的扫描、来源/推荐/预览调整、一次 B 站同步、结果未知对账、切页恢复、重启恢复与收藏库窗口检查。

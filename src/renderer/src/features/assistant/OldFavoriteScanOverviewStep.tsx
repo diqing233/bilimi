@@ -34,6 +34,7 @@ export function OldFavoriteScanOverviewStep({
     .map((folder) => folder.id))
   const scanFailed = scanStartFailed || snapshot?.scan.phase === 'failed'
   const scanning = scanStarting || snapshot?.status === 'scanning' || !snapshot
+  const sourceSelectionLocked = Boolean(snapshot && !recovery && Object.keys(snapshot.classifications).length > 0)
   const guidance = scanStartFailed
     ? '扫描启动失败，请重新扫描。'
     : snapshot?.scan.phase === 'failed'
@@ -60,7 +61,7 @@ export function OldFavoriteScanOverviewStep({
               type="checkbox"
               aria-label={`选择来源 ${folder.title}`}
               checked={selectedSourceIds.has(folder.id)}
-              disabled={loading}
+              disabled={loading || sourceSelectionLocked}
               onChange={(event) => {
                 const next = new Set(selectedSourceIds)
                 if (event.currentTarget.checked) next.add(folder.id); else next.delete(folder.id)

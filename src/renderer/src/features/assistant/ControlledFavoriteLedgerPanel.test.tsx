@@ -885,6 +885,57 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByRole('button', { name: '确认并同步到 B 站' })).not.toBeInTheDocument()
   })
 
+  it('starts a protected incremental round when organizing again after completion', async () => {
+    const completed = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'completed' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 },
+      completionMode: 'bilibili' as const
+    }
+    const command = vi.fn().mockResolvedValue({
+      ...completed,
+      status: 'scanning' as const,
+      scan: { phase: 'inventory' as const, failureCount: 0 }
+    })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(completed),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
+      type: 'start-scan', mode: 'incremental'
+    }))
+  })
+
+  it('locks source selection after classifications have been persisted', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false, selected: true }],
+      segments: [{ id: 'segment-1', index: 0, status: 'previewing' as const, itemCount: 1 }],
+      currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, sourceFolderIds: ['source'] }] },
+      classifications: { '1': { aid: 1, targetLedgerIds: ['music'], source: 'manual' as const } },
+      recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 1, length: 1 }
+    }
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: vi.fn()
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '扫描概览' }))
+    expect(screen.getByRole('checkbox', { name: '选择来源 Source' })).toBeDisabled()
+  })
+
   it('does not submit the same Bilibili confirmation twice while the controlled command is pending', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
