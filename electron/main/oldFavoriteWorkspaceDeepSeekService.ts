@@ -163,7 +163,11 @@ export class OldFavoriteWorkspaceDeepSeekService {
         source: classification.source
       }]))
     }
-    const next = await this.options.coordinator.applyDeepSeekClassificationBatch(snapshot.accountMid, assignments, expected)
+    await this.options.coordinator.applyDeepSeekClassificationBatch(snapshot.accountMid, assignments, expected)
+    // The mutation returns the internal workspace model. Re-open the authoritative
+    // renderer snapshot so post-run UI retains source folders and segment items.
+    const next = await this.options.coordinator.getSnapshot(snapshot.accountMid)
+    if ('recovery' in next) throw new Error('Old favorite workspace requires rebuild.')
     return this.finish(accountMid, next, mode, totalChunks, scopedItems.length, assignments.length, scopedItems.length - results.length, failures, referencedConstraintLedgerNames)
   }
 
