@@ -2,12 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { registerOldFavoriteWorkspaceCoordinatorIpc } from './oldFavoriteWorkspaceCoordinatorIpc'
 
 class FakeIpcMain {
-  handlers = new Map<string, (event: { sender: { id: number } }, ...args: never[]) => unknown>()
-  handle(channel: string, handler: (event: { sender: { id: number } }, ...args: never[]) => unknown) {
+  handlers = new Map<string, (event: { sender: { id: number; send: ReturnType<typeof vi.fn> } }, ...args: never[]) => unknown>()
+  send = vi.fn()
+  handle(channel: string, handler: (event: { sender: { id: number; send: ReturnType<typeof vi.fn> } }, ...args: never[]) => unknown) {
     this.handlers.set(channel, handler)
   }
   invoke(channel: string, senderId: number, ...args: unknown[]) {
-    return this.handlers.get(channel)?.({ sender: { id: senderId } }, ...args as never[])
+    return this.handlers.get(channel)?.({ sender: { id: senderId, send: this.send } }, ...args as never[])
   }
 }
 
@@ -43,9 +44,9 @@ describe('old favorite workspace coordinator IPC', () => {
     })
 
     await expect(ipcMain.invoke('old-favorite-workspace-v1:deepseek-current-segment', 7, '100')).resolves.toEqual(snapshot)
-    expect(deepSeekService.organizeCurrentSegment).toHaveBeenCalledWith('100', 'all')
+    expect(deepSeekService.organizeCurrentSegment).toHaveBeenCalledWith('100', 'all', expect.any(Function))
     await expect(ipcMain.invoke('old-favorite-workspace-v1:deepseek-current-segment', 7, '100', 'unclassified-only')).resolves.toEqual(snapshot)
-    expect(deepSeekService.organizeCurrentSegment).toHaveBeenLastCalledWith('100', 'unclassified-only')
+    expect(deepSeekService.organizeCurrentSegment).toHaveBeenLastCalledWith('100', 'unclassified-only', expect.any(Function))
     await expect(ipcMain.invoke('old-favorite-workspace-v1:deepseek-current-segment', 7, '100', { results: [] }))
       .rejects.toThrow('arguments are invalid')
     await expect(ipcMain.invoke('old-favorite-workspace-v1:deepseek-current-segment', 7, '100', 'renderer-claimed-mode'))
@@ -111,6 +112,24 @@ describe('old favorite workspace coordinator IPC', () => {
     expect(coordinator.beginScan).toHaveBeenCalledWith('100', 'incremental')
     await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
       type: 'start-scan', mode: 'incremental', aids: [1]
+    })).rejects.toThrow('command is invalid')
+  })
+
+  it('allows mirror clearing only as an explicit full reorganization option', async () => {
+    const ipcMain = new FakeIpcMain()
+    const scanning = { ...snapshot, status: 'scanning' as const, scan: { phase: 'inventory' as const, failureCount: 0 } }
+    const coordinator = { beginScan: vi.fn().mockResolvedValue(scanning), getSnapshot: vi.fn().mockResolvedValue(scanning) }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'start-scan', mode: 'full', clearBilibiliMirror: true
+    })
+    expect(coordinator.beginScan).toHaveBeenCalledWith('100', 'full', { clearBilibiliMirror: true })
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'start-scan', mode: 'incremental', clearBilibiliMirror: true
     })).rejects.toThrow('command is invalid')
   })
 
@@ -210,6 +229,25 @@ describe('old favorite workspace coordinator IPC', () => {
       .resolves.toEqual(snapshot)
     expect(coordinator.undoClassificationChange).toHaveBeenCalledWith('100')
     expect(coordinator.redoClassificationChange).toHaveBeenCalledWith('100')
+  })
+
+  it('forwards only main-process DeepSeek chunk progress to the requesting renderer', async () => {
+    const ipcMain = new FakeIpcMain()
+    const deepSeekService = {
+      organizeCurrentSegment: vi.fn(async (_accountMid: string, _mode: string, progress: (value: unknown) => void) => {
+        progress({ totalChunks: 2, completedChunks: 1, successfulVideoCount: 20, failedVideoCount: 0 })
+        return snapshot
+      })
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: {} as never, deepSeekService: deepSeekService as never,
+      isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:deepseek-current-segment', 7, '100', 'all')).resolves.toEqual(snapshot)
+    expect(ipcMain.send).toHaveBeenCalledWith('old-favorite-workspace-v1:deepseek-progress', {
+      accountMid: '100', totalChunks: 2, completedChunks: 1, successfulVideoCount: 20, failedVideoCount: 0
+    })
   })
 
   it('retries failed DeepSeek chunks through a payload-free main-process endpoint', async () => {

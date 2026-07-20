@@ -261,7 +261,7 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
-  async beginScan(accountMid: string, mode: OldFavoriteWorkspace['mode']): Promise<OldFavoriteWorkspaceSnapshot> {
+  async beginScan(accountMid: string, mode: OldFavoriteWorkspace['mode'], options?: { clearBilibiliMirror?: boolean }): Promise<OldFavoriteWorkspaceSnapshot> {
     return this.queue(async () => {
       if (mode !== 'incremental' && mode !== 'full') throw new Error('Old favorite workspace mode is invalid.')
       let workspace = await this.requireWorkspace(accountMid)
@@ -288,6 +288,15 @@ export class OldFavoriteWorkspaceCoordinator {
           type: 'record-organization-protections',
           payload: { records: [], replace: true }
         })
+        if (options?.clearBilibiliMirror) {
+          await this.options.repository.commit(workspace.accountMid, {
+            id: `old-favorite-workspace:clear-bilibili-mirror:${workspace.id}`,
+            accountMid: workspace.accountMid,
+            issuedAt: this.now(),
+            type: 'clear-bilibili-mirror',
+            payload: {}
+          })
+        }
       }
       if (workspace.status !== 'scanning') throw new Error('Old favorite workspace scan is already active.')
       const updated = { ...workspace, mode }

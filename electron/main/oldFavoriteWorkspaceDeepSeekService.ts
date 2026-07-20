@@ -45,8 +45,12 @@ export class OldFavoriteWorkspaceDeepSeekService {
     generate: (request: ArchiveRequest) => Promise<DeepSeekGenerateResult>
   }) {}
 
-  async organizeCurrentSegment(accountMid: string, mode: DeepSeekArchiveMode = 'all'): Promise<OldFavoriteWorkspaceDeepSeekResult> {
-    return this.organize(accountMid, mode)
+  async organizeCurrentSegment(
+    accountMid: string,
+    mode: DeepSeekArchiveMode = 'all',
+    onProgress?: (progress: OldFavoriteWorkspaceDeepSeekResult['progress']) => void
+  ): Promise<OldFavoriteWorkspaceDeepSeekResult> {
+    return this.organize(accountMid, mode, undefined, onProgress)
   }
 
   /** Retries only the main-process remembered failed chunk aids for the active workspace. */
@@ -59,7 +63,8 @@ export class OldFavoriteWorkspaceDeepSeekService {
   private async organize(
     accountMid: string,
     mode: DeepSeekArchiveMode,
-    retry?: { workspaceId: string; segmentId: string; mode: DeepSeekArchiveMode; aids: number[] }
+    retry?: { workspaceId: string; segmentId: string; mode: DeepSeekArchiveMode; aids: number[] },
+    onProgress?: (progress: OldFavoriteWorkspaceDeepSeekResult['progress']) => void
   ): Promise<OldFavoriteWorkspaceDeepSeekResult> {
     const preferences = this.options.preferences()
     assertDeepSeekRequestEnabled(preferences as Parameters<typeof assertDeepSeekRequestEnabled>[0], 'favorite-archive-organize')
@@ -84,7 +89,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
       }
       return true
     }).filter((item) => !retry || retry.aids.includes(item.aid))
-    if (!scopedItems.length) return this.finish(accountMid, snapshot, mode, 0, 0, 0, [], [])
+    if (!scopedItems.length) return this.finish(accountMid, snapshot, mode, 0, 0, 0, 0, [], [])
 
     const request: ArchiveRequest = {
       kind: 'favorite-archive-organize',
@@ -122,6 +127,9 @@ export class OldFavoriteWorkspaceDeepSeekService {
     const results: DeepSeekArchiveVideoResult[] = []
     const failures: OldFavoriteWorkspaceDeepSeekFailure[] = []
     const totalChunks = Math.ceil(request.videos.length / 20)
+    let successfulVideoCount = 0
+    let failedVideoCount = 0
+    onProgress?.({ totalChunks, completedChunks: 0, totalVideoCount: request.videos.length, successfulVideoCount, failedVideoCount })
     for (let offset = 0; offset < request.videos.length; offset += 20) {
       const chunk = { ...request, videos: request.videos.slice(offset, offset + 20) }
       try {
@@ -129,6 +137,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
         if (result.kind !== 'favorite-archive-organize') throw new Error('DeepSeek returned an invalid favorite workspace result.')
         this.assertCompleteChunk(chunk, result.results)
         results.push(...result.results)
+        successfulVideoCount += result.results.length
       } catch (error) {
         failures.push({
           chunkIndex: offset / 20 + 1,
@@ -136,13 +145,15 @@ export class OldFavoriteWorkspaceDeepSeekService {
           affectedVideoCount: chunk.videos.length,
           message: error instanceof Error ? error.message : 'DeepSeek request failed.'
         })
+        failedVideoCount += chunk.videos.length
       }
+      onProgress?.({ totalChunks, completedChunks: offset / 20 + 1, totalVideoCount: request.videos.length, successfulVideoCount, failedVideoCount })
     }
 
     const itemByAid = new Map(scopedItems.map((item) => [item.aid, item]))
     const enabledLedgerIds = new Set(request.ledgers.map((ledger) => ledger.id))
     const assignments = this.assignmentsFromResult(results, itemByAid, snapshot.classifications, enabledLedgerIds, request.multiArchiveLimit)
-    if (!assignments.length) return this.finish(accountMid, snapshot, mode, totalChunks, results.length, scopedItems.length - results.length, failures, referencedConstraintLedgerNames)
+    if (!assignments.length) return this.finish(accountMid, snapshot, mode, totalChunks, scopedItems.length, results.length, scopedItems.length - results.length, failures, referencedConstraintLedgerNames)
     const expected: WorkspaceExpectation = {
       workspaceId: snapshot.workspaceId,
       currentSegmentId: snapshot.currentSegment.id,
@@ -153,7 +164,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
       }]))
     }
     const next = await this.options.coordinator.applyDeepSeekClassificationBatch(snapshot.accountMid, assignments, expected)
-    return this.finish(accountMid, next, mode, totalChunks, assignments.length, scopedItems.length - results.length, failures, referencedConstraintLedgerNames)
+    return this.finish(accountMid, next, mode, totalChunks, scopedItems.length, assignments.length, scopedItems.length - results.length, failures, referencedConstraintLedgerNames)
   }
 
   private finish(
@@ -161,6 +172,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
     snapshot: OldFavoriteWorkspaceSnapshot,
     mode: DeepSeekArchiveMode,
     totalChunks: number,
+    totalVideoCount: number,
     successfulVideoCount: number,
     failedVideoCount: number,
     failures: OldFavoriteWorkspaceDeepSeekFailure[],
@@ -174,12 +186,13 @@ export class OldFavoriteWorkspaceDeepSeekService {
     } else {
       this.failedRuns.delete(accountMid)
     }
-    return this.result(snapshot, totalChunks, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames)
+    return this.result(snapshot, totalChunks, totalVideoCount, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames)
   }
 
   private result(
     snapshot: OldFavoriteWorkspaceSnapshot,
     totalChunks: number,
+    totalVideoCount: number,
     successfulVideoCount: number,
     failedVideoCount: number,
     failures: OldFavoriteWorkspaceDeepSeekFailure[],
@@ -188,7 +201,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
     return {
       snapshot,
       referencedConstraintLedgerNames,
-      progress: { totalChunks, completedChunks: totalChunks, successfulVideoCount, failedVideoCount },
+      progress: { totalChunks, completedChunks: totalChunks, totalVideoCount, successfulVideoCount, failedVideoCount },
       failures
     }
   }

@@ -162,6 +162,13 @@ export type FavoriteRepositoryCommand =
       id: string
       accountMid: string
       issuedAt: string
+      type: 'clear-bilibili-mirror'
+      payload: Record<string, never>
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
       type: 'set-folder-members'
       payload: { folderId: string; aids: number[] }
     }
@@ -452,6 +459,9 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
         if (!folderId.trim().startsWith('bilibili:') || !isValidAidList(aids)) invalidCommand()
       }
       return
+    case 'clear-bilibili-mirror':
+      if (Object.keys(payload).length !== 0) invalidCommand()
+      return
     case 'record-sync-result':
       if (typeof payload.id !== 'string' || !payload.id.trim() || typeof payload.commandId !== 'string' ||
         !payload.commandId.trim() || !isSyncStatus(payload.status) || !isValidAidList(payload.affectedAids) ||
@@ -619,6 +629,22 @@ export function applyFavoriteRepositoryCommand(
       }
       affectedFolderIds = [...folderIds].sort()
       affectedAids = [...mirroredAids].sort((left, right) => left - right)
+      break
+    }
+    case 'clear-bilibili-mirror': {
+      const removedFolderIds = folders.filter((folder) => folder.kind === 'bilibili').map((folder) => folder.id)
+      affectedFolderIds = [...removedFolderIds].sort()
+      const removedAids = new Set(removedFolderIds.flatMap((folderId) => memberships[folderId] ?? []))
+      folders = folders.filter((folder) => folder.kind !== 'bilibili')
+      memberships = Object.fromEntries(Object.entries(memberships).filter(([folderId]) => !removedFolderIds.includes(folderId)))
+      const retainedAids = new Set(Object.values(memberships).flat())
+      for (const aid of removedAids) {
+        delete libraryMirrors[String(aid)]
+        if (!retainedAids.has(aid)) {
+          delete videos[String(aid)]
+        }
+      }
+      affectedAids = [...removedAids].sort((left, right) => left - right)
       break
     }
     case 'set-folder-members':

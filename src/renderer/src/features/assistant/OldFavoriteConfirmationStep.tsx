@@ -3,6 +3,7 @@ import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 type OldFavoriteConfirmationStepProps = {
   snapshot: OldFavoriteWorkspaceSnapshot
   loading: boolean
+  executionError?: string | null
   onSaveLocally: () => void
   onConfirmAndSync: () => void
   onExecuteFrozenPlan: () => void
@@ -22,6 +23,7 @@ function readinessFor(snapshot: OldFavoriteWorkspaceSnapshot) {
 export function OldFavoriteConfirmationStep({
   snapshot,
   loading,
+  executionError,
   onSaveLocally,
   onConfirmAndSync,
   onExecuteFrozenPlan,
@@ -84,6 +86,7 @@ export function OldFavoriteConfirmationStep({
     <p>可直接同步到 B 站，或仅保存到本地收藏库；两种方式都会冻结当前分类结果。</p>
     {readinessText ? <p>{readinessText}</p> : null}
     {blockedMessage ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{blockedMessage}</p> : null}
+    {executionError ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{executionError}</p> : null}
     <div className="favorite-ledger-panel__confirm-actions">
       <button type="button" disabled={!canSaveLocally || loading} onClick={onSaveLocally}>仅保存本轮到收藏库</button>
       <button type="button" disabled={!canSyncToBilibili || loading} onClick={onConfirmAndSync}>确认并同步到 B 站</button>

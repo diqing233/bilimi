@@ -52,6 +52,14 @@ type BilimiDesktopApi = {
   commandOldFavoriteWorkspaceV1?: (accountMid: string, command: unknown) => Promise<OldFavoriteWorkspaceView>
   organizeOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string, mode: DeepSeekArchiveMode) => Promise<OldFavoriteWorkspaceDeepSeekResult>
   retryOldFavoriteWorkspaceDeepSeekV1?: (accountMid: string) => Promise<OldFavoriteWorkspaceDeepSeekResult>
+  onOldFavoriteWorkspaceDeepSeekProgress?: (callback: (progress: {
+    accountMid: string
+    totalChunks: number
+    completedChunks: number
+    totalVideoCount: number
+    successfulVideoCount: number
+    failedVideoCount: number
+  }) => void) => () => void
   ensureFavoriteLedgers?: () => Promise<AssistantAutomationResult>
   finishFloatingSealDrag?: () => void
   generateDeepSeek?: (request: DeepSeekGenerateRequest) => Promise<DeepSeekGenerateResult>

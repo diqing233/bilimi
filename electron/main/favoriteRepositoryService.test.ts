@@ -184,6 +184,48 @@ describe('FavoriteRepositoryService', () => {
     })
   })
 
+  it('clears only Bilibili mirror folders and mirror-only videos while preserving local repository data', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-21T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'source-mirror', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: {
+        workspaceId: 'workspace-1',
+        folders: [{ id: 'bilibili:source', title: 'Source', remoteFolderId: 'source' }],
+        memberAidsByFolderId: { 'bilibili:source': [1, 2] },
+        videos: [
+          { aid: 1, title: 'Mirror only', tags: [], updatedAt: '2026-07-21T00:00:00.000Z' },
+          { aid: 2, title: 'Also local', tags: [], updatedAt: '2026-07-21T00:00:00.000Z' }
+        ]
+      }
+    })
+    await service.commit('100', {
+      id: 'local-keep', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'commit-local-plan',
+      payload: { workspaceId: 'workspace-1', memberAidsByFolderId: { 'local:inbox': [2, 3] },
+        folders: [{ id: 'local:inbox', title: '暂存', kind: 'local', syncState: 'local-only' }],
+        videos: [{ aid: 3, title: 'Local only', tags: [], updatedAt: '2026-07-21T00:00:00.000Z' }] }
+    })
+    await service.commit('100', {
+      id: 'library-mirror', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'record-library-mirror',
+      payload: { aid: 1, status: 'synced', metadataRevision: 1, lastSyncedAt: '2026-07-21T00:00:00.000Z' }
+    })
+    await service.commit('100', {
+      id: 'retained-library-mirror', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'record-library-mirror',
+      payload: { aid: 2, status: 'synced', metadataRevision: 1, lastSyncedAt: '2026-07-21T00:00:00.000Z' }
+    })
+
+    await service.commit('100', {
+      id: 'clear-bilibili-mirror', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'clear-bilibili-mirror', payload: {}
+    })
+
+    await expect(service.getSnapshot('100')).resolves.toMatchObject({
+      folders: [{ id: 'local:inbox', kind: 'local' }],
+      memberships: { 'local:inbox': [2, 3] },
+      videos: { '2': { aid: 2 }, '3': { aid: 3 } },
+      libraryMirrors: {}
+    })
+  })
+
   it('keeps the last successful mirror timestamp when a later local refresh fails', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root })

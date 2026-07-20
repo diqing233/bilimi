@@ -154,6 +154,7 @@ export type OldFavoriteWorkspaceDeepSeekResult = {
   progress: {
     totalChunks: number
     completedChunks: number
+    totalVideoCount: number
     successfulVideoCount: number
     failedVideoCount: number
   }

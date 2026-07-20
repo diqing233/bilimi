@@ -118,4 +118,24 @@ describe('OldFavoriteArchivePreviewStep', () => {
     fireEvent.click(screen.getByRole('button', { name: '显示全部 51 条' }))
     expect(document.querySelector('.favorite-ledger-panel__virtual-track-spacer')).toHaveStyle({ width: '14280px' })
   })
+
+  it('shows the legacy DeepSeek progress bar while main-process chunks are running', () => {
+    render(<OldFavoriteArchivePreviewStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [{ id: 'source', title: 'Source', itemCount: 20, isBilimiWorkFolder: false, selected: true }],
+        segments: [], currentSegment: { id: 'segment-1', aids: [1], items: [{ aid: 1, title: 'Preview', sourceFolderIds: ['source'] }] },
+        classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+      }}
+      ledgers={[]} loading={true} deepSeekAvailable={true}
+      deepSeekFeedback={{ status: 'running', message: 'DeepSeek 正在整理当前分段…', progress: { totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0 } }}
+      onSelectSegment={vi.fn()} onOrganizeWithDeepSeek={vi.fn()} onRetryFailedDeepSeekChunks={vi.fn()}
+      onUndo={vi.fn()} onRedo={vi.fn()} onMoveHistoryCursor={vi.fn()} onApplyManualClassification={vi.fn()} onApplyManualClassifications={vi.fn()}
+    />)
+
+    expect(screen.getByRole('progressbar', { name: 'DeepSeek 整理进度' })).toHaveAttribute('aria-valuenow', '50')
+    expect(screen.getByText('第 1 / 2 批')).toBeInTheDocument()
+    expect(screen.getByText('已完成 20 / 21 条视频')).toBeInTheDocument()
+  })
 })

@@ -19,6 +19,20 @@ function deepSeekFailureMessage(error: unknown) {
   return detail || 'DeepSeek 整理失败，请稍后重试。'
 }
 
+function executionFailureMessage(error: unknown) {
+  const detail = error instanceof Error ? error.message : ''
+  if (/remote-target-unbound|remote-ambiguous|account-mismatch|remote account mismatch/i.test(detail)) {
+    return '无法确认当前 B 站页面，请保持已登录的 B 站页面打开后重试。'
+  }
+  if (/physical-shard-capacity-exceeded|shard capacity is exceeded/i.test(detail)) {
+    return '目标收藏夹容量不足，请调整归类后重新确认。'
+  }
+  if (/folder limit/i.test(detail)) {
+    return 'B 站收藏夹数量已达上限，请整理现有收藏夹后重试。'
+  }
+  return '无法生成本轮 B 站同步计划，请检查目标收藏夹后重试。'
+}
+
 function normalizeAccountMid(value: string) {
   if (!/^\d+$/.test(value.trim()) || BigInt(value.trim()) === 0n) return null
   return BigInt(value.trim()).toString()
@@ -29,6 +43,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   const [loading, setLoading] = useState(false)
   const [backgroundRefreshing, setBackgroundRefreshing] = useState(false)
   const [lastError, setLastError] = useState<string | null>(null)
+  const [executionError, setExecutionError] = useState<string | null>(null)
   const [deepSeekFeedback, setDeepSeekFeedback] = useState<DeepSeekWorkspaceFeedback | null>(null)
   const requestVersion = useRef(0)
   const backgroundRequestVersion = useRef(0)
@@ -41,6 +56,25 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     setLoading(false)
     setBackgroundRefreshing(false)
     setDeepSeekFeedback(null)
+  }, [accountMid])
+
+  useEffect(() => {
+    const subscribe = window.bilimiDesktop?.onOldFavoriteWorkspaceDeepSeekProgress
+    if (!accountMid || !subscribe) return
+    return subscribe((progress) => {
+      if (normalizeAccountMid(progress.accountMid) !== normalizeAccountMid(accountMid)) return
+      setDeepSeekFeedback({
+        status: 'running',
+        message: 'DeepSeek 正在整理当前分段…',
+        progress: {
+          totalChunks: progress.totalChunks,
+          completedChunks: progress.completedChunks,
+          totalVideoCount: progress.totalVideoCount,
+          successfulVideoCount: progress.successfulVideoCount,
+          failedVideoCount: progress.failedVideoCount
+        }
+      })
+    })
   }, [accountMid])
 
   const refresh = useCallback(async (preserveSnapshot = false) => {
@@ -91,7 +125,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     }
   }, [accountMid])
 
-  const startScan = useCallback(async (mode: 'incremental' | 'full' = 'incremental') => {
+  const startScan = useCallback(async (mode: 'incremental' | 'full' = 'incremental', options?: { clearBilibiliMirror?: boolean }) => {
     const version = ++requestVersion.current
     const generation = accountGeneration.current
     const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
@@ -101,7 +135,9 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     foregroundRequestCount.current += 1
     setLastError(null)
     try {
-      const next = await command(accountMid, { type: 'start-scan', mode })
+      const next = await command(accountMid, options?.clearBilibiliMirror && mode === 'full'
+        ? { type: 'start-scan', mode, clearBilibiliMirror: true }
+        : { type: 'start-scan', mode })
       const matchesRequestedAccount = normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
       if (!matchesRequestedAccount) return null
       if (requestVersion.current === version && accountGeneration.current === generation) setSnapshot(next)
@@ -133,20 +169,24 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     }
   }, [accountMid])
 
-  const sendCommand = useCallback(async (commandValue: unknown) => {
+  const sendCommand = useCallback(async (commandValue: unknown, reportExecutionFailure = false) => {
     const version = ++requestVersion.current
     const generation = accountGeneration.current
     const command = window.bilimiDesktop?.commandOldFavoriteWorkspaceV1
     if (!accountMid || !command) return null
     setLoading(true)
     foregroundRequestCount.current += 1
+    if (reportExecutionFailure) setExecutionError(null)
     try {
       const next = await command(accountMid, commandValue)
       const matchesRequestedAccount = normalizeAccountMid(next.accountMid) === normalizeAccountMid(accountMid)
       if (!matchesRequestedAccount) return null
       if (requestVersion.current === version && accountGeneration.current === generation) setSnapshot(next)
       return next
-    } catch {
+    } catch (error) {
+      if (reportExecutionFailure && requestVersion.current === version && accountGeneration.current === generation) {
+        setExecutionError(executionFailureMessage(error))
+      }
       return null
     } finally {
       if (accountGeneration.current === generation) {
@@ -258,10 +298,10 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
     return normalized ? sendCommand({ type: 'create-local-ledger-and-reclassify', title: normalized }) : Promise.resolve(null)
   }, [sendCommand])
   const freezeBilibiliExecution = useCallback(() => sendCommand({ type: 'freeze-bilibili-execution' }), [sendCommand])
-  const confirmAndExecuteBilibiliPlan = useCallback(() => sendCommand({ type: 'confirm-and-execute-bilibili-plan' }), [sendCommand])
+  const confirmAndExecuteBilibiliPlan = useCallback(() => sendCommand({ type: 'confirm-and-execute-bilibili-plan' }, true), [sendCommand])
   const saveCurrentSegmentLocally = useCallback(() => sendCommand({ type: 'save-current-segment-locally' }), [sendCommand])
-  const executeFrozenBilibiliPlan = useCallback(() => sendCommand({ type: 'execute-frozen-bilibili-plan' }), [sendCommand])
-  const reconcileFrozenBilibiliPlan = useCallback(() => sendCommand({ type: 'reconcile-frozen-bilibili-plan' }), [sendCommand])
+  const executeFrozenBilibiliPlan = useCallback(() => sendCommand({ type: 'execute-frozen-bilibili-plan' }, true), [sendCommand])
+  const reconcileFrozenBilibiliPlan = useCallback(() => sendCommand({ type: 'reconcile-frozen-bilibili-plan' }, true), [sendCommand])
   const resumeReconciledBilibiliPlan = useCallback(() => sendCommand({ type: 'resume-reconciled-bilibili-plan' }), [sendCommand])
   const rebuildCorruptWorkspace = useCallback(() => sendCommand({ type: 'rebuild-corrupt-workspace' }), [sendCommand])
 
@@ -276,7 +316,7 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [refresh, snapshot?.status])
 
   return {
-    snapshot, loading, backgroundRefreshing, lastError, deepSeekFeedback, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, retryFailedDeepSeekChunks,
+    snapshot, loading, backgroundRefreshing, lastError, executionError, deepSeekFeedback, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, retryFailedDeepSeekChunks,
     undoClassification, redoClassification, moveHistoryCursor, autoClassifyCurrentSegment, setRecommendedCandidates, createLocalLedgerAndReclassify, freezeBilibiliExecution, confirmAndExecuteBilibiliPlan, saveCurrentSegmentLocally, executeFrozenBilibiliPlan,
     reconcileFrozenBilibiliPlan, resumeReconciledBilibiliPlan,
     rebuildCorruptWorkspace,

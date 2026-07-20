@@ -140,7 +140,21 @@ export function OldFavoriteArchivePreviewStep({
           {deepSeekFeedback ? <div className="favorite-ledger-panel__deepseek-archive-status"
             role={deepSeekFeedback.status === 'failed' ? 'alert' : 'status'}>
             <p>{deepSeekFeedback.message}</p>
-            {deepSeekFeedback.progress ? <small>已完成 {deepSeekFeedback.progress.completedChunks} / {deepSeekFeedback.progress.totalChunks} 批。</small> : null}
+            {deepSeekFeedback.progress ? (() => {
+              const { completedChunks, totalChunks, totalVideoCount, successfulVideoCount, failedVideoCount } = deepSeekFeedback.progress
+              const completedVideos = successfulVideoCount + failedVideoCount
+              const progressValue = totalChunks > 0 ? Math.round((completedChunks / totalChunks) * 100) : 0
+              return <div className="favorite-ledger-panel__deepseek-archive-progress" data-running={deepSeekFeedback.status === 'running'}>
+                <div className="favorite-ledger-panel__deepseek-archive-progress-copy">
+                  <span>第 {completedChunks} / {totalChunks} 批</span>
+                  <span>已完成 {completedVideos} / {totalVideoCount} 条视频</span>
+                </div>
+                <div aria-label="DeepSeek 整理进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressValue}
+                  className="favorite-ledger-panel__deepseek-archive-progress-track" role="progressbar">
+                  <span style={{ width: `${progressValue}%` }} />
+                </div>
+              </div>
+            })() : null}
             {deepSeekFeedback.failures?.map((failure) => <p key={failure.chunkIndex}>第 {failure.chunkIndex} 批：{failure.message}</p>)}
             {deepSeekFeedback.failures?.length ? <button type="button" disabled={loading} onClick={onRetryFailedDeepSeekChunks}>重试失败批次</button> : null}
           </div> : null}

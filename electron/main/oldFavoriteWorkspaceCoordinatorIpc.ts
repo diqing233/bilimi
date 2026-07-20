@@ -8,11 +8,23 @@ import {
 } from './oldFavoriteWorkspaceCoordinator'
 import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepSeekService'
 
-type IpcEvent = { sender: { id: number } }
+type IpcEvent = {
+  sender: {
+    id: number
+    send: (channel: 'old-favorite-workspace-v1:deepseek-progress', progress: {
+      accountMid: string
+      totalChunks: number
+      completedChunks: number
+      totalVideoCount: number
+      successfulVideoCount: number
+      failedVideoCount: number
+    }) => void
+  }
+}
 type IpcMain = { handle(channel: string, handler: (event: IpcEvent, ...args: never[]) => unknown): void }
 
 type WorkspaceCommand =
-  | { type: 'start-scan'; mode: 'incremental' | 'full' }
+  | { type: 'start-scan'; mode: 'incremental' | 'full'; clearBilibiliMirror?: boolean }
   | { type: 'rebuild-corrupt-workspace' }
   | { type: 'select-source-folders'; folderIds: string[] }
   | { type: 'select-segment'; segmentId: string }
@@ -52,8 +64,9 @@ function command(value: unknown): WorkspaceCommand {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Old favorite workspace command is invalid.')
   const candidate = value as Record<string, unknown>
   if (candidate.type === 'start-scan' && (candidate.mode === 'incremental' || candidate.mode === 'full') &&
-    Object.keys(candidate).every((key) => key === 'type' || key === 'mode')) {
-    return { type: 'start-scan', mode: candidate.mode }
+    Object.keys(candidate).every((key) => key === 'type' || key === 'mode' || key === 'clearBilibiliMirror') &&
+    (candidate.clearBilibiliMirror === undefined || (candidate.mode === 'full' && candidate.clearBilibiliMirror === true))) {
+    return candidate.clearBilibiliMirror ? { type: 'start-scan', mode: candidate.mode, clearBilibiliMirror: true } : { type: 'start-scan', mode: candidate.mode }
   }
   if (candidate.type === 'rebuild-corrupt-workspace' && Object.keys(candidate).length === 1) {
     return { type: 'rebuild-corrupt-workspace' }
@@ -120,7 +133,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   deepSeekService?: Pick<OldFavoriteWorkspaceDeepSeekService, 'organizeCurrentSegment' | 'retryFailedChunks'>
   isTrustedSender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
-  startScan?: (accountMid: string, mode: 'incremental' | 'full') => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
+  startScan?: (accountMid: string, mode: 'incremental' | 'full', options?: { clearBilibiliMirror?: boolean }) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
   rebuildAndStartScan?: (accountMid: string) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
 }) {
   const assertAccount = async (event: IpcEvent, requestedAccountMid: unknown) => {
@@ -138,7 +151,10 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   options.ipcMain.handle('old-favorite-workspace-v1:deepseek-current-segment', async (event, requestedAccountMid: string, mode?: DeepSeekArchiveMode, ...args: unknown[]) => {
     if (args.length !== 0 || (mode !== undefined && !['all', 'classified-only', 'unclassified-only', 'low-confidence-and-unclassified'].includes(mode))) throw new Error('Old favorite workspace DeepSeek arguments are invalid.')
     if (!options.deepSeekService) throw new Error('Old favorite workspace DeepSeek service is unavailable.')
-    return snapshot(await options.deepSeekService.organizeCurrentSegment(await assertAccount(event, requestedAccountMid), mode ?? 'all'))
+    const accountMid = await assertAccount(event, requestedAccountMid)
+    return snapshot(await options.deepSeekService.organizeCurrentSegment(accountMid, mode ?? 'all', (progress) => {
+      event.sender.send('old-favorite-workspace-v1:deepseek-progress', { accountMid, ...progress })
+    }))
   })
   options.ipcMain.handle('old-favorite-workspace-v1:retry-failed-deepseek', async (event, requestedAccountMid: string, ...args: unknown[]) => {
     if (args.length !== 0) throw new Error('Old favorite workspace DeepSeek arguments are invalid.')
@@ -149,8 +165,12 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     const accountMid = await assertAccount(event, requestedAccountMid)
     const requested = command(value)
     if (requested.type === 'start-scan') return options.startScan
-      ? options.startScan(accountMid, requested.mode)
-      : options.coordinator.beginScan(accountMid, requested.mode)
+      ? requested.clearBilibiliMirror
+        ? options.startScan(accountMid, requested.mode, { clearBilibiliMirror: true })
+        : options.startScan(accountMid, requested.mode)
+      : requested.clearBilibiliMirror
+        ? options.coordinator.beginScan(accountMid, requested.mode, { clearBilibiliMirror: true })
+        : options.coordinator.beginScan(accountMid, requested.mode)
     if (requested.type === 'rebuild-corrupt-workspace') return options.rebuildAndStartScan
       ? options.rebuildAndStartScan(accountMid)
       : options.coordinator.rebuildAfterRecovery(accountMid)

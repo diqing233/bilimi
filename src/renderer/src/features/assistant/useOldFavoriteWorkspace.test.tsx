@@ -237,7 +237,7 @@ describe('useOldFavoriteWorkspace', () => {
   it('runs DeepSeek through the payload-free current-segment bridge', async () => {
     const organize = vi.fn().mockResolvedValue({
       snapshot: workspace('100'),
-      progress: { totalChunks: 1, completedChunks: 1, successfulVideoCount: 1, failedVideoCount: 0 },
+      progress: { totalChunks: 1, completedChunks: 1, totalVideoCount: 1, successfulVideoCount: 1, failedVideoCount: 0 },
       failures: []
     })
     window.bilimiDesktop = { organizeOldFavoriteWorkspaceDeepSeekV1: organize } as typeof window.bilimiDesktop
@@ -247,6 +247,34 @@ describe('useOldFavoriteWorkspace', () => {
 
     expect(organize).toHaveBeenCalledExactlyOnceWith('100', 'low-confidence-and-unclassified')
     expect(result.current.snapshot).toEqual(workspace('100'))
+  })
+
+  it('requests optional Bilibili mirror clearing only with a full reorganization scan', async () => {
+    const command = vi.fn().mockResolvedValue(workspace('100'))
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.startScan('full', { clearBilibiliMirror: true }) })
+
+    expect(command).toHaveBeenCalledExactlyOnceWith('100', { type: 'start-scan', mode: 'full', clearBilibiliMirror: true })
+  })
+
+  it('renders main-process DeepSeek chunk progress before the final result returns', async () => {
+    const pending = deferred<{ snapshot: ReturnType<typeof workspace>; progress: { totalChunks: number; completedChunks: number; totalVideoCount: number; successfulVideoCount: number; failedVideoCount: number }; referencedConstraintLedgerNames: string[]; failures: [] }>()
+    let publishProgress: ((progress: { accountMid: string; totalChunks: number; completedChunks: number; totalVideoCount: number; successfulVideoCount: number; failedVideoCount: number }) => void) | undefined
+    window.bilimiDesktop = {
+      organizeOldFavoriteWorkspaceDeepSeekV1: vi.fn().mockReturnValue(pending.promise),
+      onOldFavoriteWorkspaceDeepSeekProgress: (callback) => { publishProgress = callback; return vi.fn() }
+    } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    act(() => { void result.current.organizeCurrentSegmentWithDeepSeek('all') })
+    await waitFor(() => expect(publishProgress).toBeTypeOf('function'))
+    act(() => { publishProgress?.({ accountMid: '100', totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0 }) })
+
+    expect(result.current.deepSeekFeedback).toMatchObject({
+      status: 'running', progress: { totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0 }
+    })
   })
 
   it('reports a visible DeepSeek failure when its narrow bridge is unavailable', async () => {
@@ -292,6 +320,18 @@ describe('useOldFavoriteWorkspace', () => {
 
     expect(command).toHaveBeenCalledExactlyOnceWith('100', { type: 'save-current-segment-locally' })
     expect(result.current.snapshot).toMatchObject({ status: 'completed' })
+  })
+
+  it('keeps a mapped execution failure visible instead of silently swallowing a rejected confirmation', async () => {
+    const command = vi.fn().mockRejectedValue(new Error('remote-target-unbound'))
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.confirmAndExecuteBilibiliPlan() })
+
+    expect(command).toHaveBeenCalledExactlyOnceWith('100', { type: 'confirm-and-execute-bilibili-plan' })
+    expect(result.current.executionError).toBe('无法确认当前 B 站页面，请保持已登录的 B 站页面打开后重试。')
+    expect(result.current.loading).toBe(false)
   })
 
   it('starts only the already frozen Bilibili plan through a payload-free command', async () => {

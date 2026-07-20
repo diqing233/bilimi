@@ -188,6 +188,29 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(await screen.findByRole('button', { name: '对账 B 站结果' })).toBeEnabled()
   })
 
+  it('offers Bilibili mirror clearing as an unchecked optional full-reorganization action', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue({ ...preview, status: 'scanning' as const })
+    window.bilimiDesktop = { openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview), commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
+    fireEvent.click(await screen.findByRole('button', { name: '全部重新整理' }))
+    const dialog = await screen.findByRole('alertdialog', { name: '确认全部重新整理？' })
+    const clearMirror = within(dialog).getByRole('checkbox', { name: '同时清空 B 站收藏镜像' })
+    expect(clearMirror).not.toBeChecked()
+    fireEvent.click(clearMirror)
+    fireEvent.click(within(dialog).getByRole('button', { name: '确认重置' }))
+
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'full', clearBilibiliMirror: true }))
+  })
+
   it('keeps editable rule types and safe reset synchronization in the legacy checklist', async () => {
     const save = vi.fn()
     render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[

@@ -2,6 +2,20 @@ import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanService'
 
 describe('OldFavoriteWorkspaceScanService', () => {
+  it('passes an explicit Bilibili mirror clear only to a full organization scan', async () => {
+    const coordinator = {
+      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning', scan: { phase: 'inventory' } }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
+      recordScanFailure: vi.fn()
+    }
+    const runtime = vi.fn().mockResolvedValue({ status: 'unknown', observedAccountMid: '', reason: 'target-unavailable' })
+    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+
+    await service.start('100', 'full', { clearBilibiliMirror: true })
+
+    expect(coordinator.beginScan).toHaveBeenCalledWith('100', 'full', { clearBilibiliMirror: true })
+  })
+
   it('returns the durable scanning snapshot before its controlled inventory finishes', async () => {
     let resolveInventory: ((value: unknown) => void) | undefined
     const inventory = new Promise((resolve) => { resolveInventory = resolve })

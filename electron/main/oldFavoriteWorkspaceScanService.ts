@@ -39,7 +39,7 @@ export class OldFavoriteWorkspaceScanService {
     requestRuntime: (request: RuntimeRequest) => Promise<RuntimeInventoryResult>
   }) {}
 
-  async start(accountMid: string, mode: OldFavoriteWorkspaceMode): Promise<OldFavoriteWorkspaceSnapshot> {
+  async start(accountMid: string, mode: OldFavoriteWorkspaceMode, options?: { clearBilibiliMirror?: boolean }): Promise<OldFavoriteWorkspaceSnapshot> {
     const account = normalizeAccountMid(accountMid)
     if (!account) throw new Error('Old favorite workspace account is invalid.')
     const active = this.activeScans.get(account)
@@ -49,7 +49,7 @@ export class OldFavoriteWorkspaceScanService {
 
     let run!: { mode: OldFavoriteWorkspaceMode; snapshot: Promise<OldFavoriteWorkspaceSnapshot> }
     const isCurrent = () => this.activeScans.get(account) === run
-    const snapshot = this.begin(account, mode, isCurrent)
+    const snapshot = this.begin(account, mode, isCurrent, options)
     run = { mode, snapshot }
     this.activeScans.set(account, run)
     void snapshot.catch(() => {
@@ -58,8 +58,10 @@ export class OldFavoriteWorkspaceScanService {
     return snapshot
   }
 
-  private async begin(accountMid: string, mode: OldFavoriteWorkspaceMode, isCurrent: () => boolean) {
-    const snapshot = await this.options.coordinator.beginScan(accountMid, mode)
+  private async begin(accountMid: string, mode: OldFavoriteWorkspaceMode, isCurrent: () => boolean, options?: { clearBilibiliMirror?: boolean }) {
+    const snapshot = options?.clearBilibiliMirror
+      ? await this.options.coordinator.beginScan(accountMid, mode, { clearBilibiliMirror: true })
+      : await this.options.coordinator.beginScan(accountMid, mode)
     const runId = await this.options.coordinator.getActiveScanRunId(accountMid)
     void this.runInventory(accountMid, runId, isCurrent).finally(() => {
       if (isCurrent()) this.activeScans.delete(accountMid)

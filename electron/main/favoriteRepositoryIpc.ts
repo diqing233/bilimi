@@ -135,6 +135,7 @@ function commandForAccount(value: unknown, accountMid: string): FavoriteReposito
     (value as { type?: unknown }).type === 'record-organization-protections' ||
     (value as { type?: unknown }).type === 'commit-local-plan' ||
     (value as { type?: unknown }).type === 'record-bilibili-mirror' ||
+    (value as { type?: unknown }).type === 'clear-bilibili-mirror' ||
     (value as { type?: unknown }).type === 'abandon-frozen-workspace'
   ) {
     throw new Error('Frozen favorite workspace plans are reserved for the main process.')

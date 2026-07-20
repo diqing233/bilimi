@@ -57,4 +57,19 @@ describe('OldFavoriteConfirmationStep', () => {
     screen.getByRole('button', { name: '对账 B 站结果' }).click()
     expect(reconcile).toHaveBeenCalledOnce()
   })
+
+  it('keeps a main-process confirmation failure visible beneath the actions', () => {
+    render(<OldFavoriteConfirmationStep
+      snapshot={{
+        version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing', mode: 'incremental',
+        segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete', failureCount: 0 }, continuationCount: 0,
+        sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+        planReadiness: { selectedAidCount: 1, classifiedAidCount: 1, unclassifiedAidCount: 0 }, history: { cursor: 0, length: 0 }
+      }}
+      loading={false} executionError="无法确认当前 B 站页面，请保持已登录的 B 站页面打开后重试。"
+      onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()}
+    />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('无法确认当前 B 站页面')
+  })
 })

@@ -57,6 +57,25 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
     ipcRenderer.invoke('old-favorite-workspace-v1:deepseek-current-segment', accountMid, mode) as Promise<OldFavoriteWorkspaceDeepSeekResult>,
   retryOldFavoriteWorkspaceDeepSeekV1: (accountMid: string) =>
     ipcRenderer.invoke('old-favorite-workspace-v1:retry-failed-deepseek', accountMid) as Promise<OldFavoriteWorkspaceDeepSeekResult>,
+  onOldFavoriteWorkspaceDeepSeekProgress: (callback: (progress: {
+    accountMid: string
+    totalChunks: number
+    completedChunks: number
+    totalVideoCount: number
+    successfulVideoCount: number
+    failedVideoCount: number
+  }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, progress: {
+      accountMid: string
+      totalChunks: number
+      completedChunks: number
+      totalVideoCount: number
+      successfulVideoCount: number
+      failedVideoCount: number
+    }) => callback(progress)
+    ipcRenderer.on('old-favorite-workspace-v1:deepseek-progress', listener)
+    return () => ipcRenderer.removeListener('old-favorite-workspace-v1:deepseek-progress', listener)
+  },
   writeClipboardText: (text: string) =>
     ipcRenderer.invoke('clipboard:write-text', text) as Promise<void>,
   loadPreferences: () => ipcRenderer.invoke('assistant:load-preferences') as Promise<AssistantPreferences>,
