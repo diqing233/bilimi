@@ -23,7 +23,10 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
 
     await service.organizeCurrentSegment('100', 'low-confidence-and-unclassified')
     expect(generate).toHaveBeenCalledWith(expect.objectContaining({
-      mode: 'low-confidence-and-unclassified', videos: [expect.objectContaining({ aid: 1 }), expect.objectContaining({ aid: 2 })]
+      mode: 'low-confidence-and-unclassified', videos: [
+        expect.objectContaining({ aid: 1, lowConfidence: true }),
+        expect.objectContaining({ aid: 2, lowConfidence: true })
+      ]
     }))
   })
   it('submits only the selected current segment and records one main-process DeepSeek batch', async () => {

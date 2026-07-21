@@ -109,7 +109,8 @@ export class OldFavoriteWorkspaceDeepSeekService {
           sourceFolderTitle: foldersById.get(sourceFolderId)?.title ?? '',
           originalSuggestedLedgerIds: [],
           currentTargetLedgerIds: snapshot.classifications[String(item.aid)]?.targetLedgerIds ?? [],
-          selectedTargetLedgerIds: snapshot.classifications[String(item.aid)]?.targetLedgerIds ?? []
+          selectedTargetLedgerIds: snapshot.classifications[String(item.aid)]?.targetLedgerIds ?? [],
+          lowConfidence: !snapshot.classifications[String(item.aid)] || snapshot.classifications[String(item.aid)]?.source === 'system-low'
         }
       }),
       ledgers: preferences.favoriteLedgers
