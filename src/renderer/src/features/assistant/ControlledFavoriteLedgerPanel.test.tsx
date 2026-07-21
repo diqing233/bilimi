@@ -1269,14 +1269,14 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('heading', { name: '高频标签收藏夹' })).toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: '全选 专属 UP 追更' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: '全选 高频标签收藏夹' })).not.toBeChecked()
-    expect(screen.getByRole('checkbox', { name: 'UP 阿婆主' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: '标签 科技' })).not.toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '阿婆主' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '科技' })).not.toBeChecked()
     expect(screen.getByText('8 条适合')).toBeInTheDocument()
     expect(screen.queryByText(/常看 UP/)).not.toBeInTheDocument()
     expect(screen.getByText('5 条适合')).toBeInTheDocument()
     expect(screen.queryByText(/appeared 5 times/)).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('checkbox', { name: '标签 科技' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '科技' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'set-recommended-candidates', candidateIds: ['author-up', 'series-tech']
     }))
@@ -1285,8 +1285,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '第 2 组' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'select-segment', segmentId: 'segment-2' }))
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
-    expect(screen.getByRole('checkbox', { name: 'UP 阿婆主' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: '标签 科技' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '阿婆主' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '科技' })).toBeChecked()
 
     unmount()
     render(<ControlledFavoriteLedgerPanel {...props} />)
@@ -1337,10 +1337,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
     fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
-    expect(screen.getByRole('checkbox', { name: '标签 标签6' })).toBeInTheDocument()
-    expect(screen.queryByRole('checkbox', { name: '标签 标签7' })).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '标签6' })).toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: '标签7' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '展开更多高频标签' }))
-    expect(screen.getByRole('checkbox', { name: '标签 标签7' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: '标签7' })).toBeInTheDocument()
   })
 
   it('shows newest-first history details and routes a selected history record to the main process', async () => {

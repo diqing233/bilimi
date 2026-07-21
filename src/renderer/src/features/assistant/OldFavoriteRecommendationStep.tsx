@@ -15,7 +15,7 @@ type CandidateGroup = {
 }
 
 function candidateLabel(candidate: OldFavoriteWorkspaceRecommendationCandidate) {
-  return `${candidate.kind === 'author' ? 'UP' : '标签'} ${stripBilimiLedgerPrefix(candidate.displayName)}`
+  return stripBilimiLedgerPrefix(candidate.displayName)
 }
 
 function candidateDetail(candidate: OldFavoriteWorkspaceRecommendationCandidate) {
