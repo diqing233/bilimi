@@ -206,9 +206,6 @@ export class FavoriteRepositoryBindingService {
       } catch {
         throw new Error('Favorite repository remote folder inventory is unavailable.')
       }
-      if (inventory.folders.length >= REMOTE_FAVORITE_FOLDER_LIMIT) {
-        throw new Error('Favorite repository remote folder limit is exceeded.')
-      }
       const existing = inventory.folders.filter((folder) => folder.title === title)
       if (existing.length > 1) throw new Error('Favorite repository remote shard title is ambiguous.')
       if (existing.length === 1) {
@@ -218,6 +215,9 @@ export class FavoriteRepositoryBindingService {
           remoteFolderId: existing[0].id,
           inventory: inventory.folders.map((folder) => ({ ...folder, memberAids: [] }))
         }, token)
+      }
+      if (inventory.folders.length >= REMOTE_FAVORITE_FOLDER_LIMIT) {
+        throw new Error('Favorite repository remote folder limit is exceeded.')
       }
       try {
         const created = await bridge.createFolder({ accountMid: account, operationKey: `${runId}:create`, title })
