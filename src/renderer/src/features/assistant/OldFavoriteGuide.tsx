@@ -88,9 +88,10 @@ export function OldFavoriteGuide({
 }: OldFavoriteGuideProps) {
   const [guideHintExpanded, setGuideHintExpanded] = useState(false)
   const recovery = snapshot && 'recovery' in snapshot
+  const tagEnrichmentBlocksNextStep = snapshot?.tagEnrichment?.status === 'running' || snapshot?.tagEnrichment?.status === 'paused'
   const canOpenStep = (next: OldFavoriteGuideStep) => {
     if (next === 'scan') return true
-    if (scanStarting || recovery) return false
+    if (scanStarting || recovery || tagEnrichmentBlocksNextStep) return false
     if (next === 'generated' || next === 'preview') return snapshot?.status === 'previewing'
     return Boolean(snapshot && ['previewing', 'frozen', 'executing', 'reconciling', 'completed'].includes(snapshot.status))
   }

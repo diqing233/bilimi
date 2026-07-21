@@ -278,14 +278,6 @@ function scriptFor(command: OldFavoriteWorkspacePageCommand): string {
       tags: readTags(media?.tags ?? media?.tag),
       category: String(media?.tname ?? media?.category ?? media?.typename ?? media?.type_name ?? '').trim().slice(0, 128)
     })).filter((item) => Number.isSafeInteger(item.aid) && item.aid > 0 && Number.isSafeInteger(item.addedAt) && item.addedAt >= 0).slice(0, input.pageSize);
-    for (const item of rawItems) {
-      if (item.tags.length) continue;
-      const tagUrl = new URL('https://api.bilibili.com/x/tag/archive/tags');
-      tagUrl.searchParams.set('aid', String(item.aid));
-      const tagResponse = await fetchJson(tagUrl.toString());
-      // Missing tags are non-fatal; the rest of the bounded source page remains usable.
-      if (!tagResponse.error) item.tags = readTags(tagResponse.json?.data?.tags ?? tagResponse.json?.data);
-    }
     const items = rawItems;
     return { status: 'ok', observedAccountMid, items, hasMore: Boolean(response.json?.data?.has_more) };
   })()`

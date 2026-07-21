@@ -45,7 +45,6 @@ export function ControlledFavoriteLedgerPanel({
   const [resumeDialogOpen, setResumeDialogOpen] = useState(false)
   const [fullReorganizationConfirmOpen, setFullReorganizationConfirmOpen] = useState(false)
   const [fullReorganizationAccountMid, setFullReorganizationAccountMid] = useState<string | null>(null)
-  const [clearBilibiliMirrorOnFullReorganization, setClearBilibiliMirrorOnFullReorganization] = useState(false)
   const [scanStarting, setScanStarting] = useState(false)
   const [scanStartFailure, setScanStartFailure] = useState<string | null>(null)
   const scanPresentationRequestVersion = useRef(0)
@@ -165,26 +164,20 @@ export function ControlledFavoriteLedgerPanel({
           {canRestartFromResume ? <button type="button" onClick={() => {
             setResumeDialogOpen(false)
             setFullReorganizationAccountMid(normalizeAccountMid(currentAccountMid))
-            setClearBilibiliMirrorOnFullReorganization(false)
             setFullReorganizationConfirmOpen(true)
           }}>全部重新整理</button> : null}
         </>}>
         <p>检测到当前账号有未结束的整理存档，请选择接下来的操作。</p>
       </OldFavoriteModal> : null}
       {fullReorganizationConfirmOpen ? <OldFavoriteModal title="确认全部重新整理？" danger confirmLabel="确认重置"
-        onCancel={() => { setFullReorganizationConfirmOpen(false); setFullReorganizationAccountMid(null); setClearBilibiliMirrorOnFullReorganization(false) }}
+        onCancel={() => { setFullReorganizationConfirmOpen(false); setFullReorganizationAccountMid(null) }}
         onConfirm={() => {
           const canConfirm = canConfirmFullReorganization(fullReorganizationAccountMid, currentAccountMid)
-          const clearBilibiliMirror = clearBilibiliMirrorOnFullReorganization
           setFullReorganizationConfirmOpen(false)
           setFullReorganizationAccountMid(null)
-          if (canConfirm) void startScan('full', { clearBilibiliMirror })
-          setClearBilibiliMirrorOnFullReorganization(false)
+          if (canConfirm) void startScan('full')
         }}>
-        <p>这会丢弃本轮本地整理状态，并重新扫描 B 站当前收藏；不会撤销已提交到 B 站的操作。</p>
-        <label><input type="checkbox" checked={clearBilibiliMirrorOnFullReorganization}
-          onChange={(event) => setClearBilibiliMirrorOnFullReorganization(event.currentTarget.checked)} />同时清空 B 站收藏镜像</label>
-        <p>仅清除收藏库中的 B 站来源镜像；不会删除本地规则、暂存、笔记、转写或归档。</p>
+        <p>这会清空本地掌库、收藏库和本轮整理状态，再重新扫描 B 站当前收藏；不会撤销已提交到 B 站的操作。</p>
       </OldFavoriteModal> : null}
 
       {guideOpen ? <OldFavoriteGuide

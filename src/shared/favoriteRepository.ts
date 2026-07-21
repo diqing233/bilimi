@@ -169,6 +169,13 @@ export type FavoriteRepositoryCommand =
       id: string
       accountMid: string
       issuedAt: string
+      type: 'clear-local-repository'
+      payload: Record<string, never>
+    }
+  | {
+      id: string
+      accountMid: string
+      issuedAt: string
       type: 'set-folder-members'
       payload: { folderId: string; aids: number[] }
     }
@@ -462,6 +469,9 @@ function validateCommand(command: unknown): asserts command is FavoriteRepositor
     case 'clear-bilibili-mirror':
       if (Object.keys(payload).length !== 0) invalidCommand()
       return
+    case 'clear-local-repository':
+      if (Object.keys(payload).length !== 0) invalidCommand()
+      return
     case 'record-sync-result':
       if (typeof payload.id !== 'string' || !payload.id.trim() || typeof payload.commandId !== 'string' ||
         !payload.commandId.trim() || !isSyncStatus(payload.status) || !isValidAidList(payload.affectedAids) ||
@@ -645,6 +655,20 @@ export function applyFavoriteRepositoryCommand(
         }
       }
       affectedAids = [...removedAids].sort((left, right) => left - right)
+      break
+    }
+    case 'clear-local-repository': {
+      affectedFolderIds = folders.map((folder) => folder.id).sort()
+      affectedAids = uniquePositiveAids(Object.values(memberships).flat()).sort((left, right) => left - right)
+      memberships = {}
+      videos = {}
+      libraryMirrors = {}
+      folders = []
+      physicalShards = []
+      syncRecords = []
+      organizationRecords = []
+      organizationMigrationInitialized = false
+      workspace = undefined
       break
     }
     case 'set-folder-members':

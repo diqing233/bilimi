@@ -77,6 +77,33 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('rebuilds tag recommendations only after the user adopts completed tag enrichment', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'One', sourceFolderIds: ['source'] }, { aid: 2, title: 'Two', sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    expect((await coordinator.getSnapshot('100') as { recommendations: { candidates: Array<{ kind: string }> } }).recommendations.candidates)
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'tag' })]))
+
+    await coordinator.recordTagEnrichment('100', 1, ['音乐'], (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId)
+    await coordinator.recordTagEnrichment('100', 2, ['音乐'], (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId)
+    await coordinator.acceptCurrentTags('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: { status: 'complete', completedItemCount: 2, pendingItemCount: 0 },
+      recommendations: { candidates: expect.arrayContaining([expect.objectContaining({ kind: 'tag', displayName: 'bilimi·音乐' })]) }
+    })
+  })
+
   it('rejects a stale tag-enrichment result after full reorganization creates a new workspace', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
@@ -219,6 +246,25 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect(reset.workspaceId).not.toBe(initial.id)
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       mode: 'full', workspaceId: reset.workspaceId, sourceFolders: []
+    })
+  })
+
+  it('clears the favorite library repository when the user explicitly requests a clean full reorganization', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-19T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await repository.commit('100', {
+      id: 'stale-library', accountMid: '100', issuedAt: '2026-07-19T00:00:00.000Z', type: 'commit-local-plan',
+      payload: { workspaceId: 'old-workspace', memberAidsByFolderId: { 'local:inbox': [1] },
+        folders: [{ id: 'local:inbox', title: 'Inbox', kind: 'local', syncState: 'local-only' }],
+        videos: [{ aid: 1, title: 'Stale', tags: [], updatedAt: '2026-07-19T00:00:00.000Z' }] }
+    })
+    await coordinator.open('100')
+
+    await coordinator.beginScan('100', 'full')
+
+    await expect(repository.getSnapshot('100')).resolves.toMatchObject({
+      videos: {}, folders: [], memberships: {}, physicalShards: [], syncRecords: [], organizationRecords: []
     })
   })
 
@@ -933,7 +979,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('uses an adopted recommendation display name when requesting its first physical shard', async () => {
+  it('does not create a remote shard for an adopted recommendation during confirmation', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const ensurePhysicalShard = vi.fn().mockResolvedValue({})
@@ -959,12 +1005,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
 
     await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('remote-target-unbound')
-    expect(ensurePhysicalShard).toHaveBeenCalledWith('100', expect.objectContaining({
-      logicalLedgerId: 'custom-author-up-alpha',
-      logicalTitle: 'bilimi\u00b7UP Alpha',
-      remoteDisplayTitle: 'bilimi\u00b7UP Alpha',
-      shardNumber: 1
-    }))
+    expect(ensurePhysicalShard).not.toHaveBeenCalled()
   })
 
   it('keeps one remote organization round coherent from scan through protected incremental follow-up', async () => {
@@ -1567,7 +1608,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect((await repository.getSnapshot('100')).workspace?.frozenSyncPlan).toBeUndefined()
   })
 
-  it('ensures missing physical shards in the main process before compiling a single confirmed plan', async () => {
+  it('refuses to create an unbound remote target during confirmation', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const ensurePhysicalShard = vi.fn().mockResolvedValue({})
@@ -1582,12 +1623,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('remote-target-unbound')
-    expect(ensurePhysicalShard).toHaveBeenCalledWith('100', {
-      logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐舞台', remoteDisplayTitle: 'bilimi·音乐舞台', shardNumber: 1, memberAids: []
-    })
+    expect(ensurePhysicalShard).not.toHaveBeenCalled()
   })
 
-  it('ensures numbered physical shards when one logical ledger needs more than 1000 new members', async () => {
+  it('refuses an unbound target even when more than one physical shard would eventually be needed', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })
     const ensurePhysicalShard = vi.fn().mockResolvedValue({})
@@ -1602,11 +1641,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('remote-target-unbound')
-    expect(ensurePhysicalShard).toHaveBeenNthCalledWith(1, '100', expect.objectContaining({ logicalLedgerId: 'music', shardNumber: 1 }))
-    expect(ensurePhysicalShard).toHaveBeenNthCalledWith(2, '100', expect.objectContaining({ logicalLedgerId: 'music', shardNumber: 2 }))
+    expect(ensurePhysicalShard).not.toHaveBeenCalled()
   })
 
-  it('resolves a saved custom ledger title before preparing its remote shard', async () => {
+  it('does not create a remote shard for a saved local ledger during confirmation', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })
     const ensurePhysicalShard = vi.fn().mockResolvedValue({})
@@ -1623,12 +1661,10 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('remote-target-unbound')
-    expect(ensurePhysicalShard).toHaveBeenCalledWith('100', {
-      logicalLedgerId: 'custom-saved-ledger', logicalTitle: 'bilimi·你好', remoteDisplayTitle: 'bilimi·你好', shardNumber: 1, memberAids: []
-    })
+    expect(ensurePhysicalShard).not.toHaveBeenCalled()
   })
 
-  it('allocates another physical shard when a bound remote folder is nearly full but local members are incomplete', async () => {
+  it('reports capacity exhaustion without creating another remote shard during confirmation', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })
     const ensurePhysicalShard = vi.fn().mockResolvedValue({})
@@ -1648,7 +1684,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('physical-shard-capacity-exceeded')
-    expect(ensurePhysicalShard).toHaveBeenCalledWith('100', expect.objectContaining({ logicalLedgerId: 'music', shardNumber: 2 }))
+    expect(ensurePhysicalShard).not.toHaveBeenCalled()
   })
 
   it('uses local membership when it exceeds an older persisted remote count during freeze compilation', async () => {

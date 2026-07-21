@@ -56,7 +56,7 @@ describe('old favorite workspace page bridge', () => {
     expect(execute.mock.calls[0][1]).toContain('scan-workspace-managed-members')
   })
 
-  it('reads one bounded source page with the tags and category required for classification', async () => {
+  it('reads one bounded source page without requesting per-video tags', async () => {
     const execute = vi.fn().mockResolvedValue({
       status: 'ok',
       observedAccountMid: '100',
@@ -94,7 +94,7 @@ describe('old favorite workspace page bridge', () => {
     expect(script).toContain('scan-workspace-source-page')
     expect(script).toContain('media?.tags')
     expect(script).toContain('media?.tname')
-    expect(script).toContain('/x/tag/archive/tags')
+    expect(script).not.toContain('/x/tag/archive/tags')
     expect(() => new Function(`return ${script}`)).not.toThrow()
   })
 

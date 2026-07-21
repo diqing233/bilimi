@@ -188,7 +188,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(await screen.findByRole('button', { name: '对账 B 站结果' })).toBeEnabled()
   })
 
-  it('offers Bilibili mirror clearing as an unchecked optional full-reorganization action', async () => {
+  it('starts a clean full reorganization without a separate mirror checkbox', async () => {
     const preview = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -203,12 +203,10 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '整理旧藏' }))
     fireEvent.click(await screen.findByRole('button', { name: '全部重新整理' }))
     const dialog = await screen.findByRole('alertdialog', { name: '确认全部重新整理？' })
-    const clearMirror = within(dialog).getByRole('checkbox', { name: '同时清空 B 站收藏镜像' })
-    expect(clearMirror).not.toBeChecked()
-    fireEvent.click(clearMirror)
+    expect(within(dialog).queryByRole('checkbox')).not.toBeInTheDocument()
     fireEvent.click(within(dialog).getByRole('button', { name: '确认重置' }))
 
-    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'full', clearBilibiliMirror: true }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'full' }))
   })
 
   it('keeps editable rule types and safe reset synchronization in the legacy checklist', async () => {
@@ -946,6 +944,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '扫描概览' }))
     expect(await screen.findByRole('status')).toHaveTextContent(/标签补取\s*已暂停/)
+    expect(screen.getByRole('button', { name: '推荐收藏夹' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '归档预览' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '确认执行' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '继续补取标签' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '采用当前标签' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: '继续补取标签' }))

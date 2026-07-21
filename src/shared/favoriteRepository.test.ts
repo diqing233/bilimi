@@ -98,6 +98,22 @@ describe('account favorite repository contracts', () => {
     expect(result.memberships['local:music']).toEqual([1])
   })
 
+  it('clears every local repository namespace for an explicit full reset', () => {
+    const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-20T00:00:00.000Z' })
+    const seeded = applyFavoriteRepositoryCommand(snapshot, {
+      id: 'seed', accountMid: '100', issuedAt: '2026-07-20T00:00:01.000Z', type: 'commit-local-plan',
+      payload: { workspaceId: 'workspace-1', memberAidsByFolderId: { 'local:inbox': [1] },
+        folders: [{ id: 'local:inbox', title: 'Inbox', kind: 'local', syncState: 'local-only' }],
+        videos: [{ aid: 1, title: 'Stale', tags: [], updatedAt: '2026-07-20T00:00:01.000Z' }] }
+    }, '2026-07-20T00:00:01.000Z')
+    const reset = applyFavoriteRepositoryCommand(seeded, {
+      id: 'reset', accountMid: '100', issuedAt: '2026-07-20T00:00:02.000Z', type: 'clear-local-repository', payload: {}
+    }, '2026-07-20T00:00:02.000Z')
+
+    expect(reset).toMatchObject({ videos: {}, libraryMirrors: {}, folders: [], memberships: {}, physicalShards: [], syncRecords: [], organizationRecords: [] })
+    expect(reset.workspace).toBeUndefined()
+  })
+
   it('replaces only the Bilibili mirror namespace on a later source scan', () => {
     const snapshot = createAccountFavoriteRepositorySnapshot({ accountMid: '100', now: '2026-07-20T00:00:00.000Z' })
     const first = applyFavoriteRepositoryCommand(snapshot, {
