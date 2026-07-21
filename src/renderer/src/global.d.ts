@@ -80,6 +80,7 @@ type BilimiDesktopApi = {
   moveFloatingSealBy?: (deltaX: number, deltaY: number) => Promise<void>
   moveFloatingSealTo?: (screenX: number, screenY: number) => void
   notifyAssistantSnapshotChanged?: () => void
+  retryBilibiliSessionDirect?: () => Promise<{ mode: 'direct' | 'system' }>
   readBilibiliAccountMid?: () => Promise<string>
   readBilibiliAccount?: () => Promise<{ mid: string; nickname?: string }>
   openFavoriteLibraryVideo?: (accountMid: string, aid: number) => Promise<void>

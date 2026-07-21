@@ -102,6 +102,7 @@ contextBridge.exposeInMainWorld('bilimiDesktop', {
   moveFloatingSealTo: (screenX: number, screenY: number) =>
     ipcRenderer.send('floating-seal:move-to', screenX, screenY),
   notifyAssistantSnapshotChanged: () => ipcRenderer.send('floating-assistant:snapshot-changed'),
+  retryBilibiliSessionDirect: () => ipcRenderer.invoke('bilibili-session:retry-direct') as Promise<{ mode: 'direct' | 'system' }>,
   readBilibiliAccountMid: () => ipcRenderer.invoke('bilibili:account-mid') as Promise<string>,
   openFavoriteRepositoryAccount: (accountMid: string) =>
     ipcRenderer.invoke('favorite-repository:open-account', accountMid) as Promise<FavoriteRepositorySnapshotSummary>,

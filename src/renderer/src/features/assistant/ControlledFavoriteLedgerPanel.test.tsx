@@ -867,6 +867,36 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByText('target-unavailable')).not.toBeInTheDocument()
   })
 
+  it('offers an explicit direct-session retry for an API network failure before restarting the read-only scan', async () => {
+    const failed = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
+      mode: 'full' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'failed' as const, failureCount: 1, reason: 'network-failure' }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    const retryDirect = vi.fn().mockResolvedValue({ mode: 'direct' as const })
+    const command = vi.fn().mockResolvedValue({ ...failed, scan: { phase: 'inventory' as const, failureCount: 1 } })
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(failed),
+      commandOldFavoriteWorkspaceV1: command,
+      retryBilibiliSessionDirect: retryDirect
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel
+      currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()}
+    />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('B 站网络连接中断')
+    expect(screen.queryByText('network-failure')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '本次直连后重新扫描' }))
+
+    await waitFor(() => expect(retryDirect).toHaveBeenCalledOnce())
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'incremental' }))
+    expect(retryDirect.mock.invocationCallOrder[0]).toBeLessThan(command.mock.invocationCallOrder[0])
+  })
+
   it('shows live item scan progress instead of an empty progress bar', async () => {
     const scanning = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,

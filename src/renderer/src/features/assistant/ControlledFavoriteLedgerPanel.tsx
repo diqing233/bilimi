@@ -125,6 +125,10 @@ export function ControlledFavoriteLedgerPanel({
     }
     void startScan('incremental')
   }
+  const retryScanWithDirectSession = async () => {
+    await window.bilimiDesktop?.retryBilibiliSessionDirect?.()
+    await startScan('incremental')
+  }
   const canRestartFromResume = snapshot !== null && !recovery && snapshot.status !== 'completed'
 
   return (
@@ -189,6 +193,7 @@ export function ControlledFavoriteLedgerPanel({
         step={step}
         onStepChange={setStep}
         onRetryScan={() => void startScan('incremental')}
+        onRetryScanDirect={() => void retryScanWithDirectSession()}
         onRebuildWorkspace={() => void workspace.rebuildCorruptWorkspace()}
         onSelectSourceFolders={(folderIds) => void workspace.selectSourceFolders(folderIds)}
         onPauseTagEnrichment={() => void workspace.pauseTagEnrichment()}

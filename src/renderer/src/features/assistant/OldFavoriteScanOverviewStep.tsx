@@ -6,6 +6,7 @@ type OldFavoriteScanOverviewStepProps = {
   scanStarting: boolean
   scanStartFailure: string | null
   onRetry: () => void
+  onRetryDirect: () => void
   onRebuild: () => void
   onSelectSourceFolders: (folderIds: string[]) => void
   onPauseTagEnrichment: () => void
@@ -21,6 +22,9 @@ function scanFailureGuidance(reason: string | null | undefined) {
   if (normalized === 'page-execution-failed') {
     return '无法读取当前 B站页面，请保持已登录的 B站页面打开并等待页面加载完成后重新扫描。'
   }
+  if (normalized === 'network-failure') {
+    return 'B 站网络连接中断。请检查网络或使用本次直连后重新扫描。'
+  }
   return normalized || '请重新扫描。'
 }
 
@@ -30,6 +34,7 @@ export function OldFavoriteScanOverviewStep({
   scanStarting,
   scanStartFailure,
   onRetry,
+  onRetryDirect,
   onRebuild,
   onSelectSourceFolders
   ,onPauseTagEnrichment
@@ -92,7 +97,12 @@ export function OldFavoriteScanOverviewStep({
       <button type="button" disabled={loading} onClick={onAcceptCurrentTags}>采用当前标签</button>
     </div> : null}
     {tagEnrichment?.status === 'accepted' ? <p role="status">已采用当前标签。</p> : null}
-    {scanFailed ? <button type="button" disabled={loading || scanStarting} onClick={onRetry}>重新扫描</button> : null}
+    {scanFailed ? <>
+      <button type="button" disabled={loading || scanStarting} onClick={onRetry}>重新扫描</button>
+      {snapshot?.scan.reason === 'network-failure'
+        ? <button type="button" disabled={loading || scanStarting} onClick={onRetryDirect}>本次直连后重新扫描</button>
+        : null}
+    </> : null}
     <p>已发现 {folders.length} 个收藏夹，当前扫描 {snapshot?.continuationCount ?? 0} 条待续新增。</p>
     {userFolders.length ? <div className="favorite-ledger-panel__source-table" role="table" aria-label="用户收藏夹">
       <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--user">

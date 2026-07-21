@@ -29,6 +29,7 @@ describe('old favorite workspace page bridge', () => {
     })
 
     expect(execute).toHaveBeenCalledWith(target, expect.stringContaining('/x/v3/fav/folder/created/list-all'))
+    expect(execute.mock.calls[0][1]).toContain("type=2")
     expect(execute.mock.calls[0][1]).toContain('DedeUserID')
     expect(execute.mock.calls[0][1]).toContain('scan-workspace-inventory')
   })

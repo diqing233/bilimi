@@ -19,6 +19,7 @@ type OldFavoriteGuideProps = {
   step: OldFavoriteGuideStep
   onStepChange: (step: OldFavoriteGuideStep) => void
   onRetryScan: () => void
+  onRetryScanDirect: () => void
   onRebuildWorkspace: () => void
   onSelectSourceFolders: (folderIds: string[]) => void
   onPauseTagEnrichment: () => void
@@ -60,6 +61,7 @@ export function OldFavoriteGuide({
   step,
   onStepChange,
   onRetryScan,
+  onRetryScanDirect,
   onRebuildWorkspace,
   onSelectSourceFolders,
   onPauseTagEnrichment,
@@ -123,6 +125,7 @@ export function OldFavoriteGuide({
       scanStarting={scanStarting}
       scanStartFailure={scanStartFailure}
       onRetry={onRetryScan}
+      onRetryDirect={onRetryScanDirect}
       onRebuild={onRebuildWorkspace}
       onSelectSourceFolders={onSelectSourceFolders}
       onPauseTagEnrichment={onPauseTagEnrichment}

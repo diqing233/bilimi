@@ -217,7 +217,7 @@ function scriptFor(command: OldFavoriteWorkspacePageCommand): string {
 
   if (command.type === 'inventory') {
     return `(async () => {${helpers}
-      const response = await fetchJson('https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=' + encodeURIComponent(observedAccountMid));
+      const response = await fetchJson('https://api.bilibili.com/x/v3/fav/folder/created/list-all?up_mid=' + encodeURIComponent(observedAccountMid) + '&type=2');
       if (response.error) return unknown(response.error);
       const folders = Array.isArray(response.json?.data?.list) ? response.json.data.list.map((folder) => ({
         id: String(folder?.id || '').trim(),
