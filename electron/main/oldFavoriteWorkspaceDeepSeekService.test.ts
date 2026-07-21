@@ -113,6 +113,43 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
     expect(coordinator.applyDeepSeekClassificationBatch).not.toHaveBeenCalled()
   })
 
+  it('keeps valid rows from a mixed response and retries only the missing current-segment video', async () => {
+    const snapshot = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing',
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      currentSegment: { id: 'segment-1', items: [
+        { aid: 1, title: 'One', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Two', sourceFolderIds: ['source'] }
+      ] },
+      classifications: {}
+    }
+    const coordinator = {
+      getSnapshot: vi.fn().mockResolvedValue(snapshot),
+      applyDeepSeekClassificationBatch: vi.fn().mockResolvedValue(snapshot)
+    }
+    const generate = vi.fn()
+      .mockResolvedValueOnce({ kind: 'favorite-archive-organize' as const, results: [
+        { aid: 1, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false },
+        { aid: 999, targetLedgerIds: ['music'], keepOriginal: false, reason: 'not in this segment', lowConfidence: false }
+      ], keywordSuggestions: [] })
+      .mockResolvedValueOnce({ kind: 'favorite-archive-organize' as const, results: [
+        { aid: 2, targetLedgerIds: ['music'], keepOriginal: false, reason: 'retry', lowConfidence: false }
+      ], keywordSuggestions: [] })
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }] }),
+      generate
+    })
+
+    await expect(service.organizeCurrentSegment('100')).resolves.toMatchObject({
+      progress: { successfulVideoCount: 2, failedVideoCount: 0 }, failures: []
+    })
+    expect(generate.mock.calls.map(([request]) => request.videos.map((video: { aid: number }) => video.aid))).toEqual([[1, 2], [2]])
+    expect(coordinator.applyDeepSeekClassificationBatch).toHaveBeenCalledWith('100', [
+      { aid: 1, targetLedgerIds: ['music'] }, { aid: 2, targetLedgerIds: ['music'] }
+    ], expect.any(Object))
+  })
+
   it('rejects a direct IPC-equivalent call when archive organization is disabled', async () => {
     const service = new OldFavoriteWorkspaceDeepSeekService({
       coordinator: { getSnapshot: vi.fn(), applyDeepSeekClassificationBatch: vi.fn() } as never,

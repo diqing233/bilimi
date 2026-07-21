@@ -142,12 +142,13 @@ export class OldFavoriteWorkspaceDeepSeekService {
         const result = await this.options.generate(chunk)
         if (result.kind !== 'favorite-archive-organize') throw new Error('DeepSeek returned an invalid favorite workspace result.')
         const expectedAids = new Set(chunk.videos.map((video) => video.aid))
-        const accepted = result.results.filter((row) => !row.invalid && Number.isSafeInteger(row.aid) && expectedAids.has(row.aid!))
-        const acceptedAids = new Set(accepted.map((row) => row.aid!))
-        if (acceptedAids.size !== accepted.length || result.results.some((row) =>
-          row.invalid || !Number.isSafeInteger(row.aid) || !expectedAids.has(row.aid!))) {
-          throw new Error('DeepSeek returned an incomplete current-segment result.')
+        const acceptedByAid = new Map<number, DeepSeekArchiveVideoResult>()
+        for (const row of result.results) {
+          if (row.invalid || !Number.isSafeInteger(row.aid) || !expectedAids.has(row.aid!) || acceptedByAid.has(row.aid!)) continue
+          acceptedByAid.set(row.aid!, row)
         }
+        const accepted = [...acceptedByAid.values()]
+        const acceptedAids = new Set(acceptedByAid.keys())
         results.push(...accepted)
         successfulVideoCount += accepted.length
         const missing = chunk.videos.filter((video) => !acceptedAids.has(video.aid))
