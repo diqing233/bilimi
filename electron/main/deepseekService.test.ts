@@ -301,7 +301,7 @@ describe('DeepSeek main service', () => {
     expect(systemMessage).toContain('only output existing enabled bilimi ledgers')
     expect(systemMessage).toContain('未分类')
     expect(systemMessage).toContain('choose the closest existing enabled ledger')
-    expect(systemMessage).toContain('keywordSuggestions')
+    expect(systemMessage).not.toContain('keywordSuggestions')
     expect(systemMessage).toContain('Use 未分类 only as a last resort')
     expect(systemMessage).toContain('cannot create folders')
     expect(systemMessage).toContain('cannot directly edit keywords')
@@ -309,7 +309,7 @@ describe('DeepSeek main service', () => {
     expect(systemMessage).toContain('must use it as folder-specific decision guidance')
     expect(systemMessage).toContain('takes precedence over local keywords, automatic classifications, and existing targets')
     expect(systemMessage).toContain('When a constraint applies, include that ledger in targetLedgerIds')
-    expect(systemMessage).toContain('If applicable constraints conflict, choose the best-supported ledger and explain the conflict in reason')
+    expect(systemMessage).toContain('If applicable constraints conflict, choose the best-supported ledger')
     expect(systemMessage).toContain('Return JSON only')
     expect(body.messages.find((message) => message.role === 'user')?.content).toContain(
       '只收真实出行经验，不收游戏攻略。'
@@ -343,7 +343,7 @@ describe('DeepSeek main service', () => {
 
     expect(body).toMatchObject({
       response_format: { type: 'json_object' },
-      max_tokens: 4096
+      max_tokens: 2048
     })
   })
 
@@ -410,7 +410,7 @@ describe('DeepSeek main service', () => {
     })
   })
 
-  it('marks archive rows invalid when confidence is missing without dropping usable rows', async () => {
+  it('accepts archive classifications without per-video confidence or reason when they target an enabled ledger', async () => {
     const result = await generateDeepSeekResult({
       config: baseConfig,
       request: {
@@ -427,7 +427,6 @@ describe('DeepSeek main service', () => {
               aid: 1,
               targetLedgerIds: ['life-interest'],
               keepOriginal: false,
-              reason: '旅行攻略',
               lowConfidence: false
             },
             {
@@ -449,8 +448,7 @@ describe('DeepSeek main service', () => {
       results: [
         {
           aid: 1,
-          invalid: true,
-          errorMessage: expect.stringContaining('invalid confidence')
+          targetLedgerIds: ['life-interest']
         },
         {
           aid: 2,
@@ -458,7 +456,7 @@ describe('DeepSeek main service', () => {
         }
       ]
     })
-    expect(result.kind === 'favorite-archive-organize' ? result.results[1].invalid : true).toBeUndefined()
+    expect(result.kind === 'favorite-archive-organize' ? result.results.every((row) => row.invalid === undefined) : false).toBe(true)
   })
 
   it('parses daily favorite classification review JSON and filters unusable targets', async () => {

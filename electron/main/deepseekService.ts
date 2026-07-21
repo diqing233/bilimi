@@ -289,8 +289,6 @@ function parseArchiveResultRow(
       : undefined
   const targetLedgerIds = coerceStringArray(row.targetLedgerIds, 3)
   const reason = typeof row.reason === 'string' ? row.reason.trim() : ''
-  const confidence =
-    typeof row.confidence === 'number' && Number.isFinite(row.confidence) ? row.confidence : undefined
   const invalidReasons: string[] = []
 
   if (aid === undefined) {
@@ -298,12 +296,6 @@ function parseArchiveResultRow(
   }
   if (!Array.isArray(row.targetLedgerIds) || targetLedgerIds.length === 0) {
     invalidReasons.push('invalid targetLedgerIds')
-  }
-  if (confidence === undefined || confidence < 0 || confidence > 1) {
-    invalidReasons.push('invalid confidence')
-  }
-  if (!reason) {
-    invalidReasons.push('invalid reason')
   }
   if (
     shouldRejectUnclassifiedForMeaningfulVideo({
@@ -321,7 +313,7 @@ function parseArchiveResultRow(
     targetLedgerIds,
     keepOriginal: row.keepOriginal === true,
     reason,
-    confidence,
+    confidence: typeof row.confidence === 'number' && Number.isFinite(row.confidence) ? row.confidence : undefined,
     lowConfidence: row.lowConfidence === true,
     secondPassChanged: row.secondPassChanged === true
   }
@@ -542,12 +534,10 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
           'You may only output existing enabled bilimi ledgers from the provided ledger list, or 未分类 when the video should not be archived.',
           'When no exact ledger exists but the video has meaningful topic signals, choose the closest existing enabled ledger instead of 未分类.',
           'Use 未分类 only as a last resort for empty, unsafe, spammy, or genuinely unclassifiable videos; if you choose it, explain why no existing ledger fits.',
-          'When choosing a closest existing ledger for a missing exact topic, include keywordSuggestions only for the final chosen ledger.',
-          'If a ledger has deepSeekConstraint, you must use it as folder-specific decision guidance. A matching constraint takes precedence over local keywords, automatic classifications, and existing targets. When a constraint applies, include that ledger in targetLedgerIds. It is not a keyword list; do not classify a video only because a word appears inside the constraint text. If applicable constraints conflict, choose the best-supported ledger and explain the conflict in reason.',
-          'You cannot create folders and cannot directly edit keywords; keywordSuggestions are only pending suggestions for the user to review.',
-          'Echo sourceFolderTitle from each input video in every result so duplicate aid rows from different source folders can be applied to the intended row.',
+          'If a ledger has deepSeekConstraint, you must use it as folder-specific decision guidance. A matching constraint takes precedence over local keywords, automatic classifications, and existing targets. When a constraint applies, include that ledger in targetLedgerIds. It is not a keyword list; do not classify a video only because a word appears inside the constraint text. If applicable constraints conflict, choose the best-supported ledger.',
+          'You cannot create folders and cannot directly edit keywords.',
           'Respect multiArchiveLimit for targetLedgerIds. Use keepOriginal only when the current targets should remain alongside the suggested targets.',
-          'Return JSON only: {"results":[{"aid":1,"sourceFolderTitle":"默认收藏夹","targetLedgerIds":["ledger-id"],"keepOriginal":false,"reason":"","confidence":0.8,"lowConfidence":false,"secondPassChanged":false}],"keywordSuggestions":[{"action":"replace-with-combination","ledgerId":"game","keyword":"攻略","replacement":"游戏攻略","reason":""}]}'
+          'Return JSON only: {"results":[{"aid":1,"targetLedgerIds":["ledger-id"],"keepOriginal":false}]}. Include a short reason only when targetLedgerIds is ["未分类"].'
         ].join(' ')
       },
       {
@@ -741,7 +731,7 @@ export async function generateDeepSeekResult(options: {
         ...(options.request.kind === 'favorite-archive-organize'
           ? {
               response_format: { type: 'json_object' },
-              max_tokens: 4096
+              max_tokens: 2048
             }
           : {})
       })
