@@ -1322,7 +1322,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     await screen.findByRole('alert')
     expect(screen.getByRole('alert')).toHaveTextContent('DeepSeek 整理失败，请检查服务设置后重试。')
     expect(screen.getByRole('alert')).not.toHaveTextContent('Error invoking remote method')
-    fireEvent.change(screen.getByRole('combobox', { name: '归类 Alpha' }), { target: { value: 'knowledge' } })
+    fireEvent.click(screen.getByRole('button', { name: '转移 Alpha' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'bilimi·Knowledge' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', {
       type: 'apply-classifications', source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['knowledge'] }]
     }))
@@ -1563,7 +1564,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '重试失败批次' }))
     await waitFor(() => expect(retry).toHaveBeenCalledWith('100'))
   })
-  it('renders source, classification provenance, and a virtualized multi-segment archive preview', async () => {
+  it('renders source, confidence, and a virtualized multi-segment archive preview', async () => {
     const items = Array.from({ length: 51 }, (_, index) => ({
       aid: index + 1,
       title: index === 0 ? 'First archive' : `Archive ${index + 1}`,
@@ -1603,8 +1604,9 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByRole('group', { name: '未匹配到合适分类 50 条' })).toBeInTheDocument()
     expect(screen.getByRole('group', { name: 'Music 1 条' })).toBeInTheDocument()
     expect(screen.getAllByText('来源：Watch later')).not.toHaveLength(0)
-    expect(screen.getByText('分类来源：低置信度自动分类')).toBeInTheDocument()
-    expect(screen.getByText('目标收藏夹：Music')).toBeInTheDocument()
+    expect(screen.getAllByText('分类把握：不太稳')).not.toHaveLength(0)
+    expect(screen.queryByText(/^分类来源：/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^目标收藏夹：/)).not.toBeInTheDocument()
     expect(screen.getByRole('group', { name: '整理分段' })).toBeInTheDocument()
   })
 
@@ -1629,7 +1631,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
 
     expect(screen.queryByRole('group', { name: '整理分段' })).not.toBeInTheDocument()
-    expect(screen.getAllByText('未分类')).not.toHaveLength(0)
+    expect(screen.getByRole('button', { name: '转移 One' })).toBeInTheDocument()
   })
 
   it('uses the snapshot-wide readiness to block confirmation until every segment is classified', async () => {

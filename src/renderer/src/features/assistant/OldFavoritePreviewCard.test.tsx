@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { OldFavoritePreviewCard } from './OldFavoritePreviewCard'
 
@@ -31,7 +31,7 @@ describe('OldFavoritePreviewCard', () => {
     expect(screen.getByText('标签：TypeScript、Frontend')).toBeInTheDocument()
   })
 
-  it('keeps the legacy target line and compact classification footer together', () => {
+  it('keeps only the compact transfer trigger below the legacy card metadata', () => {
     render(<OldFavoritePreviewCard
       item={{ aid: 1, title: 'Manual move', sourceFolderIds: ['source'] }}
       sourceFolderTitles={['Source folder']}
@@ -42,13 +42,13 @@ describe('OldFavoritePreviewCard', () => {
     />)
 
     const article = screen.getByRole('article')
-    expect(screen.getByText('目标收藏夹：Music')).toBeInTheDocument()
-    expect(screen.getByLabelText('归类 Manual move')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '转移 Manual move' })).toBeInTheDocument()
+    expect(screen.queryByText(/^目标收藏夹：/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^分类来源：/)).not.toBeInTheDocument()
     expect(article.querySelector('.favorite-ledger-panel__preview-controls')).not.toBeNull()
-    expect(article.querySelector('.favorite-ledger-panel__preview-change-source')).toHaveTextContent('改动来源：人工调整')
   })
 
-  it('labels an unclassified card as an unclassified classification source', () => {
+  it('keeps an unclassified card free of internal classification provenance', () => {
     render(<OldFavoritePreviewCard
       item={{ aid: 1, title: 'Unclassified', sourceFolderIds: ['source'] }}
       sourceFolderTitles={['Source folder']}
@@ -57,11 +57,11 @@ describe('OldFavoritePreviewCard', () => {
       onApplyManualClassification={vi.fn()}
     />)
 
-    expect(screen.getByText('分类来源：未分类')).toBeInTheDocument()
-    expect(screen.getByText('目标收藏夹：未分类')).toBeInTheDocument()
+    expect(screen.queryByText(/^分类来源：/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^目标收藏夹：/)).not.toBeInTheDocument()
   })
 
-  it('links its title to the original Bilibili video and keeps every selected target editable', () => {
+  it('keeps targets inside the transfer menu and applies multiple targets only on confirmation', () => {
     const apply = vi.fn()
     render(<OldFavoritePreviewCard
       item={{ aid: 1, title: 'Multi target', sourceFolderIds: ['source'] }} sourceFolderTitles={['Source folder']}
@@ -73,9 +73,15 @@ describe('OldFavoritePreviewCard', () => {
     />)
 
     expect(screen.getByRole('link', { name: 'Multi target' })).toHaveAttribute('href', 'https://www.bilibili.com/video/av1')
-    expect(screen.getByText('目标收藏夹：Music、Knowledge')).toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: '归类 Multi target Music' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '转移 Multi target' }))
+    expect(screen.getByRole('menu', { name: '转移 Multi target' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('menuitem', { name: '多选…' }))
     expect(screen.getByRole('checkbox', { name: '归类 Multi target Music' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: '归类 Multi target Knowledge' })).toBeChecked()
+    expect(apply).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '确认多选' }))
+    expect(apply).toHaveBeenCalledWith(1, ['music', 'knowledge'])
     expect(screen.getByText('分类把握：比较稳')).toBeInTheDocument()
   })
 })
