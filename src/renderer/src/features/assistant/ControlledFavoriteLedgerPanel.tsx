@@ -25,6 +25,23 @@ function normalizeAccountMid(value: string | undefined) {
   return BigInt(value.trim()).toString()
 }
 
+function confirmationNeedsBackup(
+  snapshot: Exclude<ReturnType<typeof useOldFavoriteWorkspace>['snapshot'], null>,
+  ledgers: FavoriteLedger[],
+  missingLedgerIds: string[]
+) {
+  if ('recovery' in snapshot) return false
+  const knownMissing = new Set(missingLedgerIds)
+  const ledgerById = new Map(ledgers.map((ledger) => [ledger.id, ledger]))
+  return Object.values(snapshot.classifications).some((classification) =>
+    classification.targetLedgerIds.some((ledgerId) => {
+      if (ledgerId === 'inbox') return false
+      const ledger = ledgerById.get(ledgerId)
+      return knownMissing.has(ledgerId) || Boolean(ledger && !ledger.bilibiliFolderId)
+    })
+  )
+}
+
 export function canConfirmFullReorganization(openedForAccountMid: string | null, currentAccountMid: string | undefined) {
   return openedForAccountMid !== null && openedForAccountMid === normalizeAccountMid(currentAccountMid)
 }
@@ -47,6 +64,8 @@ export function ControlledFavoriteLedgerPanel({
   const [fullReorganizationAccountMid, setFullReorganizationAccountMid] = useState<string | null>(null)
   const [scanStarting, setScanStarting] = useState(false)
   const [scanStartFailure, setScanStartFailure] = useState<string | null>(null)
+  const [confirmationPreparing, setConfirmationPreparing] = useState(false)
+  const [confirmationPreparationError, setConfirmationPreparationError] = useState<string | null>(null)
   const scanPresentationRequestVersion = useRef(0)
   const scanStartingRef = useRef(false)
   const previousWorkspaceStatusRef = useRef<string | null>(null)
@@ -68,6 +87,8 @@ export function ControlledFavoriteLedgerPanel({
     setFullReorganizationAccountMid(null)
     setScanStarting(false)
     setScanStartFailure(null)
+    setConfirmationPreparing(false)
+    setConfirmationPreparationError(null)
   }, [currentAccountMid])
 
   useEffect(() => {
@@ -130,6 +151,25 @@ export function ControlledFavoriteLedgerPanel({
     await window.bilimiDesktop?.retryBilibiliSessionDirect?.()
     await startScan('incremental')
   }
+  const confirmAndSync = async () => {
+    if (!snapshot || recovery || confirmationPreparing) return
+    setConfirmationPreparationError(null)
+    setConfirmationPreparing(true)
+    try {
+      if (confirmationNeedsBackup(snapshot, ledgers, missingLedgerIds)) {
+        const result = await onEnsureLedgers() as { ok?: boolean; message?: string } | undefined
+        if (result?.ok === false) {
+          setConfirmationPreparationError(result.message || '收藏夹同步失败，请重试。')
+          return
+        }
+      }
+      await workspace.confirmAndExecuteBilibiliPlan()
+    } catch (error) {
+      setConfirmationPreparationError(error instanceof Error ? error.message : '收藏夹同步失败，请重试。')
+    } finally {
+      setConfirmationPreparing(false)
+    }
+  }
   const canRestartFromResume = snapshot !== null && !recovery && snapshot.status !== 'completed'
 
   return (
@@ -182,8 +222,8 @@ export function ControlledFavoriteLedgerPanel({
 
       {guideOpen ? <OldFavoriteGuide
         snapshot={snapshot}
-        loading={workspace.loading}
-        executionError={workspace.executionError}
+        loading={workspace.loading || confirmationPreparing}
+        executionError={confirmationPreparationError ?? workspace.executionError}
         scanStarting={scanStarting}
         scanStartFailure={scanStartFailure}
         step={step}
@@ -211,7 +251,7 @@ export function ControlledFavoriteLedgerPanel({
         onApplyManualClassifications={(assignments) => void workspace.applyManualClassifications(assignments)}
         onCreateLocalLedgerAndReclassify={(title) => void workspace.createLocalLedgerAndReclassify(title)}
         onSaveLocally={() => void workspace.saveCurrentSegmentLocally()}
-        onConfirmAndSync={() => void workspace.confirmAndExecuteBilibiliPlan()}
+        onConfirmAndSync={() => void confirmAndSync()}
         onExecuteFrozenPlan={() => void workspace.executeFrozenBilibiliPlan()}
         onReconcile={() => void workspace.reconcileFrozenBilibiliPlan()}
       /> : null}
