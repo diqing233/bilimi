@@ -15,6 +15,7 @@ type ControlledFavoriteLedgerPanelProps = {
   missingLedgerIds: string[]
   onEnsureLedgers: () => Promise<unknown>
   onSaveLedgers: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
+  onSyncLedgers?: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
   onOpenFavoritePage?: () => Promise<unknown> | void
   deepSeekArchiveAvailable?: boolean
 }
@@ -34,6 +35,7 @@ export function ControlledFavoriteLedgerPanel({
   missingLedgerIds,
   onEnsureLedgers,
   onSaveLedgers,
+  onSyncLedgers,
   onOpenFavoritePage,
   deepSeekArchiveAvailable = false
 }: ControlledFavoriteLedgerPanelProps) {
@@ -154,6 +156,7 @@ export function ControlledFavoriteLedgerPanel({
         ledgers={ledgers}
         missingLedgerIds={missingLedgerIds}
         onSaveLedgers={onSaveLedgers}
+        onSyncLedgers={onSyncLedgers}
       />
       {resumeDialogOpen ? <OldFavoriteModal title="整理旧藏"
         onCancel={() => setResumeDialogOpen(false)}

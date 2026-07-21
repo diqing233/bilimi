@@ -238,6 +238,7 @@ export class OldFavoriteWorkspaceCoordinator {
     classifyCurrentItems?: (items: CurrentSegmentItem[], recommendedLedgers: RecommendedLedger[]) => AutomaticClassification[] | Promise<AutomaticClassification[]>
     saveRecommendedLedgers?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
     removeRecommendedLedgers?: (accountMid: string, ledgerIds: string[]) => Promise<void>
+    markRecommendedLedgersLocalDraft?: (accountMid: string, ledgerIds: string[]) => Promise<void>
     resolveLedgerTitle?: (accountMid: string, logicalLedgerId: string) => Promise<string | undefined>
     now?: () => string
   }) {}
@@ -1490,6 +1491,10 @@ export class OldFavoriteWorkspaceCoordinator {
       })),
       scan: { phase: 'complete', failureCount: 0, mode: scan.mode }
     })
+    const adoptedRecommendationIds = recovered.recommendations.adoptedCandidateIds
+    if (adoptedRecommendationIds.length) {
+      await this.options.markRecommendedLedgersLocalDraft?.(marker.accountMid, adoptedRecommendationIds)
+    }
     this.recommendations.set(marker.accountMid, clone(recovered.recommendations))
     this.planReadiness.set(marker.accountMid, clone(recovered.planReadiness))
     if (recovered.tagEnrichment) {

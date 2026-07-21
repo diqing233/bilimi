@@ -14,6 +14,7 @@ type FavoriteLedgerOverviewProps = {
   ledgers: FavoriteLedger[]
   missingLedgerIds: string[]
   onSaveLedgers: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
+  onSyncLedgers?: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
 }
 
 const LEDGER_SYNC_HINT = '自定义你的 bilimi 收藏夹，点击收藏名字可以编辑，添加好后点击【同步】即可更新到 B 站。取消勾选只会停止同步，不会删除已有收藏夹。'
@@ -52,7 +53,7 @@ function composeKeywords(ruleText: string, deepSeekConstraint: string, ruleType:
 }
 
 /** Local rule drafts stay in this panel until the owner chooses save or sync. */
-export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, onSaveLedgers }: FavoriteLedgerOverviewProps) {
+export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, onSaveLedgers, onSyncLedgers = onSaveLedgers }: FavoriteLedgerOverviewProps) {
   const [ledgerHintExpanded, setLedgerHintExpanded] = useState(false)
   const [draftLedgers, setDraftLedgers] = useState(ledgers)
   const [activeLedgerId, setActiveLedgerId] = useState<string | null>(null)
@@ -93,7 +94,7 @@ export function FavoriteLedgerOverview({ ledgers, missingLedgerIds, onSaveLedger
               <span className="favorite-ledger-panel__help-arrow favorite-ledger-panel__help-arrow--down" />
             </span>
           </button>
-        </span><div className="favorite-ledger-panel__category-actions"><button type="button" onClick={() => setResetConfirmOpen(true)}>重置</button><button type="button" onClick={() => setDraftLedgers((current) => current.map((ledger) => ({ ...ledger, enabled: !allLedgersEnabled })))}>{allLedgersEnabled ? '全不选' : '全选'}</button><button type="button" onClick={() => void onSaveLedgers(draftLedgers, { deleteDisabled: false })}>同步</button></div></div>
+        </span><div className="favorite-ledger-panel__category-actions"><button type="button" onClick={() => setResetConfirmOpen(true)}>重置</button><button type="button" onClick={() => setDraftLedgers((current) => current.map((ledger) => ({ ...ledger, enabled: !allLedgersEnabled })))}>{allLedgersEnabled ? '全不选' : '全选'}</button><button type="button" onClick={() => void onSyncLedgers(draftLedgers, { deleteDisabled: false })}>同步</button></div></div>
         {ledgerHintExpanded ? <div className="favorite-ledger-panel__sync-hint"><p>{LEDGER_SYNC_HINT}</p><p>关键词、UP 名字和标签用于本地识别；DeepSeek 约束只在开启 DeepSeek 后作为辅助判断参考，可以输入一段自然语言。</p></div> : null}
         <div className="favorite-ledger-panel__chips">{ledgersToDisplay.map((ledger) => <div key={ledger.id} className="favorite-ledger-panel__chip-item"><button type="button" aria-label={displayTitle(ledger.displayName) || ledger.displayName} title={ledger.displayName} aria-pressed={ledger.enabled} onClick={() => { setActiveLedgerId(ledger.id); setNewLedger(false) }}>{displayTitle(ledger.displayName) || ledger.displayName}</button><button type="button" className="favorite-ledger-panel__chip-action" aria-label={`${ledger.enabled ? '移出同步' : '加入同步'} ${ledger.displayName}`} data-enabled={ledger.enabled} onClick={() => toggle(ledger.id)}>{ledger.enabled ? '✓' : '+'}</button></div>)}</div>
         <div className="favorite-ledger-panel__list-toggle"><button type="button" onClick={add}>新建收藏夹</button>{canToggleLedgerList ? <button type="button" aria-expanded={ledgerListExpanded} onClick={() => setLedgerListExpanded((expanded) => !expanded)}>{ledgerListExpanded ? '折叠' : '展开'}</button> : null}</div>

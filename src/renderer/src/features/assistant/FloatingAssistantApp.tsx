@@ -303,7 +303,7 @@ function normalizeDeepSeekConnectionStatus(value: unknown): DeepSeekConnectionSt
 }
 
 function favoriteLedgerBackupGap(ledgers: FavoriteLedger[]) {
-  const enabledLedgers = ledgers.filter((ledger) => ledger.enabled)
+  const enabledLedgers = ledgers.filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft')
   const enabledLedgersWithoutFolder = enabledLedgers.filter(
     (ledger) => !ledger.bilibiliFolderId?.trim()
   )
@@ -2354,6 +2354,15 @@ export function FloatingAssistantApp({
     return result
   }
 
+  async function syncFavoriteLedgers(
+    favoriteLedgers: AssistantPreferences['favoriteLedgers'],
+    options?: FavoriteLedgerSaveOptions
+  ) {
+    return saveFavoriteLedgers(favoriteLedgers.map((ledger) =>
+      ledger.syncState === 'local-draft' ? { ...ledger, syncState: undefined } : ledger
+    ), options)
+  }
+
   async function openFavoritePage() {
     tellPet('progress', '小咪正在打开 B 站收藏夹。')
     const result =
@@ -2481,6 +2490,7 @@ export function FloatingAssistantApp({
             missingLedgerIds={favoriteLedgerStatus?.missingLedgerIds ?? []}
             onEnsureLedgers={ensureFavoriteLedgers}
             onSaveLedgers={saveFavoriteLedgers}
+            onSyncLedgers={syncFavoriteLedgers}
             onOpenFavoritePage={openFavoritePage}
             deepSeekArchiveAvailable={
               preferences.deepseekEnabled &&

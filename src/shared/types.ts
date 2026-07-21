@@ -41,6 +41,7 @@ export type DefaultFavoriteLedgerId =
 export type FavoriteLedgerId = string
 export type RecommendationKind = FavoriteLedgerId
 export type FavoriteLedgerRuleType = 'keyword' | 'author' | 'tag' | 'deepseek'
+export type FavoriteLedgerSyncState = 'local-draft'
 
 export type FavoriteLedger = {
   id: FavoriteLedgerId
@@ -50,6 +51,8 @@ export type FavoriteLedger = {
   enabled: boolean
   priority: number
   bilibiliFolderId?: string
+  /** Local draft rules classify old favorites but are never created remotely until explicit sync. */
+  syncState?: FavoriteLedgerSyncState
   isDefault: boolean
 }
 

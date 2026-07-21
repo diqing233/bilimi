@@ -165,7 +165,7 @@ export function buildFavoriteLedgerStatusScript(ledgers: FavoriteLedger[]): stri
       return {
         ok: true,
         ledgers: nextLedgers,
-        missingLedgerIds: nextLedgers.filter((ledger) => ledger.enabled && !ledger.bilibiliFolderId).map((ledger) => ledger.id),
+        missingLedgerIds: nextLedgers.filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && !ledger.bilibiliFolderId).map((ledger) => ledger.id),
         message: '册目查验已毕。'
       };
     })();
@@ -204,7 +204,7 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
 
       for (let index = 0; index < nextLedgers.length; index += 1) {
         const ledger = nextLedgers[index];
-        if (!ledger.enabled || ledger.bilibiliFolderId) {
+        if (!ledger.enabled || ledger.syncState === 'local-draft' || ledger.bilibiliFolderId) {
           continue;
         }
 
@@ -228,7 +228,7 @@ export function buildEnsureFavoriteLedgersScript(ledgers: FavoriteLedger[]): str
         steps.push('api:ledger:create:' + ledger.id);
       }
 
-      const missingTargets = nextLedgers.filter((ledger) => ledger.enabled && !ledger.bilibiliFolderId).map((ledger) => ledger.id);
+      const missingTargets = nextLedgers.filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && !ledger.bilibiliFolderId).map((ledger) => ledger.id);
 
       return {
         ok: missingTargets.length === 0,
@@ -292,7 +292,7 @@ export function buildSaveFavoriteLedgersScript(
 
       for (let index = 0; index < nextLedgers.length; index += 1) {
         const ledger = nextLedgers[index];
-        if (!ledger.enabled || ledger.bilibiliFolderId) {
+        if (!ledger.enabled || ledger.syncState === 'local-draft' || ledger.bilibiliFolderId) {
           continue;
         }
 
@@ -377,7 +377,7 @@ export function buildSaveFavoriteLedgersScript(
       }
 
       const missingTargets = nextLedgers
-        .filter((ledger) => ledger.enabled && !ledger.bilibiliFolderId)
+        .filter((ledger) => ledger.enabled && ledger.syncState !== 'local-draft' && !ledger.bilibiliFolderId)
         .map((ledger) => ledger.id);
 
       return {

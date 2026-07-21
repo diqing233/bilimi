@@ -70,7 +70,7 @@ import { OldFavoriteWorkspaceScanService } from './oldFavoriteWorkspaceScanServi
 import { OldFavoriteWorkspaceDeepSeekService } from './oldFavoriteWorkspaceDeepSeekService'
 import { mergeOldFavoriteWorkspaceLedgers } from './oldFavoriteWorkspaceClassification'
 import { resolveSavedOldFavoriteWorkspaceLedgerTitle } from './oldFavoriteWorkspaceLedgerTitle'
-import { applyRecommendedLedgers, removeRecommendedLedgers } from './oldFavoriteWorkspaceRecommendationPersistence'
+import { applyRecommendedLedgers, markRecommendedLedgersLocalDraft, removeRecommendedLedgers } from './oldFavoriteWorkspaceRecommendationPersistence'
 import { registerOldFavoriteWorkspaceCoordinatorIpc } from './oldFavoriteWorkspaceCoordinatorIpc'
 import { FavoriteRepositoryService } from './favoriteRepositoryService'
 import { FavoriteRepositorySyncService } from './favoriteRepositorySyncService'
@@ -1299,6 +1299,12 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     removeRecommendedLedgers: async (_accountMid, ledgerIds) => {
       const saved = patchAssistantPreferences(getDesktopStore(), {
         favoriteLedgers: removeRecommendedLedgers(loadAssistantPreferences(getDesktopStore()).favoriteLedgers, ledgerIds)
+      })
+      sendAssistantPreferencesChanged(saved)
+    },
+    markRecommendedLedgersLocalDraft: async (_accountMid, ledgerIds) => {
+      const saved = patchAssistantPreferences(getDesktopStore(), {
+        favoriteLedgers: markRecommendedLedgersLocalDraft(loadAssistantPreferences(getDesktopStore()).favoriteLedgers, ledgerIds)
       })
       sendAssistantPreferencesChanged(saved)
     },
