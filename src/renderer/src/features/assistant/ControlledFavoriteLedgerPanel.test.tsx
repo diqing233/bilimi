@@ -1702,6 +1702,46 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.queryByRole('button', { name: '确认并同步到 B 站' })).not.toBeInTheDocument()
   })
 
+  it('refreshes the surrounding repository projection after reconciliation settles', async () => {
+    const reconciling = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'reconciling' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+    }
+    const completed = { ...reconciling, status: 'completed' as const, completionMode: 'bilibili' as const }
+    const refreshProjection = vi.fn().mockResolvedValue(undefined)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(reconciling),
+      commandOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(completed)
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onRefreshOrganizationState={refreshProjection} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '对账 B 站结果' }))
+    await waitFor(() => expect(refreshProjection).toHaveBeenCalledOnce())
+  })
+
+  it('reports the authoritative workspace snapshot for the shared organization status light', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0, sourceFolders: [], segments: [], currentSegment: null,
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+    }
+    const reportSnapshot = vi.fn()
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: vi.fn()
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} onOrganizationSnapshotChange={reportSnapshot} />)
+
+    await waitFor(() => expect(reportSnapshot).toHaveBeenCalledWith(preview))
+  })
+
   it('starts a protected incremental round when organizing again after completion', async () => {
     const completed = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'completed' as const,

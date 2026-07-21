@@ -1,4 +1,5 @@
 import type { FavoriteLedger, FavoriteLedgerSaveOptions } from '@shared/types'
+import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { useEffect, useRef, useState } from 'react'
 import clickedPetUrl from '../../assets/pet/blue-white-maid/character/big-head/clicked.png'
 import hintPetUrl from '../../assets/pet/blue-white-maid/character/big-head/hint.png'
@@ -17,6 +18,8 @@ type ControlledFavoriteLedgerPanelProps = {
   onSaveLedgers: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
   onSyncLedgers?: (ledgers: FavoriteLedger[], options?: FavoriteLedgerSaveOptions) => Promise<unknown> | void
   onOpenFavoritePage?: () => Promise<unknown> | void
+  onRefreshOrganizationState?: () => Promise<unknown> | void
+  onOrganizationSnapshotChange?: (snapshot: OldFavoriteWorkspaceSnapshot | null) => void
   deepSeekArchiveAvailable?: boolean
 }
 
@@ -54,6 +57,8 @@ export function ControlledFavoriteLedgerPanel({
   onSaveLedgers,
   onSyncLedgers,
   onOpenFavoritePage,
+  onRefreshOrganizationState,
+  onOrganizationSnapshotChange,
   deepSeekArchiveAvailable = false
 }: ControlledFavoriteLedgerPanelProps) {
   const workspace = useOldFavoriteWorkspace(currentAccountMid)
@@ -92,6 +97,10 @@ export function ControlledFavoriteLedgerPanel({
     setConfirmationPreparationStatus(null)
     setConfirmationPreparationError(null)
   }, [currentAccountMid])
+
+  useEffect(() => {
+    onOrganizationSnapshotChange?.(snapshot && !recovery ? snapshot : null)
+  }, [onOrganizationSnapshotChange, recovery, snapshot])
 
   useEffect(() => {
     if (!snapshot || scanStartingRef.current) return
@@ -172,6 +181,13 @@ export function ControlledFavoriteLedgerPanel({
     } finally {
       setConfirmationPreparing(false)
       setConfirmationPreparationStatus(null)
+    }
+  }
+  const reconcile = async () => {
+    try {
+      await workspace.reconcileFrozenBilibiliPlan()
+    } finally {
+      await onRefreshOrganizationState?.()
     }
   }
   const canRestartFromResume = snapshot !== null && !recovery && snapshot.status !== 'completed'
@@ -258,7 +274,7 @@ export function ControlledFavoriteLedgerPanel({
         onSaveLocally={() => void workspace.saveCurrentSegmentLocally()}
         onConfirmAndSync={() => void confirmAndSync()}
         onExecuteFrozenPlan={() => void workspace.executeFrozenBilibiliPlan()}
-        onReconcile={() => void workspace.reconcileFrozenBilibiliPlan()}
+        onReconcile={() => void reconcile()}
       /> : null}
     </section>
   )

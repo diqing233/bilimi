@@ -58,6 +58,7 @@ import idlePetUrl from '../../assets/pet/blue-white-maid/character/big-head/idle
 import workingPetUrl from '../../assets/pet/blue-white-maid/character/big-head/working.png'
 import type { AssistantPetHint } from './petState'
 import type { AssistantSnapshot } from './assistantRuntimeTypes'
+import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 import { PET_COLLAPSE_FAREWELL_LINES, pickPetLine } from './petInteractionLines'
 import { publishDeepSeekTask, subscribeDeepSeekTasks } from './deepSeekTaskSignal'
 
@@ -287,6 +288,65 @@ type GlobalStatusItem = {
   label: string
   detail: string
   tone: GlobalStatusTone
+}
+
+export function favoriteOrganizationStatus(
+  snapshot: OldFavoriteWorkspaceSnapshot | null
+): GlobalStatusItem | null {
+  if (!snapshot) return null
+
+  if (snapshot.scan.phase === 'failed') {
+    return {
+      label: '整理异常',
+      detail: snapshot.scan.reason?.trim() || '扫描未完成，请打开收藏整理后重试。',
+      tone: 'error'
+    }
+  }
+
+  if (snapshot.status === 'scanning') {
+    return {
+      label: '整理扫描中',
+      detail: `正在${snapshot.scan.phase === 'tags' ? '补充视频标签' : '扫描旧收藏'}，请勿重复启动。`,
+      tone: 'running'
+    }
+  }
+
+  if (snapshot.status === 'executing') {
+    const completed = snapshot.executionProgress?.completedOperationCount ?? 0
+    const total = snapshot.executionProgress?.totalOperationCount ?? 0
+    return {
+      label: '整理执行中',
+      detail: total > 0 ? `正在同步到 B 站：${completed} / ${total}。` : '正在同步到 B 站。',
+      tone: 'running'
+    }
+  }
+
+  if (snapshot.status === 'reconciling') {
+    return {
+      label: '等待对账',
+      detail: '远端结果需要核实；请在收藏整理中对账，系统不会重复提交未知结果。',
+      tone: 'warn'
+    }
+  }
+
+  const unclassifiedCount = snapshot.planReadiness?.unclassifiedAidCount ?? 0
+  if (snapshot.status === 'completed') {
+    return unclassifiedCount > 0
+      ? { label: '整理完成，仍有待处理', detail: `本轮完成，仍有 ${unclassifiedCount} 条待处理。`, tone: 'warn' }
+      : { label: '整理完成', detail: '本轮已完成；可以继续扫描新增旧收藏。', tone: 'ok' }
+  }
+
+  if (snapshot.status === 'frozen') {
+    return { label: '等待执行', detail: '分类计划已确认，等待同步到 B 站。', tone: 'warn' }
+  }
+
+  return {
+    label: '等待确认',
+    detail: unclassifiedCount > 0
+      ? `归档预览中，仍有 ${unclassifiedCount} 条待处理。`
+      : '归档预览已就绪，等待确认执行。',
+    tone: 'warn'
+  }
 }
 
 const DEEPSEEK_TASK_DEFAULT_DETAIL: Record<DeepSeekTask['kind'], string> = {
@@ -675,6 +735,8 @@ export function FloatingAssistantApp({
   const preferencesRef = useRef(preferences)
   const committedPreferencesRef = useRef(preferences)
   const [favoriteLedgerStatus, setFavoriteLedgerStatus] = useState<FavoriteLedgerStatus | null>(null)
+  const [favoriteOrganizationSnapshot, setFavoriteOrganizationSnapshot] =
+    useState<OldFavoriteWorkspaceSnapshot | null>(null)
   const [uncontrolledActiveTab, setUncontrolledActiveTab] =
     useState<AssistantWorkspaceTab>('review')
   const [commentChooserOpen, setCommentChooserOpen] = useState(false)
@@ -881,6 +943,8 @@ export function FloatingAssistantApp({
   ])
 
   const globalLedgerStatus = useMemo<GlobalStatusItem>(() => {
+    const organizationStatus = favoriteOrganizationStatus(favoriteOrganizationSnapshot)
+    if (organizationStatus) return organizationStatus
     const backupGap = favoriteLedgerBackupGap(preferences.favoriteLedgers)
 
     if (favoriteLedgerStatus?.missingLedgerIds.length) {
@@ -909,8 +973,8 @@ export function FloatingAssistantApp({
 
     if (favoriteLedgerStatus?.ok) {
       return {
-        label: '???',
-        detail: 'bilimi ???????',
+        label: '整理空闲',
+        detail: 'bilimi 收藏夹已备齐，可以开始整理旧藏。',
         tone: 'ok'
       }
     }
@@ -922,6 +986,7 @@ export function FloatingAssistantApp({
     }
   }, [
     favoriteLedgerStatus,
+    favoriteOrganizationSnapshot,
     preferences.favoriteLedgers
   ])
 
@@ -2363,6 +2428,15 @@ export function FloatingAssistantApp({
     ), options)
   }
 
+  const refreshOrganizationState = useCallback(async () => {
+    const accountMid = resolvedSnapshot.accountMid
+    if (accountMid && window.bilimiDesktop?.openOldFavoriteWorkspaceV1) {
+      const workspace = await window.bilimiDesktop.openOldFavoriteWorkspaceV1(accountMid)
+      if (workspace && !('recovery' in workspace)) setFavoriteOrganizationSnapshot(workspace)
+    }
+    await loadSnapshot()
+  }, [loadSnapshot, resolvedSnapshot.accountMid])
+
   async function openFavoritePage() {
     tellPet('progress', '小咪正在打开 B 站收藏夹。')
     const result =
@@ -2492,6 +2566,8 @@ export function FloatingAssistantApp({
             onSaveLedgers={saveFavoriteLedgers}
             onSyncLedgers={syncFavoriteLedgers}
             onOpenFavoritePage={openFavoritePage}
+            onRefreshOrganizationState={refreshOrganizationState}
+            onOrganizationSnapshotChange={setFavoriteOrganizationSnapshot}
             deepSeekArchiveAvailable={
               preferences.deepseekEnabled &&
               preferences.deepseekApiKeyStored &&
