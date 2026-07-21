@@ -470,7 +470,7 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       this.recommendations.set(workspace.accountMid, next)
       if (!this.options.classifyCurrentItem && !this.options.classifyCurrentItems) return clone(workspace)
-      return this.autoClassifyCurrentSegmentUnsafe(workspace, true)
+      return this.autoClassifyAllSegmentsUnsafe(workspace, true)
     })
   }
 
@@ -525,7 +525,7 @@ export class OldFavoriteWorkspaceCoordinator {
       })
       this.recommendations.set(workspace.accountMid, next)
       return this.options.classifyCurrentItem || this.options.classifyCurrentItems
-        ? this.autoClassifyCurrentSegmentUnsafe(workspace, true)
+        ? this.autoClassifyAllSegmentsUnsafe(workspace, true)
         : clone(workspace)
     })
   }
@@ -674,7 +674,7 @@ export class OldFavoriteWorkspaceCoordinator {
       const hasClassificationSignals = [...itemsByAid.values()].some((item) => item.tags !== undefined || item.category !== undefined)
       return (this.options.classifyCurrentItem || this.options.classifyCurrentItems) && hasClassificationSignals &&
         tagEnrichment.pendingAids.length === 0
-        ? this.autoClassifyCurrentSegmentUnsafe(completed, true)
+        ? this.autoClassifyAllSegmentsUnsafe(completed, true)
         : clone(completed)
     })
   }
@@ -861,56 +861,86 @@ export class OldFavoriteWorkspaceCoordinator {
   }
 
   private async autoClassifyCurrentSegmentUnsafe(workspace: OldFavoriteWorkspace, replaceSystem: boolean) {
+    return this.autoClassifySegmentsUnsafe(workspace, [this.currentSegment(workspace)], replaceSystem)
+  }
+
+  /** Classification is global; the visible segment only limits rendering, never scan coverage. */
+  private async autoClassifyAllSegmentsUnsafe(workspace: OldFavoriteWorkspace, replaceSystem: boolean) {
+    return this.autoClassifySegmentsUnsafe(workspace, workspace.segments.map((segment) => segment.id), replaceSystem)
+  }
+
+  private async autoClassifySegmentsUnsafe(workspace: OldFavoriteWorkspace, segmentIds: string[], replaceSystem: boolean) {
     const classify = this.options.classifyCurrentItem
     const classifyMany = this.options.classifyCurrentItems
     if (!classify && !classifyMany) throw new Error('Old favorite workspace automatic classification is unavailable.')
-    const currentSegmentId = this.currentSegment(workspace)
-    const currentSegment = workspace.segments.find((segment) => segment.id === currentSegmentId)
-    if (!currentSegment) throw new Error('Old favorite workspace current segment is unavailable.')
     const state = await this.ensureRecommendations(workspace)
     const adopted = new Set(state.adoptedCandidateIds)
     const recommendedLedgers = state.candidates.filter((candidate) => adopted.has(candidate.id)).map((candidate, index) => ({
       id: candidate.id, displayName: candidate.displayName, keywords: [...candidate.keywords],
-      ruleType: candidate.kind === 'author' ? 'author' as const : 'keyword' as const,
+      ruleType: candidate.kind === 'author' ? 'author' as const : candidate.kind === 'tag' ? 'tag' as const : 'keyword' as const,
       enabled: true, priority: index, isDefault: false
     }))
-    const items = this.currentSegmentItems.get(workspace.accountMid) ?? await this.loadCurrentSegmentItems(workspace)
-    const eligibleAids = new Set((await this.selectedSourceAssignments(workspace, items)).map((item) => item.aid))
-    const candidates = items
-      .filter((item) => currentSegment.aids.includes(item.aid) && eligibleAids.has(item.aid))
-      .filter((item) => {
-        const existing = workspace.classifications[String(item.aid)]
-        return existing?.source !== 'manual' && existing?.source !== 'deepseek'
-      })
-    const classifications = classifyMany
-      ? await classifyMany(candidates.map(clone), clone(recommendedLedgers))
-      : await Promise.all(candidates.map((item) => recommendedLedgers.length
-        ? classify!(clone(item), clone(recommendedLedgers))
-        : classify!(clone(item))))
-    if (classifications.length !== candidates.length) {
-      throw new Error('Old favorite workspace automatic classification result is invalid.')
-    }
-    const proposed = candidates.map((item, index) => ({ aid: item.aid, proposal: classifications[index]! }))
+    const recovered = await this.options.workspaceStore.recover(workspace.accountMid, workspace.id)
+    if ('recovery' in recovered) throw new Error('Old favorite workspace requires rebuild.')
+    const tagUpdates = new Map(recovered.tagUpdates.map((update) => [update.aid, update.tags]))
+    const selectedSourceFolderIds = new Set((this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
+      .filter((folder) => !folder.isBilimiWorkFolder && folder.selected).map((folder) => folder.id))
+    const hasSelectableSources = (this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? [])
+      .some((folder) => !folder.isBilimiWorkFolder)
     let updated = workspace
-    for (const source of ['system-high', 'system-low'] as const) {
-      const assignments = proposed
-        .filter(({ proposal }) => proposal.confidence === (source === 'system-high' ? 'high' : 'low'))
-        .map(({ aid, proposal }) => ({ aid, targetLedgerIds: proposal.targetLedgerIds.slice(0, 1) }))
-      if (!assignments.length) continue
-      const next = applyWorkspaceClassificationBatch(updated, { source, assignments, replaceExistingSystem: replaceSystem })
-      if (next === updated) continue
-      const entry = next.history[next.history.length - 1]
-      const readiness = await this.applyReadinessHistoryChange(updated, entry, 'forward')
-      await this.options.workspaceStore.appendOverlay(updated.accountMid, updated.id, {
-        currentSegmentId,
-        classifications: entry.changes.flatMap((change) => change.after ? [{
-          aid: change.after.aid, targetLedgerIds: [...change.after.targetLedgerIds], source: change.after.source
-        }] : []),
-        history: [encodeJournalEvent({ type: 'classification', entry: clone(entry), historyCursor: next.historyCursor })],
-        planReadiness: readiness
-      })
-      this.planReadiness.set(updated.accountMid, readiness)
-      updated = next
+    const visibleSegmentId = this.currentSegment(workspace)
+    const visibleItems = this.currentSegmentItems.get(workspace.accountMid)
+    try {
+      for (const segmentId of segmentIds) {
+        const segment = updated.segments.find((candidate) => candidate.id === segmentId)
+        if (!segment) throw new Error('Old favorite workspace segment is unavailable.')
+        const stored = await this.options.workspaceStore.loadSegment(updated.accountMid, updated.id, segment.id)
+        const items = (stored.items ?? []).map((item) => ({ ...item, ...(tagUpdates.has(item.aid) ? { tags: tagUpdates.get(item.aid) } : {}) }))
+        this.currentSegmentItems.set(updated.accountMid, items.map(clone))
+        const candidates = items
+          .filter((item) => !hasSelectableSources || item.sourceFolderIds.some((folderId) => selectedSourceFolderIds.has(folderId)))
+          .filter((item) => {
+            const existing = updated.classifications[String(item.aid)]
+            return existing?.source !== 'manual' && existing?.source !== 'deepseek'
+          })
+        const classifications = classifyMany
+          ? await classifyMany(candidates.map(clone), clone(recommendedLedgers))
+          : await Promise.all(candidates.map((item) => recommendedLedgers.length
+            ? classify!(clone(item), clone(recommendedLedgers))
+            : classify!(clone(item))))
+        if (classifications.length !== candidates.length) {
+          throw new Error('Old favorite workspace automatic classification result is invalid.')
+        }
+        const proposed = candidates.map((item, index) => ({ aid: item.aid, proposal: classifications[index]! }))
+        for (const source of ['system-high', 'system-low'] as const) {
+          const assignments = proposed
+            .filter(({ proposal }) => proposal.confidence === (source === 'system-high' ? 'high' : 'low'))
+            .map(({ aid, proposal }) => ({ aid, targetLedgerIds: proposal.targetLedgerIds.slice(0, 1) }))
+          if (!assignments.length) continue
+          const next = applyWorkspaceClassificationBatch(updated, { source, assignments, replaceExistingSystem: replaceSystem })
+          if (next === updated) continue
+          const entry = next.history[next.history.length - 1]
+          const readiness = await this.applyReadinessHistoryChange(updated, entry, 'forward')
+          await this.options.workspaceStore.appendOverlay(updated.accountMid, updated.id, {
+            currentSegmentId: segment.id,
+            classifications: entry.changes.flatMap((change) => change.after ? [{
+              aid: change.after.aid, targetLedgerIds: [...change.after.targetLedgerIds], source: change.after.source
+            }] : []),
+            history: [encodeJournalEvent({ type: 'classification', entry: clone(entry), historyCursor: next.historyCursor })],
+            planReadiness: readiness
+          })
+          this.planReadiness.set(updated.accountMid, readiness)
+          updated = next
+        }
+      }
+    } finally {
+      if (visibleItems) this.currentSegmentItems.set(workspace.accountMid, visibleItems)
+      else if (visibleSegmentId) {
+        const visible = await this.options.workspaceStore.loadSegment(workspace.accountMid, workspace.id, visibleSegmentId)
+        this.currentSegmentItems.set(workspace.accountMid, (visible.items ?? []).map((item) => ({
+          ...item, ...(tagUpdates.has(item.aid) ? { tags: tagUpdates.get(item.aid) } : {})
+        })))
+      }
     }
     this.workspaces.set(updated.accountMid, updated)
     return clone(updated)

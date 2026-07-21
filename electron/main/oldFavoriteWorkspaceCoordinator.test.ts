@@ -266,6 +266,66 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('classifies every scanned segment after tag enrichment completes', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const classifyCurrentItem = vi.fn((item: { aid: number }) => ({
+      targetLedgerIds: [item.aid % 2 ? 'knowledge' : 'music'], confidence: 'high' as const
+    }))
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { classifyCurrentItem })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2_001, isBilimiWorkFolder: false }]
+    })
+    for (let offset = 0; offset < 2_001; offset += 50) {
+      await coordinator.recordScanPage('100', {
+        folderId: 'source', page: (offset / 50) + 1,
+        items: Array.from({ length: Math.min(50, 2_001 - offset) }, (_, index) => ({
+          aid: offset + index + 1, title: `Video ${offset + index + 1}`, tags: ['technology'], sourceFolderIds: ['source']
+        }))
+      })
+    }
+
+    await coordinator.finishScan('100')
+
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      planReadiness: { selectedAidCount: 2_001, classifiedAidCount: 2_001, unclassifiedAidCount: 0 }
+    })
+    expect(classifyCurrentItem).toHaveBeenCalledTimes(2_001)
+  })
+
+  it('passes adopted tag recommendations to automatic classification as tag rules', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const classifyCurrentItem = vi.fn().mockReturnValue({ targetLedgerIds: [], confidence: 'low' as const })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { classifyCurrentItem })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'One', tags: ['TypeScript'], sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Two', tags: ['TypeScript'], sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    const snapshot = await coordinator.getSnapshot('100')
+    if ('recovery' in snapshot) throw new Error('workspace unexpectedly unavailable')
+    const tagCandidate = snapshot.recommendations.candidates.find((candidate) => candidate.kind === 'tag')
+    if (!tagCandidate) throw new Error('tag recommendation unexpectedly unavailable')
+
+    await coordinator.setRecommendedCandidates('100', [tagCandidate.id])
+
+    expect(classifyCurrentItem).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.arrayContaining([expect.objectContaining({ id: tagCandidate.id, ruleType: 'tag' })])
+    )
+  })
+
   it('stages unclassified selected aids before refusing an unbound cross-segment remote plan', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
