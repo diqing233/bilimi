@@ -9,6 +9,13 @@ import type { DeepSeekWorkspaceFeedback } from './useOldFavoriteWorkspace'
 const VIRTUAL_TRACK_THRESHOLD = 50
 const INITIAL_GROUP_ITEM_LIMIT = 6
 
+function deepSeekFailureMessage(message: string, affectedVideoCount: number) {
+  if (/incomplete current-segment/i.test(message)) {
+    return `返回结果不完整，${affectedVideoCount} 条未应用，可重试。`
+  }
+  return message
+}
+
 const DEEPSEEK_ARCHIVE_PROCESSING_OPTIONS: Array<{ value: DeepSeekArchiveMode; label: string }> = [
   { value: 'low-confidence-and-unclassified', label: '整理不确定和【未分类】（推荐）' },
   { value: 'unclassified-only', label: '只整理【未匹配到合适分类】' },
@@ -155,7 +162,7 @@ export function OldFavoriteArchivePreviewStep({
                 </div>
               </div>
             })() : null}
-            {deepSeekFeedback.failures?.map((failure) => <p key={failure.chunkIndex}>第 {failure.chunkIndex} 批：{failure.message}</p>)}
+            {deepSeekFeedback.failures?.map((failure) => <p key={failure.chunkIndex}>第 {failure.chunkIndex} 批：{deepSeekFailureMessage(failure.message, failure.affectedVideoCount)}</p>)}
             {deepSeekFeedback.failures?.length ? <button type="button" disabled={loading} onClick={onRetryFailedDeepSeekChunks}>重试失败批次</button> : null}
           </div> : null}
         </div>
