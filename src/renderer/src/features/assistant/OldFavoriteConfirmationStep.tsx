@@ -3,6 +3,7 @@ import type { OldFavoriteWorkspaceSnapshot } from '@shared/oldFavoriteWorkspace'
 type OldFavoriteConfirmationStepProps = {
   snapshot: OldFavoriteWorkspaceSnapshot
   loading: boolean
+  preparationStatus?: string | null
   executionError?: string | null
   onSaveLocally: () => void
   onConfirmAndSync: () => void
@@ -23,6 +24,7 @@ function readinessFor(snapshot: OldFavoriteWorkspaceSnapshot) {
 export function OldFavoriteConfirmationStep({
   snapshot,
   loading,
+  preparationStatus,
   executionError,
   onSaveLocally,
   onConfirmAndSync,
@@ -84,6 +86,7 @@ export function OldFavoriteConfirmationStep({
     <h4>确认执行</h4>
     <p>可直接同步到 B 站，或仅保存到本地收藏库；两种方式都会冻结当前分类结果。</p>
     {readinessText ? <p>{readinessText}</p> : null}
+    {preparationStatus ? <p role="status">{preparationStatus}</p> : null}
     {blockedMessage ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{blockedMessage}</p> : null}
     {executionError ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{executionError}</p> : null}
     <div className="favorite-ledger-panel__confirm-actions">

@@ -65,6 +65,7 @@ export function ControlledFavoriteLedgerPanel({
   const [scanStarting, setScanStarting] = useState(false)
   const [scanStartFailure, setScanStartFailure] = useState<string | null>(null)
   const [confirmationPreparing, setConfirmationPreparing] = useState(false)
+  const [confirmationPreparationStatus, setConfirmationPreparationStatus] = useState<string | null>(null)
   const [confirmationPreparationError, setConfirmationPreparationError] = useState<string | null>(null)
   const scanPresentationRequestVersion = useRef(0)
   const scanStartingRef = useRef(false)
@@ -88,6 +89,7 @@ export function ControlledFavoriteLedgerPanel({
     setScanStarting(false)
     setScanStartFailure(null)
     setConfirmationPreparing(false)
+    setConfirmationPreparationStatus(null)
     setConfirmationPreparationError(null)
   }, [currentAccountMid])
 
@@ -157,6 +159,7 @@ export function ControlledFavoriteLedgerPanel({
     setConfirmationPreparing(true)
     try {
       if (confirmationNeedsBackup(snapshot, ledgers, missingLedgerIds)) {
+        setConfirmationPreparationStatus('正在同步目标收藏夹，完成后会继续同步到 B 站。')
         const result = await onEnsureLedgers() as { ok?: boolean; message?: string } | undefined
         if (result?.ok === false) {
           setConfirmationPreparationError(result.message || '收藏夹同步失败，请重试。')
@@ -168,6 +171,7 @@ export function ControlledFavoriteLedgerPanel({
       setConfirmationPreparationError(error instanceof Error ? error.message : '收藏夹同步失败，请重试。')
     } finally {
       setConfirmationPreparing(false)
+      setConfirmationPreparationStatus(null)
     }
   }
   const canRestartFromResume = snapshot !== null && !recovery && snapshot.status !== 'completed'
@@ -223,6 +227,7 @@ export function ControlledFavoriteLedgerPanel({
       {guideOpen ? <OldFavoriteGuide
         snapshot={snapshot}
         loading={workspace.loading || confirmationPreparing}
+        preparationStatus={confirmationPreparationStatus}
         executionError={confirmationPreparationError ?? workspace.executionError}
         scanStarting={scanStarting}
         scanStartFailure={scanStartFailure}
