@@ -21,6 +21,12 @@ function deepSeekFailureMessage(error: unknown) {
 
 function executionFailureMessage(error: unknown) {
   const detail = error instanceof Error ? error.message : ''
+  if (/remote folder inventory is unavailable|page bridge is unavailable/i.test(detail)) {
+    return '无法读取 B 站收藏夹列表，请保持已登录的 B 站页面打开后重试。'
+  }
+  if (/remote shard title is ambiguous/i.test(detail)) {
+    return 'B 站中存在多个同名目标收藏夹，请整理重名收藏夹后重试。'
+  }
   if (/remote-target-unbound/i.test(detail)) {
     return '本轮目标收藏夹尚未同步到 B 站，请确认同步后重试。'
   }

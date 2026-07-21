@@ -340,6 +340,26 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.loading).toBe(false)
   })
 
+  it('explains an unavailable remote folder inventory after confirmation instead of showing the generic plan error', async () => {
+    const command = vi.fn().mockRejectedValue(new Error('Favorite repository remote folder inventory is unavailable.'))
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.confirmAndExecuteBilibiliPlan() })
+
+    expect(result.current.executionError).toBe('无法读取 B 站收藏夹列表，请保持已登录的 B 站页面打开后重试。')
+  })
+
+  it('explains an ambiguous remote folder target after confirmation instead of showing the generic plan error', async () => {
+    const command = vi.fn().mockRejectedValue(new Error('Favorite repository remote shard title is ambiguous.'))
+    window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
+    const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
+
+    await act(async () => { await result.current.confirmAndExecuteBilibiliPlan() })
+
+    expect(result.current.executionError).toBe('B 站中存在多个同名目标收藏夹，请整理重名收藏夹后重试。')
+  })
+
   it('starts only the already frozen Bilibili plan through a payload-free command', async () => {
     const command = vi.fn().mockResolvedValue({ ...workspace('100'), status: 'executing' as const })
     window.bilimiDesktop = { commandOldFavoriteWorkspaceV1: command } as typeof window.bilimiDesktop
