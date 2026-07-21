@@ -3,6 +3,18 @@ import { describe, expect, it, vi } from 'vitest'
 import { OldFavoriteScanOverviewStep } from './OldFavoriteScanOverviewStep'
 
 describe('OldFavoriteScanOverviewStep', () => {
+  it('shows an unstarted state until the user starts old-favorite organization', () => {
+    render(<OldFavoriteScanOverviewStep
+      snapshot={null} loading={false} scanStarting={false} scanStartFailure={null} onRetry={vi.fn()} onRetryDirect={vi.fn()}
+      onRebuild={vi.fn()} onSelectSourceFolders={vi.fn()} onPauseTagEnrichment={vi.fn()}
+      onResumeTagEnrichment={vi.fn()} onAcceptCurrentTags={vi.fn()}
+    />)
+
+    expect(screen.getByText('尚未开始扫描，请点击“整理旧藏”后扫描。')).toBeInTheDocument()
+    expect(screen.getByText('尚未开始')).toBeInTheDocument()
+    expect(screen.queryByText('正在扫描')).not.toBeInTheDocument()
+  })
+
   it('reports formally protected videos skipped by an incremental scan', () => {
     render(<OldFavoriteScanOverviewStep
       snapshot={{

@@ -290,6 +290,23 @@ type GlobalStatusItem = {
   tone: GlobalStatusTone
 }
 
+export function favoriteWorkspaceReadinessMessage(args: {
+  hasBilibiliPageOpen: boolean
+  hasMissingFavoriteLedgers: boolean
+  activeTab: AssistantWorkspaceTab
+}) {
+  if (!args.hasBilibiliPageOpen && args.hasMissingFavoriteLedgers) {
+    return '请先登录 B 站，并到掌库备册。'
+  }
+  if (!args.hasBilibiliPageOpen) return '请先登录 B 站。'
+  if (args.hasMissingFavoriteLedgers) {
+    return args.activeTab === 'ledger'
+      ? '当前只有本地默认收藏夹模板，请点击“备册”创建并绑定 bilimi 收藏夹。'
+      : '请到掌库备册后再开始整理。'
+  }
+  return '准备就绪。'
+}
+
 export function favoriteOrganizationStatus(
   snapshot: OldFavoriteWorkspaceSnapshot | null
 ): GlobalStatusItem | null {
@@ -1351,20 +1368,12 @@ export function FloatingAssistantApp({
     favoriteLedgerBackupStatus.enabledCount === 0 ||
     favoriteLedgerBackupStatus.enabledWithoutFolderCount > 0
   const readinessFeedbackMessage = useMemo(() => {
-    if (!hasBilibiliPageOpen && hasMissingFavoriteLedgers) {
-      return '请先登录 B 站，并到掌库备册。'
-    }
-
-    if (!hasBilibiliPageOpen) {
-      return '请先登录 B 站。'
-    }
-
-    if (hasMissingFavoriteLedgers) {
-      return '请到掌库备册后再开始整理。'
-    }
-
-    return '准备就绪。'
-  }, [hasBilibiliPageOpen, hasMissingFavoriteLedgers])
+    return favoriteWorkspaceReadinessMessage({
+      hasBilibiliPageOpen,
+      hasMissingFavoriteLedgers,
+      activeTab
+    })
+  }, [activeTab, hasBilibiliPageOpen, hasMissingFavoriteLedgers])
   const displayedGlobalFeedbackMessage = globalFeedbackMessage || readinessFeedbackMessage
 
   function applyPreferenceSnapshot(nextPreferences: AssistantPreferences) {

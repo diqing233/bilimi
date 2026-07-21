@@ -57,7 +57,8 @@ export function OldFavoriteScanOverviewStep({
     .filter((folder) => folder.selected && !folder.isBilimiWorkFolder)
     .map((folder) => folder.id))
   const scanFailed = Boolean(scanStartFailure) || snapshot?.scan.phase === 'failed'
-  const scanning = scanStarting || snapshot?.status === 'scanning' || !snapshot
+  const scanning = scanStarting || snapshot?.status === 'scanning'
+  const unstarted = !snapshot && !scanStarting
   const totalItemCount = snapshot?.scan.totalItemCount ?? 0
   const scannedItemCount = Math.min(snapshot?.scan.scannedItemCount ?? 0, totalItemCount)
   const taggedItemCount = Math.min(snapshot?.scan.taggedItemCount ?? 0, scannedItemCount)
@@ -70,7 +71,9 @@ export function OldFavoriteScanOverviewStep({
     ? `扫描启动失败：${scanFailureGuidance(scanStartFailure)}`
     : snapshot?.scan.phase === 'failed'
       ? `扫描失败：${scanFailureGuidance(snapshot.scan.reason)}`
-      : scanning
+      : unstarted
+        ? '尚未开始扫描，请点击“整理旧藏”后扫描。'
+        : scanning
         ? '扫描概览：扫描中'
         : '扫描概览已完成，请选择下一步继续整理。'
 
@@ -82,7 +85,7 @@ export function OldFavoriteScanOverviewStep({
         <span>扫描进度</span>
         <progress aria-label="旧藏扫描进度" max={Math.max(totalItemCount, 1)} value={scanFailed ? 0 : scanning ? scannedItemCount : Math.max(totalItemCount, 1)} />
         <span>{scanning && totalItemCount ? `${scannedItemCount} / ${totalItemCount} 条` : null}</span>
-        <strong>{scanFailed ? '扫描失败' : scanning ? '正在扫描' : '已完成'}</strong>
+        <strong>{scanFailed ? '扫描失败' : unstarted ? '尚未开始' : scanning ? '正在扫描' : '已完成'}</strong>
       </div>
       {scannedItemCount ? <div>
         <span>已获取标签</span>

@@ -394,7 +394,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
 
-    expect(await screen.findByText('扫描概览：扫描中')).toBeInTheDocument()
+    expect(await screen.findByText('尚未开始扫描，请点击“整理旧藏”后扫描。')).toBeInTheDocument()
     expect(command).not.toHaveBeenCalled()
     await act(async () => { resolveOpen?.(reconciling) })
     const resumeDialog = await screen.findByRole('dialog', { name: '整理旧藏' })
