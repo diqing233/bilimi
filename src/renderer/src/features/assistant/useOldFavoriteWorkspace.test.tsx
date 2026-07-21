@@ -330,7 +330,7 @@ describe('useOldFavoriteWorkspace', () => {
     await act(async () => { await result.current.confirmAndExecuteBilibiliPlan() })
 
     expect(command).toHaveBeenCalledExactlyOnceWith('100', { type: 'confirm-and-execute-bilibili-plan' })
-    expect(result.current.executionError).toBe('无法确认当前 B 站页面，请保持已登录的 B 站页面打开后重试。')
+    expect(result.current.executionError).toBe('本轮目标收藏夹尚未同步到 B 站，请确认同步后重试。')
     expect(result.current.loading).toBe(false)
   })
 

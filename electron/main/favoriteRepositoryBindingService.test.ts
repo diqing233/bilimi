@@ -210,7 +210,7 @@ describe('FavoriteRepositoryBindingService', () => {
     expect(release).toHaveBeenCalledWith('100', expect.stringMatching(/^favorite-binding:/))
   })
 
-  it('creates an adopted recommendation shard with its visible logical title and bounded volume marker', async () => {
+  it('creates an adopted recommendation with its visible logical title', async () => {
     const repository = await createRepository()
     const createFolder = vi.fn().mockImplementation(async ({ title }: { title: string }) => ({
       observedAccountMid: '100', folder: { id: 'remote-alpha-1', title, memberCount: 0 }
@@ -232,7 +232,7 @@ describe('FavoriteRepositoryBindingService', () => {
     })
 
     expect(createFolder).toHaveBeenCalledWith(expect.objectContaining({
-      title: 'bilimi\u00b7UP Al\u00b701\u00b7a1b2'
+      title: 'bilimi\u00b7UP Alpha'
     }))
   })
 

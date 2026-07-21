@@ -1074,6 +1074,32 @@ export class OldFavoriteWorkspaceCoordinator {
       }
     })
     await this.stageUnclassifiedSelectedVideos(preparation.accountMid)
+    if (this.options.bindingService) {
+      const snapshot = await this.options.repository.getSnapshot(preparation.accountMid)
+      for (const [logicalLedgerId, assignmentAids] of Object.entries(preparation.assignmentAids)
+        .sort(([left], [right]) => left.localeCompare(right))) {
+        const logicalTitle = preparation.logicalTitles.get(logicalLedgerId)
+        if (!logicalTitle) throw new Error('Old favorite workspace target title is unavailable.')
+        const existing = snapshot.physicalShards.filter((shard) => shard.logicalLedgerId === logicalLedgerId)
+        const existingMemberAids = new Set(existing.flatMap((shard) => snapshot.memberships[shard.folderId] ?? []))
+        const newAssignmentCount = assignmentAids.filter((aid) => !existingMemberAids.has(aid)).length
+        const availableCapacity = existing.reduce((total, shard) => total + Math.max(
+          0,
+          1_000 - Math.max(snapshot.memberships[shard.folderId]?.length ?? 0, shard.remoteMemberCount ?? 0)
+        ), 0)
+        const shardCount = Math.max(0, Math.ceil((newAssignmentCount - availableCapacity) / 1_000))
+        const nextShardNumber = Math.max(0, ...existing.map((shard) => shard.shardNumber)) + 1
+        for (let offset = 0; offset < shardCount; offset += 1) {
+          await this.options.bindingService.ensurePhysicalShard(preparation.accountMid, {
+            logicalLedgerId,
+            logicalTitle,
+            remoteDisplayTitle: logicalTitle,
+            shardNumber: nextShardNumber + offset,
+            memberAids: []
+          })
+        }
+      }
+    }
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(preparation.accountMid)
       if (workspace.status !== 'previewing' || !workspace.baseline) {

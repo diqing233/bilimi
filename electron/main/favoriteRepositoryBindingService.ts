@@ -59,7 +59,8 @@ function favoriteRepositoryManagedShardTitleForDisplay(
 ) {
   const displayTitle = remoteDisplayTitle?.trim()
   if (displayTitle) {
-    const suffix = `\u00b7${String(shardNumber).padStart(2, '0')}\u00b7${titleToken(bindingToken).padEnd(4, '0').slice(0, 4)}`
+    if (shardNumber === 1) return Array.from(displayTitle).slice(0, 20).join('')
+    const suffix = `\u00b7${String(shardNumber).padStart(2, '0')}`
     return `${Array.from(displayTitle).slice(0, Math.max(1, 20 - Array.from(suffix).length)).join('')}${suffix}`
   }
   const ledgerToken = logicalLedgerId.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5).padEnd(5, '0')
@@ -207,6 +208,16 @@ export class FavoriteRepositoryBindingService {
       }
       if (inventory.folders.length >= REMOTE_FAVORITE_FOLDER_LIMIT) {
         throw new Error('Favorite repository remote folder limit is exceeded.')
+      }
+      const existing = inventory.folders.filter((folder) => folder.title === title)
+      if (existing.length > 1) throw new Error('Favorite repository remote shard title is ambiguous.')
+      if (existing.length === 1) {
+        return this.preparePhysicalShardWithToken(account, {
+          ...input,
+          observedAccountMid: inventory.observedAccountMid,
+          remoteFolderId: existing[0].id,
+          inventory: inventory.folders.map((folder) => ({ ...folder, memberAids: [] }))
+        }, token)
       }
       try {
         const created = await bridge.createFolder({ accountMid: account, operationKey: `${runId}:create`, title })

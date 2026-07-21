@@ -979,7 +979,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('does not create a remote shard for an adopted recommendation during confirmation', async () => {
+  it('prepares an adopted recommendation for Bilibili binding during confirmation', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const ensurePhysicalShard = vi.fn().mockResolvedValue({})
@@ -1005,7 +1005,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
 
     await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('remote-target-unbound')
-    expect(ensurePhysicalShard).not.toHaveBeenCalled()
+    expect(ensurePhysicalShard).toHaveBeenCalledWith('100', expect.objectContaining({
+      logicalLedgerId: 'custom-author-up-alpha', logicalTitle: 'bilimi·UP Alpha'
+    }))
   })
 
   it('keeps one remote organization round coherent from scan through protected incremental follow-up', async () => {
@@ -1608,13 +1610,28 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     expect((await repository.getSnapshot('100')).workspace?.frozenSyncPlan).toBeUndefined()
   })
 
-  it('refuses to create an unbound remote target during confirmation', async () => {
+  it('binds the selected preview targets before freezing the Bilibili plan', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
-    const ensurePhysicalShard = vi.fn().mockResolvedValue({})
+    const bindings = new FavoriteRepositoryBindingService({
+      repository,
+      newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined),
+        release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({ observedAccountMid: '100', folders: [] }),
+          createFolder: vi.fn(async ({ title }: { title: string }) => ({
+            observedAccountMid: '100', folder: { id: 'remote-music-1', title, memberCount: 0 }
+          })),
+          append: vi.fn(), remove: vi.fn(), readMembers: vi.fn()
+        }))
+      }
+    })
+    const ensurePhysicalShard = vi.spyOn(bindings, 'ensurePhysicalShard')
     const coordinator = new OldFavoriteWorkspaceCoordinator({
       repository, workspaceStore: new OldFavoriteWorkspaceStore({ root }),
-      bindingService: { ensurePhysicalShard }, now: () => '2026-07-20T00:00:00.000Z'
+      bindingService: bindings, now: () => '2026-07-20T00:00:00.000Z'
     })
     await coordinator.open('100')
     await coordinator.completeScan('100', { revision: 1, aids: [1] })
@@ -1622,11 +1639,15 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
     })
 
-    await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('remote-target-unbound')
-    expect(ensurePhysicalShard).not.toHaveBeenCalled()
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      status: 'frozen', frozenSyncPlan: { operations: [{ aid: 1, folderIds: ['remote-music-1'] }] }
+    })
+    expect(ensurePhysicalShard).toHaveBeenCalledWith('100', expect.objectContaining({
+      logicalLedgerId: 'music', logicalTitle: 'bilimi·音乐舞台', remoteDisplayTitle: 'bilimi·音乐舞台', shardNumber: 1
+    }))
   })
 
-  it('refuses an unbound target even when more than one physical shard would eventually be needed', async () => {
+  it('prepares enough Bilibili shards for a selected target that exceeds one folder', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })
     const ensurePhysicalShard = vi.fn().mockResolvedValue({})
@@ -1641,10 +1662,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('remote-target-unbound')
-    expect(ensurePhysicalShard).not.toHaveBeenCalled()
+    expect(ensurePhysicalShard).toHaveBeenCalledTimes(2)
+    expect(ensurePhysicalShard).toHaveBeenNthCalledWith(1, '100', expect.objectContaining({ shardNumber: 1 }))
+    expect(ensurePhysicalShard).toHaveBeenNthCalledWith(2, '100', expect.objectContaining({ shardNumber: 2 }))
   })
 
-  it('does not create a remote shard for a saved local ledger during confirmation', async () => {
+  it('prepares a manually created local ledger for Bilibili binding during confirmation', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })
     const ensurePhysicalShard = vi.fn().mockResolvedValue({})
@@ -1661,10 +1684,12 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('remote-target-unbound')
-    expect(ensurePhysicalShard).not.toHaveBeenCalled()
+    expect(ensurePhysicalShard).toHaveBeenCalledWith('100', expect.objectContaining({
+      logicalLedgerId: 'custom-saved-ledger', logicalTitle: 'bilimi·你好'
+    }))
   })
 
-  it('reports capacity exhaustion without creating another remote shard during confirmation', async () => {
+  it('reports capacity exhaustion after preparing the required next shard during confirmation', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root })
     const ensurePhysicalShard = vi.fn().mockResolvedValue({})
@@ -1684,7 +1709,9 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
 
     await expect(coordinator.freezeForBilibiliExecution('100')).rejects.toThrow('physical-shard-capacity-exceeded')
-    expect(ensurePhysicalShard).not.toHaveBeenCalled()
+    expect(ensurePhysicalShard).toHaveBeenCalledWith('100', expect.objectContaining({
+      logicalLedgerId: 'music', shardNumber: 2
+    }))
   })
 
   it('uses local membership when it exceeds an older persisted remote count during freeze compilation', async () => {
