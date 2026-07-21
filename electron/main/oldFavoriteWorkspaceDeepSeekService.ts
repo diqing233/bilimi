@@ -54,10 +54,13 @@ export class OldFavoriteWorkspaceDeepSeekService {
   }
 
   /** Retries only the main-process remembered failed chunk aids for the active workspace. */
-  async retryFailedChunks(accountMid: string): Promise<OldFavoriteWorkspaceDeepSeekResult> {
+  async retryFailedChunks(
+    accountMid: string,
+    onProgress?: (progress: OldFavoriteWorkspaceDeepSeekResult['progress']) => void
+  ): Promise<OldFavoriteWorkspaceDeepSeekResult> {
     const failedRun = this.failedRuns.get(accountMid)
     if (!failedRun?.aids.length) throw new Error('Old favorite workspace has no failed DeepSeek chunks to retry.')
-    return this.organize(accountMid, failedRun.mode, failedRun)
+    return this.organize(accountMid, failedRun.mode, failedRun, onProgress)
   }
 
   private async organize(
@@ -100,6 +103,9 @@ export class OldFavoriteWorkspaceDeepSeekService {
           aid: item.aid,
           title: item.title ?? `Video ${item.aid}`,
           author: item.author,
+          description: item.description,
+          tags: item.tags,
+          category: item.category,
           sourceFolderTitle: foldersById.get(sourceFolderId)?.title ?? '',
           originalSuggestedLedgerIds: [],
           currentTargetLedgerIds: snapshot.classifications[String(item.aid)]?.targetLedgerIds ?? [],
@@ -135,9 +141,34 @@ export class OldFavoriteWorkspaceDeepSeekService {
       try {
         const result = await this.options.generate(chunk)
         if (result.kind !== 'favorite-archive-organize') throw new Error('DeepSeek returned an invalid favorite workspace result.')
-        this.assertCompleteChunk(chunk, result.results)
-        results.push(...result.results)
-        successfulVideoCount += result.results.length
+        const expectedAids = new Set(chunk.videos.map((video) => video.aid))
+        const accepted = result.results.filter((row) => !row.invalid && Number.isSafeInteger(row.aid) && expectedAids.has(row.aid!))
+        const acceptedAids = new Set(accepted.map((row) => row.aid!))
+        if (acceptedAids.size !== accepted.length || result.results.some((row) =>
+          row.invalid || !Number.isSafeInteger(row.aid) || !expectedAids.has(row.aid!))) {
+          throw new Error('DeepSeek returned an incomplete current-segment result.')
+        }
+        results.push(...accepted)
+        successfulVideoCount += accepted.length
+        const missing = chunk.videos.filter((video) => !acceptedAids.has(video.aid))
+        if (missing.length) {
+          const retry = { ...chunk, videos: missing }
+          try {
+            const retried = await this.options.generate(retry)
+            if (retried.kind !== 'favorite-archive-organize') throw new Error('DeepSeek returned an invalid favorite workspace result.')
+            this.assertCompleteChunk(retry, retried.results)
+            results.push(...retried.results)
+            successfulVideoCount += retried.results.length
+          } catch (error) {
+            failures.push({
+              chunkIndex: offset / 20 + 1,
+              aids: missing.map((video) => video.aid).sort((left, right) => left - right),
+              affectedVideoCount: missing.length,
+              message: error instanceof Error ? error.message : 'DeepSeek request failed.'
+            })
+            failedVideoCount += missing.length
+          }
+        }
       } catch (error) {
         failures.push({
           chunkIndex: offset / 20 + 1,

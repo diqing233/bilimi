@@ -290,14 +290,22 @@ describe('old favorite workspace coordinator IPC', () => {
 
   it('retries failed DeepSeek chunks through a payload-free main-process endpoint', async () => {
     const ipcMain = new FakeIpcMain()
-    const deepSeekService = { retryFailedChunks: vi.fn().mockResolvedValue(snapshot) }
+    const deepSeekService = {
+      retryFailedChunks: vi.fn(async (_accountMid: string, progress: (value: unknown) => void) => {
+        progress({ totalChunks: 1, completedChunks: 1, totalVideoCount: 1, successfulVideoCount: 1, failedVideoCount: 0 })
+        return snapshot
+      })
+    }
     registerOldFavoriteWorkspaceCoordinatorIpc({
       ipcMain, coordinator: {} as never, deepSeekService: deepSeekService as never,
       isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
     })
 
     await expect(ipcMain.invoke('old-favorite-workspace-v1:retry-failed-deepseek', 7, '100')).resolves.toEqual(snapshot)
-    expect(deepSeekService.retryFailedChunks).toHaveBeenCalledWith('100')
+    expect(deepSeekService.retryFailedChunks).toHaveBeenCalledWith('100', expect.any(Function))
+    expect(ipcMain.send).toHaveBeenCalledWith('old-favorite-workspace-v1:deepseek-progress', {
+      accountMid: '100', totalChunks: 1, completedChunks: 1, totalVideoCount: 1, successfulVideoCount: 1, failedVideoCount: 0
+    })
     await expect(ipcMain.invoke('old-favorite-workspace-v1:retry-failed-deepseek', 7, '100', { aids: [1] }))
       .rejects.toThrow('arguments are invalid')
   })

@@ -167,7 +167,10 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   options.ipcMain.handle('old-favorite-workspace-v1:retry-failed-deepseek', async (event, requestedAccountMid: string, ...args: unknown[]) => {
     if (args.length !== 0) throw new Error('Old favorite workspace DeepSeek arguments are invalid.')
     if (!options.deepSeekService) throw new Error('Old favorite workspace DeepSeek service is unavailable.')
-    return snapshot(await options.deepSeekService.retryFailedChunks(await assertAccount(event, requestedAccountMid)))
+    const accountMid = await assertAccount(event, requestedAccountMid)
+    return snapshot(await options.deepSeekService.retryFailedChunks(accountMid, (progress) => {
+      event.sender.send('old-favorite-workspace-v1:deepseek-progress', { accountMid, ...progress })
+    }))
   })
   options.ipcMain.handle('old-favorite-workspace-v1:command', async (event, requestedAccountMid: string, value: unknown) => {
     const accountMid = await assertAccount(event, requestedAccountMid)
