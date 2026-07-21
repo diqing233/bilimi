@@ -1209,7 +1209,12 @@ export class OldFavoriteWorkspaceCoordinator {
       }
       this.tagEnrichments.set(workspace.accountMid, next)
       if (overview && scan) this.scanOverviews.set(workspace.accountMid, { ...overview, scan })
-      if (!pendingAids.length) await this.refreshRecommendationsAfterTagEnrichment(workspace)
+      if (!pendingAids.length) {
+        await this.refreshRecommendationsAfterTagEnrichment(workspace)
+        if (this.options.classifyCurrentItem || this.options.classifyCurrentItems) {
+          await this.autoClassifyCurrentSegmentUnsafe(workspace, true)
+        }
+      }
       return true
     })
   }

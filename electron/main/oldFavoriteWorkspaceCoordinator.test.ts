@@ -77,7 +77,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('rebuilds tag recommendations only after the user adopts completed tag enrichment', async () => {
+  it('rebuilds tag recommendations as soon as tag enrichment naturally completes', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
@@ -96,7 +96,6 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await coordinator.recordTagEnrichment('100', 1, ['音乐'], (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId)
     await coordinator.recordTagEnrichment('100', 2, ['音乐'], (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId)
-    await coordinator.acceptCurrentTags('100')
 
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       tagEnrichment: { status: 'complete', completedItemCount: 2, pendingItemCount: 0 },
@@ -105,7 +104,7 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
-  it('waits for adopted tags before classifying an initially untagged scan item', async () => {
+  it('classifies an initially untagged scan item when its final tag result arrives', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
     const classifyCurrentItem = vi.fn().mockReturnValue({ targetLedgerIds: ['knowledge'], confidence: 'high' as const })
@@ -124,11 +123,43 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     const workspaceId = (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId
     await coordinator.recordTagEnrichment('100', 1, ['TypeScript'], workspaceId)
-    await coordinator.acceptCurrentTags('100')
 
     expect(classifyCurrentItem).toHaveBeenCalledWith(expect.objectContaining({
       aid: 1, category: '科技', tags: ['TypeScript']
     }))
+  })
+
+  it('classifies every item when the final tag request completes without tags', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const classifyCurrentItem = vi.fn().mockReturnValue({ targetLedgerIds: ['knowledge'], confidence: 'high' as const })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { classifyCurrentItem })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Tagged item', category: '科技', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'No tag item', category: '生活', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+    const workspaceId = (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId
+
+    await coordinator.recordTagEnrichment('100', 1, ['TypeScript'], workspaceId)
+    await coordinator.recordTagEnrichment('100', 2, [], workspaceId)
+
+    expect(classifyCurrentItem).toHaveBeenCalledTimes(2)
+    expect(classifyCurrentItem).toHaveBeenCalledWith(expect.objectContaining({ aid: 1, tags: ['TypeScript'] }))
+    expect(classifyCurrentItem).toHaveBeenCalledWith(expect.objectContaining({ aid: 2, tags: [] }))
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: { status: 'complete', completedItemCount: 2, pendingItemCount: 0 },
+      scan: { taggedItemCount: 1, untaggedItemCount: 1 },
+      planReadiness: { classifiedAidCount: 2, unclassifiedAidCount: 0 }
+    })
   })
 
   it('rejects a stale tag-enrichment result after full reorganization creates a new workspace', async () => {

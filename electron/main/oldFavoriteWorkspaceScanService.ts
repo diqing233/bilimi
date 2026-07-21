@@ -30,6 +30,11 @@ function isBilimiWorkFolder(title: string) {
   return /^bilimi(?:[^\\p{L}\\p{N}]|$)/iu.test(title.trim())
 }
 
+function isRecoverableTagReadFailure(result: RuntimeInventoryResult, accountMid: string) {
+  return result.status === 'unknown' && normalizeAccountMid(result.observedAccountMid) === normalizeAccountMid(accountMid) &&
+    /^(?:remote-api-|network-failure|invalid-response)/.test(result.reason ?? '')
+}
+
 /** Runs a fixed, read-only inventory against the explicitly bound Bilibili tab. */
 export class OldFavoriteWorkspaceScanService {
   private readonly activeScans = new Map<string, {
@@ -187,6 +192,10 @@ export class OldFavoriteWorkspaceScanService {
         const result = await this.options.requestRuntime({
           type: 'old-favorite-workspace-read-video-tags', accountMid, target, aid
         })
+        if (isRecoverableTagReadFailure(result, accountMid)) {
+          await this.options.coordinator.recordTagEnrichment(accountMid, aid, [], workspaceId)
+          continue
+        }
         if (result.status !== 'ok' || result.aid !== aid || !Array.isArray(result.tags) ||
           normalizeAccountMid(result.observedAccountMid) !== normalizeAccountMid(accountMid)) {
           await this.options.coordinator.pauseTagEnrichment(accountMid)
