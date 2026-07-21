@@ -367,9 +367,16 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'incremental' })
   })
 
-  it('starts scanning from the real organize entry while the initial workspace snapshot is still loading', async () => {
-    let resolveOpen: ((value: null) => void) | undefined
-    const open = vi.fn(() => new Promise<null>((resolve) => { resolveOpen = resolve }))
+  it('waits for the initial authoritative workspace before choosing an organization action', async () => {
+    let resolveOpen: ((value: typeof reconciling) => void) | undefined
+    const reconciling = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'reconciling' as const,
+      mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0 }, sourceFolders: [], continuationCount: 0,
+      segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    const open = vi.fn(() => new Promise<typeof reconciling>((resolve) => { resolveOpen = resolve }))
     const scanning = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,
       mode: 'incremental' as const, segmentSize: 2000, hasMultipleSegments: false,
@@ -388,9 +395,12 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
 
-    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'start-scan', mode: 'incremental' }))
     expect(await screen.findByText('扫描概览：扫描中')).toBeInTheDocument()
-    await act(async () => { resolveOpen?.(null) })
+    expect(command).not.toHaveBeenCalled()
+    await act(async () => { resolveOpen?.(reconciling) })
+    const resumeDialog = await screen.findByRole('dialog', { name: '整理旧藏' })
+    expect(within(resumeDialog).getByRole('button', { name: '全部重新整理' })).toBeEnabled()
+    expect(command).not.toHaveBeenCalled()
   })
 
   it('opens all four guide steps immediately and locks later steps while scanning', async () => {
@@ -680,7 +690,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '整理旧藏' }))
     expect(command).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: '归档预览' })).toHaveAttribute('aria-current', 'step')
+    expect(await screen.findByRole('dialog', { name: '整理旧藏' })).toBeInTheDocument()
   })
 
   it('restores a persisted frozen snapshot at confirmation on remount', async () => {

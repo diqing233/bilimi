@@ -113,8 +113,13 @@ export function ControlledFavoriteLedgerPanel({
     }
   }
 
-  const requestOldFavoriteOrganization = () => {
-    if (snapshot && !recovery && snapshot.status !== 'scanning' && snapshot.status !== 'completed') {
+  const requestOldFavoriteOrganization = async () => {
+    setGuideOpen(true)
+    setStep('scan')
+    setScanStartFailure(null)
+    const authoritativeSnapshot = snapshot || await workspace.refresh()
+    if (authoritativeSnapshot && !('recovery' in authoritativeSnapshot) &&
+      authoritativeSnapshot.status !== 'scanning' && authoritativeSnapshot.status !== 'completed') {
       setResumeDialogOpen(true)
       return
     }
@@ -133,7 +138,7 @@ export function ControlledFavoriteLedgerPanel({
             })} icon={clickedPetUrl} iconAlt="小咪备册" badge="备"
             label="备册" description="一键生成 bilimi 收藏夹，用于归类收藏和整理" />
           <AssistantActionButton type="button" aria-label="整理旧藏" disabled={scanStarting || !currentAccountMid}
-            onClick={requestOldFavoriteOrganization} icon={hintPetUrl} iconAlt="小咪整理旧藏" badge="整"
+            onClick={() => void requestOldFavoriteOrganization()} icon={hintPetUrl} iconAlt="小咪整理旧藏" badge="整"
             label="整理旧藏" description="扫描旧藏，确认后整理到 bilimi 收藏夹里" />
           <AssistantActionButton type="button" aria-label="收藏库"
             onClick={() => void window.bilimiDesktop?.openFavoriteLibrary?.()} icon={clickedPetUrl} iconAlt="小咪收藏库" badge="库"
