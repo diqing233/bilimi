@@ -89,6 +89,13 @@ export type AssistantRuntimeRequest =
     }
   | {
       id: string
+      type: 'old-favorite-workspace-read-video-tags'
+      accountMid: string
+      target: FavoriteRepositoryPageTarget
+      aid: number
+    }
+  | {
+      id: string
       type: 'old-favorite-workspace-read-managed-members'
       accountMid: string
       target: FavoriteRepositoryPageTarget

@@ -57,7 +57,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
 
   it('records an inventory failure instead of rebinding a different page target', async () => {
     const coordinator = {
-      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
       recordScanFailure: vi.fn()
     }
     const runtime = vi.fn().mockResolvedValue({ status: 'unknown', observedAccountMid: '', reason: 'target-unavailable' })
@@ -142,7 +142,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
 
   it('does not persist inventory reported for a different account', async () => {
     const coordinator = {
-      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
       recordScanInventory: vi.fn(),
       recordScanFailure: vi.fn()
     }
@@ -207,7 +207,7 @@ describe('OldFavoriteWorkspaceScanService', () => {
 
   it('finalizes the main-process workspace after the last bounded source page', async () => {
     const coordinator = {
-      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', status: 'scanning' }),
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'), beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
       recordScanInventory: vi.fn(), recordManagedMembers: vi.fn(), recordScanPage: vi.fn(),
       finishScan: vi.fn(), recordScanFailure: vi.fn()
     }
@@ -222,6 +222,46 @@ describe('OldFavoriteWorkspaceScanService', () => {
 
     await vi.waitFor(() => expect(coordinator.finishScan).toHaveBeenCalledWith('100', 'scan-run-1'))
     expect(coordinator.recordScanFailure).not.toHaveBeenCalled()
+  })
+
+  it('continues a completed scan with persisted one-video tag enrichment', async () => {
+    const coordinator = {
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
+      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
+      recordScanInventory: vi.fn(), recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
+      getPendingTagEnrichmentAids: vi.fn().mockResolvedValueOnce([1]).mockResolvedValueOnce([]),
+      recordTagEnrichment: vi.fn().mockResolvedValue(true)
+    }
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const runtime = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', folders: [{ id: 'source-1', title: 'Source', mediaCount: 1 }] })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', items: [{ aid: 1, title: 'V1', upperName: 'UP', cover: '', addedAt: 0 }], hasMore: false })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', aid: 1, tags: ['Technology'] })
+    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+
+    await service.start('100', 'incremental')
+
+    await vi.waitFor(() => expect(coordinator.recordTagEnrichment).toHaveBeenCalledWith('100', 1, ['Technology'], 'workspace-1'))
+    expect(runtime).toHaveBeenLastCalledWith({
+      type: 'old-favorite-workspace-read-video-tags', accountMid: '100', target, aid: 1
+    })
+  })
+
+  it('rebinds the current Bilibili page before resuming a paused tag enrichment run', async () => {
+    const coordinator = {
+      resumeTagEnrichment: vi.fn(),
+      getSnapshot: vi.fn().mockResolvedValue({ workspaceId: 'workspace-1' }),
+      getPendingTagEnrichmentAids: vi.fn().mockResolvedValue([])
+    }
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const runtime = vi.fn().mockResolvedValue({ status: 'ok', observedAccountMid: '100', target })
+    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+
+    await service.resumeTagEnrichment('100')
+
+    expect(coordinator.resumeTagEnrichment).toHaveBeenCalledWith('100')
+    expect(runtime).toHaveBeenCalledWith({ type: 'old-favorite-workspace-bind-scan-target', accountMid: '100' })
   })
 
   it('fails closed instead of endlessly paging an empty source result that claims more pages', async () => {

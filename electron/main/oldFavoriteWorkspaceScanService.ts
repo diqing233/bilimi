@@ -11,12 +11,15 @@ type RuntimeInventoryResult = {
   members?: Record<string, number[]>
   items?: Array<{ aid: number; title: string; upperName: string; cover: string; addedAt: number; tags: string[]; category: string }>
   hasMore?: boolean
+  aid?: number
+  tags?: string[]
 }
 
 type RuntimeRequest =
   | { type: 'old-favorite-workspace-bind-scan-target'; accountMid: string }
   | { type: 'old-favorite-workspace-inventory'; accountMid: string; target: ScanTarget }
   | { type: 'old-favorite-workspace-read-source-page'; accountMid: string; target: ScanTarget; folderId: string; page: number; pageSize: number }
+  | { type: 'old-favorite-workspace-read-video-tags'; accountMid: string; target: ScanTarget; aid: number }
   | { type: 'old-favorite-workspace-read-managed-members'; accountMid: string; target: ScanTarget; folderIds: string[] }
 
 function normalizeAccountMid(value: string) {
@@ -33,6 +36,7 @@ export class OldFavoriteWorkspaceScanService {
     mode: OldFavoriteWorkspaceMode
     snapshot: Promise<OldFavoriteWorkspaceSnapshot>
   }>()
+  private readonly enrichmentRuns = new Map<string, { target: ScanTarget; running: boolean }>()
 
   constructor(private readonly options: {
     coordinator: OldFavoriteWorkspaceCoordinator
@@ -63,13 +67,13 @@ export class OldFavoriteWorkspaceScanService {
       ? await this.options.coordinator.beginScan(accountMid, mode, { clearBilibiliMirror: true })
       : await this.options.coordinator.beginScan(accountMid, mode)
     const runId = await this.options.coordinator.getActiveScanRunId(accountMid)
-    void this.runInventory(accountMid, runId, isCurrent).finally(() => {
+    void this.runInventory(accountMid, runId, isCurrent, snapshot.workspaceId).finally(() => {
       if (isCurrent()) this.activeScans.delete(accountMid)
     })
     return snapshot
   }
 
-  private async runInventory(accountMid: string, runId: string, isCurrent: () => boolean) {
+  private async runInventory(accountMid: string, runId: string, isCurrent: () => boolean, workspaceId?: string) {
     try {
       const binding = await this.options.requestRuntime({ type: 'old-favorite-workspace-bind-scan-target', accountMid })
       if (!isCurrent()) return
@@ -150,9 +154,45 @@ export class OldFavoriteWorkspaceScanService {
       }
       if (!isCurrent()) return
       await this.options.coordinator.finishScan(accountMid, runId)
+      if (workspaceId && typeof this.options.coordinator.getPendingTagEnrichmentAids === 'function') {
+        void this.runTagEnrichment(accountMid, binding.target, workspaceId)
+      }
     } catch {
       if (!isCurrent()) return
       await this.options.coordinator.recordScanFailure(accountMid, 'inventory-runtime-failed', runId)
+    }
+  }
+
+  async resumeTagEnrichment(accountMid: string) {
+    const account = normalizeAccountMid(accountMid)
+    if (!account) throw new Error('Old favorite workspace account is invalid.')
+    await this.options.coordinator.resumeTagEnrichment(account)
+    const binding = await this.options.requestRuntime({ type: 'old-favorite-workspace-bind-scan-target', accountMid: account })
+    if (binding.status !== 'ok' || !binding.target || normalizeAccountMid(binding.observedAccountMid) !== account) {
+      return
+    }
+    const snapshot = await this.options.coordinator.getSnapshot(account)
+    if ('workspaceId' in snapshot) void this.runTagEnrichment(account, binding.target, snapshot.workspaceId)
+  }
+
+  private async runTagEnrichment(accountMid: string, target: ScanTarget, workspaceId: string) {
+    const current = this.enrichmentRuns.get(accountMid)
+    if (current?.running) return
+    this.enrichmentRuns.set(accountMid, { target, running: true })
+    try {
+      while (true) {
+        const aids = await this.options.coordinator.getPendingTagEnrichmentAids(accountMid)
+        if (!aids.length) return
+        const aid = aids[0]
+        const result = await this.options.requestRuntime({
+          type: 'old-favorite-workspace-read-video-tags', accountMid, target, aid
+        })
+        if (result.status !== 'ok' || result.aid !== aid || !Array.isArray(result.tags) ||
+          normalizeAccountMid(result.observedAccountMid) !== normalizeAccountMid(accountMid)) return
+        await this.options.coordinator.recordTagEnrichment(accountMid, aid, result.tags, workspaceId)
+      }
+    } finally {
+      this.enrichmentRuns.delete(accountMid)
     }
   }
 }

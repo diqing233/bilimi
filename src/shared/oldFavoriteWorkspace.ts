@@ -80,6 +80,12 @@ export type OldFavoriteWorkspaceSnapshot = {
     taggedItemCount?: number
     untaggedItemCount?: number
   }
+  tagEnrichment?: {
+    status: 'running' | 'paused' | 'accepted' | 'complete'
+    totalItemCount: number
+    completedItemCount: number
+    pendingItemCount: number
+  }
   sourceFolders: Array<{
     id: string
     title: string

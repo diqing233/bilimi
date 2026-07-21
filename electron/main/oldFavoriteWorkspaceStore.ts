@@ -56,6 +56,13 @@ type Overlay = {
     taggedItemCount?: number
     untaggedItemCount?: number
   }
+  tagEnrichment?: {
+    status: 'running' | 'paused' | 'accepted' | 'complete'
+    totalItemCount: number
+    completedItemCount: number
+    pendingAids: number[]
+  }
+  tagUpdates?: Array<{ aid: number; tags: string[] }>
 }
 type OverlayHistory = Pick<Overlay, 'currentSegmentId' | 'history'>
 type Manifest = {
@@ -309,6 +316,8 @@ export class OldFavoriteWorkspaceStore {
         initialized: false, candidates: [], adoptedCandidateIds: []
       }
       let scan = clone(manifest.scan ?? { phase: 'inventory' as const, failureCount: 0, mode: 'incremental' as const })
+      let tagEnrichment: Overlay['tagEnrichment'] | undefined
+      const tagUpdates = new Map<number, string[]>()
       let planReadiness = { selectedAidCount: 0, classifiedAidCount: 0 }
       for (const line of committedJournal.split('\n').filter(Boolean)) {
         const overlay = JSON.parse(line) as Overlay
@@ -335,6 +344,8 @@ export class OldFavoriteWorkspaceStore {
             ,...(Number.isSafeInteger(overlay.scanMetadata.untaggedItemCount) ? { untaggedItemCount: overlay.scanMetadata.untaggedItemCount } : {})
           }
         }
+        if (overlay.tagEnrichment) tagEnrichment = clone(overlay.tagEnrichment)
+        for (const update of overlay.tagUpdates ?? []) tagUpdates.set(update.aid, [...update.tags])
       }
       return {
         workspaceId: manifest.workspaceId, accountMid: manifest.accountMid, status: manifest.status,
@@ -346,6 +357,7 @@ export class OldFavoriteWorkspaceStore {
         sourceFolders,
         scan,
         classifications, history, recommendations, planReadiness
+        ,tagEnrichment, tagUpdates: [...tagUpdates.entries()].map(([aid, tags]) => ({ aid, tags }))
       }
     } catch {
       return { recovery: 'rebuild-required', preserveCompletedLocalResults: true }

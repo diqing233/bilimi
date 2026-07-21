@@ -21,6 +21,9 @@ type OldFavoriteGuideProps = {
   onRetryScan: () => void
   onRebuildWorkspace: () => void
   onSelectSourceFolders: (folderIds: string[]) => void
+  onPauseTagEnrichment: () => void
+  onResumeTagEnrichment: () => void
+  onAcceptCurrentTags: () => void
   onSetRecommendedCandidates: (candidateIds: string[]) => void
   ledgers: FavoriteLedger[]
   deepSeekAvailable: boolean
@@ -59,6 +62,9 @@ export function OldFavoriteGuide({
   onRetryScan,
   onRebuildWorkspace,
   onSelectSourceFolders,
+  onPauseTagEnrichment,
+  onResumeTagEnrichment,
+  onAcceptCurrentTags,
   onSetRecommendedCandidates,
   ledgers,
   deepSeekAvailable,
@@ -119,6 +125,9 @@ export function OldFavoriteGuide({
       onRetry={onRetryScan}
       onRebuild={onRebuildWorkspace}
       onSelectSourceFolders={onSelectSourceFolders}
+      onPauseTagEnrichment={onPauseTagEnrichment}
+      onResumeTagEnrichment={onResumeTagEnrichment}
+      onAcceptCurrentTags={onAcceptCurrentTags}
     /> : null}
     {!recovery && snapshot && step === 'generated' ? <OldFavoriteRecommendationStep
       snapshot={snapshot}

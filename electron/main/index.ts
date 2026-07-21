@@ -1313,6 +1313,7 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     isTrustedSender: isTrustedOldFavoriteSessionSender,
     getCurrentAccountMid: readCurrentBilibiliAccountMid,
     startScan: (accountMid, mode, options) => oldFavoriteWorkspaceScanService!.start(accountMid, mode, options),
+    resumeTagEnrichment: (accountMid) => oldFavoriteWorkspaceScanService!.resumeTagEnrichment(accountMid),
     rebuildAndStartScan: async (accountMid) => {
       await oldFavoriteWorkspaceCoordinator!.rebuildAfterRecovery(accountMid)
       return oldFavoriteWorkspaceScanService!.start(accountMid, 'incremental')

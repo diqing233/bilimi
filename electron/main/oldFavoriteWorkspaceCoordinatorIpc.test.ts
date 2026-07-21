@@ -115,6 +115,44 @@ describe('old favorite workspace coordinator IPC', () => {
     })).rejects.toThrow('command is invalid')
   })
 
+  it('routes tag-enrichment controls through main-process workspace commands only', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = {
+      pauseTagEnrichment: vi.fn(),
+      resumeTagEnrichment: vi.fn(),
+      acceptCurrentTags: vi.fn(),
+      getSnapshot: vi.fn().mockResolvedValue(snapshot)
+    }
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, isTrustedSender: () => true,
+      getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'pause-tag-enrichment' })
+    await ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'resume-tag-enrichment' })
+    await ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'accept-current-tags' })
+
+    expect(coordinator.pauseTagEnrichment).toHaveBeenCalledWith('100')
+    expect(coordinator.resumeTagEnrichment).toHaveBeenCalledWith('100')
+    expect(coordinator.acceptCurrentTags).toHaveBeenCalledWith('100')
+    await expect(ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', {
+      type: 'accept-current-tags', aids: [1]
+    })).rejects.toThrow('command is invalid')
+  })
+
+  it('uses the scan service to resume tag enrichment against a newly verified page target', async () => {
+    const ipcMain = new FakeIpcMain()
+    const coordinator = { pauseTagEnrichment: vi.fn(), acceptCurrentTags: vi.fn(), getSnapshot: vi.fn().mockResolvedValue(snapshot) }
+    const resumeTagEnrichment = vi.fn().mockResolvedValue(undefined)
+    registerOldFavoriteWorkspaceCoordinatorIpc({
+      ipcMain, coordinator: coordinator as never, resumeTagEnrichment,
+      isTrustedSender: () => true, getCurrentAccountMid: vi.fn().mockResolvedValue('100')
+    })
+
+    await ipcMain.invoke('old-favorite-workspace-v1:command', 7, '100', { type: 'resume-tag-enrichment' })
+    expect(resumeTagEnrichment).toHaveBeenCalledWith('100')
+  })
+
   it('allows mirror clearing only as an explicit full reorganization option', async () => {
     const ipcMain = new FakeIpcMain()
     const scanning = { ...snapshot, status: 'scanning' as const, scan: { phase: 'inventory' as const, failureCount: 0 } }

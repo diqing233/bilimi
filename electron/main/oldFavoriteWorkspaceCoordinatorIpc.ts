@@ -30,6 +30,9 @@ type WorkspaceCommand =
   | { type: 'select-segment'; segmentId: string }
   | { type: 'undo-classification' }
   | { type: 'redo-classification' }
+  | { type: 'pause-tag-enrichment' }
+  | { type: 'resume-tag-enrichment' }
+  | { type: 'accept-current-tags' }
   | { type: 'move-history-cursor'; cursor: number }
   | { type: 'auto-classify-current-segment' }
   | { type: 'set-recommended-candidates'; candidateIds: string[] }
@@ -80,6 +83,10 @@ function command(value: unknown): WorkspaceCommand {
     return { type: 'select-segment', segmentId: candidate.segmentId.trim() }
   }
   if ((candidate.type === 'undo-classification' || candidate.type === 'redo-classification') &&
+    Object.keys(candidate).length === 1) {
+    return { type: candidate.type }
+  }
+  if ((candidate.type === 'pause-tag-enrichment' || candidate.type === 'resume-tag-enrichment' || candidate.type === 'accept-current-tags') &&
     Object.keys(candidate).length === 1) {
     return { type: candidate.type }
   }
@@ -134,6 +141,7 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
   isTrustedSender: (senderId: number) => boolean
   getCurrentAccountMid: () => Promise<string>
   startScan?: (accountMid: string, mode: 'incremental' | 'full', options?: { clearBilibiliMirror?: boolean }) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
+  resumeTagEnrichment?: (accountMid: string) => Promise<void>
   rebuildAndStartScan?: (accountMid: string) => Promise<Awaited<ReturnType<OldFavoriteWorkspaceCoordinator['getSnapshot']>>>
 }) {
   const assertAccount = async (event: IpcEvent, requestedAccountMid: unknown) => {
@@ -178,6 +186,12 @@ export function registerOldFavoriteWorkspaceCoordinatorIpc(options: {
     if (requested.type === 'select-segment') await options.coordinator.selectSegment(accountMid, requested.segmentId)
     if (requested.type === 'undo-classification') await options.coordinator.undoClassificationChange(accountMid)
     if (requested.type === 'redo-classification') await options.coordinator.redoClassificationChange(accountMid)
+    if (requested.type === 'pause-tag-enrichment') await options.coordinator.pauseTagEnrichment(accountMid)
+    if (requested.type === 'resume-tag-enrichment') {
+      if (options.resumeTagEnrichment) await options.resumeTagEnrichment(accountMid)
+      else await options.coordinator.resumeTagEnrichment(accountMid)
+    }
+    if (requested.type === 'accept-current-tags') await options.coordinator.acceptCurrentTags(accountMid)
     if (requested.type === 'move-history-cursor') await options.coordinator.moveHistoryCursor(accountMid, requested.cursor)
     if (requested.type === 'auto-classify-current-segment') await options.coordinator.autoClassifyCurrentSegment(accountMid)
     if (requested.type === 'set-recommended-candidates') await options.coordinator.setRecommendedCandidates(accountMid, requested.candidateIds)

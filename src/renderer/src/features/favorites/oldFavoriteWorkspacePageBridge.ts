@@ -23,10 +23,17 @@ export type OldFavoriteWorkspaceSourcePageCommand = {
   pageSize: number
 }
 
+export type OldFavoriteWorkspaceVideoTagsCommand = {
+  type: 'read-video-tags'
+  accountMid: string
+  aid: number
+}
+
 export type OldFavoriteWorkspacePageCommand =
   | OldFavoriteWorkspaceInventoryCommand
   | OldFavoriteWorkspaceManagedMembersCommand
   | OldFavoriteWorkspaceSourcePageCommand
+  | OldFavoriteWorkspaceVideoTagsCommand
 
 export type OldFavoriteWorkspaceFolder = {
   id: string
@@ -54,6 +61,7 @@ export type OldFavoriteWorkspacePageResult =
   | (PageBaseResult & { folders: OldFavoriteWorkspaceFolder[] })
   | (PageBaseResult & { members: Record<string, number[]> })
   | (PageBaseResult & { items: OldFavoriteWorkspaceSourceItem[]; hasMore: boolean })
+  | (PageBaseResult & { aid: number; tags: string[] })
 
 type PageExecutor = {
   execute: (target: OldFavoriteWorkspacePageTarget, script: string) => Promise<unknown>
@@ -97,6 +105,9 @@ function isCommand(value: unknown): value is OldFavoriteWorkspacePageCommand {
     return Object.keys(command).every((key) => key === 'type' || key === 'accountMid' || key === 'folderId' || key === 'page' || key === 'pageSize') &&
       isFolderId(command.folderId) && isPositiveInteger(command.page) && command.page <= 100_000 &&
       isPositiveInteger(command.pageSize) && command.pageSize <= 50
+  }
+  if (command.type === 'read-video-tags') {
+    return Object.keys(command).every((key) => key === 'type' || key === 'accountMid' || key === 'aid') && isPositiveInteger(command.aid)
   }
   return false
 }
@@ -160,6 +171,10 @@ function resultFor(command: OldFavoriteWorkspacePageCommand, value: unknown): Ol
   if (command.type === 'read-source-page' && validKeys(['items', 'hasMore']) && Array.isArray(result.items) && result.items.length <= command.pageSize && result.items.every(isSourceItem) && typeof result.hasMore === 'boolean') {
     return result as OldFavoriteWorkspacePageResult
   }
+  if (command.type === 'read-video-tags' && validKeys(['aid', 'tags']) && result.aid === command.aid &&
+    Array.isArray(result.tags) && result.tags.length <= 32 && result.tags.every((tag) => typeof tag === 'string' && tag.length <= 128)) {
+    return result as OldFavoriteWorkspacePageResult
+  }
   return null
 }
 
@@ -167,9 +182,11 @@ function scriptFor(command: OldFavoriteWorkspacePageCommand): string {
   const payload = JSON.stringify(command)
   const marker = command.type === 'inventory'
     ? 'inventory'
-    : command.type === 'read-managed-members'
-      ? 'managed-members'
-      : 'source-page'
+      : command.type === 'read-managed-members'
+        ? 'managed-members'
+      : command.type === 'read-video-tags'
+        ? 'video-tags'
+        : 'source-page'
   const helpers = `
     const input = ${payload};
     const marker = 'scan-workspace-${marker}';
@@ -222,6 +239,18 @@ function scriptFor(command: OldFavoriteWorkspacePageCommand): string {
         members[folderId] = [...new Set(response.json.data.map((entry) => Number(entry?.id ?? entry?.aid)).filter((aid) => Number.isSafeInteger(aid) && aid > 0))];
       }
       return { status: 'ok', observedAccountMid, members };
+    })()`
+  }
+
+  if (command.type === 'read-video-tags') {
+    return `(async () => {${helpers}
+      const tagUrl = new URL('https://api.bilibili.com/x/tag/archive/tags');
+      tagUrl.searchParams.set('aid', String(input.aid));
+      const response = await fetchJson(tagUrl.toString());
+      if (response.error) return unknown(response.error);
+      const values = Array.isArray(response.json?.data?.tags) ? response.json.data.tags : Array.isArray(response.json?.data) ? response.json.data : [];
+      const tags = values.map((tag) => String((tag?.tag_name ?? tag?.name ?? tag?.title ?? tag) || '').trim()).filter(Boolean).slice(0, 32);
+      return { status: 'ok', observedAccountMid, aid: input.aid, tags };
     })()`
   }
 

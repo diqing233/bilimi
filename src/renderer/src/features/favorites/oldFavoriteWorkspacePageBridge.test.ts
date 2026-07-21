@@ -97,6 +97,19 @@ describe('old favorite workspace page bridge', () => {
     expect(() => new Function(`return ${script}`)).not.toThrow()
   })
 
+  it('reads tags for one already-scanned video without returning page inventory data', async () => {
+    const execute = vi.fn().mockResolvedValue({
+      status: 'ok', observedAccountMid: '100', aid: 42, tags: ['TypeScript']
+    })
+    const bridge = createOldFavoriteWorkspacePageBridge({ execute })
+
+    await expect(bridge.run(target, {
+      type: 'read-video-tags', accountMid: '100', aid: 42
+    })).resolves.toEqual({ status: 'ok', observedAccountMid: '100', aid: 42, tags: ['TypeScript'] })
+    expect(execute.mock.calls[0][1]).toContain('/x/tag/archive/tags')
+    expect(execute.mock.calls[0][1]).toContain('scan-workspace-video-tags')
+  })
+
   it('rejects an invalid target without running a page script', async () => {
     const execute = vi.fn()
     const bridge = createOldFavoriteWorkspacePageBridge({ execute })

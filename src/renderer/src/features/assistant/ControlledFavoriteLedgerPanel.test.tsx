@@ -884,6 +884,36 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(screen.getByText('9 条未识别标签')).toBeInTheDocument()
   })
 
+  it('keeps paused tag enrichment visible and lets the user resume or adopt the current tags', async () => {
+    const preview = {
+      version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'previewing' as const,
+      mode: 'full' as const, segmentSize: 2000, hasMultipleSegments: false,
+      scan: { phase: 'complete' as const, failureCount: 0, totalItemCount: 3, scannedItemCount: 3, taggedItemCount: 1, untaggedItemCount: 2 },
+      tagEnrichment: { status: 'paused' as const, totalItemCount: 2, completedItemCount: 1, pendingItemCount: 1 },
+      sourceFolders: [], continuationCount: 0,
+      segments: [{ id: 'segment-1', index: 0, itemCount: 3, status: 'previewing' as const }],
+      currentSegment: { id: 'segment-1', aids: [1, 2, 3], items: [{ aid: 1, tags: ['已有标签'], sourceFolderIds: [] }, { aid: 2, sourceFolderIds: [] }, { aid: 3, sourceFolderIds: [] }] },
+      classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] }, history: { cursor: 0, length: 0 }
+    }
+    const command = vi.fn().mockResolvedValue(preview)
+    window.bilimiDesktop = {
+      openOldFavoriteWorkspaceV1: vi.fn().mockResolvedValue(preview),
+      commandOldFavoriteWorkspaceV1: command
+    } as typeof window.bilimiDesktop
+
+    render(<ControlledFavoriteLedgerPanel currentAccountMid="100" ledgers={[]} missingLedgerIds={[]}
+      onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '扫描概览' }))
+    expect(await screen.findByRole('status')).toHaveTextContent(/标签补取\s*已暂停/)
+    expect(screen.getByRole('button', { name: '继续补取标签' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: '采用当前标签' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: '继续补取标签' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'resume-tag-enrichment' }))
+    fireEvent.click(screen.getByRole('button', { name: '采用当前标签' }))
+    await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'accept-current-tags' }))
+  })
+
   it('maps page execution failures to a recoverable scan message without exposing the internal reason', async () => {
     const failed = {
       version: 1 as const, accountMid: '100', workspaceId: 'workspace-100', status: 'scanning' as const,

@@ -186,6 +186,9 @@ export function ControlledFavoriteLedgerPanel({
         onRetryScan={() => void startScan('incremental')}
         onRebuildWorkspace={() => void workspace.rebuildCorruptWorkspace()}
         onSelectSourceFolders={(folderIds) => void workspace.selectSourceFolders(folderIds)}
+        onPauseTagEnrichment={() => void workspace.pauseTagEnrichment()}
+        onResumeTagEnrichment={() => void workspace.resumeTagEnrichment()}
+        onAcceptCurrentTags={() => void workspace.acceptCurrentTags()}
         onSetRecommendedCandidates={(candidateIds) => void workspace.setRecommendedCandidates(candidateIds)}
 
         ledgers={ledgers}

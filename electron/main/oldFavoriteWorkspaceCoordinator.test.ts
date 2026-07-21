@@ -42,6 +42,61 @@ function deferred<T>() {
 }
 
 describe('OldFavoriteWorkspaceCoordinator', () => {
+  it('persists tag enrichment pause, resume, and current-tag adoption across coordinator restart', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const store = new OldFavoriteWorkspaceStore({ root })
+    const first = createCoordinator(repository, store)
+    await first.open('100')
+    await first.beginScan('100', 'full')
+    await first.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 2, isBilimiWorkFolder: false }]
+    })
+    await first.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'Tagged', tags: ['existing'], sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Pending', sourceFolderIds: ['source'] }
+      ]
+    })
+    await first.finishScan('100')
+    await first.pauseTagEnrichment('100')
+
+    await expect(first.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: { status: 'paused', totalItemCount: 1, completedItemCount: 0, pendingItemCount: 1 }
+    })
+    const restarted = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: { status: 'paused', totalItemCount: 1, completedItemCount: 0, pendingItemCount: 1 }
+    })
+    await restarted.resumeTagEnrichment('100')
+    await expect(restarted.getPendingTagEnrichmentAids('100')).resolves.toEqual([2])
+    await restarted.acceptCurrentTags('100')
+    await expect(restarted.getSnapshot('100')).resolves.toMatchObject({
+      tagEnrichment: { status: 'accepted', totalItemCount: 1, completedItemCount: 0, pendingItemCount: 1 }
+    })
+  })
+
+  it('rejects a stale tag-enrichment result after full reorganization creates a new workspace', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }))
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1, items: [{ aid: 1, title: 'Pending', sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    const oldWorkspaceId = (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId
+
+    await coordinator.beginScan('100', 'full')
+
+    await expect(coordinator.recordTagEnrichment('100', 1, ['stale'], oldWorkspaceId)).resolves.toBe(false)
+  })
+
   it('retains scanned tags and automatically classifies the completed selected segment', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

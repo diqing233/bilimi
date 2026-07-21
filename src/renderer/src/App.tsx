@@ -1917,6 +1917,10 @@ export default function App() {
             type: 'read-source-page', accountMid: request.accountMid, folderId: request.folderId,
             page: request.page, pageSize: request.pageSize
           })
+        case 'old-favorite-workspace-read-video-tags':
+          return runOldFavoriteWorkspacePageCommand(request.accountMid, request.target, {
+            type: 'read-video-tags', accountMid: request.accountMid, aid: request.aid
+          })
         case 'old-favorite-workspace-read-managed-members':
           return runOldFavoriteWorkspacePageCommand(request.accountMid, request.target, {
             type: 'read-managed-members', accountMid: request.accountMid, folderIds: request.folderIds

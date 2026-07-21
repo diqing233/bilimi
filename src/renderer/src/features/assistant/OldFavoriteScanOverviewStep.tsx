@@ -8,6 +8,9 @@ type OldFavoriteScanOverviewStepProps = {
   onRetry: () => void
   onRebuild: () => void
   onSelectSourceFolders: (folderIds: string[]) => void
+  onPauseTagEnrichment: () => void
+  onResumeTagEnrichment: () => void
+  onAcceptCurrentTags: () => void
 }
 
 function scanFailureGuidance(reason: string | null | undefined) {
@@ -29,6 +32,9 @@ export function OldFavoriteScanOverviewStep({
   onRetry,
   onRebuild,
   onSelectSourceFolders
+  ,onPauseTagEnrichment
+  ,onResumeTagEnrichment
+  ,onAcceptCurrentTags
 }: OldFavoriteScanOverviewStepProps) {
   const recovery = snapshot && 'recovery' in snapshot ? snapshot : null
   if (recovery) {
@@ -51,6 +57,7 @@ export function OldFavoriteScanOverviewStep({
   const scannedItemCount = Math.min(snapshot?.scan.scannedItemCount ?? 0, totalItemCount)
   const taggedItemCount = Math.min(snapshot?.scan.taggedItemCount ?? 0, scannedItemCount)
   const untaggedItemCount = Math.max(0, snapshot?.scan.untaggedItemCount ?? scannedItemCount - taggedItemCount)
+  const tagEnrichment = snapshot?.tagEnrichment
   const sourceSelectionLocked = Boolean(snapshot && !recovery && Object.keys(snapshot.classifications).length > 0)
   const guidance = scanStartFailure
     ? `扫描启动失败：${scanFailureGuidance(scanStartFailure)}`
@@ -77,6 +84,14 @@ export function OldFavoriteScanOverviewStep({
         <strong>{untaggedItemCount ? `${untaggedItemCount} 条未识别标签` : '已识别'}</strong>
       </div> : null}
     </div>
+    {tagEnrichment && tagEnrichment.pendingItemCount > 0 ? <div className="favorite-ledger-panel__scan-enrichment-status" role="status">
+      <p>标签补取{tagEnrichment.status === 'paused' ? '已暂停' : '进行中'}：已补取 {tagEnrichment.completedItemCount} / {tagEnrichment.totalItemCount} 条。</p>
+      {tagEnrichment.status === 'paused'
+        ? <button type="button" disabled={loading} onClick={onResumeTagEnrichment}>继续补取标签</button>
+        : <button type="button" disabled={loading} onClick={onPauseTagEnrichment}>暂停补取标签</button>}
+      <button type="button" disabled={loading} onClick={onAcceptCurrentTags}>采用当前标签</button>
+    </div> : null}
+    {tagEnrichment?.status === 'accepted' ? <p role="status">已采用当前标签。</p> : null}
     {scanFailed ? <button type="button" disabled={loading || scanStarting} onClick={onRetry}>重新扫描</button> : null}
     <p>已发现 {folders.length} 个收藏夹，当前扫描 {snapshot?.continuationCount ?? 0} 条待续新增。</p>
     {userFolders.length ? <div className="favorite-ledger-panel__source-table" role="table" aria-label="用户收藏夹">

@@ -114,6 +114,11 @@ function stableRecommendationId(author: string) {
   }
   return `custom-author-${(hash >>> 0).toString(36)}`
 }
+type TagEnrichment = {
+  status: 'running' | 'paused' | 'accepted' | 'complete'
+  totalItemCount: number
+  pendingAids: number[]
+}
 
 function stableTagRecommendationId(tag: string) {
   const slug = tag.toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
@@ -211,6 +216,7 @@ export class OldFavoriteWorkspaceCoordinator {
   private readonly scanRuns = new Map<string, string>()
   private readonly scannedAids = new Map<string, Set<number>>()
   private readonly scannedTagStates = new Map<string, Map<number, boolean>>()
+  private readonly tagEnrichments = new Map<string, TagEnrichment>()
   private readonly recommendations = new Map<string, RecommendationState>()
   private readonly planReadiness = new Map<string, PlanReadiness>()
   private operationTail = Promise.resolve()
@@ -311,6 +317,7 @@ export class OldFavoriteWorkspaceCoordinator {
       this.scanRuns.set(workspace.accountMid, scanRunId)
       this.scannedAids.set(workspace.accountMid, new Set())
       this.scannedTagStates.set(workspace.accountMid, new Map())
+      this.tagEnrichments.delete(workspace.accountMid)
       this.workspaces.set(updated.accountMid, updated)
       return this.createSnapshot(updated)
     })
@@ -626,9 +633,18 @@ export class OldFavoriteWorkspaceCoordinator {
         taggedItemCount,
         untaggedItemCount: itemsByAid.size - taggedItemCount
       }
+      const pendingTagAids = [...itemsByAid.values()]
+        .filter((item) => !item.tags?.length)
+        .map((item) => item.aid)
+        .sort((left, right) => left - right)
+      const tagEnrichment: TagEnrichment = {
+        status: pendingTagAids.length ? 'running' : 'complete',
+        totalItemCount: pendingTagAids.length,
+        pendingAids: pendingTagAids
+      }
       await this.options.workspaceStore.appendOverlay(completed.accountMid, completed.id, {
         currentSegmentId, classifications: [], history: [], recommendations, planReadiness: readiness,
-        scanMetadata: { sourceFolders, ...completedScan }
+        scanMetadata: { sourceFolders, ...completedScan }, tagEnrichment
       })
       const descriptors = completed.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length }))
       await this.appendEvents(completed, currentSegmentId, [{
@@ -643,6 +659,7 @@ export class OldFavoriteWorkspaceCoordinator {
       this.scanRuns.delete(completed.accountMid)
       this.scannedAids.delete(completed.accountMid)
       this.scannedTagStates.delete(completed.accountMid)
+      this.tagEnrichments.set(completed.accountMid, tagEnrichment)
       this.recommendations.set(completed.accountMid, clone(recommendations))
       this.planReadiness.set(completed.accountMid, readiness)
       this.remember(completed, currentSegmentId, descriptors, new Set())
@@ -1119,6 +1136,65 @@ export class OldFavoriteWorkspaceCoordinator {
     })
   }
 
+  async pauseTagEnrichment(accountMid: string) {
+    return this.queue(() => this.setTagEnrichmentStatus(accountMid, 'paused'))
+  }
+
+  async resumeTagEnrichment(accountMid: string) {
+    return this.queue(() => this.setTagEnrichmentStatus(accountMid, 'running'))
+  }
+
+  async acceptCurrentTags(accountMid: string) {
+    return this.queue(() => this.setTagEnrichmentStatus(accountMid, 'accepted'))
+  }
+
+  async getPendingTagEnrichmentAids(accountMid: string) {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      const enrichment = this.tagEnrichments.get(workspace.accountMid)
+      return enrichment?.status === 'running' ? [...enrichment.pendingAids] : []
+    })
+  }
+
+  async recordTagEnrichment(accountMid: string, aid: number, tags: string[], expectedWorkspaceId?: string) {
+    return this.queue(async () => {
+      const workspace = await this.requireWorkspace(accountMid)
+      if (expectedWorkspaceId && workspace.id !== expectedWorkspaceId) return false
+      const enrichment = this.tagEnrichments.get(workspace.accountMid)
+      if (!enrichment || enrichment.status !== 'running' || !enrichment.pendingAids.includes(aid)) return false
+      const normalizedTags = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))].slice(0, 32)
+      const pendingAids = enrichment.pendingAids.filter((candidate) => candidate !== aid)
+      const next: TagEnrichment = {
+        ...enrichment,
+        pendingAids,
+        status: pendingAids.length ? 'running' : 'complete'
+      }
+      await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+        currentSegmentId: this.currentSegment(workspace), classifications: [], history: [],
+        tagUpdates: [{ aid, tags: normalizedTags }], tagEnrichment: clone(next)
+      })
+      const currentItems = this.currentSegmentItems.get(workspace.accountMid)
+      if (currentItems) {
+        this.currentSegmentItems.set(workspace.accountMid, currentItems.map((item) => item.aid === aid ? { ...item, tags: normalizedTags } : item))
+      }
+      this.tagEnrichments.set(workspace.accountMid, next)
+      return true
+    })
+  }
+
+  private async setTagEnrichmentStatus(accountMid: string, status: TagEnrichment['status']) {
+    const workspace = await this.requireWorkspace(accountMid)
+    if (workspace.status !== 'previewing') throw new Error('Old favorite workspace tags are not ready.')
+    const current = this.tagEnrichments.get(workspace.accountMid)
+    if (!current || current.status === 'complete' || current.status === 'accepted') return
+    if (status === 'running' && !current.pendingAids.length) return
+    const next: TagEnrichment = { ...current, status }
+    await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
+      currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], tagEnrichment: clone(next)
+    })
+    this.tagEnrichments.set(workspace.accountMid, next)
+  }
+
   /** Moves the durable history cursor without letting the renderer replay classifications. */
   async moveHistoryCursor(accountMid: string, targetCursor: number): Promise<OldFavoriteWorkspace> {
     return this.queue(async () => {
@@ -1301,8 +1377,9 @@ export class OldFavoriteWorkspaceCoordinator {
     this.currentSegmentItems.delete(account)
     this.scanOverviews.delete(account)
       this.scanRuns.delete(account)
-      this.scannedAids.delete(account)
-      this.scannedTagStates.delete(account)
+    this.scannedAids.delete(account)
+    this.scannedTagStates.delete(account)
+    this.tagEnrichments.delete(account)
     this.remember(workspace, '', [], new Set())
     return mode ? { ...workspace, mode } : workspace
   }
@@ -1410,6 +1487,14 @@ export class OldFavoriteWorkspaceCoordinator {
     })
     this.recommendations.set(marker.accountMid, clone(recovered.recommendations))
     this.planReadiness.set(marker.accountMid, clone(recovered.planReadiness))
+    if (recovered.tagEnrichment) {
+      this.tagEnrichments.set(marker.accountMid, clone(recovered.tagEnrichment))
+      if (recovered.tagUpdates.length) {
+        const updates = new Map(recovered.tagUpdates.map((update) => [update.aid, update.tags]))
+        this.currentSegmentItems.set(marker.accountMid, recovered.loadedSegmentItems.map((item) =>
+          updates.has(item.aid) ? { ...item, tags: updates.get(item.aid) } : item))
+      }
+    } else this.tagEnrichments.delete(marker.accountMid)
     this.remember(workspace, recovered.currentSegmentId, scan.segments, frozenIds)
     return clone(workspace)
   }
@@ -1705,6 +1790,17 @@ export class OldFavoriteWorkspaceCoordinator {
       segmentSize: workspace.segmentSize,
       hasMultipleSegments: workspace.hasMultipleSegments,
       scan: clone(this.scanOverviews.get(workspace.accountMid)?.scan ?? { phase: workspace.status === 'scanning' ? 'inventory' : 'complete', failureCount: 0, mode: workspace.mode }),
+      ...(this.tagEnrichments.get(workspace.accountMid) ? {
+        tagEnrichment: (() => {
+          const enrichment = this.tagEnrichments.get(workspace.accountMid)!
+          return {
+            status: enrichment.status,
+            totalItemCount: enrichment.totalItemCount,
+            completedItemCount: enrichment.totalItemCount - enrichment.pendingAids.length,
+            pendingItemCount: enrichment.pendingAids.length
+          }
+        })()
+      } : {}),
       sourceFolders: clone(this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []),
       continuationCount: workspace.continuationAids.length,
       segments: (this.segmentDescriptors.get(workspace.accountMid) ?? workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length })))
