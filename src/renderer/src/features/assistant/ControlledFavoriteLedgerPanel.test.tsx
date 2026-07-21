@@ -1002,7 +1002,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '确认执行' }))
     fireEvent.click(screen.getByRole('button', { name: '确认并同步到 B 站' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('无法确认当前 B 站页面')
+    expect(await screen.findByRole('alert')).toHaveTextContent('本轮目标收藏夹尚未同步到 B 站')
   })
 
   it('does not show scan-start failure from the previous account after switching accounts', async () => {
