@@ -51,7 +51,6 @@ export function OldFavoriteConfirmationStep({
         <p>正在同步到 B 站，主进程会持续更新执行结果。</p>
         {total > 0 ? <p>已完成 {completed} / {total} 条</p> : null}
         <progress aria-label="正在同步到 B 站" value={completed} max={Math.max(total, 1)} />
-        <button type="button" disabled={loading} onClick={onReconcile}>对账 B 站结果</button>
       </div>
     </section>
   }

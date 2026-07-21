@@ -185,7 +185,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     expect(within(resumeDialog).getByRole('button', { name: '继续上次整理' })).toBeInTheDocument()
     expect(within(resumeDialog).getByRole('button', { name: '全部重新整理' })).toBeInTheDocument()
     fireEvent.click(within(resumeDialog).getByRole('button', { name: '继续上次整理' }))
-    expect(await screen.findByRole('button', { name: '对账 B 站结果' })).toBeEnabled()
+    expect(await screen.findByRole('progressbar', { name: '正在同步到 B 站' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '对账 B 站结果' })).not.toBeInTheDocument()
   })
 
   it('starts a clean full reorganization without a separate mirror checkbox', async () => {
@@ -1593,6 +1594,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '继续同步到 B 站' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'execute-frozen-bilibili-plan' }))
     expect(screen.getByRole('progressbar', { name: '正在同步到 B 站' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '对账 B 站结果' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '继续同步到 B 站' })).not.toBeInTheDocument()
 
     rendered.unmount()
