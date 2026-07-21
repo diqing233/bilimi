@@ -150,6 +150,40 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
     ], expect.any(Object))
   })
 
+  it('applies valid DeepSeek rows when another returned target is unavailable', async () => {
+    const snapshot = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing',
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      currentSegment: { id: 'segment-1', items: [
+        { aid: 1, title: 'Valid', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Unavailable target', sourceFolderIds: ['source'] }
+      ] },
+      classifications: {}
+    }
+    const coordinator = {
+      getSnapshot: vi.fn().mockResolvedValue(snapshot),
+      applyDeepSeekClassificationBatch: vi.fn().mockResolvedValue(snapshot)
+    }
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }] }),
+      generate: vi.fn().mockResolvedValue({
+        kind: 'favorite-archive-organize', results: [
+          { aid: 1, targetLedgerIds: ['music'], keepOriginal: false, reason: 'valid', lowConfidence: false },
+          { aid: 2, targetLedgerIds: ['retired-ledger'], keepOriginal: false, reason: 'unavailable', lowConfidence: false }
+        ], keywordSuggestions: []
+      })
+    })
+
+    await expect(service.organizeCurrentSegment('100')).resolves.toMatchObject({
+      progress: { successfulVideoCount: 1, failedVideoCount: 1 },
+      failures: [{ chunkIndex: 1, aids: [2], affectedVideoCount: 1, message: 'DeepSeek returned unavailable favorite targets.' }]
+    })
+    expect(coordinator.applyDeepSeekClassificationBatch).toHaveBeenCalledWith('100', [
+      { aid: 1, targetLedgerIds: ['music'] }
+    ], expect.any(Object))
+  })
+
   it('rejects a direct IPC-equivalent call when archive organization is disabled', async () => {
     const service = new OldFavoriteWorkspaceDeepSeekService({
       coordinator: { getSnapshot: vi.fn(), applyDeepSeekClassificationBatch: vi.fn() } as never,

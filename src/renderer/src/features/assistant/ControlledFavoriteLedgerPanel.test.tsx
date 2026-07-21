@@ -1448,7 +1448,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
     const partial = {
       snapshot: preview,
       progress: { totalChunks: 2, completedChunks: 2, successfulVideoCount: 20, failedVideoCount: 1 },
-      failures: [{ chunkIndex: 2, aids: [1], affectedVideoCount: 1, message: 'DeepSeek returned an incomplete current-segment result.' }]
+      failures: [{ chunkIndex: 2, aids: [1], affectedVideoCount: 1, message: 'DeepSeek returned unavailable favorite targets.' }]
     }
     const organize = vi.fn().mockResolvedValue(partial)
     const retry = vi.fn().mockResolvedValue({ ...partial, progress: { totalChunks: 1, completedChunks: 1, successfulVideoCount: 1, failedVideoCount: 0 }, failures: [] })
@@ -1464,8 +1464,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     fireEvent.click(await screen.findByRole('button', { name: '归档预览' }))
     fireEvent.click(screen.getByRole('button', { name: 'DeepSeek 整理' }))
     expect(await screen.findByText(/已处理 20 条；1 条未应用/)).toBeInTheDocument()
-    expect(screen.getByText('第 2 批：返回结果不完整，1 条未应用，可重试。')).toBeInTheDocument()
-    expect(screen.queryByText(/incomplete current-segment/)).not.toBeInTheDocument()
+    expect(screen.getByText('第 2 批：返回了已不可用的收藏夹目标，1 条未应用，可重试。')).toBeInTheDocument()
+    expect(screen.queryByText(/unavailable favorite targets/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '重试失败批次' }))
     await waitFor(() => expect(retry).toHaveBeenCalledWith('100'))
   })

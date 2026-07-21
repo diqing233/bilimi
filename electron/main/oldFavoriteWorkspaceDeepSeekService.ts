@@ -130,6 +130,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
     const referencedConstraintLedgerNames = request.ledgers
       .filter((ledger) => Boolean(ledger.deepSeekConstraint?.trim()))
       .map((ledger) => ledger.displayName)
+    const enabledLedgerIds = new Set(request.ledgers.map((ledger) => ledger.id))
     const results: DeepSeekArchiveVideoResult[] = []
     const failures: OldFavoriteWorkspaceDeepSeekFailure[] = []
     const totalChunks = Math.ceil(request.videos.length / 20)
@@ -143,23 +144,54 @@ export class OldFavoriteWorkspaceDeepSeekService {
         if (result.kind !== 'favorite-archive-organize') throw new Error('DeepSeek returned an invalid favorite workspace result.')
         const expectedAids = new Set(chunk.videos.map((video) => video.aid))
         const acceptedByAid = new Map<number, DeepSeekArchiveVideoResult>()
+        const unavailableTargetAids = new Set<number>()
         for (const row of result.results) {
           if (row.invalid || !Number.isSafeInteger(row.aid) || !expectedAids.has(row.aid!) || acceptedByAid.has(row.aid!)) continue
+          if (!this.hasApplicableTargets(row, snapshot.classifications, enabledLedgerIds, request.multiArchiveLimit)) {
+            unavailableTargetAids.add(row.aid!)
+            continue
+          }
           acceptedByAid.set(row.aid!, row)
         }
         const accepted = [...acceptedByAid.values()]
         const acceptedAids = new Set(acceptedByAid.keys())
         results.push(...accepted)
         successfulVideoCount += accepted.length
-        const missing = chunk.videos.filter((video) => !acceptedAids.has(video.aid))
+        if (unavailableTargetAids.size) {
+          const aids = [...unavailableTargetAids].sort((left, right) => left - right)
+          failures.push({
+            chunkIndex: offset / 20 + 1,
+            aids,
+            affectedVideoCount: aids.length,
+            message: 'DeepSeek returned unavailable favorite targets.'
+          })
+          failedVideoCount += aids.length
+        }
+        const missing = chunk.videos.filter((video) => !acceptedAids.has(video.aid) && !unavailableTargetAids.has(video.aid))
         if (missing.length) {
           const retry = { ...chunk, videos: missing }
           try {
             const retried = await this.options.generate(retry)
             if (retried.kind !== 'favorite-archive-organize') throw new Error('DeepSeek returned an invalid favorite workspace result.')
             this.assertCompleteChunk(retry, retried.results)
-            results.push(...retried.results)
-            successfulVideoCount += retried.results.length
+            const applicable: DeepSeekArchiveVideoResult[] = []
+            const rejectedAids: number[] = []
+            for (const row of retried.results) {
+              if (this.hasApplicableTargets(row, snapshot.classifications, enabledLedgerIds, request.multiArchiveLimit)) applicable.push(row)
+              else rejectedAids.push(row.aid!)
+            }
+            rejectedAids.sort((left, right) => left - right)
+            results.push(...applicable)
+            successfulVideoCount += applicable.length
+            if (rejectedAids.length) {
+              failures.push({
+                chunkIndex: offset / 20 + 1,
+                aids: rejectedAids,
+                affectedVideoCount: rejectedAids.length,
+                message: 'DeepSeek returned unavailable favorite targets.'
+              })
+              failedVideoCount += rejectedAids.length
+            }
           } catch (error) {
             failures.push({
               chunkIndex: offset / 20 + 1,
@@ -183,9 +215,8 @@ export class OldFavoriteWorkspaceDeepSeekService {
     }
 
     const itemByAid = new Map(scopedItems.map((item) => [item.aid, item]))
-    const enabledLedgerIds = new Set(request.ledgers.map((ledger) => ledger.id))
     const assignments = this.assignmentsFromResult(results, itemByAid, snapshot.classifications, enabledLedgerIds, request.multiArchiveLimit)
-    if (!assignments.length) return this.finish(accountMid, snapshot, mode, totalChunks, scopedItems.length, results.length, scopedItems.length - results.length, failures, referencedConstraintLedgerNames)
+    if (!assignments.length) return this.finish(accountMid, snapshot, mode, totalChunks, scopedItems.length, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames)
     const expected: WorkspaceExpectation = {
       workspaceId: snapshot.workspaceId,
       currentSegmentId: snapshot.currentSegment.id,
@@ -200,7 +231,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
     // renderer snapshot so post-run UI retains source folders and segment items.
     const next = await this.options.coordinator.getSnapshot(snapshot.accountMid)
     if ('recovery' in next) throw new Error('Old favorite workspace requires rebuild.')
-    return this.finish(accountMid, next, mode, totalChunks, scopedItems.length, assignments.length, scopedItems.length - results.length, failures, referencedConstraintLedgerNames)
+    return this.finish(accountMid, next, mode, totalChunks, scopedItems.length, successfulVideoCount, failedVideoCount, failures, referencedConstraintLedgerNames)
   }
 
   private finish(
@@ -269,11 +300,22 @@ export class OldFavoriteWorkspaceDeepSeekService {
         ...(result.keepOriginal ? classifications[String(result.aid)]?.targetLedgerIds ?? [] : []),
         ...result.targetLedgerIds
       ])
-      if (!targets.length || targets.length > limit || targets.some((target) => !enabledLedgerIds.has(target))) {
-        throw new Error('DeepSeek result targets are invalid.')
-      }
+      if (!targets.length || targets.length > limit || targets.some((target) => !enabledLedgerIds.has(target))) continue
       assignments.set(result.aid, { aid: result.aid, targetLedgerIds: targets })
     }
     return [...assignments.values()].sort((left, right) => left.aid - right.aid)
+  }
+
+  private hasApplicableTargets(
+    result: DeepSeekArchiveVideoResult,
+    classifications: Record<string, { targetLedgerIds: string[] }>,
+    enabledLedgerIds: Set<string>,
+    limit: 1 | 2 | 3
+  ) {
+    const targets = uniqueTargets([
+      ...(result.keepOriginal ? classifications[String(result.aid)]?.targetLedgerIds ?? [] : []),
+      ...result.targetLedgerIds
+    ])
+    return Boolean(targets.length) && targets.length <= limit && targets.every((target) => enabledLedgerIds.has(target))
   }
 }

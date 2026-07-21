@@ -13,6 +13,9 @@ function deepSeekFailureMessage(message: string, affectedVideoCount: number) {
   if (/incomplete current-segment/i.test(message)) {
     return `返回结果不完整，${affectedVideoCount} 条未应用，可重试。`
   }
+  if (/unavailable favorite targets/i.test(message)) {
+    return `返回了已不可用的收藏夹目标，${affectedVideoCount} 条未应用，可重试。`
+  }
   return message
 }
 
