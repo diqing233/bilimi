@@ -25,7 +25,7 @@ afterEach(async () => {
 function createCoordinator(
   repository: FavoriteRepositoryService,
   workspaceStore: OldFavoriteWorkspaceStore,
-  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'saveRecommendedLedgers' | 'removeRecommendedLedgers'> = {}
+  options: Pick<ConstructorParameters<typeof OldFavoriteWorkspaceCoordinator>[0], 'classifyCurrentItem' | 'classifyCurrentItems' | 'saveRecommendedLedgers' | 'removeRecommendedLedgers'> = {}
 ) {
   return new OldFavoriteWorkspaceCoordinator({
     repository,
@@ -731,6 +731,47 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
       frozenSyncPlan: { operations: [{ aid: 2, folderIds: ['remote-manual'] }] }
     })
     expect((await repository.getSnapshot('100')).workspace?.frozenSyncPlan?.operations).toHaveLength(1)
+  })
+
+  it('classifies a recommendation adoption with one current preference snapshot for the whole segment', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const classifyCurrentItems = vi.fn((items: Array<{ aid: number; author?: string }>, recommendedLedgers: Array<{ id: string }>) =>
+      items.map((item) => ({
+        targetLedgerIds: item.author === 'UP Alpha' && recommendedLedgers.some((ledger) => ledger.id === 'custom-author-up-alpha')
+          ? ['custom-author-up-alpha']
+          : [],
+        confidence: 'low' as const
+      })))
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { classifyCurrentItems })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'incremental')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 3, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [
+        { aid: 1, title: 'One', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 2, title: 'Two', author: 'UP Alpha', sourceFolderIds: ['source'] },
+        { aid: 3, title: 'Three', author: 'UP Beta', sourceFolderIds: ['source'] }
+      ]
+    })
+    await coordinator.finishScan('100')
+
+    await coordinator.setRecommendedCandidates('100', ['custom-author-up-alpha'])
+
+    expect(classifyCurrentItems).toHaveBeenCalledTimes(1)
+    expect(classifyCurrentItems).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ aid: 1 }), expect.objectContaining({ aid: 2 }), expect.objectContaining({ aid: 3 })]),
+      expect.arrayContaining([expect.objectContaining({ id: 'custom-author-up-alpha' })])
+    )
+    await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
+      classifications: {
+        '1': { targetLedgerIds: ['custom-author-up-alpha'], source: 'system-low' },
+        '2': { targetLedgerIds: ['custom-author-up-alpha'], source: 'system-low' }
+      }
+    })
   })
 
   it('creates bounded high-frequency tag recommendations from scanned tag metadata', async () => {

@@ -235,6 +235,7 @@ export class OldFavoriteWorkspaceCoordinator {
     }
     syncService?: Pick<FavoriteRepositorySyncService, 'abandonFrozenPlan' | 'claimFrozenPlan' | 'executeFrozenPlan' | 'bindPageTarget' | 'reconcile' | 'resume' | 'getRun'>
     classifyCurrentItem?: (item: CurrentSegmentItem, recommendedLedgers: RecommendedLedger[]) => AutomaticClassification | Promise<AutomaticClassification>
+    classifyCurrentItems?: (items: CurrentSegmentItem[], recommendedLedgers: RecommendedLedger[]) => AutomaticClassification[] | Promise<AutomaticClassification[]>
     saveRecommendedLedgers?: (accountMid: string, ledgers: FavoriteLedger[]) => Promise<void>
     removeRecommendedLedgers?: (accountMid: string, ledgerIds: string[]) => Promise<void>
     resolveLedgerTitle?: (accountMid: string, logicalLedgerId: string) => Promise<string | undefined>
@@ -467,7 +468,7 @@ export class OldFavoriteWorkspaceCoordinator {
         currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], recommendations: next
       })
       this.recommendations.set(workspace.accountMid, next)
-      if (!this.options.classifyCurrentItem) return clone(workspace)
+      if (!this.options.classifyCurrentItem && !this.options.classifyCurrentItems) return clone(workspace)
       return this.autoClassifyCurrentSegmentUnsafe(workspace, true)
     })
   }
@@ -522,7 +523,7 @@ export class OldFavoriteWorkspaceCoordinator {
         currentSegmentId: this.currentSegment(workspace), classifications: [], history: [], recommendations: next
       })
       this.recommendations.set(workspace.accountMid, next)
-      return this.options.classifyCurrentItem
+      return this.options.classifyCurrentItem || this.options.classifyCurrentItems
         ? this.autoClassifyCurrentSegmentUnsafe(workspace, true)
         : clone(workspace)
     })
@@ -669,7 +670,7 @@ export class OldFavoriteWorkspaceCoordinator {
       // Current bridge pages always carry this classification metadata; older
       // recovered staging files do not, so preserve their explicit re-run flow.
       const hasClassificationSignals = [...itemsByAid.values()].some((item) => item.tags !== undefined || item.category !== undefined)
-      return this.options.classifyCurrentItem && hasClassificationSignals
+      return (this.options.classifyCurrentItem || this.options.classifyCurrentItems) && hasClassificationSignals
         ? this.autoClassifyCurrentSegmentUnsafe(completed, true)
         : clone(completed)
     })
@@ -858,7 +859,8 @@ export class OldFavoriteWorkspaceCoordinator {
 
   private async autoClassifyCurrentSegmentUnsafe(workspace: OldFavoriteWorkspace, replaceSystem: boolean) {
     const classify = this.options.classifyCurrentItem
-    if (!classify) throw new Error('Old favorite workspace automatic classification is unavailable.')
+    const classifyMany = this.options.classifyCurrentItems
+    if (!classify && !classifyMany) throw new Error('Old favorite workspace automatic classification is unavailable.')
     const currentSegmentId = this.currentSegment(workspace)
     const currentSegment = workspace.segments.find((segment) => segment.id === currentSegmentId)
     if (!currentSegment) throw new Error('Old favorite workspace current segment is unavailable.')
@@ -871,18 +873,21 @@ export class OldFavoriteWorkspaceCoordinator {
     }))
     const items = this.currentSegmentItems.get(workspace.accountMid) ?? await this.loadCurrentSegmentItems(workspace)
     const eligibleAids = new Set((await this.selectedSourceAssignments(workspace, items)).map((item) => item.aid))
-    const proposed = await Promise.all(items
+    const candidates = items
       .filter((item) => currentSegment.aids.includes(item.aid) && eligibleAids.has(item.aid))
       .filter((item) => {
         const existing = workspace.classifications[String(item.aid)]
         return existing?.source !== 'manual' && existing?.source !== 'deepseek'
       })
-      .map(async (item) => ({
-        aid: item.aid,
-        proposal: recommendedLedgers.length
-          ? await classify(clone(item), clone(recommendedLedgers))
-          : await classify(clone(item))
-      })))
+    const classifications = classifyMany
+      ? await classifyMany(candidates.map(clone), clone(recommendedLedgers))
+      : await Promise.all(candidates.map((item) => recommendedLedgers.length
+        ? classify!(clone(item), clone(recommendedLedgers))
+        : classify!(clone(item))))
+    if (classifications.length !== candidates.length) {
+      throw new Error('Old favorite workspace automatic classification result is invalid.')
+    }
+    const proposed = candidates.map((item, index) => ({ aid: item.aid, proposal: classifications[index]! }))
     let updated = workspace
     for (const source of ['system-high', 'system-low'] as const) {
       const assignments = proposed

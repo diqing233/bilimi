@@ -1270,16 +1270,20 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
     repository: favoriteRepositoryService,
     syncService: favoriteRepositorySyncService,
     bindingService: favoriteRepositoryBindingService,
-    classifyCurrentItem: (item, recommendedLedgers = []) => {
-      const result = classifyVideoContent({ title: item.title, author: item.author }, mergeOldFavoriteWorkspaceLedgers(
+    classifyCurrentItems: (items, recommendedLedgers = []) => {
+      // Capture the saved rules once per workspace command, then classify its segment in memory.
+      const ledgers = mergeOldFavoriteWorkspaceLedgers(
         loadAssistantPreferences(getDesktopStore()).favoriteLedgers,
         recommendedLedgers
-      ))
-      if (result.ledgerId === 'inbox') return { targetLedgerIds: [], confidence: 'low' }
-      return {
-        targetLedgerIds: [result.ledgerId],
-        confidence: result.diagnostic?.confidence === 'high' ? 'high' : 'low'
-      }
+      )
+      return items.map((item) => {
+        const result = classifyVideoContent({ title: item.title, author: item.author }, ledgers)
+        if (result.ledgerId === 'inbox') return { targetLedgerIds: [], confidence: 'low' as const }
+        return {
+          targetLedgerIds: [result.ledgerId],
+          confidence: result.diagnostic?.confidence === 'high' ? 'high' as const : 'low' as const
+        }
+      })
     },
     resolveLedgerTitle: async (_accountMid, logicalLedgerId) =>
       resolveSavedOldFavoriteWorkspaceLedgerTitle(
