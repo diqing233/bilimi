@@ -248,6 +248,29 @@ describe('OldFavoriteWorkspaceScanService', () => {
     })
   })
 
+  it('pauses tag enrichment when its bound Bilibili page navigates instead of leaving a false running state', async () => {
+    const coordinator = {
+      getActiveScanRunId: vi.fn().mockResolvedValue('scan-run-1'),
+      beginScan: vi.fn().mockResolvedValue({ accountMid: '100', workspaceId: 'workspace-1', status: 'scanning' }),
+      recordScanInventory: vi.fn(), recordScanPage: vi.fn(), finishScan: vi.fn(), recordScanFailure: vi.fn(),
+      getPendingTagEnrichmentAids: vi.fn().mockResolvedValue([1]),
+      recordTagEnrichment: vi.fn(),
+      pauseTagEnrichment: vi.fn()
+    }
+    const target = { webContentsId: 7, instanceId: 'tab', navigationEpoch: 2 }
+    const runtime = vi.fn()
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', target })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', folders: [{ id: 'source-1', title: 'Source', mediaCount: 1 }] })
+      .mockResolvedValueOnce({ status: 'ok', observedAccountMid: '100', items: [{ aid: 1, title: 'V1', upperName: 'UP', cover: '', addedAt: 0 }], hasMore: false })
+      .mockResolvedValueOnce({ status: 'unknown', observedAccountMid: '100', reason: 'target-navigated' })
+    const service = new OldFavoriteWorkspaceScanService({ coordinator: coordinator as never, requestRuntime: runtime })
+
+    await service.start('100', 'incremental')
+
+    await vi.waitFor(() => expect(coordinator.pauseTagEnrichment).toHaveBeenCalledWith('100'))
+    expect(coordinator.recordTagEnrichment).not.toHaveBeenCalled()
+  })
+
   it('rebinds the current Bilibili page before resuming a paused tag enrichment run', async () => {
     const coordinator = {
       resumeTagEnrichment: vi.fn(),

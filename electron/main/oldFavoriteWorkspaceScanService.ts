@@ -188,7 +188,10 @@ export class OldFavoriteWorkspaceScanService {
           type: 'old-favorite-workspace-read-video-tags', accountMid, target, aid
         })
         if (result.status !== 'ok' || result.aid !== aid || !Array.isArray(result.tags) ||
-          normalizeAccountMid(result.observedAccountMid) !== normalizeAccountMid(accountMid)) return
+          normalizeAccountMid(result.observedAccountMid) !== normalizeAccountMid(accountMid)) {
+          await this.options.coordinator.pauseTagEnrichment(accountMid)
+          return
+        }
         await this.options.coordinator.recordTagEnrichment(accountMid, aid, result.tags, workspaceId)
       }
     } finally {
