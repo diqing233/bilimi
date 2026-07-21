@@ -1111,12 +1111,26 @@ export default function App() {
     ) as AssistantAutomationResult & Partial<FavoriteLedgerStatus>
 
     if (Array.isArray(result.ledgers)) {
-      setPreferences((currentPreferences) =>
-        createInitialAssistantPreferences({
-          ...currentPreferences,
-          favoriteLedgers: result.ledgers ?? currentPreferences.favoriteLedgers
-        })
-      )
+      const nextPreferences = createInitialAssistantPreferences({
+        ...preferences,
+        favoriteLedgers: result.ledgers
+      })
+      setPreferences(nextPreferences)
+
+      if (window.bilimiDesktop?.savePreferences) {
+        const saved = window.bilimiDesktop.patchPreferences
+          ? await window.bilimiDesktop.patchPreferences({ favoriteLedgers: result.ledgers })
+          : await window.bilimiDesktop.savePreferences(nextPreferences)
+        setPreferences(createInitialAssistantPreferences(saved))
+      }
+
+      assistantSnapshotCacheRef.current.favoriteLedgerStatus = {
+        ok: result.ok,
+        ledgers: result.ledgers,
+        missingLedgerIds: Array.isArray(result.missingTargets) ? result.missingTargets : [],
+        message: result.message
+      }
+      window.bilimiDesktop?.notifyAssistantSnapshotChanged?.()
     }
 
     return result

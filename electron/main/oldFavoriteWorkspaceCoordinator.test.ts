@@ -1407,6 +1407,59 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
     })
   })
 
+  it('rebinds an existing Bilibili ledger after full reset before compiling confirmation', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const createFolder = vi.fn()
+    const bindings = new FavoriteRepositoryBindingService({
+      repository,
+      newBindingToken: () => 'a1b2c3',
+      pageBridgeManager: {
+        bind: vi.fn().mockResolvedValue(undefined),
+        release: vi.fn(),
+        pageBridge: vi.fn(() => ({
+          readFolderInventory: vi.fn().mockResolvedValue({
+            observedAccountMid: '100',
+            folders: [{ id: 'remote-music', title: 'bilimi·音乐舞台', memberCount: 12 }]
+          }),
+          createFolder,
+          append: vi.fn(),
+          remove: vi.fn(),
+          readMembers: vi.fn()
+        }))
+      }
+    })
+    const coordinator = new OldFavoriteWorkspaceCoordinator({
+      repository,
+      workspaceStore: new OldFavoriteWorkspaceStore({ root }),
+      bindingService: bindings,
+      now: () => '2026-07-20T00:00:00.000Z'
+    })
+
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Music video', sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    await coordinator.selectSourceFolders('100', ['source'])
+    await coordinator.applyClassificationBatch('100', {
+      source: 'manual', assignments: [{ aid: 1, targetLedgerIds: ['music'] }]
+    })
+
+    await expect(coordinator.freezeForBilibiliExecution('100')).resolves.toMatchObject({
+      frozenSyncPlan: { operations: [{ aid: 1, folderIds: ['remote-music'] }] }
+    })
+    expect(createFolder).not.toHaveBeenCalled()
+    expect((await repository.getSnapshot('100')).physicalShards).toEqual([
+      expect.objectContaining({ logicalLedgerId: 'music', remoteFolderId: 'remote-music', bindingState: 'bound' })
+    ])
+  })
+
   it('does not freeze classifications after every selectable source is deselected', async () => {
     const root = await createRoot()
     const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })

@@ -607,6 +607,40 @@ describe('App runtime integration', () => {
     )
   })
 
+  it('persists existing Bilibili folder ids returned by backup before the next assistant snapshot', async () => {
+    const savePreferences = vi.fn(async (preferences: AssistantPreferences) => preferences)
+    const { requestRuntime } = renderAppWithRuntimeBridge({ savePreferences })
+    const webview = document.getElementById('bilimi-webview') as HTMLElement & {
+      executeJavaScript?: (script: string, userGesture?: boolean) => Promise<unknown>
+    }
+    const backedUpLedgers = createDefaultFavoriteLedgers().map((ledger, index) => ({
+      ...ledger,
+      bilibiliFolderId: String(9000 + index)
+    }))
+    Object.assign(webview, {
+      executeJavaScript: vi.fn(async (script: string) => {
+        if (script.includes('/x/v3/fav/folder/add')) {
+          return {
+            ok: true,
+            ledgers: backedUpLedgers,
+            steps: ['api:ledger:list'],
+            missingTargets: [],
+            message: '册目已备齐。'
+          }
+        }
+        if (script.includes('document.cookie')) return { hasUserId: true, hasCsrf: true }
+        throw new Error(`Unexpected script: ${script.slice(0, 80)}`)
+      })
+    })
+
+    await expect(requestRuntime({ id: 'backup-ledgers', type: 'ensure-ledgers' })).resolves.toMatchObject({ ok: true })
+    expect(savePreferences).toHaveBeenCalledWith(expect.objectContaining({
+      favoriteLedgers: expect.arrayContaining([
+        expect.objectContaining({ id: 'music', bilibiliFolderId: expect.any(String) })
+      ])
+    }))
+  })
+
   it('asks the user to log in before running Bilibili page actions', async () => {
     const { requestRuntime } = renderAppWithRuntimeBridge()
     const webview = document.getElementById('bilimi-webview') as HTMLElement & {
