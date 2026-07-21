@@ -1063,7 +1063,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
       onEnsureLedgers={vi.fn()} onSaveLedgers={vi.fn()} />)
 
     fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: 'UP UP' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'UP' }))
 
     await waitFor(() => expect(screen.getByRole('button', { name: '确认执行' })).toHaveAttribute('aria-current', 'step'))
     expect(screen.getByRole('button', { name: '继续同步到 B 站' })).toBeInTheDocument()
@@ -1184,7 +1184,7 @@ describe('ControlledFavoriteLedgerPanel', () => {
 
     await screen.findByRole('button', { name: '归档预览' })
     fireEvent.click(screen.getByRole('button', { name: '推荐收藏夹' }))
-    fireEvent.click(screen.getByRole('checkbox', { name: 'UP UP' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'UP' }))
     await waitFor(() => expect(command).toHaveBeenCalledWith('100', { type: 'set-recommended-candidates', candidateIds: ['custom-author-up'] }))
     fireEvent.click(screen.getByRole('button', { name: '归档预览' }))
     fireEvent.click(screen.getByRole('button', { name: '整理范围' }))
@@ -1291,8 +1291,8 @@ describe('ControlledFavoriteLedgerPanel', () => {
     unmount()
     render(<ControlledFavoriteLedgerPanel {...props} />)
     fireEvent.click(await screen.findByRole('button', { name: '推荐收藏夹' }))
-    expect(screen.getByRole('checkbox', { name: 'UP 阿婆主' })).toBeChecked()
-    expect(screen.getByRole('checkbox', { name: '标签 科技' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '阿婆主' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: '科技' })).toBeChecked()
   })
 
   it('explains why no recommendations are available', async () => {
