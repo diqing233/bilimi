@@ -109,6 +109,9 @@ export function OldFavoriteScanOverviewStep({
         : null}
     </> : null}
     <p>已发现 {folders.length} 个收藏夹，当前扫描 {snapshot?.continuationCount ?? 0} 条待续新增。</p>
+    {snapshot?.mode === 'incremental' && snapshot.protectedAidCount
+      ? <p role="status">增量扫描已跳过 {snapshot.protectedAidCount} 条已保护视频。</p>
+      : null}
     {userFolders.length ? <div className="favorite-ledger-panel__source-table" role="table" aria-label="用户收藏夹">
       <div role="row" className="favorite-ledger-panel__source-header favorite-ledger-panel__source-header--user">
         <span role="columnheader" aria-label="选择" /><span role="columnheader">用户收藏夹</span>

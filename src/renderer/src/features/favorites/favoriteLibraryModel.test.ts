@@ -28,6 +28,7 @@ describe('favoriteLibraryModel', () => {
     expect(formatFavoriteLibraryMirrorStatus(['result-unknown'])).toMatch(/确认/)
     expect(formatFavoriteLibraryMirrorStatus(['continuation'])).toMatch(/等待/)
     expect(formatFavoriteLibraryMirrorStatus(['failed'])).not.toContain('failed')
+    expect(formatFavoriteLibraryMirrorStatus(['protected'])).toBe('已保护')
   })
 
   it('returns one global-search row per aid and retains every folder membership', () => {

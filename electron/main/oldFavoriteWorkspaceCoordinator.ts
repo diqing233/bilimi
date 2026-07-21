@@ -1934,6 +1934,7 @@ export class OldFavoriteWorkspaceCoordinator {
       } : {}),
       sourceFolders: clone(this.scanOverviews.get(workspace.accountMid)?.sourceFolders ?? []),
       continuationCount: workspace.continuationAids.length,
+      protectedAidCount: workspace.protectedAids.length,
       segments: (this.segmentDescriptors.get(workspace.accountMid) ?? workspace.segments.map(({ id, index, aids }) => ({ id, index, itemCount: aids.length })))
         .map((segment) => ({
           id: segment.id,

@@ -202,6 +202,29 @@ describe('FavoriteRepositoryService', () => {
     await expect(service.getLibrarySummary('100')).resolves.toMatchObject({ pendingAidCount: 23 })
   })
 
+  it('marks only formal organization records as protected library rows', async () => {
+    const root = await createRoot()
+    const service = new FavoriteRepositoryService({ root, now: () => '2026-07-21T00:00:00.000Z' })
+    await service.commit('100', {
+      id: 'source', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'record-bilibili-mirror',
+      payload: { workspaceId: 'scan-1', folders: [], memberAidsByFolderId: {}, videos: [
+        { aid: 1, title: 'Protected', tags: [], updatedAt: '2026-07-21T00:00:00.000Z' },
+        { aid: 2, title: 'Staged', tags: [], updatedAt: '2026-07-21T00:00:00.000Z' }
+      ] }
+    })
+    await service.commit('100', {
+      id: 'protection', accountMid: '100', issuedAt: '2026-07-21T00:00:00.000Z', type: 'record-organization-protections',
+      payload: { records: [{ accountMid: '100', aid: 1, targetFolderIds: ['remote-music'], completedAt: '2026-07-21T00:00:00.000Z' }] }
+    })
+
+    await expect(service.getLibraryPage('100', { kind: 'all' }, { limit: 10 })).resolves.toMatchObject({
+      items: [
+        { video: { aid: 1 }, pendingStates: ['protected'] },
+        { video: { aid: 2 }, pendingStates: ['unsynced'] }
+      ]
+    })
+  })
+
   it('persists account-isolated organization recovery records across a repository restart', async () => {
     const root = await createRoot()
     const service = new FavoriteRepositoryService({ root, now: () => '2026-07-21T00:00:00.000Z' })

@@ -116,7 +116,7 @@ export type FavoriteRepositoryLibraryPageScope =
 export type FavoriteRepositoryLibraryPageRow = {
   video: FavoriteRepositoryVideo
   folderIds: string[]
-  pendingStates: Array<'unsynced' | 'continuation' | 'failed' | 'result-unknown' | 'transcription'>
+  pendingStates: Array<'protected' | 'unsynced' | 'continuation' | 'failed' | 'result-unknown' | 'transcription'>
 }
 
 export type FavoriteRepositoryLibraryDetail = {
@@ -346,7 +346,7 @@ export class FavoriteRepositoryService {
     const start = options.cursor ? Math.max(0, Number(options.cursor)) : 0
     if (!Number.isSafeInteger(start) || start < 0) throw new Error('Favorite repository page cursor is invalid.')
     const selected = scopedAids.slice(start, start + limit)
-    const stateOrder: FavoriteRepositoryLibraryPageRow['pendingStates'] = ['unsynced', 'continuation', 'failed', 'result-unknown', 'transcription']
+    const stateOrder: FavoriteRepositoryLibraryPageRow['pendingStates'] = ['protected', 'unsynced', 'continuation', 'failed', 'result-unknown', 'transcription']
     return {
       version: 1,
       accountMid: account,
@@ -373,7 +373,7 @@ export class FavoriteRepositoryService {
     if (!video) return null
     const index = this.options.getTranscriptionItems ? this.createLibraryIndex(snapshot) : cached.libraryIndex ?? this.createLibraryIndex(snapshot)
     cached.libraryIndex = index
-    const stateOrder: FavoriteRepositoryLibraryPageRow['pendingStates'] = ['unsynced', 'continuation', 'failed', 'result-unknown', 'transcription']
+    const stateOrder: FavoriteRepositoryLibraryPageRow['pendingStates'] = ['protected', 'unsynced', 'continuation', 'failed', 'result-unknown', 'transcription']
     return {
       version: 1,
       accountMid: account,
@@ -457,8 +457,11 @@ export class FavoriteRepositoryService {
       states.add(state)
       statesByAid.set(aid, states)
     }
+    const protectedAids = new Set(snapshot.organizationRecords.map((record) => record.aid))
+    for (const aid of protectedAids) addState(aid, 'protected')
     for (const aid of snapshot.workspace?.continuationAids ?? []) addState(aid, 'continuation')
     for (const aid of Object.keys(snapshot.videos).map(Number)) {
+      if (protectedAids.has(aid)) continue
       const mirror = snapshot.libraryMirrors?.[String(aid)]
       if (!mirror || mirror.status === 'never' || mirror.status === 'refreshing') addState(aid, 'unsynced')
       if (mirror?.status === 'failed') addState(aid, 'failed')
@@ -466,7 +469,9 @@ export class FavoriteRepositoryService {
     for (const record of snapshot.syncRecords) {
       const state = record.status === 'pending' ? 'unsynced'
         : record.status === 'failed' || record.status === 'result-unknown' ? record.status : undefined
-      if (state) for (const aid of record.affectedAids) addState(aid, state)
+      if (state) for (const aid of record.affectedAids) {
+        if (!protectedAids.has(aid)) addState(aid, state)
+      }
     }
     for (const item of this.options.getTranscriptionItems?.() ?? []) {
       if (item.accountMid !== snapshot.accountMid || !['pending', 'running', 'failed'].includes(item.status)) continue

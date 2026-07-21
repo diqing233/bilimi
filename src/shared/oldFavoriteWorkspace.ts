@@ -95,6 +95,7 @@ export type OldFavoriteWorkspaceSnapshot = {
     selected?: boolean
   }>
   continuationCount: number
+  protectedAidCount?: number
   segments: Array<{ id: string; index: number; status: 'previewing' | 'frozen'; itemCount: number }>
   currentSegment: {
     id: string

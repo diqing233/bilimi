@@ -63,7 +63,7 @@ export type FavoriteRepositoryRevisionChange = {
 export type FavoriteRepositoryLibraryRow = {
   video: FavoriteRepositoryVideo
   folderIds: string[]
-  pendingStates: Array<'unsynced' | 'continuation' | 'failed' | 'result-unknown'>
+  pendingStates: Array<'protected' | 'unsynced' | 'continuation' | 'failed' | 'result-unknown'>
 }
 
 export type FavoriteRepositoryLibraryPage = FavoriteRepositoryPage<FavoriteRepositoryLibraryRow>

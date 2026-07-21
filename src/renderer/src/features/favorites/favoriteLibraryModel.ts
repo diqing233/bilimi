@@ -15,7 +15,7 @@ export type FavoriteLibraryRow = FavoriteRepositoryVideo & {
   pendingStates?: FavoriteLibraryPendingState[]
 }
 
-export type FavoriteLibraryPendingState = 'unsynced' | 'continuation' | 'failed' | 'result-unknown'
+export type FavoriteLibraryPendingState = 'protected' | 'unsynced' | 'continuation' | 'failed' | 'result-unknown'
 
 export type FavoriteLibraryPendingRow = {
   aid: number
@@ -40,6 +40,7 @@ export type FavoriteLibraryDetail = FavoriteLibraryRow & {
 
 /** Converts main-process snapshot states to labels without retaining state in the renderer. */
 export function formatFavoriteLibraryMirrorStatus(states: readonly FavoriteLibraryPendingState[]): string {
+  if (states.includes('protected')) return '已保护'
   if (states.includes('failed')) return '同步失败'
   if (states.includes('result-unknown')) return '同步状态待确认'
   if (states.includes('unsynced')) return '未同步'
