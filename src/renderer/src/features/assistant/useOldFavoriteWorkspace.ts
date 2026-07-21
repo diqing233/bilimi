@@ -316,10 +316,14 @@ export function useOldFavoriteWorkspace(accountMid?: string) {
   }, [refresh])
 
   useEffect(() => {
-    if (!snapshot || !['scanning', 'executing', 'reconciling'].includes(snapshot.status)) return
+    const hasActiveWork = snapshot && (
+      ['scanning', 'executing', 'reconciling'].includes(snapshot.status) ||
+      snapshot.tagEnrichment?.status === 'running'
+    )
+    if (!hasActiveWork) return
     const timer = window.setInterval(() => { void refresh(true) }, 400)
     return () => window.clearInterval(timer)
-  }, [refresh, snapshot?.status])
+  }, [refresh, snapshot?.status, snapshot?.tagEnrichment?.status])
 
   return {
     snapshot, loading, backgroundRefreshing, lastError, executionError, deepSeekFeedback, refresh, startScan, selectSourceFolders, selectSegment, applyManualClassifications, organizeCurrentSegmentWithDeepSeek, retryFailedDeepSeekChunks,

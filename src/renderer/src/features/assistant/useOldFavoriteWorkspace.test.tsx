@@ -111,11 +111,17 @@ describe('useOldFavoriteWorkspace', () => {
     expect(result.current.snapshot).toMatchObject({ continuationCount: 3 })
   })
 
-  it('keeps interaction loading stable during the 400ms background status polling', async () => {
+  it('keeps polling a previewing workspace while tag enrichment is running without blocking interaction', async () => {
     vi.useFakeTimers()
     const polling = deferred<ReturnType<typeof workspace>>()
+    const enrichingWorkspace = {
+      ...workspace('100'),
+      status: 'previewing' as const,
+      scan: { phase: 'complete' as const, failureCount: 0 },
+      tagEnrichment: { status: 'running' as const, totalItemCount: 2, completedItemCount: 1, pendingItemCount: 1 }
+    }
     const open = vi.fn()
-      .mockResolvedValueOnce(workspace('100'))
+      .mockResolvedValueOnce(enrichingWorkspace)
       .mockReturnValueOnce(polling.promise)
     window.bilimiDesktop = { openOldFavoriteWorkspaceV1: open } as typeof window.bilimiDesktop
     const { result } = renderHook(() => useOldFavoriteWorkspace('100'))
