@@ -61,6 +61,8 @@ export function OldFavoriteConfirmationStep({
     return <section className="favorite-ledger-panel__confirm" aria-label="确认整理">
       <h4>确认执行</h4>
       <p>远端结果仍在确认中，请先对账 B 站结果；不能直接重复提交。</p>
+      {loading ? <p role="status">正在对账 B 站结果，请保持已登录的 B 站页面打开。</p> : null}
+      {executionError ? <p className="favorite-ledger-panel__confirm-warning" role="alert">{executionError}</p> : null}
       <button type="button" disabled={loading} onClick={onReconcile}>对账 B 站结果</button>
     </section>
   }

@@ -850,6 +850,39 @@ describe('DeepSeek main service', () => {
     expect(onResponseMetadata).toHaveBeenCalledWith({ model: 'deepseek-v4-pro-20260701' })
   })
 
+  it('reports the archive response finish reason for truncated-output diagnosis', async () => {
+    const onResponseMetadata = vi.fn()
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true, status: 200, statusText: 'OK', text: vi.fn().mockResolvedValue(JSON.stringify({
+        model: 'deepseek-v4-pro-20260701',
+        choices: [{ finish_reason: 'length', message: { content: JSON.stringify({ results: [], keywordSuggestions: [] }) } }]
+      }))
+    })
+
+    await generateDeepSeekResult({
+      config: baseConfig,
+      request: { kind: 'favorite-archive-organize', mode: 'all', videos: [], ledgers: [], multiArchiveLimit: 1 },
+      fetchImpl,
+      onResponseMetadata
+    })
+
+    expect(onResponseMetadata).toHaveBeenCalledWith({ model: 'deepseek-v4-pro-20260701', finishReason: 'length' })
+  })
+
+  it('includes a length finish reason when archive output is truncated before valid JSON', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true, status: 200, statusText: 'OK', text: vi.fn().mockResolvedValue(JSON.stringify({
+        choices: [{ finish_reason: 'length', message: { content: '{"results":[' } }]
+      }))
+    })
+
+    await expect(generateDeepSeekResult({
+      config: baseConfig,
+      request: { kind: 'favorite-archive-organize', mode: 'all', videos: [], ledgers: [], multiArchiveLimit: 1 },
+      fetchImpl
+    })).rejects.toThrow('finish_reason: length')
+  })
+
   it('passes cancellation signals to fetch without adding timeout options', async () => {
     const fetchImpl = createJsonFetch('ok')
     const controller = new AbortController()

@@ -100,6 +100,54 @@ describe('favorite repository page bridge', () => {
     })
   })
 
+  it('ends a hanging page operation as unknown so remote queues can recover', async () => {
+    vi.useFakeTimers()
+    try {
+      const executeJavaScript = vi.fn(() => new Promise(() => undefined))
+      const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript, timeoutMs: 15 })
+
+      const pending = bridge.append(input)
+      await vi.advanceTimersByTimeAsync(15)
+
+      await expect(pending).resolves.toEqual({
+        status: 'unknown', observedAccountMid: '', reason: 'page-execution-timeout'
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('ends a hanging membership read as unknown so reconciliation does not remain pending', async () => {
+    vi.useFakeTimers()
+    try {
+      const executeJavaScript = vi.fn(() => new Promise(() => undefined))
+      const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript, timeoutMs: 15 })
+
+      const pending = bridge.readMembers(input)
+      await vi.advanceTimersByTimeAsync(15)
+
+      await expect(pending).resolves.toEqual({
+        status: 'unknown', observedAccountMid: '', reason: 'page-execution-timeout'
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('places a request timeout inside Bilibili write and membership-read scripts', async () => {
+    const executeJavaScript = vi.fn().mockResolvedValue({ status: 'ok', observedAccountMid: '100' })
+    const bridge = createFavoriteRepositoryPageBridge({ executeJavaScript })
+
+    await bridge.append(input)
+    await bridge.readMembers(input)
+
+    for (const [script] of executeJavaScript.mock.calls) {
+      expect(script).toContain('AbortController')
+      expect(script).toContain('15000')
+      expect(script).toContain("Error('remote-timeout')")
+    }
+  })
+
   it('keeps an unclassified Bilibili API rejection unknown for reconciliation', async () => {
     const executeJavaScript = vi.fn().mockResolvedValue({
       status: 'unknown', observedAccountMid: '100', reason: 'remote-ambiguous'

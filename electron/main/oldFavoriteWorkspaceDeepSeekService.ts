@@ -16,6 +16,8 @@ import type {
 } from '../../src/shared/oldFavoriteWorkspace'
 
 type ArchiveRequest = Extract<DeepSeekGenerateRequest, { kind: 'favorite-archive-organize' }>
+
+const archiveChunkSize = 8
 type WorkspaceExpectation = {
   workspaceId: string
   currentSegmentId: string
@@ -134,12 +136,12 @@ export class OldFavoriteWorkspaceDeepSeekService {
     const enabledLedgerIds = new Set(request.ledgers.map((ledger) => ledger.id))
     const results: DeepSeekArchiveVideoResult[] = []
     const failures: OldFavoriteWorkspaceDeepSeekFailure[] = []
-    const totalChunks = Math.ceil(request.videos.length / 20)
+    const totalChunks = Math.ceil(request.videos.length / archiveChunkSize)
     let successfulVideoCount = 0
     let failedVideoCount = 0
     onProgress?.({ totalChunks, completedChunks: 0, totalVideoCount: request.videos.length, successfulVideoCount, failedVideoCount })
-    for (let offset = 0; offset < request.videos.length; offset += 20) {
-      const chunk = { ...request, videos: request.videos.slice(offset, offset + 20) }
+    for (let offset = 0; offset < request.videos.length; offset += archiveChunkSize) {
+      const chunk = { ...request, videos: request.videos.slice(offset, offset + archiveChunkSize) }
       try {
         const result = await this.options.generate(chunk)
         if (result.kind !== 'favorite-archive-organize') throw new Error('DeepSeek returned an invalid favorite workspace result.')
@@ -161,7 +163,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
         if (unavailableTargetAids.size) {
           const aids = [...unavailableTargetAids].sort((left, right) => left - right)
           failures.push({
-            chunkIndex: offset / 20 + 1,
+            chunkIndex: offset / archiveChunkSize + 1,
             aids,
             affectedVideoCount: aids.length,
             message: 'DeepSeek returned unavailable favorite targets.'
@@ -195,7 +197,7 @@ export class OldFavoriteWorkspaceDeepSeekService {
             }
           } catch (error) {
             failures.push({
-              chunkIndex: offset / 20 + 1,
+              chunkIndex: offset / archiveChunkSize + 1,
               aids: missing.map((video) => video.aid).sort((left, right) => left - right),
               affectedVideoCount: missing.length,
               message: error instanceof Error ? error.message : 'DeepSeek request failed.'
@@ -205,14 +207,14 @@ export class OldFavoriteWorkspaceDeepSeekService {
         }
       } catch (error) {
         failures.push({
-          chunkIndex: offset / 20 + 1,
+          chunkIndex: offset / archiveChunkSize + 1,
           aids: chunk.videos.map((video) => video.aid).filter((aid): aid is number => Number.isSafeInteger(aid)).sort((left, right) => left - right),
           affectedVideoCount: chunk.videos.length,
           message: error instanceof Error ? error.message : 'DeepSeek request failed.'
         })
         failedVideoCount += chunk.videos.length
       }
-      onProgress?.({ totalChunks, completedChunks: offset / 20 + 1, totalVideoCount: request.videos.length, successfulVideoCount, failedVideoCount })
+      onProgress?.({ totalChunks, completedChunks: offset / archiveChunkSize + 1, totalVideoCount: request.videos.length, successfulVideoCount, failedVideoCount })
     }
 
     const itemByAid = new Map(scopedItems.map((item) => [item.aid, item]))

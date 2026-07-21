@@ -257,8 +257,8 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
     }))
   })
 
-  it('splits a large current segment into bounded requests and applies its aggregate once', async () => {
-    const items = Array.from({ length: 21 }, (_, index) => ({ aid: index + 1, title: `Video ${index + 1}`, sourceFolderIds: ['source'] }))
+  it('splits a large current segment into stable eight-video requests and applies its aggregate once', async () => {
+    const items = Array.from({ length: 31 }, (_, index) => ({ aid: index + 1, title: `Video ${index + 1}`, sourceFolderIds: ['source'] }))
     const coordinator = {
       getSnapshot: vi.fn().mockResolvedValue({
         accountMid: '100', workspaceId: 'workspace-1', status: 'previewing',
@@ -284,10 +284,31 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
 
     await service.organizeCurrentSegment('100')
 
-    expect(generate).toHaveBeenCalledTimes(2)
-    expect(generate.mock.calls.map(([request]) => request.videos.length)).toEqual([20, 1])
+    expect(generate).toHaveBeenCalledTimes(4)
+    expect(generate.mock.calls.map(([request]) => request.videos.length)).toEqual([8, 8, 8, 7])
     expect(coordinator.applyDeepSeekClassificationBatch).toHaveBeenCalledOnce()
-    expect(coordinator.applyDeepSeekClassificationBatch.mock.calls[0][1]).toHaveLength(21)
+    expect(coordinator.applyDeepSeekClassificationBatch.mock.calls[0][1]).toHaveLength(31)
+  })
+
+  it('shrinks a missing-row retry instead of repeating the full archive request', async () => {
+    const items = Array.from({ length: 8 }, (_, index) => ({ aid: index + 1, title: `Video ${index + 1}`, sourceFolderIds: ['source'] }))
+    const snapshot = {
+      accountMid: '100', workspaceId: 'workspace-1', status: 'previewing' as const,
+      sourceFolders: [{ id: 'source', title: 'Source', isBilimiWorkFolder: false, selected: true }],
+      currentSegment: { id: 'segment-1', items }, classifications: {}
+    }
+    const coordinator = { getSnapshot: vi.fn().mockResolvedValue(snapshot), applyDeepSeekClassificationBatch: vi.fn().mockResolvedValue(snapshot) }
+    const generate = vi.fn()
+      .mockImplementationOnce(async (request) => ({ kind: 'favorite-archive-organize' as const, results: request.videos.slice(0, 4).map((video: { aid: number }) => ({ aid: video.aid, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false })), keywordSuggestions: [] }))
+      .mockImplementationOnce(async (request) => ({ kind: 'favorite-archive-organize' as const, results: request.videos.map((video: { aid: number }) => ({ aid: video.aid, targetLedgerIds: ['music'], keepOriginal: false, reason: 'retry', lowConfidence: false })), keywordSuggestions: [] }))
+    const service = new OldFavoriteWorkspaceDeepSeekService({
+      coordinator: coordinator as never,
+      preferences: () => ({ deepseekArchiveOrganizationEnabled: true, favoriteArchiveMultiMode: 'off' as const, favoriteLedgers: [{ id: 'music', displayName: 'Music', keywords: [], enabled: true }] }),
+      generate
+    })
+
+    await expect(service.organizeCurrentSegment('100')).resolves.toMatchObject({ progress: { successfulVideoCount: 8, failedVideoCount: 0 } })
+    expect(generate.mock.calls.map(([request]) => request.videos.length)).toEqual([8, 4])
   })
 
   it('publishes authoritative chunk progress while a large current segment is being organized', async () => {
@@ -309,9 +330,10 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
 
     await service.organizeCurrentSegment('100', 'all', progress)
 
-    expect(progress).toHaveBeenNthCalledWith(1, { totalChunks: 2, completedChunks: 0, totalVideoCount: 21, successfulVideoCount: 0, failedVideoCount: 0 })
-    expect(progress).toHaveBeenNthCalledWith(2, { totalChunks: 2, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 20, failedVideoCount: 0 })
-    expect(progress).toHaveBeenNthCalledWith(3, { totalChunks: 2, completedChunks: 2, totalVideoCount: 21, successfulVideoCount: 21, failedVideoCount: 0 })
+    expect(progress).toHaveBeenNthCalledWith(1, { totalChunks: 3, completedChunks: 0, totalVideoCount: 21, successfulVideoCount: 0, failedVideoCount: 0 })
+    expect(progress).toHaveBeenNthCalledWith(2, { totalChunks: 3, completedChunks: 1, totalVideoCount: 21, successfulVideoCount: 8, failedVideoCount: 0 })
+    expect(progress).toHaveBeenNthCalledWith(3, { totalChunks: 3, completedChunks: 2, totalVideoCount: 21, successfulVideoCount: 16, failedVideoCount: 0 })
+    expect(progress).toHaveBeenNthCalledWith(4, { totalChunks: 3, completedChunks: 3, totalVideoCount: 21, successfulVideoCount: 21, failedVideoCount: 0 })
   })
 
   it('keeps successful chunks and reports a failed chunk without discarding the whole segment', async () => {
@@ -331,6 +353,11 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
         keywordSuggestions: []
       }))
       .mockRejectedValueOnce(new Error('DeepSeek API request failed: 429 Too Many Requests'))
+      .mockImplementationOnce(async (request) => ({
+        kind: 'favorite-archive-organize' as const,
+        results: request.videos.map((video: { aid: number }) => ({ aid: video.aid, targetLedgerIds: ['music'], keepOriginal: false, reason: 'ok', lowConfidence: false })),
+        keywordSuggestions: []
+      }))
     const service = new OldFavoriteWorkspaceDeepSeekService({
       coordinator: coordinator as never,
       preferences: () => ({
@@ -344,11 +371,14 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
     const result = await service.organizeCurrentSegment('100')
 
     expect(coordinator.applyDeepSeekClassificationBatch).toHaveBeenCalledWith('100',
-      Array.from({ length: 20 }, (_, index) => ({ aid: index + 1, targetLedgerIds: ['music'] })), expect.any(Object))
+      [
+        ...Array.from({ length: 8 }, (_, index) => ({ aid: index + 1, targetLedgerIds: ['music'] })),
+        ...Array.from({ length: 5 }, (_, index) => ({ aid: index + 17, targetLedgerIds: ['music'] }))
+      ], expect.any(Object))
     expect(result).toMatchObject({
       snapshot: { accountMid: '100', status: 'previewing' },
-      progress: { totalChunks: 2, completedChunks: 2, successfulVideoCount: 20, failedVideoCount: 1 },
-      failures: [{ chunkIndex: 2, aids: [21], affectedVideoCount: 1, message: 'DeepSeek API request failed: 429 Too Many Requests' }]
+      progress: { totalChunks: 3, completedChunks: 3, successfulVideoCount: 13, failedVideoCount: 8 },
+      failures: [{ chunkIndex: 2, aids: Array.from({ length: 8 }, (_, index) => index + 9), affectedVideoCount: 8, message: 'DeepSeek API request failed: 429 Too Many Requests' }]
     })
   })
 
@@ -410,7 +440,7 @@ describe('OldFavoriteWorkspaceDeepSeekService', () => {
     const progress = vi.fn()
     await service.retryFailedChunks('100', progress)
 
-    expect(generate.mock.calls[2]![0].videos.map((video: { aid: number }) => video.aid)).toEqual([21])
-    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ totalVideoCount: 1, completedChunks: 1 }))
+    expect(generate.mock.calls[3]![0].videos.map((video: { aid: number }) => video.aid)).toEqual(Array.from({ length: 8 }, (_, index) => index + 9))
+    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ totalVideoCount: 8, completedChunks: 1 }))
   })
 })

@@ -24,7 +24,7 @@ type DeepSeekMessage = {
 
 type DeepSeekChoiceResponse = {
   model?: string
-  choices?: Array<{ message?: { content?: string } }>
+  choices?: Array<{ finish_reason?: string; message?: { content?: string } }>
 }
 
 const REVIEW_COMMENT_CHARACTER_LIMIT = 100
@@ -601,7 +601,8 @@ function buildMessages(request: DeepSeekGenerateRequest): DeepSeekMessage[] {
 
 function parseResult(
   request: DeepSeekGenerateRequest,
-  content: string
+  content: string,
+  finishReason?: string
 ): DeepSeekGenerateResult {
   if (request.kind === 'review-comment') {
     const parsed = parseJsonContent(content) as { comments?: unknown }
@@ -673,9 +674,14 @@ function parseResult(
   }
 
   if (request.kind === 'favorite-archive-organize') {
-    const parsed = parseJsonContent(content) as {
-      results?: unknown
-      keywordSuggestions?: unknown
+    let parsed: { results?: unknown; keywordSuggestions?: unknown }
+    try {
+      parsed = parseJsonContent(content) as { results?: unknown; keywordSuggestions?: unknown }
+    } catch (error) {
+      if (error instanceof DeepSeekServiceError && finishReason === 'length') {
+        throw new DeepSeekServiceError('invalid-output', `${error.message} (finish_reason: length)`)
+      }
+      throw error
     }
 
     if (!Array.isArray(parsed.results)) {
@@ -706,7 +712,7 @@ export async function generateDeepSeekResult(options: {
   request: DeepSeekGenerateRequest
   fetchImpl?: typeof fetch
   signal?: AbortSignal
-  onResponseMetadata?: (metadata: { model?: string }) => void
+  onResponseMetadata?: (metadata: { model?: string; finishReason?: string }) => void
 }): Promise<DeepSeekGenerateResult> {
   const apiKey = options.config.apiKey.trim()
   if (!options.config.enabled || !apiKey) {
@@ -758,7 +764,10 @@ export async function generateDeepSeekResult(options: {
   }
 
   options.onResponseMetadata?.({
-    model: typeof payload.model === 'string' && payload.model.trim() ? payload.model.trim() : undefined
+    model: typeof payload.model === 'string' && payload.model.trim() ? payload.model.trim() : undefined,
+    finishReason: typeof payload.choices?.[0]?.finish_reason === 'string' && payload.choices[0].finish_reason.trim()
+      ? payload.choices[0].finish_reason.trim()
+      : undefined
   })
 
   const content = payload.choices?.[0]?.message?.content
@@ -766,5 +775,5 @@ export async function generateDeepSeekResult(options: {
     throw new DeepSeekServiceError('invalid-output', 'DeepSeek response did not include content.')
   }
 
-  return parseResult(options.request, content)
+  return parseResult(options.request, content, payload.choices?.[0]?.finish_reason)
 }

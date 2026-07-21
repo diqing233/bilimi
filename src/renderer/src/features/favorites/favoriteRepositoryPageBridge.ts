@@ -26,6 +26,8 @@ type ExecuteJavaScript = (script: string, userGesture?: boolean) => Promise<unkn
 
 type PageBridgeAction = 'append' | 'remove' | 'read-members' | 'read-folder-inventory' | 'create-folder'
 
+export const FAVORITE_REPOSITORY_REQUEST_TIMEOUT_MS = 15_000
+
 const validStatuses = new Set<FavoriteRepositoryPageBridgeResult['status']>(['ok', 'rejected', 'unknown'])
 
 function isPositiveAid(value: unknown): value is number {
@@ -121,15 +123,23 @@ function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridg
         };
         const observedAccountMid = normalizeMid(readCookie('DedeUserID'));
         const reject = (reason) => ({ status: 'rejected', observedAccountMid, reason });
+        const fetchWithTimeout = async (url, options) => {
+          const controller = new AbortController();
+          let timedOut = false;
+          const timer = setTimeout(() => { timedOut = true; controller.abort(); }, ${FAVORITE_REPOSITORY_REQUEST_TIMEOUT_MS});
+          try { return await fetch(url, { ...options, signal: controller.signal }); }
+          catch (error) { if (timedOut) throw new Error('remote-timeout'); throw error; }
+          finally { clearTimeout(timer); }
+        };
         if (!observedAccountMid || observedAccountMid !== normalizeMid(input.accountMid)) return { status: 'unknown', observedAccountMid, reason: 'account-mismatch' };
         if (!String(input.operationKey || '').trim() || !Number.isSafeInteger(input.aid) || input.aid <= 0 || !Array.isArray(input.folderIds) || input.folderIds.length === 0 || input.folderIds.some((id) => !String(id || '').trim())) return reject('invalid-operation');
         const members = {};
         for (const folderId of [...new Set(input.folderIds.map((id) => String(id).trim()))]) {
           let response;
           try {
-            response = await fetch('https://api.bilibili.com/x/v3/fav/resource/ids?media_id=' + encodeURIComponent(folderId), { credentials: 'include' });
-          } catch {
-            return { status: 'unknown', observedAccountMid, reason: 'network-failure' };
+            response = await fetchWithTimeout('https://api.bilibili.com/x/v3/fav/resource/ids?media_id=' + encodeURIComponent(folderId), { credentials: 'include' });
+          } catch (error) {
+            return { status: 'unknown', observedAccountMid, reason: error?.message === 'remote-timeout' ? 'remote-timeout' : 'network-failure' };
           }
           let json;
           try {
@@ -168,6 +178,14 @@ function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridg
       };
       const observedAccountMid = normalizeMid(readCookie('DedeUserID'));
       const reject = (reason) => ({ status: 'rejected', observedAccountMid, reason });
+      const fetchWithTimeout = async (url, options) => {
+        const controller = new AbortController();
+        let timedOut = false;
+        const timer = setTimeout(() => { timedOut = true; controller.abort(); }, ${FAVORITE_REPOSITORY_REQUEST_TIMEOUT_MS});
+        try { return await fetch(url, { ...options, signal: controller.signal }); }
+        catch (error) { if (timedOut) throw new Error('remote-timeout'); throw error; }
+        finally { clearTimeout(timer); }
+      };
       if (!observedAccountMid || observedAccountMid !== normalizeMid(input.accountMid)) return { status: 'unknown', observedAccountMid, reason: 'account-mismatch' };
       if (!String(input.operationKey || '').trim() || !Number.isSafeInteger(input.aid) || input.aid <= 0 || !Array.isArray(input.folderIds) || input.folderIds.length === 0 || input.folderIds.some((id) => !String(id || '').trim())) return reject('invalid-operation');
       const csrf = readCookie('bili_jct');
@@ -180,14 +198,14 @@ function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridg
       body.set('platform', 'web');
       let response;
       try {
-        response = await fetch('https://api.bilibili.com/x/v3/fav/resource/deal', {
+        response = await fetchWithTimeout('https://api.bilibili.com/x/v3/fav/resource/deal', {
           method: 'POST',
           credentials: 'include',
           headers: { 'content-type': 'application/x-www-form-urlencoded;charset=UTF-8' },
           body
         });
-      } catch {
-        return { status: 'unknown', observedAccountMid, reason: 'network-failure' };
+      } catch (error) {
+        return { status: 'unknown', observedAccountMid, reason: error?.message === 'remote-timeout' ? 'remote-timeout' : 'network-failure' };
       }
       let json;
       try {
@@ -205,16 +223,23 @@ function pageScript(action: PageBridgeAction, input: FavoriteRepositoryPageBridg
   `
 }
 
-export function createFavoriteRepositoryPageBridge(options: { executeJavaScript: ExecuteJavaScript }) {
+export function createFavoriteRepositoryPageBridge(options: { executeJavaScript: ExecuteJavaScript; timeoutMs?: number }) {
   const run = async (action: PageBridgeAction, input: FavoriteRepositoryPageBridgeInput | FavoriteRepositoryFolderInventoryInput | FavoriteRepositoryFolderCreateInput): Promise<FavoriteRepositoryPageBridgeReadResult> => {
     try {
-      const result = await options.executeJavaScript(pageScript(action, input), true)
+      const execution = options.executeJavaScript(pageScript(action, input), true)
+      const result = await new Promise<unknown>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('page-execution-timeout')), options.timeoutMs ?? FAVORITE_REPOSITORY_REQUEST_TIMEOUT_MS)
+        execution.then((value) => { clearTimeout(timer); resolve(value) }, (error) => { clearTimeout(timer); reject(error) })
+      })
       if (!isPageResult(result, action)) {
         return { status: 'unknown', observedAccountMid: '', reason: 'invalid-page-result' }
       }
       return result
-    } catch {
-      return { status: 'unknown', observedAccountMid: '', reason: 'page-execution-failed' }
+    } catch (error) {
+      return {
+        status: 'unknown', observedAccountMid: '',
+        reason: error instanceof Error && error.message === 'page-execution-timeout' ? 'page-execution-timeout' : 'page-execution-failed'
+      }
     }
   }
 

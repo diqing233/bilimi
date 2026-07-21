@@ -21,6 +21,9 @@ function deepSeekFailureMessage(error: unknown) {
 
 function executionFailureMessage(error: unknown) {
   const detail = error instanceof Error ? error.message : ''
+  if (/remote-timeout|page-execution-timeout/i.test(detail)) {
+    return 'B 站结果暂时无法确认，请检查已登录页面和网络后重试；系统不会重复提交未确认的操作。'
+  }
   if (/remote folder inventory is unavailable|page bridge is unavailable/i.test(detail)) {
     return '无法读取 B 站收藏夹列表，请保持已登录的 B 站页面打开后重试。'
   }

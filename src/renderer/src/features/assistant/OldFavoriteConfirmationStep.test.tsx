@@ -72,6 +72,26 @@ describe('OldFavoriteConfirmationStep', () => {
     expect(reconcile).toHaveBeenCalledOnce()
   })
 
+  it('shows reconciliation progress and restores an actionable retry after a failed check', () => {
+    const snapshot = {
+      version: 1, accountMid: '100', workspaceId: 'workspace-100', status: 'reconciling' as const, mode: 'incremental' as const,
+      segmentSize: 2000, hasMultipleSegments: false, scan: { phase: 'complete' as const, failureCount: 0 }, continuationCount: 0,
+      sourceFolders: [], segments: [], currentSegment: null, classifications: {}, recommendations: { candidates: [], adoptedCandidateIds: [] },
+      history: { cursor: 0, length: 0 }
+    }
+    const { rerender } = render(<OldFavoriteConfirmationStep snapshot={snapshot} loading={true}
+      onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()} />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('正在对账 B 站结果')
+    expect(screen.getByRole('button', { name: '对账 B 站结果' })).toBeDisabled()
+
+    rerender(<OldFavoriteConfirmationStep snapshot={snapshot} loading={false} executionError="B 站结果暂时无法确认，请检查页面后重试。"
+      onSaveLocally={vi.fn()} onConfirmAndSync={vi.fn()} onExecuteFrozenPlan={vi.fn()} onReconcile={vi.fn()} />)
+
+    expect(screen.getByRole('alert')).toHaveTextContent('B 站结果暂时无法确认')
+    expect(screen.getByRole('button', { name: '对账 B 站结果' })).toBeEnabled()
+  })
+
   it('keeps a main-process confirmation failure visible beneath the actions', () => {
     render(<OldFavoriteConfirmationStep
       snapshot={{
