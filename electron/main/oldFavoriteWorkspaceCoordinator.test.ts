@@ -100,8 +100,35 @@ describe('OldFavoriteWorkspaceCoordinator', () => {
 
     await expect(coordinator.getSnapshot('100')).resolves.toMatchObject({
       tagEnrichment: { status: 'complete', completedItemCount: 2, pendingItemCount: 0 },
+      scan: { scannedItemCount: 2, taggedItemCount: 2, untaggedItemCount: 0 },
       recommendations: { candidates: expect.arrayContaining([expect.objectContaining({ kind: 'tag', displayName: 'bilimi·音乐' })]) }
     })
+  })
+
+  it('waits for adopted tags before classifying an initially untagged scan item', async () => {
+    const root = await createRoot()
+    const repository = new FavoriteRepositoryService({ root, now: () => '2026-07-20T00:00:00.000Z' })
+    const classifyCurrentItem = vi.fn().mockReturnValue({ targetLedgerIds: ['knowledge'], confidence: 'high' as const })
+    const coordinator = createCoordinator(repository, new OldFavoriteWorkspaceStore({ root }), { classifyCurrentItem })
+    await coordinator.open('100')
+    await coordinator.beginScan('100', 'full')
+    await coordinator.recordScanInventory('100', {
+      sourceFolders: [{ id: 'source', title: 'Source', itemCount: 1, isBilimiWorkFolder: false }]
+    })
+    await coordinator.recordScanPage('100', {
+      folderId: 'source', page: 1,
+      items: [{ aid: 1, title: 'Untitled', category: '科技', sourceFolderIds: ['source'] }]
+    })
+    await coordinator.finishScan('100')
+    expect(classifyCurrentItem).not.toHaveBeenCalled()
+
+    const workspaceId = (await coordinator.getSnapshot('100') as { workspaceId: string }).workspaceId
+    await coordinator.recordTagEnrichment('100', 1, ['TypeScript'], workspaceId)
+    await coordinator.acceptCurrentTags('100')
+
+    expect(classifyCurrentItem).toHaveBeenCalledWith(expect.objectContaining({
+      aid: 1, category: '科技', tags: ['TypeScript']
+    }))
   })
 
   it('rejects a stale tag-enrichment result after full reorganization creates a new workspace', async () => {

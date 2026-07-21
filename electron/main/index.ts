@@ -1277,7 +1277,12 @@ if (singleInstanceGuard) app.whenReady().then(async () => {
         recommendedLedgers
       )
       return items.map((item) => {
-        const result = classifyVideoContent({ title: item.title, author: item.author }, ledgers)
+        const result = classifyVideoContent({
+          title: item.title,
+          author: item.author,
+          tags: item.tags,
+          category: item.category
+        }, ledgers)
         if (result.ledgerId === 'inbox') return { targetLedgerIds: [], confidence: 'low' as const }
         return {
           targetLedgerIds: [result.ledgerId],

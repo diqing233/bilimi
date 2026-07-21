@@ -670,7 +670,8 @@ export class OldFavoriteWorkspaceCoordinator {
       // Current bridge pages always carry this classification metadata; older
       // recovered staging files do not, so preserve their explicit re-run flow.
       const hasClassificationSignals = [...itemsByAid.values()].some((item) => item.tags !== undefined || item.category !== undefined)
-      return (this.options.classifyCurrentItem || this.options.classifyCurrentItems) && hasClassificationSignals
+      return (this.options.classifyCurrentItem || this.options.classifyCurrentItems) && hasClassificationSignals &&
+        tagEnrichment.pendingAids.length === 0
         ? this.autoClassifyCurrentSegmentUnsafe(completed, true)
         : clone(completed)
     })
@@ -1153,8 +1154,13 @@ export class OldFavoriteWorkspaceCoordinator {
   async acceptCurrentTags(accountMid: string) {
     return this.queue(async () => {
       const workspace = await this.requireWorkspace(accountMid)
-      const changed = await this.setTagEnrichmentStatus(workspace.accountMid, 'accepted')
-      if (changed) await this.refreshRecommendationsAfterTagEnrichment(workspace)
+      const enrichment = this.tagEnrichments.get(workspace.accountMid)
+      if (!enrichment) return
+      if (enrichment.status !== 'complete') await this.setTagEnrichmentStatus(workspace.accountMid, 'accepted')
+      await this.refreshRecommendationsAfterTagEnrichment(workspace)
+      if (this.options.classifyCurrentItem || this.options.classifyCurrentItems) {
+        await this.autoClassifyCurrentSegmentUnsafe(workspace, true)
+      }
     })
   }
 
@@ -1173,6 +1179,19 @@ export class OldFavoriteWorkspaceCoordinator {
       const enrichment = this.tagEnrichments.get(workspace.accountMid)
       if (!enrichment || enrichment.status !== 'running' || !enrichment.pendingAids.includes(aid)) return false
       const normalizedTags = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))].slice(0, 32)
+      const overview = this.scanOverviews.get(workspace.accountMid)
+      const priorTags = this.currentSegmentItems.get(workspace.accountMid)
+        ?.find((item) => item.aid === aid)?.tags ?? []
+      const scan = overview
+        ? {
+            ...overview.scan,
+            taggedItemCount: Math.max(0, (overview.scan.taggedItemCount ?? 0) +
+              (normalizedTags.length > 0 && priorTags.length === 0 ? 1 : 0)),
+            untaggedItemCount: Math.max(0, (overview.scan.scannedItemCount ?? 0) -
+              Math.max(0, (overview.scan.taggedItemCount ?? 0) +
+                (normalizedTags.length > 0 && priorTags.length === 0 ? 1 : 0)))
+          }
+        : undefined
       const pendingAids = enrichment.pendingAids.filter((candidate) => candidate !== aid)
       const next: TagEnrichment = {
         ...enrichment,
@@ -1181,13 +1200,15 @@ export class OldFavoriteWorkspaceCoordinator {
       }
       await this.options.workspaceStore.appendOverlay(workspace.accountMid, workspace.id, {
         currentSegmentId: this.currentSegment(workspace), classifications: [], history: [],
-        tagUpdates: [{ aid, tags: normalizedTags }], tagEnrichment: clone(next)
+        tagUpdates: [{ aid, tags: normalizedTags }], tagEnrichment: clone(next),
+        ...(scan ? { scanMetadata: { ...(overview?.sourceFolders ? { sourceFolders: overview.sourceFolders } : {}), ...scan } } : {})
       })
       const currentItems = this.currentSegmentItems.get(workspace.accountMid)
       if (currentItems) {
         this.currentSegmentItems.set(workspace.accountMid, currentItems.map((item) => item.aid === aid ? { ...item, tags: normalizedTags } : item))
       }
       this.tagEnrichments.set(workspace.accountMid, next)
+      if (overview && scan) this.scanOverviews.set(workspace.accountMid, { ...overview, scan })
       if (!pendingAids.length) await this.refreshRecommendationsAfterTagEnrichment(workspace)
       return true
     })
